@@ -151,6 +151,24 @@ this reader sets no denomination at all and the schema default stands, which
 means the payload records it as a default rather than as a reading — the truth
 about it. The family is named as a future mover if the platform ever proves the
 institution behind these mastheads.
+
+The direction TOTALS are sums this reader computes, and the counts with them
+--------------------------------------------------------------------------
+`stated_total_credits` and `stated_total_debits` are sums over the partition's
+per-category printed figures. This platform prints no direction total anywhere,
+so they are AGGREGATES rather than printings — every summand is a figure the
+document prints, nothing is written, substituted or repaired, but no line of
+the statement says either number. `analysis/metrics.py` consumes them as
+`effective_total_deposits` / `effective_total_withdrawals`.
+
+They carry the same tautology as the counts (W3 §GL9.4, which is why this
+registration is deliberately not promoted into `count_semantics`): the reader
+gates each direction's ROWS against the same categories it sums the totals
+from, so a reconciler comparison of either compares this reader against itself.
+Measured on the five documents this reader publishes, the provenance stamped on
+both directions is `bank_stated_reconciled` — and that label's reconciliation
+IS the tautology, since the summary it reconciles against is the one the rows
+were gated on.
 """
 from __future__ import annotations
 

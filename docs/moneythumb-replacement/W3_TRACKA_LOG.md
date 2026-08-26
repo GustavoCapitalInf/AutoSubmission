@@ -44186,6 +44186,32 @@ than moving an outcome class.
    already emits nothing. Promoting it would move `OBSERVER_VERSION` for no
    information.
 
+   **The direction TOTALS carry the same tautology, and it is named here rather
+   than left to be found** (review finding 6, closed; no code change).
+   `stated_total_credits` and `stated_total_debits` are sums this reader
+   computes over the partition's per-category printed figures — this platform
+   prints no direction total anywhere, so both are aggregates rather than
+   printings. Every summand is a figure the document prints, nothing is written
+   or substituted (the repair doctrine is not in question), but no line of the
+   statement states either number, and `analysis/metrics.py` consumes them as
+   `effective_total_deposits` / `effective_total_withdrawals`. The tautology is
+   the counts' one exactly: the rows are gated against the same categories the
+   totals are summed from, so a reconciler comparison of either compares this
+   reader against itself.
+
+   One correction to the review's own evidence, measured rather than inherited:
+   the provenance stamped is **`bank_stated_reconciled`** in both directions on
+   all five published documents — not `bank_stated_unverified` as finding 6
+   records. Measured by `tools/glance_family_replay.py`
+   (`provenance_of_the_direction_totals`: 19 of 19 published documents of the
+   22, both directions, `bank_stated_reconciled`) and corroborated in-process
+   on both invented fixtures. That is the sharper form of the same finding
+   rather than a rebuttal of it: `bank_stated_reconciled` is stamped when
+   `trust_stated_summary` is True, which for this reader is guaranteed by
+   construction, because the summary the metrics layer reconciles the stated
+   totals against is the summary the reader already gated its rows on. The
+   label is honest about what it did and silent about what it could not do.
+
 5. **The census's ceiling was 6 of 8 and the honest answer is 5.** The census
    priced the three 1STMERC documents as "contingent on how the harness treats
    COLLECTED BALANCE SUMMARY" and expected roughly one of them to survive. The
