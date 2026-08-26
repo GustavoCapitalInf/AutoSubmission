@@ -43725,7 +43725,7 @@ output moves on 48 archive documents, so the bump is Ocean's to compose.
 | Result | **48 of 58 publish** — **46 `validated/approved`**, 1 `review/integrity_flags`, 1 `withheld/withheld_adb` — measured by replaying the run of record through the real pipeline. 6 decline at the ledger, 4 are never claimed |
 | Movement outside the family | the 13 claimed outsiders **all decline at parse** — the reader publishes nothing on any of them |
 | Supersedes | `burke_herbert`, `farmers_merchants` and `linkbank` each supersede the new registration, exactly as `first_farmers` supersedes `core_processor_sectioned` and `b1` supersedes `core_processor_daily` |
-| Mutation | **32 mutants applied as documented, 32 killed, 0 survived** |
+| Mutation | the committed harness `tools/coreenc_mutation_table.py`, **40 mutants**, no `-x`, restored and byte-compared — the per-mutant table is C12.1 and the final-tree run is C19. (The "32 applied, 32 killed, 0 survived" this row first carried is WITHDRAWN as unverifiable: see C12) |
 | Privacy | the standing scan over 32,167 archive literals against the whole branch diff |
 | Registry | 75 → 76; conformance cross-product 76 × 75 |
 
@@ -43996,9 +43996,14 @@ reader cannot read rather than gaps in it:
 
 `tables.dated_cells` returns None on both and the document is declined whole.
 Dropping the row instead is exactly how a ledger comes to disagree with a
-printed total while still looking complete — and two mutants (M31, M32) pin
-that the reader declines rather than drops even when dropping would leave both
-printed counts intact.
+printed total while still looking complete — and two mutants pin that the
+reader declines rather than drops even when dropping would leave both printed
+counts intact. **Corrected at closure:** this sentence named them "M31, M32"
+against a table that was never written; they are `M21` (the unreadable run) and
+`M23` (the row outside the printed period) in the committed table at C12.1,
+killed by `test_an_unreadable_row_declines_the_document_even_when_its_run_is_droppable`
+and `test_a_row_outside_the_period_declines_even_when_dropping_it_would_reconcile`
+respectively.
 
 ## C9. Descriptions — 849 of 5,872 published rows carry a block label
 
@@ -44061,18 +44066,109 @@ evidence this card has for any of the three edges.
 
 ## C12. The mutation table
 
-32 mutants, each applied by an exact string replacement that had to match
-exactly once (a mutant that did not apply as documented would be reported
-NOT-APPLIED rather than scored), run WITHOUT `-x` so every killer is named, on
-a clean tree, restored with `git checkout --` and byte-compared after each
-restore. Harness: the private scratchpad's `mutate.py`; log:
-`mutation3.log`. **32 applied, 32 killed, 0 survived.**
+**Corrected at closure.** This section published totals — "32 mutants … 32
+applied, 32 killed, 0 survived" — and no table, produced by a harness
+(`mutate.py`) and a log (`mutation3.log`) that were never committed. The claim
+was therefore not checkable by review, and the two mutants C8 names ("M31,
+M32") appeared nowhere. **The original 32/32 is WITHDRAWN as unverifiable
+rather than restated**: nothing in the record identifies which 32 mutants they
+were, so this closure could not reconstruct them and does not pretend to have.
+The sentence that followed it — that a first run killed 21 of 32 and eleven
+survivors were closed by moving the four count/total tests onto documents that
+print no grid — is left standing as the cell's account of its own history and
+is likewise unverifiable; what IS verifiable is that those four gates are each
+killed today by their own named test (M27–M30 below).
 
-The first run killed 21 of 32. Every one of the eleven survivors was a real gap
-and every one is closed rather than argued away — the four count/total gates
-were masked by the daily grid, because a wrong count also moves a walked
-balance, so those tests now stand on documents that print no grid where the
-gate under test is the only one that can see the defect.
+The harness is now committed as `tools/coreenc_mutation_table.py` and the
+per-mutant table is C12.1. 40 mutants, each an exact string replacement that
+must match the target **exactly once** — a mutant whose anchor is missing or
+matches twice is reported NOT-APPLIED and fails the run rather than being
+scored, which is the batch-7 lesson that a mutant not applied as documented
+pins nothing. The harness refuses to start on a dirty tree, writes and restores
+the target as BYTES (a text round-trip on this CRLF checkout would itself be a
+modification), runs the branch's own five test files WITHOUT `-x` so every
+killer is named, and byte-compares the restore.
+
+**A survivor is disclosed with its reason, never dropped.** A mutant the cell
+states as unpinned by design carries that reason in the harness beside the
+mutant; the run exits 0 only when every mutant applied and every mutant WITHOUT
+a disclosed reason was killed. An undisclosed survivor is a red run.
+
+### C12.1 The per-mutant table
+
+`python -m tools.coreenc_mutation_table --table`, run at the tree of this
+closure:
+
+| | |
+|---|---|
+| mutants selected / applied | 40 / 40, none NOT-APPLIED |
+| **killed** | **30** |
+| survived, DISCLOSED | 3 (M10, M22, M24) |
+| survived, UNDISCLOSED | **7** (M09, M20, M32, M33, M34, M38, M39) |
+| restore | `analysis/core_processor_enclosures.py` byte-identical; tracked changes after the run: none |
+| exit | `EXIT=1` — the harness's own red code for an undisclosed survivor |
+| wall | ~4 min (40 × the five-file set at ~5.8 s) |
+
+The seven undisclosed survivors are the review's finding 3 (**M38**, **M39** —
+the two live grid checks) and finding 4 (**M09**, **M20**, **M32**, **M33**,
+and **M34**, which the review's own 29-mutant reconstruction did not reach).
+They are closed in `COREENC CLOSURE 3` and `COREENC CLOSURE 4`, and the rows
+below carry the tests that kill them.
+
+Every mutant is in `analysis/core_processor_enclosures.py`; the line is where
+its anchor opens, and the harness prints it rather than this log asserting it.
+
+| id | line | what the mutant changes | the gate it targets | killed by |
+|---|---|---|---|---|
+| M01 | `:296` | the ledger-average cell demoted from required to corroborating | the second required marker | `test_the_period_sentence_alone_is_not_a_claim`, `test_a_three_count_summary_of_the_same_processor_is_not_this_template`, `test_the_registration_carries_two_required_markers` (+1 more) |
+| M02 | `:274` | the registration keyed on `AVERAGE LEDGER` alone instead of on the credit-count row welded to it | the pairing, not the phrase | `test_a_three_count_summary_of_the_same_processor_is_not_this_template` |
+| M03 | `:291` | the upper-casing dropped, so a title-case printing no longer detects | the registration's own normalization | `test_the_template_is_recognised_by_its_own_two_column_summary_block` (+21 more) |
+| M04 | `:390` | the strip runs to the end of the line, so the year-to-date interest printed after the closing balance is read as the period's own | the strip cut at the closing balance | `test_the_year_to_date_interest_printed_after_the_closing_balance_is_not_read` |
+| M05 | `:444` | `unique_match` relaxed to first-match on the previous balance | a figure printed twice has no rule that says which to believe | `test_a_strip_that_prints_a_figure_twice_with_two_readings_is_refused` |
+| M06 | `:451` | a strip with a hole in it is admitted: only the period is required | the strip is read all-or-nothing | `test_a_strip_that_prints_a_figure_twice_with_two_readings_is_refused` |
+| M07 | `:235` | the sign column ignored, so an overdrawn figure publishes positive | the strip's right-aligned sign column | `test_an_overdrawn_figure_is_read_from_the_strip_s_right_aligned_sign_column` |
+| M08 | `:409` | the repetition check removed, so the layer's four-times-over painting publishes as the account name | a repeated product name is no name | `test_a_repeated_product_name_publishes_no_name_rather_than_the_repetition` |
+| M09 | `:350` | `_PRODUCT_NAME_LIMIT` raised a hundredfold, so a page of welded furniture can land in the product slot | the product-name bound | **SURVIVES — UNDISCLOSED** (review finding 4; closed in CLOSURE 4) |
+| M10 | `:854` | `end < start` no longer refuses a period printed backwards | the reversed-period guard | **SURVIVES — disclosed, defence-in-depth**: a reversed period refuses again one step later, because `iso_within_period` places no row inside it, so no input distinguishes the two trees |
+| M11 | `:613` | the `charge` role given a reading, so the itemized fees post a second time beside the ledger's own `Total Service Charge` | the fee-detail block publishes no rows | `test_the_fee_detail_block_is_not_published_as_rows` |
+| M12 | `:526` | the appendix banner removed from the split, so the grid's run swallows the restated `Date:` / `Amount:` pairs | the image appendix is a boundary, never a block | `test_the_image_appendix_is_a_boundary_and_never_a_row_or_a_grid_cell` |
+| M13 | `:715` | the running-balance test dropped, so the SUMMARY blocks are ALWAYS read and the eight restating members double their ledger | a SUMMARY block restates the ledger when the ledger prints a balance | `test_a_summary_block_restates_the_ledger_when_the_ledger_prints_a_balance` |
+| M14 | `:715` | the running-balance test dropped the other way, so the SUMMARY blocks are NEVER read and the four cheque-only members lose their debit side | …and is the cheque side when the ledger prints none | `test_a_summary_block_is_the_cheque_side_when_the_ledger_prints_no_balance` |
+| M15 | `:665` | the serial branch removed, so the collapsed grid publishes the attributed span instead of the cheque's own number | a cheque grid's leading cell is a serial, not a description | `test_the_direction_is_the_block_the_bank_printed_the_row_in` |
+| M16 | `:194` | `_ROW_DATE` widened to two digit runs, so a reference-number tail opens a cell no figure closes | a row date is a CALENDAR RANGE, not a digit run | `test_a_date_shaped_token_that_is_not_a_calendar_day_is_not_a_row_date` |
+| M17 | `:213` | the leading-minus half of the ledger token dropped, so the issue that prints `date -amount description` loses every row | the ledger figure carries its sign on EITHER side | `test_the_issue_that_prints_the_amount_before_the_description_is_read` |
+| M18 | `:673` | the direction read from the sign of the amount on every block | the direction is the block, never the sign | `test_the_direction_is_the_block_the_bank_printed_the_row_in`, `test_a_summary_block_is_the_cheque_side_when_the_ledger_prints_no_balance` |
+| M19 | `:688` | `-See above-` rows left in the run, so the cheque either posts twice or opens a cell nothing closes | the cross-reference row is a pointer, not a posting | `test_a_cheque_the_grid_cross_references_instead_of_pricing_is_not_a_row` |
+| M20 | `:601` | `_DESCRIPTION_LIMIT` raised a hundredfold, so an unbounded span publishes as one row's description | the description bound | **SURVIVES — UNDISCLOSED** (review finding 4; closed in CLOSURE 4) |
+| M21 | `:650` | the unreadable RUN dropped instead of declining the document | decline rather than drop — C8's `M31` | `test_the_cross_reference_rule_skips_only_the_platform_s_own_pointer`, `test_an_unreadable_row_declines_the_document_even_when_its_run_is_droppable` |
+| M22 | `:662` | the unreadable AMOUNT dropped instead of declining the document | decline rather than drop | **SURVIVES — disclosed, equivalent in practice**: every token `_LEDGER_FIGURE_RE` captures parses, on both sign placements and the bare-cents form, so no input reaches the branch. Kept as a fail-closed statement rather than removed |
+| M23 | `:864` | the row dated outside the printed period dropped instead, even where dropping it would reconcile | decline rather than drop — C8's `M32` | `test_a_row_outside_the_period_declines_even_when_dropping_it_would_reconcile` |
+| M24 | `:859` | `if not postings` weakened to `if postings is None`, so an empty ledger reaches the gates | an empty ledger publishes nothing | **SURVIVES — disclosed, defence-in-depth**: the count gates refuse the empty ledger one step later, so no input distinguishes the two trees |
+| M25 | `:776` | the identity check removed | the summary's own identity | `test_a_summary_whose_own_identity_does_not_close_is_refused` |
+| M26 | `:774` | the service charge dropped out of the identity | …and the charge standing OUTSIDE both direction totals | `test_the_service_charge_and_the_interest_are_outside_both_direction_totals`, `test_the_fee_detail_block_is_not_published_as_rows` |
+| M27 | `:783` | the count dropped from the credit gate, leaving the total alone | the printed CREDIT COUNT | `test_a_captured_credit_count_that_disagrees_with_the_printed_one_is_refused` |
+| M28 | `:783` | the total dropped from the credit gate, leaving the count alone | the printed CREDIT TOTAL | `test_a_captured_credit_total_that_disagrees_with_the_printed_one_is_refused` |
+| M29 | `:789` | the count dropped from the debit gate, leaving the total alone | the printed DEBIT COUNT | `test_a_captured_debit_count_that_disagrees_with_the_printed_one_is_refused` |
+| M30 | `:789` | the total dropped from the debit gate, leaving the count alone | the printed DEBIT TOTAL | `test_a_captured_debit_total_that_disagrees_with_the_printed_one_is_refused` |
+| M31 | `:785` | the money bound removed, so ANY single extra credit row is admitted whenever the bank credited any interest at all | the interest allowance is bounded to the printed figure | `test_an_interest_posting_is_admitted_only_for_the_figure_the_bank_printed` |
+| M32 | `:785` | the count bound removed from the credit allowance, so a ledger with FEWER credit rows than the bank printed is admitted | …and to exactly ONE extra row | **SURVIVES — UNDISCLOSED** (review finding 4; closed in CLOSURE 4) |
+| M33 | `:791` | the count bound removed from the debit allowance | the fee allowance admits only MORE rows, never fewer | **SURVIVES — UNDISCLOSED** (review finding 4; closed in CLOSURE 4) |
+| M34 | `:791` | the money bound removed from the debit allowance, so any number of extra debit rows is admitted whenever a charge was billed | …and is bounded to the printed charge | **SURVIVES — UNDISCLOSED** (not reached by the review; closed in CLOSURE 4) |
+| M35 | `:885` | the whole grid comparison removed | the grid walked against the ledger | `test_a_grid_balance_that_disagrees_with_the_walked_ledger_is_refused` (+3 more) |
+| M36 | `:817` | the missing-day check removed | every day the ledger posts on appears in the grid | `test_a_grid_missing_a_day_the_ledger_posts_on_is_refused` |
+| M37 | `:819` | the surplus-day check removed, along with the opening-balance exception it bounds | a grid day the ledger never posts on fails the document | `test_a_grid_day_the_ledger_never_posts_on_is_refused`, `test_an_opening_day_cell_that_is_not_the_opening_balance_is_refused` |
+| M38 | `:744` | `_grid`'s intra-block duplicate-day check removed, so the LAST reading silently wins | a day printed twice INSIDE one grid block with two balances | **SURVIVES — UNDISCLOSED** (review finding 3; closed in CLOSURE 3) |
+| M39 | `:882` | `parse`'s cross-block merge check removed, so the LAST block's reading silently wins | two grid blocks disagreeing on a shared day | **SURVIVES — UNDISCLOSED** (review finding 3; closed in CLOSURE 3) |
+| M40 | `:755` | `_TOLERANCE` widened a thousandfold, so every printed gate admits a ledger that is dollars out | the cent tolerance | `test_a_summary_whose_own_identity_does_not_close_is_refused` (+5 more) |
+
+Two rows are worth reading twice. **M06 is killed by a test named for a
+different gate** — `test_a_strip_that_prints_a_figure_twice_with_two_readings_is_refused`
+also happens to remove a figure from the strip — which is the same class the
+card warns about and the review found in finding 3; it is recorded here rather
+than presented as a clean kill. And **M03, M35 and M40 are killed by more than
+twenty, four and six tests respectively**: a mutant that breaks everything pins
+nothing in particular, and their value is only that the normalization, the grid
+comparison and the tolerance are load-bearing at all.
 
 ## C13. Findings and questions for Ocean
 
@@ -44122,7 +44218,7 @@ gate under test is the only one that can see the defect.
 | canonical conformance set (7 modules) | **1,177 passed**, 35 skipped (1,164 at 75 × 74; the cross-product is now 76 × 75) | `CONFORM_EXIT=0` |
 | corpus-marked slice (`pytest -m corpus`) | **30 passed**, 5,956 deselected (59:00 on the final tree) | `CORPUS_EXIT=0` |
 | the reader's own module | 46 passed | included above |
-| mutation harness, 32 mutants, no `-x` | **32 applied, 32 killed, 0 survived** | `EXIT=0` |
+| mutation harness — WITHDRAWN, see C12 | the uncommitted `mutate.py`'s "32 applied, 32 killed, 0 survived" is not checkable and is withdrawn; the committed harness is `tools/coreenc_mutation_table.py`, 40 mutants, table in C12.1 | final-tree run and exit code in C19 |
 | archive-wide detection + parse probe (3,380 documents, 3,351 with cached text) | 67 claimed, 0 crashes | `EXIT=0` |
 | population replay (71 named documents, real pipeline) | 57 moved / 14 unmoved, transitions in C0 and C11 | `EXIT=0` |
 | `tools.regfp_zero_movement_sweep`, six chunks over all 3,380 | **identical 2,558 / moved 0 / payload_now_raises 0 / no_payload_now_publishes 48**, all 48 inside the census family (C18.1) | chunk `EXIT=1` (the tool's findings-exist code), chain `EXIT=0` |
