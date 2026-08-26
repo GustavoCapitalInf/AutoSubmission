@@ -39,6 +39,7 @@ zero it did not measure.
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import itertools
 import json
@@ -121,29 +122,246 @@ def stored_document(sha: str, root: Path, baseline: str):
     return None, None, None
 
 
+#: The leaf-path markers the required-check vector is read off. Every one is a
+#: check, a flag, a note, a verdict input or an ADB value the platform will not
+#: move outside a ceremony; the vector is the count of MOVED leaf paths under
+#: each, over every document compared, and it is printed with the counts so a
+#: reader re-derives "0 verdict movement" rather than believing it.
+REQUIRED_CHECK_MARKERS = (
+    ".checks", ".integrity", ".flags", ".notes", ".risk",
+    ".possible_document_issue", ".warnings", ".outcome", ".reconciliation",
+    ".escalat", ".model_used", ".parsed_posting_days", ".missing_posting_dates",
+    ".posting_dates_cover_source", ".metrics.adb",
+)
+
+
+def required_check_vector(paths) -> dict[str, int]:
+    """How many moved leaf paths sit under each required-check marker."""
+    vector = {marker: 0 for marker in REQUIRED_CHECK_MARKERS}
+    for path in paths:
+        for marker in REQUIRED_CHECK_MARKERS:
+            if marker in path:
+                vector[marker] += 1
+    return vector
+
+
+def base_module(commit: str = "10cc722"):
+    """`ocr/native_text.py` AS OF `commit`, loaded as its own module.
+
+    The fallback claim is that a document this rung does not claim comes out of
+    the LADDER byte-identical to what the ladder gave before the branch
+    existed. Proving that against a monkeypatched rung proves something weaker
+    — that the rung returns None — so the comparison here is against the module
+    the base commit actually holds, read out of its git blob and imported
+    beside the branch's own.
+    """
+    import importlib.util
+    import subprocess
+    import tempfile
+
+    blob = subprocess.run(["git", "show", f"{commit}:ocr/native_text.py"],
+                          capture_output=True, check=True)
+    handle = tempfile.NamedTemporaryFile("wb", suffix="_base_native_text.py",
+                                         delete=False)
+    with handle:
+        handle.write(blob.stdout)
+    # Loaded INSIDE the `ocr` package: the module's imports are relative
+    # (`from .column_grid import …`), so a top-level name cannot resolve them.
+    # It is not registered in `sys.modules`, so `ocr.native_text` at this tree
+    # stays exactly what production imports.
+    import ocr  # noqa: F401 — the parent package must be imported first
+
+    spec = importlib.util.spec_from_file_location("ocr._desccols_base_native_text",
+                                                  handle.name)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def command_fallback(args) -> int:
+    """The fail-closed half, BASE GIT BLOB against branch, on one tree.
+
+    For every sampled document: the base ladder's pages and the branch
+    ladder's pages, and the `analysis_input_sha` each produces — the hash that
+    decides whether a document's analysis cache key rotates.
+    """
+    from webapp.artifact_cache import analysis_input_sha
+    from ocr.document import StatementMarkdown
+    import ocr.native_text as branch
+
+    base = base_module(args.base)
+    paths = document_paths(args.rows)[0]
+    counts = collections.Counter()
+    began = time.time()
+    for sha in sorted(paths)[::args.stride]:
+        pdf = args.corpus / paths[sha]
+        if not pdf.exists():
+            continue
+        counts["sample"] += 1
+        raw = pdf.read_bytes()
+        base._native_pages_cached.cache_clear()
+        was = base.native_statement(raw)
+        branch._native_pages_cached.cache_clear()
+        now = branch.native_statement(raw)
+        if was is None and now is None:
+            counts["no_native_text"] += 1
+            continue
+        if was is None or now is None:
+            counts["LADDER_APPEARED_OR_VANISHED"] += 1
+            print("UNEXPECTED", sha)
+            continue
+        if now.model == CLAIMED_MODEL:
+            counts["claimed"] += 1
+            continue
+        def key(document):
+            pages = list(document.pages)
+            markdown = StatementMarkdown(source_file="movement.pdf",
+                                         model=document.model,
+                                         pages=pages).to_markdown()
+            return list(pages), analysis_input_sha(markdown, pages)
+
+        was_pages, was_key = key(was)
+        now_pages, now_key = key(now)
+        if was_pages == now_pages and was_key == now_key:
+            counts["identical"] += 1
+        else:
+            counts["DIFFERENT"] += 1
+            print("UNEXPECTED INPUT MOVE", sha)
+    print(json.dumps(dict(counts), sort_keys=True))
+    print(f"seconds={round(time.time() - began, 1)}")
+    return 1 if counts["DIFFERENT"] or counts["LADDER_APPEARED_OR_VANISHED"] else 0
+
+
+def command_gates(args) -> int:
+    """What the two furniture gates refuse, region by region and band by band.
+
+    Reads each page's boxes ONCE and asks the rung's own helpers twice: with
+    the document's repeated-furniture marks, and with none. The difference is
+    G9's cost. G10's is counted beside it by the extent predicate, which the
+    instrument computes itself because a refusal from `_described_rows` does
+    not say which gate made it.
+    """
+    import fitz
+    import ocr.native_text as nt
+
+    paths, _outcome, _parser = document_paths(args.rows)
+    counts = collections.Counter()
+    documents = []
+    began = time.time()
+    for sha in sorted(paths)[args.start:args.end]:
+        pdf = args.corpus / paths[sha]
+        if not pdf.exists():
+            continue
+        counts["documents"] += 1
+        raw = pdf.read_bytes()
+        flat = nt._native_pages(raw)
+        if flat is None:
+            counts["no_native_text"] += 1
+            continue
+        with fitz.open(stream=raw, filetype="pdf") as document:
+            printed = [nt._printed_lines(page) for page in document]
+        if len(printed) > len(flat):
+            counts["page_count_disagrees"] += 1
+            continue
+        marks = nt._repeated_furniture(printed)
+        per = collections.Counter()
+        for index, lines in enumerate(printed):
+            if not lines:
+                continue
+            bands = nt._row_bands(lines)
+            band_of = {p: b for b, band in enumerate(bands) for p in band}
+            for end, starts in nt._candidate_regions(lines, bands):
+                free = nt._described_rows(lines, bands, end, starts)
+                if free is None:
+                    # refused by G3/G4/G8/G10 together; the extent clause is
+                    # asked on its own so G10 has a number of its own.
+                    rows = [[p for band in range(start, (starts + [end])[order + 1])
+                             for p in bands[band]]
+                            for order, start in enumerate(starts)]
+                    edges = [lines[p].right for row in rows for p in row
+                             if nt._ROW_MONEY_RE.match(lines[p].text)]
+                    if edges:
+                        left = min(lines[row[0]].left for row in rows)
+                        if any(lines[p].right < left - nt._ROW_COLUMN_TOLERANCE
+                               or lines[p].left > max(edges) + nt._ROW_COLUMN_TOLERANCE
+                               for row in rows for p in row):
+                            per["regions_the_extent_clause_refuses"] += 1
+                    continue
+                per["regions_admitted_ignoring_furniture"] += 1
+                marked = [p for row in free for p in row if p in marks[index]]
+                if marked:
+                    per["regions_G9_refuses"] += 1
+                    per["bands_G9_refuses"] += len({band_of[p] for p in marked})
+                    per["lines_marked_inside_a_region"] += len(marked)
+            with_gate = nt._printed_row_text(lines, flat[index], marks[index])
+            without = nt._printed_row_text(lines, flat[index], frozenset())
+            if with_gate != without:
+                per["pages_the_furniture_gate_changes"] += 1
+            if without not in (None, flat[index]):
+                per["pages_repaired_ignoring_furniture"] += 1
+            if with_gate not in (None, flat[index]):
+                per["pages_repaired"] += 1
+        if per["pages_repaired_ignoring_furniture"]:
+            counts["claimed_ignoring_furniture"] += 1
+        if per["pages_repaired"]:
+            counts["claimed"] += 1
+        if per["pages_the_furniture_gate_changes"]:
+            counts["documents_the_furniture_gate_changes"] += 1
+            documents.append({"content_sha256": sha,
+                              **{key: per[key] for key in sorted(per)}})
+        counts.update(per)
+    report = {"counts": dict(counts), "seconds": round(time.time() - began, 1),
+              "documents": documents}
+    if args.out:
+        args.out.write_text(json.dumps(report, indent=2, sort_keys=True),
+                            encoding="utf-8")
+    print(json.dumps(dict(counts), sort_keys=True))
+    print(f"seconds={report['seconds']}")
+    return 1 if counts["documents_the_furniture_gate_changes"] else 0
+
+
+def document_paths(rows: Path):
+    """(sha -> relative path, sha -> outcome class, sha -> parser id)."""
+    paths, outcome, parser = {}, {}, {}
+    with rows.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            sha = row["content_sha256"]
+            if sha and sha not in paths:
+                paths[sha] = row["relative_path"]
+                outcome[sha] = row["outcome_class"]
+                parser[sha] = row["parser_id"]
+    return paths, outcome, parser
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--rows", required=True, type=Path)
-    parser.add_argument("--data-dir", required=True, type=Path)
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--corpus", required=True, type=Path)
-    parser.add_argument("--baseline-settings-key", required=True)
+    parser.add_argument("--baseline-settings-key", default="")
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--end", type=int, default=10 ** 9)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--mode", choices=("movement", "gates", "fallback"),
+                        default="movement")
+    parser.add_argument("--stride", type=int, default=23,
+                        help="fallback: sample every Nth document")
+    parser.add_argument("--base", default="10cc722",
+                        help="fallback: the commit whose module is the before half")
     args = parser.parse_args(argv)
+    if args.mode == "fallback":
+        return command_fallback(args)
+    if args.mode == "gates":
+        return command_gates(args)
+    if args.data_dir is None or not args.baseline_settings_key:
+        parser.error("movement needs --data-dir and --baseline-settings-key")
     baseline = args.baseline_settings_key.strip().upper()
 
     from analysis.pipeline import analyze_markdown
     from analysis.serialization import report_to_dict
     from ocr.document import StatementMarkdown
 
-    paths, outcome = {}, {}
-    with args.rows.open(encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
-            sha = row["content_sha256"]
-            if sha and sha not in paths:
-                paths[sha] = row["relative_path"]
-                outcome[sha] = row["outcome_class"]
+    paths, outcome, _parser = document_paths(args.rows)
 
     counts = {"documents": 0, "ladder_unchanged": 0,
               "ladder_identical_to_the_archive": 0, "claimed": 0, "no_pdf": 0,
@@ -230,11 +448,18 @@ def main(argv: list[str] | None = None) -> int:
                        "other_leaves_moved": len(elsewhere), "other_paths": elsewhere})
         documents.append(record)
 
+    moved_paths = sorted({path for record in documents
+                          for path in record.get("other_paths", ())})
+    vector = required_check_vector(moved_paths)
     report = {"counts": counts, "seconds": round(time.time() - began, 1),
-              "documents": documents}
+              "required_check_vector": vector,
+              "moved_leaf_paths": moved_paths, "documents": documents}
     if args.out:
         args.out.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(counts, sort_keys=True))
+    print("required_check_vector " + json.dumps(vector, sort_keys=True))
+    print("moved_leaf_names " + json.dumps(
+        sorted({path.rsplit(".", 1)[-1] for path in moved_paths}), sort_keys=True))
     print(f"seconds={report['seconds']}")
     return 1 if counts["moved"] or counts["payload_now_raises"] else 0
 

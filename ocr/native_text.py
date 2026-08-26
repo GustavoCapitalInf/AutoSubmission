@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+from bisect import bisect_left
 from functools import lru_cache
 from statistics import median
 from typing import NamedTuple, TypedDict
@@ -1106,6 +1107,22 @@ def _wells_rows(page) -> list[str]:
 #       row` gate was written first and `tools/desccols_mutate.py` proved it
 #       changed no answer; it is deleted, and the equivalence is pinned as a
 #       test over every arrangement of up to five cells.
+#   G9  no line of the region is REPEATED PAGE FURNITURE — text another page
+#       of the same document prints at the same band position. A repaired row
+#       carries every cell printed on its band left of its money, so a running
+#       header, a footer or a column caption that happens to sit on a
+#       posting's band would be folded into that posting's description, and
+#       the card's own WORD-box oracle cannot see it: that oracle reads a row's
+#       truth from the words printed between its date and its amount, which is
+#       exactly where the absorbed line lands. So the shape is refused rather
+#       than described. The refusal is the REGION's — the ledger it sits in
+#       falls back to the flattening's own lines, in place, and no line is
+#       repaired, dropped or moved.
+#  G10  no line of the region lies horizontally outside the ledger's own
+#       columns — left of the anchor column or right of the widest money edge.
+#       The same reasoning one axis over: what sits beside a ledger is not part
+#       of a row of it, and a row that reaches past its own money column is not
+#       the arrangement this rung reads.
 #
 # Nothing above names an institution, a product or a merchant: the region is
 # found by where the ink is, and the same code reads any bank that prints a
@@ -1225,14 +1242,25 @@ def _printed_lines(page) -> list[_PrintedLine] | None:
     return lines
 
 
+def _shares_a_band(top: float, bottom: float,
+                   other_top: float, other_bottom: float) -> bool:
+    """Do two printed boxes sit on the same row of a page?
+
+    An OVERLAP test — at least half the shorter box — rather than a point
+    tolerance, because a tolerance is a constant nobody can justify across type
+    sizes and this has to hold for a template nobody has seen. This is the ONE
+    definition of a band in this module: `_row_bands` applies it down a page
+    and `_repeated_furniture` applies it across pages, so "the same band
+    position" means the same thing in both places.
+    """
+    return (min(bottom, other_bottom) - max(top, other_top)
+            >= 0.5 * min(bottom - top, other_bottom - other_top))
+
+
 def _row_bands(lines: list[_PrintedLine]) -> list[list[int]]:
     """The lines grouped into the printed rows they share, top to bottom.
 
-    Two lines belong to the same band when their printed boxes overlap
-    vertically by at least half the shorter box. An OVERLAP test rather than a
-    point tolerance, because a tolerance is a constant nobody can justify
-    across type sizes and this has to hold for a template nobody has seen. The
-    band's extent only ever NARROWS to the lines already in it, so one tall
+    The band's extent only ever NARROWS to the lines already in it, so one tall
     outlier cannot chain a band into the row below it.
     """
     order = sorted(range(len(lines)), key=lambda i: (lines[i].top, lines[i].left))
@@ -1240,14 +1268,58 @@ def _row_bands(lines: list[_PrintedLine]) -> list[list[int]]:
     top = bottom = None
     for position in order:
         line = lines[position]
-        if top is None or (min(bottom, line.bottom) - max(top, line.top)
-                           < 0.5 * min(bottom - top, line.bottom - line.top)):
+        if top is None or not _shares_a_band(top, bottom, line.top, line.bottom):
             bands.append([position])
             top, bottom = line.top, line.bottom
         else:
             bands[-1].append(position)
             top, bottom = max(top, line.top), min(bottom, line.bottom)
     return [sorted(band, key=lambda p: lines[p].left) for band in bands]
+
+
+def _repeated_furniture(
+    pages: list[list[_PrintedLine] | None],
+) -> list[frozenset[int]]:
+    """Which of each page's lines are REPEATED PAGE FURNITURE, page by page.
+
+    A line is furniture here when ANOTHER page of the same document prints the
+    same text at the same band position: the running header, the running
+    footer, the column caption a template repeats down the document. Same text,
+    same band — `_shares_a_band` applied across pages rather than down one, so
+    the rule that groups a row is the rule that recognises a repeat and there
+    is no second tolerance to justify.
+
+    This is a detection of a SHAPE, not of a vocabulary: nothing here names a
+    bank, a caption or a phrase, and a document whose pages print nothing twice
+    marks nothing.
+
+    Bounded rather than quadratic: the occurrences of one text are sorted by
+    their top edge and only the window that can possibly overlap is scanned,
+    because a box that starts below another's bottom cannot share its band.
+    """
+    where: dict[str, list[tuple[float, float, int]]] = {}
+    for index, lines in enumerate(pages):
+        for line in lines or ():
+            where.setdefault(line.text, []).append((line.top, line.bottom, index))
+    tallest: dict[str, float] = {}
+    for text, seen in where.items():
+        seen.sort()
+        tallest[text] = max(bottom - top for top, bottom, _page in seen)
+
+    marked: list[frozenset[int]] = []
+    for index, lines in enumerate(pages):
+        found: set[int] = set()
+        for position, line in enumerate(lines or ()):
+            seen = where[line.text]
+            window = bisect_left(seen, (line.top - tallest[line.text], -math.inf, -1))
+            for top, bottom, other in seen[window:]:
+                if top >= line.bottom:
+                    break
+                if other != index and _shares_a_band(line.top, line.bottom, top, bottom):
+                    found.add(position)
+                    break
+        marked.append(frozenset(found))
+    return marked
 
 
 def _candidate_regions(lines, bands) -> list[tuple[int, list[int]]]:
@@ -1277,8 +1349,9 @@ def _candidate_regions(lines, bands) -> list[tuple[int, list[int]]]:
     return regions
 
 
-def _described_rows(lines, bands, end: int, starts: list[int]) -> list[list[int]] | None:
-    """The region's rows, or None where G3/G4/G8 refuse it."""
+def _described_rows(lines, bands, end: int, starts: list[int],
+                    furniture: frozenset[int] = frozenset()) -> list[list[int]] | None:
+    """The region's rows, or None where G3/G4/G8/G9/G10 refuse it."""
     rows = []
     for order, start in enumerate(starts):
         stop = starts[order + 1] if order + 1 < len(starts) else end
@@ -1300,18 +1373,36 @@ def _described_rows(lines, bands, end: int, starts: list[int]) -> list[list[int]
     if sum(1 for edge in edges
            if abs(edge - common) <= _ROW_COLUMN_TOLERANCE) < _ROW_GRID_MINIMUM:
         return None                                            # G3
+    if any(position in furniture for row in rows for position in row):
+        return None                                            # G9
+    left = min(lines[row[0]].left for row in rows)
+    right = max(edges)
+    if any(lines[position].right < left - _ROW_COLUMN_TOLERANCE
+           or lines[position].left > right + _ROW_COLUMN_TOLERANCE
+           for row in rows for position in row):
+        return None                                            # G10
     return rows
 
 
-def _printed_row_page(page, flattened: str) -> str | None:
+def _printed_row_page(page, flattened: str,
+                      furniture: frozenset[int] = frozenset()) -> str | None:
     """The page with its described ledgers re-read by row, or None to refuse.
 
     Returns `flattened` UNCHANGED when the page holds nothing this rung may
     repair, which is the fallback the whole design rests on — and that is also
     the answer for a page with no printed lines at all and for one whose boxes
     `_printed_lines` refuses as malformed.
+
+    `furniture` is the page's repeated-furniture positions (G9), which only a
+    whole DOCUMENT can know; a caller with one page in hand passes none and
+    gets the other nine gates.
     """
-    lines = _printed_lines(page)
+    return _printed_row_text(_printed_lines(page), flattened, furniture)
+
+
+def _printed_row_text(lines: list[_PrintedLine] | None, flattened: str,
+                      furniture: frozenset[int] = frozenset()) -> str | None:
+    """`_printed_row_page` on lines already read, so a page is read once."""
     if not lines:
         return flattened
     bands = _row_bands(lines)
@@ -1322,7 +1413,7 @@ def _printed_row_page(page, flattened: str) -> str | None:
 
     regions = []
     for end, starts in _candidate_regions(lines, bands):
-        rows = _described_rows(lines, bands, end, starts)
+        rows = _described_rows(lines, bands, end, starts, furniture)
         if rows is None:
             continue
         members = {p for row in rows for p in row}
@@ -1384,10 +1475,17 @@ def parse_native_printed_rows(
 
     pages = list(base.pages)
     try:
-        for index, page in enumerate(document):
-            if index >= len(pages):
-                return None
-            repaired = _printed_row_page(page, pages[index])
+        # Read every page's boxes ONCE, then decide. G9 asks whether a line
+        # repeats at the same band on another page, which no single page can
+        # answer — and reading each page twice to ask it would pay the dict
+        # read, this rung's whole cost, a second time on every native-text
+        # document in the archive.
+        printed = [_printed_lines(page) for page in document]
+        if len(printed) > len(pages):
+            return None
+        furniture = _repeated_furniture(printed)
+        for index, lines in enumerate(printed):
+            repaired = _printed_row_text(lines, pages[index], furniture[index])
             if repaired is None:
                 return None
             pages[index] = repaired

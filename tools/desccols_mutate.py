@@ -55,6 +55,16 @@ _FLOORS = (
     "    if len(edges) < _ROW_GRID_MINIMUM or described < _ROW_GRID_MINIMUM:\n"
     "        return None                                            # G3 / G4\n"
 )
+_FURNITURE = (
+    "    if any(position in furniture for row in rows for position in row):\n"
+    "        return None                                            # G9\n"
+)
+_EXTENT = (
+    "    if any(lines[position].right < left - _ROW_COLUMN_TOLERANCE\n"
+    "           or lines[position].left > right + _ROW_COLUMN_TOLERANCE\n"
+    "           for row in rows for position in row):\n"
+    "        return None                                            # G10\n"
+)
 _BOX_GUARD = (
     "            box = _line_box(line)\n"
     "            if box is None:\n"
@@ -142,6 +152,14 @@ MUTATIONS: dict[str, list[tuple[str, str]]] = {
     # what MuPDF raises TODAY; this rung reads `get_text("dict")` on every
     # native-text document in the archive.
     "M12_an_unconverted_exception_escapes_the_rung": [(_UNCONVERTED, "")],
+    # G9 — a line another page prints at the same band no longer refuses the
+    # ledger, so page furniture printed on a posting's band is folded into
+    # that posting's published description (the review's F3).
+    "M13_repeated_page_furniture_no_longer_refuses_the_ledger": [(_FURNITURE, "")],
+    # G10 — a cell printed outside the ledger's own columns no longer refuses
+    # it, so a right-margin note reaches a row whose money is still last and
+    # G8 never sees it.
+    "M14_a_cell_outside_the_ledger_columns_no_longer_refuses_it": [(_EXTENT, "")],
 }
 
 #: The one mutant this harness expects to survive, and why: see its comment

@@ -713,6 +713,210 @@ def test_a_region_whose_blocks_do_not_weld_is_left_alone():
 # to the generic rung's.
 
 
+# ---------------------------------------------------------------------------
+# Page furniture on a posting's band (G9), and the ledger's own columns (G10)
+# ---------------------------------------------------------------------------
+#
+# A repaired row carries every cell printed on its band left of its money, so a
+# line the page prints there for its own reasons — a running header, a footer,
+# a column caption, an overleaf notice — lands INSIDE the row, between its date
+# and its amount, which is exactly where a reader's span looks. The card's own
+# WORD-box oracle reads a row's truth from the words printed between its date
+# and its amount, so it cannot see this class at all: the absorbed line is part
+# of the truth it compares against.
+#
+# G9 refuses the ledger it happens in. The test of "is this the page's
+# furniture or this row's text" is REPETITION: furniture prints on more than
+# one page at the same band position, a posting's own text does not.
+
+#: Where an overleaf notice is printed: left of the money column, so G8 cannot
+#: catch it, and inside the ledger's columns, so G10 cannot either.
+NOTE_X = 420.0
+#: The band the notice shares — the first posting's own row on both pages.
+NOTE_Y = 111.0
+
+PAGE_A_ROWS = [
+    ("2031-06-02", "Scheduled Transfer", ["ORCHARD SUPPLY QUARTERLY"], "101.00"),
+    ("2031-06-03", "Scheduled Transfer",
+     ["MERIDIAN LEASING CO PERIODIC", "AGREEMENT 55-42 SERIES B"], "202.00"),
+    ("2031-06-04", "Scheduled Transfer", ["QUILLON UTILITIES LODGEMENT"], "303.00"),
+]
+PAGE_B_ROWS = [
+    ("2031-07-05", "Recurring Payment", ["ATLAS FREIGHT NETWORK ACCT"], "505.00"),
+    ("2031-07-06", "Recurring Payment", ["ORCHARD SUPPLY MONTHLY"], "606.00"),
+    ("2031-07-07", "Recurring Payment", ["QUILLON UTILITIES SETTLEMENT"], "707.00"),
+]
+NOTICE = "OVERLEAF NOTICE"
+
+
+def _draw_ledger(page, rows, note=None):
+    """One described ledger, grid pass then detail pass then the notice.
+
+    Three passes for the reason the family's builder gives for two: which lines
+    MuPDF groups into a block is decided by the order they are drawn, and page
+    furniture that arrives in the grid's own block is not the adversarial case.
+    """
+    grid, detail = [], []
+    y = NOTE_Y
+    for date, label, lines, amount in rows:
+        grid += [(DATE_X, y, date), (LABEL_X, y, label)]
+        if lines:
+            detail.append((DETAIL_X, y - DETAIL_DROP, lines[0]))
+        if len(lines) < 2:
+            grid.append((None, y, amount))
+            y += ROW_PITCH
+            continue
+        y += ROW_PITCH
+        for extra in lines[1:]:
+            detail.append((LABEL_X, y - DETAIL_DROP, extra))
+            if extra is not lines[-1]:
+                y += ROW_PITCH
+        grid.append((None, y, amount))
+        y += ROW_PITCH
+    for group in (grid, detail):
+        for x, at, text in group:
+            if x is None:
+                _right(page, at, text)
+            else:
+                page.insert_text((x, at), text, fontsize=FONT_SIZE)
+    page.insert_textbox(fitz.Rect(DATE_X, 700, 560, 780), FILLER, fontsize=FONT_SIZE)
+    if note:
+        page.insert_text((NOTE_X, NOTE_Y), note, fontsize=FONT_SIZE)
+
+
+def _two_page_pdf(notes=(None, None)):
+    """Two pages of the same template printing DIFFERENT postings.
+
+    Different on purpose: two identical pages would make every line of both
+    repeated furniture, which is a true answer to a question nobody asked.
+    """
+    doc = fitz.open()
+    for rows, note in zip((PAGE_A_ROWS, PAGE_B_ROWS), notes):
+        _draw_ledger(doc.new_page(), rows, note)
+    return doc.tobytes()
+
+
+def _furniture_marks(pdf_bytes):
+    import ocr.native_text as native_text
+
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as opened:
+        printed = [native_text._printed_lines(page) for page in opened]
+        return printed, native_text._repeated_furniture(printed)
+
+
+def test_two_pages_of_one_template_are_repaired_when_nothing_repeats_in_the_ledger():
+    """The premise of the two pins below, and the pin that G9 is not a blanket
+    refusal of every multi-page document: these two pages DO share repeated
+    furniture — the notice paragraph at the foot of each — and it sits outside
+    both ledgers, so both ledgers are repaired."""
+    raw = _two_page_pdf()
+    printed, marks = _furniture_marks(raw)
+    assert any(marks), "the two pages share no furniture at all; the pins below are vacuous"
+
+    document = parse_native_printed_rows(raw)
+    assert document is not None
+    generic = parse_native_pdf_text(raw)
+    assert [page for page in document.pages] != list(generic.pages)
+    for index in range(2):
+        assert document.pages[index] != generic.pages[index], (
+            f"page {index} was not repaired, so it cannot show G9 refusing one")
+
+
+def test_repeated_page_furniture_on_a_posting_band_refuses_that_ledger():
+    """G9, and the review's F3 shape drawn as a page.
+
+    The same notice is printed on BOTH pages at the same band position, on a
+    posting's own row, left of the money column — where G8 cannot catch it
+    (the row's money is still its last cell) and G10 cannot either (it is
+    inside the ledger's columns). Without G9 that notice is folded into the
+    posting's published description; with it, both ledgers refuse and the
+    document keeps the flattening's own text.
+    """
+    raw = _two_page_pdf((NOTICE, NOTICE))
+    printed, marks = _furniture_marks(raw)
+    for index in range(2):
+        notice = [position for position, line in enumerate(printed[index])
+                  if line.text == NOTICE]
+        assert notice, f"page {index} does not print the notice"
+        assert set(notice) <= marks[index], "the notice must be recognised as repeated"
+
+    _declined(raw)
+
+
+def test_a_repaired_row_absorbs_a_same_band_line_left_of_the_money_column():
+    """The residual reach, named and pinned rather than left latent.
+
+    The SAME notice printed on one page only is not furniture by any test this
+    rung can make, and the row absorbs it: the emitted line is what the page
+    prints on that row, which is this platform's contract, and the reader
+    publishes it as part of the row's description. A future editor reading this
+    pin knows the behaviour is intended and knows exactly what bounds it — the
+    repetition test above, and nothing else.
+    """
+    raw = _two_page_pdf((NOTICE, None))
+    printed, marks = _furniture_marks(raw)
+    notice = [position for position, line in enumerate(printed[0])
+              if line.text == NOTICE]
+    assert notice and not set(notice) & marks[0], (
+        "printed once, the notice is not furniture by any test this rung can make")
+
+    document = parse_native_printed_rows(raw)
+    assert document is not None
+    first = [line for line in document.pages[0].splitlines()
+             if line.startswith(PAGE_A_ROWS[0][0])]
+    assert len(first) == 1
+    assert NOTICE in first[0], "the row absorbs the line printed on its own band"
+    assert first[0].endswith(PAGE_A_ROWS[0][3]), "and its money is still last"
+
+
+def test_a_line_printed_beyond_the_money_column_refuses_the_ledger():
+    """G10. A cell printed to the RIGHT of the widest money edge is not part of
+    a row of this ledger, and it reaches the row without G8 noticing because
+    the row's own money is still the last cell of its last band.
+
+    Hand-built for the reason the straddle pin gives: the arrangement is a
+    property of where the ink is, and a drawn page cannot be relied on to
+    produce this one on demand.
+    """
+    import ocr.native_text as native_text
+
+    def page_and_text(note_left):
+        rows = (("2031-06-02", "ORCHARD SUPPLY QUARTERLY", "101.00"),
+                ("2031-06-03", "MERIDIAN LEASING CO PERIODIC", "202.00"),
+                ("2031-06-04", "QUILLON UTILITIES LODGEMENT", "303.00"))
+        grid, detail, notes = [], [], []
+        for index, (date, described, amount) in enumerate(rows):
+            top = 111.0 + index * 20.0
+            grid.append({"bbox": (23.0, top, 60.0, top + 8.0),
+                         "spans": [{"text": date}]})
+            grid.append({"bbox": (530.0, top + 10.0, 569.0, top + 18.0),
+                         "spans": [{"text": amount}]})
+            detail.append({"bbox": (149.0, top + 10.0, 400.0, top + 18.0),
+                           "spans": [{"text": described}]})
+            notes.append({"bbox": (note_left, top, note_left + 25.0, top + 8.0),
+                          "spans": [{"text": "SEE OVER"}]})
+
+        class _Page:
+            def get_text(self, mode, *args, **kwargs):
+                return {"blocks": [{"type": 0, "lines": block}
+                                   for block in (grid, detail, notes)]}
+
+        flattened = "\n".join((
+            " ".join(f"{date} {amount}" for date, _d, amount in rows),
+            " ".join(described for _date, described, _a in rows),
+            " ".join("SEE OVER" for _row in rows),
+        ))
+        return _Page(), flattened
+
+    inside, flattened = page_and_text(420.0)
+    repaired = native_text._printed_row_page(inside, flattened)
+    assert repaired is not None and repaired != flattened, (
+        "the premise: this ledger IS repaired while the cell sits in its columns")
+
+    beyond, flattened = page_and_text(575.0)
+    assert native_text._printed_row_page(beyond, flattened) == flattened
+
+
 def _first_text_line(read):
     for block in read.get("blocks", []):
         if block.get("type") == 0 and block.get("lines"):

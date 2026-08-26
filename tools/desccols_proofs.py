@@ -5,8 +5,9 @@ measures reach and payload movement. These are the rest, committed for the
 same reason: a headline number whose instrument lives in a scratchpad is a
 number nobody can re-derive.
 
-    python -m tools.desccols_proofs oracle   --rows <run>/rows.csv --data-dir <checkout>/webapp_data \
+    python -m tools.desccols_proofs oracle    --rows <run>/rows.csv --data-dir <checkout>/webapp_data \
         --corpus "<checkout>/Bank Statements" --baseline-settings-key <64 hex>
+    python -m tools.desccols_proofs furniture <the same arguments>
     python -m tools.desccols_proofs pinned   --corpus "<checkout>/Bank Statements" --balance-csv docs/balance-metrics-audit-results.csv
     python -m tools.desccols_proofs fallback --rows <run>/rows.csv --corpus "<checkout>/Bank Statements" [--stride 7]
     python -m tools.desccols_proofs boundary --rows <run>/rows.csv --data-dir <checkout>/webapp_data \
@@ -18,6 +19,11 @@ description from the PDF's WORD boxes. A different extraction from the line
 boxes this card's rung reads, validated before it was used, and refusing any
 document whose rows do not pair 1:1 on (section, date, amount). `--shipped`
 scores the run's own stored text instead, which is the before half.
+
+**furniture** — the class that oracle CANNOT see, asked directly: a published
+description token the oracle does not find between its row's own date and
+amount, printed on a line another page of the document repeats at the same band
+position. The review's F3, measured on the same rows.
 
 **pinned** — how many of the pinned manifest's statements the new rung claims,
 and whether the published payload moves for them. The corpus gate resolves the
@@ -77,11 +83,35 @@ def _repaired_markdown(pdf: Path):
 # oracle
 # ---------------------------------------------------------------------------
 
-def command_oracle(args) -> int:
+def _published_and_truth(markdown: str, pdf: Path, CC):
+    """`([(section, cell, published description)], [OracleRow])` for one document.
+
+    The two halves are computed independently — the published side through the
+    readers' own two shared functions, the truth side from the PDF's WORD boxes
+    — and are paired 1:1 by the caller on (section, date, amount).
+    """
     from analysis.tables import attributed_descriptions
-    from tools.descattrib_oracle import (
-        WS, _classify, _read_pairs, analysed_text, oracle_rows, population,
-    )
+    from tools.descattrib_oracle import _read_pairs, oracle_rows
+
+    pairs = _read_pairs(markdown, CC)
+    texts = {}
+    for name in {n for n, _c in pairs}:
+        runs = [cells for n, cells in pairs if n == name]
+        texts[name] = attributed_descriptions(
+            runs, strip=CC._DESCRIPTION_FURNITURE, limit=CC._DESCRIPTION_LIMIT)
+    flat, seen = [], collections.Counter()
+    for name, cells in pairs:
+        index = seen[name]
+        seen[name] += 1
+        for position, cell in enumerate(cells):
+            flat.append((name, cell, texts[name][index][position]))
+    names = tuple(sorted(CC._SECTION_NAMES, key=len, reverse=True))
+    truth = oracle_rows(str(pdf), names, tuple(sorted({n for n, _c in pairs})))
+    return flat, truth
+
+
+def command_oracle(args) -> int:
+    from tools.descattrib_oracle import WS, _classify, analysed_text, population
     import analysis.core_processor_counted as CC
 
     found = population(args.rows, args.data_dir, args.baseline_settings_key)
@@ -99,20 +129,7 @@ def command_oracle(args) -> int:
         if markdown is None:
             grand["unreadable"] += 1
             continue
-        pairs = _read_pairs(markdown, CC)
-        texts = {}
-        for name in {n for n, _c in pairs}:
-            runs = [cells for n, cells in pairs if n == name]
-            texts[name] = attributed_descriptions(
-                runs, strip=CC._DESCRIPTION_FURNITURE, limit=CC._DESCRIPTION_LIMIT)
-        flat, seen = [], collections.Counter()
-        for name, cells in pairs:
-            index = seen[name]
-            seen[name] += 1
-            for position, cell in enumerate(cells):
-                flat.append((name, cell, texts[name][index][position]))
-        names = tuple(sorted(CC._SECTION_NAMES, key=len, reverse=True))
-        truth = oracle_rows(str(pdf), names, tuple(sorted({n for n, _c in pairs})))
+        flat, truth = _published_and_truth(markdown, pdf, CC)
         if len(flat) != len(truth):
             print(f"{sha[:8]:10} UNPAIRED published={len(flat)} oracle={len(truth)}")
             grand["unpaired"] += 1
@@ -131,6 +148,82 @@ def command_oracle(args) -> int:
     print(f"{'TOTAL':10} {grand['rows']:5} | {grand['exact']:6} {grand['prefix']:7} "
           f"{grand['FOREIGN']:8}   unpaired={grand['unpaired']}")
     return 1 if grand["FOREIGN"] or grand["unpaired"] else 0
+
+
+# ---------------------------------------------------------------------------
+# furniture — the class DC3.1's oracle cannot see, asked directly
+# ---------------------------------------------------------------------------
+
+def command_furniture(args) -> int:
+    """Can a PUBLISHED description token be this document's page furniture?
+
+    §DESCATTRIB's oracle reads a row's true description from the words printed
+    between that row's date and its amount, so a line absorbed from the row's
+    own band is part of the truth it compares against and its 0 FOREIGN cannot
+    distinguish an absorbed one from a clean one. This mode asks the question
+    the oracle cannot, on the same rows, and reports three counts per document:
+
+    * **outside** — published description tokens the oracle does NOT find
+      between that row's date and its amount;
+    * **repeated** — published description tokens printed on a line that
+      ANOTHER page of the document prints at the same band position, i.e. the
+      shape G9 refuses;
+    * **FLAGGED** — both at once, which is the review's F3 case reaching a
+      published description.
+
+    `repeated` is deliberately over-inclusive: it is a token test, so a token
+    that also occurs in an ordinary cell counts. An over-inclusive detector
+    reporting zero is a stronger statement than an exact one reporting zero.
+    Counts only — no document text and no figure is printed.
+    """
+    import fitz
+    import analysis.core_processor_counted as CC
+    import ocr.native_text as native_text
+    from tools.descattrib_oracle import WS, population
+
+    found = population(args.rows, args.data_dir, args.baseline_settings_key)
+    grand = collections.Counter()
+    print(f"{'document':10} {'rows':>5} {'tokens':>7} {'outside':>8} "
+          f"{'repeated':>9} {'FLAGGED':>8}")
+    for sha, (parser, relative) in sorted(found.items()):
+        if parser != "core_processor_counted":
+            continue
+        pdf = args.corpus / relative
+        markdown, _pages, _model = _repaired_markdown(pdf)
+        if markdown is None:
+            grand["unreadable"] += 1
+            continue
+        with fitz.open(str(pdf)) as document:
+            printed = [native_text._printed_lines(page) for page in document]
+        repeated = set()
+        for lines, marked in zip(printed, native_text._repeated_furniture(printed)):
+            for position in marked:
+                repeated.update(lines[position].text.split())
+
+        flat, truth = _published_and_truth(markdown, pdf, CC)
+        if len(flat) != len(truth):
+            print(f"{sha[:8]:10} UNPAIRED published={len(flat)} oracle={len(truth)}")
+            grand["unpaired"] += 1
+            continue
+        counts = collections.Counter()
+        for (name, cell, published), want in zip(flat, truth):
+            assert (name, cell.date, cell.value) == (want.section, want.date, want.amount), (
+                f"{sha}: the oracle and the reader disagree about a row")
+            printed_tokens = set(WS.sub(" ", want.described).split())
+            for token in published.split():
+                counts["tokens"] += 1
+                outside = token not in printed_tokens
+                counts["outside"] += outside
+                counts["repeated"] += token in repeated
+                counts["FLAGGED"] += outside and token in repeated
+        counts["rows"] = len(flat)
+        print(f"{sha[:8]:10} {counts['rows']:5} {counts['tokens']:7} "
+              f"{counts['outside']:8} {counts['repeated']:9} {counts['FLAGGED']:8}")
+        grand.update(counts)
+    print(f"{'TOTAL':10} {grand['rows']:5} {grand['tokens']:7} {grand['outside']:8} "
+          f"{grand['repeated']:9} {grand['FLAGGED']:8}   "
+          f"unpaired={grand['unpaired']} unreadable={grand['unreadable']}")
+    return 1 if grand["FLAGGED"] or grand["unpaired"] else 0
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +372,8 @@ def command_boundary(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command",
-                        choices=("oracle", "pinned", "fallback", "boundary"))
+                        choices=("oracle", "furniture", "pinned", "fallback",
+                                 "boundary"))
     parser.add_argument("--rows", type=Path)
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--corpus", required=True, type=Path)
@@ -290,9 +384,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--shipped", action="store_true",
                         help="oracle: score the run's own stored text instead")
     args = parser.parse_args(argv)
-    return {"oracle": command_oracle, "pinned": command_pinned,
-            "fallback": command_fallback, "boundary": command_boundary}[
-        args.command](args)
+    return {"oracle": command_oracle, "furniture": command_furniture,
+            "pinned": command_pinned, "fallback": command_fallback,
+            "boundary": command_boundary}[args.command](args)
 
 
 if __name__ == "__main__":
