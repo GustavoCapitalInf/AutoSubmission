@@ -259,9 +259,16 @@ def main(argv: list[str] | None = None) -> int:
         for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
             printed[cls].update(values)
 
-    base_text = tracked_text(args.base)
+    # The base-tree exclusion is a SET membership, not a substring search: the
+    # tracked text tree is tens of megabytes and a large population prints
+    # ~10^5 tokens, and `token in text` per token made the scan quadratic (a
+    # 300-document population ran for an hour). Tokenising the base tree ONCE
+    # with the same patterns, plus every money figure with its separators
+    # stripped, gives the same answer for every class in seconds.
+    base_tokens = tokens_of(tracked_text(args.base), args.digit_min, args.word_min)
+    base_all: set[str] = set().union(*base_tokens.values())
     distinctive = {
-        cls: sorted(token for token in values if token not in base_text)
+        cls: sorted(token for token in values if token not in base_all)
         for cls, values in printed.items()
     }
     lines = added_lines(args.base, args.ref)
@@ -280,14 +287,23 @@ def main(argv: list[str] | None = None) -> int:
             for number, text in enumerate(blob.splitlines(), 1):
                 lines.append((f"tree:{name}", number, text.upper()))
 
-    haystack = "\n".join(text for _, _, text in lines)
+    # The branch side is tokenised with the SAME patterns, so a match is a
+    # whole token on both sides: an OCR fragment such as `WELC` printed by a
+    # scan cannot hit inside `WELCOME`, and `26.43` cannot hit inside
+    # `1,026.43`. (Substring matching on this side, with set exclusion on the
+    # other, produced hundreds of fragment false positives per branch.)
+    line_tokens = [
+        (file, number, set().union(*tokens_of(text, args.digit_min, args.word_min).values()))
+        for file, number, text in lines
+    ]
+    haystack_tokens: set[str] = set().union(*(toks for _, _, toks in line_tokens)) if line_tokens else set()
     hits: list[dict[str, object]] = []
     for cls, tokens in distinctive.items():
         for token in tokens:
-            if token not in haystack:
+            if token not in haystack_tokens:
                 continue
-            for file, number, text in lines:
-                if token in text:
+            for file, number, toks in line_tokens:
+                if token in toks:
                     hits.append({"class": cls, "file": file, "line": number, "token": token})
     hits.sort(key=lambda h: (str(h["file"]), int(h["line"]), str(h["class"])))
 
