@@ -106,7 +106,6 @@ EXPECTED_ORDER = [
     "huntington",
     "ibc",
     "lili",
-    "linkbank",
     "mercury",
     "navigant",
     "navy_federal",
