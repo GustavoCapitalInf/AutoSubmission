@@ -44167,17 +44167,22 @@ construction and the exclusion is declared here: the branch cites project dates
 (`ratified 2026-08-15`) and the archive prints the same years as years.
 
 **The SHARED instrument, re-run at the closure tree** (`tools/privacy_scan_branch.py`
-on `main`, over the 8 + the 14, `--base 10cc722 --ref wave8-glance`). MONEY
-**0**, DATES **0**, DIGITS **0**, WORDS **22** — every hit a word BIGRAM, exit 1
-which is the instrument's design on any hit. The 22 are 14 of the grid seed
-line's `Beginning Ledger` (furniture the reader must match to read the opening
-balance), 2 of the itemised-charge column header `Description Status`, 1 of a
-section continuation header, and 5 of the category vocabulary quoted in the
-module docstring and in GL2 for the express purpose of saying the sign decision
-does not use it (finding 7). None is a customer name, a merchant, a place, an
-account or a figure. **The count is 22, not the 21 Ocean's pre-review note
-recorded** (review finding 7's fourth item): the note is superseded by this
-measurement, and the difference is a bigram, not a leak.
+on `main`, over the 8 + the 14, `--base 10cc722 --ref wave8-glance`, 4,091 added
+lines scanned at `8699457`). MONEY **0**, DATES **0**, DIGITS **0**, WORDS
+**24** — every hit a word BIGRAM, exit 1 which is the instrument's design on any
+hit. The 24 are 15 of the grid seed line's `Beginning Ledger` (furniture the
+reader must match to read the opening balance), 3 of the itemised-charge column
+header, 1 of a section continuation header, and 5 of the category vocabulary
+quoted in the module docstring and in GL2 for the express purpose of saying the
+sign decision does not use it (finding 7). None is a customer name, a merchant,
+a place, an account or a figure. Two of the 24 are this section's and GL12's own
+adjudication text quoting the furniture they adjudicate, which is the honest
+reason the count rose from the 22 measured mid-closure.
+
+**The count is 24, and it was 22 at the review tip — not the 21 Ocean's
+pre-review note recorded** (review finding 7's fourth item). The note is
+superseded by the measurement; the difference is furniture in a record, not a
+leak.
 
 Three quoted archive figures WERE found by the first run of this scan, all in
 the reader's own comments — a page-header statement date and two sub-dollar
@@ -44423,3 +44428,110 @@ The seven closure commits that follow the review are listed in GL12.
    docstring and pinned on both sides — the marked average publishes the
    statement the unmarked one publishes, and a plus on either dated balance
    declines.
+
+## GL12. Review closures — 0 BLOCK, 2 MAJOR, 5 MINOR
+
+The independent adversarial review of this card
+(`docs/moneythumb-replacement/reviews/BATCH8_GLANCE_REVIEW.md`, at tip
+`0e7f616`) returned APPROVE WITH FINDINGS: the reader's substantive claims held
+under independent measurement and the two MAJOR findings were both in the
+RECORD — one proof-floor artifact never run or never transcribed, and one safety
+claim inverted in three places, two of them tracked source. Seven closures
+follow, one commit each, under Ocean's rulings of 2026-08-26. Every number below
+was RE-MEASURED here rather than copied from the review, and two of them came
+out differently (findings 6 and 7); where they did, the measurement is what this
+section records.
+
+| # | severity | what was wrong | closed by | evidence |
+|---|---|---|---|---|
+| 1 | MAJOR | four unsubstituted placeholders in GL8, and two archive-wide zero-claims standing on them | `8699457` | probe at the closure tree, exit **0**; the sweep is the TRAIN's under Ocean's ruling and is claimed by nobody here |
+| 2 | MAJOR | "no pinned corpus document prints this template" — false, in GL5 and in two tracked source comments | `60ebc43` | family replay, exit **0**: the pinned document is claimed, kept by the edge, ambiguous without it, payload byte-identical |
+| 3 | MINOR | GL6's `killed by` column had no committed instrument | `1d5ca92` | `tools/glance_mutation_table.py`, 38 killed / 3 controls / 0 survivors, exit **0** |
+| 4 | MINOR | the sign doctrine's FOURTH case unnamed | `be3faca` | 4 of 4 documents printing the average print it marked; a test each side |
+| 5 | MINOR | `_sectioned_rows` discarded a mark that contradicted its section | `80b8181` | refused; M38 + 3 tests; movement over the 22 **0** |
+| 6 | MINOR | the direction TOTALS' tautology unnamed | `4d103b8` | named in the docstring and GL9.4; provenance re-measured |
+| 7 | MINOR | four record statements that did not hold literally | `bb3cc8e` | each re-measured; see below |
+
+**1 — the archive differential.** GL8 rewritten. The placeholders are gone, the
+two archive-wide zero-claims with them, and the section now says what is true:
+the sweep was never run at this card's tree, it is owed by the TRAIN, and what
+this card has instead is the complete enumeration of the registration's reach
+plus payload identity over everything it reaches. Neither is the sweep and the
+section no longer pretends otherwise.
+
+**2 — the pinned document.** One document in the pinned corpus surface prints
+this template (`6EFD091D`, one of the issuer cohort's 14). Measured: the new
+registration is a claimant, dispatch is `claimed/wilson_muir` with `attempted`
+empty, and with the edge dropped two claimants survive and it goes ambiguous —
+so the corpus gate's green DEPENDS on the edge. It does not move: 14 of 14
+issuer payloads byte-identical base vs branch and identical to the run of
+record's stored payload. GL5, the registry override comment and the registry-pin
+test comment all corrected; the counterfactual pinned by a test.
+
+**3 — the mutation table.** `tools/glance_mutation_table.py` refuses a tree
+carrying uncommitted changes to tracked files, re-checks cleanliness at the end,
+attributes each row's killer by wrapping the reader's gate functions, and runs
+each row's own test node under pytest. 38 killed, 3 control arms hold, 0
+survivors, 41 of 41 nodes passed, 15 distinct killers. Every attribution
+reproduces the column GL6 published.
+
+**4 — the fourth sign case.** Named in the module docstring and carried as GL11
+risk 6. Measured: 4 of the 22 print the bank's average entry and 4 of 4 print it
+MARKED, all four the family's sectioned printings.
+
+**5 — the sectioned mark.** Refused, fail-closed, with a plus that AGREES with
+its credit section still publishing the identical statement. Reachability at the
+closure tree: **1,802** rows across the sectioned-issue documents' ledger
+sections (1,889 over all 22), **0** carrying a mark of either sign — so the rule
+is unreachable in today's archive, exactly as the review measured. Movement is
+0 and is proven rather than asserted: the replay run with the PRE-CLOSURE tip
+`0e7f616` as its base moves **0 of 22** documents, 19 payloads identical and 3
+with no payload at either tree.
+
+**6 — the direction totals.** Named. The re-measurement corrected the review's
+own evidence: the provenance stamped on both directions is
+`bank_stated_reconciled`, not `bank_stated_unverified` — 19 of 19 published
+documents of the 22, and both invented fixtures in process. That is the sharper
+form of the finding, not a rebuttal: the label is stamped when the stated
+summary reconciles against the extracted rows, which this reader guarantees by
+construction, because those rows were gated on that summary.
+
+**7 — the four statements.** (a) The nine category labels DO appear in the
+module docstring; the property that is true is that none appears in the sign
+DECISION, and the fixtures' invented labels prove it independently. (b) The
+eight print THREE distinct account slots, chain sizes 1 / 3 / 4, five chain
+edges, 5 of 5 closing on the date and the figure — the headline was right, the
+population under it was not. (c) `unique_match` refuses a second DISTINCT
+printing, not a second printing; pinned on both constructions. (d) The shared
+privacy scan reports 24 word bigrams at the closure tree (22 at the review tip),
+not the 21 of Ocean's pre-review note.
+
+### The proofs, at `8699457`, exit codes verbatim
+
+| instrument | result | exit | s |
+|---|---|---:|---:|
+| `pytest -q` the branch's four test files + the baseline pin | **1,079 passed, 36 skipped** | **0** | 4.8 |
+| `python -m tools.glance_mutation_table` | 38 killed / 3 controls hold / **0 survivors**, 41 of 41 nodes passed, tree clean before and after | **0** | 61.5 |
+| `python -m tools.glance_family_replay --base 10cc722` | 5 validated/approved, 3 failed/parser_declined, 14 unchanged; payloads 14 identical / 5 new / 3 none either arm; 14 of 14 identical to the run's stored payload; ambiguous 0 at HEAD, 14 without the edge | **0** | 61.9 |
+| `python -m tools.glance_family_replay --base 0e7f616` | **0 of 22 moved**; 19 payloads identical, 3 none either arm (finding 5 moves nothing) | **0** | 79.1 |
+| `python -m tools.glance_detection_probe` over the run of record | 3,351 probed, **22 claimed**, 8 sole, 5 publish, 17 decline, **0 ambiguous** with and without the registration; scanned 165 claimed 0; Canadian 672 claimed 0 | **0** | 163.1 |
+| shared `tools/privacy_scan_branch.py` over the 8 + the 14 | MONEY **0** / DATES **0** / DIGITS **0** / WORDS **24**, all bigrams (GL7B) | 1 (by design on hits) | 3 |
+| control-byte check, every committed file at `wave8-glance` | 11 files, **0** carrying 0x00–0x08, 0x0B, 0x0C or 0x0E–0x1F | **0** | 1 |
+
+Not run, and deliberately: the full default suite, `corpus_gate.py` and the
+archive-wide sweep, all three out of scope for a closure round by Ocean's
+instruction — the first two unchanged in scope by these commits, the third owed
+by the train.
+
+### What moved in production
+
+One executable change: `_sectioned_rows` now refuses a row mark that contradicts
+its section (finding 5). Everything else in `analysis/` is docstring and comment
+— including the whole of findings 4, 6 and 7 — and `analysis/parser_registry_entries.py`
+changed by comment only. No version constant moved, no refusal was relaxed, no
+file outside the card's owned list was touched. The closure round is 7 commits,
+7 files, +1,215 / −45; the branch against `10cc722` is 11 files, +4,091 / −7.
+
+The hunk table in GL7B and the proof table in GL9B are the cell's own, at its
+final production tree BEFORE the review, and are left as the record of that
+tree; this section is the record of the closure tree.
