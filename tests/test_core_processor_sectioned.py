@@ -471,6 +471,42 @@ def test_a_zero_shaped_letter_anywhere_but_a_leading_zero_is_not_a_date(token):
     assert re.search(module._DATE_TOKEN, f" {token} 100.00") is None
 
 
+@pytest.mark.parametrize("glyph", ["O", "o"])
+def test_a_word_initial_zero_shaped_letter_is_admitted_and_the_count_check_decides(glyph):
+    """W3 §CPSCAN CPS4, corrected under review (F4). The reviewer's probe.
+
+    The class's positional restriction proves the READING is value-preserving.
+    It does NOT prove that only a scanned digit can stand in that position:
+    `_TOKEN_START` refuses a token that begins inside another one, so a
+    zero-shaped letter BEGINNING a word is admitted exactly as a scanned
+    leading zero is. This branch reads ` O3/12 100.00` as a row; the base
+    grammar, restated inline, matches nothing in it.
+
+    So the bound is not positional exclusivity. It is the row grammar —
+    whitespace, then a cents-bearing figure, inside a named ledger section —
+    and behind it the printed count, where a row this class invented is an
+    EXTRA row, a POSITIVE count delta, and a refusal of the whole document.
+    Fail-closed, and defence in depth rather than a closed class.
+
+    Traced: the refusal is `_matches_the_printed_summary`, the gate that holds
+    the ledger to the printed credit count, debit count and both totals.
+    """
+    base_grammar = r"(?<![0-9A-Za-z.,/])([0-9]{1,2}/[0-9]{1,2})(?![0-9/])"
+    assert re.search(base_grammar, f" {glyph}3/12 100.00") is None
+    assert re.search(module._DATE_TOKEN, f" {glyph}3/12 100.00") is not None
+
+    invented = swap("1001 03/12 100.00", f"1001 03/12 100.00\n{glyph}3/22 25.00")
+    assert parse(invented) is None
+
+
+@pytest.mark.parametrize("intra", ["NO3/12", "AUTO3/12", "Oo3/12"])
+def test_a_zero_shaped_letter_inside_a_word_is_still_refused(intra):
+    """The other half of the probe: the boundary holds where it was always
+    claimed to. A glyph that is not word-initial begins inside another token,
+    which is exactly what `_TOKEN_START` refuses."""
+    assert re.search(module._DATE_TOKEN, f" {intra} 100.00") is None
+
+
 @pytest.mark.parametrize("printed", ["1/1", "01/01", "9/30", "10/31", "12/29", "03/31"])
 def test_every_printed_calendar_field_still_matches(printed):
     """The calendar bound is a tightening and must not cost a real date: both

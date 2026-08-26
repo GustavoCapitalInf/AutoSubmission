@@ -43914,7 +43914,7 @@ published document, and that is a measurement rather than an argument.
 
 The correction is `_LEADING_ZERO = [0oO]`, admitted ONLY in the leading
 position of a two-character month or day, and that restriction is what makes
-it a reading rather than a repair:
+the READING value-preserving:
 
 * a printed month whose second character is the digit `d` can only have been
   `0d` or `1d`;
@@ -43927,6 +43927,24 @@ The one-shaped marks stay refused, because for them the boundary's original
 argument holds exactly as written: `l2/11` read one character in posts a
 December row in February, which is a wrong day INSIDE the period and
 therefore a mis-dating no gate downstream can see.
+
+**Corrected under review (F4): the position narrows the class, it does not
+close it, and the PRINTED COUNT is the guard.** The three clauses above are a
+proof about the READING — a zero-shaped mark in the leading position leaves
+the value alone. They are not a proof that only a scanned digit can stand
+there. `_TOKEN_START` refuses only `[0-9A-Za-z.,/|]` before a token, so a
+zero-shaped letter that BEGINS a word is admitted exactly as a scanned zero
+is: ` O3/12 100.00` matches `_ROW_RE` at this branch and matched nothing at
+base, as do the same shape after an ordinary capitalised word and the
+lower-case glyph. Intra-word cases (`…Oo3/12`, `NO3/12`, `AUTO3/12`) stay
+refused — the boundary holds there. What actually prevents an invented row is
+the row grammar (whitespace, then a cents-bearing figure, inside a named
+ledger section) and behind it the five printed checks, where an extra row is
+a POSITIVE count delta and the document refuses. That is fail-closed and
+adequate, and it is defence in depth rather than the bound this section
+originally claimed. The probe is pinned as
+`test_a_word_initial_zero_shaped_letter_is_admitted_and_the_count_check_decides`,
+and the sixth risk it implies is carried at CPS13.
 
 **The proof that the reading is exact is the archive's, not mine.**
 `9AACD0850F64…` was short one credit row and one debit row. With its three
@@ -44447,3 +44465,10 @@ no merge, no push.
    better scan; the identity closes on all thirteen that read a summary. If
    the visual rung is ever pointed at this cohort, the census and the ceiling
    instrument re-run in seconds and will say so.
+6. **The glyph class's safety rests on the printed count check, not on the
+   position alone** (the reviewer's sixth risk, added under F4). The leading
+   position makes the READING value-preserving; it does not make the class
+   unreachable by a letter that is genuinely a letter. Any future change that
+   weakens the count check — a tolerance, a fallback, a partial ledger —
+   weakens this class with it, and that dependency is now stated in the
+   class's own docstring rather than left implicit.

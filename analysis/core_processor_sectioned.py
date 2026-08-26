@@ -115,12 +115,28 @@ _SHORT_DATE = r"[0-9]{2}/[0-9]{2}/[0-9]{2}"
 #: itself, and the two letters a scan of this template renders it as.
 #:
 #: Admitted ONLY in the leading position of a two-character month or day, and
-#: that restriction is what makes this a reading rather than a repair. A
-#: printed month whose second character is the digit `d` can only have been
-#: `0d` or `1d`; a leading `1` is rendered by the one-shaped letters `l`, `I`
-#: and `|`, never by `o` or `O`; so a zero-shaped mark in that position leaves
-#: the month `d` either way. `o2/11` and `02/11` are the SAME date, and the
-#: value published does not depend on which of them the page carries.
+#: that restriction is what makes the READING value-preserving. A printed
+#: month whose second character is the digit `d` can only have been `0d` or
+#: `1d`; a leading `1` is rendered by the one-shaped letters `l`, `I` and `|`,
+#: never by `o` or `O`; so a zero-shaped mark in that position leaves the
+#: month `d` either way. `o2/11` and `02/11` are the SAME date, and the value
+#: published does not depend on which of them the page carries.
+#:
+#: What the position does NOT establish is that only a scanned digit can stand
+#: there. `_TOKEN_START` refuses a token that begins inside another one, so a
+#: zero-shaped letter that BEGINS a word is admitted exactly as a scanned zero
+#: is — `O3/12 100.00` after a space matches `_ROW_RE` here and matched
+#: nothing at all before this branch. The position narrows the class; it does
+#: not close it, and the record's earlier claim that positional exclusivity is
+#: the bound was stronger than the code (W3 §CPSCAN CPS12, F4).
+#:
+#: The guard is the PRINTED COUNT. An admitted token only becomes a row if the
+#: row grammar also finds whitespace and then a cents-bearing figure, inside a
+#: named ledger section — and a row this class invented is an EXTRA row, which
+#: shows up as a positive count delta against the printed credit or debit
+#: count and refuses the whole document. That is fail-closed, and it is
+#: defence in depth rather than positional exclusivity: any future change that
+#: weakens the count check weakens this class with it.
 #:
 #: The one-shaped letters are therefore deliberately NOT in this class:
 #: reading `l2/11` as February would move a December row by ten months, which
