@@ -43911,16 +43911,16 @@ DA6.1 priced the loss and this is the same table, run backwards:
 
 | metric on `91A2DE99` | shipped (v15) | this card |
 |---|---:|---:|
-| `lender_credits` | 0.0 | **213,750.00** |
-| `non_revenue_total` | 40,000.00 | **253,750.00** |
-| `eligible_deposits` / `withholding_denominator` | 544,927.10 | **331,177.10** |
-| `maximum_revenue` | 504,927.10 | **291,177.10** |
+| `lender_credits` | 0.0 | **a six-figure credit (the MCA disbursement, restored)** |
+| `non_revenue_total` | a five-figure total | **six figures (the lender credit now counted here)** |
+| `eligible_deposits` / `withholding_denominator` | a six-figure denominator | **lower by the lender credit (about −39%)** |
+| `maximum_revenue` | six figures | **lower by the same credit (about −42%)** |
 | `potential_revenue_count` | 7 | **6** |
 | `non_revenue_count` | 1 | **2** |
 | `lenders_detected` | 0 | **3** |
 | `lender_debit_count` | 0 | **4** |
-| `withholding_rate` | 0.0 | **6.90%** |
-| `potential_lender_debits` | 0.0 | **6,441.44** |
+| `withholding_rate` | 0.0 | **a single-digit percentage** |
+| `potential_lender_debits` | 0.0 | **a four-figure sum over the four lender debits** |
 
 Every figure returns to the side of the ledger DA6.1 said was correct, and it
 returns because the row now prints its own merchant rather than because a rule
