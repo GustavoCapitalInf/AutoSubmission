@@ -44273,3 +44273,22 @@ more than "it was the load":
    exercise the zero-amount category; every other figure, date, digit run and
    masked account form of the family's eight documents is absent from the whole
    branch diff (GL7B).
+6. **The sign doctrine has a FOURTH case, and the platform prints it** (review
+   finding 4, closed as a named risk). GL2's "three meanings, two characters,
+   resolved by column" is true of the three combinations it enumerates and is
+   not the whole rule. The bank's own `Average Balance (<basis>)` entry is a
+   BALANCE and this platform marks it: measured over the 22 by
+   `tools/glance_family_replay.py`, **4** documents print that entry and **4 of
+   4** print it with a TRAILING PLUS — all four of them the family's sectioned
+   printings, on the same physical line as the two dated balances a plus on
+   which refuses the document. `_AVERAGE_ENTRY_RE`'s branch accepts the mark and
+   reads the figure as positive; `Balance Forward From`, `Ending Balance On`, a
+   grid cell (M08) and a unified row balance all still refuse one. So the
+   reader's rule is "the column tells them apart, except on the average", and
+   the risk is stated rather than closed: a printing that marked a DATED
+   balance the way this platform already marks the average would cost the
+   document. Fail-closed, so nothing wrong is published; a document lost to a
+   printing the platform is observably capable of. Named in the module
+   docstring and pinned on both sides — the marked average publishes the
+   statement the unmarked one publishes, and a plus on either dated balance
+   declines.

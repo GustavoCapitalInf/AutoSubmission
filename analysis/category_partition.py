@@ -35,12 +35,27 @@ is refused. That identity is the first of the gates below and it is the reason
 the sign rule can be structural: the printing proposes and the arithmetic
 disposes.
 
-**Three meanings, two characters, and the column tells them apart.** A
-trailing plus on an AMOUNT is a direction. A trailing minus on a BALANCE is a
-sign — this platform prints an overdrawn balance and an overdrawn balance
-forward that way. The third combination, a trailing minus on a category
-amount, is a printing no document in the family carries, and this reader
-refuses it rather than guessing which of the two it meant.
+**Three meanings, two characters, and the column tells them apart — except on
+one entry, which the platform itself prints marked.** A trailing plus on an
+AMOUNT is a direction. A trailing minus on a BALANCE is a sign — this platform
+prints an overdrawn balance and an overdrawn balance forward that way. The
+third combination, a trailing minus on a category amount, is a printing no
+document in the family carries, and this reader refuses it rather than guessing
+which of the two it meant.
+
+The FOURTH case is the platform's own and it is an exception to the sentence
+above: the bank's `Average Balance (<basis>)` entry is a BALANCE, and every
+document of the family that prints that entry prints it with a TRAILING PLUS —
+four of the eight, measured — on the same printed line as the two dated
+balances a plus on which refuses the document. So the rule as this reader
+implements it is "the column tells them apart, except on the average": a plus
+on the average is accepted and the figure read as positive
+(`_AVERAGE_ENTRY_RE`), while a plus on `Balance Forward From`, on `Ending
+Balance On`, on a grid cell or on a row balance still refuses. The asymmetry is
+carried as a named risk rather than closed (W3 §GL11): a printing that marked a
+DATED balance the way this platform already marks the average would cost the
+document — fail-closed, so nothing wrong is published, but a document lost to a
+printing the platform is observably capable of.
 
 Two ledger shapes under one core
 --------------------------------

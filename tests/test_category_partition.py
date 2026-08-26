@@ -418,6 +418,39 @@ def test_the_collected_grids_own_seed_is_still_read_as_the_opening_balance():
 
 
 # ---------------------------------------------------------------------------
+# The fourth sign case: the one BALANCE this platform marks
+# ---------------------------------------------------------------------------
+
+def test_a_trailing_plus_on_the_banks_average_balance_is_accepted():
+    """The fourth sign case (review finding 4). The average IS a balance, and
+    every document of the family that prints the entry prints it marked — four
+    of the eight, measured. The mark is accepted and the figure read as
+    positive, so the marked and unmarked printings publish the same statement."""
+    marked = sectioned()
+    unmarked = marked.replace("Average Balance (Ledger) 44,444.44+",
+                              "Average Balance (Ledger) 44,444.44", 1)
+    assert unmarked != marked
+    assert published(marked).bank_reported_average_balance == 44444.44
+    assert published(marked).model_dump() == published(unmarked).model_dump()
+
+
+@pytest.mark.parametrize("printed,marked", [
+    ("Ending Balance On 09/30/31 58,997.63", "Ending Balance On 09/30/31 58,997.63+"),
+    ("Balance Forward From 08/29/31 41,003.77",
+     "Balance Forward From 08/29/31 41,003.77+"),
+])
+def test_a_trailing_plus_on_a_DATED_balance_still_refuses_the_document(printed, marked):
+    """The other side of the same case, and the reason it is a carried risk
+    rather than a closed one: a plus on either dated balance costs the
+    document. Fail-closed — nothing wrong is published — but the platform
+    demonstrably marks a balance, so this is a printing it could produce."""
+    document = sectioned().replace(printed, marked, 1)
+    assert document != sectioned()
+    assert cp.detect(document).claims
+    assert parse(document) is None
+
+
+# ---------------------------------------------------------------------------
 # The sectioned issue: a mark that contradicts its heading
 # ---------------------------------------------------------------------------
 
