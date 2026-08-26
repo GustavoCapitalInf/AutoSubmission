@@ -24,3 +24,4 @@ tests/corpus_cache/pages/*.json -text
 *.jpeg binary
 *.xlsx binary
 *.zip binary
+*.sh text eol=lf
