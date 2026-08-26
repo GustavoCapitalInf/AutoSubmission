@@ -43765,20 +43765,33 @@ untouched:
 `source_posting_dates` exists to prove a parser did not fold several printed
 posting days into one. It is a heuristic over text whose columns the
 flattening has destroyed, and its own docstring says it is tuned to be quiet.
-It was not quiet enough in five structural places. Four rules landed; a fifth
-was written, measured, and removed.
+It was not quiet enough in five structural places.
 
 Every rule can only REMOVE a date from the source set. `posting_dates_cover_source`
 is `source_dates - parsed_dates`, so each can take a document from failing to
 passing and none can take one from passing to failing.
 
-| # | rule | the class it refuses | documents |
-|---|---|---|---|
-| 1 | a money figure prints exactly two decimals, and the decimal mark may be a comma | `<date> 0.0000%` read as the amount `0.00`; and the whole scan going blind on French statements | 3 + (see WG3.1) |
-| 2 | a moneyless candidate inside the moneyless run a page number opens is the masthead | the statement date + holder + account line reprinted at the top of every page | 1 |
-| 3 | in the column-per-line layout the row's description is the NEXT line, so the not-a-posting labels are read there | `Beginning Balance` / `Ending Balance` printed under their own date | 3 |
-| 4 | money proximity is required of every moneyless candidate, and the lookahead stops at a column caption | a marketing sentence opening with a date; and money that belongs to the table a caption announces | 2 |
-| — | REMOVED: a remainder that is entirely a percentage is a rate line | nothing rule 1 does not already refuse | 0 |
+**CORRECTED (the review's MINOR-5, closure `WITHHELDGRIDS CLOSURE 5`).** The
+first version of this section said "Four rules landed; a fifth was written,
+measured, and removed" and printed four rows. **Five rules shipped**, and the
+fifth — the dot-leader strip plus the grid's own column caption — is the one
+that lifts `1019F3C638AB1C81`. All five are below, each with what the
+closure round then did to it.
+
+| # | rule | the class it refuses | at the reviewed tip | after the closures |
+|---|---|---|---|---|
+| 1 | a money figure prints exactly TWO decimals, and the decimal mark may be a comma | `<date> 0.0000%` read as the amount `0.00`; and the whole scan going blind on French statements | shipped | **kept** (WG3.1) |
+| 2 | a moneyless candidate inside the moneyless run a page number opens is the masthead | the statement date + holder + account line reprinted at the top of every page | shipped | **WITHDRAWN** — it removed a real printed posting day on 16 archive documents, and the ruling's own remedy makes it unreachable (WG12 §2) |
+| 3 | in the column-per-line layout the row's description is the NEXT line, so the not-a-posting labels are read there | `Beginning Balance` / `Ending Balance` printed under their own date | shipped | **kept** — 0 real days, 4 period-boundary days |
+| 4a | money proximity is required of EVERY moneyless candidate | a marketing sentence opening with a date; a masthead | shipped | **kept** — the only rule with a residual real-day loss (2 documents, WG12 §1) |
+| 4b | the money lookahead stops at a column caption | money that belongs to the table a caption announces | shipped | **DELETED** — changes 0 of 2,558 archive documents (WG12 §7) |
+| 5 | dot leaders are stripped, and the grid's own `Date....Balance` COLUMN CAPTION opens a daily-balance section | a second account's dot-leadered daily-balance grid read as postings of the published account | shipped, and **absent from this table until now** | **kept, narrowed** — the caption is read only where the leaders are printed, and the leaders are not stripped before the section HEADING (WG12 §1) |
+| — | REMOVED: a remainder that is entirely a percentage is a rate line | claimed: nothing rule 1 does not already refuse | removed | **stays removed, for a different reason** — it is not dead, and the one date it removes archive-wide is a REAL posting day (WG12 §6) |
+
+Rule 5's attribution, since it was missing: over `1019F3C638AB1C81`'s
+removals the daily-balance-section rule accounts for 2 of them; ablating the
+dot-leader strip changes 3 archive documents and ablating the caption changes
+6, on the reviewer's 1,163-document population.
 
 ### WG3.1 The comma decimal is not a nicety
 
