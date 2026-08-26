@@ -432,8 +432,9 @@ def printed_section_total_contradictions(markdown: str, stmt: Statement) -> list
     the total the page prints. There is a third case they must have an answer
     for: NEITHER reading agrees. The strict reading stands — a widened read
     that agrees with nothing is a second guess, not better evidence — and until
-    now that branch was silent. On one archive statement it takes 50.00 MORE
-    cheque money than the page's own `Total Checks` states, which is an
+    now that branch was silent. On one archive statement it takes a TWO-FIGURE
+    amount MORE cheque money than the page's own `Total Checks` states — the
+    size as a CLASS, because the figure is the document's — which is an
     over-capture, and an over-capture is worse in kind than an under-capture:
     the platform's coverage ratios express it as a number above 1.000 and
     nothing names it (W3 §SCANFINISH SF10 1b, closed here).

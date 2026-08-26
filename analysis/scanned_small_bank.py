@@ -665,11 +665,12 @@ def daily_grid_amount_contradictions(markdown: str, stmt: Statement) -> list[str
     residue. `_southside_posted_days` already consults this grid, and it
     consults it about DATES only: a reconstructed date must name a day the
     grid names. Nothing asked the grid what the day was WORTH. On one archive
-    statement that cost 3,000.00 of over-capture — a reader publishing more
+    statement that cost a FOUR-FIGURE over-capture — a reader publishing more
     debit money than the bank states, which is worse in kind than publishing
     less, and which every other check on the document was blind to because the
     row it came from was otherwise perfectly formed (W3 §SCANFINISH SF2,
-    carded there as SS-GRID-AMOUNTS).
+    carded there as SS-GRID-AMOUNTS). The size is stated as a CLASS here and
+    everywhere else in tracked source: the figure is the document's.
 
     WHAT THE GRID SAYS. It prints an end-of-day balance for each day the
     account moved, so consecutive printed cells partition the period: the step

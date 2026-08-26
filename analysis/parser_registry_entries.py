@@ -435,8 +435,8 @@ _OVERRIDES: dict[str, dict] = {
     # day the account moved, so consecutive cells partition the period and each
     # step is the bank's own statement of what the account did between them.
     # The reader consults that grid about DATES and never asked it about
-    # AMOUNTS — the gap that let one archive statement publish 3,000.00 more
-    # debit money than the bank states (W3 §SCANFINISH SF2, closed here as
+    # AMOUNTS — the gap that let one archive statement publish a FOUR-FIGURE
+    # amount more debit money than the bank states (W3 §SCANFINISH SF2, closed here as
     # SS-GRID-AMOUNTS). Registered rather than resolved in the parser, for the
     # repair doctrine's reason: neither printing is preferred.
     "southside_scanned": {
