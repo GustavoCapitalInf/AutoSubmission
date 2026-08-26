@@ -1050,6 +1050,29 @@ def test_a_dot_leadered_daily_balance_block_is_a_grid_not_a_ledger():
     }
 
 
+def test_a_dot_leadered_heading_does_not_open_a_grid_section():
+    """NEGATIVE pin (passes at base — base matched the heading on the printed
+    line too).
+
+    The leaders are read for the grid's CAPTION and not for its HEADING, and
+    that asymmetry is a measurement: stripping them before the heading match
+    as well opens a daily-balance section on two more archive documents and
+    swallows a printed posting day each of their own ledgers posts, while
+    opening nothing the caption does not already open
+    (`tools/withheldgrids_srcdates_audit.py`, the review's MAJOR-1).
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "..... Daily Balances .....",
+        "06/09 A MERCHANT 42.00 858.00",
+        "06/15 ANOTHER MERCHANT 1.00 857.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9), date(2026, 6, 15)
+    }
+
+
 def test_a_bare_date_balance_caption_does_not_open_a_grid_section():
     """NEGATIVE pin (passes at base — base had no such caption at all).
 
