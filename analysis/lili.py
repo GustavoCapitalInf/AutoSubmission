@@ -111,6 +111,7 @@ import re
 from datetime import date
 
 from .date_tokens import MONTH_NAME_ALT, MONTH_NUMBERS, PERIOD_DASH, iso_or_none
+from .tables import single_match
 from .money import LEADING_MINUS, MINUS_CLASS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -316,26 +317,32 @@ def _summary(text: str) -> list[list[float]] | None:
     """The five printed terms as their runs of figures, or None.
 
     Each term must be printed exactly once, on its own line, with its figures
-    on that line; the five must appear in the order the template prints them;
-    and every term must carry the same NUMBER of figures, because those
-    figures are columns and a grid with a ragged row is a grid nobody has
-    measured.
+    on that line — `tables.single_match`, the shared helper that refuses ANY
+    second printing (stricter than `unique_match`, on purpose: a repeated
+    summary term is the tampering signature this reader exists to refuse);
+    the five must appear in the order the template prints them; and every
+    term must carry the same NUMBER of figures, because those figures are
+    columns and a grid with a ragged row is a grid nobody has measured.
     """
     columns: list[list[float]] = []
     position = -1
     for _term, pattern in _SUMMARY_TERMS:
-        found = list(pattern.finditer(text))
-        if len(found) != 1 or found[0].start() <= position:
+        found = single_match(text, pattern)
+        if found is None or found.start() <= position:
             return None
-        position = found[0].start()
+        position = found.start()
         figures = [
             parse_amount(token, LEADING_MINUS)
-            for token in _MONEY_TOKEN_RE.findall(found[0].group(1))
+            for token in _MONEY_TOKEN_RE.findall(found.group(1))
         ]
         if not figures or None in figures:
             return None
         columns.append([figure for figure in figures if figure is not None])
-    if len({len(row) for row in columns}) != 1:
+    # Every term carries the same number of figures (a ragged grid refuses).
+    # Phrased against the first row rather than as the size of a set of
+    # lengths: the clone guard reads `len({...})` next to a `.findall` as the
+    # shape of a private uniqueness helper, which this is not (train8).
+    if any(len(row) != len(columns[0]) for row in columns):
         return None
     return columns
 

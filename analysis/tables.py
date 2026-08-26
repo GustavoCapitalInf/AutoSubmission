@@ -224,6 +224,24 @@ def section_between(markdown: str, start: str, end: str) -> str:
     return m.group("body") if m else ""
 
 
+def single_match(region: str, pattern: re.Pattern[str]) -> re.Match[str] | None:
+    """The ONE printing of `pattern` inside `region`, or None when it is not one.
+
+    Stricter than `unique_match` below, deliberately: that helper tolerates a
+    reading printed twice IDENTICALLY (a page header repeats); this one refuses
+    any second printing at all. A reader that treats a repeated summary term
+    as a document that has been tampered with — a block pasted in from another
+    statement, W3 §LILI — wants this rule, and it lives here rather than in
+    that reader because `tests/test_no_parser_helper_clones.py` names a
+    private enumerate-and-count of a pattern's matches a paraphrase of the
+    shared helpers (SCAN-HYGIENE's guard, batch 8). Composed at train8.
+    """
+    found = list(pattern.finditer(region))
+    if len(found) != 1:
+        return None
+    return found[0]
+
+
 def unique_match(region: str, pattern: re.Pattern[str]) -> re.Match[str] | None:
     """The single distinct reading of `pattern` inside `region`, or None.
 
