@@ -349,6 +349,49 @@ def _check_rows(block: str, *, year: int) -> list[Transaction]:
     return txns
 
 
+#: THE GRID'S OWN REGION, anchored on the grid's printed COLUMN HEADER and not
+#: on the two words that head it.
+#:
+#: The words `Daily Balances` also open this platform's daily-balance METHOD
+#: DISCLOSURE ("To get daily balances, we take the beginning balance ..."),
+#: which most of these documents print BEFORE the ledger. A region opened
+#: there runs through the whole account block - the summary, the check listing,
+#: every section - down to the grid, and `(<date>) (<money>)` then matches
+#: things that are not grid cells at all: a check row prints its number, its
+#: date and its amount adjacent, which is exactly the shape of a grid cell.
+#:
+#: Measured over the 106 documents of this family the run of record resolves
+#: (`tools/withheldgrids_grid_repeats.py`), the wide region produces 129 cells
+#: that give one day a DIFFERENT balance than another cell for the same day -
+#: resolved last-wins, silently, on 10 documents including all four of the
+#: grid-lift movers. Anchored on the column header, that count is 0 and the
+#: resulting grid is IDENTICAL on all 106: the anchor removes only cells that
+#: were being overwritten anyway. That is why the contradiction below can be a
+#: refusal rather than a crash the archive walks into.
+#:
+#: The anchor is REQUIRED, not a preference with a fallback: a document that
+#: prints no grid must not acquire one from the disclosure paragraph.
+_DAILY_BALANCE_GRID = re.compile(
+    r"Daily Balances\b[\s\S]{0,40}?Date\s+Amount\b(.*?)"
+    r"(?:Overdraft and Returned Item Fees|Service Charge Summary|Thank you|$)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _grid_contradiction() -> ValueError:
+    """The refusal for a grid that gives one day two different balances.
+
+    Built like every other refusal in this module (`_strptime`): the message is
+    source symbols and a measured fact, never a cell. There is nothing to
+    interpolate here at all - which day, and which two balances, are precisely
+    the customer's money (W3 §PRIVACY3).
+    """
+    return ValueError(
+        "community_section._daily_balances refused a printed daily-balance "
+        "grid: one day is given two different end-of-day balances"
+    )
+
+
 def _daily_balances(block: str) -> dict[str, float]:
     """The printed `Daily Balances` grid, as `{iso date: end-of-day balance}`.
 
@@ -361,15 +404,28 @@ def _daily_balances(block: str) -> dict[str, float]:
     each of four of them - and a day missing here is a day whose printed
     end-of-day balance never reaches `analysis/adb.py`, which is what left
     those four withheld on `running_balances_support_daily_ledger`.
+
+    A REPEATED DAY IS NOT RESOLVED BY POSITION. `balances[iso] = amount` used
+    to make the last cell win, silently, which is the one place this reader
+    CHOSE instead of reading (the review's MINOR-8, and the ADB doctrine's
+    "read what is printed, refuse on a contradiction"). A grid legitimately
+    prints a day twice - continued across a page break - and printing the same
+    balance twice is one printed fact printed twice, so it is one cell. Two
+    DIFFERENT balances for one day is the document contradicting itself, and
+    the answer to a contradiction is a refusal, not the later of the two.
     """
-    start = re.search(r"Daily Balances\b(.*?)(?:Overdraft and Returned Item Fees|Service Charge Summary|Thank you|$)", block, re.IGNORECASE | re.DOTALL)
+    start = _DAILY_BALANCE_GRID.search(block)
     if not start:
         return {}
     balances: dict[str, float] = {}
     for match in re.finditer(r"(" + _DATE + r")\s+(" + _SIGNED_MONEY + r")", _clean(start.group(1))):
         amount = _balance(match.group(2))
-        if amount is not None:
-            balances[_iso(match.group(1))] = amount
+        if amount is None:
+            continue
+        iso = _iso(match.group(1))
+        if iso in balances and balances[iso] != amount:
+            raise _grid_contradiction()
+        balances[iso] = amount
     return balances
 
 
