@@ -44167,20 +44167,21 @@ construction and the exclusion is declared here: the branch cites project dates
 (`ratified 2026-08-15`) and the archive prints the same years as years.
 
 **The SHARED instrument, re-run at the closure tree** (`tools/privacy_scan_branch.py`
-on `main`, over the 8 + the 14, `--base 10cc722 --ref wave8-glance`, 4,091 added
-lines scanned at `8699457`). MONEY **0**, DATES **0**, DIGITS **0**, WORDS
-**24** — every hit a word BIGRAM, exit 1 which is the instrument's design on any
-hit. The 24 are 15 of the grid seed line's `Beginning Ledger` (furniture the
-reader must match to read the opening balance), 3 of the itemised-charge column
+on `main`, over the 8 + the 14, `--base 10cc722 --ref wave8-glance`, 4,203 added
+lines scanned at the closure tip). MONEY **0**, DATES **0**, DIGITS **0**, WORDS
+**23** — every hit a word BIGRAM, exit 1 which is the instrument's design on any
+hit. The 23 are 15 of the grid seed line's `Beginning Ledger` (furniture the
+reader must match to read the opening balance), 2 of the itemised-charge column
 header, 1 of a section continuation header, and 5 of the category vocabulary
 quoted in the module docstring and in GL2 for the express purpose of saying the
 sign decision does not use it (finding 7). None is a customer name, a merchant,
-a place, an account or a figure. Two of the 24 are this section's and GL12's own
-adjudication text quoting the furniture they adjudicate, which is the honest
-reason the count rose from the 22 measured mid-closure.
+a place, an account or a figure.
 
-**The count is 24, and it was 22 at the review tip — not the 21 Ocean's
-pre-review note recorded** (review finding 7's fourth item). The note is
+**The count is 23 at the closure tip — not the 21 Ocean's pre-review note
+recorded** (review finding 7's fourth item), and not a fixed number: the review
+measured 22 at its own tip and this round measured 24 one commit earlier, because
+the count moves with how often the RECORD quotes the furniture it is
+adjudicating and with nothing the branch reads or publishes. The note is
 superseded by the measurement; the difference is furniture in a record, not a
 leak.
 
@@ -44503,8 +44504,10 @@ eight print THREE distinct account slots, chain sizes 1 / 3 / 4, five chain
 edges, 5 of 5 closing on the date and the figure — the headline was right, the
 population under it was not. (c) `unique_match` refuses a second DISTINCT
 printing, not a second printing; pinned on both constructions. (d) The shared
-privacy scan reports 24 word bigrams at the closure tree (22 at the review tip),
-not the 21 of Ocean's pre-review note.
+privacy scan reports 23 word bigrams at the closure TIP (24 one commit earlier,
+22 at the review's own tip), not the 21 of Ocean's pre-review note — a count
+that moves with how often the record quotes the furniture it adjudicates and
+with nothing the branch reads.
 
 ### The proofs, at `8699457`, exit codes verbatim
 
@@ -44515,8 +44518,8 @@ not the 21 of Ocean's pre-review note.
 | `python -m tools.glance_family_replay --base 10cc722` | 5 validated/approved, 3 failed/parser_declined, 14 unchanged; payloads 14 identical / 5 new / 3 none either arm; 14 of 14 identical to the run's stored payload; ambiguous 0 at HEAD, 14 without the edge | **0** | 61.9 |
 | `python -m tools.glance_family_replay --base 0e7f616` | **0 of 22 moved**; 19 payloads identical, 3 none either arm (finding 5 moves nothing) | **0** | 79.1 |
 | `python -m tools.glance_detection_probe` over the run of record | 3,351 probed, **22 claimed**, 8 sole, 5 publish, 17 decline, **0 ambiguous** with and without the registration; scanned 165 claimed 0; Canadian 672 claimed 0 | **0** | 163.1 |
-| shared `tools/privacy_scan_branch.py` over the 8 + the 14 | MONEY **0** / DATES **0** / DIGITS **0** / WORDS **24**, all bigrams (GL7B) | 1 (by design on hits) | 3 |
-| control-byte check, every committed file at `wave8-glance` | 11 files, **0** carrying 0x00–0x08, 0x0B, 0x0C or 0x0E–0x1F | **0** | 1 |
+| shared `tools/privacy_scan_branch.py` over the 8 + the 14, at the closure TIP | MONEY **0** / DATES **0** / DIGITS **0** / WORDS **23**, all bigrams (GL7B) | 1 (by design on hits) | 3 |
+| control-byte check, every committed file at the closure TIP | 11 files, **0** carrying 0x00–0x08, 0x0B, 0x0C or 0x0E–0x1F | **0** | 1 |
 
 Not run, and deliberately: the full default suite, `corpus_gate.py` and the
 archive-wide sweep, all three out of scope for a closure round by Ocean's
