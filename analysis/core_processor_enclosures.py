@@ -94,11 +94,11 @@ The blocks, and why the banner rather than the sign decides direction
 The template names each block and repaints the name on every page, so
 `tables.section_runs` over the banner alternation is the split. The banner is
 also what says which direction the block's rows post in — never the sign of
-the amount, which this platform prints inconsistently: measured over the same
-54, the debit blocks print 3,485 rows with a trailing minus and 954 without
-(the collapsed cheque grids print magnitudes), while the credit blocks print
-1,005 rows without a sign and 2 with. A reader keyed on the sign books a
-quarter of the debit side as deposits. Only the date-order issue, which prints
+the amount, which this platform prints inconsistently: measured over the 48
+published by `tools/coreenc_archive_census.py signs`, the debit blocks print
+3,730 rows with a trailing minus and 372 without (the collapsed cheque grids
+print magnitudes), while the credit blocks print 736 without a sign and NONE
+with. A reader keyed on the sign books 372 debits as deposits. Only the date-order issue, which prints
 one undivided ledger under `ACTIVITY IN DATE ORDER` / `Transaction Activity`,
 has no column to read, and there the printed sign is the only evidence there
 is.

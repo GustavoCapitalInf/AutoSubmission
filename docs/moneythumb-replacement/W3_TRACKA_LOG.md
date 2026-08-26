@@ -43739,14 +43739,28 @@ path across every capability partition of `ocr_settings_key`**. The
 `webapp_data` sqlite index was never opened, no model call was made, and the
 whole card cost $0.00.
 
-Two instruments are committed because they produce headline numbers:
+**Five instruments are committed** because they produce headline numbers — two
+at the card, three added at closure, because three of this section's numbers
+turned out to rest on scripts that were never committed (C12, C16, C18.2 and
+the C3/C7 censuses):
 
 * `tools/coreenc_family_replay.py` — replays a NAMED population through the
   real pipeline (`analysis.pipeline.analyze_markdown` deterministic +
   `analysis.serialization.report_to_dict` + `telemetry.record.classify_outcome`
   + `discovery.runner._failure_reason`) and reports the outcome class each
-  document reaches at HEAD against what the run recorded. It prints no
-  document text, amount, name, account number or date;
+  document reaches at HEAD against what the run recorded. Given
+  `--baseline-settings-key` it also LEAF-DIFFS each payload against the one the
+  run stored (C18.2). It prints no document text, amount, name, account number
+  or date;
+* `tools/coreenc_count_scope.py` — the count-scope census of C6: how far each
+  published ledger outruns each printed count, and whether the excess money is
+  exactly the figure the bank printed;
+* `tools/coreenc_archive_census.py` — four censuses over the same read:
+  `reach` (which documents this registration claims, across the whole run of
+  record — C2.1 and C4), `furniture` (C3), `signs` (C7) and `literals` (the
+  privacy scan of C16);
+* `tools/coreenc_mutation_table.py` — the mutation harness and the table of
+  C12.1;
 * `tools/regfp_zero_movement_sweep.py` — §REGFP's committed instrument, used
   unchanged, for the archive-wide zero-movement proof.
 
@@ -43830,21 +43844,51 @@ four misfiles, unchanged and unclaimed:
 
 ## C3. The template, measured
 
-Furniture census over all 58 members of the family (occurrences per document,
-counted mechanically):
+**Re-derived at closure by a committed instrument.** The table this section
+first published gave the days row as **53**, which does not reproduce, and it
+mixed two different measurements without saying so: whether a member prints a
+LABEL, and whether it prints the sentence the reader's own pattern can READ a
+value off. The three order-scrambled text layers print every label and satisfy
+almost no pattern, which is exactly where the two diverge. Both are reported
+now, each with its predicate.
+
+`python -m tools.coreenc_archive_census furniture --data-dir
+<checkout>/webapp_data --shas <the census 58>` → `EXIT=0`, all 58 read. Label
+rows are a regex over the upper-cased cached text; the four rows marked
+*(registered)* are the production module's own compiled patterns, imported
+rather than paraphrased; the BLOCK rows are counted through the module's own
+`_blocks`, so what is counted is a block the reader really splits on:
 
 | printing | members |
 |---|---|
-| `Statement Dates <m/dd/yy> thru <m/dd/yy>` | 57 |
-| `Average Ledger` (incl. `… Bal.` / `… Balance`) | 57 |
-| `Interest Paid` | 57 |
-| `Days in the/this statement period <n>` | 53 |
-| an enclosures token (`Number of Enclosures` / `Number of Images` / `Acct. Enclosures`) | 49 |
+| `Statement Dates` LABEL | 57 |
+| the period SENTENCE with both `m/dd/yy` dates *(registered)* | **54** |
+| `Average Ledger` LABEL (incl. `… Bal.` / `… Balance`) | 57 |
+| the credit-count row welded to the `Average Ledger` cell *(registered)* | **54** |
+| `Interest Paid` LABEL | 57 |
+| `Interest Paid` with a figure the reader can read *(the module's `_INTEREST_RE`)* | 56 |
+| the days LABEL, with or without a count | **57** |
+| the days sentence WITH its count *(registered)* | **56** |
+| an enclosures token (`Number of Enclosures` / `… Images` / `Acct. Enclosures`) | 49 |
 | `Average Collected` | 51 |
-| a daily-balance grid | 45 |
-| the ASCII pipe box (`Total For This Period` / `Year-to-Date`) | 28 |
+| `Total For This Period` | **2** |
+| a year-to-date counter label | **28** |
+| a daily-balance grid block the reader READS | **49** |
+| a fee-detail block, read and published as no rows | 11 |
 | a cheque/deposit IMAGE appendix | 30 |
 | a `SUMMARY …` restatement block | 12 |
+| a date-order undivided ledger | 13 |
+| a ledger header naming a running BALANCE column | 8 |
+
+Four rows moved and each is a definition rather than a surprise. **The days row
+is 57 for the label and 56 for the registered sentence; 53 is neither.** The
+period row is 57 for the label and 54 for the sentence — the 54 addressable
+members, which is what the module's docstring already says. The old "ASCII pipe
+box | 28" was measuring the year-to-date half alone: only **2** members print
+the phrase `Total For This Period`, so the pipe box is not the 28-member
+printing the row implied. And the grid row was 45 against a raw banner search;
+counted through the module's own split it is **49** blocks, of which the 40 of
+C5 also publish.
 
 Label drift, over the 54 addressable members, is complete: previous balance is
 `Previous Balance` (50) or `Balance Last Statement` (4); the day count is
@@ -44006,13 +44050,35 @@ every interest-bearing member.
 
 The template names each block and repaints the name on every page, so
 `tables.section_runs` over the banner alternation is the split, and the banner
-declares the direction — **never the sign of the amount**. Measured over the 54:
-the debit blocks print 3,485 rows with a trailing minus and 954 without (the
-collapsed cheque grids print magnitudes), the credit blocks 1,005 without a
-sign and 2 with. A reader keyed on the sign books a quarter of the debit side
-as deposits. Only the date-order issue (`ACTIVITY IN DATE ORDER`,
-`Transaction Activity`) prints one undivided ledger, and there the printed sign
-is the only evidence there is.
+declares the direction — **never the sign of the amount**.
+
+**Re-measured at closure by a committed instrument.** The four numbers this
+section first published (3,485 / 954 signed and unsigned debits, 1,005 / 2
+unsigned and signed credits) came from a census that was never committed, and
+they do not reproduce: they sum to 5,446 rows, where this reader publishes
+**5,872** (C9). `python -m tools.coreenc_archive_census signs --data-dir
+<checkout>/webapp_data --shas <the census 58>` → `EXIT=0`, 1.0 s. It walks each
+document through the module's OWN `_blocks` and `_ROLE_READING`, skipping the
+restated SUMMARY blocks exactly as `_ledger` does, and asks of each captured
+cell only whether its figure carried a minus. Over the **48 documents this
+reader publishes**:
+
+| the block the bank printed the row in | with a minus | without |
+|---|---|---|
+| a DEBIT block (sectioned withdrawals, cheque grids, summary cheques) | **3,730** | **372** |
+| a CREDIT block (deposits and other credits, summary deposits) | **0** | **736** |
+| the date-order UNDIVIDED ledger, where there is no column to read | 817 | 217 |
+
+The six add to **5,872**, which is the published row count of C9 exactly — the
+cross-check the original four numbers could not pass. The conclusion is the
+one the section already drew and is if anything stronger: on the two-column
+issues the credit side is **never** signed and the debit side is signed 91% of
+the time, so a reader keyed on the sign books 372 debits as deposits and is
+undefined on the credit side. Only the date-order issue (`ACTIVITY IN DATE
+ORDER`, `Transaction Activity`) prints one undivided ledger, and there the
+printed sign is the only evidence there is — 1,034 of the 5,872 rows. The
+design decision is independently pinned either way: M18 in the table at C12.1
+reads the direction from the sign and is killed.
 
 Three further printings each needed a rule, and each rule is the platform's own
 statement rather than a heuristic:
@@ -44305,12 +44371,28 @@ found them.
 ## C16. The privacy scan
 
 The standing rule made a measurement. From the cached text of all **71** named
-documents the scan builds every literal the rule names — **8,442** printed
-figures, **4,717** account-number-shaped runs, **710** date tokens, **14,636**
-digit-bearing alphanumeric tokens and **3,662** capitalised words that are not
-this template's own printed vocabulary, **32,167** literals in all — and
-intersects them, through the same tokenizer, with the added lines of the whole
-branch diff.
+documents the scan builds every literal the rule names and intersects them,
+through the same tokenizer, with the added lines of the whole branch diff.
+
+**Restated at closure against a committed instrument.** The figure this section
+first published — 32,167 literals, broken into 8,442 printed figures, 4,717
+account-number-shaped runs, 710 date tokens, 14,636 digit-bearing alphanumeric
+tokens and 3,662 capitalised words — came from the private scratchpad's
+`privacy_scan.py`, which was deliberately not committed, so neither the total
+nor its five classes can be checked, and a literal count is a DEFINITION before
+it is a number. The scan is now `tools/coreenc_archive_census.py literals`,
+which reports counts and prints the residual only under an explicit
+`--show-residual`, so committing it does not make it a channel for the thing it
+looks for. Its tokenizer is published in its source as six patterns: an
+amount-with-cents on either sign placement, the bare-cents form, a date token,
+a digit run of five or more, a capitalised word, and any alphanumeric token
+carrying a digit.
+
+Under that definition, over the same 71 documents: **24,709 distinct archive
+literals** (`EXIT=0`, 21.3 s). The two numbers are not in conflict and neither
+is "right" — they are two tokenizers — but only one of them can be re-derived,
+and it is the one this log now carries. The raw intersection and the residual
+at the final tree are in C19.
 
 **It found six, and all six were mine.** Two real figures in the ledger-token
 comment, two more welded into the detection marker's worked example, a real
@@ -44403,7 +44485,30 @@ measurements, and they answer the question in the order it has to be asked:
 3. **does its published payload change in any leaf?** No. Recomputed at HEAD
    against the payload the run of record stored under the baseline key:
    **51,594 leaves on each side, 0 differing, the whole payload byte-identical.**
-   It is correspondingly absent from the sweep's 48 findings;
+   It is correspondingly absent from the sweep's 48 findings.
+
+   **Re-derived at closure, and it reproduces exactly.** The leaf-diff behind
+   this row was not committed, so the review could not check the count (its own
+   flattener read 51,420, which is a different convention, not a different
+   payload). It is now a mode of the committed replay instrument:
+   `python -m tools.coreenc_family_replay --baseline-settings-key
+   24675EF0…B5CAC` loads the payload the run stored under that key, recomputes
+   at HEAD from the same artifact, flattens both to leaf PATHS and compares the
+   values — printing counts and paths only, never a value. On this document:
+   `EXIT=0`, **51,594 leaves before, 51,594 now, 0 only-before, 0 only-now, 0
+   differing**. And it is not one document: over the whole 71-document
+   population, **10** have a stored payload under the baseline key — exactly
+   the 10 issuer-held outsiders of C2.1, the only documents this card could
+   have disturbed — and across all ten it is **242,709 leaves on each side, 0
+   differing, 0 documents with a differing leaf**.
+
+   Two conventions in that flattener are load-bearing and are recorded because
+   getting them wrong manufactures a difference: a `tuple` must be walked like
+   a `list` (the stored payload comes back from JSON as lists and the
+   recomputed one carries tuples in the same places), and an EMPTY tuple must
+   normalize to an empty list. Before the second fix this instrument reported
+   698 differing leaves on a payload `json.dumps(…, sort_keys=True)` called
+   identical — a defect in the measurement, not in the payload;
 4. **does the gate agree?** Yes — `corpus_gate.py` pins every pinned document's
    full published integrity block and is GREEN at the final tree.
 

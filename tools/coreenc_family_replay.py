@@ -52,7 +52,45 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="report whether THIS registration claimed each document")
     parser.add_argument("--out", type=Path, default=None,
                         help="write the full report here")
+    parser.add_argument("--baseline-settings-key", default=None,
+                        help="the run of record's analysis settings key. Given "
+                             "it, each document's payload is also compared LEAF "
+                             "BY LEAF against the payload the run stored under "
+                             "that key: leaves before, leaves now, leaves "
+                             "differing. Paths only — no value is printed")
     return parser.parse_args(argv)
+
+
+def _leaf_paths(value: object, prefix: str = "") -> "dict[str, object]":
+    """Every scalar in a payload, keyed by its path.
+
+    The unit §COREENC C18.2 counts in. A container contributes no leaf of its
+    own, an empty one contributes a single leaf so that "the list became empty"
+    is a difference rather than a silence, and the values are compared but
+    never printed.
+    """
+    if isinstance(value, dict) and value:
+        found: dict[str, object] = {}
+        for key, item in value.items():
+            found.update(_leaf_paths(item, f"{prefix}.{key}"))
+        return found
+    # `tuple` as well as `list`: the stored payload comes back from JSON as
+    # lists and the recomputed one carries tuples in the same places, so a
+    # flattener that walked only lists would collapse every tuple into ONE leaf
+    # and report a difference between two byte-identical payloads. Measured on
+    # the pinned document: 51,594 leaves against 51,434 with 698 "differing",
+    # while `json.dumps(..., sort_keys=True)` said the two were identical.
+    if isinstance(value, (list, tuple)) and value:
+        found = {}
+        for index, item in enumerate(value):
+            found.update(_leaf_paths(item, f"{prefix}[{index}]"))
+        return found
+    # An EMPTY sequence is one leaf, so that "the list became empty" is a
+    # difference rather than a silence — and it is normalized to a list,
+    # because an empty tuple and an empty list serialize to the same JSON and
+    # comparing them raw reported 698 differences between two payloads
+    # `json.dumps(..., sort_keys=True)` called identical.
+    return {prefix: [] if isinstance(value, tuple) else value}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,8 +102,11 @@ def main(argv: list[str] | None = None) -> int:
     from discovery.runner import _failure_reason
     from ocr.document import StatementMarkdown
     from telemetry.record import classify_outcome
-    from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key
+    from webapp.artifact_cache import (
+        STAGE_ANALYSIS, STAGE_OCR, analysis_input_sha, cache_key, ocr_settings_key,
+    )
 
+    baseline = (args.baseline_settings_key or "").strip().upper()
     root = args.data_dir / "artifacts"
     ocr_keys = [
         ocr_settings_key(force_ocr=force, allow_local_ocr=local, allow_visual_ocr=visual)
@@ -123,6 +164,34 @@ def main(argv: list[str] | None = None) -> int:
             payload, error_type=error_type,
             error_reason=_failure_reason(error_type, dispatch))
         statement = (payload or {}).get("statement") or {}
+        leaves: dict[str, object] = {}
+        if baseline:
+            composed = cache_key(STAGE_ANALYSIS,
+                                 analysis_input_sha(markdown, pages), baseline)
+            stored = root / STAGE_ANALYSIS / composed[:2] / f"{composed}.json"
+            before = None
+            if stored.exists():
+                try:
+                    before = json.loads(
+                        stored.read_text(encoding="utf-8"))["artifact"]["analysis"]
+                except (OSError, ValueError, KeyError):
+                    before = None
+            if before is None:
+                leaves = {"leaves_before": None, "leaves_now":
+                          len(_leaf_paths(payload)) if payload is not None else None}
+            else:
+                stored_leaves = _leaf_paths(before)
+                current_leaves = _leaf_paths(payload or {})
+                shared = set(stored_leaves) & set(current_leaves)
+                leaves = {
+                    "leaves_before": len(stored_leaves),
+                    "leaves_now": len(current_leaves),
+                    "leaves_only_before": len(set(stored_leaves) - set(current_leaves)),
+                    "leaves_only_now": len(set(current_leaves) - set(stored_leaves)),
+                    "leaves_differing": sum(
+                        1 for path in shared
+                        if stored_leaves[path] != current_leaves[path]),
+                }
         rows.append({
             "content_sha256": sha,
             "outcome_class": outcome,
@@ -144,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             "was_outcome_class": was[0],
             "was_outcome_reason": was[1],
             "was_parser_id": was[2],
+            **leaves,
         })
 
     moved = [row for row in rows
@@ -155,6 +225,17 @@ def main(argv: list[str] | None = None) -> int:
         "moved": len(moved),
         "unmoved": len(rows) - len(moved),
     }
+    compared = [row for row in rows if row.get("leaves_before") is not None]
+    if baseline:
+        summary["leaf_compared_documents"] = len(compared)
+        summary["leaves_before_total"] = sum(int(row["leaves_before"]) for row in compared)
+        summary["leaves_now_total"] = sum(int(row["leaves_now"]) for row in compared)
+        summary["leaves_differing_total"] = sum(
+            int(row["leaves_differing"]) for row in compared)
+        summary["documents_with_a_differing_leaf"] = sum(
+            1 for row in compared
+            if row["leaves_differing"] or row["leaves_only_before"]
+            or row["leaves_only_now"])
     tally: dict[str, int] = {}
     for row in rows:
         key = f'{row.get("was_outcome_class")}/{row.get("was_outcome_reason")}' \
