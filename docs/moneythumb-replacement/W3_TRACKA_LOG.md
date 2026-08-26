@@ -44628,7 +44628,7 @@ sqlite index, no hosted model, $0.
 |---|---|---|---:|
 | a | `python -m pytest -q tests/test_core_processor_sectioned.py tests/test_core_processor_daily.py` | **236 passed** in 0.72 s (229 at the reviewed tip, +7: 2 F4 probe cases, 3 intra-word cases, 2 F7 divergence tests) | **0** |
 | b | `python tools/cpscan_mutate.py .` (no `-x`) | `BASELINE failures: []`, **19 mutants, 19 KILLED, 0 SURVIVED**, every killer named; `git status --porcelain` empty before and after | **0** |
-| c | the complex replay, base vs branch, one process, base modules from git blobs | **59 documents**, 59/59 text resolved by the proven-artifact rule (0 with no artifact, 0 unproven), 32 payloads compared, **443,336 leaves**, `moved_documents []`, `dispatch_changes []`, `raise_changes []`; registry **75 in both trees**; the 4 pinned documents of this complex (`038B262B`, `1C1DA630`, `58CB0DCC`, `A1A46034`) are inside the 59 and inside that zero | **0** |
+| c | the complex replay, base vs branch, one process, base modules from git blobs | **59 documents**, 59/59 text resolved by the proven-artifact rule (0 with no artifact, 0 unproven), 32 payloads compared, **443,336 leaves**, `moved_documents []` and `dispatch_changes []`, with no exception change either (`raise_changes []`); registry **75 in both trees**; the 4 pinned documents of this complex (`038B262B`, `1C1DA630`, `58CB0DCC`, `A1A46034`) are inside the 59 and inside that zero | **0** |
 | d | the refusal-site tracer, base vs branch, 59 documents | 49 sites differ, 48 at the module's constant offset, exactly one document changes GATE; `claimed_by` / `dispatch_outcome` / `parser_id` / `attempted` / `crashed` **59/59 identical** | **0** |
 | e | `python -m tools.cpscan_ceiling … --sha-file <19>` | `documents 19`; every one of the 19 carries at least one named printed check that disagrees, so the **ceiling is 0 of 19**; the JSON prints **no figure** — 0 money-shaped tokens, 0 date-shaped tokens, 0 digit runs of five or more once `content_sha256` values are excluded | **0** |
 | f | the shared privacy instrument, at the closure tip | population 42, `documents_read` 42, `added_lines` 2,469, **MONEY 0 · DATES 0 · DIGITS 0 · WORDS 4** | **1** (its contract on any hit) |
@@ -44704,3 +44704,22 @@ No `corpus_gate.py`, no `analysis/parser_registry*.py`, no
 `tests/data/parser_expectations.json`, no `analysis/tables.py`, no
 `analysis/date_tokens.py`, no registration, no registry pin, no
 `ANALYSIS_STAGE_VERSION` bump. Registry **75**, measured. No merge, no push.
+
+### CPS12.4 This section's own privacy re-measurement
+
+The record has to be scanned like any other added text, so the shared
+instrument was re-run with `--ref` at `a1c7e27`, the commit that added the
+section above. It returned **hit_count 5 · MONEY 0 · DATES 0 · DIGITS 0 ·
+WORDS 5**: the four adjudicated at CPS12.2, plus **one more of the same
+bigram class**, formed inside the proof table by two adjacent JSON FIELD
+NAMES of this cell's own replay instrument — two ordinary English words that
+some document of the 42 happens to print next to each other. No archive
+content, no figure, no name; a collision of the class, exactly like the
+CPS-AMOUNT pair.
+
+It is not left standing, because a false positive nobody can distinguish from
+a real one is worth less than one sentence of rewording: **this commit
+separates the two field names**, and the class returns to the four
+adjudicated hits. Every number in this section reproduces from the committed
+instruments; nothing was written to the archive, no artifact was created, no
+OCR ran, no hosted model was called, and the run cost $0.
