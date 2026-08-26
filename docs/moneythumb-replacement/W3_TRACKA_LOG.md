@@ -44608,7 +44608,7 @@ readers already take is the right span.
    REQUIRED check `posting_dates_cover_source` (`:775-776` fold that check into
    `result.ok`). On this archive the set grew and `missing` stayed empty, so no
    check, warning, ADB value or verdict moved — measured as the required-check
-   vector over all 3,380, not asserted. The risk this carries forward is that
+   vector over all 3,380, not asserted. What this carries forward is that
    an extraction card which reveals a printed posting date its parser cannot
    pair turns that check and withholds the ADB. It is not a pinned column
    (DC5).
@@ -44699,6 +44699,78 @@ normalization. Run alone on the same loaded host, the test projects **250.5
 ms** at branch HEAD and **260.6 ms** with `ocr/native_text.py` reverted to
 base — the base tree is the SLOWER of the two, against a 250 ms budget the
 branch misses by 0.5 ms and base misses by 10.6 ms.
+
+### DC10.2 The closure round's proofs, at the final tree
+
+Every row below was run after the last commit that touches code or fixtures,
+from the worktree root, exit codes verbatim. The table above is the cell's and
+the reviewer's, at their trees; this one is the closure's. The full default
+suite, `python corpus_gate.py` and the stored-text archive sweep were NOT
+re-run in this round — by instruction, and because no production line outside
+the two furniture gates and the box guard changed.
+
+| Proof | Result | Exit | s |
+|---|---|---:|---:|
+| the branch's three extraction test files | **72 passed** | **0** | 7 |
+| `tests/test_no_statement_hardcodes.py` + `tests/test_repair_guard.py` | **65 passed** | **0** | 4 |
+| `python tools/desccols_mutate.py .` | **16 applied, 15 killed, 1 named expected survivor**, restored, tree clean before and after | **0** | 122 |
+| `python -m tools.desccols_movement` over all 3,380 | 83 claimed · 3,105 declined (3,089 byte-identical to the archive's artifact) · **6 moved** · 63 lengthened / **0** replaced / **0** shortened · **0** now-raises · required-check vector all zero but `.metrics.adb.source_posting_days` | **1** (by design) | 1,784.5 |
+| `--mode gates` over all 3,380 | 2,639 regions admitted ignoring furniture · **1,506 refused by G9** · 8,594 bands · 11,868 marked lines · **0 pages refused by the box guard** | **1** (by design) | 664.6 |
+| `--mode gates --only` the 8 `core_processor_counted` | 19 regions · **10 refused by G9** · 1 by the extent clause · 7 claims falling to **5** | **1** | 0.3 |
+| `--mode fallback --stride 23` (BASE GIT BLOB `10cc722` vs branch) | 147 sampled · 6 claimed · **131 pages AND `analysis_input_sha` identical · 0 DIFFERENT** · 10 no native text | **0** | 107.6 |
+| `python -m tools.desccols_proofs pinned` | **3 claimed / 106 not claimed / 0 outcome movement / 0 leaves moved**, named by sha | **0** | 56 |
+| `python -m tools.desccols_proofs oracle` | 269 rows, paired 1:1, **138 exact / 131 prefix / 0 FOREIGN**, 0 unpaired | **0** | 185 |
+| the same `--shipped` (the before half) | 269 rows, **75 exact / 194 prefix / 0 FOREIGN** — the reviewed tip's number reproduced exactly | **0** | 128 |
+| `python -m tools.desccols_proofs furniture` | 269 rows · 2,305 published description tokens · **0 outside the oracle's span** · 567 repeated (over-inclusive) · **0 FLAGGED** | **0** | 172 |
+| `python -m tools.desccols_proofs boundary` | 49 had a payload · 34 no stored payload · **34 still refuse, 0 now publish** | **0** | 1,820 |
+| privacy: the shared instrument, the core-processor complex (31) | **0 hits** over 1,922 MONEY · 1,025 DIGITS · 2,932 WORDS · 31 DATES | **0** | 4 |
+| privacy: the shared instrument, the 5 pinned documents | see DC10.3 | | 4 |
+| privacy: the shared instrument, the claimed 83 + the 5 pinned (86) | see DC10.3 | | 5 |
+| control bytes (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F) in every committed file | see DC10.3 | | 1 |
+
+### DC10.3 The privacy re-measurement, at the final tree
+
+The shared instrument on `main`
+(`.claude/worktrees/mt-lead/tools/privacy_scan_branch.py`), `--base 10cc722
+--ref wave8-desccols`, over the branch's added lines. The cell could not run it
+— it does not exist at `10cc722` — so the review ran it first and this is its
+re-run one closure round later, on a population that has grown with the branch:
+
+| population | documents | distinctive tokens scanned | hits | exit |
+|---|---:|---|---:|---:|
+| the core-processor complex (`--where parser_id=core_processor_counted,core_processor_sectioned,core_processor_daily`) | 31 | 1,922 MONEY · 1,025 DIGITS · 2,932 WORDS · 31 DATES | **0** | 0 |
+| the 5 pinned documents the rung claimed at the reviewed tip | 5 | 610 MONEY · 320 DIGITS · 2,060 WORDS · 13 DATES | **0** | 0 |
+| the claimed 83 + those 5 (86 distinct) | 86 | 13,516 MONEY · 8,498 DIGITS · 20,074 WORDS · 306 DATES | **13** | 1 |
+
+**Zero DIGITS and zero DATES on every population, which is the load-bearing
+half**: no account number, no cheque or reference number, no authorisation
+code, no telephone digits and no statement date from any of 86 documents
+appears anywhere in the 4,609 lines this branch adds.
+
+**The thirteen, adjudicated one at a time — none is document-derived.** Five
+are MONEY and eight are WORDS. The five MONEY are three-digit round amounts
+with cents (`404.00` three times, `505.00`, `606.00`) drawn in
+`tests/test_printed_row_extraction.py` as a fixture ledger's own figures, at
+coordinates chosen in that file; four of the eight WORDS are the same fixture
+family's invented merchant whose FIRST word is an ordinary English noun; the
+remaining four are two-word sequences of ordinary English out of this log's and
+the review record's prose. A fixture cannot be built whose every token is
+absent from three thousand statements, and this is the review's own
+adjudication reached again on a larger population: **what matters is that
+nothing distinctive collided, and nothing did.** The review's count was 8 over
+76+5 documents; the five new ones are two fixture amounts and two prose
+bigrams this closure round added, plus one the larger population reached.
+
+**Recorded for the train, as the review asked:** running this instrument over
+this branch's claimed population exits **1**, and these thirteen are the
+reason. They are adjudicated here so the next scan does not re-litigate them.
+
+**Control bytes.** Every file the branch touches, read as it is COMMITTED
+(`git show wave8-desccols:<path>`) rather than as it sits in the working tree,
+checked for 0x00–0x08, 0x0B, 0x0C and 0x0E–0x1F — the classes that hide text
+from a reviewer's eye, from a grep and from the scan above. **10 files, 0 with
+a control byte** (the FROST-OZK lesson, which is also why the shared instrument
+refuses to run if its own source carries one).
 
 ## DC11 Commits
 

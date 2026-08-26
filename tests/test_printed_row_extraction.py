@@ -939,7 +939,7 @@ def test_repeated_page_furniture_on_a_posting_band_refuses_that_ledger():
         notice = [position for position, line in enumerate(printed[index])
                   if line.text == NOTICE]
         assert notice, f"page {index} does not print the notice"
-        assert set(notice) <= marks[index], "the notice must be recognised as repeated"
+        assert set(notice) <= marks[index], "G9 has to recognise it as repeated"
 
     _declined(raw)
 
