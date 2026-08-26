@@ -90,7 +90,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--baseline-settings-key", required=True)
     ap.add_argument("--paths-only", action="store_true",
                     help="print the union of differing paths and their counts")
+    ap.add_argument("--verdicts", action="store_true",
+                    help="also summarise `quality.corporate_use` transitions — which "
+                         "documents newly PUBLISH, and which stop")
     return ap.parse_args(argv)
+
+
+def _verdict(payload: object) -> str:
+    """The published class, as the corpus gate reads it.
+
+    `quality.corporate_use` is the user-facing verdict (`approved`,
+    `withheld_adb`, `review`, ...); `metrics.adb.ok` is the gate underneath it.
+    Both are our own schema, not a document literal.
+    """
+    if not isinstance(payload, dict):
+        return "?"
+    quality = payload.get("quality") or {}
+    adb = (payload.get("metrics") or {}).get("adb") or {}
+    return f"{quality.get('corporate_use')}/adb_ok={adb.get('ok')}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -119,6 +136,9 @@ def main(argv: list[str] | None = None) -> int:
     ]
 
     union: Counter[str] = Counter()
+    verdict_moves: Counter[str] = Counter()
+    verdict_shas: dict[str, list[str]] = {}
+    raised: list[str] = []
     compared = identical = 0
     for sha in shas:
         candidates: list[tuple[str, list[str]]] = []
@@ -174,9 +194,15 @@ def main(argv: list[str] | None = None) -> int:
             )
         except Exception as exc:  # noqa: BLE001 - a refusal is an answer
             print(f"{sha[:16]} payload_now_raises {type(exc).__name__}")
+            raised.append(sha[:16])
             continue
 
         compared += 1
+        if args.verdicts:
+            move = f"{_verdict(before)} -> {_verdict(after)}"
+            if _verdict(before) != _verdict(after):
+                verdict_moves[move] += 1
+                verdict_shas.setdefault(move, []).append(sha[:8])
         changes = _classify(
             _leaves(_normalised(before)), _leaves(_normalised(after))
         )
@@ -190,7 +216,15 @@ def main(argv: list[str] | None = None) -> int:
             for path, kind in changes:
                 print(f"    {kind:8s} {path}")
 
-    print(f"\ncompared={compared} identical={identical} moved={compared - identical}")
+    print(f"\ncompared={compared} identical={identical} moved={compared - identical} "
+          f"payload_now_raises={len(raised)}")
+    if args.verdicts:
+        print(f"verdict movement ({sum(verdict_moves.values())} documents):")
+        for move, count in verdict_moves.most_common():
+            print(f"  {count:4d}  {move}")
+            print(f"        {' '.join(sorted(verdict_shas[move]))}")
+        if not verdict_moves:
+            print("  none")
     print("union of differing leaf paths:")
     for path, count in union.most_common():
         print(f"  {count:4d}  {path}")

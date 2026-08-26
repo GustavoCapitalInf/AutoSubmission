@@ -44145,3 +44145,32 @@ longer finds it (WG11 item 6).
    branch. Ocean should decide whether a wider sweep of existing fixtures
    against the archive is owed — this cell's scan only covered its own 42
    documents, and it found one hit in the first file it looked at.
+
+   **CORRECTED (the review's MAJOR-3, closure `WITHHELDGRIDS CLOSURE 3`).**
+   The sentence "All three occurrences are now an invented number, and the
+   scan no longer finds it" was true of `tests/test_analysis.py` and false of
+   the repository. `git grep` for that token proves it:
+
+   | revision | files carrying the token |
+   |---|---|
+   | `10cc722` | `docs/balance-metrics-audit-results.csv` (2 occurrences) · `tests/test_analysis.py` |
+   | this branch's tip | `docs/balance-metrics-audit-results.csv` (2 occurrences) |
+
+   The test-file half of the remediation **stands, and is complete**: all
+   three occurrences in `tests/test_analysis.py` are the branch's invented
+   ten-digit number, that number occurs in 0 archive documents, and the test
+   still pins the same thing — the parsed account number equals the fixture's
+   printed one — so the substitution changed the literal and not the gate.
+
+   What remains is the two rows in `docs/balance-metrics-audit-results.csv`,
+   which are **byte-identical to `10cc722`**: this branch did not put them
+   there and has not touched that file. It is the corpus gate's pinned
+   expectations file — a TRUTH-SET file — and editing one outside an approved
+   ceremony is a STOP by the standing rules, so this cell does not edit it and
+   does not propose an edit. **Escalated to Ocean, for Gustavo:** the batch-7
+   BLOCK class was written for parser source and fixtures, and whether a
+   pinned expectations file is exempt furniture or is in scope has never been
+   ruled on. That file carries the audited documents' balances and account
+   numbers by construction, so the ruling is about the file's whole existence
+   rather than about two rows. `tools/withheldgrids_privacy_scan.py` is the
+   instrument for the wider fixture sweep this item asks for.
