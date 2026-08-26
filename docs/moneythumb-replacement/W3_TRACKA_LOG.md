@@ -43814,11 +43814,19 @@ analysed (registry 75, all 3,380 shas): 8 `core_processor_counted`, 13
 `core_processor_daily`, 10 `core_processor_sectioned` — §DESCATTRIB DA1's 31,
 reproduced.
 
-| reader | documents | claimed by the rung | text byte-identical |
-|---|---:|---:|---:|
-| `core_processor_counted` | 8 | **7** | 1 |
-| `core_processor_daily` | 13 | **0** | 13 |
-| `core_processor_sectioned` | 10 | **0** | 9 (+1 scanned, no native text) |
+| reader | documents | claimed at the reviewed tip | **claimed at the final tree** | text byte-identical |
+|---|---:|---:|---:|---:|
+| `core_processor_counted` | 8 | 7 | **5** | 3 |
+| `core_processor_daily` | 13 | 0 | **0** | 13 |
+| `core_processor_sectioned` | 10 | 0 | **0** | 9 (+1 scanned, no native text) |
+
+**Two of the seven are gone, and G9 took them** (DC12 F3). `1468D77A…` and
+`7B3B8113…` have every one of their ledger regions refused by the
+repeated-page-furniture gate, so their text is the flattening's again and they
+are not claimed. That is measured twice from opposite directions: they are
+absent from the claimed list at the final tree, and their oracle scores
+(DC3.1) are now EXACTLY their shipped scores — 17/38 and 25/23 — which is what
+"nothing moved" looks like from the truth side.
 
 **`core_processor_daily` moves nothing, and that is G8 doing its work rather
 than luck.** That template prints the amount on the row's FIRST line and the
@@ -43829,18 +43837,28 @@ and one document lost its daily-balance grid outright
 (`metrics.adb.daily_balance_sum` → null). The gate was written from that
 measurement.
 
-Description leaves moved over the 7 claimed documents:
+Description leaves moved, over the whole archive:
 
-| class | leaves |
-|---|---:|
-| **lengthened** (the old value is a PREFIX of the new) | **177** |
-| **replaced** | **39** |
-| shortened | **0** |
-| total | **216** |
+| class | at the reviewed tip | **at the final tree** |
+|---|---:|---:|
+| **lengthened** (the old value is a PREFIX of the new) | 177 | **63** |
+| **replaced** | 39 | **0** |
+| shortened | 0 | **0** |
+| total | 216 | **63** |
 
 Lengthened is the signature of a description growing back to its full printed
 form; replaced is a row that was carrying another posting's text. **None is
-shortened**: no row loses printing it was entitled to.
+shortened** on either tree: no row loses printing it was entitled to.
+
+**Every one of the 39 `replaced` leaves is gone.** That is the one number in
+this closure that argues FOR the furniture gate rather than merely pricing it:
+`replaced` is the class where a published description became something that is
+not an extension of what it was — which is what absorbing a line the row does
+not own looks like from the payload side — and after G9 there are none left on
+this archive. It does not prove the 39 were furniture (they sit on documents
+the gate also stopped claiming, so the two explanations are not separated
+here), and it is recorded as what it is: a strong coincidence pointing the
+same way as the finding.
 
 ### DC3.1 Scored against §DESCATTRIB's own oracle, not against this cell's
 
@@ -43855,15 +43873,47 @@ between:
 | | rows | exact | a prefix of the row's own printing | FOREIGN |
 |---|---:|---:|---:|---:|
 | shipped (v15, post-DESC-ATTRIB) | 269 | 75 | 194 | **0** |
-| this card | 269 | **252** | 17 | **0** |
+| this card at the reviewed tip | 269 | 252 | 17 | **0** |
+| **this card at the final tree** | 269 | **138** | 131 | **0** |
 
-**75 → 252 exact, and FOREIGN stays 0.** The +177 is exactly the 177
-`lengthened` description leaves above, arrived at from the other direction.
-The oracle paired all 269 rows 1:1 on (section, date, amount) on both trees
+**75 → 138 exact, and FOREIGN stays 0.** At the reviewed tip it was 75 → 252,
+and the difference is the whole price of the F3 closure stated on the axis the
+card exists to control: the repeated-page-furniture gate refuses the ledgers on
+two of the eight documents outright and some of the ledgers on two more, and
+those rows go back to publishing what the shipped tree published. The card
+still recovers **63 rows** from exact-matching nothing to exact-matching the
+row's own printing, and it still introduces **no FOREIGN description anywhere**
+— which is the property that cannot be traded.
+
+Per document, repaired against shipped (exact/prefix): `026EE246` 22/2 against
+0/24 · `A3539AB3` 24/6 against 0/30 · `FC385FC2` 7/2 against 0/9 · `91A2DE99`
+28/28 against 21/35 · `1ADC8AD7` 15/30 against 12/33 · and `1468D77A` 17/38,
+`7B3B8113` 25/23, `C80C0CC8` 0/2 — **identical to shipped, because the gate
+refuses them**.
+
+The oracle paired all 269 rows 1:1 on (section, date, amount) on every tree
 and refused none — so the row COUNT, dates and amounts are identical before
 and after, which is the proof that no row was split, merged, added or dropped.
 §DESCATTRIB DA3's per-document row counts (24 · 55 · 45 · 48 · 56 · 30 · 2 ·
 9) are reproduced exactly.
+
+**And the class the oracle cannot see, asked directly** (`python -m
+tools.desccols_proofs furniture`, exit 0). The oracle reads a row's truth from
+the words printed between its date and its amount, so a line absorbed off the
+row's own band is part of that truth and 0 FOREIGN cannot separate an absorbed
+row from a clean one. Over the same 269 rows and the **2,305 published
+description tokens** on them:
+
+| | tokens |
+|---|---:|
+| published description tokens | 2,305 |
+| **outside** the oracle's date→amount span | **0** |
+| printed on a line another page repeats at the same band (an over-inclusive TOKEN test) | 567 |
+| **FLAGGED — outside the span AND repeated** | **0** |
+
+Zero on the conjunction, and zero on the first half by itself: after the gate,
+no published description token on this complex is text the oracle does not find
+between that row's own date and its amount.
 
 ### DC3.2 The residue DA6.1 carded, closed
 
@@ -43882,6 +43932,16 @@ the repaired text:
 
 `1ADC8AD7`'s **8** rows are exactly DA6.1's "printed on 4 rows each" for two
 lenders, arrived at by a different route.
+
+**AT THE FINAL TREE this table is two rows shorter, and DA6.1's residue is
+only partly closed** (DC12 F3). `1468D77A…` and `7B3B8113…` are no longer
+claimed, so their gains — 5 entities / 10 evidence rows and 3 entities / 1
+evidence row — do not happen: **11 of the 38 gained evidence rows are not
+gained**. What survives is `1ADC8AD7…` (4 entities / 8 rows) and `91A2DE99…`
+(5 entities / 4 rows), which is the pair DA6.1 named as the true weekly
+schedules and the MCA disbursement. The two lost documents' published text is
+byte-identical to the shipped tree's, measured by the oracle (DC3.1), so this
+is a gain not taken rather than a wrong answer published.
 
 **The detections, one at a time.** 38 evidence rows are GAINED across the
 seven documents. Each was re-matched against the PDF word geometry, the same
@@ -43936,6 +43996,12 @@ Every figure returns to the side of the ledger DA6.1 said was correct, and it
 returns because the row now prints its own merchant rather than because a rule
 was relaxed. The document is `validated` before and after.
 
+**This table survives the F3 closure.** `91A2DE99` keeps two of its three
+ledger regions after the furniture gate and is still claimed and still moved —
+7 description leaves and 581 other leaves at the final tree, `lender_credits`
+among them (DC6). The card's own headline is the one thing the gate did not
+cost.
+
 ## DC4 Where the movement is confined
 
 `tools/desccols_movement.py` compares each claimed document's recomputed
@@ -43950,11 +44016,13 @@ from it:
 `confidence_score` · `reason` · `is_ach` · `is_loan_payment` ·
 `review_required` · the `contributes_to_*` family · the `revenue_*` family.
 
-**Unmoved on all 7:** every amount, date, direction and running balance; the
-period; the account; the currency and its provenance; every count and total;
-the daily-balance grid; `quality`, `integrity`, `reconciliation`, `escalated`,
-`model_used`; and the outcome class — all seven are `validated` before and
-after.
+**Unmoved on every mover** (7 at the reviewed tip, 6 at the final tree)**:**
+every amount, date, direction and running balance; the period; the account;
+the currency and its provenance; every count and total; the daily-balance grid;
+`quality`, `integrity`, `reconciliation`, `escalated`, `model_used`; and the
+outcome class — every one is `validated` before and after, on both trees. At
+the final tree that is not a per-document reading but the required-check vector
+the instrument prints (DC4.1).
 
 `detection` and `metrics` move, and that is the card rather than a side
 effect: the classifier reads descriptions, so the evidence lists change
@@ -44014,17 +44082,54 @@ it disabled, whole payload compared:
 
 | pinned document | claimed | outcome | payload leaves moved |
 |---|---|---|---:|
-| `BofA/BofA 2026-05-29.pdf` | yes | validated → validated | **0** |
-| `Others/Banco/Banco Popular Junio 2026.pdf` | yes | validated → validated | **0** |
-| `Regions/Regions-29-2026 (3).pdf` | yes | validated → validated | 1 |
-| `Regions/Regions_03-31-2026 (3) (1).pdf` | yes | validated → validated | 1 |
-| `US Bank/US Bank 2026-04-30 Statement.pdf` | yes | validated → validated | 1 |
+| `E5804DBB…` (`BofA/BofA 2026-05-29.pdf`) | yes | validated → validated | **0 — byte-identical** |
+| `408711BD…` (`Others/Banco/Banco Popular Junio 2026.pdf`) | yes | validated → validated | **0 — byte-identical** |
+| `BACDDDC1…` (`Regions/Regions-29-2026 (3).pdf`) | yes | validated → validated | 1 |
+| `F2028718…` (`Regions/Regions_03-31-2026 (3) (1).pdf`) | yes | validated → validated | 1 |
+| `8DC5B0D3…` (`US Bank/US Bank 2026-04-30 Statement.pdf`) | yes | validated → validated | 1 |
 | the other 104 | no | unchanged | 0 |
 
-The single leaf on the three is `metrics.adb.source_posting_days` (DC4.1).
+**The three that move one leaf are `BACDDDC1…`, `F2028718…` and `8DC5B0D3…`;
+the two that are byte-identical are `E5804DBB…` and `408711BD…`.** The single
+leaf on the three is `metrics.adb.source_posting_days` (DC4.1).
 **No pinned description moves at all** — the five documents' parsers read
 their descriptions from their own grammars and the repaired line structure
 does not change what they read.
+
+**That leaf is read by nothing that decides a pinned verdict, measured three
+ways** (DC12, the pinned-leaf ruling). The gate's pinned verdict is
+`corpus_gate._Verdict` at `corpus_gate.py:202-210` — outcome class, flags,
+notes, risk level, `possible_document_issue` — and `source_posting_days` is not
+among them. The gate reads exactly two audit CSVs (`corpus_gate.py:98-99`), and
+those two files plus `tests/data/parser_expectations.json` contain the strings
+`description` and `source_posting_days` **0 times each — six counts, all
+zero**, re-measured at this tree. And it is read by no required ADB check
+either, which is a MEASUREMENT and not a property: DC4.1 names the coupling
+that makes it one.
+
+**Ocean's ruling, written down as asked: this is a named diagnostic move, not a
+ceremony.** A leaf that moves on the truth set, is gated by nothing, moves no
+verdict and is named by content hash in this log is a disclosure, and the train
+takes it as one.
+
+**AT THE FINAL TREE the move is gone, and the pinned surface is smaller**
+(`python -m tools.desccols_proofs pinned`, exit 0):
+
+| | at the reviewed tip | **at the final tree** |
+|---|---:|---:|
+| claimed of the pinned 109 | 5 | **3** |
+| outcome movement | 0 | **0** |
+| payloads byte-identical | 2 | **3** |
+| **payload leaves moved, all documents** | **3** | **0** |
+
+The three claimed are `E5804DBB…`, `408711BD…` and `F748A799…`, every one
+`validated → validated` with **zero** leaves moved. `BACDDDC1…`, `F2028718…`
+and `8DC5B0D3…` — the exact three whose diagnostic leaf moved — are no longer
+claimed at all, because the furniture gate refuses their ledgers; `F748A799…`
+is claimed where it was not before, for the region/refusal reason DC6 states,
+and it moves nothing. **The truth set's published payloads are now
+byte-identical on every one of the 109**, and the diagnostic move the ruling
+above accepted is a disclosure the train no longer has to take.
 
 **The two measurements meet, and neither knew about the other.** All five of
 these documents' content hashes are in the archive run's claimed 76 (DC6),
@@ -44032,6 +44137,8 @@ which was computed from the discovery run's own path list rather than from the
 pinned manifest — and `8DC5B0D3…`, one of DC6's two `us_bank` single-leaf
 movers, is `US Bank/US Bank 2026-04-30 Statement.pdf` here. The pinned-side
 and archive-side counts agree, which is the independent cross-check on both.
+They still meet at the final tree, one population smaller on each side: **no
+`us_bank` document is claimed there and no pinned document moves a leaf**.
 
 **Are descriptions or that field pinned columns? No, with evidence.** The two
 audit CSVs and `tests/data/parser_expectations.json` contain the string
@@ -44042,20 +44149,58 @@ audit CSVs and `tests/data/parser_expectations.json` contain the string
 ## DC6 The archive: reach, and the byte-identity of everything else
 
 `python -m tools.desccols_movement` over the run of record's 3,380 distinct
-documents, 3,682.1s, exit 1 (it exits 1 whenever it finds movement, so a proof
-log cannot record a zero it did not measure):
+documents, exit 1 (it exits 1 whenever it finds movement, so a proof log cannot
+record a zero it did not measure):
 
-| | documents |
-|---|---:|
-| in the run of record | 3,380 |
-| the ladder answers None (no native text) | 192 |
-| **the ladder's pages are unchanged — the rung declines** | **3,112** |
-| **claimed by the rung** | **76** |
+| | at the reviewed tip | **at the final tree** |
+|---|---:|---:|
+| in the run of record | 3,380 | **3,380** |
+| the ladder answers None (no native text) | 192 | **192** |
+| the ladder's pages are unchanged — the rung declines | 3,112 | **3,105** |
+| …of those, byte-identical to the archive's own artifact | 3,096 | **3,089** |
+| **claimed by the rung** | **76** | **83** |
+| **moved** | **21** | **6** |
+| `payload_now_raises` | 0 | **0** |
+| claimed but text unchanged | 0 | **0** |
+| seconds | 3,682.1 | **1,784.5** |
 
-**76 of 3,189, or 2.4%.** Against a census where 3,156 documents weld a line,
-that is the gate doing the whole of its job: 3,080 welded documents are
+**83 of 3,189, or 2.6%.** Against a census where 3,156 documents weld a line,
+that is the gate doing the whole of its job: 3,106 welded documents are
 declined, and their analysis input is byte-identical, so their cache keys
 cannot rotate.
+
+**The claimed population moved in BOTH directions when G9 and G10 landed, and
+the direction that is not obvious is worth stating** (DC12 F3). 76 → 83 is a
+NET number. G9 refuses a REGION, and a region that is not admitted is a region
+no block can straddle — so a document that G6 previously refused OUTRIGHT
+(one page answering None refuses the whole document) can now be claimed on
+another page instead. The rung-level census counts that directly over all
+3,380: **claims lost 45, claims gained 36**, and documents refused outright
+falling from 344 to 182. Nothing about it is a loosening: the gained documents
+are repaired under every one of the ten gates, G7's token conservation checks
+each emitted page, and a block half inside an ADMITTED region still refuses the
+document.
+
+The claimed 83, by the parser that claims them (from the run's own rows): 34
+with no parser · 28 `chase` · 5 `core_processor_counted` · 4
+`community_section` · 3 `dakota_west` · 3 `symitar` · 3 `bank_of_america` · 1
+each `banco_popular` / `regions` / `first_community`. **Of the 49 with a stored
+payload, 6 move and 43 are byte-identical**; the other 34 stored no payload and
+still publish none (the boundary re-ask below). The 6 movers, by
+`content_sha256` and outcome — all six `validated` before and after:
+
+| document | parser | description leaves | other leaves |
+|---|---|---:|---:|
+| `026EE246…` | `core_processor_counted` | 22 | 134 |
+| `1ADC8AD7…` | `core_processor_counted` | 3 | 43 |
+| `91A2DE99…` | `core_processor_counted` | 7 | 581 |
+| `A3539AB3…` | `core_processor_counted` | 24 | 185 |
+| `FC385FC2…` | `core_processor_counted` | 7 | 68 |
+| `79C12676…` | `regions` | 0 | 1 (`source_posting_days`) |
+
+At the reviewed tip this table had 21 rows: the 7 counted documents and 14
+that moved `source_posting_days` alone. **Thirteen of those fourteen no longer
+move at all**, and the fourteenth is `79C12676…`.
 
 **All 76 are `digital` at intake and all 76 read `native-pdf-text` in the run
 of record.** The rung only ever takes a document the GENERIC rung had — never
@@ -44084,13 +44229,40 @@ Not one document outside the claimed set has its analysis input move by a
 byte. That is the fail-closed fallback stated as a measurement rather than as
 a property of the code.
 
+**And measured against the BASE MODULE rather than against a disabled rung**
+(DC12 F8). `python -m tools.desccols_movement --mode fallback` reads
+`ocr/native_text.py` AS OF `10cc722` out of its git blob and imports it inside
+the `ocr` package beside the branch's own, so both LADDERS run over the same
+document in one process. Switching the rung off proves the rung returns None;
+loading the base module proves the ladder's answer is the one it gave before
+this branch existed — which is the claim. Every 23rd document of the run of
+record:
+
+| | the reviewer's own script, at the reviewed tip | **committed, at the final tree** |
+|---|---:|---:|
+| sampled | 147 | **147** |
+| claimed by the rung | 5 | **6** |
+| **pages AND `analysis_input_sha` identical to BASE** | **132** | **131** |
+| **DIFFERENT** | **0** | **0** |
+| the ladder answers None both ways | 10 | **10** |
+| exit / seconds | 0 / 139 | **0 / 107.6** |
+
+131 + 6 = 137 on both trees: the single document that moves between the two
+rows moved from `identical` into `claimed` when G9 and G10 landed, and **not
+one document's analysis input differs from base on either tree**. The F8
+fail-closed guard costs no document its identity: a page whose boxes were
+malformed would fall back and appear here as a document that stopped being
+claimed, and none did.
+
 The population also discharges the stratified non-target probe the wave asks
 of a new registration: this is not a registration, but its reach is
 registration-shaped, and the probe is the whole archive — 3,380 documents,
 every scanned document and every Canadian document included, of which 3,304
 are untouched.
 
-The 76, by the parser that claims them (from the run's own rows):
+The 76 at the REVIEWED TIP, by the parser that claimed them (from the run's own
+rows) — kept because the final tree's 83 are a different population and the
+difference is the F3 closure:
 
 | parser | documents | payload |
 |---|---:|---|
@@ -44103,14 +44275,17 @@ The 76, by the parser that claims them (from the run's own rows):
 | `us_bank` | 3 | validated — 2 move 1 leaf, 1 byte-identical |
 | `banco_popular` · `community_section` · `first_community` | 1 each | validated, **byte-identical** |
 
-**21 documents move, and they divide cleanly in two.** Seven are
-`core_processor_counted` and carry all 216 description leaves and their
-derived classifications (DC3, DC4). The other **fourteen move exactly one
-leaf, and it is the same leaf on all fourteen**:
+**21 documents moved at that tip, and they divided cleanly in two.** Seven were
+`core_processor_counted` and carried all 216 description leaves and their
+derived classifications (DC3, DC4). The other **fourteen moved exactly one
+leaf, and it was the same leaf on all fourteen**:
 `.metrics.adb.source_posting_days` — the diagnostic of DC4.1, nothing else,
 on 12 `regions` and 2 `us_bank` documents. **Eighteen more claimed documents
-produce a byte-identical payload** although their text changed: their readers
+produced a byte-identical payload** although their text changed: their readers
 do not read the region the rung repaired.
+
+At the final tree that becomes 6 movers and 43 byte-identical payloads, and no
+`us_bank` document is claimed at all.
 
 **And "unchanged" is checked against the archive, not only against itself.**
 Of the 3,112 documents the rung declines, **3,096 produce pages byte-identical
@@ -44156,7 +44331,70 @@ CP-SECTIONED-SCAN's population does not move at all; and the other 14 movers
 (12 `regions`, 2 `us_bank`) belong to no batch-8 cell and move one diagnostic
 leaf each.
 
-### DC6.1 The shipped measurement is undisturbed, checked with its own oracle
+### DC6.2 What the two furniture gates refuse, counted
+
+`python -m tools.desccols_movement --mode gates` reads every page's boxes ONCE
+and asks the rung's own helpers twice — with the document's repeated-furniture
+marks and with none — so the difference IS G9's cost. Over all 3,380, exit 1,
+664.6s:
+
+| | regions |
+|---|---:|
+| admitted by G1–G8 and G10, furniture ignored | 2,639 |
+| **refused by G9** | **1,506 (57.1%)** |
+| refused with the G10 extent clause a sufficient reason | 4,131 |
+
+| | lines / bands / pages |
+|---|---:|
+| **bands G9 refuses** | **8,594** |
+| lines marked as repeated furniture inside an admitted region | 11,868 |
+| pages the furniture gate changes | 390 |
+| pages with no printed line at all | 935 |
+| **pages the F8 box guard refuses** | **0** |
+
+**The box guard fires on nothing.** Not one page of 3,380 documents has a
+malformed line box on today's PyMuPDF, which is what the review measured from
+the other side (0 `payload_now_raises`) and is why F8 is a fail-closed
+guarantee rather than a repair.
+
+**What KIND of line is being refused, because a gate that costs a mover has to
+say what it caught.** Every marked line is classed by how many pages print it
+at that band and how many tokens it holds — classes, never text:
+
+| pages printing it at that band | 2 | 3 | 4 | 5 | ≥6 |
+|---|---:|---:|---:|---:|---:|
+| archive-wide | 6,364 | 1,329 | 699 | 515 | **2,961** |
+| the `core_processor_counted` complex | **93** | 0 | 0 | 0 | 0 |
+
+| tokens on the line | 1 | 2 | 3 | 4 | 5 | ≥6 |
+|---|---:|---:|---:|---:|---:|---:|
+| archive-wide | 6,725 | 1,672 | 1,459 | 248 | 821 | 943 |
+| the complex | 25 | 68 | 0 | 0 | 0 | 0 |
+
+**Archive-wide the gate catches running furniture: 46% of the lines it marks
+repeat on three or more pages and 2,961 of them on six or more, which no
+coincidence produces.** On the core-processor complex — where this card's
+movement lives — it catches something different: all 93 marked lines repeat on
+exactly TWO pages and hold one or two tokens, which is the shape of a short
+cell colliding with itself rather than of a running header. The gate is one
+rule and it refuses both, because the rung cannot tell them apart from the page
+and the wave's rule is that it must then refuse. **That is the honest reading
+of why the movers fall from 21 to 6: on this complex most of the cost is paid
+to a shape that is probably coincidence, and the gate has no test that
+separates it.**
+
+The rung-level claim counts here (107 ignoring furniture, 98 with it, 45 lost
+and 36 gained) are NOT the ladder's 76 and 83: this census asks the rung
+directly, so it sees documents an earlier rung claims first and documents the
+generic rung's own quorum would refuse. It is an upper bound, and the ladder
+numbers in DC6 are the ones that describe production.
+
+On the complex alone (`--only`, 8 documents, exit 1, 0.3s): 19 regions admitted
+ignoring furniture, **10 refused by G9**, 1 with the extent clause sufficient,
+79 bands, 93 marked lines, 16 repaired pages falling to 7, and 7 claims falling
+to **5**.
+
+### DC6.3 The shipped measurement is undisturbed, checked with its own oracle
 
 `python -m tools.descattrib_oracle rows` at this branch HEAD, over the run of
 record: **1,090 rows on 21 documents, 981 label-only / 75 own-block / 34
@@ -44343,12 +44581,27 @@ readers already take is the right span.
    ~+1,160s on a COLD OCR pass; a warm artifact never reaches the ladder at
    all. It is the price of the geometry, and it is measured rather than
    estimated. (6 of the 199 were claimed, 3.0%, against 2.4% archive-wide.)
-3. **The repair is confined to the ledger region, and the region is found by
-   ink.** A page whose furniture happens to satisfy all nine gates would be
-   re-serialised. It cannot invent, drop or alter a token (G7), and it cannot
-   move a line the region does not contain, so the worst case is a furniture
-   block emitted as rows in the same place with the same words. Not reachable
-   on this archive as measured; recorded rather than dismissed.
+3. **A repaired row absorbs every line printed on its band left of its money,
+   and that is the RESIDUAL REACH of this seam** (DC12 F3). The card's original
+   text named only furniture forming its own region — the harmless case — and
+   the review found the other one: a line the page prints on a POSTING's band,
+   which lands between that row's date and its amount, exactly where the reader
+   looks and exactly where §DESCATTRIB's oracle reads a row's truth from, so
+   the card's headline proof cannot see it. Two gates now fail closed on the
+   shape: **G9** refuses a ledger holding a line another page prints at the
+   same band position, and **G10** refuses one holding a line outside the
+   ledger's own columns. What is left, named and pinned as intended rather than
+   latent, is a line printed ONCE, inside the columns, on a posting's band:
+   that is absorbed, because the emitted text is what the page prints on that
+   row and that is this platform's contract. The bound is repetition, and
+   nothing else.
+   **Priced** (DC3, DC3.1, DC6): the archive's movers fall 21 → 6, the oracle's
+   exact score on the complex falls 252 → 138 of 269 rows, two of the seven
+   counted documents stop being claimed and 11 of the 38 gained evidence rows
+   are not gained. **FOREIGN stays 0, every `replaced` description leaf
+   disappears, and 0 published tokens are flagged by the direct test.** A card
+   whose reach shrinks by two thirds to close a class its own oracle is blind
+   to is the trade this platform makes.
 4. **`metrics.adb.source_posting_days` moves** (DC4.1) — a count that stops
    under-reading, and NOT an inert diagnostic: `analysis/adb.py:731-741`
    computes `source_dates` once and uses it both for this leaf and for the
