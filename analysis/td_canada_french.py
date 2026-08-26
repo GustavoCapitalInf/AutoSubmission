@@ -39,13 +39,16 @@ from .money import parse_french_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
-# The balance solver and its equal-amount tie-break, consumed as they stand.
-# They read only `.amount` (absolute cents) and `.description` off the rows
-# handed to them, which is the whole of the contract `_FrenchRow` satisfies.
-# Written on one line on purpose: the private-import guard in
+# The balance-column reading of a date group, consumed as it stands. It reads
+# only `.amount` (absolute cents) and `.description` off the rows handed to it
+# and takes this issue's code readers as arguments, which is the whole of the
+# contract `_FrenchRow` and this module satisfy. It used to be two imports --
+# the solver and its equal-amount tie-break, orchestrated again here -- and the
+# second copy of the orchestration is what let the two issues drift (W3
+# §WITHHELDTD). Written on one line on purpose: the private-import guard in
 # tests/test_no_parser_helper_clones.py reads `from .x import ...` line by
 # line, and a parenthesised import would hide this dependency from it.
-from .td_can import _credit_counts_from_balances, _directions_from_credit_counts, normalize_mojibake
+from .td_can import _resolve_directions_from_balances, normalize_mojibake
 
 #: TD prints this statement's month tokens as three unaccented letters in every
 #: document measured, but the accented spellings are the correct French
@@ -296,13 +299,24 @@ _FRENCH_DIRECTION_CODES = (
 )
 
 
-def _french_credit_like(description: str) -> bool:
-    """Sign from TD's own French transaction codes, never a counterparty name."""
+def _french_direction_code(description: str) -> bool | None:
+    """What TD's own French code says this row is, or None if it says nothing.
+
+    The three-valued twin of `td_can._native_direction_code`, and for the same
+    reason: `ENVOI` and `TFR-A ` are the bank stating a withdrawal, while a row
+    matching no pattern above is the bank stating nothing, and the two are
+    different evidence when the printed balances admit more than one split.
+    """
     text = _fold(description)
     for pattern, is_credit in _FRENCH_DIRECTION_CODES:
         if pattern.search(text):
             return is_credit
-    return False
+    return None
+
+
+def _french_credit_like(description: str) -> bool:
+    """Sign from TD's own French transaction codes, never a counterparty name."""
+    return _french_direction_code(description) is True
 
 
 def _resolve_directions(
@@ -323,20 +337,20 @@ def _resolve_directions(
     evidence neither the solver nor the codes ever see — stays the gate over
     the whole result, so a code that reads a row wrongly costs the document its
     publication rather than publishing a wrong number.
+
+    The division of labour is `td_can`'s and is consumed here rather than
+    restated: this function supplies the FRENCH readers of TD's codes and
+    nothing else. Passing them is not cosmetic — the shared equal-amount
+    tie-break used to score French descriptions with the ENGLISH code table,
+    on which they match almost nothing (W3 §WITHHELDTD).
     """
-    credits = [_french_credit_like(row.description) for row in rows]
-    anchor = opening
-    for indices, closing in groups:
-        if anchor is not None:
-            counts = _credit_counts_from_balances(
-                [rows[i].amount for i in indices], _cents(closing) - _cents(anchor)
-            )
-            if counts is not None:
-                resolved = _directions_from_credit_counts([rows[i] for i in indices], counts)
-                for index, is_credit in zip(indices, resolved):
-                    credits[index] = is_credit
-        anchor = closing
-    return credits
+    return _resolve_directions_from_balances(
+        rows,
+        groups,
+        opening,
+        direction_code=_french_direction_code,
+        credit_like=_french_credit_like,
+    )
 
 
 def parse_td_canada_french_statement(

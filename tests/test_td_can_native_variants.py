@@ -35,7 +35,9 @@ F3 cheque-enclosure line  the ledger terminator is `<n> CHQS ENCLOSED`; the
                           count is statement data, and matching a literal count
                           left the ledger open past the end of the page
 F4 underdetermined group  the printed balance delta admits more than one split
-                          of the printed amounts — fail closed by design
+                          of the printed amounts; the balance still fixes the
+                          credit SUBTOTAL, and TD's own codes rank the splits
+                          that reach it (W3 §WITHHELDTD)
 F5 converted-amount row   a foreign-currency row prints its original amount
                           before the converted one
 F6 overdraft balance      a printed balance carries the `OD` suffix and is
@@ -51,8 +53,12 @@ import pytest
 from analysis.pipeline import analyze_markdown
 from analysis.reconcile import reconcile
 from analysis.td_can import (
+    _credit_count_candidates,
     _credit_counts_from_balances,
+    _credit_target,
     _MAX_GROUP_ROWS,
+    _MAX_SPLIT_CANDIDATES,
+    _native_direction_code,
     parse_native_td_canada_statement,
 )
 
@@ -236,11 +242,18 @@ ANOTHER UNCODED ROW 10.00 FEB02 50.00
 # F4 - an underdetermined group fails closed
 # ---------------------------------------------------------------------------
 
-def test_f4_underdetermined_group_does_not_reconcile():
+def test_f4_an_underdetermined_group_still_honours_the_printed_subtotal():
     """`{30}` and `{10, 20}` both reproduce the printed balance, so the grid
-    does not say which rows were deposits. The rows are still emitted with the
-    transaction-code reading, and the bank's own stated totals — which the
-    solver never reads — reject the statement."""
+    does not say WHICH rows were deposits — but it does say the deposits total
+    30.00, and that is not in doubt.
+
+    The shipped reader used to drop the subtotal along with the row question:
+    it kept the transaction-code reading, which here makes all three rows
+    debits and a group the bank printed as a zero net change into a 60.00 one.
+    That reading contradicts the page. The reader now keeps the subtotal and
+    changes as little as the arithmetic requires — one row rather than two —
+    and the bank's own printed COUNTS, which the chooser never reads, agree
+    (W3 §WITHHELDTD)."""
     md = _statement("""
 BALANCE FORWARD JAN31 100.00
 FIRST UNCODED ROW 10.00 FEB01
@@ -248,10 +261,26 @@ SECOND UNCODED ROW 20.00 FEB01
 THIRD UNCODED ROW 30.00 FEB01 100.00
 """, credits="1 30.00", debits="2 30.00")
     stmt = parse_native_td_canada_statement(md)
-    # the code reading: nothing here carries a TD credit code, so all debits
-    assert _amounts(stmt) == [-10.0, -20.0, -30.0]
-    assert not reconcile(stmt).ok
-    assert not analyze_markdown(md).reconciliation.ok
+    assert _amounts(stmt) == [-10.0, -20.0, 30.0]
+    assert reconcile(stmt).ok
+    assert analyze_markdown(md).reconciliation.ok
+
+
+def test_f4_the_printed_counts_are_never_read_by_the_chooser():
+    """The same ledger with the counts printed the OTHER way round is read
+    identically — the chooser ranks on the balance and the codes, and the
+    counts stay an independent oracle over the answer (they now disagree, and
+    the platform says so rather than the parser bending to them)."""
+    md = _statement("""
+BALANCE FORWARD JAN31 100.00
+FIRST UNCODED ROW 10.00 FEB01
+SECOND UNCODED ROW 20.00 FEB01
+THIRD UNCODED ROW 30.00 FEB01 100.00
+""", credits="2 30.00", debits="1 30.00")
+    stmt = parse_native_td_canada_statement(md)
+    assert _amounts(stmt) == [-10.0, -20.0, 30.0]
+    assert stmt.stated_credit_count == 2
+    assert sum(1 for t in stmt.transactions if t.direction == "credit") == 1
 
 
 def test_f4_ambiguity_does_not_leak_into_neighbouring_groups():
@@ -366,16 +395,68 @@ MONTHLY PLAN FEE 10.00 FEB01
 # ---------------------------------------------------------------------------
 
 class TestC1AdditiveCreditCodes:
-    """TD prints these three; the parser read none of them as credits.
+    """TD prints these codes; the parser read only half of them.
 
     Each has a sibling printed in the same position by the same channel and
     meaning the opposite, which is what makes the code — and not the wording
-    around it — the evidence. The group below is deliberately underdetermined
-    (`{30}` and `{10, 20}` both reproduce the printed balance), because that is
-    the only place a transaction code decides anything: where the grid can
-    answer, it outranks the code, and the last test pins that it still does.
+    around it — the evidence. Both halves are now READ: `_native_direction_code`
+    answers True, False or None, and the third value is the point. A row TD
+    labelled a withdrawal and a row TD labelled nothing were the same answer to
+    the shipped reader, and `_split_supported_by_codes` ranks on exactly that
+    difference (W3 §WITHHELDTD).
+
+    The vocabulary is asserted directly rather than through a document, for the
+    reason the marker-boundary cases below make plain: in a document the
+    printed balance fixes the credit subtotal first, so a fixture can only show
+    a code CHANGING an answer where two admissible splits disagree about a row
+    the code speaks for. Both kinds of test are here.
     """
 
+    @pytest.mark.parametrize("description,code", [
+        # The e-transfer pair: the direction is the leading verb.
+        ("E-TFR ***a1B EPAY", True),
+        ("E-TRANSFER ***a1B EPAY", True),
+        ("SEND E-TFR ***a1B", False),
+        # ...and the two forms TD leads with their own verb, which state
+        # nothing about the direction and are left to the printed balances.
+        ("CANCEL E-TFR ***a1B", None),
+        ("RECLAIM E-TFR ***a1B", None),
+        # The machine pair.
+        ("TD ATM DEP 000000", True),
+        ("TD ATM W/D 000000", False),
+        # The deposit-channel pair; the unit number is statement data.
+        ("GC 0000-DEPOSIT", True),
+        ("GC 0000-CASH WITHDRA", False),
+        # The account-transfer pair.
+        ("UI494 TFR-FR 1111111", True),
+        ("UW503 TFR-TO 1111111", False),
+        # Trailing structural codes.
+        ("SOMEWHERE INC MSP", True),
+        ("SOMEWHERE INC CLN", True),
+        ("SOMEWHERE INC PAY", True),
+        ("SOMEWHERE INC GST", True),
+        ("SOMEWHERE INC BUS", False),
+        # Marker boundaries. Each of the four exists because a mutation of the
+        # rule survived every other test in this file:
+        #   E-TFRFEE ...        `startswith("E-TFR")` without the trailing space
+        #   ACME E-TFR CORP     `"E-TFR " in text` (matched anywhere)
+        #   REVERSAL TD ATM DEP `"TD ATM DEP" in text`
+        #   REVERSAL GC n-DEP.  `_GC_DEPOSIT_RE.search` instead of `.match`
+        # The native text layer collapses column gaps, so a joined token is the
+        # standing risk in this parser: `E-TFRFEE` is not `E-TFR`.
+        ("E-TFRFEE ***a1B", None),
+        ("ACME E-TFR CORP", None),
+        ("REVERSAL TD ATM DEP 000000", None),
+        ("REVERSAL GC 0000-DEPOSIT", None),
+        ("REVERSAL GC 0000-CASH WITHDRA", None),
+        # A counterparty name is never a code, whichever way it usually falls.
+        ("UNLISTED VENDOR ABC", None),
+        ("UNLISTED EXAMPLE ROW", None),
+    ])
+    def test_the_code_vocabulary(self, description, code):
+        assert _native_direction_code(description) is code
+
+    #: A group the printed balance leaves open between `{30}` and `{10, 20}`.
     LEDGER = """
 BALANCE FORWARD JAN31 100.00
 FIRST UNCODED ROW 10.00 FEB01
@@ -388,55 +469,39 @@ SECOND UNCODED ROW 20.00 FEB01
             _statement(self.LEDGER.format(row=row))
         ))
 
-    def test_an_incoming_e_transfer_is_a_credit(self):
-        # `SEND E-TFR ...` leaves the account; a bare `E-TFR ...` arrives in
-        # it. Only the spelled-out `E-TRANSFER` was ever read.
-        assert self._read("E-TFR ***a1B EPAY") == [-10.0, -20.0, 30.0]
+    def test_an_uncoded_third_row_takes_the_smallest_change(self):
+        """The baseline the two tests below are measured against: with no code
+        anywhere, the reader honours the printed subtotal by moving ONE row."""
+        assert self._read("UNLISTED VENDOR ABC") == [-10.0, -20.0, 30.0]
 
-    def test_an_outgoing_e_transfer_is_still_a_debit(self):
-        assert self._read("SEND E-TFR ***a1B") == [-10.0, -20.0, -30.0]
+    def test_a_withdrawal_code_moves_the_deposit_off_that_row(self):
+        """TD labelled the 30.00 row a withdrawal, and the balance says the
+        deposits total 30.00, so the deposits are the 10.00 and the 20.00. The
+        smallest-change reading would have put the deposit on the labelled row;
+        a code the bank PRINTED outranks it."""
+        assert self._read("SEND E-TFR ***a1B") == [10.0, 20.0, -30.0]
 
-    def test_a_deposit_at_a_td_machine_is_a_credit(self):
-        assert self._read("TD ATM DEP 000000") == [-10.0, -20.0, 30.0]
+    def test_the_sibling_withdrawal_codes_do_the_same(self):
+        """The half of each channel pair that was previously unread. Without
+        them these two rows fell through to the default and were indexed as
+        "TD says nothing", which is how a printed withdrawal could be handed
+        the deposit label."""
+        assert self._read("TD ATM W/D 000000") == [10.0, 20.0, -30.0]
+        assert self._read("GC 0000-CASH WITHDRA") == [10.0, 20.0, -30.0]
 
-    def test_a_withdrawal_at_the_same_machine_is_not(self):
-        assert self._read("TD ATM W/D 000000") == [-10.0, -20.0, -30.0]
+    def test_a_deposit_code_keeps_the_deposit_on_its_row(self):
+        """The other half of each pair, in the same fixture: the code reading
+        already reaches the printed subtotal, so the reading it produces stands
+        unchanged and no candidate is ever ranked."""
+        for row in ("E-TFR ***a1B EPAY", "TD ATM DEP 000000", "GC 0000-DEPOSIT"):
+            assert self._read(row) == [-10.0, -20.0, 30.0]
 
-    def test_a_deposit_channel_row_is_a_credit(self):
-        assert self._read("GC 0000-DEPOSIT") == [-10.0, -20.0, 30.0]
-
-    def test_the_same_channels_cash_withdrawal_is_not(self):
-        # The unit number is statement data, so the marker cannot contain it;
-        # the direction is the printed suffix, and this is the other suffix.
-        assert self._read("GC 0000-CASH WITHDRA") == [-10.0, -20.0, -30.0]
-
-    # Each code is a whole leading TOKEN of the description, because that is
-    # where TD prints the channel: at the start of its own column. The four
-    # tests below are the ones that say so, and each exists because a mutation
-    # of the rule survived every other test in this file:
-    #
-    #   E-TFRFEE ...        `startswith("E-TFR")` without the trailing space
-    #   ACME E-TFR CORP     `"E-TFR " in text` (matched anywhere)
-    #   REVERSAL TD ATM DEP `"TD ATM DEP" in text`
-    #   REVERSAL GC n-DEP.  `_GC_DEPOSIT_RE.search` instead of `.match`
-    #
-    # None of them can be rescued by the `SEND E-TFR` guard, which is what made
-    # `test_an_outgoing_e_transfer_is_still_a_debit` insufficient on its own.
-
-    def test_a_longer_token_that_merely_begins_with_the_code_is_not_a_transfer(self):
-        # The native text layer collapses column gaps, so a joined token is the
-        # standing risk in this parser: `E-TFRFEE` is not `E-TFR`.
-        assert self._read("E-TFRFEE ***a1B") == [-10.0, -20.0, -30.0]
-
-    def test_the_transfer_code_must_open_the_description(self):
-        assert self._read("ACME E-TFR CORP") == [-10.0, -20.0, -30.0]
-
-    def test_the_atm_code_must_open_the_description(self):
-        # A reversal of a deposit is not a deposit.
-        assert self._read("REVERSAL TD ATM DEP 000000") == [-10.0, -20.0, -30.0]
-
-    def test_the_deposit_channel_code_must_open_the_description(self):
-        assert self._read("REVERSAL GC 0000-DEPOSIT") == [-10.0, -20.0, -30.0]
+    def test_a_marker_that_does_not_open_the_description_is_not_a_code(self):
+        """The document-level half of the boundary cases: none of these four
+        may act as a withdrawal code, so each reads as the uncoded baseline."""
+        for row in ("E-TFRFEE ***a1B", "ACME E-TFR CORP",
+                    "REVERSAL TD ATM DEP 000000", "REVERSAL GC 0000-DEPOSIT"):
+            assert self._read(row) == [-10.0, -20.0, 30.0]
 
     def test_the_printed_balance_still_outranks_the_new_codes(self):
         # 100.00 - 40.00 - 10.00 = 50.00. The grid says the incoming-transfer
@@ -602,3 +667,202 @@ CAD DRAFT 11512638 40.00 FEB01 60.00
         stmt = parse_native_td_canada_statement(_statement(self.LEDGER))
         assert "EVERY DAY" in _statement(self.LEDGER)
         assert stmt.account_name == "BUSINESS CHEQUING ACCOUNT - CAD"
+
+
+# ---------------------------------------------------------------------------
+# W3 §WITHHELDTD — the printed balance is the authority, and the codes rank the
+# readings it admits. Each test below names the gate it pins; the mutation
+# table in the log names the mutant each one kills.
+# ---------------------------------------------------------------------------
+
+class TestPrintedBalanceOutranksTheCodes:
+    def test_the_target_is_the_printed_change_and_nothing_else(self):
+        """`(delta + S) / 2`, in cents. 40 out, 10 in, printed change −30."""
+        assert _credit_target([4000, 1000], -3000) == 1000
+
+    @pytest.mark.parametrize("amounts,delta,why", [
+        ([4000, 1001], -3000, "odd parity: no integer-cent split produces it"),
+        ([4000, 1000], 6000, "target above the group's own total"),
+        ([4000, 1000], -6000, "target below zero"),
+        ([], 0, "an empty group states nothing"),
+        ([1] * (_MAX_GROUP_ROWS + 1), 0, "more rows than the bound admits"),
+    ])
+    def test_the_target_refuses_rather_than_inventing_one(self, amounts, delta, why):
+        assert _credit_target(amounts, delta) is None, why
+
+    def test_the_candidates_all_reach_the_printed_target(self):
+        candidates = _credit_count_candidates([3000, 2000, 1000], 0)
+        assert candidates and len(candidates) == 2
+        for counts in candidates:
+            assert sum(value * n for value, n in counts.items()) == 3000
+
+    def test_a_target_nothing_reaches_yields_no_candidates(self):
+        """A target inside `[0, S]` that no subset of the printed amounts can
+        make: 15.00 out of rows of 20.00 and 10.00. In range, and unreachable —
+        so the printed balance and the printed amounts disagree, and the reader
+        says nothing rather than choosing the nearest."""
+        assert _credit_target([2000, 1000], 0) == 1500
+        assert _credit_count_candidates([2000, 1000], 0) == []
+
+    def test_a_zero_amount_row_is_not_a_dimension_of_the_search(self):
+        """A genuine `$0.00` posting (a returned ACH) reaches this parser. The
+        arithmetic has nothing to say about its column — calling it a deposit
+        changes no subtotal — so it is not searched over, and the candidate
+        carries no entry for it. Two consequences, both deliberate: there is no
+        `left // value` that can divide by zero, and a `$0.00` row TD coded as
+        a deposit is published as a withdrawal on a group this branch reaches.
+        No money moves either way, and the bank's printed COUNT says so."""
+        assert _credit_count_candidates([1000, 0], 1000) == [{1000: 1}]
+        assert _credit_count_candidates([1000, 0, 0], 1000) == [{1000: 1}]
+
+    def test_a_group_of_nothing_but_zero_rows_does_not_raise(self):
+        """The degenerate shape the guard above used to exist for."""
+        assert _credit_count_candidates([0, 0], 0) == [{}]
+
+    def test_the_enumeration_reports_its_own_bound_rather_than_running_long(self):
+        """Fifty distinct powers-of-two-ish amounts reach one target in far
+        more ways than `_MAX_SPLIT_CANDIDATES`; the walk stops and says so, and
+        `None` is not `[]` — "more work than a parser may do" is a different
+        answer from "no reading exists"."""
+        amounts = [100 + 2 * i for i in range(40)]
+        delta = 0            # target = half the group's total
+        result = _credit_count_candidates(amounts, delta)
+        assert result is None
+        assert _MAX_SPLIT_CANDIDATES > 1     # the bound admits the "exactly one" test
+
+    def test_a_bounded_out_group_keeps_the_code_reading(self):
+        """The whole-document consequence of the bound: no invention, and the
+        reading the shipped parser produces today."""
+        rows = "\n".join(
+            f"UNCODED ROW {i:02d} {100 + 2 * i}.00 FEB01" for i in range(40)
+        )
+        total = sum(10000 + 200 * i for i in range(40)) / 100
+        stmt = parse_native_td_canada_statement(_statement(
+            f"BALANCE FORWARD JAN31 {total:.2f}\n{rows}\nLAST UNCODED ROW 5.00 FEB01 {total:.2f}\n"
+        ))
+        # every row a debit — the code reading, untouched by the enumeration
+        assert all(t.amount < 0 for t in stmt.transactions)
+
+    def test_a_group_whose_codes_already_match_the_page_is_left_exactly_alone(self):
+        """The byte-identity property the archive replay rests on: where the
+        code reading reproduces the printed change, no candidate is ranked and
+        the reading is the one the shipped parser produced."""
+        md = _statement("""
+BALANCE FORWARD JAN31 100.00
+FIRST UNCODED ROW 10.00 FEB01
+SECOND UNCODED ROW 20.00 FEB01
+SOMEWHERE INC MSP 30.00 FEB01 100.00
+""")
+        assert _amounts(parse_native_td_canada_statement(md)) == [-10.0, -20.0, 30.0]
+
+    def test_a_group_the_page_contradicts_on_parity_is_left_to_the_codes(self):
+        """101.00 − 100.00 = 1.00 against amounts of 10 and 20: `delta + S` is
+        odd, so no split of these amounts produces the printed change. A row is
+        missing or misread, the arithmetic refuses, and nothing is invented."""
+        md = _statement("""
+BALANCE FORWARD JAN31 100.00
+FIRST UNCODED ROW 10.01 FEB01
+SECOND UNCODED ROW 20.00 FEB01 101.00
+""")
+        assert _amounts(parse_native_td_canada_statement(md)) == [-10.01, -20.0]
+
+    def test_the_reading_is_the_same_on_every_run(self):
+        """A ranking with an unstable tie-break would publish a different
+        ledger on a different dict ordering."""
+        md = _statement("""
+BALANCE FORWARD JAN31 100.00
+FIRST UNCODED ROW 10.00 FEB01
+SECOND UNCODED ROW 10.00 FEB01
+THIRD UNCODED ROW 20.00 FEB01
+FOURTH UNCODED ROW 20.00 FEB01 100.00
+""")
+        readings = {tuple(_amounts(parse_native_td_canada_statement(md))) for _ in range(8)}
+        assert len(readings) == 1
+
+
+class TestATieBeyondEveryOracleRefuses:
+    """Review MAJOR-2. Four rows of 400, 300, 200 and 100 across a printed
+    change of zero: the deposits must total 500.00, and `{300, 200}` and
+    `{400, 100}` both reach it, both contradict no printed code, both move two
+    rows off the default — and both call TWO rows deposits, so the bank's own
+    printed COUNT cannot tell them apart either.
+
+    Nothing the document prints separates the two readings, so the reader does
+    not choose one. It leaves the group on the code reading, which here does
+    not reproduce the printed change, and the ledger therefore does not close:
+    the document withholds instead of publishing a coin toss.
+    """
+
+    LEDGER = """
+BALANCE FORWARD JAN31 100.00
+FIRST UNCODED ROW 400.00 FEB01
+SECOND UNCODED ROW 300.00 FEB01
+THIRD UNCODED ROW 200.00 FEB01
+FOURTH UNCODED ROW 100.00 FEB01 100.00
+"""
+
+    def test_both_readings_are_admissible_and_count_alike(self):
+        candidates = _credit_count_candidates([40000, 30000, 20000, 10000], 0)
+        assert len(candidates) == 2
+        for counts in candidates:
+            assert sum(value * n for value, n in counts.items()) == 50000
+            assert sum(counts.values()) == 2
+
+    def test_the_group_is_left_on_the_code_reading(self):
+        stmt = parse_native_td_canada_statement(_statement(self.LEDGER))
+        assert _amounts(stmt) == [-400.0, -300.0, -200.0, -100.0]
+
+    def test_and_the_document_does_not_publish(self):
+        md = _statement(self.LEDGER, credits="2 500.00", debits="2 500.00")
+        assert not reconcile(parse_native_td_canada_statement(md)).ok
+        assert not analyze_markdown(md).reconciliation.ok
+
+    def test_a_code_on_one_row_breaks_the_tie_and_the_ledger_closes(self):
+        """The same four amounts with TD's own withdrawal code on one row:
+        `{400, 100}` now contradicts a printed code and `{300, 200}` does not,
+        so the page decides and the document publishes."""
+        md = _statement(
+            self.LEDGER.replace("FIRST UNCODED ROW", "SEND E-TFR ***a1B"),
+            credits="2 500.00", debits="2 500.00",
+        )
+        stmt = parse_native_td_canada_statement(md)
+        assert _amounts(stmt) == [-400.0, 300.0, 200.0, -100.0]
+        assert reconcile(stmt).ok
+
+    #: Not every tie is unbreakable, and building one that is not takes care.
+    #: With every row uncoded, "rows moved off the default" IS the credit count,
+    #: so two readings that tie on it cannot differ in count. Writing
+    #: `moved = k + C - 2j` and `contradictions = (C - j) + d` over k credited
+    #: rows, j of them credit-coded and d of them debit-coded, a tie on both
+    #: keys needs `k1 - k2 = 2(j1 - j2)` and `d1 - d2 = j1 - j2` — one reading
+    #: credits one more credit-coded row AND one more debit-coded row than the
+    #: other, and two more rows in total. This is the smallest such ledger:
+    #: `{300}` against `{100, 100, 100}`, both totalling the printed 300.00
+    #: deposit subtotal, both contradicting two printed codes, both moving two
+    #: rows — and calling ONE row a deposit against THREE.
+    SEPARABLE = """
+BALANCE FORWARD JAN31 100.00
+UNLISTED ALPHA MSP 300.00 FEB01
+UNLISTED BETA MSP 100.00 FEB01
+UNLISTED GAMMA MSP 100.00 FEB01
+SEND E-TFR ***a1B 100.00 FEB01 100.00
+"""
+
+    def test_a_tie_the_printed_counts_can_separate_is_not_refused(self):
+        """The printed credit count is 3 on one reading and 1 on the other, so
+        the bank's own footer can certify the choice. Both keys being spent,
+        the enumeration's fixed order decides — and refusing here would
+        withhold a document the evidence CAN settle."""
+        candidates = _credit_count_candidates([30000, 10000, 10000, 10000], 0)
+        assert sorted(sum(c.values()) for c in candidates) == [1, 3]
+        stmt = parse_native_td_canada_statement(_statement(self.SEPARABLE))
+        assert _amounts(stmt) == [-300.0, 100.0, 100.0, 100.0]
+
+    def test_and_the_printed_count_is_what_certifies_it(self):
+        """Printed `Credits 3`: the reading agrees and the document publishes.
+        The chooser never reads that footer — it is the check, not the input,
+        and on the other reading it would have said so."""
+        md = _statement(self.SEPARABLE, credits="3 300.00", debits="1 300.00")
+        stmt = parse_native_td_canada_statement(md)
+        assert sum(1 for t in stmt.transactions if t.direction == "credit") == 3
+        assert reconcile(stmt).ok

@@ -53,6 +53,7 @@ from analysis.pipeline import analyze_markdown
 from analysis.reconcile import reconcile
 from analysis.td_canada_french import (
     _french_credit_like,
+    _french_direction_code,
     detect,
     parse_td_canada_french_statement,
 )
@@ -597,15 +598,49 @@ class TestF7DirectionCodes:
                      credits="1 30,00", debits="2 30,00")
         assert amounts(stmt) == [30.0, -20.0, -10.0]
 
-    def test_a_counterparty_name_is_not_a_code_and_the_document_fails_closed(self):
+    def test_a_counterparty_name_is_not_a_code(self):
         """Same three-row shape, same amounts, same undetermined balances. Only
         the first description differs, and it is a merchant rather than one of
         TD's codes — over the corpus the printed balances make that name 53
-        credits against 42 debits, so it is not evidence."""
+        credits against 42 debits, so it is not evidence.
+
+        It plays no part in the reading, and the reading is nevertheless the
+        same as the coded one HERE, because the printed balance fixes the
+        deposit subtotal at 30,00 either way and moving the single 30,00 row is
+        the smallest change that reaches it. What the merchant name would have
+        bought — a reason to prefer that row — is exactly what the arithmetic
+        supplied without it. The two tests below are where a code and no code
+        part company (W3 §WITHHELDTD)."""
         stmt = parse(UNDETERMINED.format(row="MRCH22940680010 DIV"),
                      credits="1 30,00", debits="2 30,00")
-        assert amounts(stmt) == [-30.0, -20.0, -10.0]
-        assert not reconcile(stmt).ok
+        assert _french_direction_code("MRCH22940680010 DIV") is None
+        assert amounts(stmt) == [30.0, -20.0, -10.0]
+        assert reconcile(stmt).ok
+
+    def test_a_withdrawal_code_moves_the_deposit_off_that_row(self):
+        """`ENVOI` is TD's own outgoing-transfer code, so the 30,00 row is not
+        the deposit and the other two must be: a code the bank PRINTED outranks
+        the smallest-change reading, and only the three-valued reader can tell
+        it from a row TD says nothing about."""
+        stmt = parse(UNDETERMINED.format(row="Envoi - VFC ***abc"),
+                     credits="2 30,00", debits="1 30,00")
+        assert _french_direction_code("Envoi - VFC ***abc") is False
+        assert amounts(stmt) == [-30.0, 20.0, 10.0]
+        assert reconcile(stmt).ok
+
+    def test_the_french_codes_break_the_equal_amount_tie_not_the_english_ones(self):
+        """Two rows of the same amount in one group, one of them carrying TD's
+        French deposit code: the arithmetic says one of the two is the deposit
+        and cannot say which, so the code does — and the code table consulted
+        has to be the FRENCH one. It was the English table until W3
+        §WITHHELDTD, on which `DEP MC ...` matches nothing, and the tie fell to
+        document order."""
+        stmt = parse("""
+SOLDE REPORTE 31JAN 100,00
+LIGNE SANS CODE UN 40,00 01FEV
+DEP MC 11111111 DIV 40,00 01FEV 100,00
+""", credits="1 40,00", debits="1 40,00")
+        assert amounts(stmt) == [-40.0, 40.0]
 
     def test_the_printed_balance_outranks_a_credit_code(self):
         """`DEP` is TD's own deposit code and the balances say this row was a

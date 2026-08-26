@@ -49,12 +49,15 @@ ALLOWED_PRIVATE_IMPORTS = {
     # piece of arithmetic over one layout, not two: copying it would fail
     # `test_no_two_functions_in_analysis_share_a_body` above, and re-deriving
     # it differently would put two answers to the same question in the tree.
-    # The import is deliberately the narrow one — the solver and its
-    # equal-amount tie-break, nothing else. Promoting the pair into a shared
-    # module is the right end state and is a separate cleanup: td_can.py is
-    # owned by another cell this cycle.
-    ("td_canada_french.py", "td_can", "_credit_counts_from_balances"),
-    ("td_canada_french.py", "td_can", "_directions_from_credit_counts"),
+    # The import is deliberately the narrow one, and W3 §WITHHELDTD narrowed
+    # it further: it was the solver AND its equal-amount tie-break, with each
+    # module orchestrating them into a per-group loop of its own, and the two
+    # loops drifted — the French copy scored French descriptions with the
+    # English code table. It is now the single entry point that takes this
+    # issue's code readers as arguments, so there is one loop and one
+    # precedence rule for both issues of the grid. Promoting it into a shared
+    # module is the right end state and is a separate cleanup.
+    ("td_canada_french.py", "td_can", "_resolve_directions_from_balances"),
     # chase.py reads the `TRANSACTION DETAIL` grid through chase_savings's
     # reader. It is ONE printed grid — `DATE DESCRIPTION AMOUNT BALANCE`, the
     # wrapped-amount-above-its-row rule, the Beginning/Ending bound

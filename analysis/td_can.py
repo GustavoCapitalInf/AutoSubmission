@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from datetime import date
 from typing import NamedTuple
 
@@ -209,10 +210,31 @@ _NATIVE_DEBIT_CODES = {"BUS"}
 #: both of its forms: the sibling `GC <n>-CASH WITHDRA` is a withdrawal and
 #: must not match, which is why this keys on `-DEPOSIT` and not on `GC`.
 _GC_DEPOSIT_RE = re.compile(r"GC \d+-DEPOSIT\b")
+#: ...and that sibling, read as what it says. Both halves of a channel that
+#: prints its own direction are evidence, and only the deposit half was ever
+#: read: the withdrawal half fell through to the default, which made "TD says
+#: this left the account" indistinguishable from "TD says nothing". The
+#: distinction is the whole of what `_split_supported_by_codes` ranks on, so
+#: the silent half is spelled out here. `_native_credit_like` is MEASURED
+#: inert, not unaffected: reading a withdrawal half now returns before the
+#: trailing-code test, so `GC 4021-CASH WITHDRA GST` reads not-a-credit here
+#: where it read a credit before. That is the more correct answer, and there
+#: are 0 such rows across the 126 documents of the three families.
+_GC_CASH_WITHDRAWAL_RE = re.compile(r"GC \d+-CASH WITHDRA")
 
 
-def _native_credit_like(description: str) -> bool:
-    """Sign from TD's own transaction codes, never from counterparty names."""
+def _native_direction_code(description: str) -> bool | None:
+    """What TD's own transaction code says this row is, or None if it says nothing.
+
+    Three-valued on purpose. `_native_credit_like` below collapses this to a
+    boolean because that is all the *default* reading needs, but the collapse
+    throws away the distinction between a row TD has labelled a withdrawal and
+    a row TD has labelled nothing at all — and that distinction is evidence.
+    `_split_supported_by_codes` spends it: where the printed balance column
+    admits several credit/debit splits of one date group, the split that
+    contradicts a code the bank PRINTED is worse evidence than the split that
+    only disagrees with a default. Never a counterparty name (R-1 item 8).
+    """
     text = description.upper()
     if "TFR-FR" in text:          # transfer from another account
         return True
@@ -225,22 +247,41 @@ def _native_credit_like(description: str) -> bool:
     # `E-TFR ...` arrives in it. Only the spelled-out `E-TRANSFER` was read, so
     # every incoming transfer printed in the abbreviated form was taken for a
     # debit. `CANCEL`/`RECLAIM E-TFR` lead with their own verb and are left to
-    # the printed balances, as before.
+    # the printed balances, as before — which is to say they return None here,
+    # not False: the bank has not said which way they went.
     if text.startswith("E-TRANSFER") or text.startswith("E-TFR "):
         return True
     # `TD ATM DEP <n>` is a deposit at TD's own machine; the sibling
-    # `TD ATM W/D <n>` is a withdrawal, so the code is the whole distinction.
+    # `TD ATM W/D <n>` is a withdrawal, so the code is the whole distinction —
+    # and both halves are read, for the reason `_GC_CASH_WITHDRAWAL_RE` gives.
     if text.startswith("TD ATM DEP"):
         return True
+    if text.startswith("TD ATM W/D"):
+        return False
     if _GC_DEPOSIT_RE.match(text):
         return True
+    if _GC_CASH_WITHDRAWAL_RE.match(text):
+        return False
     tokens = text.split()
     if tokens:
         if tokens[-1] in _NATIVE_DEBIT_CODES:
             return False
         if tokens[-1] in _NATIVE_CREDIT_CODES:
             return True
-    return False
+    return None
+
+
+def _native_credit_like(description: str) -> bool:
+    """Sign from TD's own transaction codes, never from counterparty names.
+
+    MEASURED inert against the reading it replaces, not identical to it. A
+    description carrying BOTH a withdrawal code and a trailing credit code
+    (`TD ATM W/D 0123 PAY`) used to reach the trailing test and read as a
+    credit; it now returns at the withdrawal code and reads as one. That is the
+    more correct answer — TD prints the channel first — and the archive is
+    silent on it: 0 such rows across the 126 documents of the three families.
+    """
+    return _native_direction_code(description) is True
 
 
 #: The ledger ends at the cheque-enclosure line, whose leading token is the
@@ -256,6 +297,15 @@ _CHQS_ENCLOSED_RE = re.compile(r"^\d+ CHQS? ENCLOSED\b")
 #: the transaction codes instead of running unbounded inside a parser.
 _MAX_GROUP_ROWS = 64
 _MAX_SOLVER_STATES = 100_000
+#: Bounds on the candidate ENUMERATION below, which runs only where the
+#: transaction codes contradict the printed balance and so is reached by 11
+#: date groups in the whole archive. Counting reachable subtotals is
+#: polynomial; listing the splits that reach one is not, so the walk carries
+#: its own budget and reports "not enumerable" rather than running long inside
+#: a parser. Either bound being hit leaves the group with the reading it has,
+#: which is what the shipped parser does today.
+_MAX_SPLIT_CANDIDATES = 256
+_MAX_SPLIT_NODES = 250_000
 
 
 class _NativeRow(NamedTuple):
@@ -280,6 +330,108 @@ def _to_cents(value: float) -> int:
     return int(round(value * 100))
 
 
+def _credit_target(amounts: list[int], delta: int) -> int | None:
+    """What the printed BALANCE column says the DEPOSIT/CREDIT rows total, in cents.
+
+    With ``S`` the sum of a date group's absolute amounts and ``delta`` the
+    change the bank printed across it, the credit rows sum to ``(delta + S)/2``
+    — the one number the printed grid states about the lost column, before any
+    question of WHICH rows carry it.
+
+    Returns None where the printed evidence does not state one: an odd
+    ``delta + S`` (a row is missing or misread, since every real split is an
+    integer number of cents), a target outside ``[0, S]`` (no assignment of
+    these amounts produces that change), an empty group, or more rows than the
+    bounds admit. The callers all treat None the same way — the arithmetic has
+    refused, so the reading stands on the transaction codes alone.
+    """
+    if not amounts or len(amounts) > _MAX_GROUP_ROWS:
+        return None
+    total = sum(amounts)
+    doubled = delta + total
+    if doubled % 2:
+        return None
+    target = doubled // 2
+    if target < 0 or target > total:
+        return None
+    return target
+
+
+def _credit_count_candidates(amounts: list[int], delta: int) -> list[dict[int, int]] | None:
+    """Every DEPOSIT/CREDIT split of a date group the printed balances admit.
+
+    `_credit_counts_from_balances` answers "does the printed evidence single
+    one out?" and stops there. This lists them, because "several" is not the
+    same as "nothing": every candidate here reproduces the balance the bank
+    printed at the end of the group exactly, so the group's net movement, its
+    end-of-day balance and both direction TOTALS are identical across all of
+    them. What differs between candidates is only which rows carry the credit
+    subtotal — and therefore the credit and debit COUNTS, which the bank prints
+    separately and `analysis/count_semantics.py` holds this parser to.
+
+    Returns `[]` where the printed evidence admits no split, and `None` where
+    the enumeration exceeds its bounds (`_MAX_SPLIT_CANDIDATES` /
+    `_MAX_SPLIT_NODES`) — "more work than a parser may do", which is a
+    different answer from "no reading exists" even though both callers
+    currently treat them alike.
+
+    Candidates are keyed by amount and not by row, for the reason
+    `_credit_counts_from_balances` gives: swapping two rows of equal amount
+    leaves every balance and every total identical, so the arithmetic cannot
+    distinguish them and does not pretend to.
+    """
+    target = _credit_target(amounts, delta)
+    if target is None:
+        return []
+
+    multiplicity = Counter(amounts)
+    # A `$0.00` posting (a returned ACH) reaches this parser, and the
+    # arithmetic has nothing whatever to say about its column: calling it a
+    # deposit changes no subtotal and no balance. It is therefore not a
+    # dimension of this search — which is also why there is no `left // value`
+    # here that could divide by zero. The consequence is stated where it bites:
+    # on a group this function is asked about, a `$0.00` row TD coded as a
+    # deposit is published as a withdrawal, no money moves either way, and the
+    # bank's printed COUNT is the evidence that says so.
+    values = sorted((value for value in multiplicity if value), reverse=True)
+    #: `remaining[i]` is everything `values[i:]` can still contribute, so a
+    #: branch that cannot reach the target from here is abandoned rather than
+    #: walked to the end.
+    remaining: list[int] = []
+    running = 0
+    for value in reversed(values):
+        running += value * multiplicity[value]
+        remaining.append(running)
+    remaining.reverse()
+
+    found: list[dict[int, int]] = []
+    budget = _MAX_SPLIT_NODES
+
+    def walk(index: int, left: int, taken_so_far: list[int]) -> bool:
+        """False when a bound was hit and the enumeration is incomplete."""
+        nonlocal budget
+        budget -= 1
+        if budget <= 0:
+            return False
+        if left == 0:
+            found.append(dict(zip(values, taken_so_far + [0] * (len(values) - len(taken_so_far)))))
+            return len(found) <= _MAX_SPLIT_CANDIDATES
+        if index >= len(values) or left < 0 or remaining[index] < left:
+            return True
+        value = values[index]
+        for taken in range(min(multiplicity[value], left // value) + 1):
+            taken_so_far.append(taken)
+            complete = walk(index + 1, left - value * taken, taken_so_far)
+            taken_so_far.pop()
+            if not complete:
+                return False
+        return True
+
+    if not walk(0, target, []):
+        return None
+    return found
+
+
 def _credit_counts_from_balances(amounts: list[int], delta: int) -> dict[int, int] | None:
     """Which amounts the printed BALANCE column says were DEPOSIT/CREDIT rows.
 
@@ -298,15 +450,10 @@ def _credit_counts_from_balances(amounts: list[int], delta: int) -> dict[int, in
     leaves every balance and every total identical, so the arithmetic cannot
     distinguish them and does not pretend to.
     """
-    if not amounts or len(amounts) > _MAX_GROUP_ROWS:
+    target = _credit_target(amounts, delta)
+    if target is None:
         return None
     total = sum(amounts)
-    doubled = delta + total
-    if doubled % 2:
-        return None
-    target = doubled // 2
-    if target < 0 or target > total:
-        return None
 
     multiplicity = Counter(amounts)
     values = sorted(multiplicity, reverse=True)   # largest first prunes hardest
@@ -341,7 +488,10 @@ def _credit_counts_from_balances(amounts: list[int], delta: int) -> dict[int, in
 
 
 def _directions_from_credit_counts(
-    rows: list[_NativeRow], credit_counts: dict[int, int]
+    rows: list[_NativeRow],
+    credit_counts: dict[int, int],
+    *,
+    credit_like: Callable[[str], bool] = _native_credit_like,
 ) -> list[bool]:
     """Spend each amount's credit count over the rows printing that amount.
 
@@ -349,12 +499,17 @@ def _directions_from_credit_counts(
     arithmetic cannot say, so the tie is broken with TD's own transaction codes
     in printed order. It moves no total and no balance: the rows being ordered
     carry the same amount.
+
+    `credit_like` is the reader of those codes and defaults to the English
+    issue's. It is a parameter because the French issue of this same grid
+    consumes this function over French descriptions, on which the English
+    codes match almost nothing (W3 §WITHHELDTD).
     """
     remaining = dict(credit_counts)
     credits = [False] * len(rows)
     coded_first = sorted(
         range(len(rows)),
-        key=lambda i: (not _native_credit_like(rows[i].description), i),
+        key=lambda i: (not credit_like(rows[i].description), i),
     )
     for i in coded_first:
         if remaining.get(rows[i].amount, 0) > 0:
@@ -363,35 +518,165 @@ def _directions_from_credit_counts(
     return credits
 
 
+def _split_supported_by_codes(
+    rows: list[_NativeRow],
+    candidates: list[dict[int, int]],
+    *,
+    direction_code: Callable[[str], bool | None],
+    credit_like: Callable[[str], bool],
+) -> list[bool] | None:
+    """Of the splits the printed balances admit, the one TD's own codes support.
+
+    Reached only where the code reading CONTRADICTS the printed balance, so
+    something has to give and the document says which: a split that puts a row
+    TD labelled `SEND E-TFR` in the deposit column disagrees with the page,
+    while a split that only disagrees about a row TD labelled nothing
+    (`CANCEL E-TFR`) disagrees with a default. The ranking is therefore, in
+    order: fewest rows contradicting a code the bank PRINTED; then fewest rows
+    moved off the default reading at all; then the enumeration's own order,
+    which is fixed.
+
+    What this can and cannot get wrong, stated at the right level. Every
+    candidate reproduces the printed end-of-group balance, so no AGGREGATE
+    moves whichever is chosen: the group's net, the daily balances, the ADB and
+    both direction TOTALS are identical across the candidates. A PER-ROW signed
+    amount is a different matter and does move — `amount` is published as
+    `+row.amount` or `-row.amount`, so changing a row's direction changes the
+    sign of a published transaction amount, and with it that row's revenue
+    classification. What certifies the choice is the credit and debit COUNTS,
+    which TD prints and which `analysis/count_semantics.py` marks comparable
+    for both issues of this layout: a wrong choice moves a count, and the
+    platform flags it on evidence this function never reads.
+
+    Which is why this REFUSES rather than guesses when the count cannot
+    certify. Two candidates that tie on both keys AND carry the same number of
+    credit rows are indistinguishable to every oracle the platform has — the
+    balances admit both, the codes rank them equally, and the printed count
+    cannot tell them apart. Returning None leaves the group on the code
+    reading, which by construction here does NOT reproduce the printed change,
+    so the ledger does not close and the document withholds. Not observed on
+    this archive; `_tied_beyond_the_printed_counts` is where it is decided.
+    """
+    coded = [credit_like(row.description) for row in rows]
+    ranked: list[tuple[tuple[int, int], list[bool]]] = []
+    for counts in candidates:
+        resolved = _directions_from_credit_counts(rows, counts, credit_like=credit_like)
+        contradictions = 0
+        moved = 0
+        for row, is_credit, default in zip(rows, resolved, coded):
+            code = direction_code(row.description)
+            if code is not None and code != is_credit:
+                contradictions += 1
+            if is_credit != default:
+                moved += 1
+        ranked.append(((contradictions, moved), resolved))
+    if not ranked:
+        return None
+    best_key = min(key for key, _resolved in ranked)
+    tied = [resolved for key, resolved in ranked if key == best_key]
+    if _tied_beyond_the_printed_counts(tied):
+        return None
+    return tied[0]
+
+
+def _tied_beyond_the_printed_counts(tied: list[list[bool]]) -> bool:
+    """Do two equally-ranked readings carry the same number of credit rows?
+
+    The printed credit and debit counts are the platform's certificate on this
+    choice, and they can only certify a choice between readings that DIFFER in
+    how many rows they call deposits. Two readings that rank alike and count
+    alike are past every oracle the document offers, so the reader stops.
+    """
+    if len(tied) < 2:
+        return False
+    counts = [sum(resolved) for resolved in tied]
+    return len(set(counts)) < len(counts)
+
+
+def _resolve_directions_from_balances(
+    rows: list[_NativeRow],
+    groups: list[tuple[list[int], float]],
+    opening: float | None,
+    *,
+    direction_code: Callable[[str], bool | None],
+    credit_like: Callable[[str], bool],
+) -> list[bool]:
+    """One `is credit` flag per ledger row, from the printed balance column.
+
+    `groups` are `(row indices, the balance printed at the end of the group)` in
+    document order. The precedence is the printed grid first and the
+    transaction codes second, and this function is where that is enforced,
+    for both issues of the layout:
+
+    * the balances single a split out — take it (the shipped reading);
+    * the balances admit several AND the codes already reproduce the printed
+      change across the group — the codes are one of those splits, so keep
+      them, and the reading is the shipped one to the row;
+    * the balances admit several and the codes do NOT reproduce the printed
+      change — the codes are contradicting the page, so the page decides which
+      split and `_split_supported_by_codes` decides which of them, or refuses
+      when two of them are past every oracle the document offers;
+    * the balances state nothing about this group (an odd parity, an
+      unreachable target, or more work than the bounds allow) — the codes are
+      all there is, and the reading stands on them.
+
+    Only the third bullet is new (W3 §WITHHELDTD). It was previously the second
+    bullet's branch, which meant a group whose codes disagreed with the printed
+    balance kept the codes and silently threw the bank's own arithmetic away —
+    measured archive-wide as 11 date groups in 10 documents, every one of them
+    a document the ADB then refused.
+
+    Reconciliation against the bank's own stated credit and debit totals and
+    counts — evidence neither the solver nor the codes ever read — remains the
+    fail-closed gate over the whole result.
+    """
+    credits = [credit_like(row.description) for row in rows]
+    anchor = opening
+    for indices, closing in groups:
+        if anchor is None:
+            anchor = closing
+            continue
+        group = [rows[i] for i in indices]
+        amounts = [row.amount for row in group]
+        delta = _to_cents(closing) - _to_cents(anchor)
+        anchor = closing
+        counts = _credit_counts_from_balances(amounts, delta)
+        if counts is not None:
+            resolved = _directions_from_credit_counts(group, counts, credit_like=credit_like)
+            for i, is_credit in zip(indices, resolved):
+                credits[i] = is_credit
+            continue
+        target = _credit_target(amounts, delta)
+        if target is None:
+            continue
+        if sum(row.amount for row in group if credit_like(row.description)) == target:
+            continue                       # the codes already say what the page says
+        candidates = _credit_count_candidates(amounts, delta)
+        if not candidates:
+            continue                       # nothing admissible, or not enumerable
+        resolved = _split_supported_by_codes(
+            group, candidates, direction_code=direction_code, credit_like=credit_like
+        )
+        if resolved is None:
+            continue                       # tied past every oracle: fail closed
+        for i, is_credit in zip(indices, resolved):
+            credits[i] = is_credit
+    return credits
+
+
 def _resolve_native_directions(
     rows: list[_NativeRow],
     groups: list[tuple[list[int], float]],
     opening: float | None,
 ) -> list[bool]:
-    """One `is credit` flag per ledger row, from the printed balance column.
-
-    `groups` are `(row indices, the balance printed at the end of the group)` in
-    document order. A group the printed grid does not determine keeps the
-    transaction-code reading: the rows are still emitted, and reconciliation
-    against the bank's own stated credit and debit totals — evidence the solver
-    never reads — remains the fail-closed gate over them.
-    """
-    credits = [_native_credit_like(row.description) for row in rows]
-    anchor = opening
-    for indices, closing in groups:
-        if anchor is not None:
-            counts = _credit_counts_from_balances(
-                [rows[i].amount for i in indices],
-                _to_cents(closing) - _to_cents(anchor),
-            )
-            if counts is not None:
-                resolved = _directions_from_credit_counts(
-                    [rows[i] for i in indices], counts
-                )
-                for i, is_credit in zip(indices, resolved):
-                    credits[i] = is_credit
-        anchor = closing
-    return credits
+    """The English issue's reading of the printed balance column."""
+    return _resolve_directions_from_balances(
+        rows,
+        groups,
+        opening,
+        direction_code=_native_direction_code,
+        credit_like=_native_credit_like,
+    )
 
 
 def detection_text(markdown: str) -> str:
