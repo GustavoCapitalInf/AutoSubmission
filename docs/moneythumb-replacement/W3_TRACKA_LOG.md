@@ -43728,9 +43728,12 @@ their two test modules, four instruments under `tools/`, this log.
 
 ## CPS1. The instrument, and why its enumeration is immune
 
-Four instruments, all committed, all read-only, all $0 — no hosted model call
-is reachable from any of them, and `parse_mode="deterministic"` closes the
-extraction branch in the one that runs the pipeline:
+**Three** instruments, all committed, all read-only, all $0 — no hosted model
+call is reachable from any of them, and `parse_mode="deterministic"` closes
+the extraction branch in the one that runs the pipeline. A fourth,
+`tools/cpscan_privacy_grep.py`, was written by this card and is RETIRED under
+review F2: the privacy scan is the shared instrument's, and the reason is at
+CPS11.4.
 
 * `tools/cpscan_census.py` — the population. Live detection replay over the
   run of record's own `rows.csv`, artifacts resolved **by direct file path**
@@ -43745,7 +43748,6 @@ extraction branch in the one that runs the pipeline:
   the batch-7 privacy rule applied to a diagnostic and costs this report
   nothing it needed.
 * `tools/cpscan_mutate.py` — the mutation harness (CPS8).
-* `tools/cpscan_privacy_grep.py` — the literal scan (CPS11.4).
 
 The artifact selection is `tools.regfp_zero_movement_sweep`'s: a document can
 hold one cached OCR artifact per capability partition, and the artifact whose
@@ -44430,23 +44432,54 @@ EXIT=0
          multi_artifact_documents 74 · 7,126.2 s
 ```
 
-```
-# the privacy scan, over the branch's whole diff
-$ git diff 10cc722..HEAD > <private>/branch.diff
-$ python -m tools.cpscan_privacy_grep --rows <run>/rows.csv     --data-dir <main>/webapp_data --baseline-settings-key 24675EF0...41B5CAC     --sha-file <private>/mine19.txt --diff <private>/branch.diff     --repo . --base-rev 10cc722
-{"documents_named": 19, "documents_read": 19, "literals": 3755,
- "literals_already_in_the_base_tree": 680, "added_diff_lines": 1847,
- "hits": 0, "hit_locations": []}
-EXIT=0
-   run over the diff of the tree that became the commit below this one, so
-   `added_diff_lines` counts every line of this section except the handful
-   that record this result; re-run against the committed diff it is 0 again.
+**The privacy count is the SHARED instrument's, and the bespoke grep this
+card wrote is retired** (review F2, Ocean's ruling). Batch 8 has one committed,
+self-checking instrument for this on `main` — `tools/privacy_scan_branch.py`
+v2, commit `4a000e4` — and it replaces every bespoke grep written today,
+including this card's.
 
-# and the instrument is not blind: fed the one line this branch removed
-$ python -m tools.cpscan_privacy_grep ... --diff <private>/leak_probe.diff
-{"added_diff_lines": 1, "hits": 3, ...}
-EXIT=1
 ```
+# the shared instrument, over the branch's committed diff
+$ cd .claude/worktrees/mt-lead
+$ python tools/privacy_scan_branch.py --shas <private>/mine19.txt   --rows <run>/rows.csv --where parser_id=core_processor_sectioned,core_processor_daily   --data-dir <main>/webapp_data --base 10cc722 --ref wave8-cpscan
+{"added_lines": 2666, "base": "10cc722", "documents_read": 42, "population": 42,
+ "hit_count": 4, "hits_by_class": {"MONEY": 0, "DATES": 0, "DIGITS": 0, "WORDS": 4},
+ "no_cached_text": [], "ref": "wave8-cpscan"}
+EXIT=1
+   population 42 = the 23 documents the two readers publish in the run of
+   record, plus this card's named 19. `EXIT=1` is the tool's contract on any
+   hit; all four are WORDS, all four are in this log, and each is adjudicated
+   at CPS12 — two are a bigram this record's own English prose forms around
+   the card name CPS-AMOUNT, and two are the platform's disclosure heading,
+   which is institution/template FURNITURE and is now labelled as such at
+   CPS10.1 and CPS10.7. MONEY, DATES and DIGITS are 0.
+   Run at `5825b98`, the tree below this commit; this commit deletes a file
+   and rewrites this block, and a deletion can only shrink the added set. The
+   run at the closure tip is recorded at CPS12.
+```
+
+**The retired grep's `hits: 0` was VACUOUS, and this is why.**
+`tools/cpscan_privacy_grep.py` reported `hits: 0, hit_locations: []` (exit 0)
+on the SAME 19 documents and the SAME committed diff on which the shared
+instrument found a real leak — a place token printed in one of the nineteen,
+copied into a test fixture (F1). Two independent scans, one population,
+opposite answers, and the bespoke one was wrong:
+
+* its `NAME_PHRASE` is greedy. On an all-caps OCR run it returns ONE
+  mega-token spanning the whole run, so no shorter fragment of that run is
+  ever tested against a diff line;
+* its `LONG_WORD` class has an 8-character floor, and a seven-letter place
+  name falls under it.
+
+Between them the two classes cannot see a short place name embedded in a
+longer capitalised run — exactly the shape that leaked — and the instrument's
+own leak-probe self-check never exercised that shape, so its "the instrument
+is not blind" proof was narrower than the claim it carried. The file is
+DELETED rather than fixed: a second instrument producing a headline number
+the standing tool contradicts is worse than no second instrument, and the
+standing tool's own self-check (it refuses to run if its file carries a
+control byte or if any pattern fails to match a synthetic instance of the
+shape it names) is the property the bespoke one lacked.
 
 ### CPS11.5 One void run, recorded rather than quietly re-run
 
@@ -44492,9 +44525,11 @@ gate opens the file.
 | `441c562` | this W3 section |
 | this commit | the sweep block, the final replay, and the privacy count |
 
-Four instruments under `tools/`, two production modules, two test modules,
-this log. No registration, no registry pin, no `ANALYSIS_STAGE_VERSION` bump,
-no merge, no push.
+Four instruments under `tools/` as this table was written — **three after
+review F2 retired `tools/cpscan_privacy_grep.py`** — two production modules,
+two test modules, this log. No registration, no registry pin, no
+`ANALYSIS_STAGE_VERSION` bump, no merge, no push. The closure commits are
+listed in the review-closures section at the end of this log.
 
 ## CPS13. Risks carried
 
