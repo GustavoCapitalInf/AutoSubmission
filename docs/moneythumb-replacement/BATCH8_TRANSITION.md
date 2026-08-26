@@ -69,3 +69,10 @@ Main checkout: 10 untracked batch-5 logs (`compare_b4_b5.txt`, `discovery_batch5
 ## Open Gustavo rulings (unchanged)
 
 L-1 multi-account (~70 docs incl. 4 CU families + Space Coast + LILI's 3) · CONS-L1 · EQ Bank TG9+TG10 · ATB ceremony + R3 · TRU-SAVINGS · FROST-PERIOD (new) · the Lili tampering finding · DESC-COLUMNS priority (moot: built).
+
+## Progress log (append-only; newest last)
+
+- 2026-08-26 GO on (1) from Gustavo. Operating model: max two concurrent expensive sessions; hostile reviews commit their record to `docs/moneythumb-replacement/reviews/BATCH8_<CELL>_REVIEW.md` on the cell branch; closures are a separate focused session; Ocean verifies closures deterministically.
+- 2026-08-26 DESC-COLUMNS privacy redaction landed `376d4de` (six exact archive figures in §DC3.3 → classes); 0 amounts-with-cents remain on the branch's added lines. Pre-scan: glance/scanhyg fixture figures to be checked against document text by their reviewers; scanhyg quotes a four-figure discrepancy in a production comment (restate). scanhyg's registry hunk = `integrity_checks` on 3 existing registrations only (composed registry stays 83); hygiene8 × scanhyg `date_tokens.py` hunks merge clean.
+- 2026-08-26 CORE-ENCLOSURES hostile review → **APPROVE WITH FINDINGS, 0 BLOCK, 3 MAJOR, 5 MINOR** (record `a87c988`; its verdict line mis-tallies 2/6). Held: reach 67/3,380; 46/1/1/6/4; 13 outsiders publish nothing; pinned linkbank document byte-identical; 6,971 money leaves all printed (repair doctrine); DESC-ATTRIB class absent; no collision with the coreiss2 siblings incl. all 77 train8 fixtures; no archive literal. Open: a fee-row count in shipped source (13/1 written, 19/2 measured); mutation harness uncommitted, no per-mutant table; two live `_grid` duplicate-day gates unpinned; six bounds survive removal; replay instrument reads a key `report_to_dict` never emits; the 13 outsiders unnamed; four headline counts without committed instruments. Closure session launched on the branch.
+- 2026-08-26 WITHHELD-GRIDS hostile review running.
