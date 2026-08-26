@@ -44423,21 +44423,49 @@ publishes a bare label on every row; after it, every row publishes its own
 full printed description.
 
 `python tools/desccols_mutate.py .` — baseline green, each mutation applied
-alone to a pristine copy, the file restored in a `finally`. **10 applied, 9
-killed, 1 expected survivor, harness exit 0.**
+alone to a pristine copy, the file restored in a `finally`. At the final tree:
+**16 applied, 15 killed, 1 named expected survivor, harness exit 0, 122s**,
+`git status --porcelain` clean before and after.
 
 | Mutation (in `ocr/native_text.py`) | The named test that dies first | tests failing |
 |---|---|---:|
 | **M1** the amount need not be printed last (G8) | `test_a_template_printing_the_amount_above_its_detail_is_declined` | 2 |
 | **M2** the region need not be welded (G5) | `test_a_region_whose_blocks_do_not_weld_is_left_alone` | 1 |
-| **M3** two rows are a grid (G2) | `test_two_rows_are_not_a_grid` | 1 |
-| **M4** no money and no description floor (G3/G4) | `test_an_indented_paragraph_is_not_a_ledger` | 1 |
+| **M3** two rows are a grid (G2) | `test_two_rows_are_not_a_grid` | 2 |
+| **M4** no money and no description floor (G3/G4) | `test_a_ledger_without_three_described_rows_is_left_alone` | 2 |
 | **M5** a straddling block is skipped, not refused (G6 alone) | — **EXPECTED TO SURVIVE** | 0 |
 | **M6** G6 AND G7 removed together | `test_a_block_straddling_the_ledger_boundary_refuses_the_whole_document` | 2 |
 | **M7** token conservation dropped (G7) | `test_a_token_the_flattening_saw_and_the_boxes_did_not_refuses_the_page` | 1 |
 | **M8** a row is not read left to right | `test_a_welded_ledger_publishes_one_line_per_printed_row` | 12 |
 | **M9** the repaired rows are not put back where they were | `test_the_repaired_page_prints_its_lines_where_the_page_prints_them` | 1 |
 | **M10** a line left of the anchor does not end the ledger (G1) | `test_a_line_printed_left_of_the_anchor_ends_the_ledger` | 1 |
+| **M11** a malformed line box is read rather than refused (F8) | `test_a_malformed_line_box_refuses_the_page_and_never_raises[a bbox with no height]` | 1 |
+| **M12** an unconverted exception escapes the rung (F8) | `test_an_exception_class_the_page_text_guard_does_not_convert_is_a_refusal` | 1 |
+| **M13** repeated page furniture no longer refuses the ledger (G9) | `test_repeated_page_furniture_on_a_posting_band_refuses_that_ledger` | 1 |
+| **M14** a cell outside the ledger columns no longer refuses it (G10) | `test_a_line_printed_beyond_the_money_column_refuses_the_ledger` | 1 |
+| **M15** money right edges need not agree (G3, second half) | `test_money_cells_whose_right_edges_disagree_are_not_a_money_column` | 1 |
+| **M16** any bare figure counts as money (`_ROW_MONEY_RE`) | `test_a_right_hand_column_of_bare_figures_is_not_a_money_column` | 1 |
+
+**Three rows of that table moved during the closure round, and each move is a
+finding rather than a correction** (DC12 F4).
+
+* **M1 read 2 here and the reviewer's run of the same harness reported 3** —
+  it also killed `test_a_multi_column_balance_ladder_is_left_alone`. At the
+  final tree it is 2 again, and NOT because the pin weakened: with G8 removed
+  the ladder is now refused by **G10**, measured — the region's own money
+  column runs to x=84.4 (the first column's right edge, which is the edge G3
+  collects) and **36 cells of that ladder lie beyond it**. A fixture named
+  after one gate, declined by another: the exact §GRAM4 G7.4 shape, caught
+  here by re-running rather than by reading.
+* **M4 was killed by a CRASH, not by an answer.** With the floors removed
+  `max(edges, …)` ran on an empty list and the `ValueError` escaped the rung,
+  which is what `test_an_indented_paragraph_is_not_a_ledger` was scoring. F8's
+  fail-closed guard turns that crash into a refusal — the right behaviour and a
+  worse test — so M4 is now killed by `test_a_ledger_without_three_described
+  _rows_is_left_alone`, which isolates G4's floor with an agreeing money column
+  above it and dies on the ANSWER.
+* **M3 kills two tests now**, the second being that same G4 fixture, whose four
+  rows a floor of two also admits.
 
 **The first run killed 6 of 10, and all four survivors were real.** Every one
 was a fixture named after a gate and declined by a DIFFERENT one:
@@ -44547,19 +44575,35 @@ card of this shape.
 
 ## DC8.1 The branch, in hunks
 
-**1,598 insertions, 0 deletions, 8 hunks, 7 files** (this log aside).
-Nothing existing was changed; everything is added — the branch has no deleted
-line in any file.
+Restated from `git diff --numstat 10cc722..HEAD` at `ff0dd82`, the commit
+before this one, ALL files (DC12 F4). The version this replaced was the
+pre-`7b2e7c0` state left unrestated: it said 1,598 insertions over 7 files,
+omitted `tools/desccols_proofs.py` entirely, and undercounted `corpus_gate.py`
+and the parity test — its arithmetic closed exactly (1,598 + 299 + 11 + 1 =
+1,909), which is what a table written once and never restated looks like.
 
-| file | + | hunks | what |
-|---|---:|---:|---|
-| `ocr/native_text.py` | 311 | 2 | the rung, and one line wiring it into the ladder before the generic rung |
-| `corpus_gate.py` | 11 | 1 | the instrument classified in `EXCLUDED_ANALYSIS_CALLERS` |
-| `tests/test_native_rung_parity.py` | 6 | 1 | the instrument registered as a ladder consumer |
-| `tests/test_printed_row_extraction.py` | 631 | 1 | the fixture family (24 pins) |
-| `tools/desccols_census.py` | 216 | 1 | the weld census |
-| `tools/desccols_movement.py` | 243 | 1 | the reach/movement differential |
-| `tools/desccols_mutate.py` | 180 | 1 | the mutation harness |
+**4,681 insertions, 0 deletions, 14 hunks, 10 files.** Nothing existing was
+changed; everything is added — the branch still has no deleted line in any
+file, including after a closure round that rewrote code the branch itself
+had added.
+
+| file | + | − | hunks | what |
+|---|---:|---:|---:|---|
+| `ocr/native_text.py` | 492 | 0 | 4 | the rung and its ten gates, the fail-closed box guard, and one line wiring it into the ladder before the generic rung |
+| `corpus_gate.py` | 22 | 0 | 1 | two instruments classified in `EXCLUDED_ANALYSIS_CALLERS` |
+| `tests/test_native_rung_parity.py` | 7 | 0 | 1 | the two instruments registered as ladder consumers |
+| `tests/test_printed_row_extraction.py` | 1,147 | 0 | 1 | the fixture family (40 pins) |
+| `tools/desccols_census.py` | 216 | 0 | 1 | the weld census |
+| `tools/desccols_movement.py` | 509 | 0 | 1 | the reach/movement differential, the gate census, the base-blob fallback |
+| `tools/desccols_mutate.py` | 249 | 0 | 1 | the mutation harness (16 mutants) |
+| `tools/desccols_proofs.py` | 398 | 0 | 1 | the oracle, furniture, pinned, fallback and boundary proofs |
+| `docs/moneythumb-replacement/W3_TRACKA_LOG.md` | 1,080 | 0 | 2 | this section |
+| `docs/moneythumb-replacement/reviews/BATCH8_DESCCOLS_REVIEW.md` | 561 | 0 | 1 | the review record |
+
+**Two production files, and still two**: `ocr/native_text.py` and
+`corpus_gate.py`, whose single hunk remains additive (two entries appended to
+`EXCLUDED_ANALYSIS_CALLERS`). No `analysis/` module is in the diff on either
+tree.
 
 No `analysis/` module is touched, and `analysis/tables.py` was not needed: the
 readers get their column back without a new cell shape, because a repaired row
@@ -44782,5 +44826,31 @@ refuses to run if its own source carries one).
 | `712cb89` | the four survivors the first mutation run found: one gate deleted as redundant, three fixtures rebuilt |
 | `611c10d` | the two pins the second run demanded |
 | `7b2e7c0` | the instrument classified in `EXCLUDED_ANALYSIS_CALLERS` (found by the suite), and the fixture's colliding names re-invented |
+| `d7186e3` | **the rung closes the second MuPDF handle it opens, in a `finally`** — production code, and the one substantive commit the first version of this table omitted |
 | `ac3bfce` | the last two document-specific privacy collisions cleared |
-| this commit | this section |
+| `376d4de` | §DC3.3's archive figures restated as classes (Ocean's pre-review privacy scan) |
+| `5258a68` | the review record |
+
+**This table lists the SUBSTANTIVE commits and says so** (DC12 F4). The first
+version listed 8 of the branch's 34 and read as if it were the whole list,
+omitting `d7186e3` — which changes production code — among 25 others. The
+complete list is `git log --oneline 10cc722..wave8-desccols`, and it is the
+authority; what is above is the shape of the build for a reader who wants it
+in one screen.
+
+**The closure round, one commit per finding:**
+
+| commit | finding | what it carries |
+|---|---|---|
+| `f5ba283` | F8 | `_line_box` / `_printed_lines` refuse nine malformed shapes; the catch-all around the page loop; nine pins; M11, M12; the G4 fixture that kills M4 by answer |
+| `06bb655` | F3 | G9 and G10, `_shares_a_band` written once, the document read page by page once; the two-page adversarial fixture, the absorption pin, the G10 pin; M13, M14; `--mode gates`; `proofs furniture` |
+| `3114ea2` | F1 | the two clauses no test was holding — the G3 agreement fixture and the bare-figure fixture; M15, M16 |
+| `6adbd46` | F5 | the three docstrings renumbered; DC2's heading and table at ten gates |
+| `94c2dd9` | F6 | DC8: the owed bump is unenforceable, and needs no `ocr_settings_key` flag |
+| `bc0188a` | F7 | DC8: the sweep covered 2,000 of 3,380, with the two unrun chunks marked NOT RUN |
+| `1e2824f` · `7ac9e40` | F3 | the census counts a claim the way the rung claims one; the marked-line shape, the box-guard counter, `--only`; `proofs pinned` names its documents |
+| `7adb78e` | F2 | DC4.1 and DC9-4: the coupling to `posting_dates_cover_source`, and the required-check vector printed by the instrument |
+| `6233b46` | F3 + the pinned leaf | the archive measurement restated through DC3, DC3.1, DC3.2, DC3.3, DC4, DC5, DC6, DC6.2, DC9-3 |
+| `d2357d0` | F8 | DC9-8: the exception surface measured (0 pages guarded, fallback identical to base) |
+| `ff0dd82` | privacy | DC10.2 and DC10.3: the closure round's proof table, the privacy re-measurement, the control-byte check |
+| `this commit` | F4 | DC8.1, DC7's mutation table and DC11 restated from measurement |
