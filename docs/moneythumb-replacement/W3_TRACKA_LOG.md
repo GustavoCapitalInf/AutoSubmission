@@ -44626,6 +44626,20 @@ readers already take is the right span.
    key on it. A future MuPDF that groups differently changes which documents
    are claimed — it cannot change what is emitted for a claimed one, because
    the emission reads only boxes and text, and G7 checks the result.
+   **What a future MuPDF CAN change is whether the rung raises, and that is
+   now closed rather than reasoned about** (DC12 F8). The rung reads
+   `get_text("dict")` on every native-text document in the archive, so any
+   shape the binding hands back is a shape that reaches production:
+   `_printed_lines` answers nine malformed shapes with the flattening's own
+   text for that page, and `parse_native_printed_rows` catches every exception
+   class `_page_text` does not convert. Measured over all 3,380 documents, the
+   guard fires on **0 pages** (DC6.2) and the ladder's fallback is identical to
+   the BASE MODULE on every sampled document (DC6.1), so the guarantee costs
+   nothing on this archive and exists for the archive nobody has seen.
+   The same unguarded `line["bbox"]` read remains in `_fc_bands`
+   (`ocr/native_text.py`, the First Citizens rung) — pre-existing, reachable
+   only on documents that rung's own markers claim, and not this card's to
+   change.
 
 ## DC10 Proofs, exit codes verbatim
 
