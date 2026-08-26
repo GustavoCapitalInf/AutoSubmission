@@ -44004,17 +44004,32 @@ markers, resolves to `wilson_muir`, and is ambiguous with the edge removed.
 
 ## GL6. The mutation table
 
-37 killers and 3 control arms, run WITHOUT `-x`, every mutant applied as its
-row documents. Two properties are asserted about the TABLE rather than trusted:
-no mutant may leave its document unchanged, and no two mutants may produce the
-same tree (`test_the_table_has_no_duplicate_rows_and_no_mutant_that_edits_nothing`).
+**38 killers and 3 control arms**, run WITHOUT `-x`, every mutant applied as its
+row documents (37 at review time; M38 is review finding 5's closure). Two
+properties are asserted about the TABLE rather than trusted: no mutant may leave
+its document unchanged, and no two mutants may produce the same tree
+(`test_the_table_has_no_duplicate_rows_and_no_mutant_that_edits_nothing`).
 The `reorder` control arm is additionally checked against the token multiset,
 because the batch-7 defect was a row that said reorder and deleted.
 
-Each row's killer was ATTRIBUTED rather than assumed: the reader's gate
-functions were wrapped and the first one to reject each mutant recorded. Every
-mutant is killed by the gate its row names — no mutant is killed by an
-unrelated gate.
+**The `killed by` column is now measured, by a committed instrument** (review
+finding 3, closed). `tools/glance_mutation_table.py` refuses a tree carrying
+uncommitted changes to tracked files — a table measured against an edit
+describes a tree nobody will ever see — verifies the tree is still clean when it
+finishes, and runs two arms per row. The first wraps every gate function of the
+reader on the module object and records the FIRST one to return its rejecting
+value, which is the column below; the two mutants that trip the per-day-oracle
+rule are attributed to `parse` itself, which is where that rule lives because it
+is not a function. The second runs each row's own parametrized test node under
+`pytest` in its own process, so "killed" is the committed suite's word and not
+only the tool's.
+
+Run at the closure tree: **38 of 38 killed, 3 of 3 control arms hold, 0
+survivors** (the disclosure list is empty), 41 of 41 test nodes `passed`, 15
+distinct killers, tree clean before and after, exit **0**, 57s. Every mutant is
+killed by the gate its row names — no mutant is killed by an unrelated gate, and
+the attribution below is the tool's output rather than a transcription of what
+the rows were expected to do.
 
 | id | gate | killed by |
 |---|---|---|
@@ -44055,6 +44070,7 @@ unrelated gate.
 | M35 | L-1: the roll-up disagrees with the closing balance | `_matches_the_relationship_block` |
 | M36 | L-1: a second account number in a page header | `_summary` |
 | M37 | L-1: a second partition on the page | `_summary` |
+| M38 | direction: a row mark that contradicts its SECTION | `_sectioned_rows` |
 | C01 | control: the grid's three-up cells out of document order | **publishes, identical** |
 | C02 | control: an extra page break inside the ledger | **publishes, identical** |
 | C03 | control: the relationship block absent entirely | **publishes, identical** |
