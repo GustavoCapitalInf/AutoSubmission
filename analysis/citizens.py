@@ -126,7 +126,8 @@ def _parse_inline_rows(
     # A row begins where the date column begins, and the amount that follows it
     # ends at its cents. The boundary used to require WHITESPACE after those
     # cents, which made a single stray glyph - a column rule the scan resolves
-    # as a full stop, `1,633.47.` - weld two printed rows into one: the second
+    # as a full stop immediately behind an amount's cents - weld two printed
+    # rows into one: the second
     # row's amount disappears into the first row's description and the ledger
     # is short by it, silently. `(?!\d)` says the same thing about the token
     # that matters (nothing may EXTEND the cents) without making the ink that
@@ -148,7 +149,8 @@ def _parse_inline_rows(
         if cents_comma:
             # The final comma is the decimal point, and the reason is the
             # token's own shape rather than a preference: a thousands group is
-            # THREE digits, so `44,50` cannot be one. See `_rows_the_total_agrees_with`
+            # THREE digits, so a TWO-digit tail cannot be one. See
+            # `_rows_the_total_agrees_with`
             # for the evidence that admits this reading at all.
             amount_raw = re.sub(r",(\d{2})$", r".\1", amount_raw)
         amount = _money(amount_raw)

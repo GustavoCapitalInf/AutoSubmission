@@ -318,7 +318,7 @@ def test_a_comma_before_exactly_two_digits_at_the_end_is_the_decimal_point():
     it is. This is the token's shape, not a preference for one separator."""
     assert _southside_money("225,00") == 225.00
     assert _southside_money("9,000,00") == 9000.00
-    assert _southside_money("2,549,33") == 2549.33
+    assert _southside_money("6,180,44") == 6180.44
     assert _southside_money("1,234.56") == 1234.56
 
 
@@ -326,7 +326,7 @@ def test_an_ambiguous_token_is_left_to_the_shared_grammar():
     """`1,234` says nothing about its own separator, so this reader decides
     nothing about it."""
     assert _southside_money("1,234") == _southside_money("1,234")
-    assert _southside_money("29,444,311") == 29444311.0
+    assert _southside_money("37,215,608") == 37215608.0
 
 
 def test_a_row_whose_decimal_point_became_a_comma_still_reads():
