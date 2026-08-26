@@ -28,14 +28,21 @@ It is re-derived per tree rather than asserted, because the size of a C long is
 a property of the platform (it is 32-bit on this one) and a claim about it
 should not be a constant in a log.
 
-**The archive reach** answers the only question that decides tree-wide movement:
-can any document in the run of record put such an integer into `date()`? Every
-path into `date()` in that module converts a run of DECIMAL DIGITS taken from
-the document, so a document with no digit run large enough cannot raise
-`OverflowError` anywhere in the module, whatever parser reads it. The scan
-therefore reads the cached OCR text of every document in the run and reports the
-largest integer any of them prints. Zero documents at or above the threshold is
-a proof of zero movement that costs no analysis passes.
+**The archive reach** was meant to settle tree-wide movement cheaply and DOES
+NOT. Every path into `date()` in that module converts a run of DECIMAL DIGITS
+taken from the document, so a document printing no digit run large enough could
+not raise `OverflowError` anywhere in the module whatever parser read it — and
+if the count came back zero, that would have been a proof of zero movement
+costing no analysis passes.
+
+It came back 2,765 of 3,351. A ten-digit number clears a 32-bit C long, and a
+statement is full of them: account numbers, references, authorisation codes,
+telephone digits. So the necessary condition is met almost everywhere and this
+scan bounds nothing. It is kept, and reported, precisely because it is the
+measurement that refused to make the convenient argument: what is left standing
+after it is the family replay over the dispatched population, the pinned
+manifest, and the archive-wide sweep the wave owes at the final tree — not a
+sentence about how a regex probably bounds every caller.
 
 The threshold is MEASURED, not typed: the smallest overflowing integer is found
 by bisection at runtime, and 2000 is subtracted from it because

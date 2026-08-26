@@ -81,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         "publish_boundary_moved": 0,
         "unreadable": 0,
         "claimed_by_a_touched_reader": 0,
+        "unclaimed_by_any_registration": 0,
     }
     by_parser: dict[str, int] = {}
     findings: list[dict[str, object]] = []
@@ -122,17 +123,32 @@ def main(argv: list[str] | None = None) -> int:
             before, before_raised = base.report_to_dict(before_report), None
         except Exception as exc:
             before, before_raised = None, type(exc).__name__
+        # `Report` carries no dispatch, so the claim is taken at the production
+        # seam `analyze_markdown` already offers rather than re-derived by
+        # calling every `detect` again — which would be a second answer, and a
+        # second answer is a second thing that can be wrong.
+        seen: list[object] = []
         try:
-            after_report = analyze_markdown(markdown, parse_mode="deterministic", sheets=sheets)
+            after_report = analyze_markdown(
+                markdown, parse_mode="deterministic", sheets=sheets,
+                on_dispatch=seen.append,
+            )
             after, after_raised = report_to_dict(after_report), None
-            claiming = claiming_parser_id(getattr(after_report, "dispatch", None))
         except Exception as exc:
-            after, after_raised, claiming = None, type(exc).__name__, None
+            after, after_raised = None, type(exc).__name__
+        claiming = claiming_parser_id(seen[0]) if seen else None
 
         if claiming:
             by_parser[claiming] = by_parser.get(claiming, 0) + 1
             if claiming in touched:
                 counts["claimed_by_a_touched_reader"] += 1
+        else:
+            # No registration claimed it: the document publishes through the
+            # generic path. Counted rather than dropped, so `by_parser` plus
+            # this equals the manifest and the attribution cannot be silently
+            # vacuous — which is exactly how the first run of this tool
+            # reported an empty `by_parser` and a truthful zero next to it.
+            counts["unclaimed_by_any_registration"] += 1
 
         # `path` is a corpus-relative FILENAME and the manifest is committed,
         # so it is a source symbol here rather than archive content. It is also
