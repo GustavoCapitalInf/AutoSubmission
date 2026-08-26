@@ -44135,7 +44135,11 @@ first is a grammar question:
 2. may a statement publish with NO ledger section? Today `parse` requires at
    least one, and this document's only match is the words `DEPOSITS NOT SHOWN
    ON THIS STATEMENT` inside a disclosure — so the guard is satisfied by
-   furniture, which is its own small finding;
+   furniture, which is its own small finding. That phrase is the PLATFORM's
+   own disclosure heading, printed identically on every document of the
+   template: institution/template furniture under the card's own rule, quoted
+   here because the finding cannot be stated without naming the words the
+   guard matches, and not a fact about any customer;
 3. what does the ADB doctrine say about a period with no transactions and no
    daily-balance grid, where every printed statistic says the balance never
    moved?
@@ -44206,10 +44210,13 @@ own. Recorded for whoever owns `date_tokens.py` next.
 Noted at CPS10.1 item 2 and worth its own line: `parse` requires at least one
 of the four ledger section names to be present, and `_SECTION_RE` matches the
 words wherever they are printed in capitals — including inside the
-`DEPOSITS NOT SHOWN ON THIS STATEMENT` disclosure. No archive document
-publishes through that path today (the four gates behind it all refuse), but
-the guard is weaker than it reads. Not taken: closing it means a heading
-grammar, which is a card rather than a line.
+`DEPOSITS NOT SHOWN ON THIS STATEMENT` disclosure — the platform's own
+heading, printed identically on every document of the template, and
+institution/template FURNITURE under the card's rule rather than archive
+content about a customer; it is named because the finding is about the words
+the guard matches. No archive document publishes through that path today (the
+four gates behind it all refuse), but the guard is weaker than it reads. Not
+taken: closing it means a heading grammar, which is a card rather than a line.
 
 
 ## CPS11. Proofs, with verbatim exit codes

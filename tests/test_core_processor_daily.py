@@ -371,8 +371,15 @@ def test_a_space_a_scan_put_inside_a_card_date_leaves_no_posting_behind():
     archive scans of this template print `02- 18-26`, and there the boundary
     sees a space and lets `18-26` through as a posting date; `dated_cells`
     then opens a cell on it, finds no amount before the next real row, and
-    refuses the document. The month bound is what says `18` is not a month."""
-    split_card_date = DEBITS + "SEATTLE WA 02- 18-26 11:02 AM XXXXXXXXXXXX1494\n"
+    refuses the document. The month bound is what says `18` is not a month.
+
+    The line below is INVENTED, and its placeholder town and state are the
+    ones `core_processor_daily._ROW_DATE`'s own docstring uses for this
+    construction. An earlier form of it carried a place name printed on one of
+    the archive documents this card censused, which is the standing privacy
+    rule's "example block copied from a document" however inert the token is
+    to the assertion (W3 §CPSCAN CPS12, F1)."""
+    split_card_date = DEBITS + "EXAMPLETOWN XX 02- 18-26 11:02 AM XXXXXXXXXXXX1494\n"
     statement = parse(document(debits=split_card_date))
     assert statement is not None
     assert len(statement.transactions) == 2
