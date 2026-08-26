@@ -44358,6 +44358,40 @@ $ python -m tools.cpscan_privacy_grep ... --diff <private>/leak_probe.diff
 EXIT=1
 ```
 
+### CPS11.5 One void run, recorded rather than quietly re-run
+
+The proof floor was run twice at the final tree. **The first run is VOID and
+this is why**: the mutation harness was started while the full suite was
+still running, both from this worktree, so pytest imported
+`analysis/core_processor_sectioned.py` while M01 had it rewritten on disk.
+The suite came back `3 failed, 5891 passed` and the three are exactly M01's
+kills:
+
+```
+FAILED tests/test_core_processor_sectioned.py::test_a_leading_zero_a_scan_printed_as_a_letter_is_still_that_zero[o]
+FAILED tests/test_core_processor_sectioned.py::test_a_leading_zero_a_scan_printed_as_a_letter_is_still_that_zero[O]
+FAILED tests/test_core_processor_sectioned.py::test_the_pattern_and_the_reading_admit_exactly_the_same_letters
+```
+
+That is my error, not a defect of the branch: the harness restores from
+memory in a `finally` and the tree was clean before and after (`git status`
+empty, verified both times), but a concurrent reader sees the mutated file
+while it is mutated. **A mutation harness and any proof that imports
+`analysis/` are mutually exclusive in time** — the wave already knew the
+harness needs a clean tree; it needs an idle one as well. The void run's log
+is kept beside the good one under the name it earned.
+
+The run was killed by PID, resolved through the process tree from this
+cell's own driver script, and not by a name filter: a sibling cell had just
+killed eighteen `bash.exe` processes with a pattern that matched more than
+its own. The floor above is the clean re-run, with nothing of this cell's
+running beside it.
+
+The docs edit that added this subsection is the only tree delta after that
+re-run started, and it cannot reach a test: every reference to
+`W3_TRACKA_LOG.md` under `tests/` is a docstring mention, and no test or
+gate opens the file.
+
 ## CPS12. Commits
 
 | commit | what |
