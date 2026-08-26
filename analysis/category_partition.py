@@ -20,7 +20,14 @@ The categories do not map one-to-one onto credits and debits: `Deposits`,
 `Miscellaneous Debits`, `Miscellaneous Fees` and the service-charge total are
 money out. A reader that memorised that list would be one printing away from
 booking a credit as a debit, so **no category label appears anywhere in this
-module's sign decision**. The platform marks the direction itself, on the
+module's sign DECISION** — no comparison, no membership test, no table keyed on
+one. The nine labels appear in the paragraph you are reading, which is this
+docstring's enumeration of what the reader does not consult, and nowhere else
+in the module; the fixtures name their categories with invented Greek-letter
+labels precisely so a memorised list could not pass the suite. (The record
+elsewhere framed this as "no category vocabulary in the module", which is not
+what is true and not what is needed — W3 §GLANCE GL12, review finding 7.) The
+platform marks the direction itself, on the
 amount: a category of money IN carries a TRAILING PLUS, a category of money
 OUT carries no mark at all. Three entries are not categories and are read as
 what they are — `Balance Forward From <date>`, `Ending Balance On <date>` and

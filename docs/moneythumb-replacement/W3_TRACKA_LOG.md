@@ -43771,14 +43771,19 @@ by what the document prints rather than by its masthead:
   proves why it must: one statement carries the same description string as a
   credit in one section and as a debit in another.
 
-**A cross-document check the family gave for free.** The eight are two
-consecutive-month chains of two accounts — a four-statement chain on the
-Maverick account and a three-statement chain on the 1STMERC one — and in all
-**5** chain edges the earlier statement's printed `Ending Balance On` is the
-later statement's printed `Balance Forward From`, on the same printed account
-slot. It gates nothing (a reader may not consult another document), and it is
-worth recording: the partition figures this reader publishes are corroborated
-across statement boundaries.
+**A cross-document check the family gave for free.** Re-measured by
+`tools/glance_family_replay.py` (`family_account_slots_and_chains`, which reads
+each document's printed account slot with the reader's own `_summary` and hashes
+it before anything is reported): the eight print **three** distinct account
+slots, not two — one singleton, one three-statement chain and one
+four-statement chain, so seven of the eight sit in a chain. There are **5**
+chain edges, and on **5 of 5** the earlier statement's printed `Ending Balance
+On` is the later statement's printed `Balance Forward From`, closing on the
+date AND on the figure. The headline is unchanged and the population figure it
+rested on was wrong: this section said "two consecutive-month chains of two
+accounts" (review finding 7, corrected). It gates nothing — a reader may not
+consult another document — and it is worth recording: the partition figures
+this reader publishes are corroborated across statement boundaries.
 
 ## GL2. The sign map, derived rather than remembered
 
@@ -43787,6 +43792,17 @@ The census's risk was real: `Deposits`, `Automatic Deposits` and
 `Automatic Withdrawals`, `Automatic Teller Withdrawals`, `Miscellaneous
 Debits`, `Miscellaneous Fees` and the service-charge total are money out. Nine
 labels across eight documents, and the wider corpus will print more.
+
+**Those nine labels are printed here and in the module docstring, and that is
+the accurate statement of it** (review finding 7, corrected). The framing "no
+category vocabulary in the module" was not true: `analysis/category_partition.py`
+lines 17–22 enumerate all nine, and the shared privacy scan flags three of those
+lines as word bigrams (GL7B). What is true is narrower and checkable — no
+category label appears in the module's sign DECISION: no comparison, no
+membership test, no table keyed on one. The enumeration exists to say what the
+reader does not consult, and the fixtures prove the property independently by
+naming their categories with invented Greek-letter labels, so a memorised list
+could not pass the suite.
 
 The reader memorises none of them. What it reads is the mark the platform
 prints on the amount:
@@ -43912,9 +43928,17 @@ any one of them publishes nothing.
 | 15 | the relationship block lists exactly one account | L-1 |
 | 16 | the relationship roll-up equals the closing balance | `Your Total Deposits = <x>` |
 
-Three L-1 refusals sit alongside: exactly one `SUMMARY Type : … Status : …`
-control line, exactly one `Category Number Amount` line, and one distinct
-`Account No.` across every page and every appendix page.
+Three L-1 refusals sit alongside, and the shared helper's contract is what they
+actually are (review finding 7, corrected): exactly one DISTINCT
+`SUMMARY Type : … Status : …` control line, exactly one DISTINCT
+`Category Number Amount` line, and one distinct `Account No.` across every page
+and every appendix page. `unique_match` refuses a second DIFFERENT printing and
+admits an identical repeat, because a page header repeats — measured on both
+constructions at this tree: a document carrying the partition line twice
+IDENTICALLY publishes the identical statement, one carrying two DIFFERENT
+partitions is refused (M37), and the same holds for the control line. The old
+wording said "exactly one", which is stricter than the helper is and than this
+platform's page furniture would allow.
 
 **The printed `Number` column, and the one category that has none.** Every
 category prints an item count except the service-charge total, and a category
@@ -44125,6 +44149,19 @@ Adjudicated:
 Bare four-digit calendar years are excluded from the digit-run class by
 construction and the exclusion is declared here: the branch cites project dates
 (`ratified 2026-08-15`) and the archive prints the same years as years.
+
+**The SHARED instrument, re-run at the closure tree** (`tools/privacy_scan_branch.py`
+on `main`, over the 8 + the 14, `--base 10cc722 --ref wave8-glance`). MONEY
+**0**, DATES **0**, DIGITS **0**, WORDS **22** — every hit a word BIGRAM, exit 1
+which is the instrument's design on any hit. The 22 are 14 of the grid seed
+line's `Beginning Ledger` (furniture the reader must match to read the opening
+balance), 2 of the itemised-charge column header `Description Status`, 1 of a
+section continuation header, and 5 of the category vocabulary quoted in the
+module docstring and in GL2 for the express purpose of saying the sign decision
+does not use it (finding 7). None is a customer name, a merchant, a place, an
+account or a figure. **The count is 22, not the 21 Ocean's pre-review note
+recorded** (review finding 7's fourth item): the note is superseded by this
+measurement, and the difference is a bigram, not a leak.
 
 Three quoted archive figures WERE found by the first run of this scan, all in
 the reader's own comments — a page-header statement date and two sub-dollar

@@ -335,6 +335,25 @@ def test_the_sectioned_issue_takes_each_row_direction_from_its_section():
     assert all(row.running_balance is None for row in statement.transactions)
 
 
+def test_the_L1_partition_refusal_is_of_a_SECOND_DISTINCT_printing():
+    """`unique_match`'s contract, pinned because the record misstated it as
+    "exactly one" (review finding 7). A page header repeats, so an IDENTICAL
+    second printing of the partition line — or of the summary control line —
+    publishes the identical statement; a second DIFFERENT printing is the
+    document contradicting itself about its own summary and is refused (M37)."""
+    once = published(sectioned()).model_dump()
+    twice = sectioned().replace(S_SUMMARY, S_SUMMARY + S_SUMMARY, 1)
+    assert published(twice).model_dump() == once
+
+    control = "INVENTED BETA ACCOUNT SUMMARY Type :     **REG    Status :    Active"
+    repeated = sectioned().replace(control, control + "\n" + control, 1)
+    assert published(repeated).model_dump() == once
+
+    differing = sectioned().replace(
+        S_SUMMARY, S_SUMMARY + S_SUMMARY.replace("Alpha Credits 1", "Alpha Credits 2"), 1)
+    assert parse(differing) is None
+
+
 def test_a_zero_amount_category_accounts_for_no_rows():
     """The platform prints no item count beside a category that moved nothing,
     and the count gate must read that as zero rather than as unknown."""
