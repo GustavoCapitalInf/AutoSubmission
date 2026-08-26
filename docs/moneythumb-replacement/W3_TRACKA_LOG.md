@@ -44379,6 +44379,10 @@ restored: analysis/core_processor_sectioned.py, analysis/core_processor_daily.py
 EXIT=0
 ```
 
+Both counts above are the REVIEWED tree's. At the closure tree they are **236
+tests** and **19 mutants**, re-run verbatim in the review-closures section at
+the end of this log.
+
 ### CPS11.3 The census, the replay and the sweep
 
 ```
@@ -44572,3 +44576,131 @@ listed in the review-closures section at the end of this log.
    weakens the count check — a tolerance, a fallback, a partial ledger —
    weakens this class with it, and that dependency is now stated in the
    class's own docstring rather than left implicit.
+
+## CPS12. Review closures — 0 BLOCK, 2 MAJOR, 5 MINOR
+
+Ocean's ruling names this section §CPS12. The cell's own §CPS12 (Commits) and
+§CPS13 (Risks carried) above keep their numbers so that the review's
+citations still resolve; this is the section every closure commit and every
+docstring added below means by "§CPSCAN CPS12".
+
+The branch moves nothing in the archive and the review found no defect that
+could. The closures are one privacy fix, one instrument retirement, two
+pinned behaviours and four corrections to this record.
+
+| # | grade | finding | closed by | evidence |
+|---|---|---|---|---|
+| F1 | MAJOR | a printed place token from one of the named 19 reached a new test fixture | `d931b30` | fixture rewritten to the placeholder `core_processor_daily._ROW_DATE`'s own docstring uses; 236 passed EXIT=0; shared scan re-run below shows the hit gone |
+| F2 | MAJOR | the branch's privacy headline did not reproduce, and the committed grep was why | `a03b49e` | `tools/cpscan_privacy_grep.py` DELETED; CPS11.4 restated from `tools/privacy_scan_branch.py` v2 (`4a000e4`); the vacuity of its `hits: 0` recorded there |
+| F3 | MINOR | CPS9's offset and mover line were derived, not measured | `5825b98` | `git diff --numstat` +104 / +27; tracer over 59 documents, offsets {104, 113} / {27}; mover `:751 -> :864`; EXIT=0 |
+| F4 | MINOR | the positional argument was stronger in the record than in the code | `a58fca8` | docstring and CPS4 restated; the reviewer's probe pinned as a test; CPS13 gains risk 6 |
+| F5 | MINOR | the `\|` exclusion narrows four more patterns than the record said | `95e419c` | docstring and CPS6 restated; re-measured over 59 documents — 275 bars printed, 0 followed by a digit, 93 count prefixes, 0 barred; EXIT=0 |
+| F6 | MINOR | M04/M05 do not isolate the bound they are named after | `3406a56` | M19 added (glyph KEPT, calendar removed); 19 mutants, 19 KILLED, 0 SURVIVED, EXIT=0; M04/M05 renamed compound |
+| F7 | MINOR | the two sibling readers disagree on one glyph with nothing pinning it | `aa4905f` | one grammar-level test per module asserting the other's choice; the daily module's stale docstring corrected |
+
+**F7 is pinned, not unified.** Making `core_processor_daily` read the zero
+glyph, or `core_processor_sectioned` refuse it, is a BEHAVIOUR CHANGE on a
+reader beyond this card: the daily template's own 20 documents print no such
+mark, so admitting it there would be a grammar widened past its evidence, and
+refusing it here would give back the 154 rows CPS4 measured. Both readers are
+right about their own template. The divergence is now asserted from both
+sides, so a future edit has to change a test to converge them.
+
+**CPS-ZEROTOTAL stays REFUSED.** The mixed document at CPS10.1 prints a
+zero-activity statement whose two count rows carry a total with no decimal
+point. The archive attests the platform's zero form WITH the point on two
+other documents, so reading the printed mark as a zero total is a REPAIR, and
+the repair doctrine forbids it. No code was written for it in this closure
+round. It is carried to Gustavo as recorded at CPS10.1, bundled with the two
+questions that travel with it — whether a statement may publish with no
+ledger section, and what the ADB doctrine says about a period with no
+transactions and no grid. Cost of leaving it: one document, `failed`.
+
+### CPS12.1 The proof table, at the closure tree
+
+Targeted proofs only — the full default suite, `corpus_gate.py` and the
+5-chunk archive sweep were NOT re-run: no production line changed in this
+round beyond docstrings, and CPS11.1/CPS11.4 record them at the reviewed
+tree. Read-only over the archive, artifacts by direct file path, no OCR, no
+sqlite index, no hosted model, $0.
+
+| # | what | result | exit |
+|---|---|---|---:|
+| a | `python -m pytest -q tests/test_core_processor_sectioned.py tests/test_core_processor_daily.py` | **236 passed** in 0.72 s (229 at the reviewed tip, +7: 2 F4 probe cases, 3 intra-word cases, 2 F7 divergence tests) | **0** |
+| b | `python tools/cpscan_mutate.py .` (no `-x`) | `BASELINE failures: []`, **19 mutants, 19 KILLED, 0 SURVIVED**, every killer named; `git status --porcelain` empty before and after | **0** |
+| c | the complex replay, base vs branch, one process, base modules from git blobs | **59 documents**, 59/59 text resolved by the proven-artifact rule (0 with no artifact, 0 unproven), 32 payloads compared, **443,336 leaves**, `moved_documents []`, `dispatch_changes []`, `raise_changes []`; registry **75 in both trees**; the 4 pinned documents of this complex (`038B262B`, `1C1DA630`, `58CB0DCC`, `A1A46034`) are inside the 59 and inside that zero | **0** |
+| d | the refusal-site tracer, base vs branch, 59 documents | 49 sites differ, 48 at the module's constant offset, exactly one document changes GATE; `claimed_by` / `dispatch_outcome` / `parser_id` / `attempted` / `crashed` **59/59 identical** | **0** |
+| e | `python -m tools.cpscan_ceiling … --sha-file <19>` | `documents 19`; every one of the 19 carries at least one named printed check that disagrees, so the **ceiling is 0 of 19**; the JSON prints **no figure** — 0 money-shaped tokens, 0 date-shaped tokens, 0 digit runs of five or more once `content_sha256` values are excluded | **0** |
+| f | the shared privacy instrument, at the closure tip | population 42, `documents_read` 42, `added_lines` 2,469, **MONEY 0 · DATES 0 · DIGITS 0 · WORDS 4** | **1** (its contract on any hit) |
+| g | control-byte scan of every file this branch changed | 9 files, **0 bytes** in `0x00–0x08`, `0x0B`, `0x0C`, `0x0E–0x1F` | **0** |
+
+Row (e)'s per-document detail reproduces CPS3.1 and CPS3.2 unchanged, and
+`9AACD085` still shows all four printed summary checks closing with only the
+grid disagreeing — CPS4's proof, re-measured a third time.
+
+### CPS12.2 The privacy re-measurement, adjudicated hit by hit
+
+```
+$ cd .claude/worktrees/mt-lead
+$ python tools/privacy_scan_branch.py --shas <private>/mine19.txt   --rows <run>/rows.csv --where parser_id=core_processor_sectioned,core_processor_daily   --data-dir <main>/webapp_data --base 10cc722 --ref wave8-cpscan
+{"added_lines": 2469, "documents_read": 42, "population": 42, "hit_count": 4,
+ "hits_by_class": {"MONEY": 0, "DATES": 0, "DIGITS": 0, "WORDS": 4},
+ "no_cached_text": [], "base": "10cc722", "ref": "wave8-cpscan"}
+EXIT=1
+```
+
+**MONEY 0, DATES 0, DIGITS 0.** No amount, no balance, no date, no account,
+cheque, reference or telephone number, and no digit run of five or more
+reaches a line this branch adds — over 3,976 printed money tokens, 118 dates
+and 1,835 digit runs taken from the 42 documents themselves.
+
+The four residual hits are all WORDS, all in this log, and none is archive
+content:
+
+1. **§CPS7** and **§CPS10.3** — two hits, one bigram. The instrument's WORDS
+   class also indexes two-word sequences, and this record's own English prose
+   puts an ordinary modal verb directly after the card name CPS-AMOUNT. The
+   pair collides with wording the template also prints. It is a FALSE
+   POSITIVE of the bigram class: neither word is archive-sourced, the card
+   name is this wave's, and the sentence is an argument about the repair
+   doctrine.
+2. **§CPS10.1 item 2** and **§CPS10.7** — two hits, one phrase: the
+   PLATFORM's own disclosure heading, printed identically on every document
+   of the template. That is institution/template FURNITURE, which the card
+   admits explicitly, and it is quoted because the finding it carries — that
+   `parse`'s ledger-section guard is satisfied by a heading inside a
+   disclosure — cannot be stated without naming the words the guard matches.
+   Both places are now LABELLED as furniture (CLOSURE 1), which is the half
+   of F1 the review said the record owed.
+
+The fifth hit the review reported, at `tests/test_core_processor_daily.py`,
+is GONE: it was the F1 leak and CLOSURE 1 removed it. The token is not
+reproduced anywhere — not in this log, not in the review record, not in a
+commit message.
+
+### CPS12.3 What changed in production
+
+**Nothing beyond docstrings.** The closure round edits prose in
+`analysis/core_processor_sectioned.py` (the `_TOKEN_START` and
+`_LEADING_ZERO` comments) and adds tests; no pattern, no gate, no threshold,
+no constant and no control flow moved. `git diff --numstat 10cc722..HEAD`,
+read at the tree below this commit — this commit adds only this section to
+the log, so the two module rows, which are what CPS9's offsets are measured
+from, are final:
+
+```
+ 31   4  analysis/core_processor_daily.py
+121  17  analysis/core_processor_sectioned.py
+868   0  docs/moneythumb-replacement/W3_TRACKA_LOG.md
+543   0  docs/moneythumb-replacement/reviews/BATCH8_CPSCAN_REVIEW.md
+ 69   1  tests/test_core_processor_daily.py
+143   7  tests/test_core_processor_sectioned.py
+224   0  tools/cpscan_ceiling.py
+289   0  tools/cpscan_census.py
+181   0  tools/cpscan_mutate.py
+```
+
+No `corpus_gate.py`, no `analysis/parser_registry*.py`, no
+`tests/data/parser_expectations.json`, no `analysis/tables.py`, no
+`analysis/date_tokens.py`, no registration, no registry pin, no
+`ANALYSIS_STAGE_VERSION` bump. Registry **75**, measured. No merge, no push.
