@@ -61,13 +61,14 @@ class killers of a scanned registration, so they are named):
 * a header, account number or period whose two READINGS disagree.
 
   That last one is narrower than it first sounds and the difference is worth
-  stating rather than leaving to be discovered. `_sole` compares the MATCHES
-  its pattern found: two pages that both parse as a header and disagree refuse
-  the document. A page whose header the scan garbled BELOW the pattern is not
-  a second reading at all — it matches nothing, contributes nothing, and the
-  remaining good reading is taken. So this refuses contradiction, not
-  illegibility, and a document whose only legible header is on one page is
-  read from that page.
+  stating rather than leaving to be discovered. `tables.unique_match` — the
+  shared helper, which a private near-copy of this module's own stood in for
+  until W3 §SCANHYG — compares the MATCHES its pattern found: two pages that
+  both parse as a header and disagree refuse the document. A page whose header
+  the scan garbled BELOW the pattern is not a second reading at all — it
+  matches nothing, contributes nothing, and the remaining good reading is
+  taken. So this refuses contradiction, not illegibility, and a document whose
+  only legible header is on one page is read from that page.
 
 WHAT IT DOES NOT SET, deliberately: `Statement.currency`. See §CURRENCY below.
 """
@@ -76,10 +77,17 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from .date_tokens import MONTH_NAME_ALT, MONTH_NUMBERS, iso_unique_in_period
+from .date_tokens import (
+    MONTH_NAME_ALT,
+    MONTH_NUMBERS,
+    day_readings,
+    iso_unique_in_period,
+    sole_day,
+)
 from .money import MINUS_CLASS, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
+from .tables import unique_match
 from .td_can import normalize_mojibake
 
 #: A printed figure on this template: always two decimals, always behind a `$`.
@@ -171,22 +179,6 @@ def _cents(token: str) -> int | None:
     return int(round(amount * 100))
 
 
-def _sole(pattern: re.Pattern[str], source: str):
-    """The document's single reading of a term, or None.
-
-    `search` alone takes the first occurrence and never notices a second, so a
-    statement whose summary or header is printed twice — a continuation page
-    reprinting it, a two-account document, an OCR duplication — could publish
-    one reading under another's heading and look ordinary. A repeat that
-    AGREES is free corroboration and is accepted; a repeat that disagrees is
-    the document contradicting itself, and refuses it.
-    """
-    found = pattern.findall(source)
-    if not found or len(set(found)) > 1:
-        return None
-    return pattern.search(source)
-
-
 class _Row:
     """One printed ledger row, before its date and direction are known."""
 
@@ -255,6 +247,25 @@ def _read_rows(source: str) -> list[_Row] | None:
     return rows
 
 
+def _admissible_days(month: int, *, lower: date, upper: date) -> dict[int, str]:
+    """`day-of-month -> the one ISO date it can mean`, for a row printing
+    `month` somewhere inside `lower .. upper`.
+
+    Everything the DOCUMENT determines about a row's date before its own cell
+    is read: the window, and the month the row itself prints. The year comes
+    out of `iso_unique_in_period` and therefore only where the window decides
+    it uniquely, which is the same refusal a bare month/day gets everywhere
+    else in this platform. Thirty-one bounded probes rather than a walk, so a
+    period the scan damaged into spanning years cannot turn this into a loop.
+    """
+    found: dict[int, str] = {}
+    for day in range(1, 32):
+        iso = iso_unique_in_period(month, day, start=lower, end=upper)
+        if iso is not None:
+            found[day] = iso
+    return found
+
+
 def _resolve_dates(
     rows: list[_Row], *, period_start: date, period_end: date
 ) -> list[date] | None:
@@ -270,15 +281,57 @@ def _resolve_dates(
        closing balance includes it. That one day is the whole extension: a row
        dated further out is a mis-read and refuses the document.
 
-    2. A DAY THE SCAN DESTROYED IS DERIVED FROM THE PRINTED ORDER, OR NOT AT
-       ALL. Tesseract renders some day numbers as a stray glyph (`&`, `g`),
-       and a token holding no digit at all says nothing. Such a row's date is
-       bounded by its legible neighbours, and is accepted ONLY where that
-       bound is a single day — the nearest resolved date before it equals the
-       nearest resolved date after it, and that date falls in the month the
-       row itself prints. Two candidate days means the document does not
-       determine the date, and publishing either would publish a chronology
-       the bank did not print.
+    2. A DAMAGED DAY CELL IS ENUMERATED, AND ONE READING IS ACCEPTED ONLY WHERE
+       ONE IS POSSIBLE. Tesseract renders some day numbers as a stray glyph
+       (`&`, `g`) and sometimes leaves the glyph BESIDE the digit it damaged
+       (`8&`). `date_tokens.day_readings` answers the question that separates
+       those two — when is a glyph in a day cell a digit? — without memorising
+       what any glyph is: a decimal glyph is what the bank printed, a
+       non-decimal glyph is either a digit or ink, and every combination is
+       enumerated. `sole_day` then intersects those readings with what the
+       document already determines, in two passes:
+
+       * the printed period and the row's own printed month, which is enough
+         for `8&` (a second digit beside the 8 would date the row to the
+         eighty-somethingth of the month, so the glyph can only be ink);
+       * failing that, the days its nearest LEGIBLE neighbours bound it
+         between, which is enough for a lone glyph in a run of one day.
+
+       Two surviving readings means the document does not determine the date,
+       and dating the row by preference would publish a chronology the bank did
+       not print. THE READER THIS REPLACED deleted every non-decimal glyph and
+       took what was left, so `1&` in a period containing both the 1st and the
+       14th read as the 1st, silently and with nothing to notice it.
+
+       THIS GATE IS NOT UNIFORMLY STRICTER THAN THE ONE IT REPLACED, and both
+       directions are stated because a reader who assumed one of them would be
+       wrong (W3 §SCANHYG SH4, review finding 3).
+
+       * WIDER, on a cell that kept a legible digit. The reader this replaced
+         deleted the glyph and took what was left, which ignores the printed
+         order; where its answer BREAKS that order the whole document was
+         refused. Here `&8` between a 10th and a 20th is the 18th — the one
+         reading of the cell that the printed digit and the printed order both
+         admit — and the row is dated rather than the document refused. The
+         evidence is the document's own, and it is more of it than deletion
+         used, not less.
+       * STRICTER, on a cell that kept NO legible glyph. Such a cell says
+         nothing about its own value: the enumeration of a lone stray glyph
+         offers only the single-digit days, which is an artefact of one glyph
+         standing for at most one digit and not something the document states.
+         So an illegible cell is resolved by the PRINTED ORDER ALONE: its two
+         nearest legible neighbours must AGREE on a day, and that day must be
+         one the row's own printed month admits. That is the rule the reader
+         this replaced used, restored here — the enumeration had both narrowed
+         it (a lone glyph could no longer derive a two-digit day at all) and
+         widened it (it picked the one single-digit day inside a window several
+         days wide). Its own narrow cost is stated too: neighbours that do not
+         agree are refused even in the one shape where the printed month would
+         still name a single day between them, which is where the bound is
+         deliberately the older and blunter of the two.
+         A cell holding a legible digit never takes this path, so
+         `&`-after-a-legible-`8` (the column bleed this template prints) cannot
+         be re-dated by its neighbours.
 
     3. THE SEQUENCE MUST BE NON-DECREASING. This grid is printed in date
        order, so monotonicity is a fact about the document, and it catches a
@@ -299,30 +352,31 @@ def _resolve_dates(
        guarantee that every published date is right.
     """
     latest = period_end + timedelta(days=1)
-    resolved: list[date | None] = []
+    months: list[int] = []
     for row in rows:
         month = MONTH_NUMBERS.get(row.month.strip().casefold())
-        # `isdecimal`, NOT `isdigit`. `str.isdigit()` is True for the
-        # superscripts (U+00B9 U+00B2 U+00B3) and `int()` rejects them, so a
-        # scan that renders a day as a superscript would raise out of this
-        # parser instead of refusing — the crash class
-        # `tests/test_parser_crash_shapes.py` exists for. `isdecimal()` is
-        # exactly the set `int()` accepts, so the conversion below is total
-        # and a character outside it makes the token illegible, which is a
-        # refusal this function already knows how to make.
-        digits = "".join(character for character in row.day_token if character.isdecimal())
         if month is None:
             return None
-        if not digits:
-            resolved.append(None)
+        months.append(month)
+
+    resolved: list[date | None] = []
+    for row, month in zip(rows, months):
+        window = _admissible_days(month, lower=period_start, upper=latest)
+        readings = day_readings(row.day_token)
+        if not readings:
+            # No reading of this cell is a day at all: `88`, or a cell that ran
+            # into the column next door.
+            return None
+        day = sole_day(row.day_token, window)
+        if day is not None:
+            resolved.append(date.fromisoformat(window[day]))
             continue
-        day = int(digits)
-        if not 1 <= day <= 31:
+        if row.day_token.isdecimal():
+            # A cell every glyph of which survived has exactly ONE reading, so
+            # arriving here means the printed period does not admit it: the row
+            # is dated outside the statement it is printed on.
             return None
-        iso = iso_unique_in_period(month, day, start=period_start, end=latest)
-        if iso is None:
-            return None
-        resolved.append(date.fromisoformat(iso))
+        resolved.append(None)
 
     for index, entry in enumerate(resolved):
         if entry is not None:
@@ -330,12 +384,30 @@ def _resolve_dates(
         before = next((d for d in reversed(resolved[:index]) if d is not None), None)
         after = next((d for d in resolved[index + 1 :] if d is not None), None)
         lower = before if before is not None else period_start
-        if after is None or lower != after:
+        if after is None:
+            # Nothing legible after it: the printed order bounds this row on
+            # one side only, and one side is not a bound.
             return None
-        month = MONTH_NUMBERS.get(rows[index].month.strip().casefold())
-        if month != after.month:
+        window = _admissible_days(months[index], lower=lower, upper=after)
+        if not any(glyph.isdecimal() for glyph in rows[index].day_token):
+            # A cell with NO legible glyph left. Its own enumeration carries no
+            # evidence about the value — a lone stray glyph enumerates as the
+            # single-digit days only because one glyph stands for at most one
+            # digit, which is a fact about the enumeration and not one the
+            # document prints — so the printed ORDER is all there is, and it
+            # answers only where the two nearest legible neighbours AGREE on a
+            # day the row's own month admits. That is the bound this reader
+            # always used; intersecting it with the enumeration lost the
+            # two-digit days it used to derive and gained a preference between
+            # the single-digit ones it never had.
+            if lower != after or len(window) != 1:
+                return None
+            resolved[index] = after
+            continue
+        day = sole_day(rows[index].day_token, window)
+        if day is None:
             return None
-        resolved[index] = after
+        resolved[index] = date.fromisoformat(window[day])
 
     dates = [entry for entry in resolved if entry is not None]
     if len(dates) != len(rows):
@@ -350,8 +422,8 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
         return None
     source = normalize_mojibake(markdown)
 
-    header = _sole(_HEADER_RE, source)
-    title = _sole(_TITLE_RE, source)
+    header = unique_match(source, _HEADER_RE)
+    title = unique_match(source, _TITLE_RE)
     if header is None or title is None:
         return None
     start_month = MONTH_NUMBERS.get(header.group("start_month").strip().casefold())
@@ -379,7 +451,7 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
 
     summary: dict[str, int] = {}
     for name, pattern in _SUMMARY_TERMS.items():
-        term = _sole(pattern, source)
+        term = unique_match(source, pattern)
         if term is None:
             return None
         value = _cents(term.group(1))
@@ -439,6 +511,42 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
     if credit_total != summary["deposits"] or debit_total != summary["withdrawals"]:
         return None
 
+    # THE ONE-DAY CLOSING EXTENSION IS A WIDENING, AND A WIDENING IS ADMITTED
+    # ONLY ON THE DOCUMENT'S OWN EVIDENCE.
+    #
+    # `_resolve_dates` reads rows dated `period_end + 1` because this issuer
+    # posts the following cycle's opening interest credit into this statement
+    # and dates it there, and its own printed closing balance includes it. That
+    # is the justification for the widening, and until now it was not the
+    # CONDITION of it: the window was a date bound and nothing more, so a DEBIT
+    # on that day — or an unrelated credit that is no accrual at all — parsed
+    # exactly like the interest posting, carried no flag and reached the
+    # payload as an ordinary transaction (W3 §TANGERINE TG9.3, closed here).
+    # This platform admits a widening only where the document accepts it: the
+    # comma-decimal and the slash-less cheque date next door are held to their
+    # section's printed total, and this one is held to the shape of the thing
+    # it exists for.
+    #
+    # What this reader can be SURE of is the rows' kind and their place, so
+    # that is what it gates on, and the SIZE of the accrual — the printed
+    # `Total interest earned` against their sum, and the in-period ledger
+    # against `closing - sum` — is a comparison between two printings and
+    # belongs where a contradiction between two printings belongs, in
+    # `closing_accrual_contradictions` below. Whether the ADB may then be
+    # published is neither: `analysis/adb.py` refuses any out-of-period row and
+    # that refusal is Gustavo's bundled ruling (TG9 + TG10), untouched here.
+    out_of_period = [index for index, day in enumerate(dates) if day > period_end]
+    if out_of_period:
+        # Contiguous and last. Implied by the non-decreasing gate above, which
+        # is why it is stated rather than relied on: each check's redundancy
+        # here depends on every other one holding.
+        if out_of_period != list(range(len(dates) - len(out_of_period), len(dates))):
+            return None
+        for index in out_of_period:
+            posting = transactions[index]
+            if posting.direction != "credit" or posting.amount <= 0:
+                return None
+
     stmt = Statement(
         bank="EQ Bank",
         account_name=header.group("holder").strip(),
@@ -468,7 +576,7 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
     # `stated_credit_count`, `stated_debit_count`, `days_in_period` and
     # `bank_reported_average_balance` stay unset: a count derived from our own
     # parse is not a figure the bank stated.
-    interest = _sole(_INTEREST_RE, source)
+    interest = unique_match(source, _INTEREST_RE)
     if interest is not None:
         earned = _cents(interest.group(1))
         if earned is not None:
@@ -487,3 +595,78 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
     ]
     stmt.transactions = transactions
     return stmt
+
+
+def closing_accrual_contradictions(markdown: str, stmt: Statement) -> list[str]:
+    """The postings this issuer dates AFTER its printed period end, held
+    against the two other printings of the same fact on the same page.
+
+    WHY THIS IS A FINDING AND NOT NOISE. The reader's date window extends one
+    day past the printed period because the bank posts the following cycle's
+    opening interest credit into this statement and dates it there, and its own
+    printed closing balance includes it. The document states the SIZE of that
+    accrual twice more — as the summary's `Total interest earned` term, and as
+    the gap between the printed closing balance and the balance the in-period
+    ledger reaches. Where the three do not agree, the page contradicts itself
+    about what those trailing rows are, and that is what a human needs to see:
+    the reader has admitted rows outside the printed period on the strength of
+    a story the document does not corroborate.
+
+    Where they DO agree the check says nothing, which is the archive's case on
+    every document of this family that parses. The corroboration is then a
+    measurement anyone can reproduce, and it is the evidence base for the
+    closing-accrual seam that would let `analysis/adb.py` publish these
+    documents' averages — a seam that is Gustavo's bundled ruling (W3
+    §TANGERINE TG9 + TG10) and is NOT implemented here or anywhere on this
+    branch.
+
+    The interest term is re-read from the DOCUMENT rather than taken from
+    `stated_interest_paid`, so the check compares two independent printings
+    even against a reader that stops publishing the term. Total by
+    construction: a check that raises is a document routed to review for no
+    finding.
+    """
+    if not stmt.period_end or stmt.ending_balance is None or stmt.beginning_balance is None:
+        return []
+    try:
+        period_end = date.fromisoformat(stmt.period_end)
+    except ValueError:
+        return []
+    trailing: list[Transaction] = []
+    in_period_total = 0
+    for txn in stmt.transactions:
+        try:
+            day = date.fromisoformat(txn.date)
+        except (TypeError, ValueError):
+            return []
+        if day > period_end:
+            trailing.append(txn)
+        else:
+            in_period_total += int(round(txn.amount * 100))
+    if not trailing:
+        return []
+
+    notes: list[str] = []
+    accrued = sum(int(round(txn.amount * 100)) for txn in trailing)
+    plural = "" if len(trailing) == 1 else "s"
+    printed = unique_match(normalize_mojibake(markdown), _INTEREST_RE)
+    term = _cents(printed.group(1)) if printed is not None else None
+    if term is None:
+        notes.append(
+            f"{len(trailing)} posting{plural} dated after the printed period end, and no "
+            "legible interest term on the page to corroborate them against"
+        )
+    elif term != accrued:
+        notes.append(
+            f"the {len(trailing)} posting{plural} dated after the printed period end sum to "
+            f"{accrued / 100:,.2f}, which is not the {term / 100:,.2f} the same page states "
+            "as interest earned"
+        )
+    in_period_closing = int(round(stmt.beginning_balance * 100)) + in_period_total
+    if int(round(stmt.ending_balance * 100)) - accrued != in_period_closing:
+        notes.append(
+            f"the ledger inside the printed period reaches {in_period_closing / 100:,.2f}, "
+            f"which is not the printed closing balance less those postings "
+            f"({(int(round(stmt.ending_balance * 100)) - accrued) / 100:,.2f})"
+        )
+    return notes

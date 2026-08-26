@@ -441,6 +441,37 @@ _OVERRIDES: dict[str, dict] = {
     # prints every posting in a grid whose heading declares its direction
     # independently of the sign on the amount.
     "brex": {"integrity_checks": (brex.printed_total_contradictions,)},
+    # EQ Bank posts the following cycle's opening interest credit into this
+    # statement, dates it `period_end + 1`, and includes it in its own printed
+    # closing balance. The page states the size of that accrual twice more —
+    # the `Total interest earned` term, and the gap between the printed closing
+    # balance and the balance the in-period ledger reaches. Where the three
+    # disagree the page contradicts itself about what those trailing rows are.
+    # (The seam that would let `adb.py` publish these averages is Gustavo's
+    # bundled ruling, W3 §TANGERINE TG9 + TG10, and is not implemented.)
+    "eq_bank_scanned": {
+        "integrity_checks": (eq_bank_scanned.closing_accrual_contradictions,)
+    },
+    # Citizens prints a total for each of its three activity sections beside
+    # the balance strip. Where the strict and the widened reading of a section
+    # BOTH disagree with it the reader keeps the strict one and said nothing —
+    # including on one archive statement where the strict cheque grid takes
+    # more money than the page states (W3 §SCANFINISH SF10 1b, closed as part
+    # of SCAN-HYGIENE). Which section, and in which direction, is the finding.
+    "citizens": {
+        "integrity_checks": (citizens.printed_section_total_contradictions,)
+    },
+    # Southside's `DAILY BALANCE SUMMARY` prints an end-of-day balance for each
+    # day the account moved, so consecutive cells partition the period and each
+    # step is the bank's own statement of what the account did between them.
+    # The reader consults that grid about DATES and never asked it about
+    # AMOUNTS — the gap that let one archive statement publish a FOUR-FIGURE
+    # amount more debit money than the bank states (W3 §SCANFINISH SF2, closed here as
+    # SS-GRID-AMOUNTS). Registered rather than resolved in the parser, for the
+    # repair doctrine's reason: neither printing is preferred.
+    "southside_scanned": {
+        "integrity_checks": (scanned_small_bank.daily_grid_amount_contradictions,)
+    },
 }
 
 _loaded = False

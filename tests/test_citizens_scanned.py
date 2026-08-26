@@ -23,6 +23,7 @@ from analysis.citizens import (
     _summary,
     detect,
     parse_citizens_statement,
+    printed_section_total_contradictions,
 )
 
 PERIOD = ("2026-04-01", "2026-04-30")
@@ -412,3 +413,88 @@ def test_a_statement_with_no_ledger_at_all_publishes_nothing():
 def test_a_document_this_parser_does_not_recognise_is_not_claimed():
     assert not detect(whole().replace("citizensbank.com", "example.com")).claims
     assert not detect(whole().replace("Balance Calculation", "Account Summary")).claims
+
+
+# ---------------------------------------------------------------------------
+# The printed section totals, held against what the reader takes (W3 §SCANHYG)
+# ---------------------------------------------------------------------------
+
+
+def notes_for(markdown: str) -> list[str]:
+    stmt = parse_citizens_statement(markdown)
+    assert stmt is not None
+    return printed_section_total_contradictions(markdown, stmt)
+
+
+def test_a_statement_whose_sections_sum_to_their_printed_totals_reports_nothing():
+    assert notes_for(whole()) == []
+
+
+def test_a_cheque_grid_that_takes_MORE_than_the_page_states_is_named():
+    """The branch that was silent. Neither the strict reading nor the widened
+    one agrees with `Total Checks`, the strict one stands — correctly, because
+    a widened read that agrees with nothing is a second guess — and the reader
+    then publishes more cheque money than the bank printed with nothing to say
+    so. An over-capture is worse in kind than an under-capture."""
+    over = whole().replace("1002 200.00 04/10", "1002 250.00 04/10")
+    notes = notes_for(over)
+    assert len(notes) == 1
+    assert "Total Checks" in notes[0] and "more" in notes[0]
+
+
+def test_a_debit_section_that_takes_LESS_than_the_page_states_is_named():
+    short = whole().replace("04/05 50.00 MONTHLY SERVICE CHARGE\n", "")
+    notes = notes_for(short)
+    assert len(notes) == 1
+    assert "Total Debits" in notes[0] and "less" in notes[0]
+
+
+def test_each_printed_section_is_held_separately():
+    """One aggregate cannot say WHICH section, which is the first question
+    anybody asks of a ledger that does not reconcile."""
+    both = whole().replace("1002 200.00 04/10", "1002 250.00 04/10").replace(
+        "04/05 50.00 MONTHLY SERVICE CHARGE\n", ""
+    )
+    notes = notes_for(both)
+    assert len(notes) == 2
+    assert {"Total Checks" in note for note in notes} == {True, False}
+    assert {"Total Debits" in note for note in notes} == {True, False}
+
+
+def test_a_credit_section_the_page_contradicts_is_named_too():
+    over = whole().replace("04/20 300.00 INCOMING TRANSFER", "04/20 350.00 INCOMING TRANSFER")
+    notes = notes_for(over)
+    assert len(notes) == 1
+    assert "Deposits & Credits" in notes[0]
+
+
+def test_the_widened_reading_that_the_printed_total_accepts_reports_nothing():
+    """The check must not fire on the two widenings the reader is allowed:
+    they are adopted only where they make the section sum the printed total
+    EXACTLY, so by construction there is nothing to report."""
+    comma = whole().replace("04/02 150.00 POS", "04/02 150,00 POS")
+    assert notes_for(comma) == []
+
+
+def test_the_registration_declares_the_section_total_check():
+    from analysis import parser_registry as pr
+    from analysis.parser_registry_entries import load
+
+    registration = next(r for r in load() if r.id == "citizens")
+    assert printed_section_total_contradictions in registration.integrity_checks
+    assert registration in pr.registrations()
+
+
+def test_a_document_the_check_cannot_read_answers_nothing_rather_than_raising():
+    stmt = parse_citizens_statement(whole())
+    assert stmt is not None
+    for maimed in (document(strip=""), "", "--- Page 1 ---\n"):
+        assert printed_section_total_contradictions(maimed, stmt) == []
+
+
+def test_the_disagreement_reaches_the_published_integrity_block():
+    from analysis.pipeline import analyze_markdown
+
+    over = whole().replace("1002 200.00 04/10", "1002 250.00 04/10")
+    report = analyze_markdown(over, parse_mode="deterministic")
+    assert "conflicting_statement_summaries" in report.integrity.flags

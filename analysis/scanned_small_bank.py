@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
-from .tables import compact_whitespace
+from .tables import compact_whitespace, unique_match
 from .td_can import normalize_mojibake
 
 
@@ -406,6 +406,32 @@ def _southside_day(token: str, period: tuple[str, str]) -> str | None:
     return candidates.pop().isoformat() if len(candidates) == 1 else None
 
 
+def _southside_daily_cells(
+    daily_grid: str, period: tuple[str, str]
+) -> dict[str, set[float]]:
+    """The printed daily-balance grid as `day -> every distinct balance printed
+    for it`.
+
+    One reading of this grid, used for two different things. A day the grid
+    NAMES is a day the account moved, whatever balance the cell carries — that
+    is what corroborates a reconstructed date. A day whose cell carries ONE
+    balance is additionally an amount oracle. The two are separated here rather
+    than conflated because they fail differently: a cell printed twice with two
+    values still names its day, and it is on one archive statement of the nine
+    (W3 §SCANHYG).
+    """
+    cells: dict[str, set[float]] = {}
+    for token, amount in re.findall(
+        r"([A-Za-z0-9/]{2,5})\s+(" + _SS_MONEY + r")", daily_grid
+    ):
+        day = _southside_day(token, period)
+        value = _southside_money(amount)
+        if day is None or value is None:
+            continue
+        cells.setdefault(day, set()).add(round(value, 2))
+    return cells
+
+
 def _southside_posted_days(daily_grid: str, period: tuple[str, str]) -> frozenset[str]:
     """Every day the printed daily-balance grid names.
 
@@ -415,13 +441,7 @@ def _southside_posted_days(daily_grid: str, period: tuple[str, str]) -> frozense
     cell the scan damaged may only be read as a day the bank itself says had
     activity.
     """
-    days = {
-        _southside_day(token, period)
-        for token, _amount in re.findall(
-            r"([A-Za-z0-9/]{2,5})\s+(" + _SS_MONEY + r")", daily_grid
-        )
-    }
-    return frozenset(day for day in days if day is not None)
+    return frozenset(_southside_daily_cells(daily_grid, period))
 
 
 def _southside_money(token: str) -> float | None:
@@ -435,6 +455,65 @@ def _southside_money(token: str) -> float | None:
     ambiguous — `1,234` — nothing is decided and the shared grammar answers.
     """
     return parse_money(re.sub(r",(\d{2})$", r".\1", token.strip()))
+
+
+#: HORIZONTAL whitespace only. Every row of this grid is printed on one line,
+#: and `\s` matches a newline: a pattern built with it would let a figure from
+#: the line below answer a label on the line above. The reader this replaces
+#: searched each line separately and so could not do that; these patterns run
+#: over the whole page through `unique_match`, and this class is what keeps the
+#: guarantee.
+_SS_H = r"[^\S\n]"
+
+#: The labelled rows of the `ACCOUNT SUMMARY` grid, each as ONE pattern over
+#: the whole page.
+#:
+#: `unique_match` (the shared helper, `analysis/tables.py`) is what reads them,
+#: and the discipline is its docstring's: a row this grid prints TWICE with two
+#: different values is the document contradicting itself about its own summary,
+#: and there is no rule that says which printing to believe — taking the first
+#: would be picking one. A repeat that AGREES is a page header doing its job
+#: and is free corroboration.
+#:
+#: This reader used to take the first printing (`found.setdefault`).
+#: `texas_first`, in this same module and the same wave lineage, already
+#: refused the contradiction, and the two-account printing under one heading is
+#: exactly what would produce one. Measured before the change over all nine
+#: archive statements this issuer prints: NO label is printed with more than
+#: one distinct value on any of them, so adopting the shared discipline moves
+#: no document (W3 §SCANHYG).
+_SS_PERIOD_RE = re.compile(
+    rf"Statement Dates{_SS_H}+(\d{{1,2}}/\d{{1,2}}/\d{{2,4}}){_SS_H}+thru"
+    rf"{_SS_H}+(\d{{1,2}}/\d{{1,2}}/\d{{2,4}})",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SS_DAYS_RE = re.compile(
+    rf"Days in Statement Period{_SS_H}+(\d+)", re.IGNORECASE | re.MULTILINE
+)
+#: The two count/total rows. The count is the cell printed immediately BEFORE
+#: the label and the total is the last cell on the line, which is why this one
+#: is anchored at the line end.
+_SS_COUNTED_ROWS = (
+    ("credit", re.compile(
+        rf"(\S+)?{_SS_H}*Deposits{_SS_H}*/{_SS_H}*Credits{_SS_H}+({_SS_MONEY}){_SS_H}*$",
+        re.IGNORECASE | re.MULTILINE)),
+    ("debit", re.compile(
+        rf"(\S+)?{_SS_H}*Checks{_SS_H}*/{_SS_H}*Debits{_SS_H}+({_SS_MONEY}){_SS_H}*$",
+        re.IGNORECASE | re.MULTILINE)),
+)
+#: The four single-figure rows. The first two are required by the grid's own
+#: identity; the last two are optional and publish as unknown when the scan
+#: took them, exactly as a count does.
+_SS_FIGURE_ROWS = (
+    ("previous", re.compile(rf"Previous Balance{_SS_H}+({_SS_MONEY})",
+                            re.IGNORECASE | re.MULTILINE)),
+    ("ending", re.compile(rf"Ending Balance{_SS_H}+({_SS_MONEY})",
+                          re.IGNORECASE | re.MULTILINE)),
+    ("service", re.compile(rf"Total Service Charge{_SS_H}+({_SS_MONEY})",
+                           re.IGNORECASE | re.MULTILINE)),
+    ("interest", re.compile(rf"Interest Paid{_SS_H}+({_SS_MONEY})",
+                            re.IGNORECASE | re.MULTILINE)),
+)
 
 
 def _southside_summary(text: str) -> dict[str, object] | None:
@@ -462,37 +541,41 @@ def _southside_summary(text: str) -> dict[str, object] | None:
 
     The grid is accepted only if its own arithmetic closes:
     `previous + credits - debits == ending`, to the cent. It closes on all nine.
+
+    EACH ROW IS READ ONCE, OVER THE WHOLE PAGE, THROUGH `unique_match`. A label
+    the grid prints twice with two different values refuses the row rather than
+    resolving it by order of appearance: see `_SS_PERIOD_RE` above for why, and
+    `analysis/tables.py::unique_match` for the discipline this shares with the
+    two core-processor templates and `texas_first`. A required row that refuses
+    refuses the document; an optional one publishes as unknown, which is what
+    this reader already does with a count whose digit did not survive.
     """
     found: dict[str, object] = {}
-    for line in text.splitlines():
-        row = line.strip()
-        m = re.search(
-            r"Statement Dates\s+(\d{1,2}/\d{1,2}/\d{2,4})\s+thru\s+(\d{1,2}/\d{1,2}/\d{2,4})",
-            row, re.IGNORECASE)
-        if m:
-            found.setdefault("start", m.group(1))
-            found.setdefault("end", m.group(2))
-        m = re.search(r"Days in Statement Period\s+(\d+)", row, re.IGNORECASE)
-        if m:
-            found.setdefault("days", int(m.group(1)))
-        for key, label in (
-            ("credit", r"Deposits\s*/\s*Credits"),
-            ("debit", r"Checks\s*/\s*Debits"),
-        ):
-            m = re.search(r"(\S+)?\s*" + label + r"\s+(" + _SS_MONEY + r")\s*$", row, re.IGNORECASE)
-            if m and key + "_total" not in found:
-                count = m.group(1)
-                found[key + "_count"] = int(count) if count and count.isdigit() else None
-                found[key + "_total"] = _southside_money(m.group(2))
-        for key, label in (
-            ("previous", r"Previous Balance"),
-            ("ending", r"Ending Balance"),
-            ("service", r"Total Service Charge"),
-            ("interest", r"Interest Paid"),
-        ):
-            m = re.search(label + r"\s+(" + _SS_MONEY + r")", row, re.IGNORECASE)
-            if m:
-                found.setdefault(key, _southside_money(m.group(1)))
+    period = unique_match(text, _SS_PERIOD_RE)
+    if period is not None:
+        found["start"], found["end"] = period.group(1), period.group(2)
+    days = unique_match(text, _SS_DAYS_RE)
+    if days is not None:
+        found["days"] = int(days.group(1))
+    for key, pattern in _SS_COUNTED_ROWS:
+        row = unique_match(text, pattern)
+        if row is None:
+            continue
+        count = row.group(1)
+        # `isdecimal`, NOT `isdigit`. `str.isdigit()` is True for the
+        # superscripts U+00B9 U+00B2 U+00B3 and `int()` rejects them, so a
+        # scan that resolved this grid's count digit as a superscript raised
+        # `ValueError` out of this parser instead of publishing the count as
+        # unknown — the crash class `tests/test_parser_crash_shapes.py` exists
+        # for, and one this reader is not entitled to when it already handles
+        # a count whose digit became a LETTER. `isdecimal()` is exactly the set
+        # `int()` accepts, so the conversion below is total.
+        found[key + "_count"] = int(count) if count and count.isdecimal() else None
+        found[key + "_total"] = _southside_money(row.group(2))
+    for key, pattern in _SS_FIGURE_ROWS:
+        figure = unique_match(text, pattern)
+        if figure is not None:
+            found[key] = _southside_money(figure.group(1))
     required_keys = ("start", "end", "days", "previous", "ending", "credit_total", "debit_total")
     if any(found.get(key) is None for key in required_keys):
         return None
@@ -572,6 +655,141 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
         return None
     stmt.transactions = txns
     return stmt
+
+
+#: The resolution of the span comparison below, and it is FLOAT NOISE and
+#: nothing else. Both sides are figures already rounded to the cent — the
+#: printed cell as the page prints it, the ledger step as `round(x, 2)` leaves
+#: it — so two that agree differ by ~1e-13 at worst and two that disagree
+#: differ by at least a cent. The floor was 0.01 until W3 §SCANHYG SH13
+#: (review finding 5): it silenced a one-cent over-capture, which is the
+#: smallest instance of the exact thing the check exists to find.
+_GRID_CELL_EPSILON = 1e-6
+
+
+def daily_grid_amount_contradictions(markdown: str, stmt: Statement) -> list[str]:
+    """The printed daily-balance grid, held against the ledger as an AMOUNT
+    oracle rather than only as a date one.
+
+    THE GAP THIS CLOSES, and it is a gap in the reader's design rather than a
+    residue. `_southside_posted_days` already consults this grid, and it
+    consults it about DATES only: a reconstructed date must name a day the
+    grid names. Nothing asked the grid what the day was WORTH. On one archive
+    statement that cost a FOUR-FIGURE over-capture — a reader publishing more
+    debit money than the bank states, which is worse in kind than publishing
+    less, and which every other check on the document was blind to because the
+    row it came from was otherwise perfectly formed (W3 §SCANFINISH SF2,
+    carded there as SS-GRID-AMOUNTS). The size is stated as a CLASS here and
+    in every comment of the four modules this card owns: the figure is the
+    document's. The universal this sentence used to claim — "everywhere else
+    in tracked source" — was not measured and is not true; what the whole
+    tracked tree carries is the train's to sweep (W3 §SCANHYG SH13, review
+    finding 1).
+
+    WHAT THE GRID SAYS. It prints an end-of-day balance for each day the
+    account moved, so consecutive printed cells partition the period: the step
+    from one cell to the next is the bank's own statement of what the account
+    did over the days BETWEEN them, including the days it did not print
+    because nothing posted on them. The ledger's rows dated in that same span
+    must move the same money. That is a per-span comparison and it localises:
+    a span whose two readings agree is a span read correctly whatever the
+    running error elsewhere is, which a cumulative walk cannot say.
+
+    THE RESOLUTION IS ANY NON-ZERO DIFFERENCE. A span the grid and the ledger
+    disagree about by ONE CENT is a contradiction and is reported: this check
+    exists to find money the reader took that the bank did not print, and one
+    cent of it is the smallest instance of that rather than a different kind of
+    thing. `_GRID_CELL_EPSILON` is float noise between two figures already
+    rounded to the cent and is not a tolerance for disagreement (W3 §SCANHYG
+    SH3, review finding 5). The last-cell comparison at the end of this
+    function holds two figures the BANK printed against each other, which is a
+    different question, and this card's ruling scoped the change to the cell
+    against the ledger; it stays at the cent.
+
+    NEITHER READING IS PREFERRED AND NOTHING IS REPAIRED. The rows are the
+    figures the bank printed and the cell is the figure the bank printed; only
+    the bank can say which is wrong. The disagreement is reported — the same
+    answer `columbia_bank.daily_grid_contradictions` gives for the same shape,
+    and for the reason the repair doctrine gives: a parser that resolves this
+    by rewriting an amount is a parser whose downstream gate is its own
+    objective function.
+
+    Re-read from the DOCUMENT, not taken from the statement, so the check keeps
+    working against a reader that stops consulting the grid. Guarded by the
+    registry like every other integrity check; total by construction, because a
+    check that raises is a document routed to review for no finding.
+    """
+    if not stmt.period_start or not stmt.period_end or stmt.beginning_balance is None:
+        return []
+    try:
+        start = date.fromisoformat(stmt.period_start)
+        end = date.fromisoformat(stmt.period_end)
+    except ValueError:
+        return []
+    if end < start:
+        return []
+    source = normalize_mojibake(markdown)
+    cells = _southside_daily_cells(
+        _southside_grids(source)["daily"], (stmt.period_start, stmt.period_end)
+    )
+    notes: list[str] = []
+    printed: dict[date, float] = {}
+    for iso, values in sorted(cells.items()):
+        day = date.fromisoformat(iso)
+        if not start <= day <= end:
+            continue
+        if len(values) > 1:
+            # The grid contradicting ITSELF about one day. The day still counts
+            # as one the account moved; the cell is not an oracle.
+            notes.append(
+                f"the daily-balance grid prints {len(values)} different balances for "
+                f"{iso}, so the balance it states for that day is not readable"
+            )
+            continue
+        printed[day] = next(iter(values))
+    if not printed:
+        return notes
+
+    movement: dict[date, float] = {}
+    for txn in stmt.transactions:
+        try:
+            when = date.fromisoformat(txn.date)
+        except (TypeError, ValueError):
+            # A ledger this reader cannot date is a ledger this check cannot
+            # walk. It says so by saying nothing, which is what the guard
+            # contract asks of an answer that is unknown.
+            return notes
+        movement[when] = round(movement.get(when, 0.0) + txn.amount, 2)
+
+    previous_day, previous_balance = start - timedelta(days=1), stmt.beginning_balance
+    for day in sorted(printed):
+        moved, probe = 0.0, previous_day + timedelta(days=1)
+        while probe <= day:
+            moved = round(moved + movement.get(probe, 0.0), 2)
+            probe += timedelta(days=1)
+        step = round(printed[day] - previous_balance, 2)
+        if abs(step - moved) > _GRID_CELL_EPSILON:
+            span = (
+                f"on {day.isoformat()}"
+                if previous_day + timedelta(days=1) == day
+                else f"from {(previous_day + timedelta(days=1)).isoformat()} to {day.isoformat()}"
+            )
+            notes.append(
+                f"the daily-balance grid steps by {step:,.2f} {span} but the "
+                f"transactions dated in that span move {moved:,.2f}"
+            )
+        previous_day, previous_balance = day, printed[day]
+
+    # The grid's own last word against the summary's. Two printings of one
+    # figure, and neither is derived from the other.
+    if stmt.ending_balance is not None:
+        last = printed[max(printed)]
+        if abs(last - stmt.ending_balance) > 0.01:
+            notes.append(
+                f"the daily-balance grid's last printed cell is {last:,.2f} but the "
+                f"summary states an ending balance of {stmt.ending_balance:,.2f}"
+            )
+    return notes
 
 
 def _parse_two_column_mdyy_rows(block: str, *, year: int, sign: int) -> list[Transaction]:
@@ -922,7 +1140,8 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
 #    mis-read summary before a grid is parsed. It is a fail-fast, not
 #    independent evidence: once (1) and (2) hold it follows.
 #
-# **A negative balance prints its minus on the RIGHT** (`1,420.04 -`), the same
+# **A negative balance prints its minus on the RIGHT** (the figure, then a
+# space, then the hyphen), the same
 # convention `analysis/balance_by_date.py` documents for its average-balance
 # statistic. Three of the eight archive documents print at least one overdrawn
 # day and one of them prints three; reading those as positive would publish a
@@ -1008,22 +1227,6 @@ detect_texas_first = make_detector(TEXAS_FIRST_DETECTION_MARKERS, detection_text
 def _tf_cents(token: str) -> int | None:
     value = parse_money(token.replace("$", "").strip())
     return None if value is None else int(round(value * 100))
-
-
-def _tf_one(pattern: re.Pattern[str], source: str):
-    """The document's single reading of a summary term, or None.
-
-    `search` alone would take the first occurrence and never notice a second,
-    so a statement whose summary is printed twice — a continuation page
-    reprinting it, a two-account document, an OCR duplication — could publish
-    one account's figures under another's heading and look perfectly ordinary.
-    A repeat that AGREES is free corroboration and is accepted; a repeat that
-    disagrees is the document contradicting itself and refuses it.
-    """
-    matches = pattern.findall(source)
-    if not matches or len(set(matches)) > 1:
-        return None
-    return pattern.search(source)
 
 
 def _tf_iso(mmdd: str, *, start: date, end: date) -> str | None:
@@ -1239,10 +1442,10 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
         return None
     source = normalize_mojibake(markdown)
 
-    begin = _tf_one(_TF_SUMMARY_BEGIN_RE, source)
-    end = _tf_one(_TF_SUMMARY_END_RE, source)
-    credit_summary = _tf_one(_TF_SUMMARY_CREDITS_RE, source)
-    debit_summary = _tf_one(_TF_SUMMARY_DEBITS_RE, source)
+    begin = unique_match(source, _TF_SUMMARY_BEGIN_RE)
+    end = unique_match(source, _TF_SUMMARY_END_RE)
+    credit_summary = unique_match(source, _TF_SUMMARY_CREDITS_RE)
+    debit_summary = unique_match(source, _TF_SUMMARY_DEBITS_RE)
     if not (begin and end and credit_summary and debit_summary):
         return None
     try:
@@ -1390,12 +1593,12 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
     # and not others is a decision worth making deliberately. Carded for batch
     # 7 as ACCT-MASK-SCAN; until then honest-unknown, which is wrong about
     # nothing.
-    service = _tf_one(_TF_SERVICE_CHARGE_RE, source)
+    service = unique_match(source, _TF_SERVICE_CHARGE_RE)
     if service is not None:
         charge = _tf_cents(service.group(1))
         if charge is not None:
             stmt.stated_service_charge = round(charge / 100, 2)
-    average = _tf_one(_TF_AVERAGE_RE, source)
+    average = unique_match(source, _TF_AVERAGE_RE)
     if average is not None:
         printed_average = parse_money(average.group(1))
         if printed_average is not None:

@@ -25,6 +25,7 @@ import pytest
 from analysis.eq_bank_scanned import (
     _read_rows,
     _resolve_dates,
+    closing_accrual_contradictions,
     detect,
     parse_eq_bank_scanned_statement,
 )
@@ -449,6 +450,119 @@ def test_the_digit_that_survived_a_stray_glyph_is_read():
     assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
 
 
+# --- SCAN-DAY-GLYPH: the stray glyph is enumerated, not deleted (W3 §SCANHYG)
+
+
+def test_a_glyph_beside_a_digit_is_ink_because_no_other_reading_is_a_day():
+    """`8&` is not resolved by deleting the glyph — it is resolved by finding
+    that the only reading which IS a day treats it as ink. Read as a digit the
+    cell would be the eighty-somethingth of the month, and there is no such
+    day, so the document itself settles it. No glyph table is consulted, which
+    matters because the same glyph stands alone in the day column on other
+    documents of the same family, where it can only be a digit."""
+    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
+    assert resolve("Sep 1&1 Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 11)]
+
+
+def test_a_glyph_BEFORE_a_digit_is_not_resolved_by_deleting_it():
+    """THE HOLE THIS GATE CLOSES. `&8` is the 8th, the 18th or the 28th. The
+    reader this replaced deleted every non-decimal glyph and took what was
+    left, so it answered the 8th — silently, on a document whose printed order
+    admits the 18th just as well."""
+    assert resolve(
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep &8 Card Load - $268.13 $1,300.90\n"
+        "Sep 20 Inbound transfer $180.57 $1,481.47\n"
+    ) is None
+
+
+def test_a_glyph_before_a_digit_READS_where_the_printed_order_leaves_one_day():
+    """The same cell, and the gate is not merely stricter: where the printed
+    order rules out the 18th and the 28th, the 8th is what the document says."""
+    assert resolve(
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep &8 Card Load - $268.13 $1,300.90\n"
+        "Sep 9 Inbound transfer $180.57 $1,481.47\n"
+    ) == [date(2026, 9, 2), date(2026, 9, 8), date(2026, 9, 9)]
+
+
+# --- the gate is not uniformly stricter, and BOTH directions are pinned -----
+#
+# W3 §SCANHYG SH4, review finding 3. Measured base-vs-branch on `_resolve_dates`
+# over 6,448 constructed three-row shapes (13 day-cell shapes x every ordered
+# pair of neighbours in a full month): the two implementations agree on most and
+# differ in both directions. The three tests below are one case of each kind
+# that the census names.
+
+
+def test_a_glyph_before_a_digit_READS_even_where_deleting_it_breaks_the_order():
+    """THE WIDENING, stated. The reader this replaced deleted the glyph and
+    read `&8` as the 8th; between a 10th and a 20th the 8th breaks the printed
+    order, so that reader refused the whole document. The 18th is the one
+    reading of this cell the printed digit and the printed order both admit,
+    and it is what the document says. More of the document's own evidence is
+    used here, not less — and a date is a financial leaf, which is why this
+    direction is pinned rather than left to a replay to notice."""
+    assert resolve(
+        "Sep 10 Inbound transfer $531.62 $1,569.03\n"
+        "Sep &8 Card Load - $268.13 $1,300.90\n"
+        "Sep 20 Inbound transfer $180.57 $1,481.47\n"
+    ) == [date(2026, 9, 10), date(2026, 9, 18), date(2026, 9, 20)]
+
+
+def test_a_cell_with_no_legible_glyph_is_answered_by_the_printed_order_alone():
+    """THE NARROWING, stated, and it is where the enumeration must not be
+    consulted at all.
+
+    A lone stray glyph enumerates as the single-digit days — an artefact of one
+    glyph standing for at most one digit, not something the document prints. So
+    the enumeration must not narrow this cell and must not choose inside it:
+    the printed order answers, and only where it names ONE day. Both halves:
+    two agreeing neighbours name a day whatever its width, and a window two
+    days wide names none."""
+    assert resolve(
+        "Sep 12 Inbound transfer $531.62 $1,569.03\n"
+        "Sep & Card Load - $268.13 $1,300.90\n"
+        "Sep 12 Inbound transfer $180.57 $1,481.47\n"
+    ) == [date(2026, 9, 12)] * 3
+    assert resolve(
+        "Sep 9 Inbound transfer $531.62 $1,569.03\n"
+        "Sep & Card Load - $268.13 $1,300.90\n"
+        "Sep 10 Inbound transfer $180.57 $1,481.47\n"
+    ) is None
+
+
+def test_a_glyph_beside_a_legible_digit_is_never_re_dated_by_its_neighbours():
+    """THE BLEED, held against the rule above. `8&` on this family is column
+    bleed standing beside a legible 8, and the printed-order shortcut must not
+    reach it: a cell that kept a decimal glyph is answered by its enumeration,
+    which makes `8&` the 8th and nothing else. Between two 18ths it therefore
+    stays the 8th, breaks the printed order and refuses the document — it is
+    NOT quietly re-read as the 18th its neighbours agree on."""
+    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
+    assert resolve(
+        "Sep 18 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 8& Card Load - $268.13 $1,300.90\n"
+        "Sep 18 Inbound transfer $180.57 $1,481.47\n"
+    ) is None
+
+
+def test_a_day_cell_wider_than_a_day_cell_never_reaches_the_enumeration():
+    """The shared enumeration refuses a cell wider than
+    `MAX_DAY_CELL_GLYPHS`, and on THIS reader that bound is never the binding
+    one: `_ROW_RE` already caps the day cell at three glyphs, so a wider one is
+    a line inside a ledger region that is not a row, and the document refuses
+    there. Stated as a measurement rather than assumed, because the bound is
+    the shared helper's and the next reader to take it may have no such row
+    grammar."""
+    from analysis.date_tokens import MAX_DAY_CELL_GLYPHS, day_readings
+
+    assert MAX_DAY_CELL_GLYPHS == 3
+    assert day_readings("1&&&") == frozenset()
+    assert _read_rows(page("Sep 1&&& Card Load - $268.13 $1,300.90\n")) is None
+    assert parsed("Sep 1&&& Card Load - $268.13 $1,300.90\n") is None
+
+
 def test_a_legible_day_that_breaks_the_printed_order_refuses():
     """The mis-read this catches and nothing else can: a `10` scanned as `1O`
     reads as day 1 in the middle of a run of 9s and 11s. It still sums, still
@@ -589,3 +703,132 @@ def test_a_month_with_no_row_at_all_is_not_a_statement_even_when_the_summary_clo
         "Closing balance = $1,482.54", "Closing balance = $1,037.41"
     )
     assert parsed("", summary=summary) is None
+
+
+# ---------------------------------------------------------------------------
+# The closing edge: the widening, its condition, and its corroboration
+# (W3 §TANGERINE TG9.3, closed in §SCANHYG)
+# ---------------------------------------------------------------------------
+
+
+def test_a_posting_after_the_period_end_must_be_a_positive_credit():
+    """The one-day extension exists because the bank posts the next cycle's
+    opening INTEREST CREDIT there. Until now the window was a date bound and
+    nothing more, so a debit on that day parsed exactly like the accrual,
+    carried no flag, and reached the payload as an ordinary transaction. A
+    widening is admitted only on the evidence that justifies it."""
+    debit_after_the_period = (
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        "Sep 5 Inbound transfer $181.64 $1,482.54\n"
+        "Oct 1 Card Load - $1.07 $1,481.47\n"
+    )
+    summary = SUMMARY.replace("Closing balance = $1,482.54", "Closing balance = $1,481.47")
+    summary = summary.replace("Total withdrawals - $268.13", "Total withdrawals - $269.20")
+    summary = summary.replace("Total deposits + $713.26", "Total deposits + $713.26")
+    assert parse_eq_bank_scanned_statement(
+        document(debit_after_the_period, summary=ADDRESS + summary)
+    ) is None
+
+
+def test_the_accrual_the_page_corroborates_reports_nothing():
+    """Where the trailing rows sum to the printed interest term AND the
+    in-period ledger closes on the printed closing balance less that sum, the
+    document agrees with itself three ways and there is nothing to report."""
+    markdown = document()
+    stmt = parse_eq_bank_scanned_statement(markdown)
+    assert stmt is not None
+    assert closing_accrual_contradictions(markdown, stmt) == []
+
+
+def test_a_statement_with_no_trailing_posting_reports_nothing():
+    rows = (
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        "Sep 5 Inbound transfer $181.64 $1,482.54\n"
+    )
+    markdown = document(rows)
+    stmt = parse_eq_bank_scanned_statement(markdown)
+    assert stmt is not None
+    assert closing_accrual_contradictions(markdown, stmt) == []
+
+
+def test_a_trailing_posting_the_interest_term_does_not_account_for_is_named():
+    """Two printings of one figure. The reader has admitted a row outside the
+    printed period on the strength of a story the page does not corroborate."""
+    markdown = document()
+    stmt = parse_eq_bank_scanned_statement(markdown)
+    assert stmt is not None
+    disagreeing = markdown.replace("Total interest earned $1.07", "Total interest earned $9.42")
+    notes = closing_accrual_contradictions(disagreeing, stmt)
+    assert len(notes) == 1
+    assert "interest earned" in notes[0]
+
+
+def test_a_page_with_no_legible_interest_term_at_all_is_named():
+    markdown = document()
+    stmt = parse_eq_bank_scanned_statement(markdown)
+    assert stmt is not None
+    notes = closing_accrual_contradictions(
+        markdown.replace("Total interest earned $1.07", "Total interest earnad $$$"), stmt
+    )
+    assert len(notes) == 1
+    assert "no legible interest term" in notes[0]
+
+
+def test_an_in_period_ledger_that_does_not_close_on_the_remainder_is_named():
+    """The second corroboration, and it is independent of the first: the
+    printed closing balance less the accrual is where the in-period rows must
+    arrive."""
+    markdown = document()
+    stmt = parse_eq_bank_scanned_statement(markdown)
+    assert stmt is not None
+    shifted = stmt.model_copy(update={"ending_balance": stmt.ending_balance + 10.00})
+    notes = closing_accrual_contradictions(markdown, shifted)
+    assert any("inside the printed period" in note for note in notes)
+
+
+def test_the_registration_declares_the_closing_accrual_check():
+    from analysis import parser_registry as pr
+    from analysis.parser_registry_entries import load
+
+    registration = next(r for r in load() if r.id == "eq_bank_scanned")
+    assert closing_accrual_contradictions in registration.integrity_checks
+    assert registration in pr.registrations()
+
+
+def test_the_check_answers_nothing_rather_than_raising_on_a_maimed_statement():
+    stmt = parse_eq_bank_scanned_statement(document())
+    assert stmt is not None
+    for broken in ({"period_end": "not-a-date"}, {"ending_balance": None},
+                   {"beginning_balance": None}, {"period_end": ""}):
+        assert closing_accrual_contradictions(document(), stmt.model_copy(update=broken)) == []
+
+
+# --- the monotonicity residual, pinned as a measurement ---------------------
+
+
+def test_a_wrong_day_that_lands_BETWEEN_its_neighbours_is_published_silently():
+    """THE RESIDUAL, pinned rather than left as prose (W3 §TANGERINE MINOR-5).
+
+    The non-decreasing gate catches a misread day only where it BREAKS the
+    printed order. A true `18` misread as `16` between a `15` and a `20` does
+    not break it, satisfies every other gate — the walk, both totals, the
+    closing balance — and is published. Nothing in the document contradicts
+    it: the balances and the totals are all indifferent to which of those days
+    a row sat on. That is a limit of the EVIDENCE and not of the reader, and it
+    is asserted here so that nobody later reads the order check as a guarantee
+    that every published date is right."""
+    rows = (
+        "Sep 15 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 16 Card Load - $268.13 $1,300.90\n"
+        "Sep 20 Inbound transfer $181.64 $1,482.54\n"
+        "Oct 1 Interest received $1.07 $1,483.61\n"
+    )
+    summary = SUMMARY.replace("Closing balance = $1,482.54", "Closing balance = $1,483.61")
+    summary = summary.replace("Total deposits + $713.26", "Total deposits + $714.33")
+    stmt = parse_eq_bank_scanned_statement(document(rows, summary=ADDRESS + summary))
+    assert stmt is not None
+    assert [t.date for t in stmt.transactions] == [
+        "2026-09-15", "2026-09-16", "2026-09-20", "2026-10-01"
+    ]

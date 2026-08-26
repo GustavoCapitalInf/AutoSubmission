@@ -304,3 +304,138 @@ def test_shared_utility_modules_do_not_import_any_parser():
         for match in re.finditer(r"(?m)^\s*from \.(\w+) import|^\s*from analysis\.(\w+) import", source):
             offenders.append(f"{name} imports .{match.group(1) or match.group(2)}")
     assert not offenders, f"shared utilities must not import other analysis modules: {offenders}"
+
+
+#: How many statements a function may hold before it stops being a helper and
+#: starts being a reader. Calibrated by measurement over the 89 NON-SHARED
+#: modules this sweep looks at — `_modules()` returns 92 and exempts the three
+#: shared utilities — not chosen: at this bound the ONLY function that
+#: enumerates
+#: regex matches and tests them for uniqueness is `tables.unique_match` itself;
+#: the next candidate up (`fiserv_premier._issuer`, which does both inside a
+#: much larger identity check that is not a helper at all) needs eight.
+NEAR_CLONE_MAX_STATEMENTS = 6
+
+#: The two halves of `tables.unique_match`'s body, as AST shapes.
+_ENUMERATES = {"findall", "finditer"}
+_UNIQUENESS_CALLS = {"set", "frozenset", "dict"}
+
+
+def _statements(node) -> list:
+    """A function's body without its docstring — what the length bound counts."""
+    return [
+        statement for statement in node.body
+        if not (isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Constant))
+    ]
+
+
+def _is_unique_match_shape(node) -> bool:
+    enumerates = uniqueness = False
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) \
+                and sub.func.attr in _ENUMERATES:
+            enumerates = True
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) and sub.func.id == "len":
+            argument = sub.args[0] if sub.args else None
+            if isinstance(argument, (ast.Set, ast.SetComp, ast.DictComp)):
+                uniqueness = True
+            if isinstance(argument, ast.Call) and isinstance(argument.func, ast.Name) \
+                    and argument.func.id in _UNIQUENESS_CALLS:
+                uniqueness = True
+    return enumerates and uniqueness
+
+
+def test_no_parser_re_implements_the_one_distinct_reading_helper():
+    """`tables.unique_match` may not be copied — including INEXACTLY.
+
+    WHY THIS GUARD EXISTS, and it is a hole this file had rather than a
+    hypothetical. `test_no_two_functions_in_analysis_share_a_body` above hashes
+    the unparsed body, so it catches a copy and is blind to a paraphrase. Two
+    paraphrases of `unique_match` were live in `analysis/` at once —
+    `eq_bank_scanned._sole` and `scanned_small_bank._tf_one` — each writing the
+    same three lines with `findall`/`set` where the shared helper uses
+    `finditer`/`groups`, and each therefore invisible to a guard that compares
+    bodies for equality (W3 §SCANHYG). Both are gone; this is what stops the
+    third.
+
+    Deliberately narrow, because a general near-clone detector is not
+    achievable at this file's precision: it names ONE shape — enumerate a
+    pattern's matches, count the distinct ones — inside a function short enough
+    to be a helper. That shape has exactly one correct home, and the question
+    it answers ("did the document print this row twice, differently?") is one
+    the platform has already decided the answer to.
+    """
+    # The guard is not vacuous: the paraphrase it was written for is
+    # recognised. This is what both removed helpers looked like.
+    removed = ast.parse(
+        "def _sole(pattern, source):\n"
+        "    found = pattern.findall(source)\n"
+        "    if not found or len(set(found)) > 1:\n"
+        "        return None\n"
+        "    return pattern.search(source)\n"
+    ).body[0]
+    assert _is_unique_match_shape(removed)
+
+    offenders = []
+    for path in _modules():
+        if path.name in SHARED_UTILITIES:
+            continue
+        for node in _functions(path):
+            if len(_statements(node)) <= NEAR_CLONE_MAX_STATEMENTS \
+                    and _is_unique_match_shape(node):
+                offenders.append(f"{_rel(path)}:{node.name}")
+    assert not offenders, (
+        "a private re-implementation of analysis/tables.py::unique_match — "
+        f"call the shared helper instead: {offenders}"
+    )
+
+
+#: One paraphrase of `tables.unique_match`, in two lengths that differ by a
+#: single statement. Invented for this test and resembling no document.
+_PARAPHRASE = (
+    "def _row(pattern, source):\n"
+    "    text = source.strip()\n"
+    "{extra}"
+    "    found = pattern.findall(text)\n"
+    "    if not found:\n"
+    "        return None\n"
+    "    if len(set(found)) > 1:\n"
+    "        return None\n"
+    "    first = found[0]\n"
+    "    return first\n"
+)
+
+
+def test_the_helper_length_bound_is_where_the_measurement_put_it():
+    """`NEAR_CLONE_MAX_STATEMENTS` is a CALIBRATION, and until now nothing
+    pinned it: the guard above sweeps a tree in which no function of any length
+    matches the shape, so the bound could be lowered to 2 and every test would
+    still pass while the guard silently stopped seeing the three-statement
+    paraphrase it was written for (W3 §SCANHYG SH8.1 mutant K3, review
+    finding 4).
+
+    This asserts the boundary in both directions on one paraphrase written at
+    two lengths: at the shipped bound a SIX-statement re-implementation is
+    caught, and a SEVEN-statement one is a MISS — documented here rather than
+    discovered later, because a longer function is a reader rather than a
+    helper and the guard deliberately does not reach it. The sweep in W3
+    §SCANHYG SH6 is why 6 and not 3 or 8: the offender set over `analysis/` is
+    empty at every bound from 1 to 7, and the first innocent function enters
+    at 8."""
+    caught = ast.parse(_PARAPHRASE.format(extra="")).body[0]
+    missed = ast.parse(
+        _PARAPHRASE.format(extra="    text = text.replace(chr(10), ' ')\n")
+    ).body[0]
+
+    assert _is_unique_match_shape(caught) and _is_unique_match_shape(missed)
+    assert len(_statements(caught)) == 6 and len(_statements(missed)) == 7
+
+    assert len(_statements(caught)) <= NEAR_CLONE_MAX_STATEMENTS, (
+        "the bound no longer catches a six-statement re-implementation of "
+        "tables.unique_match"
+    )
+    assert len(_statements(missed)) > NEAR_CLONE_MAX_STATEMENTS, (
+        "the bound now reaches a seven-statement function, which the "
+        "calibration sweep says is a reader and not a helper"
+    )
