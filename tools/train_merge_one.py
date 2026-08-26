@@ -30,10 +30,13 @@ violation (merge aborted).
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 
 W3 = "docs/moneythumb-replacement/W3_TRACKA_LOG.md"
+#: The two registry-count pins every registration-adding cell bumps.
+REGISTRY_PINS = ["tests/test_parser_registry_entries.py", "tests/test_parser_conformance.py"]
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
@@ -53,9 +56,19 @@ def main(argv: list[str]) -> int:
     # from the named header to end of file — and REPORTS the discarded
     # pre-section edits, so the composition is explicit rather than silent.
     section_only = None
-    if len(argv) == 5 and argv[3] == "--section-only":
-        section_only = argv[4].encode()
-        argv = argv[:3]
+    compose_registry = None
+    rest = argv[3:]
+    while rest:
+        if rest[0] == "--section-only" and len(rest) >= 2:
+            section_only = rest[1].encode()
+            rest = rest[2:]
+        elif rest[0] == "--compose-registry" and len(rest) >= 2:
+            compose_registry = int(rest[1])
+            rest = rest[2:]
+        else:
+            print(__doc__)
+            return 2
+    argv = argv[:3]
     if len(argv) != 3:
         print(__doc__)
         return 2
@@ -65,9 +78,37 @@ def main(argv: list[str]) -> int:
     if merged.returncode != 0:
         conflicts = run("git", "diff", "--name-only", "--diff-filter=U").stdout.decode().split()
         print("CONFLICTS:", conflicts)
-        if conflicts != [W3]:
+        # `--compose-registry N`: a cell that ADDS registrations bumps the two
+        # registry-count pins from the base count to its own; every such cell
+        # conflicts with the train on exactly those two files. Composition is
+        # mechanical — the train's copy with the count rewritten to N — and is
+        # done here so the number is never typed by hand twice.
+        if compose_registry is not None:
+            for pin in [p for p in REGISTRY_PINS if p in conflicts]:
+                run("git", "checkout", "--ours", "--", pin)
+                text = open(pin, "rb").read().decode("utf-8")
+                current = sorted({int(m) for m in re.findall(r"(?:len\(pr\.registrations\(\)\)|len\(REGISTRATIONS\)) == (\d+)", text)})
+                if len(current) != 1:
+                    print(f"REGISTRY PIN in {pin} is not a single count ({current}); merge left in progress")
+                    return 3
+                old = current[0]
+                new_text = re.sub(rf"\b{old} × {old - 1} = [\d,]+ assertions",
+                                  f"{compose_registry} × {compose_registry - 1} = {compose_registry * (compose_registry - 1):,} assertions", text)
+                new_text = re.sub(rf"\ball {old} registrations\b", f"all {compose_registry} registrations", new_text)
+                new_text = re.sub(rf"== {old}\b", f"== {compose_registry}", new_text)
+                with open(pin, "wb") as handle:
+                    handle.write(new_text.encode("utf-8"))
+                run("git", "add", pin)
+                print(f"REGISTRY PIN composed: {pin} {old} -> {compose_registry}")
+            conflicts = [c for c in conflicts if c not in REGISTRY_PINS]
+        if conflicts and conflicts != [W3]:
             print("NON-W3 CONFLICT - manual composition required; merge left in progress")
             return 3
+        if not conflicts:
+            run("git", "commit", "-q", "-m", message)
+            head = run("git", "rev-parse", "--short", "HEAD").stdout.decode().strip()
+            print(f"merged {branch} -> {head}")
+            return 0
         base, ours, theirs = blob(merge_base), blob("HEAD"), blob(branch)
         if theirs.startswith(base):
             section = theirs[len(base):]
