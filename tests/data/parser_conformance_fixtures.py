@@ -182,6 +182,25 @@ FIXTURES: dict[str, str] = {
         "Ending balance (2/27/2026)\n"
         "Contact us:\n"
     ),
+    # The FOURTH core processor's template, and like the three entries around
+    # it this fixture carries no issuer identification, because the
+    # registration carries none: the evidence is the platform's own summary
+    # strip. Every figure, name and number here is INVENTED — the standing
+    # privacy rule — and the strip is the two-column block flattened onto one
+    # line exactly as the text layer emits it, because the reader bounds its
+    # read at that line. The product cell is broken onto a line of its own,
+    # which the archive does not do, for the harness rather than for the
+    # template: `_mention_of` demotes a fixture's FIRST line into another
+    # bank's transaction description, and a whole summary strip inside a
+    # description is not a counterparty mention any statement could carry.
+    "core_processor_enclosures": (
+        "Business Example Checking Number of Enclosures 3\n"
+        "Account Number XXXXXXXX0000 Statement Dates 1/01/26 thru 1/31/26 "
+        "Previous Balance 100.00 Days in the statement period 31 "
+        "2 Deposits/Credits 200.00 Average Ledger 150.00 "
+        "4 Checks/Debits 50.00 Average Collected 150.00 "
+        "Service Charge .00 Interest Paid .00 Ending Balance 250.00\n"
+    ),
     "core_processor_sectioned": (
         "No Minimum Business Checking ACCOUNT XXXXXXXXXX1234\n"
         "LAST STATEMENT 07/31/25 0.00 AVG AVAILABLE BALANCE 0.00 "

@@ -26,16 +26,22 @@ EXPECTED_ORDER = [
     # running-balance issue, which `core_processor_daily` now registers
     # generically (W3 §LCPERIOD).
     "b1",
+    # The three issuer-specific readers of the FOURTH core-processor template,
+    # which `core_processor_enclosures` now registers generically
+    # (W3 sec COREENC).
+    "burke_herbert",
     "chase_export",
     "chase_savings",
     # The four issuer-specific readers of the core-processor template that
     # `community_section` now registers generically (W3 §JHA-CELL).
     "dakota_west",
+    "farmers_merchants",
     "first_community",
     # The issuer-specific reader of the SECOND core-processor template's
     # running-balance issue, which `core_processor_sectioned` now registers
     # generically (W3 §SCANB).
     "first_farmers",
+    "linkbank",
     "midflorida",
     "mission_valley",
     "rbc_french",
@@ -57,7 +63,6 @@ EXPECTED_ORDER = [
     "bmo_ca_business_french",
     "bmo_us_activity",
     "brex",
-    "burke_herbert",
     "capital_one",
     # The batch-8 signed category partition (W3 §GLANCE): disjoint from
     # every other registration by its two required markers, so it takes the
@@ -80,6 +85,11 @@ EXPECTED_ORDER = [
     # not by precedence, so it takes the ordinary band.
     "core_processor_counted",
     "core_processor_daily",
+    # The FOURTH core processor's enclosures / average-ledger template
+    # (W3 sec COREENC). Disjoint from the three entries around it by its two
+    # required markers, not by precedence, so it takes the ordinary band; the
+    # three issuer readers in band 10 above supersede it.
+    "core_processor_enclosures",
     "core_processor_sectioned",
     # The SIGNED-COUNTS issue (W3 §COREISS2). Disjoint from `fiserv_premier`
     # by two of that registration's three required markers, so likewise no
@@ -88,7 +98,6 @@ EXPECTED_ORDER = [
     "demo_national",
     "desjardins",
     "eq_bank_scanned",
-    "farmers_merchants",
     "fifth_third",
     "first_citizens",
     "fiserv_premier",
@@ -198,7 +207,7 @@ def test_registration_count_matches_the_documented_decision_points():
     states each direction's count in parentheses with a signed total over two
     DATED balances, and the `Activity Summary` issue, whose box prints `Days
     in Cycle` over a running-balance ledger (W3 §COREISS2)."""
-    assert len(pr.registrations()) == 80
+    assert len(pr.registrations()) == 81
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -324,6 +333,21 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         # `Chase x failed x chase:0.5` cell in discovery run `6893a75b`, named
         # in the commit message; there is no such document in the pinned corpus.
         "chase_savings": ["chase"],
+        # W3 sec COREENC: the same relationship a FOURTH template over.
+        # `core_processor_enclosures` registers the enclosures /
+        # average-ledger core-processor template on the summary strip its
+        # every issuer prints, so it claims every document of the three
+        # issuers whose own readers already read it. Evidence, measured over
+        # the OCR artifact store of run of record `356a4269` (3,380 documents)
+        # and named in the commit message: the general reader's two required
+        # markers reach exactly 67 documents, of which burke_herbert holds 3
+        # (all validated), farmers_merchants 3 (all withheld) and linkbank 4
+        # (all in review). Without the edges those 10 resolve `ambiguous` and
+        # the three validated ones regress. The PINNED CORPUS holds one of the
+        # ten and the edge is load-bearing there: measured both ways, the
+        # claimant set before pruning is `[linkbank, core_processor_enclosures]`
+        # and after pruning exactly `[linkbank]`.
+        "burke_herbert": ["core_processor_enclosures"],
         # W3 §JHA-CELL: `community_section` registers the core-processor
         # template these four issuers print, and claims it on the template
         # furniture alone — so it claims every one of their documents too.
@@ -345,7 +369,9 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         # 39 documents that print the template, of which first_farmers holds 7
         # (6 validated, 1 that first_farmers itself declines). Without the edge
         # those 6 resolve `ambiguous`. The pinned corpus holds one of them.
+        "farmers_merchants": ["core_processor_enclosures"],
         "first_farmers": ["core_processor_sectioned"],
+        "linkbank": ["core_processor_enclosures"],
         "midflorida": ["community_section"],
         "mission_valley": ["community_section"],
         "rbc_french": ["rbc"],

@@ -797,6 +797,15 @@ EXCLUDED_ANALYSIS_CALLERS = {
     "tools/welch_family_replay.py": (
         "read-only family replay; publishes no verdict, and already supplies "
         "the reconstructed page partition"
+    # W3 sec COREENC's coverage instrument, excused on the same two grounds as
+    # the sweep above: it publishes no verdict — it prints a content_sha256, an
+    # outcome CLASS and three counts, never a figure, a name or a date — and it
+    # already supplies the reconstructed page partition as `sheets`, because a
+    # replay that fed the analysis a different partition from the one the run
+    # fed it would measure a difference it had itself created.
+    "tools/coreenc_family_replay.py": (
+        "read-only population replay; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
     ),
     # W3 §DESCATTRIB's leaf-diff, and excused on the same two grounds as
     # §REGFP's sweep beside it: it publishes no verdict — it prints leaf PATHS,
