@@ -44623,3 +44623,23 @@ whose fee term is a net credit. No member of the family prints one; a genuine
 fee-refund month would be refused rather than published with a
 `stated_service_charge` that carried the wrong direction. Fail-closed and
 narrow, but it is a refusal a real document could earn.
+
+## LI16. MAJOR closures verified (Ocean's verification session, 2026-08-26)
+
+Read-only verification of the closure round (`b1ba3c2`, `b1b9a8e`, `c37ff14`,
+`2f9148e`, `7e1e71d`) by an independent session. Each MAJOR was re-measured or
+re-driven rather than read; the gate was driven with a document this session
+invented from the template SHAPE alone, in a calendar year (2031) that appears
+neither in the family nor in any fixture on this branch. Nothing on the branch
+was changed but this subsection.
+
+| finding | the check this session ran | exit | verdict |
+|---|---|---:|---|
+| MAJOR-1: §LI2 point 4's residual mis-stated, and the instrument behind it uncommitted | the instrument is committed (`tools/lili_integrity_fingerprint.py`, `_summary_residuals` and its looser money pattern landed in `b1ba3c2`) and RUNS: `python -m tools.lili_integrity_fingerprint --data-dir <checkout>/webapp_data`. Its output reproduces §LI2 point 4 line for line — the same four pairable summaries with the same two residuals under each reading, the same one reported unpairable, and the same attribution of each residual to its own document; the two overlap matrices in points 1 and 2 also reproduce cell for cell. So the corrected statement IS the measurement, not a restatement of it. | 0 | **VERIFIED** |
+| MAJOR-1, the corroboration added with it (point 2b, adjacent authorization codes) | this claim entered the log in the closure round with no committed instrument, so it was re-measured here using the tool's own reference pattern, date pattern and ±3-line block margin, associating each code with the nearest printed date inside the margin: across all **20** documents of the family, exactly **2** carry a pair of codes differing by 1 whose dates span four years or more — and they are the two the log names. Zero in the other eighteen. | 0 | **VERIFIED** (independently, on a rule this session chose) |
+| MAJOR-2: the integrity gate's false-positive channel was the `Effective Date` class, on an unpinned boundary | (a) the gate is scoped by date CLASS in code: `_LEADING_DATE_RE` is `^`-anchored and `_ledger_dates_are_sound` compares the set of line-leading date offsets against the set of parsed-row offsets, then checks the period on ROWS only. (b) DRIVEN, on this session's invented 2031 document, eleven cases, all agreeing: a description-class token outside the period PUBLISHES (as does a footer print date and an error-resolution deadline); a line-leading posting date outside the period REFUSES; a line-leading date the row pattern cannot parse REFUSES; both classes wrong at once REFUSES. (c) the boundary, driven on a period that does NOT start on the first of its month: first day publishes, last day publishes, one day earlier inside the same month refuses, one day later inside the same month refuses — so neither bound has slackened to its calendar month. (d) `python -m pytest tests/test_lili.py -q` → 58 passed. (e) `python -m tools.lili_mutate` → 36 mutants, **35 KILLED**, one survivor, and it is `M10_gate_after_the_shape_read_EQUIVALENT`, the mutant the log declares equivalent; `analysis/lili.py` restored, tree clean. Exit 1 is the harness's any-survivor code, not a finding. | 0 / 0 / 1 (harness) | **VERIFIED** |
+
+**2 of 2 MAJOR closures verified**, and the corroboration added alongside
+MAJOR-1 verified independently. No reservation recorded: every headline number
+this round rests on reproduced from a committed instrument, except point 2b,
+which had none and was re-derived here from a rule stated above.
