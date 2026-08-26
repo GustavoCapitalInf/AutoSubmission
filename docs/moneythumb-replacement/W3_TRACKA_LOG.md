@@ -44118,18 +44118,52 @@ documents, twice: **59/59 identical** in `claimed_by`, `dispatch_outcome`,
 starts publishing and nothing stops.
 
 **The one thing that moves is a refusal SITE.** 48 of the 49 traced sites
-shift by the constant offset this branch's docstring edits add (+64 in the
-sectioned module, +27 in the daily one). The forty-ninth is
-`9AACD0850F64…`, which moves from the summary gate to the GRID gate:
+shift by the constant offset this branch's docstring edits add. The
+forty-ninth is `9AACD0850F64…`, which moves from the summary gate to the GRID
+gate:
 
 ```
-9AACD0850F64  core_processor_sectioned:751  ->  core_processor_sectioned:824
+9AACD0850F64  core_processor_sectioned:751  ->  core_processor_sectioned:864
               (the summary gate)                (_matches_the_printed_grid)
 ```
 
 That is CPS4's proof restated as a line number, and it is the whole of this
 branch's effect on the archive: one document's refusal is now attributed to
 the printing that is actually corrupt.
+
+**The arithmetic here was wrong twice and is now measured rather than
+derived (F3).** The offset is what `git diff --numstat` says the module grew
+by, and both numbers below are read off the tracer rather than computed from
+a base line:
+
+```
+$ git diff --numstat 10cc722..HEAD    # at the closure tree
+  31   4  analysis/core_processor_daily.py          ->  +27
+ 121  17  analysis/core_processor_sectioned.py      -> +104
+   (781 -> 885 lines, and 784 -> 811)
+
+  traced offsets, 59 documents, one process, base modules from git blobs:
+    core_processor_sectioned  {104, 113}     core_processor_daily  {27}
+```
+
+| base site | branch site | offset | documents |
+|---|---|---:|---:|
+| `core_processor_sectioned:727` | `:831` | 104 | 8 |
+| `core_processor_sectioned:751` | `:855` | 104 | 13 |
+| `core_processor_sectioned:751` | `:864` | **113** | **1** |
+| `core_processor_sectioned:762` | `:866` | 104 | 10 |
+| `core_processor_daily:746` | `:773` | 27 | 4 |
+| `core_processor_daily:765` | `:792` | 27 | 13 |
+
+The section first recorded `+64` and `:824`; `:824` was derived as base 760
+(the grid gate's `return`) plus that wrong offset rather than read off the
+tracer. At the reviewed tip the true figures were **+74** and **:834**; at
+this closure tree, whose docstring corrections grew the sectioned module
+again, they are **+104** and **:864**. That both numbers changed twice in one
+card is CPS13 risk 4 realised in the record's own text: **a refusal site is a
+diagnostic, not a contract**, and the substance — 49 sites, 48 at the
+module's constant offset, exactly one document changing GATE — is what
+reproduces. It has reproduced at every tree measured.
 
 **The family replay.** `tools/descattrib_movement.py` — the committed
 leaf-diff — over every document the complex's two `parse` functions can run
