@@ -714,6 +714,94 @@ def test_a_region_whose_blocks_do_not_weld_is_left_alone():
 
 
 # ---------------------------------------------------------------------------
+# G3 is one row of the gate table and TWO independent checks in the code
+# ---------------------------------------------------------------------------
+#
+# The review deleted each half on its own and no test died for either: the
+# floor (`≥3 rows carry a money cell`) is mutated by M4, but the RIGHT-EDGE
+# AGREEMENT that makes those cells a printed money COLUMN was unpinned, and so
+# was `_ROW_MONEY_RE`, the regex that decides which cells are money at all and
+# therefore decides both G3 and G8. Both fixtures below are hand-built for the
+# reason the straddle pin gives — the arrangement is a property of where the
+# ink is — and each is asserted in BOTH directions, so a refusal is known to be
+# the clause under test rather than something above it.
+
+
+def _hand_built_ledger(right_cells, edges):
+    """A page printing one welded described ledger, and its flattened text.
+
+    Each row is a date and its description on one band, and a right-hand cell
+    on the band under it — so the row's last printed cell is the right-hand one
+    whatever it says, and G8 is satisfied for every arrangement below.
+    """
+    dates = ("2031-06-02", "2031-06-03", "2031-06-04")
+    described = ("ORCHARD SUPPLY QUARTERLY", "MERIDIAN LEASING CO PERIODIC",
+                 "QUILLON UTILITIES LODGEMENT")
+    grid, detail = [], []
+    for index, (date, text) in enumerate(zip(dates, described)):
+        top = 111.0 + index * 20.0
+        grid.append({"bbox": (DATE_X, top, 60.0, top + 8.0), "spans": [{"text": date}]})
+        detail.append({"bbox": (DETAIL_X, top, 400.0, top + 8.0),
+                       "spans": [{"text": text}]})
+        grid.append({"bbox": (edges[index] - 39.0, top + 10.0, edges[index], top + 18.0),
+                     "spans": [{"text": right_cells[index]}]})
+
+    class _Page:
+        def get_text(self, mode, *args, **kwargs):
+            return {"blocks": [{"type": 0, "lines": grid},
+                               {"type": 0, "lines": detail}]}
+
+    flattened = "\n".join((
+        " ".join(f"{date} {cell}" for date, cell in zip(dates, right_cells)),
+        " ".join(described),
+    ))
+    return _Page(), flattened
+
+
+#: Three printed amounts, invented here.
+AMOUNTS = ("101.00", "202.00", "303.00")
+#: The same column printed as bare reference figures instead of amounts.
+REFERENCES = ("44190", "44207", "44231")
+#: A right-aligned money column: one edge, shared.
+ALIGNED = (569.0, 569.0, 569.0)
+#: The same three cells with their right edges 25 and 55 points apart.
+RAGGED = (489.0, 544.0, 569.0)
+
+
+def test_money_cells_whose_right_edges_disagree_are_not_a_money_column():
+    """G3, second half. Three money cells do not make a ledger; three money
+    cells sharing a printed right edge do. A region whose figures are scattered
+    across the page is something else — a form, a summary, an invoice block —
+    and re-serialising it would move text a reader's span never asked for."""
+    import ocr.native_text as native_text
+
+    page, flattened = _hand_built_ledger(AMOUNTS, ALIGNED)
+    aligned = native_text._printed_row_page(page, flattened)
+    assert aligned is not None and aligned != flattened, (
+        "the premise: this ledger IS repaired when its money column agrees")
+
+    page, flattened = _hand_built_ledger(AMOUNTS, RAGGED)
+    assert native_text._printed_row_page(page, flattened) == flattened
+
+
+def test_a_right_hand_column_of_bare_figures_is_not_a_money_column():
+    """`_ROW_MONEY_RE` decides which cells are money, and therefore decides
+    both G3 and G8. A right-hand column of bare reference figures is not a
+    printed money column: nothing in this region is an amount, so there is no
+    ledger here and the region is left exactly as the flattening left it."""
+    import ocr.native_text as native_text
+
+    page, flattened = _hand_built_ledger(AMOUNTS, ALIGNED)
+    assert native_text._printed_row_page(page, flattened) != flattened, (
+        "the premise: the same geometry with printed amounts IS repaired")
+
+    page, flattened = _hand_built_ledger(REFERENCES, ALIGNED)
+    assert native_text._printed_row_page(page, flattened) == flattened
+    assert not any(native_text._ROW_MONEY_RE.match(cell) for cell in REFERENCES)
+    assert all(native_text._ROW_MONEY_RE.match(cell) for cell in AMOUNTS)
+
+
+# ---------------------------------------------------------------------------
 # Page furniture on a posting's band (G9), and the ledger's own columns (G10)
 # ---------------------------------------------------------------------------
 #

@@ -55,6 +55,19 @@ _FLOORS = (
     "    if len(edges) < _ROW_GRID_MINIMUM or described < _ROW_GRID_MINIMUM:\n"
     "        return None                                            # G3 / G4\n"
 )
+_AGREEMENT = (
+    "    common = max(edges, key=lambda edge: sum(\n"
+    "        1 for other in edges if abs(other - edge) <= _ROW_COLUMN_TOLERANCE))\n"
+    "    if sum(1 for edge in edges\n"
+    "           if abs(edge - common) <= _ROW_COLUMN_TOLERANCE) < _ROW_GRID_MINIMUM:\n"
+    "        return None                                            # G3\n"
+)
+_MONEY_RE = (
+    "_ROW_MONEY_RE = re.compile(r\"-?\\$?(?:[0-9][0-9,]*\\.[0-9]{2}|\\.[0-9]{2})-?$\")\n"
+)
+_MONEY_RE_ANY_FIGURE = (
+    "_ROW_MONEY_RE = re.compile(r\"-?\\$?(?:[0-9][0-9,]*(?:\\.[0-9]{2})?|\\.[0-9]{2})-?$\")\n"
+)
 _FURNITURE = (
     "    if any(position in furniture for row in rows for position in row):\n"
     "        return None                                            # G9\n"
@@ -160,6 +173,15 @@ MUTATIONS: dict[str, list[tuple[str, str]]] = {
     # it, so a right-margin note reaches a row whose money is still last and
     # G8 never sees it.
     "M14_a_cell_outside_the_ledger_columns_no_longer_refuses_it": [(_EXTENT, "")],
+    # G3's SECOND half — the review's X1. Three money cells scattered across
+    # the page are now a money column, so a form or a summary block with the
+    # shape of a ledger and no printed money column is re-serialised. Only the
+    # FLOOR half of G3 was mutated before (M4).
+    "M15_money_right_edges_need_not_agree": [(_AGREEMENT, "")],
+    # `_ROW_MONEY_RE` broadened to a bare figure — the review's X5. The regex
+    # decides which cells are money and therefore decides both G3 and G8, and
+    # no fixture distinguished a printed money cell from a reference number.
+    "M16_any_bare_figure_counts_as_money": [(_MONEY_RE, _MONEY_RE_ANY_FIGURE)],
 }
 
 #: The one mutant this harness expects to survive, and why: see its comment
