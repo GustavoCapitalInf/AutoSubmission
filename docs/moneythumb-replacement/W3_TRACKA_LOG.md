@@ -44220,24 +44220,28 @@ a disclosed reason was killed. An undisclosed survivor is a red run.
 
 ### C12.1 The per-mutant table
 
-`python -m tools.coreenc_mutation_table --table`, run at the tree of this
-closure:
+`python -m tools.coreenc_mutation_table --table`. Two runs are recorded, because
+the difference between them IS the closure of findings 3 and 4:
 
-| | |
-|---|---|
-| mutants selected / applied | 40 / 40, none NOT-APPLIED |
-| **killed** | **30** |
-| survived, DISCLOSED | 3 (M10, M22, M24) |
-| survived, UNDISCLOSED | **7** (M09, M20, M32, M33, M34, M38, M39) |
-| restore | `analysis/core_processor_enclosures.py` byte-identical; tracked changes after the run: none |
-| exit | `EXIT=1` — the harness's own red code for an undisclosed survivor |
-| wall | ~4 min (40 × the five-file set at ~5.8 s) |
+| | at CLOSURE 2, before the new tests | at the FINAL tree |
+|---|---|---|
+| mutants selected / applied | 40 / 40, none NOT-APPLIED | 40 / 40, none NOT-APPLIED |
+| **killed** | 30 | **37** |
+| survived, DISCLOSED | 3 (M10, M22, M24) | **3** (M10, M22, M24) |
+| survived, UNDISCLOSED | **7** (M09, M20, M32, M33, M34, M38, M39) | **0** |
+| restore | byte-identical; tracked changes after the run: none | byte-identical; tracked changes after the run: none |
+| exit | `EXIT=1` — the harness's red code for an undisclosed survivor | **`EXIT=0`** |
+| wall | ~4 min (40 × the five-file set) | ~4 min |
 
-The seven undisclosed survivors are the review's finding 3 (**M38**, **M39** —
-the two live grid checks) and finding 4 (**M09**, **M20**, **M32**, **M33**,
-and **M34**, which the review's own 29-mutant reconstruction did not reach).
-They are closed in `COREENC CLOSURE 3` and `COREENC CLOSURE 4`, and the rows
-below carry the tests that kill them.
+The table below is the FINAL-tree run. Line numbers are printed by the harness
+from each anchor's own position, not asserted here.
+
+The seven undisclosed survivors of the first run were the review's finding 3
+(**M38**, **M39** — the two live grid checks) and finding 4 (**M09**, **M20**,
+**M32**, **M33**, and **M34**, which the review's own 29-mutant reconstruction
+did not reach). All seven are closed by `COREENC CLOSURE 3` and `COREENC
+CLOSURE 4`, each by ONE new test and by nothing else, and the rows below carry
+those killers.
 
 **CLOSURE 3, finding 3.** `python -m tools.coreenc_mutation_table --only
 M38,M39 --table` after the two isolating tests landed: **2 applied, 2 KILLED, 0
@@ -44247,14 +44251,19 @@ nothing else, on the first pass: 1 failed / 1,162 passed / 35 skipped in both
 runs. That is the property the card asks for and the one the branch's original
 duplicate-day test did not have.
 
+**CLOSURE 4, finding 4.** `… --only M09,M10,M20,M22,M24,M32,M33,M34 --table`
+after the five pinning tests landed: **8 applied, 5 KILLED, 3 survived (3
+disclosed, 0 undisclosed)**, restore byte-identical, tracked changes none,
+`EXIT=0`. Each of the five was killed by exactly one test, its own.
+
 Every mutant is in `analysis/core_processor_enclosures.py`; the line is where
-its anchor opens, and the harness prints it rather than this log asserting it.
+its anchor opens.
 
 | id | line | what the mutant changes | the gate it targets | killed by |
 |---|---|---|---|---|
 | M01 | `:296` | the ledger-average cell demoted from required to corroborating | the second required marker | `test_the_period_sentence_alone_is_not_a_claim`, `test_a_three_count_summary_of_the_same_processor_is_not_this_template`, `test_the_registration_carries_two_required_markers` (+1 more) |
 | M02 | `:274` | the registration keyed on `AVERAGE LEDGER` alone instead of on the credit-count row welded to it | the pairing, not the phrase | `test_a_three_count_summary_of_the_same_processor_is_not_this_template` |
-| M03 | `:291` | the upper-casing dropped, so a title-case printing no longer detects | the registration's own normalization | `test_the_template_is_recognised_by_its_own_two_column_summary_block` (+21 more) |
+| M03 | `:291` | the upper-casing dropped, so a title-case printing no longer detects | the registration's own normalization | `test_the_template_is_recognised_by_its_own_two_column_summary_block` (+23 more) |
 | M04 | `:390` | the strip runs to the end of the line, so the year-to-date interest printed after the closing balance is read as the period's own | the strip cut at the closing balance | `test_the_year_to_date_interest_printed_after_the_closing_balance_is_not_read` |
 | M05 | `:444` | `unique_match` relaxed to first-match on the previous balance | a figure printed twice has no rule that says which to believe | `test_a_strip_that_prints_a_figure_twice_with_two_readings_is_refused` |
 | M06 | `:451` | a strip with a hole in it is admitted: only the period is required | the strip is read all-or-nothing | `test_a_strip_that_prints_a_figure_twice_with_two_readings_is_refused` |
@@ -44291,14 +44300,14 @@ its anchor opens, and the harness prints it rather than this log asserting it.
 | M37 | `:819` | the surplus-day check removed, along with the opening-balance exception it bounds | a grid day the ledger never posts on fails the document | `test_a_grid_day_the_ledger_never_posts_on_is_refused`, `test_an_opening_day_cell_that_is_not_the_opening_balance_is_refused` |
 | M38 | `:744` | `_grid`'s intra-block duplicate-day check removed, so the LAST reading silently wins | a day printed twice INSIDE one grid block with two balances | `test_a_duplicated_grid_day_whose_SECOND_reading_is_the_correct_one_is_refused` — and NOTHING else (CLOSURE 3) |
 | M39 | `:882` | `parse`'s cross-block merge check removed, so the LAST block's reading silently wins | two grid blocks disagreeing on a shared day | `test_two_grid_blocks_that_disagree_on_a_shared_day_refuse_the_document` — and NOTHING else (CLOSURE 3) |
-| M40 | `:755` | `_TOLERANCE` widened a thousandfold, so every printed gate admits a ledger that is dollars out | the cent tolerance | `test_a_summary_whose_own_identity_does_not_close_is_refused` (+5 more) |
+| M40 | `:755` | `_TOLERANCE` widened a thousandfold, so every printed gate admits a ledger that is dollars out | the cent tolerance | `test_a_summary_whose_own_identity_does_not_close_is_refused` (+6 more) |
 
 Two rows are worth reading twice. **M06 is killed by a test named for a
 different gate** — `test_a_strip_that_prints_a_figure_twice_with_two_readings_is_refused`
 also happens to remove a figure from the strip — which is the same class the
 card warns about and the review found in finding 3; it is recorded here rather
-than presented as a clean kill. And **M03, M35 and M40 are killed by more than
-twenty, four and six tests respectively**: a mutant that breaks everything pins
+than presented as a clean kill. And **M03, M35 and M40 are killed by
+twenty-four, four and seven tests respectively**: a mutant that breaks everything pins
 nothing in particular, and their value is only that the normalization, the grid
 comparison and the tolerance are load-bearing at all.
 
@@ -44573,3 +44582,97 @@ closure:** this sentence pointed at "the table below", and there is no table
 below — this is the last paragraph of the section. The result is in the table
 **above**, in C15: `pytest -m corpus` → **30 passed**, 5,956 deselected,
 `CORPUS_EXIT=0`.
+
+## C19. Review closures — 0 BLOCK, 3 MAJOR, 5 MINOR
+
+The independent adversarial review is
+`docs/moneythumb-replacement/reviews/BATCH8_COREENC_REVIEW.md` (verdict
+**APPROVE WITH FINDINGS**). Its verdict line reads "0 BLOCK, 2 MAJOR, 6 MINOR"
+while its findings are numbered 1–3 MAJOR and 4–8 MINOR; **the findings are
+authoritative and this closure treats the count as 3 MAJOR / 5 MINOR**, which
+is what the heading above says.
+
+Every finding closed on this branch. No merge, no push, no rebase, no version
+constant touched — those are Ocean's at the train.
+
+| # | finding | closed by | evidence |
+|---|---|---|---|
+| 1 | MAJOR — a count in shipped source that does not reproduce (13 documents, one posting the charge as two rows) | `8416437` | `tools/coreenc_count_scope.py` committed; re-derived over the 58 by direct artifact path, `EXIT=0` in 0.7 s: **19 documents, two of them posting it as two rows** — exactly the 19 of the 48 published that print a service charge at all; the credit half reproduces at **5**. Corrected in `analysis/count_semantics.py`, the module docstring and C6 |
+| 2 | MAJOR — no mutation table, harness not committed, "M31/M32" dangling | `2dea1f9` | `tools/coreenc_mutation_table.py` committed — 40 mutants, single-match anchors, refuses a dirty tree, bytes in and out, no `-x`, restore byte-compared. First run: **40 applied, 30 killed, 10 survived (3 disclosed, 7 undisclosed), `EXIT=1`**. Per-mutant table in **C12.1**; the unverifiable 32/32 withdrawn; C8's `M31/M32` resolved to `M21`/`M23` |
+| 3 | MAJOR — the two duplicate-day grid checks are unpinned | `6d2d43f` | Two tests on invented documents where the SURVIVING reading is the correct one. `--only M38,M39`: **2 applied, 2 KILLED, `EXIT=0`**, and each killed by **exactly one** test, its own, on the first pass (1 failed / 1,162 passed in both). No production line changed |
+| 4 | MINOR — six (in fact eight) bounds and guards survive removal | `ad7027f` | Five PINNED (M09, M20, M32, M33, M34 — the last not reached by the review), three DISCLOSED with their reason in the harness (M10 defence-in-depth, M22 equivalent-in-practice, M24 defence-in-depth). `--only M09,M10,M20,M22,M24,M32,M33,M34`: **8 applied, 5 KILLED, 3 survived (3 disclosed, 0 undisclosed), `EXIT=0`** |
+| 5 | MINOR — the replay instrument reports a `parser_id` it never measures | `39ea487` | Read from `Dispatch.parser_id` instead of the payload. Re-run over the 71, `EXIT=0`: populated on **58 of 71** — 48 `core_processor_enclosures`, 4 `linkbank`, 3 `farmers_merchants`, 3 `burke_herbert` — and empty on exactly the 13 that publish nothing |
+| 6 | MINOR — the 13 outside-family documents are never named by sha | `24cdcea` | `tools/coreenc_archive_census.py reach` committed; over the whole run of record, `EXIT=0` in 19.0 s: 3,380 documents, 3,351 with cached text, **67 claimed = 54 + 13**, 4 misfiles unclaimed, **0** outsiders published. All 13 named by full `content_sha256` in **C2.1** with the 3 movers and their transition; C13 item 4 repointed |
+| 7 | MINOR — four headline numbers whose instruments are not committed | `d444aac` | C3 days row **53 → 57 label / 56 registered sentence** (`… furniture`, `EXIT=0`); C7 sign census re-derived through the module's own role split (`… signs`, `EXIT=0`) — **3,730 / 372 / 0 / 736 / 817 / 217**, summing to the 5,872 published rows of C9, and corrected in the module docstring too; C16 restated at **24,709** literals under a published tokenizer (`… literals`, `EXIT=0`); C18.2's **51,594 leaves a side, 0 differing** re-derived and REPRODUCED by `coreenc_family_replay --baseline-settings-key` |
+| 8 | MINOR — two record inaccuracies | `971650f` | C18.3's dangling "the table below" repointed at C15 (`CORPUS_EXIT=0`, 30 passed); C16's "no archive-sourced literal survives anywhere in the branch" narrowed to no archive-sourced **figure, date, name, account number, reference or merchant string**, with the permitted BLOCK-banner furniture named |
+
+### C19.1 The proof at the final tree
+
+Targeted, as the closure round owes — the full suite, `corpus_gate.py` and the
+archive-wide sweep are the train's and were not re-run.
+
+| proof | result | exit |
+|---|---|---|
+| `pytest -q` on the branch's five test files | **1,168 passed**, 35 skipped, 7.06 s (1,161 at the review's tip; +7 tests from closures 3 and 4) | `PYTEST_EXIT=0` |
+| `python -m tools.coreenc_mutation_table --table` | **40 selected, 40 applied, 37 KILLED, 3 survived — all 3 disclosed, 0 undisclosed**; restore byte-identical; tracked changes after the run: none | `EXIT=0` |
+| `python -m tools.coreenc_family_replay` over the 71, with the baseline key | **46 `validated/approved` / 1 `review` / 1 `withheld` / 6 census ledger declines / 4 never claimed**, and the 13 outsiders publish nothing (3 scanned → `parser_declined`, 10 issuer-held and unmoved); 57 moved / 14 unmoved; leaf-diff over the 10 documents with a stored payload: **242,709 leaves each side, 0 differing** | `REPLAY_EXIT=0`, 78.9 s |
+| `python -m tools.coreenc_count_scope` over the 58 | 48 published / 6 declined / 4 not claimed; debit excess 0/1/2 = 29/17/2, credit excess 0/1 = 43/5, every excess exactly the printed figure | `SCOPE_EXIT=0`, 0.7 s |
+| privacy: `python -m tools.coreenc_archive_census literals --base 10cc722` | 24,709 archive literals from the 71 documents' cached text, intersected with the added lines of `git diff 10cc722..HEAD` and filtered against the vocabulary the 464 tracked text files already carried at base: raw intersection **457**, residual **22**, **0 archive-sourced** (adjudicated in C19.2) | `PRIVACY_EXIT=0`, 25.0 s |
+| control bytes (`0x00–0x08`, `0x0B`, `0x0C`, `0x0E–0x1F`) over every file this closure commits | **0** | `CTRL_EXIT=0` |
+
+**No production line changed by any closure.** The only edits inside
+`analysis/` are two docstring paragraphs and one disclosure string
+(`SECTION_LEVEL_ORACLES`), all of them corrections of measurements; the
+reader's published behaviour is untouched, which the final replay's identical
+46/1/1/6/4 split and the 0-differing leaf-diff both show. The C7 docstring
+correction was written to preserve its own line count, so the line column of
+the C12.1 table remains true.
+
+### C19.2 The privacy residual, adjudicated
+
+All **22** residual literals, each traced to its own added line. Not one is a
+reading taken from a document:
+
+* **6 dates** — `1/01/26`, `1/08`, `1/12`, `1/22`, `1/28`, `2/12`: the invented
+  statement's own, documented at the head of `tests/test_core_processor_enclosures.py`;
+* **8 figures** — `11.00-`, `130.00-`, `235.00`, `240.00`, `40.00-`, `5.00-`,
+  `6.00-`, `65.00-`: the same invented statement's amounts and totals, the last
+  two added by the closure-4 fee-allowance tests;
+* **3 identifiers** — `BANNER` (`_BANNER_RE`), `M37` and `M39` (mutant ids in
+  the C12.1 table, which the tokenizer's alphanumeric class also matches);
+* **2 permitted furniture words** — `Itemized` and `NUMERICAL`, from the
+  template's printed `SERVICE CHARGES AND ITEMIZED FEES` and `CHECKS IN
+  NUMERICAL ORDER` banners, justified as furniture at
+  `analysis/core_processor_enclosures.py:490-500` (finding 8);
+* **`Privacy`** — the word in C16's own heading row;
+* **`717`** and **`1204`** — digit runs inside two numbers this branch writes
+  ABOUT itself: `4,717` in C16's own class breakdown, and the source line
+  reference `count_semantics.py:1195-1204` in the review file.
+
+The three residuals in the production module are `BANNER`, `Itemized` and
+`NUMERICAL` — an identifier and two banner words. There is no archive-sourced
+figure, date, name, account number, reference or merchant string anywhere in
+the branch.
+
+**A scan whose result is written into the diff it scans has no fixed point**,
+and the last two entries above are that effect: a count this log prints about
+its own measurement becomes a token in the next run's added lines. A draft of
+this section quoted the added-line literal count as a bare number and the next
+run duly returned it as a twenty-third residual. Numbers of that class are
+therefore written here in a form the tokenizer does not return — with their
+thousands separator, or not at all — and the class itself is named so a future
+reader recognises the effect rather than chasing it. It is a property of the
+instrument, not of the branch.
+
+### C19.3 What is still open, and it is Ocean's
+
+Nothing in the review is left unclosed, but three of its "claims I could not
+verify" remain train-level by instruction and are restated so they are not lost:
+the full default suite, `python corpus_gate.py` GREEN, and the archive-wide
+`regfp_zero_movement_sweep`. C15 and C18.1 carry the cell's readings of all
+three; this closure re-ran none of them, and the targeted proofs above are
+consistent with each — the branch's five test files are green, the one pinned
+document this card can reach is leaf-identical to the payload the run of record
+stored, and every document this reader publishes is inside the named
+population. `ANALYSIS_STAGE_VERSION` is still NOT bumped: 48 archive documents
+produce a payload where they produced none, so the bump is Ocean's to compose.
