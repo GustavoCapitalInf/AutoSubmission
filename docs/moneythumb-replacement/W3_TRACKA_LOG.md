@@ -44379,3 +44379,29 @@ one would move the truth set. It claims none.
    guard for a shape no document prints is a guess about the next one.
 7. **The detect-sweep budget (W9) is close to its ceiling at 76
    registrations**, and this is the wave-level item, not a card-level one.
+
+## W12. MAJOR closures verified (Ocean's verification session, 2026-08-26)
+
+Read-only verification of the closure round (`61b4292`, `5f95cbc`, `e02ed12`)
+by an independent session: every closure re-measured rather than read. The
+branch's ONE MAJOR is wave-level and was routed to HYGIENE-8, so the five
+MINOR closures are what this session had to verify. Nothing on the branch was
+changed but this subsection.
+
+| finding | the check this session ran | exit | verdict |
+|---|---|---:|---|
+| MAJOR (wave-level): the detect-sweep budget | not this branch's to close — routed to HYGIENE-8 by the review, and W9 states it as a wave item. Its card-level half (does this registration cause the reading) is MINOR-4 below, and is verified. | — | **ROUTED, not this branch's** |
+| MINOR-1: the `[0-9]` hardening stopped at three date anchors | (a) static: every pattern in `analysis/welch_state_bank.py` that reaches `int()`/`float()` spells `[0-9]`; the only remaining shorthand-class uses are the two DETECTION patterns (which convert nothing) and boundary lookarounds (which can only make a match STRICTER), and the product-line check's `str.isdigit()` is a rejection, where the broadest class is the strict one. (b) `python -m pytest tests/test_welch_state_bank.py tests/test_count_semantics.py -q` → 137 passed. (c) `python -m tools.welch_mutation_table` → 33 mutants / 28 killed / 5 disclosed survivors / **0 undisclosed**, tree restored clean; M28–M33 all KILLED, each by the refusing case named in W6, and M31 by the isolating both-readings document `5f95cbc` added. | 0 | **VERIFIED** |
+| MINOR-2: the `count_semantics` entry left UNSURVEYED | the entry exists for both directions and is EXERCISED three ways, not merely present: the comparable-set equality pin in `test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental` (an equality, so removing the entry fails), the tautology list in `test_a_tautological_entry_says_so_rather_than_reading_as_evidence`, and the `(OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (6, 33, 62, 2)` pin. All pass in the run above. | 0 | **VERIFIED** |
+| MINOR-3: the misspelling's attribution, and the mixed-run probe block | (a) an independent whole-archive scan (3,351 documents examined, artifacts by direct path across every capability partition) counts **26** documents printing the masthead misspelling — **17** of them this family and **9** outside it, so the load-bearing claim (it is an industry misspelling, not this bank's furniture) reproduces exactly. The finer attribution of those 9 to two named institutions at 5 and 4 is NOT independently reproduced here: no instrument was committed for it, and three independent groupings of the nine (masthead token signature, phone furniture, institution-kind tokens) split them 4/3/1/1, 2/1×7 and 7/2 rather than 5/4. Not contradicted, not confirmed. (b) `python -m tools.welch_detection_probe --rows <run>/rows.csv --data-dir webapp_data --population tools/welch_population.txt` re-run whole: documents 3,380 · examined 3,351 · no_ocr_text 29 · scanned 165 · Canadian-labelled 418 · all three markers 17 · claimed 17 · outside 0 · unclaimed-inside 0 · co-claimed 0 — the block reproduces figure for figure. Its `seconds` is a host quantity and reads 7.2 on this quiet host. | 0 | **VERIFIED** on the load-bearing measurement; the 5/4 split not independently reproduced |
+| MINOR-4: the worst-document A/B compared two different documents | the paired statistic recomputed from scratch by this session over the same pinned 109, best-of-5 per arm per document, arms INTERLEAVED per document, arm B being the branch registry with this one registration removed at runtime: median **+0.183 ms**, slower with the branch on **60 of 109** — the closure's own count, to the document — the worst document the SAME in both arms, and the crossing surviving (projected at 80: with 76 registrations below without 75). Absolute milliseconds are host-scaled (this host's worst reading is ~120 ms against the closure's ~197 ms), the SIGN, the share and the 60/109 are not. | 0 | **VERIFIED** |
+| MINOR-5: the cancelling residual named, its precursors measured | re-measured over the seventeen with the module's own `_consume` and anchors: **3,460 ledger descriptions**, **3,460 printed figures inside the ledger regions**, equal on **17 of 17** documents, and **0** descriptions carrying a date-shaped token, **0** carrying a money-shaped token, **0** carrying both. Reproduces the closure's figures exactly. | 0 | **VERIFIED** |
+
+**5 of 5 MINOR closures verified.** One reservation, recorded rather than
+resolved: MINOR-3(a)'s split of the nine non-target documents into two named
+institutions is the one number in this round with no committed instrument
+behind it, and it did not reproduce under three independent groupings. It
+changes no decision — the claim that carries weight is that the misspelling is
+printed outside this family at all, which is measured at 9 documents — but the
+wave rule is that a headline number reproduces from committed evidence, and
+this one does not.
