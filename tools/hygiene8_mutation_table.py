@@ -130,16 +130,21 @@ EXTRACT_MUTANTS = (
     Mutant(
         "E1", "the prompt carries no exact-cent constant", "analysis/extract.py",
         "      Previous Balance / <N> Deposits/Credits / <N> Checks/Debits / Service Charge /",
-        "      Previous Balance / 26 Deposits/Credits / 26 Checks/Debits / 1,234.56 /",
-        "an amount-shaped constant comes back into the prompt (INVENTED: this "
-        "is a mutant, and it is reverted)",
+        "      Previous Balance / 7 Deposits/Credits / 7 Checks/Debits / 1,234.56 /",
+        "an amount-shaped constant comes back into the prompt. THE PAYLOAD IS "
+        "INVENTED and is not the constant that was removed: a mutant that "
+        "restored the real one would be the leak, written into tracked source "
+        "by the tool that proves there is none",
     ),
     Mutant(
         "E2", "a quoted example carries no digits", "analysis/extract.py",
         '  Amount cell left blank ("<description as printed> <money token>"); use that',
-        '  Amount cell left blank ("SOME DESCRIPTION 32.00"); use that',
+        '  Amount cell left blank ("SOME DESCRIPTION 1,234.56"); use that',
         "a worked example goes back to carrying a figure welded to a payee - "
-        "the class R-1 purged, in the half `AMOUNT_RE` cannot see",
+        "the class R-1 purged, in the half `AMOUNT_RE` cannot see. Payee and "
+        "figure both INVENTED: the removed example's own tokens are what the "
+        "standing privacy rule keeps out of this repository, and a structural "
+        "gate needs no specimen",
     ),
     Mutant(
         "E3", "the alignment example keeps its VALUE row", "analysis/extract.py",
