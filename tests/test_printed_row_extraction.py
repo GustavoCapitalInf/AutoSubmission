@@ -31,6 +31,8 @@ Each one pins a rule the rung must hold:
 """
 from __future__ import annotations
 
+import copy
+
 import fitz
 import pytest
 
@@ -327,6 +329,71 @@ def test_an_indented_paragraph_is_not_a_ledger():
         y += ROW_PITCH
     page.insert_textbox(fitz.Rect(DATE_X, 700, 560, 780), FILLER, fontsize=FONT_SIZE)
     _declined(doc.tobytes())
+
+
+def test_a_ledger_without_three_described_rows_is_left_alone():
+    """G4, isolated — and the pin that kills the floor mutation by ANSWER.
+
+    Four rows, every one carrying a money cell at the same right edge, so the
+    money floor and the right-edge agreement are both satisfied and the region
+    reaches G4 with nothing above it refusing. Only TWO rows carry a cell that
+    is neither the row's anchor nor its money, so there is not enough
+    description here to give back and the region is declined for that reason
+    alone.
+
+    The address-block pin above used to kill the floor mutation by CRASH: with
+    the floors removed `max(edges, …)` ran on an empty list and the
+    `ValueError` escaped the rung. F8's fail-closed guard converts that crash
+    into a refusal, which is the right behaviour and a worse test — a mutation
+    must die on a wrong ANSWER, not on an exception the platform now catches.
+    """
+    doc = fitz.open()
+    page = doc.new_page()
+    grid, detail = [], []
+    y = 111.0
+    for date, lines, amount in (
+            ("2031-05-03", ["ORCHARD SUPPLY QUARTERLY",
+                            "AGREEMENT 55-42 SERIES B"], "101.00"),
+            ("2031-05-04", ["MERIDIAN LEASING CO PERIODIC",
+                            "AGREEMENT 77-11 SERIES C"], "202.00"),
+            ("2031-05-05", [], "303.00"),
+            ("2031-05-06", [], "404.00")):
+        grid.append((DATE_X, y, date))
+        for offset, line in enumerate(lines):
+            detail.append((DETAIL_X, y + offset * ROW_PITCH - DETAIL_DROP, line))
+        y += ROW_PITCH * max(len(lines), 1)
+        grid.append((None, y - ROW_PITCH, amount))
+    for group in (grid, detail):
+        for x, at, text in group:
+            if x is None:
+                _right(page, at, text)
+            else:
+                page.insert_text((x, at), text, fontsize=FONT_SIZE)
+    page.insert_textbox(fitz.Rect(DATE_X, 700, 560, 780), FILLER, fontsize=FONT_SIZE)
+    raw = doc.tobytes()
+
+    import ocr.native_text as native_text
+    with fitz.open(stream=raw, filetype="pdf") as opened:
+        printed = native_text._printed_lines(opened[0])
+        bands = native_text._row_bands(printed)
+        regions = native_text._candidate_regions(printed, bands)
+    assert regions, "the fixture must reach the floors, not be refused above them"
+    end, starts = regions[0]
+    assert len(starts) == 4
+    rows = [[p for band in range(start, (starts + [end])[order + 1])
+             for p in bands[band]]
+            for order, start in enumerate(starts)]
+    money = [[p for p in row if native_text._ROW_MONEY_RE.match(printed[p].text)]
+             for row in rows]
+    assert all(len(cells) == 1 and cells[0] == row[-1]
+               for cells, row in zip(money, rows)), "every row's money is last"
+    edges = {round(printed[cells[0]].right, 1) for cells in money}
+    assert len(edges) == 1, "the money column agrees, so G3 cannot be the refusal"
+    described = sum(any(p != row[0] and p not in cells for p in row)
+                    for row, cells in zip(rows, money))
+    assert described == 2, "two described rows: one short of the floor"
+
+    _declined(raw)
 
 
 def test_a_document_with_no_native_text_is_not_claimed():
@@ -629,3 +696,147 @@ def test_a_region_whose_blocks_do_not_weld_is_left_alone():
     assert native_text._candidate_regions(printed, bands), "must reach the weld gate"
 
     assert native_text._printed_row_page(page, flattened) == flattened
+
+
+# ---------------------------------------------------------------------------
+# The malformed line box: a refusal is an answer and an exception is not
+# ---------------------------------------------------------------------------
+#
+# This rung calls `get_text("dict")` on EVERY native-text document in the
+# archive, so any shape MuPDF can hand back is a shape that reaches production.
+# The review's probe found three of six shapes escaping the rung as exceptions
+# — `KeyError: 'bbox'`, `ValueError: not enough values to unpack` and
+# `TypeError: unsupported operand type(s) for -` — which crashes the OCR stage
+# for that document instead of falling through to the generic rung. Each shape
+# below is pinned to the same answer: the page keeps the flattening's own
+# text, the document is not claimed, and the ladder's bytes are byte-identical
+# to the generic rung's.
+
+
+def _first_text_line(read):
+    for block in read.get("blocks", []):
+        if block.get("type") == 0 and block.get("lines"):
+            return block["lines"][0]
+    raise AssertionError("this page prints no text line to mangle")
+
+
+def _no_blocks_key(read):
+    read.pop("blocks")
+
+
+def _blocks_is_not_a_list(read):
+    read["blocks"] = {"0": read["blocks"][0]}
+
+
+def _no_bbox_key(read):
+    _first_text_line(read).pop("bbox")
+
+
+def _bbox_of_three_numbers(read):
+    line = _first_text_line(read)
+    line["bbox"] = tuple(line["bbox"])[:3]
+
+
+def _bbox_of_strings(read):
+    line = _first_text_line(read)
+    line["bbox"] = tuple(str(value) for value in line["bbox"])
+
+
+def _bbox_of_nones(read):
+    _first_text_line(read)["bbox"] = (None, None, None, None)
+
+
+def _bbox_with_no_height(read):
+    line = _first_text_line(read)
+    x0, y0, x1, _y1 = tuple(line["bbox"])
+    line["bbox"] = (x0, y0, x1, y0)
+
+
+def _no_spans_key(read):
+    _first_text_line(read).pop("spans")
+
+
+def _no_spans_at_all(read):
+    _first_text_line(read)["spans"] = []
+
+
+#: The six shapes the review probed, and two more the fail-closed rule names:
+#: a degenerate box and a line with no spans. Every one is a page the rung must
+#: REFUSE rather than read on a guess or raise out of.
+MALFORMED = {
+    "no blocks key at all": _no_blocks_key,
+    "blocks is not a list": _blocks_is_not_a_list,
+    "a line with no bbox key": _no_bbox_key,
+    "a bbox of three numbers": _bbox_of_three_numbers,
+    "a bbox of strings": _bbox_of_strings,
+    "a bbox of Nones": _bbox_of_nones,
+    "a bbox with no height": _bbox_with_no_height,
+    "a line with no spans key": _no_spans_key,
+    "a line with no spans at all": _no_spans_at_all,
+}
+
+
+@pytest.fixture
+def mangled(monkeypatch):
+    """Install a mangler on the `dict` read only, and leave every other alone.
+
+    `parse_native_pdf_text` reads `blocks` and is what the fallback is measured
+    against, so mangling every mode would measure nothing.
+    """
+    import ocr.native_text as native_text
+
+    real = native_text._page_text
+
+    def install(mangle):
+        def read(page, *args, **kwargs):
+            answer = real(page, *args, **kwargs)
+            if args and args[0] == "dict":
+                answer = copy.deepcopy(answer)
+                mangle(answer)
+            return answer
+
+        monkeypatch.setattr(native_text, "_page_text", read)
+
+    return install
+
+
+@pytest.mark.parametrize("shape", sorted(MALFORMED))
+def test_a_malformed_line_box_refuses_the_page_and_never_raises(shape, mangled, welded):
+    """F8. Each shape is answered with the flattening's own text for the page,
+    so the document is not claimed and the ladder's bytes are today's."""
+    mangled(MALFORMED[shape])
+    _declined(welded)
+
+
+def test_an_exception_class_the_page_text_guard_does_not_convert_is_a_refusal(
+        monkeypatch, welded):
+    """`_page_text` converts the classes MuPDF raises TODAY (`RuntimeError` and
+    the `FzErrorBase` family). A future binding raising anything else must
+    still reach this rung as a refusal — it reads every native-text document in
+    the archive, and a crash there takes the whole OCR stage down for that
+    document."""
+    import ocr.native_text as native_text
+
+    real = native_text._page_text
+
+    def explode(page, *args, **kwargs):
+        if args and args[0] == "dict":
+            raise ValueError("a future binding raised a class nobody converted")
+        return real(page, *args, **kwargs)
+
+    monkeypatch.setattr(native_text, "_page_text", explode)
+    _declined(welded)
+
+
+def test_the_box_guard_admits_the_ordinary_page(welded):
+    """The premise of the nine pins above: `_line_box` is not refusing
+    everything. Every printed line of the fixture's own page passes it."""
+    import ocr.native_text as native_text
+
+    with fitz.open(stream=welded, filetype="pdf") as opened:
+        read = native_text._page_text(opened[0], "dict")
+    boxes = [native_text._line_box(line)
+             for block in read["blocks"] if block.get("type") == 0
+             for line in block["lines"]]
+    assert boxes and all(box is not None for box in boxes)
+    assert native_text._printed_lines(fitz.open(stream=welded, filetype="pdf")[0])

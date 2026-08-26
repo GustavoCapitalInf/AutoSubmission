@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from functools import lru_cache
 from statistics import median
@@ -1137,18 +1138,90 @@ class _PrintedLine(NamedTuple):
     text: str
 
 
-def _printed_lines(page) -> list[_PrintedLine]:
-    """Every printed line of the page, with its box, in MuPDF's own order."""
+def _line_box(line: object) -> tuple[float, float, float, float] | None:
+    """A printed line's box as four finite numbers, or None if it is malformed.
+
+    `line["bbox"]` unguarded raised three different exceptions out of this
+    module — `KeyError`, `ValueError: not enough values to unpack` and
+    `TypeError: unsupported operand type(s) for -` — for a missing key, a box
+    of three numbers and a box of strings. The wave rule is that a refusal is
+    an answer and an exception is not, so every one of those shapes is a
+    refusal here (the page keeps the flattening's own text). A box that is not
+    four FINITE numbers, or that is inverted or has no height, is refused for
+    the same reason: the band arithmetic below subtracts these, and a
+    degenerate box makes its answer meaningless rather than wrong-looking.
+    """
+    if not isinstance(line, dict):
+        return None
+    bbox = line.get("bbox")
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+    numbers: list[float] = []
+    for value in bbox:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        number = float(value)
+        if not math.isfinite(number):
+            return None
+        numbers.append(number)
+    x0, y0, x1, y1 = numbers
+    if x1 < x0 or y1 <= y0:
+        return None
+    return x0, y0, x1, y1
+
+
+def _printed_lines(page) -> list[_PrintedLine] | None:
+    """Every printed line of the page with its box, or None to REFUSE the page.
+
+    None is the answer for a page whose `get_text("dict")` is not the shape
+    MuPDF documents: a block, line or span that is not a mapping, a missing
+    `blocks`, `lines` or `spans` key, a line with no spans at all, or a box
+    `_line_box` refuses. The caller answers None with the flattening's own
+    text for that page, so a malformed page is left exactly as today rather
+    than crashing the OCR stage for that document. It is not reachable on
+    today's PyMuPDF — the archive run exercised this path on every native-text
+    document and raised nothing — and that is precisely the case the
+    fail-closed rule exists for.
+
+    A line whose spans print only whitespace is NOT malformed: it is a blank
+    printed line, skipped exactly as the flattening skips it, and G7 refuses
+    the page if that skip were ever to lose a token.
+    """
+    read = _page_text(page, "dict")
+    if not isinstance(read, dict):
+        return None
+    blocks = read.get("blocks")
+    if not isinstance(blocks, (list, tuple)):
+        return None
     lines: list[_PrintedLine] = []
-    for index, block in enumerate(_page_text(page, "dict").get("blocks", [])):
+    for index, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            return None
         if block.get("type") != 0:
             continue
-        for line in block.get("lines", []):
-            text = "".join(span.get("text", "") for span in line.get("spans", []))
-            if not text.strip():
+        block_lines = block.get("lines")
+        if not isinstance(block_lines, (list, tuple)):
+            return None
+        for line in block_lines:
+            box = _line_box(line)
+            if box is None:
+                return None
+            spans = line.get("spans")
+            if not isinstance(spans, (list, tuple)) or not spans:
+                return None
+            pieces: list[str] = []
+            for span in spans:
+                if not isinstance(span, dict):
+                    return None
+                piece = span.get("text", "")
+                if not isinstance(piece, str):
+                    return None
+                pieces.append(piece)
+            text = "".join(pieces).strip()
+            if not text:
                 continue
-            x0, y0, x1, y1 = line["bbox"]
-            lines.append(_PrintedLine(index, y0, y1, x0, x1, text.strip()))
+            x0, y0, x1, y1 = box
+            lines.append(_PrintedLine(index, y0, y1, x0, x1, text))
     return lines
 
 
@@ -1234,7 +1307,9 @@ def _printed_row_page(page, flattened: str) -> str | None:
     """The page with its described ledgers re-read by row, or None to refuse.
 
     Returns `flattened` UNCHANGED when the page holds nothing this rung may
-    repair, which is the fallback the whole design rests on.
+    repair, which is the fallback the whole design rests on — and that is also
+    the answer for a page with no printed lines at all and for one whose boxes
+    `_printed_lines` refuses as malformed.
     """
     lines = _printed_lines(page)
     if not lines:
@@ -1317,6 +1392,14 @@ def parse_native_printed_rows(
                 return None
             pages[index] = repaired
     except _UnreadableTextLayer:
+        return None
+    except Exception:  # noqa: BLE001 — a refusal is an answer, an exception is not
+        # `_page_text` converts the exception classes MuPDF raises TODAY; this
+        # rung reads `get_text("dict")` on every native-text document in the
+        # archive, so a future binding that raises a class outside that family
+        # would crash the OCR stage for the document instead of falling
+        # through to the generic rung. Refusing is always available and always
+        # correct here: the caller's next rung reproduces today's answer.
         return None
     finally:
         # Closed like `parse_native_woodforest` does: this rung opens a second

@@ -55,6 +55,22 @@ _FLOORS = (
     "    if len(edges) < _ROW_GRID_MINIMUM or described < _ROW_GRID_MINIMUM:\n"
     "        return None                                            # G3 / G4\n"
 )
+_BOX_GUARD = (
+    "            box = _line_box(line)\n"
+    "            if box is None:\n"
+    "                return None\n"
+)
+_BOX_UNGUARDED = "            box = line[\"bbox\"]\n"
+_UNCONVERTED = (
+    "    except Exception:  # noqa: BLE001 — a refusal is an answer, an exception is not\n"
+    "        # `_page_text` converts the exception classes MuPDF raises TODAY; this\n"
+    "        # rung reads `get_text(\"dict\")` on every native-text document in the\n"
+    "        # archive, so a future binding that raises a class outside that family\n"
+    "        # would crash the OCR stage for the document instead of falling\n"
+    "        # through to the generic rung. Refusing is always available and always\n"
+    "        # correct here: the caller's next rung reproduces today's answer.\n"
+    "        return None\n"
+)
 
 #: label -> [(anchor, replacement), ...]. Applied to a pristine copy of RUNG.
 MUTATIONS: dict[str, list[tuple[str, str]]] = {
@@ -113,6 +129,19 @@ MUTATIONS: dict[str, list[tuple[str, str]]] = {
     "M10_a_line_left_of_the_anchor_does_not_end_the_ledger": [
         ("            elif lead[end] < anchor:\n                break\n", ""),
     ],
+    # The line-box guard removed, i.e. `line["bbox"]` read unguarded — the
+    # shape the review's exception probe found escaping the rung as a
+    # `KeyError`, a `ValueError` and a `TypeError` on three of six malformed
+    # dicts. A crash there takes the OCR stage down for the document instead of
+    # falling through to the generic rung.
+    "M11_a_malformed_line_box_is_read_rather_than_refused": [
+        (_BOX_GUARD, _BOX_UNGUARDED),
+    ],
+    # The catch-all around the page loop removed, so an exception class
+    # `_page_text` does not convert escapes the rung. `_page_text` converts
+    # what MuPDF raises TODAY; this rung reads `get_text("dict")` on every
+    # native-text document in the archive.
+    "M12_an_unconverted_exception_escapes_the_rung": [(_UNCONVERTED, "")],
 }
 
 #: The one mutant this harness expects to survive, and why: see its comment
