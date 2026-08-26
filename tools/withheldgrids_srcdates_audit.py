@@ -102,6 +102,40 @@ ABLATIONS: dict[str, tuple[str, str]] = {
 }
 
 
+#: Rules that were WRITTEN and are NOT in the tree, kept here as substitutions
+#: so the reason they are absent stays reproducible from a committed
+#: instrument. `--counterfactuals` applies each and reports what it would cost.
+COUNTERFACTUALS: dict[str, tuple[str, str]] = {
+    # W3 §WITHHELDGRIDS WG5's deleted fifth rule, and the review's MINOR-6: is
+    # a remainder that is entirely a percentage a rate line? It is, and the
+    # record's "the money-proximity rule already refuses it" does not
+    # reproduce — the rule is not dead. What the archive says is worse for it
+    # than "dead".
+    "rate_only_remainder": (
+        '_WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\\b", re.I)\n',
+        '_WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\\b", re.I)\n'
+        '_RATE_ONLY_REMAINDER = re.compile(r"\\d+(?:[.,]\\d+)?\\s*%")\n',
+    ),
+    # The tightening that reaches zero real-day loss, and what it costs: money
+    # proximity asked only of a BARE date, which is the gate `10cc722` had.
+    "money_proximity_bare_only": (
+        "            lookahead = [l for l in lines[index + 1: index + 5] if l.strip()][:3]",
+        "            if len(remainder) >= 3:\n"
+        "                found.add(parsed)\n"
+        "                continue\n"
+        "            lookahead = [l for l in lines[index + 1: index + 5] if l.strip()][:3]",
+    ),
+}
+#: The second half of `rate_only_remainder`: the refusal itself. Applied after
+#: the definition above, so the counterfactual is two substitutions.
+_RATE_RULE_BODY = (
+    "        # A summary block can print a balance label with the DATE as the\n",
+    "        if _RATE_ONLY_REMAINDER.fullmatch(remainder):\n"
+    "            continue\n"
+    "        # A summary block can print a balance label with the DATE as the\n",
+)
+
+
 def _load_module(name: str, source: str) -> types.ModuleType:
     """Exec a `analysis/dates.py` text as its own module inside the package.
 
@@ -125,15 +159,28 @@ def _base_source(base_rev: str, repo: Path) -> str:
     ).stdout
 
 
+def _substitute(source: str, label: str, pairs: list[tuple[str, str]]) -> str:
+    text = source
+    for old, new in pairs:
+        count = text.count(old)
+        if count != 1:
+            raise SystemExit(
+                f"{label} matched {count} times in analysis/dates.py; it must "
+                "match exactly once or it silently measures nothing"
+            )
+        text = text.replace(old, new)
+    return text
+
+
 def _ablate(branch_source: str, name: str) -> str:
-    old, new = ABLATIONS[name]
-    count = branch_source.count(old)
-    if count != 1:
-        raise SystemExit(
-            f"ABLATION {name} matched {count} times in analysis/dates.py; "
-            "it must match exactly once or it silently measures nothing"
-        )
-    return branch_source.replace(old, new)
+    return _substitute(branch_source, f"ABLATION {name}", [ABLATIONS[name]])
+
+
+def _counterfactual(branch_source: str, name: str) -> str:
+    pairs = [COUNTERFACTUALS[name]]
+    if name == "rate_only_remainder":
+        pairs.append(_RATE_RULE_BODY)
+    return _substitute(branch_source, f"COUNTERFACTUAL {name}", pairs)
 
 
 def _iso(value: object) -> date | None:
@@ -196,6 +243,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--json-out", default="")
     ap.add_argument("--no-reparse", action="store_true")
     ap.add_argument("--quiet-rows", action="store_true")
+    ap.add_argument("--counterfactuals", action="store_true",
+                    help="also measure the rules that are NOT in the tree")
     return ap.parse_args(argv)
 
 
@@ -215,6 +264,16 @@ def main(argv: list[str] | None = None) -> int:
     ablated = {
         name: _load_module(f"analysis._srcdates_ablate_{name}", _ablate(branch_source, name))
         for name in ABLATIONS
+    }
+    counterfactual = {
+        name: _load_module(f"analysis._srcdates_cf_{name}",
+                           _counterfactual(branch_source, name))
+        for name in (COUNTERFACTUALS if args.counterfactuals else ())
+    }
+    cf_stats: dict[str, dict] = {
+        name: {"real": 0, "boundary": 0, "false": 0, "newly_failing": [],
+               "empty": 0, "residual": []}
+        for name in counterfactual
     }
 
     root = Path(args.data_dir) / "artifacts"
@@ -319,6 +378,19 @@ def main(argv: list[str] | None = None) -> int:
                       f"ledger={len(ledger):3d} real={len(real_lost)} "
                       f"boundary={len(boundary_lost)} false={len(false_removed)}")
 
+        for name, module in counterfactual.items():
+            got = set(module.source_posting_dates(markdown, start, end))
+            cf_lost = base_set - got
+            cf_stats[name]["real"] += len(cf_lost & ledger)
+            cf_stats[name]["boundary"] += len((cf_lost & {start, end}) - ledger)
+            cf_stats[name]["false"] += len(cf_lost - ledger - {start, end})
+            if cf_lost & ledger:
+                cf_stats[name]["residual"].append(sha[:8])
+            if not got and ledger:
+                cf_stats[name]["empty"] += 1
+            if (got - ledger) and not (branch_set - ledger):
+                cf_stats[name]["newly_failing"].append(sha[:8])
+
         if not base_set:
             empty_base += 1
             if ledger:
@@ -396,6 +468,15 @@ def main(argv: list[str] | None = None) -> int:
         print("RESIDUAL real-day losses, named:")
         for entry in sorted(residuals, key=lambda e: e["sha8"]):
             print(f"  {entry['sha8']}  days={entry['days']}  rules={','.join(entry['rules'])}")
+    if cf_stats:
+        print("COUNTERFACTUAL rules (written, NOT in the tree) — what each would cost:")
+        for name, entry in cf_stats.items():
+            print(f"  {name:26s} real={entry['real']:4d}  boundary={entry['boundary']:4d}  "
+                  f"false={entry['false']:4d}  empty_with_ledger={entry['empty']:4d}  "
+                  f"would_newly_fail={len(set(entry['newly_failing']))} "
+                  + " ".join(sorted(set(entry["newly_failing"]))))
+            print(f"     its real-day losses: "
+                  + (" ".join(sorted(set(entry["residual"]))) or "none"))
     if boundary_rows:
         print(f"PERIOD-BOUNDARY-only removals, {len(boundary_rows)} documents "
               f"(rules: {','.join(sorted({r for e in boundary_rows for r in e['rules']}))})")
