@@ -43704,3 +43704,564 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
+
+# §SCANHYG — the scanned readers' carried gaps: grid amounts, unique summaries, day glyphs, and the EQ Bank residues
+
+Branch `wave8-scanhyg`, base `10cc722`. Batch 8, card 12. Four readers that
+already existed and stopped short: `southside_scanned` and
+`texas_first_scanned` (`analysis/scanned_small_bank.py`), `citizens`
+(`analysis/citizens.py`) and `eq_bank_scanned` (`analysis/eq_bank_scanned.py`),
+plus one shared evidence gate in `analysis/date_tokens.py`. **No new
+registration; registry stays 75.** Three `integrity_checks` entries are added to
+registrations that already exist. TG9 (the closing-accrual ADB seam) and TG10
+(the currency) are Gustavo's bundled ruling and are NOT implemented here —
+verified below. Archive and caches read-only, OCR artifacts by direct file path
+across every capability partition, $0.00 vendor
+(`parse_mode="deterministic"` throughout, no hosted model call anywhere,
+tests included).
+
+This record was written by a completion session: the five implementation
+commits were already on the branch and their author was gone. Everything below
+is a measurement taken here, against committed instruments, not a restatement
+of a commit message — where the two disagree the measurement is what is
+recorded, and where they agree that is said too.
+
+## SH0. Summary
+
+| | |
+|---|---|
+| Population | **47** documents — every `content_sha256` the run of record either dispatched to one of the four readers or had one of them CLAIM and DECLINE: `citizens` 21, `southside_scanned` 9, `texas_first_scanned` 8 (5 + 3 declined), `eq_bank_scanned` 5 (3 + 2 declined), `apex_scanned` 4 (3 + 1) as the shared-module control |
+| Validated movers | **0.** No document changes outcome class or reason, either direction. `outcome_moved: 0` over all 47 |
+| Payload movers | **8**, every one **withheld before and after** — 5 southside (`0E887D8E`, `3B0738E9`, `9D7EB67A`, `B3110297`, `FD022A86`) and 3 citizens (`5198A34D`, `675EB439`, `FA7ED54A`). All 8 gain the same integrity flag and nothing else; **0 flags lost, 0 notes lost** anywhere |
+| Movement outside the named population | **0.** `texas_first_scanned` 8/8 identical, `eq_bank_scanned` 5/5 unmoved (3 identical, 2 declined as before), `apex_scanned` 4/4 identical |
+| Base fidelity | the base side reproduces the **run of record byte for byte on 41 of 41** documents that hold a stored payload (the other 6 are the declines, which cache nothing). A branch-side difference is therefore this branch's, not the harness's |
+| PINNED SURFACE | **109 pinned documents replayed base vs branch, 0 movement** — 108 identical, 1 pinned refusal identical on both sides, `moved: 0`. **6** of the 109 are claimed by these readers: `citizens` ×4, `southside_scanned` ×1, `apex_scanned` ×1; `eq_bank_scanned` and `texas_first_scanned` own none |
+| Sub-card attribution | replayed at each commit in turn: SS-UNIQUE-MATCH **+0**, SS-GRID-AMOUNTS **+5**, SCAN-DAY-GLYPH **+0**, citizens section totals **+3**, EQ Bank residues **+0** |
+| Mutation table | **30** mutants, **25 killed**, **5 survived**, **0 unapplied**, tree clean before and after. Every survivor disclosed in SH8 with its reason; **3 of the 5 are provably equivalent mutants** and the reason is given as a proof rather than an opinion |
+| Guards | canonical guard set **253** (252 at base — the clone guard's new test), exit 0 |
+| Conformance | canonical conformance set **1,164 passed, 35 skipped** at registry **75**, exit 0 |
+| Privacy | `tools/privacy_scan_branch.py` over the 38-document population, 2,656 added lines: **MONEY 0, DIGITS 0, DATES 0, WORDS 2** — both WORDS hits disclosed in SH10 as two-word adjacencies between a printed section label already in tracked source at base and a Python identifier on the same line |
+| Control bytes | **0** across all 14 files the branch commits (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F) |
+| Statement-specific constants | none added. Three archive figures REMOVED from production comments (SH10) |
+
+## SH1. The population, and how it was decided
+
+Detection is untouched on this branch — no detector marker moved, and the
+conformance set pins detection — so the claimed set is the run of record's own.
+The population is therefore taken from `rows.csv` and not re-derived:
+
+* every `content_sha256` whose `parser_id` is one of the four readers (a
+  document the reader claimed AND parsed), and
+* every one whose `attempted` names one (a document the reader claimed and then
+  DECLINED). A decline runs the changed `parse` as far as the refusal and is
+  exactly where a widening would first show, so excluding it would be excluding
+  the interesting half.
+
+`near_miss` is neither: a detector score below the claim threshold never
+reaches `parse` at all. That is the difference between a population of 47 and
+one of several hundred, and it is the reason the number is small.
+
+**`apex_scanned` is carried as a control rather than as a member.** It shares
+`analysis/scanned_small_bank.py` with southside and texas_first, so the module
+imports differently on this branch (a new import, three new module-level
+patterns, one function removed). By call graph its `parse` reaches
+`_extract_holder_name`, `_section`, `_money`, `_iso` and `compact_whitespace`,
+and the diff touches none of them — so if the module-level change moved
+anything, apex is where it would show. It does not: 4/4 identical.
+
+Which registrations reach the changed code, measured by import and call graph
+rather than assumed:
+
+| module changed | who reaches it | verdict |
+|---|---|---|
+| `analysis/scanned_small_bank.py` | `southside_scanned` (summary + grid), `texas_first_scanned` (the removed `_tf_one`), `apex_scanned` (module only) | all three replayed |
+| `analysis/citizens.py` | `citizens` — one new module-level function, nothing existing changed | replayed |
+| `analysis/eq_bank_scanned.py` | `eq_bank_scanned` | replayed |
+| `analysis/date_tokens.py` | `eq_bank_scanned` alone: the two new names are imported by no other module (`day_readings`, `sole_day`); nothing existing in the module changed | no other reader can be affected |
+| `analysis/parser_registry_entries.py` | three `_OVERRIDES` entries, on registrations that already exist | replayed through the registry |
+
+## SH2. SS-UNIQUE-MATCH — the summary grid takes one distinct reading per row
+
+`efc5ced`. `_southside_summary` read the `ACCOUNT SUMMARY` grid line by line
+with `found.setdefault`, which takes the FIRST printing of a label and can
+never notice a second. It now reads each row once over the whole page through
+`analysis/tables.py::unique_match`, the shared helper the two core-processor
+templates and `texas_first` already use, whose test is on the captured GROUPS:
+a row reprinted identically is a page header doing its job and is corroboration;
+a row printed twice with two different values is the document contradicting
+itself about its own summary and refuses the row.
+
+**Zero blast radius, measured rather than inferred.** "No document moved" is
+consistent with the new rule never firing and with it firing wrongly, so the
+replay is not the proof — the census is
+(`python -m tools.scanhyg_gate_probe --summaries`):
+
+| | |
+|---|---|
+| documents | 9 (every southside statement the run of record claims) |
+| rows counted per document | 8 (period, days-in-period, the two counted rows, the four figure rows) |
+| row printings **> 1** | **0** of 72 |
+| rows with **two distinct readings** | **0** of 72 |
+
+No label is printed twice on any of the nine at all, so the discipline changes
+no reading on this archive and is a claim about the NEXT statement this issuer
+prints — which is the right reason to adopt it, and is why the commit could
+report it as a zero.
+
+The rewrite carries two structural changes that are not the headline and are
+worth naming because they are what the mutation table pins:
+
+* the row patterns are built on `_SS_H = [^\S\n]`, HORIZONTAL whitespace only.
+  The line-by-line reader could not let a figure from the next line answer a
+  label on this one; a pattern over the whole page built with `\s` could, and
+  would do it silently.
+* the count cell is converted with `isdecimal()`, not `isdigit()`.
+  `str.isdigit()` is True for the superscripts `int()` rejects, so a scan that
+  resolved the count digit as a superscript raised `ValueError` out of the
+  parser instead of publishing the count as unknown — the crash class
+  `tests/test_parser_crash_shapes.py` exists for, on a reader that already
+  handles a count digit the scan turned into a LETTER.
+
+Replayed at `efc5ced` alone: **41 identical, 0 moved, 6 declined as before**.
+
+## SH3. SS-GRID-AMOUNTS — the printed daily grid becomes an amount oracle
+
+`24b77a8`. `_southside_posted_days` already consulted the `DAILY BALANCE
+SUMMARY` grid and consulted it about DATES only: a reconstructed date must name
+a day the grid names. Nothing asked the grid what a day was WORTH. On one
+archive statement (`3B0738E9`) that cost a four-figure debit over-capture — a
+reader publishing more debit money than the bank states, which is worse in kind
+than publishing less, and which every other check on the document was blind to
+because the row it came from was otherwise perfectly formed (W3 §SCANFINISH
+SF2, carded there as SS-GRID-AMOUNTS).
+
+`scanned_small_bank.daily_grid_amount_contradictions` is registered on
+`southside_scanned`'s `integrity_checks`. Consecutive printed cells partition
+the period, so each step is the bank's own statement of what the account did
+between them — including the days it printed no cell for — and the rows dated
+in that span must move the same money. Per-span rather than cumulative, because
+a span whose two readings agree is a span read correctly whatever the running
+error elsewhere is. Three findings: a span the ledger and the grid disagree
+about, a day the grid prints twice with two balances, and a last printed cell
+the summary's ending balance contradicts. Nothing is repaired and neither
+printing is preferred — the repair doctrine's reason, and `columbia_bank`'s
+shape.
+
+**The movement, named.** Replayed at `24b77a8` against base: **5 movers, all
+southside, all withheld before and after, 0 outcome movement**:
+
+| sha256 (8) | outcome, base → branch | notes gained | kind |
+|---|---|---|---|
+| `0E887D8E` | withheld/withheld_adb → same | 6 | 6 span disagreements |
+| `3B0738E9` | withheld/withheld_adb → same | 4 | 1 day printed twice with two balances, 3 span disagreements |
+| `9D7EB67A` | withheld/withheld_adb → same | 4 | 4 span disagreements |
+| `B3110297` | withheld/withheld_adb → same | 6 | 6 span disagreements |
+| `FD022A86` | withheld/withheld_adb → same | 4 | 4 span disagreements |
+
+The other four southside documents — including the two the platform validates
+and the one it sends to review — are byte-identical. **That is the measurement
+that matters most in this section:** the new oracle says nothing about any
+document southside publishes, and everything it says is about documents the
+platform was already withholding.
+
+**The card expected one mover and there are five, and that is not a surprise
+to wave off.** §SCANFINISH SF2 named `3B0738E9` because that is the document
+whose over-capture was diagnosed there; the other four are the documents whose
+printed daily cells the reader already reproduced only partially (1/11, 9/14,
+1/17, 7/19 in SF2's own table). A grid the ledger does not reproduce is exactly
+what this check reports, so five is the number the SF2 table predicts and one
+was the number the CARD named. Every one of the five is inside the named
+population by `content_sha256`.
+
+Per document the leaf diff is the same shape and nothing else moves:
+`integrity.flags[…]` (one gained: `conflicting_statement_summaries`),
+`integrity.notes[…]`, `integrity.risk_level` (`review` → `high`),
+`integrity.possible_document_issue`, one `metrics.notes[…]`, one
+`quality.notes[…]`, and `quality.summary_totals_reliable`. **No financial leaf
+moves on any of the 47** — not a balance, not an amount, not a date, not a
+transaction, not `average_daily_balance`.
+
+## SH4. SCAN-DAY-GLYPH — when is a glyph in a scanned day cell a digit
+
+`1407286`. `date_tokens.day_readings` / `sole_day`: the shared evidence gate,
+offered to every scanned reader and applied here to `eq_bank_scanned`. A
+decimal glyph is what the bank printed; a non-decimal glyph is either a digit
+the scan mangled or ink that is not part of the cell, so both readings are
+enumerated in place and the CALLER intersects them with what the document
+already determines. No glyph table, because the same glyph is both things on
+different documents of the same family.
+
+**The result the card priced at "up to +2" is +0, and this section states which
+gate refuses each of the two and whether that is the gate working.** Measured
+by wrapping the reader's OWN `sole_day` calls
+(`python -m tools.scanhyg_gate_probe --declines`) rather than by re-deriving
+anything:
+
+| sha256 (8) | dispatch | rows read | day cells with a non-decimal glyph | where it refuses | candidates left |
+|---|---|---|---|---|---|
+| `E630CB66` | declined | 87 | 1 | `sole_day`, pass 2 (the legible neighbours) | **3** |
+| `B0E16E92` | declined | 74 | 3 | `sole_day`, pass 2 | **2** |
+| `5C65DFB2` | dispatched (withheld) | 66 | 4 | — resolves | 4 of 4 resolved |
+| `75AE7952` | dispatched (withheld) | 77 | 0 | — | — |
+| `958322F1` | dispatched (withheld) | 26 | 0 | — | — |
+
+Read this way the answer is unambiguous. Pass 1 (the printed period and the
+row's own printed month) leaves nine candidate days for a lone stray glyph on
+both declines, because every reading of a lone glyph is a single-digit day.
+Pass 2 (the nearest legible neighbours before and after) narrows that to a
+window three days wide on `E630CB66` and two days wide on `B0E16E92`. **Three
+and two are not one, so the document does not determine the date and the reader
+refuses.** That is the evidence gate working exactly as specified, not a
+shortfall in its implementation: resolving either document needs a `&`→`8`
+confusion table, and the only support this family offers for one is that the
+three witnessed `&` occurrences stand BESIDE a legible 8, which is the opposite
+claim. Priced and escalated here rather than smuggled in under a hygiene card.
+
+The gate is not idle: on `5C65DFB2` — a document the platform publishes (and
+then withholds the ADB for its own reasons) — four damaged day cells resolve,
+one of them only at pass 2. And what the gate CLOSES is the value rather than
+the coverage: the reader it replaced deleted every non-decimal glyph and took
+what was left, so a cell reading `&8` answered "the 8th" on a document whose
+printed order admits the 18th just as well, silently, with nothing able to
+notice.
+
+Replayed at `1407286` against base: **the same 5 southside movers and nothing
+else** — the EQ Bank 5 unmoved (3 identical, 2 declined as before), which
+independently confirms the commit's own report.
+
+## SH5. citizens — the printed section totals are held against what the reader takes
+
+`d66f743`. `_checks_the_total_agrees_with` and `_rows_the_total_agrees_with`
+each try a strict reading, then a widened one, and adopt the widened one only
+where it makes the section sum EXACTLY the printed total. The third case —
+NEITHER agrees — keeps the strict reading, correctly, and said nothing.
+`citizens.printed_section_total_contradictions` is registered and reports per
+SECTION, in the direction of the disagreement, re-read from the document:
+which printed section the reader and the page disagree about is the first
+question anybody asks of a ledger that does not reconcile, and the one
+aggregate in `reconciliation` cannot answer it.
+
+Replayed at `d66f743` against base: **3 movers, all citizens, all withheld
+before and after**, and **the 16 digital citizens documents and the four PINNED
+citizens statements byte-identical**:
+
+| sha256 (8) | outcome, base → branch | notes gained |
+|---|---|---|
+| `675EB439` | withheld/withheld_adb → same | 2 — one `Total Checks` OVER-read, one `Total Debits` under-read |
+| `5198A34D` | withheld/withheld_adb → same | 1 — a `Total Debits` under-read |
+| `FA7ED54A` | withheld/withheld_adb → same | 1 — a `Total Debits` under-read |
+
+`675EB439` is the document the card names, and its finding is the one the card
+asked for: the cheque grid takes a two-figure amount MORE than the page's own
+`Total Checks` states. An over-capture is worse in kind than an under-capture —
+the platform's coverage ratios express it as a number above one and, until this
+commit, nothing named it (W3 §SCANFINISH SF10 1b, deferred there because that
+round's sanctioned replay set did not cover it; this round's does). Eighteen of
+the 21 citizens documents report nothing at all.
+
+## SH6. EQ Bank residues — the shared helper, the closing edge, and the recorded limit
+
+`e4dcf9c`. Four things, and the branch's own family replay of them is
+confirmed here: **EQ Bank 5 unmoved, texas_first 5 identical** (and the 3
+texas_first declines still decline).
+
+**The private near-clones are gone.** `eq_bank_scanned._sole` and
+`scanned_small_bank._tf_one` were each a paraphrase of `tables.unique_match` —
+the same three lines written with `findall`/`set` where the shared helper uses
+`finditer`/`groups` — and `test_no_two_functions_in_analysis_share_a_body`
+hashes the unparsed body, so it caught neither. Both call the shared helper now.
+
+**The clone-guard hole is closed, and its calibration is a measurement.**
+`test_no_parser_re_implements_the_one_distinct_reading_helper` names ONE AST
+shape (enumerate a pattern's matches, count the distinct ones) inside a
+function short enough to be a helper. Swept over every module of `analysis/`
+(`python -m tools.scanhyg_gate_probe --clone-bound`):
+
+| bound | what matches |
+|---|---|
+| 1 – 7 | `tables.py:unique_match` alone (3 statements, and it is the shared utility the guard exempts) |
+| 8 – 34 | `+ fiserv_premier.py:_issuer` (8 statements, and not a helper: it is a much larger identity check) |
+| 35+ | `+ fifth_third.py:parse_fifth_third_statement` (35 statements, a parser) |
+
+So the constant `NEAR_CLONE_MAX_STATEMENTS = 6` sits inside a measured safe
+band of 3 – 7 and the commit's claim ("at it the only match is `unique_match`
+itself; the next candidate up needs eight") reproduces exactly. **One
+correction: the sweep covers 92 modules, not the 89 the new comment and the
+older `_modules` docstring both say.** The count is stale in both places rather
+than wrong in this branch's favour, and it is recorded in SH11 rather than
+edited, because this session changes production code only where a measurement
+proves a defect and a stale module count in a comment is not one.
+
+**The one-day closing extension is now conditional on its own evidence
+(TG9.3).** `_resolve_dates` reads rows dated `period_end + 1` because the
+issuer posts the following cycle's opening interest credit there and its own
+printed closing balance includes it — the justification, and until now not the
+CONDITION: a debit on that day parsed exactly like the accrual, carried no
+flag and reached the payload. The parser now requires those rows to be positive
+credits and to be the last rows chronologically.
+
+**And the size of the accrual is corroborated, not asserted.**
+`eq_bank_scanned.closing_accrual_contradictions` (registered) holds the trailing
+rows against the page's `Total interest earned` term, re-read from the document,
+and against the gap between the printed closing balance and where the in-period
+ledger arrives. Where the three agree it says nothing, which is the case on all
+three archive documents of this family that parse — measured, and it is why
+this sub-card moves nothing.
+
+**TG9 and TG10 are NOT implemented, verified rather than asserted.** The
+branch's diff touches no file outside `analysis/citizens.py`,
+`analysis/date_tokens.py`, `analysis/eq_bank_scanned.py`,
+`analysis/parser_registry_entries.py`, `analysis/scanned_small_bank.py`, five
+test files and `tools/scanhyg_*`; `analysis/adb.py` is untouched, no currency
+field is set by any changed reader, and the replay shows
+`average_daily_balance` unmoved on every one of the 47 (it is not among the
+moved leaves on any of the 8 movers, and the other 39 are identical).
+
+**The monotonicity residual is pinned as a measurement rather than left as
+prose:** a true `18` misread as `16` between a `15` and a `20` satisfies every
+gate in this reader and publishes. A test asserts it, so nobody later reads the
+order check as a guarantee that every published date is right. Mutant P1 in SH8
+is what proves the pin is not vacuous.
+
+## SH7. THE PINNED SURFACE — the hard stop
+
+Three of the five commits register an integrity check, and a published
+integrity block is precisely what the two forensic audit oracles are
+structurally blind to: a pinned document can gain a flag with every financial
+field byte-identical, and a gained flag carries `risk_level` and
+`possible_document_issue` with it. So every pinned document was replayed, base
+against branch, not only the ones expected to reach these readers — because
+"whose parser is one of the four" is itself a thing a branch could move.
+
+`python -m tools.scanhyg_pinned_replay --base 10cc722`, all 109 pinned paths
+enumerated from the committed balance audit exactly as
+`corpus_gate.manifest_paths` does, each resolved through the PRODUCTION intake
+ladder with both OCR rungs disabled (the image-only statements fall through to
+their committed OCR artifact, so it stays offline):
+
+**0 pinned movement, 109 pinned documents replayed.** 108 identical leaf for
+leaf including the whole published integrity block, plus 1 pinned REFUSAL that
+raises the same message on both sides. `moved: 0`, `findings: []`.
+
+The 6 of the 109 these readers own, by content-hash prefix — a corpus path
+carries an institution and a customer's filename and this record names none:
+
+| reader | pinned documents |
+|---|---|
+| `citizens` | `0A6946CA`, `2E777BDD`, `D3613B60`, `FC9C0E8F` |
+| `southside_scanned` | `4C96DDA2` |
+| `apex_scanned` | `A4C49ACB` |
+| `eq_bank_scanned`, `texas_first_scanned` | none |
+
+The card predicted "citizens 4 + southside 1 byte-identical"; the measurement
+finds those five and one more (`apex_scanned`), and all six are byte-identical.
+This instrument compares the branch against the BASE COMMIT's own output rather
+than against `PINNED_OUTCOMES`, so a pin that was itself wrong could not have
+hidden a movement — it is a stricter question than the gate's, asked before the
+gate.
+
+## SH8. The mutation table
+
+`python -m tools.scanhyg_mutation_table`. One mutant per decision the five
+commits add, applied on disk, the five test files run WITHOUT `-x` so every
+killer is named, restored with `git checkout --`, and the tree checked clean
+before the first mutant and after the last. An anchor that does not match
+exactly once is recorded UNAPPLIED rather than silently skipped.
+
+**30 mutants, 25 KILLED, 5 SURVIVED, 0 UNAPPLIED**, baseline `251 passed`
+exit 0, `tree_clean_after: true`, 210.9s.
+
+| id | gate | what the mutant makes the reader say | verdict | killer(s) |
+|---|---|---|---|---|
+| U1 | the one-distinct-reading rule | a summary row printed twice with two values is read as its FIRST printing | KILLED | `test_a_required_summary_row_printed_twice_with_two_values_refuses`, `test_an_optional_summary_row_printed_twice_with_two_values_is_unknown`, `test_the_two_counted_rows_refuse_a_contradicting_second_printing` |
+| U2 | horizontal whitespace only | a figure on the line BELOW a label may answer that label | KILLED | `test_a_figure_on_the_line_below_a_label_does_not_answer_it` |
+| U3 | `isdecimal` on the count cell | a superscript count digit is converted rather than refused | KILLED | `test_a_count_digit_the_scan_made_a_superscript_is_unknown_not_a_crash` |
+| G1 | the grid as an AMOUNT oracle | a span the ledger and the grid disagree about is not a finding | KILLED | `test_an_amount_read_too_large_is_caught_by_the_printed_daily_grid` + 3 |
+| G2 | the walk's seed | the first cell is compared against a walk that started from nothing | KILLED | `test_the_walk_is_seeded_at_the_summarys_own_beginning_balance`… (4 killers) |
+| G3 | a span covers every day since the last cell | only the printed day itself counts | KILLED | `test_a_span_covers_every_day_since_the_previous_printed_cell` + 1 |
+| G4 | a day printed twice is not an oracle | two printings are believed; three are needed to doubt | KILLED | `test_a_day_the_grid_prints_twice_with_two_balances_is_not_an_oracle` |
+| G5 | the last cell against the ending balance | the grid's last word and the summary's may disagree in silence | KILLED | `test_the_grids_last_cell_is_held_against_the_printed_ending_balance` |
+| G6 | the southside registration | the check exists and no document runs it | KILLED | `test_the_registration_declares_the_daily_grid_amount_check` + 1 |
+| D1 | a glyph is ENUMERATED, not deleted | a stray glyph can only be ink (the rule this card replaced) | KILLED | 11 tests across `test_eq_bank_scanned.py` and `test_shared_parser_utils.py` |
+| D2 | the day cell's width bound | a five-glyph capture is enumerated as a day cell | KILLED | `test_a_day_cell_wider_than_a_day_cell_never_reaches_the_enumeration` + 2 |
+| D3 | one reading accepted only where ONE is possible | an ambiguous cell is dated by preference | KILLED | `test_sole_day_resolves_only_where_the_document_admits_one_reading` + 5 |
+| D4 | `isdecimal` inside the enumeration | a superscript is a digit and `int()` raises out of the parser | KILLED | `test_a_superscript_is_a_stray_glyph_and_never_a_crash` + 2 |
+| D5 | a day cell holds one or two glyphs | a three-glyph reading is offered as a day | **SURVIVED** | — see below |
+| C1 | a section the page contradicts is named | no section total ever disagrees with its rows | KILLED | `test_a_cheque_grid_that_takes_MORE_than_the_page_states_is_named` + 4 |
+| C2 | the direction of the disagreement | an over-read is reported as an under-read | KILLED | `test_a_cheque_grid_that_takes_MORE_than_the_page_states_is_named` |
+| C3 | each section held SEPARATELY | only the first printed section is held | KILLED | `test_each_printed_section_is_held_separately` + 2 |
+| C4 | the citizens registration | the check exists and no document runs it | KILLED | `test_the_registration_declares_the_section_total_check` + 1 |
+| E1 | the closing edge: a trailing row is a CREDIT | a debit after the period end is admitted as the accrual | **SURVIVED** | — see below |
+| E2 | the closing edge: a trailing row is POSITIVE | a non-positive credit after the period end is admitted | **SURVIVED** | — see below |
+| E3 | the closing edge: the trailing rows are LAST | an out-of-period row may sit anywhere in the grid | **SURVIVED** | — see below |
+| E4 | the accrual against the printed interest term | trailing rows that do not sum to it say nothing | KILLED | `test_a_trailing_posting_the_interest_term_does_not_account_for_is_named` |
+| E5 | a page with no legible term is the finding | rows admitted with nothing to corroborate them say nothing | KILLED | `test_a_page_with_no_legible_interest_term_at_all_is_named` |
+| E6 | the in-period ledger against the closing balance | the third printing is not consulted | KILLED | `test_an_in_period_ledger_that_does_not_close_on_the_remainder_is_named` |
+| E7 | the EQ Bank registration | the check exists and no document runs it | KILLED | `test_the_registration_declares_the_closing_accrual_check` |
+| E8 | EQ Bank reads terms through the shared helper | a term printed twice with two values is read as its first printing | KILLED | `test_a_summary_term_printed_twice_with_two_values_refuses`, `test_two_pages_that_disagree_about_the_account_refuse` |
+| K1 | the removed paraphrase may not come back | `_tf_one` is restored verbatim into the tree | KILLED | `test_no_parser_re_implements_the_one_distinct_reading_helper` |
+| K2 | the detector recognises the paraphrase | the guard stops seeing a `findall` paraphrase | KILLED | `test_no_parser_re_implements_the_one_distinct_reading_helper` (its own self-check) |
+| K3 | the helper-length bound | a three-statement paraphrase is not a helper and is not looked at | **SURVIVED** | — see below |
+| P1 | the pinned monotonicity residual | the order gate refuses every statement whose rows are not all on one day | KILLED | 19 tests, including the pin itself: `test_a_wrong_day_that_lands_BETWEEN_its_neighbours_is_published_silently` |
+
+### SH8.1 The five survivors, disclosed
+
+**E1, E2 and E3 are EQUIVALENT MUTANTS, and this is a proof rather than a
+plea.** In `parse_eq_bank_scanned_statement` the walk sets
+`credit = step > 0`, refuses `step == 0`, and then builds the transaction with
+`amount = step / 100` and `direction = "credit" if credit else "debit"`.
+Therefore, for every transaction this parser can construct,
+`direction == "credit"` ⟺ `amount > 0`, and the closing-edge condition
+`direction != "credit" or amount <= 0` is one test written twice. Neither half
+can be removed with any observable effect, so neither half is separately
+killable and no test could kill them. E3 is the same kind of fact one gate up:
+`dates` is non-decreasing (the order gate two screens above refuses otherwise),
+so the indices whose date exceeds `period_end` are necessarily a contiguous
+SUFFIX, and the explicit contiguity check can never fire. The branch's own
+comment says as much ("Implied by the non-decreasing gate above, which is why
+it is stated rather than relied on") and the harness confirms it. Defensive
+redundancy, deliberately kept, correctly unkillable.
+
+**D5 survives over a shape no bank prints, and the reach is measured.**
+Widening the reading length from two glyphs to three changes `day_readings` on
+exactly **63** tokens over the alphabet `0-9 & g` up to length 3, and every one
+of them begins with a literal `0`: `001`…`031`, `00&`, `010`, and so on. A
+three-glyph reading whose leading digit is non-zero exceeds 31 and is already
+refused by the day bound; one whose leading digit is zero duplicates a reading
+the two-glyph form already offers, EXCEPT where the leading zero was itself
+printed. So the surviving mutant admits a day cell printed with a leading zero
+in three glyphs — which this template does not print, and which `_ROW_RE` caps
+at three glyphs anyway. Disclosed rather than tested: a test for `"007"` would
+pin a shape no document has.
+
+**K3 is a real, narrow gap and is left for review.** Lowering
+`NEAR_CLONE_MAX_STATEMENTS` from 6 to 2 silently narrows the clone guard —
+the removed paraphrase is three statements long, so at a bound of 2 it would no
+longer be flagged — and no test fails, because the guard's self-check
+(`_is_unique_match_shape(removed)`) does not consult the bound. K1 proves the
+guard catches the real paraphrase at the real bound and K2 proves the detector
+is not vacuous, so what is unpinned is the CONSTANT, not the mechanism. The
+sweep in SH6 shows the safe band is 3 – 7. The fix is one assertion (run the
+guard's own predicate against the removed paraphrase AT the bound); it is a
+test change on a branch whose implementation is closed, and this session
+records it rather than making it. Carried as SH11 finding 2.
+
+## SH9. Proofs, with verbatim exit codes
+
+Every command run from the branch worktree at HEAD, sequentially, one heavy
+process at a time. Durable logs in the session's private scratchpad.
+
+| proof | command | result | exit |
+|---|---|---|---|
+| the branch's five test files | `python -m pytest -q tests/test_southside_scanned.py tests/test_citizens_scanned.py tests/test_eq_bank_scanned.py tests/test_shared_parser_utils.py tests/test_no_parser_helper_clones.py` | `251 passed, 1 warning in 5.92s` | **0** |
+| canonical GUARD set | `python -m pytest -q tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py` | `253 passed, 1 warning in 21.30s` — **252 → 253**, the clone guard's new test | **0** |
+| canonical CONFORMANCE set | `python -m pytest -q tests/test_parser_conformance.py tests/test_parser_registry_entries.py tests/test_parser_detection_markers.py tests/test_parser_registry.py tests/test_parser_crash_shapes.py tests/test_parser_exception_boundary.py tests/test_count_semantics.py` | `1164 passed, 35 skipped, 1 warning in 4.22s` — unchanged, at registry **75** | **0** |
+| registry size | `python -c "from analysis.parser_registry_entries import load; print(len(load()))"` | `75` — no new registration | **0** |
+| mutation harness | `python -m tools.scanhyg_mutation_table --out <private>` | `{"baseline":{"counts":{"passed":251},"exit":0},"killed":25,"mutants":30,"seconds":210.9,"survived":5,"tree_clean_after":true,"unapplied":0}` | **0** |
+| family replay, final tree | `python -m tools.scanhyg_family_replay --base 10cc722 …` | 47 documents: 33 identical, 8 payload moved, 0 outcome moved, 6 declined both sides, 0 no-artifact; base matches the run of record 41/41 | **0** |
+| sub-card attribution | the same, `--head efc5ced / 24b77a8 / 1407286 / d66f743` | +0 / +5 / +0 (same 5) / +3 (8 total) | **0** ×4 |
+| PINNED replay | `python -m tools.scanhyg_pinned_replay --base 10cc722 …` | `{"pinned":109,"identical":108,"moved":0,"refused_both_sides":1,"claimed_by_target_reader":6}` | **0** |
+| gate probe | `python -m tools.scanhyg_gate_probe --summaries --declines --clone-bound …` | SH2, SH4, SH6 | **0** |
+| privacy scan | `python tools/privacy_scan_branch.py --rows … --where parser_id=southside_scanned,eq_bank_scanned,citizens,texas_first_scanned --data-dir … --base 10cc722 --ref wave8-scanhyg` | `MONEY 0, DIGITS 0, DATES 0, WORDS 2` over 38 documents / 2,656 added lines | **1** (the tool exits 1 on any hit; both hits disclosed in SH10) |
+| control bytes | byte scan of all 14 committed files for 0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F | `files checked 14, files with control bytes 0` | **0** |
+
+**Not run here, and deliberately: the full default suite, the corpus-marked
+slice, `python corpus_gate.py`, and the archive-wide sweep
+(`tools.regfp_zero_movement_sweep`).** Those are the TRAIN's at merge; this
+session's mandate is the targeted floor, and the machine is shared with the
+other batch-8 cells. What this section offers in their place is stricter on
+this card's own surface than the gate is: the pinned replay compares 109
+documents against the base commit's own output rather than against pins, and
+the family replay leaf-diffs every document either changed `parse` can run on.
+
+## SH10. Privacy
+
+**Three archive figures left production comments in this session** (`135a719`),
+which is a change to tracked source and is named as such: two of them stated
+the four-figure debit over-capture that motivated SS-GRID-AMOUNTS
+(`scanned_small_bank.daily_grid_amount_contradictions` and the southside
+registry comment) and one stated the two-figure cheque over-read that motivated
+the citizens registration. The standing rule (batch-7 BLOCK) admits no archive
+content in tracked source and makes no exception for a figure that explains why
+a check exists: the magnitude is what a reader needs and the figure is the
+document's. Each is a CLASS now and each says so where it stands. Comment and
+docstring text only — no AST change, and the family replay is byte-identical
+across it (SH9 was re-run at the final tree after this commit).
+
+The scan at the final tree, over the 38 documents of the four readers'
+population, 2,656 added lines: **MONEY 0, DIGITS 0, DATES 0, WORDS 2.**
+
+Both WORDS hits are two-word ADJACENCIES rather than copied text, and are
+disclosed rather than suppressed:
+
+| hit | line | why it is not archive content |
+|---|---|---|
+| `CHECKS NOTE` | `tests/test_citizens_scanned.py:460` | the assertion `{"Total Checks" in note for note in notes}`. `Total Checks` is the printed SECTION LABEL the check names its finding by — institution furniture, present 5 times in `analysis/citizens.py` and 5 times in this test file at the base commit — and `note` is this test's own loop variable. The bigram exists only because the two words are adjacent in Python source |
+| `LOAD BANK` | `tests/test_eq_bank_scanned.py:734` | the line `registration = next(r for r in load() if r.id == "eq_bank_scanned")`. Both halves are code identifiers: the registry's `load()` and the parser id |
+
+Every other class is zero, including the one that matters most for a card whose
+findings are about money: **MONEY 0 over 3,990 distinctive printed figures.**
+The eight movers' integrity NOTES carry figures at run time, as every note on
+this platform does; nothing in this record quotes one, and the replay
+instrument replaces every figure in a note with `<figure>` before printing it.
+
+## SH11. Carried risks and findings for review
+
+1. **Five southside documents move, not the one the card named.** All five are
+   withheld before and after, all five are inside the named population, and
+   SH3 gives the reason the SF2 table predicts five. It is recorded here
+   because a reviewer reading the card alone would expect one.
+2. **The clone guard's calibration constant is unpinned** (mutant K3). One
+   assertion closes it; the fix is a test change and this session did not make
+   it. See SH8.1.
+3. **The new clone-guard comment says "all 89 modules of `analysis/`" and the
+   measured number is 92** — as does the older `_modules` docstring it inherited
+   the figure from, so the drift is not this branch's. Recorded, not edited:
+   this session changes code only where a measurement proves a defect and a
+   stale count in a comment is not one.
+4. **`quality.summary_totals_reliable` moves on all 8 movers**, along with one
+   `metrics.notes` entry and one `quality.notes` entry. This is the normal
+   downstream of a new integrity note and every affected document is withheld
+   on both sides, but it is a PUBLISHED field and is named rather than folded
+   into "integrity block".
+5. **The EQ Bank +2 is unavailable on this evidence, not merely unimplemented.**
+   Both declines refuse with a two- and a three-day window (SH4). Any future
+   attempt needs a glyph confusion table, which this family's own evidence
+   argues against; that is a decision for a card with an evidence packet, not a
+   hygiene round.
+6. **TG9 and TG10 remain open and untouched.** `closing_accrual_contradictions`
+   is the evidence base a future TG9 ruling would rest on and nothing more:
+   `analysis/adb.py` still refuses every out-of-period row.
+7. **The harness's own two defects are fixed and recorded** (`94cfaba`): a
+   shell heredoc collapsed the escapes of the CRLF helpers and left a real
+   carriage return inside a docstring, and a `return` sat inside a `finally`.
+   The first is the FROST-OZK lesson one layer up — instruments are written
+   with a file tool, never a heredoc — and it is why every instrument is
+   byte-checked here.
+
+## SH12. Commits
+
+| commit | subject |
+|---|---|
+| `efc5ced` | southside: the summary grid takes one distinct reading per row (SS-UNIQUE-MATCH) |
+| `24b77a8` | southside: the printed daily grid becomes an AMOUNT oracle (SS-GRID-AMOUNTS) |
+| `1407286` | SCAN-DAY-GLYPH: when is a glyph in a scanned day cell a digit? |
+| `d66f743` | citizens: the printed section totals are held against what the reader takes |
+| `e4dcf9c` | EQ Bank residues: the shared helper, the closing edge, and the recorded limit |
+| `7339a11` | SCANHYG: the four instruments this card's numbers come from |
+| `135a719` | SCANHYG: the archive's own figures leave three production comments |
+| `94cfaba` | SCANHYG: the mutation harness's own two defects, found by running it |
+
+Instruments, all under `tools/` and all read-only and $0.00:
+`scanhyg_family_replay.py`, `scanhyg_pinned_replay.py`, `scanhyg_gate_probe.py`,
+`scanhyg_mutation_table.py`.
+
+## SH13. What the train owes
+
+The full default suite, the corpus-marked slice, `python corpus_gate.py` GREEN,
+and the archive-wide zero-movement sweep at the final production tree — the
+four proofs this session was told to leave to the train, and the only four this
+card owes beyond what is recorded above. Nothing else: the registry is
+unchanged at 75 (so no registry pin moves and no stratified non-target probe is
+due), `ANALYSIS_STAGE_VERSION` is Ocean's at merge, and the pinned surface is
+already measured at 0 movement over all 109 by the branch's own instrument.
