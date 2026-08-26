@@ -274,15 +274,18 @@ _WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\b", re.I)
 # What it bought was one document whose masthead date is the printed period
 # boundary; that document is withheld again and named in WG12. The two shapes
 # it got wrong are pinned in tests/test_adb.py so the boundary stays visible.
-#: A table's own column caption. A line that names a date column AND a money
-#: column while carrying no money is announcing the table that FOLLOWS it, so
-#: money printed after it belongs to that table's first row and not to
-#: whatever was printed above the caption. Used to bound the money-proximity
-#: lookahead below.
-_COLUMN_CAPTION_DATE = re.compile(r"\bdate\b", re.I)
-_COLUMN_CAPTION_MONEY = re.compile(
-    r"\b(?:amount|balance|debit|credit|withdrawal|deposit)s?\b", re.I
-)
+# A COLUMN-CAPTION STOP ON THE MONEY LOOKAHEAD WAS TRIED HERE AND IS GONE
+# (W3 §WITHHELDGRIDS WG12, closing the review's MINOR-7). A line that names a
+# date column AND a money column while carrying no money announces the table
+# that FOLLOWS it, so money printed after it arguably belongs to that table's
+# first row rather than to whatever was printed above the caption.
+#
+# Measured, it bought nothing and cost something. Ablated over the 2,558
+# archive documents the run of record resolves to cached text, the stop
+# changes the source set of NONE of them; adversarially it takes the printed
+# posting date off a real bare-date row whose next line is a caption. Its own
+# mutant was the only thing exercising it. Deleted rather than kept as an
+# untested branch — WG5's own standard, applied to WG5's own rule.
 #: Dot leaders are typographic filler, not content. One issuer prints its
 #: daily-balance block as `.......... DAILY BALANCE` and its grid caption as
 #: `Date.......................................Balance`, so the section
@@ -317,15 +320,6 @@ def _is_posting_row(line: str) -> bool:
     if _SUMMARY_TOTAL_ROW.search(line):
         return False
     return len(_DATE_TOKEN_RE.findall(line)) <= 1
-
-
-def _is_column_caption(line: str) -> bool:
-    """Does this line announce a table rather than print a row of one?"""
-    return (
-        not _MONEY_RE.search(line)
-        and bool(_COLUMN_CAPTION_DATE.search(line))
-        and bool(_COLUMN_CAPTION_MONEY.search(line))
-    )
 
 
 def _without_leaders(line: str) -> str:
@@ -453,18 +447,12 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
             # sentence that opens with a date ("June 15 is ... Day, and now is
             # a great time to ...") without needing to recognise prose — and,
             # since the page-header position rule above was withdrawn, it is
-            # also the only thing that refuses a masthead. The lookahead stops
-            # at a column caption because money printed after a caption belongs
-            # to the table the caption announces.
-            lookahead: list[str] = []
-            for candidate in lines[index + 1: index + 5]:
-                if not candidate.strip():
-                    continue
-                if _is_column_caption(candidate):
-                    break
-                lookahead.append(candidate)
-                if len(lookahead) == 3:
-                    break
+            # also the only thing that refuses a masthead.
+            #
+            # Three NON-EMPTY lines and no other stop: a stop at a column
+            # caption was tried and measured to change nothing (see the note
+            # beside `_DOT_LEADERS`).
+            lookahead = [l for l in lines[index + 1: index + 5] if l.strip()][:3]
             if not any(_MONEY_RE.search(l) for l in lookahead):
                 continue
         found.add(parsed)

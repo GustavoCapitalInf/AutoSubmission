@@ -977,20 +977,26 @@ def test_a_marketing_sentence_opening_with_a_date_is_not_a_posting_date():
     }
 
 
-def test_the_money_lookahead_stops_at_a_column_caption():
-    """Money printed after a caption belongs to the table the caption
-    announces, not to whatever was printed above it."""
+def test_a_bare_date_row_whose_next_line_is_a_column_caption_keeps_its_date():
+    """The money lookahead does NOT stop at a column caption.
+
+    A stop was tried, on the theory that money printed after a caption belongs
+    to the table the caption announces. Ablated over the 2,558 archive
+    documents the run of record resolves to cached text it changed the source
+    set of NONE of them, and adversarially it costs exactly this row its
+    printed posting date (W3 §WITHHELDGRIDS WG12, the review's MINOR-7).
+    Removed, and the shape it got wrong is pinned here.
+    """
     from analysis.dates import source_posting_dates
 
     md = "\n".join([
-        "June 30, 2026 A CUSTOMER NAME 1234567890",
-        "P.O. BOX 00000 A CITY, ST 00000-0000",
+        "06/09",
         "Posting Date Description Amount",
-        "06/09 A MERCHANT 42.00",
+        "42.00 858.00",
     ])
-    got = source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30))
-    assert date(2026, 6, 30) not in got
-    assert date(2026, 6, 9) in got
+    assert date(2026, 6, 9) in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
 
 
 def test_a_dot_leadered_daily_balance_block_is_a_grid_not_a_ledger():
