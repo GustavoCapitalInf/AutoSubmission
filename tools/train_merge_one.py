@@ -47,6 +47,39 @@ def blob(rev: str) -> bytes:
     return run("git", "show", f"{rev}:{W3}").stdout
 
 
+def resolve_hunks(text: str, keep: str) -> str:
+    """Resolve every `<<<<<<< ... ======= ... >>>>>>>` hunk of a conflicted file.
+
+    `keep="ours"` keeps the HEAD side of each hunk; `keep="both"` keeps the HEAD
+    side followed by the branch side. Everything outside the hunks — git's clean
+    three-way merge — is left exactly as git wrote it. Raises if the markers do
+    not nest as expected, so a malformed file is never half-resolved.
+    """
+    out: list[str] = []
+    side = None
+    ours: list[str] = []
+    theirs: list[str] = []
+    for line in text.split("\n"):
+        if line.startswith("<<<<<<< "):
+            if side is not None:
+                raise ValueError("nested conflict marker")
+            side, ours, theirs = "ours", [], []
+        elif line.startswith("=======") and side == "ours":
+            side = "theirs"
+        elif line.startswith(">>>>>>> ") and side == "theirs":
+            out.extend(ours if keep == "ours" else ours + theirs)
+            side = None
+        elif side == "ours":
+            ours.append(line)
+        elif side == "theirs":
+            theirs.append(line)
+        else:
+            out.append(line)
+    if side is not None:
+        raise ValueError("unterminated conflict marker")
+    return "\n".join(out)
+
+
 def main(argv: list[str]) -> int:
     # Optional third argument: `--section-only "# §HEADER"`. The strict shape
     # check refuses a branch whose log carries edits OUTSIDE its own section
@@ -57,6 +90,7 @@ def main(argv: list[str]) -> int:
     # pre-section edits, so the composition is explicit rather than silent.
     section_only = None
     compose_registry = None
+    union_files: list[str] = []
     rest = argv[3:]
     while rest:
         if rest[0] == "--section-only" and len(rest) >= 2:
@@ -64,6 +98,9 @@ def main(argv: list[str]) -> int:
             rest = rest[2:]
         elif rest[0] == "--compose-registry" and len(rest) >= 2:
             compose_registry = int(rest[1])
+            rest = rest[2:]
+        elif rest[0] == "--union" and len(rest) >= 2:
+            union_files.append(rest[1].replace("\\", "/"))
             rest = rest[2:]
         else:
             print(__doc__)
@@ -79,14 +116,17 @@ def main(argv: list[str]) -> int:
         conflicts = run("git", "diff", "--name-only", "--diff-filter=U").stdout.decode().split()
         print("CONFLICTS:", conflicts)
         # `--compose-registry N`: a cell that ADDS registrations bumps the two
-        # registry-count pins from the base count to its own; every such cell
-        # conflicts with the train on exactly those two files. Composition is
-        # mechanical — the train's copy with the count rewritten to N — and is
-        # done here so the number is never typed by hand twice.
+        # registry-count pins from the base count to its own, so every such cell
+        # conflicts with the train on exactly the count lines of those two
+        # files — while its OTHER edits to them (its id inserted into the
+        # dispatch-order list, its fixture rows) merge cleanly. Composition
+        # therefore resolves ONLY the conflict hunks (train side) and rewrites
+        # the count to N, keeping git's clean merge of everything else. (The
+        # first version took the whole train-side file and lost the clean
+        # insertions; the dispatch-order pin caught it.)
         if compose_registry is not None:
             for pin in [p for p in REGISTRY_PINS if p in conflicts]:
-                run("git", "checkout", "--ours", "--", pin)
-                text = open(pin, "rb").read().decode("utf-8")
+                text = resolve_hunks(open(pin, "rb").read().decode("utf-8"), keep="ours")
                 current = sorted({int(m) for m in re.findall(r"(?:len\(pr\.registrations\(\)\)|len\(REGISTRATIONS\)) == (\d+)", text)})
                 if len(current) != 1:
                     print(f"REGISTRY PIN in {pin} is not a single count ({current}); merge left in progress")
@@ -99,8 +139,20 @@ def main(argv: list[str]) -> int:
                 with open(pin, "wb") as handle:
                     handle.write(new_text.encode("utf-8"))
                 run("git", "add", pin)
-                print(f"REGISTRY PIN composed: {pin} {old} -> {compose_registry}")
+                print(f"REGISTRY PIN composed: {pin} {old} -> {compose_registry} (conflict hunks only)")
             conflicts = [c for c in conflicts if c not in REGISTRY_PINS]
+        # `--union FILE`: two cells INSERTED adjacent, independent entries at the
+        # same place (a registry edge block, an excused-caller entry) and git
+        # cannot order them. Both sides are kept, ours first. Used only where
+        # the entries are keyed and distinct — a duplicate key would be a
+        # silent override, so the caller names the file deliberately.
+        for path in [p for p in union_files if p in conflicts]:
+            text = resolve_hunks(open(path, "rb").read().decode("utf-8"), keep="both")
+            with open(path, "wb") as handle:
+                handle.write(text.encode("utf-8"))
+            run("git", "add", path)
+            print(f"UNION composed: {path} (both sides of each conflict hunk kept, ours first)")
+        conflicts = [c for c in conflicts if c not in union_files]
         if conflicts and conflicts != [W3]:
             print("NON-W3 CONFLICT - manual composition required; merge left in progress")
             return 3
