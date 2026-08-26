@@ -38,6 +38,19 @@ production, tests, tools, fixtures, documentation. `--include-tree` additionally
 scans every tracked text file at `--ref` in full (for a branch that inherited a
 leak from an earlier commit).
 
+TREE AUDITS NEED THE ROOT COMMIT AS `--base`. The base-tree exclusion removes
+every token that already sits in the tracked tree at `--base` — which, for a
+token inherited from an earlier commit, is exactly the token you are looking
+for. `--include-tree --base 10cc722` therefore proves only that no NEW archive
+token was added (SCAN-HYGIENE closure, batch 8, found this the hard way). For
+an audit of what the tree already carries, pass the repository's root commit:
+
+    python tools/privacy_scan_branch.py --shas population.txt --data-dir ... \
+        --base "$(git rev-list --max-parents=0 HEAD)" --ref train8 --include-tree
+
+and adjudicate the candidates by class (round `.00` figures and the
+`tests/corpus_cache/` fixtures are archive text by design).
+
 Exit 1 on any hit, 0 on none. The JSON summary goes to stdout; each hit goes to
 stderr as `HIT <class> <file>:<line> <token>` — the report is for the operator's
 terminal and must never itself be committed.
