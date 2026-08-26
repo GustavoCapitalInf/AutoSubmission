@@ -348,7 +348,13 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         # commit message: the general reader claims 22 of the 3,351 documents
         # with cached text — its own 8 and this issuer's 14, every one of the
         # 14 validated today. Without the edge those 14 resolve `ambiguous`;
-        # with it, 0 do. No pinned corpus document prints this template.
+        # with it, 0 do. ONE of those 14 is a pinned corpus document
+        # (`tests/data/parser_expectations.json`, the single entry registered
+        # to `wilson_muir`), so this edge is what keeps the corpus gate green
+        # rather than being invisible to it — an earlier version of this
+        # comment claimed no pinned document printed this template, which was
+        # false (W3 §GLANCE GL12, review finding 2). Its payload is
+        # byte-identical base vs branch either way.
         "wilson_muir": ["category_partition"],
     }, (
         "supersedes edges changed; each new edge needs the corpus document that "

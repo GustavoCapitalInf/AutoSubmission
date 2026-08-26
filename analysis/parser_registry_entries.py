@@ -375,6 +375,16 @@ _OVERRIDES: dict[str, dict] = {
     # reader COULD publish would be routed to `wilson_muir` and never offered
     # to it - the archive holds none, and the same is true of every supersedes
     # edge already shipped. Named, not claimed away.
+    #
+    # ONE PINNED CORPUS DOCUMENT PRINTS THIS TEMPLATE, so this edge is load
+    # bearing for the corpus gate rather than invisible to it. An earlier
+    # version of this comment said the opposite (W3 §GLANCE GL12, review
+    # finding 2). `tests/data/parser_expectations.json` pins exactly one
+    # document registered to `wilson_muir`, that document is one of the 14 this
+    # registration claims, and with this edge removed it resolves `ambiguous`.
+    # What the edge does NOT do is move it: measured base vs branch by
+    # `tools/glance_family_replay.py`, its published payload is byte-identical,
+    # and identical to the payload the run of record stored - 14 of 14.
     "wilson_muir": {"band": 10, "supersedes": frozenset({"category_partition"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.

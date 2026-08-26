@@ -24,8 +24,10 @@ covered twice and tested once).
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 import pytest
@@ -233,6 +235,53 @@ def test_the_issuer_specific_reader_of_this_template_supersedes_the_general_one(
     dispatch = pr.resolve(document)
     assert dispatch.outcome != "ambiguous"
     assert [identifier for identifier, _score in dispatch.candidates] == ["wilson_muir"]
+
+
+#: The pinned corpus surface, read rather than remembered.
+_EXPECTATIONS = Path(__file__).resolve().parent / "data" / "parser_expectations.json"
+
+
+def test_the_edge_is_what_keeps_the_one_PINNED_document_of_this_template_on_its_reader():
+    """The corpus gate's green depends on this edge (review finding 2).
+
+    Exactly one document in `tests/data/parser_expectations.json` is registered
+    to the issuer-specific reader, and it prints this template: the general
+    registration claims that printing, and the `supersedes` edge is the only
+    thing that keeps it on `wilson_muir`. With the edge dropped, two claimants
+    survive and the document resolves `ambiguous` — which is a corpus-gate
+    regression, not a routing detail. The record said the opposite in three
+    places until this closure.
+    """
+    pinned = [entry for entry in
+              json.loads(_EXPECTATIONS.read_text(encoding="utf-8"))["documents"]
+              if entry["parser_id"] == "wilson_muir"]
+    assert len(pinned) == 1, "the pinned surface no longer holds exactly one"
+
+    document = _issuer_printing()
+    claimants = sorted(r.id for r in pr.registrations() if r.detect(document).claims)
+    assert claimants == ["category_partition", "wilson_muir"]
+
+    # The ROUTING is what this pins. The document body is invented, so the
+    # issuer reader declines it and the dispatch is `unclaimed` — what matters
+    # is that the edge left exactly one candidate standing and that it is the
+    # issuer's. On the real pinned document, measured over its cached text by
+    # `tools/glance_family_replay.py`, the same routing ends in
+    # `claimed/wilson_muir` with `attempted == []`.
+    dispatch = pr.resolve(document)
+    assert dispatch.outcome != "ambiguous"
+    assert [identifier for identifier, _score in dispatch.candidates] == ["wilson_muir"]
+
+    # The counterfactual, computed with the registry's own rule and this one
+    # edge dropped: both claimants survive, which is what `ambiguous` means.
+    superseded = {
+        identifier
+        for claimant in pr.registrations() if claimant.id in claimants
+        for identifier in getattr(claimant, "supersedes", frozenset())
+        if not (claimant.id == "wilson_muir" and identifier == "category_partition")
+    }
+    assert [identifier for identifier in claimants if identifier not in superseded] == [
+        "category_partition", "wilson_muir"
+    ]
 
 
 def test_the_issuer_specific_reader_does_not_claim_the_general_printings():

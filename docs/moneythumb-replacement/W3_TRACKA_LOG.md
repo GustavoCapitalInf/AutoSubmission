@@ -43957,10 +43957,26 @@ supersedes `category_partition`.
   issuer's that the general reader COULD publish would be routed to
   `wilson_muir` and never offered to it. The archive holds none, and the same
   is true of every supersedes edge already shipped. Named, not claimed away.
-* No pinned corpus document prints this template, so the edge moves nothing in
-  the 109.
+* **One pinned corpus document DOES print this template, and the edge is what
+  keeps it on the issuer reader** (review finding 2, closed; the record said the
+  opposite here, in the registry override comment and in the registry-pin test
+  comment, and all three are corrected). `tests/data/parser_expectations.json`
+  pins exactly one document whose registered parser is `wilson_muir`
+  (`6EFD091D`), and it is one of the 14 this registration claims. Measured at
+  the branch tree over its cached text by `tools/glance_family_replay.py`:
+  `category_partition` is a claimant, `resolve` returns `claimed/wilson_muir`
+  with `attempted == []` and `candidates == ['wilson_muir']`, and with this edge
+  dropped two claimants survive and the document resolves **ambiguous** — as all
+  14 do. So the corpus gate's green DEPENDS on the edge rather than being
+  independent of it. What the edge does not do is move the document, and that
+  is the part the old sentence got right by accident: its published payload is
+  byte-identical base vs branch AND byte-identical to the payload the run of
+  record stored (14 of 14 on both comparisons), and its recorded chain prefix is
+  unchanged because dispatch on it never reaches the general reader.
 
-Both directions are pinned in `tests/test_category_partition.py`.
+Both directions are pinned in `tests/test_category_partition.py`, and so is the
+counterfactual: the pinned document's printed shape carries BOTH readers'
+markers, resolves to `wilson_muir`, and is ambiguous with the edge removed.
 
 ## GL6. The mutation table
 
