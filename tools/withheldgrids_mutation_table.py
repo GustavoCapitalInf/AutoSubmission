@@ -157,14 +157,14 @@ MUTANTS: tuple[Mutant, ...] = (
     ),
     Mutant(
         "M20", "a repeated grid date with disagreeing balances refuses", COMMUNITY,
-        "            if iso in balances and balances[iso] != amount:",
-        "            if False and iso in balances and balances[iso] != amount:",
+        "        if iso in balances and balances[iso] != amount:",
+        "        if False and iso in balances and balances[iso] != amount:",
         "without the refusal the grid resolves a contradiction last-wins",
     ),
     Mutant(
         "M21", "a repeated grid date that AGREES is not a contradiction", COMMUNITY,
-        "            if iso in balances and balances[iso] != amount:",
-        "            if iso in balances:",
+        "        if iso in balances and balances[iso] != amount:",
+        "        if iso in balances:",
         "the grid prints the same day twice with the same balance on real documents",
     ),
 )
