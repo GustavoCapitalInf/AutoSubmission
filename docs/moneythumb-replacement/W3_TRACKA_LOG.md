@@ -44853,4 +44853,181 @@ in one screen.
 | `6233b46` | F3 + the pinned leaf | the archive measurement restated through DC3, DC3.1, DC3.2, DC3.3, DC4, DC5, DC6, DC6.2, DC9-3 |
 | `d2357d0` | F8 | DC9-8: the exception surface measured (0 pages guarded, fallback identical to base) |
 | `ff0dd82` | privacy | DC10.2 and DC10.3: the closure round's proof table, the privacy re-measurement, the control-byte check |
-| `this commit` | F4 | DC8.1, DC7's mutation table and DC11 restated from measurement |
+| `98470e0` | F4 | DC8.1, DC7's mutation table and DC11 restated from measurement |
+
+## DC12. Review closures — 0 BLOCK, 1 MAJOR, 7 MINOR
+
+`docs/moneythumb-replacement/reviews/BATCH8_DESCCOLS_REVIEW.md` returned
+APPROVE WITH FINDINGS at tip `376d4de`. Every finding is closed below with a
+commit and a re-run, exit codes verbatim; the author and the reviewer are gone,
+so nothing here was asked about and everything was measured. Ocean's rulings on
+the MAJOR, on the crash surface, on the pinned leaf and on the privacy
+adjudication are quoted where they bind.
+
+**One line changed in production beyond the two furniture gates and the box
+guard: none.** `ocr/native_text.py` gains G9, G10, `_shares_a_band`,
+`_repeated_furniture`, `_line_box`, a rewritten `_printed_lines`, a page loop
+that reads each page once, and one catch-all `except`. `corpus_gate.py` is
+untouched by this round. No `analysis/` module is in the diff. No version
+constant is bumped.
+
+| # | severity | finding | closed by | re-run evidence |
+|---|---|---|---|---|
+| F1 | MINOR | two gate clauses unpinned: G3's money right-edge agreement and `_ROW_MONEY_RE` | `3114ea2` | two hand-built fixtures asserted in BOTH directions; **M15** and **M16** added — harness **16 applied, 15 killed, 1 named expected survivor, exit 0**, 122s, tree clean |
+| F2 | MINOR | `source_posting_days` is not a diagnostic — it shares its source set with a REQUIRED check | `7adb78e` | `analysis/adb.py:731/738/741/775/776` named in DC4.1 and DC9-4; the required-check vector now PRINTED by the instrument over all 3,380 — **0 moved leaf paths** under `posting_dates_cover_source`, `parsed_posting_days`, `missing_posting_dates`, checks, integrity, flags, notes, risk, warnings, outcome, reconciliation, escalation, `model_used`; **1** under `.metrics.adb`, which is the leaf itself. **exit 1** (movement is found, by design) |
+| **F3** | **MAJOR** | a repaired row absorbs any same-band line left of the money column, and the card's own oracle cannot see it | `06bb655` · `1e2824f` · `7ac9e40` · `6233b46` | below |
+| F4 | MINOR | DC8.1, the M1 kill count and DC11 did not describe this branch | `98470e0` | `git diff --numstat` at `ff0dd82`: **10 files, 4,681 insertions, 0 deletions, 14 hunks**; the mutation table restated at 16 rows with three moves explained; DC11 names `d7186e3` and points at `git log` |
+| F5 | MINOR | the gate numbering did not agree with itself | `6adbd46` | three docstrings renumbered to G8 / G6 / G7 — the gates whose mutants they kill; DC2 heading and table at **ten** gates; the duplicated `### DC6.1` heading renumbered too |
+| F6 | MINOR | the owed `OCR_STAGE_VERSION` bump is unenforceable from the branch | `94c2dd9` | no branch action, by ruling: **the 3 → 4 bump is Ocean's at the train**, and **no `ocr_settings_key` flag is needed** — this rung is unconditional code, not data and not an environment switch, and GEOM-1's v2 → v3 for `parse_native_woodforest` is the precedent one rung over |
+| F7 | MINOR | the archive sweep covered 2,000 of 3,380 and the record did not say so | `bc0188a` | DC8's table carries the two unrun chunks as **NOT RUN** and the coverage as **59%**; the instrument that DOES see this card ran over all 3,380 |
+| F8 | MINOR | a malformed line box RAISED out of the rung instead of refusing it | `f5ba283` · `d2357d0` | below |
+
+### DC12 F3 — the MAJOR, and what closing it cost
+
+**Ocean's ruling:** *the rung must FAIL CLOSED on the shape, not describe it* —
+a band line whose text also prints on another page at the same band position,
+or which lies horizontally outside the ledger's column extent, makes the rung
+refuse; never repair, never drop the line silently; pin it; then MEASURE, and
+*if the gate costs a mover, the claim shrinks honestly.*
+
+**(a) The granularity, stated as the ruling asks.** Both gates refuse the
+REGION. That is what the existing gate structure supports: `_described_rows`
+returning None drops that ledger from the page's repaired set, its lines are
+emitted exactly as the flattening emits them and in the same place, and the
+rest of the page — including any other ledger on it — is untouched. A BAND on
+its own is not a refusable unit, because a band is part of a row and dropping
+one would lose its tokens, which G7 refuses anyway. The whole page falls back
+only when a page has one region; the whole document only through G6/G7, as
+before.
+
+**(b) Pinned.** A two-page drawn fixture printing DIFFERENT postings, with the
+same notice on both pages on a posting's own band, left of the money column
+(declined); the same notice on one page only (absorbed — the residual reach,
+pinned as intended); the premise that two pages of one template ARE repaired
+when the only repeated furniture sits outside the ledgers; a hand-built page
+isolating G10. Mutants **M13** and **M14** die on them.
+
+**(c) The measurement, over the archive.** `python -m tools.desccols_movement`
+over all 3,380 at the final tree, **exit 1** (by design), 1,784.5s, and
+`--mode gates` over the same, **exit 1**, 664.6s:
+
+| | reviewed tip | final tree |
+|---|---:|---:|
+| claimed by the rung (ladder) | 76 | **83** |
+| **moved** | **21** | **6** |
+| description leaves lengthened / replaced / shortened | 177 / 39 / 0 | **63 / 0 / 0** |
+| `payload_now_raises` | 0 | **0** |
+| regions G9 refuses (rung-level census) | — | **1,506 of 2,639 admitted** |
+| **bands G9 refuses** | — | **8,594** |
+| pinned documents claimed / moving a leaf | 5 / 3 | **3 / 0** |
+| the oracle on the complex: exact of 269 rows | 252 | **138** (shipped: 75) |
+| FOREIGN descriptions | 0 | **0** |
+
+**The claim shrank, and here is exactly where.** Two of the seven
+`core_processor_counted` documents — `1468D77A…` and `7B3B8113…` — have every
+ledger region refused and are no longer claimed; 11 of the 38 gained evidence
+rows are not gained; 13 of the 14 single-leaf movers stop moving; the pinned
+surface's diagnostic move disappears entirely. `91A2DE99…`, the document this
+card was prioritised on, keeps two of its three regions and still moves — the
+headline survives.
+
+**76 → 83 is a NET number and the other direction is counted too**: a region
+G9 refuses is a region no block can straddle, so a document G6 previously
+refused OUTRIGHT can now be claimed on another page. 45 claims lost, 36 gained,
+documents refused outright falling 344 → 182. Every gained document is repaired
+under all ten gates and G7 checks each emitted page.
+
+**(d) The oracle extension Ocean required.** `python -m tools.desccols_proofs
+furniture`, **exit 0**: over the same 269 rows and their **2,305 published
+description tokens**, **0** are outside the oracle's own date→amount span and
+**0** are FLAGGED (outside AND printed on a line another page repeats at the
+same band). The detector is deliberately over-inclusive on its second half —
+567 tokens are "repeated" by a token test — and still reports zero on the
+conjunction.
+
+**(e) What the gate actually catches, because the honest answer is two
+answers.** Archive-wide, 46% of the lines G9 marks repeat on three or more
+pages and 2,961 on six or more: running headers, footers and column captions,
+which no coincidence produces. On the core-processor complex, where this card's
+movement lives, all **93** marked lines repeat on exactly TWO pages and hold
+one or two tokens — the shape of a short cell colliding with itself. **Most of
+this card's cost is paid to a shape that is probably coincidence, and the rung
+has no test that separates the two from the page.** That is recorded here
+rather than smoothed over, because it is the question a future editor of this
+gate has to start from.
+
+### DC12 F8 — the crash surface
+
+**Ocean's ruling:** `_printed_lines` and every entry point of the rung must
+REFUSE on a malformed line box by falling back to the old flattening for that
+page; the rung may never raise; pin all six probed shapes plus a mutant; prove
+the fallback identity unchanged.
+
+`_line_box` answers a malformed box with None and `_printed_lines` answers a
+malformed page with None, which the caller answers with **the flattening's own
+text for that page** — the page is left exactly as today, no page changes, and
+the document is not claimed. `parse_native_printed_rows` additionally catches
+every exception class `_page_text` does not convert. Nine shapes are pinned —
+the review's six (no `blocks` key, no `bbox` key, a `bbox` of three numbers, a
+`bbox` of strings, a `bbox` of `None`s, a line with no `spans`) plus a
+degenerate box, a line with no spans at all, and a non-list `blocks` — each
+asserting the ladder's bytes are byte-identical to the generic rung's. **M11**
+and **M12** die on them.
+
+One reading is stated rather than assumed: a line whose spans print only
+WHITESPACE is not malformed. It is a blank printed line, skipped exactly as the
+flattening skips it, and G7 refuses the page if that skip ever loses a token.
+
+| proof | result | exit |
+|---|---|---:|
+| the nine shapes + the unconverted-exception pin | **72 passed** across the branch's three test files | **0** |
+| **pages the box guard refuses, over all 3,380 documents** | **0** | 1 (the census exits 1 on furniture-gate movement) |
+| fallback, BASE GIT BLOB `10cc722` vs branch, stride 23 | 147 sampled · 6 claimed · **131 pages AND `analysis_input_sha` identical · 0 DIFFERENT** · 10 no native text | **0** |
+
+131 + 6 = 137 on both trees: the one document that moves between the rows moved
+from `identical` into `claimed` when G9 and G10 landed, and **not one
+document's analysis input differs from base**. The guarantee costs this archive
+nothing and exists for the archive nobody has seen. Named and not fixed:
+`_fc_bands` still reads `line["bbox"]` unguarded — pre-existing, reachable only
+through the First Citizens rung's own markers, and not this card's file to
+change.
+
+### DC12 — the pinned leaf, and Ocean's ruling on it
+
+At the reviewed tip three pinned documents moved `metrics.adb.
+source_posting_days` — `BACDDDC1…`, `F2028718…` and `8DC5B0D3…` — and two were
+byte-identical, `E5804DBB…` and `408711BD…`. That leaf is read by no required
+check (DC4.1 measures it), by nothing in `corpus_gate._Verdict`
+(`corpus_gate.py:202-210`), and it appears **0 times** in both audit CSVs
+(`corpus_gate.py:98-99`) and in `tests/data/parser_expectations.json` — six
+counts, all zero, re-measured at this tree. **Ocean accepts this as a named
+diagnostic move, not a ceremony.**
+
+At the final tree the move is gone: **3 of the 109 claimed, 0 outcome movement,
+0 payload leaves moved on any of them** (`proofs pinned`, exit 0). The three
+whose leaf moved are no longer claimed at all, and the truth set's published
+payloads are byte-identical on every one of the 109.
+
+### DC12 — privacy, re-measured at this tree
+
+The shared instrument (`.claude/worktrees/mt-lead/tools/privacy_scan_branch.py`),
+`--base 10cc722 --ref wave8-desccols`, is re-run in DC10.3: the core-processor
+complex **0 hits, exit 0**; the five pinned documents **0 hits, exit 0**; the
+claimed 83 plus those five (86 distinct) **13 hits, exit 1** — five three-digit
+round fixture amounts and eight WORDS, four of them a fixture merchant's
+ordinary-English first word and four two-word sequences of English prose.
+**Zero DIGITS and zero DATES on every population.** The review's own
+adjudication, reached again on a population 13% larger, and written down here
+so the train does not re-litigate it. Every committed file carries **no control
+byte** in 0x00–0x08, 0x0B, 0x0C or 0x0E–0x1F.
+
+### DC12 — what was NOT re-run, and why
+
+The full default suite, `python corpus_gate.py` and the stored-text archive
+sweep were not re-run in this round, by instruction. The branch's own three
+test files, the statement-hardcode guard and the repair-doctrine guard are
+green (**72** and **65** passed, exit 0 each), the mutation harness is green at
+16/15/1, and no production line outside `ocr/native_text.py`'s two new gates and
+its box guard changed — so the surfaces those three proofs cover are the
+surfaces the reviewed tip already proved. `ANALYSIS_STAGE_VERSION` and
+`OCR_STAGE_VERSION` are untouched here and are Ocean's at the train.
