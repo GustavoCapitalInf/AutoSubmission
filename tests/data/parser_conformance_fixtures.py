@@ -89,6 +89,16 @@ FIXTURES: dict[str, str] = {
         "PREVIOUS BALANCE 927.81- DAYS THIS STATEMENT PERIOD 28\n"
     ),
     "capital_one": "CAPITAL ONE\nAN IMPORTANT MESSAGE TO OUR CLIENTS\n",
+    # W3 §GLANCE. Two required markers: the summary's own control line with its
+    # column header, and the partition's two DATED balances. Every name, date
+    # and figure here is INVENTED, under the standing batch-8 privacy rule, and
+    # the fixture deliberately prints no `This Statement Cycle Reflects` line,
+    # so `parse` declines it at the period gate — a header is not a statement.
+    "category_partition": (
+        "Invented Alpha Account SUMMARY Type :     **REG    Status :    Active\n"
+        "Category Number Amount Balance Forward From 08/29/31 41,003.77 "
+        "Alpha Credits 1 62,005.11+ Ending Balance On 09/30/31 103,008.88\n"
+    ),
     "chase": "JPMorgan Chase Bank\nStatement of account\n*start*summary\n",
     "chase_export": "Printed from Chase for Business\nTransactions\n",
     # Deliberately carries no bank NAME: this product is recognised by Chase's

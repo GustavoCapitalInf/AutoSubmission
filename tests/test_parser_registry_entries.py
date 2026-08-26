@@ -40,6 +40,9 @@ EXPECTED_ORDER = [
     "mission_valley",
     "rbc_french",
     "td_canada_native",
+    # The issuer-specific reader of the signed category partition that
+    # `category_partition` now registers generically (W3 §GLANCE).
+    "wilson_muir",
     # band 100 — everything else, alphabetically
     "altana",
     "american_express",
@@ -56,6 +59,10 @@ EXPECTED_ORDER = [
     "brex",
     "burke_herbert",
     "capital_one",
+    # The batch-8 signed category partition (W3 §GLANCE): disjoint from
+    # every other registration by its two required markers, so it takes the
+    # ordinary band.
+    "category_partition",
     "chase",
     "cibc",
     "cibc_french",
@@ -116,7 +123,6 @@ EXPECTED_ORDER = [
     "wealthsimple",
     "welch_state_bank",
     "wells_fargo",
-    "wilson_muir",
     "woodforest",
     "zions",
 ]
@@ -192,7 +198,7 @@ def test_registration_count_matches_the_documented_decision_points():
     states each direction's count in parentheses with a signed total over two
     DATED balances, and the `Activity Summary` issue, whose box prints `Days
     in Cycle` over a running-balance ledger (W3 §COREISS2)."""
-    assert len(pr.registrations()) == 79
+    assert len(pr.registrations()) == 80
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -344,6 +350,23 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         "mission_valley": ["community_section"],
         "rbc_french": ["rbc"],
         "td_canada_native": ["td_canada"],
+        # W3 §GLANCE: the same relationship a FOURTH template over, and this
+        # one the archive taught rather than the census. `category_partition`
+        # registers the signed category partition on the template furniture
+        # alone, so it claims every document of the issuer whose printing of
+        # it `wilson_muir` reads. Evidence, measured over the run of record
+        # `356a4269` by `tools/glance_detection_probe.py` and named in the
+        # commit message: the general reader claims 22 of the 3,351 documents
+        # with cached text — its own 8 and this issuer's 14, every one of the
+        # 14 validated today. Without the edge those 14 resolve `ambiguous`;
+        # with it, 0 do. ONE of those 14 is a pinned corpus document
+        # (`tests/data/parser_expectations.json`, the single entry registered
+        # to `wilson_muir`), so this edge is what keeps the corpus gate green
+        # rather than being invisible to it — an earlier version of this
+        # comment claimed no pinned document printed this template, which was
+        # false (W3 §GLANCE GL12, review finding 2). Its payload is
+        # byte-identical base vs branch either way.
+        "wilson_muir": ["category_partition"],
     }, (
         "supersedes edges changed; each new edge needs the corpus document that "
         "proved it necessary, recorded in the commit message"

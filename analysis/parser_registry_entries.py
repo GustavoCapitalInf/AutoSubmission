@@ -35,6 +35,7 @@ from . import (
     brex,
     burke_herbert,
     capital_one,
+    category_partition,
     chase,
     chase_savings,
     cibc,
@@ -121,6 +122,18 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("brex", "Brex", brex, "DETECTION_MARKERS", "detection_text", "parse_brex_statement"),
     ("burke_herbert", "Burke & Herbert Bank", burke_herbert, "DETECTION_MARKERS", "detection_text", "parse_burke_herbert_statement"),
     ("capital_one", "Capital One", capital_one, "DETECTION_MARKERS", None, "parse_capital_one_statement"),
+    # A community-bank core whose summary is a signed category PARTITION
+    # (W3 §GLANCE). Not the same processor as the three `core_processor_*`
+    # templates above and below: it shares none of their summary grammars,
+    # names its own sections, and marks the DIRECTION of a category and of a
+    # row with a trailing plus rather than with a column. The label names the
+    # PLATFORM because these documents print no institution field — a masthead
+    # welded to a PO box, a `Branch Name` that is a branch office, a bare
+    # contact domain, and on one of them nothing at all — so `Statement.bank`
+    # is None under the honest-unknown-issuer ruling. Disjoint from every
+    # other registration by its two required markers, so no band and no
+    # `supersedes` edge.
+    ("category_partition", "Category Partition Statement Platform", category_partition, "DETECTION_MARKERS", None, "parse_category_partition_statement"),
     ("chase", "Chase", chase, "DETECTION_MARKERS", "detection_text", "parse_chase_statement"),
     ("chase_export", "Chase Transaction Export", chase, "EXPORT_DETECTION_MARKERS", "detection_text", "parse_chase_export_statement"),
     ("chase_savings", "Chase Savings", chase_savings, "DETECTION_MARKERS", "detection_text", "parse_chase_savings_statement"),
@@ -384,6 +397,40 @@ _OVERRIDES: dict[str, dict] = {
     # three resolve `ambiguous` and the gate's per-document verdict check goes
     # red. Measured both ways.
     "b1": {"band": 10, "supersedes": frozenset({"core_processor_daily"})},
+    # The same relationship a FOURTH template over (W3 §GLANCE), and this one
+    # the archive taught rather than the census: `wilson_muir` reads ONE
+    # issuer's printing of the signed category partition that
+    # `category_partition` now registers generically, so the general reader
+    # claims all 14 of this issuer's archive documents too. Without this edge
+    # those 14 - every one of them validated today - resolve `ambiguous` and go
+    # to review, which is a regression. Measured both ways over the run of
+    # record: 14 ambiguous with the general registration and no edge, 0 with
+    # it, and 0 before it existed.
+    #
+    # The edge is safe in the strong sense in one direction and in the OBSERVED
+    # one in the other. `wilson_muir` requires this issuer's own NAME, which
+    # the general reader never looks for - it publishes `bank=None` by
+    # construction and consults nothing that identifies an issuer - so neither
+    # can shadow the other by accident.
+    #
+    # Stranding is the observed half, and it is not close: this issuer prints
+    # its account number as `#` and three digits, which the general reader's
+    # account slot refuses, so it declines all 14 at `_summary` today and no
+    # document is lost. A future printing of this issuer's that the general
+    # reader COULD publish would be routed to `wilson_muir` and never offered
+    # to it - the archive holds none, and the same is true of every supersedes
+    # edge already shipped. Named, not claimed away.
+    #
+    # ONE PINNED CORPUS DOCUMENT PRINTS THIS TEMPLATE, so this edge is load
+    # bearing for the corpus gate rather than invisible to it. An earlier
+    # version of this comment said the opposite (W3 §GLANCE GL12, review
+    # finding 2). `tests/data/parser_expectations.json` pins exactly one
+    # document registered to `wilson_muir`, that document is one of the 14 this
+    # registration claims, and with this edge removed it resolves `ambiguous`.
+    # What the edge does NOT do is move it: measured base vs branch by
+    # `tools/glance_family_replay.py`, its published payload is byte-identical,
+    # and identical to the payload the run of record stored - 14 of 14.
+    "wilson_muir": {"band": 10, "supersedes": frozenset({"category_partition"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.
     "bmo": {"integrity_checks": (bmo.summary_contradictions,)},
