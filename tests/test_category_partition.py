@@ -418,6 +418,43 @@ def test_the_collected_grids_own_seed_is_still_read_as_the_opening_balance():
 
 
 # ---------------------------------------------------------------------------
+# The sectioned issue: a mark that contradicts its heading
+# ---------------------------------------------------------------------------
+
+def test_a_plus_marked_row_inside_a_debit_section_is_refused():
+    """The section heading is the platform's own statement of the direction, so
+    a row marked money-IN inside a money-OUT section is two printings that
+    disagree. The reader refuses rather than discarding the mark — which is
+    what it did before this closure, publishing the row as a debit with no
+    flag (review finding 5)."""
+    document = sectioned().replace("EXAMPLE ROW GAMMA 11,002.29",
+                                   "EXAMPLE ROW GAMMA 11,002.29+", 1)
+    assert document != sectioned()
+    assert cp.detect(document).claims
+    assert parse(document) is None
+
+
+def test_a_minus_marked_row_in_any_section_is_refused():
+    """A trailing minus on an AMOUNT is a combination this platform prints
+    nowhere: a minus is a balance's sign here. Refused on the sectioned issue
+    exactly as `_unified_rows` refuses it on the unified one (M10)."""
+    document = sectioned().replace("EXAMPLE ROW ALPHA 62,005.11",
+                                   "EXAMPLE ROW ALPHA 62,005.11-", 1)
+    assert document != sectioned()
+    assert parse(document) is None
+
+
+def test_a_plus_that_agrees_with_its_credit_section_still_publishes():
+    """The refusal is of CONTRADICTION and not of the mark: a plus inside the
+    credit section says what the heading says, and the statement published is
+    the one the unmarked printing publishes."""
+    document = sectioned().replace("EXAMPLE ROW ALPHA 62,005.11",
+                                   "EXAMPLE ROW ALPHA 62,005.11+", 1)
+    assert document != sectioned()
+    assert published(document).model_dump() == published(sectioned()).model_dump()
+
+
+# ---------------------------------------------------------------------------
 # The mutation table
 # ---------------------------------------------------------------------------
 
@@ -568,6 +605,13 @@ MUTANTS: tuple[Mutant, ...] = (
                S_SUMMARY,
                S_SUMMARY + S_SUMMARY.replace("Alpha Credits 1", "Alpha Credits 2")),
            None),
+    # The closure of review finding 5. The row's text is the platform's own
+    # except for one character, and that character contradicts the heading the
+    # row is printed under. Before the closure it was silently discarded and
+    # the row published as a debit.
+    Mutant("M38", "direction: a row mark that contradicts its SECTION",
+           sectioned, _sub("EXAMPLE ROW GAMMA 11,002.29",
+                           "EXAMPLE ROW GAMMA 11,002.29+"), None),
     # --- control arms: these must change NOTHING ---------------------------
     Mutant("C01", "control: the grid's three-up cells arrive out of document order",
            unified, _sub("09/01/31 103,008.88 09/02/31 70,007.75 "

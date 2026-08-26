@@ -43811,6 +43811,20 @@ must parse, and any text no entry accounts for refuses the document (M18). A
 partly-read partition is not a weaker oracle — it is a summary this reader has
 misread, and every gate below compares the ledger against it.
 
+**And on the sectioned issue a row mark that contradicts its section is
+refused** (review finding 5, closed). The asymmetry the review measured was
+real: `_unified_rows` refused a trailing minus on a row amount (M10) and a
+trailing plus on a row balance, while `_sectioned_rows` read the MAGNITUDE
+only, so a row printed with a trailing plus inside a debit section published as
+a debit with no refusal and no flag. The section heading is this platform's own
+statement of the direction, so such a row is two printings that disagree and
+nothing on the page chooses between them: it is now refused, fail-closed, the
+same rule the unified path applies to its own two columns. A plus that AGREES
+with its credit section is not a contradiction and still publishes the
+identical statement. Pinned by M38 and by three tests either side of the
+boundary; its reachability and its zero movement over the 22 are measured in
+GL12.
+
 ## GL3. THE REFUSAL: a collected balance is not a daily ledger balance
 
 The platform prints exactly one dated balance grid per statement, under a

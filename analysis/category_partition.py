@@ -64,6 +64,11 @@ row is NEVER read from its description, and the census found the printing that
 proves why — one statement carries the same description string as a credit in
 `ALL CREDIT ACTIVITY` and as a debit in `ELECTRONIC DEBITS`.
 
+On the sectioned issue the heading IS the direction, so a mark on a row's
+amount is either agreement or a contradiction, and a contradiction is refused
+rather than discarded (`_sectioned_rows`) — the same rule the unified path
+applies to its own two columns.
+
 What the reader refuses to read
 -------------------------------
 **The `COLLECTED BALANCE SUMMARY` is not a daily ledger, and this reader does
@@ -599,6 +604,22 @@ def _sectioned_rows(
     prints no amount before the next row opens, is a row we could not read,
     and dropping it silently is how a ledger comes to disagree with a printed
     count while still looking complete.
+
+    **A mark that contradicts the section is refused**, which is the same
+    fail-closed rule `_unified_rows` applies to its own two columns. On this
+    issue the SECTION is the platform's statement of the direction, so a
+    trailing plus inside a debit section says money IN on a row the heading
+    says is money out — two printings of the direction that disagree, and
+    nothing on the page chooses between them. A trailing minus on a row amount
+    is refused here as it is there: on this platform a minus is a balance's
+    sign and never a direction. A plus inside the credit section agrees with
+    its heading and is read as the magnitude it is.
+
+    The archive prints no marked row in any sectioned ledger section, so this
+    refusal moves nothing today (measured over the 8 + the 14 + the pinned
+    document: 0). It is here because an unrefused contradiction in a reader
+    whose whole thesis is that the platform prints the direction is exactly
+    the asymmetry the unified path was built to close.
     """
     postings: list[Transaction] = []
     for run in runs:
@@ -606,9 +627,18 @@ def _sectioned_rows(
         if cells is None:
             return None
         for cell in cells:
+            # The cell's own amount token, re-read WITH its mark: `dated_cells`
+            # hands back the magnitude alone, and the mark is the whole
+            # evidence this gate is about. The window is the cell's own — from
+            # the end of its date to the end of the value that closed it — so
+            # this is the token `dated_cells` matched and never another.
+            marked = _AMOUNT_RE.search(run, cell.start + len(cell.date), cell.end)
+            read = _signed(marked) if marked is not None else None
             iso = _row_date(cell.date, start, end)
-            amount = _magnitude(cell.value)
-            if iso is None or amount is None:
+            if read is None or iso is None:
+                return None
+            amount, mark = read
+            if mark == "-" or (mark == "+" and not credit):
                 return None
             postings.append(Transaction(
                 date=iso,
