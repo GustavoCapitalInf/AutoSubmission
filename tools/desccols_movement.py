@@ -297,17 +297,29 @@ def command_gates(args) -> int:
             without = nt._printed_row_text(lines, flat[index], frozenset())
             if with_gate != without:
                 per["pages_the_furniture_gate_changes"] += 1
-            if without not in (None, flat[index]):
-                per["pages_repaired_ignoring_furniture"] += 1
-            if with_gate not in (None, flat[index]):
-                per["pages_repaired"] += 1
-        if per["pages_repaired_ignoring_furniture"]:
-            counts["claimed_ignoring_furniture"] += 1
-        if per["pages_repaired"]:
-            counts["claimed"] += 1
+            for label, answer in (("", with_gate), ("_ignoring_furniture", without)):
+                if answer is None:
+                    per["pages_refusing_the_document" + label] += 1
+                elif answer != flat[index]:
+                    per["pages_repaired" + label] += 1
+        # A document is claimed exactly as the rung claims it: no page refuses
+        # the document, and at least one page changed.
+        for label in ("", "_ignoring_furniture"):
+            if per["pages_refusing_the_document" + label]:
+                counts["refused_outright" + label] += 1
+            elif per["pages_repaired" + label]:
+                counts["claimed" + label] += 1
+        claimed_now = (not per["pages_refusing_the_document"]
+                       and per["pages_repaired"])
+        claimed_before = (not per["pages_refusing_the_document_ignoring_furniture"]
+                          and per["pages_repaired_ignoring_furniture"])
+        if bool(claimed_now) != bool(claimed_before):
+            counts["claim_gained" if claimed_now else "claim_lost"] += 1
         if per["pages_the_furniture_gate_changes"]:
             counts["documents_the_furniture_gate_changes"] += 1
             documents.append({"content_sha256": sha,
+                              "claimed_now": bool(claimed_now),
+                              "claimed_before": bool(claimed_before),
                               **{key: per[key] for key in sorted(per)}})
         counts.update(per)
     report = {"counts": dict(counts), "seconds": round(time.time() - began, 1),
