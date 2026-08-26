@@ -727,14 +727,15 @@ def _with_grid(*, grid: str, disclosure_first: bool) -> str:
 
 
 def test_the_grid_and_the_method_disclosure_are_not_confused():
-    """The words `daily balances` also open the platform's METHOD paragraph,
-    which on most of these documents is printed BEFORE the grid.
+    """CHARACTERIZATION pin (passes at base — the disclosure paragraph prints
+    no `date`-adjacent money for the wide region to pick up).
 
-    Measured over all nine archive documents on this template: anchoring the
-    region on the grid's own printed header instead of on those two words
-    changes the grid on NONE of them, because the grid is the last thing in
-    the region either way. The anchor was written, measured, and removed; what
-    this pins is the outcome that matters — the disclosure contributes no day.
+    The words `daily balances` also open the platform's METHOD paragraph,
+    which on most of these documents is printed BEFORE the grid. The region is
+    anchored on the grid's own printed `Date Amount` column header, so the
+    disclosure contributes no day whatever it prints; the test above is the
+    one that FAILS without that anchor, because a check row prints its number,
+    its date and its amount adjacent and is read as a grid cell.
     """
     stmt = parse_mission_valley_statement(
         _with_grid(grid="01/02/2026 $400.00 01/03/2026 $150.00", disclosure_first=True)
@@ -806,8 +807,10 @@ def test_a_check_row_is_not_read_as_a_daily_balance_cell():
 
 
 def test_a_grid_that_prints_one_day_twice_with_the_same_balance_reads_one_cell():
-    """A grid continued across a page break prints a day twice. The same
-    balance printed twice is one printed fact printed twice."""
+    """NEGATIVE pin (passes at base, where last-wins gives the same answer
+    for an EQUAL repeat). A grid continued across a page break prints a day
+    twice, and the same balance printed twice is one printed fact printed
+    twice - not a contradiction."""
     stmt = parse_mission_valley_statement(
         _with_grid(
             grid="01/02/2026 $400.00 01/03/2026 $150.00 01/03/2026 $150.00",

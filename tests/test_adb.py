@@ -747,10 +747,24 @@ def test_a_total_opening_description_above_a_lone_date_is_the_known_falsifier():
 
 # ---- POSTDATE-HEURISTIC (W3 §WITHHELDGRIDS) ---------------------------------
 #
-# Five classes of printed line that open with a date and are not posting rows.
+# Classes of printed line that open with a date and are not posting rows.
 # Each pair below is the exclusion AND the thing it must not touch, because a
 # rule that only ever removes dates is trivially satisfiable by removing all
 # of them: the negative half is what pins the rule's edge.
+#
+# WHICH HALF A TEST IS, stated out loud, because the review's MINOR-10 found
+# two tests believing they pinned a change they did not:
+#
+# * a GATE pin fails on the base tree (`10cc722`). It is the evidence that the
+#   rule beside it does something.
+# * a NEGATIVE pin passes on the base tree BY CONSTRUCTION - it asserts a date
+#   the rule must not take - and a REGRESSION pin passes on base because it
+#   restores base behaviour a withdrawn rule had broken. Neither is a coverage
+#   hole, and both say so in their own docstring.
+#
+# `python -m tools.withheldgrids_tests_at_base` is the instrument: it extracts
+# `10cc722`, overlays only these four test files, and reports which side of the
+# line each added test falls on.
 
 def test_an_interest_rate_row_is_not_a_posting_date():
     """`Interest Rate Changes` prints the period's first day beside a rate.
@@ -792,8 +806,9 @@ def test_a_four_decimal_rate_is_not_read_as_money_by_the_proximity_test():
 
 
 def test_a_description_containing_a_percentage_keeps_its_posting_date():
-    """A row that prints a rate AND an amount is still a posting row: it is
-    the amount that decides, not the presence of a percentage."""
+    """NEGATIVE pin (passes at base by construction). A row that prints a
+    rate AND an amount is still a posting row: it is the amount that decides,
+    not the presence of a percentage."""
     from analysis.dates import source_posting_dates
 
     md = "06/09/2026 RATE 24.99% FINANCE CHARGE 45.00 1,200.00\n"
@@ -809,10 +824,17 @@ def test_the_money_presence_test_reads_a_comma_decimal_amount():
     whole French document and drops every one of its posting dates, which
     disables `posting_dates_cover_source` on exactly the layouts whose columns
     are hardest to read.
+
+    The date is printed BARE and its description on the next line, so the
+    proximity test is the only thing standing between this row and refusal on
+    the base tree as well as on this one — the first draft of this test put a
+    description on the date's own line, which took the row down the branch
+    base never applies the test to, and it passed for the wrong reason (the
+    review's MINOR-10).
     """
     from analysis.dates import source_posting_dates
 
-    md = "9 janv Virement recu UN CLIENT\n1 234,56\n"
+    md = "9 janv\nVirement recu UN CLIENT\n1 234,56\n"
     assert date(2026, 1, 9) in source_posting_dates(
         md, date(2026, 1, 1), date(2026, 1, 31)
     )
@@ -844,7 +866,9 @@ def test_a_masthead_line_under_a_page_number_is_not_a_posting_date():
 
 
 def test_a_masthead_whose_money_is_printed_two_lines_below_it_is_counted():
-    """The cost of refusing the masthead by PROXIMITY and not by position.
+    """DISCLOSURE pin (passes at base — base counts this date too).
+
+    The cost of refusing the masthead by PROXIMITY and not by position.
 
     A position rule was tried — refuse a moneyless candidate inside the run of
     moneyless lines a page number opens — and it is gone (W3 §WITHHELDGRIDS
@@ -868,8 +892,9 @@ def test_a_masthead_whose_money_is_printed_two_lines_below_it_is_counted():
 
 
 def test_a_posting_row_below_a_page_number_keeps_its_date():
-    """A real row printed under a page break keeps its date. Regression pin:
-    base does this too, and the position rule that briefly did not is gone."""
+    """REGRESSION pin (passes at base). A real row printed under a page break
+    keeps its date; base does this too, and the position rule that briefly did
+    not is gone."""
     from analysis.dates import source_posting_dates
 
     md = "\n".join([
@@ -884,7 +909,10 @@ def test_a_posting_row_below_a_page_number_keeps_its_date():
 
 
 def test_a_posting_row_directly_under_a_page_number_keeps_its_date():
-    """THE reviewer's shape (MAJOR-2), pinned: a bare posting date printed
+    """REGRESSION pin: it FAILS at the reviewed tip `f97b3d2` and passes at
+    base, which is the whole point.
+
+    THE reviewer's shape (MAJOR-2): a bare posting date printed
     immediately under a page number, with its amount two non-empty lines below
     it. No money line separates the page number from the date, so the
     withdrawn position rule refused this row and deleted a printed posting day
@@ -905,9 +933,10 @@ def test_a_posting_row_directly_under_a_page_number_keeps_its_date():
 
 
 def test_a_posting_row_under_a_page_number_and_a_caption_keeps_its_date():
-    """The reviewer's second shape: a moneyless caption line between the page
-    number and the row. Two printed lines of furniture above a real posting row
-    are not evidence that the row is furniture."""
+    """REGRESSION pin (fails at the reviewed tip, passes at base). The
+    reviewer's second shape: a moneyless caption line between the page number
+    and the row. Two printed lines of furniture above a real posting row are
+    not evidence that the row is furniture."""
     from analysis.dates import source_posting_dates
 
     md = "\n".join([
@@ -947,8 +976,9 @@ def test_a_boundary_row_labelled_on_the_next_line_is_not_a_posting_date():
 
 
 def test_a_bare_date_with_a_real_description_below_it_keeps_its_date():
-    """The forward label test reaches exactly one line and only refuses the
-    labels `_NOT_A_POSTING_ROW` already names."""
+    """NEGATIVE pin (passes at base by construction). The forward label test
+    reaches exactly one line and only refuses the labels `_NOT_A_POSTING_ROW`
+    already names."""
     from analysis.dates import source_posting_dates
 
     md = "06-02\nA MERCHANT\n42.00 858.00\n"
@@ -978,7 +1008,9 @@ def test_a_marketing_sentence_opening_with_a_date_is_not_a_posting_date():
 
 
 def test_a_bare_date_row_whose_next_line_is_a_column_caption_keeps_its_date():
-    """The money lookahead does NOT stop at a column caption.
+    """NEGATIVE pin (passes at base — base had no such stop).
+
+    The money lookahead does NOT stop at a column caption.
 
     A stop was tried, on the theory that money printed after a caption belongs
     to the table the caption announces. Ablated over the 2,558 archive
@@ -1019,7 +1051,9 @@ def test_a_dot_leadered_daily_balance_block_is_a_grid_not_a_ledger():
 
 
 def test_a_bare_date_balance_caption_does_not_open_a_grid_section():
-    """`Date` and `Balance` are two ordinary words; the leaders are what make
+    """NEGATIVE pin (passes at base — base had no such caption at all).
+
+    `Date` and `Balance` are two ordinary words; the leaders are what make
     the pair a caption.
 
     Consulted on a bare line the caption opened a daily-balance section on four

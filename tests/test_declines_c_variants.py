@@ -503,7 +503,9 @@ def test_a_credit_that_carries_its_own_date_keeps_it():
 
 
 def test_the_platforms_other_row_order_still_reads_its_credit():
-    """The ablation: the branch is narrowed, not removed. In the arrangement
+    """NEGATIVE pin (passes at base by construction).
+
+    The ablation: the branch is narrowed, not removed. In the arrangement
     it exists for, the credit reaches its amount pair with no date and no
     description of its own and still takes both from the row below."""
     statement = parse_navy_federal_statement(_navy_federal("Business Checking"))
