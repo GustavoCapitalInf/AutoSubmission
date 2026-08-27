@@ -663,19 +663,25 @@ def test_no_worked_example_in_the_llm_prompt_carries_a_figure():
     """The half `AMOUNT_RE` cannot see, and the half that actually found the
     defect: a worked example.
 
-    The offender G7.3 named was `"PREM PMT BCBS OF AL 32.00"` — an insurer-shaped
-    payee welded to an amount, standing in for a real posting. The amount scan
-    above catches the number; nothing catches "a quoted example that looks like
-    a row off somebody's statement". The rule here is the one property those
-    examples must have to be safe: **a quoted example in the prompt teaches a
-    SHAPE, so it carries no digits.** `<V1>`, `<N>` and
+    The offender G7.3 named (W3 §PRIVACY3 P10 item 5, where it is quoted) was an
+    insurer-shaped payee welded to an exact-cent amount, standing in for a real
+    posting. The amount scan above catches the number; nothing catches "a quoted
+    example that looks like a row off somebody's statement". The rule here is
+    the one property those examples must have to be safe: **a quoted example in
+    the prompt teaches a SHAPE, so it carries no digits.** `<V1>`, `<N>` and
     `"<description as printed> <money token>"` satisfy it; a payee with a figure
     welded to it cannot.
 
     Deliberately NOT closed by adding the insurer token to `REMOVED_LITERALS`:
     that ratchet works by writing the offending string into tracked source, and
     a name that may belong to a real party is exactly what the standing privacy
-    rule keeps out of this repository. A structural rule needs no specimen.
+    rule keeps out of this repository. A structural rule needs no specimen —
+    which is why this docstring no longer carries one either (#HYGIENE8 H9.1).
+    The shared privacy scan run with the ROOT commit as `--base`, so that its
+    exclusion set is empty and inherited tokens are visible, found the specimen
+    still standing here: the branch deleted it from `analysis/extract.py` and
+    re-wrote it into this docstring, which is the same string in tracked source
+    that the paragraph above says must stay out.
     """
     source = (ANALYSIS_DIR / "extract.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
