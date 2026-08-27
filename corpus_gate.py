@@ -797,6 +797,7 @@ EXCLUDED_ANALYSIS_CALLERS = {
     "tools/welch_family_replay.py": (
         "read-only family replay; publishes no verdict, and already supplies "
         "the reconstructed page partition"
+    ),
     # W3 sec COREENC's coverage instrument, excused on the same two grounds as
     # the sweep above: it publishes no verdict — it prints a content_sha256, an
     # outcome CLASS and three counts, never a figure, a name or a date — and it
