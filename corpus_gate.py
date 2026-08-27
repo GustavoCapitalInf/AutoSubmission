@@ -864,6 +864,34 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only family replay over a named population; publishes no "
         "verdict, and already supplies the reconstructed page partition"
     ),
+    # Five batch-8 instruments the cells' closure sessions committed after their
+    # branch-level proofs (this guard runs only in the full suite, which is the
+    # train's). Each is excused on the same two grounds as the entries above:
+    # it publishes no verdict — outcome classes, counts, leaf paths, movement
+    # classes and content_sha256s, never a figure, a name or a date — and it
+    # already supplies the reconstructed page partition, because a replay that
+    # fed the analysis a different partition from the one the run fed it would
+    # measure a difference it had itself created. Composed at train8.
+    "tools/glance_family_replay.py": (
+        "read-only family replay (W3 sec GLANCE); publishes no verdict, and "
+        "already supplies the reconstructed page partition"
+    ),
+    "tools/scanhyg_family_replay.py": (
+        "read-only family replay (W3 sec SCANHYG); publishes no verdict, and "
+        "already supplies the reconstructed page partition"
+    ),
+    "tools/scanhyg_pinned_replay.py": (
+        "read-only pinned replay base vs branch (W3 sec SCANHYG); publishes no "
+        "verdict, and already supplies the reconstructed page partition"
+    ),
+    "tools/withheldgrids_leaf_diff.py": (
+        "read-only leaf-diff (W3 sec WITHHELDGRIDS); publishes no verdict, and "
+        "already supplies the reconstructed page partition"
+    ),
+    "tools/withheldgrids_srcdates_audit.py": (
+        "read-only source posting-date audit (W3 sec WITHHELDGRIDS); publishes "
+        "no verdict, and already supplies the reconstructed page partition"
+    ),
 }
 
 # Audited columns whose value is a path, compared without regard to separator.
