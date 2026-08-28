@@ -525,9 +525,13 @@ def parse_bank_ozk_statement(markdown: str) -> Statement | None:
                     direction="credit" if credit else "debit",
                 )
             )
-    # The independent check on the whole solve. Each day's credit sum was fixed
-    # by the DAILY GRID; these two figures came from the SUMMARY BLOCK, and
-    # nothing this reader did makes them agree.
+    # What the two printed totals check is the ROW SPLIT and the GRID READING,
+    # not the direction solve (MAJOR-1; the module docstring). Each day's
+    # credit sum is `(residual + S) / 2` — fixed by the DAILY GRID and identical
+    # for every sign assignment of that day — so these two figures, which came
+    # from the SUMMARY BLOCK, cannot separate two assignments. A row lost, a
+    # row invented, or a grid cell misread by anything but exactly twice a
+    # row's amount moves them; that one residue is carried in W3 §FZ11.
     if captured_credits != figures["credits"] or captured_debits != figures["debits"]:
         return None
 
