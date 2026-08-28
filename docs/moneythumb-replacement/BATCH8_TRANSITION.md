@@ -257,3 +257,84 @@ any unexplained native-text difference remains a STOP.
 | acceptance | `python -m tools.recon_b7_check --run <run dir> --report <run dir>/recon_b7_check.md` at `655b8d8`: exit 0 ACCEPT · 2 REJECT-DRIFT-CANDIDATE (Gustavo's call) · 1 REJECT (STOP / absent / unbounded delta). Train 8 does NOT start automatically on any outcome. |
 | start timestamp | appended below at launch |
 * **LAUNCHED:** `START_UTC=2026-08-28T01:57:39Z` (2026-08-27 21:57:39 EDT), host `omarchy`, Python 3.14.7, tesseract 5.5.3, run directory `discovery_reports/RECON-B7-302f8f2/2026-08-28T015740.400872-0000-47be5963/` in the `302f8f2` worktree; log `discovery_reports/RECON-B7-302f8f2.log`. Nothing else runs on the host until `RUN_EXIT` is written.
+
+### Baseline A — result (2026-08-28 02:41Z; checker `655b8d8` unchanged; decision PENDING Gustavo)
+
+`RUN_EXIT=0`, 43.5 min (01:57:39Z → 02:41:10Z), run `47be5963`, cache cold →
+2.1 GB analysis / 68 MB OCR. **Checker verdict: REJECT (exit 1).**
+
+**G3.** distinct shas **3,380 ✓** · rows 3,506 ✓ · dedup 124 / 82 ✓ ·
+inventory 3,768 / 3,615 / 996,080,803 / 109 / 3,506 ✓ · mode scanned ✓ ·
+`invalid_pdf` 17 (= record) · **outcome: validated 2,457 (record 2,469, −12) ·
+review 18 (17, +1) · withheld 72 ✓ · failed 819 (809, +10) · deferred 14 (13,
++1)** · `registration_count` ✗ — {75: 3,475 records, 0: 31}. The 31 are exactly
+the 17 `invalid_pdf` + 14 `deferred_visual_ocr` records, whose dispatch never
+ran (`dispatch.source = unavailable`): the frozen rule reads "75 on every
+DISPATCHED record", the implementation counted undispatched records too. A
+checker over-reach, not a reproduction defect; correction proposed below, not
+applied.
+
+**G4.** oracle coverage 875 of 3,380 distinct shas, unresolved tokens none:
+O1 pinned copies 80/80 · O2 census failed 598/598 · O3 census withheld 55/56 ·
+O5 RBC 141/141 (O4 welch is inside O2) — **one discrepancy**, `2A0B516B2C7D652E`
+(td_us, scanned; withheld → failed/no_parser_matched, near-miss td_us 0.167):
+DRIFT, intake rung local_tesseract. **STOP (native) 0 · ABSENT 0.** Native
+side, beyond the oracle: native documents now `no_parser_matched` and NOT in
+the census = **0**; native non-validated outside the oracle = 73
+parser_declined + 11 review + 4 withheld.
+
+**G5 — named toolchain drift (Windows Tesseract 5.5.0 → Linux 5.5.3), each
+with its batch-7 outcome fixed by a committed record.** Non-native population
+208 (local_tesseract 178, none 30).
+
+| sha16 | family | run of record | regenerated | record |
+|---|---|---|---|---|
+| `6ACF3130775C2517` | texas_first_scanned | validated | failed | W3 §SCANNEXT SN7 (b6; untouched in b7) |
+| `756F987E1AD8B217` | texas_first_scanned | validated | failed | §SCANNEXT SN7 |
+| `F8FC1D8B3ECD3F30` | balance_by_date (Hancock) | validated | failed | §SCANC |
+| `ADE55A5BADF4DE8C` | United Community (scanned) | validated | failed | §SCANNEXT L33592 |
+| `9CCB4FB2BB2F8F27` | first_farmers (scanned) | validated | failed | §SCANB L19585 |
+| `B279C19DFF393A13` | apex_scanned | validated | failed | §WIRING2 L21558; §SCANFINISH "identical" |
+| `6CE8CDD69E8458B9` | citizens (scanned) | validated | withheld | §SCANFINISH L39238 |
+| `9B3DB6CF995DB68B` | texas_first_scanned | failed | validated | §SCANNEXT SN5.2/SN7 (the `714,71` cell now reads) |
+| `A20AACF22B6A475A` | texas_first_scanned | review | failed | §SCANNEXT SN7 |
+| `13B6B39D629BCA0D` | citizens (scanned) | review | withheld | §SCANFINISH L39239 |
+| `2A0B516B2C7D652E` | td_us (scanned) | withheld | failed | §WITHHELDTD L44866 (base = 356a4269); O3 |
+| `3B0738E968D43202` | southside_scanned | withheld | review | §SCANHYG L46189 (base = 356a4269) |
+| `9D7EB67ADE0A8A39` | southside_scanned | withheld | review | §SCANHYG L46190 |
+| `FD022A8600DA35AE` | southside_scanned | withheld | review | §SCANHYG L46192 |
+| `E630CB66DBDB3C1D` | eq_bank_scanned | failed (declined, `sole_day`) | withheld | §SCANHYG L46263 |
+| `B0E16E92A1ECFDFB` | eq_bank_scanned | failed (declined, `sole_day`) | withheld | §SCANHYG L46264 |
+| `1C6CB4078AC0644C` | (TD Bank folder, scanned) | deferred (probable: §COMMSEC-GEN; the 13 persisted) | failed | probable, not fixed by a run-of-record row |
+
+Two heuristic hits dismissed with reasons: `0CBD2AD8` (the pinned REPAIR-DOCTRINE
+refusal — its batch-7 state IS failed; O1 matched) and `9413957E` (the "failed"
+line is a §COMMSEC-GEN re-render experiment; run of record deferred =
+regenerated). **Accounting of the 16 named:** review +1 and withheld 0 are
+reproduced EXACTLY by the named set; validated −6 and failed +5 of the
+aggregate's −12 / +10 are named. **Residue: 6 validated documents lost (5 →
+failed, 1 → deferred, or 4 + the deferred pair if `1C6CB407` left deferred)
+with no per-sha batch-7 record** — every indicator places them in the
+non-native population (native oracle 875/875, zero native detection loss), but
+that is inference, not a record; the residue is NOT named by sha.
+Equivalence with the batch-7 environment is therefore NOT independently
+established; under Gustavo's G5 rule none of this movement may count as
+batch-8 improvement or regression.
+
+**Proposed checker correction (needs Gustavo's OK; recorded reason):**
+`registration_count` restricted to records whose `dispatch.source` is not
+`unavailable` — aligns the code with the frozen rule's own wording; touches no
+outcome, per-document or drift criterion. With it, the verdict is
+REJECT-DRIFT-CANDIDATE (exit 2), unchanged in substance.
+
+**Options.** (A) Establish equivalence experimentally: build Tesseract 5.5.0
+from source on this host (leptonica 1.87.0 present; tessdata version to be
+recorded — the Windows box's is unrecorded), re-run ONLY the 208 non-native
+documents at `302f8f2` under a separate `WEBAPP_DATA_DIR`, diff per sha against
+the 5.5.3 run; exact reproduction of 2,469 / 17 / 72 / 809 / 13 would name the
+whole drift set and settle the toolchain for both runs. (B) Accept the
+regenerated run as the train-8 comparison base with the drift set recorded as
+above (both runs then share one Tesseract, so these documents compare as
+unchanged and are never counted), stating the batch-7 reproduction as "native
+side exact by every durable record; scanned side drifted by 16 named + 6
+unnamed documents". (C) Stop.
