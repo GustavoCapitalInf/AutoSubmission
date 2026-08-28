@@ -576,6 +576,13 @@ def test_the_published_payload_carries_the_field_beside_the_currency():
 #: certify itself, and the gate that pins the surface. Nothing else — no metric,
 #: no ADB, no reconciliation, no package total, no export, no UI.
 PROVENANCE_MODULES = {
+    # Not a reader: FROST-OZK's committed mutation harness (W3 §FZ12) quotes a
+    # reader's registration line — `currency_source="institution_default"` —
+    # verbatim as a mutant anchor, so the token appears in its source. It reads
+    # no document and publishes nothing; enumerated here for the same reason
+    # `corpus_gate.EXCLUDED_ANALYSIS_CALLERS` names the replay instruments.
+    "tools/frostozk_mutation_table.py",
+    "analysis/bank_ozk.py",
     "analysis/bmo.py",
     "analysis/bmo_ca_business.py",
     "analysis/bmo_us_activity.py",
@@ -586,6 +593,7 @@ PROVENANCE_MODULES = {
     "analysis/extract.py",
     "analysis/farmers_merchants.py",
     "analysis/found_lead.py",
+    "analysis/frost.py",
     "analysis/mercury.py",
     "analysis/rbc.py",
     "analysis/releve_facturation.py",

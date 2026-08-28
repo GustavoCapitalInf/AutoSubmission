@@ -775,6 +775,17 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # artifact and passes it as `sheets` — a sweep that fed the analysis a
     # different partition from the one the run fed it would measure a
     # difference it had itself created.
+    # W3 FROSTOZK's family-replay instrument (read-only, offline). Excused on
+    # the question this list asks: it publishes no verdict. It recomputes the
+    # analysis for a named list of content hashes and prints counts and class
+    # names - never an amount, a date or a name - so nothing it computes
+    # reaches a user, a job record or a discovery row. It DOES supply the page
+    # list, reconstructed from the OCR artifact, for the same reason the sweep
+    # below does.
+    "tools/frostozk_family_replay.py": (
+        "read-only family replay; publishes no verdict, and supplies the "
+        "reconstructed page partition"
+    ),
     "tools/regfp_zero_movement_sweep.py": (
         "read-only archive differential; publishes no verdict, and already "
         "supplies the reconstructed page partition"

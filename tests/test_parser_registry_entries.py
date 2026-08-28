@@ -57,6 +57,7 @@ EXPECTED_ORDER = [
     "balance_by_date",
     "banco_popular",
     "bank_of_america",
+    "bank_ozk",
     "bluevine",
     "bmo",
     "bmo_ca_business",
@@ -103,6 +104,7 @@ EXPECTED_ORDER = [
     "fiserv_premier",
     "found_lead",
     "found_lead_activity",
+    "frost",
     "huntington",
     "ibc",
     "lili",
@@ -206,7 +208,7 @@ def test_registration_count_matches_the_documented_decision_points():
     states each direction's count in parentheses with a signed total over two
     DATED balances, and the `Activity Summary` issue, whose box prints `Days
     in Cycle` over a running-balance ledger (W3 §COREISS2)."""
-    assert len(pr.registrations()) == 81
+    assert len(pr.registrations()) == 83
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

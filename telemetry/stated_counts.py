@@ -193,6 +193,21 @@ from analysis.count_semantics import (  # noqa: F401
 #:     first. Nothing in production reads this constant — the observer is
 #:     offline (`test_the_observer_is_not_wired_into_any_production_module`)
 #:     — so the bump moves no payload and no cache key.
+#: 6 - FROSTOZK: TWO new registrations entered the table, each surveyed by the
+#:     cell that registered it, and between them they use all three states.
+#:     `bank_ozk` is comparable in both directions and TAUTOLOGICAL in both —
+#:     its reader solves the direction of every row against the printed daily
+#:     balances and consumes these two counts as the constraint that makes the
+#:     solve unique, so a claimed document agrees by construction. `frost`
+#:     SPLITS: its credit direction is comparable and genuinely informative
+#:     (that reader gates on printed totals and on no count), while its debit
+#:     direction is INCOMPARABLE — the printed withdrawal figure excludes two
+#:     named row classes the reader posts, measured exactly on 9 of 9, and
+#:     neither term is expressible as printed evidence. The vocabulary, the
+#:     evaluation order and the mapping set are untouched. What moves between a
+#:     v5 and a v6 rollup is 17 documents, none of which publishes a count
+#:     today because nothing claimed them: 8 report `match` in both directions,
+#:     9 report `match` on credit and `semantics_incomparable` on debit.
 OBSERVER_VERSION = 6
 
 # ----------------------------------------------------------------------

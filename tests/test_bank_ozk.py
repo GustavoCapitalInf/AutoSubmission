@@ -1,0 +1,442 @@
+"""W3 §FROSTOZK — Bank OZK, where the direction of a row has to be solved.
+
+EVERY FIGURE, NAME, ACCOUNT NUMBER AND DATE IN THIS FILE IS INVENTED. No
+archive content appears here. The numbers are chosen so that each gate's
+failure is visible and so that the day the printed count has to disambiguate
+is reproducible in four rows instead of eighty.
+"""
+from __future__ import annotations
+
+import pytest
+
+from analysis.bank_ozk import DETECTION_MARKERS, detect, parse_bank_ozk_statement
+from analysis.parser_registry import score_markers
+
+SERVICE = (
+    "CUSTOMER SERVICE CENTER\n"
+    "P.O. BOX 196 OZARK, AR 72949\n"
+    "800-274-4482\n"
+)
+
+HEADER = (
+    "Statement Date: 08/31/2027\n"
+    "Account Number: 000000\n"
+    "SAMPLE CHECKING* ACCOUNT - 000000\n"
+)
+
+
+def summary(*, credits_count: int = 2, credits: str = "13.00",
+            debits_count: int = 2, debits: str = "3.00",
+            previous: str = "100.00", current: str = "110.00",
+            previous_as_of: str = "07/30/27", current_as_of: str = "08/31/27",
+            days: int = 32) -> str:
+    return (
+        f"PREVIOUS STATEMENT BALANCE AS OF {previous_as_of}: {previous} "
+        f"PLUS     {credits_count}   DEPOSITS AND OTHER CREDITS: {credits} "
+        f"LESS     {debits_count}      CHECKS AND OTHER DEBITS: {debits} "
+        f"CURRENT STATEMENT BALANCE AS OF {current_as_of}: {current} "
+        f"NUMBER OF DAYS IN THIS STATEMENT PERIOD:            {days}\n"
+    )
+
+
+#: One day carrying three rows whose signs the day's own step does NOT
+#: determine — 3.00 against 1.00 + 2.00 — followed by a day that does.
+ROWS = (
+    "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
+    "08/02 SAMPLE ALPHA 3.00 08/02 SAMPLE BETA 1.00 08/02 SAMPLE GAMMA 2.00 "
+    "08/03 SAMPLE DELTA 10.00\n"
+)
+
+GRID = (
+    "BALANCE BY DATE\n"
+    "DATE AMOUNT            DATE AMOUNT 08/02 100.00 08/03 110.00\n"
+)
+
+
+def document(*, service: str = SERVICE, header: str = HEADER,
+             block: str | None = None, rows: str = ROWS, grid: str = GRID,
+             checks: str = "", tail: str = "") -> str:
+    return service + header + (summary() if block is None else block) + checks + rows + grid + tail
+
+
+# ---------------------------------------------------------------------------
+# Detection
+# ---------------------------------------------------------------------------
+
+def test_it_claims_its_own_printing():
+    assert detect(document()).claims
+
+
+@pytest.mark.parametrize(
+    "removed",
+    ["P.O. BOX 196 OZARK, AR 72949", "800-274-4482",
+     "PREVIOUS STATEMENT BALANCE AS OF", "BALANCE BY DATE"],
+)
+def test_every_required_marker_is_load_bearing(removed):
+    assert not detect(document().replace(removed, "XXXX")).claims
+
+
+def test_the_marker_set_is_three_required_and_one_corroborating():
+    kinds = sorted(marker.kind for marker in DETECTION_MARKERS)
+    assert kinds == ["corroborating", "required", "required", "required"]
+    assert score_markers(DETECTION_MARKERS, document()).score == 1.0
+
+
+def test_it_does_not_claim_a_mixed_case_balance_by_date_platform():
+    """The core-processor template that prints `Balance By Date` is a DIFFERENT
+    registration (`analysis/balance_by_date.py`), and neither may shadow the
+    other. This one requires the all-caps heading and the OZK service block."""
+    other = document().replace("BALANCE BY DATE", "Balance By Date")
+    assert not detect(other).claims
+
+
+# ---------------------------------------------------------------------------
+# The period, which this layout prints and checks against itself
+# ---------------------------------------------------------------------------
+
+def test_the_period_opens_the_day_after_the_previous_statement_closed():
+    stmt = parse_bank_ozk_statement(document())
+    assert (stmt.period_start, stmt.period_end) == ("2027-07-31", "2027-08-31")
+    assert stmt.days_in_period == 32
+
+
+def test_a_printed_day_count_that_contradicts_the_two_as_of_dates_refuses():
+    """The document states both endpoints and then states the length; where the
+    two disagree the period is not printed evidence and nothing is published."""
+    assert parse_bank_ozk_statement(document(block=summary(days=31))) is None
+
+
+def test_an_inverted_pair_of_as_of_dates_refuses():
+    assert parse_bank_ozk_statement(
+        document(block=summary(previous_as_of="09/30/27", current_as_of="08/31/27", days=32))
+    ) is None
+
+
+# ---------------------------------------------------------------------------
+# The solve — the card
+# ---------------------------------------------------------------------------
+
+def test_the_printed_credit_count_decides_a_day_the_balances_do_not():
+    """Two credits: the 3.00 row is the credit and 1.00 + 2.00 are debits."""
+    stmt = parse_bank_ozk_statement(document())
+    assert stmt is not None
+    assert [(t.amount, t.direction) for t in stmt.transactions] == [
+        (3.00, "credit"), (-1.00, "debit"), (-2.00, "debit"), (10.00, "credit"),
+    ]
+
+
+def test_the_same_balances_and_a_different_printed_count_give_the_other_answer():
+    """THE proof that the count is load-bearing rather than decorative.
+
+    Identical balances, identical rows, identical totals — only the printed
+    COUNTS differ, and the ledger comes out inverted on three rows. A reader
+    that ignored the counts would have to pick one of these at random.
+    """
+    stmt = parse_bank_ozk_statement(document(block=summary(credits_count=3, debits_count=1)))
+    assert stmt is not None
+    assert [(t.amount, t.direction) for t in stmt.transactions] == [
+        (-3.00, "debit"), (1.00, "credit"), (2.00, "credit"), (10.00, "credit"),
+    ]
+
+
+def test_a_day_the_printed_count_cannot_separate_is_refused():
+    """Two equal amounts on a zero-step day: both assignments credit exactly
+    one row, so the cross-day constraint cannot choose and neither may this
+    reader. A refusal is an answer."""
+    rows = (
+        "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
+        "08/02 SAMPLE ALPHA 1.00 08/02 SAMPLE BETA 1.00 08/03 SAMPLE DELTA 10.00\n"
+    )
+    block = summary(credits_count=2, credits="11.00", debits_count=1, debits="1.00")
+    assert parse_bank_ozk_statement(document(block=block, rows=rows)) is None
+
+
+def test_a_day_whose_step_no_assignment_reproduces_is_refused():
+    assert parse_bank_ozk_statement(
+        document(grid=GRID.replace("08/02 100.00", "08/02 100.50"))
+    ) is None
+
+
+def test_cheques_are_known_debits_and_seed_their_day():
+    checks = (
+        "CHECK TRANSACTIONS SERIAL DATE AMOUNT SERIAL DATE AMOUNT "
+        "1000 08/02 1.00 1001* 08/02 2.00\n"
+    )
+    rows = (
+        "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
+        "08/02 SAMPLE ALPHA 3.00 08/03 SAMPLE DELTA 10.00\n"
+    )
+    stmt = parse_bank_ozk_statement(document(checks=checks, rows=rows))
+    assert stmt is not None
+    assert sorted((t.amount, t.direction) for t in stmt.transactions) == [
+        (-2.00, "debit"), (-1.00, "debit"), (3.00, "credit"), (10.00, "credit"),
+    ]
+
+
+def test_the_summary_arithmetic_is_the_fail_fast():
+    assert parse_bank_ozk_statement(document(block=summary(current="110.01"))) is None
+
+
+def test_the_captured_row_count_must_be_the_two_printed_counts():
+    """A ZERO-amount extra row, deliberately: every other gate still passes on
+    it — the day's step is unchanged and both printed totals still reproduce —
+    so this check is the only thing standing between a phantom row and
+    publication."""
+    extra = ROWS.rstrip("\n") + " 08/03 SAMPLE EPSILON 0.00\n"
+    assert parse_bank_ozk_statement(document(rows=extra)) is None
+
+
+def test_the_grid_must_close_on_the_printed_current_balance():
+    assert parse_bank_ozk_statement(document(grid=GRID.replace("08/03 110.00", "08/03 110.01"))) is None
+
+
+def test_a_row_dated_on_a_day_the_grid_does_not_carry_is_refused():
+    rows = ROWS.replace("08/03 SAMPLE DELTA", "08/04 SAMPLE DELTA")
+    assert parse_bank_ozk_statement(document(rows=rows)) is None
+
+
+def test_an_off_grid_row_is_refused_and_never_silently_dropped():
+    """The test above is also caught by the row-count check once the row goes
+    missing, so it does not prove this gate. This one does: the off-grid row
+    carries a ZERO amount, so DROPPING it leaves the row count, both totals and
+    every day's step intact and the document would publish. Only refusing
+    catches it. (W3 §FROSTOZK's mutation table, mutant O4.)"""
+    rows = ROWS.rstrip("\n") + " 08/04 SAMPLE EPSILON 0.00\n"
+    block = summary(credits_count=2, debits_count=3)
+    assert parse_bank_ozk_statement(document(block=block, rows=rows)) is None
+
+
+def test_a_date_shaped_token_the_period_cannot_place_is_never_silently_dropped():
+    """The same shape one level down. A token the period cannot place, printed
+    with an amount after it, would become a row the reader silently loses if it
+    were skipped rather than refused. (Mutant O15.)"""
+    rows = ROWS.rstrip("\n") + " 12/25 SAMPLE OUT OF PERIOD 99.00\n"
+    assert parse_bank_ozk_statement(document(rows=rows)) is None
+
+
+def test_a_grid_day_with_no_rows_is_refused():
+    grid = GRID.replace("08/03 110.00", "08/03 110.00 08/05 110.00")
+    assert parse_bank_ozk_statement(document(grid=grid)) is None
+
+
+def test_a_grid_date_printed_twice_with_two_values_is_refused():
+    grid = GRID.replace("08/03 110.00", "08/03 110.00 08/03 111.00")
+    assert parse_bank_ozk_statement(document(grid=grid)) is None
+
+
+def test_a_contradictory_grid_cell_is_refused_even_when_the_rest_would_close():
+    """The test above is also caught by the grid-close check, so it does not
+    prove this gate. Here the SECOND reading of the repeated day is one the
+    whole ledger closes on — every day's step solves, both totals reproduce and
+    the grid ends on the printed current balance — so taking the last reading
+    would publish a statement built on a cell the document printed twice, two
+    different ways. (W3 §FROSTOZK's mutation table, mutant O8.)"""
+    grid = GRID.replace("08/02 100.00", "08/02 100.00 08/02 105.00")
+    rows = (
+        "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
+        "08/02 SAMPLE ALPHA 5.00 08/03 SAMPLE DELTA 5.00\n"
+    )
+    block = summary(credits_count=2, credits="10.00", debits_count=0, debits="0.00")
+    assert parse_bank_ozk_statement(document(block=block, rows=rows, grid=grid)) is None
+
+
+def test_a_negative_grid_balance_prints_its_minus_in_front():
+    rows = (
+        "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
+        "08/02 SAMPLE ALPHA 110.00 08/03 SAMPLE DELTA 120.00\n"
+    )
+    block = summary(credits_count=1, credits="120.00", debits_count=1,
+                    debits="110.00", current="110.00")
+    grid = GRID.replace("08/02 100.00", "08/02 -10.00")
+    stmt = parse_bank_ozk_statement(document(block=block, rows=rows, grid=grid))
+    assert stmt is not None
+    assert [e.balance for e in stmt.stated_daily_balances] == [-10.00, 110.00]
+    assert [t.direction for t in stmt.transactions] == ["debit", "credit"]
+
+
+# ---------------------------------------------------------------------------
+# Splitting a flattened table into rows — the confirmed traps
+# ---------------------------------------------------------------------------
+
+def _one_row(description: str) -> str:
+    return (
+        "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
+        f"08/02 SAMPLE ALPHA 3.00 08/02 SAMPLE BETA 1.00 08/02 SAMPLE GAMMA 2.00 "
+        f"08/03 {description}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        # A date-shaped token whose day field is three digits long.
+        "SAMPLE INVOICE 05/2028 10.00",
+        # A six-figure reference whose first pair is not a month.
+        "SAMPLE WIRE REF OF 31/07/02 10.00",
+        # A trace number printed AFTER the amount, with no decimal.
+        "SAMPLE POS PURCHASE 10.00 000000",
+        # A wrapped description continuation printed after the amount.
+        "SAMPLE TRANSFER 10.00 via Online",
+        # An amount QUOTED inside the description, marked by the symbol the
+        # money column never carries. A first-amount rule would take it.
+        "SAMPLE CHK# 0000 AMT $3,300.00, SAMPLE FEE 10.00",
+        # The same quoting, AFTER the row's own amount: a last-amount rule
+        # without the mask would take the quoted figure instead.
+        "SAMPLE FEE 10.00 REVERSAL OF $3,300.00",
+    ],
+)
+def test_a_row_survives_the_split_and_amount_traps(description):
+    stmt = parse_bank_ozk_statement(document(rows=_one_row(description)))
+    assert stmt is not None
+    assert len(stmt.transactions) == 4
+    assert stmt.transactions[-1].amount == 10.00
+
+
+def test_the_rows_amount_is_the_last_money_token_and_the_archive_never_says():
+    """A DOCUMENTED choice, pinned as one rather than reported as measured.
+
+    After the quoted-amount mask, not one row of the eight archive documents
+    carries two money tokens, so the archive cannot distinguish `first` from
+    `last` at all. `last` is chosen because every confirmed trailing trap
+    carries no decimals (a trace number) or no amount (a wrapped description),
+    while the one confirmed LEADING extra is an amount quoted in the
+    description — so a leading extra is the shape that occurs and a trailing
+    one is not. If a printing ever puts the row's own amount first, this test
+    is what will have to change, and deliberately.
+    """
+    stmt = parse_bank_ozk_statement(document(rows=_one_row("SAMPLE MEMO 1.00 SAMPLE TAIL 10.00")))
+    assert stmt is not None
+    assert stmt.transactions[-1].amount == 10.00
+
+
+def test_a_date_token_the_period_cannot_place_refuses_the_document():
+    """Not treated as description text: it may be a row whose date was mangled,
+    and this reader would rather decline than lose one."""
+    assert parse_bank_ozk_statement(document(rows=_one_row("SAMPLE MEMO 12/25 10.00"))) is None
+
+
+def test_a_row_with_no_readable_amount_refuses_the_document():
+    assert parse_bank_ozk_statement(document(rows=_one_row("SAMPLE MEMO WITH NO AMOUNT"))) is None
+
+
+# ---------------------------------------------------------------------------
+# What it publishes
+# ---------------------------------------------------------------------------
+
+def test_it_publishes_the_account_from_two_printings_that_agree():
+    stmt = parse_bank_ozk_statement(document())
+    assert (stmt.bank, stmt.account_number) == ("Bank OZK", "000000")
+    assert stmt.account_name == "SAMPLE CHECKING"
+
+
+def test_a_second_account_number_refuses_the_document():
+    """L-1: this schema publishes one account, so two is a refusal."""
+    assert parse_bank_ozk_statement(document(tail="Account Number: 000001\n")) is None
+
+
+def test_the_daily_grid_is_published_as_the_bank_printed_it():
+    stmt = parse_bank_ozk_statement(document())
+    assert [(e.date, e.balance) for e in stmt.stated_daily_balances] == [
+        ("2027-08-02", 100.00), ("2027-08-03", 110.00),
+    ]
+
+
+def test_the_bank_printed_average_is_evidence_and_carries_its_own_label():
+    tail = "AVERAGE LEDGER BALANCE:            105.00\nINTEREST PAID THIS PERIOD:   0.50\n"
+    stmt = parse_bank_ozk_statement(document(tail=tail))
+    assert stmt.bank_reported_average_balance == 105.00
+    assert stmt.bank_reported_average_label == "AVERAGE LEDGER BALANCE"
+    assert stmt.stated_interest_paid == 0.50
+
+
+def test_the_currency_is_the_institution_default():
+    stmt = parse_bank_ozk_statement(document())
+    assert (stmt.currency, stmt.currency_source) == ("USD", "institution_default")
+
+
+def test_a_document_with_no_ledger_is_not_a_statement():
+    assert parse_bank_ozk_statement(SERVICE + HEADER + summary() + "BALANCE BY DATE\n") is None
+
+
+# ---------------------------------------------------------------------------
+# The enumeration's budgets — a refusal is an answer, an hour of CPU is not
+# ---------------------------------------------------------------------------
+
+def test_the_row_cap_refuses_a_day_the_other_two_budgets_would_allow():
+    """Bounded recursion depth as well as bounded work: without the cap a
+    pathological day would reach `RecursionError`, and an exception is not an
+    answer.
+
+    The case is chosen so ONLY this budget can fire — the day has a single
+    solution found on the first path, so neither the node budget nor the
+    solution cap is reached. One row fewer and the same day is solved.
+
+    The fixture is bounded by the INTENDED cap, never derived from the module's
+    constant: a mutant that raises `_MAX_DAY_ROWS` is caught by the 65-row day
+    being SOLVED where it must be refused — a plain assertion on ~130 nodes —
+    and not by the allocation a constant-derived fixture would attempt
+    (2026-08-28: `[100] * (10**9 + 1)` under mutant O21 took a 32 GB host down
+    three times; a `MemoryError` is a resource kill, not a proof). The constant
+    is pinned last, so a moved cap fails on behaviour before it fails on value.
+    """
+    from analysis.bank_ozk import _MAX_DAY_ROWS, _day_solutions
+
+    intended_cap = 64            # the documented bound; the busiest archive day carries 15 rows
+    over = intended_cap + 1
+    assert _day_solutions([100] * over, over * 100) is None
+    assert _day_solutions([100] * intended_cap, intended_cap * 100) == [
+        frozenset(range(intended_cap))
+    ]
+    assert _MAX_DAY_ROWS == intended_cap
+
+
+def test_the_node_budget_stops_a_walk_the_other_two_budgets_would_allow():
+    """Twenty-two rows is inside the row cap and the day has NO solution, so
+    the solution cap is never reached either — but the search tree is two
+    million nodes wide. The budget stops it, and a stopped walk is a refusal.
+    """
+    from analysis.bank_ozk import _day_solutions
+
+    assert _day_solutions([2] * 22, 2) is None
+
+
+def test_the_solution_cap_refuses_a_day_the_other_two_budgets_would_allow():
+    """Fourteen equal amounts on a zero-step day: inside the row cap, and its
+    whole tree is inside the node budget, but it admits C(14,7) assignments.
+    Enumerating them all would be pointless work on a day no printed count can
+    resolve anyway."""
+    from analysis.bank_ozk import _day_solutions
+
+    assert _day_solutions([2] * 14, 0) is None
+
+
+def test_an_unreachable_step_is_an_empty_answer_and_not_a_budget_refusal():
+    """The two must stay distinguishable: `[]` means the day's printed step is
+    unreachable, `None` means the reader could not finish looking."""
+    from analysis.bank_ozk import _day_solutions
+
+    assert _day_solutions([100, 300], 50) == []
+
+
+def test_the_cross_day_search_has_a_budget_too():
+    """The global walk aborts as soon as two solutions exist, so its expensive
+    shape is a document with ONE solution or none and a wide tree. Thirty days
+    each admitting two credit counts is 2^30 count paths and exactly one that
+    sums to the target; the budget stops it and a stopped search is a
+    refusal."""
+    from analysis.bank_ozk import _unique_global
+
+    per_day = [[frozenset(), frozenset({0}), frozenset({1})] for _ in range(30)]
+    counts = [[0, 1] for _ in range(30)]
+    assert _unique_global(per_day, counts, 0) is not None  # the trivial one
+    assert _unique_global(per_day, counts, 30) is None  # 2^30 ways, budget stops it
+
+
+def test_the_cross_day_search_still_answers_a_small_one_exactly():
+    from analysis.bank_ozk import _unique_global
+
+    per_day = [[frozenset({0}), frozenset({1, 2})], [frozenset({0})]]
+    counts = [[1, 2], [1]]
+    assert _unique_global(per_day, counts, 2) == [frozenset({0}), frozenset({0})]
+    assert _unique_global(per_day, counts, 3) == [frozenset({1, 2}), frozenset({0})]
+    assert _unique_global(per_day, counts, 9) is None
