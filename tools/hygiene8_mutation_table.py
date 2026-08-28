@@ -283,7 +283,7 @@ RAISE_MUTANTS = (
     ),
     Mutant(
         "R10", "the modules are chain-guarded", "tests/test_privacy3_boundaries.py",
-        '    "analysis/chase.py": frozenset({"money_refusal"}),',
+        '    "analysis/chase.py": frozenset({"money_refusal", "date_refusal"}),',
         "",
         "one of the four CHAIN_GUARDED registrations is removed, so a naked "
         "raise arriving in that module later would go unseen",
@@ -307,7 +307,76 @@ OVERFLOW_MUTANTS = tuple(
     for index in range(1, 9)
 )
 
-MUTANTS = QUEUE_MUTANTS + EXTRACT_MUTANTS + RAISE_MUTANTS + OVERFLOW_MUTANTS
+#: --------------------------------------------------------------------------
+#: REVIEW MAJOR-2 — the four `date()` sites of the site-6 class, one mutant
+#: each, every one of them reverting the site to the raw `date(...)` call the
+#: hostile review drove on both trees. These are the two mutants H7 could not
+#: contain, in the review's own words: "the gates they would test do not
+#: exist". They do now.
+#: --------------------------------------------------------------------------
+MAJOR2_MUTANTS = (
+    Mutant(
+        "M1", "chase's export row date is funnelled and refused privately",
+        "analysis/chase.py",
+        "            iso = iso_or_none(\n"
+        "                int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))\n"
+        "            if iso is None:\n"
+        "                raise date_refusal(\n"
+        '                    "chase._parse_chase_business_export",\n'
+        '                    f"{raw_month} {raw_day}, {raw_year}",\n'
+        "                )\n"
+        "            current_date = date.fromisoformat(iso)",
+        "            current_date = date(int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))",
+        "REVIEW MAJOR-2 site 1 reverted: `row_date_re` proves the token's "
+        "shape and nothing more, so a `Feb 30, 2031` row reaches `date()`, "
+        "whose ValueError echoes the printed day, month and year",
+    ),
+    Mutant(
+        "M2", "columbia's cheque row date is funnelled and refused privately",
+        "analysis/columbia_bank.py",
+        "        cheque_iso = iso_or_none(period_end.year, int(month), int(day))\n"
+        "        if cheque_iso is None:\n"
+        '            raise date_refusal("columbia_bank.cheque_row", f"{month}-{day}")\n'
+        "        checks.append(\n"
+        "            _Row(\n"
+        "                date=date.fromisoformat(cheque_iso),",
+        "        checks.append(\n"
+        "            _Row(\n"
+        "                date=date(period_end.year, int(month), int(day)),",
+        "REVIEW MAJOR-2 site 2 reverted: `_CHEQUE_ROW`'s `(\\d{2})-(\\d{2})` "
+        "proves two digit pairs, so a `13-40` cheque row echoes the printed "
+        "month out of a module that holds no `raise` for a grep to find",
+    ),
+    Mutant(
+        "M3", "scotia's posting row date is funnelled and refused privately",
+        "analysis/scotia.py",
+        "            tx_date = iso_or_none(int(m.group(3)), int(m.group(1)), int(m.group(2)))\n"
+        "            if tx_date is None:\n"
+        '                raise date_refusal("scotia.posting_row", m.group(0))',
+        '            tx_date = __import__("datetime").date(\n'
+        "                int(m.group(3)), int(m.group(1)), int(m.group(2))).isoformat()",
+        "REVIEW MAJOR-2 site 3 reverted, through `__import__` because the "
+        "closure removed this module's now-unused `date` import: a "
+        "`13/40/2031` posting row echoes the printed month",
+    ),
+    Mutant(
+        "M4", "scanned_small_bank's MM/DD row date is funnelled and refused "
+        "privately", "analysis/scanned_small_bank.py",
+        '    month, day = [int(part) for part in value.split("/", 1)]\n'
+        "    iso = iso_or_none(year, month, day)\n"
+        "    if iso is None:\n"
+        '        raise date_refusal("scanned_small_bank._date_from_mdyy", value)\n'
+        "    return iso",
+        '    month, day = [int(part) for part in value.split("/", 1)]\n'
+        "    return date(year, month, day).isoformat()",
+        "REVIEW MAJOR-2 site 4 reverted: the leak `_iso` closed, standing "
+        "again twenty lines below the fix, reached from "
+        "`_parse_two_column_mdyy_rows`",
+    ),
+)
+
+MUTANTS = (QUEUE_MUTANTS + EXTRACT_MUTANTS + RAISE_MUTANTS + OVERFLOW_MUTANTS
+           + MAJOR2_MUTANTS)
 
 
 def _nth_index(haystack: str, needle: str, nth: int) -> int:
