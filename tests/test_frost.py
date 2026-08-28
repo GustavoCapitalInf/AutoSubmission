@@ -249,6 +249,31 @@ def test_an_unknown_column_head_is_refused():
     ) is None
 
 
+def test_an_unknown_column_head_is_refused_even_over_rows_a_fallback_could_read():
+    """The test above does not prove the head lookup is load-bearing on its
+    own: its unknown head sits over rows printed in the
+    `DATE AMOUNT TRANSACTION DESCRIPTION` shape, so a reader that silently fell
+    back to the `DATE TRANSACTION AMOUNT` layout could not read them either and
+    the completeness rule would refuse the document for ITS reason. Here the
+    unknown head sits over rows the fallback layout CAN read, and the totals
+    and the grid close on them — the control below shows the same rows PUBLISH
+    under the known head — so a reader that fell back would publish, and the
+    only gate that can refuse this document is the head lookup itself. (W3
+    §FROSTOZK's mutation table, mutant F5; between them the two tests cover a
+    fallback to either row layout.)"""
+    unknown_head = (
+        "-------------------------------------  OTHER WITHDRAWALS/DEBITS  "
+        "-----------------------------------\n"
+        "DATE      TRANSACTION                         SUBTOTAL\n"
+        "09-05     SAMPLE DEBIT                        700.00\n"
+        "09-06     SERVICE CHARGE/FEE                    .20\n"
+    )
+    control = parse_frost_statement(document(withdrawals=unknown_head.replace("SUBTOTAL", "AMOUNT")))
+    assert control is not None
+    assert [t.amount for t in control.transactions][-2:] == [-700.00, -0.20]
+    assert parse_frost_statement(document(withdrawals=unknown_head)) is None
+
+
 def test_a_line_inside_a_section_that_is_not_a_row_is_refused():
     """Completeness: an unmodelled printing fails the document closed."""
     junked = WITHDRAWALS + "SAMPLE UNMODELLED LINE\n"
