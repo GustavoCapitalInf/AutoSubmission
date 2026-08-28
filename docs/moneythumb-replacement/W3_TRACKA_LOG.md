@@ -44484,3 +44484,398 @@ At the composed tree, after the last merge and before the v16 / OCR v4 bump:
 Nothing else. The mutation table, the poison census, the `OverflowError`
 census, the pinned replay and the family replay are this session's, on this
 host, with their exit codes in H6 and H7, and they need no re-run at the train.
+## H14. Review closures — the four sites, the corrections, and the proof floor at the closure tree (closure session, Windows host, 2026-08-28)
+
+The hostile review (`b2e4ad7`, `reviews/BATCH8_HYGIENE8_REVIEW.md`) returned
+APPROVE WITH FINDINGS — 0 BLOCK, 2 MAJOR, 4 MINOR. Five closure commits landed
+before this session (`c64f936`, `313cc43`, `97862d1`, `88540b2`, `579f0bb`);
+this session closed the rest. **Every number below was measured in this session
+on this host** (Windows 11, CPython 3.14.5, pytest 9.1.1, Tesseract 5.5.0),
+each instrument alone, each under
+`tools/train/winrun.py --cap-gb 4 --floor-gb 0.5`, with the run's own durable
+log named beside it. The session scratchpad holding those logs is
+`…/60d75240-f155-4152-a25d-5142bd14a5a0/scratchpad/hygiene8-closure`; nothing
+was written under the worktree.
+
+**THE RUN OF RECORD IS INTACT ON THIS HOST.** Unlike the Linux host, this one
+still holds `discovery_reports/2026-08-23T020128.909387-0000-356a4269/rows.csv`
+(3,506 rows) and `webapp_data`. Every `--rows` / `--data-dir` number in this
+section is **against the run of record `356a4269` (this host, Windows,
+Tesseract 5.5.0)**, not against run A — and where part 1 quoted the run of
+record, this session reproduces it to the digit (see H14.5 and H14.6 row 6).
+
+### H14.1 Disposition — one row per finding
+
+| finding | closing commit(s) | the check that proves it | exit | verdict |
+|---|---|---|---|---|
+| **MAJOR-1** the re-arm hands the queue a second worker | `313cc43` (landed before this session) | re-verified here: `webapp/app.py:_release_worker_slot` writes `_job_worker_active = rearm` **once, under the lock**, then spawns — the claim-before-spawn order `_enqueue_job` keeps; `test_a_replacement_worker_holds_the_slot_while_it_runs` is the isolating test, and mutant **Q8** (the claim reverted to `False`) is killed by that test **and by no other** (`E9_mutation.log`) | 0 | CLOSED, re-verified |
+| **MAJOR-2** four unguarded `date()` sites of the site-6 class | `548e518` (sites + drives + census + poison cells), `c7a42c9` (mutants M1–M4) | H14.2 both-tree drive table (12 cells, base echoes / branch token-free), H14.3 census, H14.4 mutants M1–M4 all killed, H14.5 zero movement re-proved | 0 | CLOSED |
+| **MINOR-3** a thread-raised signal is not a dying process | `97862d1` (landed before this session) | re-verified here: the shutdown exemption is GONE — `rearm = bool(_job_queue)` has no signal clause, so queued work is drained by a replacement rather than waiting for the next upload; `test_a_signal_raised_in_a_worker_thread_does_not_end_the_process` and `test_a_signal_raised_in_the_worker_is_a_dead_worker_and_the_queue_still_drains` are the gates, and mutant **Q6** (the shipped premise reintroduced) is killed by them | 0 | CLOSED, re-verified |
+| **MINOR-4** the bound is a C `int`, not a "32-bit C long" | `c455de7` | measured on this host: `sizeof(c_int)`=4, `sizeof(c_long)`=4; `date(2026,1,2**31-1)` → `ValueError`, `date(2026,1,2**31)` → `OverflowError`. Corrected in `date_tokens.iso_or_none`'s docstring, `hygiene8_overflow_reach` (x4), the `_HUGE` note, and in place at three points of §HYGIENE8 (H0 row, H4.2, H4.3) | 0 | CLOSED |
+| **MINOR-5** fixture dates off the 2031 convention | `f825a97`, `de768e4` | the DATES census over the branch's added code/tests/tools lines is **0** (H14.7) | 0 | CLOSED |
+| **MINOR-6 (a)** E3/E4 labels | `588b81d` | E3 now describes the `<V4> / <V5> / <V6>` continuation it actually deletes; E4 states the commit↔table mapping instead of cross-referencing it. `landed_in` and killers unchanged, both still killed (`E9_mutation.log`) | 0 | CLOSED |
+| **MINOR-6 (b)** the stale "crosses the worker boundary" reason | `588b81d`, `de768e4` | restated in `analysis/chase.py` and this branch's `tests/test_raise_privacy3.py` docstring with the sinks that survive; `analysis/chase.py`'s AST is unchanged by both commits (measured, H14.9) | 0 | CLOSED |
+| **MINOR-6 (c)** a surviving `threading.active_count` assertion | `97862d1` (landed before this session) | **verified here: no `active_count` ASSERTION remains in `tests/test_queue_supervisor.py`.** The name occurs twice in the file and both are prose (lines 274 and 394) explaining why the racy shape was dropped | 0 | CLOSED, re-verified |
+| **MINOR-6 (d)** "DERIVED, not typed" derived from a typed constant | `588b81d` | `test_the_replay_population_is_derived_from_a_list_checked_against_the_diff` asserts `CHANGED_PARSER_MODULES`'s keys equal `git diff --name-only 10cc722 HEAD -- analysis/` minus a NAMED exclusion list, and asserts each exclusion still appears in the diff | 0 | CLOSED |
+
+**The H0/H1 sentence, restated.** The family population is derived by an AST
+call graph from a list of changed parser modules that WAS typed and is now
+checked against the diff on every run of the gate set. The exclusions are
+`analysis/date_tokens.py` (no registration's `parse` lives there; the
+`OverflowError` widening is `hygiene8_overflow_reach`'s to prove) and
+`analysis/extract.py` (the LLM prompt, which `pipeline.py` raises before in
+deterministic mode — the only mode any replay runs). After MAJOR-2 the changed
+analysis files are still those two plus the four readers.
+
+### H14.2 The four sites, before and after — and the both-tree drive
+
+| site | at `10cc722` and `af98349` | at `548e518` |
+|---|---|---|
+| `chase._parse_chase_business_export` | `current_date = date(int(raw_year), _EXPORT_MONTHS[…], int(raw_day))` | `iso = iso_or_none(…)` → `if iso is None: raise date_refusal("chase._parse_chase_business_export", …)` → `current_date = date.fromisoformat(iso)` |
+| `columbia_bank.parse_columbia_bank_statement`, the cheque loop | `date=date(period_end.year, int(month), int(day))` | `cheque_iso = iso_or_none(…)` → `if cheque_iso is None: raise date_refusal("columbia_bank.cheque_row", …)` → `date=date.fromisoformat(cheque_iso)` |
+| `scotia.parse_scotiabank_statement`, the posting loop | `tx_date = date(int(m.group(3)), int(m.group(1)), int(m.group(2))).isoformat()` | `tx_date = iso_or_none(…)` → `if tx_date is None: raise date_refusal("scotia.posting_row", m.group(0))` |
+| `scanned_small_bank._date_from_mdyy` (from `_parse_two_column_mdyy_rows`) | `return date(year, month, day).isoformat()` | `iso = iso_or_none(year, month, day)` → `if iso is None: raise date_refusal("scanned_small_bank._date_from_mdyy", value)` → `return iso` |
+
+`analysis/scotia.py`'s `from datetime import date` went with its site: after the
+reroute the module had no other use for the name.
+
+**The drive.** Four INVENTED fixtures, one per reader, each built only from
+that reader's own committed detection markers and column headers, each with a
+valid 2031 period and one out-of-range row; every figure is rendered from a
+whole-unit constant at build time, so the fixtures put no amount-shaped literal
+in the tree. Three out-of-range shapes per site = **12 cells**, each driven
+through the REAL reader against the base tree materialised by
+`tools.hygiene8_base_tree` from `10cc722` and against this tree, in one
+process. `E5_poison.log` / `poison_final.json`, and the same drives as tests in
+`E1_branch_tests.log`.
+
+| site | shapes driven | base `10cc722` | branch (closure tree) |
+|---|---|---|---|
+| `chase.export_row` | `Feb 30, 2031`, `Apr 31, 2031`, `Jun 31, 2031` | `ValueError` escapes on 3/3; leaks on `str`, `repr`, `args`, `traceback` (`day 30 must be in range 1..28 for month 2 in year 2031`) | refusal escapes on 3/3; **0 leaking surfaces**; `reader=chase._parse_chase_business_export` |
+| `columbia_bank.cheque_row` | `13-40`, `02-30`, `04-31` | `ValueError` on 3/3; all four surfaces (`month must be in 1..12, not 13`) | 3/3 refuse; **0 leaking surfaces**; `reader=columbia_bank.cheque_row` |
+| `scotia.posting_row` | `13/40/2031`, `02/30/2031`, `04/31/2031` | `ValueError` on 3/3; all four surfaces | 3/3 refuse; **0 leaking surfaces**; `reader=scotia.posting_row` |
+| `scanned_small_bank.mdyy_row` | `13/40`, `02/30`, `04/31` | `ValueError` on 3/3; all four surfaces | 3/3 refuse; **0 leaking surfaces**; `reader=scanned_small_bank._date_from_mdyy` |
+
+Neither `__cause__` nor `__context__` is set on any of the twelve — the refusal
+is raised from outside the funnel, the shape site 6 already had.
+
+**Refusal semantics preserved, measured rather than argued.** (i) the class
+escaping the reader is still `ValueError` on all twelve
+(`test_the_refusal_class_at_the_four_sites_is_still_ValueError`), so the
+dispatch seam's `type(exc).__name__` is unchanged; (ii) an IN-RANGE row through
+the same fixture produces the identical payload leaf for leaf on both trees
+(`leaf_diff` == [] for all four): chase publishes a three-row `Statement`,
+scotia a one-row `Statement`, `scanned_small_bank` a one-row transaction list,
+and columbia declines with `None` on both trees for reasons the poisoned token
+never reaches. No row is silently skipped anywhere.
+
+**The poison census, with the four new cells** (`E5_poison.log`):
+
+| | at `af98349` (H4.1) | at the closure tree |
+|---|---|---|
+| sites | 7 | **11** |
+| cells | 52 | **64** |
+| base leaking cells | 24 | **36** (the 12 new ones all leak) |
+| branch leaking cells | **0** | **0** |
+| read without raising | 3 / 3 | 3 / 3 |
+
+The row cells' digit-run floor is **two**, not the module's three, and that is
+the finding rather than a convenience: a printed month or day IS a two-digit
+run, so at a three-digit floor `month must be in 1..12, not 13` is invisible to
+this census — the exact blindness MAJOR-2 lived in. The floor drops for the row
+cells only, so H4.1's six-site counts are unchanged.
+
+### H14.3 The implicit-conversion census over the CHAIN_GUARDED modules
+
+`test_no_unguarded_conversion_of_a_document_token_is_unaccounted_for`,
+`test_the_four_closed_sites_are_absent_from_the_census`,
+`test_every_entry_of_the_conversion_allowlist_carries_a_reason` and
+`test_the_census_can_see_a_date_on_a_regex_group_arriving`. The rule: a call to
+`date` / `datetime` / `int` / `float` / `Decimal` / `strptime` /
+`fromisoformat` whose argument derives from a regex group or a parsed token
+(taint seeded on `.group` / `.groups` / `.groupdict` / `.findall` /
+`.finditer` / `.split` and propagated transitively inside the function), and
+which stands lexically outside any handler catching `ValueError`, and whose
+argument is not a value a `date_tokens` funnel produced. It exists because
+`_chain_offenders` reads `raise` statements and `columbia_bank.py` and
+`scotia.py` held none — their `CHAIN_GUARDED` entries were vacuous by
+construction, and the four sites were invisible to every proof this branch had.
+
+Over the nine `CHAIN_GUARDED` modules at the closure tree: **74 calls
+reported**, all accounted for, split in two:
+
+* **66 CANNOT echo a document token**, each with the reason that proves it,
+  hand-verified against the pattern that produces its argument:
+  * `int()` of a digits-only group (`\d+`, `\d{2}`, `\d{4}`) — the conversion
+    cannot raise, so there is no message to echo into — 41 entries;
+  * `int()` of a digits-only group split on its own separator — 4;
+  * `int()` reached only through an explicit `.isdigit()` test — 3;
+  * `float()` of a value the module already parsed into a `Decimal` or a
+    `float` — 13;
+  * `float()` of text a full-match against the format's own numeric pattern has
+    just proved is a float literal — 2 (`money.parse_money`,
+    `money.parse_money_tokens`);
+  * `int()` of the first four characters of an ISO date this tree produced — 2;
+  * `date()` on a triple `year_within_period` already constructed inside its
+    own `try` — 1 (`date_tokens.iso_within_period`, documented at the site).
+* **8 CAN echo, and are DISCLOSED rather than closed.** They are the MAJOR-2
+  class exactly, in three chain-guarded modules this closure does not own. Each
+  was driven in this session and each echoed:
+
+| site | measured message |
+|---|---|
+| `bmo._statement_period: date(year, month, 1)` | `year must be in 1..9999, not 0` — `(\d{4})` admits `0000` |
+| `bmo._statement_period: date(year, month, calendar.monthrange(year, month)[1])` | the same printed year, one line down |
+| `farmers_merchants._parse_summary: date(year, start_m, start_d)` | `month must be in 1..12, not 13` — `(?P<start>\d{2}/\d{2}/\d{2})` |
+| `farmers_merchants._parse_summary: date(year, end_m, end_d)` | the same shape on the period's end cell |
+| `td_can._parse_period: date(2000 + int(sy), _MONTHS[sm], int(sd))` | `day 30 must be in range 1..28 for month 2 in year 2031` |
+| `td_can._parse_period: date(2000 + int(ey), _MONTHS[em], int(ed))` | the same shape on the end token |
+| `td_can._date_tokens: date(year, _MONTHS[mon], int(day))` | `day 30 must be in range 1..28 for month 2 in year 2031` |
+| `td_can._native_date_to_iso: date(default_year, _MONTHS[…], int(m.group(2)))` | `day 30 must be in range 1..28 for month 2 in year 2031` |
+
+**Carded, not closed here**, and the reason is a rule rather than a shortage of
+time: this session's mandate is the four sites the review named, and rerouting
+a fifth, sixth and seventh reader would be an unreviewed production change
+riding in on a closure commit. `bmo.py`, `farmers_merchants.py` and `td_can.py`
+are chain-guarded modules whose registrations move the archive. **For batch 9,
+as a card of its own** — the same shape, the same funnel, the same both-tree
+drive, three readers. Nothing user-facing carries the digits today (the
+dispatch seam reduces a parser crash to its class name and
+`webapp/worker.py:_stage_failure` withholds every message); the surviving sinks
+are `batch.py:266`, `coverage_audit.py:193` and
+`deterministic_coverage_audit.py:241`.
+
+The census is watched failing on four synthetic shapes: a group straight into
+`date()` (2 findings), the same call inside a `ValueError` handler (0), the
+funnel shape this closure installed (1 — the `int()` only), and a `date()` on
+nothing derived from a token (0).
+
+### H14.4 The mutation table
+
+Four rows added, one per site, each reverting it to the raw `date(...)` call
+the reviewer drove; M3 goes through `__import__("datetime")` because the
+closure removed `analysis/scotia.py`'s now-unused `date` import.
+
+| mutant | site reverted | landed in | killed by |
+|---|---|---|---|
+| **M1** | `analysis/chase.py` export row | `_parse_chase_business_export` | `test_no_unguarded_conversion_of_a_document_token_is_unaccounted_for`, `test_the_four_closed_sites_are_absent_from_the_census`, and the three `…refuse_without_quoting_at_the_branch[chase.export_row-*]` cells |
+| **M2** | `analysis/columbia_bank.py` cheque row | `parse_columbia_bank_statement` | the census tests and the three `[columbia_bank.cheque_row-*]` cells |
+| **M3** | `analysis/scotia.py` posting row | `parse_scotiabank_statement` | the census test and the three `[scotia.posting_row-*]` cells |
+| **M4** | `analysis/scanned_small_bank.py` MM/DD row | `_date_from_mdyy` | the census tests and the three `[scanned_small_bank.mdyy_row-*]` cells |
+
+R10's target text tracks `CHAIN_GUARDED`'s chase entry, which gained
+`date_refusal`; the mutant, its gate and its kill are unchanged. E3's and E4's
+`describes` text is corrected (MINOR-6 a); no `old`/`new`/`landed_in` moved.
+
+**Whole table at the closure tree** (`E9_mutation.log`,
+`mutation_final.json`): baseline green first, then
+**35 mutants / 35 KILLED / 0 SURVIVED / 0 NOT APPLIED**, 666.7 s of harness
+time, `git status --short` empty before and after, exit **0**. The roster is
+the record's 30 + Q8 + M1–M4. Every documented occurrence count still matches
+its file. Q8's only killer is
+`test_a_replacement_worker_holds_the_slot_while_it_runs`; the twelve
+single-killer rows H7 recorded are unchanged, and M1–M4 each have four killers.
+
+### H14.5 The population, the quarantine, and the family replay — against the run of record
+
+Re-derived here with this session's own reader over
+`discovery_reports/2026-08-23T020128.909387-0000-356a4269/rows.csv` (3,506
+rows) and `tools/train/recon_b7_quarantine_nonnative_208.shas` (208 shas)
+(`E8a_population.log`, `E8b_population_split.log`):
+
+| registration | dispatched | of which quarantined |
+|---|---|---|
+| `apex_scanned` | 4 | 4 |
+| `chase` | 505 | 0 |
+| `chase_export` | 4 | 1 |
+| `columbia_bank` | 4 | 4 |
+| `scotiabank` | 84 | 0 |
+| `southside_scanned` | 9 | 9 |
+| `texas_first_scanned` | 8 | 8 |
+| **total** | **618** | **26** |
+
+The derivation is unchanged by MAJOR-2: the same seven registrations, from the
+same four modules, reaching `_money_required` / `parsed_datetime` / `_money` /
+`_iso`. **618 and 26 are the record's numbers** — H1 and H8 item 1 derived them
+against run A on the Linux host and the reviewer re-derived them independently;
+they reproduce exactly against the run of record here.
+
+**The replay** (`E8_family.log`, `family_final.json`), run last and alone:
+
+| | |
+|---|---|
+| documents | **618** |
+| replays (every OCR settings partition holding the document) | **625** (7 documents have two) |
+| identical leaf for leaf | **613** |
+| raised on both trees, same class | **12** |
+| `moved` | **0** |
+| `outcome_moved` | **0** |
+| `raise_class_moved` | **0** |
+| `base_raised_branch_publishes` | **0** |
+| `base_published_branch_raises` | **0** |
+| `no_ocr_artifact` | **0** |
+
+**No mover of any class, so no `content_sha256` is named and the quarantined
+movement table is empty** — under Option B the 26 would have been reported
+separately and never counted, and there is nothing to report. 613 + 12 = 625.
+
+This reproduces PART 1's run-of-record figures, which the reviewer could not
+check because the run was believed lost: part 1 recorded 613 + 12 and this
+session measures 613 + 12. The run-A restatement in H6 row 7 (609 identical /
+16 raised on both) is a different OCR run of the same corpus and is unchanged.
+
+### H14.6 The proof floor at the closure tree
+
+Every row from the branch worktree at `de768e4`, sequential, one process at a
+time, each under
+`python tools/train/winrun.py --cap-gb 4 --floor-gb 0.5 --timeout … --log winrun.jsonl`.
+`peak_job_mb` is the Job Object's peak committed memory across every process it
+contained — the Windows analogue of the record's "peak RSS". `git status
+--short` empty before every row and after the mutation harness.
+
+| # | proof | result | exit | wall (s) | peak_job_mb | MemAvailable MB before → after | log |
+|---|---|---|---|---|---|---|---|
+| 1 | `pytest` the branch's four test files (`test_queue_supervisor`, `test_raise_privacy3`, `test_privacy3_boundaries`, `test_no_statement_hardcodes`) | **288 passed, 3 skipped** (254 at `579f0bb`; +34 this session) | **0** | 16.5 | 344.0 | 2345.3 → 2299.9 | `E1_branch_tests.log` |
+| 2 | `pytest` the four readers' own test files (`test_chase_closure`, `test_chase_layouts`, `test_chase_native_variants`, `test_columbia_bank`, `test_scotia_layouts`, `test_southside_scanned`, `test_texas_first_scanned`) | **260 passed** | **0** | 3.3 | 92.6 | 2281.4 → 2245.8 | `E2_reader_tests.log` |
+| 3 | the canonical guard set (5 files) | **253 passed**, registry 75 | **0** | 12.1 | 96.3 | 2219.6 → 2245.5 | `E3_guard_set.log` |
+| 4 | the canonical conformance set (7 files) | **1,164 passed, 35 skipped** | **0** | 4.1 | 101.1 | 2300.1 → 2299.2 | `E4_conformance.log` |
+| 5 | `tools.hygiene8_poison_sweep --base 10cc722` | 11 sites, 64 cells, base leaking **36**, branch leaking **0** | **0** | 2.7 | 130.2 | 2250.9 → 2276.0 | `E5_poison.log` |
+| 6 | `tools.hygiene8_overflow_reach --base 10cc722 --rows <RoR> --data-dir <main>/webapp_data` | census 11 public / 11 drives / **8 escaped at base in 7 functions** / **0 at branch**, smallest overflowing integer 10 digits, reachable threshold 2,147,481,648; archive **3,380 in run / 3,351 with text / 29 without / longest run 54 / 2,765 at or over the threshold** | **0** | 26.4 | 81.1 | 2247.4 → 2231.1 | `E6_overflow.log` |
+| 7 | `tools.hygiene8_pinned_replay --base 10cc722 --corpus "<wt>/Bank Statements"` | **109 pinned / 109 replayed / 108 identical / 1 refused on both / moved 0 / outcome_moved 0 / publish_boundary_moved 0 / refusal_class_moved 0 / unreadable 0**; 14 claimed by a touched reader, 1 unclaimed; `by_parser` names 43 parsers and sums to 108 | **0** | 211.9 | 167.5 | 2275.1 → 2548.7 | `E7_pinned.log` |
+| 8a | `tools.hygiene8_family_replay --print-population` | the same seven registrations; **618 dispatched documents** | **0** | 2.3 | 112.8 | 2662.0 → 2652.0 | `E8a_population.log` |
+| 8 | `tools.hygiene8_family_replay` (full, LAST and alone, `--timeout 2400`) | **618 / 625 / 613 identical / 12 raised on both / movement 0 of every class** | **0** | 1069.4 | 113.3 | 2501.1 → 2194.3 | `E8_family.log` |
+| 9 | `tools.hygiene8_mutation_table --timeout 1800` | **35 / 35 killed / 0 survived / 0 not applied**, baseline green, tree clean before and after | **0** | 682.9 | 364.0 | 2485.9 → 2683.9 | `E9_mutation.log` |
+
+`MemAvailable` never fell below **2,194 MB**, always above the 0.5 GB floor;
+the 4 GB cap was never approached (largest peak 364 MB, on the mutation
+harness). No run timed out and no child survived its job.
+
+**Two runs were interrupted by this session's own shell timeout and are not in
+the table**: a first attempt at row 7 (killed at 120 s) and a first attempt at
+row 9 (killed at 600 s). Neither was a guard event — `timed_out` is False on
+every row that completed, and the killed attempts left no telemetry line. The
+interrupted mutation attempt left `analysis/date_tokens.py` carrying an
+O-mutant; it was restored with `git checkout --` and the tree was verified
+clean before row 9 was re-run from the beginning. No orphan process survived
+either kill (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, checked with `tasklist`).
+
+**Not run here, by instruction**: the full default suite, `corpus_gate.py`, the
+corpus-marked slice and the archive-wide sweep. They are the train's, at the
+composed tree (H13).
+
+### H14.7 Privacy of this session's added lines
+
+Measured over `git diff 10cc722..HEAD -U0` excluding `docs/`
+(`privacy_census_code.log`): **3,994 added lines** in code, tests and tools.
+
+* **DATES — full calendar dates whose year the archive could cover (2015–2026),
+  ISO, `M/D/Y` and long form, each verified to be a real calendar date: 0.**
+  Three session-dated sentences that this session had written into
+  `analysis/chase.py` and `tests/test_raise_privacy3.py` were removed in
+  `de768e4` to reach it; the remaining session dates in the diff are in the W3
+  log and in the review file, which are documented as exempt. (The `de768e4`
+  commit message quotes 3,992 added lines: it was measured before that commit's
+  own two-line growth.)
+* **Money-shaped tokens (`\d{1,3}(,\d{3})*\.\d{2}`): 2**, both the same
+  invented textbook placeholder in the mutation harness's E1/E2 payloads,
+  present since `af98349` and disclosed by the review. **0 in analysis and test
+  files.**
+* **8+-hex runs: 0. 7+-digit runs: 0.** (The review file's two `8000000`
+  `ulimit` values are outside this scope and are a wrapper constant.)
+* **Every fixture added by this session is invented**: the four reader fixtures
+  are built from detection markers and column headers already committed in each
+  reader's own source at `10cc722`; account digits are repeated patterns
+  (`'0' * 4`, `'X' * 8`); every figure is rendered from a whole-unit constant at
+  build time so no amount literal enters the tree; every date is 2031; the
+  out-of-range tokens are shapes (`13-40`, `02/30`, `Feb 30, 2031`), never
+  transcriptions. No document is named anywhere in this session's added lines,
+  and no `content_sha256` appears in any fixture.
+
+### H14.8 The `OverflowError` population the train's sweep must contain
+
+The review's note for the train: the widening's only outcome-moving direction
+is crash → `None` (`iso_or_none`, `iso_from_named_month_day`,
+`iso_unique_in_period`, `year_within_period`, `iso_within_period`), because
+crash → refusal cannot move an outcome — a `ValueError` and an `OverflowError`
+are the same `parser_exception` at the seam. The reviewer measured that
+direction as reachable from **16 registrations in 13 modules** at `af98349`.
+
+Reproduced here as an AST census, module-aware (a call resolves to a function
+of the same module or to the name a `from .x import y` brought in; transitive)
+— `overflow_population2.log`, `overflow_population_579.log`:
+
+| tree | registrations reaching crash → `None` | modules |
+|---|---|---|
+| `579f0bb` (pre-closure, the reviewed shape) | **19** | 16 |
+| `de768e4` (closure tree) | **23** | 19 |
+
+The +4 is exactly this closure's own funnel: `chase`, `chase_export`,
+`columbia_bank` and `scotiabank` now call `iso_or_none`. My census and the
+reviewer's disagree by three at the same tree (19 vs 16) and I could not re-run
+theirs; **mine is the wider, and for a sweep population the wider is the one to
+carry.** The 23, by `parser_id`:
+
+`apex_scanned`, `bank_of_america`, `brex`, `chase`, `chase_export`,
+`citibusiness`, `columbia_bank`, `core_processor_counted`,
+`core_processor_daily`, `core_processor_sectioned`, `eq_bank_scanned`,
+`fifth_third`, `fiserv_premier`, `found_lead`, `found_lead_activity`,
+`mercury`, `pnc`, `regions`, `scotiabank`, `southside_scanned`, `td_us`,
+`texas_first_scanned`, `zions`.
+
+For scale, on the same census: the eight widened functions have **60 call sites
+in 33 modules** and **41 of 75 registrations** reach one of them. The family
+replay covers seven of the 23 and the pinned replay covers whatever the 109
+exercise; `tools.regfp_zero_movement_sweep` at the composed tree is what covers
+the rest.
+
+### H14.9 The commits of this closure session
+
+| sha | what |
+|---|---|
+| `548e518` | MAJOR-2: the four sites funnelled and refusing token-free; the four both-tree drives as tests; the four parser-driven poison cells; the implicit-conversion census with its two reasoned lists; `CHAIN_GUARDED`'s chase entry gains `date_refusal` |
+| `c7a42c9` | MAJOR-2: mutants M1–M4, one per site; R10's target text tracks the chase entry |
+| `c455de7` | MINOR-4: the bound is the C `int` (2^31); five source corrections and three in-place W3 corrections inside §HYGIENE8 |
+| `f825a97` | MINOR-5: five invented fixture dates move to 2031 |
+| `588b81d` | MINOR-6 (a)(b)(d): E3/E4 labels, the restated reroute reason, the population checked against the diff |
+| `de768e4` | MINOR-5: three session dates leave the added source lines; the DATES census reaches 0 |
+| *(this one)* | §H14 |
+
+**Production changes in this session are exactly the four MAJOR-2 sites and
+comments.** Verified with an AST comparison of every touched module against
+`579f0bb`, docstrings stripped: `analysis/chase.py` differs only at
+`_parse_chase_business_export` and its `date_tokens` import;
+`analysis/columbia_bank.py` only at `parse_columbia_bank_statement` and its
+import; `analysis/scotia.py` only at `parse_scotiabank_statement`, its import
+and the removed `from datetime import date`; `analysis/scanned_small_bank.py`
+only at `_date_from_mdyy`; **`analysis/date_tokens.py` is docstring-only** and
+`analysis/extract.py` and `webapp/app.py` are byte-identical in AST.
+`git diff 579f0bb HEAD --numstat` at the closure tip: **11 files, +1,379 / −47**, of which `tests/test_raise_privacy3.py` is +775 / −10 and the W3 log +407 / −6 (this §H14 plus MINOR-4's three in-place corrections). The five analysis files together are **+68 / −11**, and every one of those lines is a MAJOR-2 site, its import, or a comment.
+
+### H14.10 What the train owes
+
+H13 stands unchanged — the full default suite, `corpus_gate.py` GREEN at the
+card's floor, the corpus-marked slice, and `tools.regfp_zero_movement_sweep`
+with the 208-sha accounting quarantine applied. This closure adds three
+sentences to it and takes nothing away:
+
+1. **The sweep's population is named in advance and it is 23 registrations, not
+   "all over the registry"** (H14.8). Every `moved` /
+   `no_payload_now_publishes` / `payload_now_raises` finding must be inside the
+   618 named here by `content_sha256`, or inside those 23, or be explained —
+   and for this branch the expected count inside the 618 is **zero**, which is
+   what the family replay measured leaf for leaf on both hosts and now against
+   the run of record itself.
+2. **The three carried echoing readers are a batch-9 card, not a train item**
+   (H14.3): `bmo.py`, `farmers_merchants.py` and `td_can.py` hold eight
+   `date()` calls of the MAJOR-2 class, measured and disclosed in the census's
+   own list. Nothing user-facing carries the digits today, so this is a card
+   and not a hold; but the census now fails loudly if a ninth arrives, and it
+   is the first thing HYGIENE-8b should read.
+3. **`analysis/chase.py` is touched by this closure and by HYGIENE-8b's
+   CHASE-SAVINGS-MARKER** (H12 item 10, H10 row 6). Whoever composes them must
+   keep this closure's funnel, its reader-name rule and its `date_refusal`
+   registration in `CHAIN_GUARDED`.
+
+The mutation table, the poison census, the `OverflowError` census, the pinned
+replay and the family replay are this session's, on this host, with their exit
+codes in H14.6, and they need no re-run at the train.
