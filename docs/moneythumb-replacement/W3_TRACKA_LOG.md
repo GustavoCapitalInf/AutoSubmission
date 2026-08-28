@@ -44849,7 +44849,9 @@ the rest.
 | `f825a97` | MINOR-5: five invented fixture dates move to 2031 |
 | `588b81d` | MINOR-6 (a)(b)(d): E3/E4 labels, the restated reroute reason, the population checked against the diff |
 | `de768e4` | MINOR-5: three session dates leave the added source lines; the DATES census reaches 0 |
-| *(this one)* | §H14 |
+| `1b2a2c1` | §H14, as first written |
+| `063e877` | §H14.6 re-measured at the closure tip (rows 1–7 and 9), and the tree each row ran at stated |
+| *(this one)* | this table completed — a commit cannot name itself before it exists, so the two rows above were written by the commits they name |
 
 **Production changes in this session are exactly the four MAJOR-2 sites and
 comments.** Verified with an AST comparison of every touched module against
