@@ -53753,6 +53753,30 @@ observations for Ocean, neither a finding against the closures:
    the only one on record. The other 40 rows reproduce on this host, with the
    two disclosed survivors unchanged.
 
+## FZ14. The FROST-PERIOD packet's disposition (train 8, Windows host, 2026-08-28)
+
+FZ13 observation 1 stands and is now ruled on rather than carried. FZ7's
+table — under a period DERIVED from two printed labels and two printed
+equalities, ADB would publish on **6** of the nine withheld Frost documents and
+stay withheld on **3** — was produced by `frost_period_packet.py`, an
+instrument that was never committed on `wave8-frostozk` or anywhere else
+(`git ls-files`, exit 0, on both hosts). Nothing else on the branch derives it,
+and the run of record's cache on this host cannot re-derive it either, because
+the derivation is the instrument.
+
+**Disposition (Ocean, train 8):** the figure is downgraded from a measurement
+to an **unverified claim**. Nothing in FROST-OZK's accounting rests on it —
+the cell publishes +8 validated and +9 withheld exactly because it refused to
+derive the period (FZ7's own argument), and FZ12/FZ13 verified that accounting
+without the packet. It bears on ONE thing: the open FROST-PERIOD ruling
+(FZ9 Q1, recommendation REFUSE). That ruling may not cite "6 of 9" until a
+committed, read-only instrument re-derives it against a named run and its
+per-document table is recorded — the same standard §TD17 set for TD3.1 and
+§FZ12 set for the harness. If the ruling is REFUSE, as recommended, the packet
+is never needed; if Gustavo wants it re-argued, the packet is a batch-9 item
+(`FROST-PERIOD-PACKET`, read-only, no production change), not a train item.
+BATCH8_TRANSITION's open-rulings line carries the same words.
+
 # §HYGIENE8 — three non-outcome sub-cards, measured: 734 replays, zero movement, and the mutant that survived
 
 HYGIENE-8a, 2026-08-26. Branch `wave8-hygiene8`, base `10cc722` (main, the
