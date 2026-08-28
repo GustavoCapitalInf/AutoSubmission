@@ -362,3 +362,45 @@ unnamed documents". (C) Stop.
   from the 5.5.0 run) passes the frozen checker: 2,469 / 17 / 72 / 809 / 13
   and no unexplained discrepancy. If not, stop after this attempt → Option B
   drift quarantine. Train 8 waits for Gustavo's review either way.
+
+### Option A — the single Tesseract-5.5.0 attempt (2026-08-28 02:59–03:18Z): equivalence NOT established
+
+Build: tesseract 5.5.0 from the GitHub 5.5.0 tarball (sha256
+`f2fb34ca035b6d087a42875a35a7a5c4155fa9979c6132365b1e5a28ebc3fc11`), prefix
+`~/.local/opt/tesseract-5.5.0`, leptonica 1.87.0 / OpenMP / AVX2 identical to
+the system 5.5.3 build, system install untouched. Run B `06234d16` at
+`302f8f2`: the 208 non-native shas (209 files), `TESSDATA_PREFIX=/usr/share/tessdata`
+(eng `daa0c97d…`, package 4.1.0), poppler 26.07.0, cold `webapp_data_t550`,
+`--skip-baseline` (scoped), `RUN_EXIT=0`, 19 min. Union (`tools/recon_b7_union.py`
+`cd7896a`; native records from run A `47be5963`, the 208 from run B) judged by
+the frozen checker at `30d420e`: **REJECT-DRIFT-CANDIDATE (exit 2)** —
+validated **2,453** (−16) · review 18 (+1) · withheld 73 (+1) · failed 822
+(+13) · deferred 14 (+1); G4 875 covered, native STOP 0, drift 2
+(`2A0B516B2C7D652E` withheld→failed as before, plus `A4C49ACBC03D905D` — a
+PINNED copy, apex_scanned, validated under 5.5.3, failed under 5.5.0).
+
+**A → B (5.5.3 → 5.5.0), 13 documents changed:** validated→failed
+`A4C49ACBC03D905D` (apex), `B60DDD2DBC06A151` (first_farmers),
+`DC3881234577C378`, `E4F5802ECAFE626F` (balance_by_date); validated→withheld
+`FA59082D6A74CC1D` (balance_by_date); failed→validated `95246AAF1A2D7F59`
+(core_processor_sectioned); deferred→failed `08D8D3B6DF17B63B`,
+`BD2A40D672A2A5CC`; failed→deferred `1C6CB4078AC0644C`, `DD86C0D6724662AD`;
+reason-only `337FE9AA2F7750D6`, `3E907CEFE6B6F4B4`, `71864C4034B5CADD`.
+**None of the 16 confirmed drift documents returned to its batch-7 outcome
+under 5.5.0.** Conclusion: the batch-7 divergence is not the Tesseract binary
+version; it lies in the unrecorded parts of the Windows OCR environment
+(tessdata variant/version, rasterization) — which, per the boundary, are not
+reconstructed. The 5.5.0 build, its cache and run B are retained for the
+record and used for nothing.
+
+**Option B — proposed drift quarantine (Gustavo to confirm):** the train-8
+comparison base is run A `47be5963` (Tesseract 5.5.3 = this host's system
+toolchain, the same one train 8 will use). Quarantine set = the **208
+non-native shas** of run A (`.claude/recovery/corpus_nonnative_208.shas`; 178
+local_tesseract + 30 none), with the 16 confirmed + 1 probable named drift
+documents as its known-drifted subset. In the recon → train-8 comparison,
+any movement on a quarantined sha is reported in its own table, named by sha,
+and never counted as a batch-8 improvement or regression; native-side movement
+is judged as usual. The batch-7 reproduction is stated as: native side exact
+by every durable record (875/875, zero native detection loss); scanned side
+drifted by 16 named + 6 unnamed documents.
