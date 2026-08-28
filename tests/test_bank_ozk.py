@@ -370,14 +370,24 @@ def test_the_row_cap_refuses_a_day_the_other_two_budgets_would_allow():
     The case is chosen so ONLY this budget can fire — the day has a single
     solution found on the first path, so neither the node budget nor the
     solution cap is reached. One row fewer and the same day is solved.
+
+    The fixture is bounded by the INTENDED cap, never derived from the module's
+    constant: a mutant that raises `_MAX_DAY_ROWS` is caught by the 65-row day
+    being SOLVED where it must be refused — a plain assertion on ~130 nodes —
+    and not by the allocation a constant-derived fixture would attempt
+    (2026-08-28: `[100] * (10**9 + 1)` under mutant O21 took a 32 GB host down
+    three times; a `MemoryError` is a resource kill, not a proof). The constant
+    is pinned last, so a moved cap fails on behaviour before it fails on value.
     """
     from analysis.bank_ozk import _MAX_DAY_ROWS, _day_solutions
 
-    over = _MAX_DAY_ROWS + 1
+    intended_cap = 64            # the documented bound; the busiest archive day carries 15 rows
+    over = intended_cap + 1
     assert _day_solutions([100] * over, over * 100) is None
-    assert _day_solutions([100] * _MAX_DAY_ROWS, _MAX_DAY_ROWS * 100) == [
-        frozenset(range(_MAX_DAY_ROWS))
+    assert _day_solutions([100] * intended_cap, intended_cap * 100) == [
+        frozenset(range(intended_cap))
     ]
+    assert _MAX_DAY_ROWS == intended_cap
 
 
 def test_the_node_budget_stops_a_walk_the_other_two_budgets_would_allow():
