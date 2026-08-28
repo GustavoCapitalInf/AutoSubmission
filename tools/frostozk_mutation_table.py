@@ -44,6 +44,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import resource
+import signal
 import subprocess
 import sys
 import time
@@ -574,12 +577,119 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
-def _run_suites() -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+# ---------------------------------------------------------------------------
+# Execution guards (2026-08-28, Gustavo's blocker). Mutant O21 raises the
+# per-day row cap to 10**9 and the row-cap test builds its fixture from the
+# mutated constant: `[100] * (10**9 + 1)`, a second list of that size and ~10**9
+# int objects — 30+ GB, and Linux overcommit let it reach the whole host. None
+# of this changes what is mutated or how a verdict is scored: the same MUTANTS,
+# the same two suites, one mutant at a time, a kill is still and only a named
+# failing test. What changes is that the child cannot take the host with it.
+# ---------------------------------------------------------------------------
+
+#: Address-space cap for the pytest child (RLIMIT_AS). The unmutated suites
+#: peak at 85 MB RSS; an allocation the mutant makes impossible to honour
+#: raises MemoryError inside the test instead of growing the process.
+DEFAULT_MEM_CAP_GB = 4
+#: Hard wall-clock limit per mutant; the child's whole process group is killed
+#: and reaped, and the mutant is reported TIMEOUT — never scored as a kill.
+DEFAULT_TIMEOUT_S = 600
+#: Refuse to start a mutant, and abort a running one, when the host's
+#: MemAvailable falls under this.
+DEFAULT_MIN_AVAILABLE_GB = 8
+
+
+def _mem_available_gb() -> float:
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1048576
+    except OSError:
+        pass
+    return float("nan")
+
+
+def _child_peak_rss_mb(pid: int) -> float | None:
+    try:
+        for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1]) / 1024
+    except OSError:
+        return None
+    return None
+
+
+class _Run:
+    """What `_run_suites` returns: the CompletedProcess shape the verdict logic
+    reads (`returncode`, `stdout`) plus the execution telemetry."""
+
+    def __init__(self, returncode, stdout, *, timed_out=False, aborted_memory=False,
+                 peak_rss_mb=None, seconds=0.0, mem_before_gb=None, mem_after_gb=None):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.timed_out = timed_out
+        self.aborted_memory = aborted_memory
+        self.peak_rss_mb = peak_rss_mb
+        self.seconds = seconds
+        self.mem_before_gb = mem_before_gb
+        self.mem_after_gb = mem_after_gb
+
+    def telemetry(self) -> dict:
+        return {"peak_rss_mb": self.peak_rss_mb, "seconds": round(self.seconds, 1),
+                "mem_available_before_gb": self.mem_before_gb,
+                "mem_available_after_gb": self.mem_after_gb,
+                "timed_out": self.timed_out, "aborted_memory": self.aborted_memory}
+
+
+def _run_suites(*, mem_cap_gb: float = DEFAULT_MEM_CAP_GB, timeout_s: float = DEFAULT_TIMEOUT_S,
+                min_available_gb: float = DEFAULT_MIN_AVAILABLE_GB) -> _Run:
+    """The two gate suites, in ONE child, sequentially, under a hard address-space
+    cap and a hard timeout, with the child's peak RSS and the host's available
+    memory recorded. No workers: `-p no:xdist` is passed even though xdist is
+    not installed, so a future install cannot parallelise this silently."""
+    cap = int(mem_cap_gb * (1 << 30))
+
+    def limit() -> None:
+        resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
+
+    before = _mem_available_gb()
+    if before < min_available_gb:
+        return _Run(None, "", aborted_memory=True, mem_before_gb=round(before, 1),
+                    mem_after_gb=round(before, 1))
+    started = time.monotonic()
+    proc = subprocess.Popen(
         [sys.executable, "-m", "pytest", *TESTS, "-q", "--no-header",
-         "-p", "no:cacheprovider", "--tb=no", "-rf"],
-        cwd=ROOT, capture_output=True, text=True, check=False,
+         "-p", "no:cacheprovider", "-p", "no:xdist", "--tb=no", "-rf"],
+        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        start_new_session=True, preexec_fn=limit,
     )
+    peak = 0.0
+    timed_out = aborted = False
+    import threading
+    chunks: list[str] = []
+    reader = threading.Thread(target=lambda: chunks.append(proc.stdout.read()), daemon=True)
+    reader.start()
+    while proc.poll() is None:
+        rss = _child_peak_rss_mb(proc.pid)
+        if rss is not None:
+            peak = max(peak, rss)
+        if time.monotonic() - started > timeout_s:
+            timed_out = True
+        elif _mem_available_gb() < min_available_gb:
+            aborted = True
+        if timed_out or aborted:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            break
+        time.sleep(0.2)
+    proc.wait()                      # reap the child (and, via the session, its group)
+    reader.join(timeout=5)
+    after = _mem_available_gb()
+    return _Run(proc.returncode, "".join(chunks), timed_out=timed_out, aborted_memory=aborted,
+                peak_rss_mb=round(peak, 1), seconds=time.monotonic() - started,
+                mem_before_gb=round(before, 1), mem_after_gb=round(after, 1))
 
 
 def _killers(stdout: str) -> list[str]:
@@ -593,26 +703,63 @@ def _killers(stdout: str) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--checkpoint", type=Path, default=None,
+                        help="JSON written after EVERY mutant; --resume continues from it")
+    parser.add_argument("--resume", action="store_true",
+                        help="skip mutants already recorded in --checkpoint")
+    parser.add_argument("--only", nargs="*", default=None,
+                        help="run only these mutant ids (execution subset; the table is still the whole MUTANTS)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="check every anchor occurs exactly once and exit; runs no pytest")
+    parser.add_argument("--mem-cap-gb", type=float, default=DEFAULT_MEM_CAP_GB)
+    parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_S)
+    parser.add_argument("--min-available-gb", type=float, default=DEFAULT_MIN_AVAILABLE_GB)
     args = parser.parse_args(argv)
+    guards = dict(mem_cap_gb=args.mem_cap_gb, timeout_s=args.timeout_seconds,
+                  min_available_gb=args.min_available_gb)
+
+    if args.dry_run:
+        bad = 0
+        for mutant_id, relative, description, replacements, implied_by in MUTANTS:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            misses = [before for before, _after in replacements if text.count(before) != 1]
+            print(f"{mutant_id:4} {relative:28} {'anchors ok' if not misses else 'ANCHOR MISSING'}  {description}")
+            bad += bool(misses)
+        print(f"dry run: {len(MUTANTS)} mutants, {bad} with a missing anchor; no pytest was run")
+        return 1 if bad else 0
 
     if _dirty():
         print("refusing to run on a dirty tree:\n" + _dirty(), file=sys.stderr)
         return 2
 
-    baseline = _run_suites()
+    done: dict[str, dict] = {}
+    if args.resume and args.checkpoint is not None and args.checkpoint.is_file():
+        done = {row["mutant"]: row for row in json.loads(args.checkpoint.read_text(encoding="utf-8")).get("rows", [])}
+        print(f"RESUME: {len(done)} mutants already recorded in {args.checkpoint}")
+
+    baseline = _run_suites(**guards)
     if baseline.returncode != 0:
         print("the two gate suites must pass unmutated first", file=sys.stderr)
+        print(json.dumps(baseline.telemetry()), file=sys.stderr)
         print(baseline.stdout[-3000:], file=sys.stderr)
         return 2
-    print("BASELINE green:", baseline.stdout.strip().splitlines()[-1])
+    print("BASELINE green:", baseline.stdout.strip().splitlines()[-1], json.dumps(baseline.telemetry()))
 
-    rows: list[dict[str, object]] = []
-    survivors: list[str] = []
-    undisclosed: list[str] = []
-    not_applied: list[str] = []
-    invalid: list[str] = []
+    rows: list[dict[str, object]] = [done[m] for m, *_ in MUTANTS if m in done]
+    survivors: list[str] = [r["mutant"] for r in rows if str(r["verdict"]).startswith("SURVIVED")]
+    undisclosed: list[str] = [r["mutant"] for r in rows if r["verdict"] == "SURVIVED" and not r.get("implied_by")]
+    not_applied: list[str] = [r["mutant"] for r in rows if r["verdict"] == "NOT-APPLIED"]
+    invalid: list[str] = [r["mutant"] for r in rows if r["verdict"] == "INVALID"]
+    unscored: list[str] = [r["mutant"] for r in rows if r["verdict"] in ("TIMEOUT", "ABORTED-MEMORY")]
+
+    def checkpoint() -> None:
+        if args.checkpoint is not None:
+            args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            args.checkpoint.write_text(json.dumps({"rows": rows}, indent=1), encoding="utf-8")
 
     for mutant_id, relative, description, replacements, implied_by in MUTANTS:
+        if mutant_id in done or (args.only and mutant_id not in args.only):
+            continue
         path = ROOT / relative
         original = path.read_text(encoding="utf-8")
         expected = original
@@ -653,13 +800,30 @@ def main(argv: list[str] | None = None) -> int:
                          "killed_by": [], "implied_by": implied_by})
             continue
 
-        run = _run_suites()
+        run = _run_suites(**guards)
         killers = _killers(run.stdout)
         collection_error = "error" in (run.stdout.strip().splitlines() or [""])[-1].lower()
         _git("checkout", "--", relative)
         if _dirty():
             print(f"{mutant_id}: the tree did not restore:\n{_dirty()}", file=sys.stderr)
+            checkpoint()
             return 2
+
+        if run.timed_out or run.aborted_memory:
+            # An execution limit fired. This is NOT evidence about the gate —
+            # not a kill, not a survival — so it is reported on its own and
+            # the run exits non-zero until every mutant has a real verdict.
+            verdict = "TIMEOUT" if run.timed_out else "ABORTED-MEMORY"
+            unscored.append(mutant_id)
+            rows.append({"mutant": mutant_id, "file": relative, "disables": description,
+                         "verdict": verdict, "killed_by": [], "implied_by": implied_by,
+                         "telemetry": run.telemetry()})
+            print(f"{mutant_id}  {verdict}  {description}  {json.dumps(run.telemetry())}")
+            checkpoint()
+            if run.aborted_memory:
+                print("aborting: host available memory is under the safe threshold", file=sys.stderr)
+                return 3
+            continue
 
         if collection_error and not killers:
             invalid.append(mutant_id)
@@ -674,12 +838,13 @@ def main(argv: list[str] | None = None) -> int:
 
         rows.append({"mutant": mutant_id, "file": relative, "disables": description,
                      "verdict": verdict.split(" ")[0], "killed_by": killers,
-                     "implied_by": implied_by})
-        print(f"{mutant_id}  {verdict}  {description}")
+                     "implied_by": implied_by, "telemetry": run.telemetry()})
+        print(f"{mutant_id}  {verdict}  {description}  {json.dumps(run.telemetry())}")
         for killer in killers:
             print(f"        {killer}")
         if not killers and implied_by:
             print(f"        implied by: {implied_by}")
+        checkpoint()
 
     report = {
         "mutants": len(MUTANTS),
@@ -688,6 +853,7 @@ def main(argv: list[str] | None = None) -> int:
         "survivors_undisclosed": undisclosed,
         "not_applied": not_applied,
         "invalid": invalid,
+        "unscored_execution_limits": unscored,
         "rows": rows,
     }
     if args.out is not None:
@@ -695,10 +861,10 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(
         {key: report[key] for key in
          ("mutants", "killed", "survivors_disclosed_as_implied",
-          "survivors_undisclosed", "not_applied", "invalid")},
+          "survivors_undisclosed", "not_applied", "invalid", "unscored_execution_limits")},
         sort_keys=True,
     ))
-    return 1 if (undisclosed or not_applied or invalid) else 0
+    return 1 if (undisclosed or not_applied or invalid or unscored) else 0
 
 
 if __name__ == "__main__":
