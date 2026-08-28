@@ -847,7 +847,11 @@ def test_the_ocr_stage_version_bump_invalidates_pre_o3_entries(cache, monkeypatc
     # 2 -> 3: GEOM-1, the native rung's Woodforest column read appends a block
     # to that family's markdown, and a v2 entry would keep serving the
     # flattened text the block exists to replace.
-    assert OCR_STAGE_VERSION == 3
+    # 3 -> 4: DESC-COLUMNS (batch-8 train), the native rung's printed-row
+    # extraction behind the fail-closed furniture gate rotates the analysis
+    # input of the core-processor complex; a v3 entry would keep serving the
+    # pre-rung markdown. Global, like v3; the cold run re-reads the archive.
+    assert OCR_STAGE_VERSION == 4
     calls = []
 
     def compute():

@@ -284,7 +284,17 @@ CACHE_FORMAT_VERSION = 1
 #: it. Vendor cost stays $0.00 — the native rung makes no model calls — but the
 #: wall clock is paid again. Recorded here because the cost is real and was
 #: chosen, not overlooked.
-OCR_STAGE_VERSION = 3
+#: v4 (DESC-COLUMNS, coverage-wave batch 8): the native rung gained the
+#: printed-row extraction behind the fail-closed furniture gate (G9) and the
+#: never-raise guard, which changes the analysis INPUT of the core-processor
+#: complex for unchanged settings (83 documents claimed, 6 payload movers on
+#: the 7 counted, 0 raises) — a v3 entry would keep serving the pre-rung
+#: markdown and the change would be invisible on a warm cache. GLOBAL by
+#: construction, as v3 was: every cached OCR artifact is invalidated and the
+#: train-8 cold run re-reads the archive (the local Tesseract rung's wall
+#: clock is paid again; vendor cost stays $0.00). One composed bump before the
+#: round's measurement, taken on the same host as the batch-7 control run.
+OCR_STAGE_VERSION = 4
 #: Bump when the analysis pipeline's output changes for unchanged settings.
 # 1 -> 2: Track A cell 1 (chase variant completeness, merge of b70496c)
 # changed chase extraction output for unchanged settings — cached chase
@@ -402,7 +412,28 @@ OCR_STAGE_VERSION = 3
 # eq_bank_scanned registration (+3 withheld); PRIVACY-3 and ATB-MEASURE move
 # nothing. Registry 74 -> 75. One composed bump before the round's
 # measurement.
-ANALYSIS_STAGE_VERSION = 15
+# 15 -> 16: composed — coverage-wave batch 8 (twelve reviewed merges + train
+# compositions). The registry grows 75 -> 83 (core_processor_signed_counts,
+# core_processor_activity_summary, welch_state_bank, lili, bank_ozk, frost,
+# core_processor_enclosures, category_partition) — which the registry
+# fingerprint in the settings key captures on its own; the bump's load-bearing
+# reasons are the parse-BODY changes the key material does not capture:
+# WITHHELD-TD (td_canada_native / td_canada_french / td_us: +11 withheld ->
+# validated, row-level signs); WITHHELD-GRIDS (the source posting-date rules
+# tightened archive-wide, +16 withheld -> validated, one diagnostic leaf on the
+# pinned ibc document — an accepted, named move); CP-SECTIONED-SCAN (three
+# grammar corrections on the two shared scanned readers, 0 movement measured
+# over 135 documents); SCAN-HYGIENE (integrity checks on three registrations:
+# 8 withheld payload movers, flags/notes/risk/quality only); DESC-COLUMNS (the
+# native-text rung rotates the analysis INPUT: 6 payload movers, descriptions
+# only — the OCR v4 bump above); CORE-ENCLOSURES (three supersedes edges over
+# burke_herbert / farmers_merchants / linkbank) and GLANCE (a supersedes edge
+# from wilson_muir) re-route documents between readers; HYGIENE-8a (refusal
+# messages stop carrying document tokens; 0 payload movement by measurement);
+# CORE-ISSUES-2 / WELCH / LILI / FROST-OZK claim only documents no reader
+# claimed before. Batch total claimed, uncomposed: +129 validated. One
+# composed bump before the round's measurement.
+ANALYSIS_STAGE_VERSION = 16
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
