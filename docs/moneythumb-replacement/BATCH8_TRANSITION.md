@@ -436,3 +436,34 @@ hostile review → closures; one expensive session at a time; host otherwise
 idle; no train-8 cold run until the pre-run summary (final composed commit,
 registry/version state, comparable and quarantine sha counts, the exact
 comparison/reporting logic, the floor, the exact command) is reviewed.
+
+### 2026-08-28 — FROST-OZK harness: the 32 GB blocker, root cause, execution guards (`dfe95a6` on `wave8-frostozk`)
+
+Three consecutive host crashes while running `tools.frostozk_mutation_table`
+in the frostozk worktree (each left a mutant applied — restored from the index
+with `git checkout -- .` before anything else). Gustavo measured RAM at ~32/32
+GB. **Root cause (exact):** mutant **O21** sets `_MAX_DAY_ROWS = 10 ** 9`; the
+row-cap test reads the mutated constant and builds its fixture as
+`[100] * (_MAX_DAY_ROWS + 1)` — a 1,000,000,001-element list (~8 GB), the
+solver's `suffix` list of the same size (~8 GB) and ~10⁹ distinct int objects
+(~28 GB). Pure allocation, not recursion; Linux overcommit let it grow to the
+host's size. The harness itself is strictly sequential (one `pytest` child per
+mutant, no xdist — not installed — no archive, no raster, no Tesseract/poppler:
+the two gate suites are 84 invented-fixture tests that peak at **85 MB RSS in
+0.9 s** unmutated). O22/O23 (node and solution budgets) are CPU-bounded and
+small. W3 §FZ6 records O21 as KILLED by that same test on the Windows box.
+
+**Execution-only guards (no semantic change; MUTANTS, TESTS and scoring
+byte-identical, verified by diff hunk ranges + `--dry-run` 41/41 anchors):**
+RLIMIT_AS 4 GB on the pytest child (an impossible allocation raises MemoryError
+inside the test → the test fails → KILLED by the named test); `-p no:xdist`;
+one mutant at a time in its own process session; 600 s hard timeout with
+process-group SIGKILL and reap; MemAvailable floor 8 GB — refuse to start and
+abort mid-run below it; per-mutant peak RSS (VmHWM) and MemAvailable
+before/after recorded on every row; checkpoint JSON after every mutant with
+`--resume`; `--only` / `--dry-run`. TIMEOUT / ABORTED-MEMORY rows are
+reported separately and never scored as kills; the harness exits non-zero
+until every mutant has a real verdict. Max concurrent processes: 2 (the
+harness + one pytest child; a transient `git checkout` between mutants).
+Expected peak: ≤ 85 MB per ordinary mutant, ≤ 4 GB (the cap) on O21.
+Awaiting Gustavo's go before any execution.
