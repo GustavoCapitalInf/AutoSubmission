@@ -13,7 +13,8 @@ from datetime import date
 #: `tests/test_no_parser_helper_clones.py`'s debt register alongside the
 #: `td_canada_french` -> `td_can` pair, which is the same situation.
 from .chase_savings import _grid_lines, _grid_rows, _transaction
-from .date_tokens import iso_from_month_day, period_from_long_dates
+from .date_tokens import (
+    date_refusal, iso_from_month_day, iso_or_none, period_from_long_dates)
 from .money import MINUS_CLASS, money_refusal, parse_digit_scrubbed, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -175,7 +176,21 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
         date_match = row_date_re.match(line)
         if date_match:
             raw_month, raw_day, raw_year, line = date_match.groups()
-            current_date = date(int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))
+            # REVIEW MAJOR-2, the "site 6" class in this file: `row_date_re`
+            # proves the token's SHAPE and nothing more, so a printed
+            # `Feb 30, 2031` reaches `date()`, whose ValueError echoes the
+            # printed day, month and year. Funnelled through `iso_or_none` and
+            # refused from OUTSIDE the funnel, so nothing is chained and
+            # nothing is quoted; the class stays `ValueError`, so this document
+            # refuses exactly as it refused before.
+            iso = iso_or_none(
+                int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))
+            if iso is None:
+                raise date_refusal(
+                    "chase._parse_chase_business_export",
+                    f"{raw_month} {raw_day}, {raw_year}",
+                )
+            current_date = date.fromisoformat(iso)
         money_matches = list(re.finditer(_EXPORT_AMOUNT_RE, line))
         if current_date is None or len(money_matches) < 2:
             wrapped_cell = "" if money_matches else line

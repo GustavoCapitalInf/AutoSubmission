@@ -543,7 +543,7 @@ CHAIN_GUARDED = {
     # `date_tokens.parsed_datetime` - and they are registered anyway for the
     # same reason bmo and farmers_merchants were: the guard's job is the raise
     # that ARRIVES, and a period reader is exactly where the next one lands.
-    "analysis/chase.py": frozenset({"money_refusal"}),
+    "analysis/chase.py": frozenset({"money_refusal", "date_refusal"}),
     "analysis/scanned_small_bank.py": frozenset({"money_refusal", "date_refusal"}),
     "analysis/columbia_bank.py": frozenset({"money_refusal", "date_refusal"}),
     "analysis/scotia.py": frozenset({"money_refusal", "date_refusal"}),

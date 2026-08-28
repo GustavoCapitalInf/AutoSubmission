@@ -137,7 +137,17 @@ def _leaking_surfaces(exc: BaseException, token: str, canary: str, runs) -> list
 
 
 def _sites(package: str):
-    """The six rerouted sites, resolved inside one analysis package."""
+    """The rerouted sites, resolved inside one analysis package.
+
+    Six at `af98349`, ELEVEN here: review MAJOR-2 found four more `date()`
+    sites of the site-6 class standing in the same four modules, and the four
+    drives that reach them through the real reader are the census's new cells.
+    They are imported from `tests/test_raise_privacy3.py` rather than restated,
+    the way `_leaking_surfaces` imports the leak rule: a second copy of a drive
+    is a second thing to keep in step.
+    """
+    from tests.test_raise_privacy3 import major2_drives
+
     chase = importlib.import_module(f"{package}.chase")
     scanned = importlib.import_module(f"{package}.scanned_small_bank")
     date_tokens = importlib.import_module(f"{package}.date_tokens")
@@ -150,7 +160,12 @@ def _sites(package: str):
     def scotia_parser(token: str):
         return scotia.parse_scotiabank_statement(SCOTIA_FIXTURE.format(token=token))
 
+    rows = {
+        f"{site}<row>": (call, "row", "parser")
+        for site, call in major2_drives(package).items()
+    }
     return {
+        **rows,
         # site name -> (callable, token kind, drive)
         "chase._money_required": (chase._money_required, "money", "seam"),
         "scanned_small_bank._money": (scanned._money, "money", "seam"),
@@ -184,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(repo))
 
     from tests.test_privacy3_boundaries import CANARY, DIGITS, POISONED_DATE_TOKENS, _digit_runs
-    from tests.test_raise_privacy3 import POISONED_MONEY_TOKENS
+    from tests.test_raise_privacy3 import MAJOR2_ROW_TOKENS, POISONED_MONEY_TOKENS
     from tools.hygiene8_base_tree import load_base_analysis
 
     base = load_base_analysis(args.base, repo=repo, scratch=args.scratch)
@@ -211,12 +226,20 @@ def main(argv: list[str] | None = None) -> int:
                 tokens = dict(POISONED_MONEY_TOKENS)
             elif kind == "date":
                 tokens = dict(POISONED_DATE_TOKENS)
+            elif kind == "row":
+                tokens = dict(MAJOR2_ROW_TOKENS[site.removesuffix("<row>")])
             else:
                 index = 0 if site.startswith("columbia") else 1
                 tokens = {name: pair[index] for name, pair in poisoned_periods.items()}
             for shape, token in sorted(tokens.items()):
                 cells += 1
-                runs = set(_digit_runs(token))
+                # A printed MONTH or DAY is a TWO-digit run, and the module's
+                # default floor is three: `month must be in 1..12, not 13`
+                # would be invisible to this census at the three-digit floor,
+                # which is exactly the leak review MAJOR-2 named. The floor
+                # drops for the row cells and nowhere else, so the six original
+                # sites' counts are the ones H4.1 recorded.
+                runs = set(_digit_runs(token, 2 if kind == "row" else 3))
                 try:
                     call(token)
                 except BaseException as exc:  # noqa: BLE001 - the whole point

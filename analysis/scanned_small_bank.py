@@ -78,8 +78,17 @@ def _iso(value: str) -> str:
 
 
 def _date_from_mdyy(value: str, *, year: int) -> str:
+    # REVIEW MAJOR-2, `_iso`'s leak standing again twenty lines below the fix:
+    # the caller's `(\d{1,2}/\d{2})` proves the token's SHAPE and nothing more,
+    # so a row printed `13/40` reaches `date()`, whose ValueError echoes the
+    # printed month. Same funnel and same refusal as `_iso` above, raised from
+    # OUTSIDE the funnel, and still a `ValueError` so the four handlers in this
+    # module keep catching it.
     month, day = [int(part) for part in value.split("/", 1)]
-    return date(year, month, day).isoformat()
+    iso = iso_or_none(year, month, day)
+    if iso is None:
+        raise date_refusal("scanned_small_bank._date_from_mdyy", value)
+    return iso
 
 
 def _daily_balances(markdown: str) -> dict[str, float]:
