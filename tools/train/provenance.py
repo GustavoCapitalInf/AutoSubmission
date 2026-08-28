@@ -156,7 +156,19 @@ def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corp
     python = sys.executable
     tesseract = shutil.which("tesseract")
     pdftoppm = shutil.which("pdftoppm")
-    tree_probe = _run([python, "-c", _TREE_PROBE, str(root)], cwd=checkout, timeout=900)
+    # The probe imports the tree's cache module, which materialises its data
+    # directory on import; point it at a throwaway so the REAL cache directory
+    # is only ever measured here (its cold posture must be observed, not made).
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="provenance-probe-") as throwaway:
+        probe_env = {**os.environ, "WEBAPP_DATA_DIR": throwaway}
+        try:
+            completed = subprocess.run([python, "-c", _TREE_PROBE, str(root)], cwd=checkout,
+                                       capture_output=True, text=True, timeout=900, env=probe_env)
+            tree_probe = {"exit": completed.returncode, "stdout": completed.stdout.strip(),
+                          "stderr": completed.stderr.strip()[-2000:]}
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            tree_probe = {"exit": None, "error": f"{type(exc).__name__}: {exc}"}
     try:
         tree = json.loads(tree_probe["stdout"]) if tree_probe.get("exit") == 0 else {"error": tree_probe}
     except json.JSONDecodeError:
