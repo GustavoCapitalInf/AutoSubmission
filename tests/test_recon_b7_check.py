@@ -15,15 +15,18 @@ SHA = {name: (name * 64)[:64].upper() for name in "ABCDEF"}
 
 def _run_dir(tmp_path: Path, docs: dict[str, tuple[str, str]], *, registration_count=75,
              dedup=(0, 0), inventory=None, mode="scanned") -> Path:
-    """docs: sha -> (outcome_class, source_path)."""
+    """docs: sha -> (outcome_class, source_path). A `none` intake rung models a
+    document whose dispatch never ran: `source: unavailable`, count 0."""
     run = tmp_path / "run"
     run.mkdir()
     with (run / "telemetry.jsonl").open("w", encoding="utf-8") as handle:
         for sha, (outcome, path) in docs.items():
+            dispatched = path != "none"
             handle.write(json.dumps({
                 "run_id": "t", "document": {"content_sha256": sha},
                 "outcome": {"class": outcome, "reason": "x"},
-                "dispatch": {"registration_count": registration_count, "source": "live"},
+                "dispatch": {"registration_count": registration_count if dispatched else 0,
+                             "source": "live" if dispatched else "unavailable"},
                 "source": {"path": path},
             }) + "\n")
     with (run / "rows.csv").open("w", encoding="utf-8", newline="") as handle:
@@ -192,3 +195,13 @@ def test_render_names_documents_by_sha16_only(tmp_path, small_record):
     text = rc.render(report, run_dir="r")
     assert SHA["C"][:16] in text and SHA["C"] not in text and ".pdf" not in text
     assert "REJECT-DRIFT-CANDIDATE" in text
+
+
+def test_undispatched_records_do_not_enter_the_registration_count_check(tmp_path, small_record):
+    """17 invalid + 14 deferred documents carry `registration_count: 0` with
+    `dispatch.source: unavailable`; the rule counts DISPATCHED records only."""
+    run = _run_dir(tmp_path, {SHA["A"]: ("validated", "native"), SHA["B"]: ("withheld", "native"),
+                              SHA["C"]: ("failed", "none")})
+    report = _check(run)
+    name, expected, actual, ok = next(row for row in report.g3 if row[0] == "registration_count")
+    assert actual == {75: 2} and ok

@@ -307,7 +307,14 @@ def load_run_view(run_dir: Path) -> RunView:
         except json.JSONDecodeError:
             continue
         dispatch = record.get("dispatch") or {}
-        if "registration_count" in dispatch:
+        # Only DISPATCHED records carry a meaningful registry size: a document
+        # whose dispatch never ran (`invalid_pdf`, `deferred_visual_ocr`)
+        # records `source: unavailable` and a count of 0. The frozen rule reads
+        # "75 on every dispatched record"; the first implementation counted the
+        # undispatched records too (31 = 17 invalid + 14 deferred on the
+        # regenerated run) and tripped on them. Corrected 2026-08-28 with
+        # Gustavo's OK; G3's outcome checks, G4 and G5 are untouched.
+        if "registration_count" in dispatch and dispatch.get("source") != "unavailable":
             counts[dispatch["registration_count"]] += 1
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     return RunView(outcome, source_path, parser_id, summary, counts, rows)
