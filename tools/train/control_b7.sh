@@ -53,14 +53,14 @@ echo "PROVENANCE_PRE_EXIT=$?" >> "$LOG"
 cd "$WT" || exit 9
 case " $STAGES " in *" g1 "*)
   echo "=== g1 dry run ===" >> "$LOG"
-  python "$TRAIN/tools/train/winrun.py" --cap-gb "${CAP_GB:-6}" --timeout 3600 --floor-gb "${FLOOR_GB:-1.0}" \
+  python "$TRAIN/tools/train/winrun.py" --cap-gb "${CAP_GB:-6}" --timeout 3600 --floor-gb "${FLOOR_GB:-4.0}" \
     --log "$LOG.winrun.jsonl" --label "control-b7-g1-dryrun" -- \
     python -m discovery --dry-run --root "$ROOT" --out "$OUT" --quiet >> "$LOG" 2>&1
   echo "DRYRUN_EXIT=$?" >> "$LOG" ;;
 esac
 case " $STAGES " in *" g2 "*)
   echo "=== g2 corpus gate ===" >> "$LOG"
-  python "$TRAIN/tools/train/winrun.py" --cap-gb "${CAP_GB:-6}" --timeout 3600 --floor-gb "${FLOOR_GB:-1.0}" \
+  python "$TRAIN/tools/train/winrun.py" --cap-gb "${CAP_GB:-6}" --timeout 3600 --floor-gb "${FLOOR_GB:-4.0}" \
     --log "$LOG.winrun.jsonl" --label "control-b7-g2-gate" -- \
     python corpus_gate.py >> "$LOG" 2>&1
   echo "GATE_EXIT=$?" >> "$LOG" ;;
@@ -69,7 +69,7 @@ NEW=""
 case " $STAGES " in *" g3 "*)
   echo "=== g3 full cold run ===" >> "$LOG"
   before=$(ls -1d "$OUT"/*/ 2>/dev/null | sort)
-  python "$TRAIN/tools/train/winrun.py" --cap-gb "${CAP_GB:-10}" --timeout "${RUN_TIMEOUT:-28800}" --floor-gb "${FLOOR_GB:-1.0}" \
+  python "$TRAIN/tools/train/winrun.py" --cap-gb "${CAP_GB:-10}" --timeout "${RUN_TIMEOUT:-28800}" --floor-gb "${FLOOR_GB:-4.0}" \
     --log "$LOG.winrun.jsonl" --label "control-b7-g3-scanned" -- \
     python -m discovery --scanned --root "$ROOT" --out "$OUT" --quiet >> "$LOG" 2>&1
   echo "RUN_EXIT=$?" >> "$LOG"

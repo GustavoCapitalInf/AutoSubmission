@@ -68,7 +68,7 @@ echo "PROVENANCE_PRE_EXIT=$?" >> "$LOG"
 
 before=$(ls -1d "$OUT"/*/ 2>/dev/null | sort)
 python tools/train/winrun.py --cap-gb "${CAP_GB:-10}" --timeout "${RUN_TIMEOUT:-28800}" \
-  --floor-gb "${FLOOR_GB:-1.0}" --log "$LOG.winrun.jsonl" --label "train8-coldrun-$TREE" -- \
+  --floor-gb "${FLOOR_GB:-4.0}" --log "$LOG.winrun.jsonl" --label "train8-coldrun-$TREE" -- \
   python -m discovery --scanned --root "$ROOT" --out "$OUT" --quiet >> "$LOG" 2>&1
 echo "RUN_EXIT=$?" >> "$LOG"
 after=$(ls -1d "$OUT"/*/ | sort)
