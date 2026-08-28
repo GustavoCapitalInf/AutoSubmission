@@ -74,7 +74,7 @@ case " $STAGES " in *" g3 "*)
     python -m discovery --scanned --root "$ROOT" --out "$OUT" --quiet >> "$LOG" 2>&1
   echo "RUN_EXIT=$?" >> "$LOG"
   after=$(ls -1d "$OUT"/*/ | sort)
-  for d in $(comm -13 <(echo "$before") <(echo "$after") | sed 's#/$##'); do
+  while IFS= read -r d; do
     if python - "$d" <<'PY'
 import json, sys
 summary = json.load(open(sys.argv[1] + "/summary.json", encoding="utf-8"))
@@ -82,8 +82,8 @@ documents = sum((summary.get("classification") or {}).values())
 sys.exit(0 if documents >= 3400 else 1)
 PY
     then NEW="$d"; fi
-  done
-  echo "NEW_RUN_DIR=$NEW" >> "$LOG"
+  done < <(comm -13 <(echo \"$before\") <(echo \"$after\") | sed 's#/$##')
+  echo \"NEW_RUN_DIR=$NEW\" >> "$LOG"
   if [ -n "$NEW" ]; then
     python "$TRAIN/tools/train/provenance.py" --checkout "$WT" --root "$ROOT" --data-dir "$COLD" \
       --label "control-b7-post $B7" --out "$NEW/provenance.json" >> "$LOG" 2>&1

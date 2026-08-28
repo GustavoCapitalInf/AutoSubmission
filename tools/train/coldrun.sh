@@ -74,7 +74,7 @@ echo "RUN_EXIT=$?" >> "$LOG"
 after=$(ls -1d "$OUT"/*/ | sort)
 
 NEW=""
-for d in $(comm -13 <(echo "$before") <(echo "$after") | sed 's#/$##'); do
+while IFS= read -r d; do
   if python - "$d" <<'PY'
 import json, sys
 summary = json.load(open(sys.argv[1] + "/summary.json", encoding="utf-8"))
@@ -82,8 +82,8 @@ documents = sum((summary.get("classification") or {}).values())
 sys.exit(0 if documents >= 3400 else 1)
 PY
   then NEW="$d"; fi
-done
-echo "NEW_RUN_DIR=$NEW" >> "$LOG"
+done < <(comm -13 <(echo \"$before\") <(echo \"$after\") | sed 's#/$##')
+echo \"NEW_RUN_DIR=$NEW\" >> "$LOG"
 
 if [ -n "$NEW" ]; then
   python tools/train/provenance.py --checkout . --root "$ROOT" --data-dir "$COLD" \
