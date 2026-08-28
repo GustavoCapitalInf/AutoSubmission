@@ -44499,3 +44499,268 @@ now figures checked absent from the archive.
    function BODIES; it is a semantic near-clone and NOT behaviourally
    equivalent — it refuses on differing matches where the group-less path of
    `unique_match` would not.
+
+## FZ12. The committed harness, run (closure session on the Linux host, 2026-08-28)
+
+Everything in this subsection was produced on this host, in this session, by
+a command whose exit code is quoted beside its result. Nothing here reads the
+archive: the harness runs the two gate suites (`tests/test_frost.py`,
+`tests/test_bank_ozk.py`), whose fixtures are invented, and nothing else. Raw
+logs, gitignored, under the main checkout's `.claude/recovery/frostozk/`:
+`fz12_only_f5_before.log`, `fz12_only_f5_after.log`, `fz12_full.log`,
+`fz12_full.json` (this session); `harness_full.log`,
+`frostozk_mutation_table.json` (Ocean's run, same day).
+
+### FZ12.1 Provenance: three commits, one incident, one rule
+
+**`d554e68` — the harness itself.** FZ6's 41-row table was measured on the
+Windows box by a harness that was never committed; the table was evidence
+nobody could re-run. Ocean's 2026-08-26 verification session reconstructed it
+row by row from the table as `tools/frostozk_mutation_table.py`: each row an
+exact `before → after` replacement in `analysis/frost.py`,
+`analysis/bank_ozk.py` or `analysis/count_semantics.py`, applied on disk to a
+CLEAN tree, the two suites run WITHOUT `-x`, the file restored with
+`git checkout --`; every anchor must occur exactly once (`NOT-APPLIED`
+otherwise), every mutated module is compiled first (`INVALID` otherwise), and
+a survivor with no `implied_by` argument exits 1. The reconstruction is the
+table's description made executable — which matters below, because a
+one-line description does not pin every choice the original made.
+
+**`dfe95a6` — the 32 GB incident and the execution guards.** Running the
+harness on this host took it down three times, each time leaving a mutant
+applied on disk. Root cause, exact: mutant O21 sets `_MAX_DAY_ROWS = 10 ** 9`,
+and the row-cap test of the day derived its fixture from the MUTATED constant
+— `[100] * (_MAX_DAY_ROWS + 1)`, a second list of the same size and ~10⁹ int
+objects, 30+ GB that Linux overcommit let grow to the host's 32. `dfe95a6`
+adds execution-only guards: RLIMIT_AS 4 GB on the single pytest child,
+`-p no:xdist`, one mutant per process session, a hard per-mutant timeout with
+process-group SIGKILL and reap, a MemAvailable floor that refuses to start and
+aborts mid-run, per-mutant peak-RSS (VmHWM) and MemAvailable telemetry on
+every row, a checkpoint after every mutant with `--resume`, `--only` and
+`--dry-run`. `TIMEOUT` and `ABORTED-MEMORY` are reported unscored — never a
+kill — and the run exits non-zero until every mutant has a real verdict.
+MUTANTS, TESTS and the KILLED/SURVIVED/INVALID/NOT-APPLIED scoring are
+byte-identical to `d554e68`.
+
+**`aad19fc` — the fixture rebound, and Gustavo's proof rule.** Under the cap,
+O21's kill had become a `MemoryError` raised inside the test: the named test
+failed, so the harness scored a kill, and the kill was worthless. **A
+resource-induced kill — `MemoryError`, an RLIMIT, a timeout — is never a
+proof.** `aad19fc` bounds the fixture by the INTENDED cap (64 rows solved, 65
+refused) rather than by the module's constant, so under O21 the 65-row day is
+SOLVED where it must be refused and a plain assertion fails on behaviour, on
+roughly 130 search nodes; the constant is pinned last. Production code, the
+mutant and the table are unchanged by it.
+
+### FZ12.2 The F5 finding, and its resolution
+
+**Ocean's run at `aad19fc`** (`.claude/recovery/frostozk/harness_full.log`,
+read in this session, `cat` exit 0): `TREE=aad19fc`, 41 mutants between
+`04:13:16Z` and `04:13:50Z`, **38 KILLED, O1 and O7 SURVIVED (disclosed), F5
+SURVIVED with no disclosure**, peak RSS 88.5 MB (O23), slowest 1.0 s (O22), 0
+timeouts, 0 memory aborts, tree clean, `HARNESS_EXIT=1`. FZ6 records F5 —
+"an unknown column head falls back to a layout" — as KILLED by
+`test_an_unknown_column_head_is_refused`.
+
+**Reproduced here before anything was changed**, `python -m
+tools.frostozk_mutation_table --only F5 --mem-cap-gb 4 --timeout-seconds 300
+--min-available-gb 8` at `aad19fc`: baseline green 84 passed (86.5 MB, 0.8 s);
+`F5  SURVIVED` (86.4 MB, 0.8 s); summary `{"killed": 0, "mutants": 41,
+"survivors_undisclosed": ["F5"], "not_applied": [], "invalid": [],
+"unscored_execution_limits": []}`; `HARNESS_EXIT=1`, `TREE_CLEAN_AFTER=0`.
+
+**The mechanism, from the regexes rather than from a guess.** The mutant makes
+`_columns` return `_LAYOUTS.get(tuple(cell.split()), "date_transaction_amount")`:
+a head line that starts with a known head word but maps to no layout is READ
+as the `DATE TRANSACTION AMOUNT` layout instead of refused. The existing test
+replaces the WITHDRAWALS head `DATE AMOUNT TRANSACTION DESCRIPTION` with
+`DATE SUBTOTAL TRANSACTION DESCRIPTION` and leaves its rows in the
+`DATE AMOUNT TRANSACTION DESCRIPTION` shape — date, amount, then description
+to the end of the line. The fallback layout's row pattern is
+`^{_MMDD}\s+(\S.*?)\s\s+({_AMOUNT})$`, anchored on an amount at the END of the
+cell; those rows end in description text, so `_row_from` returns `None` for
+the first of them and `_read_sections` returns `None` at F6's gate ("an
+unparsable line inside a section is refused"). The document is refused under
+the mutant, the `is None` assertion holds, and the test passes for F6's
+reason: F5 was caught only by F6. Ocean's read was right.
+
+**What did NOT cause it.** `git diff 2c8731f aad19fc -- analysis/frost.py` (exit
+0) is one docstring hunk; `_LAYOUTS`, `_HEAD_WORD_RE`, `_columns`, `_ROW_RES`
+and `_read_sections` are byte-identical to the tree FZ6 was measured on.
+`git diff 2c8731f aad19fc -- tests/test_frost.py` (exit 0) is 31 lines either
+way, every one a fixture date moved out of the archive's years by `9ebac02`;
+the unknown-head test and the WITHDRAWALS block's shape did not change. So
+the review closure did not turn a kill into a survival. What differs is the
+MUTANT: the Windows harness was never committed, FZ6's row says only "falls
+back to a layout", and `d554e68` had to choose which layout the fallback
+names. With the OTHER choice — `date_amount_transaction` — the existing
+test's rows parse, the totals close, the document PUBLISHES and the test
+kills; with the choice the reconstruction made, F6 intercepts. FZ6's killer
+attribution for F5 therefore described a mutant this harness does not
+contain, and this subsection supersedes it.
+
+**The resolution — an isolating test, `b154cfe`.**
+`test_an_unknown_column_head_is_refused_even_over_rows_a_fallback_could_read`
+puts an unknown head (`DATE TRANSACTION SUBTOTAL`) over rows printed in the
+`DATE TRANSACTION AMOUNT` shape, whose totals and grid close; the same rows
+under the known head `DATE TRANSACTION AMOUNT` are parsed inside the test as
+a control that PUBLISHES. Under the mutant the unknown head falls back to
+exactly that layout, the rows parse, the document publishes and `is None`
+fails on behaviour; under the real code the head lookup is the only gate that
+can fire. Between them the two tests cover a fallback to either row layout.
+Production code, the 41-row table and the guards are untouched. The two gate
+suites on the unmutated tree: **85 passed** (`GATES_EXIT=0`).
+
+**`--only F5` at `b154cfe`**, same guards: baseline green 85 passed (86.4 MB,
+0.8 s); **`F5  KILLED`** by
+`test_an_unknown_column_head_is_refused_even_over_rows_a_fallback_could_read`
+(86.5 MB, 0.8 s); summary `{"killed": 1, "mutants": 41,
+"survivors_undisclosed": [], "not_applied": [], "invalid": [],
+"unscored_execution_limits": []}`; **`HARNESS_EXIT=0`**, `TREE_CLEAN_AFTER=0`.
+(`"mutants": 41` under `--only` is the size of the table, not of the
+execution subset — the harness's own semantics.)
+
+### FZ12.3 The full table at `131b39f`
+
+`131b39f` adds only a comment (FZ13, MAJOR-1). `--dry-run` first: `41
+mutants, 0 with a missing anchor; no pytest was run`, `DRYRUN_EXIT=0`. Then
+`python -m tools.frostozk_mutation_table --mem-cap-gb 4 --timeout-seconds 300
+--min-available-gb 8 --checkpoint … --out …`: `TREE=131b39f
+START_UTC=2026-08-28T04:21:52Z CLEAN_BEFORE=0 MEMAVAIL_GB=26.6`; baseline
+green 85 passed (86.5 MB, 0.8 s); `END_UTC=2026-08-28T04:22:26Z`.
+
+**41 mutants in 34 s wall clock: 39 KILLED, 2 SURVIVED (disclosed), 0
+undisclosed, 0 NOT-APPLIED, 0 INVALID, 0 unscored — `HARNESS_EXIT=0`,
+`TREE_CLEAN_AFTER=0`.** Verbatim summary line:
+`{"invalid": [], "killed": 39, "mutants": 41, "not_applied": [],
+"survivors_disclosed_as_implied": ["O1", "O7"], "survivors_undisclosed": [],
+"unscored_execution_limits": []}`.
+
+| # | mutant | verdict | killer(s), or the disclosed reason |
+|---|---|---|---|
+| F1 | the box line's side order is ignored; DEPOSITS assumed first | KILLED | `test_the_box_line_decides_which_side_comes_first` |
+| F2 | the label line is no longer checked against its six known cells | KILLED | `test_an_unrecognised_label_line_is_refused` |
+| F3 | the count slot's type check is dropped and the token coerced | KILLED | `test_a_count_slot_carrying_cents_is_refused` |
+| F4 | the strip's own arithmetic need not close | KILLED | `test_the_strip_arithmetic_catches_what_the_totals_and_the_grid_cannot` |
+| F5 | an unknown column head falls back to a layout | **KILLED** | `test_an_unknown_column_head_is_refused_even_over_rows_a_fallback_could_read` (new, `b154cfe`) |
+| F6 | an unparsable line inside a section is skipped | KILLED | `test_a_line_inside_a_section_that_is_not_a_row_is_refused` |
+| F7 | the two printed totals need not reproduce | KILLED (2) | `test_a_captured_credit_total_that_misses_the_printed_one_is_refused`, `test_a_captured_debit_total_that_misses_the_printed_one_is_refused` |
+| F8 | the grid's two ends are not checked against the strip | KILLED (2) | `test_the_grid_must_open_on_the_printed_opening_balance`, `test_the_grid_must_close_on_the_printed_closing_balance` |
+| F9 | the issued date takes the first match, not the sole reading | KILLED | `test_two_different_statement_issued_dates_refuse_the_document` |
+| F10 | the banner takes the first match, not the sole reading | KILLED | `test_two_different_account_banners_refuse_the_document` |
+| F11 | the money format loses sub-dollar padding and trailing minus | KILLED (15) | every Frost test that publishes, the new F5 test among them |
+| F12 | the money format loses ONLY the trailing minus | KILLED | `test_an_overdrawn_grid_cell_prints_its_minus_after_the_digits` |
+| F13 | the year always comes from the cycle date | KILLED | `test_a_month_after_the_cycle_month_belongs_to_the_year_before` |
+| F14 | the product banner stops being required evidence | KILLED (2) | `test_every_required_marker_is_load_bearing`, `test_the_marker_set_is_three_required_and_one_corroborating` |
+| F15 | multi-up packing ignored; one physical line is one row | KILLED (15) | every Frost test that publishes, the new F5 test among them |
+| F16 | a period is derived from the grid's ends and published | KILLED (2) | `test_the_period_is_not_published_because_none_is_printed`, `test_the_average_is_withheld_because_no_period_is_printed` |
+| F17 | a grid day printed twice takes the last reading | KILLED | `test_a_grid_day_printed_twice_with_two_values_is_refused` |
+| O1 | the summary fail-fast is removed | **SURVIVED (disclosed)** | implied by O7: the walk telescopes to `grid[last] = P + Σ(signed rows)` and the totals gate fixes `Σ(signed rows) = C − D`, so `P + C − D == N` and `grid[last] == N` imply each other; the pair is `O1+O7`, killed |
+| O2 | the printed day count is not checked against the as-of dates | KILLED | `test_a_printed_day_count_that_contradicts_the_two_as_of_dates_refuses` |
+| O3 | the captured row count need not equal the two printed counts | KILLED | `test_the_captured_row_count_must_be_the_two_printed_counts` |
+| O4 | an off-grid row is dropped instead of refusing | KILLED | `test_an_off_grid_row_is_refused_and_never_silently_dropped` |
+| O5 | the global solve takes the first solution | KILLED (2) | `test_a_day_the_printed_count_cannot_separate_is_refused`, `test_the_cross_day_search_has_a_budget_too` |
+| O6 | the printed credit count does not choose between day solutions | KILLED (2) | `test_a_day_the_printed_count_cannot_separate_is_refused`, `test_the_same_balances_and_a_different_printed_count_give_the_other_answer` |
+| O7 | the grid need not close on the printed current balance | **SURVIVED (disclosed)** | implied by O1, by the same algebra; the pair is `O1+O7`, killed |
+| O8 | a grid date printed twice with two values is accepted | KILLED | `test_a_contradictory_grid_cell_is_refused_even_when_the_rest_would_close` |
+| O9 | a grid day carrying no rows is accepted | KILLED | `test_a_grid_day_with_no_rows_is_refused` |
+| O10 | a quoted amount inside a description is not masked | KILLED | `test_a_row_survives_the_split_and_amount_traps` |
+| O11 | the row's amount is the FIRST money token | KILLED | `test_the_rows_amount_is_the_last_money_token_and_the_archive_never_says` |
+| O12 | the row-date token loses its left-hand boundary | KILLED | `test_a_row_survives_the_split_and_amount_traps` |
+| O13 | the row-date token loses its right-hand boundary | KILLED | `test_a_row_survives_the_split_and_amount_traps` |
+| O14 | the row-date token stops bounding the month to 01–12 | KILLED | `test_a_row_survives_the_split_and_amount_traps` |
+| O15 | a date the period cannot place is skipped | KILLED | `test_a_date_shaped_token_the_period_cannot_place_is_never_silently_dropped` |
+| O16 | a second printed account number is accepted | KILLED | `test_a_second_account_number_refuses_the_document` |
+| O17 | the service-centre block stops being required evidence | KILLED (2) | `test_every_required_marker_is_load_bearing`, `test_the_marker_set_is_three_required_and_one_corroborating` |
+| O18 | a grid balance is read unsigned | KILLED | `test_a_negative_grid_balance_prints_its_minus_in_front` |
+| O19 | cheques stop seeding their day as known debits | KILLED | `test_cheques_are_known_debits_and_seed_their_day` |
+| O21 | the per-day row cap is removed | KILLED | `test_the_row_cap_refuses_a_day_the_other_two_budgets_would_allow` — a plain assertion on the 65-row day; 86.6 MB against the 4 GB cap, 0.8 s: the rebound fixture allocates nothing that approaches the limit |
+| O22 | the per-day node budget is removed | KILLED | `test_the_node_budget_stops_a_walk_the_other_two_budgets_would_allow` |
+| O23 | the per-day solution cap is removed | KILLED | `test_the_solution_cap_refuses_a_day_the_other_two_budgets_would_allow` |
+| O1+O7 | BOTH the summary fail-fast and the grid-close check removed together | KILLED | `test_the_summary_arithmetic_is_the_fail_fast` |
+| C1 | `frost:debit` declared comparable | KILLED | `test_the_debit_count_scope_difference_raises_no_flag` |
+
+Against FZ6: the same 41 rows and the same two disclosed survivors; the F5
+killer is the new isolating test; O5 gains a second killer
+(`test_the_cross_day_search_has_a_budget_too`, in the file since `2c8731f`,
+before the FZ6 table was written in `fc08978`); the multi-killer counts differ from FZ6's (F11 was
+27, F15 was 14, O17 was 3) because the Windows harness was a different
+program run against a different test file, and only the reconstructed one is
+on record.
+
+### FZ12.4 Telemetry of the full run, from `fz12_full.json`
+
+| quantity | value |
+|---|---|
+| peak RSS of any pytest child | **88.8 MB** (O23); next 86.6 MB (17 mutants, O21 among them); lowest 81.4 MB (F11) |
+| slowest mutant | **1.0 s** (O22); F11 and F15 0.6 s (the two mutants that fail fifteen tests fail them early); the other 38 all 0.8 s; per-mutant seconds sum to 32.6 of the 34 s wall clock |
+| MemAvailable, lowest reading before or after any mutant | **26.3 GB** against the 8 GB floor; 26.6 GB at start |
+| timeouts / memory aborts / unscored | **0 / 0 / 0** |
+| RLIMIT_AS on the child / hard timeout | 4 GB / 300 s, neither reached |
+| tree after every restore | clean (`TREE_CLEAN_AFTER=0`) |
+
+The host was otherwise idle throughout, per the batch-8 resumption rule; no
+discovery run, sweep, replay or full-suite run was started in this session.
+
+### FZ12.5 What this host cannot re-run, stated plainly
+
+The run of record `356a4269` and the OCR/analysis cache `webapp_data/` are
+permanently gone (BATCH8_TRANSITION, "Recovery on the Linux host"), and the
+archive is not to be read by any cell session. Consequently:
+
+* **FZ3, FZ4.2, and FZ10's "family replay" and "non-target probe" rows** were
+  produced by `tools/frostozk_family_replay.py`, which requires
+  `--data-dir <checkout>/webapp_data` and reaches each document's OCR payload
+  by path from the run's rows. It cannot run here and was not run; the
+  per-document tables stand as the Windows measurement of 2026-08-23.
+* **FZ10.1, the archive sweep**, was `tools/regfp_zero_movement_sweep.py`
+  over the run's `rows.csv` and cache; same reason, not re-run.
+* **FZ7's FROST-PERIOD packet** (6 of 9 would validate under a derived
+  period): `git ls-files` (exit 0) finds no `frost_period_packet.py` — the
+  instrument was never committed, so that number has no committed evidence
+  behind it and cannot be re-derived on any host. Recorded for Ocean in FZ13.
+* **FZ10.3's privacy scan** needs the literal set of the seventeen documents;
+  not re-run. This session's two code commits (`b154cfe`, `131b39f`) add one
+  test whose figures are the existing fixture's and one comment, both read
+  for archive content by hand.
+* **The full default suite, the corpus slice and the corpus gate** were not
+  run in this session by the idle-host rule; the train's pre-run gate owns
+  them.
+
+What this session establishes is exactly what it ran: the 41-row table, on
+this host, under the guards, with every mutant killed by a named assertion or
+disclosed by a written argument. **The movement itself — the seventeen
+`failed / no_parser_matched` documents becoming 8 `validated` and 9
+`withheld` — is re-derived by the train's cold run against the regenerated
+baseline `47be5963`, under the Option-B accounting, and is not claimed from
+this host by anything in FZ12.**
+
+## FZ13. MAJOR closures verified (closure session on the Linux host, 2026-08-28)
+
+Read-only verification of the adversarial review's two MAJORs as closed by
+`9ebac02` ("FROSTOZK: adversarial review closed — 1 BLOCK, 2 MAJOR, 6
+MINOR", 2026-08-23; seven files, 280 insertions and 129 deletions: `analysis/bank_ozk.py`, `analysis/frost.py`,
+`tests/test_bank_ozk.py`, `tests/test_frost.py`,
+`tests/data/parser_conformance_fixtures.py`, `tools/frostozk_family_replay.py`,
+this log). In the shape of §TD17, §W12 and §LI16. One closure was found
+incomplete at a second site and completed in its own commit; nothing else on
+the branch was changed for this subsection.
+
+| finding | the check this session ran | exit | verdict |
+|---|---|---:|---|
+| MAJOR-1: the `bank_ozk` docstring called the printed totals "a genuinely independent check on the whole solve"; the arithmetic `(residual + S) / 2` says they check the row split and the grid, not direction; the compensating misread must be named in the docstring and carried in FZ11 | (a) `git show 9ebac02 -- analysis/bank_ozk.py`: the hunk deletes the "genuinely independent check on the whole solve" sentence and adds "WHAT THE PRINTED TOTALS DO AND DO NOT CHECK" — each day's credit sum `(residual + S) / 2`, identical for every sign assignment, so the totals check the ROW SPLIT and the GRID READING — followed by the residue paragraph (a grid cell misread by EXACTLY twice a row's amount, "recorded in W3 §FZ11 as a carried risk"). (b) `grep -n 'independent check\|(residual + S)\|twice some row\|EXACTLY twice' analysis/bank_ozk.py` at `aad19fc`: the corrected docstring at lines 42 and 50, the helper docstring at 251 — **and line 528, the inline comment on the totals check itself, still reading "The independent check on the whole solve."** The overstatement had been removed from the module's front matter and left at the site of the check. (c) The record: FZ4.3 carries "What the totals do NOT check … (MAJOR-1)" and FZ11 risk 6 carries the twice-a-row residue with the old sentence quoted as the thing it retracts. (d) `analysis/count_semantics.py`'s `bank_ozk` credit entry lists the totals among the bank's "independent oracles" as "two printed sources meeting" and makes no claim about direction; read and left. (e) The arithmetic in executable form: `test_the_same_balances_and_a_different_printed_count_give_the_other_answer` (`tests/test_bank_ozk.py`) — identical balances, rows and totals, only the printed counts differ, and the ledger inverts on three rows; two documents with the same totals and opposite directions ARE the statement that the totals do not check direction. It passed in every baseline of this session (85 passed) and is one of the two killers of mutant O6 in FZ12.3. | 0 | **INCOMPLETE at the check-site comment → COMPLETED in `131b39f`** (comment-only; the diff was verified to touch no non-comment line; `--dry-run` 41/41 anchors; the full table in FZ12.3 was run on that tree). **VERIFIED** as of `131b39f`. |
+| MAJOR-2: the accounting is +8 validated and +9 withheld, never +17, and FZ0 must say so first | (a) `9ebac02`'s message: "FZ0 now says so before anything else counts documents." (b) `grep -n '^## FZ0'` → line 43720; the paragraph "**THE ACCOUNTING, so no rollup can round it up.** This card is **+8 validated** and **+9 withheld**. It is never '+17' …" sits at lines 43745–43749, inside FZ0, and the section's header table above FZ0 already states the split on its Movement row. (c) `awk` over every line of §FROSTOZK for `+17`: exactly ONE hit, line 43746, the disclaimer itself. Every other `17` in the section was read: 43767 (all 17 filed `failed`), 44042 (17 documents in the observer entry), 44224 (FZ8.3's title), 44303 and 44307 (replay and privacy-scan rows), 44323 (the sweep's `no_payload_now_publishes 17`), 44371–44372 ("17 claimed, 17 published, 8 validated") — document counts every one, none a coverage figure; the remainder are the identifiers F17 and O17, two cells of the FZ4.2 table, and a sha. The first document-count 17 after FZ0's header (43767) comes after the accounting paragraph. (d) Docs-only closure; no gate test applies. | 0 | **VERIFIED** |
+
+**2 of 2 MAJOR closures verified, one of them after completion here.** Two
+observations for Ocean, neither a finding against the closures:
+
+1. FZ7's headline — 6 of 9 Frost documents would validate under a derived
+   period — was produced by `frost_period_packet.py`, which is not committed
+   (`git ls-files`, exit 0). It is the same shape §TD17 recorded for TD3.1: a
+   number that is probably right and has no committed instrument behind it.
+   It bears on the FROST-PERIOD ruling (FZ9 Q1), whose recommendation is
+   REFUSE, so nothing downstream rests on it today.
+2. FZ6's table is superseded on one row by FZ12: F5's killer there named a
+   test that cannot kill the mutant this harness contains, and the harness is
+   the only one on record. The other 40 rows reproduce on this host, with the
+   two disclosed survivors unchanged.
