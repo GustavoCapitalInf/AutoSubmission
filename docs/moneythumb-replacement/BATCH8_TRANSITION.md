@@ -473,3 +473,112 @@ Awaiting Gustavo's go before any execution.
 * **2026-08-28 — HYGIENE-8a record COMPLETE (`af98349` on `wave8-hygiene8`; §HYGIENE8 part 2 = H5–H13, lines 44034–44480; hostile review launched).** The record session re-measured every instrument on this host, each in `( ulimit -v 8000000; timeout … )`, one at a time, MemAvailable ≥ 26.28 GB: branch tests 253 / guards 253 EXIT=0; poison census 52 cells, base 24 → branch 0; overflow reach (run A) census 11/11/8/7/0, archive 2,769 of 3,350 (run of record had 2,765 of 3,351 — a different run, recorded beside it, part 1 not edited); pinned replay 109 / 108 identical / 1 refused both / movement 0 of every class / 14 claimed by touched readers (104 s, 167 MB); mutation table **30 / 30 killed** (148 s, 332 MB); family replay against run A **618 docs / 625 replays / 609 identical / 16 raised on both / movement 0 of every class** (500 s, 92 MB). Ocean's verification at `af98349`: single append hunk + a 5/3 fix-up inside H11, privacy grep hits are session dates only, branch tests + canonical guards 455 EXIT=0, Ocean's own capped harness run 30/30 EXIT=0, tree clean. **Rulings on the record's H8 findings:** (1) the shared privacy scanner lives on `main` — Ocean scans the population at the train (standing rule); (2) the purged prompt specimen surviving in an inherited §PRIVACY3 ledger line is main-tree text → the batch-9 FIXTURE-PRIVACY P0 sweep; a commit message is immutable history — recorded, not rewritten; (3) the 2019-dated fixture → closure item (2031 convention) unless the reviewer rules otherwise; (4) 26 of the 618 are quarantined shas — the accounting quarantine applies, the replay's quarantined movement table is empty; (5) 12 single-killer mutants — risk carried; (6) DETECT-BUDGET-GATE first in HYGIENE-8b, and `PLANNED_REGISTRATIONS = 80` is now below the train's 83 — the train floor's corpus-marked detect-budget test is the place this shows; carried to the pre-run summary.
 * **2026-08-28 — HYGIENE-8a hostile review → APPROVE WITH FINDINGS, 0 BLOCK, 2 MAJOR, 4 MINOR** (`reviews/BATCH8_HYGIENE8_REVIEW.md`, `b2e4ad7`). Held (re-measured under caps, one process at a time): pinned 109 / 108 identical / 1 refused both / movement 0; poison 24 → 0 over 7 sites; overflow reach 11/11/8/7/0 against run A; mutation 30/30; population 618 and 26 quarantined re-derived independently; base-tree isolation; privacy census of 3,658 added lines clean (only invented/session dates). **MAJOR-1:** `_release_worker_slot` (`webapp/app.py:99–106`) re-arms without re-claiming the slot → 2 live workers after one upload during the replacement's job (probe); no test or mutant sees it. **MAJOR-2:** four unguarded `date()` sites remain in the four declared chain-guarded readers (`chase.py:178`, `columbia_bank.py:449`, `scotia.py:235`, `scanned_small_bank.py:82` via `:608`) — driven on both trees, all four escape a `ValueError` echoing the printed month/day/year; the chain guard inspects `raise` statements, and `columbia_bank.py`/`scotia.py` have none, so their `CHAIN_GUARDED` entries are vacuous (base-inherited; the dispatch seam reduces it to a class name → MAJOR, not BLOCK). MINORs: thread-raised `SystemExit` does not stop the process and queued work waits for the next upload; the overflow bound is a C `int` (2^31), not a "32-bit C long"; fixture dates off the 2031 convention (the 2019 pair + one 2026 token); bookkeeping (E3/E4 labels, a stale "crosses the worker boundary" sentence, a surviving thread-count assertion, "DERIVED, not typed" derives from a typed constant). Reviewer's note for the train: the `OverflowError` widening's only outcome-moving direction (crash → `None`) reaches 16 registrations in 13 modules — the population the train's sweep must contain. **OCEAN RULINGS → closure session (launched):** MAJOR-1 closed as the reviewer's one-line claim-in-the-same-critical-section + an isolating live-worker-count test + a mutant; MAJOR-2 closed by rerouting all four sites through the guarded conversion (no raise path carries a document token), both-tree drives on invented out-of-range fixtures, real chain-guard coverage for columbia/scotia, one mutant per site, and zero-movement re-proved by the pinned replay and the family replay against run A (any mover named by sha, quarantine stated); MINOR-3 behaviour + rationale corrected and tested; MINOR-4/5/6 as asked; §H14 appended with the proof floor at the closure tree.
 * **Remote CI, measured (2026-08-28):** `.github/workflows/corpus-gate.yml` triggers on `push: branches: [main]`, `pull_request` and `workflow_dispatch` — no `train8` push has ever produced a run (0 runs on the branch, by design). The train's remote conclusion is therefore read twice: a `workflow_dispatch` run on `train8` after the floor (`gh workflow run corpus-gate.yml --ref train8`, conclusion + run id recorded), and the `main` run after the final `train8 → main` merge, as batch 7 recorded it. Housekeeping note: the baseline worktree's only status entry is the untracked `webapp_data_t550/` (the isolated Tesseract-5.5.0 cache, kept for the record).
+
+## Recovery on the Windows host (2026-08-28) — the host decision, the intact run of record, and the same-host control baseline
+
+**Recovered from git only** (the Linux session's machine was shut off during
+the HYGIENE-8a closure session; nothing in its context survived). State found:
+`origin/main` `0698e93`; `origin/train8` `9c1f19b` (FROST-OZK composed at
+`028aa9c`, registry 83, the only cell merge since); `origin/wave8-hygiene8`
+`579f0bb` = the review `b2e4ad7` + five closure commits landed 01:37–01:43 EDT
+(MAJOR-1 `313cc43`, MINOR-3 `97862d1` with one MINOR-6 item, the corpus_gate
+excusal `c64f936`, two Q7 mutant fixes `88540b2`/`579f0bb`) — **MAJOR-2,
+MINOR-4, MINOR-5, the rest of MINOR-6, §H14 and the closure proof floor were
+NOT landed**, no closure verification exists, and the branch is not in
+`train8`. The cold run was never launched (0 workflow runs on `train8`, no run
+directory dated 08-27/28 anywhere).
+
+**Gustavo's decision (2026-08-28): batch 8 finishes and is measured on the
+WINDOWS host; no work is split between hosts.** Housekeeping first, as
+approved: the `mt8-frostozk` worktree carried mutant **O21 applied**
+(`_MAX_DAY_ROWS = 10 ** 9`, the 32 GB allocation — residue of the interrupted
+Windows harness run); the diff was verified to be exactly that one line and
+the file restored from the worktree HEAD; `main` and `train8` fast-forwarded
+(`--ff-only`); the local `wave8-hygiene8` carried an unpushed Windows draft of
+W3 part 2 (`aa154be`, 420 lines, written 08-27 10:07 EDT against the run of
+record and superseded by the Linux `253c0ff`/`af98349`) — preserved as branch
+`wave8-hygiene8-win-draft`, never merged; the worktree moved to `579f0bb`.
+
+**What this host has that the Linux host did not.** The run of record
+`discovery_reports/2026-08-23T020128.909387-0000-356a4269/` is INTACT
+(rows.csv 3,506 rows, summary, telemetry 3,506 records; 41.1 min wall on a
+warm cache) and so is its cache `webapp_data/` — OCR 10,246 / analysis 31,111
+entries, exactly the counts the run's own summary recorded. The "durable
+losses" paragraph above is true of the Linux host only. On this host every
+`--rows/--data-dir` instrument points at the run of record, labelled "against
+the run of record 356a4269 (this host, Windows, Tesseract 5.5.0)"; run A
+`47be5963` is not on this host and is not used for anything.
+
+**Corpus.** `Bank Statements/` on disk IS the frozen archive: files 3,768 /
+PDFs 3,615 / bytes 996,080,803 / pinned 109 / discovery 3,506 —
+`discovery.inventory.enumerate_root` matches every `FROZEN_*` constant and
+`baseline_deviations()` = `[]` natively, so no resolved-population root is
+needed and `--skip-baseline` is never passed; no `Tru Credit Union/` folder
+(the three post-freeze additions exist only on the Linux host); 0 OneDrive
+placeholders (every file is local). The control worktree
+`.claude/worktrees/b7-302f8f2` was created (detached, clean; v15 / OCR v3 /
+registry 75; `analysis_settings_key(parse_mode="deterministic")` =
+`24675EF0…` = the run of record's, registry fingerprint `4FD68C84…`, OCR key
+`75A58292…` — the equivalence pin holds on this host); it tracks only the 109
+pinned PDFs, so both runs take `--root` = the main checkout's archive.
+
+**Toolchain, the same for both runs:** Windows 11 10.0.26200 (HP All-in-One
+27-cr0xxx, 16 logical CPUs, 15.3 GB RAM — ≈1.2 GB free with the desktop apps
+open; the archive runs need an otherwise idle host); Python 3.14.5
+(`C:\Python314\python.exe`); PyMuPDF 1.27.2.3 (the batch-7 build); pytest
+9.1.1; Pillow 12.2.0; pytesseract 0.3.13; tesseract **5.5.0.20241111** /
+leptonica 1.85.0 — **the batch-7 version, so there is no Tesseract drift on
+this host**; poppler 24.08.0; no `.env` (deterministic mode, no model client);
+`WEBAPP_DATA_DIR` set per run to a cold, isolated directory. The full `pip
+freeze` (132 packages) goes into every provenance record.
+
+**Revised baseline policy (Gustavo, 2026-08-28).** The Windows train-8 cold
+run is NOT compared to the Linux reconstruction `47be5963`. Before train 8 is
+measured, a fresh SAME-HOST batch-7 control run is produced at `302f8f2` over
+the frozen corpus with the same toolchain, a cold isolated cache, no batch-7
+code change, full per-sha output and explicit provenance
+(`tools/train/control_b7.sh`; acceptance by `tools/recon_b7_check.py` at its
+frozen G3/G4/G5 logic — on this host the scanned side may reproduce outright).
+Train 8 then runs on the same host, corpus, toolchain, cold-cache posture and
+settings (`tools/train/coldrun.sh`, base EXPLICIT), and the comparison is
+**Windows control → Windows train 8** through `tools/train8_compare.py` with
+the Option-B accounting quarantine unchanged: positive movement on the 208
+non-native shas reported separately and never counted as historical-comparable
+gain, negative movement a real regression investigated normally, the per-sha
+table kept. The historical batch-7 record — 2,469 / 17 / 72 / 809 / 13 over
+3,380 shas — stays the historical reference; the control run neither rewrites
+nor replaces it; it is the regression-attribution and current-environment
+base.
+
+**Train tooling made explicit on `train8` (`eb7100c`):**
+`tools/train/winrun.py` (+ `tests/test_winrun.py`, 3 pass) — a Windows
+Job-Object runner: committed-memory cap (the child fails with `MemoryError`,
+the host is never taken — verified: a 1 GB allocation under a 0.3 GB cap dies
+inside the child), job-wide timeout (exit 124), free-memory floor (125), peak
+job memory and free-memory telemetry per run — the analogue of the Linux
+`ulimit -v`/`timeout` wrappers §HYGIENE8 H6 and §FZ12 ran under;
+`tools/train/provenance.py` — host / toolchain / tree / settings keys /
+inventory / cache posture / env, written before and after every run;
+`tools/train/control_b7.sh` — the control baseline (g1 dry run, g2 gate, g3
+cold full run under winrun, g4 checker); `tools/train/coldrun.sh` rewritten —
+base run dir and cold data dir are REQUIRED arguments, the run executes under
+winrun with provenance, and the comparison is `train8_compare` with the
+quarantine and `--fail-on-regression` (the silent default to
+`discovery.compare` vs 356a4269 is gone). The FROST-OZK harness's guards
+(`import resource`, RLIMIT_AS, `/proc/meminfo`) are Linux-only by
+construction; its 41/39 verification stands from the Linux host and it is not
+re-run here.
+
+**HYGIENE-8a closure-completion session launched** (one Opus session, worktree
+`mt8-hygiene8` @ `579f0bb`, no push): MAJOR-2 — the four `date()` sites routed
+through `date_tokens`' guarded conversion with the refusal semantics
+preserved, both-tree drives on invented 2031 fixtures, the four sites as
+poison-sweep cells, an implicit-conversion census over the CHAIN_GUARDED
+modules as a committed test, one mutant per site, zero movement re-proved by
+the pinned replay and the family replay against the run of record (any mover
+by sha, quarantine bucket stated); MINOR-4, MINOR-5, the rest of MINOR-6; the
+closure floor under winrun, one process at a time; §H14 appended. Then Ocean's
+deterministic verification → composition into `train8` → v16 + OCR v4 →
+`PLANNED_REGISTRATIONS` reconciled with 83 → the `frost_period_packet.py`
+disposition → `tools/train/floor.sh` → the archive/root scans → the pre-run
+report Gustavo reviews before either archive run is launched.
