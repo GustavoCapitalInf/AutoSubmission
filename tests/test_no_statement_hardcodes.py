@@ -108,29 +108,23 @@ CALENDAR_RE = re.compile(r"(?<![\d\\])\(?(\d{2})\)?(?=\\s|\\-|-|/)")
 #: than a figure copied off a statement. Verified by reading every match in
 #: each file at the time this exemption was written. No parser is exempt.
 #:
-#: `extract.py` joins them at G7.3 (W3 §PRIVACY3) and the entry is a DISCLOSURE,
-#: not a shrug. Closing `_code_lines`'s triple-quote hole made exactly one
-#: module newly visible to this scan — measured across the whole parser layer,
-#: no other module gains an offender — and its four hits are all inside
-#: `_INSTRUCTIONS`, the LLM prompt: a worked example teaching the model to align
-#: a label column against a value column (`78.68- / 7,329.22 / 3,945.12 / …`,
-#: lines 70-74) plus a description example at line 79.
+#: **`extract.py` is no longer here, and that is the whole of the EXTRACT-PROMPT
+#: card (#HYGIENE8).** G7.3 (W3 §PRIVACY3) added it as a DISCLOSURE rather than
+#: a shrug: closing `_code_lines`'s triple-quote hole made the LLM prompt
+#: visible to this scan for the first time, and the prompt's worked example
+#: carried nine matches on four lines — a label/value alignment example and a
+#: description example whose payee was a real-looking insurer name, which is
+#: exactly the class R-1 purged. §PRIVACY3 could not own the file and carded it.
 #:
-#: Exempt rather than fixed, for three measured reasons. `extract.py` is the
-#: LLM branch, not a parser: it holds no regex, no reader, no parse gate and no
-#: registration, so a constant in it cannot make anything read one statement —
-#: the same property that puts `metrics`/`pipeline`/`reconcile` on this list.
-#: The two distinctive values (`7,329.22`, `3,945.12`) appear in no committed
-#: expectation and in neither audit CSV, so the example is illustrative rather
-#: than copied off a pinned document. And editing a prompt changes what a model
-#: does, which is a measurement this card does not carry.
-#:
-#: CARRIED, and the sharper half: line 79's example is
-#: `"PREM PMT BCBS OF AL 32.00"` — a real-looking insurer name in the parser
-#: layer, which is the class R-1 purged. Named for whoever owns
-#: `analysis/extract.py` next; not this cell's file and not a scan this list
-#: covers.
-PATTERN_SCAN_EXEMPT = {"metrics.py", "pipeline.py", "reconcile.py", "extract.py"}
+#: The prompt now teaches the same three things — align BY POSITION, a count is
+#: not an amount, a trailing "-" is a sign — with PLACEHOLDERS (`<V1>`…`<V6>`,
+#: `<N>`) in place of the literals. Placeholders are not a way of ducking the
+#: threshold: they carry no figure at all, which is the property the rule is
+#: about, and they make the example impossible to mistake for a statement.
+#: The exemption is therefore deleted rather than re-justified, and
+#: `test_the_amount_scan_now_sees_the_llm_prompt` is what fails if a literal
+#: comes back.
+PATTERN_SCAN_EXEMPT = {"metrics.py", "pipeline.py", "reconcile.py"}
 
 #: Modules already flagged by this scan when it was written. A ratchet, not a
 #: pardon: nothing new may be added, and the entry shrinks as its owner clears.
@@ -470,9 +464,11 @@ def test_no_registered_parser_module_is_exempt_from_the_amount_scan():
     `PATTERN_SCAN_EXEMPT` was pinned against two names — `first_citizens.py` and
     `citizens.py`, the two the scan was written for. That is a pin against the
     last accident, not against the class. The rule the list actually encodes is
-    "this module is not a parser": `metrics`, `pipeline`, `reconcile` are the
-    deterministic math layer and `extract` is the LLM branch, and none of the
-    four holds a regex, a reader, a parse gate or a registration. So the
+    "this module is not a parser": `metrics`, `pipeline` and `reconcile` are the
+    deterministic math layer, and none of the three holds a regex, a reader, a
+    parse gate or a registration. (`extract.py`, the LLM branch, was a fourth
+    entry until #HYGIENE8's EXTRACT-PROMPT removed the constants that needed
+    excusing.) So the
     assertion is the registry's own answer to that question, and it scales with
     the registry instead of with somebody's memory.
     """
@@ -496,7 +492,7 @@ def test_the_registered_parser_guard_can_actually_see_a_leak():
     assert "bmo.py" in registered, "fixture drifted: bmo is no longer registered"
     mutated = PATTERN_SCAN_EXEMPT | {"bmo.py"}
     assert sorted(registered & mutated) == ["bmo.py"]
-    # and the four real entries are still not parsers, which is why they pass
+    # and the three real entries are still not parsers, which is why they pass
     assert registered & PATTERN_SCAN_EXEMPT == set()
 
 
@@ -637,30 +633,105 @@ def test_a_docstring_sharing_its_line_with_code_blanks_only_the_docstring(tmp_pa
     assert "1,234.56" not in lines[0][1]
 
 
-def test_the_extract_exemption_still_describes_a_real_offender():
-    """A ratchet, like `CALENDAR_BASELINE`: the entry that G7.3 added may not
-    outlive what it excuses. If `analysis/extract.py`'s prompt stops carrying
-    exact-cent amounts, the exemption comes out."""
+def test_the_amount_scan_now_sees_the_llm_prompt():
+    """The EXTRACT-PROMPT closure, as the inverse of the ratchet it replaces
+    (#HYGIENE8).
+
+    G7.3 exempted `analysis/extract.py` because closing the triple-quote hole
+    made its prompt visible with nine matches on four lines, and
+    `test_the_extract_exemption_still_describes_a_real_offender` asserted those
+    matches still existed so the exemption could not outlive them. They are
+    gone: the module is back inside the scan, and this asserts the scan really
+    reaches it rather than passing because the file is skipped.
+    """
+    assert "extract.py" not in PATTERN_SCAN_EXEMPT
+    assert (ANALYSIS_DIR / "extract.py") in _parser_modules()
     hits = [
-        match.group(0)
-        for _, line in _code_lines(ANALYSIS_DIR / "extract.py")
+        f"{number}: {match.group(0)}"
+        for number, line in _code_lines(ANALYSIS_DIR / "extract.py")
         for match in AMOUNT_RE.finditer(line)
         if float(match.group(0)) >= 1.0
     ]
-    assert hits, (
-        "analysis/extract.py no longer carries exact-cent amounts; remove it "
-        "from PATTERN_SCAN_EXEMPT"
+    assert hits == [], f"the LLM prompt carries exact-cent constants again: {hits}"
+    # ...and the scan is not vacuous over this file: it still READS it, which is
+    # the half a skipped path would also satisfy.
+    assert any("SUMMARY ALIGNMENT" in line
+               for _, line in _code_lines(ANALYSIS_DIR / "extract.py"))
+
+
+def test_no_worked_example_in_the_llm_prompt_carries_a_figure():
+    """The half `AMOUNT_RE` cannot see, and the half that actually found the
+    defect: a worked example.
+
+    The offender G7.3 named (W3 §PRIVACY3 P10 item 5, where it is quoted) was an
+    insurer-shaped payee welded to an exact-cent amount, standing in for a real
+    posting. The amount scan above catches the number; nothing catches "a quoted
+    example that looks like a row off somebody's statement". The rule here is
+    the one property those examples must have to be safe: **a quoted example in
+    the prompt teaches a SHAPE, so it carries no digits.** `<V1>`, `<N>` and
+    `"<description as printed> <money token>"` satisfy it; a payee with a figure
+    welded to it cannot.
+
+    Deliberately NOT closed by adding the insurer token to `REMOVED_LITERALS`:
+    that ratchet works by writing the offending string into tracked source, and
+    a name that may belong to a real party is exactly what the standing privacy
+    rule keeps out of this repository. A structural rule needs no specimen —
+    which is why this docstring no longer carries one either (#HYGIENE8 H9.1).
+    The shared privacy scan run with the ROOT commit as `--base`, so that its
+    exclusion set is empty and inherited tokens are visible, found the specimen
+    still standing here: the branch deleted it from `analysis/extract.py` and
+    re-wrote it into this docstring, which is the same string in tracked source
+    that the paragraph above says must stay out.
+    """
+    source = (ANALYSIS_DIR / "extract.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    prompt = next(
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(getattr(t, "id", None) == "_INSTRUCTIONS" for t in node.targets)
+        and isinstance(node.value, ast.Constant)
     )
+    quoted = re.findall(r'"([^"\n]*)"', prompt)
+    assert quoted, "the prompt has no quoted examples left; this rule is vacuous"
+    offenders = [text for text in quoted if any(ch.isdigit() for ch in text)]
+    assert offenders == [], (
+        f"a worked example in the LLM prompt carries a figure: {offenders}"
+    )
+    # The teaching the placeholders replaced must still be there, or the fix
+    # was a deletion wearing a rewrite's clothes. Naming the tokens is not
+    # enough and a mutant proved it: deleting the two-column example outright
+    # left every placeholder standing in the PROSE around it. So the example's
+    # own shape is asserted — a label row and a value row, on their own lines.
+    for token in ("<V1>", "<V3>", "<V6>", "<N>", "BY POSITION"):
+        assert token in prompt, f"the alignment example lost {token!r}"
+    lines = prompt.splitlines()
+    assert any(
+        "Previous Balance" in line and "<N>" in line for line in lines
+    ), "the alignment example lost its LABEL row"
+    assert any(
+        re.search(r"<V1>.*<V2>.*<V3>", line) for line in lines
+    ), "the alignment example lost its VALUE row"
+    # ...and its CONTINUATION, which the token loop above only appears to
+    # cover. A HYGIENE-8a mutant (E3) deleted `<V4> / <V5> / <V6>` outright and
+    # survived: `"<V6>" in prompt` was still true, satisfied by the prose that
+    # introduces the placeholders. A membership test over a string that also
+    # contains the legend proves the legend, not the example — the same
+    # mistake, one level down, that made mutant E5 necessary.
+    assert any(
+        re.search(r"<V4>.*<V5>.*<V6>", line) for line in lines
+    ), "the alignment example lost the CONTINUATION of its value row"
 
 
-def test_closing_the_docstring_hole_flags_exactly_one_module():
+def test_closing_the_docstring_hole_flags_no_module():
     """The blast radius, as an assertion rather than as a claim in a log.
 
-    Closing `_code_lines`'s triple-quote hole made the amount scan see two
-    strings it had been blanking. Only one of them carries a finding, and the
-    exemption above covers it — so this is the whole measured cost of G7.3, and
-    a later module that grows a triple-quoted constant with money in it fails
-    here instead of hiding behind the exemption."""
+    Closing `_code_lines`'s triple-quote hole (G7.3) made the amount scan see
+    two strings it had been blanking, and exactly one of them carried a finding:
+    the LLM prompt. EXTRACT-PROMPT removed the finding rather than the
+    exemption's excuse, so the measured cost of G7.3 is now ZERO modules outside
+    the math layer — and a later module that grows a triple-quoted constant with
+    money in it fails here."""
     offenders = set()
     for path in _parser_modules():
         for _, line in _code_lines(path):
@@ -669,4 +740,4 @@ def test_closing_the_docstring_hole_flags_exactly_one_module():
                     offenders.add(path.name)
                     break
     assert offenders <= PATTERN_SCAN_EXEMPT
-    assert "extract.py" in offenders
+    assert "extract.py" not in offenders

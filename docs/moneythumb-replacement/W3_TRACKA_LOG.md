@@ -53752,3 +53752,1191 @@ observations for Ocean, neither a finding against the closures:
    test that cannot kill the mutant this harness contains, and the harness is
    the only one on record. The other 40 rows reproduce on this host, with the
    two disclosed survivors unchanged.
+
+# §HYGIENE8 — three non-outcome sub-cards, measured: 734 replays, zero movement, and the mutant that survived
+
+HYGIENE-8a, 2026-08-26. Branch `wave8-hygiene8`, base `10cc722` (main, the
+batch-8 handoffs). Brief: `docs/agent-handoffs/HYGIENE-8.md`, card 11 of batch
+8. **Three of the card's ten sub-cards landed; seven are re-carded to HYGIENE-8b
+and none of them was started** (H10). Six production/test commits by the
+implementing cell, then the instruments, two gate/privacy closures the
+measurements forced, and this record. `ANALYSIS_STAGE_VERSION` NOT bumped, no
+version constant touched, registry unchanged at **75**.
+
+The card called all three sub-cards non-outcome. That is a claim about what a
+document's published payload does, so it is measured here rather than repeated:
+618 archive documents (625 replays) and the pinned 109, base against branch,
+leaf for leaf.
+
+## H0. Summary
+
+| | |
+|---|---|
+| Sub-cards landed | **QUEUE-SUPERVISOR** (`webapp/app.py`, the worker slot comes back when the worker dies) · **EXTRACT-PROMPT** (`analysis/extract.py`, the LLM prompt stops carrying a payee and five figures) · **RAISE-PRIVACY-3** (six raise sites rerouted, the `OverflowError` contract closed, `CHAIN_GUARDED` +4) |
+| Population | **DERIVED, not typed**: the registry gives every registration whose `parse` lives in a changed module, an AST call graph keeps the ones that REACH a changed function, and the archive population is every document the run of record DISPATCHED to a survivor. **Seven registrations, not the card's five** — `chase_export` shares `analysis/chase.py`, `apex_scanned` is the third registration in `analysis/scanned_small_bank.py` |
+| Archive replay | **618 documents, 625 replays** (7 documents hold more than one OCR partition; every partition replayed). **`moved` 0 · `outcome_moved` 0 · `raise_class_moved` 0 · `base_raised_branch_publishes` 0 · `base_published_branch_raises` 0**. 613 identical + 12 raised on both trees = 625 |
+| **PINNED** | **109 replayed, 109 accounted for, movement 0 of every class.** 108 identical + 1 refused on both trees. **14** of the 109 are claimed by a reader this branch touched (`chase` 10, `chase_export` 1, `apex_scanned` 1, `southside_scanned` 1, `scotiabank` 1); the 1 unclaimed document is the pinned REFUSAL. **NO STOP** |
+| Poison census | 7 sites × their token shapes = **52 cells per tree. BASE 24 leaking cells, BRANCH 0.** Two of the five leaking sites are driven through the REAL PARSER, not the seam |
+| `OverflowError` | 11 public entry points, 11 conversion drives. **8 drives escaped at base (7 distinct functions), 0 at branch.** The smallest overflowing integer on this host is 10 digits — the C `int` (2^31) |
+| Mutation table | **30 mutants, 30 killed, 0 survived, 0 not-applied** at the final tree. The first run was **29/30**: mutant E3 survived and the gate it beat is now closed (H7.1) |
+| Privacy | this branch's added lines: **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 1**. Re-run with the ROOT commit as `--base`, so the exclusion set is empty and INHERITED tokens are visible, it found the purged prompt example still standing in a test docstring — closed in `f240b30` (H9.1) |
+| Guard set | **253**, up from the card's 252 at registry 75 (+1, EXTRACT-PROMPT's two new rules less the ratchet they replace) |
+| What the train owes | the full default suite, `python corpus_gate.py`, the corpus-marked slice and the archive-wide zero-movement sweep — **and nothing else** (H13) |
+
+## H1. The instruments, and what makes their zeros non-vacuous
+
+Six tools are committed under `tools/`, and they are committed because every
+headline above comes out of one of them:
+
+| tool | answers |
+|---|---|
+| `hygiene8_base_tree.py` | materialises `analysis/` at the base commit from git blobs as a SECOND importable package |
+| `hygiene8_family_replay.py` | the dispatched population, derived; base vs branch over all of it |
+| `hygiene8_pinned_replay.py` | the pinned 109, base vs branch, with parser attribution |
+| `hygiene8_poison_sweep.py` | the leak census over the six rerouted sites, both trees |
+| `hygiene8_overflow_reach.py` | the `OverflowError` entry-point census, both trees, and the archive-reach scan |
+| `hygiene8_mutation_table.py` | 30 documented mutants over every gate the six commits added |
+
+**One process, two trees.** `analysis/` imports nothing from this repository
+outside itself — measured, not assumed: every non-relative import in the
+package is stdlib or third-party. So a copy of the directory under a different
+package name is an entire second analysis stack, and relative imports
+(`from .money import ...`) resolve to whichever package the module actually
+lives in. Base and branch are therefore analysed in the SAME interpreter, with
+the same pydantic, the same registry construction order and the same floating
+point. Two processes comparing two JSON files would also produce a number, but
+it would be a number about two interpreters, and every environmental difference
+would have to be argued away rather than eliminated. `report_to_dict` is taken
+from the same package as `analyze_markdown` on each side, so nothing is
+compared as an object and nothing crosses.
+
+**The population is derived, and it is wider than the card's.** The card named
+`chase`, `columbia_bank`, `scotiabank`, `southside_scanned`,
+`texas_first_scanned`. The call graph names two more:
+
+```
+apex_scanned          analysis.scanned_small_bank  parse_apex_scanned_statement        reaches _iso, _money
+chase                 analysis.chase               parse_chase_statement               reaches _money_required
+chase_export          analysis.chase               _parse_chase_business_export        reaches _money_required
+columbia_bank         analysis.columbia_bank       parse_columbia_bank_statement       reaches parsed_datetime
+scotiabank            analysis.scotia              parse_scotiabank_statement          reaches parsed_datetime
+southside_scanned     analysis.scanned_small_bank  parse_southside_scanned_statement   reaches _iso, _money
+texas_first_scanned   analysis.scanned_small_bank  parse_texas_first_scanned_statement reaches _iso
+```
+
+`chase_savings` is deliberately NOT in the list, and that is the call graph
+doing its job rather than an omission: `analysis/chase.py` imports FROM
+`chase_savings`, not the other way round, so nothing in `chase_savings` can
+reach a function this branch changed.
+
+**A dispatched document is not a claimed document, and the population is the
+wider one.** `parse` runs on a document it goes on to DECLINE exactly as it
+runs on one it claims, and a declining reader is precisely where a raising
+conversion guard lives. The population is therefore `parser_id` OR `attempted`
+OR `candidates` from the run of record's `rows.csv`: **618 distinct
+`content_sha256`**, against 599 for the five names the card gave and 606 for
+the seven by winning `parser_id` alone. `columbia_bank` contributes 4 documents
+this way and 0 by `parser_id` — its whole archive cohort declines, so a
+`parser_id` population would have measured that reader on nothing at all.
+
+**Read-only and $0 throughout.** No artifact is written, the `webapp_data`
+sqlite index is never opened, OCR text is reached by direct file path over all
+eight capability partitions of `ocr_settings_key` (the resolution is
+`tools/regfp_zero_movement_sweep.py`'s), and `parse_mode="deterministic"`
+cannot reach the extraction branch. No hosted model is called anywhere,
+including in the tests.
+
+**Nothing any instrument prints can quote a document.** A movement is a
+`content_sha256` plus the PATHS at which the payloads differ
+(`transactions[7].amount`), which are source symbols. An exception is a class
+NAME and never a message — which is not a nicety on this card but its subject:
+at base, three of these readers put the printed token INTO the message, so
+printing messages would be the leak the branch closes.
+
+## H2. QUEUE-SUPERVISOR — the slot comes back, and the re-arm is a decision
+
+Closes the defect §PRIVACY3 P8.1 measured and carried. `_job_worker_active` is
+a claim on the single worker slot, and until this branch the only place that
+released it was the loop's own `return`. So when `run_job` unwound — which its
+`BaseException` arm makes it do by design, because swallowing a `SystemExit`
+would defeat a shutdown — the thread died holding the slot, `_enqueue_job`
+never started another worker, and every later upload sat at `queued` with
+`error=None` for the life of the process.
+
+`_process_job_queue` now guards the `run_job` call with `BaseException`, calls
+`_release_worker_slot` and re-raises BARE: same object, no `__cause__`,
+unchanged thread death and unchanged stderr traceback. The release is **two
+decisions and not one**, which is what makes it testable rather than racy:
+
+* the slot is ALWAYS released, because a claim held by a thread that no longer
+  exists is not a claim; and
+* a replacement worker is started only when there is queued work AND the
+  escaping exception is not a shutdown signal.
+
+`_release_worker_slot` RETURNS the re-arm decision, and that is the fix for the
+second commit's own finding: a thread-count assertion let mutant Q8 (a
+replacement started on an EMPTY queue) walk through, because the spawned worker
+finds nothing, returns, and is dead again before the count is read. The test
+reads the decision over all four `(queued × shutting_down)` combinations.
+
+**This sub-card is invisible to every replay in this record, and that is a
+measurement rather than an excuse.** `webapp/app.py` is not imported by
+`analysis/`; the replay harness never constructs a job store. What pins it is
+`tests/test_queue_supervisor.py` (16 tests) and the seven mutants Q1–Q7, all
+killed (H7). The two `KNOWN_LIMITATION` tests §PRIVACY3 pinned are deleted, as
+that paragraph said they must be.
+
+## H3. EXTRACT-PROMPT — and the honest statement that it cannot be measured here
+
+`analysis/extract.py`'s `_INSTRUCTIONS` carried a real-looking insurer name
+welded to an amount, plus five exact-cent constants. G7.3 closed
+`_code_lines`'s triple-quote hole, which made the prompt visible to the amount
+scan for the first time in the program's history; §PRIVACY3 put `extract.py`
+into `PATTERN_SCAN_EXEMPT` behind a ratchet rather than fixing it, because it
+did not own the file. The prompt now teaches the same three things — align BY
+POSITION, a count is not an amount, a trailing `-` is a sign — with
+placeholders, `extract.py` is OUT of `PATTERN_SCAN_EXEMPT`, and the ratchet
+test that asserted the offender still existed is replaced by its inverse.
+
+**THE LLM BRANCH IS UNEXERCISED OFFLINE.** This is measured, in the two places
+it can be:
+
+* `_INSTRUCTIONS` has exactly **one** use in the tree —
+  `contents=_INSTRUCTIONS + strip_embedded_images(markdown)` at
+  `analysis/extract.py:219`, inside the hosted client call; and
+* `analysis/pipeline.py:688` raises `no deterministic parser matched this
+  statement` before `extract_statement` on every deterministic-mode document
+  with no parser, and `parse_mode != "deterministic"` is the first clause of
+  the escalation guard (§PRIVACY3 P9's closure).
+
+So the 734 replays in this record are, for this sub-card, *structurally* silent
+rather than reassuringly quiet: they could not have moved whatever the prompt
+said. **The prompt change is proved by tests and by mutation, not by a run**,
+and what a model does with the new wording is unmeasured here and named as a
+risk (H12). The insurer token is deliberately NOT added to `REMOVED_LITERALS`:
+that ratchet works by writing the offending string into tracked source, which
+is what the standing privacy rule keeps out — and H9.1 is what happened when
+that principle was stated in a docstring that carried the specimen anyway.
+
+## H4. RAISE-PRIVACY-3 — six sites, and a contract
+
+### H4.1 The six sites, and the poison census over both trees
+
+§PRIVACY3 P10 is a ledger of raise sites in other cells' files. Five were
+listed; the branch closed all five plus a sixth it found by driving the poison
+set rather than by reading the ledger.
+
+| # | site | at base | at branch |
+|---|---|---|---|
+| 1 | `analysis/chase.py:_money_required` | `raise ValueError(value)` | `money_refusal("chase._money_required", value)` |
+| 2 | `analysis/scanned_small_bank.py:_money` | `raise ValueError(value)` | `money_refusal(...)` |
+| 3 | `analysis/scanned_small_bank.py:_iso` (shape) | `raise ValueError(value)` | `date_refusal(...)` |
+| 4 | `analysis/columbia_bank.py` period ×2 | an escaping `strptime` | `date_tokens.parsed_datetime(..., reader="columbia_bank.period")` |
+| 5 | `analysis/scotia.py` period | an escaping `strptime` | `date_tokens.parsed_datetime(..., reader="scotia.period")` |
+| 6 | `analysis/scanned_small_bank.py:_iso` (value) | a bare `date()` | `date_tokens.iso_or_none`, refusal raised outside the funnel |
+
+Sites 4 and 5 had no `raise` to grep for — `strptime`'s own `ValueError` is the
+inherited-leak shape — which is why the guard is written as "no `strptime` call
+anywhere in the module" rather than as a line. §P10 named them at
+`columbia_bank:449-450` and `scotia:162`; they sat at `:384-385` and `:197` on
+this tree. **The drift is line numbers, not the site**, and the test says so.
+
+Site 6 is the one the ledger could not see: `_MONTH_RE` proves a token's SHAPE
+and nothing more, so a month or day out of range matches it and reaches
+`date()`, whose message echoes the offending number. The printed month, day and
+year travelled out of a function whose declared refusal §P10 had already named.
+
+**The census, both trees, same harness** (`tools/hygiene8_poison_sweep.py`). A
+CELL is one (site, token-shape) pair; a cell LEAKS when the poisoned token, its
+canary, or any digit run inside it reaches any of the five surfaces a message
+escapes through — `str`, `repr`, `args`, the `__cause__`/`__context__` chain,
+and the traceback with each frame's own quoted SOURCE line subtracted. The rule
+is `tests/test_privacy3_boundaries.assert_private`'s and it is imported rather
+than restated.
+
+| site | drive | cells | leaking at BASE | leaking at BRANCH |
+|---|---|---:|---:|---:|
+| `chase._money_required` | seam | 8 | **7** | 0 |
+| `scanned_small_bank._money` | seam | 8 | **4** | 0 |
+| `scanned_small_bank._iso` | seam | 10 | **7** | 0 |
+| `columbia_bank.parse<period>` | **parser** | 3 | **3** | 0 |
+| `scotia.parse<period>` | **parser** | 3 | **3** | 0 |
+| `parsed_datetime<columbia_bank.period>` | seam | 10 | 0 | 0 |
+| `parsed_datetime<scotia.period>` | seam | 10 | 0 | 0 |
+| **total** | | **52** | **24** | **0** |
+
+Two things in that table are worth reading twice. The two `parsed_datetime`
+rows are 0 at base as well, because the shared seam was already private when
+§PRIVACY3 built it — the leak was the parser calling `strptime` directly, which
+is why **the columbia and scotia rows are driven through the real
+`parse_*_statement` on an invented statement** whose period strip matches the
+reader's own regex and fails `strptime`. That drive is the half mutant R11
+proved was missing (H7), and it is what makes 3/3-at-base a statement about the
+parser rather than about a seam nobody's document reaches. Both fixtures are
+invented: every label is a detection marker already in tracked source, the
+figures are rendered from whole-unit constants at build time, and the dates are
+2031.
+
+The refusal CLASS is unchanged everywhere. `money_refusal` and `date_refusal`
+both return `ValueError`, which four `except ValueError` handlers in
+`scanned_small_bank.py` depend on; mutant R9 breaks exactly that and is killed
+by 11 tests.
+
+The R11 closure is a WHOLE-TREE rule — a reader expression may not mention any
+name the token expression mentions — and it is measured over the production
+tree rather than over the two sites that provoked it: **33 refusal call sites**
+today (the commit said 29 on the tree it was written against; the rule is
+written as a walk, so the number moves with the tree and the assertion does
+not). It is stronger than "must be a literal", which would fail four honest
+sites: the two constructors forwarding their own parameter, `money.py`'s
+`getattr(reader, "__name__")`, and `community_section._strptime`'s module
+prefix.
+
+### H4.2 The `OverflowError` contract — eleven entry points, and which eight escaped
+
+§P10 items 6–7 pinned this rather than fixing it: `date()` raises
+`OverflowError`, which is an `ArithmeticError` and not a `ValueError`, so a
+bare `except ValueError` let it out of functions whose whole contract is "or
+None". The branch closes it: every conversion guard in
+`analysis/date_tokens.py` now catches both.
+
+The commit says "ELEVEN entry points, EIGHT let the OverflowError escape". Both
+numbers reproduce, and they count different things, so this record states both:
+
+| count | value |
+|---|---:|
+| public functions in `analysis/date_tokens.py` | **11** |
+| of those, CONVERSION drives (`date_refusal` converts nothing; `iso_or_none` is driven on its year and on its day) | **11** |
+| drives that let an `OverflowError` escape at BASE | **8** |
+| DISTINCT functions among those eight | **7** |
+| drives that let one escape at BRANCH | **0** |
+
+The census is derived from the module's public surface and fails if a function
+is added and not driven, so it cannot quietly go stale. Per entry point:
+
+| entry point | base | branch |
+|---|---|---|
+| `date_refusal` | constructs (converts nothing) | unchanged |
+| `parsed_datetime` | refusal (`strptime` raises `ValueError`) | refusal |
+| `iso_or_none` (year) | **escaped** | None |
+| `iso_or_none` (day) | **escaped** | None |
+| `iso_from_month_day` | **escaped** | refusal |
+| `iso_from_month_day_strict` | None — **saved by `_MONTH_DAY_RE`, not by a handler** | None |
+| `iso_from_month_day_year` | **escaped** | refusal |
+| `iso_from_named_month_day` | **escaped** | None |
+| `period_from_long_dates` | None — **saved by `_LONG_PERIOD_RE`, not by a handler** | None |
+| `iso_unique_in_period` | **escaped** | None |
+| `year_within_period` | **escaped** | None |
+| `iso_within_period` | **escaped** (through `year_within_period`) | None |
+
+The two survivors-by-regex are the point of recording this per entry point:
+that is protection living in the CALLER's pattern rather than in a handler, and
+it is the kind that disappears the day the pattern is widened. Every entry
+point now honours the contract its own docstring states, so a reader does not
+have to work out which arithmetic a particular `date()` call can overflow on.
+
+The bound is measured rather than typed. The smallest integer for which
+`date(2026, 1, n)` raises `OverflowError` on this host is **10 digits** — the
+C `int` (2^31) that `date()` parses its arguments into, on every platform —
+and the instrument bisects for it at runtime, because a measured bound cannot
+be wrong about its platform. *(Corrected in place by the closure session,
+review MINOR-4: this sentence said “a 32-bit C long” and the explanation was
+wrong in a way the instrument's own bisection had already refuted. Only the
+MESSAGE is platform-dependent — measured here on 2026-08-28: this Windows host
+prints `Python int too large to convert to C long` at 2^31 because a C long IS
+32-bit here, and the reviewer's 64-bit-long host printed `signed integer is
+greater than maximum` at the same 2^31.)*
+
+**`analysis/dates.py` is NOT closed and is named, not left silent.** §P10 item
+6 also listed `dates._with_year` and `dates.parse_date`. That module is not
+this card's; its handlers guard a `strptime` (which raises `ValueError`) and a
+`date()` whose arguments come from a `strptime` result rather than from a
+token, so the escape closed here is not reachable there today.
+`test_the_dates_module_is_named_as_still_narrow` asserts the SHAPE of that
+module's handler set, so the day a raw token reaches one of them the difference
+is visible rather than assumed.
+
+### H4.3 What the archive-reach scan refused to prove
+
+The other two sub-cards are confined to files the family population covers.
+`analysis/date_tokens.py` is not: it is reached by parsers all over the
+registry, so the 618-document replay does not bound it.
+
+A cheap decisive proof was attempted and **failed, and is reported because it
+failed**. Every path into `date()` in that module converts a run of decimal
+digits taken from the document, so an archive printing no run large enough
+could not raise `OverflowError` anywhere in the module, whatever parser read
+it. Measured over the run of record:
+
+```
+documents in run                3,380
+documents with cached text      3,351      (29 hold no document: the invalid PDFs and the deferred scans)
+reachable threshold             2,147,481,648
+longest digit run                  54
+documents at or over threshold  2,765
+```
+
+**2,765 of 3,351.** A ten-digit number clears 2^31 and a statement
+is full of them — account numbers, references, authorisation codes, telephone
+digits. The necessary condition is met nearly everywhere, so this scan bounds
+nothing, and the convenient sentence it was meant to license ("no document can
+reach it") is not available. What carries the contract instead is the
+618-document replay, the pinned 109, the mutation table, and the archive-wide
+sweep the wave owes at the final tree — which is where this appears again in
+H13.
+
+## H5. The hunks — six production/test commits, eight instrument and record commits
+
+Part 2 of this record (H5–H13) is written by the HYGIENE-8a record session on
+the Linux recovery host, 2026-08-28 (BATCH8_TRANSITION, "Recovery on the Linux
+host"), in the worktree `.claude/worktrees/mt8-hygiene8` at tip `3dc7204`, base
+`10cc722`, `git status --short` empty before and after every run. Part 1
+(H0–H4) was written on the previous host on 2026-08-26/27 and is **not edited**:
+where a number measured here differs from part 1, both numbers and both
+commands are stated (H6.1, H8), and part 1's are labelled as the previous
+host's. **No production file, no instrument and no mutant is changed by this
+session**; its only commits are this appendix (H11).
+
+`git diff --stat 10cc722..HEAD` — **18 files, +3,210 / −192**:
+
+| file | +/− | commit(s) | what the hunk does |
+|---|---:|---|---|
+| `webapp/app.py` | 63 | `d6fdf40` | `_process_job_queue` guards `run_job` with `BaseException`, calls `_release_worker_slot`, re-raises bare; `_release_worker_slot` returns the re-arm decision (queued work AND not a shutdown signal); the shutdown vocabulary is the two signals (H2) |
+| `analysis/extract.py` | 20 | `fbb9c38` | `_INSTRUCTIONS` loses the insurer-shaped payee and five exact-cent constants; the alignment example is rewritten over `<V1>`…`<V6>` placeholders (H3) |
+| `analysis/chase.py` | 11 | `e3fcb13` | `_money_required`: `raise ValueError(value)` → `money_refusal("chase._money_required", value)` (H4.1 site 1) |
+| `analysis/scanned_small_bank.py` | 28 | `e3fcb13` | `_money` → `money_refusal`; `_iso` shape refusal → `date_refusal`; `_iso` value path funnels through `date_tokens.iso_or_none` (sites 2, 3, 6) |
+| `analysis/columbia_bank.py` | 15 | `e3fcb13` | the two period `strptime` calls → `date_tokens.parsed_datetime(..., reader="columbia_bank.period")` (site 4) |
+| `analysis/scotia.py` | 8 | `e3fcb13` | the period `strptime` → `parsed_datetime(..., reader="scotia.period")` (site 5) |
+| `analysis/date_tokens.py` | 31 | `e3fcb13` | every conversion guard catches `(ValueError, OverflowError)` — eight widened handlers, one in each of eight functions (the O-mutants' `landed_in` column, H7; H4.2's "seven" counts the functions that ESCAPED at base, not the handlers) |
+| `tests/test_queue_supervisor.py` | 344 | `d6fdf40`, `d455e85` | new: 16 tests; the re-arm decision read as a return value over the four `(queued × shutting_down)` combinations rather than a thread count |
+| `tests/test_privacy3_boundaries.py` | 164 | `d6fdf40`, `e3fcb13` | the two `KNOWN_LIMITATION` tests §PRIVACY3 pinned are deleted; `CHAIN_GUARDED` +4; the `OverflowError` scope test |
+| `tests/test_no_statement_hardcodes.py` | 155 | `fbb9c38`, `fd2d8d7`, `183b29e`, `f240b30` | `extract.py` out of `PATTERN_SCAN_EXEMPT`; the ratchet replaced by its inverse; the example's label row, value row and value-row CONTINUATION pinned; the specimen removed from the docstring |
+| `tests/test_raise_privacy3.py` | 461 | `e3fcb13`, `dbd9a7e` | new: 53 tests — the poisoned drives of the six sites, the `strptime`-nowhere rule, the refusal-class pin, the `OverflowError` census, the reader-name whole-tree rule (R11) |
+| `tools/hygiene8_base_tree.py` | 138 | `4885910`, `24e3da7` | the base `analysis/` materialised from git blobs as a second package (H1) |
+| `tools/hygiene8_family_replay.py` | 364 | `4885910` | the derived population, base vs branch (H1) |
+| `tools/hygiene8_pinned_replay.py` | 224 | `4885910`, `fb9a3c5` | the pinned 109, base vs branch, attribution at `on_dispatch` (H1) |
+| `tools/hygiene8_poison_sweep.py` | 277 | `4885910`, `24e3da7` | the 52-cell leak census, both trees (H4.1) |
+| `tools/hygiene8_overflow_reach.py` | 305 | `4885910`, `fb9a3c5`, `24e3da7` | the entry-point census and the archive-reach scan (H4.2, H4.3) |
+| `tools/hygiene8_mutation_table.py` | 468 | `25738e2`, `d185351` | the 30 mutants (H7) |
+| `docs/moneythumb-replacement/W3_TRACKA_LOG.md` | 326 | `3dc7204` | part 1 of this record |
+
+The six production/test commits, in order, and the seam each one crossed:
+
+| commit | sub-card | files | the change |
+|---|---|---|---|
+| `d6fdf40` | QUEUE-SUPERVISOR | `webapp/app.py`, `tests/test_queue_supervisor.py`, `tests/test_privacy3_boundaries.py` | the slot comes back when the worker dies; the two known-limitation tests deleted |
+| `d455e85` | QUEUE-SUPERVISOR | `tests/test_queue_supervisor.py` | the re-arm decision asserted as a value, not raced through a thread count (mutant Q8 of the first draft walked through the count) |
+| `fbb9c38` | EXTRACT-PROMPT | `analysis/extract.py`, `tests/test_no_statement_hardcodes.py` | the prompt stops carrying a payee and five figures; `extract.py` out of `PATTERN_SCAN_EXEMPT` |
+| `fd2d8d7` | EXTRACT-PROMPT | `tests/test_no_statement_hardcodes.py` | the alignment example's SHAPE (label row + value row) pinned, not only its tokens — the answer to mutant E5 |
+| `e3fcb13` | RAISE-PRIVACY-3 | the five `analysis/` readers + `date_tokens.py`, both privacy test files | the five listed sites and the sixth, the `OverflowError` contract |
+| `dbd9a7e` | RAISE-PRIVACY-3 | `tests/test_raise_privacy3.py` | the reader NAME is a source symbol, never the token (the R11 whole-tree rule, 33 call sites on this tree) |
+
+Nothing outside these files moved. In particular none of the files the seven
+re-carded sub-cards own (H10) is in the diff: `discovery/report.py`,
+`discovery/compare.py`, `analysis/td_can.py`, `analysis/cibc.py`,
+`analysis/desjardins.py`, `analysis/chase_savings.py`, `analysis/atb.py`,
+`analysis/schema.py`, `analysis/symitar.py`, `analysis/zions.py`,
+`analysis/community_section.py`, `tests/test_parser_parity.py` — none appears
+in `git diff --stat 10cc722..HEAD`.
+
+## H6. The proof floor at the final tree, on this host
+
+**Discipline, because of the 2026-08-28 memory incident on this host.** One
+process at a time, never in parallel, never with xdist. Every instrument and
+pytest invocation ran inside a subshell under `ulimit -v 8000000` (an 8 GB
+address-space cap) and a `timeout`, through a small wrapper in the session
+scratchpad that refuses to start below 8 GB `MemAvailable`, runs the command in
+its own process group under a wall-clock limit, and writes the exit code, the
+wall time, `MemAvailable` before and after, and the peak RSS of the reaped
+descendants (`ru_maxrss`, `RUSAGE_CHILDREN`) with an `EXIT=` terminator to a
+durable log. `MemAvailable` was read before every run and never fell below
+**26.2 GB** in the session. `git status --short` was empty before every run and
+after every instrument that touches the tree (the mutation harness restores
+with `git checkout --`).
+
+All commands from the worktree root, `python` = the repository's `.venv`
+(Python 3.14.7). `<A>` is the run-A directory
+`.claude/worktrees/b7-302f8f2/discovery_reports/RECON-B7-302f8f2/2026-08-28T015740.400872-0000-47be5963`
+and `<cache>` is `.claude/worktrees/b7-302f8f2/webapp_data` — the standing
+stand-in for the lost run of record (BATCH8_TRANSITION, "Standing rule
+(2026-08-28)"). **Every archive number below is against run A (Tesseract
+5.5.3), never the run of record.**
+
+| proof | command | result | exit | wall | peak RSS |
+|---|---|---|---|---:|---:|
+| the branch's four test files | `python -m pytest -q --no-header -p no:cacheprovider tests/test_queue_supervisor.py tests/test_raise_privacy3.py tests/test_privacy3_boundaries.py tests/test_no_statement_hardcodes.py` | **253 passed, 3 skipped, 1 warning** — collected 16 + 53 + 136 + 51 = 256; equals `f240b30`'s "253 passed / 3 skipped" | **0** | 5.0 s | 333.7 MB |
+| canonical GUARD set | `python -m pytest -q --no-header -p no:cacheprovider tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py` | **253 passed, 1 warning** — part 1's 253 at registry 75, reproduced | **0** | 4.9 s | 93.4 MB |
+| poison census, both trees | `python -m tools.hygiene8_poison_sweep --base 10cc722 --scratch <private> --out <private>` | `{"base_cells": 52, "base_leaking_cells": 24, "branch_cells": 52, "branch_leaking_cells": 0, "sites": 7}`; the 24 base leaks are exactly H4.1's rows (chase 7, `_money` 4, `_iso` 7, columbia 3 through the parser, scotia 3 through the parser, the two seams 0), every one on all four of `str` / `repr` / `args` / `traceback` | **0** | 0.8 s | 98.2 MB |
+| `OverflowError` census, both trees + the archive-reach scan against run A | `python -m tools.hygiene8_overflow_reach --base 10cc722 --scratch <private> --rows <A>/rows.csv --data-dir <cache> --out <private>` | census **11 public / 11 drives / 8 escaped at base in 7 functions / 0 at branch / smallest overflowing integer 10 digits**, the per-entry-point table identical to H4.2's; archive scan **3,380 in run · 3,350 with text · 30 without · longest digit run 54 · 2,769 at or over 2,147,481,648** (H6.1) | **0** | 3.7 s | 75.4 MB |
+| PINNED replay, the tracked 109 | `python -m tools.hygiene8_pinned_replay --base 10cc722 --scratch <private> --corpus "<worktree>/Bank Statements" --out <private>` | **109 replayed · 108 identical · 1 refused on both · moved 0 · outcome_moved 0 · publish_boundary_moved 0 · refusal_class_moved 0 · unreadable 0**; claimed by a touched reader **14** (chase 10, chase_export 1, apex_scanned 1, southside_scanned 1, scotiabank 1), unclaimed by any registration 1 (the pinned refusal); `by_parser` sums to 108 + 1 = 109 | **0** | 104.4 s | 166.5 MB |
+| family population, derived against run A | `python -m tools.hygiene8_family_replay --rows <A>/rows.csv --data-dir <cache> --base 10cc722 --scratch <private> --print-population` | the same seven registrations reaching the same changed functions as H1's table; `{"dispatched_documents": 618}` — part 1's 618, derived from a different run | **0** | 0.7 s | 80.1 MB |
+| family replay, base vs branch, against run A | `python -m tools.hygiene8_family_replay --rows <A>/rows.csv --data-dir <cache> --base 10cc722 --scratch <private> --out <private>` — run LAST and alone under a 30-minute limit | **618 documents · 625 replays** (7 documents hold more than one OCR partition; every partition replayed) · **609 identical · 16 raised on both trees · moved 0 · outcome_moved 0 · raise_class_moved 0 · base_raised_branch_publishes 0 · base_published_branch_raises 0 · no_ocr_artifact 0**; 609 + 16 = 625. Part 1, previous host, run of record: 613 + 12 = 625 — same totals, a different split (H8 item 1) | **0** | 499.6 s | 91.9 MB |
+| mutation table | `python -m tools.hygiene8_mutation_table --timeout 1800 --out <private>` | **30 mutants · 30 killed · 0 survived · 0 not-applied**, baseline gate set exit 0 first, tree clean after (H7) | **0** | 148.2 s | 332.4 MB |
+
+**Not run here, and why.** The full default suite, `python corpus_gate.py`, the
+corpus-marked slice, the canonical CONFORMANCE set, the archive-wide sweep
+(`tools.regfp_zero_movement_sweep`) and the shared privacy scan over the
+archive are the train's at the composed tree, under the idle-host rule
+(BATCH8_TRANSITION, "Resumed"); this session's mandate is the targeted floor
+above, one process at a time. The one execution outside the enumerated list is
+the canonical guard set (row 2): five invented-fixture source scans, 4.9 s,
+93 MB, run because this record owes "guards as far as they run here".
+
+### H6.1 The archive-reach scan against run A, beside part 1's
+
+H4.3's scan was measured on the previous host over the run of record
+`356a4269`, which no longer exists. Re-measured here over run A, the two
+readings differ by four documents and are both recorded:
+
+| quantity | part 1 — run of record `356a4269`, previous host | this host — run A `47be5963` (Tesseract 5.5.3) |
+|---|---:|---:|
+| documents in run | 3,380 | 3,380 |
+| documents with cached text | 3,351 | 3,350 |
+| documents without text | 29 | 30 |
+| reachable threshold | 2,147,481,648 | 2,147,481,648 |
+| longest digit run | 54 | 54 |
+| documents at or over threshold | **2,765** | **2,769** |
+| smallest overflowing integer | 10 digits | 10 digits |
+
+This is not a contradiction of part 1: the two scans read two different runs,
+and the OCR text of the 208 non-native shas is different text under a different
+Tesseract (BATCH8_TRANSITION, G5). The conclusion H4.3 drew is the same on both:
+the necessary condition is met nearly everywhere, the scan bounds nothing, and
+what carries the `OverflowError` contract is the family replay, the pinned 109,
+the mutation table and the sweep the train owes.
+
+## H7. The mutation table, run whole on this host
+
+`python -m tools.hygiene8_mutation_table --timeout 1800 --out <private>`, exit
+**0**; the gate set is the branch's four test files and nothing wider; the
+baseline gate set was green first (`baseline exit=0 failures=[]`); every
+mutant compiled, was applied at its documented occurrence, and the table states
+the function the edit LANDED in, read off the AST after the edit; the tree
+restored clean after every mutant and at the end. 30 pytest children, one at a
+time, 143.5 s inside the harness, 148.2 s wall, peak RSS 332.4 MB, `MemAvailable`
+26.4 GB before and after.
+
+| id | gate | landed in | verdict | killers (test ids, file prefix dropped) |
+|---|---|---|---|---|
+| Q1 | the slot is released when the worker dies | `_process_job_queue` | **killed** (exit 1) | 8 in `test_queue_supervisor.py`: `test_a_dead_worker_is_replaced_and_the_queue_drains`; `test_a_failure_that_repeats_for_every_document_drains_and_stops`; `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal0]`; `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal1]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure0]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure1]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure2]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure3]` |
+| Q2 | the escaping exception is re-raised bare | `_process_job_queue` | **killed** (exit 1) | 10 in `test_queue_supervisor.py`: `test_a_dead_worker_is_replaced_and_the_queue_drains`; `test_a_failure_that_repeats_for_every_document_drains_and_stops`; `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal0]`; `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal1]`; `test_the_escaping_exception_is_the_same_object`; `test_the_supervisor_guards_the_run_job_call`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure0]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure1]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure2]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure3]` |
+| Q3 | the handler is BaseException, not Exception | `_process_job_queue` | **killed** (exit 1) | 5 in `test_queue_supervisor.py`: `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal0]`; `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal1]`; `test_the_supervisor_guards_the_run_job_call`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure2]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure3]` |
+| Q4 | the slot always comes back | `_release_worker_slot` | **killed** (exit 1) | 10 in `test_queue_supervisor.py`: `test_a_failure_that_repeats_for_every_document_drains_and_stops`; `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal0]`; `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal1]`; `test_the_re_arm_decision_is_the_two_conditions[0-False-False]`; `test_the_re_arm_decision_is_the_two_conditions[0-True-False]`; `test_the_re_arm_decision_is_the_two_conditions[1-True-False]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure0]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure1]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure2]`; `test_the_worker_slot_is_released_when_run_job_unwinds[failure3]` |
+| Q5 | the re-arm needs queued work | `_release_worker_slot` | **killed** (exit 1) | 1 in `test_queue_supervisor.py`: `test_the_re_arm_decision_is_the_two_conditions[0-False-False]` |
+| Q6 | the re-arm does not fire on a shutdown | `_release_worker_slot` | **killed** (exit 1) | 3 in `test_queue_supervisor.py`: `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal0]`; `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal1]`; `test_the_re_arm_decision_is_the_two_conditions[1-True-False]` |
+| Q7 | the shutdown vocabulary is the two signals | `<module level>` | **killed** (exit 1) | 2 in `test_queue_supervisor.py`: `test_a_shutdown_signal_releases_the_slot_and_starts_nothing[signal1]`; `test_the_shutdown_vocabulary_is_the_two_signals_and_nothing_wider` |
+| E1 | the prompt carries no exact-cent constant | `<module level>` | **killed** (exit 1) | 4 in `test_no_statement_hardcodes.py`: `test_closing_the_docstring_hole_flags_no_module`; `test_no_exact_amount_constants_anywhere_in_analysis`; `test_no_worked_example_in_the_llm_prompt_carries_a_figure`; `test_the_amount_scan_now_sees_the_llm_prompt` |
+| E2 | a quoted example carries no digits | `<module level>` | **killed** (exit 1) | 4 in `test_no_statement_hardcodes.py`: `test_closing_the_docstring_hole_flags_no_module`; `test_no_exact_amount_constants_anywhere_in_analysis`; `test_no_worked_example_in_the_llm_prompt_carries_a_figure`; `test_the_amount_scan_now_sees_the_llm_prompt` |
+| E3 | the alignment example keeps its VALUE row | `<module level>` | **killed** (exit 1) | 1 in `test_no_statement_hardcodes.py`: `test_no_worked_example_in_the_llm_prompt_carries_a_figure` |
+| E4 | the alignment example keeps its LABEL row | `<module level>` | **killed** (exit 1) | 1 in `test_no_statement_hardcodes.py`: `test_no_worked_example_in_the_llm_prompt_carries_a_figure` |
+| E5 | `extract.py` is out of PATTERN_SCAN_EXEMPT | `<module level>` | **killed** (exit 1) | 1 in `test_no_statement_hardcodes.py`: `test_the_amount_scan_now_sees_the_llm_prompt` |
+| R1 | chase._money_required refuses privately | `_money_required` | **killed** (exit 1) | 10 in `test_privacy3_boundaries.py`, `test_raise_privacy3.py`: `test_every_raise_in_a_guarded_grammar_is_the_constructor_and_is_unchained[analysis/chase.py]`; `test_the_five_sites_modules_are_chain_guarded`; `test_the_parser_money_sites_refuse_without_quoting[digits+junk-chase._money_required]`; `test_the_parser_money_sites_refuse_without_quoting[empty-chase._money_required]`; `test_the_parser_money_sites_refuse_without_quoting[glued-chase._money_required]`; `test_the_parser_money_sites_refuse_without_quoting[junk+digits-chase._money_required]`; `test_the_parser_money_sites_refuse_without_quoting[over-long-integer-chase._money_required]`; `test_the_parser_money_sites_refuse_without_quoting[plain-junk-chase._money_required]`; `test_the_parser_money_sites_refuse_without_quoting[sign-only-chase._money_required]`; `test_the_parser_money_sites_refuse_without_quoting[three-decimals-chase._money_required]` |
+| R2 | scanned_small_bank._money refuses privately | `_money` | **killed** (exit 1) | 7 in `test_privacy3_boundaries.py`, `test_raise_privacy3.py`: `test_every_raise_in_a_guarded_grammar_is_the_constructor_and_is_unchained[analysis/scanned_small_bank.py]`; `test_the_five_sites_modules_are_chain_guarded`; `test_the_parser_money_sites_refuse_without_quoting[empty-scanned_small_bank._money]`; `test_the_parser_money_sites_refuse_without_quoting[over-long-integer-scanned_small_bank._money]`; `test_the_parser_money_sites_refuse_without_quoting[plain-junk-scanned_small_bank._money]`; `test_the_parser_money_sites_refuse_without_quoting[sign-only-scanned_small_bank._money]`; `test_the_parser_money_sites_refuse_without_quoting[three-decimals-scanned_small_bank._money]` |
+| R3 | scanned_small_bank._iso refuses privately | `_iso` | **killed** (exit 1) | 10 in `test_privacy3_boundaries.py`, `test_raise_privacy3.py`: `test_every_raise_in_a_guarded_grammar_is_the_constructor_and_is_unchained[analysis/scanned_small_bank.py]`; `test_the_five_sites_modules_are_chain_guarded`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[digits+junk]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[empty]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[junk+digits]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[over-long]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[partial]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[plain-junk]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[wrong-separator]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[year-out-of-range]` |
+| R4 | scanned_small_bank._iso funnels through iso_or_none | `_iso` | **killed** (exit 1) | 2 in `test_raise_privacy3.py`: `test_the_scanned_small_bank_date_site_refuses_without_quoting[day-out-of-range]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[month-out-of-range]` |
+| R5 | columbia_bank's period reader calls no strptime | `parse_columbia_bank_statement` | **killed** (exit 1) | 1 in `test_raise_privacy3.py`: `test_the_repointed_period_readers_call_strptime_nowhere[columbia_bank]` |
+| R6 | scotia's period reader calls no strptime | `parse_scotiabank_statement` | **killed** (exit 1) | 1 in `test_raise_privacy3.py`: `test_the_repointed_period_readers_call_strptime_nowhere[scotia]` |
+| R7 | the reader name is a source symbol, never the token | `parse_scotiabank_statement` | **killed** (exit 1) | 1 in `test_raise_privacy3.py`: `test_no_refusal_call_derives_its_reader_name_from_the_token` |
+| R8 | the reader name rule holds at the columbia site | `parse_columbia_bank_statement` | **killed** (exit 1) | 1 in `test_raise_privacy3.py`: `test_no_refusal_call_derives_its_reader_name_from_the_token` |
+| R9 | the refusal class stays ValueError | `<module level>` | **killed** (exit 1) | 11 in `test_raise_privacy3.py`: `test_the_refusals_stay_ValueError_because_four_handlers_catch_them`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[day-out-of-range]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[digits+junk]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[empty]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[junk+digits]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[month-out-of-range]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[over-long]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[partial]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[plain-junk]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[wrong-separator]`; `test_the_scanned_small_bank_date_site_refuses_without_quoting[year-out-of-range]` |
+| R10 | the modules are chain-guarded | `<module level>` | **killed** (exit 1) | 1 in `test_raise_privacy3.py`: `test_the_five_sites_modules_are_chain_guarded` |
+| O1 | every conversion guard in date_tokens catches OverflowError | `parsed_datetime` | **killed** (exit 1) | 1 in `test_raise_privacy3.py`: `test_every_conversion_guard_in_the_date_module_catches_both` |
+| O2 | every conversion guard in date_tokens catches OverflowError | `iso_or_none` | **killed** (exit 1) | 4 in `test_privacy3_boundaries.py`, `test_raise_privacy3.py`: `test_the_overflow_contract_is_closed_and_the_scope_of_the_constructor_claim`; `test_every_conversion_guard_in_the_date_module_catches_both`; `test_no_date_token_helper_lets_an_overflow_error_escape[iso_or_none/day]`; `test_no_date_token_helper_lets_an_overflow_error_escape[iso_or_none/year]` |
+| O3 | every conversion guard in date_tokens catches OverflowError | `iso_from_month_day` | **killed** (exit 1) | 3 in `test_privacy3_boundaries.py`, `test_raise_privacy3.py`: `test_the_overflow_contract_is_closed_and_the_scope_of_the_constructor_claim`; `test_every_conversion_guard_in_the_date_module_catches_both`; `test_no_date_token_helper_lets_an_overflow_error_escape[iso_from_month_day]` |
+| O4 | every conversion guard in date_tokens catches OverflowError | `iso_from_month_day_year` | **killed** (exit 1) | 2 in `test_raise_privacy3.py`: `test_every_conversion_guard_in_the_date_module_catches_both`; `test_no_date_token_helper_lets_an_overflow_error_escape[iso_from_month_day_year]` |
+| O5 | every conversion guard in date_tokens catches OverflowError | `iso_from_named_month_day` | **killed** (exit 1) | 1 in `test_raise_privacy3.py`: `test_every_conversion_guard_in_the_date_module_catches_both` |
+| O6 | every conversion guard in date_tokens catches OverflowError | `period_from_long_dates` | **killed** (exit 1) | 1 in `test_raise_privacy3.py`: `test_every_conversion_guard_in_the_date_module_catches_both` |
+| O7 | every conversion guard in date_tokens catches OverflowError | `iso_unique_in_period` | **killed** (exit 1) | 2 in `test_raise_privacy3.py`: `test_every_conversion_guard_in_the_date_module_catches_both`; `test_no_date_token_helper_lets_an_overflow_error_escape[iso_unique_in_period]` |
+| O8 | every conversion guard in date_tokens catches OverflowError | `year_within_period` | **killed** (exit 1) | 4 in `test_privacy3_boundaries.py`, `test_raise_privacy3.py`: `test_the_overflow_contract_is_closed_and_the_scope_of_the_constructor_claim`; `test_every_conversion_guard_in_the_date_module_catches_both`; `test_no_date_token_helper_lets_an_overflow_error_escape[iso_within_period]`; `test_no_date_token_helper_lets_an_overflow_error_escape[year_within_period]` |
+
+**30 / 30 killed, 0 survived, 0 not-applied** — the previous host's final-tree
+result (H0), reproduced. Twelve of the thirty are held by exactly one test —
+Q5, E3, E4, E5, R5, R6, R7, R8, R10, O1, O5, O6 — which is what a gate that is
+one structural rule looks like (the rule and its test are the same sentence),
+and it is carried as a risk rather than a defect (H12): delete that one test
+and the mutant walks. The `landed_in` column is the anti-lie check §DECLINESF
+F13.1 asked for: R5 and R8 land in `parse_columbia_bank_statement`, R6 and R7 in
+`parse_scotiabank_statement`, the eight O-mutants in eight different
+`date_tokens` functions (one per widened handler), and the seven Q-mutants in
+`_process_job_queue`, `_release_worker_slot` or the module-level shutdown
+vocabulary.
+
+### H7.1 The E3 story, as part 1 promised
+
+The first run of the table on the previous host was **29 / 30**: mutant E3
+survived (`183b29e`). E3 deletes `<V4> / <V5> / <V6>` — the continuation of
+the alignment example's value row — from `_INSTRUCTIONS` outright, and
+`test_no_worked_example_in_the_llm_prompt_carries_a_figure` stayed green,
+because its token loop asserted `"<V6>" in prompt` and that was still true:
+the PROSE that introduces the placeholders ("with `<V1>`…`<V6>` standing for
+whatever money tokens the page prints") satisfied it. That is mutant E5's
+lesson one level down. E5 (`25738e2`'s own finding) deleted the whole worked
+example and survived the token pin because every placeholder it named still
+stood in the surrounding legend; `fd2d8d7` answered E5 by asserting the
+example's own ROWS — but only the label row and the FIRST half of the value
+row. A membership test over a string that also contains the legend proves the
+legend, not the example.
+
+Closed the same way and nowhere else: `183b29e` asserts the continuation as a
+row of its own — `<V4>` `<V5>` `<V6>` in order on one line. NO PRODUCTION FILE
+WAS TOUCHED; the gap was in the gate, not in the prompt, which already carried
+the row. The table was then re-run whole rather than patched, on the previous
+host (30 / 30, H0) and again here (30 / 30, above). On this host E3 is killed
+by exactly that test and E4 (the label row) by the same test: the example's
+shape is pinned by one test's three row assertions, and the survivor's argument
+is closed by a kill, not by a disclosure.
+
+## H8. Findings and questions for Ocean
+
+1. **The population reproduces against a different run.** Run A dispatches
+   **618** distinct shas to the seven registrations, the same count part 1
+   derived from the run of record, with the same seven entry points reaching
+   the same changed functions. Of the 618, **26** are in the 208-sha accounting quarantine (`tools/train/recon_b7_quarantine_nonnative_208.shas` on `train8`, intersected here by `content_sha256` with the instrument's own dispatch rule re-applied to run A's `rows.csv`): apex_scanned 4 of 4, chase_export 1 of 4, columbia_bank 4 of 4, southside_scanned 9 of 9, texas_first_scanned 8 of 8, chase 0 of 505, scotiabank 0 of 84 — and the per-registration counts sum to 618, so every document in the population is dispatched to exactly one of the seven. Under Option B any
+   movement on a quarantined sha would be reported in its own table and never
+   counted; with movement 0 on all 618 that table is empty. The split of the 625 replays moved from part 1's 613 identical + 12 raised-on-both (run of record) to 609 + 16 here (run A): the two populations are the same size and reach the same registrations, but part 1 did not name its 12 and the instrument's `findings` list carries movement classes only, so the 16 are COUNTED here and not named, and whether the four extra raise-on-both documents are quarantined shas is not stated — it is the run-A text under the same two trees, and both trees raise the same class on each of them, which is the whole of what the instrument asserts.
+2. **The archive-reach scan moved by four documents** (2,765 / 3,351 → 2,769 /
+   3,350, H6.1) because it reads run A, not the run of record. Both numbers
+   stand, labelled; neither licenses the sentence the scan was written to
+   license.
+3. **`tools/privacy_scan_branch.py` is not on this branch.** The instrument
+   `24e3da7` and `f240b30` ran was committed to `main` on 2026-08-26 as
+   `01d7bc4` → `4a000e4` → `0b65901`, none of which is an ancestor of `10cc722`
+   (`git merge-base --is-ancestor` says no for both ends); the previous host ran
+   it from a checkout that had it. H9's numbers therefore cannot be reproduced
+   from this branch's tree alone and are quoted as the previous host's; the scan
+   itself is an archive read, which this session does not do. After composition
+   the instrument and the branch share a tree.
+4. **The purged prompt specimen: `f240b30`'s "0 times in the tracked tree" is
+   exact for code and tests and imprecise for the log.** Measured with the
+   two-word token read programmatically out of the commit body (it entered no
+   command file and does not appear in this record), `git grep -l` per tree:
+   files carrying it at `10cc722` **3** (`analysis/extract.py`,
+   `tests/test_no_statement_hardcodes.py`, and `W3_TRACKA_LOG.md:36235` —
+   §PRIVACY3 P10's own ledger line for the site); at `fbb9c38` and `24e3da7`
+   **2** (the test's docstring, and the ledger); at `f240b30` and at HEAD
+   **1** — the ledger line only, inherited, not in any line this branch added
+   (`git diff 10cc722..HEAD` over the log: 0 hits). The one remaining
+   tracked occurrence is §PRIVACY3's record of the site it found, outside this
+   card's ownership. Separately, the token stands in `f240b30`'s commit
+   MESSAGE (git history, not tracked source, but pushed). **Question:** is the
+   ledger line acceptable as §PRIVACY3's record, and is a commit message inside
+   the standing rule? The only fix for the latter is a history rewrite, which
+   this session did not do.
+5. **Fixture dates off convention.**
+   `tests/test_raise_privacy3.py::test_the_two_period_readers_still_read_a_well_formed_period`
+   asserts two invented dates (its docstring says INVENTED, and they are generic
+   month-day-year tokens) in **2019**, where the standing convention is 2031.
+   Not archive content; not changed here (a record session edits no test).
+   **Question:** HYGIENE-8b, or the review closure?
+6. **A shape census over the branch's added lines**, run here because the
+   shared instrument is not on the branch (item 3) — not a substitute for it:
+   over the **2,884** lines the branch adds outside the W3 log, money-shaped
+   tokens 2 occurrences of one textbook placeholder value, hex tokens of 8+
+   characters 0, decimal runs of 7+ digits 0, ISO dates one distinct (item 5,
+   twice). Part 1's block adds one date, the session date.
+7. **Twelve single-killer mutants** (H7) — carried in H12.
+8. **The record's own two hosts.** H0's headline "618 documents, 625 replays"
+   is the previous host's over the run of record; this host's family replay is
+   H6's row and H8 item 1, against run A. Both are true of the runs they name.
+9. **The `--print-population` count coinciding at 618** is worth one sentence
+   of suspicion, answered: the population is the union of `parser_id`,
+   `attempted` and `candidates` per sha, which is a property of DETECTION on
+   the document's text, and the 208 non-native shas' text changed under
+   Tesseract 5.5.3 — so a coincidence was possible but not guaranteed; the
+   count is what the instrument printed, exit 0, and it is not inferred from
+   part 1.
+
+## H9. Privacy
+
+**What the previous host's scan found and closed — stated as the previous
+host's, from the commit bodies of `24e3da7` and `f240b30`; not re-run here
+(H8 item 3).**
+
+`24e3da7`: `tools/privacy_scan_branch.py` over the 606 documents the run of
+record dispatched to the seven touched registrations, added lines only:
+**13 hits, every one in a file this cell owns, every one a coincidence rather
+than a transcription** — seven WORDS hits on a local variable named for a
+staging directory that some archive page also prints (renamed `tmp_dir`, both
+halves three letters, below the word class); two WORDS bigrams out of ordinary
+prose in two docstrings (reworded, comments only); two DIGITS hits on the
+Columbia fixture's summary figures, held as whole CENTS and so five and six
+digits long (held as whole UNITS now, four digits or fewer, below `--digit-min`,
+rendered tokens unchanged); one WORDS bigram in a poisoned-period key
+(reworded). **The thirteenth is disclosed and not fixed**: `_OVERFLOW_CASES`
+drives `iso_from_named_month_day` on a month literal, and the bigram is the
+library function's own name beside a month a date-grammar census has to
+contain — dodgeable with a three-letter month and deliberately not dodged. Both
+instruments re-ran after the edits and reproduced their numbers exactly (poison
+24 / 0 over 52, overflow 8 / 0) — and they reproduce again on this host (H6).
+Part 1's H0 row is therefore: **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 1**.
+
+**What this session did instead of an archive scan:** the shape census of H8
+item 6 over the branch's added lines; the specimen count of H8 item 4, with the
+token never entering a file; and a read of every line this appendix adds for
+archive figures, names, account numbers, references and document text — there
+are none: documents are named by `content_sha256` prefix only (none is needed
+here, since nothing moved), the only dates are session dates in 2026-08, and
+the only figures are counts, exit codes, seconds and megabytes.
+
+### H9.1 What part 1 references — the inherited specimen, and `f240b30`
+
+The shared scan re-run on the previous host with the ROOT commit as `--base`,
+so that its exclusion set is empty and tokens INHERITED from an earlier commit
+are visible (a recent base excludes exactly those), found the offender
+EXTRACT-PROMPT purged still standing in tracked source. Across three trees: at
+base `10cc722` the string stood in two code files, `analysis/extract.py` (the
+live prompt) and `tests/test_no_statement_hardcodes.py` (the ratchet that
+asserted the offender still existed); `fbb9c38` deleted it from the prompt and
+deleted the ratchet's line — and re-wrote the same string into the docstring of
+the replacement test, three lines above the paragraph saying a name that may
+belong to a real party is exactly what the standing rule keeps out. Net two
+code files → one, so the branch improved the count and did not introduce the
+token; but one occurrence is one occurrence. `f240b30` replaced the specimen
+with a citation to §PRIVACY3 P10 item 5, where the token is recorded. DOCSTRING
+ONLY: the commit states the code AST with docstrings stripped is byte-identical
+to `24e3da7`'s, and re-ran the four test files (253 passed / 3 skipped) and the
+guard set (253) unchanged — both reproduced here (H6). What this host adds is
+H8 item 4: counted by file, 3 → 1, and the 1 is the ledger.
+
+## H10. HYGIENE-8b — the seven re-carded sub-cards, DETECT-BUDGET-GATE first
+
+None of the seven was started on `wave8-hygiene8`: H5 lists every file in
+`git diff --stat 10cc722..HEAD`, and none of the files these sub-cards own is
+among them. BATCH8_TRANSITION's row 11 records the split — "land the 3 as
+HYGIENE-8a … re-card the 7 — DETECT-BUDGET-GATE first, it is the wave-level
+MAJOR and gates the composed slice".
+
+**Why DETECT-BUDGET-GATE is first, from the record rather than from the card.**
+`tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run`
+asserts `projected = worst * PLANNED_REGISTRATIONS / len(registrations)` against
+`SWEEP_BUDGET_SECONDS` (`train8`: `PLANNED_REGISTRATIONS = 80` at line 201,
+`SWEEP_BUDGET_SECONDS = 0.25` at line 205, the projection at line 366).
+§TANGERINE (item 6 and TG12.1) measured that `worst` is ~99%
+registry-independent first-touch cost, so the projection FALLS with every
+registration: the gate that exists to keep routing cheap as the registry grows
+gets easier the more it grows. §WELCH W9 recorded the wave-level MAJOR: at 76
+registrations the projection sits within 3% of the ceiling on a loaded box, with
+`PLANNED_REGISTRATIONS` four away. §GLANCE recorded the slice red once at
+251.7 ms against the 250 ms budget on a box carrying eighteen other processes,
+exonerated alone. And the state today, arithmetic from the constants rather than
+a run: `train8` is at **registry 83** (BATCH8_TRANSITION, FROST-OZK composed) —
+PAST `PLANNED_REGISTRATIONS` — so the multiplier `80 / 83` is below one and the
+gate now asserts LESS than the raw `worst` reading it takes. The composed slice
+will pass or fail this test on load rather than on cost until it is rewritten
+to measure the marginal per-registration cost, or the prepared-text sweep at a
+fixed registry, as the card says.
+
+| # | sub-card | what the card asks | owns | interaction with the three landed |
+|---|---|---|---|---|
+| 1 | **DETECT-BUDGET-GATE** | make the budget test measure the marginal per-registration cost (or the prepared-text sweep at a fixed registry) so it can gate growth; it changes a stop-the-line contract | `tests/test_parser_parity.py` (the platform's) | none with this branch; it is the wave's, not a reader's |
+| 2 | SIBLING-OMISSION-SURFACE | a payload-level `unpublished_sibling_sections` statement for BOTH idle-sibling declarations across every parser that makes one, plus an integrity NOTE; every mover named; a pinned mover is a ceremony → STOP | `analysis/schema.py`, `symitar.py`, `zions.py`, `community_section.py` (WITHHELD-GRIDS owns that file's daily-evidence reader — touch only the named lines) | none; the population is disjoint from H1's seven |
+| 3 | REFUSAL-CLASS | a third discovery refusal class ("claimed layout, document fails its own totals") so the pinned Columbia refusal stops filing under `unknown_layout_clusters`; report + `rows.csv` + compare carry it; a full-archive differential | `discovery/report.py:191`, `discovery/compare.py`, the runner | the differential is now against run A with the 208 accounting quarantine, and `discovery.compare` grew the quarantine ladder on `train8` (`1d5e459`); the pinned refusal is the 1 "refused on both" of H6's pinned row |
+| 4 | CURRENCY-CONTRADICTION | td_can's two-suffix `institution_default`, cibc's any-three-caps `printed`, desjardins' silent USD arm — decide per site; a pinned class mover → STOP | `analysis/td_can.py` (WITHHELD-TD owns the balance reader), `cibc.py:432`, `desjardins.py` | none |
+| 5 | ZERO-ACTIVITY-MONTH | positive recognition of a zero-activity statement so the quiet month is a measurement, not null gates | the platform's summary/verdict surface | none |
+| 6 | CHASE-SAVINGS-MARKER | fire chase_savings's `excluding("checking_summary", …)` only when a SAVINGS SUMMARY is present; delete the chase → chase_savings import edge and its `ALLOWED_PRIVATE_IMPORTS` entries; proof population 10 + 3 + 4 | `analysis/chase.py`, `analysis/chase_savings.py` | **DIRECT.** This branch rerouted `chase._money_required` through `money_refusal("chase._money_required", …)` and pinned the reader-name rule (R1, R7/R8's whole-tree walk); HYGIENE-8b re-touches `chase.py` and must keep both. H1's call-graph note is the edge the card deletes: today `chase.py` imports FROM `chase_savings`, which is why `chase_savings` was outside H1's population; after the deletion the population rule would no longer need the sentence |
+| 7 | ATB-LABEL | read the product from the `A summary of Deposit Account <product>` line instead of the hardcoded `account_name`; 2 archive movers, 5 pinned byte-identical | `analysis/atb.py:114` | none |
+
+Three things the wave changed under all seven since the card was written, so
+the re-card should say them: the comparison base is run A `47be5963` with the
+208-sha accounting quarantine, never the run of record; `train8` is at registry
+83, not 75; and the archive population is the frozen 3,615 resolved root, with
+the three parked documents outside it.
+
+## H11. Commits on `wave8-hygiene8`, base `10cc722`
+
+| commit | subject |
+|---|---|
+| `d6fdf40` | QUEUE-SUPERVISOR: the worker slot comes back when the worker dies |
+| `d455e85` | QUEUE-SUPERVISOR: the re-arm decision is asserted, not raced |
+| `fbb9c38` | EXTRACT-PROMPT: the LLM prompt stops carrying a payee and five figures |
+| `fd2d8d7` | EXTRACT-PROMPT: the alignment example's SHAPE is pinned, not just its tokens |
+| `e3fcb13` | RAISE-PRIVACY-3: the five sites §PRIVACY3 listed, and one it could not see |
+| `dbd9a7e` | RAISE-PRIVACY-3: the reader NAME is a source symbol, never the token |
+| `4885910` | HYGIENE8: the measurement instruments, base-vs-branch in one process |
+| `25738e2` | HYGIENE8: the mutation harness — 30 mutants over every gate the six commits touched |
+| `d185351` | HYGIENE8: the two prompt mutants carry INVENTED payloads, not the removed ones |
+| `fb9a3c5` | HYGIENE8: two corrections the measurements forced |
+| `183b29e` | HYGIENE8: mutant E3 survived — the value row's CONTINUATION was not pinned |
+| `24e3da7` | HYGIENE8: the privacy scan's twelve owned-file hits, closed |
+| `f240b30` | HYGIENE8: the purged prompt example was still standing in the test's own docstring |
+| `3dc7204` | HYGIENE8: W3 §HYGIENE8 part 1 — summary, instruments, the three sub-cards |
+| `253c0ff` | HYGIENE8: W3 §HYGIENE8 part 2 — the proof floor on the Linux host, the table, the seven re-carded (H5–H13, lines 44033–44478, one hunk, 0 deletions) |
+| *(the next commit)* | HYGIENE8: H11 names the record's own hash — a docs-only fix-up to this row; its hash is the one entry this table cannot hold, and `git log 10cc722..HEAD` shows it as the sixteenth |
+
+Fourteen before this session; this session adds the record commit and the
+one-row fix-up above, both docs-only, touching only §HYGIENE8, and nothing
+else. Instruments, all under `tools/`, all read-only against the
+archive and $0: `hygiene8_base_tree.py`, `hygiene8_family_replay.py`,
+`hygiene8_pinned_replay.py`, `hygiene8_poison_sweep.py`,
+`hygiene8_overflow_reach.py`, `hygiene8_mutation_table.py`.
+
+## H12. Risks carried
+
+1. **The LLM branch is unexercised offline** (H3). Every replay in this record
+   is structurally silent about `_INSTRUCTIONS`; what a hosted model does with
+   the placeholder wording is unmeasured and stays so until someone runs the
+   escalation path deliberately.
+2. **`analysis/date_tokens.py` is reached from all over the registry.** The
+   family replay bounds the seven readers, the pinned replay bounds the truth
+   set, and the archive-reach scan bounds nothing (2,769 of 3,350 against run
+   A). The archive-wide sweep at the composed tree is what carries the
+   `OverflowError` contract across the other 76 registrations (H13).
+3. **Every archive number here is against run A (Tesseract 5.5.3).** The run of
+   record is gone; the 208 non-native shas compare as unchanged under the shared
+   toolchain and carry the accounting quarantine; nothing in this record is a
+   statement about the Windows OCR environment.
+4. **Twelve mutants have one killer each** (H7). Each is a single structural
+   rule pinned by its one test; deleting that test would let the mutant walk
+   without a second test noticing.
+5. **`analysis/dates.py` is not closed** (H4.2): its handlers are shaped so the
+   escape is unreachable today, and a test pins the shape, not the contract.
+6. **The specimen stands in the §PRIVACY3 ledger line and in `f240b30`'s
+   commit message** (H8 item 4) — Ocean's call.
+7. **The guard set's 253 is at registry 75 on this branch**; `train8` recorded
+   guards 254 at registry 81 at the ten-cell push and is at registry 83 since
+   FROST-OZK composed (BATCH8_TRANSITION). The composed count is the train's,
+   and composition may need a registry-pin update in the same commit if any
+   guard here counts registrations.
+8. **QUEUE-SUPERVISOR is proved by 16 tests and seven mutants only.** No replay
+   can see `webapp/app.py`; a worker thread dying under a real shutdown signal
+   in a running process is exercised by the fixture, not observed in
+   production.
+9. **The privacy-scan instrument is not on the branch** (H8 item 3); H9's
+   numbers are the previous host's until the train re-runs the scan on the
+   composed tree.
+10. **HYGIENE-8b's CHASE-SAVINGS-MARKER re-touches `chase.py`** (H10 row 6) and
+    must keep this branch's reroute and reader-name rule.
+11. **Two invented fixture dates sit in 2019, not 2031** (H8 item 5).
+
+## H13. What the train owes — and nothing else
+
+At the composed tree, after the last merge and before the v16 / OCR v4 bump:
+
+* the full default suite, with a durable log and its exit code;
+* `python corpus_gate.py` GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts
+  102 validated / 3 review / 3 withheld / 1 refused; currency 108/108 = 14 CAD /
+  94 USD (+1 pinned refusal); provenance 108/108 = 89 / 7 / 7 / 4 / 1 (+1) — the
+  card's floor, which this branch's pinned replay says it does not move;
+* the corpus-marked slice — including
+  `test_detect_sweep_stays_affordable_for_the_discovery_run`, whose reading at
+  registry 83 is H10's point, and whose failure would be load or the gate's own
+  defect before it would be this branch's;
+* the archive-wide zero-movement sweep, `tools.regfp_zero_movement_sweep`, at
+  the composed tree against run A per the standing rule, with the 208-sha
+  accounting quarantine applied: every `moved` / `no_payload_now_publishes` /
+  `payload_now_raises` finding must be inside the 618 named here by
+  `content_sha256` or be explained — and for this branch the expected count
+  inside the 618 is **zero**, because that is what the family replay measured
+  leaf for leaf on both hosts.
+
+Nothing else. The mutation table, the poison census, the `OverflowError`
+census, the pinned replay and the family replay are this session's, on this
+host, with their exit codes in H6 and H7, and they need no re-run at the train.
+## H14. Review closures — the four sites, the corrections, and the proof floor at the closure tree (closure session, Windows host, 2026-08-28)
+
+The hostile review (`b2e4ad7`, `reviews/BATCH8_HYGIENE8_REVIEW.md`) returned
+APPROVE WITH FINDINGS — 0 BLOCK, 2 MAJOR, 4 MINOR. Five closure commits landed
+before this session (`c64f936`, `313cc43`, `97862d1`, `88540b2`, `579f0bb`);
+this session closed the rest. **Every number below was measured in this session
+on this host** (Windows 11, CPython 3.14.5, pytest 9.1.1, Tesseract 5.5.0),
+each instrument alone, each under
+`tools/train/winrun.py --cap-gb 4 --floor-gb 0.5`, with the run's own durable
+log named beside it. The session scratchpad holding those logs is
+`…/60d75240-f155-4152-a25d-5142bd14a5a0/scratchpad/hygiene8-closure`; nothing
+was written under the worktree.
+
+**THE RUN OF RECORD IS INTACT ON THIS HOST.** Unlike the Linux host, this one
+still holds `discovery_reports/2026-08-23T020128.909387-0000-356a4269/rows.csv`
+(3,506 rows) and `webapp_data`. Every `--rows` / `--data-dir` number in this
+section is **against the run of record `356a4269` (this host, Windows,
+Tesseract 5.5.0)**, not against run A — and where part 1 quoted the run of
+record, this session reproduces it to the digit (see H14.5 and H14.6 row 6).
+
+### H14.1 Disposition — one row per finding
+
+| finding | closing commit(s) | the check that proves it | exit | verdict |
+|---|---|---|---|---|
+| **MAJOR-1** the re-arm hands the queue a second worker | `313cc43` (landed before this session) | re-verified here: `webapp/app.py:_release_worker_slot` writes `_job_worker_active = rearm` **once, under the lock**, then spawns — the claim-before-spawn order `_enqueue_job` keeps; `test_a_replacement_worker_holds_the_slot_while_it_runs` is the isolating test, and mutant **Q8** (the claim reverted to `False`) is killed by that test **and by no other** (`E9_mutation.log`) | 0 | CLOSED, re-verified |
+| **MAJOR-2** four unguarded `date()` sites of the site-6 class | `548e518` (sites + drives + census + poison cells), `c7a42c9` (mutants M1–M4) | H14.2 both-tree drive table (12 cells, base echoes / branch token-free), H14.3 census, H14.4 mutants M1–M4 all killed, H14.5 zero movement re-proved | 0 | CLOSED |
+| **MINOR-3** a thread-raised signal is not a dying process | `97862d1` (landed before this session) | re-verified here: the shutdown exemption is GONE — `rearm = bool(_job_queue)` has no signal clause, so queued work is drained by a replacement rather than waiting for the next upload; `test_a_signal_raised_in_a_worker_thread_does_not_end_the_process` and `test_a_signal_raised_in_the_worker_is_a_dead_worker_and_the_queue_still_drains` are the gates, and mutant **Q6** (the shipped premise reintroduced) is killed by them | 0 | CLOSED, re-verified |
+| **MINOR-4** the bound is a C `int`, not a "32-bit C long" | `c455de7` | measured on this host: `sizeof(c_int)`=4, `sizeof(c_long)`=4; `date(2026,1,2**31-1)` → `ValueError`, `date(2026,1,2**31)` → `OverflowError`. Corrected in `date_tokens.iso_or_none`'s docstring, `hygiene8_overflow_reach` (x4), the `_HUGE` note, and in place at three points of §HYGIENE8 (H0 row, H4.2, H4.3) | 0 | CLOSED |
+| **MINOR-5** fixture dates off the 2031 convention | `f825a97`, `de768e4` | the DATES census over the branch's added code/tests/tools lines is **0** (H14.7) | 0 | CLOSED |
+| **MINOR-6 (a)** E3/E4 labels | `588b81d` | E3 now describes the `<V4> / <V5> / <V6>` continuation it actually deletes; E4 states the commit↔table mapping instead of cross-referencing it. `landed_in` and killers unchanged, both still killed (`E9_mutation.log`) | 0 | CLOSED |
+| **MINOR-6 (b)** the stale "crosses the worker boundary" reason | `588b81d`, `de768e4` | restated in `analysis/chase.py` and this branch's `tests/test_raise_privacy3.py` docstring with the sinks that survive; `analysis/chase.py`'s AST is unchanged by both commits (measured, H14.9) | 0 | CLOSED |
+| **MINOR-6 (c)** a surviving `threading.active_count` assertion | `97862d1` (landed before this session) | **verified here: no `active_count` ASSERTION remains in `tests/test_queue_supervisor.py`.** The name occurs twice in the file and both are prose (lines 274 and 394) explaining why the racy shape was dropped | 0 | CLOSED, re-verified |
+| **MINOR-6 (d)** "DERIVED, not typed" derived from a typed constant | `588b81d` | `test_the_replay_population_is_derived_from_a_list_checked_against_the_diff` asserts `CHANGED_PARSER_MODULES`'s keys equal `git diff --name-only 10cc722 HEAD -- analysis/` minus a NAMED exclusion list, and asserts each exclusion still appears in the diff | 0 | CLOSED |
+
+**The H0/H1 sentence, restated.** The family population is derived by an AST
+call graph from a list of changed parser modules that WAS typed and is now
+checked against the diff on every run of the gate set. The exclusions are
+`analysis/date_tokens.py` (no registration's `parse` lives there; the
+`OverflowError` widening is `hygiene8_overflow_reach`'s to prove) and
+`analysis/extract.py` (the LLM prompt, which `pipeline.py` raises before in
+deterministic mode — the only mode any replay runs). After MAJOR-2 the changed
+analysis files are still those two plus the four readers.
+
+### H14.2 The four sites, before and after — and the both-tree drive
+
+| site | at `10cc722` and `af98349` | at `548e518` |
+|---|---|---|
+| `chase._parse_chase_business_export` | `current_date = date(int(raw_year), _EXPORT_MONTHS[…], int(raw_day))` | `iso = iso_or_none(…)` → `if iso is None: raise date_refusal("chase._parse_chase_business_export", …)` → `current_date = date.fromisoformat(iso)` |
+| `columbia_bank.parse_columbia_bank_statement`, the cheque loop | `date=date(period_end.year, int(month), int(day))` | `cheque_iso = iso_or_none(…)` → `if cheque_iso is None: raise date_refusal("columbia_bank.cheque_row", …)` → `date=date.fromisoformat(cheque_iso)` |
+| `scotia.parse_scotiabank_statement`, the posting loop | `tx_date = date(int(m.group(3)), int(m.group(1)), int(m.group(2))).isoformat()` | `tx_date = iso_or_none(…)` → `if tx_date is None: raise date_refusal("scotia.posting_row", m.group(0))` |
+| `scanned_small_bank._date_from_mdyy` (from `_parse_two_column_mdyy_rows`) | `return date(year, month, day).isoformat()` | `iso = iso_or_none(year, month, day)` → `if iso is None: raise date_refusal("scanned_small_bank._date_from_mdyy", value)` → `return iso` |
+
+`analysis/scotia.py`'s `from datetime import date` went with its site: after the
+reroute the module had no other use for the name.
+
+**The drive.** Four INVENTED fixtures, one per reader, each built only from
+that reader's own committed detection markers and column headers, each with a
+valid 2031 period and one out-of-range row; every figure is rendered from a
+whole-unit constant at build time, so the fixtures put no amount-shaped literal
+in the tree. Three out-of-range shapes per site = **12 cells**, each driven
+through the REAL reader against the base tree materialised by
+`tools.hygiene8_base_tree` from `10cc722` and against this tree, in one
+process. `E5_poison.log` / `poison_final.json`, and the same drives as tests in
+`E1_branch_tests.log`.
+
+| site | shapes driven | base `10cc722` | branch (closure tree) |
+|---|---|---|---|
+| `chase.export_row` | `Feb 30, 2031`, `Apr 31, 2031`, `Jun 31, 2031` | `ValueError` escapes on 3/3; leaks on `str`, `repr`, `args`, `traceback` (`day 30 must be in range 1..28 for month 2 in year 2031`) | refusal escapes on 3/3; **0 leaking surfaces**; `reader=chase._parse_chase_business_export` |
+| `columbia_bank.cheque_row` | `13-40`, `02-30`, `04-31` | `ValueError` on 3/3; all four surfaces (`month must be in 1..12, not 13`) | 3/3 refuse; **0 leaking surfaces**; `reader=columbia_bank.cheque_row` |
+| `scotia.posting_row` | `13/40/2031`, `02/30/2031`, `04/31/2031` | `ValueError` on 3/3; all four surfaces | 3/3 refuse; **0 leaking surfaces**; `reader=scotia.posting_row` |
+| `scanned_small_bank.mdyy_row` | `13/40`, `02/30`, `04/31` | `ValueError` on 3/3; all four surfaces | 3/3 refuse; **0 leaking surfaces**; `reader=scanned_small_bank._date_from_mdyy` |
+
+Neither `__cause__` nor `__context__` is set on any of the twelve — the refusal
+is raised from outside the funnel, the shape site 6 already had.
+
+**Refusal semantics preserved, measured rather than argued.** (i) the class
+escaping the reader is still `ValueError` on all twelve
+(`test_the_refusal_class_at_the_four_sites_is_still_ValueError`), so the
+dispatch seam's `type(exc).__name__` is unchanged; (ii) an IN-RANGE row through
+the same fixture produces the identical payload leaf for leaf on both trees
+(`leaf_diff` == [] for all four): chase publishes a three-row `Statement`,
+scotia a one-row `Statement`, `scanned_small_bank` a one-row transaction list,
+and columbia declines with `None` on both trees for reasons the poisoned token
+never reaches. No row is silently skipped anywhere.
+
+**The poison census, with the four new cells** (`E5_poison.log`):
+
+| | at `af98349` (H4.1) | at the closure tree |
+|---|---|---|
+| sites | 7 | **11** |
+| cells | 52 | **64** |
+| base leaking cells | 24 | **36** (the 12 new ones all leak) |
+| branch leaking cells | **0** | **0** |
+| read without raising | 3 / 3 | 3 / 3 |
+
+The row cells' digit-run floor is **two**, not the module's three, and that is
+the finding rather than a convenience: a printed month or day IS a two-digit
+run, so at a three-digit floor `month must be in 1..12, not 13` is invisible to
+this census — the exact blindness MAJOR-2 lived in. The floor drops for the row
+cells only, so H4.1's six-site counts are unchanged.
+
+### H14.3 The implicit-conversion census over the CHAIN_GUARDED modules
+
+`test_no_unguarded_conversion_of_a_document_token_is_unaccounted_for`,
+`test_the_four_closed_sites_are_absent_from_the_census`,
+`test_every_entry_of_the_conversion_allowlist_carries_a_reason` and
+`test_the_census_can_see_a_date_on_a_regex_group_arriving`. The rule: a call to
+`date` / `datetime` / `int` / `float` / `Decimal` / `strptime` /
+`fromisoformat` whose argument derives from a regex group or a parsed token
+(taint seeded on `.group` / `.groups` / `.groupdict` / `.findall` /
+`.finditer` / `.split` and propagated transitively inside the function), and
+which stands lexically outside any handler catching `ValueError`, and whose
+argument is not a value a `date_tokens` funnel produced. It exists because
+`_chain_offenders` reads `raise` statements and `columbia_bank.py` and
+`scotia.py` held none — their `CHAIN_GUARDED` entries were vacuous by
+construction, and the four sites were invisible to every proof this branch had.
+
+Over the nine `CHAIN_GUARDED` modules at the closure tree: **74 calls
+reported**, all accounted for, split in two:
+
+* **66 CANNOT echo a document token**, each with the reason that proves it,
+  hand-verified against the pattern that produces its argument:
+  * `int()` of a digits-only group (`\d+`, `\d{2}`, `\d{4}`) — the conversion
+    cannot raise, so there is no message to echo into — 41 entries;
+  * `int()` of a digits-only group split on its own separator — 4;
+  * `int()` reached only through an explicit `.isdigit()` test — 3;
+  * `float()` of a value the module already parsed into a `Decimal` or a
+    `float` — 13;
+  * `float()` of text a full-match against the format's own numeric pattern has
+    just proved is a float literal — 2 (`money.parse_money`,
+    `money.parse_money_tokens`);
+  * `int()` of the first four characters of an ISO date this tree produced — 2;
+  * `date()` on a triple `year_within_period` already constructed inside its
+    own `try` — 1 (`date_tokens.iso_within_period`, documented at the site).
+* **8 CAN echo, and are DISCLOSED rather than closed.** They are the MAJOR-2
+  class exactly, in three chain-guarded modules this closure does not own. Each
+  was driven in this session and each echoed:
+
+| site | measured message |
+|---|---|
+| `bmo._statement_period: date(year, month, 1)` | `year must be in 1..9999, not 0` — `(\d{4})` admits `0000` |
+| `bmo._statement_period: date(year, month, calendar.monthrange(year, month)[1])` | the same printed year, one line down |
+| `farmers_merchants._parse_summary: date(year, start_m, start_d)` | `month must be in 1..12, not 13` — `(?P<start>\d{2}/\d{2}/\d{2})` |
+| `farmers_merchants._parse_summary: date(year, end_m, end_d)` | the same shape on the period's end cell |
+| `td_can._parse_period: date(2000 + int(sy), _MONTHS[sm], int(sd))` | `day 30 must be in range 1..28 for month 2 in year 2031` |
+| `td_can._parse_period: date(2000 + int(ey), _MONTHS[em], int(ed))` | the same shape on the end token |
+| `td_can._date_tokens: date(year, _MONTHS[mon], int(day))` | `day 30 must be in range 1..28 for month 2 in year 2031` |
+| `td_can._native_date_to_iso: date(default_year, _MONTHS[…], int(m.group(2)))` | `day 30 must be in range 1..28 for month 2 in year 2031` |
+
+**Carded, not closed here**, and the reason is a rule rather than a shortage of
+time: this session's mandate is the four sites the review named, and rerouting
+a fifth, sixth and seventh reader would be an unreviewed production change
+riding in on a closure commit. `bmo.py`, `farmers_merchants.py` and `td_can.py`
+are chain-guarded modules whose registrations move the archive. **For batch 9,
+as a card of its own** — the same shape, the same funnel, the same both-tree
+drive, three readers. Nothing user-facing carries the digits today (the
+dispatch seam reduces a parser crash to its class name and
+`webapp/worker.py:_stage_failure` withholds every message); the surviving sinks
+are `batch.py:266`, `coverage_audit.py:193` and
+`deterministic_coverage_audit.py:241`.
+
+The census is watched failing on four synthetic shapes: a group straight into
+`date()` (2 findings), the same call inside a `ValueError` handler (0), the
+funnel shape this closure installed (1 — the `int()` only), and a `date()` on
+nothing derived from a token (0).
+
+### H14.4 The mutation table
+
+Four rows added, one per site, each reverting it to the raw `date(...)` call
+the reviewer drove; M3 goes through `__import__("datetime")` because the
+closure removed `analysis/scotia.py`'s now-unused `date` import.
+
+| mutant | site reverted | landed in | killed by |
+|---|---|---|---|
+| **M1** | `analysis/chase.py` export row | `_parse_chase_business_export` | `test_no_unguarded_conversion_of_a_document_token_is_unaccounted_for`, `test_the_four_closed_sites_are_absent_from_the_census`, and the three `…refuse_without_quoting_at_the_branch[chase.export_row-*]` cells |
+| **M2** | `analysis/columbia_bank.py` cheque row | `parse_columbia_bank_statement` | the census tests and the three `[columbia_bank.cheque_row-*]` cells |
+| **M3** | `analysis/scotia.py` posting row | `parse_scotiabank_statement` | the census test and the three `[scotia.posting_row-*]` cells |
+| **M4** | `analysis/scanned_small_bank.py` MM/DD row | `_date_from_mdyy` | the census tests and the three `[scanned_small_bank.mdyy_row-*]` cells |
+
+R10's target text tracks `CHAIN_GUARDED`'s chase entry, which gained
+`date_refusal`; the mutant, its gate and its kill are unchanged. E3's and E4's
+`describes` text is corrected (MINOR-6 a); no `old`/`new`/`landed_in` moved.
+
+**Whole table at the closure tree** (`E9_mutation.log`,
+`mutation_final.json`): baseline green first, then
+**35 mutants / 35 KILLED / 0 SURVIVED / 0 NOT APPLIED**, 666.7 s of harness
+time, `git status --short` empty before and after, exit **0**. The roster is
+the record's 30 + Q8 + M1–M4. Every documented occurrence count still matches
+its file. Q8's only killer is
+`test_a_replacement_worker_holds_the_slot_while_it_runs`; the twelve
+single-killer rows H7 recorded are unchanged, and M1–M4 each have four killers.
+
+### H14.5 The population, the quarantine, and the family replay — against the run of record
+
+Re-derived here with this session's own reader over
+`discovery_reports/2026-08-23T020128.909387-0000-356a4269/rows.csv` (3,506
+rows) and `tools/train/recon_b7_quarantine_nonnative_208.shas` (208 shas)
+(`E8a_population.log`, `E8b_population_split.log`):
+
+| registration | dispatched | of which quarantined |
+|---|---|---|
+| `apex_scanned` | 4 | 4 |
+| `chase` | 505 | 0 |
+| `chase_export` | 4 | 1 |
+| `columbia_bank` | 4 | 4 |
+| `scotiabank` | 84 | 0 |
+| `southside_scanned` | 9 | 9 |
+| `texas_first_scanned` | 8 | 8 |
+| **total** | **618** | **26** |
+
+The derivation is unchanged by MAJOR-2: the same seven registrations, from the
+same four modules, reaching `_money_required` / `parsed_datetime` / `_money` /
+`_iso`. **618 and 26 are the record's numbers** — H1 and H8 item 1 derived them
+against run A on the Linux host and the reviewer re-derived them independently;
+they reproduce exactly against the run of record here.
+
+**The replay** (`E8_family.log`, `family_final.json`), run last and alone:
+
+| | |
+|---|---|
+| documents | **618** |
+| replays (every OCR settings partition holding the document) | **625** (7 documents have two) |
+| identical leaf for leaf | **613** |
+| raised on both trees, same class | **12** |
+| `moved` | **0** |
+| `outcome_moved` | **0** |
+| `raise_class_moved` | **0** |
+| `base_raised_branch_publishes` | **0** |
+| `base_published_branch_raises` | **0** |
+| `no_ocr_artifact` | **0** |
+
+**No mover of any class, so no `content_sha256` is named and the quarantined
+movement table is empty** — under Option B the 26 would have been reported
+separately and never counted, and there is nothing to report. 613 + 12 = 625.
+
+This reproduces PART 1's run-of-record figures, which the reviewer could not
+check because the run was believed lost: part 1 recorded 613 + 12 and this
+session measures 613 + 12. The run-A restatement in H6 row 7 (609 identical /
+16 raised on both) is a different OCR run of the same corpus and is unchanged.
+
+### H14.6 The proof floor at the closure tree
+
+Every row from the branch worktree, sequential, one process at a time, each
+under
+`python tools/train/winrun.py --cap-gb 4 --floor-gb 0.5 --timeout … --log winrun.jsonl`.
+`peak_job_mb` is the Job Object's peak committed memory across every process it
+contained — the Windows analogue of the record's "peak RSS". `git status
+--short` empty before every row and after the mutation harness.
+
+**Which tree each row ran at, stated rather than assumed.** The whole floor ran
+once at `588b81d` (logs `E*`), and rows 1–7 and 9 ran AGAIN at the closure tip
+after `de768e4` (logs `F*`) — the numbers below are the second run, and the
+first agreed with it on every result. Row 8, the 18-minute family replay, ran
+only at `588b81d`, and what separates the two trees is measured rather than
+argued: `git diff --name-only 588b81d HEAD` is `analysis/chase.py`,
+`tests/test_raise_privacy3.py` and this log; **every module of `analysis/` is
+AST-identical across them**, and `tests/test_raise_privacy3.py` is
+AST-identical apart from its module docstring. `de768e4` removed three session
+dates from comments. No replay can see a comment.
+
+| # | proof | result | exit | wall (s) | peak_job_mb | MemAvailable MB before → after | log |
+|---|---|---|---|---|---|---|---|
+| 1 | `pytest` the branch's four test files (`test_queue_supervisor`, `test_raise_privacy3`, `test_privacy3_boundaries`, `test_no_statement_hardcodes`) | **288 passed, 3 skipped** (this session collects +34 tests; 254 at `579f0bb`) | **0** | 17.7 | 343.3 | 2134.9 → 1638.4 | `F1_branch_tests.log` |
+| 2 | `pytest` the four readers' own test files (`test_chase_closure`, `test_chase_layouts`, `test_chase_native_variants`, `test_columbia_bank`, `test_scotia_layouts`, `test_southside_scanned`, `test_texas_first_scanned`) | **260 passed** | **0** | 3.3 | 92.7 | 1643.1 → 1517.0 | `F2_reader_tests.log` |
+| 3 | the canonical guard set (5 files) | **253 passed**, registry 75 | **0** | 13.4 | 97.2 | 1526.8 → 1254.5 | `F3_guard_set.log` |
+| 4 | the canonical conformance set (7 files) | **1,164 passed, 35 skipped** | **0** | 4.2 | 100.8 | 1264.0 → 1272.3 | `F4_conformance.log` |
+| 5 | `tools.hygiene8_poison_sweep --base 10cc722` | 11 sites, 64 cells, base leaking **36**, branch leaking **0** | **0** | 2.5 | 128.8 | 1279.9 → 1312.0 | `F5_poison.log` |
+| 6 | `tools.hygiene8_overflow_reach --base 10cc722 --rows <RoR> --data-dir <main>/webapp_data` | census 11 public / 11 drives / **8 escaped at base in 7 functions** / **0 at branch**, smallest overflowing integer 10 digits, reachable threshold 2,147,481,648; archive **3,380 in run / 3,351 with text / 29 without / longest run 54 / 2,765 at or over the threshold** | **0** | 32.2 | 81.8 | 1323.2 → 1704.0 | `F6_overflow.log` |
+| 7 | `tools.hygiene8_pinned_replay --base 10cc722 --corpus "<wt>/Bank Statements"` | **109 pinned / 109 replayed / 108 identical / 1 refused on both / moved 0 / outcome_moved 0 / publish_boundary_moved 0 / refusal_class_moved 0 / unreadable 0**; 14 claimed by a touched reader, 1 unclaimed; `by_parser` names 43 parsers and sums to 108 | **0** | 220.2 | 165.7 | 1461.6 → 1688.7 | `F7_pinned.log` |
+| 8a | `tools.hygiene8_family_replay --print-population` | the same seven registrations; **618 dispatched documents** | **0** | 2.3 | 112.8 | 2662.0 → 2652.0 | `E8a_population.log` |
+| 8 | `tools.hygiene8_family_replay` (full, LAST and alone, `--timeout 2400`) | **618 / 625 / 613 identical / 12 raised on both / movement 0 of every class** | **0** | 1069.4 | 113.3 | 2501.1 → 2194.3 | `E8_family.log` |
+| 9 | `tools.hygiene8_mutation_table --timeout 1800` | **35 / 35 killed / 0 survived / 0 not applied**, baseline green, tree clean before and after | **0** | 735.9 | 362.7 | 1692.0 → 2819.2 | `F9_mutation.log` |
+
+`MemAvailable` never fell below **1,254 MB** across both passes, always well
+above the 0.5 GB floor; the 4 GB cap was never approached (largest peak 364 MB,
+on the mutation harness). No run timed out and no child survived its job.
+
+**Two runs were interrupted by this session's own shell timeout and are not in
+the table**: a first attempt at row 7 (killed at 120 s) and a first attempt at
+row 9 (killed at 600 s). Neither was a guard event — `timed_out` is False on
+every row that completed, and the killed attempts left no telemetry line. The
+interrupted mutation attempt left `analysis/date_tokens.py` carrying an
+O-mutant; it was restored with `git checkout --` and the tree was verified
+clean before row 9 was re-run from the beginning. No orphan process survived
+either kill (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, checked with `tasklist`).
+
+**Not run here, by instruction**: the full default suite, `corpus_gate.py`, the
+corpus-marked slice and the archive-wide sweep. They are the train's, at the
+composed tree (H13).
+
+### H14.7 Privacy of this session's added lines
+
+Measured over `git diff 10cc722..HEAD -U0` excluding `docs/`
+(`privacy_census_code.log`): **3,994 added lines** in code, tests and tools.
+
+* **DATES — full calendar dates whose year the archive could cover (2015–2026),
+  ISO, `M/D/Y` and long form, each verified to be a real calendar date: 0.**
+  Three session-dated sentences that this session had written into
+  `analysis/chase.py` and `tests/test_raise_privacy3.py` were removed in
+  `de768e4` to reach it; the remaining session dates in the diff are in the W3
+  log and in the review file, which are documented as exempt. (The `de768e4`
+  commit message quotes 3,992 added lines: it was measured before that commit's
+  own two-line growth.)
+* **Money-shaped tokens (`\d{1,3}(,\d{3})*\.\d{2}`): 2**, both the same
+  invented textbook placeholder in the mutation harness's E1/E2 payloads,
+  present since `af98349` and disclosed by the review. **0 in analysis and test
+  files.**
+* **8+-hex runs: 0. 7+-digit runs: 0.** (The review file's two `8000000`
+  `ulimit` values are outside this scope and are a wrapper constant.)
+* **Every fixture added by this session is invented**: the four reader fixtures
+  are built from detection markers and column headers already committed in each
+  reader's own source at `10cc722`; account digits are repeated patterns
+  (`'0' * 4`, `'X' * 8`); every figure is rendered from a whole-unit constant at
+  build time so no amount literal enters the tree; every date is 2031; the
+  out-of-range tokens are shapes (`13-40`, `02/30`, `Feb 30, 2031`), never
+  transcriptions. No document is named anywhere in this session's added lines,
+  and no `content_sha256` appears in any fixture.
+
+### H14.8 The `OverflowError` population the train's sweep must contain
+
+The review's note for the train: the widening's only outcome-moving direction
+is crash → `None` (`iso_or_none`, `iso_from_named_month_day`,
+`iso_unique_in_period`, `year_within_period`, `iso_within_period`), because
+crash → refusal cannot move an outcome — a `ValueError` and an `OverflowError`
+are the same `parser_exception` at the seam. The reviewer measured that
+direction as reachable from **16 registrations in 13 modules** at `af98349`.
+
+Reproduced here as an AST census, module-aware (a call resolves to a function
+of the same module or to the name a `from .x import y` brought in; transitive)
+— `overflow_population2.log`, `overflow_population_579.log`:
+
+| tree | registrations reaching crash → `None` | modules |
+|---|---|---|
+| `579f0bb` (pre-closure, the reviewed shape) | **19** | 16 |
+| `de768e4` (closure tree) | **23** | 19 |
+
+The +4 is exactly this closure's own funnel: `chase`, `chase_export`,
+`columbia_bank` and `scotiabank` now call `iso_or_none`. My census and the
+reviewer's disagree by three at the same tree (19 vs 16) and I could not re-run
+theirs; **mine is the wider, and for a sweep population the wider is the one to
+carry.** The 23, by `parser_id`:
+
+`apex_scanned`, `bank_of_america`, `brex`, `chase`, `chase_export`,
+`citibusiness`, `columbia_bank`, `core_processor_counted`,
+`core_processor_daily`, `core_processor_sectioned`, `eq_bank_scanned`,
+`fifth_third`, `fiserv_premier`, `found_lead`, `found_lead_activity`,
+`mercury`, `pnc`, `regions`, `scotiabank`, `southside_scanned`, `td_us`,
+`texas_first_scanned`, `zions`.
+
+For scale, on the same census: the eight widened functions have **60 call sites
+in 33 modules** and **41 of 75 registrations** reach one of them. The family
+replay covers seven of the 23 and the pinned replay covers whatever the 109
+exercise; `tools.regfp_zero_movement_sweep` at the composed tree is what covers
+the rest.
+
+### H14.9 The commits of this closure session
+
+| sha | what |
+|---|---|
+| `548e518` | MAJOR-2: the four sites funnelled and refusing token-free; the four both-tree drives as tests; the four parser-driven poison cells; the implicit-conversion census with its two reasoned lists; `CHAIN_GUARDED`'s chase entry gains `date_refusal` |
+| `c7a42c9` | MAJOR-2: mutants M1–M4, one per site; R10's target text tracks the chase entry |
+| `c455de7` | MINOR-4: the bound is the C `int` (2^31); five source corrections and three in-place W3 corrections inside §HYGIENE8 |
+| `f825a97` | MINOR-5: five invented fixture dates move to 2031 |
+| `588b81d` | MINOR-6 (a)(b)(d): E3/E4 labels, the restated reroute reason, the population checked against the diff |
+| `de768e4` | MINOR-5: three session dates leave the added source lines; the DATES census reaches 0 |
+| `1b2a2c1` | §H14, as first written |
+| `063e877` | §H14.6 re-measured at the closure tip (rows 1–7 and 9), and the tree each row ran at stated |
+| *(this one)* | this table completed — a commit cannot name itself before it exists, so the two rows above were written by the commits they name |
+
+**Production changes in this session are exactly the four MAJOR-2 sites and
+comments.** Verified with an AST comparison of every touched module against
+`579f0bb`, docstrings stripped: `analysis/chase.py` differs only at
+`_parse_chase_business_export` and its `date_tokens` import;
+`analysis/columbia_bank.py` only at `parse_columbia_bank_statement` and its
+import; `analysis/scotia.py` only at `parse_scotiabank_statement`, its import
+and the removed `from datetime import date`; `analysis/scanned_small_bank.py`
+only at `_date_from_mdyy`; **`analysis/date_tokens.py` is docstring-only** and
+`analysis/extract.py` and `webapp/app.py` are byte-identical in AST.
+`git diff 579f0bb HEAD --numstat`: **11 files**. The five analysis files together are **+68 / −11**, and every one of those lines is a MAJOR-2 site, its import or a comment; `tests/test_raise_privacy3.py` is **+775 / −10**; `tests/test_privacy3_boundaries.py` is the one-line `CHAIN_GUARDED` entry; the three instruments are +128 / −19; the rest is this log (§H14 plus MINOR-4's three in-place corrections).
+
+### H14.10 What the train owes
+
+H13 stands unchanged — the full default suite, `corpus_gate.py` GREEN at the
+card's floor, the corpus-marked slice, and `tools.regfp_zero_movement_sweep`
+with the 208-sha accounting quarantine applied. This closure adds three
+sentences to it and takes nothing away:
+
+1. **The sweep's population is named in advance and it is 23 registrations, not
+   "all over the registry"** (H14.8). Every `moved` /
+   `no_payload_now_publishes` / `payload_now_raises` finding must be inside the
+   618 named here by `content_sha256`, or inside those 23, or be explained —
+   and for this branch the expected count inside the 618 is **zero**, which is
+   what the family replay measured leaf for leaf on both hosts and now against
+   the run of record itself.
+2. **The three carried echoing readers are a batch-9 card, not a train item**
+   (H14.3): `bmo.py`, `farmers_merchants.py` and `td_can.py` hold eight
+   `date()` calls of the MAJOR-2 class, measured and disclosed in the census's
+   own list. Nothing user-facing carries the digits today, so this is a card
+   and not a hold; but the census now fails loudly if a ninth arrives, and it
+   is the first thing HYGIENE-8b should read.
+3. **`analysis/chase.py` is touched by this closure and by HYGIENE-8b's
+   CHASE-SAVINGS-MARKER** (H12 item 10, H10 row 6). Whoever composes them must
+   keep this closure's funnel, its reader-name rule and its `date_refusal`
+   registration in `CHAIN_GUARDED`.
+
+The mutation table, the poison census, the `OverflowError` census, the pinned
+replay and the family replay are this session's, on this host, with their exit
+codes in H14.6, and they need no re-run at the train.

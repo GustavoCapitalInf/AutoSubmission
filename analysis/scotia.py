@@ -35,8 +35,8 @@ the text layer has lost.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
 
+from .date_tokens import date_refusal, iso_or_none, parsed_datetime
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -194,7 +194,10 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
     period = re.search(r"Business Account\s+[0-9 ]+\s+([A-Za-z]{3}\s+\d{1,2}\s+\d{4})\s+([A-Za-z]{3}\s+\d{1,2}\s+\d{4})", markdown)
     if period:
         for attr, raw in (("period_start", period.group(1)), ("period_end", period.group(2))):
-            parsed = datetime.strptime(raw, "%b %d %Y").date()
+            # RAISE-PRIVACY-3 (#HYGIENE8), W3 §PRIVACY3 P10 item 4: an
+            # escaping `strptime` whose ValueError quotes the printed period.
+            parsed = parsed_datetime(
+                raw, "%b %d %Y", reader="scotia.period").date()
             setattr(stmt, attr, parsed.isoformat())
 
     # The account-level grid, which is printed once above `Account Details`
@@ -228,7 +231,16 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
             m = _DATE_RE.search(row)
             if not m:
                 continue
-            tx_date = date(int(m.group(3)), int(m.group(1)), int(m.group(2))).isoformat()
+            # REVIEW MAJOR-2, the "site 6" class: `_DATE_RE`'s
+            # `(\d{2})/(\d{2})/(\d{4})` proves three digit runs and nothing
+            # more, so a posting row printed `13/40/2031` reaches `date()`,
+            # whose ValueError echoes the printed month, day and year.
+            # Funnelled through `iso_or_none` and refused from OUTSIDE the
+            # funnel; the class stays `ValueError`, so the document refuses
+            # exactly as it refused before.
+            tx_date = iso_or_none(int(m.group(3)), int(m.group(1)), int(m.group(2)))
+            if tx_date is None:
+                raise date_refusal("scotia.posting_row", m.group(0))
             rest = row[m.end():].strip()
             if rest.upper().startswith("BALANCE FORWARD"):
                 opening = [t for t in rest.split() if _is_balance_cell(t)]

@@ -13,8 +13,9 @@ from datetime import date
 #: `tests/test_no_parser_helper_clones.py`'s debt register alongside the
 #: `td_canada_french` -> `td_can` pair, which is the same situation.
 from .chase_savings import _grid_lines, _grid_rows, _transaction
-from .date_tokens import iso_from_month_day, period_from_long_dates
-from .money import MINUS_CLASS, parse_digit_scrubbed, read_money
+from .date_tokens import (
+    date_refusal, iso_from_month_day, iso_or_none, period_from_long_dates)
+from .money import MINUS_CLASS, money_refusal, parse_digit_scrubbed, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import clean_cell, compact_whitespace, group_rows, table_rows, tables_after
@@ -54,7 +55,29 @@ def _money(value: str) -> float | None:
 def _money_required(value: str) -> float:
     amount = _money(value)
     if amount is None:
-        raise ValueError(value)
+        # RAISE-PRIVACY-3 (#HYGIENE8), the site W3 §PRIVACY3 P10 item 1 named
+        # and could not own. `raise ValueError(value)` put the printed cell in
+        # the message.
+        #
+        # WHERE THAT MESSAGE STILL GOES, restated by the #HYGIENE8 closure
+        # session (review MINOR-6): the reason this comment used to give — "it crosses
+        # `webapp/worker.py`'s boundary into the durable store" — has been
+        # stale since batch 6's §WORKER-PRIVACY. `webapp/worker.py`
+        # `_stage_failure` (:96) now withholds every message and stores the
+        # exception's CLASS NAME, and the dispatch seam
+        # (`analysis/parser_registry.py`, `ParserFailure(…, type(exc).__name__)`)
+        # does the same for a parser crash. The sinks that survive are the CSV
+        # writers — `batch.py` :266, `coverage_audit.py` :193 and
+        # `deterministic_coverage_audit.py` :241, each `f"{type(e).__name__}:
+        # {e}"` into a cell — and any direct caller of this function. The
+        # reroute is right either way: a grammar that never puts the cell in a
+        # message is safe in front of a boundary nobody has written yet.
+        #
+        # `money_refusal` is the shared constructor:
+        # the token is MEASURED into a four-value class and never quoted, and
+        # because it RETURNS the exception this raise stands outside any
+        # handler, so nothing attaches a `__cause__` either.
+        raise money_refusal("chase._money_required", value)
     return amount
 
 
@@ -168,7 +191,21 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
         date_match = row_date_re.match(line)
         if date_match:
             raw_month, raw_day, raw_year, line = date_match.groups()
-            current_date = date(int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))
+            # REVIEW MAJOR-2, the "site 6" class in this file: `row_date_re`
+            # proves the token's SHAPE and nothing more, so a printed
+            # `Feb 30, 2031` reaches `date()`, whose ValueError echoes the
+            # printed day, month and year. Funnelled through `iso_or_none` and
+            # refused from OUTSIDE the funnel, so nothing is chained and
+            # nothing is quoted; the class stays `ValueError`, so this document
+            # refuses exactly as it refused before.
+            iso = iso_or_none(
+                int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))
+            if iso is None:
+                raise date_refusal(
+                    "chase._parse_chase_business_export",
+                    f"{raw_month} {raw_day}, {raw_year}",
+                )
+            current_date = date.fromisoformat(iso)
         money_matches = list(re.finditer(_EXPORT_AMOUNT_RE, line))
         if current_date is None or len(money_matches) < 2:
             wrapped_cell = "" if money_matches else line

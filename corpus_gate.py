@@ -903,6 +903,22 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only source posting-date audit (W3 sec WITHHELDGRIDS); publishes "
         "no verdict, and already supplies the reconstructed page partition"
     ),
+    # W3 §HYGIENE8's two base-vs-branch replays, excused on the same two
+    # grounds as §REGFP's sweep: each publishes no verdict — counts, movement
+    # classes, exception CLASS names, leaf PATHS and a content_sha256, never a
+    # value — and each already supplies the reconstructed page partition as
+    # `sheets`, because a replay that fed the analysis a different partition
+    # from the one the run fed it would measure a difference it had itself
+    # created. Added by the review-closure round (H14): the branch shipped
+    # both instruments without this entry and the sweep above was red for it.
+    "tools/hygiene8_family_replay.py": (
+        "read-only base-vs-branch replay of the dispatched population; publishes "
+        "no verdict, and already supplies the reconstructed page partition"
+    ),
+    "tools/hygiene8_pinned_replay.py": (
+        "read-only base-vs-branch replay of the pinned 109; publishes no verdict, "
+        "and already supplies the intake page list it computes once for both trees"
+    ),
 }
 
 # Audited columns whose value is a path, compared without regard to separator.

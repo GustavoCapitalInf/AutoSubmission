@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
+from .date_tokens import date_refusal, iso_or_none, parsed_datetime
 from .money import MINUS_GLYPHS, normalize_sign_glyphs, parse_decimal_mixed_separator
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -381,8 +382,16 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     if not dates or not summary:
         return None
 
-    previous_end = datetime.strptime(dates.group(1), "%B %d, %Y").date()
-    period_end = datetime.strptime(dates.group(2), "%B %d, %Y").date()
+    # RAISE-PRIVACY-3 (#HYGIENE8), W3 §PRIVACY3 P10 item 3 (which named these
+    # at :449-450; they sit here on this tree - the drift is line numbers, not
+    # the site). `strptime`'s own ValueError is
+    # `time data '<the printed date>' does not match format '<ours>'`, which is
+    # the inherited-leak shape: there is no `raise` in this module to grep for
+    # and the message crosses the worker boundary all the same.
+    previous_end = parsed_datetime(
+        dates.group(1), "%B %d, %Y", reader="columbia_bank.period").date()
+    period_end = parsed_datetime(
+        dates.group(2), "%B %d, %Y", reader="columbia_bank.period").date()
     period_start = previous_end + timedelta(days=1)
     account, opening_raw, _low, credits_raw, average_raw, debits_raw, interest_raw, ending_raw = summary.groups()
     opening = _signed(opening_raw)
@@ -435,9 +444,18 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
 
     checks: list[_Row] = []
     for check_number, amount, month, day in _CHEQUE_ROW.findall(checks_block):
+        # REVIEW MAJOR-2, the "site 6" class: `_CHEQUE_ROW`'s `(\d{2})-(\d{2})`
+        # proves two digit pairs and nothing more, so a cheque row printed
+        # `13-40` reaches `date()`, whose ValueError echoes the printed month
+        # (and the day and year on a day-range failure). Funnelled through
+        # `iso_or_none` and refused from OUTSIDE the funnel; the class stays
+        # `ValueError`, so the document refuses exactly as it refused before.
+        cheque_iso = iso_or_none(period_end.year, int(month), int(day))
+        if cheque_iso is None:
+            raise date_refusal("columbia_bank.cheque_row", f"{month}-{day}")
         checks.append(
             _Row(
-                date=date(period_end.year, int(month), int(day)),
+                date=date.fromisoformat(cheque_iso),
                 description=f"Check {check_number}" if check_number else "Check",
                 amount=_money(amount),
                 sequence=sequence,

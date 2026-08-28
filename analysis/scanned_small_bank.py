@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from .money import parse_money
+from .date_tokens import date_refusal, iso_or_none
+from .money import money_refusal, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
 from .tables import compact_whitespace, unique_match
@@ -42,24 +43,52 @@ def _extract_holder_name(markdown: str) -> str | None:
 def _money(value: str) -> float:
     parsed = parse_money(value.replace("$", "").strip())
     if parsed is None:
-        raise ValueError(value)
+        # RAISE-PRIVACY-3 (#HYGIENE8), W3 §PRIVACY3 P10 item 2. The refusal is
+        # still a `ValueError` - four `except ValueError` handlers in this
+        # module catch this function and `_iso` below, so the CLASS is part of
+        # the contract - but the printed cell no longer travels in it.
+        raise money_refusal("scanned_small_bank._money", value)
     return parsed
 
 
 def _iso(value: str) -> str:
     m = _MONTH_RE.fullmatch(value.strip())
     if not m:
-        raise ValueError(value)
+        # A DATE cell, so the date grammar's constructor rather than the money
+        # one; same class, same handlers, no token in the message.
+        raise date_refusal("scanned_small_bank._iso", value)
     month, day, raw_year = m.groups()
     year = int(raw_year)
     if year < 100:
         year += 2000
-    return date(year, int(month), int(day)).isoformat()
+    # THE SECOND LEAK IN THIS FUNCTION, found by driving the poison set at it
+    # rather than by reading the ledger: `_MONTH_RE` proves a token's SHAPE and
+    # nothing more, so `99/01/26` and `02/30/26` match it and reach `date()` -
+    # which echoes the offending number ("month must be in 1..12, not 99",
+    # "day 30 must be in range 1..28 for month 2 in year 2026"). The printed
+    # month, day and year travelled out of the parser in a message §PRIVACY3's
+    # ledger never named, because there is no `raise` here to grep for.
+    # `iso_or_none` is the shared funnel for exactly this ("a row-date regex
+    # proves a token's shape and nothing more"); the refusal is raised OUTSIDE
+    # it, so nothing is chained.
+    iso = iso_or_none(year, int(month), int(day))
+    if iso is None:
+        raise date_refusal("scanned_small_bank._iso", value)
+    return iso
 
 
 def _date_from_mdyy(value: str, *, year: int) -> str:
+    # REVIEW MAJOR-2, `_iso`'s leak standing again twenty lines below the fix:
+    # the caller's `(\d{1,2}/\d{2})` proves the token's SHAPE and nothing more,
+    # so a row printed `13/40` reaches `date()`, whose ValueError echoes the
+    # printed month. Same funnel and same refusal as `_iso` above, raised from
+    # OUTSIDE the funnel, and still a `ValueError` so the four handlers in this
+    # module keep catching it.
     month, day = [int(part) for part in value.split("/", 1)]
-    return date(year, month, day).isoformat()
+    iso = iso_or_none(year, month, day)
+    if iso is None:
+        raise date_refusal("scanned_small_bank._date_from_mdyy", value)
+    return iso
 
 
 def _daily_balances(markdown: str) -> dict[str, float]:

@@ -342,49 +342,43 @@ def test_iso_within_period_cannot_raise_because_the_triple_is_already_proven():
 
 
 # ---------------------------------------------------------------------------
-# CARRIED FINDING, pinned rather than fixed: `date()` raises OverflowError, and
-# OverflowError is not a ValueError
+# CARRIED FINDING, now CLOSED by #HYGIENE8 (RAISE-PRIVACY-3): `date()` raises
+# OverflowError, and OverflowError is not a ValueError
 # ---------------------------------------------------------------------------
 
-def test_an_over_long_integer_reaches_date_as_an_overflow_error_not_a_refusal():
-    """Found by this cell's own poisoned sweep, and DELIBERATELY NOT FIXED.
+def test_the_overflow_contract_is_closed_and_the_scope_of_the_constructor_claim():
+    """This section used to PIN the defect
+    (`test_an_over_long_integer_reaches_date_as_an_overflow_error_not_a_refusal`).
 
     `datetime.date(2026, 1, 4471009238)` raises `OverflowError: Python int too
-    large to convert to C long`, and `OverflowError` is an `ArithmeticError`,
-    not a `ValueError`. Every `except ValueError` in the date layer therefore
-    lets it through - `iso_or_none`, `year_within_period`, `dates._with_year`,
-    `dates.parse_date`, and this cell's own four new handlers.
+    large to convert to C long`, an `ArithmeticError` and not a `ValueError`, so
+    every `except ValueError` in the date layer let it through. It was never a
+    privacy defect - the message is a fixed CPython sentence - but it WAS a
+    contract defect, and §PRIVACY3 carried it because changing what those
+    helpers return is a behaviour change with a sweep of its own.
 
-    NOT a privacy defect: the message is a fixed sentence of CPython's with no
-    document content in it, which is why this cell pins the behaviour instead
-    of changing it. It IS a contract defect - three of those helpers are
-    documented to return `None` rather than raise - and changing what they
-    return is a behaviour change with an archive sweep of its own, which is the
-    same judgement §MONEYPRIV MP3 made about `parse_digit_scrubbed`. Carried
-    for whoever owns the date layer next.
-
-    Pinned so a future fix has to come here and say so, and so the "one
-    constructor" claim above is read with its real scope: every refusal the
-    date grammar RAISES goes through `date_refusal`; an OverflowError is not
-    one of the things it raises.
+    #HYGIENE8 took the sweep and closed it: every conversion guard in
+    `analysis/date_tokens.py` now catches both, so each entry point honours the
+    contract its own docstring states. The census, the eleven entry points and
+    the mutants are in `tests/test_raise_privacy3.py`; what stays here is the
+    two things this file asserted about ITS OWN scope.
     """
     from datetime import date as _date
 
     huge = int(DIGITS)
+    # 1. the mechanism is unchanged - `date()` still overflows, so the closure
+    #    is a handler and not a CPython accident.
     with pytest.raises(OverflowError) as raised:
         _date(2026, 1, huge)
     assert DIGITS not in str(raised.value)
-
-    with pytest.raises(OverflowError):
-        dt.iso_or_none(2026, 1, huge)
-    with pytest.raises(OverflowError):
-        dt.year_within_period(1, huge, _date(2026, 1, 1), _date(2026, 12, 31))
-    with pytest.raises(OverflowError) as raised:
+    # 2. the "one constructor" claim above is about what the date grammar
+    #    RAISES, and the helpers documented to return None still return it.
+    assert dt.iso_or_none(2026, 1, huge) is None
+    assert dt.year_within_period(1, huge, _date(2026, 1, 1), _date(2026, 12, 31)) is None
+    with pytest.raises(ValueError) as raised:
         dt.iso_from_month_day(f"1/{DIGITS}", 2026)
-    assert DIGITS not in str(raised.value), (
-        "the OverflowError itself must stay content-free; if CPython ever "
-        "echoes the integer, this finding becomes a privacy defect"
-    )
+    assert "date grammar refused a printed token" in str(raised.value)
+    assert DIGITS not in str(raised.value)
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +537,16 @@ CHAIN_GUARDED = {
     "analysis/bmo.py": frozenset({"money_refusal"}),
     "analysis/farmers_merchants.py": frozenset({"money_refusal"}),
     "analysis/td_can.py": frozenset({"date_refusal"}),
+    # RAISE-PRIVACY-3 (#HYGIENE8): the five sites §P10 listed in other cells'
+    # files. `columbia_bank` and `scotia` hold no `raise` at all - their leak
+    # was an escaping `strptime`, closed by repointing it at
+    # `date_tokens.parsed_datetime` - and they are registered anyway for the
+    # same reason bmo and farmers_merchants were: the guard's job is the raise
+    # that ARRIVES, and a period reader is exactly where the next one lands.
+    "analysis/chase.py": frozenset({"money_refusal", "date_refusal"}),
+    "analysis/scanned_small_bank.py": frozenset({"money_refusal", "date_refusal"}),
+    "analysis/columbia_bank.py": frozenset({"money_refusal", "date_refusal"}),
+    "analysis/scotia.py": frozenset({"money_refusal", "date_refusal"}),
 }
 
 
@@ -1090,99 +1094,15 @@ def test_the_non_terminal_vocabulary_matches_the_stores_own():
 
 
 # ---------------------------------------------------------------------------
-# 7b. MAJOR-1 — the QUEUE is not the JOB, and this cell only closed the job
+# 7b. MAJOR-1 - the QUEUE is not the JOB. CLOSED by #HYGIENE8
+# (QUEUE-SUPERVISOR): `webapp/app.py:_process_job_queue` now releases the
+# worker slot and re-arms a replacement before it re-raises, so the two
+# KNOWN_LIMITATION tests that pinned the stranding here are gone. Their
+# successors live in `tests/test_queue_supervisor.py`, which asserts the
+# behaviour this section used to assert the absence of; P8.1's three-way
+# measurement stands as the record of why the fix belongs on the supervisor
+# rather than on `run_job`'s arm.
 # ---------------------------------------------------------------------------
-
-def test_the_queue_supervisor_strands_after_a_reraise_KNOWN_LIMITATION(
-    monkeypatch, tmp_path
-):
-    """A DEFECT THIS CELL DELIBERATELY DID NOT FIX, pinned so nobody rediscovers
-    it and nobody mistakes m-7 for having closed it (adversarial review
-    MAJOR-1).
-
-    `webapp/app.py:_process_job_queue` calls `run_job` with no handler, and the
-    only place that resets `_job_worker_active` is the loop's own `return`. So
-    when `run_job` unwinds - which is exactly what this cell's `BaseException`
-    arm now (correctly) makes it do - the thread dies with the flag still
-    `True`, `_enqueue_job` never starts another worker, and every later upload
-    sits at `queued` with `error=None` forever.
-
-    IT IS NOT A REGRESSION, and that is a measurement rather than a defence.
-    Three-way, on this tree and on the base tree:
-
-        BASE   (no BaseException arm)  job1 processing/error=None ·
-                                       job2 queued · flag True · depth 1
-        BRANCH (m-7 arm, re-raises)    job1 ERROR/named reason ·
-                                       job2 queued · flag True · depth 1
-        BRANCH (arm swallowing)        job1 error · job2 error ·
-                                       flag False · depth 0
-
-    The queue half is byte-identical before and after; what m-7 changed is
-    job1, which is precisely what m-7 named ("leaves the job stuck at
-    `processing` with `error=None`"). The third row is what a fix looks like
-    and is NOT taken here: swallowing a `SystemExit` would defeat a shutdown,
-    so the supervisor is what needs the `try/finally`, and that is a change to
-    thread-lifecycle behaviour in a file this card owns only an exception
-    boundary in. Carded as **QUEUE-SUPERVISOR** for batch 8.
-
-    This test asserts the CURRENT behaviour. When QUEUE-SUPERVISOR lands it
-    will fail, and that is the point: the fix has to come here and delete it.
-    """
-    from collections import deque
-
-    from webapp import app as webapp_module
-
-    store = JobStore(Storage(tmp_path / "queue"))
-    first = store.create("one.pdf")
-    second = store.create("two.pdf")
-
-    def raising_run_job(job_id, pdf_bytes, filename, target, force_ocr=False,
-                        parse_mode="auto"):
-        target.set_status(job_id, "processing")
-        # what this cell's BaseException arm does, then re-raises
-        target.set_error(job_id, _STUCK_JOB_FAILURE)
-        raise KeyboardInterrupt("interrupted in the worker thread")
-
-    monkeypatch.setattr(webapp_module, "store", store)
-    monkeypatch.setattr(webapp_module, "run_job", raising_run_job)
-    monkeypatch.setattr(webapp_module, "_job_worker_active", True)
-    monkeypatch.setattr(webapp_module, "_job_queue", deque([
-        (first.id, b"%PDF-1", "one.pdf", False, "auto"),
-        (second.id, b"%PDF-2", "two.pdf", False, "auto"),
-    ]))
-
-    with pytest.raises(KeyboardInterrupt):
-        webapp_module._process_job_queue()
-
-    # The job boundary DID hold - that is this cell's half, and it works.
-    assert store.get(first.id).status == "error"
-    assert store.get(first.id).error == _STUCK_JOB_FAILURE
-
-    # The queue supervisor did not - that is QUEUE-SUPERVISOR's half.
-    assert webapp_module._job_worker_active is True, (
-        "QUEUE-SUPERVISOR landed: _job_worker_active is reset now, so delete "
-        "this test and its W3 P8.1 paragraph"
-    )
-    assert len(webapp_module._job_queue) == 1, (
-        "QUEUE-SUPERVISOR landed: the queue drains now"
-    )
-    assert store.get(second.id).status == "queued"
-    assert store.get(second.id).error is None
-
-
-def test_the_queue_supervisor_has_no_handler_around_run_job():
-    """The structural half of the same finding, so it cannot be fixed by
-    accident and left undocumented: the call is bare."""
-    tree = ast.parse((PROJECT_ROOT / "webapp" / "app.py").read_text(encoding="utf-8"))
-    supervisor = next(
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "_process_job_queue"
-    )
-    guarded = any(isinstance(node, (ast.Try,)) for node in ast.walk(supervisor))
-    assert not guarded, (
-        "_process_job_queue grew a try/finally - QUEUE-SUPERVISOR has landed; "
-        "update W3 P8.1 and delete the KNOWN_LIMITATION test above"
-    )
 
 
 # ---------------------------------------------------------------------------
