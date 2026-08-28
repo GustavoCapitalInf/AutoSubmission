@@ -154,7 +154,8 @@ def iso_or_none(year: int, month: int, day: int) -> str | None:
     **`OverflowError` is caught here and at every other conversion guard in
     this module** (RAISE-PRIVACY-3, #HYGIENE8, closing the contract defect W3
     §PRIVACY3 P10 items 6-7 pinned rather than fixed). `date(2026, 1, N)` for
-    an N past a C long raises `OverflowError`, which is an `ArithmeticError`
+    an N past 2**31 - the C `int` `date()` parses its arguments into, on every
+    platform - raises `OverflowError`, which is an `ArithmeticError`
     and not a `ValueError`, so a bare `except ValueError` let it out of a
     function whose whole contract is "or None". Measured over this module's
     eleven entry points, EIGHT let it escape; the two that did not were saved

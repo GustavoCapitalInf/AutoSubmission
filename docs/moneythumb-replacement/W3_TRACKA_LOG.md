@@ -43729,7 +43729,7 @@ leaf for leaf.
 | Archive replay | **618 documents, 625 replays** (7 documents hold more than one OCR partition; every partition replayed). **`moved` 0 · `outcome_moved` 0 · `raise_class_moved` 0 · `base_raised_branch_publishes` 0 · `base_published_branch_raises` 0**. 613 identical + 12 raised on both trees = 625 |
 | **PINNED** | **109 replayed, 109 accounted for, movement 0 of every class.** 108 identical + 1 refused on both trees. **14** of the 109 are claimed by a reader this branch touched (`chase` 10, `chase_export` 1, `apex_scanned` 1, `southside_scanned` 1, `scotiabank` 1); the 1 unclaimed document is the pinned REFUSAL. **NO STOP** |
 | Poison census | 7 sites × their token shapes = **52 cells per tree. BASE 24 leaking cells, BRANCH 0.** Two of the five leaking sites are driven through the REAL PARSER, not the seam |
-| `OverflowError` | 11 public entry points, 11 conversion drives. **8 drives escaped at base (7 distinct functions), 0 at branch.** The smallest overflowing integer on this host is 10 digits — a 32-bit C long |
+| `OverflowError` | 11 public entry points, 11 conversion drives. **8 drives escaped at base (7 distinct functions), 0 at branch.** The smallest overflowing integer on this host is 10 digits — the C `int` (2^31) |
 | Mutation table | **30 mutants, 30 killed, 0 survived, 0 not-applied** at the final tree. The first run was **29/30**: mutant E3 survived and the gate it beat is now closed (H7.1) |
 | Privacy | this branch's added lines: **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 1**. Re-run with the ROOT commit as `--base`, so the exclusion set is empty and INHERITED tokens are visible, it found the purged prompt example still standing in a test docstring — closed in `f240b30` (H9.1) |
 | Guard set | **253**, up from the card's 252 at registry 75 (+1, EXTRACT-PROMPT's two new rules less the ratchet they replace) |
@@ -43988,10 +43988,16 @@ point now honours the contract its own docstring states, so a reader does not
 have to work out which arithmetic a particular `date()` call can overflow on.
 
 The bound is measured rather than typed. The smallest integer for which
-`date(2026, 1, n)` raises `OverflowError` on this host is **10 digits** — a
-32-bit C long — and the instrument bisects for it at runtime, because a
-hard-coded bound would be silently wrong on a 64-bit-long platform in the
-direction that under-reports.
+`date(2026, 1, n)` raises `OverflowError` on this host is **10 digits** — the
+C `int` (2^31) that `date()` parses its arguments into, on every platform —
+and the instrument bisects for it at runtime, because a measured bound cannot
+be wrong about its platform. *(Corrected in place by the closure session,
+review MINOR-4: this sentence said “a 32-bit C long” and the explanation was
+wrong in a way the instrument's own bisection had already refuted. Only the
+MESSAGE is platform-dependent — measured here on 2026-08-28: this Windows host
+prints `Python int too large to convert to C long` at 2^31 because a C long IS
+32-bit here, and the reviewer's 64-bit-long host printed `signed integer is
+greater than maximum` at the same 2^31.)*
 
 **`analysis/dates.py` is NOT closed and is named, not left silent.** §P10 item
 6 also listed `dates._with_year` and `dates.parse_date`. That module is not
@@ -44022,7 +44028,7 @@ longest digit run                  54
 documents at or over threshold  2,765
 ```
 
-**2,765 of 3,351.** A ten-digit number clears a 32-bit C long and a statement
+**2,765 of 3,351.** A ten-digit number clears 2^31 and a statement
 is full of them — account numbers, references, authorisation codes, telephone
 digits. The necessary condition is met nearly everywhere, so this scan bounds
 nothing, and the convenient sentence it was meant to license ("no document can

@@ -14,7 +14,7 @@ measures seven registrations and this change is not confined to them.
 TWO MEASUREMENTS, and together they close it.
 
 **The census** drives every public entry point on BOTH trees with an integer
-past a C long and records what escapes. Two counts come out of it and they are
+past 2**31 and records what escapes. Two counts come out of it and they are
 not the same number, so both are reported: `entry_points` counts the module's
 public functions (twelve rows, because `iso_or_none` takes the number in two
 different argument positions and each is a separate way in), while
@@ -24,9 +24,15 @@ second count over the eleven CONVERTING drives — `date_refusal` converts
 nothing and is the twelfth row here. By distinct function the escapers are
 seven, because `iso_or_none` escapes on both of its arguments.
 
-It is re-derived per tree rather than asserted, because the size of a C long is
-a property of the platform (it is 32-bit on this one) and a claim about it
-should not be a constant in a log.
+It is re-derived per tree rather than asserted, because a bound that is
+measured cannot be wrong about the platform it is measured on — and the
+explanation this instrument once carried WAS wrong (review MINOR-4): the bound
+is the C `int` `date()` parses its arguments into, 2**31 on every platform,
+not a C long. Only the MESSAGE is platform-dependent: this Windows host prints
+`Python int too large to convert to C long` (a C long is 32-bit here), a
+64-bit-long platform prints `signed integer is greater than maximum` at the
+same 2**31. The number was right because it was measured, not because it was
+explained.
 
 **The archive reach** was meant to settle tree-wide movement cheaply and DOES
 NOT. Every path into `date()` in that module converts a run of DECIMAL DIGITS
@@ -35,7 +41,7 @@ not raise `OverflowError` anywhere in the module whatever parser read it — and
 if the count came back zero, that would have been a proof of zero movement
 costing no analysis passes.
 
-It came back 2,765 of 3,351. A ten-digit number clears a 32-bit C long, and a
+It came back 2,765 of 3,351. A ten-digit number clears 2**31, and a
 statement is full of them: account numbers, references, authorisation codes,
 telephone digits. So the necessary condition is met almost everywhere and this
 scan bounds nothing. It is kept, and reported, precisely because it is the
@@ -74,9 +80,10 @@ def smallest_overflowing_integer() -> int:
     """The least `n` for which `date(2026, 1, n)` raises `OverflowError`.
 
     Bisection rather than a constant: `date()` overflows when the day argument
-    passes a C long, and a C long is 32-bit on Windows and 64-bit elsewhere. A
-    hard-coded bound would make this instrument silently wrong on the other
-    platform, in the direction that under-reports.
+    passes the C `int` it parses its arguments into - 2**31, on every platform
+    (review MINOR-4; the message differs by platform, the bound does not). A
+    hard-coded bound would still be the wrong shape for an instrument whose
+    whole point is that the number is measured rather than asserted.
     """
     low, high = 1, 1
     while True:

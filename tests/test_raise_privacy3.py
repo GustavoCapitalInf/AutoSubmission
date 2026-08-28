@@ -383,7 +383,8 @@ _OVERFLOW_CASES = {
                         "refusal"),
 }
 
-#: An integer past a C long. `date()` converts through one, so this is the
+#: An integer past 2**31, the C `int` `date()` parses its arguments into on
+#: every platform (review MINOR-4). `date()` converts through it, so this is the
 #: whole mechanism — not a large-looking string.
 _HUGE = int(DIGITS)
 
