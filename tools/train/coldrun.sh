@@ -45,7 +45,7 @@ COLD="${3:?cold data dir (absent or empty; becomes WEBAPP_DATA_DIR)}"
 TREE=$(git rev-parse --short HEAD)
 OUT="${4:-discovery_reports/TRAIN8-$TREE}"
 ROOT="${CORPUS_ROOT:-Bank Statements}"
-QUARANTINE="tools/train/recon_b7_quarantine_nonnative_208.shas"
+QUARANTINE="${QUARANTINE_FILE:-tools/train/recon_b7_quarantine_nonnative_208.shas}"
 : > "$LOG"
 echo "TREE=$TREE BASE=$BASE COLD=$COLD ROOT=$ROOT OUT=$OUT START=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
 
