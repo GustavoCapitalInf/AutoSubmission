@@ -404,3 +404,35 @@ and never counted as a batch-8 improvement or regression; native-side movement
 is judged as usual. The batch-7 reproduction is stated as: native side exact
 by every durable record (875/875, zero native detection loss); scanned side
 drifted by 16 named + 6 unnamed documents.
+
+### Option B CONFIRMED (Gustavo, 2026-08-28) — an ACCOUNTING quarantine, not a safety quarantine
+
+Comparison base for train 8: run A `47be5963` (Tesseract 5.5.3, this host).
+Quarantine set: the 208 non-native shas of run A
+(`tools/train/recon_b7_quarantine_nonnative_208.shas`). Rules, binding:
+
+1. The 208 are EXCLUDED from the historical batch-7 → batch-8 headline gain,
+   because the original Windows OCR environment cannot be reproduced exactly.
+2. Positive movement on a quarantined sha is reported separately and never
+   counted toward the official historical-comparable batch-8 improvement total.
+3. Negative movement on a quarantined sha is REAL under the shared current
+   environment and is investigated normally — quarantine never suppresses or
+   excuses a regression.
+4. Native/comparable shas keep normal `--fail-on-regression` semantics.
+5. A full per-sha movement table for the 208 is preserved with every comparison.
+
+Final batch-8 reporting separates: (a) historical-comparable/native
+improvements; (b) quarantined OCR-environment improvements; (c) regressions on
+comparable shas; (d) regressions on quarantined shas; (e) the total observed
+current-environment validated count. "2,469 → N" is never stated as the
+official historical-comparable gain unless the numerator excludes the
+quarantined OCR-derived gains or is labelled otherwise. The batch-7
+reproduction statement stays: **native side reproduced by durable evidence;
+scanned side could not be made equivalent because the original Windows OCR
+environment is unrecoverable.**
+
+Resumed (Gustavo): FROST-OZK harness + FZ12/FZ13; HYGIENE-8a record → fresh
+hostile review → closures; one expensive session at a time; host otherwise
+idle; no train-8 cold run until the pre-run summary (final composed commit,
+registry/version state, comparable and quarantine sha counts, the exact
+comparison/reporting logic, the floor, the exact command) is reviewed.
