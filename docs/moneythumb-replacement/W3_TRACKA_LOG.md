@@ -44726,29 +44726,40 @@ session measures 613 + 12. The run-A restatement in H6 row 7 (609 identical /
 
 ### H14.6 The proof floor at the closure tree
 
-Every row from the branch worktree at `de768e4`, sequential, one process at a
-time, each under
+Every row from the branch worktree, sequential, one process at a time, each
+under
 `python tools/train/winrun.py --cap-gb 4 --floor-gb 0.5 --timeout … --log winrun.jsonl`.
 `peak_job_mb` is the Job Object's peak committed memory across every process it
 contained — the Windows analogue of the record's "peak RSS". `git status
 --short` empty before every row and after the mutation harness.
 
+**Which tree each row ran at, stated rather than assumed.** The whole floor ran
+once at `588b81d` (logs `E*`), and rows 1–7 and 9 ran AGAIN at the closure tip
+after `de768e4` (logs `F*`) — the numbers below are the second run, and the
+first agreed with it on every result. Row 8, the 18-minute family replay, ran
+only at `588b81d`, and what separates the two trees is measured rather than
+argued: `git diff --name-only 588b81d HEAD` is `analysis/chase.py`,
+`tests/test_raise_privacy3.py` and this log; **every module of `analysis/` is
+AST-identical across them**, and `tests/test_raise_privacy3.py` is
+AST-identical apart from its module docstring. `de768e4` removed three session
+dates from comments. No replay can see a comment.
+
 | # | proof | result | exit | wall (s) | peak_job_mb | MemAvailable MB before → after | log |
 |---|---|---|---|---|---|---|---|
-| 1 | `pytest` the branch's four test files (`test_queue_supervisor`, `test_raise_privacy3`, `test_privacy3_boundaries`, `test_no_statement_hardcodes`) | **288 passed, 3 skipped** (254 at `579f0bb`; +34 this session) | **0** | 16.5 | 344.0 | 2345.3 → 2299.9 | `E1_branch_tests.log` |
-| 2 | `pytest` the four readers' own test files (`test_chase_closure`, `test_chase_layouts`, `test_chase_native_variants`, `test_columbia_bank`, `test_scotia_layouts`, `test_southside_scanned`, `test_texas_first_scanned`) | **260 passed** | **0** | 3.3 | 92.6 | 2281.4 → 2245.8 | `E2_reader_tests.log` |
-| 3 | the canonical guard set (5 files) | **253 passed**, registry 75 | **0** | 12.1 | 96.3 | 2219.6 → 2245.5 | `E3_guard_set.log` |
-| 4 | the canonical conformance set (7 files) | **1,164 passed, 35 skipped** | **0** | 4.1 | 101.1 | 2300.1 → 2299.2 | `E4_conformance.log` |
-| 5 | `tools.hygiene8_poison_sweep --base 10cc722` | 11 sites, 64 cells, base leaking **36**, branch leaking **0** | **0** | 2.7 | 130.2 | 2250.9 → 2276.0 | `E5_poison.log` |
-| 6 | `tools.hygiene8_overflow_reach --base 10cc722 --rows <RoR> --data-dir <main>/webapp_data` | census 11 public / 11 drives / **8 escaped at base in 7 functions** / **0 at branch**, smallest overflowing integer 10 digits, reachable threshold 2,147,481,648; archive **3,380 in run / 3,351 with text / 29 without / longest run 54 / 2,765 at or over the threshold** | **0** | 26.4 | 81.1 | 2247.4 → 2231.1 | `E6_overflow.log` |
-| 7 | `tools.hygiene8_pinned_replay --base 10cc722 --corpus "<wt>/Bank Statements"` | **109 pinned / 109 replayed / 108 identical / 1 refused on both / moved 0 / outcome_moved 0 / publish_boundary_moved 0 / refusal_class_moved 0 / unreadable 0**; 14 claimed by a touched reader, 1 unclaimed; `by_parser` names 43 parsers and sums to 108 | **0** | 211.9 | 167.5 | 2275.1 → 2548.7 | `E7_pinned.log` |
+| 1 | `pytest` the branch's four test files (`test_queue_supervisor`, `test_raise_privacy3`, `test_privacy3_boundaries`, `test_no_statement_hardcodes`) | **288 passed, 3 skipped** (this session collects +34 tests; 254 at `579f0bb`) | **0** | 17.7 | 343.3 | 2134.9 → 1638.4 | `F1_branch_tests.log` |
+| 2 | `pytest` the four readers' own test files (`test_chase_closure`, `test_chase_layouts`, `test_chase_native_variants`, `test_columbia_bank`, `test_scotia_layouts`, `test_southside_scanned`, `test_texas_first_scanned`) | **260 passed** | **0** | 3.3 | 92.7 | 1643.1 → 1517.0 | `F2_reader_tests.log` |
+| 3 | the canonical guard set (5 files) | **253 passed**, registry 75 | **0** | 13.4 | 97.2 | 1526.8 → 1254.5 | `F3_guard_set.log` |
+| 4 | the canonical conformance set (7 files) | **1,164 passed, 35 skipped** | **0** | 4.2 | 100.8 | 1264.0 → 1272.3 | `F4_conformance.log` |
+| 5 | `tools.hygiene8_poison_sweep --base 10cc722` | 11 sites, 64 cells, base leaking **36**, branch leaking **0** | **0** | 2.5 | 128.8 | 1279.9 → 1312.0 | `F5_poison.log` |
+| 6 | `tools.hygiene8_overflow_reach --base 10cc722 --rows <RoR> --data-dir <main>/webapp_data` | census 11 public / 11 drives / **8 escaped at base in 7 functions** / **0 at branch**, smallest overflowing integer 10 digits, reachable threshold 2,147,481,648; archive **3,380 in run / 3,351 with text / 29 without / longest run 54 / 2,765 at or over the threshold** | **0** | 32.2 | 81.8 | 1323.2 → 1704.0 | `F6_overflow.log` |
+| 7 | `tools.hygiene8_pinned_replay --base 10cc722 --corpus "<wt>/Bank Statements"` | **109 pinned / 109 replayed / 108 identical / 1 refused on both / moved 0 / outcome_moved 0 / publish_boundary_moved 0 / refusal_class_moved 0 / unreadable 0**; 14 claimed by a touched reader, 1 unclaimed; `by_parser` names 43 parsers and sums to 108 | **0** | 220.2 | 165.7 | 1461.6 → 1688.7 | `F7_pinned.log` |
 | 8a | `tools.hygiene8_family_replay --print-population` | the same seven registrations; **618 dispatched documents** | **0** | 2.3 | 112.8 | 2662.0 → 2652.0 | `E8a_population.log` |
 | 8 | `tools.hygiene8_family_replay` (full, LAST and alone, `--timeout 2400`) | **618 / 625 / 613 identical / 12 raised on both / movement 0 of every class** | **0** | 1069.4 | 113.3 | 2501.1 → 2194.3 | `E8_family.log` |
-| 9 | `tools.hygiene8_mutation_table --timeout 1800` | **35 / 35 killed / 0 survived / 0 not applied**, baseline green, tree clean before and after | **0** | 682.9 | 364.0 | 2485.9 → 2683.9 | `E9_mutation.log` |
+| 9 | `tools.hygiene8_mutation_table --timeout 1800` | **35 / 35 killed / 0 survived / 0 not applied**, baseline green, tree clean before and after | **0** | 735.9 | 362.7 | 1692.0 → 2819.2 | `F9_mutation.log` |
 
-`MemAvailable` never fell below **2,194 MB**, always above the 0.5 GB floor;
-the 4 GB cap was never approached (largest peak 364 MB, on the mutation
-harness). No run timed out and no child survived its job.
+`MemAvailable` never fell below **1,254 MB** across both passes, always well
+above the 0.5 GB floor; the 4 GB cap was never approached (largest peak 364 MB,
+on the mutation harness). No run timed out and no child survived its job.
 
 **Two runs were interrupted by this session's own shell timeout and are not in
 the table**: a first attempt at row 7 (killed at 120 s) and a first attempt at
@@ -44849,7 +44860,7 @@ import; `analysis/scotia.py` only at `parse_scotiabank_statement`, its import
 and the removed `from datetime import date`; `analysis/scanned_small_bank.py`
 only at `_date_from_mdyy`; **`analysis/date_tokens.py` is docstring-only** and
 `analysis/extract.py` and `webapp/app.py` are byte-identical in AST.
-`git diff 579f0bb HEAD --numstat` at the closure tip: **11 files, +1,379 / −47**, of which `tests/test_raise_privacy3.py` is +775 / −10 and the W3 log +407 / −6 (this §H14 plus MINOR-4's three in-place corrections). The five analysis files together are **+68 / −11**, and every one of those lines is a MAJOR-2 site, its import, or a comment.
+`git diff 579f0bb HEAD --numstat`: **11 files**. The five analysis files together are **+68 / −11**, and every one of those lines is a MAJOR-2 site, its import or a comment; `tests/test_raise_privacy3.py` is **+775 / −10**; `tests/test_privacy3_boundaries.py` is the one-line `CHAIN_GUARDED` entry; the three instruments are +128 / −19; the rest is this log (§H14 plus MINOR-4's three in-place corrections).
 
 ### H14.10 What the train owes
 
