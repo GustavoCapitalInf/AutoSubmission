@@ -44406,10 +44406,12 @@ the three parked documents outside it.
 | `24e3da7` | HYGIENE8: the privacy scan's twelve owned-file hits, closed |
 | `f240b30` | HYGIENE8: the purged prompt example was still standing in the test's own docstring |
 | `3dc7204` | HYGIENE8: W3 §HYGIENE8 part 1 — summary, instruments, the three sub-cards |
-| *(this appendix)* | HYGIENE8: W3 §HYGIENE8 part 2 — the proof floor on the Linux host, the table, the seven re-carded |
+| `253c0ff` | HYGIENE8: W3 §HYGIENE8 part 2 — the proof floor on the Linux host, the table, the seven re-carded (H5–H13, lines 44033–44478, one hunk, 0 deletions) |
+| *(the next commit)* | HYGIENE8: H11 names the record's own hash — a docs-only fix-up to this row; its hash is the one entry this table cannot hold, and `git log 10cc722..HEAD` shows it as the sixteenth |
 
-Fourteen before this session; this session adds the record commit(s) and
-nothing else. Instruments, all under `tools/`, all read-only against the
+Fourteen before this session; this session adds the record commit and the
+one-row fix-up above, both docs-only, touching only §HYGIENE8, and nothing
+else. Instruments, all under `tools/`, all read-only against the
 archive and $0: `hygiene8_base_tree.py`, `hygiene8_family_replay.py`,
 `hygiene8_pinned_replay.py`, `hygiene8_poison_sweep.py`,
 `hygiene8_overflow_reach.py`, `hygiene8_mutation_table.py`.
