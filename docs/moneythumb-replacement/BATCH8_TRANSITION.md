@@ -116,3 +116,119 @@ Pushed and verified tip-for-tip on `origin`: `main` (`51769b4`), `train8` (`169c
 
 **State at push:** ten cells composed on `train8` at registry 81 (suite 1 failed → fixed at `169c72a`; guards 254; conformance 1,239). Left: FROST-OZK (harness committed `d554e68`, run + FZ12/FZ13 to write, then merge → 83 with the `OBSERVER_VERSION` hand-merge to 6), HYGIENE-8a (instruments + harness landed through `f240b30`, W3 §HYGIENE8 to write, then merge), then `ANALYSIS_STAGE_VERSION` 15→16 + `OCR_STAGE_VERSION` 3→4, `tools/train/floor.sh`, the single archive sweep, per-family root-base tree scans, `tools/train/coldrun.sh` vs `356a4269`, remote CI read, PROJECT_STATUS.md, push. Then the next pain point: TRUIST-YAS.
 
+
+## Recovery on the Linux host (2026-08-27) — the corpus decision and the reconstructed batch-7 baseline
+
+**Durable losses, stated once.** The OCR/analysis artifact cache `webapp_data/`
+and the run of record `discovery_reports/2026-08-23T020128.909387-0000-356a4269/`
+are permanently unavailable (Gustavo, 2026-08-27). Nothing historical is
+rebuilt from logs: every batch-7 number below is quoted from a committed
+record, and the baseline is REGENERATED at the batch-7 tree, not reconstructed.
+Composition landed on the way: `wave8-withheldtd`'s one post-merge commit
+(§TD17, docs-only) composed inside its own section as `2004edf`.
+
+### Corpus reconciliation (deterministic; the frozen inventory is counts-only)
+
+| | on disk 2026-08-27 | frozen record (`discovery/inventory.py`, README, TRANCHE1) | delta |
+|---|---|---|---|
+| files under `Bank Statements/` | 3,771 | 3,768 | +3 |
+| PDFs | 3,618 | 3,615 | +3 |
+| bytes | 997,655,878 | 996,080,803 | +1,575,075 |
+| pinned (manifest, hash-verified) | 109 (0 missing, 0 case mismatches) | 109 | 0 |
+| discovery PDFs | 3,509 | 3,506 | +3 |
+| distinct PDF SHA-256 | 3,412 | 3,409 (W3 §RS5) | +3 |
+| non-PDF files | 153 | 153 | 0 |
+| runner-equivalent dedup over the discovery set | 124 within-archive / 82 pinned-corpus copies (80 distinct pinned shas) | 124 / 82 | 0 |
+
+No per-file manifest of the frozen archive was ever committed, so the three
+additions are identified by constraint, not lookup. Every constraint is
+durable: (1) their sizes must sum to exactly 1,575,075 bytes; (2) each must be
+unique content (3,412 − 3,409 = 3 new hashes ⇒ none is a duplicate of anything
+on disk); (3) none is referenced by any committed record (2,459 hex tokens,
+23 redacted census fragments and 113 quoted archive paths across docs, tools
+and tests); (4) every discovery upload carries an 8-hex or `c<n>_` prefix — the
+only unprefixed discovery files besides the five `c-chris_` ones are these;
+(5) their folder, `Tru Credit Union/`, holds exactly these three and appears in
+no record (TRU-SAVINGS is a Truist card); (6) every folder whose size a record
+states — `BMO/` 184, `Chase/` 613, `US Bank/` 59 — matches disk. Exactly ONE
+triple satisfies (1)–(3) with a shared folder and prefix:
+
+| path | bytes | sha256[:16] |
+|---|---:|---|
+| `Tru Credit Union/Account Statements560649E594474B05838ED42EED37DD2B.pdf` | 254,455 | `2113BA9692223261` |
+| `Tru Credit Union/July2026.pdf` | 635,584 | `9820D513501ECF09` |
+| `Tru Credit Union/May 2026.pdf` | 685,036 | `A48F4BD648CA2DC0` |
+
+(PDF metadata dates were checked and are uninformative: no file on disk carries
+a creation/modification date after the 2026-08-06 freeze; 674 carry none.)
+
+**DECISION (Ocean, 2026-08-27; per Gustavo's instruction not to assume the
+3,618).** The official batch-8 measurement population is the FROZEN archive of
+record: 3,615 PDFs = 109 pinned + 3,506 discovery, denominator **3,380
+distinct content shas**, the same population as `356a4269`. It is realised as a
+resolved-population root `.claude/recovery/corpus_frozen_3615/` — real
+directories, one symlink per file into `Bank Statements/`, the three Tru Credit
+Union files omitted; the archive itself is not modified. Over that root
+`discovery.inventory.enumerate_root` reports 3,768 / 3,615 / 996,080,803 /
+109 / 3,506 and `baseline_deviations()` returns `[]`: the runner's own
+frozen-baseline check passes natively, `--skip-baseline` is NOT used, and no
+`FROZEN_*` constant moves. Both the reconstructed baseline and the train-8 run
+take `--root` = that path. The three documents are parked; they enter the
+archive only through a deliberate re-freeze (new constants plus a committed
+per-file manifest, so this identification never has to be done by constraint
+again) after batch 8 is measured.
+
+### The reconstructed batch-7 baseline (design; not yet run)
+
+* **Tree:** worktree `.claude/worktrees/b7-302f8f2` at `302f8f2` (detached) —
+  the batch-7 train tip that produced `356a4269` (v15, OCR v3, registry 75,
+  identical `FROZEN_*` constants; the two commits after it, `8e5efe9` and
+  `10cc722`, are docs). Its own cache and reports live inside the worktree
+  (`webapp_data/`, `discovery_reports/`), cold.
+* **Equivalence pin, already verified:** at `302f8f2`,
+  `analysis_settings_key(parse_mode="deterministic")` under the default
+  environment = `24675EF06C2E08DD6803362ACD56045607BBFD3B80642A849D08D0DF541B5CAC`,
+  the run of record's recorded key (registry fingerprint
+  `4FD68C84295EEA60D9D80CFFF9E3CC60DA487541A313AC4CC8D10C3DAA2C3695`). The
+  three other env combinations (`WITHHOLDING_DENOMINATOR_MODE=verified_revenue`,
+  `GENERIC_STRUCTURER_ENABLED=1`) do not match — the run of record ran on the
+  defaults, and so will the reconstruction. OCR settings key
+  `75A58292526F183884C09C8032F86E4A24B4C4D8A432F1F9617D6DDDE5705AAA` (identical
+  on `train8` until the v4 bump).
+* **Toolchain on this host, used for BOTH runs:** Linux 6.18.44-1-lts ·
+  Python 3.14.7 in `.venv` (uv 0.11.31) · PyMuPDF **1.27.2.3** (the build W3
+  records for batch 7) · pytest 9.1.1 · pdf2image 1.17.0 · Pillow 12.3.0 ·
+  python-dotenv / google-genai / pydantic per `requirements-analysis.txt` (no
+  `.env`: deterministic mode, no model client) · tesseract **5.5.3** /
+  leptonica 1.87.0 (batch 7 ran 5.5.0 on Windows — drift confined to the
+  local_tesseract rung) · poppler **26.07.0** (batch-7 version unrecorded).
+  The full package freeze is committed as
+  `tools/train/venv_freeze_linux_2026-08-27.txt` on `train8`.
+* **Output:** `discovery_reports/RECON-B7-302f8f2/<run_id>/` inside the
+  worktree, kept as the explicitly labelled reconstructed batch-7 baseline
+  (gitignored like every run; its accepted figures are recorded here).
+* **Acceptance gates — every one must hold before it is a baseline:**
+  G1 `--dry-run`: pinned 109, coverage 100%, validated 102 / review 3 /
+  withheld 3 / refused 1, expectations-file parity, currency 108/108 (+1),
+  provenance 108/108 (+1). G2 `python corpus_gate.py` GREEN 105 / 3 / 1.
+  G3 `--scanned` over the resolved root: baseline check passes; 3,506
+  enumerated; dedup 124 / 82; **3,380 distinct shas; validated 2,469 / review
+  17 / withheld 72 / failed 809 / deferred 13**; `invalid_pdf` 17; the run's
+  analysis settings key = `24675EF0…`. G4 per-document, by a committed checker
+  (`tools/recon_b7_check.py`) against every durable per-sha record — the
+  pinned-copy outcomes vs `tests/data/parser_expectations.json`; the census's
+  intact and fragment-matchable shas at `7a317445` minus the 25 named batch-7
+  movers; every batch-8 cell's recorded base population (COREISS2 14 failed,
+  WELCH 17 failed, LILI 20 failed, COREENC 58 failed + 13 outsiders, FROST-OZK
+  17 failed, GLANCE 14 validated / 8 failed, CPSCAN 19 failed, WITHHELD-GRIDS
+  22 withheld, WITHHELD-TD 11 withheld, SCAN-HYGIENE's 41) — discrepancies
+  listed by sha, never normalised. G5 drift rule: a difference confined to
+  documents whose `source_path` is `local_tesseract` is reported as toolchain
+  drift with the shas named; a difference on ANY native-text document is a
+  STOP — no train-8 measurement until it is explained.
+* **Then train 8**, same host / venv / root, after the last merge and the
+  v16 + OCR v4 bump: `--scanned --out discovery_reports/TRAIN8-<sha>`, then
+  `python -m discovery.compare <RECON-B7 dir> <TRAIN8 dir> --fail-on-regression`
+  — exit 2 stops the line unless the moved document is a ceremony named in
+  advance. No validator, truth pin, integrity rule or regression gate is
+  weakened because the historical directory is gone.
