@@ -4,7 +4,8 @@ W3 §PRIVACY3 P10 is a ledger of raise sites in OTHER cells' files, each of the
 same class the money and date grammars closed for themselves: an exception whose
 message quotes the printed cell.
 
-WHERE SUCH A MESSAGE STILL GOES, restated on 2026-08-28 (review MINOR-6). This
+WHERE SUCH A MESSAGE STILL GOES, restated by the #HYGIENE8 closure session
+(review MINOR-6). This
 docstring used to say "crossing `webapp/worker.py`'s boundary into a durable
 store, a CSV cell and three HTTP routes", which has been stale since batch 6's
 §WORKER-PRIVACY: `webapp/worker.py:_stage_failure` withholds every message and
@@ -977,8 +978,8 @@ _PROVEN_UNRAISABLE = (
 )
 
 #: Every unguarded conversion of a token in the CHAIN_GUARDED modules that
-#: cannot put a document token into an exception message. Hand-verified against
-#: the pattern that produces each argument, 2026-08-28.
+#: cannot put a document token into an exception message. Hand-verified by the
+#: closure session against the pattern that produces each argument.
 _CANNOT_ECHO = {
     "analysis/bmo.py:parse_bmo_statement: int(part)": _DIGITS_ONLY_SPLIT,
     "analysis/chase.py:_parse_chase_business_export: int(raw_day)": _DIGITS_ONLY_GROUP,

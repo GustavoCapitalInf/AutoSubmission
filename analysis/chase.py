@@ -59,8 +59,8 @@ def _money_required(value: str) -> float:
         # and could not own. `raise ValueError(value)` put the printed cell in
         # the message.
         #
-        # WHERE THAT MESSAGE STILL GOES, restated on 2026-08-28 (review
-        # MINOR-6): the reason this comment used to give — "it crosses
+        # WHERE THAT MESSAGE STILL GOES, restated by the #HYGIENE8 closure
+        # session (review MINOR-6): the reason this comment used to give — "it crosses
         # `webapp/worker.py`'s boundary into the durable store" — has been
         # stale since batch 6's §WORKER-PRIVACY. `webapp/worker.py`
         # `_stage_failure` (:96) now withholds every message and stores the
