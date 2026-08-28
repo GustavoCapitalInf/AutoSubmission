@@ -16,9 +16,13 @@ Three properties, and they are three because they fail separately:
 2. **re-arm** — a replacement worker is started when work is already queued.
    This is what rescues the documents that were in the queue when the worker
    died, in a process where no further upload ever arrives.
-3. **do not re-arm on the way out** — a `SystemExit` or `KeyboardInterrupt`
-   means the process is going away, and starting a fresh worker would begin new
-   OCR work on a process that has been told to stop. The slot is still released.
+3. **a thread-raised signal is a dead worker, not a dying process** — a
+   `SystemExit` or `KeyboardInterrupt` escaping `run_job` in a worker thread
+   ends that thread and nothing else (measured in section 3), so it is treated
+   like any other death: the slot comes back and the work already queued is
+   picked up WITHOUT waiting for the next upload. The first version of this
+   file exempted the two signals from the re-arm on the premise that the
+   process was going away; review MINOR-3 measured that it is not.
 
 Every test drives the REAL `webapp.app._process_job_queue` against a real
 `JobStore` on a temp path; the only substitution is `run_job` itself, because
@@ -258,14 +262,12 @@ def test_a_replacement_worker_holds_the_slot_while_it_runs(supervisor, monkeypat
     assert supervisor.get(third.id).status == "done"
 
 
-@pytest.mark.parametrize("queued,shutting_down,expected", [
-    (0, False, False),      # nothing to do - the next upload starts a worker
-    (1, False, True),       # work is stranded unless somebody picks it up
-    (1, True, False),       # section 3: do not start OCR on the way out
-    (0, True, False),
+@pytest.mark.parametrize("queued,expected", [
+    (0, False),      # nothing to do - the next upload starts a worker
+    (1, True),       # work is stranded unless somebody picks it up
 ])
-def test_the_re_arm_decision_is_the_two_conditions(
-    supervisor, monkeypatch, queued, shutting_down, expected
+def test_the_re_arm_decision_is_whether_work_is_queued(
+    supervisor, monkeypatch, queued, expected
 ):
     """The decision, asserted DIRECTLY rather than through a thread count.
 
@@ -274,13 +276,16 @@ def test_the_re_arm_decision_is_the_two_conditions(
     an empty queue finds nothing, returns, and is dead again before the count is
     read. `_release_worker_slot` returns whether it started one precisely so the
     decision can be measured instead of raced.
+
+    ONE condition since review MINOR-3, not two: the class of the exception
+    that killed the worker is not consulted (section 3 says why).
     """
     monkeypatch.setattr(webapp_app, "run_job",
                         lambda *args, **kwargs: None)
     for n in range(queued):
         _enqueue(supervisor, f"{n}.pdf")
 
-    started = webapp_app._release_worker_slot(shutting_down)
+    started = webapp_app._release_worker_slot()
     _join_workers()
 
     assert started is expected
@@ -288,47 +293,91 @@ def test_the_re_arm_decision_is_the_two_conditions(
 
 
 # ---------------------------------------------------------------------------
-# 3. Shutdown — release, but do not start new work
+# 3. A thread-raised signal is a dead worker, not a dying process
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("signal", [SystemExit(0), KeyboardInterrupt()])
-def test_a_shutdown_signal_releases_the_slot_and_starts_nothing(
-    supervisor, monkeypatch, signal
-):
-    """`run_job`'s arm re-raises so a shutdown still ends the process
-    (§PRIVACY3 P8.1). Re-arming here would undo that by beginning new OCR work
-    on a process that has been told to stop — so the slot comes back and the
-    queue is deliberately LEFT with its work in it."""
-    _enqueue(supervisor, "one.pdf")
-    second = _enqueue(supervisor, "two.pdf")
+def test_a_signal_raised_in_a_worker_thread_does_not_end_the_process(monkeypatch, signal):
+    """The premise, measured (review MINOR-3). The first version of this file
+    said a `SystemExit` or `KeyboardInterrupt` escaping `run_job` meant "the
+    process is going away". In a non-main thread neither does: `threading`
+    hands both to the thread's excepthook and the interpreter continues —
+    which is what the assertions after `join` are, executing."""
+    delivered: list[type] = []
+    monkeypatch.setattr(threading, "excepthook",
+                        lambda args: delivered.append(args.exc_type))
 
-    def signalling_run_job(job_id, pdf_bytes, filename, target, force_ocr=False,
-                           parse_mode="auto"):
-        target.set_status(job_id, "processing")
-        target.set_error(job_id, "the worker stopped without publishing a result")
+    def raising() -> None:
         raise signal
 
-    monkeypatch.setattr(webapp_app, "run_job", signalling_run_job)
-    before = threading.active_count()
+    worker = threading.Thread(target=raising, daemon=True)
+    worker.start()
+    worker.join(30.0)
+
+    assert not worker.is_alive()
+    assert delivered == [type(signal)]      # the thread died; the process did not
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+@pytest.mark.parametrize("signal", [SystemExit(0), KeyboardInterrupt()])
+def test_a_signal_raised_in_the_worker_is_a_dead_worker_and_the_queue_still_drains(
+    supervisor, monkeypatch, signal
+):
+    """Review MINOR-3's closure. `run_job`'s arm re-raises the signal and so
+    does the supervisor — the thread still dies with its traceback — but the
+    process lives on, so the queue is re-armed exactly as for any other death
+    and the second document is processed WITHOUT another upload arriving. The
+    first version of this test asserted the opposite ("the queue is
+    deliberately LEFT with its work in it"), which stranded that work until the
+    next upload: §PRIVACY3 P8.1's symptom on a narrower path."""
+    first = _enqueue(supervisor, "one.pdf")
+    second = _enqueue(supervisor, "two.pdf")
+    seen: list[str] = []
+
+    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False, parse_mode="auto"):
+        seen.append(job_id)
+        target.set_status(job_id, "processing")
+        if job_id == first:
+            target.set_error(job_id, "the worker stopped without publishing a result")
+            raise signal
+        target.set_status(job_id, "done")
+
+    monkeypatch.setattr(webapp_app, "run_job", run_job)
 
     with pytest.raises(type(signal)):
         webapp_app._process_job_queue()
+    _join_workers()
 
-    assert threading.active_count() == before
-    assert webapp_app._job_worker_active is False      # a process that survives
-    assert len(webapp_app._job_queue) == 1             # can still take the next
-    assert supervisor.get(second).status == "queued"
+    assert seen == [first, second]                     # no upload was needed
+    assert supervisor.get(first).status == "error"
+    assert supervisor.get(second).status == "done"
+    assert webapp_app._job_worker_active is False
+    assert len(webapp_app._job_queue) == 0
 
 
-def test_the_shutdown_vocabulary_is_the_two_signals_and_nothing_wider():
-    """A wider tuple would silently stop rescuing queued work after an ordinary
-    crash; a narrower one would start OCR during a shutdown. Both directions are
-    the defect, so the set itself is pinned."""
-    assert webapp_app._SHUTDOWN_SIGNALS == (SystemExit, KeyboardInterrupt)
-    # and neither of the ordinary killers is inside it
-    assert not issubclass(MemoryError, webapp_app._SHUTDOWN_SIGNALS)
-    assert not issubclass(RuntimeError, webapp_app._SHUTDOWN_SIGNALS)
-    assert not issubclass(RecursionError, webapp_app._SHUTDOWN_SIGNALS)
+def test_no_exception_class_is_exempt_from_the_re_arm():
+    """The structural pin for the exemption's absence: the supervisor's handler
+    binds nothing, calls nothing but the release, and the module names neither
+    signal anywhere — so there is no vocabulary for a re-arm to consult. A
+    `(SystemExit, KeyboardInterrupt)` tuple coming back would strand queued
+    work on a process that is not stopping."""
+    tree = ast.parse((PROJECT_ROOT / "webapp" / "app.py").read_text(encoding="utf-8"))
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    assert not names & {"SystemExit", "KeyboardInterrupt"}
+    assert not hasattr(webapp_app, "_SHUTDOWN_SIGNALS")
+    supervisor_fn = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_process_job_queue"
+    )
+    handler = next(
+        node for node in ast.walk(supervisor_fn) if isinstance(node, ast.Try)
+    ).handlers[0]
+    assert handler.name is None, "the handler binds the exception, so it can inspect it"
+    called = set()
+    for node in ast.walk(handler):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            called.add(node.func.id)
+    assert called == {"_release_worker_slot"}, called
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +388,12 @@ def test_the_normal_drain_is_unchanged(supervisor, monkeypatch):
     """The handler is on the failure path only: a queue that empties normally
     still returns through the loop's own `return`, resets the flag there, and
     starts no thread. §PRIVACY3 P8.1's three-way table called the queue half
-    byte-identical before and after m-7; this keeps it so for the success row."""
+    byte-identical before and after m-7; this keeps it so for the success row.
+
+    "Starts no thread" is asserted by making the release FAIL if called, not
+    by a thread count: `active_count` is racy in the direction that passes,
+    since a thread started and already exited is invisible to it (review
+    MINOR-6). The only thread a drain could start goes through the release."""
     ids = [_enqueue(supervisor, f"{n}.pdf") for n in range(3)]
     seen: list[str] = []
 
@@ -348,12 +402,12 @@ def test_the_normal_drain_is_unchanged(supervisor, monkeypatch):
         target.set_status(job_id, "done")
 
     monkeypatch.setattr(webapp_app, "run_job", run_job)
-    before = threading.active_count()
+    monkeypatch.setattr(webapp_app, "_release_worker_slot",
+                        lambda: pytest.fail("the success path called the release"))
 
     webapp_app._process_job_queue()
 
     assert seen == ids
-    assert threading.active_count() == before
     assert webapp_app._job_worker_active is False
     assert len(webapp_app._job_queue) == 0
 

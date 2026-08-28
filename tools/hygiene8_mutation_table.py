@@ -76,24 +76,25 @@ class Mutant:
 QUEUE_MUTANTS = (
     Mutant(
         "Q1", "the slot is released when the worker dies", "webapp/app.py",
-        "            _release_worker_slot(isinstance(exc, _SHUTDOWN_SIGNALS))\n            raise",
+        "            _release_worker_slot()\n            raise",
         "            raise",
         "the handler stays but releases nothing: the base tree's defect, "
         "reintroduced behind a `try` that looks like a fix",
     ),
     Mutant(
         "Q2", "the escaping exception is re-raised bare", "webapp/app.py",
-        "            _release_worker_slot(isinstance(exc, _SHUTDOWN_SIGNALS))\n            raise",
-        "            _release_worker_slot(isinstance(exc, _SHUTDOWN_SIGNALS))",
+        "            _release_worker_slot()\n            raise",
+        "            _release_worker_slot()",
         "the arm swallows instead of re-raising - the fix §PRIVACY3 P8.1 "
-        "deliberately did NOT take, because it defeats a shutdown",
+        "deliberately did NOT take, because it hides the death",
     ),
     Mutant(
         "Q3", "the handler is BaseException, not Exception", "webapp/app.py",
-        "        except BaseException as exc:",
-        "        except Exception as exc:",
-        "a `SystemExit` or `KeyboardInterrupt` walks past the handler and "
-        "strands the queue again - the exact class the arm exists for",
+        "        except BaseException:",
+        "        except Exception:",
+        "a `SystemExit` or `KeyboardInterrupt` raised inside run_job walks past "
+        "the handler and strands the queue again - the exact class the arm "
+        "exists for",
     ),
     Mutant(
         "Q4", "the slot always comes back", "webapp/app.py",
@@ -105,23 +106,34 @@ QUEUE_MUTANTS = (
     ),
     Mutant(
         "Q5", "the re-arm needs queued work", "webapp/app.py",
-        "        rearm = pending and not shutting_down\n",
-        "        rearm = not shutting_down\n",
+        "        rearm = bool(_job_queue)\n",
+        "        rearm = True\n",
         "a replacement worker is started on an EMPTY queue - the first draft's "
         "mutant Q8, which walked through the thread-count assertion the branch "
         "replaced",
     ),
     Mutant(
-        "Q6", "the re-arm does not fire on a shutdown", "webapp/app.py",
-        "        rearm = pending and not shutting_down\n",
-        "        rearm = pending\n",
-        "new OCR work begins on a process that has been told to stop",
+        "Q6", "no exception class is exempt from the re-arm", "webapp/app.py",
+        "            _release_worker_slot()\n            raise",
+        '            if isinstance(__import__("sys").exc_info()[1],\n'
+        "                          (SystemExit, KeyboardInterrupt)):\n"
+        "                with _job_queue_lock:\n"
+        "                    _job_worker_active = False\n"
+        "            else:\n"
+        "                _release_worker_slot()\n"
+        "            raise",
+        "REVIEW MINOR-3, the shipped premise reintroduced: a thread-raised "
+        "signal releases the slot and starts nothing, so the work already "
+        "queued waits for the next upload on a process that is not stopping",
     ),
     Mutant(
-        "Q7", "the shutdown vocabulary is the two signals", "webapp/app.py",
-        "_SHUTDOWN_SIGNALS = (SystemExit, KeyboardInterrupt)",
-        "_SHUTDOWN_SIGNALS = (SystemExit,)",
-        "`KeyboardInterrupt` stops counting as a shutdown, so Ctrl-C re-arms",
+        "Q7", "a claimed slot has a worker behind it", "webapp/app.py",
+        "        threading.Thread(target=_process_job_queue, daemon=True).start()\n",
+        "",
+        "the flag is claimed for a replacement that is never started: the "
+        "queued work AND every future upload are stranded behind a claim nobody "
+        "holds - the worst state, and the one the claim-before-spawn order "
+        "makes possible",
     ),
     Mutant(
         "Q8", "the replacement claims the slot before it is started", "webapp/app.py",
