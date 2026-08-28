@@ -198,7 +198,15 @@ def test_expectations_cover_the_pinned_manifest(documents):
 #: it predicts. The load-independent clause above is the exact guard for the
 #: quadratic class this cell removed; other superlinear growth shapes are not
 #: caught by either, and are carried in W3 §DETBUDGET DT9.
-PLANNED_REGISTRATIONS = 80
+#:
+#: Batch-8 train (2026-08-28): the registry reached 83, past the 80 the
+#: projection was ratified at, so a "planned" size BELOW the actual one would
+#: have projected the cost DOWN (`worst * 80 / 83`) — the inverse of the
+#: constant's purpose. Reconciled to the actual size: the projection is the
+#: measurement itself until batch 9 plans beyond 83, and the test pins
+#: `PLANNED_REGISTRATIONS >= len(registrations)` so it cannot invert silently
+#: again. Raising it is a re-measurement (DT9's point), not an edit.
+PLANNED_REGISTRATIONS = 83
 
 #: The absolute ceiling, unchanged since R-3 risk 7: no document may cost the
 #: discovery run a quarter-second of routing before a single parse has run.
@@ -357,6 +365,11 @@ def test_detect_sweep_stays_affordable_for_the_discovery_run(sources):
     seconds against the twenty minutes the corpus-marked slice already takes.
     """
     registrations = pr.registrations()
+    assert PLANNED_REGISTRATIONS >= len(registrations), (
+        f"PLANNED_REGISTRATIONS={PLANNED_REGISTRATIONS} is below the registry's "
+        f"{len(registrations)}: the projection would scale the cost DOWN. "
+        "Reconcile the constant (a recorded re-measurement), never the registry."
+    )
     worst, worst_doc = 0.0, ""
     for path, markdown in sources.items():
         elapsed = min(_sweep_seconds(markdown) for _ in range(SWEEP_SAMPLES))
