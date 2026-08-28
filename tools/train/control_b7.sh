@@ -43,7 +43,7 @@ if [ -e "$COLD" ] && [ -n "$(ls -A "$COLD" 2>/dev/null)" ]; then
   echo "REFUSED: cold data dir '$COLD' is not empty" >> "$LOG"; echo "EXIT=refused-cache" >> "$LOG"; exit 4
 fi
 mkdir -p "$COLD" "$OUT"
-export WEBAPP_DATA_DIR="$(cd "$COLD" && pwd)"
+export WEBAPP_DATA_DIR="$(cd "$COLD" && pwd -W)"
 echo "WEBAPP_DATA_DIR=$WEBAPP_DATA_DIR" >> "$LOG"
 
 python "$TRAIN/tools/train/provenance.py" --checkout "$WT" --root "$ROOT" --data-dir "$COLD" \
