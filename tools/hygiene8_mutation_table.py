@@ -133,7 +133,11 @@ QUEUE_MUTANTS = (
         "the flag is claimed for a replacement that is never started: the "
         "queued work AND every future upload are stranded behind a claim nobody "
         "holds - the worst state, and the one the claim-before-spawn order "
-        "makes possible",
+        "makes possible. The same spawn line stands in `_enqueue_job` too, at "
+        "the same indent: this is the FIRST occurrence, the release's, and "
+        "`landed_in` says so",
+        occurrences=2,
+        nth=1,
     ),
     Mutant(
         "Q8", "the replacement claims the slot before it is started", "webapp/app.py",
