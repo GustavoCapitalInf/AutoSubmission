@@ -1025,7 +1025,11 @@ _CANNOT_ECHO = {
     "analysis/scanned_small_bank.py:_southside_summary: float(found['ending'])": _ALREADY_A_NUMBER,
     "analysis/scanned_small_bank.py:_southside_summary: float(found['previous'])": _ALREADY_A_NUMBER,
     "analysis/scanned_small_bank.py:_southside_summary: int(count)": _ISDIGIT_GUARDED,
-    "analysis/scanned_small_bank.py:_southside_summary: int(m.group(1))": _DIGITS_ONLY_GROUP,
+    # Composed on train8: this entry was `int(m.group(1))` on the HYGIENE-8a
+    # branch; SCAN-HYGIENE's SS-UNIQUE-MATCH hunk (efc5ced) rebinds the same
+    # "Days in Statement Period" read to `days = unique_match(text, _SS_DAYS_RE)`.
+    # Same site, same `(\d+)` group, same reason — one key renamed, none added.
+    "analysis/scanned_small_bank.py:_southside_summary: int(days.group(1))": _DIGITS_ONLY_GROUP,
     "analysis/scanned_small_bank.py:parse_apex_scanned_statement: int(sm.group('credit_count'))": _DIGITS_ONLY_GROUP,
     "analysis/scanned_small_bank.py:parse_apex_scanned_statement: int(sm.group('days'))": _DIGITS_ONLY_GROUP,
     "analysis/scanned_small_bank.py:parse_apex_scanned_statement: int(sm.group('debit_count'))": _DIGITS_ONLY_GROUP,
@@ -1201,16 +1205,31 @@ def test_the_replay_population_is_derived_from_a_list_checked_against_the_diff()
     print a comfortable zero. This is that check."""
     import subprocess
 
-    from tools.hygiene8_family_replay import CHANGED_PARSER_MODULES
+    from tools.hygiene8_family_replay import CHANGED_PARSER_MODULES, CHANGED_RANGE
 
+    # Composed on train8: the diff is the BRANCH's own range, not
+    # `<base>..HEAD` — on the composed train that range is every cell's change
+    # and the check would fail for reasons that have nothing to do with this
+    # list. The tip must be an ancestor of HEAD, so a reused instrument cannot
+    # point at a range this tree never contained.
+    base, tip = CHANGED_RANGE
+    assert base == BASE_REVISION, f"the range's base {base} is not the instruments' {BASE_REVISION}"
     try:
+        ancestor = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "merge-base", "--is-ancestor", tip, "HEAD"],
+            capture_output=True, text=True,
+        )
         changed = subprocess.run(
             ["git", "-C", str(PROJECT_ROOT), "diff", "--name-only",
-             f"{BASE_REVISION}", "HEAD", "--", "analysis/"],
+             base, tip, "--", "analysis/"],
             check=True, capture_output=True, text=True,
         ).stdout.split()
     except (OSError, subprocess.CalledProcessError) as exc:   # pragma: no cover
         pytest.skip(f"git is not usable here: {exc!r}")
+    assert ancestor.returncode == 0, (
+        f"CHANGED_RANGE's tip {tip} is not an ancestor of HEAD; the list was "
+        "derived from a range this tree does not contain"
+    )
 
     assert changed, "the diff found no changed analysis file; check the base"
     expected = set(changed) - set(NON_PARSER_CHANGED_MODULES)

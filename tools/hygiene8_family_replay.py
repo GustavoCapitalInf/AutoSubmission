@@ -67,6 +67,15 @@ CHANGED_PARSER_MODULES = {
     "analysis/scanned_small_bank.py": ["_money", "_iso"],
 }
 
+#: The change range the list above was derived from: the merge base every
+#: hygiene8 instrument takes as `--base`, and the HYGIENE-8a branch tip. The
+#: population test checks the list against `git diff` over THIS range, never
+#: against HEAD — on the composed train `<base>..HEAD` is every cell's change
+#: (composed on train8 after the merge; the branch-side test compared to HEAD,
+#: which is the same diff only while HEAD is the branch). A branch that reuses
+#: this instrument moves the tip with its list.
+CHANGED_RANGE = ("10cc722", "1be7e04")
+
 
 def _called_names(node: ast.AST) -> set[str]:
     names: set[str] = set()
