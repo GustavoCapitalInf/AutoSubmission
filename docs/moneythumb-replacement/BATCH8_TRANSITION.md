@@ -283,9 +283,11 @@ side, beyond the oracle: native documents now `no_parser_matched` and NOT in
 the census = **0**; native non-validated outside the oracle = 73
 parser_declined + 11 review + 4 withheld.
 
-**G5 — named toolchain drift (Windows Tesseract 5.5.0 → Linux 5.5.3), each
-with its batch-7 outcome fixed by a committed record.** Non-native population
-208 (local_tesseract 178, none 30).
+**G5 — named toolchain drift (Windows Tesseract 5.5.0 → Linux 5.5.3): 16
+CONFIRMED named movements (each batch-7 outcome fixed by a committed record)
+plus 1 PROBABLE named movement (`1C6CB407`, whose record is an experiment line,
+not a run-of-record row).** Non-native population 208 (local_tesseract 178,
+none 30).
 
 | sha16 | family | run of record | regenerated | record |
 |---|---|---|---|---|
@@ -310,9 +312,10 @@ with its batch-7 outcome fixed by a committed record.** Non-native population
 Two heuristic hits dismissed with reasons: `0CBD2AD8` (the pinned REPAIR-DOCTRINE
 refusal — its batch-7 state IS failed; O1 matched) and `9413957E` (the "failed"
 line is a §COMMSEC-GEN re-render experiment; run of record deferred =
-regenerated). **Accounting of the 16 named:** review +1 and withheld 0 are
-reproduced EXACTLY by the named set; validated −6 and failed +5 of the
-aggregate's −12 / +10 are named. **Residue: 6 validated documents lost (5 →
+regenerated). **Accounting of the 16 confirmed:** review +1 and withheld 0 are
+reproduced EXACTLY by the confirmed set; validated −6 and failed +5 of the
+aggregate's −12 / +10 are confirmed-named (the probable `1C6CB407` would add
+deferred −1 / failed +1). **Residue: 6 validated documents lost (5 →
 failed, 1 → deferred, or 4 + the deferred pair if `1C6CB407` left deferred)
 with no per-sha batch-7 record** — every indicator places them in the
 non-native population (native oracle 875/875, zero native detection loss), but
@@ -338,3 +341,24 @@ above (both runs then share one Tesseract, so these documents compare as
 unchanged and are never counted), stating the batch-7 reproduction as "native
 side exact by every durable record; scanned side drifted by 16 named + 6
 unnamed documents". (C) Stop.
+
+* **2026-08-28 checker correction landed `30d420e`** (Gustavo's OK):
+  `registration_count` evaluated on dispatched records only
+  (`dispatch.source != unavailable`) — the frozen rule's own wording; G3
+  outcome checks, G4, G5 untouched; no movement excused. Re-run on `47be5963`:
+  **REJECT-DRIFT-CANDIDATE (exit 2)**, `registration_count` {75: 3,475} ✓.
+* **Option A chosen (Gustavo, 2026-08-28), strict boundary: ONE attempt.**
+  Tesseract 5.5.0 built from source into the isolated prefix
+  `~/.local/opt/tesseract-5.5.0` (5.5.3 untouched); tessdata: no record names
+  the Windows box's, so the attempt uses the host's `eng.traineddata`
+  (`tesseract-data-eng 2:4.1.0-5`, sha256 `daa0c97d651c19fb…`) via
+  `TESSDATA_PREFIX=/usr/share/tessdata`; poppler stays 26.07.0 (unrecorded on
+  the Windows box; not reconstructed). Code at `302f8f2`; ONLY the 208
+  non-native documents (mirror root `.claude/recovery/corpus_nonnative_208/`,
+  `--skip-baseline` because the root is a scoped subset — an equivalence
+  experiment, never the measurement); separate cold cache
+  `WEBAPP_DATA_DIR=<worktree>/webapp_data_t550`; nothing else running.
+  Success = the union (native records from `47be5963` + non-native records
+  from the 5.5.0 run) passes the frozen checker: 2,469 / 17 / 72 / 809 / 13
+  and no unexplained discrepancy. If not, stop after this attempt → Option B
+  drift quarantine. Train 8 waits for Gustavo's review either way.
