@@ -97,22 +97,24 @@ QUEUE_MUTANTS = (
     ),
     Mutant(
         "Q4", "the slot always comes back", "webapp/app.py",
-        "        _job_worker_active = False\n        pending = bool(_job_queue)",
-        "        pending = bool(_job_queue)",
-        "the release stops releasing; only the re-arm is left, so a process "
-        "with an empty queue at the moment of death never accepts an upload again",
+        "        _job_worker_active = rearm\n",
+        "",
+        "the release stops releasing: the flag is left exactly as the dead "
+        "worker claimed it, so a process with an empty queue at the moment of "
+        "death never accepts an upload again",
     ),
     Mutant(
         "Q5", "the re-arm needs queued work", "webapp/app.py",
-        "    if pending and not shutting_down:",
-        "    if not shutting_down:",
-        "a replacement worker is started on an EMPTY queue - mutant Q8, which "
-        "walked through the thread-count assertion the branch replaced",
+        "        rearm = pending and not shutting_down\n",
+        "        rearm = not shutting_down\n",
+        "a replacement worker is started on an EMPTY queue - the first draft's "
+        "mutant Q8, which walked through the thread-count assertion the branch "
+        "replaced",
     ),
     Mutant(
         "Q6", "the re-arm does not fire on a shutdown", "webapp/app.py",
-        "    if pending and not shutting_down:",
-        "    if pending:",
+        "        rearm = pending and not shutting_down\n",
+        "        rearm = pending\n",
         "new OCR work begins on a process that has been told to stop",
     ),
     Mutant(
@@ -120,6 +122,15 @@ QUEUE_MUTANTS = (
         "_SHUTDOWN_SIGNALS = (SystemExit, KeyboardInterrupt)",
         "_SHUTDOWN_SIGNALS = (SystemExit,)",
         "`KeyboardInterrupt` stops counting as a shutdown, so Ctrl-C re-arms",
+    ),
+    Mutant(
+        "Q8", "the replacement claims the slot before it is started", "webapp/app.py",
+        "        _job_worker_active = rearm\n",
+        "        _job_worker_active = False\n",
+        "REVIEW MAJOR-1, the shipped defect: the slot is released and the "
+        "replacement is spawned with the flag left False, so for the life of "
+        "the replacement the module says no worker exists and the next upload "
+        "starts a second one - two threads draining one queue",
     ),
 )
 

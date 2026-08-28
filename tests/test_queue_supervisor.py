@@ -206,6 +206,58 @@ def test_a_failure_that_repeats_for_every_document_drains_and_stops(supervisor, 
     assert all(supervisor.get(job_id).status == "error" for job_id in ids)
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a_replacement_worker_holds_the_slot_while_it_runs(supervisor, monkeypatch):
+    """Review MAJOR-1, in the shape of the probe that found it. The first
+    `_release_worker_slot` set the flag False and then spawned the replacement
+    with it LEFT False, so while the replacement was busy the module said no
+    worker existed and the next upload started a SECOND one: two threads on one
+    queue, the slot double-booked. No earlier test could see it because every
+    one of them joined the workers first, by which time the replacement's own
+    `return` had reset the flag. This one reads the slot DURING the
+    replacement's job and then uploads while it is still busy."""
+    first = _enqueue(supervisor, "one.pdf")
+    second = _enqueue(supervisor, "two.pdf")
+    inside = threading.Event()       # the replacement is inside run_job...
+    release = threading.Event()      # ...and may finish
+    seen: list[str] = []
+
+    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False, parse_mode="auto"):
+        seen.append(job_id)
+        target.set_status(job_id, "processing")
+        if job_id == first:
+            target.set_error(job_id, "the worker stopped without publishing a result")
+            raise RuntimeError("the worker thread died")
+        if job_id == second:
+            inside.set()
+            assert release.wait(30.0), "the test never released the replacement"
+        target.set_status(job_id, "done")
+
+    monkeypatch.setattr(webapp_app, "run_job", run_job)
+
+    with pytest.raises(RuntimeError):
+        webapp_app._process_job_queue()            # dies on `first`, re-arms
+    assert inside.wait(30.0), "no replacement worker reached run_job"
+    try:
+        flag_during = webapp_app._job_worker_active
+        workers_during = len(_live_workers())
+        # One upload arrives while the replacement is busy with `second`.
+        third = supervisor.create("three.pdf")
+        webapp_app._enqueue_job(third.id, b"%PDF-x", "three.pdf", False, "auto")
+        workers_after_upload = len(_live_workers())
+    finally:
+        release.set()
+    _join_workers()
+
+    assert flag_during is True, "the replacement ran with the slot unclaimed"
+    assert workers_during == 1
+    assert workers_after_upload == 1, "the upload started a second worker"
+    assert seen == [first, second, third.id]        # one worker drained all three
+    assert webapp_app._job_worker_active is False
+    assert len(webapp_app._job_queue) == 0
+    assert supervisor.get(third.id).status == "done"
+
+
 @pytest.mark.parametrize("queued,shutting_down,expected", [
     (0, False, False),      # nothing to do - the next upload starts a worker
     (1, False, True),       # work is stranded unless somebody picks it up

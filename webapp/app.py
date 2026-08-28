@@ -93,17 +93,30 @@ def _release_worker_slot(shutting_down: bool) -> bool:
     per thread and stops. Nothing recurses — the dying thread starts the next
     one and then finishes unwinding.
 
+    **The replacement claims the slot inside the same critical section that
+    releases it** (#HYGIENE8 review MAJOR-1). The first version of this function
+    set the flag `False` and then spawned the replacement with the flag LEFT
+    `False`, so for the whole life of the replacement the module said no worker
+    existed, the next upload started a second one, and two threads drained one
+    queue — the single worker slot double-booked until both happened to exit.
+    Both jobs still completed exactly once (every pop is under the lock), so
+    the defect was of the SLOT and not of a job; but the slot is what keeps two
+    OCR jobs from running at once on this host. The flag is therefore written
+    ONCE here, to the re-arm decision itself: `True` exactly when a replacement
+    is about to be started and `False` otherwise, under the lock `_enqueue_job`
+    reads it under — the same claim-before-spawn order `_enqueue_job` keeps.
+
     Returns whether a replacement was started, so a test can assert the
     decision rather than infer it from a race.
     """
     global _job_worker_active
     with _job_queue_lock:
-        _job_worker_active = False
         pending = bool(_job_queue)
-    if pending and not shutting_down:
+        rearm = pending and not shutting_down
+        _job_worker_active = rearm
+    if rearm:
         threading.Thread(target=_process_job_queue, daemon=True).start()
-        return True
-    return False
+    return rearm
 
 
 def _process_job_queue() -> None:
