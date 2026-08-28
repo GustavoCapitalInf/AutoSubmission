@@ -129,7 +129,7 @@ QUEUE_MUTANTS = (
     Mutant(
         "Q7", "a claimed slot has a worker behind it", "webapp/app.py",
         "        threading.Thread(target=_process_job_queue, daemon=True).start()\n",
-        "",
+        "        pass\n",
         "the flag is claimed for a replacement that is never started: the "
         "queued work AND every future upload are stranded behind a claim nobody "
         "holds - the worst state, and the one the claim-before-spawn order "
