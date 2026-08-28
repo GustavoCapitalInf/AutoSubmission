@@ -15,12 +15,19 @@ set -u
 cd "$(dirname "$0")/../.." || exit 9
 LOG="${1:?log path}"
 BASE="${2:-discovery_reports/2026-08-23T020128.909387-0000-356a4269}"
+# Batch-8 recovery (2026-08-27): the historical run of record is gone and the
+# on-disk archive carries three post-freeze additions, so the corpus root and
+# the report directory are overridable. CORPUS_ROOT must still pass the
+# runner's frozen-baseline check — this script never passes --skip-baseline.
+ROOT="${CORPUS_ROOT:-Bank Statements}"
+OUT="${DISCOVERY_OUT:-discovery_reports}"
 : > "$LOG"
-echo "TREE=$(git rev-parse --short HEAD) BASE=$BASE START=$(date)" >> "$LOG"
+echo "TREE=$(git rev-parse --short HEAD) BASE=$BASE ROOT=$ROOT OUT=$OUT START=$(date)" >> "$LOG"
 
-before=$(ls -1d discovery_reports/*/ | sort)
-python -m discovery --scanned >> "$LOG" 2>&1; echo "RUN_EXIT=$?" >> "$LOG"
-after=$(ls -1d discovery_reports/*/ | sort)
+mkdir -p "$OUT"
+before=$(ls -1d "$OUT"/*/ 2>/dev/null | sort)
+python -m discovery --scanned --root "$ROOT" --out "$OUT" >> "$LOG" 2>&1; echo "RUN_EXIT=$?" >> "$LOG"
+after=$(ls -1d "$OUT"/*/ | sort)
 
 NEW=""
 for d in $(comm -13 <(echo "$before") <(echo "$after") | sed 's#/$##'); do
