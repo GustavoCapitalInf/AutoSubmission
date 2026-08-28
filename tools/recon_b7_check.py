@@ -550,6 +550,10 @@ def render(report: Report, *, run_dir: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:  # a cp1252 console cannot print the report's arrows; the FILE is the record, never the console
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run", required=True, type=Path, help="a discovery run directory")
     parser.add_argument("--report", type=Path, default=None, help="write the markdown report here")

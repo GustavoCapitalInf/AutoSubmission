@@ -139,6 +139,10 @@ def render_partition(p: dict, *, base_id: str, candidate_id: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:  # a cp1252 console cannot print the report's arrows; the FILE is the record, never the console
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", required=True, type=Path)
     parser.add_argument("--candidate", required=True, type=Path)
