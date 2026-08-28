@@ -137,7 +137,7 @@ def overflow_cases(package: str, huge: int) -> dict[str, object]:
         "year_within_period": lambda: dt.year_within_period(1, huge, start, end),
         "iso_within_period": lambda: dt.iso_within_period(f"1/{huge}", start, end),
         "period_from_long_dates": lambda: dt.period_from_long_dates(
-            f"April {huge}, 2026 through May 4, 2026"
+            f"April {huge}, 2031 through May 4, 2031"
         ),
     }
     # A census that silently stopped covering the module would report a

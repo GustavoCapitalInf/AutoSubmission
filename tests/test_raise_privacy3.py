@@ -170,8 +170,8 @@ def test_the_repointed_period_readers_call_strptime_nowhere(module):
 
 @pytest.mark.parametrize("token", [
     CANARY,
-    f"{CANARY} {DIGITS}, 2026",
-    "February 30, 2026",          # NO canary: strptime echoes the whole token
+    f"{CANARY} {DIGITS}, 2031",
+    "February 30, 2031",          # NO canary: strptime echoes the whole token
     f"April {DIGITS}, {DIGITS}",
 ])
 def test_the_shared_strptime_seam_refuses_without_quoting(token):
@@ -195,11 +195,11 @@ def test_the_two_period_readers_still_read_a_well_formed_period():
     """A refusal that also refused the good case would be a regression wearing
     a fix's clothes. Both formats, through the shared seam, on INVENTED dates."""
     assert dt.parsed_datetime(
-        "March 4, 2019", "%B %d, %Y", reader="columbia_bank.period"
-    ).date().isoformat() == "2019-03-04"
+        "March 4, 2031", "%B %d, %Y", reader="columbia_bank.period"
+    ).date().isoformat() == "2031-03-04"
     assert dt.parsed_datetime(
-        "Mar 4 2019", "%b %d %Y", reader="scotia.period"
-    ).date().isoformat() == "2019-03-04"
+        "Mar 4 2031", "%b %d %Y", reader="scotia.period"
+    ).date().isoformat() == "2031-03-04"
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +377,7 @@ _OVERFLOW_CASES = {
         lambda n: dt.iso_within_period(
             f"1/{n}", _date(2026, 1, 1), _date(2026, 3, 1)), None),
     "period_from_long_dates": (
-        lambda n: dt.period_from_long_dates(f"April {n}, 2026 through May 4, 2026"),
+        lambda n: dt.period_from_long_dates(f"April {n}, 2031 through May 4, 2031"),
         None),
     "parsed_datetime": (lambda n: dt.parsed_datetime(str(n), "%Y", reader="p"),
                         "refusal"),
