@@ -233,3 +233,27 @@ again) after batch 8 is measured.
   advance. No validator, truth pin, integrity rule or regression gate is
   weakened because the historical directory is gone.
 * **G1 and G2 measured on this host at `302f8f2` (2026-08-27 21:03–21:07 EDT, run `52c7194a`):** dry run 109 processed, deterministic coverage 108/109, **validated 102 / review 3 / withheld 3 / failed 1** (`parser_declined`, columbia_bank — the pinned refusal), 103 native + 6 committed-artifact reads, dedup unique 109, `DRYRUN_EXIT=0`; corpus gate **GREEN** `GATE_EXIT=0` — 109/109 pinned hashes, balance and ADB 105 pass / 3 withheld / 1 pinned refusal, outcome classes 1 refused / 3 review / 102 validated / 3 withheld with the whole integrity block, currency 14 CAD / 94 USD, provenance 7 / 4 / 1 / 7 / 89, no live OCR, no model calls. The pinned truth set reproduces byte-for-byte on the new toolchain; G3–G5 (the cold run) await Gustavo's go.
+
+### Baseline A — launch record (2026-08-27, Ocean; Gustavo's GO with two amendments)
+
+Amendments recorded: (1) the checker is finished, tested and committed BEFORE
+the cold run, and its G3/G4/G5 acceptance logic is frozen — any later change
+to the criteria needs an explicit recorded reason here, never "to fit the
+result"; (2) the run executes on an otherwise idle host (no FROST-OZK /
+HYGIENE-8a sessions, no sweeps, nothing resource-heavy concurrently).
+Additional G5 rule (Gustavo): any difference attributable solely to Windows
+Tesseract 5.5.0 → Linux Tesseract 5.5.3 is named by sha and reported
+separately as environmental/toolchain drift; it is not counted as a batch-8
+improvement or regression unless equivalence is independently established;
+any unexplained native-text difference remains a STOP.
+
+| item | value |
+|---|---|
+| checker commit | `655b8d8` on `train8` — `tools/recon_b7_check.py` + `tests/test_recon_b7_check.py` (13 tests pass; canonical guards + caller-classification guard 278 pass; real-artifact smoke on the dry run: O1 109/109 matched, registry 75 pinned, census tokens 610 + 56 parsed) |
+| baseline worktree commit | `302f8f2` (detached, `.claude/worktrees/b7-302f8f2`; clean; v15 / OCR v3 / registry 75; `analysis_settings_key(parse_mode="deterministic")` = `24675EF06C2E08DD6803362ACD56045607BBFD3B80642A849D08D0DF541B5CAC` = the run of record's) |
+| frozen corpus evidence | resolved root `.claude/recovery/corpus_frozen_3615/` (3,768 symlinks): `enumerate_root` → files 3,768 · PDFs 3,615 · bytes 996,080,803 · pinned 109 (0 missing, 0 case mismatches, 0 collisions) · discovery 3,506; `baseline_deviations()` = `[]`; distinct PDF SHA-256 3,412 on disk − the three excluded (`2113BA9692223261`, `9820D513501ECF09`, `A48F4BD648CA2DC0`) = 3,409 = W3 §RS5's frozen count; runner-equivalent dedup 124 / 82 |
+| environment freeze | `tools/train/venv_freeze_linux_2026-08-27.txt` (48 packages): Python 3.14.7 · PyMuPDF 1.27.2.3 · pytest 9.1.1 · pdf2image 1.17.0 · Pillow 12.3.0 · python-dotenv / google-genai / pydantic; tesseract 5.5.3 (leptonica 1.87.0); poppler 26.07.0; Linux 6.18.44-1-lts; no `.env` (deterministic mode, no model client); `WEBAPP_DATA_DIR` unset → the worktree's own cold `webapp_data/`; telemetry on; OCR env knobs unset (defaults) |
+| exact command | `cd .claude/worktrees/b7-302f8f2 && PATH=<repo>/.venv/bin:$PATH python -m discovery --scanned --root <repo>/.claude/recovery/corpus_frozen_3615 --out discovery_reports/RECON-B7-302f8f2 --quiet` — wrapped as `{ echo TREE/START_UTC; <cmd>; echo RUN_EXIT=$?; echo END_UTC; } > discovery_reports/RECON-B7-302f8f2.log 2>&1`, detached |
+| acceptance | `python -m tools.recon_b7_check --run <run dir> --report <run dir>/recon_b7_check.md` at `655b8d8`: exit 0 ACCEPT · 2 REJECT-DRIFT-CANDIDATE (Gustavo's call) · 1 REJECT (STOP / absent / unbounded delta). Train 8 does NOT start automatically on any outcome. |
+| start timestamp | appended below at launch |
+* **LAUNCHED:** `START_UTC=2026-08-28T01:57:39Z` (2026-08-27 21:57:39 EDT), host `omarchy`, Python 3.14.7, tesseract 5.5.3, run directory `discovery_reports/RECON-B7-302f8f2/2026-08-28T015740.400872-0000-47be5963/` in the `302f8f2` worktree; log `discovery_reports/RECON-B7-302f8f2.log`. Nothing else runs on the host until `RUN_EXIT` is written.
