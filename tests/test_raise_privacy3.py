@@ -2,8 +2,18 @@
 
 W3 §PRIVACY3 P10 is a ledger of raise sites in OTHER cells' files, each of the
 same class the money and date grammars closed for themselves: an exception whose
-message quotes the printed cell, crossing `webapp/worker.py`'s boundary into a
-durable store, a CSV cell and three HTTP routes. The five:
+message quotes the printed cell.
+
+WHERE SUCH A MESSAGE STILL GOES, restated on 2026-08-28 (review MINOR-6). This
+docstring used to say "crossing `webapp/worker.py`'s boundary into a durable
+store, a CSV cell and three HTTP routes", which has been stale since batch 6's
+§WORKER-PRIVACY: `webapp/worker.py:_stage_failure` withholds every message and
+stores the exception's CLASS NAME, and the dispatch seam reduces a parser crash
+the same way. The surviving sinks are the CSV writers — `batch.py:266`,
+`coverage_audit.py:193` and `deterministic_coverage_audit.py:241`, each
+`f"{type(e).__name__}: {e}"` into a cell — and any direct caller. The law is
+about what this tree may RAISE and carries no clause about who catches it, so
+the reroute is right in front of a boundary nobody has written yet. The five:
 
 | # | site | shape |
 |---|---|---|
@@ -1159,3 +1169,57 @@ def _census_over_source(source: str, relative: str) -> list:
                 found.append(f"{relative}:{function.name}: {ast.unparse(node)}")
     return sorted(found)
 
+
+# ---------------------------------------------------------------------------
+# 7. REVIEW MINOR-6 (d) - the replay population is checked against the diff
+# ---------------------------------------------------------------------------
+
+#: `analysis/date_tokens.py` is changed by this branch and is deliberately NOT
+#: a member of `CHANGED_PARSER_MODULES`: it holds no parser entry point, its
+#: widened handlers are tree-wide rather than family-shaped, and
+#: `tools.hygiene8_overflow_reach` is their instrument. Excluded by NAME with
+#: that reason rather than by a rule, so a fifth module cannot slip in behind
+#: a predicate.
+NON_PARSER_CHANGED_MODULES = {
+    "analysis/date_tokens.py":
+        "no registration's `parse` lives here; the OverflowError widening is "
+        "proved by tools.hygiene8_overflow_reach, not by the family replay",
+    "analysis/extract.py":
+        "the LLM extraction prompt. No registration's `parse` lives here "
+        "either, and `pipeline.py` raises before `extract_statement` in "
+        "deterministic mode - which is the mode every replay runs - so a "
+        "replay population could not exercise it whatever it contained",
+}
+
+
+def test_the_replay_population_is_derived_from_a_list_checked_against_the_diff():
+    """REVIEW MINOR-6 (d). H0/H1 called the family population "DERIVED, not
+    typed"; it is derived from the TYPED constant `CHANGED_PARSER_MODULES`,
+    which nothing checked. Correct for this branch - and a future branch that
+    changed a fifth reader would derive a population from a stale list and
+    print a comfortable zero. This is that check."""
+    import subprocess
+
+    from tools.hygiene8_family_replay import CHANGED_PARSER_MODULES
+
+    try:
+        changed = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "diff", "--name-only",
+             f"{BASE_REVISION}", "HEAD", "--", "analysis/"],
+            check=True, capture_output=True, text=True,
+        ).stdout.split()
+    except (OSError, subprocess.CalledProcessError) as exc:   # pragma: no cover
+        pytest.skip(f"git is not usable here: {exc!r}")
+
+    assert changed, "the diff found no changed analysis file; check the base"
+    expected = set(changed) - set(NON_PARSER_CHANGED_MODULES)
+    assert set(CHANGED_PARSER_MODULES) == expected, (
+        "the typed population no longer matches the diff: "
+        f"missing={sorted(expected - set(CHANGED_PARSER_MODULES))} "
+        f"extra={sorted(set(CHANGED_PARSER_MODULES) - expected)}"
+    )
+    for excluded in NON_PARSER_CHANGED_MODULES:
+        assert excluded in changed, (
+            f"{excluded} is excluded from the population but the diff no "
+            "longer changes it; drop the exclusion"
+        )

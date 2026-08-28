@@ -177,8 +177,12 @@ EXTRACT_MUTANTS = (
         "E3", "the alignment example keeps its VALUE row", "analysis/extract.py",
         "      <V4> / <V5> / <V6>",
         "      the values, in the same order",
-        "the value row loses its `<V1>..<V3>` ordering - the shape pin, not "
-        "the token pin",
+        # REVIEW MINOR-6: the row used to say "the value row loses its "
+        # `<V1>..<V3>` ordering", which is not what the edit does. H7.1 told it
+        # correctly; the harness row did not.
+        "the value row loses its `<V4> / <V5> / <V6>` CONTINUATION, so the "
+        "worked example stops showing that the value line runs on past the "
+        "third placeholder - the shape pin, not the token pin",
     ),
     Mutant(
         "E4", "the alignment example keeps its LABEL row", "analysis/extract.py",
@@ -186,9 +190,15 @@ EXTRACT_MUTANTS = (
         "      Interest Paid / Ending Balance   ...then...   <V1>- / <V2> / <V3> /\n"
         "      <V4> / <V5> / <V6>",
         "      the labels first, then the values",
-        "MUTANT E5 FROM THE COMMIT: the two-column worked example is deleted "
-        "outright, and every placeholder it named still stands in the prose "
-        "around it. This is the mutant that survived the token pin",
+        # REVIEW MINOR-6: the row called itself "MUTANT E5 FROM THE COMMIT",
+        # which reads as a contradiction beside its own id and beside the
+        # table's E5 - a different edit entirely. The mapping is stated instead
+        # of cross-referenced.
+        "THE COMMIT'S E5, WHICH IS THIS TABLE'S E4 (the table's own E5 is the "
+        "`PATTERN_SCAN_EXEMPT` mutant, a different edit): the two-column "
+        "worked example is deleted outright, and every placeholder it named "
+        "still stands in the prose around it. This is the mutant that survived "
+        "the token pin",
     ),
     Mutant(
         "E5", "`extract.py` is out of PATTERN_SCAN_EXEMPT",

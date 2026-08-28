@@ -57,8 +57,23 @@ def _money_required(value: str) -> float:
     if amount is None:
         # RAISE-PRIVACY-3 (#HYGIENE8), the site W3 §PRIVACY3 P10 item 1 named
         # and could not own. `raise ValueError(value)` put the printed cell in
-        # the message, and the message crosses `webapp/worker.py`'s boundary
-        # into the durable store. `money_refusal` is the shared constructor:
+        # the message.
+        #
+        # WHERE THAT MESSAGE STILL GOES, restated on 2026-08-28 (review
+        # MINOR-6): the reason this comment used to give — "it crosses
+        # `webapp/worker.py`'s boundary into the durable store" — has been
+        # stale since batch 6's §WORKER-PRIVACY. `webapp/worker.py`
+        # `_stage_failure` (:96) now withholds every message and stores the
+        # exception's CLASS NAME, and the dispatch seam
+        # (`analysis/parser_registry.py`, `ParserFailure(…, type(exc).__name__)`)
+        # does the same for a parser crash. The sinks that survive are the CSV
+        # writers — `batch.py` :266, `coverage_audit.py` :193 and
+        # `deterministic_coverage_audit.py` :241, each `f"{type(e).__name__}:
+        # {e}"` into a cell — and any direct caller of this function. The
+        # reroute is right either way: a grammar that never puts the cell in a
+        # message is safe in front of a boundary nobody has written yet.
+        #
+        # `money_refusal` is the shared constructor:
         # the token is MEASURED into a four-value class and never quoted, and
         # because it RETURNS the exception this raise stands outside any
         # handler, so nothing attaches a `__cause__` either.
