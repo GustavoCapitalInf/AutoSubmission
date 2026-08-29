@@ -58500,6 +58500,35 @@ Payload-identical on all 98 validated documents of the module includes
 WITHHELD-GRIDS' running-balance leaves, which are part of the compared payload
 rather than a separate check.
 
+**The archive sweep** is not owed by the letter of the floor — it is owed when a
+reader changed, and none did — but an argument that nothing moved is worth less
+than a measurement of it, so `tools.regfp_zero_movement_sweep` ran over the run
+of record's own `rows.csv` against the baseline settings key, in two chunks
+covering every document:
+
+| chunk | documents | compared | identical | moved | `no_payload_now_publishes` | `payload_now_raises` | seconds |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `[0, 400)` | 400 | 321 | 321 | **0** | 1 | 0 | 440 |
+| `[400, 3380)` | 2,980 | 2,348 | 2,348 | **0** | 8 | 0 | 2,990 |
+| **total** | **3,380** | **2,669** | **2,669** | **0** | **9** | **0** | 3,430 |
+
+**The nine findings are outside this card's population and every one is
+attributed.** They are exactly the nine documents CP-DECLINES moved, composed
+onto `train9` BEFORE this branch's base: the six `core_processor_enclosures`
+members `373B73F98E63F900`, `75FE7191FD4E74A0`, `D31770634E04E104`,
+`0943986A52D8226C`, `BD835DA79B01B332`, `C355B3706588F0B1` and the three
+`category_partition` members `6E9A3A110E6829EB`, `889DAEBE7D79133C`,
+`C47BEFE559CB8600`. The sweep's baseline is the batch-8 run of record, so a
+composition that landed between that run and this base necessarily reports as a
+finding here; the attribution does not rest on recognising the shas, it rests on
+the production tree being byte-identical to the base at every commit of this
+branch, which makes the finding set at this tip and at `e26ec8d` the same set by
+construction. The archive's standing residue reconciles to the same document:
+`no_payload_raises_again` 74 + 599 = **673**, exactly CPDECL10.3's figure, and
+673 + 9 = 682, the residue an unchanged batch-8 tree reports. `no_ocr_artifact`
+4 + 25 = 29 is that same standing residue. **Zero movement outside the named
+population, archive-wide.**
+
 ## COMMSEC9.8 The proof floor, and the commits
 
 | proof | result |
@@ -58514,9 +58543,16 @@ rather than a separate check.
 | mutation table | 2 rows, **2 KILLED**, each by its own named killer; `git status --porcelain` proved clean after the run; no other python harness on the host when it ran |
 | the decline probe, base tree | L-1 7 / block-walk 2 / **`TRACE-DISAGREES` 0**; control over the 61 protected: **PARSES 61 / 61** |
 | the ceiling's two counting methods | dynamic program and brute force **agree**, 32 = 32 and 1 = 1 |
-| branch privacy scan, ADDED FILE LINES vs the 70-document population | **hit_count 0** over 1,311 added lines and 70 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. Its zero is not vacuous: the raw scan before exclusions finds 3, all of them the `round_money` shape and all in this card's own synthetic fixture |
-| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 7 commits — EXIT=0. The co-authorship trailer's WORDS class does not fire here: no document of this population prints that vendor as a merchant description |
+| archive sweep at the final tree | 3,380 documents in two chunks — **2,669 payloads compared, 2,669 identical, moved 0**, `payload_now_raises` 0, `multi_artifact_documents` 0; `no_payload_now_publishes` 9, all nine outside this population and attributed in COMMSEC9.7 |
+| branch privacy scan, ADDED FILE LINES vs the 70-document population | **hit_count 0** over 1,592 added lines and 70 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. Its zero is not vacuous: the raw scan before exclusions finds 5 — 3 of the `round_money` shape, all in this card's own synthetic fixture, and 2 of the standing `words_class` |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 8 commits — EXIT=0. The co-authorship trailer's WORDS class does not fire here: no document of this population prints that vendor as a merchant description |
 | the instruments carry no control byte | 0 on all three `tools/commsec_*.py` |
+
+The added-line and commit counts in the two scan rows are this branch's own at
+the commit that carries them, and they move with the record — a section that
+reports a scan is itself scanned by the next run of it. **The ZERO is what the
+floor asserts and it is invariant to that**: both scans were re-run at the tip
+after this table landed and report 0 in all four classes on both surfaces.
 
 ### The commits of this cell
 
@@ -58529,6 +58565,13 @@ rather than a separate check.
 | `8fca8a1` | the harness names the test that actually killed each mutant |
 | `8d92ae5` | M1 aimed at the property rather than past it |
 | `51fbb51` | the ceiling's cross-check, and a population selectable by registration id |
+| `2c0f2e5` and the tip | this section, and the archive sweep it closes on |
+
+Every proof above was measured at `51fbb51`, the last commit that changes
+anything but this log; the two commits after it edit
+`docs/moneythumb-replacement/W3_TRACKA_LOG.md` and nothing else — check it with
+`git diff --name-only 51fbb51..HEAD` — except the two privacy scans and the
+archive sweep, which ran after it and are named with the tree they ran at.
 
 ### The findings carried
 
@@ -58553,3 +58596,29 @@ rather than a separate check.
    reader, should be measured this way first: count the readings, and if the
    count is not one on every member of the shape, the identities were never
    evidence about the direction in the first place.
+
+### The contract line
+
+**population 9** · **root cause** a second account that publishes on its own
+terms ×7 (`len(parsed)!=1`, the L-1 gate, out of scope and named by sha); an
+`Account Activity` ledger printing no running balance on any posting row ×2,
+where the row's direction is the COLUMN the bank printed its figure in and the
+flattened text carries no column at all · **solution** none — measured. No
+reading of the two reaches a direction: the search that solves for one is
+`ambiguous` on the wider document (32 ledgers consistent with every printed
+figure, cross-checked by brute force) and `UNIQUE_READING` on the narrower, so
+even granting a solver the widening reaches **one document**, and one document
+is not a rule — with the further objection that fitting the directions to the
+printed identities leaves those identities as evidence about nothing ·
+**newly validated 0** · **other ladder movement 0** · **previously validated
+preserved 98 / 98 across the module's three registrations, payload identical
+(59 + 39), and the 2 review unchanged** · **regressions 0** ·
+**correctness evidence** the gate table with `TRACE-DISAGREES` 0 and the
+control's `PARSES` 61 / 61; the measured absence of the balance column (no
+posting day ends on its printed grid balance, on either document); the raw
+printed rows carrying a single space before the figure and nothing after it; no
+geometry reaching the claiming-parser path at all; the sign search counted two
+independent ways, agreeing · **generalization evidence** the shape is 2 account
+blocks against 25 of the same arrangement, on the same platform, in the 109
+documents this module claims — and the two that print it are the only two of
+the 109 whose activity rows carry one figure.
