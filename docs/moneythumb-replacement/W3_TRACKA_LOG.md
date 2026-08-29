@@ -58377,4 +58377,9 @@ intends, reached by the path the platform intends.
 |---|---|
 | `445c968` | MINOR 1 — a control byte next to a digit is refused, never joined |
 | `1243e47` | MINOR 2 — a heading-shaped line must carry a heading's own context |
-| (this commit) | MINOR 3 — the three record corrections and this closure |
+| `45e7759` | MINOR 3 — the three record corrections and this closure |
+| `b82cf75` | the closure's own floor, caught by re-running it: the calendar scan read the `00` of a byte range this card spelled twice, and the privacy scan read this section's own number as an amount. The class is now spelled once and the section is numbered the batch's way; the compiled pattern and every reader decision are unchanged |
+
+Every row of the table above was measured at `b82cf75`, the tip that carries all
+four, except the mutation table and the two replays, which were re-run there
+after this table was first written and returned the same numbers.
