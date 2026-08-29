@@ -520,6 +520,8 @@ class DocStructure:
     notes: list[str] = field(default_factory=list)
     #: enumerated rows that name a loan or credit facility (MAJOR-6)
     loan_rows: int = 0
+    #: denominations named inside the enumerating table
+    denominations: int = 0
 
     @property
     def boundary_class(self) -> str:
@@ -548,6 +550,20 @@ DATED_ROW = re.compile(
     r"(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
     r"|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}\b)"
     r"[^\n]{0,240}?-?\$?\d[\d,]*\.\d{2}")
+
+
+#: Two DENOMINATIONS named inside one enumerating table. Under
+#: `CURRENCY_DOCTRINE` a payload spanning two of them has no valid ADB and no
+#: valid package arithmetic, so this is a refusal with a measured population
+#: rather than a hypothetical. Currency CODES only — never an amount.
+CURRENCY_TOKENS: tuple[tuple[str, str], ...] = (
+    ("cad", r"\b(?:CAD|CDN)\b"),
+    ("usd", r"\bUSD\b"),
+)
+
+
+def _denominations(window: str) -> int:
+    return sum(1 for _name, pattern in CURRENCY_TOKENS if re.search(pattern, window))
 
 
 def _heading_line(text: str, start: int, end: int) -> str:
@@ -771,6 +787,8 @@ def structure(sha16: str, group: str, band: str, markdown: str, pages: int) -> D
         daily_sections=sum(1 for s in sections if s.has_daily),
         total_row=rollup.total_row, boundary=boundary, notes=notes,
         loan_rows=max(rollup.loan_labels, sum(1 for r in rollup.rows if r.loan)),
+        denominations=_denominations(
+            text[rollup.caption_at: rollup.window_end] if rollup.caption else ""),
     )
 
 
@@ -1074,6 +1092,16 @@ def main(argv: list[str] | None = None) -> int:
           f"{sum(1 for d in loans if d.total_row)} |")
     print(f"| documents printing a cross-account total row at all | "
           f"{sum(1 for d in docs if d.total_row)} |")
+    print()
+
+    two_ccy = [d for d in docs if d.denominations >= 2]
+    print("| the currency condition | documents |")
+    print("|---|---:|")
+    print(f"| enumerating tables naming TWO denominations | **{len(two_ccy)}** |")
+    print(f"| ... census groups they belong to | "
+          f"{', '.join(sorted({f'`{d.group}`' for d in two_ccy})) or '-'} |")
+    print(f"| ... sections located on them, in total | "
+          f"{sum(len(d.sections) for d in two_ccy)} |")
     print()
 
     print("## Option B, measured rather than argued (MINOR-3)")
