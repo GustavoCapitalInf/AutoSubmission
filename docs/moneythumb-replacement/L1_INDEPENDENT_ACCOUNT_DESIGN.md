@@ -545,9 +545,11 @@ in §5 as surfaces this design changes.
 ## 4. Fail-closed conditions — complete, and testable
 
 Every condition below is a predicate with an exact refusal, a measured killer population, and
-the mutant that must be killed. **The §6 conditions are PARSE-TIME gates**: a failing condition
-means the reader returns `None`, the document is unclaimed, and its outcome is exactly what it
-is today (`failed`). No condition below can promote a document.
+the mutant that must be killed. **L1-C1 … L1-C7 and L1-C10 … L1-C14 are PARSE-TIME gates**: a
+failing condition means the reader returns `None`, the document is unclaimed, and its outcome
+is exactly what it is today (`failed`). Only L1-C8 and L1-C9 are post-parse, and those two are
+already expressed by the per-account `classify_outcome`. **No condition below can promote a
+document.**
 
 `L1-C1` … `L1-C15` restate the L1INV packet's thirteen plus its two standing conditions, with
 the refusal and the killer made explicit. `L1-C16` … `L1-C18` are new, and each was found by
@@ -711,7 +713,7 @@ Every stage owes, at its closure tree, in this order:
    validated preserved (payload identical / changed, with leaf PATHS) | validated regressions
    (BLOCKING, exit 2)`;
 3. **a BYTE comparison alongside it** (§1.3) — `cohort_replay`'s leaf projection cannot see an
-   added empty-list key, and three of this design's stages add exactly that class of key;
+   added empty-list key, and this design's payload-shape stages add exactly that class of key;
 4. a MUTATION TABLE for every condition of §4 that became code in that stage: each mutant
    applied exactly as documented, run without `-x`, every killer named, killers drawn by sha
    from the measured populations in §4;
@@ -757,14 +759,15 @@ the two changes are both forced by measurement:
 | **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note), `analysis/symitar.py`, `analysis/community_section.py`, `analysis/zions.py` — the skip SITES only | **0 newly validated.** Payload movement on the documents whose reader skips a section today. Measured over the four probed registrations: **105** validated documents read, **15** print two or more of their OWN module's section marks while publishing one account (symitar 7 of 7, `dakota_west` 3 of 3, `community_section` 5 of 59, `mission_valley` 0 of 36), and only **4** print the ratified declaration — all four symitar. §9 F1/F2: on today's evidence most of these skips have no member of L1-C17's vocabulary to name, which is what makes this stage a correctness card and not a cosmetic one | **none expected** — a pinned mover is a STOP | mutation table on the omission-reason vocabulary; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
 | **S3 — the surfaces, taught DARK** | `telemetry/record.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `balance_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | unit tests per reader over synthetic document payloads; the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
 | **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **2 documents** close on every located section today, both one census group, both with the enumerating table's own closing column reproducing. **8** if §8 Q3 is granted (a section that prints no dated row and reads nothing may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published. Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
-| **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94 and the second copy at :115-123) | **0 newly validated** — the `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today. This is a CORRECTNESS card: it removes an R-1 hardcode that publishes one memorised account of a member's several | **1 — `05E246C0ED6678E6`** (§6.3). Ceremony required BEFORE the change lands | truth-set ceremony; `cohort_replay --parser consumers` (3 documents); corpus gate; the audit CSVs re-derived and re-approved |
+| **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94 and the second copy at :115-123) | **0 newly validated** — the `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today. This is a CORRECTNESS card: it removes an R-1 hardcode that publishes one memorised account of a member's several | **1 — `05E246C0ED6678E6`** (§6.3). Ceremony required BEFORE the change lands | truth-set ceremony; `cohort_replay --parser consumers` (2 documents in the run, both `validated`, one of them the pinned one); corpus gate; the audit CSVs re-derived and re-approved |
 | **S6 — the remaining mechanisms** | per-family row grammars on the shared template | **an ESTIMATE, and it is not offered.** What is measured: 29 of 392 sections close today; `section-identity` closes 10 sections and 0 documents; `section-equation-scan` closes 0 and always will (L1-C1) | unknown; each family carded separately | as S4, per family |
 
 **The honest total.** Across all six stages the measured newly-validated count is **2**
 documents today and **8** under one ruling — out of a run of 3,380 with 2,596 validated. The
-work is worth doing for what it fixes, not for what it adds: four production defects (§9), a
-silent skip the platform has carried since batch 5, a memorised account number on an audited
-document, and a publication model that cannot say "this statement covers three accounts". If
+work is worth doing for what it fixes, not for what it adds: four production defects (§9), two
+silent skips the platform carries today with nothing in the payload to show for them, a
+memorised account number selecting the ledger on an audited pinned document, and a publication
+model that cannot say "this statement covers three accounts". If
 that trade is not worth it, the place to stop is **after S2** — S1 and S2 together repay the
 standing debt, move nothing, and leave the rest carded.
 
