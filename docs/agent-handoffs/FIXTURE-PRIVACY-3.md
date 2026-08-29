@@ -51,3 +51,14 @@ Own: `tests/` (except files owned by a running cell — Ocean names them at laun
 # Report
 BATCH9-RULES contract; the sweep table (files × sites before/after by class); newly validated
 0; preserved all; regressions 0; the findings list (tests whose meaning could not be preserved).
+
+# Addendum (Ocean, after the FIXTURE-PRIVACY-2 compose) — PROGRAM dates shifted in tests/ prose
+The +28-year DATES sweep treated the program's own SESSION / RULING dates inside `tests/`
+docstrings and comments as fixture dates (the `docs_session_date` rule is `docs/`-bounded):
+1015 ISO dates in the 205x range now sit in `tests/*.py`, of which 4 are on lines naming a
+ruling, a batch, a session, a review or a W3 section (e.g. a docstring that now reads
+"Gustavo, 2054-08-21"). Blinded diffs cannot see this. First item of this card after the
+harness: restore every program date in `tests/` prose to its true value (the +28 inverse,
+line by line, prose only — never a fixture), extend the session-date rule to `tests/`
+docstrings/comments (an ISO date in a comment or docstring on or after 2026-07-01 and
+before the era bound is a program date, not a token), and pin it with tests and a mutant.
