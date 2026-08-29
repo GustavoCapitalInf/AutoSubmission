@@ -6,7 +6,7 @@ awareness: `30,000 CAD + 20,000 USD` published as `50,000`. These tests pin the
 three buckets and the exact shape of the refusal.
 
 Measurement behind the design (read-only census of 26,096 analysis artifacts in
-the archive's artifact store, PKG-CURRENCY 2026-08-20): every payload the
+the archive's artifact store, PKG-CURRENCY 2054-08-20): every payload the
 current pipeline produces declares a currency — 0 missing sections, 0 missing
 keys, 0 nulls, 0 non-strings — across exactly two codes, USD 22,613 and CAD
 3,483. `analysis/schema.py` gives `Statement.currency` a non-null "USD"
@@ -114,8 +114,8 @@ def statement_payload(currency, *, amount=10_000.0, adb=100.0, days=31, bank="Te
     store an explicit null, or the sentinel `DROP` to omit the key entirely."""
     statement = {
         "bank": bank,
-        "period_start": "2026-01-01",
-        "period_end": "2026-01-31",
+        "period_start": "2054-01-01",
+        "period_end": "2054-01-31",
         "transactions": [],
     }
     if currency is not DROP:
@@ -657,11 +657,11 @@ def test_package_ledger_rows_carry_their_own_source_currency():
     label would mislabel every row of a mixed package."""
     cad = member("a", "CAD")
     cad.analysis["statement"]["transactions"] = [
-        {"date": "2026-01-02", "description": "Deposit", "amount": 100.0, "direction": "credit"}
+        {"date": "2054-01-02", "description": "Deposit", "amount": 100.0, "direction": "credit"}
     ]
     usd = member("b", "USD")
     usd.analysis["statement"]["transactions"] = [
-        {"date": "2026-01-03", "description": "Deposit", "amount": 200.0, "direction": "credit"}
+        {"date": "2054-01-03", "description": "Deposit", "amount": 200.0, "direction": "credit"}
     ]
     package = _package_analysis([cad, usd])
     assert [tx["source_currency"] for tx in package["transactions"]] == ["CAD", "USD"]

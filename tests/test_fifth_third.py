@@ -29,7 +29,7 @@ from analysis.fifth_third import (
 
 PRINT_STREAM = "FTCSTMT000 000 00000000 UDSPDFSTMT 0000000000000000000 DDA"
 PERIOD = (
-    "Statement Period Date: 3/1/2026 - 3/31/2026 "
+    "Statement Period Date: 3/1/2054 - 3/31/2054 "
     "Account Type: SYNTHETIC BUS CKG Account Number: 1234567890"
 )
 FOOTER = (
@@ -116,7 +116,7 @@ def test_a_custodian_disclosure_naming_the_bank_is_not_a_claim():
     custodian = (
         "--- Page 1 ---\n\n"
         "Synthetic Balance\nStatement summary\n"
-        "Starting balance $10.00\nAccount balance as of 03/31/2026 $10.00\n"
+        "Starting balance $10.00\nAccount balance as of 03/31/2054 $10.00\n"
         "This product partners for money transmission services with funds held "
         "at Fifth Third Bank, Member FDIC.\n"
     )
@@ -146,8 +146,8 @@ def test_reads_all_three_summary_components():
     assert stmt is not None
     assert stmt.bank == "Fifth Third Bank"
     assert stmt.account_number == "1234567890"
-    assert stmt.period_start == "2026-03-01"
-    assert stmt.period_end == "2026-03-31"
+    assert stmt.period_start == "2054-03-01"
+    assert stmt.period_end == "2054-03-31"
     assert stmt.days_in_period == 31
     assert stmt.beginning_balance == 100.00
     assert stmt.ending_balance == 200.00
@@ -187,10 +187,10 @@ def test_daily_balances_are_published_as_source_evidence():
     stmt = parse_fifth_third_statement(document())
     assert stmt is not None
     assert [(d.date, d.balance) for d in stmt.stated_daily_balances] == [
-        ("2026-03-02", 140.00),
-        ("2026-03-03", 120.00),
-        ("2026-03-04", 100.00),
-        ("2026-03-05", 200.00),
+        ("2054-03-02", 140.00),
+        ("2054-03-03", 120.00),
+        ("2054-03-04", 100.00),
+        ("2054-03-05", 200.00),
     ]
 
 
@@ -371,7 +371,7 @@ def test_reprinted_page_furniture_never_leaks_into_a_section():
 #: therefore photographable. The leading `3` is the speck OCR habitually reads
 #: off the logo block, and it is left in because the real scans carry it.
 SCAN_PRODUCT = "3 Account Type: 5/3 SYNTHETIC CKG"
-SCAN_PERIOD = "Statement Period Date: 3/1/2026 - 3/31/2026"
+SCAN_PERIOD = "Statement Period Date: 3/1/2054 - 3/31/2054"
 SCAN_ACCOUNT = "FIFTH THIRD Account Number: 1234567890"
 
 
@@ -506,7 +506,7 @@ def test_a_foreign_ending_balance_is_refused_by_the_closing_identity():
     """
     lost_close = scanned_document().replace(
         "03/31 Ending Balance $200.00",
-        "Analysis Period: 02/01/26 - 02/28/26\n"
+        "Analysis Period: 02/01/54 - 02/28/54\n"
         "Standard Monthly Service Charge $0.00\n"
         "PAPER ACCOUNT STATEMENT FEE $3.00\n"
         "03/31 Ending Balance $77,777.00",
@@ -664,9 +664,9 @@ def test_an_overdrawn_scan_publishes_the_printed_daily_balances_it_averages():
     assert stmt.beginning_balance == -100.00
     printed = [(d.date, d.balance) for d in stmt.stated_daily_balances]
     assert printed == [
-        ("2026-03-02", -60.00),
-        ("2026-03-03", -80.00),
-        ("2026-03-04", -100.00),
-        ("2026-03-05", 0.00),
+        ("2054-03-02", -60.00),
+        ("2054-03-03", -80.00),
+        ("2054-03-04", -100.00),
+        ("2054-03-05", 0.00),
     ]
     assert sum(balance for _, balance in printed) / len(printed) < 0

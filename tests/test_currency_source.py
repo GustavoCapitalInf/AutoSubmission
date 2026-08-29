@@ -3,7 +3,7 @@
 `Statement.currency_source` is CURRENCY_DOCTRINE §B's evidence hierarchy moved
 out of prose and each reader's comments and into the payload. It is additive
 and provenance-only: no currency VALUE moves anywhere, no FX happens, and
-nothing downstream computes with it (Gustavo, 2026-08-21).
+nothing downstream computes with it (Gustavo, 2054-08-21).
 
 Two kinds of proof live here, and the second is the one that matters.
 
@@ -444,10 +444,10 @@ class TestJurisdictionDefault:
 #: One well-formed Scotiabank ledger, the shape `tests/test_scotia_layouts.py`
 #: drives every one of its own cases with.
 ROWS = (
-    "01/30/2026 BALANCE FORWARD 1,000.00 "
-    "02/02/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00 "
-    "02/03/2026 MISC PAYMENT SAMPLE PAYER 50.00 990.00 "
-    "02/04/2026 SERVICE CHARGE 40.00 950.00"
+    "01/30/2054 BALANCE FORWARD 1,000.00 "
+    "02/02/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00 "
+    "02/03/2054 MISC PAYMENT SAMPLE PAYER 50.00 990.00 "
+    "02/04/2054 SERVICE CHARGE 40.00 950.00"
 )
 
 

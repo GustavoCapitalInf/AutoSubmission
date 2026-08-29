@@ -40,7 +40,7 @@ MASTHEAD = (
     "PO Box 1 Welch, OK 00000\n"
     "PO Box 2 Sampleville, OK 00001\n"
     "ACCOUNT NUMBER 1234567\n"
-    "STATEMENT DATES 06/01/26-06/30/26\n"
+    "STATEMENT DATES 06/01/54-06/30/54\n"
     "PAGE 1 of 2\n"
     "Sample Business Checking\n"
 )
@@ -99,7 +99,7 @@ def test_the_invented_statement_reads_end_to_end():
     assert stmt is not None
     assert stmt.bank == "Welch State Bank"
     assert stmt.account_number == "1234567"
-    assert (stmt.period_start, stmt.period_end) == ("2026-06-01", "2026-06-30")
+    assert (stmt.period_start, stmt.period_end) == ("2054-06-01", "2054-06-30")
     assert (stmt.beginning_balance, stmt.ending_balance) == (1000.00, 1250.00)
     assert (stmt.stated_total_credits, stmt.stated_total_debits) == (500.00, 250.00)
     assert (stmt.stated_credit_count, stmt.stated_debit_count) == (2, 3)
@@ -122,16 +122,16 @@ def test_a_description_is_the_text_printed_before_its_own_anchor():
     stmt = parsed()
     assert stmt is not None
     described = {t.date: t.description for t in stmt.transactions}
-    assert described["2026-06-02"] == "Sample Credit One"
-    assert described["2026-06-05"] == "Sample Credit Two"
-    assert described["2026-06-03"] == "Sample Debit One"
-    assert described["2026-06-09"] == "Sample Debit Two"
+    assert described["2054-06-02"] == "Sample Credit One"
+    assert described["2054-06-05"] == "Sample Credit Two"
+    assert described["2054-06-03"] == "Sample Debit One"
+    assert described["2054-06-09"] == "Sample Debit Two"
 
 
 def test_the_cleared_check_is_a_debit_the_printed_debit_count_includes():
     stmt = parsed()
     assert stmt is not None
-    checks = [t for t in stmt.transactions if t.date == "2026-06-04"]
+    checks = [t for t in stmt.transactions if t.date == "2054-06-04"]
     assert [(t.direction, t.amount, t.description) for t in checks] == [
         ("debit", -100.00, "Check 1001")
     ]
@@ -141,12 +141,12 @@ def test_the_daily_grid_is_published_as_the_banks_own_dated_evidence():
     stmt = parsed()
     assert stmt is not None
     assert [(d.date, d.balance) for d in stmt.stated_daily_balances] == [
-        ("2026-06-01", 1000.00),
-        ("2026-06-02", 1300.00),
-        ("2026-06-03", 1200.00),
-        ("2026-06-04", 1100.00),
-        ("2026-06-05", 1300.00),
-        ("2026-06-09", 1250.00),
+        ("2054-06-01", 1000.00),
+        ("2054-06-02", 1300.00),
+        ("2054-06-03", 1200.00),
+        ("2054-06-04", 1100.00),
+        ("2054-06-05", 1300.00),
+        ("2054-06-09", 1250.00),
     ]
 
 
@@ -271,15 +271,15 @@ def test_two_different_mastheads_refuse_the_document():
 
 
 def test_a_period_that_ends_before_it_starts_refuses_the_document():
-    assert parsed(masthead=MASTHEAD.replace("06/01/26-06/30/26", "06/30/26-06/01/26")) is None
+    assert parsed(masthead=MASTHEAD.replace("06/01/54-06/30/54", "06/30/54-06/01/54")) is None
 
 
 def test_a_period_no_calendar_holds_refuses_instead_of_raising():
-    assert parsed(masthead=MASTHEAD.replace("06/01/26-06/30/26", "06/31/26-06/30/26")) is None
+    assert parsed(masthead=MASTHEAD.replace("06/01/54-06/30/54", "06/31/54-06/30/54")) is None
 
 
 def test_two_different_periods_refuse_the_document():
-    doubled = MASTHEAD + "STATEMENT DATES 07/01/26-07/31/26\n"
+    doubled = MASTHEAD + "STATEMENT DATES 07/01/54-07/31/54\n"
     assert parsed(masthead=doubled) is None
 
 
@@ -468,7 +468,7 @@ def test_page_furniture_between_two_ledger_lines_is_not_a_description():
         "Other Debits\n"
         "Date Description Amount Sample Debit One 06/03 100.00\n"
         "ACCOUNT NUMBER 1234567\n"
-        "STATEMENT DATES 06/01/26-06/30/26\n"
+        "STATEMENT DATES 06/01/54-06/30/54\n"
         "PAGE 2 of 2\n"
         "SAMPLE 00XYZ 0000000 0000A00X.000\n"
         "Sample Debit Two 06/09 50.00\n"
@@ -476,7 +476,7 @@ def test_page_furniture_between_two_ledger_lines_is_not_a_description():
     stmt = parsed(debits=interrupted)
     assert stmt is not None
     described = {t.date: t.description for t in stmt.transactions}
-    assert described["2026-06-09"] == "Sample Debit Two"
+    assert described["2054-06-09"] == "Sample Debit Two"
 
 
 def test_text_left_over_after_the_last_ledger_anchor_refuses_the_document():
@@ -509,7 +509,7 @@ def test_a_gap_marked_check_number_is_read_and_its_marker_is_not_the_amount():
     starred = CHECKS.replace("6/04 1001 100.00", "6/04 1001* 100.00")
     stmt = parsed(checks=starred)
     assert stmt is not None
-    assert [t.description for t in stmt.transactions if t.date == "2026-06-04"] == [
+    assert [t.description for t in stmt.transactions if t.date == "2054-06-04"] == [
         "Check 1001"
     ]
 
@@ -641,9 +641,9 @@ def test_the_non_ascii_digit_class_is_the_one_that_would_have_converted():
         ("masthead account number", "masthead",
          MASTHEAD.replace("ACCOUNT NUMBER 1234567", "ACCOUNT NUMBER " + nd("1234567"))),
         ("period start", "masthead",
-         MASTHEAD.replace("06/01/26-06/30/26", nd("06/01/26") + "-06/30/26")),
+         MASTHEAD.replace("06/01/54-06/30/54", nd("06/01/54") + "-06/30/54")),
         ("period end", "masthead",
-         MASTHEAD.replace("06/01/26-06/30/26", "06/01/26-" + nd("06/30/26"))),
+         MASTHEAD.replace("06/01/54-06/30/54", "06/01/54-" + nd("06/30/54"))),
     ],
 )
 def test_a_reading_written_in_non_ascii_digits_refuses_rather_than_converts(

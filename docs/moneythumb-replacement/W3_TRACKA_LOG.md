@@ -56719,3 +56719,476 @@ and named), the platform's own refusals quoted, and the unread-money bound (0 ac
 figures, 0 in row tails, across all 50 documents) · **generalization evidence** the shape is
 two accounts × four statements, against eleven validated documents of the same product that
 DO print both tables.
+
+# §FIXPRIV2 — half the fixture residue was DATES, and a date cannot be invented: the twenty-eight-year identity
+
+**Card:** FIXTURE-PRIVACY-2 (batch 9, 9A-0 card 1b, P0 hygiene continued, ZERO coverage movement).
+**Branch** `wave9-fixpriv2`, base `train9` `d2ab046`. Ocean composes; this cell never merged and
+never pushed. Everything below was measured on this host with the run of record
+`TRAIN8-7185633 / cda8882d` and the READ-ONLY cold cache, absolute paths passed explicitly.
+
+**Verdict: the tests sweep is HALF DONE and the half that is done is complete.** Every DATES site
+in `tests/` that this card owns is closed — 1,971 sites in 83 files down to 126 in six named
+files, and 77 of the 83 reach zero. The other half, MONEY and DIGITS, is characterised, measured,
+entangled in a way this record names, and NOT started. The two items the card put first are
+closed, the scanner reads three tracked text formats it never had, the truth CSVs are a counted
+class instead of an inference, and the two root run logs are gone.
+
+## F2-1 — the two first items
+
+**HARNESS SAFETY.** `tools/fixpriv_mutation_table.py` restored each mutant with `git checkout --`
+under `check=True`, inside a `finally`. On this shared host that call died with exit 255 —
+`index.lock` contention from another cell in another worktree of the same `.git` — the exception
+left the `finally`, and the mutant stayed in the working tree. Everything run in that tree
+afterwards ran against a scanner with a hole punched in its exclusion table on purpose.
+
+The restore now has two stages and neither can raise: git first, exit code ignored, then a CONTENT
+restore against the original text the harness read before it mutated anything, retried for
+OneDrive's transient holds. Nothing is reported unless every gate file equals its in-memory
+original byte for byte AND `git status --porcelain` comes back clean — retried, because the same
+contention silences `status`. A status git will not answer is `None`, not empty: a tree whose
+state is unknown is not a tree proved clean, and it refuses the run at both ends. A failure to
+LAUNCH a suite is recorded as a survivor instead of escaping the loop.
+
+The harness became a gate of its own table: `H1` (the git-only restore, the pre-fix form exactly),
+`H2` (unknown-status-is-clean), `H3` (no tree check after the run), `H4` (the launch exception
+escaping), over a new `tests/test_fixpriv_mutation_table.py` whose fourteen tests simulate the
+observed git failure and assert on the bytes on disk.
+
+**THE RESIDUAL MAJOR-A.** `BOX_CLAUSE_ZIP` bounded its reach with a run of ordinary characters, so
+a box marker followed by an unbroken run — no punctuation anywhere to stop it — reached across to
+a word-shaped abbreviation and silenced the ACH company-id shape that
+`analysis/core_processor_signed_counts.py`'s own grammar documents. A clause character class can
+only close the cases that carry punctuation; that one carries none.
+
+The rule now asks for what an address prints between its box and its state: a CITY — four letters
+or more, at a word boundary, and not one of the words this archive uses to introduce an identity.
+The run to the state is TEMPERED in both halves, so it cannot cross `MEMBER`, `ACCOUNT`, `AUTH`,
+`CHECK`, `CARD`, `LOAN`, `POLICY`, `TRACE`, `NO`, `REF`, `CCD` or `ACH` at all — a city standing
+legitimately in front of one does not rescue the line. Written as a tempered run rather than as
+furniture immediately before the state because a city is not always one word: the census carries a
+genuine institution address whose last word before the state is three letters long. Second edge,
+in the gap both shapes share: a NUMBER SIGN is barred between the state and the code, because it
+is the mark this archive puts in front of an identity and a postal code never carries one.
+
+STRICTLY NARROWER BY CONSTRUCTION: the two runs are bounded so the box-to-state distance stays the
+seventy it always was, the characters are tempered, and a city has to fit inside. No line can gain
+an exclusion from this change.
+
+**THE COST, MEASURED: ZERO.** All 83 sites the rule excuses at the base were re-derived against
+the new shapes and all 83 are still claimed — 21 by the city-comma shape, 49 by both, 13 by the
+box shape alone. Those 13 are the genuine institution PO boxes the card asked about: two national
+banks, a census identity block, a state capital, a two-word city, a synthetic fixture city. **They
+all survive.**
+
+WHAT REMAINS, in the table and not inferred: `PO BOX <n> <city-shaped word not in the list>
+<word-shaped abbreviation> <five digits>` is still excused, because by shape it IS an address. The
+nearest real example is a company suffix standing where a city would. The only rule that closes it
+is a state-to-ZIP-prefix consistency table, which is a card of its own — every invented address
+fixture in this tree pairs a state with a code that does not belong to it, so that table
+re-reports them all and its cost must be measured before it is chosen.
+
+## F2-2 — the technique: a date is not an opaque id, so it is MOVED, not invented
+
+Half of what `tests/` carried into the scan was DATES: 1,971 of the 4,041 residue sites at the
+base. They are residue for the ordinary reason — a fixture written beside a real statement prints
+the days that statement printed — and they are the half that cannot be repaired by inventing a
+value. A date is load-bearing: a statement period, a posting order, the day count an average
+divides by.
+
+`tools/fixpriv_shift_dates.py` moves them by TWENTY-EIGHT YEARS. Inside one century block the
+Gregorian calendar has a period of exactly 28 — four for the leap cycle, seven for the week, no
+skipped leap year in between — so the shift preserves, exactly: every WEEKDAY, every MONTH LENGTH
+including February's, every INTERVAL in days, every ORDERING, and every US federal BANK HOLIDAY by
+month and day.
+
+That last one is why the shift is 28 and not 8. `analysis/adb.py` publishes `weekday_only` and
+`banking_day` alternates over a real holiday calendar. Under any shift that moved a weekday, every
+one of those numbers changes and every fixture asserting one has to be RE-DERIVED from the module
+it exists to test — which is not a fixture repair, it is erasing the oracle. Under this shift they
+are untouched, and `tests/test_adb.py` and `tests/test_adb_doctrine.py` pass with 95 `date(...)`
+literals moved and not one expected value changed.
+
+The tool PROVES the identity before it rewrites anything: it walks every day of its range,
+compares weekday and month length either side of the shift, and compares `analysis.adb`'s own
+holiday set year by year. Measured, not asserted: over that range **28 is the only shift under 56
+that is an identity**, and 56 is not one either, because the range reaches a century year that is
+not a leap year. It refuses a shift it cannot prove, exit 2.
+
+Two properties fall out and both are load-bearing. A year OUTSIDE the proved range does not move
+and is counted as `out_of_range` — the same rule the tool applies to its own shift, since a year
+the check never visited has no proof behind it. And the transform is therefore IDEMPOTENT: a
+second run is the one mistake this shift cannot survive, and the year the first pass writes is
+already outside the range the second pass would move.
+
+## F2-3 — what the grammar had to learn, one wave at a time
+
+Every one of these was found by a SUITE, never by inspection, and every one is a shape a fixture
+actually prints:
+
+| wave | the shape the grammar could not see | why it matters |
+|---|---|---|
+| 1 | a bare year INTEGER (`resolve_year(...) == <year>`, `_federal_bank_holidays(<year>)`) | a fixture that BUILDS its dates leaves its year behind |
+| 2 | FRENCH month names | the Canadian readers' fixtures print their periods in French; an English-only grammar moves the expectation and leaves the printed period |
+| 2 | dash-separated numeric, and a spelled month with hyphens | neither ISO nor slashed |
+| 2 | the century PIVOT, which must NOT move | `2000` is not a year here, it is `year + 2000 if year < 100`; shifting it moved every date a reader produces |
+| 3 | a spelled month GLUED TO AN ESCAPE | a page header written as one Python string: the month is preceded by the letter of the escape, two word characters, no boundary |
+| 3 | a text layer that dropped its inter-word spacing | this tree tests that layer, so the grammar reads its dates |
+| 4 | a DELIBERATELY IMPOSSIBLE year | a poisoned period in a fail-closed test; moving it made the test pass for the wrong reason |
+| 4 | a period written as a day, a spelled month and a two-digit year | read by hand: automating it means treating a quantity as a date |
+| 6 | a date inside a pinned document's FILE NAME | half the file's name; moving it points every reader at a document that does not exist |
+| the slice | a date inside a discovery RUN's own name | the same class with no file extension to give it away, and the only witness was a CORPUS-MARKED test |
+
+The last one is a REPORT and not a guard, and the tool says which it is. The characters of a date
+in a path and a date in a fixture are identical and no pattern separates them, so the tool counts
+the shifted dates that sit on a line naming a file and warns. The suite is what decides — which is
+exactly how the occurrence in this tree was found, by three tests failing at once.
+
+The bare year is the same kind of thing one level down. `<year>` on its own is a number and
+nothing can tell it from a count, an index or a version, so it is `--bare-years`, opt-in, last in
+the alternation so every real date claims its year first, guarded by a full stop on either side, and
+bounded so an already-shifted year can never move again. Eleven of the fifty-nine files needed it.
+
+## F2-4 — the sweep, file by file
+
+Six waves, one commit each, `tests/test_analysis.py` first as the card required.
+
+| | files | DATES sites |
+|---|---:|---:|
+| carrying DATES residue at the base | 83 | 1,971 |
+| reaching ZERO | **77** | **1,558** |
+| still carrying, all named below | 6 | 126 |
+
+The six, and why each is not a fixture:
+
+| file | base | tip | why |
+|---|---:|---:|---|
+| `tests/test_analysis.py` | 358 | 72 | nine tests read a PINNED CORPUS DOCUMENT off disk and assert what it says |
+| `tests/test_huntington.py` | 25 | 25 | owned by another cell; skipped by instruction |
+| `tests/data/parser_expectations.json` | 13 | 13 | the pinned-document BASELINE, cross-checked against both audited CSVs |
+| `tests/test_new_statement_corpus.py` | 7 | 7 | a PDF's own path, the period it prints, the balances an audit recorded |
+| `tests/test_balance_metrics_audit.py` | 7 | 7 | the same, against the balance audit |
+| `tests/test_transaction_classifier.py` | 3 | 2 | two classification REGRESSIONS over real documents |
+
+That class is the finding of the sweep and it is not small: **residue that is archive identity ON
+PURPOSE, held by a test whose whole point is to check a real artifact.** It is
+`benchmark_truth_csv` arriving inside `tests/`, it is exactly what ruling R3 is about, and no
+fixture technique can reach it — moving one of those dates asserts something the document does not
+say. Every one was found the same way: the shift was applied, the file's own suite failed, and the
+test was put back.
+
+## F2-5 — the scanner reads what it never had, and counts what it must not silence
+
+`TEXT_SUFFIXES` gains `log`, `shas` and `ps1`. Until this card the tree carried tracked text no
+scan had ever read, including a run log written by a tool that printed document text. `git
+ls-files` now finds nothing outside the list that is not a PDF, and a PDF is evidence, not source.
+**The first result of the widening is a negative one: 0 residue sites in every newly visible
+file.**
+
+NAMED RESIDUE is the opposite of an exclusion and is written that way on purpose. An exclusion
+says a shape cannot carry archive identity. A named class says this residue IS archive identity,
+it is here deliberately, and it needs a RULING rather than a rule. `benchmark_truth_csv` names the
+three per-statement expectation files `benchmark/expectations.py` reads as DATA — real balances,
+account masks and periods, one row per pinned document, one of them holding the last copy of the
+account number the P0 card removed everywhere else. **The class measures 1,004 sites**, it stays
+INSIDE `residue_sites`, the exit code still follows it, and `residue_by_named_class` puts a number
+in front of the decision. `residue_class` is deliberately not consulted by `excluded_by`: moving a
+class into the table must be a visible edit with a shape argument, never a reporting convenience.
+
+One rule was carved back so the count is honest. `docs_session_date` silenced ISO dates in `docs/`
+from the program's era on, and the truth CSVs are in `docs/` and carry statement periods that
+reach into it — the exact boundary the first re-review measured a live site on. A date in an
+audited expectations file is a document date; the two only share a shape.
+
+**The two root run logs: scanned first, then deleted.** Both were tracked and neither had ever been
+audited. Scanned with the widened scanner: **0 residue sites in both**. What the big one carries is
+530 identical MuPDF resource warnings, 534 blank lines and one batch-4 run summary of counts; the
+other is EMPTY. Deleted because nothing reads them — `git grep` outside the batch-9 records that
+discuss them finds no code, no test, no tool, no CI reference — and every fact they carry is in
+`discovery_reports/` in structured form. `run.ps1` and the two `.shas` files stay: they have
+readers, and they scan clean.
+
+## F2-6 — three mistakes this branch made, and how each was caught
+
+Recorded because the way they were caught is the transferable part.
+
+**FP5 THREE TIMES, on this card's own new files.** The first whole-tree scan after the first sweep
+file reported fourteen residue sites in files this branch had just written — example dates in the
+date instrument, digit runs in the exclusion tests, one in the scanner's own new docstring. Every
+one was an "obviously made up" example chosen by eye. The second occurrence was in the very
+examples written to document the file-name hazard: they were the real names, so they carried the
+real dates. All replaced with shapes VERIFIED against the universe by `fixpriv_invent`, and the
+era moved to a year the archive cannot print. The lesson is the predecessor's and it did not
+transfer by being written down: prose ABOUT the collision problem is not exempt from it.
+
+**A WAVE'S LEDGER OVERSTATED ITS TREE.** Wave 2 hit the century-pivot defect midway; closing it
+meant reverting the whole of `tests/` and re-running, and the re-run covered only the five files
+that needed the bare-year flag. The other nine were left at their committed state, their suites
+passed trivially, and the commit message counted them anyway. Found by `git diff --name-only
+<base> HEAD` against the list the record CLAIMS. The wrong message is left standing and a
+correction commit carries the work; a claim about the tree is checked against the tree, not
+against what the last command printed. That check now runs before every wave, which is also what
+stops a file being shifted twice.
+
+**A WAVE MIS-CLASSIFIED A FILE.** Wave 6 called the two conformance files "one artifact in two
+files" and shifted both. They are not linked — conformance passes with one shifted and the other
+at its base state — and the second is not a fixture at all but the pinned-document baseline, so the
+shift re-dated fourteen documents by NAME. Three tests caught it. Corrected, and the file joins
+the named exceptions.
+
+**THE DEFAULT SUITE WAS NOT ENOUGH.** `tests/test_rbc_variants.py` pins the discovery run the
+batch-5 currency corrections were measured under, by that run's directory NAME - an ISO date
+carrying the instant it started. The shift moved it and the run of record stopped being findable.
+The default suite never saw it: the only test that reads that name is CORPUS-MARKED, so it is
+deselected there, and it took the twenty-five-minute slice to say so. Restored, and the report
+learns the second shape - an ISO date carrying a time is a run id, and a line holding one is
+flagged like a line naming a file. The general statement is the one worth carrying: **an
+identifier that CONTAINS a date is indistinguishable from a date**, this tree holds at least two
+kinds, and only a suite that actually runs the reader can tell.
+
+**Two mutants survived their first table and each named a guard, not the code**, which is the
+fourth and fifth time on this line of cards. `M11e` (widen the box clause back) survived because
+every case in the box-clause block also carried an identifier word, which the tempered run refuses
+on its own — so no case could tell whether the clause characters still held; four cases carrying
+no identifier word fix that. `Z14` (drop the year's zero padding) survived because the proved
+range makes every shifted year four digits already, so the padding is unreachable — re-aimed at
+the CENTURY instead, with the padding kept and its unkillability recorded rather than left as a
+gap, the same way `_CITY_WORD`'s word boundary is.
+
+## F2-7 — what remains, sized and characterised, for the next card
+
+`tests/` residue after this card: **MONEY 1,392 sites in 71 files, DIGITS 678 in 73 files**, and
+**58 files carry both**. Two facts the next card needs and this one measured:
+
+1. **THEY ARE ENTANGLED. 75 of the 678 DIGITS sites are the INTEGER PART of a money figure** —
+   the scanner tokenises a digit run of five or more wherever it stands, and a figure printed
+   without a thousands separator contains one. A cents SCALE must move those; an id invention must
+   not. (This paragraph first said 82. The review could not reproduce it and was right: 82 came
+   from a loose regex of mine, not from the definition the sentence gives. Measured exactly as
+   written — the token equals the integer part of some money figure on its own line — the answer
+   is **75**, and it is still 75 if the test is loosened to "the token is any substring of a money
+   figure on the line". 248 more merely SHARE a line with one, which is a different and much
+   weaker fact. The conclusion is unchanged; the number sizes the next card, so it is corrected
+   here rather than left to be re-derived.)
+   Whichever technique goes first has to know about the other, and doing them in separate passes
+   over the same file will produce a file that no longer closes.
+2. **THE SCALE CANNOT BE UNIFORM.** A whole-file cent scale is exact on every sum, chain and
+   total, which is why it worked for the predecessor's one file — but it also scales a
+   reconciliation TOLERANCE, a ratio and a deliberate PERTURBATION, and the first two are not part
+   of any closure while the third is the MAJOR-3 defect of the previous card arriving again. The
+   shape of the answer is: scale the figures, leave the tolerances, keep every perturbation at one
+   cent, and prove it with the `_CENT` ladder that is already a committed instrument.
+
+A NOTE ON THIS CARD'S OWN RULEBOOK, for the next cell rather than for this one: the copy of
+`docs/agent-handoffs/BATCH9-RULES.md` at this branch's base is the older one. The section the
+batch-9 reviews added — *"Surfaces the batch-9 reviews found unscanned"*, covering commit-message
+scanning, mutation-harness restore safety and where a record lives — exists only on `train9` and
+landed after `d2ab046`, so nothing here was written against it. It is satisfied anyway: the
+message scan is a floor item of this branch, the harness restore is F2-1, and the record is this
+section. Worth stating only so the composed train carries the newer rules forward.
+
+Also unchanged and still owed a ruling: the production sweep as its own card with
+`analysis/consumers.py:90` split out; the record redaction, refused twice; the tree being
+unaudited for NAMES by construction; and R3 over the three CSVs — which this card now extends by
+measurement, because the same class lives in five `tests/` files as well.
+
+## F2-8 — proof floor
+
+| proof | result | exit |
+|---|---|---|
+| `fixpriv_mutation_table` (no `-x`) | **63 mutants / 63 killed / 0 survived**, tree clean before and after | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped** | **0** |
+| full default suite | **7,254 passed, 43 skipped, 34 deselected — no failure, no error** | **0** |
+| `python corpus_gate.py` | **RESULT: GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; 109 pinned PDFs, 0 exclusions; 14 CAD / 94 USD; provenance 7 institution_default / 4 jurisdiction_default / 1 printed | **0** |
+| corpus-marked slice | **30 passed** — a FIRST run of the slice failed one test, and that failure is F2-6's fourth mistake | **0** |
+| whole-tree scan, root base, `--ref d2ab046` | **9,378 sites / 209 files**; 3,351 documents read | 1 |
+| whole-tree scan, root base, `--ref <tip>` | **7,533 sites / 200 files**; 3,351 documents read; **no file gains residue and no token at the tip is new** | 1 |
+| added-lines scan `--base d2ab046 --ref <tip>` | **hit_count 0 · residue_sites 0 · residue_files 0** over the branch's added lines | **0** |
+| commit-message scan over `d2ab046..<tip>` | **0 archive tokens**, scanned with the branch's own tokeniser, base-tree subtraction and exclusion table | **0** |
+| production modules touched | **NONE** — the diff is 82 files under `tests/`, 3 under `tools/`, and two deleted root logs | — |
+| registry / version / gate / webapp / ocr / discovery / telemetry | untouched | — |
+
+The full suite is GREEN, with no excused failures: the pair the predecessor carried is fixed on
+`train9` at this card's base.
+
+Coverage movement is ZERO and it is zero by construction rather than by replay: **no production
+module appears in the diff at all**, so no reader can behave differently on any document. Run bare
+over the whole diff, `fixpriv_ast_identity` reports 85 files, 82 differing and 3 skipped, and
+every differing path is under `tests/` or `tools/` — test fixtures and two instruments, changed on
+purpose. `cohort_replay` is owed when a reader changes and no reader changed. No registry entry,
+no version bump, no new hardcode, no network, no hosted model, `$0`.
+
+## F2-9 — the numbers
+
+Whole-tree audit, `--include-tree --base <root>`, population 3,380 content shas, **3,351 read**, 29
+without cached text. Printed universe: MONEY 354,835 · DIGITS 208,695 · DATES 3,211 · WORDS
+416,756 distinct tokens.
+
+Residue by class and directory:
+
+| class · directory | base `d2ab046` | tip |
+|---|---:|---:|
+| MONEY docs | 3,720 | 3,720 |
+| DATES tests | 1,971 | 126 |
+| MONEY tests | 1,392 | 1,392 |
+| DATES docs | 766 | 766 |
+| DIGITS tests | 678 | 678 |
+| DIGITS docs | 427 | 427 |
+| MONEY analysis | 216 | 216 |
+| DATES analysis | 79 | 79 |
+| DIGITS analysis | 48 | 48 |
+| DATES (root) | 26 | 26 |
+| MONEY webapp | 17 | 17 |
+| MONEY ocr | 16 | 16 |
+| MONEY (root) | 9 | 9 |
+| DATES tools | 6 | 6 |
+| DIGITS tools | 3 | 3 |
+| DATES benchmark | 2 | 2 |
+| MONEY tools | 1 | 1 |
+| DIGITS ocr | 1 | 1 |
+
+Excused SITES per rule are unchanged in every class the card did not touch; `institution_zip`
+claims the same 166 rows and the same 83 sites at both trees, which is the narrowing's zero cost
+stated a second way.
+
+**RESIDUE: 9,378 sites in 209 files at the base, 7,533 in 200 at the tip — 1,845 removed, every
+one of them a DATE in `tests/`.** No file gains residue, no token appears at the tip that was not
+at the base, and the only classes that move are the two this card owns. The tip figures were
+measured at the tip that carries this section and they reproduce there; a record cannot print the
+sha of the commit that carries it, and `git log d2ab046..` is the list.
+
+## F2-C — CLOSURE: two MAJORs and three MINORs, and the sweep re-measured line by line
+
+Appended after `docs/moneythumb-replacement/reviews/BATCH9_FIXPRIV2_REVIEW.md` returned **APPROVE
+WITH FINDINGS** (0 BLOCK, 2 MAJOR, 3 MINOR). Every number the review re-measured reproduced;
+everything below is this cell closing what it found. Sections F2-1..F2-9 are left as written except
+F2-7's entanglement figure, which is corrected in place because it is an input to the next card.
+
+### F2-C1 — MAJOR 1: the shift tool edited things that are not dates, and there were SIX, not two
+
+The review proved two by blinding every date and requiring the remainder to be byte-identical: a
+cheque SERIAL read as a spelled date's year, and the four hex digits of an em-dash escape read as
+a year, turning an em dash into an asterism inside a docstring.
+
+Re-measuring the whole sweep found **four more**, and the reason the blinding could not see them is
+that every one of them IS date-shaped:
+
+| site | what moved | what it was |
+|---|---|---|
+| `test_bmo_layouts.py` | two cheque serials | `Date · Serial Number · Amount`, so the serial sits where a spelled date's year goes |
+| `test_declines_c_variants.py` | an escape's hex digits | a docstring's em dash became an asterism |
+| `test_bofa_variants.py` (3 lines) | the DAY of a `yy/mm/dd` in a wire description | read as `mm/dd/yy`, so `03` became `31` |
+| `test_core_processor_signed_counts.py` (2 lines) | the DAY of a `yy/mm/dd` in an ACH description | the same shape |
+| `test_shared_parser_utils.py` | the CENTURY-PIVOT canaries of a legacy-vs-shared equivalence test | the test still passed and no longer tested the pivot |
+| `test_structurer.py` | the all-zero canary in a shaped-but-impossible-date list | a canary that stopped being one |
+
+All six reverted. One root cause: the proved-range check refuses to MOVE an implausible year, but
+it was added in wave 4 and these files were swept in waves 1..3, so it never saw them. The
+shared-parser-utils one is the serious member of the set — it is a fixture change that changed a
+test's meaning, which is this card's own stop condition, and it slipped past because the file's
+suite was green either way.
+
+**Two guards, both in FRONT of the range rather than behind it.**
+
+* `_PLAUSIBLE_YEAR` is part of the GRAMMAR: four digits are read as a year only if they are
+  1900..2100. That answers a different question from the proved range — a year in the 1990s is a
+  year this tool will not move, a four-digit serial is not a year — and it protects a file swept at
+  any time, which is exactly what a check inside the mover could not.
+* `ESCAPE_RE` marks every `\uXXXX`, `\UXXXXXXXX` and `\xXX` in the file and no match whose year
+  overlaps one is ever taken. Refusals are COUNTED as `in_an_escape` rather than silently skipped.
+  The digits of an escape are part of a spelling, not a number.
+
+**Verified complete rather than asserted.** A re-run of the guarded tool over the base of every
+touched test file reproduces the tip on **1,921 of 1,926 changed lines**. The five it does not are
+the hand repairs this record already names — the Wilson template's two glued two-digit years and
+the three French period constants — plus one file whose line count changed because this card added
+tests to it. There is no seventh silent edit.
+
+### F2-C2 — MAJOR 2: the named class was counted whole in the record and not in the code
+
+`benchmark_truth_csv` was described as residue that is counted and never excused, and the
+`docs_session_date` docstring said the principle out loud. The carve-out was then written into that
+one rule. Measured inside the three files: `round_money` silenced 252 more sites, `subunit_money`
+65 and `hex_sha_substring` 10 — **327**, about a quarter of the class, unreported.
+
+It matters because the count IS the input to ruling R3, and because the silenced remainder is the
+opposite of incidental: these files are per-statement audited expectations, so a `.00` figure in
+one is a REAL PRINTED BALANCE — precisely the case `round_money`'s own docstring says it excuses by
+choice rather than by safety.
+
+`excluded_by` now carves the named paths out FIRST, in front of the whole table, so no present or
+future rule can reach into a counted class. That is the lesson rather than the patch: the first
+version was a rule remembering to check, and rules forget. WORDS is the single boundary and it is a
+scope statement — `words_class` discards every WORDS hit everywhere, the tree is unaudited for
+customer names by construction, and counting names here and nowhere else would make this number
+mean something different from the number in every other file.
+
+**The class measures 1,331 at the base and 1,331 at the tip.** R3 should be made against that.
+
+### F2-C3 — the three MINORs
+
+1. **The entanglement figure was 82 and does not reproduce; it is 75.** 82 came from a loose regex
+   of this cell's, not from the definition the sentence gives. Measured exactly as written — the
+   token EQUALS the integer part of some money figure on its own line — the answer is **75**, and
+   it is still 75 under the looser "any substring of a money figure on the line". **248** more
+   merely SHARE a line with one, which is a different and much weaker fact. F2-7 is corrected in
+   place with the definition beside it, because the number sizes the next card.
+2. **The city rule's residual is wider than the record's phrasing, and its cost is one shape.** The
+   substitute city need not be identity-flavoured at all: ANY word of four or more letters that is
+   not on the list will do, ordinary English included, so the list is a floor on what the rule
+   catches and never a ceiling. And the narrowing costs one shape the record had not stated: a
+   genuine box address whose city is SHORTER than four letters and which carries no comma is
+   reported now — the same line with the city's comma is still excused, which is what bounds the
+   cost. Live cost is ZERO, measured: the rule's take is 166 rows at the base and 166 at the tip.
+   Both halves are in the table's prose and both are pinned by tests.
+3. **This branch was written against the older standing rules** — the section the batch-9 reviews
+   added landed on `train9` after this base. It is satisfied anyway (message scan, harness restore,
+   record-in-W3); the note exists so the composed train carries the newer rules forward.
+
+### F2-C4 — FP5, a FOURTH time, on the cases written to close the MAJORs
+
+The closure scan reported one new residue site in each of the two files the MAJOR fixes touched: a
+period in the escape-guard test and a five-figure round amount written to show `round_money` being
+refused inside a named class. Both chosen by eye, both printed by some document, both in files that
+had carried none. Replaced with shapes put to `fixpriv_invent` — ten candidates, eight CLEAR, two
+COLLIDED, and the two that collided are recorded here as the reason this is checked rather than
+assumed. Four times on one branch; the instrument catches it every time and eyes never do.
+
+### F2-C5 — the floor at the closure tip
+
+| proof | result | exit |
+|---|---|---|
+| `fixpriv_mutation_table` (no `-x`) | **66 mutants / 66 killed / 0 survived**, tree clean before and after | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped** | **0** |
+| full default suite | **7,298 passed, 43 skipped, 34 deselected — no failure, no error** | **0** |
+| `python corpus_gate.py` | **RESULT: GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED | **0** |
+| corpus-marked slice | **30 passed** | **0** |
+| the branch's instrument suites | shift **143** · exclusions **255** · harness **14** | **0** |
+| added-lines scan `--base d2ab046 --ref <tip>` | **hit_count 0 · residue_sites 0 · residue_files 0** over 4,428 added lines | **0** |
+| commit-message scan over `d2ab046..<tip>` | **0 archive tokens** over 814 message lines | **0** |
+| `tests/test_huntington.py` | **25 DATES sites at the base and 25 at the tip — untouched**, awaiting FIXTURE-PRIVACY-3 | — |
+| W3 | base + exactly ONE appended heading; base prefix byte-identical | — |
+
+### F2-C6 — the numbers, re-measured with the corrected scanner
+
+The carve-out changes what the scanner counts as residue, so BOTH trees are re-measured with it;
+the base figure in F2-9 was taken with the older code and is superseded by the row below rather
+than contradicted by it.
+
+| | base `d2ab046` | tip |
+|---|---:|---:|
+| residue sites | **9,705** | **7,862** |
+| residue files | 209 | 200 |
+| `benchmark_truth_csv` (counted, inside the total) | **1,331** | **1,331** |
+| `institution_zip` rows | 166 | 166 |
+| `tests/` DATES | 1,971 | **128** |
+| `tests/` MONEY | 1,392 | 1,392 |
+| `tests/` DIGITS | 678 | 678 |
+
+**1,843 sites removed, every one a DATE in `tests/`. No file gains residue and no token at the tip
+is new.** `tests/` DATES is 128 rather than the 126 F2-9 reported, and the two extra are the honest
+price of MAJOR 1: reverting a corrupted canary puts back a token the archive also prints. One is in
+`test_structurer.py` and one in `test_bofa_variants.py`, both are canaries a fixture repair must
+not touch, and reporting them is the correct outcome.

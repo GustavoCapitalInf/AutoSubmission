@@ -57,7 +57,7 @@ REMOVED_LITERALS = (
     "GREEN CONVERGENCE",      # item 4 - customer name
     "FIELD TRUCKING",         # item 4 - customer name
     "35127380",               # item 5 - account number
-    "2026-06-18",             # item 1 - memorized date
+    "2054-06-18",             # item 1 - memorized date
     "Check 1944",             # item 1 - memorized check
     "4500.00",                # item 1 - memorized amount
     "FUNDIFI CANADA",         # item 7 - counterparty in sign heuristic

@@ -3,7 +3,7 @@
 `analysis/pipeline.py` is a protected file and this wave's protocol is
 propose-first (W3-1b set the precedent and the idiom). The diff below was
 pinned here as strict xfails while it awaited Ocean; it was approved on
-2026-08-07 as pinned, and the xfails are now plain assertions.
+2054-08-07 as pinned, and the xfails are now plain assertions.
 
 The diff, in full, as landed:
 
@@ -67,7 +67,7 @@ from analysis.structurer import STRUCTURER_MODEL
 # A document no registration claims, that the structurer can read.
 UNCLAIMED = """--- Page 1 ---
 NORTHWIND MUTUAL BANK
-Statement period 03/01/2026 to 03/31/2026
+Statement period 03/01/2054 to 03/31/2054
 Beginning balance 5,000.00
 Ending balance 5,090.00
 Date Description Amount Balance

@@ -30,13 +30,13 @@ from analysis import parser_registry_entries  # noqa: F401 — populates the reg
 # ---------------------------------------------------------------------------
 
 MASTHEAD = (
-    "April 30, 2026 Page: 1 of 4\n"
+    "April 30, 2054 Page: 1 of 4\n"
     "Customer Service:\n"
     "HOLDER NAME PLLC\n"
     "1 EXAMPLE ST\n"
     "EXAMPLETOWN XX 00000-0000\n"
-    "Last statement: March 31, 2026\n"
-    "This statement: April 30, 2026\n"
+    "Last statement: March 31, 2054\n"
+    "This statement: April 30, 2054\n"
     "MARKETPLACE CHECKING\n"
 )
 SUMMARY = (
@@ -118,18 +118,18 @@ def test_the_template_parses_and_publishes_what_the_bank_printed():
     assert statement.bank == "Columbia Bank"
     assert statement.account_number == "XXXXXX0000"
     assert statement.account_name == "Holder Name Pllc - Marketplace Checking"
-    assert (statement.period_start, statement.period_end) == ("2026-04-01", "2026-04-30")
+    assert (statement.period_start, statement.period_end) == ("2054-04-01", "2054-04-30")
     assert statement.days_in_period == 30
     assert (statement.beginning_balance, statement.ending_balance) == (100.00, 150.00)
     assert (statement.stated_total_credits, statement.stated_total_debits) == (500.00, 450.00)
     assert statement.bank_reported_average_balance == 80.00
     assert statement.bank_reported_average_label == "Average balance"
     assert [(t.date, t.amount) for t in statement.transactions] == [
-        ("2026-04-02", 200.00),
-        ("2026-04-03", -400.00),
-        ("2026-04-05", 300.00),
-        ("2026-04-06", -30.00),
-        ("2026-04-07", -20.00),
+        ("2054-04-02", 200.00),
+        ("2054-04-03", -400.00),
+        ("2054-04-05", 300.00),
+        ("2054-04-06", -30.00),
+        ("2054-04-07", -20.00),
     ]
 
 
@@ -220,10 +220,10 @@ def test_the_plain_deposit_section_is_not_bounded_from_the_ach_credit_section():
     ))
     assert statement is not None
     assert [(t.date, t.amount) for t in statement.transactions] == [
-        ("2026-04-03", -400.00),
-        ("2026-04-05", 300.00),
-        ("2026-04-06", -30.00),
-        ("2026-04-07", -20.00),
+        ("2054-04-03", -400.00),
+        ("2054-04-05", 300.00),
+        ("2054-04-06", -30.00),
+        ("2054-04-07", -20.00),
     ]
 
 
@@ -360,7 +360,7 @@ def test_an_other_deposits_section_is_read_and_folded_into_the_printed_credits()
     ))
     assert statement is not None
     assert statement.stated_total_credits == 550.00
-    assert ("2026-04-02", 50.00) in [(t.date, t.amount) for t in statement.transactions]
+    assert ("2054-04-02", 50.00) in [(t.date, t.amount) for t in statement.transactions]
 
 
 def test_an_other_deposits_section_without_its_printed_total_declines():
@@ -423,7 +423,7 @@ def test_a_section_whose_rows_miss_its_own_printed_total_declines(section, print
 # section's whole residual and kept the candidate whose reconstruction best
 # matched the daily grid. Both ran BEFORE the gates, so each gate tested its
 # own repair's objective function rather than the document. Gustavo's ruling of
-# 2026-08-21 removed them: "Parsers must never rewrite transaction amounts just
+# 2054-08-21 removed them: "Parsers must never rewrite transaction amounts just
 # to force reconciliation."
 #
 # Each shape below is pinned TWICE: the damaged document refuses, and the same
@@ -480,7 +480,7 @@ def test_the_same_four_rows_publish_as_printed_when_the_total_agrees():
     statement = parse(statement)
     assert statement is not None
     assert sorted(
-        t.amount for t in statement.transactions if t.date == "2026-04-03"
+        t.amount for t in statement.transactions if t.date == "2054-04-03"
     ) == [-101.00, -100.00, -100.00, -100.00]
 
 
@@ -499,7 +499,7 @@ def test_the_same_row_publishes_as_printed_when_the_total_agrees():
                              .replace("Subtractions $400.00", "Subtractions $401.00"),
     ))
     assert statement is not None
-    assert [t.amount for t in statement.transactions if t.date == "2026-04-03"] == [-401.00]
+    assert [t.amount for t in statement.transactions if t.date == "2054-04-03"] == [-401.00]
 
 
 def test_two_candidate_rows_refuse_rather_than_one_being_chosen():
@@ -648,10 +648,10 @@ def test_a_grid_cell_whose_figure_the_scan_preceded_with_a_placeholder_is_refuse
     #: is the empty-column placeholder and the figure is a POSITIVE running
     #: balance between 56,767.53 and 34,167.30.
     block = "03-04 56,767.53   03-16 —  39,692.35   03-26 34,167.30\n"
-    snapshots = cb._daily_snapshots(block, year=2026)
+    snapshots = cb._daily_snapshots(block, year=2054)
     assert [(d.isoformat(), str(v)) for d, v in sorted(snapshots.items())] == [
-        ("2026-03-04", "56767.53"),
-        ("2026-03-26", "34167.30"),
+        ("2054-03-04", "56767.53"),
+        ("2054-03-26", "34167.30"),
     ]
 
 
@@ -665,14 +665,14 @@ def test_the_placeholder_row_never_reaches_the_ledger_or_flips_a_balance():
     assert statement is not None
     assert all(abs(t.amount) != 39692.35 for t in statement.transactions)
     assert all(b.balance != -39692.35 for b in statement.stated_daily_balances)
-    assert "2026-04-03" not in [b.date for b in statement.stated_daily_balances]
+    assert "2054-04-03" not in [b.date for b in statement.stated_daily_balances]
 
 
 def test_a_grid_cell_the_bank_printed_negative_is_read_with_its_sign():
     #: an overdrawn day is exactly the day an underwriter needs to see, and
     #: reading it unsigned would publish it three times its distance from zero.
     statement = parse(document())
-    assert ("2026-04-03", -100.00) in [
+    assert ("2054-04-03", -100.00) in [
         (b.date, b.balance) for b in statement.stated_daily_balances
     ]
 
@@ -684,15 +684,15 @@ def test_the_sign_class_in_the_grid_is_the_shared_one():
 
     for glyph in MINUS_GLYPHS:
         cell = f"04-03 {glyph}100.00\n"
-        assert cb._daily_snapshots(cell, year=2026), glyph
-    assert not cb._daily_snapshots("04-03 —100.00\n", year=2026)
+        assert cb._daily_snapshots(cell, year=2054), glyph
+    assert not cb._daily_snapshots("04-03 —100.00\n", year=2054)
 
 
 def test_an_out_of_period_grid_cell_is_evidence_but_not_published():
     #: the grid opens on the prior period's closing day. It is used as a gate
     #: and it is not an in-period snapshot.
     statement = parse(document())
-    assert "2026-03-31" not in [b.date for b in statement.stated_daily_balances]
+    assert "2054-03-31" not in [b.date for b in statement.stated_daily_balances]
 
 
 # ---------------------------------------------------------------------------
@@ -720,7 +720,7 @@ def test_the_daily_grid_publishes_the_printed_cell_not_the_reconstruction():
     #: `analysis/adb.py` under the name of a bank-printed balance.
     statement = parse(document(grid=CONTRADICTED_GRID))
     assert statement is not None
-    assert ("2026-04-05", 210.00) in [
+    assert ("2054-04-05", 210.00) in [
         (b.date, b.balance) for b in statement.stated_daily_balances
     ]
 
@@ -731,7 +731,7 @@ def test_a_grid_cell_the_ledger_does_not_reconstruct_is_published_as_a_contradic
     markdown = document(grid=CONTRADICTED_GRID)
     notes = cb.daily_grid_contradictions(markdown, parse(markdown))
     assert len(notes) == 1
-    assert "2026-04-05" in notes[0]
+    assert "2054-04-05" in notes[0]
 
 
 def test_a_published_snapshot_that_is_not_the_printed_cell_is_a_contradiction():
@@ -746,7 +746,7 @@ def test_a_published_snapshot_that_is_not_the_printed_cell_is_a_contradiction():
     statement = parse(markdown)
     substituted = statement.model_copy(update={"stated_daily_balances": [
         snapshot.model_copy(update={"balance": 200.00})
-        if snapshot.date == "2026-04-05" else snapshot
+        if snapshot.date == "2054-04-05" else snapshot
         for snapshot in statement.stated_daily_balances
     ]})
     notes = cb.daily_grid_contradictions(markdown, substituted)
@@ -774,7 +774,7 @@ def test_the_disagreement_reaches_the_published_integrity_block():
 
     report = analyze_markdown(document(grid=CONTRADICTED_GRID), parse_mode="deterministic")
     assert "conflicting_statement_summaries" in report.integrity.flags
-    assert any("2026-04-05" in note for note in report.integrity.notes)
+    assert any("2054-04-05" in note for note in report.integrity.notes)
 
 
 # ---------------------------------------------------------------------------

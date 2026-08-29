@@ -30,8 +30,8 @@ from analysis.eq_bank_scanned import (
     parse_eq_bank_scanned_statement,
 )
 
-TITLE = "September 2026 Statement"
-HEADER = "Jordan Halloway Account # 840-227-593 September 1, 2026 to September 30, 2026"
+TITLE = "September 2054 Statement"
+HEADER = "Jordan Halloway Account # 840-227-593 September 1, 2054 to September 30, 2054"
 ADDRESS = "Jordan Halloway\n14 Sample Lane\nPlaceholder, ON X0X 0X0\n"
 SUMMARY = (
     "Your activity summary\n"
@@ -43,7 +43,7 @@ SUMMARY = (
 )
 COLUMN_HEAD = "Date Description Withdrawals Deposits Balance"
 FOOTER = "Sample Tower. 1 Sample Street. Toronto, ON X0X 0X0 Page {n} of {total}"
-COPYRIGHT = "(c) 2026 Sample Bank. All rights reserved"
+COPYRIGHT = "(c) 2054 Sample Bank. All rights reserved"
 
 #: `1,037.41 + 713.26 - 268.13 == 1,482.54`, and the walk reproduces it.
 #: The last row is the following cycle's interest credit, dated the day after
@@ -115,15 +115,15 @@ def test_the_whole_statement_publishes_what_the_bank_printed():
     assert stmt.bank == "EQ Bank"
     assert stmt.account_name == "Jordan Halloway"
     assert stmt.account_number == "840-227-593"
-    assert (stmt.period_start, stmt.period_end) == ("2026-09-01", "2026-09-30")
+    assert (stmt.period_start, stmt.period_end) == ("2054-09-01", "2054-09-30")
     assert (stmt.beginning_balance, stmt.ending_balance) == (1037.41, 1482.54)
     assert (stmt.stated_total_credits, stmt.stated_total_debits) == (713.26, 268.13)
     assert stmt.stated_interest_paid == 1.07
     assert [(t.date, t.amount, t.direction, t.running_balance) for t in stmt.transactions] == [
-        ("2026-09-02", 531.62, "credit", 1569.03),
-        ("2026-09-03", -268.13, "debit", 1300.90),
-        ("2026-09-05", 180.57, "credit", 1481.47),
-        ("2026-10-01", 1.07, "credit", 1482.54),
+        ("2054-09-02", 531.62, "credit", 1569.03),
+        ("2054-09-03", -268.13, "debit", 1300.90),
+        ("2054-09-05", 180.57, "credit", 1481.47),
+        ("2054-10-01", 1.07, "credit", 1482.54),
     ]
 
 
@@ -151,9 +151,9 @@ def test_the_day_after_the_period_is_not_a_daily_snapshot_of_the_period():
     snapshot, and a balance dated after the period is not a balance of it."""
     stmt = parsed()
     assert [(s.date, s.balance) for s in stmt.stated_daily_balances] == [
-        ("2026-09-02", 1569.03),
-        ("2026-09-03", 1300.90),
-        ("2026-09-05", 1481.47),
+        ("2054-09-02", 1569.03),
+        ("2054-09-03", 1300.90),
+        ("2054-09-05", 1481.47),
     ]
 
 
@@ -166,8 +166,8 @@ def test_a_days_snapshot_is_the_balance_on_its_last_printed_row():
     )
     stmt = parsed(rows)
     assert [(s.date, s.balance) for s in stmt.stated_daily_balances] == [
-        ("2026-09-02", 1300.90),
-        ("2026-09-05", 1481.47),
+        ("2054-09-02", 1300.90),
+        ("2054-09-05", 1481.47),
     ]
 
 
@@ -318,12 +318,12 @@ def test_two_pages_that_agree_are_one_statement():
 def test_a_title_that_contradicts_the_printed_period_refuses():
     """A mis-scanned period date is exactly how a statement acquires a month
     it does not belong to; the title is the second printing that catches it."""
-    assert parsed(title="August 2026 Statement") is None
+    assert parsed(title="August 2054 Statement") is None
 
 
 def test_a_period_that_ends_before_it_starts_refuses():
     assert parsed(
-        header="Jordan Halloway Account # 840-227-593 September 30, 2026 to September 1, 2026"
+        header="Jordan Halloway Account # 840-227-593 September 30, 2054 to September 1, 2054"
     ) is None
 
 
@@ -363,7 +363,7 @@ def test_rows_are_read_from_every_page_and_only_from_its_own_region():
 
 # --- the posting date -------------------------------------------------------
 
-SEPTEMBER = dict(period_start=date(2026, 9, 1), period_end=date(2026, 9, 30))
+SEPTEMBER = dict(period_start=date(2054, 9, 1), period_end=date(2054, 9, 30))
 
 
 def resolve(rows: str):
@@ -373,11 +373,11 @@ def resolve(rows: str):
 
 
 def test_the_year_comes_from_the_printed_period_and_nowhere_else():
-    assert resolve("Sep 2 Inbound transfer $531.62 $1,569.03\n") == [date(2026, 9, 2)]
+    assert resolve("Sep 2 Inbound transfer $531.62 $1,569.03\n") == [date(2054, 9, 2)]
 
 
 def test_the_following_cycles_opening_credit_is_dated_the_day_the_bank_dated_it():
-    assert resolve("Oct 1 Interest received $1.07 $1,482.54\n") == [date(2026, 10, 1)]
+    assert resolve("Oct 1 Interest received $1.07 $1,482.54\n") == [date(2054, 10, 1)]
 
 
 def test_a_row_dated_two_days_past_the_period_refuses():
@@ -404,7 +404,7 @@ def test_an_illegible_day_between_two_rows_of_the_same_day_is_derived_not_guesse
         "Sep 9 Inbound transfer $531.62 $1,569.03\n"
         "Sep g Card Load - $268.13 $1,300.90\n"
         "Sep 9 Inbound transfer $180.57 $1,481.47\n"
-    ) == [date(2026, 9, 9)] * 3
+    ) == [date(2054, 9, 9)] * 3
 
 
 def test_an_illegible_day_between_two_different_days_refuses():
@@ -421,7 +421,7 @@ def test_an_illegible_first_row_is_bounded_below_by_the_period_start():
     assert resolve(
         "Sep & Card Load - $268.13 $1,300.90\n"
         "Sep 1 Inbound transfer $180.57 $1,481.47\n"
-    ) == [date(2026, 9, 1), date(2026, 9, 1)]
+    ) == [date(2054, 9, 1), date(2054, 9, 1)]
 
 
 def test_an_illegible_last_row_has_no_upper_bound_and_refuses():
@@ -447,7 +447,7 @@ def test_an_illegible_day_whose_derivation_lands_in_another_month_refuses():
 
 
 def test_the_digit_that_survived_a_stray_glyph_is_read():
-    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
+    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2054, 9, 8)]
 
 
 # --- SCAN-DAY-GLYPH: the stray glyph is enumerated, not deleted (W3 §SCANHYG)
@@ -460,8 +460,8 @@ def test_a_glyph_beside_a_digit_is_ink_because_no_other_reading_is_a_day():
     day, so the document itself settles it. No glyph table is consulted, which
     matters because the same glyph stands alone in the day column on other
     documents of the same family, where it can only be a digit."""
-    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
-    assert resolve("Sep 1&1 Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 11)]
+    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2054, 9, 8)]
+    assert resolve("Sep 1&1 Card Load - $268.13 $1,300.90\n") == [date(2054, 9, 11)]
 
 
 def test_a_glyph_BEFORE_a_digit_is_not_resolved_by_deleting_it():
@@ -483,7 +483,7 @@ def test_a_glyph_before_a_digit_READS_where_the_printed_order_leaves_one_day():
         "Sep 2 Inbound transfer $531.62 $1,569.03\n"
         "Sep &8 Card Load - $268.13 $1,300.90\n"
         "Sep 9 Inbound transfer $180.57 $1,481.47\n"
-    ) == [date(2026, 9, 2), date(2026, 9, 8), date(2026, 9, 9)]
+    ) == [date(2054, 9, 2), date(2054, 9, 8), date(2054, 9, 9)]
 
 
 # --- the gate is not uniformly stricter, and BOTH directions are pinned -----
@@ -507,7 +507,7 @@ def test_a_glyph_before_a_digit_READS_even_where_deleting_it_breaks_the_order():
         "Sep 10 Inbound transfer $531.62 $1,569.03\n"
         "Sep &8 Card Load - $268.13 $1,300.90\n"
         "Sep 20 Inbound transfer $180.57 $1,481.47\n"
-    ) == [date(2026, 9, 10), date(2026, 9, 18), date(2026, 9, 20)]
+    ) == [date(2054, 9, 10), date(2054, 9, 18), date(2054, 9, 20)]
 
 
 def test_a_cell_with_no_legible_glyph_is_answered_by_the_printed_order_alone():
@@ -524,7 +524,7 @@ def test_a_cell_with_no_legible_glyph_is_answered_by_the_printed_order_alone():
         "Sep 12 Inbound transfer $531.62 $1,569.03\n"
         "Sep & Card Load - $268.13 $1,300.90\n"
         "Sep 12 Inbound transfer $180.57 $1,481.47\n"
-    ) == [date(2026, 9, 12)] * 3
+    ) == [date(2054, 9, 12)] * 3
     assert resolve(
         "Sep 9 Inbound transfer $531.62 $1,569.03\n"
         "Sep & Card Load - $268.13 $1,300.90\n"
@@ -539,7 +539,7 @@ def test_a_glyph_beside_a_legible_digit_is_never_re_dated_by_its_neighbours():
     which makes `8&` the 8th and nothing else. Between two 18ths it therefore
     stays the 8th, breaks the printed order and refuses the document — it is
     NOT quietly re-read as the 18th its neighbours agree on."""
-    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
+    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2054, 9, 8)]
     assert resolve(
         "Sep 18 Inbound transfer $531.62 $1,569.03\n"
         "Sep 8& Card Load - $268.13 $1,300.90\n"
@@ -591,7 +591,7 @@ def test_the_whole_statement_is_still_read_when_a_day_glyph_is_recoverable():
     stmt = parsed(rows)
     assert stmt is not None
     assert [t.date for t in stmt.transactions] == [
-        "2026-09-02", "2026-09-03", "2026-09-03", "2026-09-03", "2026-10-01"
+        "2054-09-02", "2054-09-03", "2054-09-03", "2054-09-03", "2054-10-01"
     ]
 
 
@@ -624,7 +624,7 @@ def test_a_superscript_day_the_printed_order_determines_is_read_not_raised():
     stmt = parsed(rows)
     assert stmt is not None
     assert [t.date for t in stmt.transactions] == [
-        "2026-09-02", "2026-09-03", "2026-09-03", "2026-09-03", "2026-10-01"
+        "2054-09-02", "2054-09-03", "2054-09-03", "2054-09-03", "2054-10-01"
     ]
 
 
@@ -649,7 +649,7 @@ def test_a_period_that_ends_one_day_before_it_starts_refuses():
     ).replace("Closing balance = $1,482.54", "Closing balance = $1,300.90")
     assert parsed(
         rows,
-        header="Jordan Halloway Account # 840-227-593 September 2, 2026 to September 1, 2026",
+        header="Jordan Halloway Account # 840-227-593 September 2, 2054 to September 1, 2054",
         summary=summary,
     ) is None
 
@@ -830,5 +830,5 @@ def test_a_wrong_day_that_lands_BETWEEN_its_neighbours_is_published_silently():
     stmt = parse_eq_bank_scanned_statement(document(rows, summary=ADDRESS + summary))
     assert stmt is not None
     assert [t.date for t in stmt.transactions] == [
-        "2026-09-15", "2026-09-16", "2026-09-20", "2026-10-01"
+        "2054-09-15", "2054-09-16", "2054-09-20", "2054-10-01"
     ]

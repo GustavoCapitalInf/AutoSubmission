@@ -19,7 +19,7 @@ from analysis.woodforest import (
 
 HEADER = (
     "00131374040126102556\n"
-    "Statement Period: March 01  - March 31, 2026 Page 1 of 6\n"
+    "Statement Period: March 01  - March 31, 2054 Page 1 of 6\n"
     "Account Information & Customer Service 1-(877) 968-7962\n"
     "P.O. Box 7889 The Woodlands, TX 77387\n"
     "Visit Us Online at www.woodforest.com\n"
@@ -51,7 +51,7 @@ def test_detection_needs_more_than_the_bank_word():
     """Another issuer's statement can name Woodforest in a payee line. Several
     in the archive do; neither printed column header appears on any of them."""
     other = (
-        "CHASE\nStatement Period: March 01  - March 31, 2026 Page 1 of 6\n"
+        "CHASE\nStatement Period: March 01  - March 31, 2054 Page 1 of 6\n"
         "03-02 200.00 800.00 ACH DEBIT WOODFOREST NATIONAL BANK TRANSFER\n"
     )
     assert not detect(other).claims
@@ -179,11 +179,11 @@ def test_a_posting_may_fall_a_day_outside_the_printed_period():
             "Business Simple Checking 1205009515 0.00 0.00 1,000.00 1,000.00",
             "01-23 1,000.00 1,000.00 OPENING DEPOSIT",
         ).replace(
-            "Statement Period: March 01  - March 31, 2026",
-            "Statement Period: January 24  - January 31, 2026",
+            "Statement Period: March 01  - March 31, 2054",
+            "Statement Period: January 24  - January 31, 2054",
         )
     )
-    assert stmt.transactions[0].date == "2026-01-23"
+    assert stmt.transactions[0].date == "2054-01-23"
 
 
 def test_a_period_that_crosses_the_year_boundary_dates_both_months():
@@ -192,11 +192,11 @@ def test_a_period_that_crosses_the_year_boundary_dates_both_months():
             "Business Simple Checking 1205009515 1,000.00 300.00 0.00 700.00",
             "12-28 100.00 900.00 POS DB ONE 01-03 200.00 700.00 POS DB TWO",
         ).replace(
-            "Statement Period: March 01  - March 31, 2026",
-            "Statement Period: December 25  - January 24, 2026",
+            "Statement Period: March 01  - March 31, 2054",
+            "Statement Period: December 25  - January 24, 2054",
         )
     )
-    assert [t.date for t in stmt.transactions] == ["2025-12-28", "2026-01-03"]
+    assert [t.date for t in stmt.transactions] == ["2053-12-28", "2054-01-03"]
 
 
 # ------------------------------------------------------------- failing closed
@@ -226,7 +226,7 @@ def test_a_second_account_split_by_a_page_break_still_fails_closed():
         HEADER
         + "Business Simple Checking 1205009515 1,000.00 300.00 500.00 1,200.00\n"
         + "--- Page 2 ---\n"
-        + "Statement Period: March 01  - March 31, 2026 Page 2 of 6\n"
+        + "Statement Period: March 01  - March 31, 2054 Page 2 of 6\n"
         + "Business Simple Checking 1205009999 2,000.00 100.00 100.00 2,000.00\n"
         + "Business Simple Checking 1205009515\n"
         + GRID
@@ -585,7 +585,7 @@ def test_the_memoised_page_text_cannot_be_mutated_by_one_caller_for_another():
 # exception — it proves the interpretation from the document's own print and
 # publishes nothing. See §WFINIT in `W3_TRACKA_LOG.md`.
 
-OPENING_PERIOD = "Statement Period: January 24  - January 31, 2026"
+OPENING_PERIOD = "Statement Period: January 24  - January 31, 2054"
 
 
 def opening_document(
@@ -605,7 +605,7 @@ def opening_document(
     )
     return (
         document(summary_row, rows).replace(
-            "Statement Period: March 01  - March 31, 2026", period
+            "Statement Period: March 01  - March 31, 2054", period
         )
         + "Account Summary\n"
         + printed_average
@@ -660,7 +660,7 @@ OPENING = opening_document(OPENING_SUMMARY, OPENING_ROWS)
 def test_the_opening_deposit_is_proven_by_the_documents_own_print():
     stmt = parse_woodforest_statement(OPENING)
     proven = initialization_postings(OPENING, stmt)
-    assert [(t.date, t.amount) for t in proven] == [("2026-01-23", 1000.00)]
+    assert [(t.date, t.amount) for t in proven] == [("2054-01-23", 1000.00)]
 
 
 def test_the_row_prints_no_description_and_is_proven_anyway():
@@ -681,12 +681,12 @@ def test_proving_the_event_changes_only_the_opening_state():
     A change that widened the period or moved the row to a boundary day would
     turn this red even though the ADB would still 'work'."""
     stmt = parse_woodforest_statement(OPENING)
-    assert stmt.period_start == "2026-01-24"
-    assert stmt.period_end == "2026-01-31"
+    assert stmt.period_start == "2054-01-24"
+    assert stmt.period_end == "2054-01-31"
     assert stmt.beginning_balance == 0.00
     assert stmt.initialization_transaction_count == 1
     # Published, with its real date. Not hidden, not moved.
-    assert stmt.transactions[0].date == "2026-01-23"
+    assert stmt.transactions[0].date == "2054-01-23"
 
     result = compute_average_daily_balance(stmt)
     assert result.ok is True
@@ -695,8 +695,8 @@ def test_proving_the_event_changes_only_the_opening_state():
     assert result.out_of_period_transaction_count == 0
     # The divisor is the PRINTED period, unchanged by the fold.
     assert result.calendar_day_count == 8
-    assert result.period_start == "2026-01-24"
-    assert [entry.date for entry in result.daily_balances][0] == "2026-01-24"
+    assert result.period_start == "2054-01-24"
+    assert [entry.date for entry in result.daily_balances][0] == "2054-01-24"
     # The opening carries the event; the printed figure did not move.
     assert result.opening_balance_source == "initialization_event"
     assert result.opening_balance == 1000.00
@@ -810,7 +810,7 @@ def test_a_debit_dated_the_day_before_is_not_an_account_opening():
     )
     stmt = parse_woodforest_statement(text)
     row = stmt.transactions[0]
-    assert (row.date, row.amount, row.direction) == ("2026-01-23", -50.00, "debit")
+    assert (row.date, row.amount, row.direction) == ("2054-01-23", -50.00, "debit")
     assert initialization_postings(text, stmt) == []
 
 
@@ -931,7 +931,7 @@ def test_a_row_after_the_period_is_never_an_opening():
         daily="01-23 1,000.00 01-24 985.00 01-31 800.00",
     )
     stmt = parse_woodforest_statement(text)
-    assert stmt.transactions[-1].date == "2026-02-03"
+    assert stmt.transactions[-1].date == "2054-02-03"
     assert initialization_postings(text, stmt) == []
 
 
@@ -975,7 +975,7 @@ def test_a_pre_period_row_that_moves_nothing_is_not_an_opening():
         daily="01-23 0.00 01-24 -15.00 01-31 -200.00",
     )
     stmt = parse_woodforest_statement(text)
-    assert stmt.transactions[0].date == "2026-01-23"
+    assert stmt.transactions[0].date == "2054-01-23"
     assert initialization_postings(text, stmt) == []
 
 

@@ -59,24 +59,24 @@ HOSTILE_FILENAMES = {
     "txn_row_shaped": "01/15 ACH DEPOSIT COMPANY XYZ 5,000.00.pdf",
     "pipe_field_inject": "x | pages: 999 | model: evil | empty: 0 | y.pdf",
     # period grammars, anchored on the fixtures' own printed period
-    "anchor_through_long": "January 1, 2020 through January 31, 2020.pdf",
-    "anchor_for_to": "for January 1, 2020 to January 31, 2020.pdf",
-    "anchor_to_long": "January 1, 2020 to January 31, 2020.pdf",
-    "anchor_for_the_period": "For the Period 01/01/2020 to 01/31/2020.pdf",
-    "anchor_period_ending": "For the period ending January 31, 2020.pdf",
-    "anchor_square_title": "Checking statement January 1 - January 31, 2020.pdf",
-    "anchor_td_tokens": "JAN 1/20 - JAN 31/20.pdf",
+    "anchor_through_long": "January 1, 2048 through January 31, 2048.pdf",
+    "anchor_for_to": "for January 1, 2048 to January 31, 2048.pdf",
+    "anchor_to_long": "January 1, 2048 to January 31, 2048.pdf",
+    "anchor_for_the_period": "For the Period 01/01/2048 to 01/31/2048.pdf",
+    "anchor_period_ending": "For the period ending January 31, 2048.pdf",
+    "anchor_square_title": "Checking statement January 1 - January 31, 2048.pdf",
+    "anchor_td_tokens": "JAN 1/48 - JAN 31/48.pdf",
     "anchor_wells_labels": "Beginning balance on 1/1 Ending balance on 1/31.pdf",
     # abbreviated months — the `date_tokens` crash vector
-    "abbrev_through": "Jan 1, 2020 through Dec 31, 2020.pdf",
-    "abbrev_mixed": "Jan 1, 2020 through December 31, 2020.pdf",
+    "abbrev_through": "Jan 1, 2048 through Dec 31, 2048.pdf",
+    "abbrev_mixed": "Jan 1, 2048 through December 31, 2048.pdf",
     # bare years — the `wells._infer_year` vector
     "bare_year": "2020.pdf",
     "bare_year_padded": "scan 2020 copy.pdf",
     # the silent period-widening attack
-    "wide_through_long": "January 1, 2026 through December 31, 2026.pdf",
-    "wide_for_period": "For the Period 01/01/2026 to 12/31/2026.pdf",
-    "wide_period_ending": "For the period ending December 31, 2026.pdf",
+    "wide_through_long": "January 1, 2054 through December 31, 2054.pdf",
+    "wide_for_period": "For the Period 01/01/2054 to 12/31/2054.pdf",
+    "wide_period_ending": "For the period ending December 31, 2054.pdf",
     # page labels — the `assess_document_integrity` page-declaration vector
     "page_label_single": "Page 1 of 9.pdf",
     "page_label_full_set": "Page 1 of 4 Page 2 of 4 Page 3 of 4 Page 4 of 4.pdf",
@@ -85,12 +85,12 @@ HOSTILE_FILENAMES = {
     "regions_repair_gate": "REGIONS BANK statement.pdf",
     # everything at once
     "kitchen_sink": (
-        "January 1, 2020 through January 31, 2020 "
-        "for January 1, 2020 to January 31, 2020 "
-        "For the Period 01/01/2020 to 01/31/2020 "
-        "For the period ending January 31, 2020 "
-        "Checking statement January 1 - January 31, 2020 "
-        "JAN 1/20 - JAN 31/20.pdf"
+        "January 1, 2048 through January 31, 2048 "
+        "for January 1, 2048 to January 31, 2048 "
+        "For the Period 01/01/2048 to 01/31/2048 "
+        "For the period ending January 31, 2048 "
+        "Checking statement January 1 - January 31, 2048 "
+        "JAN 1/48 - JAN 31/48.pdf"
     ),
 }
 
@@ -104,7 +104,7 @@ SENTINEL = "ZZQXPROVENANCEZZ"
 
 CHASE = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -131,20 +131,20 @@ CHASE = (
 SQUARE_CHECKING = (
     "Square Checking Routing number: 000000000\n"
     "Account number: 4321\n"
-    "Checking statement June 1 - June 30, 2026\n"
+    "Checking statement June 1 - June 30, 2054\n"
     "Example Trading Co\n"
     "Starting balance Activities Ending balance $100.00 3 $150.00\n"
     "Block Inc. 1955 Broadway, Suite 600 Oakland, CA 94612\n"
     "squareup.com/help\n"
     "Date Details Activity type Balance Amount\n"
-    "6/1/2026 Example Merchant Card spend $80.00 -$20.00\n"
-    "6/2/2026 4 Activities Sales $180.00 $100.00\n"
-    "6/3/2026 Example Bank Transfer out $150.00 -$30.00\n"
+    "6/1/2054 Example Merchant Card spend $80.00 -$20.00\n"
+    "6/2/2054 4 Activities Sales $180.00 $100.00\n"
+    "6/3/2054 Example Bank Transfer out $150.00 -$30.00\n"
 )
 
 WELLS_FARGO = (
     "Wells Fargo Everyday Checking\n"
-    "March 31, 2026         Page 1 of 4\n"
+    "March 31, 2054         Page 1 of 4\n"
     "Account number:   1234567890  (primary account)\n"
     "Transaction history\n"
     "WF_NATIVE_TRANSACTIONS\n"
@@ -162,10 +162,10 @@ BMO_CA_BUSINESS = (
     "Direct Banking 1-000-000-0000 www.bmo.com\n"
     "Your Plan Enhanced Plan\n"
     "Business Banking statement\n"
-    "For the period ending April 30, 2026\n"
+    "For the period ending April 30, 2054\n"
     "Summary of account\n"
     "Total Total Closing Opening amounts amounts balance ($) on - + = Account "
-    "balance ($) debited ($) credited ($) April 30, 2026\n"
+    "balance ($) debited ($) credited ($) April 30, 2054\n"
     "Business Account # 1234 1000-001 1,000.00 300.00 500.00 1,200.00\n"
     "Transaction details\n"
     "Amounts debited Amounts credited Date Description from your account ($) "
@@ -395,10 +395,10 @@ def test_admissible_text_is_idempotent():
 @pytest.mark.parametrize(
     "phrase",
     [
-        "Jan 5, 2026 through February 4, 2026",       # abbreviated start
-        "January 5, 2026 through Feb 4, 2026",        # abbreviated end
-        "Jan 5, 2026 through Feb 4, 2026",            # both abbreviated
-        "Balance 5, 2026 through February 4, 2026",   # a capitalized non-month
+        "Jan 5, 2054 through February 4, 2054",       # abbreviated start
+        "January 5, 2054 through Feb 4, 2054",        # abbreviated end
+        "Jan 5, 2054 through Feb 4, 2054",            # both abbreviated
+        "Balance 5, 2026 through February 4, 2054",   # a capitalized non-month
         "Statement 1, 2026 through Period 2, 2026",   # neither side is a month
     ],
 )
@@ -415,9 +415,9 @@ def test_a_long_date_phrase_that_is_not_months_is_a_non_match(phrase):
 @pytest.mark.parametrize(
     "phrase,expected",
     [
-        ("January 5, 2026 through February 4, 2026", ("2026-01-05", "2026-02-04")),
-        ("December 1, 2025 through December 31, 2025", ("2025-12-01", "2025-12-31")),
-        ("May 1, 2026 through June 30, 2026", ("2026-05-01", "2026-06-30")),
+        ("January 5, 2054 through February 4, 2054", ("2054-01-05", "2054-02-04")),
+        ("December 1, 2053 through December 31, 2053", ("2053-12-01", "2053-12-31")),
+        ("May 1, 2054 through June 30, 2054", ("2054-05-01", "2054-06-30")),
     ],
 )
 def test_genuine_long_dates_are_unchanged(phrase, expected):

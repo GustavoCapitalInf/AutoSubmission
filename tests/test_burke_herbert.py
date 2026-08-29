@@ -11,15 +11,15 @@ from __future__ import annotations
 from analysis.burke_herbert import detect, parse_burke_herbert_statement
 
 HEADER = (
-    "Page 1 of 2 Date  4/30/26 PO Box 179, Moorefield, WV 26836\n"
+    "Page 1 of 2 Date  4/30/54 PO Box 179, Moorefield, WV 26836\n"
     "ACCOUNT NUMBER         XXXXXX6768\n"
     "ACME CONTRACTING WV LLC 1 MAIN RD HUNTINGTON WV  25701\n"
     "C H E C K I N G  A C C O U N T\n"
 )
 SUMMARY = (
     "Business Advantage Checking                NUMBER OF ENCLOSURES         4 "
-    "ACCOUNT NUMBER                XXXXXX6768   Statement Dates   4/01/26 thru  "
-    "4/30/26 PREVIOUS BALANCE                  100.00- "
+    "ACCOUNT NUMBER                XXXXXX6768   Statement Dates   4/01/54 thru  "
+    "4/30/54 PREVIOUS BALANCE                  100.00- "
     "DAYS THIS STATEMENT PERIOD           30 "
     "2 DEPOSITS/CREDITS          1,500.00   AVERAGE LEDGER BALANCE           500.00 "
     "4 CHECKS/DEBITS               400.00   AVERAGE COLLECTED BAL            500.00 "
@@ -31,10 +31,10 @@ ACTIVITY = (
     "DATE DESCRIPTION         CHECK#                       AMOUNT             BALANCE "
     "4/02 RETURNED ITEM FEE                                 50.00- 150.00- "
     "4/05 DEPOSIT                                        1,000.00              850.00 "
-    "4/10 ATM W/D 1339 04/09/26 00000264                  300.00- 550.00 "
+    "4/10 ATM W/D 1339 04/09/54 00000264                  300.00- 550.00 "
     "PAI ATM 4231 HUGHES BRANCH RD, HUNTINGTON   WV C# 0517 "
     "4/20 DEPOSIT                                          500.00            1,050.00 "
-    "4/25 INQ SVC 1452 04/24/26 00047885                     .50- 1,049.50 "
+    "4/25 INQ SVC 1452 04/24/54 00047885                     .50- 1,049.50 "
     "4/28 WITHDRAWAL                                        49.50- 1,000.00\n"
 )
 FOOTER = (
@@ -57,8 +57,8 @@ def test_the_statement_is_published_whole():
     assert stmt.bank == "Burke & Herbert Bank"
     assert stmt.account_name == "Business Advantage Checking"
     assert stmt.account_number == "XXXXXX6768"
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert stmt.days_in_period == 30
     assert stmt.beginning_balance == -100.00
     assert stmt.ending_balance == 1000.00
@@ -67,12 +67,12 @@ def test_the_statement_is_published_whole():
 def test_every_row_of_the_flattened_activity_line_is_read():
     stmt = parse_burke_herbert_statement(document())
     assert [(t.date, t.amount, t.running_balance) for t in stmt.transactions] == [
-        ("2026-04-02", -50.00, -150.00),
-        ("2026-04-05", 1000.00, 850.00),
-        ("2026-04-10", -300.00, 550.00),
-        ("2026-04-20", 500.00, 1050.00),
-        ("2026-04-25", -0.50, 1049.50),
-        ("2026-04-28", -49.50, 1000.00),
+        ("2054-04-02", -50.00, -150.00),
+        ("2054-04-05", 1000.00, 850.00),
+        ("2054-04-10", -300.00, 550.00),
+        ("2054-04-20", 500.00, 1050.00),
+        ("2054-04-25", -0.50, 1049.50),
+        ("2054-04-28", -49.50, 1000.00),
     ]
 
 
@@ -108,12 +108,12 @@ def test_a_sub_dollar_amount_printed_without_its_leading_zero_is_read():
 
 
 def test_a_full_date_inside_a_description_does_not_open_a_row():
-    """Card rows print the transaction's own `04/09/26` in the description.
+    """Card rows print the transaction's own `04/09/54` in the description.
     Six rows are printed; a date token that opened a row there would make
     seven, and the chain would break at that point."""
     stmt = parse_burke_herbert_statement(document())
     assert len(stmt.transactions) == 6
-    assert "04/09/26" in stmt.transactions[2].description
+    assert "04/09/54" in stmt.transactions[2].description
 
 
 def test_a_rows_continuation_text_belongs_to_the_row_it_follows():
@@ -178,7 +178,7 @@ def test_a_statement_with_no_activity_region_is_refused():
 
 def test_a_statement_with_no_printed_period_is_refused():
     assert parse_burke_herbert_statement(document(
-        summary=SUMMARY.replace("Statement Dates   4/01/26 thru  4/30/26", "")
+        summary=SUMMARY.replace("Statement Dates   4/01/54 thru  4/30/54", "")
     )) is None
 
 

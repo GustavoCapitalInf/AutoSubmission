@@ -46,7 +46,7 @@ def _statement(summary: str, rows: str, *, extra: str = "") -> str:
         "1 SAMPLE STREET 00000 SOMEWHERE NS A0A0A0 000-0000\n"
         "NORTHWIND SUPPLY LTD. 1 SAMPLE STREET SOMEWHERE NS A0A0A0 "
         "Statement Of: Account Number: From: To: Business Account "
-        "00000 00000 00 Jan 30 2026 Feb 27 2026 Account Summary for this "
+        "00000 00000 00 Jan 30 2054 Feb 27 2054 Account Summary for this "
         "Period:\n"
         f"{summary}\n"
         "Account Details:\n"
@@ -73,10 +73,10 @@ def test_f1_printed_cell_is_the_amount_not_the_balance_movement():
     """A well-formed ledger: printed amount and balance walk agree."""
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00 "
-        "02/03/2026 MISC PAYMENT SAMPLE PAYER 50.00 990.00 "
-        "02/04/2026 SERVICE CHARGE 40.00 950.00",
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00 "
+        "02/03/2054 MISC PAYMENT SAMPLE PAYER 50.00 990.00 "
+        "02/04/2054 SERVICE CHARGE 40.00 950.00",
     ))
     assert stmt is not None
     assert [t.amount for t in stmt.transactions] == [-60.00, 50.00, -40.00]
@@ -96,9 +96,9 @@ def test_f2_printed_cell_survives_when_it_disagrees_with_the_walk():
     """
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 MISC PAYMENT SAMPLE PAYER 50.00 1,070.00 "
-        "02/03/2026 SERVICE CHARGE 30.00 1,040.00",
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 MISC PAYMENT SAMPLE PAYER 50.00 1,070.00 "
+        "02/03/2054 SERVICE CHARGE 30.00 1,040.00",
     ))
     assert stmt is not None
     assert stmt.transactions[0].amount == 50.00
@@ -120,10 +120,10 @@ def test_f3_trailing_zeros_are_stripped_from_the_amount_column():
     """
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 TRANSFER FROM 00000 00000 00 12345678 MB-TRANSFER 25 1,025.00 "
-        "02/03/2026 TRANSFER FROM 00000 00000 00 12345679 MB-TRANSFER 2,500 3,525.00 "
-        "02/04/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 34.9 3,490.10",
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 TRANSFER FROM 00000 00000 00 12345678 MB-TRANSFER 25 1,025.00 "
+        "02/03/2054 TRANSFER FROM 00000 00000 00 12345679 MB-TRANSFER 2,500 3,525.00 "
+        "02/04/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 34.9 3,490.10",
     ))
     assert stmt is not None
     assert [t.amount for t in stmt.transactions] == [25.00, 2500.00, -34.90]
@@ -133,9 +133,9 @@ def test_f3_trailing_zeros_are_stripped_from_the_amount_column():
 def test_f4_overdraft_balance_prints_a_trailing_minus():
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 100.00 "
-        "02/02/2026 BUSINESS PAD SAMPLE CREDITOR 150.00 50.00- "
-        "02/03/2026 OVERDRAWN HANDLING CHGS 5.00 55.00-",
+        "01/30/2054 BALANCE FORWARD 100.00 "
+        "02/02/2054 BUSINESS PAD SAMPLE CREDITOR 150.00 50.00- "
+        "02/03/2054 OVERDRAWN HANDLING CHGS 5.00 55.00-",
     ))
     assert stmt is not None
     assert [t.running_balance for t in stmt.transactions] == [-50.00, -55.00]
@@ -156,10 +156,10 @@ def test_f5_merchant_reference_after_the_balance_is_not_a_balance():
     """
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 780.37 "
-        "02/02/2026 MISC PAYMENT 94.90 685.47 29473680015 "
+        "01/30/2054 BALANCE FORWARD 780.37 "
+        "02/02/2054 MISC PAYMENT 94.90 685.47 29473680015 "
         "MRCH SAMPLE PROCESSOR(K) "
-        "02/03/2026 MISC PAYMENT 337.60 1,023.07 29473680015 "
+        "02/03/2054 MISC PAYMENT 337.60 1,023.07 29473680015 "
         "MRCH SAMPLE PROCESSOR(K)",
     ))
     assert stmt is not None
@@ -173,8 +173,8 @@ def test_f6_account_number_fragments_are_not_amounts():
     """`TRANSFER FROM 00000 00000 00 12345678` is routing, not money."""
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 500.00 "
-        "02/02/2026 TRANSFER FROM 00000 00000 00 12345678 MB-TRANSFER 60.00 560.00",
+        "01/30/2054 BALANCE FORWARD 500.00 "
+        "02/02/2054 TRANSFER FROM 00000 00000 00 12345678 MB-TRANSFER 60.00 560.00",
     ))
     assert stmt is not None
     assert stmt.transactions[0].amount == 60.00
@@ -189,11 +189,11 @@ def test_f6_account_number_fragments_are_not_amounts():
 
 DEPOSIT_INTEREST = (
     "Statement Of: Account Number: From: To: Deposit Interest "
-    "00000 00000 00 Jan 30 2026 Feb 27 2026 Account Information Currency: CAD\n"
+    "00000 00000 00 Jan 30 2054 Feb 27 2054 Account Information Currency: CAD\n"
     "Date Closing Balance ($) Yield/Rate Calculated Interest ($) "
-    "02/03/2026 940.00 0.000 CRITERIA NOT MET "
-    "02/04/2026 940.00 1.488 0.41 "
-    "02/05/2026 990.00 1.488 0.41\n"
+    "02/03/2054 940.00 0.000 CRITERIA NOT MET "
+    "02/04/2054 940.00 1.488 0.41 "
+    "02/05/2054 990.00 1.488 0.41\n"
 )
 
 
@@ -206,25 +206,25 @@ def test_f7_deposit_interest_daily_yield_rows_are_not_postings():
     """
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00 "
-        "02/03/2026 MISC PAYMENT SAMPLE PAYER 50.00 990.00",
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00 "
+        "02/03/2054 MISC PAYMENT SAMPLE PAYER 50.00 990.00",
         extra=DEPOSIT_INTEREST,
     ))
     assert stmt is not None
     assert len(stmt.transactions) == 2
-    assert [t.date for t in stmt.transactions] == ["2026-02-02", "2026-02-03"]
+    assert [t.date for t in stmt.transactions] == ["2054-02-02", "2054-02-03"]
     assert all("CRITERIA" not in t.description for t in stmt.transactions)
 
 
 def test_f8_service_charge_sheet_contributes_no_postings():
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00",
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00",
         extra=(
             "Statement Of: Account Number: From: To: Service Charge "
-            "00000 00000 00 Jan 30 2026 Feb 27 2026\n"
+            "00000 00000 00 Jan 30 2054 Feb 27 2054\n"
             "Item Volume Rate Charge ($) Monthly Fee 25 20.00 "
             "Total Service Charges $20.00\n"
         ),
@@ -248,7 +248,7 @@ def _zero_statement(summary: str, rows: str) -> str:
         "1 SAMPLE STREET 00000 SOMEWHERE NS A0A0A0 000-0000\n"
         "NORTHWIND SUPPLY LTD. 1 SAMPLE STREET SOMEWHERE NS A0A0A0 "
         "Statement Of: Account Number: From: To: Business Account "
-        "00000 00000 00 Jan 30 2026 Feb 27 2026 Account Summary for this "
+        "00000 00000 00 Jan 30 2054 Feb 27 2054 Account Summary for this "
         "Period:\n"
         f"{summary}\n"
         "Account Details:\n"
@@ -261,7 +261,7 @@ def _zero_statement(summary: str, rows: str) -> str:
 def test_f9_printed_zero_activity_period_is_a_statement():
     """Zero instances AND zero totals in both directions, plus an opening."""
     stmt = parse_scotiabank_statement(
-        _zero_statement(ZERO_SUMMARY, "01/30/2026 BALANCE FORWARD 0.00")
+        _zero_statement(ZERO_SUMMARY, "01/30/2054 BALANCE FORWARD 0.00")
     )
     assert stmt is not None
     assert stmt.transactions == []
@@ -273,7 +273,7 @@ def test_f9_printed_zero_activity_period_is_a_statement():
 
 def test_f10_zero_activity_admits_a_non_zero_carried_balance():
     stmt = parse_scotiabank_statement(
-        _zero_statement(ZERO_SUMMARY, "01/30/2026 BALANCE FORWARD 1,234.56")
+        _zero_statement(ZERO_SUMMARY, "01/30/2054 BALANCE FORWARD 1,234.56")
     )
     assert stmt is not None
     assert stmt.beginning_balance == 1234.56
@@ -288,7 +288,7 @@ def test_f11_empty_ledger_refuses_when_the_bank_stated_activity():
     nothing happened.
     """
     assert parse_scotiabank_statement(
-        _zero_statement(SUMMARY_2D_1C, "01/30/2026 BALANCE FORWARD 1,000.00")
+        _zero_statement(SUMMARY_2D_1C, "01/30/2054 BALANCE FORWARD 1,000.00")
     ) is None
 
 
@@ -296,20 +296,20 @@ def test_f12_empty_ledger_refuses_when_counts_are_zero_but_totals_are_not():
     assert parse_scotiabank_statement(_zero_statement(
         "No. of Debits Total Amount - Debits No. of Credits Total Amount "
         "- Credits 0 $100.00 0 $0.00",
-        "01/30/2026 BALANCE FORWARD 1,000.00",
+        "01/30/2054 BALANCE FORWARD 1,000.00",
     )) is None
 
 
 def test_f13_empty_ledger_refuses_without_a_printed_summary():
     assert parse_scotiabank_statement(_zero_statement(
         "Account activity for this period",
-        "01/30/2026 BALANCE FORWARD 1,000.00",
+        "01/30/2054 BALANCE FORWARD 1,000.00",
     )) is None
 
 
 def test_f14_empty_ledger_refuses_without_an_opening_balance():
     assert parse_scotiabank_statement(
-        _zero_statement(ZERO_SUMMARY, "01/30/2026 OPENING ENTRY")
+        _zero_statement(ZERO_SUMMARY, "01/30/2054 OPENING ENTRY")
     ) is None
 
 
@@ -328,9 +328,9 @@ def test_f18_zero_activity_refuses_when_posting_rows_were_printed():
     """
     assert parse_scotiabank_statement(_zero_statement(
         ZERO_SUMMARY,
-        "01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 MISC PAYMENT 29473680015 MRCH SAMPLE PROCESSOR(K) "
-        "02/03/2026 DEBIT MEMO 96981659 INTERAC E-TRANSFER",
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 MISC PAYMENT 29473680015 MRCH SAMPLE PROCESSOR(K) "
+        "02/03/2054 DEBIT MEMO 96981659 INTERAC E-TRANSFER",
     )) is None
 
 
@@ -347,28 +347,28 @@ def test_f19_an_unclosed_table_does_not_absorb_the_next_sheet():
     document footer and the daily-yield rows become postings.
 
     The sheet is written here in its LABELLED form. The bare numeric form
-    (`02/03/2026 940.00 1.488 0.41`) is refused a second time over by the
+    (`02/03/2054 940.00 1.488 0.41`) is refused a second time over by the
     cell-shape rules, which leave it no description — so it is the labelled
     form that this bound is load-bearing for.
     """
     stmt = parse_scotiabank_statement(
         "1 SAMPLE STREET 00000 SOMEWHERE NS A0A0A0 000-0000\n"
         "NORTHWIND SUPPLY LTD. Statement Of: Account Number: From: To: "
-        "Business Account 00000 00000 00 Jan 30 2026 Feb 27 2026 "
+        "Business Account 00000 00000 00 Jan 30 2054 Feb 27 2054 "
         "Account Summary for this Period:\n"
         f"{SUMMARY_2D_1C}\n"
         "Account Details:\n"
         "Date Description Withdrawals/Debits ($) Deposits/Credits ($) "
-        "Balance ($) 01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00\n"
+        "Balance ($) 01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00\n"
         "Date Closing Balance ($) Yield/Rate Calculated Interest ($) "
-        "02/03/2026 INTEREST TIER A 940.00 0.41 "
-        "02/04/2026 INTEREST TIER A 940.00 0.41\n"
+        "02/03/2054 INTEREST TIER A 940.00 0.41 "
+        "02/04/2054 INTEREST TIER A 940.00 0.41\n"
         f"{FOOTER}"
     )
     assert stmt is not None
     assert len(stmt.transactions) == 1
-    assert stmt.transactions[0].date == "2026-02-02"
+    assert stmt.transactions[0].date == "2054-02-02"
 
 
 def test_f20_an_unclosed_table_does_not_overlap_the_next_one():
@@ -381,25 +381,25 @@ def test_f20_an_unclosed_table_does_not_overlap_the_next_one():
     stmt = parse_scotiabank_statement(
         "1 SAMPLE STREET 00000 SOMEWHERE NS A0A0A0 000-0000\n"
         "NORTHWIND SUPPLY LTD. Statement Of: Account Number: From: To: "
-        "Business Account 00000 00000 00 Jan 30 2026 Feb 27 2026 "
+        "Business Account 00000 00000 00 Jan 30 2054 Feb 27 2054 "
         "Account Summary for this Period:\n"
         f"{SUMMARY_2D_1C}\n"
         "Account Details:\n"
         "Date Description Withdrawals/Debits ($) Deposits/Credits ($) "
-        "Balance ($) 01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/01/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00\n"
+        "Balance ($) 01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/01/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00\n"
         "Date Description Withdrawals/Debits ($) Deposits/Credits ($) "
-        "Balance ($) 03/02/2026 MISC PAYMENT SAMPLE PAYER 50.00 990.00\n"
+        "Balance ($) 03/02/2054 MISC PAYMENT SAMPLE PAYER 50.00 990.00\n"
         f"{FOOTER}"
     )
     assert stmt is not None
-    assert [t.date for t in stmt.transactions] == ["2026-02-01", "2026-03-02"]
+    assert [t.date for t in stmt.transactions] == ["2054-02-01", "2054-03-02"]
     assert len(stmt.transactions) == 2
 
 
 def test_f15_declines_a_document_that_is_not_scotiabank():
     assert parse_scotiabank_statement(
-        "SOME OTHER BANK Account Details 01/30/2026 BALANCE FORWARD 10.00"
+        "SOME OTHER BANK Account Details 01/30/2054 BALANCE FORWARD 10.00"
     ) is None
 
 
@@ -412,10 +412,10 @@ def test_f16_stated_counts_come_from_the_account_level_grid():
     """
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00 "
-        "02/03/2026 MISC PAYMENT SAMPLE PAYER 50.00 990.00 "
-        "02/04/2026 SERVICE CHARGE 40.00 950.00",
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00 "
+        "02/03/2054 MISC PAYMENT SAMPLE PAYER 50.00 990.00 "
+        "02/04/2054 SERVICE CHARGE 40.00 950.00",
     ))
     assert stmt is not None
     assert stmt.stated_debit_count == 2
@@ -437,9 +437,9 @@ def test_f17_a_row_whose_amount_cell_is_missing_is_not_invented():
     """
     stmt = parse_scotiabank_statement(_statement(
         SUMMARY_2D_1C,
-        "01/30/2026 BALANCE FORWARD 1,000.00 "
-        "02/02/2026 DEBIT MEMO 940.00 12345678 INTERAC E-TRANSFER "
-        "02/03/2026 MISC PAYMENT SAMPLE PAYER 50.00 990.00",
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 DEBIT MEMO 940.00 12345678 INTERAC E-TRANSFER "
+        "02/03/2054 MISC PAYMENT SAMPLE PAYER 50.00 990.00",
     ))
     assert stmt is not None
     assert len(stmt.transactions) == 1

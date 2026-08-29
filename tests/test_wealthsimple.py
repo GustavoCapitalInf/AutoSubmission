@@ -12,7 +12,7 @@ from analysis.wealthsimple import detect, parse_wealthsimple_statement
 HEAD = (
     "Chequing monthly statement\n"
     "Wealthsimple\n"
-    "Mar 1 - Mar 31, 2026\n"
+    "Mar 1 - Mar 31, 2054\n"
     "Cameron Webb 209 - 31 Rodenbush Drive Regina, SK S4R8C7 Canada\n"
     "Account number: 31240401\n"
     "Your March summary MAR 1 BALANCE\n"
@@ -26,7 +26,7 @@ FOOT = "Wealthsimple Payments Inc., 400 - 80 Spadina Ave, Toronto, ON, M5V 2J4 P
 
 ONE_ROW = (
     HEAD
-    + "2026-03-01 2026-03-01 Lake Country Coop Lask –$403.00 $94.27\n"
+    + "2054-03-01 2054-03-01 Lake Country Coop Lask –$403.00 $94.27\n"
     + FOOT
 )
 
@@ -66,7 +66,7 @@ def test_the_printed_en_dash_is_a_minus():
 def test_an_amount_with_no_sign_glyph_is_a_deposit():
     stmt = parse_wealthsimple_statement(
         HEAD.replace("$94.27", "$4,497.27")
-        + "2026-03-01 2026-03-01 Interac e-Transfer® Received $4,000.00 $4,497.27\n"
+        + "2054-03-01 2054-03-01 Interac e-Transfer® Received $4,000.00 $4,497.27\n"
         + FOOT
     )
     assert stmt.transactions[0].amount == 4000.00
@@ -89,7 +89,7 @@ def test_the_whole_dash_class_reads_as_a_minus():
     assert set(MINUS_GLYPHS) == {"\u2013", "\u2212", "-"}
     for glyph in MINUS_GLYPHS:
         stmt = parse_wealthsimple_statement(
-            HEAD + "2026-03-01 2026-03-01 Coop %s$403.00 $94.27\n" % glyph + FOOT
+            HEAD + "2054-03-01 2054-03-01 Coop %s$403.00 $94.27\n" % glyph + FOOT
         )
         assert stmt.transactions[0].amount == -403.00, glyph
 
@@ -114,7 +114,7 @@ def test_an_em_dash_is_not_a_sign_and_the_balance_walk_is_what_refuses_it():
     from analysis.reconcile import reconcile
 
     stmt = parse_wealthsimple_statement(
-        HEAD + "2026-03-01 2026-03-01 Coop \u2014$403.00 $94.27\n" + FOOT
+        HEAD + "2054-03-01 2054-03-01 Coop \u2014$403.00 $94.27\n" + FOOT
     )
     assert stmt is not None
     assert stmt.transactions[0].amount == 403.00      # the mis-read, named
@@ -143,8 +143,8 @@ def test_a_zero_amount_collapses_the_sign_and_the_misread_reaches_publication():
 
     stmt = parse_wealthsimple_statement(
         HEAD
-        + "2026-03-01 2026-03-01 Coop \u2014$0.00 $497.27\n"
-        + "2026-03-31 2026-03-31 Rent \u2013$403.00 $94.27\n"
+        + "2054-03-01 2054-03-01 Coop \u2014$0.00 $497.27\n"
+        + "2054-03-31 2054-03-31 Rent \u2013$403.00 $94.27\n"
         + FOOT
     )
     assert stmt is not None
@@ -159,7 +159,7 @@ def test_a_dash_inside_a_description_is_not_a_sign():
     of their own."""
     stmt = parse_wealthsimple_statement(
         HEAD.replace("$94.27", "$4,497.27")
-        + "2026-03-01 2026-03-01 Co-op Store 209 - 31 Rodenbush $4,000.00 $4,497.27\n"
+        + "2054-03-01 2054-03-01 Co-op Store 209 - 31 Rodenbush $4,000.00 $4,497.27\n"
         + FOOT
     )
     assert stmt.transactions[0].amount == 4000.00
@@ -175,7 +175,7 @@ def test_a_row_closes_on_its_balance_cell_so_a_wrapped_description_is_kept():
     which is its last column."""
     stmt = parse_wealthsimple_statement(
         HEAD.replace("$94.27", "–$2.73")
-        + "2026-03-01 2026-03-01 Interac e-Transfer® Out to Justin Webb: Food and gas\n"
+        + "2054-03-01 2054-03-01 Interac e-Transfer® Out to Justin Webb: Food and gas\n"
         "reimbursement for la ronge works. Company cost\n"
         "–$500.00 –$2.73\n"
         + FOOT
@@ -204,9 +204,9 @@ def test_the_posted_date_is_the_published_one():
     "Posted date is when the transaction is processed and finalized. Use this
     for accounting purposes." """
     stmt = parse_wealthsimple_statement(
-        HEAD + "2026-03-01 2026-03-04 Coop –$403.00 $94.27\n" + FOOT
+        HEAD + "2054-03-01 2054-03-04 Coop –$403.00 $94.27\n" + FOOT
     )
-    assert stmt.transactions[0].date == "2026-03-04"
+    assert stmt.transactions[0].date == "2054-03-04"
 
 
 # ------------------------------------------------------------- the summary
@@ -268,10 +268,10 @@ def test_a_dated_balance_label_is_not_a_posting_row():
         "AUG 31 BALANCE\n"
         "$0.00\n"
         "$3,760.07\n"
-        "2025-08-05 2025-08-05 Coop –$403.00 $94.27\n"
+        "2053-08-05 2053-08-05 Coop –$403.00 $94.27\n"
     )
-    found = source_posting_dates(markdown, date(2025, 8, 1), date(2025, 8, 31))
-    assert date(2025, 8, 31) not in found
+    found = source_posting_dates(markdown, date(2053, 8, 1), date(2053, 8, 31))
+    assert date(2053, 8, 31) not in found
     # And nothing else is found either: this layout prints TWO dates on every
     # posting row, which the heuristic reads as a balance grid rather than a
     # posting. So on this family the check is vacuous, not load-bearing — the
@@ -284,9 +284,9 @@ def test_a_single_date_posting_row_is_still_found():
     from datetime import date
 
     found = source_posting_dates(
-        "Aug 05 Coop purchase 403.00 1,200.00\n", date(2025, 8, 1), date(2025, 8, 31)
+        "Aug 05 Coop purchase 403.00 1,200.00\n", date(2053, 8, 1), date(2053, 8, 31)
     )
-    assert date(2025, 8, 5) in found
+    assert date(2053, 8, 5) in found
 
 
 def test_a_posting_row_whose_description_ends_in_balance_keeps_its_date():
@@ -295,8 +295,8 @@ def test_a_posting_row_whose_description_ends_in_balance_keeps_its_date():
     from datetime import date
 
     markdown = "Aug 31 TRANSFER TO SAVINGS BALANCE 403.00 1,200.00\n"
-    found = source_posting_dates(markdown, date(2025, 8, 1), date(2025, 8, 31))
-    assert date(2025, 8, 31) in found
+    found = source_posting_dates(markdown, date(2053, 8, 1), date(2053, 8, 31))
+    assert date(2053, 8, 31) in found
 
 
 # --------------------------------------------------------------- the currency

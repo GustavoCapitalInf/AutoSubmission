@@ -18,7 +18,7 @@ def _txn(
     description: str,
     amount: float,
     *,
-    day: str = "2026-01-01",
+    day: str = "2054-01-01",
     balance: float | None = None,
 ) -> Transaction:
     return Transaction(

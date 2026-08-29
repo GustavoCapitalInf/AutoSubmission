@@ -72,9 +72,9 @@ DIGITS = "4471009238"
 #: quoted the first 300 characters of.
 POISON = (
     '{"bank": "ACMEPAYROLL BANK NA", "account_number": "4471009238", '
-    '"beginning_balance": 118432.19, "transactions": [{"date": "2026-01-04", '
+    '"beginning_balance": 118432.19, "transactions": [{"date": "2054-01-04", '
     '"description": "ACH DEBIT ACMEPAYROLL 4471009238", "amount": -12345.67, '
-    '"running_balance": 106086.52}, {"date": "2026-01-07", "description": '
+    '"running_balance": 106086.52}, {"date": "2054-01-07", "description": '
     '"DEPOSIT ACMEPAYROLL", "amount": 9876.54}]'
 )
 

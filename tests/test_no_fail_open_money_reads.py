@@ -179,11 +179,11 @@ def test_absence_defaults_are_not_caught():
 NO_CHECKS_LINE = """
 Bank of America
 Account summary
-Beginning balance on February 1, 2026 $6,767.39
+Beginning balance on February 1, 2054 $6,767.39
 Deposits and other credits 35,968.84
 Withdrawals and other debits -35,626.82
 Service fees -120.43
-Ending balance on February 28, 2026 $1,498.58
+Ending balance on February 28, 2054 $1,498.58
 """
 
 #: The same summary printing a `Checks` line the grammar cannot read: the

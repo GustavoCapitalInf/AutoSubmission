@@ -52,7 +52,7 @@ def statement(
         "Checking Balance",
         "+",
         ending,
-        f"Statement Period: {name} 1 , 2026     Thru {name} {days}, 2026 "
+        f"Statement Period: {name} 1 , 2054     Thru {name} {days}, 2054 "
         "Account Number : 000111222333",
         "Business Banking",
         "Account Number :   000111222333 Enclosures In Statement:   0",
@@ -139,12 +139,12 @@ def test_any_month_parses(month, days):
     """FC-A. The month was a literal `03` in two row regexes."""
     stmt = parse_first_citizens_statement(statement(month=month, days=days))
     assert stmt is not None
-    assert stmt.period_start == f"2026-{month:02d}-01"
+    assert stmt.period_start == f"2054-{month:02d}-01"
     assert [t.date for t in stmt.transactions] == [
-        f"2026-{month:02d}-05",
-        f"2026-{month:02d}-10",
-        f"2026-{month:02d}-12",
-        f"2026-{month:02d}-20",
+        f"2054-{month:02d}-05",
+        f"2054-{month:02d}-10",
+        f"2054-{month:02d}-12",
+        f"2054-{month:02d}-20",
     ]
     assert reconcile(stmt).ok
 
@@ -183,7 +183,7 @@ def test_debits_section_renamed_when_a_service_charge_is_billed():
     billed = [t for t in stmt.transactions if t.description == "Monthly Service Charge"]
     assert len(billed) == 1
     assert billed[0].amount == -5.00
-    assert billed[0].date == "2026-04-30"
+    assert billed[0].date == "2054-04-30"
     assert reconcile(stmt).ok
 
 
@@ -279,7 +279,7 @@ def flattened(
             "Checking Balance",
             "+",
             "1,500.00",
-            "Statement Period: April 1 , 2026     Thru April 30, 2026 "
+            "Statement Period: April 1 , 2054     Thru April 30, 2054 "
             "Account Number : 000111222333",
             "Business Banking",
             "Account Number :   000111222333 Enclosures In Statement:   0",
@@ -424,7 +424,7 @@ def test_rows_cannot_describe_a_section_they_were_not_printed_under():
         ("FC_TX|Other Credits To Your Account|04-08|200.00|", "junk "),
         ("|04-08|200.00|", "|04-08|"),
         ("|200.00|", "|two hundred|"),
-        ("|04-08|", "|2026-04-08|"),
+        ("|04-08|", "|2054-04-08|"),
     ],
 )
 def test_a_malformed_report_is_read_as_no_report_at_all(damage):

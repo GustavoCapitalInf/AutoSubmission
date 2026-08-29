@@ -201,7 +201,7 @@ def test_likely_account_count_zero_without_markers():
 
 def test_layout_signals_detect_period_pages_and_tables():
     text = (
-        "Statement Period 01/01/26 - 01/31/26\n"
+        "Statement Period 01/01/54 - 01/31/54\n"
         "Page 1 of 4\n"
         "Date Description Amount Balance\n" + LONG_TEXT
     )

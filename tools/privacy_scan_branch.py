@@ -156,12 +156,19 @@ rule                   what it excludes, and why that is safe
 ``institution_zip``    a DIGITS token of exactly five digits standing in a
                        POSTAL ADDRESS: a state abbreviation immediately before
                        it AND the furniture an address carries — a city and
-                       its comma (`OZARK, AR 99999`), or a post-office box in
-                       the same clause, which ends at a full stop, a dash or a
-                       segment separator (`P.O. BOX 196 OZARK AR 99999`). A
-                       ZIP+4 tail strengthens either shape and is NEVER
+                       its comma (`OZARK, AR 99999`), or a post-office box
+                       WITH A CITY between it and the state, in the same
+                       clause, which ends at a full stop, a dash or a segment
+                       separator (`P.O. BOX 196 OZARK AR 99999`). A ZIP+4 tail
+                       strengthens either shape and is NEVER
                        evidence on its own: `MEMBER ID 84213-6789` is a
-                       member number with a suffix, not an address. The
+                       member number with a suffix, not an address. Neither is
+                       the mere absence of punctuation: a box marker followed
+                       by an unbroken run of ordinary characters used to reach
+                       an ACH company id (`PO BOX 1558 CCD CO# 45678 TRACE`),
+                       so the run is TEMPERED against the words this archive
+                       prints to introduce an identity, and a NUMBER SIGN is
+                       barred from the gap in both shapes. The
                        postal code
                        of an institution's own service address is the
                        furniture the doctrine allows a detection marker to
@@ -213,10 +220,54 @@ WORD_RE = re.compile(r"[A-Z]{4,}")
 
 #: Tracked text formats. Everything else in the tree is a PDF of the validated
 #: corpus, which is not source and cannot be what a branch added.
+#:
+#: `log`, `shas` and `ps1` were outside this set until FIXTURE-PRIVACY-2, which
+#: means the tree carried tracked text NO SCAN HAD EVER READ — including a
+#: 1,194-line run log written by a tool that prints document text. A suffix
+#: list is a claim about what is worth reading, and a file the list forgets is
+#: not audited by anything: the first review called this "the first item of the
+#: follow-up card" and it is closed here. The list is now every text format
+#: this tree actually tracks; `git ls-files` finds nothing outside it that is
+#: not a PDF.
 TEXT_SUFFIXES = frozenset(
     "py md txt json csv yml yaml toml cfg ini html js ts tsx jsx css sh bat "
-    "gitignore in rst".split()
+    "gitignore in rst log shas ps1".split()
 )
+
+#: NAMED RESIDUE CLASSES — NOT exclusions, and the distinction is the point.
+#: An exclusion says a shape cannot carry archive identity. A named class says
+#: the opposite: this residue IS archive identity, it is here on purpose, and
+#: it needs a RULING rather than a rule. Naming it costs nothing (the sites
+#: stay residue, the exit code still follows them) and buys the one thing the
+#: record has asked for three times: a number to put in front of the decision.
+#:
+#: `benchmark_truth_csv` — the three per-statement audited expectation files
+#: read as DATA by `benchmark/expectations.py`. They carry real balances,
+#: account masks and periods, one row per pinned document, and a class band is
+#: not a float, so redacting them breaks the benchmark. One of them also holds
+#: the last copy of the account number the P0 card was written to remove. That
+#: is ruling R3's, not a scanner's.
+NAMED_RESIDUE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("benchmark_truth_csv", (
+        "docs/adb-audit-results.csv",
+        "docs/balance-metrics-audit-results.csv",
+        "docs/new-statement-audit-results.csv",
+    )),
+)
+
+
+def residue_class(path: str) -> str | None:
+    """The named residue class this path belongs to, or None.
+
+    Deliberately NOT consulted by `excluded_by`: a named class is counted, not
+    silenced. A future ruling can move one of these into the exclusion table,
+    and that move should be a visible edit with a shape argument behind it —
+    never a side effect of a reporting convenience.
+    """
+    for name, paths in NAMED_RESIDUE:
+        if path in paths:
+            return name
+    return None
 
 _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -247,7 +298,13 @@ _STATE = (
     "MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|PR|RI|SC|SD|TN|TX|UT|VT|VA|"
     "VI|WA|WV|WI|WY"
 )
-_ZIP_GAP = r"[^0-9]{0,8}"
+#: At most eight characters between the abbreviation and the code, none of
+#: them a digit and NONE OF THEM A NUMBER SIGN. `#` is the mark this archive
+#: puts in front of an identifier — `CO# 45678`, `NO# 84213` — and a postal
+#: code never carries one between its state and its digits. The character is
+#: therefore evidence AGAINST an address, and the cheapest place to say so is
+#: the gap both address shapes share.
+_ZIP_GAP = r"[^0-9#]{0,8}"
 #: THE ABBREVIATION IS NECESSARY AND NEVER SUFFICIENT. The scanner upper-cases
 #: every line before it matches, and about half the abbreviation list is an
 #: ordinary English word or ordinary statement furniture once upper-cased:
@@ -282,17 +339,58 @@ _ZIP_GAP = r"[^0-9]{0,8}"
 #: is a city or a box; a postal-looking suffix is not evidence, it is a
 #: coincidence a cheque number can have.
 #: * ``BOX_CLAUSE_ZIP`` — a post-office box in the SAME clause, at most 70
-#:   characters ahead and never across a clause end
-#:   (`PO BOX 609 PITTSBURGH PA 99999`). A box marker is doctrine-sanctioned
-#:   institution furniture; bounding it to the clause is what stops a box in
-#:   one sentence from excusing a number in the next. The clause ends at a
-#:   FULL STOP, a DASH or a segment separator, and the first re-review is why
-#:   the list is that long: a clause bounded only at `;` and `|` still reached
-#:   across `PO BOX 609 - ACCOUNT ENDING IN 84213` and across
-#:   `REMIT TO P.O. BOX 609. AUTH OK 84213`, which are an account tail and an
-#:   authorisation code standing AFTER an address, not part of one. A postal
-#:   address is written as one unbroken run of words; the punctuation that
-#:   ends a sentence or splits a segment is exactly where it stops.
+#:   characters ahead, never across a clause end, AND WITH ADDRESS FURNITURE
+#:   BETWEEN THE BOX AND THE STATE (`PO BOX 609 PITTSBURGH PA 99999`). A box
+#:   marker is doctrine-sanctioned institution furniture; bounding it to the
+#:   clause is what stops a box in one sentence from excusing a number in the
+#:   next. The clause ends at a FULL STOP, a DASH or a segment separator, and
+#:   the first re-review is why the list is that long: a clause bounded only at
+#:   `;` and `|` still reached across `PO BOX 609 - ACCOUNT ENDING IN 84213`
+#:   and across `REMIT TO P.O. BOX 609. AUTH OK 84213`, which are an account
+#:   tail and an authorisation code standing AFTER an address, not part of one.
+#:   A postal address is written as one unbroken run of words; the punctuation
+#:   that ends a sentence or splits a segment is exactly where it stops.
+#:
+#:   THE ABSENCE OF PUNCTUATION IS NOT FURNITURE, which is what the second
+#:   re-review's residual said: `PO BOX 1558 CCD CO# 45678 TRACE` carries no
+#:   clause end anywhere, so the box reached straight across an unbroken run of
+#:   ordinary characters to `CO` and silenced an ACH company id — the shape
+#:   `analysis/core_processor_signed_counts.py`'s own grammar documents. The
+#:   rule now asks for what an address actually prints between its box and its
+#:   state: a CITY, which is a word of four letters or more standing at a word
+#:   boundary and not one of the words this archive uses to introduce an
+#:   identity. Three letters (`CCD`) are not a city. `MEMBER`, `ACCOUNT`,
+#:   `AUTH`, `CHECK`, `LOAN`, `CARD`, `POLICY`, `TRACE`, `NO` and the rest of
+#:   `_IDENTIFIER_WORD` are words, but they are the words that say the digits
+#:   beside them are an identity — so the run from the box to the state is
+#:   TEMPERED and may not cross one of them at all, in either half.
+#:
+#:   WHAT REMAINS, SAID PLAINLY, AND IT IS WIDER THAN "a word like a city":
+#:   `PO BOX 196 <any word of four or more letters that is not on the
+#:   `_IDENTIFIER_WORD` list> <word-shaped abbreviation> <five digits>` is
+#:   still excused, because by SHAPE it is `PO BOX 609 PITTSBURGH PA 99999`.
+#:   The substitute does not have to be identity-flavoured at all — ordinary
+#:   English will do, and the review demonstrated it with `SERIAL`, `FOLIO`,
+#:   `VOUCHER` and `PAID` — so the list is a floor on what this rule catches,
+#:   never a ceiling. The nearest real example is a company suffix standing
+#:   where a city would (`PO BOX 1558 ACME CORP CO 45678`, with no `#` to give
+#:   it away). This is the same
+#:   irreducible ambiguity `CITY_STATE_ZIP` carries with its comma, one shape
+#:   over, and no amount of punctuation or word-length reasoning closes it: the
+#:   only rule that would is a state-to-ZIP-prefix consistency table (`ID` runs
+#:   832xx-838xx, so `MEMBER ID 84213` could never be an Idaho address), which
+#:   is a card of its own — every invented address fixture in this tree pairs a
+#:   state with a code that does not belong to it, so that table re-reports
+#:   them all and its cost has to be measured before it is chosen.
+#:
+#:   AND THE NARROWING'S COST, WHICH IS ONE SHAPE: a genuine box address whose
+#:   city is SHORTER than four letters and which carries no comma is now
+#:   reported — `PO BOX 1 ADA OK 99999` is a hit, and the same line with the
+#:   city's comma is excused. Live cost in this tree is ZERO: the rule's take
+#:   is 166 rows at the base and 166 at the tip. The direction is the right
+#:   one — the scan reporting an address is a nuisance, the scan hiding a
+#:   member number is not — but a rule that cannot read a three-letter city is
+#:   a fact about it, and it belongs here rather than in a reviewer's notes.
 #:
 #: The junk class allows what upper-casing a regex SOURCE leaves between the
 #: comma and the abbreviation: `\s` becomes `\S`, `\w` becomes `\W`, and a
@@ -306,8 +404,53 @@ CITY_STATE_ZIP = re.compile(
 #: address does not carry a full stop, a dash or a segment separator between
 #: its box and its state, and each of those is where the next fact begins.
 _CLAUSE_CHAR = r"[^;|.\-\u2013\u2014!?()\[\]]"
+#: The words this archive prints to say that the digits beside them are an
+#: IDENTITY rather than a place. They are city-shaped \u2014 four letters or more,
+#: standing at a word boundary \u2014 which is exactly why they have to be named:
+#: `PO BOX 196 MEMBER ID 84213` reads as `PO BOX 609 PITTSBURGH PA 99999` to
+#: any rule that only counts letters, and `ID` is Idaho. This is a vocabulary
+#: and it is incomplete by construction; it is here because the six identifier
+#: classes the first review blocked on are all introduced by one of these
+#: words, and a rule that survives them is worth more than one that does not.
+_IDENTIFIER_WORD = (
+    "ACCOUNT|ACCT|ACH|AUTH|AUTHORISATION|AUTHORIZATION|BATCH|CARD|CCD|CHECK|"
+    "CHEQUE|CLIENT|CONFIRMATION|CTX|CUSTOMER|DEPOSIT|INVOICE|ITEM|LOAN|MEMBER|"
+    "MERCHANT|NO|NUM|NUMBER|ORIGINATOR|POLICY|PPD|REF|REFERENCE|ROUTING|SEQ|"
+    "SEQUENCE|SHARE|TERMINAL|TRACE|TRANSACTION|TRANSIT|WITHDRAWAL"
+)
+#: A city-shaped word: four letters or more, beginning at a word BOUNDARY, and
+#: not one of the words above.
+#:
+#: THE `\b` CARRIES NO MUTANT, and the reason is worth writing down rather than
+#: leaving as a gap in the table. Its job would be to stop the tail of a longer
+#: word standing in for a city — without it, `MEMBER` offers `EMBER`. The
+#: tempered run already makes that unreachable: to place a city inside
+#: `MEMBER` the run would have to cover the `M` at that word's head, which is
+#: exactly where the tempering refuses, and a run can never START inside a word
+#: because it begins at `BOX\b`. A mutant that removes the `\b` therefore
+#: cannot be killed by any line, which is the mutation table saying the
+#: character is redundant. It is kept because it is what "a city-shaped WORD"
+#: means, and because it holds if the tempering is ever loosened; the mutant
+#: that stands in its place attacks the LENGTH, which is discriminating.
+_CITY_WORD = rf"\b(?!(?:{_IDENTIFIER_WORD})\b)[A-Z]{{4,}}"
+#: One character of the run, TEMPERED: it may be anything the clause allows,
+#: except that it may not stand at the head of an identifier word. A tempered
+#: run cannot cross `MEMBER`, `AUTH`, `CCD` or `NO`, which is what makes
+#: "there is a city between the box and the state" mean what it says. Written
+#: this way rather than as "furniture immediately before the state" because a
+#: city is not always one word: `PO BOX <n> GREEN BAY WI <zip>` is a genuine
+#: institution address whose last word before the state is three letters long,
+#: and a rule that cannot read a two-word city will keep costing.
+_TEMPERED_CHAR = rf"(?:(?!\b(?:{_IDENTIFIER_WORD})\b){_CLAUSE_CHAR})"
+#: The two runs are bounded to 50 and 20, not to 70 and 20, so that the total
+#: distance from the box marker to the state stays the SEVENTY the clause bound
+#: has always been. That keeps this shape strictly NARROWER than the one it
+#: replaces — same reach, tempered characters, and a city that must fit inside
+#: it — which is why no line in this tree can gain an exclusion from this
+#: change, only lose one.
 BOX_CLAUSE_ZIP = re.compile(
-    rf"\bP\.?\s?O\.?\s?BOX\b{_CLAUSE_CHAR}{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
+    rf"\bP\.?\s?O\.?\s?BOX\b{_TEMPERED_CHAR}{{0,50}}?{_CITY_WORD}"
+    rf"{_TEMPERED_CHAR}{{0,20}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
 )
 ADDRESS_ZIP_RES = (CITY_STATE_ZIP, BOX_CLAUSE_ZIP)
 #: The archive was frozen on 2026-08-06; every record this program writes about
@@ -367,6 +510,16 @@ def _hex_sha_substring(cls: str, path: str, token: str, line: str) -> bool:
 
 
 def _docs_session_date(cls: str, path: str, token: str, line: str) -> bool:
+    """The program's own session dates, inside the program's own records.
+
+    This rule used to carry the named-class carve-out itself. It does not any
+    more, and not because the carve-out stopped mattering: it moved in front of
+    the WHOLE table, where it belongs, because putting it in one rule is what
+    let three others silence a quarter of the class unnoticed. A date in
+    `docs/adb-audit-results.csv` is a statement period, not the day a cell ran,
+    and the two only share a shape — but so is a `.00` figure in that file a
+    real balance, and neither is this rule's business to decide.
+    """
     return (
         cls == "DATES"
         and path.startswith("docs/")
@@ -414,6 +567,8 @@ _EXCLUSION_SAMPLES = (
     ("hex_sha_substring", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
     ("hex_sha_substring", "DIGITS", "a.py", "70000000011", "RUN 70000000011", False),
     ("docs_session_date", "DATES", "docs/x.md", "2026-08-29", "ON 2026-08-29", True),
+    ("docs_session_date", "DATES", "docs/adb-audit-results.csv", "2026-08-29",
+     "SHA,2026-08-29,2026-08-29", False),
     ("docs_session_date", "DATES", "docs/x.md", "2019-11-21", "ON 2019-11-21", False),
     ("docs_session_date", "DATES", "docs/x.md", "2001-02-03", "ON 2001-02-03", False),
     ("docs_session_date", "DATES", "tests/x.py", "2026-08-29", "ON 2026-08-29", False),
@@ -428,11 +583,36 @@ _EXCLUSION_SAMPLES = (
     ("institution_zip", "DIGITS", "a.py", "84213", "MEMBER ID 84213", False),
     ("institution_zip", "DIGITS", "a.py", "45678", "CCD CO# 45678 TRACE", False),
     ("institution_zip", "DIGITS", "a.py", "84213", "AUTH OK 84213", False),
+    # A box marker in front of the same lines does not make them addresses.
+    ("institution_zip", "DIGITS", "a.py", "45678", "PO BOX 1558 CCD CO# 45678 TRACE", False),
+    ("institution_zip", "DIGITS", "a.py", "84213", "PO BOX 196 MEMBER ID 84213", False),
+    # A city may be two words, the second of them short.
+    ("institution_zip", "DIGITS", "a.py", "95959", "PO BOX 1962 GREEN BAY WI 95959-9097", True),
 )
 
 
 def excluded_by(cls: str, path: str, token: str, line: str) -> str | None:
-    """The first rule of the table that claims this hit, or None."""
+    """The first rule of the table that claims this hit, or None.
+
+    A NAMED RESIDUE path is carved out FIRST, in front of the whole table, and
+    the first version of this card got that wrong: the carve-out was written
+    into `docs_session_date` alone, so the class was described as never-excused
+    while `round_money`, `subunit_money` and `hex_sha_substring` between them
+    silenced 327 more sites inside it — a quarter of the class, unreported. The
+    review measured it, and it matters because the count IS the input to the
+    ruling: a `.00` figure in a per-statement audited expectations file is a
+    real printed balance, which is exactly the case `round_money`'s own
+    docstring says it excuses by choice rather than by safety.
+
+    WORDS is the one class still excused inside a named path, and that is a
+    scope statement rather than an exception: `words_class` discards every
+    WORDS hit everywhere, the tree is unaudited for customer names by
+    construction (see the table), and counting names here and nowhere else
+    would put a number on the ruling that means something different from the
+    number in every other file.
+    """
+    if cls != "WORDS" and residue_class(path) is not None:
+        return None
     for name, rule in EXCLUSIONS:
         if rule(cls, path, token, line):  # type: ignore[operator]
             return name
@@ -468,6 +648,14 @@ def self_check() -> None:
     for name in named:
         if not any(sample[0] == name for sample in _EXCLUSION_SAMPLES):
             raise SystemExit(f"exclusion {name!r} carries no sample; refusing to run")
+    for name, paths in NAMED_RESIDUE:
+        if not paths:
+            raise SystemExit(f"named residue class {name!r} names no path; refusing to run")
+        for path in paths:
+            if residue_class(path) != name:
+                raise SystemExit(f"named residue class {name!r} does not claim {path!r}")
+            if path.rsplit(".", 1)[-1].lower() not in TEXT_SUFFIXES:
+                raise SystemExit(f"named residue class {name!r} names {path!r}, which is never scanned")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -733,6 +921,11 @@ def main(argv: list[str] | None = None) -> int:
     for cls, path, _number, _token in site_keys:
         top = path.split("/", 1)[0] if "/" in path else "(root)"
         by_class_dir[f"{cls} {top}"] = by_class_dir.get(f"{cls} {top}", 0) + 1
+    by_named_class: dict[str, int] = {name: 0 for name, _paths in NAMED_RESIDUE}
+    for _cls, path, _number, _token in site_keys:
+        named = residue_class(path)
+        if named is not None:
+            by_named_class[named] += 1
 
     report = {
         "population": len(shas),
@@ -750,6 +943,9 @@ def main(argv: list[str] | None = None) -> int:
         "residue_sites": len(site_keys),
         "residue_files": len({path for _cls, path, _n, _t in site_keys}),
         "residue_by_class_dir": dict(sorted(by_class_dir.items())),
+        # Counted, named and STILL RESIDUE: these sites are inside
+        # `residue_sites` above, not subtracted from it.
+        "residue_by_named_class": dict(sorted(by_named_class.items())),
         "base": args.base,
         "ref": args.ref,
     }

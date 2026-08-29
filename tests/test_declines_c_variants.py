@@ -8,8 +8,8 @@ sentinels — the same ones the parsers key on — and every counterparty, holde
 date, amount and account number is invented.
 
 B1 the abbreviated month
-    Bluevine prints its statement period both ways, "February 1, 2026" and
-    "Feb. 1, 2026". The period pattern matched a month name with `\\w+`, which
+    Bluevine prints its statement period both ways, "February 1, 2054" and
+    "Feb. 1, 2054". The period pattern matched a month name with `\\w+`, which
     cannot span the abbreviating period, so twelve of the fourteen declines
     were refused on the FIRST field they were asked for. Both spellings are the
     same field of the same sentence and must read identically.
@@ -57,32 +57,32 @@ from analysis.relay import _restore_glyphs, parse_relay_statement
 BLUEVINE_FULL_MONTH = (
     "Bluevine Inc.\n"
     "Account Number: 900000001\n"
-    "Statement Period: January 2026 (January 1, 2026 - January 31, 2026)\n"
+    "Statement Period: January 2054 (January 1, 2054 - January 31, 2054)\n"
     "Activity summary\n"
-    "Beginning Balance on 01/01/2026 $1,000.00\n"
+    "Beginning Balance on 01/01/2054 $1,000.00\n"
     "Deposits/credits $500.00\n"
     "Withdrawals/debits $-200.00\n"
-    "Ending balance on 01/31/2026 $1,300.00\n"
+    "Ending balance on 01/31/2054 $1,300.00\n"
     "Transactions\n"
     "Date Description Amount\n"
-    "01/05/26 EXAMPLE PAYER TRANSFER $500.00\n"
-    "01/09/26 EXAMPLE VENDOR PURCHASE $-200.00\n"
+    "01/05/54 EXAMPLE PAYER TRANSFER $500.00\n"
+    "01/09/54 EXAMPLE VENDOR PURCHASE $-200.00\n"
 )
 
 #: The identical statement with the month abbreviated, as this platform also
 #: prints it. Only the two period tokens differ.
 BLUEVINE_ABBREVIATED_MONTH = BLUEVINE_FULL_MONTH.replace(
-    "(January 1, 2026 - January 31, 2026)", "(Jan. 1, 2026 - Jan. 31, 2026)"
+    "(January 1, 2054 - January 31, 2054)", "(Jan. 1, 2054 - Jan. 31, 2054)"
 )
 
 
 def test_bluevine_reads_the_abbreviated_month_it_also_prints():
-    """B1: "Jan. 1, 2026" is the same field as "January 1, 2026"."""
+    """B1: "Jan. 1, 2054" is the same field as "January 1, 2054"."""
     statement = parse_bluevine_statement(BLUEVINE_ABBREVIATED_MONTH)
 
     assert statement is not None
-    assert statement.period_start == "2026-01-01"
-    assert statement.period_end == "2026-01-31"
+    assert statement.period_start == "2054-01-01"
+    assert statement.period_end == "2054-01-31"
 
 
 def test_bluevine_month_spelling_changes_nothing_else():
@@ -111,8 +111,8 @@ def test_bluevine_declines_a_day_the_month_does_not_have():
     """
     assert parse_bluevine_statement(
         BLUEVINE_FULL_MONTH.replace(
-            "(January 1, 2026 - January 31, 2026)",
-            "(Feb. 1, 2026 - Feb. 30, 2026)",
+            "(January 1, 2054 - January 31, 2054)",
+            "(Feb. 1, 2054 - Feb. 30, 2054)",
         )
     ) is None
 
@@ -122,8 +122,8 @@ def test_bluevine_declines_a_month_it_does_not_recognise():
     DECLINE, not an exception: the parser must fail closed, never crash."""
     assert parse_bluevine_statement(
         BLUEVINE_FULL_MONTH.replace(
-            "(January 1, 2026 - January 31, 2026)",
-            "(Janubry 1, 2026 - Janubry 31, 2026)",
+            "(January 1, 2054 - January 31, 2054)",
+            "(Janubry 1, 2054 - Janubry 31, 2054)",
         )
     ) is None
 
@@ -134,15 +134,15 @@ def test_bluevine_declines_a_month_it_does_not_recognise():
 RELAY_PRINTED_SIGNS = (
     "Relay Financials Technology Inc\n"
     "Account Statement\n"
-    "Example Company LLC | Jan 1 - Jan 31, 2026\n"
+    "Example Company LLC | Jan 1 - Jan 31, 2054\n"
     "Account Number: XXXXXX1234\n"
     "Opening Balance $100.00\n"
     "Closing Balance $400.00\n"
     "Deposits +$500.00\n"
     "Withdrawals -$200.00\n"
     "Name Date Status Amount Balance\n"
-    "Example Vendor VISA Jan 20, 2026 Settled -$200.00 $400.00\n"
-    "Example Payer ACH Jan 10, 2026 Settled +$500.00 $600.00\n"
+    "Example Vendor VISA Jan 20, 2054 Settled -$200.00 $400.00\n"
+    "Example Payer ACH Jan 10, 2054 Settled +$500.00 $600.00\n"
 )
 
 #: The identical statement as the broken subset font delivers it: the two
@@ -215,8 +215,8 @@ def test_relay_glyph_restoration_leaves_ordinary_text_alone():
 #: The same statement after the newest row's label wrapped onto its own line —
 #: the shape that made exactly one row per document invisible.
 RELAY_WRAPPED_ROW = RELAY_PRINTED_SIGNS.replace(
-    "Example Vendor VISA Jan 20, 2026 Settled -$200.00 $400.00\n",
-    "Example Vendor VISA\nJan 20, 2026 Settled -$200.00 $400.00\n",
+    "Example Vendor VISA Jan 20, 2054 Settled -$200.00 $400.00\n",
+    "Example Vendor VISA\nJan 20, 2054 Settled -$200.00 $400.00\n",
 )
 
 
@@ -249,8 +249,8 @@ def test_relay_refuses_a_wrapped_row_whose_label_is_page_furniture():
     on the far side of it. The row is refused, not given the footer's text as
     a description — the balance walk would accept a mislabelled row happily."""
     across_a_page_break = RELAY_PRINTED_SIGNS.replace(
-        "Example Vendor VISA Jan 20, 2026 Settled -$200.00 $400.00\n",
-        "--- Page 2 ---\nJan 20, 2026 Settled -$200.00 $400.00\n",
+        "Example Vendor VISA Jan 20, 2054 Settled -$200.00 $400.00\n",
+        "--- Page 2 ---\nJan 20, 2054 Settled -$200.00 $400.00\n",
     )
 
     assert parse_relay_statement(across_a_page_break) is None
@@ -268,7 +268,7 @@ def _navy_federal(product: str, extra_table_rows: str = "") -> str:
     """
     return (
         "Navy Federal\n"
-        "Statement Period 01/01/26 - 01/31/26\n"
+        "Statement Period 01/01/54 - 01/31/54\n"
         "Summary of your deposit accounts\n"
         "Previous Deposits/ Withdrawals/ Ending YTD "
         "Balance Credits Debits Balance Dividends\n"
@@ -456,7 +456,7 @@ def _navy_federal_dated_credit() -> str:
     """
     return (
         "Navy Federal\n"
-        "Statement Period 01/01/26 - 01/31/26\n"
+        "Statement Period 01/01/54 - 01/31/54\n"
         "Summary of your deposit accounts\n"
         "Previous Deposits/ Withdrawals/ Ending YTD "
         "Balance Credits Debits Balance Dividends\n"
@@ -493,8 +493,8 @@ def test_a_credit_that_carries_its_own_date_keeps_it():
 
     assert statement is not None
     assert [(t.date, t.amount) for t in statement.transactions] == [
-        ("2026-01-05", 300.00),
-        ("2026-01-09", -200.00),
+        ("2054-01-05", 300.00),
+        ("2054-01-09", -200.00),
     ]
     assert [t.description for t in statement.transactions] == [
         "Example Payer Deposit",
@@ -512,6 +512,6 @@ def test_the_platforms_other_row_order_still_reads_its_credit():
 
     assert statement is not None
     assert [(t.date, t.amount) for t in statement.transactions] == [
-        ("2026-01-05", -200.00),
-        ("2026-01-09", 300.00),
+        ("2054-01-05", -200.00),
+        ("2054-01-09", 300.00),
     ]

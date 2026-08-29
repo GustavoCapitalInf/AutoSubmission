@@ -11,13 +11,13 @@ from analysis.schema import Statement
 
 _HEADER = (
     "Citibank CBO Services 729 P.O. Box 6201 Sioux Falls, SD 57117-6201\n"
-    "000 CITIBANK, N. A. Account 17505240 Statement Period Apr 1 - Apr 30, 2026 "
+    "000 CITIBANK, N. A. Account 17505240 Statement Period Apr 1 - Apr 30, 2054 "
     "Relationship Manager Citibusiness Service Center Page 1  of  4\n"
     "EXAMPLE COMPANY INC\n"
-    "CitiBusiness  ACCOUNT AS OF APRIL 30, 2026\n"
+    "CitiBusiness  ACCOUNT AS OF APRIL 30, 2054\n"
     "Relationship Summary:\n"
     "Checking $1,200.00 Savings ----- Checking Plus -----\n"
-    "SERVICE CHARGE SUMMARY FROM MARCH 1, 2026 THRU MARCH 31, 2026\n"
+    "SERVICE CHARGE SUMMARY FROM MARCH 1, 2054 THRU MARCH 31, 2054\n"
     "Type of Charge No./Units Price/Unit Amount\n"
     "CITIBUSINESS CHECKING # 17505240\n"
     "Average Daily Collected Balance $33,564.86\n"
@@ -211,8 +211,8 @@ def test_reads_the_period_the_account_and_both_balances():
     stmt = cb.parse_citibusiness_statement(_document(_TRAILING))
     assert stmt.bank == "Citibank"
     assert stmt.account_number == "17505240"
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert stmt.beginning_balance == 1000.00
     assert stmt.ending_balance == 1200.00
 
@@ -236,9 +236,9 @@ def test_the_service_charge_average_is_the_previous_periods_and_is_not_published
     another period's average as this one's."""
     markdown = _document(_TRAILING)
     assert "Average Daily Collected Balance $33,564.86" in markdown
-    assert "FROM MARCH 1, 2026 THRU MARCH 31, 2026" in markdown
+    assert "FROM MARCH 1, 2054 THRU MARCH 31, 2054" in markdown
     stmt = cb.parse_citibusiness_statement(markdown)
-    assert stmt.period_start == "2026-04-01"
+    assert stmt.period_start == "2054-04-01"
     assert stmt.stated_average_balance is None
 
 
@@ -248,15 +248,15 @@ def test_a_period_that_crosses_a_year_boundary_takes_the_earlier_start_year():
             "12/31 ELECTRONIC CREDIT SOME PAYER Dec 31 500.00 1,500.00\n"
             "01/02 ACH DEBIT SOME BILLER Jan 02 300.00 1,200.00",
             header=_HEADER.replace(
-                "Statement Period Apr 1 - Apr 30, 2026",
-                "Statement Period Dec 1 - Jan 31, 2027",
+                "Statement Period Apr 1 - Apr 30, 2054",
+                "Statement Period Dec 1 - Jan 31, 2055",
             ),
         )
     )
     assert stmt is not None
-    assert stmt.period_start == "2026-12-01"
-    assert stmt.period_end == "2027-01-31"
-    assert [t.date for t in stmt.transactions] == ["2026-12-31", "2027-01-02"]
+    assert stmt.period_start == "2054-12-01"
+    assert stmt.period_end == "2055-01-31"
+    assert [t.date for t in stmt.transactions] == ["2054-12-31", "2055-01-02"]
 
 
 def test_a_header_with_no_ledger_is_not_a_statement():

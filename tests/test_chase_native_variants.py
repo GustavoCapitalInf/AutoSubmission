@@ -40,7 +40,7 @@ from analysis.chase import parse_chase_statement
 from analysis.reconcile import reconcile
 
 HEADER = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 """
@@ -193,7 +193,7 @@ def test_f2b_a_dual_dated_row_carries_the_posting_date():
     pinned corpus statements reconstructed activity days the bank does not
     recognise (one of them outside the statement period entirely)."""
     stmt = parse_chase_statement(F2B)
-    assert [t.date for t in stmt.transactions] == ["2026-01-15", "2026-01-16"]
+    assert [t.date for t in stmt.transactions] == ["2054-01-15", "2054-01-16"]
     assert [t.amount for t in stmt.transactions] == [-1000.0, -500.0]
 
 

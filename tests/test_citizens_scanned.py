@@ -26,7 +26,7 @@ from analysis.citizens import (
     printed_section_total_contradictions,
 )
 
-PERIOD = ("2026-04-01", "2026-04-30")
+PERIOD = ("2054-04-01", "2054-04-30")
 
 HEADER = (
     "Business Account Statement\n"
@@ -34,7 +34,7 @@ HEADER = (
     "P.O. Box 7000 Providence, RI 02940\n"
     "ACME WIDGETS LLC\n"
     "Business Advisor Checking for 1234567890\n"
-    "Beginning April 01, 2026 through April 30, 2026\n"
+    "Beginning April 01, 2054 through April 30, 2054\n"
 )
 
 STRIP = (
@@ -111,12 +111,12 @@ def amounts(stmt) -> list[tuple[str, float]]:
 
 
 WHOLE_LEDGER = [
-    ("2026-04-01", 500.00),
-    ("2026-04-02", -150.00),
-    ("2026-04-03", -100.00),
-    ("2026-04-05", -50.00),
-    ("2026-04-10", -200.00),
-    ("2026-04-20", 300.00),
+    ("2054-04-01", 500.00),
+    ("2054-04-02", -150.00),
+    ("2054-04-03", -100.00),
+    ("2054-04-05", -50.00),
+    ("2054-04-10", -200.00),
+    ("2054-04-20", 300.00),
 ]
 
 
@@ -211,7 +211,7 @@ def test_the_credit_grid_header_survives_a_column_rule_between_its_labels():
                             "Date Amount _ Description\n04/01 500.00")
     stmt = parse_citizens_statement(ruled)
     assert stmt is not None
-    assert ("2026-04-01", 500.00) in amounts(stmt)
+    assert ("2054-04-01", 500.00) in amounts(stmt)
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ def test_a_layout_with_no_atm_sub_section_still_reads_its_other_debits():
     )
     stmt = parse_citizens_statement(plain)
     assert stmt is not None
-    assert ("2026-04-05", -50.00) in amounts(stmt)
+    assert ("2054-04-05", -50.00) in amounts(stmt)
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +270,7 @@ def test_nothing_may_extend_the_cents_themselves():
     """The boundary is about the TOKEN, not about the ink after it: a third
     digit means the cents were never the cents."""
     rows = _rows_the_total_agrees_with(
-        "04/02 150.007 POS PURCHASE\n", year=2026, sign=-1, printed_total=None
+        "04/02 150.007 POS PURCHASE\n", year=2054, sign=-1, printed_total=None
     )
     assert rows == []
 
@@ -282,7 +282,7 @@ def test_a_malformed_amount_never_starts_a_new_row_either():
     promoted to a row of its own and then silently dropped, which is how a
     printed figure disappears without trace."""
     section = "04/01 500.00 REMOTE DEPOSIT\n04/02 150.007 POS PURCHASE\n"
-    rows = _rows_the_total_agrees_with(section, year=2026, sign=1, printed_total=None)
+    rows = _rows_the_total_agrees_with(section, year=2054, sign=1, printed_total=None)
     assert [t.amount for t in rows] == [500.00]
     assert rows[0].description == "REMOTE DEPOSIT 04/02 150.007 POS PURCHASE"
 
@@ -294,9 +294,9 @@ def test_a_malformed_amount_never_starts_a_new_row_either():
 
 def test_a_decimal_comma_is_read_only_when_it_makes_the_section_total_close():
     section = "04/02 150,00 POS PURCHASE\n04/05 50.00 SERVICE CHARGE\n"
-    strict = _rows_the_total_agrees_with(section, year=2026, sign=-1, printed_total=None)
+    strict = _rows_the_total_agrees_with(section, year=2054, sign=-1, printed_total=None)
     assert [t.amount for t in strict] == [-50.00]
-    widened = _rows_the_total_agrees_with(section, year=2026, sign=-1, printed_total=200.00)
+    widened = _rows_the_total_agrees_with(section, year=2054, sign=-1, printed_total=200.00)
     assert sorted(t.amount for t in widened) == [-150.00, -50.00]
 
 
@@ -307,25 +307,25 @@ def test_a_decimal_comma_reading_that_lands_anywhere_else_is_discarded_whole():
     section = "04/02 150,00 POS PURCHASE\n04/05 50.00 SERVICE CHARGE\n"
     for wrong_total in (199.00, 201.00, 50.00):
         rows = _rows_the_total_agrees_with(
-            section, year=2026, sign=-1, printed_total=wrong_total
+            section, year=2054, sign=-1, printed_total=wrong_total
         )
         assert [t.amount for t in rows] == [-50.00], wrong_total
 
 
 def test_the_strict_reading_is_never_re_read_when_it_already_agrees():
     section = "04/02 150.00 POS PURCHASE\n04/05 50.00 SERVICE CHARGE\n"
-    rows = _rows_the_total_agrees_with(section, year=2026, sign=-1, printed_total=200.00)
+    rows = _rows_the_total_agrees_with(section, year=2054, sign=-1, printed_total=200.00)
     assert sorted(t.amount for t in rows) == [-150.00, -50.00]
 
 
 def test_a_slash_less_cheque_date_is_read_only_on_the_printed_cheque_total():
     grid = "Check # Amount Date\n1001 100.00 0403\n1002 200.00 04/10\nTotal Debits\n"
     strict = _checks_the_total_agrees_with(
-        grid, year=2026, period=PERIOD, printed_total=None)
-    assert [t.date for t in strict] == ["2026-04-10"]
+        grid, year=2054, period=PERIOD, printed_total=None)
+    assert [t.date for t in strict] == ["2054-04-10"]
     widened = _checks_the_total_agrees_with(
-        grid, year=2026, period=PERIOD, printed_total=300.00)
-    assert sorted(t.date for t in widened) == ["2026-04-03", "2026-04-10"]
+        grid, year=2054, period=PERIOD, printed_total=300.00)
+    assert sorted(t.date for t in widened) == ["2054-04-03", "2054-04-10"]
 
 
 def test_when_neither_reading_matches_the_printed_total_the_strict_one_stands():
@@ -337,8 +337,8 @@ def test_when_neither_reading_matches_the_printed_total_the_strict_one_stands():
     — so this is the branch that document actually takes."""
     grid = "Check # Amount Date\n1001 100,00 0403\n1002 200.00 04/10\nTotal Debits\n"
     rows = _checks_the_total_agrees_with(
-        grid, year=2026, period=PERIOD, printed_total=999.00)
-    assert [t.date for t in rows] == ["2026-04-10"]
+        grid, year=2054, period=PERIOD, printed_total=999.00)
+    assert [t.date for t in rows] == ["2054-04-10"]
     assert round(sum(abs(t.amount) for t in rows), 2) == 200.00
 
 
@@ -352,8 +352,8 @@ def test_a_widened_cheque_date_must_land_inside_the_printed_period():
         grid = (f"Check # Amount Date\n1001 100.00 {not_a_date}\n"
                 "1002 200.00 04/10\nTotal Debits\n")
         widened = _checks_the_total_agrees_with(
-            grid, year=2026, period=PERIOD, printed_total=300.00)
-        assert [t.date for t in widened] == ["2026-04-10"], not_a_date
+            grid, year=2054, period=PERIOD, printed_total=300.00)
+        assert [t.date for t in widened] == ["2054-04-10"], not_a_date
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +372,7 @@ def test_the_cheque_grid_starts_at_its_header_not_at_the_right_hand_total():
     )
     stmt = parse_citizens_statement(late)
     assert stmt is not None
-    assert ("2026-04-03", -100.00) in amounts(stmt)
+    assert ("2054-04-03", -100.00) in amounts(stmt)
 
 
 def test_the_out_of_sequence_footnote_glyph_does_not_cost_the_cheque():
@@ -384,7 +384,7 @@ def test_the_out_of_sequence_footnote_glyph_does_not_cost_the_cheque():
         marked = whole().replace("1001 100.00 04/03", f"1001{glyph} 100.00 04/03")
         stmt = parse_citizens_statement(marked)
         assert stmt is not None, glyph
-        assert ("2026-04-03", -100.00) in amounts(stmt), glyph
+        assert ("2054-04-03", -100.00) in amounts(stmt), glyph
 
 
 def test_the_asterisk_stays_inside_the_published_cheque_number():

@@ -19,8 +19,8 @@ def _document(
     footer: str = "A division of Zions Bancorporation, N.A.",
     product: str = "BUSINESS GROWTH CHECKING",
     account: str = "1234567890",
-    this_statement: str = "March 31, 2026",
-    last_statement: str = "February 27, 2026",
+    this_statement: str = "March 31, 2054",
+    last_statement: str = "February 27, 2054",
     days: str = "32",
     counts: str = "1                        1                         1",
     amounts: str = "1,000.00             500.00                100.00-                 200.00-                 1,200.00",
@@ -154,8 +154,8 @@ def test_reads_the_grid_the_period_and_the_product():
 
 def test_the_period_opens_the_day_after_the_previous_statement():
     stmt = zions.parse_zions_statement(_document())
-    assert stmt.period_start == "2026-02-28"
-    assert stmt.period_end == "2026-03-31"
+    assert stmt.period_start == "2054-02-28"
+    assert stmt.period_end == "2054-03-31"
     assert stmt.days_in_period == 32
 
 
@@ -204,7 +204,7 @@ def test_the_posting_date_column_is_the_posting_date():
     stmt = zions.parse_zions_statement(
         _document(deposits="03/06 03/09          500.00 SOME DEPOSIT")
     )
-    assert [t.date for t in stmt.transactions if t.amount > 0] == ["2026-03-06"]
+    assert [t.date for t in stmt.transactions if t.amount > 0] == ["2054-03-06"]
 
 
 def test_a_row_whose_sign_contradicts_its_section_fails_closed():
@@ -233,10 +233,10 @@ def test_cheques_are_published_once_not_twice():
 def test_the_bank_printed_daily_balances_are_published():
     stmt = zions.parse_zions_statement(_document())
     assert [(d.date, d.balance) for d in stmt.stated_daily_balances] == [
-        ("2026-02-28", 1000.00),
-        ("2026-03-02", 900.00),
-        ("2026-03-03", 700.00),
-        ("2026-03-06", 1200.00),
+        ("2054-02-28", 1000.00),
+        ("2054-03-02", 900.00),
+        ("2054-03-03", 700.00),
+        ("2054-03-06", 1200.00),
     ]
 
 

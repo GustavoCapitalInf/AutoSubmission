@@ -68,8 +68,8 @@ POISONED_DATE_TOKENS = {
     "digits+junk": f"{DIGITS} {CANARY}",
     "empty": "   ",
     "over-long": f"{CANARY}/{CANARY}/{CANARY}/{DIGITS}/{DIGITS}",
-    "month-out-of-range": "99/01/26",           # NO canary: date() echoes the 99
-    "day-out-of-range": "02/30/26",             # NO canary: date() echoes the 30
+    "month-out-of-range": "99/01/54",           # NO canary: date() echoes the 99
+    "day-out-of-range": "02/30/54",             # NO canary: date() echoes the 30
     "year-out-of-range": "01/01/999999",        # NO canary: date() echoes the year
     "wrong-separator": f"01-15-{DIGITS}",
     "partial": "01",
@@ -191,7 +191,7 @@ from analysis import date_tokens as dt                                   # noqa:
 #: Every raising entry point of the date grammar, with a call that reaches its
 #: refusal. Driven by `__all__` below, so a reader added later cannot escape.
 DATE_INVOCATIONS = {
-    "iso_from_month_day": lambda token: dt.iso_from_month_day(token, 2026),
+    "iso_from_month_day": lambda token: dt.iso_from_month_day(token, 2054),
     "iso_from_month_day_year": lambda token: dt.iso_from_month_day_year(token),
     "parsed_datetime": lambda token: dt.parsed_datetime(
         token, "%m/%d/%Y", reader="probe"
@@ -214,9 +214,9 @@ def test_no_date_refusal_quotes_the_token(reader, shape):
 #: §MONEYPRIV MP12 MINOR-6's "quoting without a canary" shapes, and a proof
 #: that only looked for `ACMEPAYROLL` would pass on every row of it.
 POISONED_LONG_PERIODS = {
-    "day-out-of-range": "April 99, 2026 through May 4, 2026",
-    "second-day-out-of-range": "April 4, 2026 through May 77, 2026",
-    "february-30": "February 30, 2026 through March 4, 2026",
+    "day-out-of-range": "April 99, 2054 through May 4, 2054",
+    "second-day-out-of-range": "April 4, 2054 through May 77, 2054",
+    "february-30": "February 30, 2054 through March 4, 2054",
     "year-zero": "April 4, 0000 through May 4, 0000",
 }
 
@@ -226,7 +226,7 @@ def test_period_from_long_dates_refuses_privately(shape):
     """The one raiser whose input is a whole markdown document rather than a
     cell. Before this cell, `date(int(sy), start_month, int(sd))` was the raise
     and Python 3.13+ echoes the offending number back —
-    ``day 99 must be in range 1..30 for month 4 in year 2026`` — so the printed
+    ``day 99 must be in range 1..30 for month 4 in year 2054`` — so the printed
     day AND the printed year rode out on the message of a helper documented to
     return None."""
     span = POISONED_LONG_PERIODS[shape]
@@ -242,7 +242,7 @@ def test_the_date_refusal_vocabulary_is_closed_and_enumerable():
     the property `_refusal_class` exists to have."""
     produced = {
         dt._refusal_class(token) for token in POISONED_DATE_TOKENS.values()
-    } | {dt._refusal_class("01/15/2026"), dt._refusal_class("")}
+    } | {dt._refusal_class("01/15/2054"), dt._refusal_class("")}
     assert produced == {
         "the cell is empty",
         "no digits in the cell",
@@ -255,7 +255,7 @@ def test_a_date_refusal_names_the_reader_that_actually_refused():
     """The reason is only worth carrying if it is actionable. Both halves are
     pinned so a reworded message fails here rather than degrading silently."""
     with pytest.raises(ValueError) as raised:
-        dt.iso_from_month_day(CANARY, 2026)
+        dt.iso_from_month_day(CANARY, 2054)
     message = str(raised.value)
     assert message.startswith("date grammar refused a printed token")
     assert "reader=iso_from_month_day" in message
@@ -267,7 +267,7 @@ def test_the_century_mode_refusal_names_the_legal_values_and_not_the_illegal_one
     used to echo its argument, and `century` is a parameter a future caller
     could hand a document-derived string."""
     with pytest.raises(ValueError) as raised:
-        dt.iso_from_month_day_year("1/15/26", century=CANARY)
+        dt.iso_from_month_day_year("1/15/54", century=CANARY)
     assert CANARY not in str(raised.value)
     assert str(raised.value) == "unknown century mode: expected 'short' or 'always'"
 
@@ -313,7 +313,7 @@ def test_every_raising_export_of_the_date_grammar_is_swept():
         for token in POISONED_DATE_TOKENS.values():
             for call in (
                 lambda: member(token),
-                lambda: member(token, 2026),
+                lambda: member(token, 2054),
                 lambda: member(token, century="short"),
             ):
                 try:
@@ -336,7 +336,7 @@ def test_iso_within_period_cannot_raise_because_the_triple_is_already_proven():
     never fire."""
     from datetime import date as _date
 
-    start, end = _date(2026, 1, 1), _date(2026, 12, 31)
+    start, end = _date(2054, 1, 1), _date(2054, 12, 31)
     for token in ("99/99", "02/30", "13/01", "00/00"):
         assert dt.iso_within_period(token, start, end) is None
 
@@ -350,7 +350,7 @@ def test_the_overflow_contract_is_closed_and_the_scope_of_the_constructor_claim(
     """This section used to PIN the defect
     (`test_an_over_long_integer_reaches_date_as_an_overflow_error_not_a_refusal`).
 
-    `datetime.date(2026, 1, 4471009238)` raises `OverflowError: Python int too
+    `datetime.date(2054, 1, 4471009238)` raises `OverflowError: Python int too
     large to convert to C long`, an `ArithmeticError` and not a `ValueError`, so
     every `except ValueError` in the date layer let it through. It was never a
     privacy defect - the message is a fixed CPython sentence - but it WAS a
@@ -369,14 +369,14 @@ def test_the_overflow_contract_is_closed_and_the_scope_of_the_constructor_claim(
     # 1. the mechanism is unchanged - `date()` still overflows, so the closure
     #    is a handler and not a CPython accident.
     with pytest.raises(OverflowError) as raised:
-        _date(2026, 1, huge)
+        _date(2054, 1, huge)
     assert DIGITS not in str(raised.value)
     # 2. the "one constructor" claim above is about what the date grammar
     #    RAISES, and the helpers documented to return None still return it.
-    assert dt.iso_or_none(2026, 1, huge) is None
-    assert dt.year_within_period(1, huge, _date(2026, 1, 1), _date(2026, 12, 31)) is None
+    assert dt.iso_or_none(2054, 1, huge) is None
+    assert dt.year_within_period(1, huge, _date(2054, 1, 1), _date(2054, 12, 31)) is None
     with pytest.raises(ValueError) as raised:
-        dt.iso_from_month_day(f"1/{DIGITS}", 2026)
+        dt.iso_from_month_day(f"1/{DIGITS}", 2054)
     assert "date grammar refused a printed token" in str(raised.value)
     assert DIGITS not in str(raised.value)
 
@@ -420,7 +420,7 @@ def test_no_parser_money_refusal_quotes_the_cell(site, shape):
 def test_the_td_can_native_date_refusal_quotes_nothing(shape):
     token = POISONED_DATE_TOKENS[shape]
     with pytest.raises(ValueError) as raised:
-        td_can._native_date_to_iso(token, default_year=2026)
+        td_can._native_date_to_iso(token, default_year=2054)
     assert_private(raised.value, token)
 
 
@@ -433,7 +433,7 @@ def test_a_parser_money_refusal_names_its_own_site(site):
 
 def test_the_td_can_refusal_names_its_own_site():
     with pytest.raises(ValueError) as raised:
-        td_can._native_date_to_iso(CANARY, default_year=2026)
+        td_can._native_date_to_iso(CANARY, default_year=2054)
     assert "reader=td_can._native_date_to_iso" in str(raised.value)
 
 
@@ -813,19 +813,19 @@ def test_every_entry_of_the_raw_date_allowlist_carries_a_reason():
 #: must not flag. A guard that flags everything is not a guard either.
 _RAW_DATE_MUTANTS = [
     ("the-site-6-shape",
-     "def f(t):\n    m = R.search(t)\n    return date(2031, int(m.group(1)), 1)\n", 1),
+     "def f(t):\n    m = R.search(t)\n    return date(2059, int(m.group(1)), 1)\n", 1),
     ("inside-a-value-error-handler-is-STILL-reported",
      "def f(t):\n    m = R.search(t)\n    try:\n"
-     "        return date(2031, int(m.group(1)), 1)\n"
+     "        return date(2059, int(m.group(1)), 1)\n"
      "    except ValueError:\n        return None\n", 1),
     ("the-attribute-spelling",
-     "def f(t):\n    m = R.search(t)\n    return datetime.date(2031, int(m.group(1)), 1)\n", 1),
+     "def f(t):\n    m = R.search(t)\n    return datetime.date(2059, int(m.group(1)), 1)\n", 1),
     ("the-funnel-shape-this-card-installed",
-     "def f(t):\n    m = R.search(t)\n    iso = iso_or_none(2031, int(m.group(1)), 1)\n"
+     "def f(t):\n    m = R.search(t)\n    iso = iso_or_none(2059, int(m.group(1)), 1)\n"
      "    if iso is None:\n        raise date_refusal('f', t)\n"
      "    return date.fromisoformat(iso)\n", 0),
     ("a-constant-only-construction",
-     "def f():\n    return date(2031, 1, 1)\n", 0),
+     "def f():\n    return date(2059, 1, 1)\n", 0),
 ]
 
 
@@ -1337,15 +1337,15 @@ def test_the_parse_mode_clause_is_what_stops_the_call_on_the_structurer_branch(
             bank=None,
             account_name=None,
             account_number=None,
-            period_start="2026-01-01",
-            period_end="2026-01-31",
+            period_start="2054-01-01",
+            period_end="2054-01-31",
             days_in_period=31,
             beginning_balance=1000.00,
             ending_balance=9999.00,
             stated_total_credits=5000.00,
             stated_total_debits=250.00,
             transactions=[Transaction(
-                date="2026-01-05",
+                date="2054-01-05",
                 description="A POSTING",
                 amount=100.00,
                 direction="credit",

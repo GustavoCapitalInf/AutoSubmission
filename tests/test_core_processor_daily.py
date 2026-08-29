@@ -21,7 +21,7 @@ from analysis import parser_registry_entries  # noqa: F401 — populates the reg
 # ---------------------------------------------------------------------------
 
 MASTHEAD = (
-    "Last statement: March 31, 2026 This statement: April 30, 2026 "
+    "Last statement: March 31, 2054 This statement: April 30, 2054 "
     "Total days in statement period: 30\n"
     "HOLDER NAME 1 EXAMPLE ST EXAMPLETOWN XX 00000-0000\n"
     "Page 1 XXXXXX0000 ( 2)\n"
@@ -100,13 +100,13 @@ def test_the_page_and_account_fields_may_interleave_the_period_sentence():
     and account fields between them. A contiguous pattern reads that document
     as printing no period at all."""
     interleaved = (
-        "Last statement: March 31, 2026 Page 1 of 9\n"
-        "This statement: April 30, 2026 XXXXXX0000\n"
+        "Last statement: March 31, 2054 Page 1 of 9\n"
+        "This statement: April 30, 2054 XXXXXX0000\n"
         "Total days in statement period: 30\n"
     ) + MASTHEAD.split("\n", 1)[1]
     statement = parse(document(masthead=interleaved))
     assert statement is not None
-    assert (statement.period_start, statement.period_end) == ("2026-04-01", "2026-04-30")
+    assert (statement.period_start, statement.period_end) == ("2054-04-01", "2054-04-30")
 
 
 def test_a_title_case_period_line_of_another_platform_is_not_claimed():
@@ -114,9 +114,9 @@ def test_a_title_case_period_line_of_another_platform_is_not_claimed():
     title case with no colon, inside a `Statement Period Start:` layout. They
     are a different platform and this registration must not reach them."""
     other = (
-        "Statement Period Start: May 1, 2026 Statement Period End: May 31, 2026\n"
+        "Statement Period Start: May 1, 2054 Statement Period End: May 31, 2054\n"
         "Account Summary\n"
-        "Beginning Balance as of 05/01/2026 $3,297.98 "
+        "Beginning Balance as of 05/01/2054 $3,297.98 "
         "+ Deposits and Credits  (31) $80,351.88\n"
         "Total Days in Statement Period 31\n"
     )
@@ -133,8 +133,8 @@ def test_the_whole_statement_is_published_from_the_printed_figures():
     assert statement.bank is None
     assert statement.account_name == "Example Business Checking"
     assert statement.account_number == "XXXXXX0000"
-    assert statement.period_start == "2026-04-01"
-    assert statement.period_end == "2026-04-30"
+    assert statement.period_start == "2054-04-01"
+    assert statement.period_end == "2054-04-30"
     assert statement.days_in_period == 30
     assert statement.beginning_balance == 100.00
     assert statement.ending_balance == 150.00
@@ -142,8 +142,8 @@ def test_the_whole_statement_is_published_from_the_printed_figures():
     assert statement.stated_total_debits == 250.00
     assert statement.stated_average_balance == 120.00
     assert [(row.date, row.amount, row.direction) for row in statement.transactions] == [
-        ("2026-04-02", -250.00, "debit"),
-        ("2026-04-03", 300.00, "credit"),
+        ("2054-04-02", -250.00, "debit"),
+        ("2054-04-03", 300.00, "credit"),
     ]
 
 
@@ -152,7 +152,7 @@ def test_the_period_opens_the_day_after_the_last_statement_closed():
     Reading them as the period's own endpoints would publish a period a day
     too long, and would put the grid's first cell outside it."""
     statement = parse(document())
-    assert statement.period_start == "2026-04-01"  # not 2026-03-31
+    assert statement.period_start == "2054-04-01"  # not 2054-03-31
 
 
 def test_the_printed_day_count_must_match_the_span_of_the_two_dates():
@@ -166,7 +166,7 @@ def test_the_pre_period_grid_cell_is_not_published_as_a_snapshot():
     one as a defect of the statement."""
     statement = parse(document())
     assert [entry.date for entry in statement.stated_daily_balances] == [
-        "2026-04-02", "2026-04-03",
+        "2054-04-02", "2054-04-03",
     ]
 
 
@@ -230,10 +230,10 @@ def test_a_grid_cell_the_scan_left_unreadable_refuses_rather_than_being_skipped(
 def test_the_grid_refusal_is_the_contract_of_the_reader_not_of_the_caller():
     """The same thing pinned at the seam, so the refusal cannot be reduced to
     the walked-set comparison by a later edit."""
-    assert cpd._grid(["\n03-31 100.00 04-02\n"], seed=date(2026, 3, 31),
-                     end=date(2026, 4, 30)) is None
-    assert cpd._grid(["\n05-15 100.00\n"], seed=date(2026, 3, 31),
-                     end=date(2026, 4, 30)) is None
+    assert cpd._grid(["\n03-31 100.00 04-02\n"], seed=date(2054, 3, 31),
+                     end=date(2054, 4, 30)) is None
+    assert cpd._grid(["\n05-15 100.00\n"], seed=date(2054, 3, 31),
+                     end=date(2054, 4, 30)) is None
 
 
 def test_a_summary_whose_own_identity_does_not_close_refuses():
@@ -317,8 +317,8 @@ def test_the_missing_amount_refusal_is_the_contract_of_the_reader():
     """Pinned at the seam as well, for the same reason as the grid's: an
     outcome test cannot distinguish `_rows` refusing from `_rows` returning a
     short list that some later gate happens to catch."""
-    assert cpd._rows(["04-02 ' ACH Debit\n"], credit=False, start=date(2026, 4, 1),
-                     end=date(2026, 4, 30), default="Debit") is None
+    assert cpd._rows(["04-02 ' ACH Debit\n"], credit=False, start=date(2054, 4, 1),
+                     end=date(2054, 4, 30), default="Debit") is None
 
 
 def test_a_row_the_period_cannot_place_refuses_its_whole_section():

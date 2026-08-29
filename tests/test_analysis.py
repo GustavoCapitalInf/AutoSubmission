@@ -162,9 +162,9 @@ def test_strip_embedded_images_removes_base64_bloat():
 
 def test_normalize_statement_drops_daily_balance_summary_rows():
     stmt = Statement(transactions=[
-        _txn("2026-04-30", -10.0, "MAINTENANCE FEE"),
-        _txn("2026-04-30", 0.0, "DAILY BALANCE", bal=35121.16),
-        _txn("2026-04-29", 0.0, "DAILY BALANCE SUMMARY", bal=36361.22),
+        _txn("2054-04-30", -10.0, "MAINTENANCE FEE"),
+        _txn("2054-04-30", 0.0, "DAILY BALANCE", bal=35121.16),
+        _txn("2054-04-29", 0.0, "DAILY BALANCE SUMMARY", bal=36361.22),
     ])
     cleaned = normalize_statement(stmt)
     assert [t.description for t in cleaned.transactions] == ["MAINTENANCE FEE"]
@@ -174,23 +174,23 @@ def test_parse_td_canada_table_handles_fused_and_shifted_rows():
     md = """
 Accounts issued by: THE TORONTO-DOMINION BANK
 <table>
-<tr><td>Branch No.</td><td>Account No.</td><td>BUSINESS CHEQUING ACCOUNT - CAD EVERY DAY A</td><td>SEP 29/25 - OCT 31/25</td></tr>
+<tr><td>Branch No.</td><td>Account No.</td><td>BUSINESS CHEQUING ACCOUNT - CAD EVERY DAY A</td><td>SEP 29/53 - OCT 31/53</td></tr>
 <tr><td>2023</td><td>2023-5224784</td><td>EVERY DAY A</td><td>Page 1 of 2</td></tr>
 <tr><td>DESCRIPTION</td><td>CHEQUE/DEBIT</td><td>DEPOSIT/CREDIT</td><td>DATE</td><td>BALANCE</td></tr>
 <tr><td>BALANCE FORWARD PRODIGY SYSTEMS PAY</td><td></td><td>100.00</td><td>SEP29 OCT10</td><td>19.070D</td></tr>
 <tr><td>SEND E-TFR FEE</td><td>1.50</td><td></td><td>200.00</td><td>OCT15</td></tr>
 <tr><td>PRODIGY SYSTEMS PAY</td><td></td><td></td><td>OCT24</td><td></td></tr>
-<tr><td>0 CHQS ENCLOSED NEXT STATEMENT DATE IS</td><td>NOV 28/25</td><td></td><td>No.</td><td>Amount</td></tr>
+<tr><td>0 CHQS ENCLOSED NEXT STATEMENT DATE IS</td><td>NOV 28/53</td><td></td><td>No.</td><td>Amount</td></tr>
 <tr><td>MONTHLY AVER. CR. BAL.</td><td>$294.88</td><td>Credits</td><td>2 300.00</td></tr>
 <tr><td>DEP CONTENT- CASH 0</td><td>ITEMS 0</td><td>UNC BATCH 0</td><td>Debits</td><td>1 1.50</td></tr>
 </table>
 <table>
-<tr><td>Branch No.</td><td>Account No.</td><td>BUSINESS CHEQUING ACCOUNT - CAD EVERY DAY A</td><td>SEP 29/25 - OCT 31/25</td></tr>
+<tr><td>Branch No.</td><td>Account No.</td><td>BUSINESS CHEQUING ACCOUNT - CAD EVERY DAY A</td><td>SEP 29/53 - OCT 31/53</td></tr>
 <tr><td>2023</td><td>2023-5224784</td><td>EVERY DAY A</td><td>Page 2 of 2</td></tr>
 <tr><td>DESCRIPTION</td><td>CHEQUE/DEBIT</td><td>DEPOSIT/CREDIT</td><td>DATE</td><td>BALANCE</td></tr>
 <tr><td>BALANCE FORWARD</td><td></td><td></td><td>OCT24</td><td>279.43</td></tr>
 <tr><td>MONTHLY PLAN FEE</td><td>30.00</td><td></td><td>OCT31</td><td>249.43</td></tr>
-<tr><td>0 CHQS ENCLOSED NEXT STATEMENT DATE IS NOV 28/25</td><td></td><td></td><td>No.</td><td>Amount</td></tr>
+<tr><td>0 CHQS ENCLOSED NEXT STATEMENT DATE IS NOV 28/53</td><td></td><td></td><td>No.</td><td>Amount</td></tr>
 <tr><td>MONTHLY AVER. CR. BAL.</td><td>$294.88</td><td></td><td>Credits</td><td>0 0.00</td></tr>
 <tr><td>DEP CONTENT- CASH 0 ITEMS 0 UNC BATCH 0</td><td></td><td></td><td>Debits</td><td>1 30.00</td></tr>
 </table>
@@ -198,8 +198,8 @@ Accounts issued by: THE TORONTO-DOMINION BANK
     stmt = parse_td_canada_statement(md)
     assert stmt is not None
     assert stmt.account_number == "2023-5224784"
-    assert stmt.period_start == "2025-09-29"
-    assert stmt.period_end == "2025-10-31"
+    assert stmt.period_start == "2053-09-29"
+    assert stmt.period_end == "2053-10-31"
     assert stmt.beginning_balance == -19.07
     assert stmt.ending_balance == 249.43
     assert stmt.stated_total_credits == 300.0
@@ -223,7 +223,7 @@ def test_analyze_td_canada_native_text_bypasses_gemini(monkeypatch):
 --- Page 1 ---
 Accounts issued by: THE TORONTO-DOMINION BANK
 Statement of Account Account Type Statement From - To
-Branch No. Account No. MAR 31/26 - APR 30/26
+Branch No. Account No. MAR 31/54 - APR 30/54
 BUSINESS CHEQUING ACCOUNT - CAD EVERY DAY B
 4444 0052-5220318 Page 1 of 1
 DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE
@@ -234,7 +234,7 @@ SERVICE CHARGE 23.39 APR30 56.03
 MONTHLY AVER. CR. BAL. $483.78
 Credits 1 100.00
 Debits 2 73.39
-0 CHQS ENCLOSED NEXT STATEMENT DATE IS MAY 29/26
+0 CHQS ENCLOSED NEXT STATEMENT DATE IS MAY 29/54
 """
     report = analyze_markdown(md)
     assert report.model_used == "td-canada-trust-deterministic"
@@ -246,7 +246,7 @@ Debits 2 73.39
 def test_parse_td_us_native_text_sections_with_subtotals():
     md = """
 STATEMENT OF ACCOUNT
-Page: 1 of 2 Statement Period: Mar 01 2026-Mar 31 2026 Cust Ref #: 8264919330-713-7-### Primary Account #: 826-4919330
+Page: 1 of 2 Statement Period: Mar 01 2054-Mar 31 2054 Cust Ref #: 8264919330-713-7-### Primary Account #: 826-4919330
 TD Bank, N.A.
 TD Business Simple Checking
 NARROWCAST MEDIA LLC Account # 826-4919330
@@ -279,8 +279,8 @@ Subtotal: 10.00
     stmt = parse_td_us_statement(md)
     assert stmt is not None
     assert stmt.account_number == "826-4919330"
-    assert stmt.period_start == "2026-03-01"
-    assert stmt.period_end == "2026-03-31"
+    assert stmt.period_start == "2054-03-01"
+    assert stmt.period_end == "2054-03-31"
     assert stmt.stated_total_credits == 550.0
     assert stmt.stated_total_debits == 335.0
     assert stmt.stated_average_balance == 125.0
@@ -306,7 +306,7 @@ def test_document_integrity_clear_for_reconciled_transaction_detail():
         ending_balance=150.0,
         stated_total_credits=75.0,
         stated_total_debits=25.0,
-        transactions=[_txn("2026-01-01", 75.0), _txn("2026-01-02", -25.0)],
+        transactions=[_txn("2054-01-01", 75.0), _txn("2054-01-02", -25.0)],
     )
     recon = reconcile(stmt)
     quality = Quality(
@@ -328,7 +328,7 @@ def test_document_integrity_review_for_incomplete_detail_with_trusted_summary():
         ending_balance=250.0,
         stated_total_credits=200.0,
         stated_total_debits=50.0,
-        transactions=[_txn("2026-01-01", 100.0)],
+        transactions=[_txn("2054-01-01", 100.0)],
     )
     recon = reconcile(stmt)
     quality = Quality(
@@ -350,7 +350,7 @@ def test_document_integrity_high_for_bank_summary_math_contradiction():
         ending_balance=250.0,
         stated_total_credits=10.0,
         stated_total_debits=50.0,
-        transactions=[_txn("2026-01-01", 100.0)],
+        transactions=[_txn("2054-01-01", 100.0)],
     )
     recon = reconcile(stmt)
     quality = Quality(
@@ -374,7 +374,7 @@ def _reconciled_statement_for_page_declarations() -> tuple[Statement, object, Qu
         ending_balance=150.0,
         stated_total_credits=75.0,
         stated_total_debits=25.0,
-        transactions=[_txn("2026-01-01", 75.0), _txn("2026-01-02", -25.0)],
+        transactions=[_txn("2054-01-01", 75.0), _txn("2054-01-02", -25.0)],
     )
     quality = Quality(
         level="transaction_level",
@@ -620,14 +620,14 @@ def _sheet_markdown(*pages: str) -> str:
 #: batch-6 census named as an expected future currency mover.
 ATB_NATIVE_TEXT = """
 Deposit Account Statement
-Statement date August 31, 2023 Transit number 08479-219 Customer number 0002913777 Page number 1 of 1
+Statement date August 31, 2051 Transit number 08479-219 Customer number 0002913777 Page number 1 of 1
 Your ATB Financial Branch 08479 Fort McMurray Downtown Branch
 A summary of Deposit Account Unlimited Business Banking
 00273985278 Transit # 08479-219
-Your balance forward on Jul 31, 2023 $1,000.00
+Your balance forward on Jul 31, 2051 $1,000.00
 Debits to your account (2 items) - $350.00
 Credits to your account (2 items) + $600.00
-Your closing balance on Aug 31, 2023 = $1,250.00
+Your closing balance on Aug 31, 2051 = $1,250.00
 Details of your account transactions
 Debits to your
 Credits to your
@@ -648,8 +648,8 @@ def test_parse_atb_native_text_transactions_from_running_balance():
     assert stmt is not None
     assert stmt.bank == "ATB Financial"
     assert stmt.account_number == "00273985278"
-    assert stmt.period_start == "2023-08-01"
-    assert stmt.period_end == "2023-08-31"
+    assert stmt.period_start == "2051-08-01"
+    assert stmt.period_end == "2051-08-31"
     assert stmt.stated_total_credits == 600.0
     assert stmt.stated_total_debits == 350.0
     assert [t.amount for t in stmt.transactions] == [500.0, -200.0, 100.0, -150.0]
@@ -658,7 +658,7 @@ def test_parse_atb_native_text_transactions_from_running_balance():
 
 def test_parse_b1_native_text_running_balances_and_ending_totals():
     md = """
-Last statement: March 31, 2026 This statement: April 30, 2026 Total days in statement period: 30
+Last statement: March 31, 2054 This statement: April 30, 2054 Total days in statement period: 30
 B1Bank 500 Laurel St Baton Rouge LA 70801
 Essential Business Checking
 Account number XXXXXXX6478 Enclosures 2 Low balance $79,802.46 Average balance $165,555.58
@@ -677,8 +677,8 @@ Ending totals Ending totals Ending totals Ending totals 500.00 500.00 500.00 500
     stmt = parse_b1_statement(md)
     assert stmt is not None
     assert stmt.account_number == "XXXXXXX6478"
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert stmt.days_in_period == 30
     assert stmt.stated_average_balance == 165555.58
     assert stmt.stated_total_credits == 500.0
@@ -689,10 +689,10 @@ Ending totals Ending totals Ending totals Ending totals 500.00 500.00 500.00 500
 
 def test_parse_santander_native_text_running_balances_and_summary_totals():
     md = """
-Statement Period 04/01/26 TO 04/30/26
+Statement Period 04/01/54 TO 04/30/54
 Primary Account #: 51100013856
 Santander Bank, N.A.
-BUSINESS BANKING ANALYZED CHECKING Statement Period 04/01/26 - 04/30/26
+BUSINESS BANKING ANALYZED CHECKING Statement Period 04/01/54 - 04/30/54
 Balances
 Beginning Balance $225,068.44 Ending Balance $318,936.83 Deposits/Credits +$136,370.89 Average Daily Balance $250,434.95 Withdrawals/Debits -$42,502.50
 Checks Posted
@@ -715,8 +715,8 @@ Please contact us immediately if you think your statement contains any errors.
     stmt = parse_santander_statement(md)
     assert stmt is not None
     assert stmt.account_number == "51100013856"
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert stmt.days_in_period == 30
     assert stmt.stated_total_credits == 136370.89
     assert stmt.stated_total_debits == 42502.5
@@ -730,31 +730,31 @@ def test_parse_bluevine_native_text_transactions_and_summary():
 Bluevine Inc.
 Account statement
 Account Number: 875108782439
-Statement Period: March 2026 (March 1, 2026 - March 31, 2026)
+Statement Period: March 2026 (March 1, 2054 - March 31, 2054)
 Activity summary
-Beginning Balance on 03/01/2026 $1,556.68
+Beginning Balance on 03/01/2054 $1,556.68
 Deposits/credits $55,504.86
 Withdrawals/debits $-33,007.48
-Ending balance on 03/31/2026 $24,054.06
+Ending balance on 03/31/2054 $24,054.06
 Transactions
 Date Description Amount
-03/01/26 Interest earned in February 2026 $7.50
-03/07/26 LOWES #01195* PLATTSBURGH NY $506.18
-03/09/26 JB HOME SERVICES, JB HOME SE $4,945.12
-03/20/26 Incoming Wire from JACALYN M BORN $24,921.00
-03/24/26 Incoming Wire from JACALYN M BORN $24,921.00
-03/31/26 Client payment $204.06
-03/01/26 PAYPAL *bmill1026, 4029357733, CA $-103.20
-03/11/26 ACH payment to Jessica Favaro $-850.00
-03/23/26 PROGRESSIVE *INSURANCE, MAYFIELD VLG, OH $-1,959.79
-03/25/26 ACH payment to Jessica Favaro $-850.00
-03/31/26 Vendor withdrawal $-29,244.49
+03/01/54 Interest earned in February 2026 $7.50
+03/07/54 LOWES #01195* PLATTSBURGH NY $506.18
+03/09/54 JB HOME SERVICES, JB HOME SE $4,945.12
+03/20/54 Incoming Wire from JACALYN M BORN $24,921.00
+03/24/54 Incoming Wire from JACALYN M BORN $24,921.00
+03/31/54 Client payment $204.06
+03/01/54 PAYPAL *bmill1026, 4029357733, CA $-103.20
+03/11/54 ACH payment to Jessica Favaro $-850.00
+03/23/54 PROGRESSIVE *INSURANCE, MAYFIELD VLG, OH $-1,959.79
+03/25/54 ACH payment to Jessica Favaro $-850.00
+03/31/54 Vendor withdrawal $-29,244.49
 """
     stmt = parse_bluevine_statement(md)
     assert stmt is not None
     assert stmt.account_number == "875108782439"
-    assert stmt.period_start == "2026-03-01"
-    assert stmt.period_end == "2026-03-31"
+    assert stmt.period_start == "2054-03-01"
+    assert stmt.period_end == "2054-03-31"
     assert stmt.days_in_period == 31
     assert stmt.stated_total_credits == 55504.86
     assert stmt.stated_total_debits == 33007.48
@@ -766,13 +766,13 @@ def test_parse_rbc_english_fee_breakdown_is_not_treated_as_month():
     md = """
 ROYAL BANK OF CANADA
 Business Account Statement
-March 2, 2026 to April 1, 2026
+March 2, 2054 to April 1, 2054
 Account number: 01678 101-196-4
 Account Summary for this Period
-Opening balance on March 2, 2026 -$216.54
+Opening balance on March 2, 2054 -$216.54
 Total deposits & credits (3) + 21,422.47
 Total cheques & debits (5) - 8,624.00
-Closing balance on April 1, 2026 = $12,581.93
+Closing balance on April 1, 2054 = $12,581.93
 Account Activity Details
 Date Description Cheques & Debits ($) Deposits & Credits ($) Balance ($)
 Opening balance -216.54
@@ -789,8 +789,8 @@ e-Transfer sent hoang td personal 2,000.00 12,581.93
     stmt = parse_rbc_statement(md)
     assert stmt is not None
     assert stmt.account_number == "01678 101-196-4"
-    assert stmt.period_start == "2026-03-02"
-    assert stmt.period_end == "2026-04-01"
+    assert stmt.period_start == "2054-03-02"
+    assert stmt.period_end == "2054-04-01"
     # W3 Track A cell 3: the fee breakdown keeps ALL its printed text. The
     # truncated form this used to assert was an artefact of the row splitting
     # at `2.50` -- a printed unit price, not a money cell -- and then patching
@@ -814,13 +814,13 @@ e-Transfer sent hoang td personal 2,000.00 12,581.93
 def test_parse_cibc_french_statement_uses_balances_for_ambiguous_amounts():
     md = """
 Releve de compte CIBC
-Du 1 oct au 31 oct 2025
+Du 1 oct au 31 oct 2053
 Numero de compte 89-49638
 Sommaire du compte
-Solde d'ouverture le 1 oct 2025 -16,31 $
+Solde d'ouverture le 1 oct 2053 -16,31 $
 Retraits - 1 000,77
 Depots + 1 128,76
-Solde de cloture le 31 oct 2025 = 111,68 $
+Solde de cloture le 31 oct 2053 = 111,68 $
 Detail de vos operations
 Date Description Retraits ($) Depots ($) Solde ($) 1 oct Solde d'ouverture -16,31 $ 1 oct DEBIT PREAUTORISE L'INDUSTRIELLE-ALLIANCE
 242,14 -258,45
@@ -840,8 +840,8 @@ Solde de cloture 111,68 $
     assert stmt is not None
     assert stmt.account_number == "89-49638"
     assert stmt.currency == "CAD"
-    assert stmt.period_start == "2025-10-01"
-    assert stmt.period_end == "2025-10-31"
+    assert stmt.period_start == "2053-10-01"
+    assert stmt.period_end == "2053-10-31"
     assert stmt.stated_total_credits == 1128.76
     assert stmt.stated_total_debits == 1000.77
     assert [t.amount for t in stmt.transactions] == [-242.14, -277.41, 400.0, -350.0, 623.0, -130.01, -1.21, 105.76]
@@ -852,7 +852,7 @@ def test_parse_demo_national_sample_statement_from_running_balances():
     md = """
 SAMPLE BUSINESS BANK STATEMENT
 Test document for OCR/dashboard validation - not a real bank record
-Bank: Demo National Bank Statement Period: January 1, 2026 - January 31, 2026
+Bank: Demo National Bank Statement Period: January 1, 2054 - January 31, 2054
 Business: Apex Auto Detailing LLC Account Number: XXXXX4408
 Address: 901 NW 7th Ave, Fort Lauderdale, FL 33311 Account Type: Business Checking
 Account Summary Count Amount
@@ -863,10 +863,10 @@ Lender / MCA Debits Included In Debits 1 $125.00
 Ending Balance $475.00
 Checking Account Activity
 Date Description Deposits / Credits Withdrawals / Debits Balance
-01/02/2026 ACH CREDIT CLOVER NETWORK $300.00 $400.00
-01/05/2026 ACH DEBIT STRATEGIC FUNDING PAYMENT $125.00 $275.00
-01/10/2026 MOBILE DEPOSIT CUSTOMER CHECK $250.00 $525.00
-01/15/2026 BANK SERVICE FEE $50.00 $475.00
+01/02/2054 ACH CREDIT CLOVER NETWORK $300.00 $400.00
+01/05/2054 ACH DEBIT STRATEGIC FUNDING PAYMENT $125.00 $275.00
+01/10/2054 MOBILE DEPOSIT CUSTOMER CHECK $250.00 $525.00
+01/15/2054 BANK SERVICE FEE $50.00 $475.00
 Savings Account Activity
 No savings account activity for this statement period.
 """
@@ -874,8 +874,8 @@ No savings account activity for this statement period.
     assert stmt is not None
     assert stmt.bank == "Demo National Bank"
     assert stmt.account_number == "XXXXX4408"
-    assert stmt.period_start == "2026-01-01"
-    assert stmt.period_end == "2026-01-31"
+    assert stmt.period_start == "2054-01-01"
+    assert stmt.period_end == "2054-01-31"
     assert stmt.stated_total_credits == 550.0
     assert stmt.stated_total_debits == 175.0
     assert [t.amount for t in stmt.transactions] == [300.0, -125.0, 250.0, -50.0]
@@ -886,7 +886,7 @@ def test_parse_linkbank_running_balance_rows_with_trailing_minus():
     md = """
 Managing Your Accounts
 LINKBANK.COM
-Business Checking Check Safekeeping Account Number XXXXXXXXXXXX0393 Statement Dates 4/01/26 thru 4/30/26 Previous Balance 100.00 Days in the Statement Period 30 2 Deposits/Credits 1,500.00 Average Ledger 500.00 3 Checks/Debits 1,850.00 Average Collected 500.00 Service Charge .00 Interest Paid .00 Current Balance 250.00-
+Business Checking Check Safekeeping Account Number XXXXXXXXXXXX0393 Statement Dates 4/01/54 thru 4/30/54 Previous Balance 100.00 Days in the Statement Period 30 2 Deposits/Credits 1,500.00 Average Ledger 500.00 3 Checks/Debits 1,850.00 Average Collected 500.00 Service Charge .00 Interest Paid .00 Current Balance 250.00-
 Activity in Date Order Date Description Amount Balance
 4/01 Mobile Deposit 1,000.00 1,100.00
 4/02 ACH FORWARD FINANCIN 1,200.00- 100.00-
@@ -898,8 +898,8 @@ Checks in Number Order
     stmt = parse_linkbank_statement(md)
     assert stmt is not None
     assert stmt.account_number == "XXXXXXXXXXXX0393"
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert stmt.ending_balance == -250.0
     assert stmt.stated_total_credits == 1500.0
     assert stmt.stated_total_debits == 1850.0
@@ -912,15 +912,15 @@ def test_parse_midflorida_statement_reconciles_running_balances():
     md = """
 Website midflorida.com
 Free Business Checking - XXXXXXXX3628
-Account Summary Date Description Amount 04/01/2026 Beginning Balance -$438.53
+Account Summary Date Description Amount 04/01/2054 Beginning Balance -$438.53
 2 Credit(s) This Period $956.84 1 Debit(s) This Period $227.67
-04/30/2026 Ending Balance $290.64
+04/30/2054 Ending Balance $290.64
 Account Activity
 Post Date Description Withdrawal Deposit Balance
-04/01/2026 Beginning Balance -$438.53
-04/01/2026 Deposit $856.84 $418.31
-04/02/2026 External Withdrawal Kemper Auto $227.67 $190.64
-04/03/2026 Zelle Deposit Zelle From Make it True Product $100.00 $290.64
+04/01/2054 Beginning Balance -$438.53
+04/01/2054 Deposit $856.84 $418.31
+04/02/2054 External Withdrawal Kemper Auto $227.67 $190.64
+04/03/2054 Zelle Deposit Zelle From Make it True Product $100.00 $290.64
 Checks Cleared
 Overdraft and Returned Item Fees
 """
@@ -938,16 +938,16 @@ def test_parse_texas_bank_statement_keeps_service_charge_separate():
 Texas Bank and Trust
 6250TEXAS NNNNNN
 SMALL BUSINESS CHECKING
-Account Number 564400 Balance on 06/01/26 9,793.64 Date From 06/01/26
-Deposits ( 1 ) + 3,061.11 Date To 06/30/26 Interest Paid + 0.00
+Account Number 564400 Balance on 06/01/54 9,793.64 Date From 06/01/54
+Deposits ( 1 ) + 3,061.11 Date To 06/30/54 Interest Paid + 0.00
 Days in Statement Period 30 Checks/Debits ( 1 ) - 536.69
 Average Ledger 4,879.33 Service Charge - 10.00 Average Collected 4,859.11
-Balance on 06/30/26 12,308.06
+Balance on 06/30/54 12,308.06
 Deposits and Other Credits
-Date Description Amount 06/04/26 ACH_LBP REPUBLIC FINANCE PPD 3,061.11
+Date Description Amount 06/04/54 ACH_LBP REPUBLIC FINANCE PPD 3,061.11
 Withdrawals and Other Debits
-Date Description Amount 06/01/26 POS DEB 1010 05/31/26 SHREVEPORT TRUCK LA C#8801 536.69-
-06/30/26 SERVICE CHARGE 10.00-
+Date Description Amount 06/01/54 POS DEB 1010 05/31/54 SHREVEPORT TRUCK LA C#8801 536.69-
+06/30/54 SERVICE CHARGE 10.00-
 Daily Balance Information
 WITHDRAWALS AND OTHER DEBITS (CONTINUED)
 """
@@ -962,20 +962,20 @@ WITHDRAWALS AND OTHER DEBITS (CONTINUED)
 def test_parse_wilson_muir_statement_combines_summary_categories():
     md = """
 WILSON & MUIR BK & TRUST
-Statement Date: 05/30/2025 Account No.: #299 Page: 1
+Statement Date: 05/30/2053 Account No.: #299 Page: 1
 SMALL BUSINESS PACKAGE SUMMARY Type : **REG Status : Active
-Category Number Amount Balance Forward From 04/30/25 100.00
+Category Number Amount Balance Forward From 04/30/53 100.00
 Deposits 1 50.00+ Debits 1 30.00 Automatic Withdrawals 1 20.00
 Automatic Deposits 1 10.00+ Card Activity 0 0.00
-Ending Balance On 05/30/25 110.00 Foreign Items Deposited 0 Items Deposited 1
+Ending Balance On 05/30/53 110.00 Foreign Items Deposited 0 Items Deposited 1
 Average Balance (Ledger) 105.00+
 ALL CREDIT ACTIVITY
-Date Type Amount 05/08/25 Deposit 50.00
-Date Description Amount 05/29/25 MERCH BNKCD NSD DEPOSIT 10.00
+Date Type Amount 05/08/53 Deposit 50.00
+Date Description Amount 05/29/53 MERCH BNKCD NSD DEPOSIT 10.00
 ELECTRONIC DEBITS
-Date Description Amount 05/01/25 ONDECK CAPITAL 5 33952 20.00
+Date Description Amount 05/01/53 ONDECK CAPITAL 5 33952 20.00
 CHECKS AND OTHER DEBITS * indicates a gap in the check numbers
-Date Check # Amount 05/02/25 1367 30.00
+Date Check # Amount 05/02/53 1367 30.00
 DAILY BALANCE SUMMARY
 """
     stmt = parse_wilson_muir_statement(md)
@@ -989,7 +989,7 @@ DAILY BALANCE SUMMARY
 
 def test_parse_secu_statement_reconciles_business_checking_detail():
     md = """
-Statement Period: From: 03/01/2026 To: 03/31/2026 Page Number: 1 of 3
+Statement Period: From: 03/01/2054 To: 03/31/2054 Page Number: 1 of 3
 secumd.org
 Your Deposit Account(s) Summary
 Account Starting Deposits Withdrawals Interest Ending YTD Interest Description Balance ($) Credits ($) Debits ($) Dividend ($) Balance ($) Dividend ($)
@@ -1017,7 +1017,7 @@ def test_parse_navy_federal_statement_handles_reordered_credit_rows():
     md = """
 Statement of Account
 Statement Period
-04/01/26 - 04/30/26
+04/01/54 - 04/30/54
 Navy Federal
 Summary of your deposit accounts
 Previous Deposits/ Withdrawals/ Ending YTD Balance Credits Debits Balance Dividends
@@ -1057,7 +1057,7 @@ Mbr Business Savings
     assert stmt.account_number == "7208449525"
     assert stmt.stated_average_balance == 87.57
     assert [t.amount for t in stmt.transactions] == [50.0, -3.07]
-    assert [t.date for t in stmt.transactions] == ["2026-04-13", "2026-04-13"]
+    assert [t.date for t in stmt.transactions] == ["2054-04-13", "2054-04-13"]
     assert reconcile(stmt).ok
 
 
@@ -1065,7 +1065,7 @@ def test_parse_navy_federal_statement_handles_separate_negative_balance_marker()
     md = """
 Statement of Account
 Statement Period
-06/01/26 - 06/30/26
+06/01/54 - 06/30/54
 Navy Federal
 Summary of your deposit accounts
 Previous Deposits/ Withdrawals/ Ending YTD Balance Credits Debits Balance Dividends
@@ -1154,7 +1154,7 @@ def test_parse_consumers_primary_business_checking_with_wrapped_amounts():
     md = """
 Summary of All Accounts
 Statement Period:
-Mar 01, 2025 to Mar 31, 2025
+Mar 01, 2053 to Mar 31, 2053
 credit union
 ConsumersCU.org
 BusinessPlus Checking (S70) - 0836327000
@@ -1174,8 +1174,8 @@ Account Fee Summary
     assert stmt is not None
     assert stmt.bank == "Consumers Credit Union"
     assert stmt.account_number == "0836327000"
-    assert stmt.period_start == "2025-03-01"
-    assert stmt.period_end == "2025-03-31"
+    assert stmt.period_start == "2053-03-01"
+    assert stmt.period_end == "2053-03-31"
     assert stmt.stated_total_credits == 302.25
     assert stmt.stated_total_debits == 125.0
     assert [t.amount for t in stmt.transactions] == [300.0, -100.0, 2.25, -25.0]
@@ -1381,7 +1381,7 @@ def test_parse_desjardins_usd_layout_statement_reconciles_native_text():
 
 _DESJ_HEAD = """
 CAISSE DESJARDINS DE BORDEAUX-CARTIER
-From February 1 to February 28, 2026
+From February 1 to February 28, 2054
 STATEMENT OF ACCOUNT
 SJ 000-00000-0
 PCA                           {code}DESJARDINS CORPORATE BUILD-UP ACCOUNT
@@ -1500,18 +1500,18 @@ def test_parse_mission_valley_sectioned_statement_with_checks_and_daily_balances
     md = """
 Online Banking www.missionvalleybank.com
 Thank you for choosing Mission Valley Bank as your financial partner.
-GREEN CONVERGENCE XXXXXXXX1245 Statement Ending 01/30/2026 Page 1 of 6
+GREEN CONVERGENCE XXXXXXXX1245 Statement Ending 01/30/2054 Page 1 of 6
 Business Checking - XXXXXXXX1245
-Account Summary Date Description Amount 01/01/2026 Beginning Statement Balance $100.00 2 Credit(s) This Period $350.00 3 Debit(s) This Period $125.00 01/30/2026 Ending Statement Balance $325.00 Service Charges $0.00
-Deposits Date Description Amount 01/02/2026 MERCHANT CAPTURE DEPOSIT $150.00
-Deposits (continued) Date Description Amount 01/03/2026 Incoming Wire,LG FUNDING LLC,Funding Deal $200.00
-Electronic Debits Date Description Amount 01/04/2026 DIRECT DEB DELAGELANDEN TRN* 1* 5945551\\ $50.00
-Other Debits Date Description Amount 01/05/2026 SERVICE CHARGE $25.00
+Account Summary Date Description Amount 01/01/2054 Beginning Statement Balance $100.00 2 Credit(s) This Period $350.00 3 Debit(s) This Period $125.00 01/30/2054 Ending Statement Balance $325.00 Service Charges $0.00
+Deposits Date Description Amount 01/02/2054 MERCHANT CAPTURE DEPOSIT $150.00
+Deposits (continued) Date Description Amount 01/03/2054 Incoming Wire,LG FUNDING LLC,Funding Deal $200.00
+Electronic Debits Date Description Amount 01/04/2054 DIRECT DEB DELAGELANDEN TRN* 1* 5945551\\ $50.00
+Other Debits Date Description Amount 01/05/2054 SERVICE CHARGE $25.00
 Checks Cleared
-Check Nbr Date Amount 30812 01/06/2026 $50.00 * Indicates skipped check number
+Check Nbr Date Amount 30812 01/06/2054 $50.00 * Indicates skipped check number
 Daily Balances
-Date Amount 01/02/2026 $250.00 01/03/2026 $450.00
-Date Amount 01/04/2026 $400.00 01/05/2026 $375.00 01/06/2026 $325.00
+Date Amount 01/02/2054 $250.00 01/03/2054 $450.00
+Date Amount 01/04/2054 $400.00 01/05/2054 $375.00 01/06/2054 $325.00
 """
     stmt = parse_mission_valley_statement(md)
     assert stmt is not None
@@ -1530,13 +1530,13 @@ Thank you for being a member of Dakota West Credit Union.
 Website dakotawestcu.com
 Account Type Account Number Ending Balance Badlands Savings 35127372 $50.41 Small Business Checking 35127380 $4,026.32
 Small Business Checking - 35127380
-Account Summary Date Description Amount 11/01/2025 Beginning Balance $100.00 1 Credit(s) This Period $500.00 3 Debit(s) This Period $225.00 11/30/2025 Ending Balance $375.00
-Other Credits Date Description Amount 11/04/2025 External Deposit ACH ACH FILE - ACH 193219 $500.00
-Other Debits Date Description Amount 11/03/2025 POS Signature Purchase GOOGLE * GSUITE_ 1600 AMPHITHEATRE PMOUNTAIN VIEW CAUS
+Account Summary Date Description Amount 11/01/2053 Beginning Balance $100.00 1 Credit(s) This Period $500.00 3 Debit(s) This Period $225.00 11/30/2053 Ending Balance $375.00
+Other Credits Date Description Amount 11/04/2053 External Deposit ACH ACH FILE - ACH 193219 $500.00
+Other Debits Date Description Amount 11/03/2053 POS Signature Purchase GOOGLE * GSUITE_ 1600 AMPHITHEATRE PMOUNTAIN VIEW CAUS
 $25.00
-11/03/2025 External Withdrawal EBF Holdings - EBF DEBIT 12686396 $100.00
+11/03/2053 External Withdrawal EBF Holdings - EBF DEBIT 12686396 $100.00
 Checks Cleared
-Check Nbr Date Amount 1172 11/20/2025 $100.00 * Indicates skipped check number
+Check Nbr Date Amount 1172 11/20/2053 $100.00 * Indicates skipped check number
 """
     stmt = parse_dakota_west_statement(md)
     assert stmt is not None
@@ -1551,7 +1551,7 @@ def test_parse_truist_native_text_sections_and_ignores_secondary_account():
 Your consolidated statement
 Truist.com
 ¡ TRUIST DYNAMIC BUSINESS CHECKING - CORE TIER 1100033769111
-Account summary Your previous balance as of 01/30/2026 $100.00 Checks - 75.00 Other withdrawals, debits and service charges - 125.00 Deposits, credits and interest + 300.00 Your new balance as of 02/27/2026 = $200.00
+Account summary Your previous balance as of 01/30/2054 $100.00 Checks - 75.00 Other withdrawals, debits and service charges - 125.00 Deposits, credits and interest + 300.00 Your new balance as of 02/27/2054 = $200.00
 Checks DATE CHECK # AMOUNT($) DATE CHECK # AMOUNT($) DATE CHECK # AMOUNT($) 02/05 1049 25.00 02/17 *1054 50.00 * indicates a skip in sequential check numbers above this item Total checks = $75.00
 Other withdrawals, debits and service charges DATE DESCRIPTION AMOUNT($) 02/02 DEBIT CARD PURCHASE STORE 25.00 02/03 ZELLE BUSINESS PAYMENT TO Vendor PAYMENT ID BBT1 50.00 continued
 § PAGE  1  OF  2 0000001
@@ -1559,13 +1559,13 @@ Other withdrawals, debits and service charges DATE DESCRIPTION AMOUNT($) 02/02 D
 ¡ TRUIST DYNAMIC BUSINESS CHECKING - CORE TIER 1100033769111 (continued) DATE DESCRIPTION AMOUNT($) 02/04 OVERDRAFT ITEM FEE ($36/ITEM) 36 50.00 Total other withdrawals, debits and service charges = $125.00
 Deposits, credits and interest DATE DESCRIPTION AMOUNT($) 02/02 ZELLE BUSINESS PAYMENT FROM Client PAYMENT ID BBT2 100.00 02/05 CASH DEPOSIT 02-05-26 BRANCH 200.00 Total deposits, credits and interest = $300.00
 ¡ TRUIST SIMPLE BUSINESS CHECKING 1100033769138
-Account summary Your previous balance as of 01/30/2026 $15.98 Checks - 0.00 Other withdrawals, debits and service charges - 0.00 Deposits, credits and interest + 0.00 Your new balance as of 02/27/2026 = $15.98
+Account summary Your previous balance as of 01/30/2054 $15.98 Checks - 0.00 Other withdrawals, debits and service charges - 0.00 Deposits, credits and interest + 0.00 Your new balance as of 02/27/2054 = $15.98
 """
     stmt = parse_truist_statement(md)
     assert stmt is not None
     assert stmt.account_number == "1100033769111"
-    assert stmt.period_start == "2026-01-31"
-    assert stmt.period_end == "2026-02-27"
+    assert stmt.period_start == "2054-01-31"
+    assert stmt.period_end == "2054-02-27"
     assert stmt.beginning_balance == 100.0
     assert stmt.ending_balance == 200.0
     assert stmt.stated_total_credits == 300.0
@@ -1579,8 +1579,8 @@ def test_parse_us_bank_native_text_sections_and_totals():
 Business Statement
 Account Number:
 1 047 5916 1631 Statement Period:
-Apr 1, 2026
-through Apr 30, 2026
+Apr 1, 2054
+through Apr 30, 2054
 PLATINUM BUSINESS MONEY MARKET
 U.S. Bank National Association
 Account Number 1-047-5916-1631
@@ -1588,7 +1588,7 @@ Account Summary
 # Items
 Annual Percentage Yield Earned 0.56% Interest Earned this Period $ 8.04 Interest Paid this Year $ 34.79 Number of Days in Statement Period 30
 Beginning Balance on Apr 1 $ 4,664.53 Customer Deposits 1 38,604.42 Other Deposits 2 510,008.04 Other Withdrawals 3 512,963.42-
-Ending Balance on  Apr 30, 2026 $ 40,313.57
+Ending Balance on  Apr 30, 2054 $ 40,313.57
 Customer Deposits
 Number Date Ref Number Amount
 Apr 2 8952044985 38,604.42
@@ -1621,8 +1621,8 @@ Total Other Withdrawals $ 512,963.42-
     stmt = parse_us_bank_statement(md)
     assert stmt is not None
     assert stmt.account_number == "1-047-5916-1631"
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert stmt.days_in_period == 30
     assert stmt.stated_total_credits == 548612.46
     assert stmt.stated_total_debits == 512963.42
@@ -1635,9 +1635,9 @@ def test_parse_capital_one_uses_running_balances_to_fix_miscolumned_credits():
     md = """
 AN IMPORTANT MESSAGE TO OUR CLIENTS
 CapitalOne Bank
-ACCOUNT SUMMARY FOR PERIOD MARCH 01, 2026 - MARCH 31, 2026
+ACCOUNT SUMMARY FOR PERIOD MARCH 01, 2054 - MARCH 31, 2054
 Business Basic Checking 00005733890536
-<table><tr><td>Previous Balance 02/28/26</td><td>$619.39</td></tr><tr><td>19 Deposits/Credits</td><td>$9,230.78</td></tr><tr><td>30 Checks/Debits</td><td>($8,968.79)</td></tr><tr><td>Service Charges</td><td>($15.00)</td></tr><tr><td>Ending Balance 03/31/26</td><td>$866.38</td></tr></table>
+<table><tr><td>Previous Balance 02/28/54</td><td>$619.39</td></tr><tr><td>19 Deposits/Credits</td><td>$9,230.78</td></tr><tr><td>30 Checks/Debits</td><td>($8,968.79)</td></tr><tr><td>Service Charges</td><td>($15.00)</td></tr><tr><td>Ending Balance 03/31/54</td><td>$866.38</td></tr></table>
 <table><tr><td>Number of Days in Cycle</td><td>31</td></tr><tr><td>Minimum Balance This Cycle</td><td>($20.71)</td></tr><tr><td>Average Collected Balance</td><td>$194.39</td></tr></table>
 <table><tr><td>Date</td><td>Description</td><td>Deposits/Credits</td><td>Withdrawals/Debits</td><td>Resulting Balance</td></tr>
 <tr><td>03/02</td><td>TRANSFER DEPOSIT From ....2395</td><td>$550.00</td><td></td><td>$1,169.39</td></tr>
@@ -1664,9 +1664,9 @@ def test_parse_capital_one_native_text_uses_resulting_balances():
 AN IMPORTANT MESSAGE TO OUR CLIENTS
 Capital One
 ACCOUNT SUMMARY      FOR PERIOD
-MARCH 01, 2026  -  MARCH 31, 2026
-Previous Balance  02/28/26 $619.39 Number of Days in Cycle 31 2 Deposits/Credits $700.00 Minimum Balance This Cycle ($20.71) 2 Checks/Debits ($695.00) Average Collected Balance $194.39 Service Charges ($5.00) Ending Balance 03/31/26 $619.39
-ACCOUNT DETAIL    FOR PERIOD  MARCH 01, 2026  -  MARCH 31, 2026
+MARCH 01, 2054  -  MARCH 31, 2054
+Previous Balance  02/28/54 $619.39 Number of Days in Cycle 31 2 Deposits/Credits $700.00 Minimum Balance This Cycle ($20.71) 2 Checks/Debits ($695.00) Average Collected Balance $194.39 Service Charges ($5.00) Ending Balance 03/31/54 $619.39
+ACCOUNT DETAIL    FOR PERIOD  MARCH 01, 2054  -  MARCH 31, 2054
 Date Description Deposits/Credits Withdrawals/Debits Resulting Balance 03/02 TRANSFER DEPOSIT From ....2395 UTIDMMFTMUDBOSKEAU0
 $550.00 $1,169.39
 03/02 ACH Withdrawal AMEX EPAYMENT ACH PMT
@@ -1717,7 +1717,7 @@ def test_parse_chase_sections_and_infers_single_missing_section_amount():
 *start*summary
 CHASE
 JPMorgan Chase Bank, N.A.
-April 29, 2023 through May 31, 2023
+April 29, 2051 through May 31, 2051
 Account Number: 000000700000031
 CHECKING SUMMARY
 Chase Business Complete Checking
@@ -1753,7 +1753,7 @@ FEES
 
 def test_parse_chase_native_text_sections():
     md = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 *start*summary
@@ -1800,7 +1800,7 @@ Total Fees $15.00
 
 def test_parse_chase_native_checks_with_skipped_check_marker_before_caret():
     md = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 *start*summary
@@ -1827,7 +1827,7 @@ Total Checks Paid $1,172.09
 
 def test_parse_chase_native_online_transfer_rows_do_not_merge_with_previous_row():
     md = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 *start*summary
@@ -1857,7 +1857,7 @@ Total Electronic Withdrawals $40.00
 
 def test_parse_chase_native_real_time_transfer_recd_splits_from_online_transfer():
     md = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 *start*summary
@@ -1883,7 +1883,7 @@ Total Deposits and Additions $8,427.93
 
 def test_parse_chase_native_online_payment_splits_from_previous_ach_row():
     md = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 *start*summary
@@ -1909,7 +1909,7 @@ Total Electronic Withdrawals $2,479.55
 
 def test_parse_chase_native_payment_sent_card_rows_split_from_previous_purchase():
     md = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 *start*summary
@@ -1933,7 +1933,7 @@ Total ATM & Debit Card Withdrawals $410.32
 
 def test_parse_chase_native_payment_to_rows_split_from_previous_ach_row():
     md = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 *start*summary
@@ -1959,7 +1959,7 @@ Total Electronic Withdrawals $1,243.45
 
 def test_parse_chase_native_fee_reversal_splits_from_previous_deposit():
     md = """
-January 01, 2026 through January 31, 2026
+January 01, 2054 through January 31, 2054
 JPMorgan Chase Bank, N.A.
 Account Number: 000000123456789
 *start*summary
@@ -1987,14 +1987,14 @@ def test_repair_bofa_summary_folds_checks_and_service_fees():
     md = """
 Bank of America
 Account summary
-Beginning balance on February 1, 2026 $6,767.39
+Beginning balance on February 1, 2054 $6,767.39
 # of deposits/credits: 52
 Deposits and other credits 35,968.84
 # of withdrawals/debits: 154
 Withdrawals and other debits -35,626.82
 Checks -5,490.40
 Service fees -120.43
-Ending balance on February 28, 2026 $1,498.58
+Ending balance on February 28, 2054 $1,498.58
 Total # of checks 10
 """
     stmt = repair_bofa_summary(md, Statement(bank="Bank of America"))
@@ -2015,14 +2015,14 @@ def test_repair_bofa_summary_preserves_signed_balances():
     md = """
 Bank of America
 Account summary
-Beginning balance on January 1, 2026 -$225.43
+Beginning balance on January 1, 2054 -$225.43
 # of deposits/credits: 1
 Deposits and other credits 260.24
 # of withdrawals/debits: 0
 Withdrawals and other debits -0.00
 Checks -0.00
 Service fees -0.00
-Ending balance on January 31, 2026 $34.81
+Ending balance on January 31, 2054 $34.81
 """
     stmt = repair_bofa_summary(md, Statement(bank="Bank of America"))
     assert stmt.beginning_balance == -225.43
@@ -2035,10 +2035,10 @@ def test_parse_bofa_native_text_sections():
 bankofamerica.com
 Bank of America, N.A.
 Your Business Advantage Fundamentals Banking
-for January 1, 2026 to January 31, 2026 Account number: 3252 0847 6098
+for January 1, 2054 to January 31, 2054 Account number: 3252 0847 6098
 HK OFFROAD / HK GRILLS INC.
 Account summary
-Beginning balance on January 1, 2026 -$225.43
+Beginning balance on January 1, 2054 -$225.43
 # of deposits/credits: 2
 Deposits and other credits 300.00
 # of withdrawals/debits: 2
@@ -2048,15 +2048,15 @@ Checks -0.00
 # of days in cycle: 31
 Service fees -15.00
 Average ledger balance: $96.99
-Ending balance on January 31, 2026 -$190.43
+Ending balance on January 31, 2054 -$190.43
 Your checking account
 Deposits and other credits Date Description Amount
-01/02/26 Deposit one 100.00
-01/03/26 ACH CREDIT
+01/02/54 Deposit one 100.00
+01/03/54 ACH CREDIT
 200.00
 Total deposits and other credits $300.00
-Withdrawals and other debits Date Description Amount 01/04/26 Payment one -50.00
-01/05/26 ACH DEBIT
+Withdrawals and other debits Date Description Amount 01/04/54 Payment one -50.00
+01/05/54 ACH DEBIT
 -200.00
 Total withdrawals and other debits -$250.00
 """
@@ -2075,27 +2075,27 @@ def test_parse_bofa_native_card_subtotal_does_not_replace_row_amount():
 bankofamerica.com
 Bank of America, N.A.
 Your Business Advantage Fundamentals Banking
-for February 1, 2026 to February 28, 2026 Account number: 3251 9756 7296
+for February 1, 2054 to February 28, 2054 Account number: 3251 9756 7296
 Account summary
-Beginning balance on February 1, 2026 $729.80
+Beginning balance on February 1, 2054 $729.80
 # of deposits/credits: 1
 Deposits and other credits 100.00
 # of withdrawals/debits: 2
 Withdrawals and other debits -51.00
 # of days in cycle: 28
 Service fees -16.00
-Ending balance on February 28, 2026 $762.80
+Ending balance on February 28, 2054 $762.80
 Your checking account
 Deposits and other credits Date Description Amount
-02/02/26 Deposit 100.00
+02/02/54 Deposit 100.00
 Total deposits and other credits $100.00
 Withdrawals and other debits Date Description Amount
-02/03/26 Zelle payment to Vendor -45.00
-02/04/26 CHECKCARD STORE XXXX
+02/03/54 Zelle payment to Vendor -45.00
+02/04/54 CHECKCARD STORE XXXX
 -6.00
 Subtotal for card account # XXXX XXXX XXXX 2354 -$803.83 Total withdrawals and other debits -$51.00
 Service fees Date Transaction description Amount
-02/05/26 Monthly Fee Business Adv Fundamentals -16.00
+02/05/54 Monthly Fee Business Adv Fundamentals -16.00
 Total service fees -$16.00
 """
     stmt = parse_bofa_statement(md)
@@ -2110,31 +2110,31 @@ def test_parse_bofa_native_checks_and_service_fees():
 bankofamerica.com
 Bank of America, N.A.
 Your Business Advantage Relationship Banking
-for November 1, 2025 to November 30, 2025 Account number: 2910 2587 9041
+for November 1, 2053 to November 30, 2053 Account number: 2910 2587 9041
 Account summary
-Beginning balance on November 1, 2025 $1,000.00
+Beginning balance on November 1, 2053 $1,000.00
 # of deposits/credits: 1
 Deposits and other credits 500.00
 # of withdrawals/debits: 1
 Withdrawals and other debits -100.00
 Checks -350.00
 Service fees -50.00
-Ending balance on November 30, 2025 $1,000.00
+Ending balance on November 30, 2053 $1,000.00
 Your checking account
 Deposits and other credits Date Description Amount
-11/03/25 Deposit 500.00
+11/03/53 Deposit 500.00
 Total deposits and other credits $500.00
 Withdrawals and other debits Date Description Amount
-11/04/25 ACH Debit -100.00
+11/04/53 ACH Debit -100.00
 Total withdrawals and other debits -$100.00
 Checks
 Date Check # Amount Date Check # Amount
-11/05/25 1247 -150.00 11/06/25 1248* -200.00
+11/05/53 1247 -150.00 11/06/53 1248* -200.00
 Total checks -$350.00
 Total # of checks 2
 Service fees Date Transaction description Amount
-11/07/25 Monthly Fee -20.00
-11/08/25 Remote Deposit Fee
+11/07/53 Monthly Fee -20.00
+11/08/53 Remote Deposit Fee
 -30.00
 Total service fees -$50.00
 """
@@ -2315,7 +2315,7 @@ Thank you for banking with Regions!
 Regions Bank Homer Georgia
 ACCOUNT # 9900001234
 ADVANTAGE BUSINESS CHECKING
-May 1, 2026 through May 29, 2026
+May 1, 2054 through May 29, 2054
 SUMMARY
 Beginning Balance $100.00 Deposits & Credits $300.00 + Withdrawals $125.00 - Fees $12.00 - Automatic Transfers $0.00 + Returned Checks $40.00 + Checks $53.00 - Ending Balance $250.00
 Minimum Daily Balance $100 Average Monthly Statement Balance $175
@@ -2361,7 +2361,7 @@ Thank you for banking with Regions!
 Regions Bank Homer Georgia
 ACCOUNT # 9900001234
 ADVANTAGE BUSINESS CHECKING
-May 1, 2026 through May 29, 2026
+May 1, 2054 through May 29, 2054
 SUMMARY
 Beginning Balance $100.00 Deposits & Credits $300.00 + Withdrawals $125.00 - Ending Balance $275.00
 DEPOSITS & CREDITS
@@ -2410,7 +2410,7 @@ def test_the_sign_off_is_cut_from_the_row_and_not_from_the_document():
 def test_parse_pnc_native_text_sections():
     md = """
 PNC Bank
-For the Period 05/01/2026 to 05/29/2026 Primary Account Number: XX-XXXX-5985
+For the Period 05/01/2054 to 05/29/2054 Primary Account Number: XX-XXXX-5985
 JONED TRANSPORT CO. Business Checking Summary Account number:   XX-XXXX-5985
 Balance Summary
 Ending balance 100.00 300.00 125.00 275.00
@@ -2465,7 +2465,7 @@ def test_parse_citizens_native_text_sections():
     md = """
     Commercial Account
     Statement
-    Beginning April 01, 2026 through April 30, 2026
+    Beginning April 01, 2054 through April 30, 2054
     citizensbank.com
     Business Advisor Checking
     XXXXXX-877-4
@@ -2491,8 +2491,8 @@ def test_parse_citizens_native_text_sections():
     assert report.model_used == "citizens-bank-deterministic"
     assert report.quality.corporate_use == "approved"
     assert stmt.bank == "Citizens Bank"
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert stmt.account_number == "XXXXXX-877-4"
     assert stmt.stated_average_balance == 822.0
     assert stmt.stated_total_credits == 300.0
@@ -2506,25 +2506,25 @@ def test_parse_citizens_native_text_sections():
 def test_parse_amex_business_checking_native_text():
     md = """
     Business Checking Account Statement
-    Statement Date: 04/30/2026 Account Ending: *1056 Account Name: PSCBATH
+    Statement Date: 04/30/2054 Account Ending: *1056 Account Name: PSCBATH
     Statement Summary
-    Beginning Balance as of 04/01/2026 $100.00
-    Earned Period 04/01/2026 - 04/30/2026
+    Beginning Balance as of 04/01/2054 $100.00
+    Earned Period 04/01/2054 - 04/30/2054
     Total Credits This Period $75.00
     Days in Statement Period 30
     Total Debits This Period -$50.00
-    Ending Balance as of 04/30/2026 $125.00
+    Ending Balance as of 04/30/2054 $125.00
     Account Activity
     Date Description Credits Debits Balance
-    04/01/2026 Beginning Balance $100.00
-    04/02/2026 Online Transfer / Payment: Debit
+    04/01/2054 Beginning Balance $100.00
+    04/02/2054 Online Transfer / Payment: Debit
     -$50.00 $50.00
     VENDOR PAYMENT
     ID 009
-    04/03/2026 Wire Transfer Domestic Incoming
+    04/03/2054 Wire Transfer Domestic Incoming
     $75.00 $125.00
     ID 010
-    04/30/2026 Ending Balance $125.00
+    04/30/2054 Ending Balance $125.00
     americanexpress.com/businesscheckinghome
     """
     report = analyze_markdown(md, parse_mode="deterministic")
@@ -2548,9 +2548,9 @@ def test_repair_first_community_removes_balance_neutral_failed_efts():
         stated_total_credits=100.0,
         stated_total_debits=250.0,
         transactions=[
-            _txn("2025-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0),
-            _txn("2025-10-02", -200.0, "EFT - FAILED ATTEMPT", bal=200.0),
-            _txn("2025-10-03", -50.0, "POS - PURCHASE", bal=150.0),
+            _txn("2053-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0),
+            _txn("2053-10-02", -200.0, "EFT - FAILED ATTEMPT", bal=200.0),
+            _txn("2053-10-03", -50.0, "POS - PURCHASE", bal=150.0),
         ],
     )
     repaired = repair_first_community_posted_activity(stmt)
@@ -2561,7 +2561,7 @@ def test_repair_first_community_removes_balance_neutral_failed_efts():
 
 def test_parse_first_community_business_plus_spaced_minus_debits():
     md = """
-STATEMENT ENDING 10/31/2025
+STATEMENT ENDING 10/31/2053
 Online Access: www.firstcommunity.com
 SUMMARY OF ACCOUNTS
 BUSINESS PLUS CKG 946887429-70 $1,641.37
@@ -2582,7 +2582,7 @@ POST DATE DESCRIPTION DEBITS CREDITS BALANCE
 10/08 EFT - PUSHPAY USA INC - 0341391 - SOFTWARE - 14,208.00 6,177.07
 10/08 NSF FEE - PUSHPAY USA INC - 0341391 - SOFTWARE -27.50 6,149.57
 10/16 DIRECT DEPOSIT - STRIPE - TRANSFER 14,208.00 20,357.57
-10/16 ATM SH TO SH TRANSFER - 10/16/2025 09 363958 TFR TO SHARES #######10-70 - 18,700.00 1,657.57
+10/16 ATM SH TO SH TRANSFER - 10/16/2053 09 363958 TFR TO SHARES #######10-70 - 18,700.00 1,657.57
 10/31 COMMERCIAL -16.20 1,641.37
 10/31 Ending Balance $1,641.37
 OVERDRAFT AND RETURNED ITEM FEES
@@ -2590,7 +2590,7 @@ ACCOUNT ANALYSIS STATEMENT
 ACCOUNT SUMMARY
 Service Class BPCK-BUSINESS PLUS CHKG Average Daily Balance $1,233.51
 ANALYSIS SUMMARY
-Accumulated Fees $16.20 $16.20 will be charged to the account on 10/31/2025.
+Accumulated Fees $16.20 $16.20 will be charged to the account on 10/31/2053.
 """
     stmt = parse_first_community_statement(md)
     assert stmt is not None
@@ -2614,11 +2614,11 @@ def test_repair_first_community_narrows_the_debit_count_with_the_debit_total():
     `202 Debits This Period`, seven balance-neutral failed EFTs dropped, 195
     debit rows left. Scaled here to the same arithmetic on a fixture.
     """
-    txns = [_txn("2025-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0)]
+    txns = [_txn("2053-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0)]
     # seven balance-neutral failed EFT attempts, then one real posted debit
     for i in range(7):
         txns.append(_txn(f"2025-10-0{i + 2}", -10.0, "EFT - FAILED ATTEMPT", bal=200.0))
-    txns.append(_txn("2025-10-09", -50.0, "POS - PURCHASE", bal=150.0))
+    txns.append(_txn("2053-10-09", -50.0, "POS - PURCHASE", bal=150.0))
 
     stmt = Statement(
         bank="First Community",
@@ -2651,8 +2651,8 @@ def test_repair_first_community_leaves_counts_alone_when_nothing_is_dropped():
         stated_credit_count=1,
         stated_debit_count=1,
         transactions=[
-            _txn("2025-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0),
-            _txn("2025-10-02", -50.0, "POS - PURCHASE", bal=150.0),
+            _txn("2053-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0),
+            _txn("2053-10-02", -50.0, "POS - PURCHASE", bal=150.0),
         ],
     )
     repaired = repair_first_community_posted_activity(stmt)
@@ -2674,9 +2674,9 @@ def test_repair_first_community_never_rewrites_the_count_without_the_total():
             beginning_balance=100.0,
             ending_balance=150.0,
             transactions=[
-                _txn("2025-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0),
-                _txn("2025-10-02", -200.0, "EFT - FAILED ATTEMPT", bal=200.0),
-                _txn("2025-10-03", -50.0, "POS - PURCHASE", bal=150.0),
+                _txn("2053-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0),
+                _txn("2053-10-02", -200.0, "EFT - FAILED ATTEMPT", bal=200.0),
+                _txn("2053-10-03", -50.0, "POS - PURCHASE", bal=150.0),
             ],
             **summary,
         )
@@ -2710,7 +2710,7 @@ def test_analysis_marks_incomplete_detail_as_manual_review(monkeypatch):
             ending_balance=250.0,
             stated_total_credits=200.0,
             stated_total_debits=50.0,
-            transactions=[_txn("2026-01-01", 100.0)],
+            transactions=[_txn("2054-01-01", 100.0)],
         )
 
     monkeypatch.setattr("analysis.pipeline.extract_statement", fake_extract)
@@ -2732,10 +2732,10 @@ BUS COMPLETE CHK (...7350)
 SEA WONDERS LLC
 Transactions
 Date Description Type Amount Balance
-May 14, 2026 ORIG CO ACH credit $20.00 $115.00
-May 13, 2026 SAMPLE Card -$5.00 $95.00
+May 14, 2054 ORIG CO ACH credit $20.00 $115.00
+May 13, 2054 SAMPLE Card -$5.00 $95.00
 Apr 30 (...2896)
-Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+Apr 13,2054 REMOTE ONLINE Deposit $100.00 $100.00
 JPMorgan Chase Bank, N.A. Member FDIC
 """
     report = analyze_markdown(md, parse_mode="deterministic")
@@ -2743,7 +2743,7 @@ JPMorgan Chase Bank, N.A. Member FDIC
     assert report.statement.account_name == "SEA WONDERS LLC"
     assert report.statement.beginning_balance == 0.0
     assert report.statement.ending_balance == 115.0
-    assert report.statement.period_start == "2026-04-13"
+    assert report.statement.period_start == "2054-04-13"
     assert report.reconciliation.ok
     assert report.metrics.adb is not None
     assert report.metrics.adb.validations["posting_dates_cover_source"] is True
@@ -2761,9 +2761,9 @@ BUS COMPLETE CHK (...7350)
 SEA WONDERS LLC
 Transactions
 Date Description Type Amount Balance
-May 14, 2026 ORIG CO ACH credit $20.00 $115.00
-May 13, 2026 SAMPLE Card {minus}$5.00 $95.00
-Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+May 14, 2054 ORIG CO ACH credit $20.00 $115.00
+May 13, 2054 SAMPLE Card {minus}$5.00 $95.00
+Apr 13,2054 REMOTE ONLINE Deposit $100.00 $100.00
 JPMorgan Chase Bank, N.A. Member FDIC
 """
 
@@ -2797,11 +2797,11 @@ BUS COMPLETE CHK (...7350)
 SEA WONDERS LLC
 Transactions
 Date Description Type Amount Balance
-May 14, 2026 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
+May 14, 2054 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
 {type_cell}
 $20,000.00 $20,095.00
-May 13, 2026 SAMPLE Card −$5.00 $95.00
-Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+May 13, 2054 SAMPLE Card −$5.00 $95.00
+Apr 13,2054 REMOTE ONLINE Deposit $100.00 $100.00
 JPMorgan Chase Bank, N.A. Member FDIC
 """
 
@@ -2826,7 +2826,7 @@ def test_chase_export_recovers_a_row_whose_type_cell_wrapped_onto_its_own_line()
     assert len(wires) == 1
     assert wires[0].amount == 20000.0
     assert wires[0].direction == "credit"
-    assert wires[0].date == "2026-05-14"
+    assert wires[0].date == "2054-05-14"
     assert wires[0].running_balance == 20095.0
     assert len(report.statement.transactions) == 3
     assert report.statement.ending_balance == 20095.0
@@ -2865,13 +2865,13 @@ BUS COMPLETE CHK (...7350)
 SEA WONDERS LLC
 Transactions
 Date Description Type Amount Balance
-May 15, 2026 POS DEBIT FRESHBOOKS 866-303-6061 DE 0019 (...5129)
+May 15, 2054 POS DEBIT FRESHBOOKS 866-303-6061 DE 0019 (...5129)
 Outgoing wire transfer
 −$50.00 —
 $100.00 $200.00
-May 14, 2026 ANOTHER Card −$10.00 $85.00
-May 13, 2026 SAMPLE Card −$5.00 $95.00
-Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+May 14, 2054 ANOTHER Card −$10.00 $85.00
+May 13, 2054 SAMPLE Card −$5.00 $95.00
+Apr 13,2054 REMOTE ONLINE Deposit $100.00 $100.00
 JPMorgan Chase Bank, N.A. Member FDIC
 """
     report = analyze_markdown(md, parse_mode="deterministic")
@@ -2894,9 +2894,9 @@ SEA WONDERS LLC
 Transactions
 Date Description Type Amount Balance
 {head}
-May 14, 2026 ANOTHER Card −$10.00 $85.00
-May 13, 2026 SAMPLE Card −$5.00 $95.00
-Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+May 14, 2054 ANOTHER Card −$10.00 $85.00
+May 13, 2054 SAMPLE Card −$5.00 $95.00
+Apr 13,2054 REMOTE ONLINE Deposit $100.00 $100.00
 JPMorgan Chase Bank, N.A. Member FDIC
 """
 
@@ -2906,7 +2906,7 @@ def _descriptions(md: str) -> list[str]:
 
 
 #: The attested shape: descriptive text, then the type cell, then the amounts.
-GENUINE_WRAP = """May 15, 2026 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
+GENUINE_WRAP = """May 15, 2054 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
 Incoming wire transfer
 $20,000.00 $20,085.00"""
 
@@ -2950,9 +2950,9 @@ def test_chase_export_a_carry_never_crosses_a_date_boundary():
     """SAME DATE. A row's type cell belongs to that row's date. Here the amount
     pair posts under May 14 while the carry was set under May 15, so the carry
     is refused rather than describing a transaction on the wrong day."""
-    head = """May 15, 2026 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
+    head = """May 15, 2054 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
 Outgoing wire transfer
-May 12, 2026 $20,000.00 $20,085.00"""
+May 12, 2054 $20,000.00 $20,085.00"""
     descriptions = _descriptions(_chase_export_anchoring(head))
     assert "Outgoing wire transfer" not in descriptions
     assert descriptions == ["REMOTE ONLINE Deposit", "SAMPLE Card", "ANOTHER Card"]
@@ -2977,7 +2977,7 @@ THE GRANITE GIRLS, LLC
 BUILDER ACCOUNT
 ACCOUNT SUMMARY
 Commercial Checking
-Account Number 1626833 Statement Dates 6/01/26 thru 6/30/26
+Account Number 1626833 Statement Dates 6/01/54 thru 6/30/54
 Previous Balance 8,816.33 Days in Statement Period 30
 2 Deposits/Credits 2,300.00
 2 Checks/Debits 1,300.00
@@ -3013,7 +3013,7 @@ THE GRANITE GIRLS, LLC
 BUILDER ACCOUNT
 ACCOUNT SUMMARY
 Commercial Checking
-Account Number 1626833 Statement Dates 6/01/26 thru 6/30/26
+Account Number 1626833 Statement Dates 6/01/54 thru 6/30/54
 Previous Balance 8,816.33 Days in Statement Period 30
 2 Deposits/Credits 2,300.00
 2 Checks/Debits 1,300.00
@@ -3054,30 +3054,30 @@ def test_apex_scanned_parser_handles_ocr_headings_and_complete_detail():
 KLR ENTERPRISES
 SUMMIT BUSINESS CHECKING
 Account Number: ****4124
-Balance Forward From 05/01/2026 1,000.00
+Balance Forward From 05/01/2054 1,000.00
 3 Deposits/Credits 300.00 + Minimum Balance 830.00
 17 Withdrawals/Debits 170.00 - Average Balance 1,100.00
-Ending Balance As Of 05/31/2026 1,130.00
+Ending Balance As Of 05/31/2054 1,130.00
 Interest Paid This Period 0.00
 Days In Earnings Period 31
 DATE AMOUNT DESCRIPTION DATE AMOUNT DESCRIPTION
-05/15/2026 100.00 Regular Deposit 05/26/2026 100.00 Regular Deposit
+05/15/2054 100.00 Regular Deposit 05/26/2054 100.00 Regular Deposit
 OTHER CREDITS
 DATE AMOUNT DESCRIPTION
-05/04/2026 100.00 Wire Transfer In
+05/04/2054 100.00 Wire Transfer In
 CHECK NO DATE AMOUNT CHECK NO DATE AMOUNT
-2847 05/01/2026 10.00
+2847 05/01/2054 10.00
 * - denotes missing check number in sequence
 OTHER DEBITS
 DATE AMOUNT DESCRIPTION
 {other_debits}
 SERVICE CHARGES
 DATE AMOUNT DESCRIPTION
-05/29/2026 10.00 Net Service Charge
+05/29/2054 10.00 Net Service Charge
 SFRVICE CHARGE ANALYSIS
 FEESCHARGED
 DATE AMOUNT DESCRIPTION
-05/13/2026 10.00 NSF Charge
+05/13/2054 10.00 NSF Charge
 TOTAL FEES FOR THIS PERIOD
 DAILY BALANCE INFORMATION
 """
@@ -3100,8 +3100,8 @@ def _txn(date, amount, desc="x", bal=None):
 
 def test_reconcile_ok():
     s = Statement(beginning_balance=1000.0, ending_balance=1300.0, transactions=[
-        _txn("2026-01-01", 500.0, bal=1500.0),
-        _txn("2026-01-02", -200.0, bal=1300.0),
+        _txn("2054-01-01", 500.0, bal=1500.0),
+        _txn("2054-01-02", -200.0, bal=1300.0),
     ])
     r = reconcile(s)
     assert r.ok
@@ -3111,7 +3111,7 @@ def test_reconcile_ok():
 
 def test_reconcile_sum_mismatch():
     s = Statement(beginning_balance=1000.0, ending_balance=9999.0, transactions=[
-        _txn("2026-01-01", 500.0),
+        _txn("2054-01-01", 500.0),
     ])
     r = reconcile(s)
     assert not r.ok
@@ -3120,8 +3120,8 @@ def test_reconcile_sum_mismatch():
 
 def test_reconcile_continuity_break():
     s = Statement(beginning_balance=1000.0, ending_balance=1300.0, transactions=[
-        _txn("2026-01-01", 500.0, bal=1500.0),
-        _txn("2026-01-02", -200.0, bal=9999.0),  # wrong running balance
+        _txn("2054-01-01", 500.0, bal=1500.0),
+        _txn("2054-01-02", -200.0, bal=9999.0),  # wrong running balance
     ])
     r = reconcile(s)
     assert not r.ok
@@ -3130,8 +3130,8 @@ def test_reconcile_continuity_break():
 
 def test_reconcile_sparse_running_balances_accumulates_intervening_rows():
     s = Statement(beginning_balance=100.0, ending_balance=85.0, transactions=[
-        _txn("2026-01-01", -10.0),
-        _txn("2026-01-01", -5.0, bal=85.0),
+        _txn("2054-01-01", -10.0),
+        _txn("2054-01-01", -5.0, bal=85.0),
     ])
     r = reconcile(s)
     assert r.ok
@@ -3144,8 +3144,8 @@ def test_reconcile_implies_missing_beginning_from_stated_summary():
         stated_total_credits=12023.20,
         stated_total_debits=11836.40,
         transactions=[
-            _txn("2025-10-10", 12023.20),
-            _txn("2025-10-31", -11836.40, bal=167.73),
+            _txn("2053-10-10", 12023.20),
+            _txn("2053-10-31", -11836.40, bal=167.73),
         ],
     )
     r = reconcile(s)
@@ -3198,7 +3198,7 @@ def test_reconcile_debit_coverage_flags_incomplete_ocr():
         beginning_balance=0.0, ending_balance=0.0,
         stated_total_credits=7329.22, stated_total_debits=3945.12,
         stated_credit_count=3, stated_debit_count=26,
-        transactions=[_txn("2026-01-01", 7329.22), _txn("2026-01-02", -756.30)],
+        transactions=[_txn("2054-01-01", 7329.22), _txn("2054-01-02", -756.30)],
     )
     r = reconcile(s)
     assert r.credit_coverage == 1.0
@@ -3211,14 +3211,14 @@ def test_reconcile_debit_coverage_flags_incomplete_ocr():
 def test_daily_average_balance_carries_forward():
     # 3-day period; no activity on day 3 carries day 2's balance forward.
     s = Statement(
-        period_start="2026-01-01", period_end="2026-01-03",
+        period_start="2054-01-01", period_end="2054-01-03",
         beginning_balance=1000.0, ending_balance=1300.0, transactions=[
-            _txn("2026-01-01", 500.0, bal=1500.0),
-            _txn("2026-01-02", -200.0, bal=1300.0),
+            _txn("2054-01-01", 500.0, bal=1500.0),
+            _txn("2054-01-02", -200.0, bal=1300.0),
         ],
     )
     balances = daily_closing_balances(s)
-    assert balances[date(2026, 1, 3)] == 1300.0  # carried from day 2
+    assert balances[date(2054, 1, 3)] == 1300.0  # carried from day 2
     m = compute_metrics(s)
     assert m.days_in_period == 3
     assert m.average_daily_balance == round((1500 + 1300 + 1300) / 3, 2)  # 1366.67
@@ -3229,16 +3229,16 @@ def test_daily_average_balance_tolerates_rows_without_running_balance():
     # must still move that day's ending balance — the money did leave the
     # account — and must not prevent ADB from being computed.
     s = Statement(
-        period_start="2026-01-01", period_end="2026-01-04",
+        period_start="2054-01-01", period_end="2054-01-04",
         beginning_balance=1000.0, ending_balance=1125.0, transactions=[
-            _txn("2026-01-01", 200.0, bal=1200.0),
-            _txn("2026-01-02", -25.0, "SERVICE FEE", bal=None),
-            _txn("2026-01-03", -50.0, bal=1125.0),
+            _txn("2054-01-01", 200.0, bal=1200.0),
+            _txn("2054-01-02", -25.0, "SERVICE FEE", bal=None),
+            _txn("2054-01-03", -50.0, bal=1125.0),
         ],
     )
     balances = daily_closing_balances(s)
-    assert balances[date(2026, 1, 2)] == 1175.0  # reconstructed: 1200 - 25
-    assert balances[date(2026, 1, 4)] == 1125.0  # carried from Jan 3
+    assert balances[date(2054, 1, 2)] == 1175.0  # reconstructed: 1200 - 25
+    assert balances[date(2054, 1, 4)] == 1125.0  # carried from Jan 3
     m = compute_metrics(s)
     assert m.average_daily_balance == round((1200 + 1175 + 1125 + 1125) / 4, 2)  # 1156.25
     assert m.adb is not None and m.adb.ok
@@ -3246,7 +3246,7 @@ def test_daily_average_balance_tolerates_rows_without_running_balance():
 
 
 def test_metrics_retains_bank_stated_average_only_as_comparison_evidence():
-    s = Statement(stated_average_balance=1569.0, transactions=[_txn("2026-01-01", 100.0)])
+    s = Statement(stated_average_balance=1569.0, transactions=[_txn("2054-01-01", 100.0)])
     m = compute_metrics(s)
     assert m.stated_average_balance == 1569.0
     assert "average_balance" not in vars(m)
@@ -3260,7 +3260,7 @@ def test_metrics_effective_totals_use_reconciled_bank_summary():
         stated_total_debits=3200.0,
         stated_credit_count=8,
         stated_debit_count=20,
-        transactions=[_txn("2026-01-01", 1000.0), _txn("2026-01-02", -250.0)],
+        transactions=[_txn("2054-01-01", 1000.0), _txn("2054-01-02", -250.0)],
     )
     m = compute_metrics(s, trust_stated_summary=True)
     assert m.total_deposits == 1000.0
@@ -3288,9 +3288,9 @@ def test_metrics_effective_withdrawals_include_separate_service_charge():
 
 def test_metrics_does_not_compute_adb_when_running_balances_untrusted():
     s = Statement(
-        period_start="2026-01-01", period_end="2026-01-02",
+        period_start="2054-01-01", period_end="2054-01-02",
         stated_average_balance=100.0,
-        transactions=[_txn("2026-01-01", 50.0, bal=150.0)],
+        transactions=[_txn("2054-01-01", 50.0, bal=150.0)],
     )
     m = compute_metrics(s, trust_running_balances=False)
     assert m.average_daily_balance is None
@@ -3304,7 +3304,7 @@ def test_metrics_ignores_bank_totals_when_summary_fails():
     s = Statement(
         stated_total_credits=5000.0,
         stated_total_debits=3200.0,
-        transactions=[_txn("2026-01-01", 1000.0), _txn("2026-01-02", -250.0)],
+        transactions=[_txn("2054-01-01", 1000.0), _txn("2054-01-02", -250.0)],
     )
     m = compute_metrics(s, trust_stated_summary=False)
     assert m.effective_total_deposits == 1000.0
@@ -3316,9 +3316,9 @@ def test_metrics_ignores_bank_totals_when_summary_fails():
 
 def test_metrics_counts_and_nsf():
     s = Statement(transactions=[
-        _txn("2026-01-01", 500.0, "DEPOSIT"),
-        _txn("2026-01-02", -30.0, "NSF FEE"),
-        _txn("2026-01-03", -20.0, "Returned item fee"),
+        _txn("2054-01-01", 500.0, "DEPOSIT"),
+        _txn("2054-01-02", -30.0, "NSF FEE"),
+        _txn("2054-01-03", -20.0, "Returned item fee"),
     ])
     m = compute_metrics(s)
     assert m.num_deposits == 1 and m.num_withdrawals == 2
@@ -3328,7 +3328,7 @@ def test_metrics_counts_and_nsf():
 
 def test_metrics_effective_nsf_uses_classified_rows_over_bank_stated_count():
     s = Statement(stated_nsf_count=4, transactions=[
-        _txn("2026-01-02", -30.0, "NSF FEE"),
+        _txn("2054-01-02", -30.0, "NSF FEE"),
     ])
     m = compute_metrics(s)
     assert m.nsf_count == 1
@@ -3339,11 +3339,11 @@ def test_metrics_effective_nsf_uses_classified_rows_over_bank_stated_count():
 
 def test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts():
     s = Statement(stated_total_credits=12000.0, stated_total_debits=5000.0, transactions=[
-        _txn("2026-01-02", 10000.0, "CUSTOMER DEPOSIT"),
-        _txn("2026-01-03", 2000.0, "ACH CREDIT RAPID FINANCE FUNDING"),
-        _txn("2026-01-04", -500.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
-        _txn("2026-01-05", -25.0, "DEBIT CARD PURCHASE GAS"),
-        _txn("2026-01-06", -750.0, "SBA LOAN PAYMENT"),
+        _txn("2054-01-02", 10000.0, "CUSTOMER DEPOSIT"),
+        _txn("2054-01-03", 2000.0, "ACH CREDIT RAPID FINANCE FUNDING"),
+        _txn("2054-01-04", -500.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
+        _txn("2054-01-05", -25.0, "DEBIT CARD PURCHASE GAS"),
+        _txn("2054-01-06", -750.0, "SBA LOAN PAYMENT"),
     ])
     m = compute_metrics(s, trust_stated_summary=True)
     assert m.lender_credits == 2000.0
@@ -3358,11 +3358,11 @@ def test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts():
 
 def test_metrics_uses_exact_posted_lender_debits_for_withholding_rate():
     s = Statement(stated_total_credits=4330.0, stated_total_debits=400.0, transactions=[
-        _txn("2026-01-01", 4330.0, "CUSTOMER DEPOSIT"),
-        _txn("2026-01-02", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
-        _txn("2026-01-09", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
-        _txn("2026-01-16", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
-        _txn("2026-01-23", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
+        _txn("2054-01-01", 4330.0, "CUSTOMER DEPOSIT"),
+        _txn("2054-01-02", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
+        _txn("2054-01-09", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
+        _txn("2054-01-16", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
+        _txn("2054-01-23", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
     ])
     m = compute_metrics(s, trust_stated_summary=True)
     assert m.lender_debits == 400.0
@@ -3374,9 +3374,9 @@ def test_metrics_uses_exact_posted_lender_debits_for_withholding_rate():
 
 def test_metrics_withholding_rate_is_zero_without_lender_debits():
     s = Statement(stated_total_credits=10000.0, stated_total_debits=500.0, transactions=[
-        _txn("2026-01-01", 10000.0, "CUSTOMER DEPOSIT"),
-        _txn("2026-01-02", 750.0, "ACH CREDIT CAN CAPITAL FUNDING"),
-        _txn("2026-01-03", -500.0, "RENT PAYMENT"),
+        _txn("2054-01-01", 10000.0, "CUSTOMER DEPOSIT"),
+        _txn("2054-01-02", 750.0, "ACH CREDIT CAN CAPITAL FUNDING"),
+        _txn("2054-01-03", -500.0, "RENT PAYMENT"),
     ])
     m = compute_metrics(s, trust_stated_summary=True)
     assert m.lender_credits == 750.0
@@ -3387,8 +3387,8 @@ def test_metrics_withholding_rate_is_zero_without_lender_debits():
 
 def test_metrics_counts_forward_funding_alias_for_withholding_rate():
     s = Statement(stated_total_credits=10000.0, stated_total_debits=205.0, transactions=[
-        _txn("2026-01-01", 10000.0, "CUSTOMER DEPOSIT"),
-        _txn("2026-01-02", -205.0, "Direct Debit Business PAD Forward Funding"),
+        _txn("2054-01-01", 10000.0, "CUSTOMER DEPOSIT"),
+        _txn("2054-01-02", -205.0, "Direct Debit Business PAD Forward Funding"),
     ])
     m = compute_metrics(s, trust_stated_summary=True)
     assert m.lender_debits == 205.0
@@ -3520,7 +3520,7 @@ def test_bmo_parser_uses_the_printed_period_and_balance_continuity():
     markdown = """
 Account Summary Totals
 BMO BANK STATEMENT
-Statement Period: February 2028
+Statement Period: February 2056
 Example Company
 Account Number: 123456 | Currency: USD
 Account Summary
@@ -3538,12 +3538,12 @@ Page 1 - Transactions 1-2
 """
     stmt = parse_bmo_statement(markdown)
     assert stmt is not None
-    assert stmt.period_start == "2028-02-01"
-    assert stmt.period_end == "2028-02-29"
+    assert stmt.period_start == "2056-02-01"
+    assert stmt.period_end == "2056-02-29"
     assert stmt.currency == "USD"
     assert [(txn.date, txn.amount) for txn in stmt.transactions] == [
-        ("2028-02-02", -20.0),
-        ("2028-02-29", 50.0),
+        ("2056-02-02", -20.0),
+        ("2056-02-29", 50.0),
     ]
     assert compute_metrics(stmt).average_daily_balance == 82.41
 
@@ -3552,8 +3552,8 @@ Page 1 - Transactions 1-2
 
 def test_detect_known_funder():
     s = Statement(transactions=[
-        _txn("2026-01-02", -450.0, "Orig CO Name:Kapitus Descr:Payment ACH Debit"),
-        _txn("2026-01-03", -450.0, "Orig CO Name:Kapitus Descr:Payment ACH Debit"),
+        _txn("2054-01-02", -450.0, "Orig CO Name:Kapitus Descr:Payment ACH Debit"),
+        _txn("2054-01-03", -450.0, "Orig CO Name:Kapitus Descr:Payment ACH Debit"),
     ])
     matches = find_known_funders(s)
     assert len(matches) == 1
@@ -3563,8 +3563,8 @@ def test_detect_known_funder():
 
 def test_detect_affirm_without_space():
     s = Statement(transactions=[
-        _txn("2026-03-02", -26.10, "Debit Card Purchase 030226 AFFIRMCOM PAYMENTS 8554233729 CA"),
-        _txn("2026-03-30", -26.10, "Recur Debit Card Purchase 033026 AFFIRM COM PAYMENTS 8554233729 CA"),
+        _txn("2054-03-02", -26.10, "Debit Card Purchase 030226 AFFIRMCOM PAYMENTS 8554233729 CA"),
+        _txn("2054-03-30", -26.10, "Recur Debit Card Purchase 033026 AFFIRM COM PAYMENTS 8554233729 CA"),
     ])
     matches = find_known_funders(s)
     assert matches == []
@@ -3573,8 +3573,8 @@ def test_detect_affirm_without_space():
 
 def test_detect_expanded_lender_keyword_aliases():
     s = Statement(transactions=[
-        _txn("2026-01-02", -300.0, "ACH DEBIT THE FUNDWORKS LLC PMT"),
-        _txn("2026-01-03", -225.0, "DIRECT DEB DELAGELANDEN LEASE"),
+        _txn("2054-01-02", -300.0, "ACH DEBIT THE FUNDWORKS LLC PMT"),
+        _txn("2054-01-03", -225.0, "DIRECT DEB DELAGELANDEN LEASE"),
     ])
     matches = find_known_funders(s)
     assert [m.funder for m in matches] == ["FUNDWORKS"]
@@ -3582,9 +3582,9 @@ def test_detect_expanded_lender_keyword_aliases():
 
 def test_recurring_debits_filters_generic_processors():
     s = Statement(transactions=[
-        _txn("2026-01-02", -45.0, "DEBIT CARD PURCHASE COFFEE 0102"),
-        _txn("2026-01-03", -45.0, "DEBIT CARD PURCHASE COFFEE 0103"),
-        _txn("2026-01-04", -45.0, "DEBIT CARD PURCHASE COFFEE 0104"),
+        _txn("2054-01-02", -45.0, "DEBIT CARD PURCHASE COFFEE 0102"),
+        _txn("2054-01-03", -45.0, "DEBIT CARD PURCHASE COFFEE 0103"),
+        _txn("2054-01-04", -45.0, "DEBIT CARD PURCHASE COFFEE 0104"),
     ])
     assert find_recurring_debits(s) == []
 
@@ -3592,11 +3592,11 @@ def test_recurring_debits_filters_generic_processors():
 def test_detect_recurring_daily_pattern():
     # 5 fixed $450 debits on business days -> daily cadence.
     s = Statement(transactions=[
-        _txn("2026-01-02", -450.0, "ACH Debit Funder 0102"),
-        _txn("2026-01-05", -450.0, "ACH Debit Funder 0105"),
-        _txn("2026-01-06", -450.0, "ACH Debit Funder 0106"),
-        _txn("2026-01-07", -450.0, "ACH Debit Funder 0107"),
-        _txn("2026-01-08", -450.0, "ACH Debit Funder 0108"),
+        _txn("2054-01-02", -450.0, "ACH Debit Funder 0102"),
+        _txn("2054-01-05", -450.0, "ACH Debit Funder 0105"),
+        _txn("2054-01-06", -450.0, "ACH Debit Funder 0106"),
+        _txn("2054-01-07", -450.0, "ACH Debit Funder 0107"),
+        _txn("2054-01-08", -450.0, "ACH Debit Funder 0108"),
     ])
     rec = find_recurring_debits(s)
     assert rec == []
@@ -3604,8 +3604,8 @@ def test_detect_recurring_daily_pattern():
 
 def test_detect_ignores_one_off_debits():
     s = Statement(transactions=[
-        _txn("2026-01-02", -12.34, "Coffee"),
-        _txn("2026-01-03", -56.78, "Gas"),
+        _txn("2054-01-02", -12.34, "Coffee"),
+        _txn("2054-01-03", -56.78, "Gas"),
     ])
     d = detect(s)
     assert d.recurring_debits == []

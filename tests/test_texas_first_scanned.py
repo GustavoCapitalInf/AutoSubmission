@@ -67,10 +67,10 @@ def document(
 #: says which side they are on; the counts, the totals and the daily walk do.
 WHOLE_STATEMENT_SUMMARY = (
     "Summary of Activity Since Your Last Statement\n"
-    "Beginning Balance 4/01/26 1,000.00\n"
+    "Beginning Balance 4/01/54 1,000.00\n"
     "Deposits / Misc Credits 3 800.00\n"
     "Withdrawals / Misc Debits 4 510.00\n"
-    "** Ending Balance 4/30/26 1,290.00 **\n"
+    "** Ending Balance 4/30/54 1,290.00 **\n"
     "Service Charge 10.00\n"
     "Average Balance 1,400\n"
 )
@@ -134,7 +134,7 @@ def test_the_statement_reproduces_every_printed_summary_figure():
     assert stmt is not None
     assert stmt.bank == "Texas First Bank"
     assert stmt.account_name == "SEAWALL8910 LLC"
-    assert (stmt.period_start, stmt.period_end) == ("2026-04-01", "2026-04-30")
+    assert (stmt.period_start, stmt.period_end) == ("2054-04-01", "2054-04-30")
     assert (stmt.beginning_balance, stmt.ending_balance) == (1000.00, 1290.00)
     assert (stmt.stated_credit_count, stmt.stated_total_credits) == (3, 800.00)
     assert (stmt.stated_debit_count, stmt.stated_total_debits) == (4, 510.00)
@@ -167,7 +167,7 @@ def test_the_wording_of_an_atm_row_is_not_what_decides_its_direction():
     stmt = parse_texas_first_scanned_statement(renamed)
     assert stmt is not None
     by_date = {(t.date, t.amount) for t in stmt.transactions if t.description == "Debit Transfer"}
-    assert by_date == {("2026-04-01", 100.00), ("2026-04-03", -50.00)}
+    assert by_date == {("2054-04-01", 100.00), ("2054-04-03", -50.00)}
 
 
 def test_a_multi_line_description_is_kept_whole():
@@ -185,7 +185,7 @@ def test_the_cheque_grid_is_three_columns_wide():
         whole(
             summary=WHOLE_STATEMENT_SUMMARY.replace(
                 "Withdrawals / Misc Debits 4 510.00", "Withdrawals / Misc Debits 6 710.00"
-            ).replace("Ending Balance 4/30/26 1,290.00", "Ending Balance 4/30/26 1,090.00"),
+            ).replace("Ending Balance 4/30/54 1,290.00", "Ending Balance 4/30/54 1,090.00"),
             checks="4/03 1001 150.00 4/03 1002 120.00 4/03 1003* 80.00\n",
             daily="4/01 1,600.00 4/02 1,500.00 4/03 1,090.00\n",
         )
@@ -204,10 +204,10 @@ def test_the_cheque_grid_is_three_columns_wide():
 OVERDRAWN = dict(
     summary=(
         "Summary of Activity Since Your Last Statement\n"
-        "Beginning Balance 4/01/26 100.00\n"
+        "Beginning Balance 4/01/54 100.00\n"
         "Deposits / Misc Credits 1 500.00\n"
         "Withdrawals / Misc Debits 1 300.00\n"
-        "** Ending Balance 4/30/26 300.00 **\n"
+        "** Ending Balance 4/30/54 300.00 **\n"
     ),
     credits="4/02 500.00 Deposit\n",
     debits="4/01 300.00 ACME/BILL PAY\n",
@@ -224,7 +224,7 @@ def test_daily_balances_publish_chronologically_not_in_reading_order():
     )
     assert stmt is not None
     assert [d.date for d in stmt.stated_daily_balances] == [
-        "2026-04-01", "2026-04-02", "2026-04-03",
+        "2054-04-01", "2054-04-02", "2054-04-03",
     ]
 
 
@@ -236,7 +236,7 @@ def test_a_day_printed_twice_is_published_once():
     )
     assert stmt is not None
     assert [d.date for d in stmt.stated_daily_balances] == [
-        "2026-04-01", "2026-04-02", "2026-04-03",
+        "2054-04-01", "2054-04-02", "2054-04-03",
     ]
 
 
@@ -250,7 +250,7 @@ def test_a_negative_daily_balance_prints_its_minus_on_the_right():
     stmt = parse_texas_first_scanned_statement(document(**OVERDRAWN))
     assert stmt is not None
     assert [(d.date, d.balance) for d in stmt.stated_daily_balances] == [
-        ("2026-04-01", -200.00), ("2026-04-02", 300.00),
+        ("2054-04-01", -200.00), ("2054-04-02", 300.00),
     ]
 
 
@@ -280,10 +280,10 @@ def test_an_ambiguous_day_refuses_rather_than_choosing():
     ambiguous = document(
         summary=(
             "Summary of Activity Since Your Last Statement\n"
-            "Beginning Balance 4/01/26 1,000.00\n"
+            "Beginning Balance 4/01/54 1,000.00\n"
             "Deposits / Misc Credits 1 100.00\n"
             "Withdrawals / Misc Debits 1 100.00\n"
-            "** Ending Balance 4/30/26 1,000.00 **\n"
+            "** Ending Balance 4/30/54 1,000.00 **\n"
         ),
         atm="4/01 100.00 Debit Transfer\n4/01 100.00 Debit Transfer\n",
         daily="4/01 1,000.00\n",
@@ -306,10 +306,10 @@ def test_a_stated_debit_count_the_grids_cannot_fill_refuses():
     understated = document(
         summary=(
             "Summary of Activity Since Your Last Statement\n"
-            "Beginning Balance 4/01/26 1,000.00\n"
+            "Beginning Balance 4/01/54 1,000.00\n"
             "Deposits / Misc Credits 1 500.00\n"
             "Withdrawals / Misc Debits 5 500.00\n"
-            "** Ending Balance 4/30/26 1,000.00 **\n"
+            "** Ending Balance 4/30/54 1,000.00 **\n"
         ),
         credits="4/01 500.00 Deposit\n",
         debits=(
@@ -336,10 +336,10 @@ def test_an_atm_split_whose_row_count_the_summary_denies_refuses():
     miscounted = document(
         summary=(
             "Summary of Activity Since Your Last Statement\n"
-            "Beginning Balance 4/01/26 1,000.00\n"
+            "Beginning Balance 4/01/54 1,000.00\n"
             "Deposits / Misc Credits 2 600.00\n"
             "Withdrawals / Misc Debits 2 200.00\n"
-            "** Ending Balance 4/30/26 1,400.00 **\n"
+            "** Ending Balance 4/30/54 1,400.00 **\n"
         ),
         credits="4/01 500.00 Deposit\n",
         debits="4/01 200.00 ACME/BILL PAY\n",
@@ -372,7 +372,7 @@ def test_an_illegible_daily_cell_refuses_the_whole_document():
     ) is None
 
 
-PERIOD = dict(start=date(2026, 4, 1), end=date(2026, 4, 30))
+PERIOD = dict(start=date(2054, 4, 1), end=date(2054, 4, 30))
 
 
 def test_the_grid_reader_itself_refuses_an_unreadable_daily_cell():
@@ -381,7 +381,7 @@ def test_the_grid_reader_itself_refuses_an_unreadable_daily_cell():
     mention), so only a direct reading proves that the GRID's own legibility is
     what this guard enforces."""
     legible = document(summary=WHOLE_STATEMENT_SUMMARY, daily="4/01 1,600.00 4/02 1,500.00\n")
-    assert _tf_read_grids(legible, **PERIOD)[4] == [("2026-04-01", 160000), ("2026-04-02", 150000)]
+    assert _tf_read_grids(legible, **PERIOD)[4] == [("2054-04-01", 160000), ("2054-04-02", 150000)]
     mangled = document(summary=WHOLE_STATEMENT_SUMMARY, daily="4/01 1,600.00 4/02 1,500,00\n")
     assert _tf_read_grids(mangled, **PERIOD) is None
 
@@ -416,20 +416,20 @@ def test_the_year_comes_from_the_period_and_a_date_outside_it_is_refused():
     """Isolated: end to end the same document is also caught by the daily grid
     (which does not mention the invented day), so only a direct reading proves
     that the period is what bounds the year."""
-    assert _tf_iso("4/02", **PERIOD) == "2026-04-02"
+    assert _tf_iso("4/02", **PERIOD) == "2054-04-02"
     assert _tf_iso("5/01", **PERIOD) is None
     assert _tf_iso("2/30", **PERIOD) is None
     # A period spanning the new year resolves each half to its own year.
-    across = dict(start=date(2025, 12, 28), end=date(2026, 1, 27))
-    assert _tf_iso("12/30", **across) == "2025-12-30"
-    assert _tf_iso("1/05", **across) == "2026-01-05"
+    across = dict(start=date(2053, 12, 28), end=date(2054, 1, 27))
+    assert _tf_iso("12/30", **across) == "2053-12-30"
+    assert _tf_iso("1/05", **across) == "2054-01-05"
     # A period long enough for BOTH candidate years to land inside it makes the
     # day genuinely ambiguous, and ambiguity refuses rather than picking one.
     # (A one-month template cannot print such a period — a mis-scanned period
     # date is how it would acquire one.)
-    year_long = dict(start=date(2025, 3, 1), end=date(2026, 6, 30))
+    year_long = dict(start=date(2053, 3, 1), end=date(2054, 6, 30))
     assert _tf_iso("4/15", **year_long) is None
-    assert _tf_iso("12/15", **year_long) == "2025-12-15"
+    assert _tf_iso("12/15", **year_long) == "2053-12-15"
 
 
 def test_a_day_carrying_ledger_rows_but_no_printed_balance_is_refused():
@@ -441,7 +441,7 @@ def test_a_day_carrying_ledger_rows_but_no_printed_balance_is_refused():
         beginning=100000, daily=daily, credits=credits, debits=debits,
         atm=atm, checks=checks,
     ) is not None
-    without_the_last_day = [cell for cell in daily if cell[0] != "2026-04-03"]
+    without_the_last_day = [cell for cell in daily if cell[0] != "2054-04-03"]
     assert _tf_direct_atm(
         beginning=100000, daily=without_the_last_day, credits=credits, debits=debits,
         atm=atm, checks=checks,
@@ -461,7 +461,7 @@ def test_a_summary_printed_twice_and_disagreeing_refuses():
     under the other's heading."""
     contradicting = whole(
         extra=WHOLE_STATEMENT_SUMMARY.replace(
-            "Beginning Balance 4/01/26 1,000.00", "Beginning Balance 4/01/26 9,000.00"
+            "Beginning Balance 4/01/54 1,000.00", "Beginning Balance 4/01/54 9,000.00"
         )
     )
     assert parse_texas_first_scanned_statement(contradicting) is None
@@ -471,7 +471,7 @@ def test_a_summary_that_does_not_close_publishes_nothing():
     assert parse_texas_first_scanned_statement(
         whole(
             summary=WHOLE_STATEMENT_SUMMARY.replace(
-                "Ending Balance 4/30/26 1,290.00", "Ending Balance 4/30/26 1,300.00"
+                "Ending Balance 4/30/54 1,290.00", "Ending Balance 4/30/54 1,300.00"
             )
         )
     ) is None
@@ -519,7 +519,7 @@ def test_the_closing_disclosure_paragraph_is_not_read_as_daily_cells():
     )
     assert stmt is not None
     assert [d.date for d in stmt.stated_daily_balances] == [
-        "2026-04-01", "2026-04-02", "2026-04-03",
+        "2054-04-01", "2054-04-02", "2054-04-03",
     ]
 
 

@@ -62,7 +62,7 @@ Page 1 of 1
 
 def ca_statement(
     *,
-    period_end="April 30, 2026",
+    period_end="April 30, 2054",
     opening_row="Apr 01",
     closing_row="Apr 30",
     opening="1,000.00",
@@ -145,7 +145,7 @@ def test_f3_closing_totals_is_a_section_total_and_not_a_posting():
     stmt = bmo_ca_business.parse_bmo_ca_business_statement(ca_statement())
     assert len(stmt.transactions) == 3
     assert all("Closing totals" not in txn.description for txn in stmt.transactions)
-    assert all(txn.date != "2026-04-30" for txn in stmt.transactions)
+    assert all(txn.date != "2054-04-30" for txn in stmt.transactions)
 
 
 def test_f4_number_of_items_processed_is_the_printed_row_count():
@@ -224,13 +224,13 @@ def test_f7_a_text_layer_that_dropped_its_inter_word_spacing_still_reads():
     """
     document = ca_statement().replace(
         "For the period ending", "Forthe period ending"
-    ).replace("April 30, 2026", "April30, 2026").replace(
+    ).replace("April 30, 2054", "April30, 2054").replace(
         "Apr 01 Opening balance", "Apr01 Openingbalance"
     ).replace("Business Account #", "BusinessAccount #")
     stmt = bmo_ca_business.parse_bmo_ca_business_statement(document)
     assert stmt is not None
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert reconcile(stmt).ok
 
 
@@ -239,15 +239,15 @@ def test_f8_the_period_starts_where_the_opening_balance_row_is_dated():
     in the previous calendar year.
     """
     stmt = bmo_ca_business.parse_bmo_ca_business_statement(ca_statement(
-        period_end="January 31, 2026",
+        period_end="January 31, 2054",
         opening_row="Dec 30", closing_row="Jan 31",
         rows=("Jan 05 Direct Deposit, SAMPLE PAYER 500.00 1,500.00",
               "Jan 06 INTERAC e-Transfer Sent 300.00 1,200.00"),
         debit_count=1, credit_count=1,
     ))
-    assert stmt.period_start == "2025-12-30"
-    assert stmt.period_end == "2026-01-31"
-    assert [txn.date for txn in stmt.transactions] == ["2026-01-05", "2026-01-06"]
+    assert stmt.period_start == "2053-12-30"
+    assert stmt.period_end == "2054-01-31"
+    assert [txn.date for txn in stmt.transactions] == ["2054-01-05", "2054-01-06"]
 
 
 def test_f9_a_row_whose_amount_contradicts_its_balance_breaks_continuity():
@@ -319,7 +319,7 @@ Page 1 de 1
 
 def ca_fr_statement(
     *,
-    period_end="30 Avril 2026",
+    period_end="30 Avril 2054",
     opening_row="1er Avr",
     closing_row="30 Avr",
     opening="1 000,00",
@@ -351,9 +351,9 @@ def test_f11_the_french_edition_reads_fr_ca_money_and_french_dates():
     assert stmt.ending_balance == 1200.00
     assert amounts(stmt) == [-100.00, 500.00, -200.00]
     assert [txn.date for txn in stmt.transactions] == [
-        "2026-04-02", "2026-04-03", "2026-04-04"
+        "2054-04-02", "2054-04-03", "2054-04-04"
     ]
-    assert stmt.period_start == "2026-04-01"
+    assert stmt.period_start == "2054-04-01"
     assert stmt.currency == "CAD"
     assert reconcile(stmt).ok
 
@@ -418,10 +418,10 @@ Apr 02 1001 $500.00 Apr 09 1002 $250.00
 
 def us_statement(
     *,
-    start="April 01, 2026",
-    end="April 30, 2026",
-    as_of="MARCH 31, 2026",
-    end_caps="APRIL 30, 2026",
+    start="April 01, 2054",
+    end="April 30, 2054",
+    as_of="MARCH 31, 2054",
+    end_caps="APRIL 30, 2054",
     beginning="$1,000.00",
     credit_count=1,
     credits="$500.00",

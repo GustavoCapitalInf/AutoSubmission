@@ -12,7 +12,7 @@ from analysis.symitar import detect, parse_symitar_statement
 HEAD = (
     "Statement of Account\n"
     "Account Number Statement Period Page\n"
-    "05/01/26 thru 05/31/26 ***8010 1 of 4\n"
+    "05/01/54 thru 05/31/54 ***8010 1 of 4\n"
     "ACCOUNT SUMMARY\n"
     "0210 Free Business Checking $ 1,200.00 0000 Money Market $ 5.19\n"
 )
@@ -27,15 +27,15 @@ EQUATION = (
 ACTIVE = (
     "Free Business Checking ( ID 0210 )\n"
     + GRID
-    + "05/01/26 $ 1,000.00 Beginning Balance "
-    "05/02/26 -300.00 700.00 Card purchase LES SCHWAB "
-    "05/03/26 500.00 1,200.00 ACH Deposit MERCHANT SERVICE\n"
+    + "05/01/54 $ 1,000.00 Beginning Balance "
+    "05/02/54 -300.00 700.00 Card purchase LES SCHWAB "
+    "05/03/54 500.00 1,200.00 ACH Deposit MERCHANT SERVICE\n"
 )
 DORMANT = (
     "Money Market ( ID 0000 )\n"
     + GRID
-    + "05/01/26 $ 5.19 Beginning Balance No Transactions This Period "
-    "05/31/26 $ 5.19 Ending Balance\n"
+    + "05/01/54 $ 5.19 Beginning Balance No Transactions This Period "
+    "05/31/54 $ 5.19 Ending Balance\n"
 )
 LOAN = (
     "CV 3 Flex (Account #xxxxxx5489)\n"
@@ -80,7 +80,7 @@ def test_two_active_deposit_accounts_are_l1_blocked():
     """Two deposit ledgers cannot be represented by the single-account schema,
     so the document is declined rather than published under one account's
     name."""
-    text = HEAD + ACTIVE + _money_market("05/02/26 -25.00 -19.81 Card purchase FUEL STOP")
+    text = HEAD + ACTIVE + _money_market("05/02/54 -25.00 -19.81 Card purchase FUEL STOP")
     assert detect(text).claims
     assert parse_symitar_statement(text) is None
 
@@ -100,11 +100,11 @@ def _money_market(body: str, *, opening: str = "5.18") -> str:
     return (
         "Money Market ( ID 0000 )\n"
         + GRID
-        + f"05/01/26 $ {opening} Beginning Balance {body}\n"
+        + f"05/01/54 $ {opening} Beginning Balance {body}\n"
     )
 
 
-DIVIDEND_ONLY = _money_market("05/01/26 0.01 5.19 Dividend Deposit Annual Percentage Yield Earned")
+DIVIDEND_ONLY = _money_market("05/01/54 0.01 5.19 Dividend Deposit Annual Percentage Yield Earned")
 
 
 def test_a_sibling_that_posted_only_its_own_dividend_is_not_a_second_ledger():
@@ -128,7 +128,7 @@ def test_a_sibling_with_one_ordinary_posting_beside_its_dividend_is_a_second_led
     `ACCOUNT SUMMARY` states — so only "every posting is a dividend" can be
     doing the refusing."""
     text = HEAD + ACTIVE + _money_market(
-        "05/01/26 0.01 6.19 Dividend Deposit 05/04/26 -1.00 5.19 Card purchase FUEL STOP",
+        "05/01/54 0.01 6.19 Dividend Deposit 05/04/54 -1.00 5.19 Card purchase FUEL STOP",
         opening="6.18",
     )
     assert parse_symitar_statement(text) is None
@@ -141,7 +141,7 @@ def test_the_dividend_read_is_anchored_at_the_posting_type():
     states — so reading the description with `search` instead of `match` would
     skip this sibling and publish the document."""
     text = HEAD + ACTIVE + _money_market(
-        "05/04/26 0.01 5.19 ACH Deposit DIVIDEND SOLAR REFUND"
+        "05/04/54 0.01 5.19 ACH Deposit DIVIDEND SOLAR REFUND"
     )
     assert parse_symitar_statement(text) is None
 
@@ -151,7 +151,7 @@ def test_the_dividend_sibling_must_close_its_own_arithmetic():
     printed balance is exactly the 5.19 `ACCOUNT SUMMARY` states, but the
     section's own walk does not reach it (5.18 + 0.05 = 5.23). A section whose
     arithmetic this reader cannot close is a ledger it has not accounted for."""
-    text = HEAD + ACTIVE + _money_market("05/01/26 0.05 5.19 Dividend Deposit")
+    text = HEAD + ACTIVE + _money_market("05/01/54 0.05 5.19 Dividend Deposit")
     assert parse_symitar_statement(text) is None
 
 
@@ -159,7 +159,7 @@ def test_the_dividend_sibling_must_agree_with_the_document_s_own_summary():
     """`ACCOUNT SUMMARY` states 5.19 for this account. A section that closes
     its own arithmetic on a different figure is contradicted by the document
     and is not skipped."""
-    text = HEAD + ACTIVE + _money_market("05/01/26 0.01 5.30 Dividend Deposit", opening="5.29")
+    text = HEAD + ACTIVE + _money_market("05/01/54 0.01 5.30 Dividend Deposit", opening="5.29")
     assert parse_symitar_statement(text) is None
 
 
@@ -170,7 +170,7 @@ def test_a_dividend_named_posting_that_takes_money_out_is_not_yield():
     "and is a CREDIT" can be doing the refusing. This is also the shape a
     counterparty NAMED after the word would take."""
     text = HEAD + ACTIVE + _money_market(
-        "05/01/26 -0.01 5.19 Dividend Solar Payment", opening="5.20"
+        "05/01/54 -0.01 5.19 Dividend Solar Payment", opening="5.20"
     )
     assert parse_symitar_statement(text) is None
 
@@ -184,13 +184,13 @@ def test_a_sibling_this_reader_cannot_bound_is_never_dismissed_as_idle():
     would dismiss, as idle, precisely the account nothing here can check.
     """
     no_opening = (
-        "Money Market ( ID 0000 )\n" + GRID + "05/04/26 -1.00 4.18 Card purchase FUEL STOP\n"
+        "Money Market ( ID 0000 )\n" + GRID + "05/04/54 -1.00 4.18 Card purchase FUEL STOP\n"
     )
     assert parse_symitar_statement(HEAD + ACTIVE + no_opening) is None
     unstated = (
         "Vacation Club ( ID 0330 )\n"
         + GRID
-        + "05/01/26 $ 5.18 Beginning Balance 05/01/26 0.01 5.19 Dividend Deposit\n"
+        + "05/01/54 $ 5.18 Beginning Balance 05/01/54 0.01 5.19 Dividend Deposit\n"
     )
     assert "0330" not in HEAD
     assert parse_symitar_statement(HEAD + ACTIVE + unstated) is None
@@ -221,8 +221,8 @@ def test_the_summary_ending_balance_closes_the_account_with_no_equation_row():
     assert stmt.ending_balance == 1200.00
     assert stmt.bank == "Symitar Credit Union"
     assert stmt.currency == "USD"
-    assert stmt.period_start == "2026-05-01"
-    assert stmt.period_end == "2026-05-31"
+    assert stmt.period_start == "2054-05-01"
+    assert stmt.period_end == "2054-05-31"
 
 
 def test_the_six_figure_equation_row_is_the_per_account_oracle():
@@ -276,7 +276,7 @@ def test_the_amount_carries_its_own_printed_sign():
 
 def test_a_two_digit_year_is_read_as_printed():
     stmt = parse_symitar_statement(SIMPLE)
-    assert [t.date for t in stmt.transactions] == ["2026-05-02", "2026-05-03"]
+    assert [t.date for t in stmt.transactions] == ["2054-05-02", "2054-05-03"]
 
 
 def test_a_short_date_is_resolved_against_the_printed_period():
@@ -290,7 +290,7 @@ def test_a_short_date_is_resolved_against_the_printed_period():
         "05/03 500.00 1,200.00 External Deposit\n"
     )
     stmt = parse_symitar_statement(text)
-    assert [t.date for t in stmt.transactions] == ["2026-05-02", "2026-05-03"]
+    assert [t.date for t in stmt.transactions] == ["2054-05-02", "2054-05-03"]
 
 
 def test_a_document_with_no_active_deposit_account_is_declined():
@@ -305,9 +305,9 @@ def test_a_row_whose_date_cannot_be_resolved_refuses_the_document():
     text = HEAD + (
         "Free Business Checking ( ID 0210 )\n"
         + GRID
-        + "05/01/26 $ 1,000.00 Beginning Balance "
+        + "05/01/54 $ 1,000.00 Beginning Balance "
         "02/30 -300.00 700.00 Card purchase "
-        "05/03/26 500.00 1,200.00 ACH Deposit\n"
+        "05/03/54 500.00 1,200.00 ACH Deposit\n"
     )
     assert detect(text).claims
     assert parse_symitar_statement(text) is None
@@ -332,7 +332,7 @@ def _money_market_with_equation(dividends: str, credits: str = "$ 0.00") -> str:
         "Ending Balance YTD Dividends\n"
         f"$ 5.18 {credits} {dividends} $ 0.00 $ 5.19 $ 0.03\n"
         + GRID
-        + "05/01/26 $ 5.18 Beginning Balance 05/01/26 0.01 5.19 Dividend Deposit\n"
+        + "05/01/54 $ 5.18 Beginning Balance 05/01/54 0.01 5.19 Dividend Deposit\n"
     )
 
 

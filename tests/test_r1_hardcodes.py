@@ -54,38 +54,38 @@ class TestCheckCaptionRepair:
     def test_caption_correction_restores_identity(self):
         # Parsed check reads -3700; the statement's own check image says $700.
         txns = [
-            _txn("2026-03-02", 400.0, "Regular Deposit"),
-            _txn("2026-03-10", -3700.0, "Check 2101"),
+            _txn("2054-03-02", 400.0, "Regular Deposit"),
+            _txn("2054-03-10", -3700.0, "Check 2101"),
         ]
-        markdown = "Number: 2101 Date: 3/10/2026 Amount: $700.00"
+        markdown = "Number: 2101 Date: 3/10/2054 Amount: $700.00"
         repaired = _repair_checks_from_image_captions(markdown, txns, self._stmt())
         assert [t.amount for t in repaired] == [400.0, -700.0]
 
     def test_no_repair_when_identity_already_holds(self):
         txns = [
-            _txn("2026-03-02", 400.0, "Regular Deposit"),
-            _txn("2026-03-10", -700.0, "Check 2101"),
+            _txn("2054-03-02", 400.0, "Regular Deposit"),
+            _txn("2054-03-10", -700.0, "Check 2101"),
         ]
         # A (bogus) caption disagreeing with a reconciled ledger is ignored.
-        markdown = "Number: 2101 Date: 3/10/2026 Amount: $9999.00"
+        markdown = "Number: 2101 Date: 3/10/2054 Amount: $9999.00"
         repaired = _repair_checks_from_image_captions(markdown, txns, self._stmt())
         assert [t.amount for t in repaired] == [400.0, -700.0]
 
     def test_no_repair_when_caption_does_not_restore_identity(self):
         txns = [
-            _txn("2026-03-02", 400.0, "Regular Deposit"),
-            _txn("2026-03-10", -3700.0, "Check 2101"),
+            _txn("2054-03-02", 400.0, "Regular Deposit"),
+            _txn("2054-03-10", -3700.0, "Check 2101"),
         ]
-        markdown = "Number: 2101 Date: 3/10/2026 Amount: $123.45"
+        markdown = "Number: 2101 Date: 3/10/2054 Amount: $123.45"
         repaired = _repair_checks_from_image_captions(markdown, txns, self._stmt())
         assert [t.amount for t in repaired] == [400.0, -3700.0]
 
     def test_caption_date_and_number_must_both_match(self):
         txns = [
-            _txn("2026-03-02", 400.0, "Regular Deposit"),
-            _txn("2026-03-10", -3700.0, "Check 2101"),
+            _txn("2054-03-02", 400.0, "Regular Deposit"),
+            _txn("2054-03-10", -3700.0, "Check 2101"),
         ]
-        markdown = "Number: 2101 Date: 3/11/2026 Amount: $700.00"  # wrong day
+        markdown = "Number: 2101 Date: 3/11/2054 Amount: $700.00"  # wrong day
         repaired = _repair_checks_from_image_captions(markdown, txns, self._stmt())
         assert [t.amount for t in repaired] == [400.0, -3700.0]
 
@@ -99,31 +99,31 @@ APEX_TEMPLATE = """
 88 Some Road
 Anytown, TN 11111
 Account Number: ****9911
-Balance Forward From 05/01/2026 1,000.00
+Balance Forward From 05/01/2054 1,000.00
 {credit_count} Deposits/Credits 300.00 + Minimum Balance 830.00
 {debit_count} Withdrawals/Debits 170.00 - Average Balance 1,100.00
-Ending Balance As Of 05/31/2026 1,130.00
+Ending Balance As Of 05/31/2054 1,130.00
 Interest Paid This Period 0.00
 Days In Earnings Period 31
 124 Summit Business Checking
 DATE AMOUNT DESCRIPTION DATE AMOUNT DESCRIPTION
-05/15/2026 100.00 Regular Deposit 05/26/2026 100.00 Regular Deposit
+05/15/2054 100.00 Regular Deposit 05/26/2054 100.00 Regular Deposit
 OTHER CREDITS
 DATE AMOUNT DESCRIPTION
-05/04/2026 100.00 Wire Transfer In
+05/04/2054 100.00 Wire Transfer In
 CHECK NO DATE AMOUNT CHECK NO DATE AMOUNT
-2847 05/01/2026 10.00
+2847 05/01/2054 10.00
 * - denotes missing check number in sequence
 OTHER DEBITS
 DATE AMOUNT DESCRIPTION
 {other_debits}
 SERVICE CHARGES
 DATE AMOUNT DESCRIPTION
-05/29/2026 10.00 Net Service Charge
+05/29/2054 10.00 Net Service Charge
 SFRVICE CHARGE ANALYSIS
 FEESCHARGED
 DATE AMOUNT DESCRIPTION
-05/13/2026 10.00 NSF Charge
+05/13/2054 10.00 NSF Charge
 TOTAL FEES FOR THIS PERIOD
 DAILY BALANCE INFORMATION
 """
@@ -131,7 +131,7 @@ DAILY BALANCE INFORMATION
 
 def _apex_md(holder="ACME LOGISTICS LLC", debit_rows=14):
     other_debits = "\n".join(
-        f"05/{day:02d}/2026 10.00 Ach withdrawal\nVendor {day}"
+        f"05/{day:02d}/2054 10.00 Ach withdrawal\nVendor {day}"
         for day in range(1, debit_rows + 1)
     )
     return APEX_TEMPLATE.format(
@@ -158,7 +158,7 @@ class TestApexStructuralGates:
 
     def test_incomplete_detail_fails_closed_against_printed_counts(self):
         md = _apex_md(debit_rows=14).replace(
-            "05/04/2026 100.00 Wire Transfer In", ""
+            "05/04/2054 100.00 Wire Transfer In", ""
         )  # one stated credit row missing from the detail
         assert parse_apex_scanned_statement(md) is None
 
@@ -190,7 +190,7 @@ class TestHolderExtraction:
 # ---------------------------------------------------------------------------
 
 DAKOTA_TEMPLATE = """
-Statement Ending 11/30/2025
+Statement Ending 11/30/2053
 {holder} Page 1 of 3
 Member Number: 999999
 Website dakotawestcu.com
@@ -198,23 +198,23 @@ Thank you for being a member of Dakota West Credit Union.
 Summary of Accounts
 Account Type Account Number Ending Balance Badlands Savings {savings} $50.41 Small Business Checking {checking} $4,026.32
 --- Page 2 ---
-{holder} 999999 Statement Ending 11/30/2025 Page 2 of 3
+{holder} 999999 Statement Ending 11/30/2053 Page 2 of 3
 Small Business Checking - {checking}
 Account Summary Date Description Amount
-11/01/2025 Beginning Balance $100.00
+11/01/2053 Beginning Balance $100.00
 1 Credit(s) This Period $50.00
 1 Debit(s) This Period $30.00
-11/30/2025 Ending Balance $120.00
+11/30/2053 Ending Balance $120.00
 Deposits
 Date Description Amount
-11/05/2025 Branch Deposit $50.00
+11/05/2053 Branch Deposit $50.00
 Electronic Debits
 Date Description Amount
-11/06/2025 ACH Payment Vendor $30.00
+11/06/2053 ACH Payment Vendor $30.00
 Daily Balances
 Date Amount
-11/05/2025 $150.00
-11/06/2025 $120.00
+11/05/2053 $150.00
+11/06/2053 $120.00
 """
 
 
@@ -225,8 +225,8 @@ def _dakota_md(holder="RIVER HAULING LLC", checking="61234570", savings="6123456
 class TestCommunityPlatform:
     def test_page_header_scrub_is_structural(self):
         cleaned = community_clean(
-            "SOME OTHER COMPANY 123 Statement Ending 01/31/2026 Page 2 of 9\n"
-            "01/05/2026 Vendor payment $10.00"
+            "SOME OTHER COMPANY 123 Statement Ending 01/31/2054 Page 2 of 9\n"
+            "01/05/2054 Vendor payment $10.00"
         )
         assert "SOME OTHER COMPANY" not in cleaned
         assert "Vendor payment" in cleaned
@@ -255,16 +255,16 @@ class TestCommunityPlatform:
             "BLUE HARBOR LLC Page 1 of 2\n"
             "Business Checking - XXXXXXXX7777\n"
             "Account Summary Date Description Amount\n"
-            "01/01/2026 Beginning Balance $200.00\n"
+            "01/01/2054 Beginning Balance $200.00\n"
             "1 Credit(s) This Period $25.00\n"
             "1 Debit(s) This Period $20.00\n"
-            "01/30/2026 Ending Balance $205.00\n"
+            "01/30/2054 Ending Balance $205.00\n"
             "Deposits\n"
             "Date Description Amount\n"
-            "01/10/2026 Branch Deposit $25.00\n"
+            "01/10/2054 Branch Deposit $25.00\n"
             "Electronic Debits\n"
             "Date Description Amount\n"
-            "01/12/2026 ACH Payment Vendor $20.00\n"
+            "01/12/2054 ACH Payment Vendor $20.00\n"
         )
         stmt = parse_mission_valley_statement(md)
         assert stmt is not None
@@ -281,8 +281,8 @@ class TestChaseRemoteDepositRepair:
         return Statement(
             bank="Chase", beginning_balance=100.0, ending_balance=ending,
             transactions=[
-                _txn("2026-01-04", amount, "Remote Online Deposit 1"),
-                _txn("2026-01-05", -40.0, "Online Payment"),
+                _txn("2054-01-04", amount, "Remote Online Deposit 1"),
+                _txn("2054-01-05", -40.0, "Online Payment"),
             ],
         )
 
@@ -318,7 +318,7 @@ class TestChaseRemoteDepositRepair:
 # ---------------------------------------------------------------------------
 
 #: The French PERSONAL product, which is the layout the pinned corpus document
-#: `RBC French/12 - Relevé Royale Décembre 2025` prints. Its business sibling
+#: `RBC French/12 - Relevé Royale Décembre 2053` prints. Its business sibling
 #: heads the same grid `Chèques et débits` and prints instance counts beside
 #: its totals; that one is covered in `tests/test_rbc_variants.py` (W3 §RBCCIBC
 #: card C), which is the layout `rbc_french` used to miss entirely.
@@ -343,33 +343,33 @@ Solde de clôture de votre compte 1 200,00
 class TestRbcFrenchGeneralized:
     def test_non_december_period_parses(self):
         md = RBC_FR_TEMPLATE.format(
-            start_month="mars", start_year=2026, start_abbr="mars",
-            end_month="avril", end_year=2026,
+            start_month="mars", start_year=2054, start_abbr="mars",
+            end_month="avril", end_year=2054,
         )
         stmt = parse_rbc_statement(md)
         assert stmt is not None
-        assert stmt.period_start == "2026-03-03"
-        assert stmt.period_end == "2026-04-02"
+        assert stmt.period_start == "2054-03-03"
+        assert stmt.period_end == "2054-04-02"
         dates = [t.date for t in stmt.transactions]
-        assert dates == ["2026-03-05", "2026-03-12"]
+        assert dates == ["2054-03-05", "2054-03-12"]
         assert [t.amount for t in stmt.transactions] == [500.0, -300.0]
 
     def test_cross_year_period_resolves_years_from_period(self):
         md = RBC_FR_TEMPLATE.format(
-            start_month="décembre", start_year=2025, start_abbr="déc",
-            end_month="janvier", end_year=2026,
+            start_month="décembre", start_year=2053, start_abbr="déc",
+            end_month="janvier", end_year=2054,
         )
         stmt = parse_rbc_statement(md)
         assert stmt is not None
-        assert stmt.period_start == "2025-12-03"
-        assert stmt.period_end == "2026-01-02"
-        assert [t.date for t in stmt.transactions] == ["2025-12-05", "2025-12-12"]
+        assert stmt.period_start == "2053-12-03"
+        assert stmt.period_end == "2054-01-02"
+        assert [t.date for t in stmt.transactions] == ["2053-12-05", "2053-12-12"]
 
     def test_missing_period_line_fails_closed(self):
         md = RBC_FR_TEMPLATE.format(
-            start_month="mars", start_year=2026, start_abbr="mars",
-            end_month="avril", end_year=2026,
-        ).replace("Du 3 mars 2026 au 2 avril 2026", "")
+            start_month="mars", start_year=2054, start_abbr="mars",
+            end_month="avril", end_year=2054,
+        ).replace("Du 3 mars 2054 au 2 avril 2054", "")
         assert parse_rbc_statement(md) is None
 
     def test_french_month_prefix_resolution(self):
@@ -412,11 +412,11 @@ class TestTdSignCodes:
         md = """
 Accounts issued by: THE TORONTO-DOMINION BANK
 <table>
-<tr><td>Branch No.</td><td>Account No.</td><td>BUSINESS CHEQUING ACCOUNT - CAD EVERY DAY A</td><td>SEP 29/25 - OCT 31/25</td></tr>
+<tr><td>Branch No.</td><td>Account No.</td><td>BUSINESS CHEQUING ACCOUNT - CAD EVERY DAY A</td><td>SEP 29/53 - OCT 31/53</td></tr>
 <tr><td>DESCRIPTION</td><td>CHEQUE/DEBIT</td><td>DEPOSIT/CREDIT</td><td>DATE</td><td>BALANCE</td></tr>
 <tr><td>BALANCE FORWARD</td><td></td><td></td><td>SEP29</td><td>100.00</td></tr>
 <tr><td>FRESHCO REFUND</td><td></td><td>25.00</td><td>OCT10</td><td>125.00</td></tr>
-<tr><td>0 CHQS ENCLOSED NEXT STATEMENT DATE IS</td><td>NOV 28/25</td><td></td><td>No.</td><td>Amount</td></tr>
+<tr><td>0 CHQS ENCLOSED NEXT STATEMENT DATE IS</td><td>NOV 28/53</td><td></td><td>No.</td><td>Amount</td></tr>
 <tr><td>MONTHLY AVER. CR. BAL.</td><td>$100.00</td><td>Credits</td><td>1 25.00</td></tr>
 <tr><td>DEP CONTENT- CASH 0</td><td>ITEMS 0</td><td>UNC BATCH 0</td><td>Debits</td><td>0 0.00</td></tr>
 </table>
@@ -447,10 +447,10 @@ WF_TX|2/10|Deposit|50.00||120.00
 
 class TestWellsYearEvidence:
     def test_year_from_document(self):
-        stmt = parse_wells_statement(WELLS_TEMPLATE.format(maybe_year="2024"))
+        stmt = parse_wells_statement(WELLS_TEMPLATE.format(maybe_year="2052"))
         assert stmt is not None
-        assert stmt.period_start == "2024-02-01"
-        assert all(t.date.startswith("2024-") for t in stmt.transactions)
+        assert stmt.period_start == "2052-02-01"
+        assert all(t.date.startswith("2052-") for t in stmt.transactions)
 
     def test_no_year_fails_closed(self):
         assert _infer_year("no year anywhere") is None
@@ -459,20 +459,20 @@ class TestWellsYearEvidence:
 
 WILSON_TEMPLATE = """
 WILSON & MUIR BK & TRUST
-Statement Date: {end}/2025 Account No.: #299 Page: 1
+Statement Date: {end}/2053 Account No.: #299 Page: 1
 SMALL BUSINESS PACKAGE SUMMARY Type : **REG Status : Active
-Category Number Amount Balance Forward From {start}/25 100.00
+Category Number Amount Balance Forward From {start}/53 100.00
 Deposits 1 50.00+ Debits 1 30.00 Automatic Withdrawals 1 20.00
 Automatic Deposits 1 10.00+ Card Activity 0 0.00
-Ending Balance On {end}/25 110.00 Foreign Items Deposited 0 Items Deposited 1
+Ending Balance On {end}/53 110.00 Foreign Items Deposited 0 Items Deposited 1
 Average Balance (Ledger) 105.00+
 ALL CREDIT ACTIVITY
-Date Type Amount 05/08/25 Deposit 50.00
-Date Description Amount 05/29/25 MERCH BNKCD NSD DEPOSIT 10.00
+Date Type Amount 05/08/53 Deposit 50.00
+Date Description Amount 05/29/53 MERCH BNKCD NSD DEPOSIT 10.00
 ELECTRONIC DEBITS
-Date Description Amount 05/01/25 ONDECK CAPITAL 5 33952 20.00
+Date Description Amount 05/01/53 ONDECK CAPITAL 5 33952 20.00
 CHECKS AND OTHER DEBITS * indicates a gap in the check numbers
-Date Check # Amount 05/02/25 1367 30.00
+Date Check # Amount 05/02/53 1367 30.00
 DAILY BALANCE SUMMARY
 """
 
@@ -514,12 +514,12 @@ class TestMojibakeNormalization:
 
     def test_french_parser_accepts_mojibake_input(self):
         md = RBC_FR_TEMPLATE.format(
-            start_month="mars", start_year=2026, start_abbr="mars",
-            end_month="avril", end_year=2026,
+            start_month="mars", start_year=2054, start_abbr="mars",
+            end_month="avril", end_year=2054,
         ).encode("utf-8").decode("cp1252")   # simulate double-encoding
         stmt = parse_rbc_statement(md)
         assert stmt is not None
-        assert stmt.period_start == "2026-03-03"
+        assert stmt.period_start == "2054-03-03"
 
 
 # ---------------------------------------------------------------------------

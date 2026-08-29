@@ -58,7 +58,7 @@ from analysis.td_canada_french import (
     parse_td_canada_french_statement,
 )
 
-PERIOD = "31 JAN 26 - 28 FEV 26"
+PERIOD = "31 JAN 54 - 28 FEV 54"
 
 #: One printed page: the head furniture the parser reads, the grid, the ledger,
 #: and the page footer block. Branch, account and amounts are invented.
@@ -528,28 +528,28 @@ class TestF6Dates:
 SOLDE REPORTE 31JAN 100,00
 DEPOT MOBILE 40,00 05FEV 140,00
 """, credits="1 40,00")
-        assert stmt.transactions[0].date == "2026-02-05"
+        assert stmt.transactions[0].date == "2054-02-05"
 
     def test_a_period_crossing_the_year_dates_each_row_in_its_own_year(self):
         stmt = parse("""
 SOLDE REPORTE 31DEC 100,00
 LIGNE SANS CODE UN 40,00 31DEC
 LIGNE SANS CODE DEUX 25,00 15JAN 35,00
-""", period="31 DEC 25 - 30 JAN 26", debits="2 65,00")
-        assert [t.date for t in stmt.transactions] == ["2025-12-31", "2026-01-15"]
-        assert (stmt.period_start, stmt.period_end) == ("2025-12-31", "2026-01-30")
+""", period="31 DEC 53 - 30 JAN 54", debits="2 65,00")
+        assert [t.date for t in stmt.transactions] == ["2053-12-31", "2054-01-15"]
+        assert (stmt.period_start, stmt.period_end) == ("2053-12-31", "2054-01-30")
 
     @pytest.mark.parametrize("token,iso", [
-        ("05FEV", "2026-02-05"),
-        ("05MAR", "2026-03-05"),
-        ("05AVR", "2026-04-05"),
-        ("05MAI", "2026-05-05"),
+        ("05FEV", "2054-02-05"),
+        ("05MAR", "2054-03-05"),
+        ("05AVR", "2054-04-05"),
+        ("05MAI", "2054-05-05"),
     ])
     def test_french_month_tokens_resolve(self, token, iso):
         stmt = parse(f"""
 SOLDE REPORTE 31JAN 100,00
 DEPOT MOBILE 40,00 {token} 140,00
-""", period="31 JAN 26 - 31 MAI 26", credits="1 40,00")
+""", period="31 JAN 54 - 31 MAI 54", credits="1 40,00")
         assert stmt.transactions[0].date == iso
 
     def test_a_document_without_a_printed_period_is_declined(self):

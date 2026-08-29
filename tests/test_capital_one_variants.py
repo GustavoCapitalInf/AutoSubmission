@@ -132,16 +132,16 @@ def native_document(*, service_charge: str = "($15.00)", debits: str = "($200.00
     return (
         "Capital One\n"
         f"{ISSUER_NOTICE}"
-        "ACCOUNT SUMMARY FOR PERIOD MARCH 01, 2026 - MARCH 31, 2026\n"
-        "Previous Balance 02/28/26 $1,000.00 "
+        "ACCOUNT SUMMARY FOR PERIOD MARCH 01, 2054 - MARCH 31, 2054\n"
+        "Previous Balance 02/28/54 $1,000.00 "
         "Number of Days in Cycle 31 "
         "2 Deposits/Credits $500.00 "
         "Minimum Balance This Cycle $800.00 "
         f"3 Checks/Debits {debits} "
         "Average Collected Balance $900.00 "
         f"Service Charges {service_charge} "
-        "Ending Balance 03/31/26 $1,300.00\n"
-        "ACCOUNT DETAIL FOR PERIOD MARCH 01, 2026 - MARCH 31, 2026\n"
+        "Ending Balance 03/31/54 $1,300.00\n"
+        "ACCOUNT DETAIL FOR PERIOD MARCH 01, 2054 - MARCH 31, 2054\n"
         f"{rows}"
         f"Total {detail_total} {detail_total}\n"
     )
@@ -227,49 +227,49 @@ def txn(date_: str, description: str, amount: float) -> Transaction:
 
 
 def test_d2_a_charge_named_in_the_ledger_is_moved_onto_the_cycle_end():
-    rows = [txn("2026-03-31", "Maintenance charge", -15.00)]
-    moved = _normalize_cycle_service_charge_dates(rows, "2026-03-29", -15.00)
-    assert moved[0].date == "2026-03-29"
-    assert "printed 2026-03-31" in moved[0].description
+    rows = [txn("2054-03-31", "Maintenance charge", -15.00)]
+    moved = _normalize_cycle_service_charge_dates(rows, "2054-03-29", -15.00)
+    assert moved[0].date == "2054-03-29"
+    assert "printed 2054-03-31" in moved[0].description
 
 
 def test_d2_the_printed_total_identifies_a_charge_the_ledger_words_differently():
     # `Cash deposit limit exceeded` is not a maintenance charge by name, but
     # it is exactly the figure the summary states under `Service Charges`.
-    rows = [txn("2026-02-28", "Cash deposit limit exceeded", -12.00)]
-    moved = _normalize_cycle_service_charge_dates(rows, "2026-02-27", -12.00)
-    assert moved[0].date == "2026-02-27"
-    assert "printed 2026-02-28" in moved[0].description
+    rows = [txn("2054-02-28", "Cash deposit limit exceeded", -12.00)]
+    moved = _normalize_cycle_service_charge_dates(rows, "2054-02-27", -12.00)
+    assert moved[0].date == "2054-02-27"
+    assert "printed 2054-02-28" in moved[0].description
 
 
 def test_d2_negative_an_ordinary_debit_at_the_boundary_is_never_moved():
-    rows = [txn("2026-02-28", "TRANSFER WITHDRAWAL To ....0000", -500.00)]
-    moved = _normalize_cycle_service_charge_dates(rows, "2026-02-27", -12.00)
-    assert moved[0].date == "2026-02-28"
+    rows = [txn("2054-02-28", "TRANSFER WITHDRAWAL To ....0000", -500.00)]
+    moved = _normalize_cycle_service_charge_dates(rows, "2054-02-27", -12.00)
+    assert moved[0].date == "2054-02-28"
     assert moved[0].description == "TRANSFER WITHDRAWAL To ....0000"
 
 
 def test_d2_negative_a_zero_charge_identifies_nothing_by_amount():
     # Without a printed charge there is no figure to match, so only the
     # ledger's own wording can name a cycle charge.
-    assert _is_cycle_charge(txn("2026-02-28", "Some fee", 0.0), 0.0) is False
-    assert _is_cycle_charge(txn("2026-02-28", "Some fee", -12.00), None) is False
+    assert _is_cycle_charge(txn("2054-02-28", "Some fee", 0.0), 0.0) is False
+    assert _is_cycle_charge(txn("2054-02-28", "Some fee", -12.00), None) is False
 
 
 def test_d2_negative_a_credit_of_the_charge_amount_is_not_the_charge():
-    assert _is_cycle_charge(txn("2026-02-28", "Refund fee", 12.00), -12.00) is False
+    assert _is_cycle_charge(txn("2054-02-28", "Refund fee", 12.00), -12.00) is False
 
 
 def test_d2_negative_a_charge_far_outside_the_cycle_is_left_where_it_printed():
-    rows = [txn("2026-03-10", "Maintenance charge", -15.00)]
-    moved = _normalize_cycle_service_charge_dates(rows, "2026-02-27", -15.00)
-    assert moved[0].date == "2026-03-10"
+    rows = [txn("2054-03-10", "Maintenance charge", -15.00)]
+    moved = _normalize_cycle_service_charge_dates(rows, "2054-02-27", -15.00)
+    assert moved[0].date == "2054-03-10"
 
 
 def test_d2_negative_a_charge_inside_the_cycle_is_not_moved():
-    rows = [txn("2026-02-20", "Maintenance charge", -15.00)]
-    moved = _normalize_cycle_service_charge_dates(rows, "2026-02-27", -15.00)
-    assert moved[0].date == "2026-02-20"
+    rows = [txn("2054-02-20", "Maintenance charge", -15.00)]
+    moved = _normalize_cycle_service_charge_dates(rows, "2054-02-27", -15.00)
+    assert moved[0].date == "2054-02-20"
     assert "printed" not in moved[0].description
 
 
@@ -330,9 +330,9 @@ def test_d3_balances_keep_their_sign_while_totals_are_magnitudes():
 # which it also relabelled with a `(printed ...)` annotation.
 
 def test_d4_a_purchase_of_the_charge_amount_is_never_re_dated():
-    rows = [txn("2026-02-28", "STARBUCKS STORE 12345 CARROLLTON TX", -12.00)]
-    moved = _normalize_cycle_service_charge_dates(rows, "2026-02-27", -12.00)
-    assert moved[0].date == "2026-02-28", "a purchase was moved onto the cycle end"
+    rows = [txn("2054-02-28", "STARBUCKS STORE 12345 CARROLLTON TX", -12.00)]
+    moved = _normalize_cycle_service_charge_dates(rows, "2054-02-27", -12.00)
+    assert moved[0].date == "2054-02-28", "a purchase was moved onto the cycle end"
     assert moved[0].description == "STARBUCKS STORE 12345 CARROLLTON TX"
 
 
@@ -343,7 +343,7 @@ def test_d4_a_purchase_of_the_charge_amount_is_never_re_dated():
     "Mobile Deposit",
 ])
 def test_d4_no_ordinary_row_is_a_fee_however_well_the_amount_matches(description):
-    assert _is_cycle_charge(txn("2026-02-28", description, -12.00), -12.00) is False
+    assert _is_cycle_charge(txn("2054-02-28", description, -12.00), -12.00) is False
 
 
 @pytest.mark.parametrize("description", [
@@ -353,18 +353,18 @@ def test_d4_no_ordinary_row_is_a_fee_however_well_the_amount_matches(description
     "Overdraft fee",
 ])
 def test_d4_a_fee_worded_row_of_the_printed_amount_is_the_cycle_charge(description):
-    assert _is_cycle_charge(txn("2026-02-28", description, -12.00), -12.00) is True
+    assert _is_cycle_charge(txn("2054-02-28", description, -12.00), -12.00) is True
 
 
 def test_d4_the_guard_compares_signs_not_magnitudes():
     # A printed service-charge REFUND (+12.00) must not adopt a -12.00 fee row.
-    assert _is_cycle_charge(txn("2026-02-28", "NSF charge", -12.00), 12.00) is False
-    assert _is_cycle_charge(txn("2026-02-28", "NSF charge", -12.00), -12.00) is True
+    assert _is_cycle_charge(txn("2054-02-28", "NSF charge", -12.00), 12.00) is False
+    assert _is_cycle_charge(txn("2054-02-28", "NSF charge", -12.00), -12.00) is True
 
 
 def test_d4_the_wording_arm_is_unchanged_and_needs_no_printed_amount():
-    rows = [txn("2026-02-28", "Maintenance charge", -15.00)]
-    assert _normalize_cycle_service_charge_dates(rows, "2026-02-27", None)[0].date == "2026-02-27"
+    rows = [txn("2054-02-28", "Maintenance charge", -15.00)]
+    assert _normalize_cycle_service_charge_dates(rows, "2054-02-27", None)[0].date == "2054-02-27"
 
 
 # ---------------------------------------------------------------------------

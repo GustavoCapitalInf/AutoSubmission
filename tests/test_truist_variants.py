@@ -41,11 +41,11 @@ def document(*, checks_section: str, checks_total: str = "300.00",
     return (
         "Your account statement\n"
         f"{ACCOUNT_LINE}\n"
-        "Account summary Your previous balance as of 01/30/2026 $1,000.00 "
+        "Account summary Your previous balance as of 01/30/2054 $1,000.00 "
         f"Checks - {checks_total} "
         "Other withdrawals, debits and service charges - 200.00 "
         "Deposits, credits and interest + 500.00 "
-        f"Your new balance as of 02/27/2026 = ${new_balance}\n"
+        f"Your new balance as of 02/27/2054 = ${new_balance}\n"
         f"{checks_section}"
         f"{OTHER_SECTION}"
         f"{DEPOSIT_SECTION}"
@@ -219,11 +219,11 @@ def summary_document(checks_cell: str, other_cell: str, deposits_cell: str) -> s
     return (
         "Your account statement\n"
         f"{ACCOUNT_LINE}\n"
-        "Account summary Your previous balance as of 01/30/2026 $1,000.00 "
+        "Account summary Your previous balance as of 01/30/2054 $1,000.00 "
         f"Checks - {checks_cell} "
         f"Other withdrawals, debits and service charges - {other_cell} "
         f"Deposits, credits and interest + {deposits_cell} "
-        "Your new balance as of 02/27/2026 = $1,000.00\n"
+        "Your new balance as of 02/27/2054 = $1,000.00\n"
         f"{T_CHECKS_SECTION}{OTHER_SECTION}{DEPOSIT_SECTION}"
     )
 

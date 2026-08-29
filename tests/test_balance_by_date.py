@@ -43,7 +43,7 @@ from analysis.count_semantics import counts_comparable
 
 PAGE_HEAD = (
     "PO Box 0 Springfield, ZZ 00000\n"
-    "Electronic Service Requested 03/01/2026 - 03/31/2026\n"
+    "Electronic Service Requested 03/01/2054 - 03/31/2054\n"
     "Account Number: 900000\n"
 )
 
@@ -116,8 +116,8 @@ def document(*, summary: str = SUMMARY, credits: str = CREDITS,
 def test_the_printed_statement_is_published_whole():
     stmt = parse(document())
     assert stmt is not None
-    assert stmt.period_start == "2026-03-01"
-    assert stmt.period_end == "2026-03-31"
+    assert stmt.period_start == "2054-03-01"
+    assert stmt.period_end == "2054-03-31"
     assert stmt.days_in_period == 31
     assert stmt.beginning_balance == 100.00
     assert stmt.ending_balance == 185.50
@@ -142,7 +142,7 @@ def test_a_cheque_is_published_by_its_printed_serial():
     stmt = parse(document())
     cheques = [t for t in stmt.transactions if t.description.startswith("Check ")]
     assert [(t.date, t.description, t.amount) for t in cheques] == [
-        ("2026-03-03", "Check 900", -10.00)
+        ("2054-03-03", "Check 900", -10.00)
     ]
 
 
@@ -152,9 +152,9 @@ def test_the_daily_grid_is_published_without_its_pre_period_bookend():
     snapshot the ADB engine would have to reject it as out of period."""
     stmt = parse(document())
     days = [snapshot.date for snapshot in stmt.stated_daily_balances]
-    assert "2026-02-28" not in days
-    assert days == ["2026-03-02", "2026-03-03", "2026-03-04",
-                    "2026-03-05", "2026-03-06", "2026-03-31"]
+    assert "2054-02-28" not in days
+    assert days == ["2054-03-02", "2054-03-03", "2054-03-04",
+                    "2054-03-05", "2054-03-06", "2054-03-31"]
     assert all(stmt.period_start <= day <= stmt.period_end for day in days)
 
 
@@ -497,7 +497,7 @@ def test_two_identical_rows_the_bank_really_printed_are_published():
     )
     stmt = parse(document(summary=summary, credits=twice, checks="", debits="", daily=daily))
     assert stmt is not None
-    same_day = [t for t in stmt.transactions if t.date == "2026-03-02"]
+    same_day = [t for t in stmt.transactions if t.date == "2054-03-02"]
     assert len(same_day) == 2
     assert same_day[0].amount == same_day[1].amount == 100.00
     assert same_day[0].description == same_day[1].description
@@ -657,7 +657,7 @@ def test_a_document_without_a_daily_grid_is_not_even_claimed():
 OVERDRAWN = (
     "--- Page 1 ---\n\n"
     "PO Box 0 Springfield, ZZ 00000\n"
-    "Electronic Service Requested 03/01/2026 - 03/31/2026\n"
+    "Electronic Service Requested 03/01/2054 - 03/31/2054\n"
     "Checking Account Summary\n"
     "PREVIOUS BALANCE .00 AVERAGE BALANCE\n"
     "+ 1 CREDITS 60.00 5.00\n"
@@ -685,7 +685,7 @@ def test_an_overdrawn_day_is_read_from_the_marker_the_grid_prints():
     stmt = parse(OVERDRAWN)
     assert stmt is not None
     assert [(s.date, s.balance) for s in stmt.stated_daily_balances] == [
-        ("2026-03-02", -50.00), ("2026-03-03", 10.00)
+        ("2054-03-02", -50.00), ("2054-03-03", 10.00)
     ]
 
 
@@ -714,7 +714,7 @@ def test_a_row_dated_outside_the_printed_period_refuses_the_document():
 
 
 def test_pages_that_disagree_about_the_period_refuse_the_document():
-    disagreeing = document() + "Electronic Service Requested 04/01/2026 - 04/30/2026\n"
+    disagreeing = document() + "Electronic Service Requested 04/01/2054 - 04/30/2054\n"
     assert parse(disagreeing) is None
 
 

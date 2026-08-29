@@ -51,9 +51,9 @@ Opening balance {opening}
 """
 
 PERIOD = {
-    "period": "March 2, 2026 to April 1, 2026",
-    "start": "March 2, 2026",
-    "end": "April 1, 2026",
+    "period": "March 2, 2054 to April 1, 2054",
+    "start": "March 2, 2054",
+    "end": "April 1, 2054",
 }
 
 
@@ -368,7 +368,7 @@ def test_f9_a_repeated_posting_date_on_a_continuation_page_is_one_date():
         credits="500.00", credit_count=1, debits="200.00", debit_count=1,
     ))
     assert stmt is not None
-    assert [t.date for t in stmt.transactions] == ["2026-03-02", "2026-03-02"]
+    assert [t.date for t in stmt.transactions] == ["2054-03-02", "2054-03-02"]
     assert amounts(stmt) == [500.0, -200.0]
 
 
@@ -379,7 +379,7 @@ def test_f9_rows_after_a_new_posting_date_carry_that_date():
         credits="500.00", credit_count=1, debits="200.00", debit_count=1,
     ))
     assert stmt is not None
-    assert [t.date for t in stmt.transactions] == ["2026-03-02", "2026-03-03"]
+    assert [t.date for t in stmt.transactions] == ["2054-03-02", "2054-03-03"]
 
 
 # ---------------------------------------------------------------------------
@@ -434,12 +434,12 @@ def test_negative_a_third_adjacent_money_cell_does_not_become_a_second_balance()
 FR = """
 BANQUE ROYALE DU CANADA
 Relevé de compte d'entreprise
-Du 3 mars 2026 au 2 avril 2026
+Du 3 mars 2054 au 2 avril 2054
 Sommaire du compte pour cette période
-Solde d'ouverture le 3 mars 2026 1 000,00 $
+Solde d'ouverture le 3 mars 2054 1 000,00 $
 Total des dépôts et des crédits (1) + 500,00
 Total des chèques et des débits (1) - 300,00
-Solde de clôture le 2 avril 2026 = 1 200,00 $
+Solde de clôture le 2 avril 2054 = 1 200,00 $
 Détails des opérations passées au compte
 Date Description Chèques et débits ($) Dépôts et crédits ($) Solde ($)
 Solde d'ouverture 1 000,00
@@ -513,7 +513,7 @@ def test_r_pre_fix_the_total_row_grammar_refused_the_symbol_the_balance_rows_too
 
     credit_line = "Total deposits & credits (1) + $1,000.00"
     debit_line = "Total cheques & debits (1) - $300.00"
-    balance_line = "Opening balance on March 2, 2026 $1,000.00"
+    balance_line = "Opening balance on March 2, 2054 $1,000.00"
 
     # What the block's balance rows have always admitted, on all three lines.
     assert re.search(r"Opening balance on .*?" + _SUMMARY_MONEY, balance_line)
@@ -612,8 +612,8 @@ def test_d_a_summary_balance_printed_minus_space_symbol_is_negative():
         "02 Mar Deposit item 1,000.00 997.45\n",
         opening="2.55", closing="997.45",
         credits="1,000.00", credit_count=1, debits="0.00", debit_count=0,
-    ).replace("Opening balance on March 2, 2026 $2.55",
-              "Opening balance on March 2, 2026 - $2.55")
+    ).replace("Opening balance on March 2, 2054 $2.55",
+              "Opening balance on March 2, 2054 - $2.55")
     stmt = parse_rbc_statement(doc)
     assert stmt is not None
     assert stmt.beginning_balance == -2.55
@@ -624,8 +624,8 @@ def test_d_a_summary_closing_balance_printed_equals_minus_symbol_is_negative():
         "02 Mar Withdrawal item 5.32 -2.55\n",
         opening="2.77", closing="2.55",
         credits="0.00", credit_count=0, debits="5.32", debit_count=1,
-    ).replace("Closing balance on April 1, 2026 = $2.55",
-              "Closing balance on April 1, 2026 = - $2.55")
+    ).replace("Closing balance on April 1, 2054 = $2.55",
+              "Closing balance on April 1, 2054 = - $2.55")
     stmt = parse_rbc_statement(doc)
     assert stmt is not None
     assert stmt.ending_balance == -2.55
@@ -674,8 +674,8 @@ def test_d_the_opening_row_prints_its_own_sign():
         "02 Mar Deposit item 100.00 97.45\n",
         opening="2.55", closing="97.45",
         credits="100.00", credit_count=1, debits="0.00", debit_count=0,
-    ).replace("Opening balance on March 2, 2026 $2.55",
-              "Opening balance on March 2, 2026 - $2.55"
+    ).replace("Opening balance on March 2, 2054 $2.55",
+              "Opening balance on March 2, 2054 - $2.55"
     ).replace("Opening balance 2.55", "Opening balance - 2.55")
     stmt = parse_rbc_statement(doc)
     assert stmt is not None
@@ -692,7 +692,7 @@ def test_d_the_opening_row_line_does_not_swallow_what_follows_it():
     discarded a real transaction.
     """
     rows, opening = read_grid_rows(
-        [("Opening balance 1,000.00 Withdrawal item 100.00 900.00", "2026-03-02", True)],
+        [("Opening balance 1,000.00 Withdrawal item 100.00 900.00", "2054-03-02", True)],
         pattern=_MONEY_RE,
         to_amount=lambda token: parse_money(token) or 0.0,
         opening_label="OPENING BALANCE",
@@ -706,7 +706,7 @@ def test_d_the_opening_row_line_does_not_swallow_what_follows_it():
 
 def test_d_negative_an_opening_row_alone_on_its_line_still_yields_no_row():
     rows, opening = read_grid_rows(
-        [("Opening balance 1,000.00", "2026-03-02", True)],
+        [("Opening balance 1,000.00", "2054-03-02", True)],
         pattern=_MONEY_RE,
         to_amount=lambda token: parse_money(token) or 0.0,
         opening_label="OPENING BALANCE",
@@ -760,13 +760,13 @@ def test_d_negative_a_three_letter_reference_after_an_amount_is_still_a_cell():
 PERSONAL = """
 Your RBC personal banking account statement
 Royal Bank of Canada P.O. Box 4047 Terminal A Toronto ON M5W 1L5
-From December 19, 2025 to January 20, 2026
+From December 19, 2053 to January 20, 2054
 Your account number: 00144-0000000
 Summary of your account for this period
-Your opening balance on December 19, 2025 {opening}
+Your opening balance on December 19, 2053 {opening}
 Total deposits into your account + {credits}
 Total withdrawals from your account - {debits}
-Your closing balance on January 20, 2026 = {closing}
+Your closing balance on January 20, 2054 = {closing}
 Details of your account activity
 Date Description Withdrawals ($) Deposits ($) Balance ($)
 Opening Balance {open_row}
@@ -792,8 +792,8 @@ def test_b_the_personal_product_is_detected_and_parsed():
     ))
     assert stmt is not None
     assert stmt.bank == "Royal Bank of Canada"
-    assert stmt.period_start == "2025-12-19"
-    assert stmt.period_end == "2026-01-20"
+    assert stmt.period_start == "2053-12-19"
+    assert stmt.period_end == "2054-01-20"
     assert amounts(stmt) == [100.0, -15.0]
     assert balances(stmt) == [102.77, 87.77]
 
@@ -941,11 +941,11 @@ def test_c_the_summary_reads_both_totals_and_both_printed_counts():
 
 
 def test_c_the_opening_balance_pattern_does_not_absorb_the_printed_year():
-    """`... le 23 juillet 2025 801,53 $` opens at 801.53, not 25,801.53: the
+    """`... le 23 juillet 2053 801,53 $` opens at 801.53, not 25,801.53: the
     unanchored pattern began the grouped alternative inside the YEAR."""
     document = FR.replace(
-        "Solde d'ouverture le 3 mars 2026 1 000,00 $",
-        "Solde d'ouverture le 23 juillet 2025 801,53 $",
+        "Solde d'ouverture le 3 mars 2054 1 000,00 $",
+        "Solde d'ouverture le 23 juillet 2053 801,53 $",
     ).replace("Solde d'ouverture 1 000,00", "Solde d'ouverture 801,53")
     stmt = parse_rbc_statement(document.format(
         body="5 mars Article un 500,00 1 301,53\n"))
@@ -1362,7 +1362,7 @@ def test_cur_negative_the_source_filename_cannot_set_the_currency():
 
 # ---------------------------------------------------------------------------
 # Card CUR-J — the RBC Canada native-currency default (CURRENCY_DOCTRINE §B,
-# ratified 2026-08-16) and the evidence hierarchy it belongs to.
+# ratified 2054-08-16) and the evidence hierarchy it belongs to.
 #
 # The hierarchy, and every test below names which rung it exercises:
 #

@@ -48,7 +48,7 @@ from analysis.wilson_muir import parse_wilson_muir_statement
 _WM_HEAD = (
     "WILSON & MUIR BK & TRUST\n"
     "EXAMPLE HOLDINGS LLC\n"
-    "Statement Date: 01/30/2026 Account No.: #4321 Page: 1\n"
+    "Statement Date: 01/30/2054 Account No.: #4321 Page: 1\n"
     "SMALL BUSINESS PACKAGE SUMMARY Type :     **REG    Status :    Active\n"
 )
 
@@ -57,7 +57,7 @@ _WM_HEAD = (
 #: `Automatic Teller Withdrawals` and `Miscellaneous Fees` — are outside the
 #: six the reader used to memorize, and each stands BETWEEN two that are in it.
 _WM_STRIP = (
-    "Category Number Amount Balance Forward From 12/31/25 1,000.00 "
+    "Category Number Amount Balance Forward From 12/31/53 1,000.00 "
     "Deposits 2 500.00+ "
     "Debits 1 100.00 "
     "Automatic Teller Withdrawals 1 50.00 "
@@ -65,7 +65,7 @@ _WM_STRIP = (
     "Automatic Deposits 1 300.00+ "
     "Card Activity 1 25.00 "
     "Miscellaneous Fees 1 10.00 "
-    "Ending Balance On 01/30/26 1,415.00 "
+    "Ending Balance On 01/30/54 1,415.00 "
     "Foreign Items Deposited 1 Items Deposited 2 "
     "Average Balance (Ledger) 1,200.00+\n"
 )
@@ -73,18 +73,18 @@ _WM_STRIP = (
 _WM_LEDGER = (
     "ALL CREDIT ACTIVITY\n"
     "Date Type Amount Date Type Amount\n"
-    "01/05/26 Deposit 300.00 01/12/26 Deposit 200.00\n"
-    "01/20/26 Automatic Deposit 300.00\n"
+    "01/05/54 Deposit 300.00 01/12/54 Deposit 200.00\n"
+    "01/20/54 Automatic Deposit 300.00\n"
     "ELECTRONIC DEBITS\n"
     "Date Type Amount Date Type Amount\n"
-    "01/06/26 ATM Withdrawal 50.00 01/14/26 Automatic Withdrawal 200.00\n"
-    "01/18/26 Card Purchase 25.00 01/28/26 Service Fee 10.00\n"
+    "01/06/54 ATM Withdrawal 50.00 01/14/54 Automatic Withdrawal 200.00\n"
+    "01/18/54 Card Purchase 25.00 01/28/54 Service Fee 10.00\n"
     "CHECKS AND OTHER DEBITS\n"
     "Date Check Amount\n"
-    "01/09/26 1001 100.00\n"
+    "01/09/54 1001 100.00\n"
     "DAILY BALANCE SUMMARY\n"
     "Date Balance\n"
-    "01/30/26 1,415.00\n"
+    "01/30/54 1,415.00\n"
 )
 
 WILSON_MUIR_WIDE_CATEGORIES = _WM_HEAD + _WM_STRIP + _WM_LEDGER
@@ -95,25 +95,25 @@ WILSON_MUIR_WIDE_CATEGORIES = _WM_HEAD + _WM_STRIP + _WM_LEDGER
 WILSON_MUIR_MEMORIZED_CATEGORIES_ONLY = (
     _WM_HEAD
     + (
-        "Category Number Amount Balance Forward From 12/31/25 1,000.00 "
+        "Category Number Amount Balance Forward From 12/31/53 1,000.00 "
         "Deposits 2 500.00+ "
         "Debits 1 100.00 "
         "Automatic Withdrawals 1 200.00 "
         "Automatic Deposits 1 300.00+ "
         "Card Activity 1 25.00 "
-        "Ending Balance On 01/30/26 1,475.00 "
+        "Ending Balance On 01/30/54 1,475.00 "
         "Average Balance (Ledger) 1,200.00+\n"
     )
     + (
         "ALL CREDIT ACTIVITY\n"
-        "01/05/26 Deposit 300.00 01/12/26 Deposit 200.00\n"
-        "01/20/26 Automatic Deposit 300.00\n"
+        "01/05/54 Deposit 300.00 01/12/54 Deposit 200.00\n"
+        "01/20/54 Automatic Deposit 300.00\n"
         "ELECTRONIC DEBITS\n"
-        "01/14/26 Automatic Withdrawal 200.00 01/18/26 Card Purchase 25.00\n"
+        "01/14/54 Automatic Withdrawal 200.00 01/18/54 Card Purchase 25.00\n"
         "CHECKS AND OTHER DEBITS\n"
-        "01/09/26 1001 100.00\n"
+        "01/09/54 1001 100.00\n"
         "DAILY BALANCE SUMMARY\n"
-        "01/30/26 1,475.00\n"
+        "01/30/54 1,475.00\n"
     )
 )
 
@@ -124,7 +124,7 @@ WILSON_MUIR_MEMORIZED_CATEGORIES_ONLY = (
 WILSON_MUIR_NO_CHEQUE_SECTION = (
     _WM_HEAD
     + (
-        "Category Number Amount Balance Forward From 12/31/25 1,000.00 "
+        "Category Number Amount Balance Forward From 12/31/53 1,000.00 "
         "Deposits 2 500.00+ "
         "Debits 0.00 "
         "Automatic Teller Withdrawals 1 50.00 "
@@ -132,18 +132,18 @@ WILSON_MUIR_NO_CHEQUE_SECTION = (
         "Automatic Deposits 1 300.00+ "
         "Card Activity 1 25.00 "
         "Miscellaneous Fees 1 10.00 "
-        "Ending Balance On 01/30/26 1,515.00 "
+        "Ending Balance On 01/30/54 1,515.00 "
         "Average Balance (Ledger) 1,200.00+\n"
     )
     + (
         "ALL CREDIT ACTIVITY\n"
-        "01/05/26 Deposit 300.00 01/12/26 Deposit 200.00\n"
-        "01/20/26 Automatic Deposit 300.00\n"
+        "01/05/54 Deposit 300.00 01/12/54 Deposit 200.00\n"
+        "01/20/54 Automatic Deposit 300.00\n"
         "ELECTRONIC DEBITS\n"
-        "01/06/26 ATM Withdrawal 50.00 01/14/26 Automatic Withdrawal 200.00\n"
-        "01/18/26 Card Purchase 25.00 01/28/26 Service Fee 10.00\n"
+        "01/06/54 ATM Withdrawal 50.00 01/14/54 Automatic Withdrawal 200.00\n"
+        "01/18/54 Card Purchase 25.00 01/28/54 Service Fee 10.00\n"
         "DAILY BALANCE SUMMARY\n"
-        "01/30/26 1,515.00\n"
+        "01/30/54 1,515.00\n"
     )
 )
 
@@ -266,7 +266,7 @@ def test_wilson_muir_declines_a_ledger_short_of_its_own_strip():
     """WM1 fail-closed: the strip may be readable and the ledger still not be.
     A dropped debit row leaves a strip that closes and a ledger that does not."""
     assert parse_wilson_muir_statement(
-        WILSON_MUIR_WIDE_CATEGORIES.replace("01/28/26 Service Fee 10.00", "", 1)
+        WILSON_MUIR_WIDE_CATEGORIES.replace("01/28/54 Service Fee 10.00", "", 1)
     ) is None
 
 
@@ -274,15 +274,15 @@ def test_wilson_muir_declines_a_ledger_short_of_its_own_strip():
 
 _SQ_TAIL = (
     "Date Details Activity type Balance Amount\n"
-    "3/04/2026 EXAMPLE CUSTOMER SALE Payment processing $1,300.00 $300.00\n"
-    "3/11/2026 EXAMPLE SUPPLY CO Card spend $1,250.00 -$50.00\n"
+    "3/04/2054 EXAMPLE CUSTOMER SALE Payment processing $1,300.00 $300.00\n"
+    "3/11/2054 EXAMPLE SUPPLY CO Card spend $1,250.00 -$50.00\n"
     "Block Inc. 1955 Broadway, Suite 815 Oakland, CA 94612\n"
     "squareup.com/help\n"
 )
 _SQ_HEAD = (
     "Square Checking Routing number: 000000000\n"
     "Account number: XXXXXXXX1234\n"
-    "Checking statement March 1 - March 31, 2026\n"
+    "Checking statement March 1 - March 31, 2054\n"
 )
 
 #: The single-location printing, which this parser has always read.
@@ -370,14 +370,14 @@ def test_square_declines_a_summary_listing_more_than_one_location():
 #: category changes, no ledger row changes, only the printed Balance Forward.
 #: 7,000.00 + 800.00 - 385.00 = 7,415.00, and the strip says 1,415.00.
 WILSON_MUIR_BEGINNING_BALANCE_CONTRADICTED = WILSON_MUIR_WIDE_CATEGORIES.replace(
-    "Balance Forward From 12/31/25 1,000.00", "Balance Forward From 12/31/25 7,000.00"
+    "Balance Forward From 12/31/53 1,000.00", "Balance Forward From 12/31/53 7,000.00"
 )
 
 #: The same, moved at the other end and on the memorized-category fixture:
 #: 1,000.00 + 800.00 - 325.00 = 1,475.00, and the strip says 1,375.00.
 WILSON_MUIR_ENDING_BALANCE_CONTRADICTED = (
     WILSON_MUIR_MEMORIZED_CATEGORIES_ONLY.replace(
-        "Ending Balance On 01/30/26 1,475.00", "Ending Balance On 01/30/26 1,375.00"
+        "Ending Balance On 01/30/54 1,475.00", "Ending Balance On 01/30/54 1,375.00"
     )
 )
 
@@ -414,7 +414,7 @@ def test_wilson_muir_declines_a_ledger_missing_a_printed_credit():
     document publishes a credit ledger 200.00 short of the total it states.
     """
     assert parse_wilson_muir_statement(
-        WILSON_MUIR_WIDE_CATEGORIES.replace(" 01/12/26 Deposit 200.00", "", 1)
+        WILSON_MUIR_WIDE_CATEGORIES.replace(" 01/12/54 Deposit 200.00", "", 1)
     ) is None
 
 
@@ -437,8 +437,8 @@ def test_wilson_muir_declines_a_balance_the_money_grammar_refuses():
     """
     assert parse_wilson_muir_statement(
         WILSON_MUIR_WIDE_CATEGORIES.replace(
-            "Balance Forward From 12/31/25 1,000.00",
-            "Balance Forward From 12/31/25 12345678901234.00",
+            "Balance Forward From 12/31/53 1,000.00",
+            "Balance Forward From 12/31/53 12345678901234.00",
         )
     ) is None
 
@@ -509,9 +509,9 @@ SQUARE_TWO_LOCATIONS_SPLIT_BY_A_BLANK_LINE = (
     + "\n"
     + "Example Location Two $2,000.00 1 $2,400.00\n"
     + "Date Details Activity type Balance Amount\n"
-    + "3/04/2026 EXAMPLE CUSTOMER SALE Payment processing $1,300.00 $300.00\n"
-    + "3/11/2026 EXAMPLE SUPPLY CO Card spend $1,250.00 -$50.00\n"
-    + "3/18/2026 EXAMPLE OTHER CUSTOMER SALE Payment processing $2,400.00 $1,150.00\n"
+    + "3/04/2054 EXAMPLE CUSTOMER SALE Payment processing $1,300.00 $300.00\n"
+    + "3/11/2054 EXAMPLE SUPPLY CO Card spend $1,250.00 -$50.00\n"
+    + "3/18/2054 EXAMPLE OTHER CUSTOMER SALE Payment processing $2,400.00 $1,150.00\n"
     + "Block Inc. 1955 Broadway, Suite 815 Oakland, CA 94612\n"
     + "squareup.com/help\n"
 )

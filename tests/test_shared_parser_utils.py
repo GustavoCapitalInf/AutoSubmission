@@ -41,35 +41,35 @@ def assert_equivalent(oracle, replacement, inputs):
 
 SLASH_TOKENS = (
     "01/15", "1/5", "12/31", "02/29", "02/30", "13/01", "00/01", "01/00",
-    "1/15/26", "01/15/2026", "", "  01/15  ", "01-15", "abc", "01/",
+    "1/15/54", "01/15/2054", "", "  01/15  ", "01-15", "abc", "01/",
     "/15", "01/15/", "1", "01/15/26/99", "0115",
 )
 
 DASH_TOKENS = tuple(t.replace("/", "-") for t in SLASH_TOKENS) + SLASH_TOKENS
 
 MDY_TOKENS = (
-    "1/15/26", "01/15/26", "12/31/99", "1/1/00", "01/15/2026", "12/31/1999",
-    "02/29/24", "02/29/26", "13/01/26", "01/15", "", "abc", "1/15/26/99",
-    "  1/15/26  ",
+    "1/15/54", "01/15/54", "12/31/99", "1/1/00", "01/15/2054", "12/31/1999",
+    "02/29/52", "02/29/54", "13/01/54", "01/15", "", "abc", "1/15/26/99",
+    "  1/15/54  ",
 )
 
 
-def _legacy_iso_slash(mmdd: str, year: int = 2026) -> str:   # capital_one, chase, linkbank, td_us, truist
+def _legacy_iso_slash(mmdd: str, year: int = 2054) -> str:   # capital_one, chase, linkbank, td_us, truist
     month, day = [int(part) for part in mmdd.split("/", 1)]
     return date(year, month, day).isoformat()
 
 
-def _legacy_iso_dash(mmdd: str, year: int = 2026) -> str:    # b1, santander
+def _legacy_iso_dash(mmdd: str, year: int = 2054) -> str:    # b1, santander
     month, day = [int(part) for part in mmdd.split("-", 1)]
     return date(year, month, day).isoformat()
 
 
-def _legacy_iso_kwyear(mmdd: str, year: int = 2026) -> str:  # farmers_merchants, first_community, wells
+def _legacy_iso_kwyear(mmdd: str, year: int = 2054) -> str:  # farmers_merchants, first_community, wells
     month, day = [int(part) for part in mmdd.split("/")]
     return date(year, month, day).isoformat()
 
 
-def _legacy_iso_strict(mmdd: str, year: int = 2026) -> str | None:   # pnc, regions
+def _legacy_iso_strict(mmdd: str, year: int = 2054) -> str | None:   # pnc, regions
     m = re.fullmatch(r"(\d{2})/(\d{2})", mmdd.strip())
     if not m:
         return None
@@ -88,21 +88,21 @@ def _legacy_iso_first_farmers(value: str) -> str:
 
 def test_iso_from_month_day_matches_slash_clone():
     assert_equivalent(
-        _legacy_iso_slash, lambda t: dt.iso_from_month_day(t, 2026), SLASH_TOKENS
+        _legacy_iso_slash, lambda t: dt.iso_from_month_day(t, 2054), SLASH_TOKENS
     )
 
 
 def test_iso_from_month_day_matches_dash_clone():
     assert_equivalent(
         _legacy_iso_dash,
-        lambda t: dt.iso_from_month_day(t, 2026, separator="-"),
+        lambda t: dt.iso_from_month_day(t, 2054, separator="-"),
         DASH_TOKENS,
     )
 
 
 def test_iso_from_month_day_matches_keyword_year_clone():
     assert_equivalent(
-        _legacy_iso_kwyear, lambda t: dt.iso_from_month_day(t, 2026), SLASH_TOKENS
+        _legacy_iso_kwyear, lambda t: dt.iso_from_month_day(t, 2054), SLASH_TOKENS
     )
 
 
@@ -110,7 +110,7 @@ def test_iso_from_month_day_matches_keyword_year_clone():
 #: raised on these; `iso_from_month_day_strict` deliberately no longer does
 #: (see the divergence test below), so they are asserted separately rather than
 #: as part of the frozen-oracle matrix.
-#: `02/29` is impossible in 2026 and legal in 2024 — the year the caller
+#: `02/29` is impossible in 2054 and legal in 2052 — the year the caller
 #: supplies is part of the question, which is why this is decided by the
 #: calendar and not by a wider regex.
 IMPOSSIBLE_SLASH_TOKENS = ("02/29", "02/30", "13/01", "00/01", "01/00")
@@ -119,7 +119,7 @@ IMPOSSIBLE_SLASH_TOKENS = ("02/29", "02/30", "13/01", "00/01", "01/00")
 def test_iso_from_month_day_strict_matches_clone():
     assert_equivalent(
         _legacy_iso_strict,
-        lambda t: dt.iso_from_month_day_strict(t, 2026),
+        lambda t: dt.iso_from_month_day_strict(t, 2054),
         tuple(t for t in SLASH_TOKENS if t not in IMPOSSIBLE_SLASH_TOKENS),
     )
 
@@ -137,9 +137,9 @@ def test_iso_from_month_day_strict_diverges_from_the_clone_on_impossible_dates()
     for token in IMPOSSIBLE_SLASH_TOKENS:
         with pytest.raises(ValueError):
             _legacy_iso_strict(token)
-        assert dt.iso_from_month_day_strict(token, 2026) is None
+        assert dt.iso_from_month_day_strict(token, 2054) is None
     # ...and a leap day is still a date in a leap year.
-    assert dt.iso_from_month_day_strict("02/29", 2024) == "2024-02-29"
+    assert dt.iso_from_month_day_strict("02/29", 2052) == "2052-02-29"
 
 
 def test_iso_from_month_day_year_matches_always_pivot_clone():
@@ -157,38 +157,38 @@ def test_iso_from_month_day_year_matches_short_pivot_clone():
 
 
 def test_iso_from_month_day_uses_the_supplied_year():
-    assert dt.iso_from_month_day("01/15", 2025) == "2025-01-15"
-    assert dt.iso_from_month_day("12-31", 2026, separator="-") == "2026-12-31"
+    assert dt.iso_from_month_day("01/15", 2053) == "2053-01-15"
+    assert dt.iso_from_month_day("12-31", 2054, separator="-") == "2054-12-31"
 
 
 def test_iso_from_month_day_rejects_impossible_dates():
     with pytest.raises(ValueError):
-        dt.iso_from_month_day("02/30", 2026)
+        dt.iso_from_month_day("02/30", 2054)
     with pytest.raises(ValueError):
-        dt.iso_from_month_day("13/01", 2026)
+        dt.iso_from_month_day("13/01", 2054)
 
 
 def test_iso_from_month_day_leap_day_depends_on_the_year():
-    assert dt.iso_from_month_day("02/29", 2024) == "2024-02-29"
+    assert dt.iso_from_month_day("02/29", 2052) == "2052-02-29"
     with pytest.raises(ValueError):
-        dt.iso_from_month_day("02/29", 2026)
+        dt.iso_from_month_day("02/29", 2054)
 
 
 def test_iso_from_month_day_strict_returns_none_for_non_dates():
-    assert dt.iso_from_month_day_strict("Balance", 2026) is None
-    assert dt.iso_from_month_day_strict("1/5", 2026) is None      # not zero-padded
-    assert dt.iso_from_month_day_strict(" 01/15 ", 2026) == "2026-01-15"
+    assert dt.iso_from_month_day_strict("Balance", 2054) is None
+    assert dt.iso_from_month_day_strict("1/5", 2054) is None      # not zero-padded
+    assert dt.iso_from_month_day_strict(" 01/15 ", 2054) == "2054-01-15"
 
 
 def test_iso_from_month_day_year_century_pivots():
-    assert dt.iso_from_month_day_year("1/15/26") == "2026-01-15"
-    assert dt.iso_from_month_day_year("1/15/2026") == "2026-01-15"
-    assert dt.iso_from_month_day_year("1/15/26", century="always") == "2026-01-15"
+    assert dt.iso_from_month_day_year("1/15/54") == "2054-01-15"
+    assert dt.iso_from_month_day_year("1/15/2054") == "2054-01-15"
+    assert dt.iso_from_month_day_year("1/15/54", century="always") == "2054-01-15"
 
 
 def test_iso_from_month_day_year_rejects_unknown_century_mode():
     with pytest.raises(ValueError):
-        dt.iso_from_month_day_year("1/15/26", century="pivot-1970")
+        dt.iso_from_month_day_year("1/15/54", century="pivot-1970")
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ def test_iso_from_month_day_year_rejects_unknown_century_mode():
 # ---------------------------------------------------------------------------
 #
 # Three parsers built their period pattern out of `money.MINUS_GLYPHS`, because
-# it was the only dash class the platform exported. That coupling is how U+2014
+# it was the only dash class the platform exported. That coupling is how U+2042
 # EM DASH came to sit in a SIGN class: the period line legitimately needs it,
 # and the sign class inherited it. The two are now separate constants with
 # opposite widths, and these tests pin the asymmetry in both directions.
@@ -402,12 +402,12 @@ def _legacy_period(markdown: str) -> tuple[str, str] | None:
 
 
 PERIOD_DOCS = (
-    "January 5, 2026 through February 4, 2026",
-    "period: December 31, 2025 through January 30, 2026 (30 days)",
-    "February 1, 2026 through February 29, 2026",
-    "February 1, 2025 through February 29, 2025",
-    "January 5 2026 through February 4 2026",
-    "January 5, 2026 to February 4, 2026",
+    "January 5, 2054 through February 4, 2054",
+    "period: December 31, 2053 through January 30, 2054 (30 days)",
+    "February 1, 2054 through February 29, 2054",
+    "February 1, 2053 through February 29, 2053",
+    "January 5 2054 through February 4 2054",
+    "January 5, 2054 to February 4, 2054",
     "",
     "no period here",
 )
@@ -423,8 +423,8 @@ def test_period_from_long_dates_matches_clone(doc):
 #: oracle, moved out of the parity matrix above so that matrix keeps meaning
 #: "identical to the code it replaced" rather than being quietly relaxed.
 DIVERGENT_PERIOD_DOCS = (
-    "Jan 5, 2026 through Feb 4, 2026",
-    "Balance 5, 2026 through February 4, 2026",
+    "Jan 5, 2054 through Feb 4, 2054",
+    "Balance 5, 2054 through February 4, 2054",
 )
 
 
@@ -448,12 +448,12 @@ def test_period_from_long_dates_no_longer_raises_where_the_clone_did(doc):
 
 def test_period_from_long_dates_reads_the_first_span():
     assert dt.period_from_long_dates(
-        "January 5, 2026 through February 4, 2026"
-    ) == ("2026-01-05", "2026-02-04")
+        "January 5, 2054 through February 4, 2054"
+    ) == ("2054-01-05", "2054-02-04")
 
 
 def test_period_from_long_dates_returns_none_for_other_period_formats():
-    assert dt.period_from_long_dates("01/05/2026 - 02/04/2026") is None
+    assert dt.period_from_long_dates("01/05/2054 - 02/04/2054") is None
 
 
 # ---------------------------------------------------------------------------
@@ -461,30 +461,30 @@ def test_period_from_long_dates_returns_none_for_other_period_formats():
 # ---------------------------------------------------------------------------
 
 def test_iso_unique_in_period_uses_the_only_year_that_fits():
-    start, end = date(2026, 4, 1), date(2026, 4, 30)
-    assert dt.iso_unique_in_period(4, 15, start=start, end=end) == "2026-04-15"
+    start, end = date(2054, 4, 1), date(2054, 4, 30)
+    assert dt.iso_unique_in_period(4, 15, start=start, end=end) == "2054-04-15"
 
 
 def test_iso_unique_in_period_resolves_a_period_that_crosses_a_year():
-    start, end = date(2026, 12, 1), date(2027, 1, 31)
-    assert dt.iso_unique_in_period(12, 31, start=start, end=end) == "2026-12-31"
-    assert dt.iso_unique_in_period(1, 2, start=start, end=end) == "2027-01-02"
+    start, end = date(2054, 12, 1), date(2055, 1, 31)
+    assert dt.iso_unique_in_period(12, 31, start=start, end=end) == "2054-12-31"
+    assert dt.iso_unique_in_period(1, 2, start=start, end=end) == "2055-01-02"
 
 
 def test_iso_unique_in_period_declines_a_token_outside_the_period():
-    start, end = date(2026, 4, 1), date(2026, 4, 30)
+    start, end = date(2054, 4, 1), date(2054, 4, 30)
     assert dt.iso_unique_in_period(6, 15, start=start, end=end) is None
 
 
 def test_iso_unique_in_period_declines_an_ambiguous_token():
     """A period longer than a year can hold the same month/day twice; the
     document never printed which, so neither is published."""
-    start, end = date(2025, 1, 1), date(2026, 12, 31)
+    start, end = date(2053, 1, 1), date(2054, 12, 31)
     assert dt.iso_unique_in_period(6, 15, start=start, end=end) is None
 
 
 def test_iso_unique_in_period_declines_an_impossible_date():
-    start, end = date(2026, 2, 1), date(2026, 3, 31)
+    start, end = date(2054, 2, 1), date(2054, 3, 31)
     assert dt.iso_unique_in_period(2, 30, start=start, end=end) is None
 
 # ---------------------------------------------------------------------------
@@ -492,24 +492,24 @@ def test_iso_unique_in_period_declines_an_impossible_date():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("month,day,year,expected", [
-    ("April", 1, 2026, "2026-04-01"),
-    ("Apr", "01", "2026", "2026-04-01"),
-    ("APRIL", 1, 2026, "2026-04-01"),
-    ("apr", 1, 2026, "2026-04-01"),
-    ("September", 30, 2026, "2026-09-30"),
-    ("Sep", 30, 2026, "2026-09-30"),
+    ("April", 1, 2054, "2054-04-01"),
+    ("Apr", "01", "2054", "2054-04-01"),
+    ("APRIL", 1, 2054, "2054-04-01"),
+    ("apr", 1, 2054, "2054-04-01"),
+    ("September", 30, 2054, "2054-09-30"),
+    ("Sep", 30, 2054, "2054-09-30"),
 ])
 def test_iso_from_named_month_day_reads_both_printed_spellings(month, day, year, expected):
-    """One statement prints both: "April 2026 statement ... April 1, 2026" in
+    """One statement prints both: "April 2054 statement ... April 1, 2054" in
     its header and "Apr 01" on every posting row."""
     assert dt.iso_from_named_month_day(month, day, year) == expected
 
 
 @pytest.mark.parametrize("month,day,year", [
-    ("Balance", 1, 2026),      # a capitalized word that is not a month
-    ("Janury", 1, 2026),       # a misspelling
-    ("February", 30, 2026),    # a shape that no calendar can hold
-    ("April", "x", 2026),      # not a number
+    ("Balance", 1, 2054),      # a capitalized word that is not a month
+    ("Janury", 1, 2054),       # a misspelling
+    ("February", 30, 2054),    # a shape that no calendar can hold
+    ("April", "x", 2054),      # not a number
 ])
 def test_iso_from_named_month_day_returns_none_rather_than_raising(month, day, year):
     """Callers reach this from a regex that proved a token's SHAPE only, so a

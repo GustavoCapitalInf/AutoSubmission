@@ -117,8 +117,8 @@ def test_without_a_terminator_predicate_nothing_closes_a_row_early():
 
 def test_the_grouper_is_not_restricted_to_strings():
     """RBC groups `(text, date, opens_a_date_group)` entries, not lines."""
-    entries = [("a", "2026-01-01", True), ("b", "2026-01-01", False),
-               ("c", "2026-01-02", True)]
+    entries = [("a", "2054-01-01", True), ("b", "2054-01-01", False),
+               ("c", "2054-01-02", True)]
     assert group_rows(entries, starts_row=lambda e: e[2]) == [
         [entries[0], entries[1]], [entries[2]]
     ]
@@ -557,13 +557,13 @@ def test_rbc_parses_every_grid_document_identically_to_the_oracle(markdown, monk
 RBC_ENTRY_STREAMS = (
     [],
     [("Opening balance 1,000.00", None, False)],
-    [("A stray line", "2026-03-02", False), ("Row 100.00", "2026-03-02", True)],
-    [("Row 100.00 900.00", "2026-03-02", True), ("", "2026-03-02", False)],
-    [("Row 100.00", "2026-03-02", True), ("Closing balance 900.00", "2026-03-02", False)],
-    [("Closing balance", "2026-03-02", True)],
-    [("Opening balance 1,000.00", None, False), ("Row 100.00 900.00", "2026-03-02", True)],
+    [("A stray line", "2054-03-02", False), ("Row 100.00", "2054-03-02", True)],
+    [("Row 100.00 900.00", "2054-03-02", True), ("", "2054-03-02", False)],
+    [("Row 100.00", "2054-03-02", True), ("Closing balance 900.00", "2054-03-02", False)],
+    [("Closing balance", "2054-03-02", True)],
+    [("Opening balance 1,000.00", None, False), ("Row 100.00 900.00", "2054-03-02", True)],
     [("Leading description", None, False), ("100.00", None, False),
-     ("02 Mar row", "2026-03-02", True)],
+     ("02 Mar row", "2054-03-02", True)],
 )
 
 
@@ -787,7 +787,7 @@ TD_DOCUMENTS = tuple(
 ) + (
     # A ledger line printed before the statement period is known.
     td_statement("\nBALANCE FORWARD JAN31 100.00\nUNCODED ROW 40.00 FEB01 140.00\n")
-    .replace("JAN 31/26 - FEB 28/26", "no printed period here"),
+    .replace("JAN 31/54 - FEB 28/54", "no printed period here"),
 )
 
 

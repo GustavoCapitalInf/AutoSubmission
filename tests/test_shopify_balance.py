@@ -15,15 +15,15 @@ from analysis.schema import Statement
 def _document(
     *,
     account: str = "27001000000000001",
-    period: tuple[str, str] = ("June 01, 2026", "June 30, 2026"),
+    period: tuple[str, str] = ("June 01, 2054", "June 30, 2054"),
     starting: str = "$1,000.00",
     deposits: str = "$500.00",
     withdrawals: str = "-$300.00",
     ending: str = "$1,200.00",
-    closing_date: str = "06/30/2026",
+    closing_date: str = "06/30/2054",
     rows: str = (
-        "Jun 01, 2026 Jun 01, 2026 Shopify Payments payout $500.00 $1,500.00\n"
-        "Jun 02, 2026 Jun 01, 2026 SOME MERCHANT -$300.00 $1,200.00\n"
+        "Jun 01, 2054 Jun 01, 2054 Shopify Payments payout $500.00 $1,500.00\n"
+        "Jun 02, 2054 Jun 01, 2054 SOME MERCHANT -$300.00 $1,200.00\n"
     ),
     totals: str | None = "$200.00",
 ) -> str:
@@ -108,8 +108,8 @@ def test_reads_the_summary_the_grid_and_the_signs():
     assert stmt is not None
     assert stmt.bank == "Shopify Balance"
     assert stmt.account_number == "27001000000000001"
-    assert stmt.period_start == "2026-06-01"
-    assert stmt.period_end == "2026-06-30"
+    assert stmt.period_start == "2054-06-01"
+    assert stmt.period_end == "2054-06-30"
     assert stmt.beginning_balance == 1000.00
     assert stmt.ending_balance == 1200.00
     # Both totals are magnitudes, though the withdrawals cell prints its own
@@ -124,7 +124,7 @@ def test_reads_the_summary_the_grid_and_the_signs():
 def test_the_posted_date_column_is_the_posting_date():
     """The grid prints two dates per row. The first is `Posted Date`."""
     stmt = sb.parse_shopify_balance_statement(_document())
-    assert [t.date for t in stmt.transactions] == ["2026-06-01", "2026-06-02"]
+    assert [t.date for t in stmt.transactions] == ["2054-06-01", "2054-06-02"]
 
 
 def test_the_grid_prints_no_counts_so_none_are_claimed():
@@ -139,8 +139,8 @@ def test_a_description_that_wraps_keeps_its_own_amount():
     stmt = sb.parse_shopify_balance_statement(
         _document(
             rows=(
-                "Jun 01, 2026 Jun 01, 2026 Shopify Payments payout $500.00 $1,500.00\n"
-                "Jun 02, 2026 Jun 01, 2026 ACH transfer to Some Credit Union (**** 0107)\n"
+                "Jun 01, 2054 Jun 01, 2054 Shopify Payments payout $500.00 $1,500.00\n"
+                "Jun 02, 2054 Jun 01, 2054 ACH transfer to Some Credit Union (**** 0107)\n"
                 "-$300.00 $1,200.00\n"
             )
         )
@@ -155,8 +155,8 @@ def test_a_month_name_inside_a_description_does_not_split_a_row():
     stmt = sb.parse_shopify_balance_statement(
         _document(
             rows=(
-                "Jun 01, 2026 Jun 01, 2026 Rewards credit: May 2026 $500.00 $1,500.00\n"
-                "Jun 02, 2026 Jun 01, 2026 APY earned in May 2026 -$300.00 $1,200.00\n"
+                "Jun 01, 2054 Jun 01, 2054 Rewards credit: May 2026 $500.00 $1,500.00\n"
+                "Jun 02, 2054 Jun 01, 2054 APY earned in May 2026 -$300.00 $1,200.00\n"
             )
         )
     )
@@ -169,11 +169,11 @@ def test_page_furniture_never_reaches_a_description():
     stmt = sb.parse_shopify_balance_statement(
         _document(
             rows=(
-                "Jun 01, 2026 Jun 01, 2026 Shopify Payments payout $500.00 $1,500.00\n"
+                "Jun 01, 2054 Jun 01, 2054 Shopify Payments payout $500.00 $1,500.00\n"
                 "Page 2/3 If you have any questions or complaints, contact Shopify Support\n"
                 "--- Page 3 ---\n"
                 "Posted Date Transaction Date Description Amount Account balance\n"
-                "Jun 02, 2026 Jun 01, 2026 SOME MERCHANT -$300.00 $1,200.00\n"
+                "Jun 02, 2054 Jun 01, 2054 SOME MERCHANT -$300.00 $1,200.00\n"
             )
         )
     )
@@ -211,7 +211,7 @@ def test_two_funded_accounts_on_one_pdf_fail_closed():
         deposits="$10.00",
         withdrawals="$0.00",
         ending="$60.00",
-        rows="Jun 03, 2026 Jun 03, 2026 OTHER ACCOUNT ROW $10.00 $60.00\n",
+        rows="Jun 03, 2054 Jun 03, 2054 OTHER ACCOUNT ROW $10.00 $60.00\n",
         totals="$10.00",
     )
     assert sb.parse_shopify_balance_statement(_document() + second) is None
@@ -276,15 +276,15 @@ def test_the_check_ignores_the_inert_block_which_prints_no_totals_row():
 # ---------------------------------------------------------------------------
 
 def test_a_wrapped_totals_row_does_not_invent_a_posting_date():
-    """`Totals Amount Account balance as of` / `06/30/2026` / figures: the
+    """`Totals Amount Account balance as of` / `06/30/2054` / figures: the
     bare date line is the total's own date, not an activity day."""
     from datetime import date
 
     from analysis.dates import source_posting_dates
 
     markdown = _document()
-    found = source_posting_dates(markdown, date(2026, 6, 1), date(2026, 6, 30))
-    assert date(2026, 6, 30) not in found
+    found = source_posting_dates(markdown, date(2054, 6, 1), date(2054, 6, 30))
+    assert date(2054, 6, 30) not in found
 
 
 def test_the_coverage_heuristic_cannot_see_this_layouts_posting_rows():
@@ -302,7 +302,7 @@ def test_the_coverage_heuristic_cannot_see_this_layouts_posting_rows():
 
     from analysis.dates import source_posting_dates
 
-    assert source_posting_dates(_document(), date(2026, 6, 1), date(2026, 6, 30)) == set()
+    assert source_posting_dates(_document(), date(2054, 6, 1), date(2054, 6, 30)) == set()
 
 
 # The generic pins for `analysis.dates._WRAPPED_TOTAL_LABEL` — the anchor's

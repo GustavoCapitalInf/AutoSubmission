@@ -43,7 +43,7 @@ from analysis.td_us import (
 #: overdrawn, so reading the sign is the only way the ledger can balance.
 TD_OVERDRAWN = (
     "STATEMENT OF ACCOUNT\n"
-    "Page: 1 of 1 Statement Period: Jan 01 2026-Jan 31 2026 "
+    "Page: 1 of 1 Statement Period: Jan 01 2054-Jan 31 2054 "
     "Cust Ref #: 0000000000-000-X-*** Primary Account #: 000-0000000\n"
     "EXAMPLE COMPANY LLC 1 EXAMPLE WAY EXAMPLETOWN NY 10000\n"
     "TD Business Simple Checking\n"
@@ -199,7 +199,7 @@ def test_a_document_whose_sections_do_add_up_is_unaffected():
 #: Two detail sections, each with its own rows and its own printed subtotal.
 _TWO_SECTIONS = (
     "STATEMENT OF ACCOUNT\n"
-    "Page: 1 of 1 Statement Period: Jan 01 2026-Jan 31 2026 "
+    "Page: 1 of 1 Statement Period: Jan 01 2054-Jan 31 2054 "
     "Cust Ref #: 0000000000-000-X-*** Primary Account #: 000-0000000\n"
     "EXAMPLE COMPANY LLC 1 EXAMPLE WAY EXAMPLETOWN NY 10000\n"
     "TD Business Simple Checking\n"
@@ -341,7 +341,7 @@ def test_ocr_damage_around_the_legend_does_not_lose_the_section(damage):
 #: `Subtotal:`, and the REAL section is lost.
 _SUMMARY_RUNS_INTO_THE_LEGEND = (
     "STATEMENT OF ACCOUNT\n"
-    "Page: 1 of 1 Statement Period: Jan 01 2026-Jan 31 2026 "
+    "Page: 1 of 1 Statement Period: Jan 01 2054-Jan 31 2054 "
     "Cust Ref #: 0000000000-000-X-*** Primary Account #: 000-0000000\n"
     "TD Business Simple Checking\n"
     "ACCOUNT SUMMARY Beginning Balance 1,000.00 Electronic Deposits 300.00\n"

@@ -18,10 +18,13 @@ import pytest
 
 from tools.privacy_scan_branch import (
     EXCLUSIONS,
+    NAMED_RESIDUE,
     PROGRAM_ERA,
+    TEXT_SUFFIXES,
     _EXCLUSION_SAMPLES,
     added_lines_from_diff,
     excluded_by,
+    residue_class,
     self_check,
 )
 
@@ -265,7 +268,9 @@ def test_the_era_bound_is_a_date_comparison_not_a_year_comparison() -> None:
 # The abbreviation is necessary and never sufficient. Roughly half the list is
 # an ordinary English word once the scanner upper-cases the line (`IN`, `OR`,
 # `OK`, `ID`, `CO`, `ME`, ...), so the rule asks for the address furniture too:
-# a city and its comma, a ZIP+4 tail, or a post-office box in the same clause.
+# a city and its comma, or a post-office box with a CITY between it and the
+# state, in the same clause. A ZIP+4 tail is not furniture (the first
+# re-review), and neither is the absence of punctuation (the second).
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
@@ -277,6 +282,19 @@ def test_the_era_bound_is_a_date_comparison_not_a_year_comparison() -> None:
         ("99999", "PO BOX 1962 ST LOUIS MO 99999"),            # a box in the clause
         ("95959", "P. O. BOX 1962, SEATTLE WA 95959-9750"),
         ("95959", "1 GUARDIAN WAY, PRATTVILLE, AL 95959  334-244-9999"),
+        # The six address shapes a box line is actually printed in, so the
+        # narrowing below is measured against what it must keep, not only
+        # against what it must lose.
+        ("99999", "PO BOX 609 PITTSBURGH PA 99999"),           # a one-word city
+        ("99999", "P.O. BOX 7889 THE WOODLANDS, TX 99999"),    # a two-word city
+        ("99999", "P.O. BOX 1962 SYNTHETIC CITY OH 99999-0000"),
+        ("99999", "P.O BOX 1558 EA1W37 COLUMBUS OH 99999-1558"),  # a routing code between
+        ("99999", "P.O BOX 179, MOOREFIELD, WV 99999"),
+        # A CITY MAY BE TWO WORDS AND THE SECOND MAY BE SHORT. This one is a
+        # real institution address in the census, and it is why the rule asks
+        # for a city SOMEWHERE between the box and the state rather than for
+        # furniture immediately in front of the state.
+        ("99999", "EXAMPLE BANK N.A. PO BOX 1962 GREEN BAY WI 99999-9097"),
     ],
 )
 def test_institution_zip_excludes_a_postal_address(token: str, line: str) -> None:
@@ -340,9 +358,77 @@ def test_a_state_abbreviation_that_is_an_english_word_is_not_an_address(
         ("84213", "REMIT TO P.O. BOX 609. AUTH OK 84213"),
         ("84213", "PO BOX 609 \u2014 MEMBER ID 84213"),
         ("84213", "PO BOX 609 (SEE OVER) AUTH OK 84213"),
+        # And the clause characters have to do that work THEMSELVES. Every case
+        # above also carries an identifier word, which the tempered run refuses
+        # on its own, so none of them can tell whether the clause bound still
+        # holds. These four carry no identifier word at all: what stands after
+        # the punctuation is an ordinary city, state and five digits \u2014 a shape
+        # that is reported when no box vouches for it \u2014 so they fail if and
+        # only if the box marker reaches across the full stop, the hyphen, the
+        # dash or the bracket.
+        ("84213", "REMIT TO P.O. BOX 609. PITTSBURGH PA 84213"),
+        ("84213", "PO BOX 609 - GREENVILLE SC 84213"),
+        ("84213", "PO BOX 609 \u2014 DENVER CO 84213"),
+        ("84213", "PO BOX 609 (SEE OVER) BOSTON MA 84213"),
     ],
 )
 def test_the_box_marker_does_not_reach_out_of_its_clause(token: str, line: str) -> None:
+    assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
+
+
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        # THE ABSENCE OF PUNCTUATION IS NOT FURNITURE. Every line here is one
+        # unbroken clause — no full stop, no dash, no separator — so the clause
+        # bound cannot help, and every one of them is an identifier the archive
+        # prints. The first is the second re-review's residual verbatim: the ACH
+        # company-id shape out of `core_processor_signed_counts.py`'s grammar.
+        ("45678", "PO BOX 1558 CCD CO# 45678 TRACE"),
+        ("45678", "REMIT PO BOX 1558 CCD CO# 45678"),
+        # THREE LETTERS ARE NOT A CITY, on its own and with no `#` to help.
+        ("45678", "PO BOX 1558 CCD CO 45678"),
+        ("84213", "PO BOX 1558 XYZ ID 84213"),
+        ("84213", "PO BOX 196 MEMBER ID 84213"),
+        ("84213", "PO BOX 196 THE MEMBER ID 84213"),
+        ("84213", "PO BOX 196 SOUTH MEMBER ID 84213"),
+        ("84213", "PO BOX 609 ACCOUNT NO OR 84213"),
+        ("84213", "PO BOX 609 PITTSBURGH ACCOUNT NO OR 84213"),
+        ("84213", "PO BOX 196 AUTH OK 84213"),
+        ("84213", "PO BOX 196 CHECK NO OR 84213"),
+        ("84213", "PO BOX 1962 CARD ENDING IN 84213"),
+    ],
+)
+def test_a_box_needs_a_city_between_it_and_the_state(token: str, line: str) -> None:
+    """A box marker plus an unbroken run of ordinary characters is not an address.
+
+    Three letters are not a city (`CCD`), and the words this archive prints to
+    introduce an identity — `MEMBER`, `ACCOUNT`, `AUTH`, `CHECK`, `CARD`, `NO`
+    — are not cities either, whatever their length. The run from the box to the
+    state is tempered against all of them, in both halves, so a city standing
+    legitimately in front of one (`PITTSBURGH ACCOUNT NO OR 84213`) does not
+    rescue it.
+    """
+    assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
+
+
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        ("45678", "PO BOX 1558 ACME CORP CO# 45678 TRACE"),
+        ("45678", "ACME INC, CO# 45678 TRACE"),
+        ("45678", "OZARK, AR# 45678"),
+        ("45678", "PO BOX 196 OZARK AR# 45678"),
+    ],
+)
+def test_a_number_sign_is_not_postal_furniture(token: str, line: str) -> None:
+    """`#` between the state and the digits is evidence AGAINST an address.
+
+    It is the mark this archive puts in front of an identity — `CO# 45678` —
+    and a postal code never carries one. Both address shapes share the gap, so
+    saying it once covers both, and it closes the case a city-shaped word
+    cannot: a COMPANY name standing where a city would.
+    """
     assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
 
 
@@ -363,6 +449,31 @@ def test_the_gap_stays_short_and_digit_free_inside_the_address_shapes(
     token: str, line: str
 ) -> None:
     assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
+
+
+@pytest.mark.parametrize(
+    ("token", "line", "excused"),
+    [
+        # THE NARROWING'S COST, AND IT IS ONE SHAPE. A genuine box address whose
+        # city is shorter than four letters and which carries no comma is
+        # reported now. The same line with the city's comma is excused, which is
+        # what bounds the cost to this one shape. Live cost in this tree: zero.
+        ("99999", "PO BOX 1 ADA OK 99999", False),
+        ("99999", "PO BOX 1 ADA, OK 99999", True),
+        # THE RESIDUAL, AS WIDE AS IT ACTUALLY IS: the substitute city need not
+        # be identity-flavoured at all, and ordinary English will do. The
+        # identifier list is a floor on what the rule catches, never a ceiling.
+        ("99999", "PO BOX 196 SERIAL OR 99999", True),
+        ("99999", "PO BOX 196 VOUCHER OR 99999", True),
+        ("99999", "PO BOX 196 FOLIO ID 99999", True),
+    ],
+)
+def test_the_city_rule_costs_one_shape_and_leaves_a_residual_this_wide(
+    token: str, line: str, excused: bool
+) -> None:
+    """Both halves of the rule's honest description, pinned so they stay true."""
+    rule = excluded_by("DIGITS", "analysis/x.py", token, line)
+    assert (rule == "institution_zip") is excused, rule
 
 
 def test_a_bare_city_state_code_with_no_furniture_is_reported_not_hidden() -> None:
@@ -387,6 +498,8 @@ def test_a_bare_city_state_code_with_no_furniture_is_reported_not_hidden() -> No
         ("DIGITS", "84213", "MEMBER ID 84213"),
         ("DIGITS", "84213", "THE ACCOUNT ENDING IN 84213"),
         ("DIGITS", "45678", "07/03 BETA INBOUND CCD CO# 45678 TRACE"),
+        ("DIGITS", "45678", "PO BOX 1558 CCD CO# 45678 TRACE"),
+        ("DIGITS", "84213", "PO BOX 196 MEMBER ID 84213"),
         ("DIGITS", "84213", "AUTH OK 84213"),
         ("DIGITS", "84213", "CHECK NO OR 84213"),
         ("MONEY", "777,777.77", "BEGINNING BALANCE 777,777.77"),
@@ -478,3 +591,138 @@ def test_the_diff_reader_counts_no_removed_line_and_no_newline_marker() -> None:
         "\\ No newline at end of file\n"
     )
     assert added_lines_from_diff(diff) == [("tests/t.py", 3, "KEPT")]
+
+
+# --------------------------------------------------------------------------
+# What the scanner reads at all, and what it counts apart.
+#
+# A suffix list is a claim about what is worth reading, and a file the list
+# forgets is audited by nothing. A NAMED residue class is the opposite of an
+# exclusion: it is residue that is counted apart so a ruling can be written
+# about it, and it must never be silenced by a rule.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("suffix", ["log", "shas", "ps1"])
+def test_the_tracked_text_the_scanner_had_never_read_is_read_now(suffix: str) -> None:
+    """`.log`, `.shas` and `.ps1` are tracked TEXT and were outside the list.
+
+    One of them is a run log written by a tool that printed document text, and
+    nothing had ever looked at it. This is the first review's item 6.
+    """
+    assert suffix in TEXT_SUFFIXES
+
+
+def test_the_suffix_list_still_declines_the_corpus_documents() -> None:
+    """The list is about TEXT. A PDF is evidence, not source."""
+    assert "pdf" not in TEXT_SUFFIXES
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for _name, paths in NAMED_RESIDUE for path in paths],
+)
+def test_a_named_residue_class_is_counted_and_never_excused(path: str) -> None:
+    """Named is not excluded: every rule must still decline these paths.
+
+    The three files are per-statement audited expectations read as DATA by the
+    benchmark, so their contents ARE archive identity — real balances, real
+    account masks, real periods, one of them holding the last copy of the
+    account number the P0 card removed everywhere else. That needs a ruling,
+    and a ruling needs a number, so the sites stay residue and are counted
+    apart rather than silenced.
+    """
+    assert residue_class(path) is not None
+    # A statement figure, an account tail, a document date: all still reported.
+    assert excluded_by("MONEY", path, "818,181.81", "SHA,818,181.81,X") is None
+    assert excluded_by("DIGITS", path, "44556677", "SHA,44556677,X") is None
+    assert excluded_by("DATES", path, "2019-11-21", "SHA,2019-11-21,X") is None
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for _name, paths in NAMED_RESIDUE for path in paths],
+)
+def test_the_session_date_rule_does_not_reach_into_a_named_class(path: str) -> None:
+    """A date in a truth CSV is a statement period, not the day a cell ran.
+
+    Both are ISO and both are inside `docs/`, so the era rule would have taken
+    it — and it is the one boundary the re-review measured a live site on.
+    """
+    assert excluded_by("DATES", path, "2026-08-06", f"SHA,{path},2026-08-06") is None
+    # The same token in an ordinary record IS a session date.
+    assert excluded_by("DATES", "docs/x.md", "2026-08-06", "ON 2026-08-06") == "docs_session_date"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for _name, paths in NAMED_RESIDUE for path in paths],
+)
+@pytest.mark.parametrize(
+    ("cls", "token", "line"),
+    [
+        # One case per rule of the table, each chosen to be exactly the shape
+        # that rule claims. Inside a named path NONE of them may claim it.
+        ("MONEY", "100.00", "SHA,100.00,X"),               # round_money
+        ("MONEY", "70300.00", "SHA,70300.00,X"),           # round_money, five figures
+        ("MONEY", "0.01", "SHA,0.01,X"),                   # subunit_money
+        ("DIGITS", "98989", "SHA,AB98989CDEF09898967,X"),  # hex_sha_substring
+        ("DIGITS", "99999", "SHA,OZARK, AR 99999,X"),      # institution_zip
+        ("DATES", "2026-08-29", "SHA,2026-08-29,X"),       # docs_session_date
+        ("MONEY", "818,181.81", "SHA,818,181.81,X"),       # nothing claims it anyway
+    ],
+)
+def test_no_rule_of_the_table_silences_anything_inside_a_named_class(
+    path: str, cls: str, token: str, line: str
+) -> None:
+    """The class is counted WHOLE, and the count is the ruling's input.
+
+    The first version of this carve-out lived inside `docs_session_date` alone,
+    so three other rules went on silencing a quarter of the class while the
+    record called it never-excused. A `.00` figure in a per-statement audited
+    expectations file is a real printed balance; `round_money` excuses that
+    class by choice, and inside these files the choice is not the scanner's to
+    make.
+    """
+    assert excluded_by(cls, path, token, line) is None
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for _name, paths in NAMED_RESIDUE for path in paths],
+)
+def test_the_named_carve_out_stops_at_WORDS(path: str) -> None:
+    """The one class still excused inside a named path, and why.
+
+    `words_class` discards every WORDS hit everywhere — the tree is unaudited
+    for customer names by construction — so counting names here and nowhere
+    else would put a number on the ruling that means something different from
+    the number in every other file. A scope statement, not an exception.
+    """
+    assert excluded_by("WORDS", path, "SMITH JONES", "SHA,SMITH JONES,X") == "words_class"
+
+
+@pytest.mark.parametrize(
+    ("cls", "token", "line", "rule"),
+    [
+        ("MONEY", "100.00", "TOTAL 100.00", "round_money"),
+        ("MONEY", "0.01", "TOLERANCE 0.01", "subunit_money"),
+        ("DATES", "2026-08-29", "ON 2026-08-29", "docs_session_date"),
+    ],
+)
+def test_the_same_shapes_are_still_excused_outside_a_named_class(
+    cls: str, token: str, line: str, rule: str
+) -> None:
+    """The carve-out is about the PATH, and it reaches nothing wider."""
+    assert excluded_by(cls, "docs/moneythumb-replacement/x.md", token, line) == rule
+
+
+def test_a_named_class_names_a_file_the_scanner_would_read() -> None:
+    for _name, paths in NAMED_RESIDUE:
+        for path in paths:
+            assert path.rsplit(".", 1)[-1].lower() in TEXT_SUFFIXES
+
+
+def test_residue_class_declines_an_ordinary_path() -> None:
+    assert residue_class("docs/moneythumb-replacement/census_batch9/per_sha.csv") is None
+    assert residue_class("tests/test_x.py") is None
+    assert residue_class("docs/adb-audit-results.csv.bak") is None

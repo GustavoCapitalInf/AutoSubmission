@@ -26,14 +26,14 @@ NBSP = " "
 STATEMENT = f"""
 --- Page 1 ---
 
-Statement Date: 7/28/26
+Statement Date: 7/28/54
 Return Service Requested Primary Account Sample Holder XXXXXX4173
 SAMPLE HOLDER LLC 6 SAMPLE STREET SAMPLE TOWN XX 71634-8825
 Statement of Account SAMPLE BUSINESS CHECKING Account Title: Sample Holder LLC
-Beginning Balance{NBSP}7/02/26 $ 1,234.17
+Beginning Balance{NBSP}7/02/54 $ 1,234.17
 Summary
 Credits (3) +$1,326.43 Interest Paid +$.00 Debits (4) -$731.66
-Ending Balance 7/31/26 $ 1,828.94
+Ending Balance 7/31/54 $ 1,828.94
 Deposits & Credits Date Description Amount
 7/02 ALPHA INBOUND CCD CO#7391085246 26/07/02 ID # - 618243957 TRACE # - 483720615 $517.31
 7/03 BETA INBOUND $306.29 7/06 GAMMA INBOUND $502.83
@@ -62,9 +62,9 @@ Page 4
 
 --- Page 5 ---
 
-Date 7/28/26 Primary Acct No. XXXXXX4173
+Date 7/28/54 Primary Acct No. XXXXXX4173
 Check Page
-#4408 07/06/2026 $311.53
+#4408 07/06/2054 $311.53
 Page 5
 """
 
@@ -77,15 +77,15 @@ def test_the_five_printed_oracles_close_and_the_statement_publishes():
     stmt = parsed()
     assert stmt is not None
     assert (stmt.period_start, stmt.period_end, stmt.days_in_period) == (
-        "2026-07-02", "2026-07-31", 30,
+        "2054-07-02", "2054-07-31", 30,
     )
     assert (stmt.beginning_balance, stmt.ending_balance) == (1234.17, 1828.94)
     assert (stmt.stated_credit_count, stmt.stated_debit_count) == (3, 4)
     assert (stmt.stated_total_credits, stmt.stated_total_debits) == (1326.43, 731.66)
     assert len(stmt.transactions) == 7
     assert [snapshot.date for snapshot in stmt.stated_daily_balances] == [
-        "2026-07-02", "2026-07-03", "2026-07-06",
-        "2026-07-07", "2026-07-08", "2026-07-09",
+        "2054-07-02", "2054-07-03", "2054-07-06",
+        "2054-07-07", "2054-07-08", "2054-07-09",
     ]
     assert stmt.bank_reported_average_balance == 1731.29
     assert stmt.bank_reported_average_label == "Average Ledger Bal"
@@ -114,8 +114,8 @@ def test_the_slash_prefixed_counts_of_another_registration_are_not_claimed():
         "Statement of Account\n"
         "Previous Balance $1,234.17 Deposits/Credits (3) +$1,326.43 "
         "Checks/Debits (4) -$731.66 Ending Balance $1,828.94\n"
-        "Beginning Balance 7/02/26 $ 1,234.17\n"
-        "Ending Balance 7/31/26 $ 1,828.94\n"
+        "Beginning Balance 7/02/54 $ 1,234.17\n"
+        "Ending Balance 7/31/54 $ 1,828.94\n"
     )
     assert reader.detect(other).claims is False
 
@@ -151,17 +151,17 @@ def test_an_unsigned_debit_total_does_not_satisfy_the_counts_marker():
 
 
 def test_undated_balances_do_not_satisfy_the_period_marker():
-    text = STATEMENT.replace(f"Beginning Balance{NBSP}7/02/26", "Beginning Balance")
+    text = STATEMENT.replace(f"Beginning Balance{NBSP}7/02/54", "Beginning Balance")
     assert reader.detect(text).claims is False
 
 
 def test_the_period_is_the_dated_balances_and_never_the_statement_date():
     """`Statement Date:` disagrees with the true period on four of the eight
     archive documents, and the periods do not align to calendar months."""
-    text = STATEMENT.replace("Statement Date: 7/28/26", "Statement Date: 9/09/26")
+    text = STATEMENT.replace("Statement Date: 7/28/54", "Statement Date: 9/09/54")
     stmt = parsed(text)
     assert stmt is not None
-    assert (stmt.period_start, stmt.period_end) == ("2026-07-02", "2026-07-31")
+    assert (stmt.period_start, stmt.period_end) == ("2054-07-02", "2054-07-31")
 
 
 def test_a_printed_length_that_contradicts_the_dated_span_refuses():
@@ -173,7 +173,7 @@ def test_a_printed_length_that_contradicts_the_dated_span_refuses():
 
 def test_the_summary_identity_must_close_before_a_row_is_read():
     text = STATEMENT.replace(
-        "Ending Balance 7/31/26 $ 1,828.94", "Ending Balance 7/31/26 $ 1,899.44"
+        "Ending Balance 7/31/54 $ 1,828.94", "Ending Balance 7/31/54 $ 1,899.44"
     )
     assert parsed(text) is None
 
@@ -194,7 +194,7 @@ def test_the_grid_is_checked_independently_of_the_summary_identity():
     text = (
         STATEMENT
         .replace("Interest Paid +$.00", "Interest Paid +$61.07")
-        .replace("Ending Balance 7/31/26 $ 1,828.94", "Ending Balance 7/31/26 $ 1,890.01")
+        .replace("Ending Balance 7/31/54 $ 1,828.94", "Ending Balance 7/31/54 $ 1,890.01")
     )
     assert parsed(text) is None
 
@@ -261,10 +261,10 @@ def test_a_credit_description_cannot_cross_a_money_token():
     )
     rows = reader._rows(
         reader._sections(text)["credit"], reader._CREDIT_ROW_RE,
-        date(2026, 7, 2), date(2026, 7, 31), 1,
+        date(2054, 7, 2), date(2054, 7, 31), 1,
     )
     assert [(row.date, row.amount) for row in rows] == [
-        ("2026-07-02", 517.31), ("2026-07-06", 502.83),
+        ("2054-07-02", 517.31), ("2054-07-06", 502.83),
     ]
     assert parsed(text) is None
 
@@ -282,7 +282,7 @@ def test_an_amount_pushed_onto_the_following_line_still_belongs_to_its_row():
         txn for txn in stmt.transactions if "PUSHED ONTO THE NEXT LINE" in txn.description
     ]
     assert len(wrapped) == 1
-    assert (wrapped[0].date, wrapped[0].amount) == ("2026-07-07", -209.13)
+    assert (wrapped[0].date, wrapped[0].amount) == ("2054-07-07", -209.13)
 
 
 def test_a_cheque_printed_without_an_amount_is_not_a_posting():

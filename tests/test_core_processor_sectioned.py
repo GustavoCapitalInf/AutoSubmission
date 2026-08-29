@@ -35,7 +35,7 @@ from analysis.core_processor_sectioned import (
 
 MASTHEAD = (
     "FIRST EXAMPLE BANK, N.A. 101 00031 O1 PAGE: 1\n"
-    "P O BOX 1 ACCOUNT: XXXXXXXXXX4321 03/31/2026\n"
+    "P O BOX 1 ACCOUNT: XXXXXXXXXX4321 03/31/2054\n"
     "EXAMPLETOWN ST 00001\n"
     "TELEPHONE: 800-000-0000\n"
     "HOLDER COMPANY LLC 30\n"
@@ -44,10 +44,10 @@ MASTHEAD = (
 )
 SUMMARY = (
     "BUSINESS CHECKING ACCOUNT XXXXXXXXXX4321\n"
-    "LAST STATEMENT 02/28/26 1,000.00 MINIMUM BALANCE 900.00 "
+    "LAST STATEMENT 02/28/54 1,000.00 MINIMUM BALANCE 900.00 "
     "2 CREDITS 1,500.00 AVG AVAILABLE BALANCE 1,400.00 "
-    "2 DEBITS 600.00 AVERAGE BALANCE 1,450.00 THIS STATEMENT 03/31/26 1,900.00\n"
-    "TOTAL DAYS IN STATEMENT PERIOD 03/01/26 THROUGH 03/31/26: 31\n"
+    "2 DEBITS 600.00 AVERAGE BALANCE 1,450.00 THIS STATEMENT 03/31/54 1,900.00\n"
+    "TOTAL DAYS IN STATEMENT PERIOD 03/01/54 THROUGH 03/31/54: 31\n"
 )
 LEDGER = (
     "DEPOSITS REF # DATE AMOUNT REF # DATE AMOUNT\n"
@@ -78,7 +78,7 @@ def test_the_published_statement_is_the_one_the_document_printed():
     assert statement.bank == "FIRST EXAMPLE BANK, N.A."
     assert statement.account_name == "BUSINESS CHECKING"
     assert statement.account_number == "XXXXXXXXXX4321"
-    assert (statement.period_start, statement.period_end) == ("2026-03-01", "2026-03-31")
+    assert (statement.period_start, statement.period_end) == ("2054-03-01", "2054-03-31")
     assert statement.days_in_period == 31
     assert (statement.beginning_balance, statement.ending_balance) == (1000.0, 1900.0)
     assert (statement.stated_credit_count, statement.stated_total_credits) == (2, 1500.0)
@@ -90,17 +90,17 @@ def test_every_row_carries_the_direction_of_the_section_it_was_printed_in():
     """The COLUMN the bank printed the row in, never the sign of the amount."""
     rows = {(row.date, row.description): (row.direction, row.amount)
             for row in parse(DOCUMENT).transactions}
-    assert rows[("2026-03-05", "Deposit")] == ("credit", 1000.0)
-    assert rows[("2026-03-10", "INCOMING WIRE ACME LLC")] == ("credit", 500.0)
-    assert rows[("2026-03-12", "Check 1001")] == ("debit", -100.0)
-    assert rows[("2026-03-20", "CARD PURCHASE HARDWARE CO")] == ("debit", -500.0)
+    assert rows[("2054-03-05", "Deposit")] == ("credit", 1000.0)
+    assert rows[("2054-03-10", "INCOMING WIRE ACME LLC")] == ("credit", 500.0)
+    assert rows[("2054-03-12", "Check 1001")] == ("debit", -100.0)
+    assert rows[("2054-03-20", "CARD PURCHASE HARDWARE CO")] == ("debit", -500.0)
 
 
 def test_the_printed_daily_balance_grid_is_published_as_evidence():
     printed = [(entry.date, entry.balance) for entry in parse(DOCUMENT).stated_daily_balances]
     assert printed == [
-        ("2026-03-05", 2000.0), ("2026-03-10", 2500.0),
-        ("2026-03-12", 2400.0), ("2026-03-20", 1900.0),
+        ("2054-03-05", 2000.0), ("2054-03-10", 2500.0),
+        ("2054-03-12", 2400.0), ("2054-03-20", 1900.0),
     ]
 
 
@@ -117,11 +117,11 @@ def test_a_sub_dollar_row_is_read_from_the_bare_cents_the_platform_prints():
     in the ledger as well as in the summary."""
     document = swap("CARD PURCHASE HARDWARE CO 03/20 500.00", "CARD PURCHASE HARDWARE CO 03/20 .50")
     document = swap("2 DEBITS 600.00", "2 DEBITS 100.50", document)
-    document = swap("THIS STATEMENT 03/31/26 1,900.00", "THIS STATEMENT 03/31/26 2,399.50", document)
+    document = swap("THIS STATEMENT 03/31/54 1,900.00", "THIS STATEMENT 03/31/54 2,399.50", document)
     document = swap("03/20 1,900.00\n", "03/20 2,399.50\n", document)
     statement = parse(document)
     assert statement is not None
-    assert [row.amount for row in statement.transactions if row.date == "2026-03-20"] == [-0.5]
+    assert [row.amount for row in statement.transactions if row.date == "2054-03-20"] == [-0.5]
 
 
 def test_the_continued_marker_and_the_column_header_are_not_a_description():
@@ -167,7 +167,7 @@ def test_a_masthead_that_opens_with_a_header_field_names_no_issuer():
     `bank=None` is the honest answer and the arithmetic does not depend on it:
     an unnamed issuer costs a label, not a document."""
     document = (
-        "Statement Date: 03/31/2026\nPrimary Account: XXXXXXXXXX4321\n"
+        "Statement Date: 03/31/2054\nPrimary Account: XXXXXXXXXX4321\n"
         "TELEPHONE: 800-000-0000\n"
         + SUMMARY + LEDGER
     )
@@ -212,7 +212,7 @@ REVIEW_CONSTRUCTIONS = {
         "Return Service Requested Immediately: yes\nTELEPHONE: 800-000-0000\n"
     ),
     "a label carrying a digit": (
-        "Statement 2 Date: 03/31/2026\nTELEPHONE: 800-000-0000\n"
+        "Statement 2 Date: 03/31/2054\nTELEPHONE: 800-000-0000\n"
     ),
     "a label carrying a hyphen": (
         "Return-Service-Requested: 12345\nTELEPHONE: 800-000-0000\n"
@@ -335,7 +335,7 @@ def test_a_mis_read_amount_is_caught_by_the_printed_total_even_when_the_count_ho
 def test_a_summary_that_contradicts_itself_publishes_nothing():
     """`opening + credits - debits == closing` is the document's own identity,
     checked in the parser where it is cheap and local (§JHA J9.8)."""
-    assert parse(swap("THIS STATEMENT 03/31/26 1,900.00", "THIS STATEMENT 03/31/26 1,901.00")) is None
+    assert parse(swap("THIS STATEMENT 03/31/54 1,900.00", "THIS STATEMENT 03/31/54 1,901.00")) is None
 
 
 def test_the_printed_daily_balance_grid_is_an_independent_second_opinion():
@@ -402,7 +402,7 @@ def test_a_leading_zero_a_scan_printed_as_a_letter_is_still_that_zero(glyph):
     statement = parse(swap("1001 03/12 100.00", f"1001 {glyph}3/12 100.00"))
     assert statement is not None
     cheque = [row for row in statement.transactions if row.description.startswith("Check")]
-    assert [(row.date, row.amount) for row in cheque] == [("2026-03-12", -100.0)]
+    assert [(row.date, row.amount) for row in cheque] == [("2054-03-12", -100.0)]
 
 
 @pytest.mark.parametrize("glyph", ["l", "I", "|"])
@@ -559,7 +559,7 @@ def test_a_direction_with_no_items_prints_no_count_and_is_read_as_zero():
     document = DOCUMENT.replace("2 CREDITS 1,500.00", "CREDITS .00")
     document = swap("03/05 1,000.00\n", "\n", document)
     document = swap("OTHER CREDITS DESCRIPTION DATE AMOUNT INCOMING WIRE ACME LLC 03/10 500.00\n", "", document)
-    document = swap("LAST STATEMENT 02/28/26 1,000.00", "LAST STATEMENT 02/28/26 2,500.00", document)
+    document = swap("LAST STATEMENT 02/28/54 1,000.00", "LAST STATEMENT 02/28/54 2,500.00", document)
     document = swap("03/05 2,000.00 03/10 2,500.00 03/12 2,400.00 03/20 1,900.00",
                     "03/12 2,400.00 03/20 1,900.00", document)
     statement = parse(document)
@@ -599,7 +599,7 @@ def test_the_closing_balance_is_not_taken_from_the_disclosures_below_the_ledger(
     sentence that asks the holder to compare it with their records."""
     document = DOCUMENT + (
         "IN CASE OF ERRORS OR QUESTIONS COMPARE THE AMOUNTS LISTED ON THIS STATEMENT "
-        "03/31/26 9,999.99 WITH YOUR OWN RECORDS\n"
+        "03/31/54 9,999.99 WITH YOUR OWN RECORDS\n"
     )
     statement = parse(document)
     assert statement is not None
@@ -612,8 +612,8 @@ def test_a_summary_that_prints_its_closing_balance_twice_differently_is_refused(
     the disclosures print the same label again, and only the boundary keeps
     them from turning every statement into this."""
     document = swap(
-        "THIS STATEMENT 03/31/26 1,900.00\n",
-        "THIS STATEMENT 03/31/26 1,900.00 THIS STATEMENT 03/31/26 1,899.00\n",
+        "THIS STATEMENT 03/31/54 1,900.00\n",
+        "THIS STATEMENT 03/31/54 1,900.00 THIS STATEMENT 03/31/54 1,899.00\n",
     )
     assert parse(document) is None
 
@@ -706,11 +706,11 @@ def test_the_running_balance_issue_is_claimed_and_then_declined():
     that does read it supersedes this one."""
     running = (
         "BUSINESS BASIC CHECKING ACCOUNT XXXXXXXXXX0947\n"
-        "BALANCE LAST STATEMENT ... 02/28/26 1,000.00\n"
+        "BALANCE LAST STATEMENT ... 02/28/54 1,000.00\n"
         "TOTAL CREDITS (2) 1,500.00 AVG AVAILABLE BALANCE 1,400.00\n"
         "TOTAL DEBITS (2) 600.00 AVERAGE BALANCE 1,450.00\n"
-        "BALANCE THIS STATEMENT ... 03/31/26 1,900.00\n"
-        "TOTAL DAYS IN STATEMENT PERIOD 03/01/26 THROUGH 03/31/26: 31\n"
+        "BALANCE THIS STATEMENT ... 03/31/54 1,900.00\n"
+        "TOTAL DAYS IN STATEMENT PERIOD 03/01/54 THROUGH 03/31/54: 31\n"
     )
     assert detect(running).claims
     assert parse(running) is None
@@ -719,7 +719,7 @@ def test_the_running_balance_issue_is_claimed_and_then_declined():
 def test_an_unreadable_period_is_declined_rather_than_raised():
     """A raise inside `parse` is recorded as a crash of ours; this is a
     document we cannot read, and it has to be reported as one."""
-    assert parse(swap("03/01/26 THROUGH", "13/45/26 THROUGH")) is None
+    assert parse(swap("03/01/54 THROUGH", "13/45/54 THROUGH")) is None
 
 
 def test_parse_re_checks_detection_and_never_trusts_the_caller():
@@ -732,10 +732,10 @@ def test_parse_re_checks_detection_and_never_trusts_the_caller():
 
 def test_neither_marker_claims_on_its_own():
     assert not detect(
-        "TOTAL DAYS IN STATEMENT PERIOD 03/01/26 THROUGH 03/31/26: 31\n"
+        "TOTAL DAYS IN STATEMENT PERIOD 03/01/54 THROUGH 03/31/54: 31\n"
     ).claims
     assert not detect(
-        "LAST STATEMENT 02/28/26 1,000.00 THIS STATEMENT 03/31/26 1,900.00\n"
+        "LAST STATEMENT 02/28/54 1,000.00 THIS STATEMENT 03/31/54 1,900.00\n"
     ).claims
 
 
@@ -771,9 +771,9 @@ def test_the_issuer_specific_reader_of_the_other_issue_wins_outright():
     both = (
         "WWW.FFBT.COM\n"
         "BUSINESS BASIC CHECKING ACCOUNT XXXXXXXXXX0947\n"
-        "BALANCE LAST STATEMENT ... 02/28/26 1,000.00\n"
-        "BALANCE THIS STATEMENT ... 03/31/26 1,900.00\n"
-        "TOTAL DAYS IN STATEMENT PERIOD 03/01/26 THROUGH 03/31/26: 31\n"
+        "BALANCE LAST STATEMENT ... 02/28/54 1,000.00\n"
+        "BALANCE THIS STATEMENT ... 03/31/54 1,900.00\n"
+        "TOTAL DAYS IN STATEMENT PERIOD 03/01/54 THROUGH 03/31/54: 31\n"
     )
     assert detect(both).claims
     assert pr.by_id("first_farmers").detect(both).claims

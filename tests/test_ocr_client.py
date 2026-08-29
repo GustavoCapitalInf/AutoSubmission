@@ -271,7 +271,7 @@ def test_split_fused_header_row_leaves_clean_header_untouched():
     # BofA-style: header row is already correct — must not be altered.
     clean = (
         "<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr>"
-        "<tr><td>11/03/25</td><td>Online Banking transfer</td><td>6,000.00</td></tr></table>"
+        "<tr><td>11/03/53</td><td>Online Banking transfer</td><td>6,000.00</td></tr></table>"
     )
     assert split_fused_header_row(clean) == clean
 
@@ -291,9 +291,9 @@ def test_fix_amount_column_bleed_moves_wrapped_desc_out_of_amount():
     # Real BofA output: wrapped description continuation bled into the Amount column.
     raw = (
         "<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr>"
-        "<tr><td>11/03/25</td><td>ONLINE PAYROLL DES:PAYROLL ID:0000217279 CCD</td>"
+        "<tr><td>11/03/53</td><td>ONLINE PAYROLL DES:PAYROLL ID:0000217279 CCD</td>"
         "<td>ID:9531796 INDN:HEARTLAND FINANCIAL SE CO -74.88</td></tr>"
-        "<tr><td>11/05/25</td><td>THE HARTFORD DES:INSPMTCL CCD</td><td>-110.00</td></tr>"
+        "<tr><td>11/05/53</td><td>THE HARTFORD DES:INSPMTCL CCD</td><td>-110.00</td></tr>"
         "</table>"
     )
     out = fix_amount_column_bleed(raw)
@@ -304,7 +304,7 @@ def test_fix_amount_column_bleed_moves_wrapped_desc_out_of_amount():
     assert ("<td>ONLINE PAYROLL DES:PAYROLL ID:0000217279 CCD "
             "ID:9531796 INDN:HEARTLAND FINANCIAL SE CO</td>") in out
     # Clean row (money only) is untouched.
-    assert "<tr><td>11/05/25</td><td>THE HARTFORD DES:INSPMTCL CCD</td><td>-110.00</td></tr>" in out
+    assert "<tr><td>11/05/53</td><td>THE HARTFORD DES:INSPMTCL CCD</td><td>-110.00</td></tr>" in out
 
 
 def test_fix_amount_column_bleed_ignores_tables_without_amount_header():
@@ -318,7 +318,7 @@ def test_fix_amount_column_bleed_ignores_tables_without_amount_header():
 def test_fix_amount_column_bleed_leaves_clean_amount_table_untouched():
     clean = (
         "<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr>"
-        "<tr><td>11/03/25</td><td>Online Banking transfer Confirmation# 7701269064</td>"
+        "<tr><td>11/03/53</td><td>Online Banking transfer Confirmation# 7701269064</td>"
         "<td>6,000.00</td></tr></table>"
     )
     assert fix_amount_column_bleed(clean) == clean

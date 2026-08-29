@@ -29,7 +29,7 @@ MASTHEAD = (
     "Page 1 (1)\n"
     "Account #:\n"
     "XXXXXX0000\n"
-    "This statement: February 27, 2026 Last statement: January 30, 2026\n"
+    "This statement: February 27, 2054 Last statement: January 30, 2054\n"
     "Contact us:\n"
     "000-000-0000\n"
     "Example Branch Office 1 Example St Exampletown XX 00000\n"
@@ -41,7 +41,7 @@ SUMMARY = (
     "Account Summary Account Activity\n"
     "Account number XXXXXX0000 Minimum balance $50.00 Average balance $120.00 "
     "Avg. collected balance $120.00\n"
-    "Beginning balance (1/30/2026)\n"
+    "Beginning balance (1/30/2054)\n"
     "$100.00\n"
     "Credits\n"
     "Deposits (0) + 0.00 Electronic cr (1) + 300.00 Other credits (0) + 0.00\n"
@@ -51,7 +51,7 @@ SUMMARY = (
     "Checks paid (1) - 200.00 Electronic db (1) - 50.00 Other debits (0) - 0.00\n"
     "Total debits\n"
     "- $250.00\n"
-    "Ending balance (2/27/2026)\n"
+    "Ending balance (2/27/2054)\n"
     "$150.00\n"
 )
 CREDITS = (
@@ -134,8 +134,8 @@ def test_an_undated_balance_pair_is_not_this_grammar():
     same processor, and this is the whole reason the two registrations are
     disjoint rather than ordered."""
     undated = document().replace(
-        "Beginning balance (1/30/2026)\n$100.00", "Beginning balance $100.00"
-    ).replace("Ending balance (2/27/2026)\n$150.00", "Ending balance $150.00")
+        "Beginning balance (1/30/2054)\n$100.00", "Beginning balance $100.00"
+    ).replace("Ending balance (2/27/2054)\n$150.00", "Ending balance $150.00")
     assert not cpc.detect(undated).claims
 
 
@@ -144,18 +144,18 @@ def test_the_period_sentences_may_be_printed_in_either_order():
     the sibling's order — the two sentences are therefore read separately
     rather than as one phrase."""
     swapped = document().replace(
-        "This statement: February 27, 2026 Last statement: January 30, 2026",
-        "Last statement: January 30, 2026 Page 1 of 3\nThis statement: February 27, 2026",
+        "This statement: February 27, 2054 Last statement: January 30, 2054",
+        "Last statement: January 30, 2054 Page 1 of 3\nThis statement: February 27, 2054",
     )
     statement = parse(swapped)
     assert statement is not None
-    assert (statement.period_start, statement.period_end) == ("2026-01-31", "2026-02-27")
+    assert (statement.period_start, statement.period_end) == ("2054-01-31", "2054-02-27")
 
 
 def test_a_document_that_merely_quotes_the_period_sentence_is_not_claimed():
     quoted = (
         "SOME OTHER BANK\nStatement of Account\n"
-        "01/15 ACH DEBIT This statement: February 27, 2026 250.00\n"
+        "01/15 ACH DEBIT This statement: February 27, 2054 250.00\n"
     )
     assert not cpc.detect(quoted).claims
 
@@ -165,7 +165,7 @@ def test_a_document_that_merely_quotes_the_period_sentence_is_not_claimed():
 # ---------------------------------------------------------------------------
 
 SIBLING_DAILY = (
-    "Last statement: March 31, 2026 This statement: April 30, 2026 "
+    "Last statement: March 31, 2054 This statement: April 30, 2054 "
     "Total days in statement period: 30\n"
     "Direct inquiries to: 000-000-0000\n"
     "Example Business Checking\n"
@@ -212,12 +212,12 @@ def test_neither_document_resolves_ambiguous():
 # ---------------------------------------------------------------------------
 
 OTHER_PLATFORM = (
-    "Statement Period Start: May 1, 2026 Statement Period End: May 31, 2026\n"
+    "Statement Period Start: May 1, 2054 Statement Period End: May 31, 2054\n"
     "Account Summary\n"
-    "Beginning Balance as of 05/01/2026 $3,297.98\n"
+    "Beginning Balance as of 05/01/2054 $3,297.98\n"
     "+ Deposits and Credits  (31) $80,351.88\n"
     "- Checks and Debits  (24) $79,145.20\n"
-    "Ending Balance as of 05/31/2026 $4,504.66\n"
+    "Ending Balance as of 05/31/2054 $4,504.66\n"
     "Total Days in Statement Period 31\n"
 )
 
@@ -243,7 +243,7 @@ def test_a_parenthesised_count_alone_is_not_this_summary_partition():
 # ---------------------------------------------------------------------------
 
 COLUMBIA_GRAMMAR = (
-    "Last statement: February 27, 2026 This statement: March 31, 2026\n"
+    "Last statement: February 27, 2054 This statement: March 31, 2054\n"
     "Account number XXXXXX4166 Beginning balance $59,347.32\n"
     "Low balance $21,464.92 Deposits/Additions $129,016.40\n"
     "Average balance $42,172.07 Withdrawals/Subtractions $156,005.07\n"
@@ -276,8 +276,8 @@ def test_the_columbia_cohort_is_not_reachable_by_relaxing_to_the_period_pair():
 
 def test_the_whole_statement_is_published_from_the_printed_figures():
     statement = published()
-    assert statement.period_start == "2026-01-31"
-    assert statement.period_end == "2026-02-27"
+    assert statement.period_start == "2054-01-31"
+    assert statement.period_end == "2054-02-27"
     assert statement.beginning_balance == 100.00
     assert statement.ending_balance == 150.00
     assert statement.stated_total_credits == 300.00
@@ -285,9 +285,9 @@ def test_the_whole_statement_is_published_from_the_printed_figures():
     assert statement.account_number == "XXXXXX0000"
     assert statement.account_name == "Analyzed Example Checking"
     assert [(row.date, row.direction, row.amount) for row in statement.transactions] == [
-        ("2026-02-02", "debit", -200.00),
-        ("2026-02-03", "credit", 300.00),
-        ("2026-02-05", "debit", -50.00),
+        ("2054-02-02", "debit", -200.00),
+        ("2054-02-03", "credit", 300.00),
+        ("2054-02-05", "debit", -50.00),
     ]
 
 
@@ -296,8 +296,8 @@ def test_the_period_opens_the_day_after_the_last_statement_closed():
     The grid's first cell and the parenthesised date on `Beginning balance`
     both confirm it independently."""
     statement = published()
-    assert statement.period_start == "2026-01-31"
-    assert cpc._summary(document()).seed == "2026-01-30"
+    assert statement.period_start == "2054-01-31"
+    assert cpc._summary(document()).seed == "2054-01-30"
 
 
 def test_the_printed_counts_are_published_as_the_sum_of_their_categories():
@@ -362,14 +362,14 @@ def test_a_paragraph_in_the_product_slot_is_declined():
 # ---------------------------------------------------------------------------
 
 def test_the_pre_period_cell_is_a_gate_and_is_not_published():
-    """ADB doctrine (2026-08-15): a balance dated before the period opens is
+    """ADB doctrine (2054-08-15): a balance dated before the period opens is
     initialization, never a denominator day. `stated_daily_balances`'
     contract is IN-PERIOD snapshots and `analysis/adb.py` treats an
     out-of-period one as a defect of the statement, so publishing it would
     withhold every document of the family (§LCPERIOD L7.8)."""
     statement = published()
     assert [entry.date for entry in statement.stated_daily_balances] == [
-        "2026-02-02", "2026-02-03", "2026-02-05"]
+        "2054-02-02", "2054-02-03", "2054-02-05"]
     assert all(entry.date >= statement.period_start
                for entry in statement.stated_daily_balances)
 
@@ -452,8 +452,8 @@ def test_a_category_total_that_its_own_rows_do_not_reach_refuses():
     different gate is a gate that is not tested."""
     broken = (SUMMARY.replace("Electronic cr (1) + 300.00", "Electronic cr (1) + 301.00")
               .replace("+$300.00", "+$301.00")
-              .replace("Ending balance (2/27/2026)\n$150.00",
-                       "Ending balance (2/27/2026)\n$151.00"))
+              .replace("Ending balance (2/27/2054)\n$150.00",
+                       "Ending balance (2/27/2054)\n$151.00"))
     assert parse(document(summary=broken)) is None
 
 
@@ -463,15 +463,15 @@ def test_a_direction_total_that_its_categories_do_not_sum_to_refuses():
     isolated to it: every category still matches its own rows, and the
     identity still closes, because the ending balance moves with the total."""
     broken = SUMMARY.replace("+$300.00", "+$400.00").replace(
-        "Ending balance (2/27/2026)\n$150.00",
-        "Ending balance (2/27/2026)\n$250.00")
+        "Ending balance (2/27/2054)\n$150.00",
+        "Ending balance (2/27/2054)\n$250.00")
     assert parse(document(summary=broken)) is None
 
 
 def test_a_summary_whose_identity_does_not_close_refuses():
     assert parse(document(summary=SUMMARY.replace(
-        "Ending balance (2/27/2026)\n$150.00",
-        "Ending balance (2/27/2026)\n$151.00"))) is None
+        "Ending balance (2/27/2054)\n$150.00",
+        "Ending balance (2/27/2054)\n$151.00"))) is None
 
 
 def test_a_partition_missing_one_of_its_six_categories_refuses():
@@ -567,8 +567,8 @@ def test_a_document_printing_no_masthead_account_field_refuses():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("printed,corrupted", [
-    ("Beginning balance (1/30/2026)", "Beginning balance (1/29/2026)"),
-    ("Ending balance (2/27/2026)", "Ending balance (2/28/2026)"),
+    ("Beginning balance (1/30/2054)", "Beginning balance (1/29/2054)"),
+    ("Ending balance (2/27/2054)", "Ending balance (2/28/2054)"),
 ])
 def test_a_dated_balance_that_disagrees_with_the_statement_dates_refuses(printed, corrupted):
     assert parse(document(summary=SUMMARY.replace(printed, corrupted))) is None
@@ -577,12 +577,12 @@ def test_a_dated_balance_that_disagrees_with_the_statement_dates_refuses(printed
 def test_a_month_word_that_is_not_a_month_refuses():
     """The pattern proves the SHAPE and nothing more."""
     assert parse(document(masthead=MASTHEAD.replace(
-        "February 27, 2026", "Fiscal 27, 2026"))) is None
+        "February 27, 2054", "Fiscal 27, 2026"))) is None
 
 
 def test_a_calendar_impossible_statement_date_refuses():
     assert parse(document(masthead=MASTHEAD.replace(
-        "February 27, 2026", "February 31, 2026"))) is None
+        "February 27, 2054", "February 31, 2054"))) is None
 
 
 def test_a_row_dated_outside_the_printed_period_refuses():
@@ -629,8 +629,8 @@ def test_a_sub_dollar_amount_printed_bare_is_read():
     statement = published(
         summary=SUMMARY.replace("Electronic db (1) - 50.00", "Electronic db (1) - .50")
         .replace("- $250.00", "- $200.50")
-        .replace("Ending balance (2/27/2026)\n$150.00",
-                 "Ending balance (2/27/2026)\n$199.50"),
+        .replace("Ending balance (2/27/2054)\n$150.00",
+                 "Ending balance (2/27/2054)\n$199.50"),
         debits=DEBITS.replace("50.00", ".50"),
         grid=GRID.replace("2-5 150.00", "2-5 199.50"),
     )
@@ -678,7 +678,7 @@ def test_two_rows_printed_on_one_line_are_both_read():
         summary=SUMMARY.replace("Electronic db (1)", "Electronic db (2)"),
         debits=two,
     )
-    assert [row.amount for row in statement.transactions if row.date == "2026-02-05"] == [
+    assert [row.amount for row in statement.transactions if row.date == "2054-02-05"] == [
         -20.00, -30.00]
 
 
@@ -707,8 +707,8 @@ def interleaved():
     return published(
         summary=SUMMARY.replace("Electronic db (1) - 50.00", "Electronic db (3) - 60.00")
         .replace("- $250.00", "- $260.00")
-        .replace("Ending balance (2/27/2026)\n$150.00",
-                 "Ending balance (2/27/2026)\n$140.00"),
+        .replace("Ending balance (2/27/2054)\n$150.00",
+                 "Ending balance (2/27/2054)\n$140.00"),
         debits=INTERLEAVED_DEBITS,
         grid=GRID.replace("2-5 150.00", "2-5 140.00"),
     )
@@ -716,7 +716,7 @@ def interleaved():
 
 def debits_of(statement):
     return [row.description for row in statement.transactions
-            if row.direction == "debit" and row.date == "2026-02-05"]
+            if row.direction == "debit" and row.date == "2054-02-05"]
 
 
 def test_an_interleaved_block_pair_is_published_on_neither_of_its_rows():
@@ -761,8 +761,8 @@ def test_a_section_broken_across_a_page_keeps_both_of_its_runs():
     statement = published(
         summary=SUMMARY.replace("Electronic cr (1) + 300.00", "Electronic cr (2) + 400.00")
         .replace("+$300.00", "+$400.00")
-        .replace("Ending balance (2/27/2026)\n$150.00",
-                 "Ending balance (2/27/2026)\n$250.00"),
+        .replace("Ending balance (2/27/2054)\n$150.00",
+                 "Ending balance (2/27/2054)\n$250.00"),
         credits=continued,
         grid=GRID.replace("2-3 200.00", "2-3 200.00 2-4 300.00").replace(
             "2-5 150.00", "2-5 250.00"),
@@ -788,13 +788,13 @@ def test_two_cheque_rows_on_one_line_each_keep_their_own_serial():
         checks=two,
     )
     assert [row.description for row in statement.transactions
-            if row.date == "2026-02-02"] == ["Check 1001", "Check 1002"]
+            if row.date == "2054-02-02"] == ["Check 1001", "Check 1002"]
 
 
 @pytest.mark.parametrize("furniture", [
     "Continued on page 27\n",
     "XXXXXXXXXXXX0000\n",
-    "Page 2 February 27, 2026 7654321\n",
+    "Page 2 February 27, 2054 7654321\n",
 ])
 def test_furniture_printed_above_a_cheque_row_cannot_fabricate_a_serial(furniture):
     """An end-anchored read over the gap takes any trailing digits as a

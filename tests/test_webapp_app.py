@@ -280,8 +280,8 @@ def test_package_analysis_aggregates_completed_jobs():
             # A package aggregates only across a proven single currency
             # (CURRENCY DOCTRINE §F); a real payload always declares one.
             "currency": "USD",
-            "period_start": "2026-01-01",
-            "period_end": "2026-01-31",
+            "period_start": "2054-01-01",
+            "period_end": "2054-01-31",
             "beginning_balance": 500,
             "ending_balance": 900,
         },
@@ -307,8 +307,8 @@ def test_package_analysis_aggregates_completed_jobs():
         "statement": {
             "bank": "TD Bank",
             "currency": "USD",
-            "period_start": "2026-02-01",
-            "period_end": "2026-02-28",
+            "period_start": "2054-02-01",
+            "period_end": "2054-02-28",
             "beginning_balance": 900,
             "ending_balance": 1100,
         },
@@ -390,8 +390,8 @@ def test_package_adb_ignores_rejected_or_unvalidated_cached_values():
         store.set_result(job.id, "# Statement", "<h1>Statement</h1>", analysis={
             "statement": {
                 "bank": "Audit Bank",
-                "period_start": "2026-01-01",
-                "period_end": "2026-01-31",
+                "period_start": "2054-01-01",
+                "period_end": "2054-01-31",
                 "transactions": [],
             },
             "metrics": metrics,
@@ -545,7 +545,7 @@ def test_revenue_review_endpoint_writes_a_durable_decision_row():
             "bank": "Test Bank",
             "transactions": [
                 {
-                    "date": "2026-01-04",
+                    "date": "2054-01-04",
                     "description": "ACH DEPOSIT",
                     "amount": 1000.0,
                     "classification": {

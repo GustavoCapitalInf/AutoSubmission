@@ -35,7 +35,7 @@ entries.load()
 #: numbers chosen so the identity is checkable by eye.
 OVERDRAWN_CHASE = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -63,7 +63,7 @@ OVERDRAWN_CHASE = (
 HEADER = (
     "Square Checking Routing number: 000000000\n"
     "Account number: 4321\n"
-    "Checking statement June 1 - June 30, 2026\n"
+    "Checking statement June 1 - June 30, 2054\n"
     "Example Trading Co\n"
     "Starting balance Activities Ending balance $100.00 3 $150.00\n"
     "Block Inc. 1955 Broadway, Suite 600 Oakland, CA 94612\n"
@@ -71,9 +71,9 @@ HEADER = (
 )
 GRID = "Date Details Activity type Balance Amount\n"
 ROWS = (
-    "6/1/2026 Example Merchant Card spend $80.00 -$20.00\n"
-    "6/2/2026 4 Activities Sales $180.00 $100.00\n"
-    "6/3/2026 Example Bank Transfer out $150.00 -$30.00\n"
+    "6/1/2054 Example Merchant Card spend $80.00 -$20.00\n"
+    "6/2/2054 4 Activities Sales $180.00 $100.00\n"
+    "6/3/2054 Example Bank Transfer out $150.00 -$30.00\n"
 )
 STATEMENT = HEADER + GRID + ROWS
 
@@ -209,21 +209,21 @@ def test_the_summary_row_supplies_both_period_balances():
 
 def test_the_period_comes_from_the_statement_title_line():
     statement = _parse(STATEMENT)
-    assert statement.period_start == "2026-06-01"
-    assert statement.period_end == "2026-06-30"
+    assert statement.period_start == "2054-06-01"
+    assert statement.period_end == "2054-06-30"
 
 
 def test_a_period_that_opens_in_the_previous_year_is_dated_from_the_month_order():
     """Only the closing year is printed. An opening month standing after the
     closing month is the only ordering that can mean the year before."""
     text = STATEMENT.replace(
-        "Checking statement June 1 - June 30, 2026",
-        "Checking statement December 28 - January 27, 2026",
-    ).replace("6/1/2026", "12/28/2025").replace("6/2/2026", "1/2/2026").replace(
-        "6/3/2026", "1/27/2026")
+        "Checking statement June 1 - June 30, 2054",
+        "Checking statement December 28 - January 27, 2054",
+    ).replace("6/1/2054", "12/28/2053").replace("6/2/2054", "1/2/2054").replace(
+        "6/3/2054", "1/27/2054")
     statement = _parse(text)
-    assert statement.period_start == "2025-12-28"
-    assert statement.period_end == "2026-01-27"
+    assert statement.period_start == "2053-12-28"
+    assert statement.period_end == "2054-01-27"
     assert len(statement.transactions) == 3
 
 
@@ -263,8 +263,8 @@ def test_a_wrapped_details_cell_pushes_the_money_columns_onto_the_next_line():
     row; reading the two lines separately loses it and breaks the continuity of
     the row after it."""
     text = STATEMENT.replace(
-        "6/2/2026 4 Activities Sales $180.00 $100.00\n",
-        "6/2/2026 Bill Pay * A Very Long Counterparty Name That Fills The Column\n"
+        "6/2/2054 4 Activities Sales $180.00 $100.00\n",
+        "6/2/2054 Bill Pay * A Very Long Counterparty Name That Fills The Column\n"
         "Transfers $180.00 $100.00\n",
     )
     statement = _parse(text)
@@ -311,9 +311,9 @@ def test_a_money_bearing_footer_under_a_wrapped_row_is_still_excluded():
     the row's printing into the footer."""
     text = (
         HEADER + GRID
-        + "6/1/2026 Example Merchant Card spend $80.00 -$20.00\n"
-        + "6/2/2026 4 Activities Sales $180.00 $100.00\n"
-        + "6/3/2026 Bill Pay * A Very Long Counterparty Name Filling The Column\n"
+        + "6/1/2054 Example Merchant Card spend $80.00 -$20.00\n"
+        + "6/2/2054 4 Activities Sales $180.00 $100.00\n"
+        + "6/3/2054 Bill Pay * A Very Long Counterparty Name Filling The Column\n"
         + "Transfers $150.00 -$30.00\n"
         + "Overdraft protection limit $500.00 applies. squareup.com/help\n"
     )
@@ -326,14 +326,14 @@ def test_a_money_bearing_footer_under_a_wrapped_row_is_still_excluded():
 def test_the_reprinted_grid_header_closes_the_row_above_it():
     """The column header opens each page's grid. It is furniture: it must not
     continue the row that ended the page before it."""
-    text = HEADER + GRID + ROWS + GRID + "6/4/2026 Example Merchant Card spend $140.00 -$10.00\n"
+    text = HEADER + GRID + ROWS + GRID + "6/4/2054 Example Merchant Card spend $140.00 -$10.00\n"
     statement = _parse(text)
     assert len(statement.transactions) == 4
     assert statement.transactions[2].description == "Example Bank Transfer out"
 
 
 def test_a_row_dated_outside_the_printed_period_is_not_admitted():
-    text = STATEMENT + "7/4/2026 Example Merchant Card spend $140.00 -$10.00\n"
+    text = STATEMENT + "7/4/2054 Example Merchant Card spend $140.00 -$10.00\n"
     statement = _parse(text)
     assert len(statement.transactions) == 3
 
@@ -342,8 +342,8 @@ def test_a_reference_number_in_the_details_column_is_not_a_money_cell():
     """Every money cell of this layout is printed with the currency symbol,
     which is what keeps a bare digit run out of the columns."""
     text = STATEMENT.replace(
-        "6/1/2026 Example Merchant Card spend $80.00 -$20.00",
-        "6/1/2026 Example Merchant SEQ# 123456 Card spend $80.00 -$20.00",
+        "6/1/2054 Example Merchant Card spend $80.00 -$20.00",
+        "6/1/2054 Example Merchant SEQ# 123456 Card spend $80.00 -$20.00",
     )
     statement = _parse(text)
     assert statement.transactions[0].amount == -20.00
