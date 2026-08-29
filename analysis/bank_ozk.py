@@ -59,7 +59,7 @@ sits in a year the archive does not contain. A CHECKED claim, not a promise —
 W3 §FZ10.3 records the scan, the inert first version of it, and the literals
 its repair found, two of which were in this module's own comments::
 
-    SAMPLE CHECKING* ACCOUNT - 000000
+    SAMPLE CHECKING* ACCOUNT - 909090
     PREVIOUS STATEMENT BALANCE AS OF 07/30/27: 100.00 PLUS 1 DEPOSITS AND
     OTHER CREDITS: 50.00 LESS 1 CHECKS AND OTHER DEBITS: 20.00 CURRENT
     STATEMENT BALANCE AS OF 08/31/27: 130.00 NUMBER OF DAYS IN THIS

@@ -4,24 +4,32 @@ WHAT THE ARCHIVE HOLDS. Twenty documents that all print the same platform's
 support address, and two printings that share almost nothing else. Every
 figure, date and description below is INVENTED — the same invented ones
 `tests/test_lili.py` uses, in a period and a calendar year the family does
-not contain. No amount, name, account number or date from any archive document
-appears in this module, in its tests, or in W3 §LILI.
+not contain. Invented is not the same as distinct: these figures were invented
+against this family's 20 documents, and batch 9 measured them against the whole
+3,351-document archive, where twelve of them turned out to be printed by some
+unrelated statement. Every figure here is now that invented figure with its
+cent value multiplied by 428 — a whole-number scale, so the printed summary and
+the printed chain still close exactly — and 428 is the smallest scale under
+which neither the figures nor the digit runs they generate appear anywhere in
+the archive (`tools/fixpriv_invent.py --scale-search`). No amount, name,
+account number or date of any archive document appears in this module or in its
+tests: checked, not asserted.
 
 SKIN A (15 documents, four accounts, born-digital text) is the printing this
 reader publishes:
 
-    Account Number Statement Period 999900000000 1 September, 2027 - 30 September, 2027
+    Account Number Statement Period 999900000000 1 September, 2031 - 30 September, 2031
     Checking Account Summary Total Checking Amount
-    Beginning balance on 1 September, 2027 $137.41
-    Deposits and other credits $512.63
-    Withdrawals and other debits $-308.19
-    Fees $-13.27
-    Ending balance on 30 September, 2027 $328.58
+    Beginning balance on 1 September, 2031 $58811.48
+    Deposits and other credits $219405.64
+    Withdrawals and other debits $-131905.32
+    Fees $-5679.56
+    Ending balance on 30 September, 2031 $140632.24
     Checking Account Activity - Main Account
     Date Authorization Code Description Amount Balance
-    09/03/2027 111111111 A MERCHANT NOWHERE ZZUS $-308.19 $-170.78
-    09/17/2027 222222222 A TRANSFER IN $512.63 $341.85
-    09/30/2027 333333333 A PLAN CHARGE (Applies From 09/08/2027) $-13.27 $328.58
+    09/03/2031 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84
+    09/17/2031 700000002 A TRANSFER IN $219405.64 $146311.80
+    09/30/2031 700000003 A PLAN CHARGE (Applies From 09/08/2031) $-5679.56 $140632.24
 
 Five printed summary terms, one per line, each followed by its own figure;
 then one ledger under one column head, fully collapsed to one line per
@@ -128,7 +136,7 @@ _MONEY = r"\$" + MINUS_CLASS + r"?[\d,]+\.\d{2}"
 _MONEY_RUN = r"(?:" + _MONEY + r"[ \t]*)+"
 _MONEY_TOKEN_RE = re.compile(_MONEY)
 
-#: A day-first long date — `1 September, 2027`, `01 September, 2027`. The
+#: A day-first long date — `1 September, 2031`, `01 September, 2031`. The
 #: day may be printed with or without its leading zero. Group-free, so it
 #: can be embedded twice in the header pattern; `_LONG_DATE_PARTS` reads the
 #: pieces back out of whatever it matched.

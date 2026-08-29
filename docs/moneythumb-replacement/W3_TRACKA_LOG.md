@@ -55790,3 +55790,595 @@ dormant sibling may be omitted, all one family, all eight with the table reprodu
 | no production file differs from base | empty |
 | the instruments are unwired | held by a grep, re-run at this tip, no hits |
 | branch privacy scan vs the whole population | **hit_count 0** over 5,213 added lines and 3,351 documents (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) at `7d16d0d` plus one further rewrite — EXIT=0. The amendments opened at 10 and took three passes; the 29 shas with no cached text are the same 29 the pinned survey reports as NOT SURVEYED |
+
+# §FIXPRIV — the archive tokens the tree already carried: the table that adjudicates them, and the six files it clears
+
+**Card:** FIXTURE-PRIVACY (batch 9, 9A-0 card 1, P0 hygiene, ZERO coverage movement).
+**Branch** `wave9-fixpriv`, base `train9` `2f24b06`. Ocean composes; this cell never merged.
+**Verdict: the sweep is NOT complete and cannot be completed under this card's ownership.** What
+IS complete: the instrument that adjudicates the population, the committed exclusion table with
+its mutation-killed guard, and every file this card was given. What is not: 10,645 residue sites
+in 203 files remain, 414 of them in production modules this card may not touch, and the record
+redaction the card asked for is REFUSED as specified, for a measured reason (FP6).
+
+## FP1 — the population, measured with a committed instrument
+
+**SUPERSEDED by FP-C3**: measured with an instrument this closure found and fixed (FP-C1); the base and tip figures below do not reproduce.
+
+Whole-tree audit of the run of record `TRAIN8-7185633 / cda8882d` (3,380 content shas, **3,351
+with cached text**; 29 without, listed by the scan), `privacy_scan_branch.py --include-tree
+--base 19ec351` (the ROOT commit — a tree audit needs it, or the base-tree exclusion removes
+exactly the tokens being looked for). The printed universe: **MONEY 354,835 · DIGITS 208,695 ·
+DATES 3,211 · WORDS 416,756** distinct tokens.
+
+Batch 8 measured this population at the train (`BATCH8_TRANSITION`, "root-base tree scans") as
+11,678 candidates in 251 files, adjudicated in prose. Prose is not an instrument, so this cell
+put the adjudication IN the scanner: seven rules, each naming a SHAPE, applied to every file
+alike, with per-rule counts in the report and the exit code following the residue.
+
+| | base `2f24b06` | tip `wave9-fixpriv` |
+|---|---:|---:|
+| raw hits | 1,116,223 | 1,119,479 |
+| `words_class` | 1,071,553 | 1,075,091 |
+| `round_money` | 17,286 | 17,300 |
+| `corpus_cache` | 4,966 | 4,966 |
+| `subunit_money` | 2,356 | 2,374 |
+| `hex_sha_substring` | 850 | 866 |
+| `institution_zip` | 200 | 200 |
+| `docs_session_date` | 2 | 2 |
+| **RESIDUE (sites)** | **10,810** | **10,645** |
+| residue files | 209 | 203 |
+
+A *site* is one (class, path, line, token), deduplicated across the diff pass and
+`--include-tree`, which reach the same line twice under two labels when `--base` is the root
+commit.
+
+## FP2 — residue by class × directory, before and after
+
+**SUPERSEDED by FP-C3**: measured with an instrument this closure found and fixed (FP-C1). The sentence "no file gained residue" is true at the real tip and
+was not true at the commit it was written on — see FP-C2, MAJOR 1.
+
+| class · directory | base | tip | delta |
+|---|---:|---:|---:|
+| MONEY docs | 4,819 | 4,819 | 0 |
+| DATES tests | 1,974 | 1,971 | −3 |
+| MONEY tests | 1,511 | 1,391 | −120 |
+| DATES docs | 898 | 898 | 0 |
+| DIGITS tests | 685 | 670 | −15 |
+| DIGITS docs | 474 | 474 | 0 |
+| MONEY analysis | 231 | 216 | −15 |
+| DATES analysis | 79 | 79 | 0 |
+| DIGITS analysis | 50 | 48 | −2 |
+| DATES (root) | 26 | 26 | 0 |
+| MONEY webapp | 17 | 17 | 0 |
+| MONEY ocr | 16 | 16 | 0 |
+| DATES tools | 10 | 4 | −6 |
+| MONEY (root) | 9 | 9 | 0 |
+| MONEY tools | 5 | 1 | −4 |
+| DIGITS tools | 3 | 3 | 0 |
+| DATES benchmark | 2 | 2 | 0 |
+| DIGITS ocr | 1 | 1 | 0 |
+| **total** | **10,810** | **10,645** | **−165** |
+
+Rolled up: production (analysis, ocr, webapp, benchmark, root) **431 → 414**; `tests/`
+**4,170 → 4,032**; `docs/` **6,191 → 6,191**; `tools/` **18 → 8**.
+**No file gained residue and no token appears at the tip that was not at the base** (measured
+per file and per token, both directions). Six files go to zero: `analysis/lili.py` 8 → 0,
+`analysis/core_processor_signed_counts.py` 8 → 0, `analysis/bank_ozk.py` 1 → 0,
+`tests/test_lili.py` 138 → 0, `tools/lili_privacy_scan.py` 1 → 0,
+`tools/privacy_scan_branch.py` 9 → 0.
+
+## FP3 — the exclusion table, and the two things the card's own draft got wrong
+
+Seven rules, documented in `privacy_scan_branch.py`'s docstring with the reason each is safe
+rather than convenient. Three are batch 8's standing exclusions made executable (`words_class`,
+`corpus_cache`, `round_money`); `subunit_money` and `hex_sha_substring` are the two the card
+names; `docs_session_date` and `institution_zip` are new and bounded twice over.
+
+Two corrections to the card's draft, both forced by measurement:
+
+1. **`[0-9A-F]{16,64}` silences identifiers.** A 16-digit card number is "hex". So is a
+   20-digit reference and a 42-digit run. The rule now requires **at least one hex LETTER** in a
+   7..64-character run, which an all-digit identifier can never satisfy at any length. A sha
+   with no `a`–`f` is a 1-in-10^13 accident at 64 characters, and when one occurs it is
+   REPORTED, not hidden — the safe direction.
+2. **The same shape at 7 characters is how these records name a COMMIT** (`f14282e`,
+   `32116b3`). Those were being scanned as archive digit runs.
+
+`tests/test_privacy_scan_exclusions.py` (110 tests) proves each rule matches exactly the shape
+it names and nothing wider, ending with the block that matters: no rule, in any combination and
+in any directory, silences an account number, a terminal id, a CI run id, a line number, a
+statement figure or a document date. `self_check` refuses to run unless every rule answers its
+own sample AND its counter-sample.
+
+## FP4 — MUTATION TABLE: three gates, 22 mutants, 22 killed
+
+Every mutant is a literal documented substitution, applied by `tools/fixpriv_mutation_table.py`,
+run without `-x`, every killer named; the harness refuses a dirty tree and restores with
+`git checkout --`. Gates: the exclusion table (`M1`–`M12`), `fixpriv_ast_identity` (`A1`–`A4`),
+`fixpriv_w3_redact` (`R1`–`R5`). **22 mutants · 22 killed · 0 survived**, exit 0.
+
+Three mutants survived a first run and each named a real defect in the guard, not in the code:
+
+* **R2** (shorten the protected hex run so a 16-character sha PREFIX stops being protected)
+  survived TWICE. The fixture prefix carried no digit run of five or more, so the test asserted
+  that nothing was replaced in a line where nothing could have been; the second repair named a
+  run the scanner would never find. The token is now read out of the fixture with the scanner's
+  own pattern, and the test asserts the fixture carries one at all.
+* **M7 / M8** (drop the era bound; move the era back to 2000) survived after the fixture repair
+  moved the counter-sample dates to 1931, which `ISO_DATE_RE` (`20\d\d-\d\d-\d\d`) never
+  matches — the rule was declining them for their century, not for their date.
+
+## FP5 — this cell's own fixtures were archive tokens, and only the scan could see it
+
+The first pass wrote this card's tests by copying the examples the scan had just flagged: a
+`burke_herbert` balance, a core-processor summary figure, the account number in
+`analysis/consumers.py`, the OZK service ZIP, a real posting date. **+44 residue sites in four
+files this branch had written.** Every one is now an invented shape VERIFIED not to collide, by
+`tools/fixpriv_invent.py` (committed).
+
+That tool also measures why this cannot be eyeballed. Eight candidates of exactly the kind a
+cell invents by eye were put to it against the printed universe -- a repeated-digit amount, a
+small figure with cents, a round figure a cent off, a sequential five-digit run, a run of
+nines -- and ALL EIGHT COLLIDED with something some document prints. The eight are not
+reproduced here, and the reason is the finding itself: a sentence about figures that collide,
+written with the figures in it, puts eight archive tokens into tracked source, which is what
+the first draft of this paragraph did. This record names CLASSES; `fixpriv_invent` names
+tokens, on demand, out of tree. A small "obviously made up" amount collides about a third of
+the time. The invented money convention therefore has to be a large figure, and the invented
+date convention is the card's 2031.
+
+## FP6 — the record redaction is REFUSED as specified, and the reason is measured
+
+The card asks for `docs/` DIGITS ≥ 5 and MONEY-with-cents to be redacted to class bands. This
+cell BUILT the redactor (`tools/fixpriv_w3_redact.py`: span-based, idempotent, byte-minimal,
+sha-protected twice over, no token list — it derives the universe the way the scanner does), ran
+it over the 43 record files it owns, **read what it had done, and reverted it**.
+
+Against a 208,695-token digit universe and a 354,835-token money universe, the records' own
+machine numbers collide, and the classes are named here without their instances, for the
+reason FP5 gives: **abbreviated commit hashes** (`f14282e`, `32116b3`, `88540b2` — now excluded
+by rule, and the only class of the six that is), **CI run ids** (an eleven-digit run), **W3
+line references** (a five-digit line number, and a span written as two of them), **test
+durations** (seconds to the hundredth, which is money-shaped), **software versions** (a runner
+image whose two-part version number is money-shaped, redacted to `ubuntu-[amount redacted]`)
+and **coverage-band constants** (a ratio either side of one, likewise). Redacting those
+destroys the record's ability to name its own commits, its own
+runs and its own lines — which is `cc64232` / `bbeeb5c` damaging shas, one step further out, and
+it is not "redactions only; never rewrite meaning". **A ruling is requested** before any record
+is redacted.
+
+Dry-run counts, at the final tip, both idempotent (`--check-idempotent` exit 0):
+
+| target | MONEY | DIGITS | DATES | lines touched |
+|---|---:|---:|---:|---:|
+| `W3_TRACKA_LOG.md` (Ocean runs this at the train) | 1,366 | 145 | 223 | 1,070 of 54,966 |
+| the other 43 record files (NOT applied — see above) | 1,289 | 100 | 181 | — |
+
+Two further classes of `docs/` residue are named and NOT touched, both needing a ruling:
+`docs/adb-audit-results.csv` (427), `docs/balance-metrics-audit-results.csv` (548) and
+`docs/new-statement-audit-results.csv` (29) are per-statement audited expectations **read as
+data by `benchmark/expectations.py`** — a class band is not a float, so redacting them breaks
+the benchmark; and `docs/moneythumb-replacement/census_batch9/per_sha.csv` (178) is batch 9's
+own planning input.
+
+## FP7 — what was fixed, and how it was proved to change nothing
+
+* **`analysis/core_processor_signed_counts.py`** — six grammar examples in `#:` comments,
+  transcribed from the documents they describe. Replaced with FRESH invented figures from
+  `fixpriv_invent`'s proposals, never a transform of the original: a scaled or shifted archive
+  figure is reversible, and a reversible redaction is not one. 8 → 0.
+* **`analysis/bank_ozk.py`** — the docstring's sample account. 1 → 0. Its service-address ZIP
+  (line 126) is a compiled detection marker, is institution furniture the doctrine allows, and
+  is now excluded by `institution_zip` rather than edited.
+* **`analysis/citizens.py:489`, `analysis/scanned_small_bank.py:693,816`** — the `0.01` cent
+  tolerances the card named. Adjudicated as CODE CONSTANTS by `subunit_money`, a rule naming the
+  shape and not the file; both files are already at 0 residue and were not edited.
+* **`analysis/lili.py` + `tests/test_lili.py` + `tools/lili_privacy_scan.py`** — 147 → 0.
+  The LILI cell invented its fixtures against its own 20-document family; against the whole
+  archive twelve figures and one authorization code collided. **Invented is not the same as
+  distinct.** Every figure is the original invented one with its CENT VALUE multiplied by
+  **428** — a whole-number scale on integer cents is exact, so all three closures the fixture is
+  built on (summary, printed chain, gross debits == the two debit terms) still hold to the cent
+  and nothing was re-derived. 428 is measured, not chosen: `fixpriv_invent --scale-search`
+  reports it as the smallest scale under which neither any scaled figure nor **any digit run it
+  generates** appears in the archive. The first attempt (1013) cleared every figure and
+  introduced sixteen colliding six-digit runs, because writing a six-figure amount into a file
+  writes a six-digit run with it and the tool had only asked about the MONEY class. The fixture
+  year moves 2027 → **2031**, the card's convention; authorization codes become a `7000000n`
+  series.
+
+**Correctness.** `tools/fixpriv_ast_identity.py` (committed) parses each module at both refs,
+strips the leading string expression of every module, class and function, and compares
+`ast.dump(..., include_attributes=False)`. A string in any OTHER position — a regex, a marker, a
+message — stays in the comparison, because that is behaviour. All three touched production
+modules: **IDENTICAL**, exit 0. The 58 `test_lili` tests pass with their meaning intact: every
+assertion is the same assertion about the same relation, at 428× the cents.
+
+## FP8 — coverage movement: zero, proved on the documents
+
+`python -m tools.cohort_replay --parser lili --parser bank_ozk --parser
+core_processor_signed_counts --expect-identical`, at the tip, against the run of record:
+**population 27 · replayed 27 · newly validated 0 · other ladder movement 0 · previously
+validated preserved 27 of 27 · payload identical 27 · payload changed 0 · validated regressions
+0**, exit 0. `--expect-identical` at the TIP is strictly stronger than the baseline-fidelity run
+at the base, because the production code is AST-identical: any payload difference at all would
+have failed it.
+
+The archive sweep is not owed: it is owed when a reader changed, and no reader changed —
+`fixpriv_ast_identity` is the proof.
+
+## FP9 — what remains, by class, and what it needs
+
+**10,645 sites in 203 files.** The card's definition of done (0 outside the exclusion table)
+cannot be reached from this card's ownership, and the gap is not small:
+
+1. **Production: 414 sites in 62 files.** The card names 21 sites in 5 modules, because batch 8
+   counted only batch-8-ADDED lines; the inherited whole-tree figure is 20× that. This cell owns
+   the docstrings of five of the 62. Worse, some are production CODE, not prose, and cannot be
+   changed without a behaviour change the card forbids — named for the ruling:
+   `analysis/consumers.py:90` (a `flat.find(...)` literal carrying a product name and an account
+   number, which is also a statement hardcode), `analysis/classification_registry.py:36,45`
+   (funder ids), `analysis/cibc.py:93` (a transit prefix),
+   `analysis/core_processor_sectioned.py:392–405` (transcribed header samples).
+2. **`tests/`: 4,032 sites in ~140 files.** Transcribed statement blocks whose figures ARE the
+   tests' oracles. `tests/test_lili.py` (138 sites) is the worked example of what one file
+   costs; `tests/test_analysis.py` alone carries 822.
+3. **`docs/`: 6,191 sites.** FP6.
+4. **Not scanned at all:** `.log`, `.shas` and `.ps1` are outside `TEXT_SUFFIXES`, so
+   `discovery_v12_run.log` (1,194 lines) and the two `.shas` files have never been audited.
+
+**`tests/test_analysis.py`'s real account number, carried since batch 5, is NOT fixed** — the
+file is 822 sites and rewriting its fixtures is a card of its own.
+
+## FP10 — proof floor and instruments
+
+**SUPERSEDED by FP-C3**: measured with an instrument this closure found and fixed (FP-C1); the floor at the real tip is FP-C6, and "0 introduced" is proved
+there rather than asserted here.
+
+Floor at the final tip, `tools/train/floor.sh`: full default suite, canonical guards (5 files),
+canonical conformance (7 files), `corpus_gate.py`, corpus-marked slice — exit codes in the
+branch report. Privacy scan at the tip: **10,645 residue, 0 introduced, 0 files gained**.
+Mutation table 22/22. `fixpriv_ast_identity` exit 0. `cohort_replay --expect-identical` exit 0.
+No registry change, no version bump, no production behaviour change, `$0`.
+
+Instruments committed by this card: `tools/privacy_scan_branch.py` (the exclusion table, and an
+inverted-index attribution that takes the whole-tree audit from 3 min 23 s to 37 s on a
+10-document universe with a byte-identical hit list), `tools/fixpriv_ast_identity.py`,
+`tools/fixpriv_w3_redact.py`, `tools/fixpriv_invent.py`, `tools/fixpriv_mutation_table.py`;
+tests `tests/test_privacy_scan_exclusions.py`, `tests/test_fixpriv_ast_identity.py`,
+`tests/test_fixpriv_w3_redact.py`.
+
+## FP-C — CLOSURE: the review's BLOCK, four MAJOR and six MINOR, closed and re-measured
+
+Appended by the closure cell on `wave9-fixpriv`, base `train9` `2f24b06`, after
+`docs/moneythumb-replacement/reviews/BATCH9_FIXPRIV_REVIEW.md` returned **BLOCK** (1 BLOCK,
+4 MAJOR, 6 MINOR). Ocean composes; this cell never merged and never pushed. Everything below
+was measured on this host, one heavy process at a time, with the run of record
+`TRAIN8-7185633 / cda8882d` and the READ-ONLY cold cache, absolute paths passed explicitly.
+
+Sections FP1 through FP10 above are the implementing cell's record and are left as written.
+Their TIP figures no longer reproduce and are **superseded by FP-C3**, for two reasons: the
+review found them measured one commit before the tip, and this closure then found and fixed a
+defect in the instrument that produced them (FP-C1). The BASE figures do not reproduce either,
+for the same instrument reason. Nothing above is deleted, because it is the honest record of
+what that cell measured with the instrument it had.
+
+### FP-C1 — the instrument was wrong, so every number is new
+
+Found while re-deriving the excused sites for the BLOCK: a reported hit named a line that does
+not contain its token. `added_lines` classified each diff line by its TEXT, and a line of the
+FILE that begins `+++` arrives in a hunk body as `++++`, matched the guard meant for file
+headers, and was skipped — the skip did not advance the counter, so every line after it in that
+file was numbered one too low, once per such line. This tree's records quote three diff headers.
+
+Two consequences, both in the instrument the branch's floor depends on:
+
+* **an added line the scan never read.** The added-lines run is the standing privacy floor, and
+  the shape it went blind to is the shape a record quotes. A leak on such a line could not have
+  been reported. This is the safety half, and it is why the fix is not cosmetic.
+* **the whole-tree audit read W3 twice under two numberings.** The tree pass numbers correctly
+  and the diff pass did not, so the same (class, token) arrived under two line numbers and both
+  survived the site key. W3's residue measured 3,548 sites before this fix; 1,663 of those
+  verify against the file, and the rest are the same tokens counted a second time against a
+  line that does not print them.
+
+The reader now takes the hunk header at its word — `@@ -a,b +c,d @@` states how many lines of
+each side the body carries — so the body is read by COUNT and every line in it is classified by
+its first character, which is what a diff means. `added_lines_from_diff` is split out as a pure
+function and tested without a repository; three tests and two mutants (`D1`, `D2`) hold it.
+Measured after, at the tip that carries this section: the diff pass reads W3 to its last line
+and its highest line number is that line, which is the file. Before, both were short by three.
+
+### FP-C2 — the findings, one line each
+
+| # | what the review found | what changed | how it was measured |
+|---|---|---|---|
+| **BLOCK 1** | `institution_zip` silenced account, member and ACH numbers: about half the state abbreviations are ordinary English words once the scanner upper-cases the line | the abbreviation is necessary and never sufficient. The rule now asks for the furniture an ADDRESS carries in one of three shapes: a city and its comma, a ZIP+4 tail, or a post-office box in the SAME clause (bounded, never across a `;` or a `\|`) | all six of the reviewer's failing cases report; five address shapes still excuse; the whole-tree take falls from 100 sites to 83 (FP-C3, FP-C9); four vocabulary mutants (`M11b` bare abbreviation, `M11c` no comma, `M11d` unbounded box, plus `M10`/`M11`) all killed |
+| **MAJOR 1** | every tip number was measured one commit early, and the appended section then added residue | FP5 and FP6 name the CLASS and not the instance; 16 verified sites removed from four lines | W3 residue base to tip: **2,212 -> 2,212**. The appended section adds none |
+| **MAJOR 2** | the standing added-lines scan was 2, not 0 | the same four lines, plus this closure's own first attempt at the era fixtures and the review file's four quoted durations | added-lines scan `--base 2f24b06 --ref <tip>`: **hit_count 0 / residue_sites 0**, exit 0, over the branch's added lines |
+| **MAJOR 3** | the x428 scale scaled the PERTURBATIONS, so five reconciliation tests lost 428x of their tolerance sensitivity | four deliberate errors are ONE CENT again, figures left at their scale; the fifth is a dropped posting, whose magnitude is a fixture figure and not a perturbation, and is recorded rather than changed | the reviewer's ladder is a committed instrument now: `L1`/`L2`/`L3` widen `_CENT` to one, ten and a hundred dollars — the three the base killed and the scaled fixtures survived — and all three are KILLED at this tip by four tests each. `L4` (half a dollar) is killed too, which the base never managed |
+| **MAJOR 4** | `hex_sha_substring` was line-scoped where its docstring promised position-scoped | the rule asks about the OCCURRENCE: every place the token stands must fall inside a hex run | the reviewer's case reports; `M5b` (restore line scope) and `M5c` (ANY instead of EVERY) killed |
+| **MINOR 1** | the bare invocation the card's method writes exited 2 on this branch | a path absent at either ref is SKIPPED and counted; `exists()` asks git directly, so absence is told from failure | bare: files 14, identical 4, differing 3, skipped 7. The three touched production modules are IDENTICAL in both forms; mutant `A5` |
+| **MINOR 2** | `round_money`'s justification was narrower than its reach | the table now says the class is excused because the program CHOSE to accept it wholesale, not because it cannot identify | at this tip the rule silences 8,654 sites, of which 2,606 carry a magnitude of four figures or more and 471 of five figures or more |
+| **MINOR 3** | `words_class` discards the one capability the scanner builds for names | the table now states plainly that the tree is UNAUDITED FOR CUSTOMER NAMES BY CONSTRUCTION | the rule silences 541,376 sites at this tip, which is why it is a card and not a patch |
+| **MINOR 4** | the era bound was never pinned and its residual exposure never named | the bound is DERIVED from `PROGRAM_ERA` and walked in days either side; the archive's freeze date has a test of its own | one site is silenced by the rule at this tip, and it is named in the table |
+| **MINOR 5** | "22 / 22 killed" said nothing about the two context rules' vocabulary | seven new mutants attack what the old ones could not: the abbreviation class, the comma, the box's clause, the gap inside an address, the sha occurrence, the diff reader, and the absent path | 34 mutants at this tip, all killed, run without `-x` |
+| **MINOR 6** | `tests/test_analysis.py` given as 822; the production roll-up used a wider class than the card's | measured with the corrected instrument: 821 at base, **819** at the tip. Both roll-ups are given in FP-C3, under the card's own list and with `benchmark` added | FP-C3 |
+| **P0** | the real account number the card named was not fixed | both occurrences replaced with an invented id of the same shape | the assertion pins that the reader lifts the printed value VERBATIM: fifteen characters, six of them leading zeros, read as a string. `fixpriv_invent` reports the replacement CLEAR and the original COLLIDING |
+
+The BLOCK's narrowing has a cost and it is counted rather than argued away. With the corrected
+instrument the blocked rule excuses 100 sites and the shipped rule 83 (88 before the re-review
+took the ZIP+4 branch out — FP-C9). Of the 17 that return to the residue, **15 are genuine
+institution or customer postal addresses** printed with no comma and no box marker — they are
+reported now, which is the safe direction and the direction a privacy instrument should fail
+in. The other **2 were never postal codes at all**:
+the blocked rule was silencing a milliseconds field in a schema example and a W3 LINE REFERENCE.
+Silencing a line number is one of the things the block set forbids in so many words, so the
+narrowing removes an over-reach the review's own re-derivation had classified as harmless.
+
+### FP-C3 — the real tip, measured after every commit on this branch
+
+Whole-tree audit, `--include-tree --base 19ec351` (the ROOT commit), population 3,380 content
+shas, **3,351 read**, 29 without cached text. Printed universe unchanged: MONEY 354,835 ·
+DIGITS 208,695 · DATES 3,211 · WORDS 416,756.
+
+| | base `2f24b06` | tip |
+|---|---:|---:|
+| raw hits | 1,116,227 | 1,129,911 |
+| `words_class` | 1,071,557 | 1,085,499 |
+| `round_money` | 17,286 | 17,308 |
+| `corpus_cache` | 4,966 | 4,966 |
+| `subunit_money` | 2,356 | 2,390 |
+| `hex_sha_substring` | 850 | 870 |
+| `institution_zip` | 166 | 166 |
+| `docs_session_date` | 2 | 2 |
+| **RESIDUE (sites)** | **9,522** | **9,355** |
+| residue files | 210 | 204 |
+
+The per-rule row is the RAW hit count each rule claims, as FP1 wrote it. Two of those figures
+move with any prose commit at all — every English word of four letters or more is a printed
+token — so `words_class` and the raw total are re-measured at the tip that carries this section,
+and everything else is invariant under prose.
+
+Residue by class and directory:
+
+| class · directory | base | tip | delta |
+|---|---:|---:|---:|
+| MONEY docs | 3,701 | 3,701 | 0 |
+| DATES tests | 1,974 | 1,971 | -3 |
+| MONEY tests | 1,511 | 1,391 | -120 |
+| DATES docs | 766 | 766 | 0 |
+| DIGITS tests | 695 | 678 | -17 |
+| DIGITS docs | 426 | 426 | 0 |
+| MONEY analysis | 231 | 216 | -15 |
+| DATES analysis | 79 | 79 | 0 |
+| DIGITS analysis | 50 | 48 | -2 |
+| DATES (root) | 26 | 26 | 0 |
+| MONEY webapp | 17 | 17 | 0 |
+| MONEY ocr | 16 | 16 | 0 |
+| DATES tools | 10 | 4 | -6 |
+| MONEY (root) | 9 | 9 | 0 |
+| MONEY tools | 5 | 1 | -4 |
+| DIGITS tools | 3 | 3 | 0 |
+| DATES benchmark | 2 | 2 | 0 |
+| DIGITS ocr | 1 | 1 | 0 |
+| **total** | **9,522** | **9,355** | **-167** |
+
+Rolled up under the card's own definition of production (`analysis/ ocr/ webapp/ discovery/
+telemetry/` and the root scripts): **429 -> 412**. With `benchmark` added, as FP2 counted it:
+431 -> 414. `tests/` **4,180 -> 4,040**; `docs/` **4,893 -> 4,893**; `tools/` **18 -> 8**.
+
+**No file gains residue.** Six reach zero, the same six FP2 named: `analysis/lili.py` 8 -> 0,
+`analysis/core_processor_signed_counts.py` 8 -> 0, `analysis/bank_ozk.py` 1 -> 0,
+`tests/test_lili.py` 138 -> 0, `tools/lili_privacy_scan.py` 1 -> 0,
+`tools/privacy_scan_branch.py` 9 -> 0. `tests/test_analysis.py` 821 -> 819, the P0's two
+occurrences. `W3_TRACKA_LOG.md` 2,212 -> 2,212: the section you are reading, and the section
+above it, add none.
+
+Excused SITES per rule at the tip (the per-rule row above is raw hits; these are sites):
+`words_class` 543,428 · `round_money` 8,654 · `corpus_cache` 2,483 · `subunit_money` 1,195 ·
+`hex_sha_substring` 448 · `institution_zip` 83 · `docs_session_date` 1.
+
+### FP-C4 — the mutation table at the real tip
+
+**36 mutants · 36 killed · 0 survived**, run without `-x`, every killer named, tree clean before
+and after (`git status --porcelain` empty both times). Fourteen are new across the two closure
+passes; `M11e` and `M11f` arrive with FP-C9. Twelve are new in this pass: `M5b`,
+`M5c` (the sha OCCURRENCE), `M11b`, `M11c`, `M11d` (the address VOCABULARY), `D1`, `D2` (the
+diff reader), `A5` (the absent path), and `L1`..`L4` (the `_CENT` ladder, a gate this card did
+not write but whose only guard it rewrote). Four new gap CASES in the tests are not mutants
+and are counted as tests.
+
+`M11` SURVIVED the first run of the closure's own table and that is worth recording: the
+redesigned rule reads the furniture first, so the three near-misses that used to guard the GAP no
+longer discriminated — they carry no comma, no box and no ZIP+4 and would fail whatever the gap
+did. Four cases put the gap back under guard inside each address shape, and `M11` dies. A mutant
+surviving is the harness working; this is the fourth time on this branch that a survivor named a
+defect in a guard rather than in the code.
+
+### FP-C5 — coverage movement, correctness, ownership
+
+`cohort_replay --parser lili --parser bank_ozk --parser core_processor_signed_counts
+--expect-identical`, at the real tip, against the run of record: **population 27 · replayed 27 ·
+newly validated 0 · other ladder movement 0 · previously validated preserved 27 of 27 · payload
+identical 27 · payload changed 0 · validated regressions 0**, exit 0. `--parser lili` alone:
+11 of 11 preserved, identical, exit 0.
+
+`fixpriv_ast_identity --base 2f24b06 --ref HEAD` over the three touched production modules:
+IDENTICAL x3, differing 0, exit 0. Bare, as the card's method writes it: files 14, identical 4,
+differing 3, skipped 7, exit 1 — and the exit 1 is the truth, not a defect. The three differing
+files are the scanner, `tests/test_lili.py` and `tests/test_analysis.py`: this card changed all
+three on purpose and not only in prose, and a test file's fixtures are not a docstring. No
+production module differs, in either form of the run.
+
+The archive sweep is not owed: it is owed when a reader changes, and none did.
+
+Ownership: the closure touched `tools/privacy_scan_branch.py`, `tools/fixpriv_ast_identity.py`,
+`tools/fixpriv_mutation_table.py`, `tests/test_privacy_scan_exclusions.py`,
+`tests/test_fixpriv_ast_identity.py`, `tests/test_lili.py`, `tests/test_analysis.py`, this log,
+and two lines of the review file. `analysis/bmo.py`, `analysis/farmers_merchants.py` and
+`analysis/td_can.py` are untouched, as are `tests/test_privacy3_boundaries.py` and
+`tests/test_raise_privacy4.py` — RAISE-PRIVACY-4 can still compose beside this. No registry
+change, no version bump, no production code, no new hardcode, `$0`.
+
+The two lines of the review file are a redaction and not a rewrite: the review quoted the four
+money-shaped durations it had just measured as colliding, and its claim is about the SHAPE. The
+shape is what the sentence says now, and nothing the review concluded changes.
+
+### FP-C6 — proof floor at the real tip
+
+| proof | result | exit |
+|---|---|---|
+| whole-tree privacy scan, root base, `--ref 2f24b06` | 9,522 sites / 210 files; 3,351 documents read | 1 |
+| whole-tree privacy scan, root base, `--ref <tip>` | 9,355 sites / 204 files; 3,351 documents read | 1 |
+| added-lines privacy scan `--base 2f24b06 --ref <tip>` | **hit_count 0 · residue_sites 0 · residue_files 0**; 3,351 documents read | **0** |
+| `fixpriv_ast_identity --base 2f24b06 --ref HEAD <3 paths>` | 3 files, 3 identical, 0 differing | **0** |
+| `fixpriv_mutation_table` (no `-x`) | 36 / 36 killed / 0 survived | **0** |
+| `cohort_replay` x3 registrations, `--expect-identical` | 27 of 27 preserved, payload identical | **0** |
+| exclusion-rule tests | 175 passed | **0** |
+| the branch's four test files | 253 passed | **0** |
+| canonical guards (5 files) | 255 passed | **0** |
+| canonical conformance (7 files) | 1,270 passed, 40 skipped | **0** |
+| `python corpus_gate.py` | **GREEN**, 105 PASS / 3 WITHHELD / 1 REFUSED; 14 CAD / 94 USD; provenance 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89 schema_default; 109 pinned PDFs, 0 exclusions | **0** |
+| full default suite | 2 failed, 6,943 passed, 43 skipped, 34 deselected — the two EXCUSED failures and nothing else | 1 |
+| corpus-marked slice | 30 passed | **0** |
+| `fixpriv_w3_redact --check-idempotent` + dry run | idempotent; W3 MONEY 1,366 · DIGITS 146 · DATES 223 | **0** |
+| W3 append-only prefix check | byte-identical over all base bytes; one appended section | — |
+
+Every row above was run one heavy process at a time. The scans, the mutation table, the
+exclusion tests and the guards were run at the tip that carries this section; the corpus gate,
+the full suite and the corpus-marked slice were run at the final CODE tip, and the commits
+after it change only this record. No test in the tree reads `W3_TRACKA_LOG.md` — the ten test
+files that name it do so in prose — so a W3-only commit cannot move them.
+The two excused suite failures are `test_corpus_gate_outcomes::test_every_production_caller_of_
+the_analysis_is_classified` and `test_currency_source::test_only_the_readers_the_schema_and_the_
+gate_know_the_provenance_exists`. Both are Ocean's own tools, both fail at the base, and both are
+fixed on train9 at `dedc1c9`. Anything else in that suite would be this cell's.
+
+### FP-C7 — what remains, and the rulings still owed
+
+FP9's list stands, with its numbers corrected by the new instrument: **9,355 sites in 204 files**,
+of which production 412 in the card's own class, `tests/` 4,040, `docs/` 4,893 and `tools/` 8.
+The rulings the implementing cell asked for are unchanged and this closure adds one:
+
+1. the production sweep as a second card, sized from 412 / the file count, with
+   `analysis/consumers.py:90` split out as a P0 because it is a statement hardcode and a
+   correctness defect, not a privacy edit;
+2. the record redaction — this closure agrees with the refusal as specified, and FP-C1 is a
+   third instance of the same collision class: the record's own prose about the problem is what
+   tripped the scan, twice;
+3. the three `docs/*.csv` functional-data files read by `benchmark/expectations.py` — and note
+   that the P0's original account number still sits in one of them;
+4. `tests/test_analysis.py`'s remaining 819 sites, which are FIXTURE-PRIVACY-2's;
+5. **new: the tree is unaudited for NAMES by construction** (MINOR 3). `words_class` discards
+   every WORDS hit, and `tokens_of` builds two-word sequences precisely so a name whose halves
+   are each ordinary can be found. A holder name in tracked source would not be reported by this
+   instrument today. That is a card, and it should be written knowing this.
+
+### FP-C8 — the commits of this closure
+
+| commit | finding |
+|---|---|
+| `f82e956` | BLOCK: `institution_zip` asks for a postal ADDRESS, not a state abbreviation |
+| `ade6e8c` | MAJOR 4: `hex_sha_substring` is position-scoped |
+| `7c27508` | CLOSURE-EXTRA: the diff reader dropped every added line beginning `+++` |
+| `fee01db` | MAJOR 3: every deliberate error in `test_lili` is one cent again |
+| `1e0e085` | MINOR 1: `fixpriv_ast_identity` runs the way the card's method writes it |
+| `a21b429` | MINOR 2 + MINOR 3: the two standing exclusions say what they do |
+| `e0138b8` | MINOR 4: the era bound is pinned, its residual exposure named |
+| `7e0febd` | P0: the real account number the card named is invented now |
+| `744a9d5` | MAJOR 1 + 2 (a): FP5 and FP6 carried the tokens they were writing about |
+| `a0e5cbe` | MAJOR 2 (b): the closure's own era fixtures, and the review's four durations |
+| `9bfdaea` | BLOCK (b): `M11` survived the closure's own table; the gap is guarded inside each address shape |
+| `10cd51d` and the commits after it | MAJOR 1 + 2 (c) + MINOR 5 + MINOR 6: this section, and the corrections that make its figures the tip's own. A record cannot print the sha of the commit that carries it; `git log 2f24b06..` is the list |
+
+## FP-C9 — RE-REVIEW CLOSURE: two MAJORs on the address rule, four MINORs recorded
+
+The independent re-review returned **APPROVE WITH FINDINGS** — 0 BLOCK, 2 MAJOR, 4 MINOR — and
+confirmed every first-review finding closed by measurement, including that FP-C1's instrument
+repair corrected the reviewer's own base figures. Both MAJORs are the same defect one level down
+from the BLOCK: the redesigned `institution_zip` asks for address FURNITURE, and two of its three
+shapes did not actually carry any.
+
+### The two MAJORs
+
+**MAJOR A — the clause ended only at `;` and `|`.** `BOX_CLAUSE_ZIP` bounded its reach with
+`[^;|]{0,70}?`. A postal address is one unbroken run of words, and the punctuation that ends a
+sentence or splits a segment is where it stops — but neither a full stop nor a dash was in the
+class, so the box marker reached past the address onto the next fact and silenced
+`PO BOX 609 - ACCOUNT ENDING IN 84213` (an account tail) and
+`REMIT TO P.O. BOX 609. AUTH OK 84213` (an authorisation code). The clause character class is now
+`_CLAUSE_CHAR`, which also stops at a full stop, a hyphen, an en or em dash, a bracket, an
+exclamation and a question mark. Four cases in the box-clause block, one sample, and mutant
+`M11e`, which widens the class back and dies on them.
+
+**MAJOR B — a ZIP+4 tail was standing in for evidence.** `STATE_ZIP_PLUS_FOUR` excused any five
+digits with a four-digit suffix that followed an abbreviation-shaped word. That is a suffix, not
+an address, and this archive prints identifiers carrying one: `MEMBER ID 84213-6789`,
+`CARD ENDING IN 84213-6789`, `LOAN NO. OR 84213-1234` were all silenced. The standalone branch is
+removed. The table is now the two shapes that carry real evidence — a city and its comma, or a box
+in the same clause — and both already accept a ZIP+4 tail, because neither forbids what follows
+the five digits. The tail therefore keeps every genuine address it ever helped and strengthens the
+shapes instead of standing in for them. Four cases, one sample, and mutant `M11f`, which puts the
+branch back and dies on them.
+
+**What the two cost, counted.** `institution_zip` excuses **83 sites** at this tip, against 88
+before this pass and 100 for the blocked rule the first review rejected. The five sites the ZIP+4
+removal gives up are all genuine addresses in `tests/`, printed with a ZIP+4 tail and no comma and
+no box: a street address repeated three times across two files, and two bare `CITY ST NNNNN-NNNN`
+lines. They are REPORTED now rather than hidden, which is the direction this instrument is
+supposed to fail in, and they are the reason the tree residue rises by five. No production module,
+and no file that reached zero, is affected: the six files FP2 named are still at zero and no file
+gains residue between base and tip.
+
+### The four MINORs
+
+1. **The 7-character hex floor's reach is recorded** in the exclusion table and measured here. Of
+   the 870 raw hits `hex_sha_substring` claims at this tip, **150 are excused by a run shorter
+   than a 16-character sha prefix**; those 150 rows are **75 of the rule's 448 sites**. The two
+   numbers are the same fact counted twice — the tree pass and the diff pass reach the same line —
+   and both are given because the re-review quoted the row figure and this record quotes sites
+   everywhere else. One site in six, either way. The floor exists because these records name a
+   commit in seven characters; raising it is a card, not a patch, because it would re-report every
+   abbreviated object name the records write.
+2. **`CITY_STATE_ZIP`'s ambiguity is recorded** in the table: the comma says a phrase ended, not
+   that a city did. `ACME & SONS, CO 84213` and `MEMBER, ID 84213` read as addresses to it.
+   Neither occurs in the tree and both are stilted lines to print, but the shape is genuinely
+   ambiguous and the next rule that leans on it should know.
+3. **The P0's original account number still sits once in `docs/balance-metrics-audit-results.csv`**,
+   which `benchmark/expectations.py` reads as DATA. The card's named item is closed in
+   `tests/test_analysis.py`, where it was named; the CSV copy is the functional-data class this
+   record has asked a ruling on twice (FP-C7 item 3), and it is now named explicitly rather than
+   left to be inferred: **ruling R3 covers a real account number, not only balances**.
+4. **The mutation harness died on git's stale-worktree prune.** This repository carries
+   `.git/worktrees/*` entries that OneDrive holds open; git's automatic prune fails on them, prints
+   a line per entry, and takes the exit code with it, so `git status` and `git checkout --` under
+   `check=True` raised 128 in the middle of a mutant and left the gate file mutated on disk. Every
+   git call in the harness now goes through one helper that passes `gc.auto=0`, so the prune never
+   starts, and that treats a failure whose every stderr line is prune noise as the success it is.
+   The clean-tree refusal and the restore-verified check both still run on the OUTPUT, and any
+   other git failure still raises.
+
+### The floor at the re-review closure tip
+
+| proof | result | exit |
+|---|---|---|
+| exclusion-rule tests | **175 passed** | **0** |
+| `fixpriv_mutation_table` (no `-x`) | **36 mutants / 36 killed / 0 survived**, tree clean before and after | **0** |
+| whole-tree scan, root base, `--ref 2f24b06` | **9,522 sites / 210 files**; 3,351 documents read | 1 |
+| whole-tree scan, root base, `--ref <tip>` | **9,355 sites / 204 files**; 3,351 documents read; `institution_zip` take 166 rows / 83 sites | 1 |
+| added-lines scan `--base 2f24b06 --ref <tip>` | **hit_count 0 · residue_sites 0 · residue_files 0** | **0** |
+| commit-message scan over `2f24b06..<tip>` | **0 tokens** | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| full default suite | 2 failed, **6,943 passed**, 43 skipped, 34 deselected — the two EXCUSED failures and nothing else | 1 |
+| `python corpus_gate.py` | **GREEN**, 105 PASS / 3 WITHHELD / 1 REFUSED; 109 pinned PDFs, 0 exclusions | **0** |
+| corpus-marked slice | **30 passed** | **0** |
+| W3 = base log + exactly one appended section | prefix byte-identical over every base byte; one `#` heading | — |
+
+The suite, the gate and the slice ran at the final CODE tip; the commits after it change only this
+record, and no test in the tree reads `W3_TRACKA_LOG.md`. Everything else ran at the tip that
+carries this section. Coverage movement is unchanged and unchecked again for a reason: this pass
+touched `tools/privacy_scan_branch.py`, its tests and the mutation harness, and nothing a reader
+imports — `fixpriv_ast_identity` and the replay were run at the first closure tip over production
+modules this pass did not open.

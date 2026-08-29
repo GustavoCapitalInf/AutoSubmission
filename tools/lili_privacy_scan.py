@@ -50,7 +50,7 @@ FIVE CLASSES:
               match by name in order to read the template at all, and
               ordinary English. Its hits are printed so each can be read.
 
-Matching is by TOKEN, not by substring: `8.19` is "in" `308.19` and `wire` is
+Matching is by TOKEN, not by substring: `3505.32` is "in" `131905.32` and `wire` is
 "in" `wireless`, and reporting those would bury a real copy under fragments of
 the reader's own invented figures.
 """

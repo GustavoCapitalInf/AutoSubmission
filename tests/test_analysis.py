@@ -1718,7 +1718,7 @@ def test_parse_chase_sections_and_infers_single_missing_section_amount():
 CHASE
 JPMorgan Chase Bank, N.A.
 April 29, 2023 through May 31, 2023
-Account Number: 000000987168322
+Account Number: 000000700000031
 CHECKING SUMMARY
 Chase Business Complete Checking
 <table><tr><td></td><td>INSTANCES</td><td>AMOUNT</td></tr><tr><td>Beginning Balance</td><td></td><td>$100.00</td></tr><tr><td>Deposits and Additions</td><td>2</td><td>300.00</td></tr><tr><td>ATM &amp; Debit Card Withdrawals</td><td>2</td><td>-80.00</td></tr><tr><td>Electronic Withdrawals</td><td>1</td><td>-25.00</td></tr><tr><td>Fees</td><td>1</td><td>-15.00</td></tr><tr><td>Ending Balance</td><td>6</td><td>$280.00</td></tr></table>
@@ -1734,7 +1734,15 @@ FEES
     stmt = parse_chase_statement(md)
     assert stmt is not None
     assert stmt.bank == "Chase"
-    assert stmt.account_number == "000000987168322"
+    # An INVENTED id, and the shape is the assertion: fifteen characters with
+    # six leading zeros, read as a string. The reader must lift the printed
+    # `Account Number:` value verbatim — not int() it, not strip the padding,
+    # not take the first token of the line — and only a zero-padded id can say
+    # so. The number this replaces was a real one, printed by a document of the
+    # pinned corpus and carried here since the fixture was written in July;
+    # `fixpriv_invent` reports the replacement CLEAR against all 208,695 digit
+    # runs of the 3,351-document universe.
+    assert stmt.account_number == "000000700000031"
     assert stmt.account_name == "Chase Business Complete Checking"
     assert stmt.stated_total_credits == 300.0
     assert stmt.stated_total_debits == 120.0

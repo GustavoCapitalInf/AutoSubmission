@@ -21,7 +21,7 @@ Token classes, taken from the documents rather than from memory:
 * DIGITS — every digit run of `--digit-min` (default 5) or more: account,
   cheque, reference and authorisation numbers, telephone digits, ZIP+4;
 * DATES — every fully-qualified date, numeric (`mm/dd/yy`, `mm/dd/yyyy`,
-  `yyyy-mm-dd`) or spelled (`January 5, 2026`, `5 January 2026`, `Jan 5 2026`);
+  `yyyy-mm-dd`) or spelled (`January 5, 2031`, `5 January 2026`, `Jan 5 2026`);
 * WORDS — every alphabetic word of `--word-min` (default 4) or more characters,
   upper-cased, and every two-word sequence of them (a name whose halves are each
   ordinary).
@@ -48,12 +48,133 @@ an audit of what the tree already carries, pass the repository's root commit:
     python tools/privacy_scan_branch.py --shas population.txt --data-dir ... \
         --base "$(git rev-list --max-parents=0 HEAD)" --ref train8 --include-tree
 
-and adjudicate the candidates by class (round `.00` figures and the
-`tests/corpus_cache/` fixtures are archive text by design).
+and adjudicate the candidates by class.
 
-Exit 1 on any hit, 0 on none. The JSON summary goes to stdout; each hit goes to
-stderr as `HIT <class> <file>:<line> <token>` — the report is for the operator's
-terminal and must never itself be committed.
+THE EXCLUSION TABLE (batch 9, FIXTURE-PRIVACY). A whole-tree audit against a
+3,351-document universe prints ~3.5x10^5 distinct money figures and ~2x10^5
+digit runs, so a candidate is not yet a finding: some shapes cannot carry
+archive identity at all, and some are archive text on purpose. Every rule below
+names a SHAPE and is applied to every file alike — never a file list, never a
+token list — and `tests/test_privacy_scan_exclusions.py` proves each one
+matches exactly the shape it names and NOTHING wider (in particular that none
+of them silences a bare account number). `--no-exclusions` reports the raw scan.
+
+===================== ======================================================
+rule                   what it excludes, and why that is safe
+===================== ======================================================
+``words_class``        class WORDS, ALL OF IT. Institution and template
+                       vocabulary: `DATE`, `AMOUNT`, `DEPOSIT`, an
+                       issuer's own name. An alphabetic token carries no
+                       figure and no identifier, and the census already
+                       names every institution. The standing exclusion
+                       applied at the batch-8 train.
+
+                       WHAT THAT COSTS, SAID PLAINLY: `tokens_of` builds
+                       two-word sequences on purpose -- a name whose
+                       halves are each ordinary -- and this rule then
+                       discards every WORDS hit, so THE TREE IS UNAUDITED
+                       FOR CUSTOMER NAMES BY CONSTRUCTION. A holder name
+                       in tracked source would not be reported by this
+                       instrument. The card's definition of done is
+                       scoped to MONEY / DIGITS / DATES, so the scope is
+                       correct, but the identity paragraph it cites says
+                       'not a balance, an amount, A NAME, an account
+                       number, a date' -- and names are the half no scan
+                       here has ever looked at. That is a card, and it
+                       has to be written knowing this.
+``corpus_cache``       any path under ``tests/corpus_cache/``. That directory
+                       IS cached archive text, committed on purpose so the
+                       pinned corpus runs offline; scanning it re-finds the
+                       archive in the archive. The standing exclusion applied
+                       at the batch-8 train.
+``round_money``        a MONEY token ending ``.00``, WHATEVER ITS
+                       MAGNITUDE. This is the program's widest standing
+                       exclusion and the one whose justification has to
+                       be stated honestly: `100.00` is the bound of a
+                       test's tolerance as readily as it is a deposit,
+                       and a small round figure reconstructs nothing --
+                       but the rule does not stop at small. Measured
+                       over the whole tree it also excuses thousands of
+                       four-figure and hundreds of five-figure round
+                       amounts, and a five-figure round deposit beside a
+                       date and an institution is not a tolerance bound.
+                       The class is excused because the program CHOSE to
+                       accept it wholesale at the batch-8 train, not
+                       because it cannot identify. Narrowing it is not
+                       this card's to do; misdescribing it would be.
+``subunit_money``      a MONEY token whose integer part is a bare ``0``
+                       (``0.01``..``0.99``). Cent and sub-unit CODE CONSTANTS
+                       — a reconciliation tolerance, a rate floor. A
+                       sub-unit magnitude identifies nobody and reconstructs
+                       nothing.
+``hex_sha_substring``  a DIGITS token that SITS INSIDE a name this program
+                       gives one of its OWN things: 7..64 hex characters
+                       carrying at least one hex LETTER — a content sha, or
+                       the abbreviated git object name a record writes as
+                       `f14282e`. A sha is a hash OF a document, never a token
+                       FROM it. Two things keep the rule narrow. The required
+                       letter: an account, cheque, card or reference number is
+                       all digits and cannot satisfy the shape at ANY length,
+                       so the rule cannot silence one — which a bare
+                       `[0-9A-F]{16,64}` would (a 16-digit card number is
+                       "hex"). And the POSITION: every occurrence of the token
+                       on the line must fall inside a hex run, so a digit run
+                       standing on its own beside a sha
+                       (`ACCOUNT 7000004 AT COMMIT F7000004E`) is still a
+                       finding. WHAT THE 7-CHARACTER FLOOR COSTS, MEASURED:
+                       the floor exists because these records name a commit
+                       in seven characters, and it is the widest part of the
+                       rule. Of the sites this rule excuses at the closure
+                       tip, one in six is excused by a run SHORTER than a
+                       16-character sha prefix, and a 7..15-character mixed
+                       run is a shape a reference or a terminal id can
+                       accidentally take. The exact counts, and the rows /
+                       sites distinction that makes them look like two
+                       different numbers, are in the closure record. Raising
+                       the floor is a card, not a patch: it would re-report
+                       every abbreviated object name these records write.
+``docs_session_date``  a DATES token in ``docs/`` that is an ISO date on or
+                       after ``2026-07-01``. Those are the PROGRAM's own
+                       session dates — when a cell ran, when a train closed —
+                       written by this project after the archive was frozen
+                       on 2026-08-06. A document date and a session date are
+                       different facts that happen to share a shape, so the
+                       rule is bounded by both the directory that holds the
+                       program's records and the date the program began.
+
+                       THE RESIDUAL EXPOSURE, NAMED: the archive was frozen
+                       on 2026-08-06, so document dates DO reach into the
+                       program's era, and a census entry inside ``docs/``
+                       that quotes a statement period ending in ISO form
+                       between 2026-07-01 and the freeze is silenced by
+                       this rule. Measured at this tip: one site. The rule
+                       is kept because the alternative is worse -- every
+                       session date the records write becomes residue -- and
+                       because the numeric `mm/dd/yyyy` form a statement
+                       actually prints is untouched. The bound is pinned by
+                       tests on both sides of it.
+``institution_zip``    a DIGITS token of exactly five digits standing in a
+                       POSTAL ADDRESS: a state abbreviation immediately before
+                       it AND the furniture an address carries — a city and
+                       its comma (`OZARK, AR 99999`), or a post-office box in
+                       the same clause, which ends at a full stop, a dash or a
+                       segment separator (`P.O. BOX 196 OZARK AR 99999`). A
+                       ZIP+4 tail strengthens either shape and is NEVER
+                       evidence on its own: `MEMBER ID 84213-6789` is a
+                       member number with a suffix, not an address. The
+                       postal code
+                       of an institution's own service address is the
+                       furniture the doctrine allows a detection marker to
+                       carry; it identifies a branch, never a customer. The
+                       abbreviation alone is NOT the shape — see the note on
+                       `ADDRESS_ZIP_RES` for why that reading silenced account
+                       and member numbers.
+===================== ======================================================
+
+Exit 1 on any hit the table does not exclude, 0 on none. The JSON summary goes
+to stdout; each non-excluded hit goes to stderr as
+`HIT <class> <file>:<line> <token>` — the report is for the operator's terminal
+and must never itself be committed.
 
 SELF-CHECK (the FROST-OZK / ATB-MEASURE lesson): a scan written through a
 shell heredoc once lost the backslash of every `\\b` to a 0x08 byte and matched
@@ -99,6 +220,224 @@ TEXT_SUFFIXES = frozenset(
 
 _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
+#: A name this program gives one of its OWN things: a content sha, or the
+#: abbreviated git object name the records write as `f14282e` / `32116b3`.
+#: 7 to 64 hex characters, bounded by something that is not alphanumeric, and
+#: carrying AT LEAST ONE hex letter.
+#:
+#: The letter is the whole safety of the rule, and it is why the shape is not
+#: simply `[0-9A-F]{16,64}` as the card first drew it: a 16-digit card number,
+#: a 20-digit reference, a 42-digit run are all "hex" by that pattern, and a
+#: rule that reads them as shas silences exactly the identifiers this scan
+#: exists to find. A sha without a single a–f is a 1-in-10^13 accident at 64
+#: characters (1 in ~1,100 at a 16-character prefix), and when one does occur
+#: it is REPORTED rather than hidden — the safe direction.
+#:
+#: (The scanner upper-cases every line before it matches, so the rule cannot
+#: ask for lower case, and does not need to.)
+HEX_RUN_RE = re.compile(
+    r"(?<![0-9A-Z])(?=[0-9A-F]{7,64}(?![0-9A-Z]))[0-9A-F]*[A-F][0-9A-F]*(?![0-9A-Z])"
+)
+#: A state abbreviation, then at most eight characters that are not digits,
+#: then the five-digit code itself. The gap is short and digit-free so that the
+#: rule cannot reach past an address onto an unrelated number, and both US
+#: territories and the DC code are included.
+_STATE = (
+    "AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|"
+    "MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|PR|RI|SC|SD|TN|TX|UT|VT|VA|"
+    "VI|WA|WV|WI|WY"
+)
+_ZIP_GAP = r"[^0-9]{0,8}"
+#: THE ABBREVIATION IS NECESSARY AND NEVER SUFFICIENT. The scanner upper-cases
+#: every line before it matches, and about half the abbreviation list is an
+#: ordinary English word or ordinary statement furniture once upper-cased:
+#: `IN`, `OR`, `OK`, `ID`, `CO`, `ME`, `LA`, `MA`, `MS`, `PA`, `MI`, `MT`,
+#: `NE`, `AL`, `DE`, `HI`, `CA`. `\b...\b` does not help — these ARE whole
+#: words. A rule of "abbreviation, then five digits" therefore reads
+#: `MEMBER ID 84213` as a postal code and silences a credit-union member
+#: number; it does the same to `THE ACCOUNT ENDING IN 84213`, to an ACH
+#: originator id (`CCD CO# 45678 TRACE`), to an authorisation code
+#: (`AUTH OK 84213`) and to a cheque number (`CHECK NO OR 84213`). Every one
+#: of those is a printed identity this scan exists to find, so the rule asks
+#: for the ADDRESS as well, in one of the three shapes an address is written:
+#:
+#: * ``CITY_STATE_ZIP`` — a city, its comma, the abbreviation, the code
+#:   (`RALEIGH, NC 99999`). The comma is the city/state junction and a
+#:   transaction description does not print one before a state word.
+#:   WHAT THIS SHAPE CANNOT TELL APART, recorded rather than hoped away: the
+#:   comma says a phrase ended, not that a city did. A company suffix
+#:   (`ACME & SONS, CO 84213`), a list item (`MEMBER, ID 84213`) or any
+#:   comma-terminated word followed by an abbreviation-shaped token and five
+#:   digits reads as an address to this rule. None occurs in the tree today
+#:   and each is a stilted line to print, but the shape is genuinely
+#:   ambiguous and the next rule that leans on it should know.
+#:
+#: A ZIP+4 tail is NOT one of the shapes. It was, and the first re-review
+#: threw it out: `NNNNN-NNNN` after an abbreviation-shaped word carries no
+#: address evidence at all, and the archive prints identifiers in exactly
+#: that shape — `MEMBER ID 84213-6789`, `CARD ENDING IN 84213-6789`,
+#: `LOAN NO. OR 84213-1234` were all silenced by it. The tail STRENGTHENS
+#: either shape above (both accept it, because neither forbids what follows
+#: the five digits), and on its own it says nothing. Evidence of an address
+#: is a city or a box; a postal-looking suffix is not evidence, it is a
+#: coincidence a cheque number can have.
+#: * ``BOX_CLAUSE_ZIP`` — a post-office box in the SAME clause, at most 70
+#:   characters ahead and never across a clause end
+#:   (`PO BOX 609 PITTSBURGH PA 99999`). A box marker is doctrine-sanctioned
+#:   institution furniture; bounding it to the clause is what stops a box in
+#:   one sentence from excusing a number in the next. The clause ends at a
+#:   FULL STOP, a DASH or a segment separator, and the first re-review is why
+#:   the list is that long: a clause bounded only at `;` and `|` still reached
+#:   across `PO BOX 609 - ACCOUNT ENDING IN 84213` and across
+#:   `REMIT TO P.O. BOX 609. AUTH OK 84213`, which are an account tail and an
+#:   authorisation code standing AFTER an address, not part of one. A postal
+#:   address is written as one unbroken run of words; the punctuation that
+#:   ends a sentence or splits a segment is exactly where it stops.
+#:
+#: The junk class allows what upper-casing a regex SOURCE leaves between the
+#: comma and the abbreviation: `\s` becomes `\S`, `\w` becomes `\W`, and a
+#: detection marker such as `r"P\.?O\.? BOX 196\s+OZARK,\s*AR\s*99999"` is
+#: read by this scanner as its own source text.
+_ADDRESS_JUNK = r"(?:\\[SW]|[^0-9A-Z])"
+CITY_STATE_ZIP = re.compile(
+    rf"[A-Z]{_ADDRESS_JUNK}{{0,2}},{_ADDRESS_JUNK}{{0,4}}(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
+)
+#: One character of the run between the box marker and the state. A postal
+#: address does not carry a full stop, a dash or a segment separator between
+#: its box and its state, and each of those is where the next fact begins.
+_CLAUSE_CHAR = r"[^;|.\-\u2013\u2014!?()\[\]]"
+BOX_CLAUSE_ZIP = re.compile(
+    rf"\bP\.?\s?O\.?\s?BOX\b{_CLAUSE_CHAR}{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
+)
+ADDRESS_ZIP_RES = (CITY_STATE_ZIP, BOX_CLAUSE_ZIP)
+#: The archive was frozen on 2026-08-06; every record this program writes about
+#: its own work is dated after it began, and the first batch-9 record is dated
+#: from July 2026 on. Bounded by BOTH the directory and the date.
+PROGRAM_ERA = "2026-07-01"
+ISO_DATE_RE = re.compile(r"\A20\d\d-\d\d-\d\d\Z")
+
+
+def _words_class(cls: str, path: str, token: str, line: str) -> bool:
+    return cls == "WORDS"
+
+
+def _corpus_cache(cls: str, path: str, token: str, line: str) -> bool:
+    return path.startswith("tests/corpus_cache/")
+
+
+def _round_money(cls: str, path: str, token: str, line: str) -> bool:
+    return cls == "MONEY" and token.endswith(".00")
+
+
+def _subunit_money(cls: str, path: str, token: str, line: str) -> bool:
+    return cls == "MONEY" and re.fullmatch(r"0\.\d\d", token) is not None
+
+
+def _occurrences(token: str, line: str) -> list[int]:
+    """Every start offset of `token` in `line`, overlapping ones included."""
+    found: list[int] = []
+    at = line.find(token)
+    while at != -1:
+        found.append(at)
+        at = line.find(token, at + 1)
+    return found
+
+
+def _hex_sha_substring(cls: str, path: str, token: str, line: str) -> bool:
+    """The token has to SIT INSIDE a sha, at every position it occupies.
+
+    Asking `any(token in run for run in HEX_RUN_RE.findall(line))` asks whether
+    the characters appear somewhere inside some sha on the line, which is not
+    the same question: `ACCOUNT 7000004 AT COMMIT F7000004E` prints an account
+    number that is also a substring of the commit name beside it, and the
+    line-scoped form excused it. So the rule asks about the OCCURRENCE — every
+    place the token stands must fall inside a hex run, and a token that stands
+    anywhere on its own is a finding however many shas share its line.
+    """
+    if cls != "DIGITS":
+        return False
+    runs = [match.span() for match in HEX_RUN_RE.finditer(line)]
+    if not runs:
+        return False
+    places = _occurrences(token, line)
+    return bool(places) and all(
+        any(start <= at and at + len(token) <= end for start, end in runs)
+        for at in places
+    )
+
+
+def _docs_session_date(cls: str, path: str, token: str, line: str) -> bool:
+    return (
+        cls == "DATES"
+        and path.startswith("docs/")
+        and ISO_DATE_RE.match(token) is not None
+        and token >= PROGRAM_ERA
+    )
+
+
+def _institution_zip(cls: str, path: str, token: str, line: str) -> bool:
+    return (
+        cls == "DIGITS"
+        and len(token) == 5
+        and any(token in pattern.findall(line) for pattern in ADDRESS_ZIP_RES)
+    )
+
+
+#: The table itself, in the order it is applied. A hit is attributed to the
+#: FIRST rule that claims it, so the per-rule counts partition the raw hits.
+EXCLUSIONS: tuple[tuple[str, object], ...] = (
+    ("words_class", _words_class),
+    ("corpus_cache", _corpus_cache),
+    ("round_money", _round_money),
+    ("subunit_money", _subunit_money),
+    ("hex_sha_substring", _hex_sha_substring),
+    ("docs_session_date", _docs_session_date),
+    ("institution_zip", _institution_zip),
+)
+
+#: (rule, class, path, token, line, expected) — the shape each rule names and
+#: the nearest thing it must NOT reach. Checked on import, so the table cannot
+#: go inert the way a heredoc once made the patterns inert.
+_EXCLUSION_SAMPLES = (
+    ("words_class", "WORDS", "a.py", "BALANCE", "BALANCE", True),
+    ("words_class", "DIGITS", "a.py", "98989", "98989", False),
+    ("corpus_cache", "MONEY", "tests/corpus_cache/ocr/x.md", "909,090.91", "909,090.91", True),
+    ("corpus_cache", "MONEY", "tests/test_x.py", "909,090.91", "909,090.91", False),
+    ("round_money", "MONEY", "a.py", "100.00", "100.00", True),
+    ("round_money", "MONEY", "a.py", "8909,090.91", "8909,090.91", False),
+    ("subunit_money", "MONEY", "a.py", "0.01", "0.01", True),
+    ("subunit_money", "MONEY", "a.py", "818,181.81", "818,181.81", False),
+    ("hex_sha_substring", "DIGITS", "a.py", "98989", "AB98989CDEF09898967", True),
+    ("hex_sha_substring", "DIGITS", "a.py", "7000004", "COMMIT F7000004E LANDED", True),
+    ("hex_sha_substring", "DIGITS", "a.py", "7000004",
+     "ACCOUNT 7000004 AT COMMIT F7000004E", False),
+    ("hex_sha_substring", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
+    ("hex_sha_substring", "DIGITS", "a.py", "70000000011", "RUN 70000000011", False),
+    ("docs_session_date", "DATES", "docs/x.md", "2026-08-29", "ON 2026-08-29", True),
+    ("docs_session_date", "DATES", "docs/x.md", "2019-11-21", "ON 2019-11-21", False),
+    ("docs_session_date", "DATES", "docs/x.md", "2001-02-03", "ON 2001-02-03", False),
+    ("docs_session_date", "DATES", "tests/x.py", "2026-08-29", "ON 2026-08-29", False),
+    ("institution_zip", "DIGITS", "a.py", "99999", "OZARK, AR 99999", True),
+    ("institution_zip", "DIGITS", "a.py", "95959", "PO BOX 1962 COLUMBUS OH 95959-1558", True),
+    ("institution_zip", "DIGITS", "a.py", "84213", "PO BOX 609 - ACCOUNT ENDING IN 84213", False),
+    ("institution_zip", "DIGITS", "a.py", "84213", "MEMBER ID 84213-6789", False),
+    ("institution_zip", "DIGITS", "a.py", "95959", "PO BOX 609 PITTSBURGH PA 95959", True),
+    ("institution_zip", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
+    ("institution_zip", "DIGITS", "a.py", "9898967", "OZARK, AR 9898967", False),
+    # The vocabulary, not the geometry: an abbreviation that is also a word.
+    ("institution_zip", "DIGITS", "a.py", "84213", "MEMBER ID 84213", False),
+    ("institution_zip", "DIGITS", "a.py", "45678", "CCD CO# 45678 TRACE", False),
+    ("institution_zip", "DIGITS", "a.py", "84213", "AUTH OK 84213", False),
+)
+
+
+def excluded_by(cls: str, path: str, token: str, line: str) -> str | None:
+    """The first rule of the table that claims this hit, or None."""
+    for name, rule in EXCLUSIONS:
+        if rule(cls, path, token, line):  # type: ignore[operator]
+            return name
+    return None
+
 
 def self_check() -> None:
     """Refuse to run as an inert instrument."""
@@ -107,16 +446,28 @@ def self_check() -> None:
     if found:
         raise SystemExit(f"privacy_scan_branch.py carries {len(found)} control byte(s); refusing to run")
     samples = {
-        "MONEY_RE": (MONEY_RE, "TOTAL 12,345.67 AND 987.65 AND 1234567.89"),
-        "NUMERIC_DATE_RE": (NUMERIC_DATE_RE, "ON 01/31/2026 OR 1/2/26 OR 2026-01-31"),
-        "SPELLED_DATE_RE": (SPELLED_DATE_RE, "ON JANUARY 5, 2026 AND 5 FEB 2026 AND SEPT 30 2025"),
+        "MONEY_RE": (MONEY_RE, "TOTAL 12,345.67 AND 987.65 AND 9898967.89"),
+        "NUMERIC_DATE_RE": (NUMERIC_DATE_RE, "ON 01/31/2031 OR 1/2/31 OR 2031-01-31"),
+        "SPELLED_DATE_RE": (SPELLED_DATE_RE, "ON JANUARY 5, 2031 AND 5 FEB 2031 AND SEPT 30 2030"),
         "WORD_RE": (WORD_RE, "HOLDER NAME"),
     }
     for name, (pattern, sample) in samples.items():
         if not pattern.search(sample):
             raise SystemExit(f"{name} matches nothing in its own sample; refusing to run")
-    if len(SPELLED_DATE_RE.findall("ON JANUARY 5, 2026 AND 5 FEB 2026 AND SEPT 30 2025")) != 3:
+    if len(SPELLED_DATE_RE.findall("ON JANUARY 5, 2031 AND 5 FEB 2031 AND SEPT 30 2030")) != 3:
         raise SystemExit("SPELLED_DATE_RE does not match all three spelled shapes; refusing to run")
+    named = {name for name, _ in EXCLUSIONS}
+    for rule, cls, path, token, line, expected in _EXCLUSION_SAMPLES:
+        if rule not in named:
+            raise SystemExit(f"exclusion sample names {rule!r}, which is not in the table")
+        got = excluded_by(cls, path, token, line) == rule
+        if got is not expected:
+            raise SystemExit(
+                f"exclusion {rule!r} answers {got} for its own sample, expected {expected}; refusing to run"
+            )
+    for name in named:
+        if not any(sample[0] == name for sample in _EXCLUSION_SAMPLES):
+            raise SystemExit(f"exclusion {name!r} carries no sample; refusing to run")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -133,6 +484,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--digit-min", type=int, default=5)
     parser.add_argument("--word-min", type=int, default=4)
     parser.add_argument("--include-tree", action="store_true")
+    parser.add_argument("--no-exclusions", action="store_true",
+                        help="report the RAW scan: attribute nothing to the exclusion table")
     parser.add_argument("--out", type=Path, default=None)
     return parser.parse_args(argv)
 
@@ -222,30 +575,66 @@ def tracked_text(ref: str) -> str:
     return batch.decode("utf-8", errors="replace").upper()
 
 
+HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def added_lines_from_diff(diff: str) -> list[tuple[str, int, str]]:
+    """(file, new-line-number, upper-cased text) for every added line of a diff.
+
+    A hunk header states exactly how many lines of each side its body carries,
+    so the body is read BY COUNT and every line in it is classified by its
+    first character alone. The reader this replaces classified every line by
+    its TEXT, which is not the same thing: a line of the FILE that begins
+    `+++` appears in the body as `++++`, matched the `not line.startswith
+    ("+++")` guard meant for file headers, and was dropped — after which every
+    line of that file was numbered one too low, once per such line. This tree's
+    own records quote three diff headers, so the whole-tree audit was reading
+    W3 twice under two different numberings and counting the difference as
+    residue.
+
+    Both halves matter. An added line the scan never reads is a leak it cannot
+    report — that is the floor's own instrument going quiet on exactly the
+    shape a diff quotes. And a hit reported against the wrong line is a site
+    nobody can find and a site count nobody can reproduce.
+    """
+    out: list[tuple[str, int, str]] = []
+    current = ""
+    line_no = 0
+    old_left = new_left = 0
+    for line in diff.splitlines():
+        if old_left > 0 or new_left > 0:
+            if line.startswith("\\"):
+                # "\ No newline at end of file" — not a line of either side.
+                continue
+            if line.startswith("+"):
+                out.append((current, line_no, line[1:].upper()))
+                line_no += 1
+                new_left -= 1
+            elif line.startswith("-"):
+                old_left -= 1
+            else:
+                line_no += 1
+                old_left -= 1
+                new_left -= 1
+            continue
+        if line.startswith("+++ "):
+            current = line[4:].removeprefix("b/")
+            continue
+        match = HUNK_RE.match(line)
+        if match:
+            line_no = int(match.group(2))
+            old_left = int(match.group(1)) if match.group(1) is not None else 1
+            new_left = int(match.group(3)) if match.group(3) is not None else 1
+    return out
+
+
 def added_lines(base: str, ref: str) -> list[tuple[str, int, str]]:
     """(file, new-line-number, upper-cased text) for every added line of base...ref."""
     diff = subprocess.run(
         ["git", "diff", f"{base}...{ref}", "--unified=0"],
         cwd=ROOT, capture_output=True, text=True, check=True, errors="replace",
     ).stdout
-    out: list[tuple[str, int, str]] = []
-    current = ""
-    line_no = 0
-    hunk = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-    for line in diff.splitlines():
-        if line.startswith("+++ "):
-            current = line[4:].removeprefix("b/")
-            continue
-        match = hunk.match(line)
-        if match:
-            line_no = int(match.group(1))
-            continue
-        if line.startswith("+") and not line.startswith("+++"):
-            out.append((current, line_no, line[1:].upper()))
-            line_no += 1
-        elif line.startswith("-") and not line.startswith("---"):
-            continue
-    return out
+    return added_lines_from_diff(diff)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -302,23 +691,48 @@ def main(argv: list[str] | None = None) -> int:
 
     # The branch side is tokenised with the SAME patterns, so a match is a
     # whole token on both sides: an OCR fragment such as `WELC` printed by a
-    # scan cannot hit inside `WELCOME`, and `26.43` cannot hit inside
-    # `1,026.43`. (Substring matching on this side, with set exclusion on the
+    # scan cannot hit inside `WELCOME`, and `820.05` cannot hit inside
+    # `1,0820.05`. (Substring matching on this side, with set exclusion on the
     # other, produced hundreds of fragment false positives per branch.)
-    line_tokens = [
-        (file, number, set().union(*tokens_of(text, args.digit_min, args.word_min).values()))
-        for file, number, text in lines
-    ]
-    haystack_tokens: set[str] = set().union(*(toks for _, _, toks in line_tokens)) if line_tokens else set()
+    #
+    # The attribution is an INVERTED INDEX, token -> the sites that print it,
+    # built over the tokens the document side actually asks about. The paired
+    # loop it replaces (every distinctive token x every scanned line) is
+    # quadratic: a whole-tree audit scans ~5x10^5 lines and a 3,380-document
+    # universe makes ~5x10^4 of its tokens hit, which is ~10^10 set lookups —
+    # hours, for exactly the same hit list this produces in seconds.
+    wanted: set[str] = set().union(*distinctive.values()) if distinctive else set()
+    sites: dict[str, list[int]] = {}
+    for index, (_file, _number, text) in enumerate(lines):
+        for token in set().union(*tokens_of(text, args.digit_min, args.word_min).values()) & wanted:
+            sites.setdefault(token, []).append(index)
     hits: list[dict[str, object]] = []
     for cls, tokens in distinctive.items():
         for token in tokens:
-            if token not in haystack_tokens:
-                continue
-            for file, number, toks in line_tokens:
-                if token in toks:
-                    hits.append({"class": cls, "file": file, "line": number, "token": token})
+            for index in sites.get(token, ()):
+                file, number, text = lines[index]
+                # `--include-tree` labels the whole-file pass `tree:<path>`;
+                # the exclusion rules are about the PATH, so they see it bare.
+                path = file[5:] if file.startswith("tree:") else file
+                rule = None if args.no_exclusions else excluded_by(cls, path, str(token), text)
+                hits.append({
+                    "class": cls, "file": file, "line": number,
+                    "token": token, "excluded_by": rule,
+                })
     hits.sort(key=lambda h: (str(h["file"]), int(h["line"]), str(h["class"])))
+
+    kept = [hit for hit in hits if hit["excluded_by"] is None]
+    # With a root-commit `--base`, the diff pass and `--include-tree` reach the
+    # same line twice under two labels. A SITE is the thing to count and to
+    # fix: one class, one path, one line, one token.
+    site_keys = {
+        (str(h["class"]), str(h["file"]).removeprefix("tree:"), int(h["line"]), str(h["token"]))
+        for h in kept
+    }
+    by_class_dir: dict[str, int] = {}
+    for cls, path, _number, _token in site_keys:
+        top = path.split("/", 1)[0] if "/" in path else "(root)"
+        by_class_dir[f"{cls} {top}"] = by_class_dir.get(f"{cls} {top}", 0) + 1
 
     report = {
         "population": len(shas),
@@ -327,17 +741,24 @@ def main(argv: list[str] | None = None) -> int:
         "printed_tokens": {cls: len(v) for cls, v in printed.items()},
         "distinctive_scanned": {cls: len(v) for cls, v in distinctive.items()},
         "added_lines": len(lines),
-        "hits_by_class": {cls: sum(1 for h in hits if h["class"] == cls) for cls in printed},
-        "hit_count": len(hits),
+        "raw_hit_count": len(hits),
+        "excluded_by_rule": {
+            name: sum(1 for h in hits if h["excluded_by"] == name) for name, _ in EXCLUSIONS
+        },
+        "hits_by_class": {cls: sum(1 for h in kept if h["class"] == cls) for cls in printed},
+        "hit_count": len(kept),
+        "residue_sites": len(site_keys),
+        "residue_files": len({path for _cls, path, _n, _t in site_keys}),
+        "residue_by_class_dir": dict(sorted(by_class_dir.items())),
         "base": args.base,
         "ref": args.ref,
     }
     if args.out is not None:
         args.out.write_text(json.dumps({**report, "hits": hits}, indent=1), encoding="utf-8")
     print(json.dumps(report, sort_keys=True))
-    for hit in hits:
+    for hit in kept:
         print(f"HIT {hit['class']} {hit['file']}:{hit['line']} {hit['token']!r}", file=sys.stderr)
-    return 1 if hits else 0
+    return 1 if kept else 0
 
 
 if __name__ == "__main__":
