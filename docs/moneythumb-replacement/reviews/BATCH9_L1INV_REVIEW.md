@@ -473,3 +473,161 @@ section by section, as things stand, one structural family at a step, and every 
 the prototype to stop accepting the empty ledger and to start using the counts, totals and
 daily balances the sections themselves print — 79 and 75 sections respectively — before it is
 worth ruling on.
+
+---
+
+# Re-review — the corrected packet
+
+Closure tip `67fd943` over base `38a94aa`; the first review ended at `981652e`. Same reviewer,
+same method: the five instrument modes were re-run from the run of record and its cold cache,
+and every claimed figure was checked against my own arithmetic rather than against the
+closure's report. No production file differs from base (`git diff --stat 38a94aa -- analysis
+ocr webapp discovery telemetry corpus_gate.py tests` is empty), so the suite, the conformance
+set, the corpus gate and the fidelity replay cannot have moved.
+
+**VERDICT: SOUND WITH FINDINGS. 0 BLOCK / 1 MAJOR / 4 MINOR.**
+
+Both BLOCKs are answered at the root rather than argued with. BLOCK-1's empty-chain seed is
+gone, split into two named classes that are never closures, and the enumerating table's columns
+are now read from the printed column caption instead of from position — which was the actual
+defect underneath the vacuous closures. BLOCK-2 is answered by calling `analysis/symitar.py`'s
+own `_DORMANT_RE` and `_yield_only` on every sibling of every single-posting document, which is
+the right instrument for the question. The headline moved down by an order of magnitude and the
+recommendation was rewritten to follow it rather than to survive it.
+
+## Re-measurement
+
+| claim | re-measured | matched? |
+|---|---|---|
+| structural families 62 / 39 with 3 or more members / covering 183 | 62 / 39 / 183 | yes |
+| sections closing 29; under the stricter after-chain test 16 | 29 / 16 | yes |
+| trivially idle 21; empty over printed rows 23, their own classes and never closures | 21 / 23 | yes |
+| documents closing on every located section 2, both `guardian_cu` | 2, both `guardian_cu` | yes |
+| the table's own closing column reproducing on both | 2 | yes |
+| `reconcile` refuses 11 of 48, the ADB 10, against 0 of 105 before | 11 / 48, ADB 10 | yes |
+| sections printing a daily-balance TABLE 75 corrected to 24 | 24 (5.4%) | yes |
+| sections contradicting their own table 16 corrected to 2 | 2 | yes |
+| Stage-1 population under the RATIFIED rule = 0 | 0 | yes |
+| 103 siblings: 4 declaration / 0 yield-only / 30 posted-and-silent / 62 empty-and-silent / 7 other | identical | yes |
+| 26 documents carry a sibling that posted (24 CU); 63 CU carry a failing sibling | 26 / 24 / 63 | yes |
+| at the one-row threshold: 59 single-posting (54 CU), 52 siblings, 0 satisfy | identical | yes |
+| L-1 population 81, of which 2 close | 81 / 2 | yes |
+| transfer pairs: 7 documents, 47 pairs | 7 / 47 | yes |
+| pinned multi-posting 12 (4 strong / 1 / 7 weak) | 12 (4 / 1 / 7) | yes |
+| `capital_one`: the nine-cell pattern matches 0 of 6, the transaction grammar returns rows on 6 of 6 | 0 of 6 and 6 of 6 | yes |
+| Option B: first-named undefined 30; transaction-share undefined 24, ambiguous 9, decides 48 | identical | yes |
+| enumerating tables naming two denominations 4, all one census group | 4 | yes |
+| the first review's own chain reproduced as 7 / 4 / 2 | 7 / 4 / 2 on the closure's definition | yes, and see MINOR-A |
+| facility-listing tables **15**, of which **0** carry two or more posting sections | **19** and **4** | **NO — MAJOR-A** |
+| privacy 0 over 4,712 added lines; guards 255; five runs EXIT=0 | 0 / 4,712 / 3,351 docs; 255; EXIT=0 five times | yes |
+| no control byte survives in the instruments | none outside tab, newline and return in any of the three | yes |
+
+## Findings
+
+### MAJOR-A — the facility vocabulary is narrower than the claim made for it, and the collision it was said to have avoided is live.
+
+`LOAN_ROW` carries two classes and its comment states that a wider vocabulary of facility
+classes was tried over the enumerating windows of the whole population and matched nothing
+these two do not. Re-run over the same windows with the payment-card class added, on the same
+raw labels and before the furniture trim:
+
+| | documents |
+|---|---:|
+| the committed two classes fire on | 15 |
+| a vocabulary that also names the payment-card class fires on | **19** |
+| the class the committed one misses | the payment-card class, on 4 documents |
+| those 4 documents carrying two or more posting sections | **4** |
+| those 4 also printing a cross-account total | 0 |
+
+All four are `FAM:goldenwest_cu_member_account_statement` — the family with the highest section
+count per document in the whole CU population (3 and 4 posting sections each), and the family
+the corrected boundary condition already refuses on other grounds. So condition 12's own table
+understates its population by four, and its "of them with two or more posting sections: 0" is
+**4**. The condition is right and belongs in the list; what does not hold is the claim that its
+vocabulary was measured to completeness, and the consequence is that the deposit-versus-facility
+rule bites on the family a Stage-2 implementation would reach for next rather than on nothing.
+Whoever implements must confirm the row class on the page: a payment-card row on an enumerating
+table is a facility by the same doctrine that excludes a loan, but the word alone is not proof.
+
+### MINOR-A — the adjudication the closure asked for: 11 / 3 / 2 against 7 / 4 / 2.
+
+The attribution is half right, and the half that is right is the half that matters.
+
+* **The L-1 figure: the closure is correct.** My 3 was one short, and the missing document is
+  `9B8E7D807228DA2B` (`DECL:consumers`). Under the first instrument it was refused as
+  `section-and-rollup-disagree-on-the-pair` — a false refusal produced by the positional column
+  assumption I identified and did not apply to my own arithmetic. Corrected, it closes under my
+  conditions. **The L-1 floor under my chain is 4, not 3**, and 14 of the old 16 sections said
+  to contradict their own table were that same false refusal.
+* **The document figure: the gap is definitional, not the column fix.** My non-vacuity test
+  refused an empty ledger *over printed rows* and deliberately left a section that prints no
+  dated row and reads nothing standing as a closure — that is a dormant sibling. The closure's
+  reproduction instead requires a non-empty chain on *every* section, so a document with a
+  dormant sibling cannot qualify at all. Run on the corrected instrument under my rule as I
+  wrote it, the count is **15** documents (8 `guardian_cu`, 3 `altra_fcu`, 3
+  `cu_summary_of_accounts_date_posted`, 1 `DECL:consumers`), with the same 4 at the L-1
+  threshold and the same 2 reproducing. Under the closure's stricter reading it is 7. Neither
+  is 11: of my 12 pre-condition-6 documents, 8 lose their idle sibling to the new class and one
+  (`ornl_fcu`) is removed by the new row-coverage gate.
+
+Nothing in the corrected headline depends on this — 2 is reached by a different and stricter
+route — but §11 attributes to the column fix a movement that is mostly a change in what counts
+as a closure, and a reader of §11 should know which half is which.
+
+### MINOR-B — the ratified yield-only predicate is applied in its relaxed form, undisclosed.
+
+`classify_sibling` calls `_yield_only(rows, opening, closing, None)`. With that fourth argument
+absent, `analysis/symitar.py` skips its own fourth condition — the platform's dividend column
+accounting for every skipped posting with its credit column at zero — and tests only the first
+three. The packet says the module's own predicate decides and names the summary-equality test;
+it does not say the fourth condition is not run. **The direction is safe**: a relaxed test that
+admits nothing proves the strict test admits nothing, so the measured 0 stands and BLOCK-2's
+answer is unaffected. It should still be said, because the instrument's other restatement (how
+it picks the words a row printed) is disclosed and this one is not.
+
+### MINOR-C — the corrected headline of 2 is a floor of a floor, and the number that sizes ruling (5) is not printed anywhere.
+
+Because a trivially idle section is now a class rather than a closure, a document with a
+genuinely dormant sibling can never reach "every located section closes", however well its
+posting sections reconstruct. Measured on the corrected run, allowing a section that prints no
+dated row and reads nothing to be omitted rather than counted:
+
+| | documents |
+|---|---:|
+| every section either CLOSES on the corrected test or is trivially idle | **8** |
+| ... all of one census group | `FAM:guardian_cu_statement_summary` |
+| ... carrying two or more posting sections | 2 |
+| ... with the table's own closing column reproducing | 8 |
+
+Two facts join this to ruling (5): the 4 sibling sections in the whole population that print the
+ratified declaration are all `FAM:greater_nevada_cu`, and every one of `guardian_cu`'s six
+single-posting documents has an `empty-and-silent` sibling. **So ruling (5) is worth 2 to 8
+documents on the only family this packet demonstrates**, and it is worth them on the weakest
+evidence class in the sibling table. That is a sharper way to put step 2 of §9.1 than "54 to 79
+documents", and it is the number I would want in front of the ruling.
+
+### MINOR-D — one property still rests on a grep rather than on a gate.
+
+Re-verified at this tip and it holds: nothing outside `tools/l1_*` references any of the three
+instruments, and `tests/test_experiments_are_not_wired.py` still covers only `experiments/`.
+The closure records this rather than fixing it, which is right — the card owns no test. It
+stays a standing note for whoever implements, not a defect of this packet.
+
+## What the owner should read differently, second time
+
+Read the corrected packet as sound and read its headline as small on purpose. Everything the
+first version got wrong was corrected at the instrument rather than in the prose, the numbers
+moved down by an order of magnitude, and the recommendation now follows them: there is no half
+of this reservoir that can be taken without a ruling, and the demonstrated population is two
+documents of one family. Three things to rule on, in this order. **First,
+SIBLING-OMISSION-SURFACE**, which needs no ruling at all, moves no document, and is owed today
+by two silent skips — everything else is easier to argue about once a skip is visible.
+**Second, ruling (5), the scope of the ratified idle-sibling rule**, because it is cheap to
+answer, because it is worth 2 to 8 documents on the one family that demonstrably reconstructs,
+and because 26 documents that a two-row threshold had hidden are multi-account statements
+whichever way it goes. **Third, and only then, Option C**, sized at two documents today under
+thirteen conditions, one of which — the deposit-versus-facility rule — has a measured
+population four larger than the packet states and bites hardest on the family with the most
+accounts per document. Do not read the 2 as a ceiling on what a real implementation reaches: it
+is what a probe with no per-family row grammar and a generic boundary layer can prove today.
+Do read it as the honest floor, which is what the first version did not have.
