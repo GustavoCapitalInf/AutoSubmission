@@ -281,10 +281,113 @@ def daily_cells(markdown: str) -> dict:
     return out
 
 
+def sectioned_strip_search(markdown: str) -> dict:
+    """The same question with the adjacency grammar thrown away entirely.
+
+    `sectioned_strip` treats a cell the adjacency grammar READ and got wrong as
+    fatal, and a reviewer is right to ask whether a rule that re-paired EVERY
+    cell would do better. This mode answers that with an exhaustive search
+    rather than an argument, and it is exhaustive because the ledger fixes
+    almost everything: the sections are read independently of the strip, so
+    both row counts and both row totals are known, and the summary's identity
+    then determines the closing balance from the opening one. **One free
+    parameter remains — which printed token is the opening balance — and every
+    candidate for it is tried.**
+
+    A candidate is accepted only when every figure the identities require is a
+    token the region actually prints: the opening balance, the closing balance
+    it implies, both direction totals, and both direction counts. Where the
+    document prints a `DAILY BALANCE` grid the walk from that opening must also
+    reproduce it, which is an independent printing and not part of the summary.
+
+    `solutions` is the number of accepted candidates. 0 means no pairing rule
+    can read this document, whatever its shape. 2 or more means the document
+    does not determine its own summary and a reader that picked one would be
+    guessing. Only 1 is an opportunity.
+    """
+    from analysis import core_processor_sectioned as M
+
+    out: dict = {"mode": "sectioned_strip_search"}
+    region = M._summary_region(markdown)
+    if region is None:
+        return {**out, "verdict": "no_region"}
+    period = M._once(region, M._PERIOD_RE)
+    if period is None:
+        return {**out, "verdict": "no_period"}
+    printed_period = M._period_dates(period.group(1), period.group(2))
+    if printed_period is None:
+        return {**out, "verdict": "period_not_a_date"}
+    start, end = (date.fromisoformat(printed_period[0]),
+                  date.fromisoformat(printed_period[1]))
+    if end < start:
+        return {**out, "verdict": "period_order"}
+
+    sections = M._sections(markdown)
+    if not sections.keys() & {n for n, _c, _d in M._LEDGER_SECTIONS}:
+        return {**out, "verdict": "no_ledger_section"}
+    rows = []
+    for name, credit, default in M._LEDGER_SECTIONS:
+        block = sections.get(name)
+        if block is None:
+            continue
+        found = M._rows(block, credit=credit, start=start, end=end, default=default)
+        if found is None:
+            return {**out, "verdict": f"ledger_unreadable:{name}"}
+        rows.extend(found)
+    credit_rows = [r for r in rows if r.direction == "credit"]
+    debit_rows = [r for r in rows if r.direction == "debit"]
+    credits = round(sum(r.amount for r in credit_rows), 2)
+    debits = round(-sum(r.amount for r in debit_rows), 2)
+
+    printed = [value for value in
+               (M._figure(m.group(1)) for m in re.finditer(M._FIGURE_TOKEN, region))
+               if value is not None]
+    out["region_money_tokens"] = len(printed)
+
+    def is_printed(value: float) -> bool:
+        return any(abs(value - token) <= _TOLERANCE for token in printed)
+
+    def count_printed(count: int) -> bool:
+        return bool(re.search(r"(?<![0-9])" + str(count) + r"(?![0-9])", region))
+
+    out["totals_printed"] = {"credits": is_printed(credits), "debits": is_printed(debits)}
+    out["counts_printed"] = {"credits": count_printed(len(credit_rows)),
+                             "debits": count_printed(len(debit_rows))}
+
+    grid = None
+    if "DAILY BALANCE" in sections:
+        grid = M._daily_balances(sections["DAILY BALANCE"], start=start, end=end)
+        if grid is None:
+            out["grid"] = "unreadable"
+            return {**out, "verdict": "grid_unreadable", "solutions": 0}
+        out["grid"] = "printed"
+    else:
+        out["grid"] = "not_printed"
+
+    solutions = 0
+    for opening in printed:
+        closing = round(opening + sum(r.amount for r in rows), 2)
+        if not is_printed(closing):
+            continue
+        if not (out["totals_printed"]["credits"] and out["totals_printed"]["debits"]):
+            continue
+        if not (out["counts_printed"]["credits"] and out["counts_printed"]["debits"]):
+            continue
+        if grid is not None and not M._matches_the_printed_grid(rows, grid, opening):
+            continue
+        solutions += 1
+    out["solutions"] = solutions
+    out["verdict"] = ("UNIQUE_READING" if solutions == 1
+                      else "ambiguous" if solutions > 1 else "no_reading_exists")
+    return out
+
+
 MODES = {"sectioned_strip": sectioned_strip,
+         "sectioned_strip_search": sectioned_strip_search,
          "enclosures_cells": enclosures_cells,
          "daily_cells": daily_cells}
 MODE_GROUP = {"sectioned_strip": "DECL:core_processor_sectioned",
+              "sectioned_strip_search": "DECL:core_processor_sectioned",
               "enclosures_cells": "DECL:core_processor_enclosures",
               "daily_cells": "DECL:core_processor_daily"}
 

@@ -56815,6 +56815,32 @@ The native eight, in detail, and the finding is in the middle column:
 | `A3427B2BE24EB245` | closing, credits, debits | — | the debit total, the closing balance, the debit count | disagrees |
 | `D59DE10944242B1E` | closing, credits, debits | — | — | disagrees |
 
+### The same question with the adjacency grammar thrown away entirely
+
+A reviewer is right to ask whether a rule that re-paired EVERY cell would do
+better than one that inherits the pairings above, so
+`--mode sectioned_strip_search` asks it exhaustively rather than by argument.
+The ledger fixes almost everything: the sections are read independently of the
+strip, so both row counts and both row totals are known, and the summary's
+identity determines the closing balance from the opening one. **One free
+parameter remains — which printed token is the opening balance — and every
+candidate for it is tried.** A candidate is accepted only when every figure the
+identities require is a token the region actually prints, and, where a
+`DAILY BALANCE` grid is printed, when the walk from that opening reproduces it.
+
+| verdict, over all 22 | documents |
+|---|---:|
+| `no_reading_exists` — no pairing rule can ever read it | **21** |
+| `UNIQUE_READING` | **1** (`6BC052E9B49DB281`) |
+| `ambiguous` (two or more readings) | 0 |
+
+So the bound is not "today's grammar cannot": it is that **twenty-one of the
+twenty-two do not contain a readable summary at all**, and the twenty-second is
+one document. A pairing rule written to reach it would be fitted to a scramble
+that differs document by document, on the only member it helps, with the four
+other native members it touches already mis-pairing. That is the fitting the
+doctrine forbids, and one document is not a rule.
+
 **On five of the eight the reader's existing label-to-figure pairing is already
 wrong** — it reads a figure the label does not belong to, and the printed
 identities are what catch it. On two more the figure the identities require is
