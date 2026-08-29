@@ -58862,8 +58862,8 @@ after this table was first written and returned the same numbers.
 Batch 9, cell `L1-ARCH-DESIGN`. Branch `wave9-l1design`, base `train9` at `ac1d034`.
 DESIGN ONLY: no production file, no registration, no test wiring. The deliverable is
 `docs/moneythumb-replacement/L1_INDEPENDENT_ACCOUNT_DESIGN.md`; the instruments are
-`tools/l1_design_payload_probe.py`, `tools/l1_design_surface_census.py` and
-`tools/l1_design_reader_probe.py`.
+`tools/l1_design_payload_probe.py`, `tools/l1_design_surface_census.py`,
+`tools/l1_design_reader_probe.py` and `tools/l1_design_idle_evidence.py`.
 
 `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark`
 is EMPTY at the tip.
@@ -59031,6 +59031,37 @@ every later rung is computed from `walked` and `non_empty` — but the packet's 
 reproduces from its instruments" is not true of that cell. Reported, not fixed: this cell owns
 no L1INV file.
 
+## L1D5b — the fact the largest open ruling turns on, computed and dropped by the packet
+
+The idle-sibling ruling is worth 2 documents against 8. What decides it under the checkpoint
+condition is one fact: **where did the idle section's opening and closing figures come from?**
+If the paper printed them, the section is not "absence of parsed activity"; it is a printed
+statement about an account that opened and closed at the same figure.
+
+`tools/l1_split_prototype.py` computes exactly that — `open_from` / `close_from` on every
+section — and emits it as `pair_source` only for a NON-EMPTY successful walk, so for every
+trivially idle section the provenance is lost before it reaches the JSON.
+`tools/l1_design_idle_evidence.py` re-runs that instrument's own `run_document` and reports the
+two fields it already produced. It writes no grammar, no predicate and no arithmetic of its own.
+
+| the 21 trivially idle sections in the whole population | sections |
+|---|---:|
+| opening AND closing both read from the SECTION's own printed captions | **21** |
+| either figure read from the enumerating table instead | **0** |
+| also printing a dated row somewhere in the section | 3 |
+| also printing a dated row in its LEDGER region | **0** |
+
+| the 6 sections the ruling would license, on 6 documents (the other 2 of the 8 close already) | sections |
+|---|---:|
+| opening AND closing both from the section's own printed captions | **6** |
+| printing a dated row anywhere, or counts, or totals, or a daily table | **0** |
+
+All six are one census group. The ruling is therefore not "may silence be evidence" — it is
+"is a printed opening caption and a printed closing caption carrying the same figure, with no
+row printed anywhere in the section, explicit statement structure establishing that account's
+empty state". That is a materially easier question than the one the packet left, and it is
+Q3 in the design.
+
 ## L1D6 — the packet re-run at this base
 
 Every load-bearing figure of `L1_CU_SUFFIX_RULING_PACKET.md` was re-measured at `ac1d034` by
@@ -59062,9 +59093,11 @@ trade is not worth it.
 ## L1D8 — eight rulings, one of which can subtract
 
 Q1 the document outcome when one account validates and another does not; Q2 the transfer
-counterpart rule and the ambiguity refusal; Q3 whether a table row stating an account's pair is
-explicit structure establishing its empty state (this is the 2 → 8, and beyond that family it
-decides whether 44 of 86 single-posting documents are reachable at all); Q4 two denominations —
+counterpart rule and the ambiguity refusal; Q3 whether a section's OWN printed opening and
+closing captions carrying the same figure, with no row printed anywhere in it, are explicit
+structure establishing that account's empty state (L1D5b measures that this is the evidence on
+all six such sections; this is the 2 → 8, and beyond that family it decides whether 44 of 86
+single-posting documents are reachable at all); Q4 two denominations —
 publish two accounts or refuse; Q5 whether each account enters a package as its own member and
 whether the ADB doctrine's unit is the account; Q6 whose period, where an issue prints
 per-account ranges; Q7 the posting threshold (1 or 2 dated rows: 86/81 or 59/111); **Q8 whether
@@ -59077,9 +59110,9 @@ Q8 is the one to answer first. It is the only question here whose answer can sub
 
 | proof | result | exit |
 |---|---|---:|
-| canonical guards (5 files), with the three prototypes present | **255 passed** | **0** |
+| canonical guards (5 files), with the four prototypes present | **255 passed** | **0** |
 | `tests/test_experiments_are_not_wired.py` | passes; it guards `experiments/` and says nothing about `tools/` — the property is held here by a grep, as L1INV's MINOR-4 recorded | 0 |
-| the instruments are unwired | nothing outside `tools/` references any of the three, verified at this tip | — |
+| the instruments are unwired | nothing outside `tools/` references any of the four, verified at this tip | — |
 | no production file differs from base | `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` **empty** | — |
 | branch privacy scan, added lines vs the whole population | **hit_count 0 over 1,922 added lines and 3,351 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 22, every one class WORDS, discarded by the standing `words_class` exclusion** | **0** |
 | commit-message scan | **hit_count 0; MONEY / DIGITS / DATES / WORDS all 0** | **0** |

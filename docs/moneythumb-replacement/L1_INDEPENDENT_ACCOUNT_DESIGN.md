@@ -9,7 +9,8 @@ Every number here is produced by a committed instrument and reproduces from the 
 `tools/l1_census.py`, `tools/l1_structure_census.py`, `tools/l1_split_prototype.py` (the L1INV
 cell's, re-run at THIS base — §10.1 is the reproduction ledger) and this cell's own
 `tools/l1_design_payload_probe.py`, `tools/l1_design_surface_census.py`,
-`tools/l1_design_reader_probe.py`. No printed value, name, account number, amount or date
+`tools/l1_design_reader_probe.py` and `tools/l1_design_idle_evidence.py`.
+No printed value, name, account number, amount or date
 appears anywhere in this document or in the instruments: the tables count shapes, gates,
 sections, closures, registrations and content sha16s.
 
@@ -251,11 +252,11 @@ document it IS today's meaning — measured, not asserted: the function reproduc
 including under the document shape.
 
 **Movement this creates.** A document whose account A validates and whose account B withholds
-is `withheld` today-and-tomorrow at the document level, but today it is `failed` — the reader
-refuses it outright (§9, the six refusal sites). `failed → withheld` is a ladder IMPROVEMENT
-and counts as "other ladder movement", never as newly validated. **Ruling needed** (§8, Q1):
-whether such a document should publish account A's figures at all, or refuse until every
-account validates.
+would be `withheld` at the document level under this fold. Today it is not on the ladder at
+all in that way: the reader refuses it outright, no registration claims it, and it lands
+`failed`. Such a move is a ladder IMPROVEMENT and counts as "other ladder movement", never as
+newly validated. **Ruling needed** (§8, Q1): whether such a document should publish account A's
+figures at all, or refuse until every account validates.
 
 ### 1.6 Cache and version keys
 
@@ -384,11 +385,33 @@ module's own code (`tools/l1_split_prototype.py --idle-siblings`, re-run at this
 **The population that needs no ruling is zero documents.** Under R-a as written, an
 empty-and-silent section — a heading printed, no rows, no declaration — is *absence of parsed
 activity* and may NOT be omitted. That reading is what makes the demonstrated population 2
-rather than 8, and §8 Q3 is where it is put to Gustavo, with the one argument that could
-defensibly move it: on the family that closes, the sibling is not merely silent — the
-enumerating table prints a row for it, and the table's own closing column reproduces (§2.6).
-Whether *"the table prints this account with a stated pair"* counts as explicit structure
-establishing the empty state is a ruling, not a measurement.
+rather than 8, and §8 Q3 is where it is put to Gustavo.
+
+**What the paper actually prints on those sections, measured** — the fact the ruling turns on,
+and one the packet computed and dropped. `tools/l1_split_prototype.py` records where every
+section's opening and closing came from (`section` = the section's own printed caption,
+`rollup` = the enumerating table's row under L1-C5) and emits that provenance only for
+non-empty walks, so for a trivially idle section it is lost.
+`tools/l1_design_idle_evidence.py` re-runs that instrument's own `run_document` and reports the
+two fields it already produced:
+
+| the 21 trivially idle sections in the whole population | sections |
+|---|---:|
+| opening AND closing both read from the SECTION's own printed captions | **21** |
+| either figure read from the enumerating table instead | **0** |
+| also printing a dated row somewhere in the section | 3 |
+| also printing a dated row in its LEDGER region | **0** |
+
+| the 6 sections the ruling would license (on 6 documents; the other 2 of the 8 close already) | sections |
+|---|---:|
+| opening AND closing both read from the SECTION's own printed captions | **6** |
+| printing a dated row anywhere, or counts, or totals, or a daily table | **0** |
+
+So the evidence on those six is not silence and not a missing table row. **The section prints
+its own opening caption and its own closing caption and the two figures coincide** — a printed
+statement by the paper about that account. Whether that satisfies R-a's "explicit statement
+structure establishes the sibling AND its empty state" is a ruling; what it is NOT is "absence
+of parsed activity alone", because the paper printed two figures and they agree.
 
 **When a section IS omitted, the omission is SURFACED** — never silently:
 `DocumentReport.omissions` carries `{label, reason, posting_count}`, the payload carries it
@@ -573,7 +596,7 @@ this cell.
 | **L1-C14** | no statement-specific constant anywhere in the split: an account number, a product name or a memorised heading is R-1 | test failure (`tests/test_no_statement_hardcodes.py`) | `analysis/consumers.py`:88-94 today (§9, F3) |
 | **L1-C15** | zero inference — deterministic, $0, no model call | — | standing |
 | **L1-C16** | *(new)* a payload carrying `accounts` never also carries `statement`; a reader given a payload with neither raises `ValueError` | `ValueError` at the reader | measured: **6 of 6** probed readers ANSWER the untaught shape today instead of refusing it (§1.4) |
-| **L1-C17** | *(new)* an omission's `reason` is from a CLOSED vocabulary, every member of which names PRINTED evidence: `printed_dormancy_declaration`, `yield_only_arithmetic_with_summary_equality`. **`absence_of_parsed_rows` is not a member** | `None` — the document may not publish | §9 F1/F2: the two skips production performs today are absence-based, on the cohorts §6.2 sizes |
+| **L1-C17** | *(new)* an omission's `reason` is from a CLOSED vocabulary, every member of which names PRINTED evidence: `printed_dormancy_declaration`, `yield_only_arithmetic_with_summary_equality`, and — ONLY if §8 Q3 is granted — `printed_pair_coincides_and_no_row_printed`. **`absence_of_parsed_rows` is not a member and cannot become one** | `None` — the document may not publish | §9 F1/F2: the two skips production performs today are absence-based, on the cohorts §6.2 sizes. The third member's population is the 6 sections of §2.3, all six with both figures read from the section's own captions |
 | **L1-C18** | *(new)* no reader selects an account by a DERIVED quantity — most transactions, largest balance, first printed. Selection is by printed partition or there is no selection (R-e) | `None` | §9 F4: `analysis/community_section.py`:731-733 selects the busiest section today, on a cohort that includes a pinned document |
 
 **Currency, at section level (L1-C13, serving R-f).** The doctrine resolves a denomination per
@@ -758,7 +781,7 @@ the two changes are both forced by measurement:
 | **S1 — the wrapper and RULE S** | `analysis/pipeline.py` (the three dataclasses + the document seam), `analysis/serialization.py` (`document_report_to_dict`, RULE S), docstring of `analysis/schema.py` | **0 newly validated. 0 documents move.** `accounts` is length 1 on every document by construction; RULE S returns today's dict verbatim — measured byte-identical on 208 of 208 documents across 71 registrations | **none** | `cohort_replay --expect-identical` over every registration + BYTE comparison (§1.3) + archive sweep (0 findings expected, and 0 is the pass condition). `ANALYSIS_STAGE_VERSION` NOT bumped |
 | **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note), `analysis/symitar.py`, `analysis/community_section.py`, `analysis/zions.py` — the skip SITES only | **0 newly validated.** Payload movement on the documents whose reader skips a section today. Measured over the four probed registrations: **105** validated documents read, **15** print two or more of their OWN module's section marks while publishing one account (symitar 7 of 7, `dakota_west` 3 of 3, `community_section` 5 of 59, `mission_valley` 0 of 36), and only **4** print the ratified declaration — all four symitar. §9 F1/F2: on today's evidence most of these skips have no member of L1-C17's vocabulary to name, which is what makes this stage a correctness card and not a cosmetic one | **none expected** — a pinned mover is a STOP | mutation table on the omission-reason vocabulary; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
 | **S3 — the surfaces, taught DARK** | `telemetry/record.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `balance_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | unit tests per reader over synthetic document payloads; the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
-| **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **2 documents** close on every located section today, both one census group, both with the enumerating table's own closing column reproducing. **8** if §8 Q3 is granted (a section that prints no dated row and reads nothing may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published. Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
+| **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **2 documents** close on every located section today, both one census group, both with the enumerating table's own closing column reproducing. **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
 | **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94 and the second copy at :115-123) | **0 newly validated** — the `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today. This is a CORRECTNESS card: it removes an R-1 hardcode that publishes one memorised account of a member's several | **1 — `05E246C0ED6678E6`** (§6.3). Ceremony required BEFORE the change lands | truth-set ceremony; `cohort_replay --parser consumers` (2 documents in the run, both `validated`, one of them the pinned one); corpus gate; the audit CSVs re-derived and re-approved |
 | **S6 — the remaining mechanisms** | per-family row grammars on the shared template | **an ESTIMATE, and it is not offered.** What is measured: 29 of 392 sections close today; `section-identity` closes 10 sections and 0 documents; `section-equation-scan` closes 0 and always will (L1-C1) | unknown; each family carded separately | as S4, per family |
 
@@ -779,7 +802,7 @@ standing debt, move nothing, and leave the rest carded.
 |---|---|---|---|
 | **Q1** | When one account validates and another does not, does the document publish the validating account's figures (as `withheld`/`review` at document level) or refuse entirely? | whether the model produces `failed → withheld` improvements or nothing at all until every account closes | every multi-account document that partially closes; today all such documents are `failed` |
 | **Q2** | Must a transfer's counterpart be on the SAME document to be INTERNAL (this design says yes)? And does an AMBIGUOUS pair refuse only the package aggregation (this design's proposal) or the whole document? | §3.2, §3.3 | 7 documents, 47 pairs |
-| **Q3** | May a section that prints no dated row and reads nothing be OMITTED rather than counted — where the enumerating table prints a row for it and the table's own closing column reproduces? R-a says absence of parsed activity alone is insufficient; the question is whether a printed table row stating that account's pair IS explicit structure establishing the empty state | **2 documents → 8**; and beyond that family, whether 44 of the 86 single-posting documents (siblings empty-and-silent, or declaring idle in a wording symitar does not read) are reachable at all | 8 documents on one family; 62 empty-and-silent sibling sections and 7 in other wording across the population |
+| **Q3** | May a section be OMITTED rather than counted when it prints its OWN opening caption and its OWN closing caption, the two figures coincide, and it prints no dated row, no counts, no totals and no daily table? R-a says absence of parsed activity alone is insufficient — and this is not that: the paper printed two figures about that account and they agree. Is that "explicit statement structure establishing its empty state"? | **2 documents → 8**; and beyond that family, whether 44 of the 86 single-posting documents (siblings empty-and-silent, or declaring idle in a wording symitar does not read) are reachable at all | 6 idle sections on 6 documents, all one census group, **all six with both figures from the section's own captions and 0 of them printing a dated row, counts, totals or a daily table**; 21 such sections in the whole population, every one of them on the same provenance; 62 empty-and-silent sibling sections and 7 in other wording |
 | **Q4** | Two published sections in two denominations: publish two accounts, or refuse the document? R-f allows both | L1-C13 | 4 documents, one census group, 12 sections |
 | **Q5** | Does each account of a multi-account document enter a PACKAGE as its own member? And is `analysis/adb.py`'s "one statement yields one ADB" read as one ACCOUNT yields one ADB (which R-c forces)? | §2.5, §3.2, `_package_analysis` | the package layer; 95% of sections print no daily table of their own |
 | **Q6** | Where an issue prints a per-account activity RANGE rather than one document cycle, whose period does L1-C9 mean? | §2.4 | 27 documents lose every section today for printing no resolvable period at all; the per-account-range class is not separately measured |
@@ -893,16 +916,19 @@ re-running its own three instruments against the run of record and its cold cach
   patterns, the pinned exposure.
 * `tools/l1_design_reader_probe.py` — every payload reader that is a pure function of the
   payload dict, in three shapes.
+* `tools/l1_design_idle_evidence.py` — where every trivially idle section's opening and closing
+  came from. It re-runs `tools/l1_split_prototype.py`'s own `run_document` and reports two
+  fields that instrument computes and does not emit; it writes no grammar of its own.
 
-All three are unregistered, imported by nothing outside `tools/`, and reach no network.
+All four are unregistered, imported by nothing outside `tools/`, and reach no network.
 
 ### 10.3 Proof floor at this tree
 
 | proof | result |
 |---|---|
-| canonical guards (5 files), with the three prototypes present | **255 passed — EXIT=0** |
+| canonical guards (5 files), with the four prototypes present | **255 passed — EXIT=0** |
 | `tests/test_experiments_are_not_wired.py` | passes; it guards `experiments/` and says nothing about `tools/` — the property here is held by a GREP, not by a gate, exactly as the L1INV packet's MINOR-4 recorded. A `tools/` clause in that guard is a production-test change this card does not own |
-| the instruments are unwired | nothing outside `tools/` references any of the three, verified at this tip |
+| the instruments are unwired | nothing outside `tools/` references any of the four, verified at this tip |
 | no production file differs from base | `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` — **empty** |
 | branch privacy scan vs the whole population | **hit_count 0** over 1,922 added lines and 3,351 documents read (population 3,380; the 29 with no cached text are the same 29 the pinned survey cannot reach). MONEY / DIGITS / DATES / WORDS all 0. Raw scan 22, every one of them class WORDS, discarded by `words_class` — the standing exclusion applied at the batch-8 train, whose own docstring says the tree is unaudited for customer names by construction. This document names no census family and no institution outside a registration id |
 | commit-message scan | **hit_count 0**, MONEY / DIGITS / DATES / WORDS all 0 |
