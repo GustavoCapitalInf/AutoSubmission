@@ -56846,12 +56846,12 @@ than contradicted by it.
 | residue files | 209 | 200 |
 | `benchmark_truth_csv` (counted, inside the total) | **1,331** | **1,331** |
 | `institution_zip` rows | 166 | 166 |
-| `tests/` DATES | 1,971 | **129** |
+| `tests/` DATES | 1,971 | **128** |
 | `tests/` MONEY | 1,392 | 1,392 |
 | `tests/` DIGITS | 678 | 678 |
 
 **1,843 sites removed, every one a DATE in `tests/`. No file gains residue and no token at the tip
-is new.** `tests/` DATES is 129 rather than the 126 F2-9 reported, and the three are the honest
-price of MAJOR 1: reverting a corrupted canary puts back a token the archive also prints. They are
-in `test_structurer.py` and `test_bofa_variants.py`, they are canaries a fixture repair must not
-touch, and reporting them is the correct outcome.
+is new.** `tests/` DATES is 128 rather than the 126 F2-9 reported, and the two extra are the honest
+price of MAJOR 1: reverting a corrupted canary puts back a token the archive also prints. One is in
+`test_structurer.py` and one in `test_bofa_variants.py`, both are canaries a fixture repair must
+not touch, and reporting them is the correct outcome.
