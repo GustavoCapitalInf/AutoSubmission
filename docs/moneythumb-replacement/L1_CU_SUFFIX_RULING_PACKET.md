@@ -346,9 +346,23 @@ have, and it is the reason its Stage 1 cannot be built as scoped.
 
 Publishing a single-posting document means treating every OTHER printed section as an idle
 sibling. `analysis/symitar.py` 13-45 licenses that on exactly two printed grounds and the
-instrument applies both by calling that module's own code — `_DORMANT_RE` for the declaration,
-`_yield_only` for the arithmetic with its summary-equality test. A sibling satisfies the rule
-AS WRITTEN under one of those two and under nothing else.
+instrument applies both by calling that module's own code — its dormancy pattern for the
+declaration, its yield-only predicate for the arithmetic with its summary-equality test. A
+sibling satisfies the rule AS WRITTEN under one of those two and under nothing else.
+
+**Two disclosures, because a predicate borrowed from one platform's layout and run over 43
+census groups is not the same predicate unless the borrowing is stated.** First, the yield test
+is ANCHORED at the head of the description and this population prints descriptions on either
+side of a row's figures, so both candidates are offered and the anchored test chooses. Second,
+and this one was not disclosed in the first closure: **the predicate is called without its
+fourth argument, so its RATIFIED FOURTH CONDITION IS NOT APPLIED.** That condition is the
+platform's own six-figure equation row accounting for every skipped posting with its deposit
+column at zero, and the row is an artefact of one platform's layout that a generic probe does
+not read; the predicate therefore runs in its three-condition form. **The direction is safe and
+that is why the measurement stands: a RELAXED test that admits nothing proves the strict test
+admits nothing, and the count of siblings satisfying the rule is zero.** A future measurement
+that produced a non-zero count here would have to supply that row before the count could be
+trusted.
 
 At the census's threshold (a posting section is one with two or more dated rows):
 

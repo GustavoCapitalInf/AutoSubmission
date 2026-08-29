@@ -950,8 +950,25 @@ def classify_sibling(section_text: str, period: tuple[date, date] | None,
     because "posted a movement and declares nothing" is the L-1 defect itself
     while "empty and silent" is a candidate for a ruling that generalises the
     rule, and a recommendation that merges the two is the thing the review
-    called the door marked no ruling needed."""
+    called the door marked no ruling needed.
 
+    TWO DISCLOSURES, because a predicate borrowed from one layout and run over
+    forty-three census groups is not the same predicate unless the borrowing is
+    stated.
+
+    1. The ratified test is ANCHORED at the head of the description and this
+       population prints descriptions on either side of a row's figures, so
+       both candidates are offered and the anchored test chooses (see below).
+    2. **The fourth argument is not supplied, so the RATIFIED FOURTH CONDITION
+       IS NOT APPLIED.** That condition is the platform's own six-figure
+       equation row accounting for every skipped posting with its deposit
+       column at zero, and the row is an artefact of one platform's layout that
+       this generic probe does not read. The predicate therefore runs in its
+       three-condition form. **The direction is safe and that is why it stands:
+       a RELAXED test that admits nothing proves the strict test admits
+       nothing, and the measured count of siblings satisfying the rule is
+       zero.** A future measurement that produced a non-zero count here would
+       have to supply the row before the count could be trusted."""
     from analysis.symitar import _DORMANT_RE, _yield_only
 
     if _DORMANT_RE.search(section_text):
