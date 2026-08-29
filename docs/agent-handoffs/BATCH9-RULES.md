@@ -105,6 +105,10 @@ amount). Truth-set / pinned-surface movement outside an approved ceremony = STOP
   ("a fixture date", "an example figure"), never instances. A branch is unpushed until Ocean
   composes, so a message reword (`git filter-branch --msg-filter`, trees byte-identical,
   sha references remapped in your records) is cheap — a token in a pushed message is not.
+  Use `tools/huntington_msg_privacy_scan.py` until it becomes a `--messages` mode of the
+  branch scanner (FIXTURE-PRIVACY-3). Its WORDS class fires on the mandated co-authorship
+  trailer when a population prints that vendor as a merchant description — report the
+  WORDS count with that attribution; MONEY / DIGITS / DATES must be 0.
 - **Mutation harnesses on a shared host.** A harness that restores with `git checkout --`
   can leave a MUTANT in the working tree when git dies mid-run (index.lock contention was
   seen once). Restore in a `finally` that ignores the exit code, verify `git status
