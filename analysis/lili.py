@@ -18,18 +18,18 @@ tests: checked, not asserted.
 SKIN A (15 documents, four accounts, born-digital text) is the printing this
 reader publishes:
 
-    Account Number Statement Period 999900000000 1 September, 2027 - 30 September, 2027
+    Account Number Statement Period 999900000000 1 September, 2031 - 30 September, 2031
     Checking Account Summary Total Checking Amount
-    Beginning balance on 1 September, 2027 $58811.48
+    Beginning balance on 1 September, 2031 $58811.48
     Deposits and other credits $219405.64
     Withdrawals and other debits $-131905.32
     Fees $-5679.56
-    Ending balance on 30 September, 2027 $140632.24
+    Ending balance on 30 September, 2031 $140632.24
     Checking Account Activity - Main Account
     Date Authorization Code Description Amount Balance
-    09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84
-    09/17/2027 700000002 A TRANSFER IN $219405.64 $146311.80
-    09/30/2027 700000003 A PLAN CHARGE (Applies From 09/08/2027) $-5679.56 $140632.24
+    09/03/2031 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84
+    09/17/2031 700000002 A TRANSFER IN $219405.64 $146311.80
+    09/30/2031 700000003 A PLAN CHARGE (Applies From 09/08/2031) $-5679.56 $140632.24
 
 Five printed summary terms, one per line, each followed by its own figure;
 then one ledger under one column head, fully collapsed to one line per
@@ -136,7 +136,7 @@ _MONEY = r"\$" + MINUS_CLASS + r"?[\d,]+\.\d{2}"
 _MONEY_RUN = r"(?:" + _MONEY + r"[ \t]*)+"
 _MONEY_TOKEN_RE = re.compile(_MONEY)
 
-#: A day-first long date — `1 September, 2027`, `01 September, 2027`. The
+#: A day-first long date — `1 September, 2031`, `01 September, 2031`. The
 #: day may be printed with or without its leading zero. Group-free, so it
 #: can be embedded twice in the header pattern; `_LONG_DATE_PARTS` reads the
 #: pieces back out of whatever it matched.

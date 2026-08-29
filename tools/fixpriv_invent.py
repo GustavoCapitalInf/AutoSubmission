@@ -66,8 +66,8 @@ def universe(args: argparse.Namespace) -> tuple[dict[str, set[str]], int]:
 def generated(token: str, digit_min: int, word_min: int) -> dict[str, set[str]]:
     """Every token of every class the candidate TEXT would put in the tree.
 
-    Not the candidate itself: writing `139196.33` into a file also writes the
-    digit run `139196`, which the scanner reads as a DIGITS token in its own
+    Not the candidate itself: writing a six-figure amount into a file writes a
+    digit run it contains, which the scanner reads as a DIGITS token in its own
     right. The first version of this tool asked only whether the candidate was
     in the MONEY universe, called sixteen colliding figures CLEAR, and the
     whole-tree scan is what caught it.
@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="a file of INVENTED money tokens: report the smallest whole-number "
                              "cent scale under which none of them, nor any digit run they "
                              "generate, collides")
-    parser.add_argument("--scale-limit", type=int, default=100000)
+    parser.add_argument("--scale-limit", type=int, default=100_000)
     parser.add_argument("--digit-min", type=int, default=5)
     parser.add_argument("--word-min", type=int, default=4)
     args = parser.parse_args(argv)
