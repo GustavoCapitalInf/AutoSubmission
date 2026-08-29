@@ -170,7 +170,11 @@ _THOUSANDS_SPACE = "\u0020\u00a0\u202f"
 #: the paper may never have printed. That is the shape the repair doctrine is
 #: about, and it is the one direction the substitution must not be allowed to
 #: take. `_DIGIT_ADJACENT_CONTROL` below is the guard, and it fails CLOSED.
-_CONTROL_BYTE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+#: The class is spelled ONCE and both patterns are built from it, so the two
+#: can never drift — and so neither re-spells a byte range beside a `\d`, where
+#: the layer-wide calendar scan reads the `00` of `\x00` as a pinned day.
+_CONTROL_CLASS = r"[\x00-\x08\x0b\x0c\x0e-\x1f]"
+_CONTROL_BYTE = re.compile(_CONTROL_CLASS)
 #: A control byte standing next to a digit, on either side. Where one does, the
 #: document is DECLINED rather than normalised.
 #:
@@ -188,7 +192,7 @@ _CONTROL_BYTE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 #: mover is untouched. It is a bound on what the substitution may do, written
 #: before the archive prints the shape rather than after.
 _DIGIT_ADJACENT_CONTROL = re.compile(
-    r"\d[\x00-\x08\x0b\x0c\x0e-\x1f]|[\x00-\x08\x0b\x0c\x0e-\x1f]\d")
+    rf"\d{_CONTROL_CLASS}|{_CONTROL_CLASS}\d")
 
 #: A Balance Summary figure. PNC drops the leading zero on a sub-dollar amount,
 #: so a balance of eighty-seven cents is printed `.87` — and a `\b` before the

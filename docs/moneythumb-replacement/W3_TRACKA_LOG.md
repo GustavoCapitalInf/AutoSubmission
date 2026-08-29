@@ -58123,8 +58123,8 @@ say why the reading carries.
 | `tools/pnc_claim_delta.py` over all 3,380 archive documents | claimed then and now 45 · claimed now, unclaimed by EVERY reader then **13** · **taken from another reader, or dropped: 0** · no cached text 29 · untouched 3,293 | **0** |
 | branch privacy scan, ADDED FILE LINES vs the 58-document population | **hit_count 0** over 2,678 added lines and 58 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text). Not vacuous: the raw scan before exclusions finds **54**, every one class WORDS and every one ordinary English in this card's own prose | **0** |
 | branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 10 commits | **0** |
-| corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,379 deselected** — see PNC9.11 | **0** |
-| archive sweep (`tools.regfp_zero_movement_sweep`) | whole 3,380: compared 2,669 · identical 2,624 · **0 movement outside the named population** — see PNC9.11 | — |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,379 deselected** — see PNC9-C | **0** |
+| archive sweep (`tools.regfp_zero_movement_sweep`) | whole 3,380: compared 2,669 · identical 2,624 · **0 movement outside the named population** — see PNC9-C | — |
 
 **The two scan rows count this section too, and the zero is invariant to
 that.** The added-line count and the commit count are the branch's own at the
@@ -58163,12 +58163,12 @@ that time at about a quarter of one core with everything blocked on file I/O —
 the corpus gate that normally takes minutes took 745s of CPU across nearly two
 hours of wall clock. The corpus-marked slice and the archive sweep were both
 started at the tip and both were still running when this section was written.
-**Both have since completed and PNC9.11 carries their numbers**; the rows above
+**Both have since completed and PNC9-C carries their numbers**; the rows above
 are corrected and this paragraph is kept as the record of why they were late. What stands in the sweep's place is NOT nothing and is not an
 argument: `tools/pnc_claim_delta.py` asks the sweep's dispatch question over
 every one of the 3,380 documents and answers it — **no document moves to this
 reader from any other, and the 13 it newly CLAIMS all lie inside the named 17**
-(they are not the same 13 as the newly VALIDATED — PNC9.11 gives both sets). The half the sweep would add is payload comparison for documents this
+(they are not the same 13 as the newly VALIDATED — PNC9-C gives both sets). The half the sweep would add is payload comparison for documents this
 reader never touches, and the reader is the only production file this branch
 changes.
 
@@ -58239,7 +58239,7 @@ taken from any other reader across the whole archive.
    deserves the same sentence `core_processor_enclosures` has — a one-line
    change in a file this card does not own.
 
-## PNC9.11 CLOSURE — the review's three MINORs, closed and re-measured
+## PNC9-C CLOSURE — the review's three MINORs, closed and re-measured
 
 Independent adversarial review (`docs/moneythumb-replacement/reviews/BATCH9_PNC9_REVIEW.md`,
 `bb58f59`): **APPROVE WITH FINDINGS — 0 BLOCK / 0 MAJOR / 3 MINOR.** Every headline in
