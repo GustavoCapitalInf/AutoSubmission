@@ -56942,14 +56942,25 @@ takes it back. Three measurements, in the order they were made:
    the grid is its only second opinion, while this partition prints a
    per-CATEGORY count and a per-category total, which is finer evidence of
    completeness than either of the other two has;
-2. **what the platform actually says.** Published, all three are
+2. **what the platform actually says, with the checks that are evidence kept
+   apart from the checks that are arithmetic.** Published, all three are
    `validated / approved`: `recon.ok`, `summary_ok`, integrity flags empty,
-   quality `approved`, and in `adb.validations` `all_transactions_dated`,
+   quality `approved`, on the canonical `calendar_day_printed_period` basis
+   under `canonical_v1`. Of `adb.validations`' thirteen keys the EVIDENTIAL
+   ones — the ones that could have come out false on these documents — are
+   `opening_balance_matches_statement`, `final_balance_matches_statement_closing`,
+   `ledger_reconciles_to_closing`, `all_transactions_dated`,
+   `transactions_within_period` and `posting_dates_cover_source`, and all six
+   are true on all three. This record's first form ALSO listed
    `daily_balances_contiguous`, `daily_balance_count_equals_calendar_days`,
-   `covers_opening_day`, `covers_closing_day`,
-   `final_balance_matches_statement_closing` and `ledger_reconciles_to_closing`
-   all true, on the canonical `calendar_day_printed_period` basis under
-   `canonical_v1`;
+   `covers_opening_day` and `covers_closing_day`, which is an over-read: a
+   series `adb.py` reconstructs itself over the inclusive printed period is
+   contiguous, covers both ends and has one entry per calendar day BY
+   CONSTRUCTION, so those four say nothing about these documents and citing
+   them made the argument look stronger than it is. A fifth,
+   `running_balances_support_daily_ledger`, is not vacuously true either — it
+   is ABSENT, because `adb.py` registers it only where a transaction carries a
+   printed running balance and this issue prints none;
 3. **GL3.1's generalisation does not hold, and the correction is the useful
    part.** GL3.1 priced the bank's own printed `Average Balance (<basis>)`
    against the platform's six bases on the ONE document that then had both that
