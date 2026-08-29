@@ -365,11 +365,16 @@ _ZIP_GAP = r"[^0-9#]{0,8}"
 #:   beside them are an identity — so the run from the box to the state is
 #:   TEMPERED and may not cross one of them at all, in either half.
 #:
-#:   WHAT REMAINS, SAID PLAINLY: `PO BOX 196 <city-shaped word not in the
-#:   list> <word-shaped abbreviation> <five digits>` is still excused, because
-#:   by SHAPE it is `PO BOX 609 PITTSBURGH PA 99999`. The nearest real example
-#:   is a company suffix standing where a city would (`PO BOX 1558 ACME CORP
-#:   CO 45678`, with no `#` to give it away). This is the same
+#:   WHAT REMAINS, SAID PLAINLY, AND IT IS WIDER THAN "a word like a city":
+#:   `PO BOX 196 <any word of four or more letters that is not on the
+#:   `_IDENTIFIER_WORD` list> <word-shaped abbreviation> <five digits>` is
+#:   still excused, because by SHAPE it is `PO BOX 609 PITTSBURGH PA 99999`.
+#:   The substitute does not have to be identity-flavoured at all — ordinary
+#:   English will do, and the review demonstrated it with `SERIAL`, `FOLIO`,
+#:   `VOUCHER` and `PAID` — so the list is a floor on what this rule catches,
+#:   never a ceiling. The nearest real example is a company suffix standing
+#:   where a city would (`PO BOX 1558 ACME CORP CO 45678`, with no `#` to give
+#:   it away). This is the same
 #:   irreducible ambiguity `CITY_STATE_ZIP` carries with its comma, one shape
 #:   over, and no amount of punctuation or word-length reasoning closes it: the
 #:   only rule that would is a state-to-ZIP-prefix consistency table (`ID` runs
@@ -377,6 +382,15 @@ _ZIP_GAP = r"[^0-9#]{0,8}"
 #:   is a card of its own — every invented address fixture in this tree pairs a
 #:   state with a code that does not belong to it, so that table re-reports
 #:   them all and its cost has to be measured before it is chosen.
+#:
+#:   AND THE NARROWING'S COST, WHICH IS ONE SHAPE: a genuine box address whose
+#:   city is SHORTER than four letters and which carries no comma is now
+#:   reported — `PO BOX 1 ADA OK 99999` is a hit, and the same line with the
+#:   city's comma is excused. Live cost in this tree is ZERO: the rule's take
+#:   is 166 rows at the base and 166 at the tip. The direction is the right
+#:   one — the scan reporting an address is a nuisance, the scan hiding a
+#:   member number is not — but a rule that cannot read a three-letter city is
+#:   a fact about it, and it belongs here rather than in a reviewer's notes.
 #:
 #: The junk class allows what upper-casing a regex SOURCE leaves between the
 #: comma and the abbreviation: `\s` becomes `\S`, `\w` becomes `\W`, and a

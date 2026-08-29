@@ -451,6 +451,31 @@ def test_the_gap_stays_short_and_digit_free_inside_the_address_shapes(
     assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
 
 
+@pytest.mark.parametrize(
+    ("token", "line", "excused"),
+    [
+        # THE NARROWING'S COST, AND IT IS ONE SHAPE. A genuine box address whose
+        # city is shorter than four letters and which carries no comma is
+        # reported now. The same line with the city's comma is excused, which is
+        # what bounds the cost to this one shape. Live cost in this tree: zero.
+        ("99999", "PO BOX 1 ADA OK 99999", False),
+        ("99999", "PO BOX 1 ADA, OK 99999", True),
+        # THE RESIDUAL, AS WIDE AS IT ACTUALLY IS: the substitute city need not
+        # be identity-flavoured at all, and ordinary English will do. The
+        # identifier list is a floor on what the rule catches, never a ceiling.
+        ("99999", "PO BOX 196 SERIAL OR 99999", True),
+        ("99999", "PO BOX 196 VOUCHER OR 99999", True),
+        ("99999", "PO BOX 196 FOLIO ID 99999", True),
+    ],
+)
+def test_the_city_rule_costs_one_shape_and_leaves_a_residual_this_wide(
+    token: str, line: str, excused: bool
+) -> None:
+    """Both halves of the rule's honest description, pinned so they stay true."""
+    rule = excluded_by("DIGITS", "analysis/x.py", token, line)
+    assert (rule == "institution_zip") is excused, rule
+
+
 def test_a_bare_city_state_code_with_no_furniture_is_reported_not_hidden() -> None:
     """The narrowing's own cost, pinned. `CITY ST 99999` with no comma, no box
     and no ZIP+4 is indistinguishable from `AUTH OK 84213` by shape alone, so

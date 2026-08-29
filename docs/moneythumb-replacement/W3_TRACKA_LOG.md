@@ -56623,9 +56623,16 @@ gap, the same way `_CITY_WORD`'s word boundary is.
 `tests/` residue after this card: **MONEY 1,392 sites in 71 files, DIGITS 678 in 73 files**, and
 **58 files carry both**. Two facts the next card needs and this one measured:
 
-1. **THEY ARE ENTANGLED. 82 of the 678 DIGITS sites are the INTEGER PART of a money figure** — the
-   scanner tokenises a digit run of five or more wherever it stands, and a figure printed without
-   a thousands separator contains one. A cents SCALE must move those; an id invention must not.
+1. **THEY ARE ENTANGLED. 75 of the 678 DIGITS sites are the INTEGER PART of a money figure** —
+   the scanner tokenises a digit run of five or more wherever it stands, and a figure printed
+   without a thousands separator contains one. A cents SCALE must move those; an id invention must
+   not. (This paragraph first said 82. The review could not reproduce it and was right: 82 came
+   from a loose regex of mine, not from the definition the sentence gives. Measured exactly as
+   written — the token equals the integer part of some money figure on its own line — the answer
+   is **75**, and it is still 75 if the test is loosened to "the token is any substring of a money
+   figure on the line". 248 more merely SHARE a line with one, which is a different and much
+   weaker fact. The conclusion is unchanged; the number sizes the next card, so it is corrected
+   here rather than left to be re-derived.)
    Whichever technique goes first has to know about the other, and doing them in separate passes
    over the same file will produce a file that no longer closes.
 2. **THE SCALE CANNOT BE UNIFORM.** A whole-file cent scale is exact on every sum, chain and
@@ -56634,6 +56641,14 @@ gap, the same way `_CITY_WORD`'s word boundary is.
    of any closure while the third is the MAJOR-3 defect of the previous card arriving again. The
    shape of the answer is: scale the figures, leave the tolerances, keep every perturbation at one
    cent, and prove it with the `_CENT` ladder that is already a committed instrument.
+
+A NOTE ON THIS CARD'S OWN RULEBOOK, for the next cell rather than for this one: the copy of
+`docs/agent-handoffs/BATCH9-RULES.md` at this branch's base is the older one. The section the
+batch-9 reviews added — *"Surfaces the batch-9 reviews found unscanned"*, covering commit-message
+scanning, mutation-harness restore safety and where a record lives — exists only on `train9` and
+landed after `d2ab046`, so nothing here was written against it. It is satisfied anyway: the
+message scan is a floor item of this branch, the harness restore is F2-1, and the record is this
+section. Worth stating only so the composed train carries the newer rules forward.
 
 Also unchanged and still owed a ruling: the production sweep as its own card with
 `analysis/consumers.py:90` split out; the record redaction, refused twice; the tree being
