@@ -57490,8 +57490,17 @@ document.
   recorded in this cell's report to Ocean rather than here: a line count
   written into the file it counts cannot be its own final value.
 * `tools/huntington_msg_privacy_scan.py` over `git log 897d69e..<tip>
-  --format=%B`: **MONEY 0 · DIGITS 0 · DATES 0**. Messages are written in
-  CLASSES ("the printed word", "an invented 2031 fixture"), never instances.
+  --format=%B`: **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0**. Messages are
+  written in CLASSES ("the printed word", "an invented 2031 fixture"), never
+  instances.
+* One WORDS hit did fire once, and it is recorded rather than argued away: an
+  ordinary English two-word phrase in a commit message that also occurs
+  somewhere in the population's printed text. Nothing archival, but the
+  instrument does not know that and neither does a reader of the ledger — and
+  a branch nobody has pushed is exactly where a message is free to change. The
+  message was reworded and the scan re-run to **0 in every class**. The
+  standing lesson is the cheap one: scan the messages, then reword, before
+  Ocean composes.
 
 ## RP5.9 Proof floor, at `bdc5e27` (exit codes verbatim)
 
