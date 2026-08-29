@@ -85,6 +85,9 @@ _GRID_PAIR = re.compile(r"(\d{2}/\d{2})\s+(\d[\d,]*\.\d{2}|\.\d{2})(-?)")
 _GRID_HEADS = ("Daily Balance Detail", "Daily Balance", "Ledger Balance")
 #: The printed index of the itemised sections, and the per-direction `Total`.
 _INDEX_ROW = re.compile(r"([A-Z][A-Za-z/.&' ]+?)\s+(\d+)\s+(\d[\d,]*\.\d{2}|\.\d{2})")
+#: The index and the detail heading spell some sections differently; the probe
+#: reads the reader's own table so the two never drift apart.
+
 #: The two forms in which a section restates its OWN count and total on its
 #: heading line: the treasury/commercial `<n> transactions for a total of $x`
 #: and the consumer `There were <n> ... totaling $x.`
@@ -180,7 +183,11 @@ def printed_index(markdown: str) -> dict[str, tuple[int, float]]:
         for head in _GRID_HEADS:
             body = body.split(head)[0]
         for name, items, amount in _INDEX_ROW.findall(body):
-            entries[name.strip()] = (int(items), _money(amount))
+            from analysis.pnc import _SECTION_ALIASES
+
+            key = _SECTION_ALIASES.get(name.strip(), name.strip())
+            entries[key] = (int(items), _money(amount))
+    entries.pop("Total", None)
     return entries
 
 
@@ -222,20 +229,18 @@ def section_identity(markdown: str) -> dict[str, int]:
     from analysis import pnc
 
     out = {"exact": 0, "short": 0, "long": 0, "unindexed": 0, "printed": 0}
-    statement = pnc.parse_pnc_statement(markdown)
-    if statement is None:
+    period = pnc._period(markdown)
+    if period is None:
         return out
     printed = printed_index(markdown)
     printed.update(heading_oracles(markdown))
     printed.pop("Total", None)
     out["printed"] = len(printed)
-    year = int(statement.period_end[:4])
-    captured: dict[str, tuple[int, float]] = {}
-    for heading, sign in pnc._SECTION_SIGNS.items():
-        rows = pnc._parse_section(markdown, heading, year=year, sign=sign)
-        captured[heading] = (len(rows), round(sum(abs(row.amount) for row in rows), 2))
-    checks = pnc._parse_checks(markdown, year=year)
-    captured["Checks"] = (len(checks), round(sum(abs(row.amount) for row in checks), 2))
+    rows_by_section = pnc._captured_sections(markdown, year=int(period[1][:4]))
+    if rows_by_section is None:
+        return out
+    captured = {name: (len(rows), round(sum(abs(row.amount) for row in rows), 2))
+                for name, rows in rows_by_section.items()}
     for name, (items, total) in printed.items():
         got_items, got_total = captured.get(name, (0, 0.0))
         if (got_items, got_total) == (items, total):

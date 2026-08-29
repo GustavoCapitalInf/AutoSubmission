@@ -25,11 +25,22 @@ CHECK_HEADER = "Date posted\nCheck number\nAmount\nReference\nnumber\n"
 
 
 def document(*, activity: str, beginning: str = "1,000.00", credits: str = "500.00",
-             debits: str = "300.00", ending: str = "1,200.00") -> str:
+             debits: str = "300.00", ending: str = "1,200.00",
+             grid: str | None = None, index: str = "",
+             product: str = "Business Checking",
+             period: str = "For the Period 04/01/2054 to 04/30/2054") -> str:
+    """A PNC statement of one of the printed skins.
+
+    `grid` is the end-of-day ladder the bank prints, and it defaults to the
+    period's last day carrying the ENDING balance — because that is what a real
+    statement prints, and because the reader now walks its ledger against that
+    ladder. A fixture whose ladder and whose activity disagree is a fixture that
+    describes no statement PNC has ever issued.
+    """
     return (
-        "Business Checking\n"
+        f"{product}\n"
         "PNC Bank\n"
-        "For the Period 04/01/2054 to 04/30/2054\n"
+        f"{period}\n"
         "Primary Account Number: XX-XXXX-0000\n"
         "Balance Summary\n"
         "Beginning\n"
@@ -44,11 +55,12 @@ def document(*, activity: str, beginning: str = "1,000.00", credits: str = "500.
         "balance\n"
         "Overdraft and Returned Item Fee Summary\n"
         "Total Overdraft Fees .00 .00\n"
+        f"{index}"
         "Activity Detail\n"
         f"{activity}"
         "Daily Balance\n"
         "Date Ledger balance\n"
-        "04/30 1,200.00\n"
+        f"04/30 {ending if grid is None else grid}\n"
     )
 
 
@@ -392,9 +404,12 @@ def test_f5_negative_the_reader_never_walks_past_the_grid_to_find_four_figures()
 def test_f5_negative_an_item_count_beside_an_amount_is_out_of_reach():
     """PNC prints a `Description Items Amount` index and a `Daily Balance`
     ladder inside the block this parser is handed, and both put a bare integer
-    immediately left of a figure — `Debit Card Purchases 7 202.05`, `02/11
-    953.78`. Read as money that is 7,202.05 and 11,953.78. They are below the
-    grid row, so the summary reader never reaches them; this pins that."""
+    immediately left of a figure — `Deposits 1 500.00`, `02/11 953.78`. Read as
+    money that is 1,500.00 and 11,953.78. They are below the grid row, so the
+    summary reader never reaches them; this pins that.
+
+    The index printed here is the one this document's own activity earns, since
+    the reader now reads it as the bank's statement of what it itemized."""
     doc = (
         "Business Checking\nPNC Bank\n"
         "For the Period 04/01/2054 to 04/30/2054\n"
@@ -403,7 +418,8 @@ def test_f5_negative_an_item_count_beside_an_amount_is_out_of_reach():
         "Ending balance 1,000.00 500.00 300.00 1,200.00\n"
         "Deposits and other additions\nChecks and other\nbalance\ndeductions\n"
         "Average ledger\nAverage collected\nbalance 900.00 900.00\nbalance\n"
-        "Description Items Amount Debit Card Purchases 7 202.05\n"
+        "Description Items Amount Deposits 1 500.00\n"
+        "Description Items Amount Service Charges and Fees 1 300.00\n"
         "Date Ledger balance 02/10 1,195.48 02/11 953.78 02/12 840.03\n"
         "Activity Detail\n"
         f"{ACTIVITY}"
@@ -433,8 +449,19 @@ def test_f5_negative_a_bare_sub_dollar_figure_after_another_figure_still_reads()
     eighty-seven cents as `.87`, and it can stand in any column — including
     directly after a complete figure, which is exactly the position the new
     boundary rule talks about."""
-    doc = document(beginning="1,000.00", credits=".87", debits="300.00",
-                   ending="700.87", activity=ACTIVITY)
+    doc = document(
+        beginning="1,000.00", credits=".87", debits="300.00", ending="700.87",
+        activity=(
+            "Deposits and Other Additions\n"
+            "Deposits\n"
+            f"{DESCRIBED_HEADER}"
+            "04/02 .87 Deposit 000000001\n"
+            "Checks and Other Deductions\n"
+            "Service Charges and Fees\n"
+            f"{DESCRIBED_HEADER}"
+            "04/30 300.00 A Monthly Service Charge 000000003\n"
+        ),
+    )
     stmt = parse_pnc_statement(doc)
     assert stmt is not None
     assert summary_of(stmt) == (1000.00, 0.87, 300.00, 700.87)
