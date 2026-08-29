@@ -69,9 +69,16 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
     ),
     (
         "M6", "scan", "hex_sha_substring",
-        "shorten the hex run until an eight-digit account number is a `sha`",
-        'HEX_RUN_RE = re.compile(r"[0-9A-F]{16,64}")',
-        'HEX_RUN_RE = re.compile(r"[0-9A-F]{8,64}")',
+        "drop the hex-LETTER requirement, so any 7..64 digit run reads as a "
+        "sha and a card or account number goes quiet",
+        r'    r"(?<![0-9A-Z])(?=[0-9A-F]{7,64}(?![0-9A-Z]))[0-9A-F]*[A-F][0-9A-F]*(?![0-9A-Z])"',
+        r'    r"(?<![0-9A-Z])(?=[0-9A-F]{7,64}(?![0-9A-Z]))[0-9A-F]*(?![0-9A-Z])"',
+    ),
+    (
+        "M6b", "scan", "hex_sha_substring",
+        "shorten the run to five, so a short mixed token reads as an object name",
+        "[0-9A-F]{7,64}",
+        "[0-9A-F]{5,64}",
     ),
     (
         "M7", "scan", "docs_session_date",

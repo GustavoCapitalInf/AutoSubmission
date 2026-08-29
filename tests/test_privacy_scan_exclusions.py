@@ -126,6 +126,34 @@ def test_hex_sha_substring_needs_a_run_long_enough_to_be_a_sha() -> None:
     assert excluded_by("DIGITS", "tools/x.py", "12345678", "ACCT 12345678") is None
 
 
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        ("14282", "EVAL_UNKNOWN_BANKS.PY (F14282E, 392 LINES)"),
+        ("32116", "TIP `32116B3`, BASE `10CC722`"),
+        ("88540", "TWO Q7 MUTANT FIXES `88540B2`/`579F0BB`"),
+    ],
+)
+def test_an_abbreviated_git_object_name_is_a_name_not_a_token(token: str, line: str) -> None:
+    """The record calls a commit `f14282e`; that is not a number anything printed."""
+    assert excluded_by("DIGITS", "docs/x.md", token, line) == "hex_sha_substring"
+
+
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        ("31131672673", "RUN 31131672673 (R-3 MERGE)"),   # all digits: no letter
+        ("44034", "HYGIENE8 PART 2 = LINES 44034-44480"),
+        ("8877665544", "ACCOUNT NUMBER 8877665544"),
+        ("1234567", "ACCT 1234567 CLOSED"),               # seven digits, no letter
+        ("123456789012345678901234567890123456789012", "X 123456789012345678901234567890123456789012"),
+    ],
+)
+def test_the_git_object_shape_cannot_reach_an_all_digit_run(token: str, line: str) -> None:
+    """The required hex LETTER is the whole safety of the second half."""
+    assert excluded_by("DIGITS", "docs/x.md", token, line) is None
+
+
 @pytest.mark.parametrize("cls", ["MONEY", "DATES", "WORDS"])
 def test_hex_sha_substring_is_a_digits_rule_only(cls: str) -> None:
     line = "1B41B7B514AE699247E7CF668D7AB023"
@@ -217,3 +245,15 @@ def test_no_exclusion_silences_an_identifier_or_a_statement_figure(
 ) -> None:
     rule = excluded_by(cls, path, token, line)
     assert rule is None, f"{path}: {cls} {token!r} was excluded by {rule!r}"
+
+
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        ("12345", "REF 12345A CLEARED"),      # six characters: shorter than any
+        ("23456", "ITEM B23456 POSTED"),      # abbreviation this record writes
+    ],
+)
+def test_a_run_shorter_than_an_abbreviation_is_not_an_object_name(token: str, line: str) -> None:
+    """Seven is the shortest object name these records use; six is a reference."""
+    assert excluded_by("DIGITS", "docs/x.md", token, line) is None

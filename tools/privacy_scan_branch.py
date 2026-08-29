@@ -82,11 +82,16 @@ rule                   what it excludes, and why that is safe
                        — a reconciliation tolerance, a rate floor. A
                        sub-unit magnitude identifies nobody and reconstructs
                        nothing.
-``hex_sha_substring``  a DIGITS token that lies inside a 16..64-character hex
-                       run on the same line. It is part of a content sha —
-                       the program's own name for a document — and not a
-                       number anything printed. (A sha is a hash OF the
-                       document, never a token FROM it.)
+``hex_sha_substring``  a DIGITS token inside a name this program gives one of
+                       its OWN things: 7..64 hex characters carrying at least
+                       one hex LETTER — a content sha, or the abbreviated git
+                       object name a record writes as `f14282e`. A sha is a
+                       hash OF a document, never a token FROM it. The required
+                       letter is the rule's safety: an account, cheque, card
+                       or reference number is all digits and cannot satisfy
+                       the shape at ANY length, so the rule cannot silence
+                       one — which a bare `[0-9A-F]{16,64}` would (a 16-digit
+                       card number is "hex").
 ``docs_session_date``  a DATES token in ``docs/`` that is an ISO date on or
                        after ``2026-07-01``. Those are the PROGRAM's own
                        session dates — when a cell ran, when a train closed —
@@ -156,7 +161,24 @@ _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 #: A content sha as it is written in this tree: 16 to 64 hex characters. The
 #: token has to sit INSIDE one, so a bare digit run on the same line as a sha
 #: is still a finding.
-HEX_RUN_RE = re.compile(r"[0-9A-F]{16,64}")
+#: A name this program gives one of its OWN things: a content sha, or the
+#: abbreviated git object name the records write as `f14282e` / `32116b3`.
+#: 7 to 64 hex characters, bounded by something that is not alphanumeric, and
+#: carrying AT LEAST ONE hex letter.
+#:
+#: The letter is the whole safety of the rule, and it is why the shape is not
+#: simply `[0-9A-F]{16,64}` as the card first drew it: a 16-digit card number,
+#: a 20-digit reference, a 42-digit run are all "hex" by that pattern, and a
+#: rule that reads them as shas silences exactly the identifiers this scan
+#: exists to find. A sha without a single a–f is a 1-in-10^13 accident at 64
+#: characters (1 in ~1,100 at a 16-character prefix), and when one does occur
+#: it is REPORTED rather than hidden — the safe direction.
+#:
+#: (The scanner upper-cases every line before it matches, so the rule cannot
+#: ask for lower case, and does not need to.)
+HEX_RUN_RE = re.compile(
+    r"(?<![0-9A-Z])(?=[0-9A-F]{7,64}(?![0-9A-Z]))[0-9A-F]*[A-F][0-9A-F]*(?![0-9A-Z])"
+)
 #: `AR 72949`, `OZARK, AR\s*72949` — a state abbreviation, then at most eight
 #: characters that are not digits, then the five-digit code itself. The gap is
 #: short and digit-free so that the rule cannot reach past an address onto an
@@ -236,7 +258,9 @@ _EXCLUSION_SAMPLES = (
     ("subunit_money", "MONEY", "a.py", "0.01", "0.01", True),
     ("subunit_money", "MONEY", "a.py", "10.01", "10.01", False),
     ("hex_sha_substring", "DIGITS", "a.py", "12345", "AB12345CDEF01234567", True),
+    ("hex_sha_substring", "DIGITS", "a.py", "14282", "COMMIT F14282E LANDED", True),
     ("hex_sha_substring", "DIGITS", "a.py", "12345", "ACCOUNT 12345", False),
+    ("hex_sha_substring", "DIGITS", "a.py", "31131672673", "RUN 31131672673", False),
     ("docs_session_date", "DATES", "docs/x.md", "2026-08-29", "ON 2026-08-29", True),
     ("docs_session_date", "DATES", "docs/x.md", "2026-06-30", "ON 2026-06-30", False),
     ("docs_session_date", "DATES", "tests/x.py", "2026-08-29", "ON 2026-08-29", False),
