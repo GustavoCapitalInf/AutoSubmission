@@ -56050,14 +56050,39 @@ which was three docs-only commits behind its own tip). Every proof below was re-
 |---|---|
 | full default suite | **6,859 passed, 43 skipped, 34 deselected — EXIT=0**. The only test-count change this branch makes is measured directly: `tests/test_huntington.py` collects 39 at the base and 40 here, +1, the refusal test of HUNT9.6 |
 | canonical guards (5 files) | **255 passed — EXIT=0** |
-| canonical conformance (7 files) | **1,270 passed, 40 skipped — EXIT=0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped — EXIT=0** (inside the suite figure above) |
 | `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions — EXIT=0 |
 | corpus-marked slice (`pytest -m corpus`) | **30 passed, 6,906 deselected — EXIT=0** (2,014 s) |
-| `cohort_replay` at base, both cohorts, `--expect-identical` | **EXIT=0 each** — fidelity established before any change |
-| `cohort_replay` at closure, both cohorts, `--expect-identical` | **EXIT=0 each**, preserved 38 / 38 payload identical |
-| mutation table | **not owed — no gate and no grammar was added or touched** (the production diff is empty) |
-| branch privacy scan vs the 50-document population | **hit_count 0** over 828 added lines and 50 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. It opened at 2 when this section first landed, both of them a two-digit sub-section number read as a printed figure — a heading of the form HUNT9-dot-twelve is also a money shape, and two documents of this issuer print that amount. The numbering was merged to nine sub-sections, which carry no such shape, and no measurement moved |
-| the instruments carry no control byte | 0 on both files |
+| `cohort_replay --parser huntington --group DECL:huntington --expect-identical` at `f5b1ffb` | population 50 — **preserved 38 / 38, payload identical 38**, 12 unchanged non-validated with 0 payload changes, 0 regressions — **EXIT=0** |
+| `cohort_replay` at the base, both cohorts, `--expect-identical` | **EXIT=0 each** — fidelity established before any change |
+| mutation table | **not owed — no gate and no grammar was added or touched** (the production diff is empty). The one test this card adds was still checked against the mutant it exists for: `_validate` replaced by an unconditional pass, the conjunction test FAILS, tree restored with `git checkout --` and 40 pass again |
+| archive sweep at the final tree | 3,380 documents in two chunks — 2,669 payloads compared, 2,669 identical, **moved 0**, `no_payload_now_publishes` 0, `payload_now_raises` 0 — EXIT=0 each |
+| branch privacy scan, ADDED FILE LINES vs the 50-document population | **hit_count 0** over 1,379 added lines and 50 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. It opened at 2 when this section first landed, both of them a two-digit sub-section number read as a printed figure — a heading of the form HUNT9-dot-twelve is also a money shape, and two documents of this issuer print that amount. The numbering was merged to nine sub-sections, which carry no such shape, and no measurement moved |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **hit_count 0** over 17 commits, all four classes — EXIT=0, `tools/huntington_msg_privacy_scan.py`. Its zero is not vacuous and that is measured: run against the PRE-reword history it reports 2 MONEY hits on exactly the commit review MINOR-1 named |
+| the instruments carry no control byte | 0 on all three files |
+
+`corpus_gate.py`, the corpus-marked slice and the archive sweep were measured before the
+review closure and are not re-run here, on a stated argument rather than an assumption:
+their inputs are the production tree and the pinned corpus, and `git diff 52f1d03..HEAD --
+analysis ocr webapp discovery telemetry benchmark corpus_gate.py` is empty at every commit
+of this branch — the production tree is byte-identical to the base throughout, so no
+document's analysis can differ. Everything the closure DID touch (`tools/`, one test
+docstring, this log) is covered by the suite and the two scans above, which were re-run.
+
+### The review, and what each finding became
+
+An independent adversarial review (`docs/moneythumb-replacement/reviews/BATCH9_HUNT9_REVIEW.md`)
+returned CONFIRMED WITH FINDINGS — 0 BLOCK / 2 MAJOR / 4 MINOR. Every headline of this
+section reproduced in the reviewer's own session. The findings and their closures:
+
+| finding | closure |
+|---|---|
+| MAJOR-1 — the ceiling's stated reach was wider than the ceiling | HUNT9.5 rewritten: the modes bound RELAXATIONS over the payload the reader builds, and `written_fee` validates 3, so the barrier on those three is the repair doctrine, not the platform |
+| MAJOR-2 — the carried finding named a mechanism that publishes nothing | HUNT9.7 finding 1 rewritten as a repair-doctrine exception request with both measured counts and a stated recommendation of REFUSE; the `reconcile` routing withdrawn |
+| MINOR-1 — a redaction commit restated what it redacted, on a surface no scan reads | the message reworded by `git filter-branch --msg-filter` (trees unchanged, shas remapped in the review's new §7), and `tools/huntington_msg_privacy_scan.py` added so the surface is scanned from now on |
+| MINOR-2 — the ceiling's `--group` could be widened but not aimed | empty default, filled in after parsing; measured: no flag → 12, `--group DECL:core_processor_sectioned` → 22, not 34 |
+| MINOR-3 — the record's "closure tree" was not the tip | this section's opening paragraph |
+| MINOR-4 — the conjunction test cannot distinguish its two causes | said so in its docstring, with the mutant it does kill; not split, because the one-at-a-time cases are already pinned either side of it |
 
 ### The commits of this cell
 
@@ -56068,17 +56093,31 @@ which was three docs-only commits behind its own tip). Every proof below was re-
 | `d47fd09` | `tests/test_huntington.py` — the conjunction the archive prints, pinned as a refusal |
 | `e901218` | the probe's `in_row_tails` bound, closing the one place unbooked money could hide |
 | `e23107e` | the probe's unused `notes` key removed |
-| the tip | this section, appended to `W3_TRACKA_LOG.md` |
+| `0f0686f` `29ab66b` `9535372` `c963c5c` | this section, and its two privacy corrections |
+| `1d9fc30` `40a9a8d` | the independent review |
+| `bb00f64` | MINOR-1 — the reword, the sha remap, the commit-message scanner |
+| `2ba3c9b` | MINOR-2 — `--group` can be aimed |
+| `6b6e791` | MINOR-4 — what the conjunction test can and cannot say |
+| `b8c195f` | the two ceiling modes the MAJOR corrections cite |
+| `9628bf8` | MAJOR-1 — HUNT9.5 narrowed to its real bound |
+| `f5b1ffb` | MAJOR-2 — the carried finding re-aimed at the repair doctrine |
+| `4a6892e` and the tip | MINOR-3, and this closure |
+
+Shas at and before `0f0686f` are original; the five after it were re-created when MINOR-1
+reworded one message, with every tree in the range unchanged (§7 of the review file carries
+the remap table).
 
 ### The contract line
 
 **population 12** · **root cause** the L-1 second account ×4; `_validate` ×8, and inside
 those the fee the statement never itemises ×8, the absent `Balance Activity` table ×8, the
 itemisation short of its own printed total ×3, the summary that does not close ×2 ·
-**solution** none — no widening is defensible, and measured, none is possible ·
-**newly validated 0** · **other ladder movement 0** · **previously validated preserved
-38 / 38, payload identical** · **regressions 0** · **correctness evidence** the ceiling
-(0 validated with every identity removed), the platform's own refusals quoted, and the
-unread-money bound (0 activity figures, 0 in row tails, across all 50 documents) ·
-**generalization evidence** the shape is two accounts × four statements, against eleven
-validated documents of the same product that DO print both tables.
+**solution** none — **no relaxation of the identities reaches `validated`** (measured, three
+ways), and the one READING that reaches it on 3 documents is barred by the repair doctrine
+rather than by impossibility · **newly validated 0** · **other ladder movement 0** ·
+**previously validated preserved 38 / 38, payload identical** · **regressions 0** ·
+**correctness evidence** the four ceiling modes (0 / 0 / 0 / 3, the last one doctrine-barred
+and named), the platform's own refusals quoted, and the unread-money bound (0 activity
+figures, 0 in row tails, across all 50 documents) · **generalization evidence** the shape is
+two accounts × four statements, against eleven validated documents of the same product that
+DO print both tables.
