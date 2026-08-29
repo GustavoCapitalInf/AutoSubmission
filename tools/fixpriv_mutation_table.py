@@ -165,8 +165,16 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "M11d", "scan", "institution_zip",
         "unbound the post-office box to the whole LINE, so a box in one clause "
         "excuses an identifier in the next",
-        r'    rf"\bP\.?\s?O\.?\s?BOX\b[^;|]{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+        r'    rf"\bP\.?\s?O\.?\s?BOX\b{_CLAUSE_CHAR}{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
         r'    rf"\bP\.?\s?O\.?\s?BOX\b.*\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+    ),
+    (
+        "M11e", "scan", "institution_zip",
+        "widen the box CLAUSE back to `[^;|]`, so the marker reaches across a "
+        "full stop or a dash and an account tail standing after an address "
+        "goes quiet",
+        '_CLAUSE_CHAR = r"[^;|.\\-\\u2013\\u2014!?()\\[\\]]"',
+        '_CLAUSE_CHAR = r"[^;|]"',
     ),
     (
         "M12", "scan", "the table as a whole",

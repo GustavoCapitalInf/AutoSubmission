@@ -327,6 +327,12 @@ def test_a_state_abbreviation_that_is_an_english_word_is_not_an_address(
         ("84213", "PO BOX 196 OZARK, AR 99999; MEMBER ID 84213"),
         ("84213", "PO BOX 196 OZARK, AR 99999 | AUTH OK 84213"),
         ("84213", "PO BOX 196 " + "x" * 75 + " MEMBER ID 84213"),
+        # A clause ends at a FULL STOP and at a DASH, not only at `;` and `|`.
+        # Both of these were silenced while the class was `[^;|]`.
+        ("84213", "PO BOX 609 - ACCOUNT ENDING IN 84213"),
+        ("84213", "REMIT TO P.O. BOX 609. AUTH OK 84213"),
+        ("84213", "PO BOX 609 \u2014 MEMBER ID 84213"),
+        ("84213", "PO BOX 609 (SEE OVER) AUTH OK 84213"),
     ],
 )
 def test_the_box_marker_does_not_reach_out_of_its_clause(token: str, line: str) -> None:

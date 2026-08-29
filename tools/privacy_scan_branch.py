@@ -144,9 +144,11 @@ rule                   what it excludes, and why that is safe
 ``institution_zip``    a DIGITS token of exactly five digits standing in a
                        POSTAL ADDRESS: a state abbreviation immediately before
                        it AND the furniture an address carries — a city and
-                       its comma (`OZARK, AR 99999`), a ZIP+4 tail
-                       (`OH 99999-1558`), or a post-office box in the same
-                       clause (`P.O. BOX 196 OZARK AR 99999`). The postal code
+                       its comma (`OZARK, AR 99999`), or a post-office box in
+                       the same clause, which ends at a full stop, a dash or a
+                       segment separator (`P.O. BOX 196 OZARK AR 99999`). A
+                       ZIP+4 tail STRENGTHENS either shape and is never
+                       evidence on its own. The postal code
                        of an institution's own service address is the
                        furniture the doctrine allows a detection marker to
                        carry; it identifies a branch, never a customer. The
@@ -252,10 +254,17 @@ _ZIP_GAP = r"[^0-9]{0,8}"
 #:   (`COLUMBUS OH 99999-1558`). Five digits, a hyphen and exactly four more
 #:   is the postal shape itself.
 #: * ``BOX_CLAUSE_ZIP`` — a post-office box in the SAME clause, at most 70
-#:   characters ahead and never across a `;` or a `|`
+#:   characters ahead and never across a clause end
 #:   (`PO BOX 609 PITTSBURGH PA 99999`). A box marker is doctrine-sanctioned
 #:   institution furniture; bounding it to the clause is what stops a box in
-#:   one sentence from excusing a number in the next.
+#:   one sentence from excusing a number in the next. The clause ends at a
+#:   FULL STOP, a DASH or a segment separator, and the first re-review is why
+#:   the list is that long: a clause bounded only at `;` and `|` still reached
+#:   across `PO BOX 609 - ACCOUNT ENDING IN 84213` and across
+#:   `REMIT TO P.O. BOX 609. AUTH OK 84213`, which are an account tail and an
+#:   authorisation code standing AFTER an address, not part of one. A postal
+#:   address is written as one unbroken run of words; the punctuation that
+#:   ends a sentence or splits a segment is exactly where it stops.
 #:
 #: The junk class allows what upper-casing a regex SOURCE leaves between the
 #: comma and the abbreviation: `\s` becomes `\S`, `\w` becomes `\W`, and a
@@ -268,8 +277,12 @@ CITY_STATE_ZIP = re.compile(
 STATE_ZIP_PLUS_FOUR = re.compile(
     rf"\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})\s?-\s?\d{{4}}(?![\d-])"
 )
+#: One character of the run between the box marker and the state. A postal
+#: address does not carry a full stop, a dash or a segment separator between
+#: its box and its state, and each of those is where the next fact begins.
+_CLAUSE_CHAR = r"[^;|.\-\u2013\u2014!?()\[\]]"
 BOX_CLAUSE_ZIP = re.compile(
-    rf"\bP\.?\s?O\.?\s?BOX\b[^;|]{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
+    rf"\bP\.?\s?O\.?\s?BOX\b{_CLAUSE_CHAR}{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
 )
 ADDRESS_ZIP_RES = (CITY_STATE_ZIP, STATE_ZIP_PLUS_FOUR, BOX_CLAUSE_ZIP)
 #: The archive was frozen on 2026-08-06; every record this program writes about
@@ -380,7 +393,8 @@ _EXCLUSION_SAMPLES = (
     ("docs_session_date", "DATES", "docs/x.md", "2001-02-03", "ON 2001-02-03", False),
     ("docs_session_date", "DATES", "tests/x.py", "2026-08-29", "ON 2026-08-29", False),
     ("institution_zip", "DIGITS", "a.py", "99999", "OZARK, AR 99999", True),
-    ("institution_zip", "DIGITS", "a.py", "95959", "COLUMBUS OH 95959-1558", True),
+    ("institution_zip", "DIGITS", "a.py", "95959", "PO BOX 1962 COLUMBUS OH 95959-1558", True),
+    ("institution_zip", "DIGITS", "a.py", "84213", "PO BOX 609 - ACCOUNT ENDING IN 84213", False),
     ("institution_zip", "DIGITS", "a.py", "95959", "PO BOX 609 PITTSBURGH PA 95959", True),
     ("institution_zip", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
     ("institution_zip", "DIGITS", "a.py", "9898967", "OZARK, AR 9898967", False),
