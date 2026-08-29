@@ -872,6 +872,139 @@ def run_document(sha16: str, group: str, band: str, markdown: str, pages: int) -
 
 
 # ---------------------------------------------------------------------------
+# BLOCK-2 — the ratified idle-sibling rule, applied section by section
+# ---------------------------------------------------------------------------
+
+
+#: The rule's own printed declaration, and the wordings that are NOT it. The
+#: first is `analysis/symitar.py`'s `_DORMANT_RE` and is imported rather than
+#: restated; the second exists only to separate "declares idle some other way"
+#: from "declares nothing", because the difference is what ruling (5) is about.
+OTHER_IDLE_WORDING = re.compile(
+    r"\bno (?:account )?activity\b|\bno posting\b|\bno items\b"
+    r"|\bthere (?:were|was) no\b", re.I)
+
+
+@dataclass
+class SiblingVerdict:
+    verdict: str
+    n_dated_rows: int
+
+
+def classify_sibling(section_text: str, period: tuple[date, date] | None,
+                     n_dated_rows: int, table_close: float | None) -> SiblingVerdict:
+    """Does this sibling satisfy the RATIFIED idle-sibling rule, as written?
+
+    `analysis/symitar.py` 13-45 licenses skipping a deposit sibling on exactly
+    two printed grounds, and this calls that module's own code for both:
+
+    * the printed declaration `_DORMANT_RE`; or
+    * `_yield_only` — every posting the platform's own yield, credited rather
+      than paid out, the section's own arithmetic closing, and its last printed
+      balance equal to the ending balance the DOCUMENT states for that account.
+
+    Everything else FAILS the rule as written. The failure is sub-classified,
+    because "posted a movement and declares nothing" is the L-1 defect itself
+    while "empty and silent" is a candidate for a ruling that generalises the
+    rule, and a recommendation that merges the two is the thing the review
+    called the door marked no ruling needed."""
+    from analysis.symitar import _DORMANT_RE, _yield_only
+
+    if _DORMANT_RE.search(section_text):
+        return SiblingVerdict("declares-the-ratified-wording", n_dated_rows)
+
+    rows: list[dict] = []
+    if period is not None and n_dated_rows:
+        own_open = _figure(section_text, _OPEN_FIG, _OPEN_FIG_LEFT)
+        own_close = _figure(section_text, _CLOSE_FIG, _CLOSE_FIG_LEFT)
+        opening = own_open[0] if own_open else None
+        closing = own_close[0] if own_close else table_close
+        if opening is not None and closing is not None:
+            grid = find_grid_header(section_text)
+            start = max(own_open[1] if own_open else 0, grid[2] if grid else 0)
+            walk = chain_walk(section_text[start:], opening, closing, period)
+            if walk.ok and walk.rows:
+                from analysis.symitar import _DIVIDEND_RE as _YIELD_WORD
+
+                for iso, amount, balance, words in walk.rows:
+                    # The platform prints its posting type at the HEAD of the
+                    # description, and the ratified predicate is anchored
+                    # there. The two candidates are the words this row printed
+                    # before its figures and the words it printed after them,
+                    # because this population puts the description on either
+                    # side; whichever of them the anchored predicate matches is
+                    # handed to the rule, and the first non-empty one
+                    # otherwise. That restatement is the ONE place the rule
+                    # could not be applied byte-for-byte off one layout, and it
+                    # is disclosed rather than folded in.
+                    head = next((h for h in words if _YIELD_WORD.match(h)),
+                                next((h for h in words if h), ""))
+                    rows.append({"date": iso, "amount": amount,
+                                 "balance": balance, "description": head})
+                if _yield_only(rows, opening, closing, None):
+                    return SiblingVerdict("yield-only-as-written", n_dated_rows)
+
+    if n_dated_rows >= 1:
+        return SiblingVerdict("posted-a-dated-row-and-declares-nothing", n_dated_rows)
+    if OTHER_IDLE_WORDING.search(section_text):
+        return SiblingVerdict("declares-idle-in-some-other-wording", n_dated_rows)
+    return SiblingVerdict("empty-and-silent", n_dated_rows)
+
+
+@dataclass
+class IdleDoc:
+    sha16: str
+    group: str
+    band: str
+    boundary: str
+    n_sections: int
+    posting: int
+    siblings: list[SiblingVerdict] = field(default_factory=list)
+
+    @property
+    def weakest(self) -> str:
+        order = ("posted-a-dated-row-and-declares-nothing", "empty-and-silent",
+                 "declares-idle-in-some-other-wording", "yield-only-as-written",
+                 "declares-the-ratified-wording")
+        if not self.siblings:
+            return "no-sibling-section-located"
+        return min((s.verdict for s in self.siblings), key=order.index)
+
+    @property
+    def every_sibling_satisfies(self) -> bool:
+        return bool(self.siblings) and all(
+            s.verdict in ("declares-the-ratified-wording", "yield-only-as-written")
+            for s in self.siblings)
+
+
+def idle_document(sha16: str, group: str, band: str, markdown: str, pages: int,
+                  threshold: int) -> IdleDoc | None:
+    """One document's siblings, classified, at the given posting threshold.
+
+    `threshold` is what makes a located section a POSTING section: 2 is what
+    the published census used, 1 is what the packet's own third fail-closed
+    condition says (`No section with a dated ledger row may be dropped`), and
+    the population moves between them, so both are measured."""
+    doc = structure(sha16, group, band, markdown, pages)
+    posting = [s for s in doc.sections if s.n_dated_rows >= threshold]
+    if len(posting) != 1:
+        return None
+    text = _norm(markdown)
+    period = find_period(_flat(text))
+    out = IdleDoc(sha16, group, band, doc.boundary, len(doc.sections), len(posting))
+    for section in doc.sections:
+        if section.n_dated_rows >= threshold:
+            continue
+        body = text[section.start:section.end]
+        block = None
+        if doc.boundary.startswith("rollup-oracle") and 0 <= section.identity_index < len(doc.rollup.rows):
+            block = doc.rollup.rows[section.identity_index].block
+        _open, close = _rollup_pair(block, doc.rollup.header) if block else (None, None)
+        out.siblings.append(classify_sibling(body, period, section.n_dated_rows, close))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # report
 # ---------------------------------------------------------------------------
 
@@ -886,11 +1019,88 @@ def _population(groups, opportunities) -> list[tuple[str, str, str]]:
     return out
 
 
+def _idle_main(args, groups, opportunities, per_sha) -> int:
+    sha_by16 = {row["sha16"]: row["sha"] for row in per_sha}
+    cache = ColdCache(args.data_dir)
+    print("# L1INV — the ratified idle-sibling rule, applied section by section (BLOCK-2)")
+    print()
+    print("`analysis/symitar.py` 13-45 is called for both of its printed grounds: "
+          "its own `_DORMANT_RE` for the declaration and its own `_yield_only` for "
+          "the arithmetic. A sibling satisfies the rule AS WRITTEN only under one "
+          "of those two. Everything else fails it, and the sub-class says how.")
+    print()
+    for threshold in (2, 1):
+        docs: list[IdleDoc] = []
+        for band, group, sha16 in _population(groups, opportunities):
+            markdown, pages = cache.text(sha_by16[sha16])
+            if markdown is None:
+                continue
+            got = idle_document(sha16, group, band, markdown, len(pages), threshold)
+            if got is not None:
+                docs.append(got)
+        cu = [d for d in docs if d.band == "CU-SUFFIX"]
+        print(f"## Posting section = a located section with >= {threshold} dated row(s)")
+        print()
+        print("| population | documents |")
+        print("|---|---:|")
+        print(f"| documents with EXACTLY ONE posting section | {len(docs)} |")
+        print(f"| ... of them `CU-SUFFIX` | {len(cu)} |")
+        print()
+        print("| the single-posting documents, by their WEAKEST sibling | documents | of them `CU-SUFFIX` |")
+        print("|---|---:|---:|")
+        weakest = Counter(d.weakest for d in docs)
+        weakest_cu = Counter(d.weakest for d in cu)
+        for verdict, count in weakest.most_common():
+            print(f"| `{verdict}` | {count} | {weakest_cu.get(verdict, 0)} |")
+        print()
+        print("| every sibling section, classified | sections |")
+        print("|---|---:|")
+        counts = Counter(s.verdict for d in docs for s in d.siblings)
+        for verdict, count in counts.most_common():
+            print(f"| `{verdict}` | {count} |")
+        print(f"| **total sibling sections** | **{sum(counts.values())}** |")
+        print()
+        satisfied = [d for d in docs if d.every_sibling_satisfies]
+        no_sibling = [d for d in docs if not d.siblings]
+        print("| the Stage-1 question | documents |")
+        print("|---|---:|")
+        print(f"| EVERY sibling satisfies the ratified rule as written | "
+              f"**{len(satisfied)}** |")
+        print(f"| ... of them `CU-SUFFIX` | "
+              f"{sum(1 for d in satisfied if d.band == 'CU-SUFFIX')} |")
+        print(f"| at least one sibling FAILS the rule as written | "
+              f"{len(docs) - len(satisfied) - len(no_sibling)} |")
+        print(f"| no sibling section located at all (not the same as no sibling) | "
+              f"{len(no_sibling)} |")
+        posted = [d for d in docs
+                  if any(s.verdict == "posted-a-dated-row-and-declares-nothing"
+                         for s in d.siblings)]
+        print(f"| carry a sibling that POSTED and declares nothing (the L-1 defect) | "
+              f"**{len(posted)}** |")
+        print(f"| ... of them `CU-SUFFIX` | "
+              f"{sum(1 for d in posted if d.band == 'CU-SUFFIX')} |")
+        print(f"| carry a sibling that fails the rule, `CU-SUFFIX` only | "
+              f"{sum(1 for d in cu if d.siblings and not d.every_sibling_satisfies)} |")
+        print()
+        if args.json and threshold == 2:
+            args.json.write_text(json.dumps([
+                {"sha16": d.sha16, "group": d.group, "band": d.band,
+                 "boundary": d.boundary, "sections": d.n_sections,
+                 "weakest": d.weakest, "satisfies": d.every_sibling_satisfies,
+                 "siblings": [s.verdict for s in d.siblings]}
+                for d in docs
+            ], indent=1), encoding="utf-8")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--census-dir", required=True, type=Path)
     parser.add_argument("--data-dir", required=True, type=Path)
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--idle-siblings", action="store_true",
+                        help="BLOCK-2: apply the ratified idle-sibling rule to the "
+                             "siblings of every single-posting document")
     args = parser.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -898,6 +1108,8 @@ def main(argv: list[str] | None = None) -> int:
         pass
 
     groups, opportunities, per_sha = load_census(args.census_dir)
+    if args.idle_siblings:
+        return _idle_main(args, groups, opportunities, per_sha)
     sha_by16 = {row["sha16"]: row["sha"] for row in per_sha}
     cache = ColdCache(args.data_dir)
 
