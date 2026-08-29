@@ -56382,3 +56382,340 @@ carries this section. Coverage movement is unchanged and unchecked again for a r
 touched `tools/privacy_scan_branch.py`, its tests and the mutation harness, and nothing a reader
 imports — `fixpriv_ast_identity` and the replay were run at the first closure tip over production
 modules this pass did not open.
+
+# §HUNT9 — the twelve huntington declines are twelve honest refusals, and the ceiling proves it
+
+COVERAGE card `DECL-HUNTINGTON` (batch 9, 9A-1 card 1), branch `wave9-huntington`, base
+`train9` at `52f1d03`. **No production file changed.** The deliverable is the probe, the
+ceiling measurement, the per-sha gate table and one new refusal test —
+`newly validated = 0`, said plainly, with the number it stands on.
+
+## HUNT9.1 Population and baseline fidelity
+
+Census group `DECL:huntington`: **12** documents, every one `failed / parser_declined`,
+native text, folder `Huntington Bank`, 3–10 pages, every one already declined in the
+batch-7 control. The reader's protected baseline cohort is **38** validated documents.
+
+`cohort_replay` at the base `52f1d03`, run of record `cda8882d`, cold cache
+`webapp_data_train8_cold`:
+
+| cohort at base | population | result | exit |
+|---|---:|---|---:|
+| `--group DECL:huntington --expect-identical` | 12 | 12 unchanged non-validated, 0 payload changed | **0** |
+| `--parser huntington --expect-identical` | 38 | preserved 38 / 38, payload identical 38 | **0** |
+
+## HUNT9.2 The gate table — which link of the chain refuses, per sha
+
+`tools/huntington_decline_probe.py` walks `parse_huntington_statement`'s own refusal order
+and names the first link that returned `None`.
+
+| class | documents | first refusing gate |
+|---|---:|---|
+| L-1 refusal (out of scope; `L1-CU-SUFFIX-INVESTIGATION` owns it) | 4 | `_LINE_OF_CREDIT_RE` |
+| the document's own identities | 8 | `_validate` |
+| **a grammar gap on a shape ≥ 2 documents share** | **0** | — |
+
+The four L-1 refusals, named and left declined: `2D4E5714444ED7C3`, `46F2599A8757F72F`,
+`BFA453F0CE2769A0`, `C15A2E0F14E89FF5`.
+
+The eight, by the identities that miss:
+
+| sha16 | summary identity | components | section sums | fee net | Balance Activity |
+|---|---|---|---|---|---|
+| `0DCABEBAE6D99BE0` | ✓ | ✓ | ✓ | **no evidence** | **no evidence** |
+| `7C351D71B06A3E10` | ✓ | ✓ | ✓ | **no evidence** | **no evidence** |
+| `F14DAFC2118B3058` | ✓ | ✓ | ✓ | **no evidence** | **no evidence** |
+| `4AF6AB4A97E468F3` | ✓ | ✓ | **fails** | **no evidence** | **no evidence** |
+| `5D52C3A69E5A7FA9` | ✓ | ✓ | **fails** | **no evidence** | **no evidence** |
+| `89F586D7BA16DC32` | ✓ | ✓ | **fails** | **no evidence** | **no evidence** |
+| `1EEC7DABB4AB35E0` | **fails** | ✓ | ✓ | **no evidence** | **no evidence** |
+| `F7C683846985F86D` | **fails** | ✓ | ✓ | **no evidence** | **no evidence** |
+
+Four faults, all of them the document's:
+
+* **the fee that is never itemised (8 / 8).** All eight print a NON-ZERO
+  `Total Service Charges (-)` in the summary grid, and neither `Service Charge Detail` nor
+  `Service Charge Summary` occurs anywhere in the document — the phrases are absent, not
+  merely unparsed. The money came out: `beginning + credits − debits − charges == ending`
+  holds wherever the summary closes at all, and `beginning + credits − debits == ending`
+  holds nowhere. A published ledger would therefore be short by exactly that fee, on a day
+  the statement never prints.
+* **no `Balance Activity` table (8 / 8).** Neither `Balance Activity` nor `Daily Balance`
+  occurs. There is no printed end-of-day balance to date the ledger against — the check the
+  module's own docstring names as the only one that can see a misdated row.
+* **the itemisation that does not reach the printed total (3 / 8).** On `4AF6`, `5D52` and
+  `89F5` the printed debit rows sum to 75 %, 37 % and 94 % of the printed `Debits (-)`,
+  while the summary's own components (`Electronic Withdrawals` + `Other Debits`) reproduce
+  that total exactly. The statement itemises less than it totals. (`reconcile` quotes the
+  same shortfall against its own denominator — `Debits (-)` plus the stated charge — and
+  says 27 % for `5D52`; one fact, two denominators.)
+* **the summary that does not close (2 / 8).** On `1EEC` and `F7C6`,
+  `beginning + credits − debits − charges != ending` by 17 % and 5 % of the printed debit
+  total, in opposite directions, with every money token on the grid line matched to a
+  printed label (10 of 10 and 11 of 11) — so this is the bank's arithmetic and not a
+  mis-read cell. On both, the credit rows and the debit rows reproduce their printed totals
+  exactly, which is what rules the reader out as the cause.
+
+## HUNT9.3 Why there is no grammar gap — the money left on the floor
+
+A section this reader cannot see is a section whose figures it never reads, so unread
+printed money bounds a grammar gap from above. The probe counts it in both places money
+could hide: on a line no block claimed, and inside the TAIL of a row that was read (where
+`_row_groups` books one figure and treats the rest as description).
+
+| unread printed figures | documents | what carries them |
+|---:|---:|---|
+| 2 | 6 | `Average Ledger Balance*` / `Average Collected Balance*` — the service-charge-cycle averages the reader deliberately does not publish, because that cycle is not the statement period |
+| 4 | 2 | the same two, plus two figures inside a fee-schedule sentence on a legal-notice page |
+
+**Zero unread activity figures, zero money inside a read row's tail, and zero unknown
+headings of this layout's `<name> Account: ----NNNN` shape — on all twelve declines and on
+all thirty-eight validated documents.** The grammar reads everything these statements
+print. The probe's control confirms the instrument in the other direction: run over the 38
+validated shas it reports `PARSES` 38 / 38.
+
+## HUNT9.4 It is not a truncated PDF, and it is not a different product
+
+| | validated `Huntington Unlimited Checking` | the 8 declines |
+|---|---:|---:|
+| documents | 11 | 8 |
+| print `Balance Activity` | 11 | 0 |
+| print `Service Charge Detail` | 11 | 0 |
+| footer page sequence complete (`1 … N of N`) | 11 | 8 |
+
+All 38 validated documents print `Balance Activity`, and 11 of them are the same product as
+all 8 declines. The declines' own page footers run `1 … N of N` with no gap, so no
+statement page is missing from the file: this is a print of the product that omits both
+tables.
+
+## HUNT9.5 The ceiling — what it bounds, and the one reading that beats it
+
+`tools/huntington_identity_ceiling.py` replays the cohort with
+`analysis.huntington._validate` replaced IN MEMORY (the tree on disk is never touched) and
+classifies the result with the platform's own `telemetry.record.classify_outcome`.
+
+| mode | what it does | validated | outcome |
+|---|---|---:|---|
+| `absent_evidence` | relaxes only the identities whose blocks this print does not carry | **0** | 12 `failed / parser_declined` — the closing identity still fails by the fee |
+| `all_identities` | relaxes every identity, entirely | **0** | 8 `withheld / withheld_adb`, 4 `failed / parser_declined` (the L-1 gate precedes `_validate`) |
+| `recon_forced` | `all_identities`, plus `reconcile` forced to `ok` and `summary_ok`, no amount written | **0** | 8 `withheld / withheld_adb` |
+| `written_fee` | the reader publishes the stated `Total Service Charges (-)` as a debit dated the period end | **3** | `0DCABEBAE6D99BE0`, `7C351D71B06A3E10`, `F14DAFC2118B3058` → `validated / approved` |
+
+**No relaxation of the identities reaches `validated`** — that is what the first three rows
+establish, and it is the whole of what they establish. **This card's first record claimed
+more than that** ("no change to this reader — no widening, no relaxation, nothing"), and
+the independent review (MAJOR-1) disproved it by measurement. The correction, stated
+plainly:
+
+* the relaxation modes bound RELAXATIONS of `_validate` **over the payload the reader
+  already builds**. They say nothing about a reader that builds a DIFFERENT payload;
+* one such reader exists and it validates **3 of the 8** — exactly the three of HUNT9.2
+  whose every available identity already closes. `written_fee` does not relax a single
+  identity: it adds the one posting the ledger is missing, and the four checks then pass on
+  their own terms. The other five stay declined, refused by their own broken arithmetic;
+* so what blocks those three is **not** downstream of the parser. It is upstream, in the
+  payload the reader chooses to build, and it is the **repair doctrine — a parser never
+  writes an amount**. The fee's DATE is never printed anywhere on these statements, so
+  placing it on a day of the reader's choosing corrupts every daily balance from that day
+  forward and the ADB with them. Barred by name, not by impossibility.
+
+The distinction is the useful part of this section: a future cell that reads only the
+zeroes would conclude this population is architecturally out of reach, when it is in fact
+doctrine-forbidden — a different question, with a different owner (HUNT9.7).
+
+What the relaxation modes DO show, and it is worth keeping: with the payload unchanged the
+platform refuses for the same reasons the reader does, in its own words — `sum check off by
++<the stated service charge>`; `captured 27% of the bank's stated debits — line-item detail
+is inconsistent or incomplete; do not use it for daily-balance reconstruction`;
+`bank-stated summary does not reconcile`. `recon.ok` is False, `assess_quality` returns
+`corporate_use = manual_review_required`, and the ADB is withheld.
+
+## HUNT9.6 Solution, and what it refines in the L-1 ruling packet
+
+None, and that is the finding. Every class of decline was already a named, tested refusal
+before this card opened — `test_a_service_charge_the_document_never_itemises_is_refused`
+(whose docstring already reads "the shape eight documents in the surveyed folder are
+printed in"), `test_a_statement_printing_no_end_of_day_balances_is_refused`,
+`test_a_section_that_does_not_add_up_to_its_printed_subtotal_is_refused`,
+`test_a_summary_that_does_not_balance_is_refused` and
+`test_a_statement_carrying_a_second_account_is_declined_not_half_published`. One test is
+added, pinning the CONJUNCTION the archive actually prints — no fee detail AND no daily
+balances at once — which the one-at-a-time fixtures did not cover.
+
+**What this refines in the L-1 ruling packet.** The packet's §1 census reports `DECL:huntington` as 12 documents / 12 confirmed / **4** L-1
+refusals / 8 with the cause written as "grammar (period/summary/blocks/validate)" — the set
+of gates that could have refused, not the one that did. Measured here the gate is
+`_validate` on **all eight**; `_period`, `_summary`, `_transactions`, `_service_charges`
+and `_daily_balances` refuse **none** of the twelve. The packet's 4 reproduces exactly.
+
+## HUNT9.7 Generalization, and the findings carried
+
+The eight are **two distinct accounts, four statements each** (account-number fingerprints,
+never the numbers); the eleven validated documents of the same product are two other
+accounts. So the print that omits both tables is not one account's accident — it is a
+variant shared across two account holders — and it is still not publishable, which is the
+point: the widening is not blocked by rarity, it is blocked by the evidence not existing.
+
+### The findings carried
+
+1. **A REPAIR-DOCTRINE EXCEPTION REQUEST — expected answer: REFUSE.** Population 3:
+   `0DCABEBAE6D99BE0`, `7C351D71B06A3E10`, `F14DAFC2118B3058`, the only three where every
+   available identity closes. Each prints a non-zero `Total Service Charges (-)` that no
+   block itemises, so the published ledger is short by exactly that fee.
+
+   The only change that publishes them is a reader writing that fee into the ledger as a
+   posting — and the statement never prints its DATE. That is the repair doctrine's own
+   case (*a parser never writes an amount*), so this is an exception request against that
+   doctrine, owned by whoever rules on it, not a platform tolerance and not a coverage
+   argument. Measured both ways at this tree, so the request is weighed on numbers:
+
+   | what is granted | validated | outcome |
+   |---|---:|---|
+   | `reconcile` forced to `ok` and `summary_ok`, no amount written (`recon_forced`) | **0** | 8 `withheld / withheld_adb` |
+   | the stated fee written as a debit dated the period end (`written_fee`) | **3** | `validated / approved` |
+
+   **The reconciler tolerance publishes nothing.** `analysis/adb.py` requires
+   `final_balance_matches_statement_closing`, and a ledger short by the fee does not reach
+   the printed closing balance whatever `reconcile` is told to say about it — so the
+   platform-level ruling this card's first record proposed would have moved zero documents.
+   That framing is withdrawn; `analysis/reconcile.py` is not the owner.
+
+   **The recommendation stands at REFUSE**, and on the merits rather than on ownership: the
+   three documents would validate only because the reader chose a day the bank never
+   printed. Every daily balance from that day forward is then wrong by the fee, and the ADB
+   — the one user-facing metric — with them. A validated document whose ADB is knowingly
+   wrong is worse than a declined one. If it is ever revisited, it should be argued against
+   the ADB doctrine first and the coverage number last.
+
+2. **`_LINE_OF_CREDIT_RE` keys on today's second-account heading** — already carried by the
+   reader's own docstring and by `L1-CU-SUFFIX-INVESTIGATION`. This card measured its four
+   refusals and left them declined.
+
+3. **A commit message is a privacy surface no branch scan reads** (review MINOR-1, which
+   generalizes past this card). `tools/privacy_scan_branch.py` reads added FILE lines, so a
+   token written into a message is invisible to it and merges permanently. This branch hit
+   it: the commit that redacted two money-shaped tokens from this log quoted both in its own
+   message. Closed here by rewording that message and by
+   `tools/huntington_msg_privacy_scan.py`, which runs the file scan's own patterns over
+   `git log --format=%B`; nothing in it is huntington-specific. The standing rule the review
+   asks for belongs in BATCH9-RULES, which this card does not own.
+
+## HUNT9.8 Zero movement — the replays and the archive sweep
+
+Nothing moved, and the reason is structural rather than argued: **no production file
+differs from the base.** `git diff --stat 52f1d03..HEAD -- analysis ocr webapp discovery
+telemetry corpus_gate.py batch.py analyze.py parse.py` is EMPTY. The branch adds two
+instruments under `tools/` and one test; neither instrument is reachable from any
+production tree (grep over `analysis`, `ocr`, `webapp`, `discovery`, `telemetry`,
+`benchmark`, `tests` and `corpus_gate.py`: 0 references).
+
+| `cohort_replay` at the review-closure tip `f5b1ffb` | population | result | exit |
+|---|---:|---|---:|
+| `--group DECL:huntington --expect-identical` | 12 | 12 unchanged non-validated, 0 payload changed, 0 regressions | **0** |
+| `--parser huntington --expect-identical` | 38 | **preserved 38 / 38, payload identical 38**, 0 regressions | **0** |
+
+The **archive sweep at the final tree**, `tools.regfp_zero_movement_sweep` over the run of
+record's own `rows.csv` against the baseline settings key, in two chunks that cover every
+document:
+
+| chunk | documents | payloads compared | identical | moved | `no_payload_now_publishes` | `payload_now_raises` | seconds |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `[0, 400)` | 400 | 321 | 321 | **0** | 0 | 0 | 464 |
+| `[400, 3380)` | 2,980 | 2,348 | 2,348 | **0** | 0 | 0 | 3,357 |
+| **total** | **3,380** | **2,669** | **2,669** | **0** | **0** | **0** | 3,821 |
+
+EXIT=0 on both. `no_ocr_artifact` 4 + 25 = 29 and `no_payload_raises_again` 75 + 607 = 682
+are the archive's own standing residue, identical to what a sweep of an unchanged tree
+reports; nothing in either is a mover. **Zero movement, archive-wide** — which is what an
+empty production diff has to produce, and now does so by measurement rather than by
+argument.
+
+## HUNT9.9 The proof floor at the review-closure tip, the commits, and the contract line
+
+**Which tree these exit codes belong to** (review MINOR-3: the first record said `e23107e`,
+which was three docs-only commits behind its own tip). Every proof below was re-run at
+`f5b1ffb`, the tip after the last review-closure change. The only commits after it edit
+`docs/moneythumb-replacement/W3_TRACKA_LOG.md` and nothing else — check it with
+`git diff --name-only f5b1ffb..HEAD`.
+
+| proof | result |
+|---|---|
+| full default suite | **6,859 passed, 43 skipped, 34 deselected — EXIT=0**. The only test-count change this branch makes is measured directly: `tests/test_huntington.py` collects 39 at the base and 40 here, +1, the refusal test of HUNT9.6 |
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped — EXIT=0** (inside the suite figure above) |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions — EXIT=0 |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed, 6,906 deselected — EXIT=0** (2,014 s) |
+| `cohort_replay --parser huntington --group DECL:huntington --expect-identical` at `f5b1ffb` | population 50 — **preserved 38 / 38, payload identical 38**, 12 unchanged non-validated with 0 payload changes, 0 regressions — **EXIT=0** |
+| `cohort_replay` at the base, both cohorts, `--expect-identical` | **EXIT=0 each** — fidelity established before any change |
+| mutation table | **not owed — no gate and no grammar was added or touched** (the production diff is empty). The one test this card adds was still checked against the mutant it exists for: `_validate` replaced by an unconditional pass, the conjunction test FAILS, tree restored with `git checkout --` and 40 pass again |
+| archive sweep at the final tree | 3,380 documents in two chunks — 2,669 payloads compared, 2,669 identical, **moved 0**, `no_payload_now_publishes` 0, `payload_now_raises` 0 — EXIT=0 each |
+| branch privacy scan, ADDED FILE LINES vs the 50-document population | **hit_count 0** over 1,424 added lines and 50 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. It opened at 2 when this section first landed, both of them a two-digit sub-section number read as a printed figure — a heading of the form HUNT9-dot-twelve is also a money shape, and two documents of this issuer print that amount. The numbering was merged to nine sub-sections, which carry no such shape, and no measurement moved |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **hit_count 0** over 19 commits, all four classes — EXIT=0, `tools/huntington_msg_privacy_scan.py`. Its zero is not vacuous and that is measured: run against the PRE-reword history it reports 2 MONEY hits on exactly the commit review MINOR-1 named |
+| the instruments carry no control byte | 0 on all three files |
+
+The two counts above are the branch's own at `c624415`, the commit that carries this
+closure. The single commit after it changes these two numbers and nothing else, and both
+scans were re-run at it: still 0, all four classes, both instruments. The ZERO is what the
+floor asserts; the line and commit counts move with the record and are named so a reader
+can tell which tree produced them.
+
+`corpus_gate.py`, the corpus-marked slice and the archive sweep were measured before the
+review closure and are not re-run here, on a stated argument rather than an assumption:
+their inputs are the production tree and the pinned corpus, and `git diff 52f1d03..HEAD --
+analysis ocr webapp discovery telemetry benchmark corpus_gate.py` is empty at every commit
+of this branch — the production tree is byte-identical to the base throughout, so no
+document's analysis can differ. Everything the closure DID touch (`tools/`, one test
+docstring, this log) is covered by the suite and the two scans above, which were re-run.
+
+### The review, and what each finding became
+
+An independent adversarial review (`docs/moneythumb-replacement/reviews/BATCH9_HUNT9_REVIEW.md`)
+returned CONFIRMED WITH FINDINGS — 0 BLOCK / 2 MAJOR / 4 MINOR. Every headline of this
+section reproduced in the reviewer's own session. The findings and their closures:
+
+| finding | closure |
+|---|---|
+| MAJOR-1 — the ceiling's stated reach was wider than the ceiling | HUNT9.5 rewritten: the modes bound RELAXATIONS over the payload the reader builds, and `written_fee` validates 3, so the barrier on those three is the repair doctrine, not the platform |
+| MAJOR-2 — the carried finding named a mechanism that publishes nothing | HUNT9.7 finding 1 rewritten as a repair-doctrine exception request with both measured counts and a stated recommendation of REFUSE; the `reconcile` routing withdrawn |
+| MINOR-1 — a redaction commit restated what it redacted, on a surface no scan reads | the message reworded by `git filter-branch --msg-filter` (trees unchanged, shas remapped in the review's new §7), and `tools/huntington_msg_privacy_scan.py` added so the surface is scanned from now on |
+| MINOR-2 — the ceiling's `--group` could be widened but not aimed | empty default, filled in after parsing; measured: no flag → 12, `--group DECL:core_processor_sectioned` → 22, not 34 |
+| MINOR-3 — the record's "closure tree" was not the tip | this section's opening paragraph |
+| MINOR-4 — the conjunction test cannot distinguish its two causes | said so in its docstring, with the mutant it does kill; not split, because the one-at-a-time cases are already pinned either side of it |
+
+### The commits of this cell
+
+| commit | what |
+|---|---|
+| `e689ed2` | `tools/huntington_decline_probe.py` — the per-sha gate table |
+| `b2857cd` | `tools/huntington_identity_ceiling.py` — the ceiling measurement |
+| `d47fd09` | `tests/test_huntington.py` — the conjunction the archive prints, pinned as a refusal |
+| `e901218` | the probe's `in_row_tails` bound, closing the one place unbooked money could hide |
+| `e23107e` | the probe's unused `notes` key removed |
+| `0f0686f` `29ab66b` `9535372` `c963c5c` | this section, and its two privacy corrections |
+| `1d9fc30` `40a9a8d` | the independent review |
+| `bb00f64` | MINOR-1 — the reword, the sha remap, the commit-message scanner |
+| `2ba3c9b` | MINOR-2 — `--group` can be aimed |
+| `6b6e791` | MINOR-4 — what the conjunction test can and cannot say |
+| `b8c195f` | the two ceiling modes the MAJOR corrections cite |
+| `9628bf8` | MAJOR-1 — HUNT9.5 narrowed to its real bound |
+| `f5b1ffb` | MAJOR-2 — the carried finding re-aimed at the repair doctrine |
+| `4a6892e` and the tip | MINOR-3, and this closure |
+
+Shas at and before `0f0686f` are original; the five after it were re-created when MINOR-1
+reworded one message, with every tree in the range unchanged (§7 of the review file carries
+the remap table).
+
+### The contract line
+
+**population 12** · **root cause** the L-1 second account ×4; `_validate` ×8, and inside
+those the fee the statement never itemises ×8, the absent `Balance Activity` table ×8, the
+itemisation short of its own printed total ×3, the summary that does not close ×2 ·
+**solution** none — **no relaxation of the identities reaches `validated`** (measured, three
+ways), and the one READING that reaches it on 3 documents is barred by the repair doctrine
+rather than by impossibility · **newly validated 0** · **other ladder movement 0** ·
+**previously validated preserved 38 / 38, payload identical** · **regressions 0** ·
+**correctness evidence** the four ceiling modes (0 / 0 / 0 / 3, the last one doctrine-barred
+and named), the platform's own refusals quoted, and the unread-money bound (0 activity
+figures, 0 in row tails, across all 50 documents) · **generalization evidence** the shape is
+two accounts × four statements, against eleven validated documents of the same product that
+DO print both tables.

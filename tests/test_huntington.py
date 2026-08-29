@@ -348,6 +348,38 @@ def test_a_service_charge_the_document_never_itemises_is_refused():
     ) is None
 
 
+def test_the_print_that_itemises_neither_its_fees_nor_its_daily_balances_is_refused():
+    """The measured shape of every non-L-1 decline this reader makes (§HUNT9).
+
+    Eight documents of the surveyed folder are printed this way: a complete
+    page sequence, a summary grid that accounts for a NON-ZERO
+    ``Total Service Charges (-)``, no ``Service Charge Detail`` to itemise it
+    and no ``Balance Activity`` table to date the ledger against. Two of the
+    four oracles are missing at once and neither absence is a grammar gap —
+    measured, the reader reads every printed figure on those documents bar the
+    two service-charge-cycle averages it deliberately does not publish.
+
+    Publishing anyway would mean a ledger short by exactly the fee the
+    statement says came out, on days no printed balance can check. It is
+    refused whole rather than published partially, and this test is the wall a
+    future widening has to argue with rather than walk past.
+
+    What it is and is not, stated so nobody mistakes it later: it asserts one
+    refusal over a fixture missing BOTH oracles, so it is load-bearing for
+    `_validate` AS A WHOLE — relax the block to an unconditional pass and this
+    test fails — but it cannot say WHICH of the two absences refused, and it
+    would still pass if only one of them did. The one-at-a-time cases are the
+    two tests above and below it
+    (`test_a_service_charge_the_document_never_itemises_is_refused`,
+    `test_a_statement_printing_no_end_of_day_balances_is_refused`); this one
+    exists because the archive breaks both at once and nothing else pinned that
+    conjunction.
+    """
+    assert parse_huntington_statement(
+        document(fee_detail="", fee_summary="", balances="")
+    ) is None
+
+
 def test_the_intermediate_net_line_is_not_counted_as_a_charge():
     """`Net Service Charges` is printed between the two columns' totals.
     Adding it would count the previous month's charges twice."""
