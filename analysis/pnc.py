@@ -578,11 +578,18 @@ def _printed_index(markdown: str) -> dict[str, set[tuple[int, float]]]:
     merges several categories into one section by printing one sentence each —
     so those are summed, which is what the section's own rows add up to.
 
-    Each section's claims are a SET rather than one value, so a document that
-    indexes a section twice with two different figures is refused rather than
-    silently reduced to whichever was read last: no capture can satisfy two
-    contradictory claims, which is the fail-closed reading of a bank
-    contradicting itself.
+    The table is printed once PER DIRECTION — measured: exactly two tables on
+    every archive document that prints one, and the only names that appear in
+    both are the four both-sided categories — so a name's table claims are
+    SUMMED. The section's rows are its rows whichever side the bank listed them
+    on, and a category listed with three items on one side and none on the
+    other is one section of three items.
+
+    A section's claims are a SET, so the several restatements a section prints
+    (one per continuation page) collapse to one, and a document that states two
+    DIFFERENT claims for one section is refused rather than silently reduced to
+    whichever was read last: no capture can satisfy two contradictory claims,
+    which is the fail-closed reading of a bank contradicting itself.
 
     `Total` is dropped: it is the per-direction sum of the rows above it, which
     the Balance Summary already states and `analysis/reconcile.py` already
@@ -590,6 +597,7 @@ def _printed_index(markdown: str) -> dict[str, set[tuple[int, float]]]:
     identities.
     """
     entries: dict[str, set[tuple[int, float]]] = {}
+    tabled: dict[str, tuple[int, float]] = {}
     for table in _INDEX_TABLE.finditer(markdown):
         body = table.group("body")
         # The index is a BLOCK, and it ends where the next one begins. Without
@@ -602,8 +610,12 @@ def _printed_index(markdown: str) -> dict[str, set[tuple[int, float]]]:
         for name, items, amount in _INDEX_ROW.findall(body):
             name = _SECTION_ALIASES.get(name.strip(), name.strip())
             value = _money(amount)
-            if value is not None:
-                entries.setdefault(name, set()).add((int(items), round(value, 2)))
+            if value is None:
+                continue
+            was = tabled.get(name, (0, 0.0))
+            tabled[name] = (was[0] + int(items), round(was[1] + value, 2))
+    for name, claim in tabled.items():
+        entries.setdefault(name, set()).add(claim)
     for line in markdown.splitlines():
         found = _HEADING_COUNT_RE.findall(line) or _HEADING_PROSE_RE.findall(line)
         head = _HEADING_LINE.match(line)

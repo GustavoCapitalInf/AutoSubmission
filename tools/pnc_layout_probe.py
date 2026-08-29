@@ -83,17 +83,6 @@ _DETACHED_DAYS = re.compile(r"(?m)^\s*/\d{2}(?:\s+/\d{2})*\s*$")
 #: or `04/01 1,000.00-` (negatives carry a TRAILING minus).
 _GRID_PAIR = re.compile(r"(\d{2}/\d{2})\s+(\d[\d,]*\.\d{2}|\.\d{2})(-?)")
 _GRID_HEADS = ("Daily Balance Detail", "Daily Balance", "Ledger Balance")
-#: The printed index of the itemised sections, and the per-direction `Total`.
-_INDEX_ROW = re.compile(r"([A-Z][A-Za-z/.&' ]+?)\s+(\d+)\s+(\d[\d,]*\.\d{2}|\.\d{2})")
-#: The index and the detail heading spell some sections differently; the probe
-#: reads the reader's own table so the two never drift apart.
-
-#: The two forms in which a section restates its OWN count and total on its
-#: heading line: the treasury/commercial `<n> transactions for a total of $x`
-#: and the consumer `There were <n> ... totaling $x.`
-_HEADING_COUNT = re.compile(r"(\d+)\s+transactions?\s+for a total of\s+\$(\d[\d,]*\.\d{2}|\.\d{2})")
-_PROSE_COUNT = re.compile(r"There were\s+(\d+)\s+[^.$]*?totaling\s+\$(\d[\d,]*\.\d{2}|\.\d{2})")
-
 _MASTHEADS = (
     ("core_commercial", "PNC Core Commercial Checking Account Statement"),
     ("virtual_wallet", "Virtual Wallet With Performance Spend Statement"),
@@ -174,53 +163,67 @@ def grid_agrees_with_closing(markdown: str, closing: float | None) -> str:
 
 
 def printed_index(markdown: str) -> dict[str, tuple[int, float]]:
-    """The `Description Items Amount` index, category -> (items, total)."""
-    entries: dict[str, tuple[int, float]] = {}
-    for block in re.finditer(r"Description\s+Items\s+Amount(?P<body>.*?)"
-                             r"(?=Description\s+Items\s+Amount|\n\s*\n|$)",
-                             markdown, re.DOTALL):
-        body = block.group("body")
-        for head in _GRID_HEADS:
-            body = body.split(head)[0]
-        for name, items, amount in _INDEX_ROW.findall(body):
-            from analysis.pnc import _SECTION_ALIASES
+    """The bank's own index of what it itemised, read with the READER's own
+    grammar rather than a second copy of it.
 
-            key = _SECTION_ALIASES.get(name.strip(), name.strip())
-            entries[key] = (int(items), _money(amount))
-    entries.pop("Total", None)
-    return entries
+    Sharing the grammar is deliberate: an instrument that predicts a gate's
+    population and the gate that applies it must not be able to disagree about
+    what the paper says, and a probe with its own private copy of the index
+    grammar is exactly how that disagreement starts. What the probe adds is the
+    comparison — how the reader's capture stands against the paper — which is
+    the part the reader turns into a yes or a no.
+
+    A section whose claims contradict each other collapses to the FIRST claim
+    here, and the extra ones are counted in `contradictions`, so the probe can
+    show a shape the reader can only refuse.
+    """
+    from analysis import pnc
+
+    return {name: sorted(claims)[0]
+            for name, claims in pnc._printed_index(markdown).items()}
 
 
-def heading_oracles(markdown: str) -> dict[str, tuple[int, float]]:
-    """Sections that restate their own count and total on the heading line."""
-    entries: dict[str, tuple[int, float]] = {}
-    for line in markdown.splitlines():
-        for pattern in (_HEADING_COUNT, _PROSE_COUNT):
-            found = pattern.findall(line)
-            if not found:
-                continue
-            name = line[: pattern.search(line).start()].strip()
-            name = re.sub(r"\s*[\x00-\x1f]?-\s*continued\s*$", "", name).strip()
-            if not name:
-                continue
-            entries[name] = (sum(int(n) for n, _ in found),
-                             round(sum(_money(a) for _, a in found), 2))
-    return entries
+def index_contradictions(markdown: str) -> int:
+    from analysis import pnc
+
+    return sum(len(claims) - 1 for claims in pnc._printed_index(markdown).values())
 
 
 def reader_gate(markdown: str) -> str:
-    """The FIRST link of `parse_pnc_statement`'s own chain that refuses."""
+    """The FIRST link of `parse_pnc_statement`'s own chain that refuses.
+
+    It walks the reader's links in the reader's order, over the reader's own
+    normalised text, and calls the reader's own functions — so the gate this
+    names and the gate that fires cannot be two different things. The last line
+    is the check: whenever this returns `parses` the reader publishes, and
+    whenever it does not, it declines.
+    """
     from analysis import pnc
 
+    markdown = pnc._CONTROL_BYTE.sub(" ", markdown)
     if not pnc.detect(markdown).claims:
         return "detect"
-    if pnc._period(markdown) is None:
+    period = pnc._period(markdown)
+    if period is None:
         return "_period"
-    if pnc._summary_amounts(markdown) is None:
+    summary = pnc._summary_amounts(markdown)
+    if summary is None:
         return "_summary_amounts"
-    statement = pnc.parse_pnc_statement(markdown)
-    if statement is None:
+    year = int(period[1][:4])
+    captured = pnc._captured_sections(markdown, year=year)
+    if captured is None:
+        return "direction not printed"
+    rows = [row for section in captured.values() for row in section]
+    if not rows:
         return "no rows"
+    if not pnc._matches_the_printed_index(captured, pnc._printed_index(markdown)):
+        return "printed index"
+    grid = pnc._printed_daily_grid(markdown, year=year)
+    if grid is None:
+        return "ladder prints one day twice"
+    if grid and not pnc._matches_the_printed_grid(
+            grid, rows, beginning=summary[0], start=period[0], end=period[1]):
+        return "printed ladder"
     return "parses"
 
 
@@ -228,13 +231,12 @@ def section_identity(markdown: str) -> dict[str, int]:
     """How the reader's per-section capture stands against the printed index."""
     from analysis import pnc
 
+    markdown = pnc._CONTROL_BYTE.sub(" ", markdown)
     out = {"exact": 0, "short": 0, "long": 0, "unindexed": 0, "printed": 0}
     period = pnc._period(markdown)
     if period is None:
         return out
     printed = printed_index(markdown)
-    printed.update(heading_oracles(markdown))
-    printed.pop("Total", None)
     out["printed"] = len(printed)
     rows_by_section = pnc._captured_sections(markdown, year=int(period[1][:4]))
     if rows_by_section is None:
@@ -256,15 +258,24 @@ def section_identity(markdown: str) -> dict[str, int]:
 
 
 def classify(row: dict) -> str:
-    if row["gate"] != "parses":
-        return "marker_or_grammar_gap" if row["layout"] != "unknown" else "refusal"
+    """What each document IS, from the shapes above.
+
+    `shared_shape` — the reader publishes it. `row_capture_gap` — the reader
+    reaches the rows but does not capture what the paper indexes, which is work
+    a grammar can do. `refusal (date column detached)` — the days are printed
+    but the correspondence between a day and a row is geometry the flattened
+    layer does not carry, which is not this reader's rung. `document_defect` —
+    the document contradicts itself.
+    """
+    if row["gate"] == "parses":
+        return "shared_shape"
     if row["grid_vs_closing"] == "contradicts":
         return "document_defect"
-    if row["date_column"] in ("detached", "mixed") and row["short"]:
+    if row["date_column"] in ("detached", "mixed"):
         return "refusal (date column detached)"
-    if row["short"] or row["long"] or row["unindexed"]:
-        return "row_capture_gap"
-    return "shared_shape"
+    if row["gate"] in ("detect", "_period", "_summary_amounts"):
+        return "marker_gap"
+    return "row_capture_gap"
 
 
 def main(argv: list[str] | None = None) -> int:
