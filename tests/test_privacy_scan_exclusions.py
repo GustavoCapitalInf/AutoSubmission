@@ -127,16 +127,40 @@ def test_hex_sha_substring_needs_a_run_long_enough_to_be_a_sha() -> None:
 
 
 @pytest.mark.parametrize(
-    ("token", "line"),
+    "line",
     [
-        ("14282", "EVAL_UNKNOWN_BANKS.PY (F14282E, 392 LINES)"),
-        ("32116", "TIP `32116B3`, BASE `10CC722`"),
-        ("88540", "TWO Q7 MUTANT FIXES `88540B2`/`579F0BB`"),
+        "EVAL_UNKNOWN_BANKS.PY (F7000004E, 392 LINES)",
+        "TIP `7000005B`, BASE `10CC722`",
+        "TWO Q7 MUTANT FIXES `7000006A`/`579F0BB`",
     ],
 )
-def test_an_abbreviated_git_object_name_is_a_name_not_a_token(token: str, line: str) -> None:
-    """The record calls a commit `f14282e`; that is not a number anything printed."""
+def test_an_abbreviated_git_object_name_is_a_name_not_a_token(line: str) -> None:
+    """The record calls a commit `f14282e`; that is not a number anything printed.
+
+    The token is read OUT of the fixture with the scanner's own pattern (the R2
+    lesson) rather than quoted beside it: a quoted literal would stand outside
+    every hex run on this very source line, which is exactly the case the rule
+    below refuses to excuse.
+    """
+    token = re.search(r"\d{5,}", line).group(0)
     assert excluded_by("DIGITS", "docs/x.md", token, line) == "hex_sha_substring"
+
+
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        ("7000004", "ACCOUNT 7000004 AT COMMIT F7000004E"),
+        ("98989", "SHA AB98989CDEF AND ACCOUNT 98989"),
+        ("7000004", "F7000004E F7000004E 7000004"),
+    ],
+)
+def test_a_digit_run_beside_the_sha_it_is_a_substring_of_is_still_a_finding(
+    token: str, line: str
+) -> None:
+    """Position, not line. The rule asks where the token STANDS: a run that is
+    a substring of a sha on its line is excused only where it sits inside one,
+    and one occurrence standing on its own is enough to report it."""
+    assert excluded_by("DIGITS", "tools/x.py", token, line) is None
 
 
 @pytest.mark.parametrize(

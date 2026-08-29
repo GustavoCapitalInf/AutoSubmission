@@ -64,8 +64,31 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
     (
         "M5", "scan", "hex_sha_substring",
         "excuse every digit run on a line that merely CONTAINS a sha",
-        'return cls == "DIGITS" and any(token in run for run in HEX_RUN_RE.findall(line))',
-        'return cls == "DIGITS" and HEX_RUN_RE.search(line) is not None',
+        "    places = _occurrences(token, line)\n"
+        "    return bool(places) and all(\n"
+        "        any(start <= at and at + len(token) <= end for start, end in runs)\n"
+        "        for at in places\n"
+        "    )",
+        "    return True",
+    ),
+    (
+        "M5b", "scan", "hex_sha_substring",
+        "restore the LINE-scoped reading: the token need only appear somewhere "
+        "inside some sha on the line, so a run standing on its own beside the "
+        "sha it is a substring of goes quiet",
+        "    places = _occurrences(token, line)\n"
+        "    return bool(places) and all(\n"
+        "        any(start <= at and at + len(token) <= end for start, end in runs)\n"
+        "        for at in places\n"
+        "    )",
+        "    return any(token in run for run in HEX_RUN_RE.findall(line))",
+    ),
+    (
+        "M5c", "scan", "hex_sha_substring",
+        "ask ANY occurrence instead of EVERY occurrence — the same hole, one "
+        "quantifier further in",
+        "    return bool(places) and all(",
+        "    return bool(places) and any(",
     ),
     (
         "M6", "scan", "hex_sha_substring",

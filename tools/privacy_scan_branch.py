@@ -82,16 +82,20 @@ rule                   what it excludes, and why that is safe
                        — a reconciliation tolerance, a rate floor. A
                        sub-unit magnitude identifies nobody and reconstructs
                        nothing.
-``hex_sha_substring``  a DIGITS token inside a name this program gives one of
-                       its OWN things: 7..64 hex characters carrying at least
-                       one hex LETTER — a content sha, or the abbreviated git
-                       object name a record writes as `f14282e`. A sha is a
-                       hash OF a document, never a token FROM it. The required
-                       letter is the rule's safety: an account, cheque, card
-                       or reference number is all digits and cannot satisfy
-                       the shape at ANY length, so the rule cannot silence
-                       one — which a bare `[0-9A-F]{16,64}` would (a 16-digit
-                       card number is "hex").
+``hex_sha_substring``  a DIGITS token that SITS INSIDE a name this program
+                       gives one of its OWN things: 7..64 hex characters
+                       carrying at least one hex LETTER — a content sha, or
+                       the abbreviated git object name a record writes as
+                       `f14282e`. A sha is a hash OF a document, never a token
+                       FROM it. Two things keep the rule narrow. The required
+                       letter: an account, cheque, card or reference number is
+                       all digits and cannot satisfy the shape at ANY length,
+                       so the rule cannot silence one — which a bare
+                       `[0-9A-F]{16,64}` would (a 16-digit card number is
+                       "hex"). And the POSITION: every occurrence of the token
+                       on the line must fall inside a hex run, so a digit run
+                       standing on its own beside a sha
+                       (`ACCOUNT 7000004 AT COMMIT F7000004E`) is still a finding.
 ``docs_session_date``  a DATES token in ``docs/`` that is an ISO date on or
                        after ``2026-07-01``. Those are the PROGRAM's own
                        session dates — when a cell ran, when a train closed —
@@ -104,7 +108,7 @@ rule                   what it excludes, and why that is safe
                        POSTAL ADDRESS: a state abbreviation immediately before
                        it AND the furniture an address carries — a city and
                        its comma (`OZARK, AR 99999`), a ZIP+4 tail
-                       (`OH 43216-1558`), or a post-office box in the same
+                       (`OH 99999-1558`), or a post-office box in the same
                        clause (`P.O. BOX 196 OZARK AR 99999`). The postal code
                        of an institution's own service address is the
                        furniture the doctrine allows a detection marker to
@@ -163,9 +167,6 @@ TEXT_SUFFIXES = frozenset(
 
 _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
-#: A content sha as it is written in this tree: 16 to 64 hex characters. The
-#: token has to sit INSIDE one, so a bare digit run on the same line as a sha
-#: is still a finding.
 #: A name this program gives one of its OWN things: a content sha, or the
 #: abbreviated git object name the records write as `f14282e` / `32116b3`.
 #: 7 to 64 hex characters, bounded by something that is not alphanumeric, and
@@ -208,14 +209,14 @@ _ZIP_GAP = r"[^0-9]{0,8}"
 #: for the ADDRESS as well, in one of the three shapes an address is written:
 #:
 #: * ``CITY_STATE_ZIP`` — a city, its comma, the abbreviation, the code
-#:   (`RALEIGH, NC 27131`). The comma is the city/state junction and a
+#:   (`RALEIGH, NC 99999`). The comma is the city/state junction and a
 #:   transaction description does not print one before a state word.
 #: * ``STATE_ZIP_PLUS_FOUR`` — the code carries its ZIP+4 tail
-#:   (`COLUMBUS OH 43216-1558`). Five digits, a hyphen and exactly four more
+#:   (`COLUMBUS OH 99999-1558`). Five digits, a hyphen and exactly four more
 #:   is the postal shape itself.
 #: * ``BOX_CLAUSE_ZIP`` — a post-office box in the SAME clause, at most 70
 #:   characters ahead and never across a `;` or a `|`
-#:   (`PO BOX 609 PITTSBURGH PA 15230`). A box marker is doctrine-sanctioned
+#:   (`PO BOX 609 PITTSBURGH PA 99999`). A box marker is doctrine-sanctioned
 #:   institution furniture; bounding it to the clause is what stops a box in
 #:   one sentence from excusing a number in the next.
 #:
@@ -257,8 +258,37 @@ def _subunit_money(cls: str, path: str, token: str, line: str) -> bool:
     return cls == "MONEY" and re.fullmatch(r"0\.\d\d", token) is not None
 
 
+def _occurrences(token: str, line: str) -> list[int]:
+    """Every start offset of `token` in `line`, overlapping ones included."""
+    found: list[int] = []
+    at = line.find(token)
+    while at != -1:
+        found.append(at)
+        at = line.find(token, at + 1)
+    return found
+
+
 def _hex_sha_substring(cls: str, path: str, token: str, line: str) -> bool:
-    return cls == "DIGITS" and any(token in run for run in HEX_RUN_RE.findall(line))
+    """The token has to SIT INSIDE a sha, at every position it occupies.
+
+    Asking `any(token in run for run in HEX_RUN_RE.findall(line))` asks whether
+    the characters appear somewhere inside some sha on the line, which is not
+    the same question: `ACCOUNT 7000004 AT COMMIT F7000004E` prints an account
+    number that is also a substring of the commit name beside it, and the
+    line-scoped form excused it. So the rule asks about the OCCURRENCE — every
+    place the token stands must fall inside a hex run, and a token that stands
+    anywhere on its own is a finding however many shas share its line.
+    """
+    if cls != "DIGITS":
+        return False
+    runs = [match.span() for match in HEX_RUN_RE.finditer(line)]
+    if not runs:
+        return False
+    places = _occurrences(token, line)
+    return bool(places) and all(
+        any(start <= at and at + len(token) <= end for start, end in runs)
+        for at in places
+    )
 
 
 def _docs_session_date(cls: str, path: str, token: str, line: str) -> bool:
@@ -303,7 +333,9 @@ _EXCLUSION_SAMPLES = (
     ("subunit_money", "MONEY", "a.py", "0.01", "0.01", True),
     ("subunit_money", "MONEY", "a.py", "818,181.81", "818,181.81", False),
     ("hex_sha_substring", "DIGITS", "a.py", "98989", "AB98989CDEF09898967", True),
-    ("hex_sha_substring", "DIGITS", "a.py", "14282", "COMMIT F14282E LANDED", True),
+    ("hex_sha_substring", "DIGITS", "a.py", "7000004", "COMMIT F7000004E LANDED", True),
+    ("hex_sha_substring", "DIGITS", "a.py", "7000004",
+     "ACCOUNT 7000004 AT COMMIT F7000004E", False),
     ("hex_sha_substring", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
     ("hex_sha_substring", "DIGITS", "a.py", "70000000011", "RUN 70000000011", False),
     ("docs_session_date", "DATES", "docs/x.md", "2026-08-29", "ON 2026-08-29", True),

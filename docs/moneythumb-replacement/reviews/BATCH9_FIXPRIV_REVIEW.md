@@ -267,7 +267,7 @@ contain the same characters:
 
 | line the scanner sees | rule that claims it | should be |
 |---|---|---|
-| `ACCOUNT 14282 AT COMMIT F14282E` | `hex_sha_substring` | a finding |
+| `ACCOUNT 7000004 AT COMMIT F7000004E` | `hex_sha_substring` | a finding |
 | `SHA AB98989CDEF AND ACCOUNT 98989` | `hex_sha_substring` | a finding |
 | `COMMIT F14282E LANDED` (the shape the rule names) | `hex_sha_substring` | correctly excused |
 | `CARD 4111111111111111` | — none — | correctly reported — the hex-LETTER requirement works, and it is a genuine improvement on the card's own `[0-9A-F]{16,64}` draft |
@@ -286,7 +286,7 @@ beside the sha it came from. No production, test or docs line is currently hidde
 
 **Closure:** ask about the occurrence, not the line — for each match of the token in the line,
 require it to fall inside a `HEX_RUN_RE` span, and excuse only if *every* occurrence does. Then
-add `("DIGITS", "14282", "ACCOUNT 14282 AT COMMIT F14282E")` to the block set and a mutant that
+add `("DIGITS", "7000004", "ACCOUNT 7000004 AT COMMIT F7000004E")` to the block set and a mutant that
 restores `token in run`.
 
 ---
