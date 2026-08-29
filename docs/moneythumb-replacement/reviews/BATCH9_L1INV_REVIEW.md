@@ -315,7 +315,9 @@ the card's "the guard applies" is not true as written.
 real leak the cell reports removing is gone and nothing replaced it. Note the scan reads 3,351
 of the 3,380 shas — 29 have no cached text and are therefore not scanned against; that is the
 same population the pinned survey names as NOT SURVEYED and it should be stated next to the
-zero rather than left in the JSON.
+zero rather than left in the JSON. This review's own added lines were scanned the same way:
+**hit_count 0** over **3,265** added lines at `265f754` — EXIT=0, after three rewrite passes
+over ordinary English word pairs, which is what a zero costs.
 
 ### MINOR-6 — "every located section closes" is not "every printed section closes".
 
