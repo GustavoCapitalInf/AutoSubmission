@@ -744,6 +744,13 @@ def _without_non_opening_dates(run: str) -> str:
     still refuses the document. That is a different shape — a run that stops
     mid-row, which is what a truncated page looks like — and this rule has no
     evidence about it.
+
+    **Applied to the LEDGER blocks only, and not to the daily-balance grid.**
+    `_grid` reads its own runs through `dated_cells` untouched, so a grid whose
+    cells the layer broke still refuses the document. That is deliberately
+    narrower than it could be: both archive constructions above are ledger-row
+    constructions, the grid's cells carry no description for a layer to weld
+    through, and a rule with no evidence behind it is a rule nothing tests.
     """
     dates = list(_DATE_RE.finditer(run))
     blanked: list[str] = []
