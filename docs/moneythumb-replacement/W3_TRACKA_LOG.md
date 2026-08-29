@@ -57566,24 +57566,43 @@ document.
   standing lesson is the cheap one: scan the messages, then reword, before
   Ocean composes.
 
-## RP5.9 Proof floor, at `bdc5e27` (exit codes verbatim)
+## RP5.9 Proof floor (exit codes verbatim, and the TREE each row was measured at)
 
-| gate | result | exit |
-|---|---|---:|
-| full default suite | **7,385 passed · 43 skipped · 34 deselected** (227.8 s) | **0** |
-| … the same suite at the base `897d69e` | **7,299 passed · 43 skipped · 34 deselected** (225.5 s) | 0 |
-| … the delta reconciles | **+86**, and the two test files this card owns go 252 -> 338 on the same two trees. Nothing else moved | — |
-| canonical guards (5 files) | **255 passed** | **0** |
-| canonical conformance (7 files) | **1,270 passed · 40 skipped** | **0** |
-| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions (690.6 s) | **0** |
-| corpus-marked slice | **30 passed** (1,869.8 s) | **0** |
-| `cohort_replay … --expect-identical` at base `897d69e` | 76 replayed, 73/73 preserved identical, 0 regressions | **0** |
-| `cohort_replay … --expect-identical` at tip | 76 replayed, 73/73 preserved identical, 0 regressions | **0** |
-| `tools.raisepriv5_mutation_table` | 9 mutants · **9 killed** · 0 survived · 0 not applied | **0** |
-| `tools.raisepriv4_mutation_table` (re-run whole) | 10 mutants · **10 killed** · 0 survived · 0 not applied | **0** |
-| archive sweep, 3,380 documents in four chunks | 2,669/2,669 identical; 0 moved / 0 now-publishes / 0 now-raises; findings `[]` (3,533.1 s) | **0** |
-| branch privacy scan | **0 hits** | 0 |
-| commit-message scan | **0** MONEY / DIGITS / DATES | 0 |
+This card's review, MINOR-4: the header used to pin one commit, and three of
+its own rows were measured later than that commit. A header cannot carry a
+truth that varies per row, so the tree moves into the table. The rule this card
+already adopted for the scans — measure at the final tip — now extends to every
+row: each names the sha it was taken at, and only the two SCAN rows say "the
+closure tip", because a scan of a commit cannot be recorded inside that commit.
+
+| gate | tree measured at | result | exit |
+|---|---|---|---:|
+| full default suite | **`8d20b5c`** (closure) | **7,407 passed · 43 skipped · 34 deselected** (210.5 s) | **0** |
+| … the same suite before the review closure | `bdc5e27` | 7,385 passed · 43 skipped · 34 deselected (227.8 s) | 0 |
+| … the same suite at the base | `897d69e` | 7,299 passed · 43 skipped · 34 deselected (225.5 s) | 0 |
+| … the delta reconciles | — | **+86** to `bdc5e27` (the two owned test files go 252 -> 338 on those two trees), then **+22** at the closure (+5 in the census file, +17 in the drives). Nothing else moved | — |
+| canonical guards (5 files) | **`8d20b5c`** (closure) | **255 passed** | **0** |
+| canonical conformance (7 files) | **`8d20b5c`** (closure) | **1,270 passed · 40 skipped** | **0** |
+| the three privacy test files | **`8d20b5c`** (closure) | **444 passed · 3 skipped** | **0** |
+| `python corpus_gate.py` | `bdc5e27` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions (690.6 s) | **0** |
+| corpus-marked slice | `bdc5e27` | **30 passed** (1,869.8 s) | **0** |
+| `cohort_replay … --expect-identical` at the base | `897d69e` | 76 replayed, 73/73 preserved identical, 0 regressions | **0** |
+| `cohort_replay … --expect-identical` at the tip | `bdc5e27` | 76 replayed, 73/73 preserved identical, 0 regressions | **0** |
+| `cohort_replay … --expect-identical` at the closure | **`8d20b5c`** | **76 replayed, 73/73 preserved identical, 0 regressions** (88 s) | **0** |
+| `tools.raisepriv5_mutation_table` | `bdc5e27` | 9 mutants · **9 killed** · 0 survived · 0 not applied (258.0 s) | **0** |
+| `tools.raisepriv4_mutation_table` (re-run whole) | `bdc5e27` | 10 mutants · **10 killed** · 0 survived · 0 not applied (287.3 s) | **0** |
+| … all 19 mutants still APPLY at the closure tree | `8d20b5c` | every `old` text occurs exactly its documented number of times; **0 mismatches** | — |
+| archive sweep, 3,380 documents in four chunks | `0687511` | 2,669/2,669 identical; 0 moved / 0 now-publishes / 0 now-raises; findings `[]` (3,533.1 s) | **0** |
+| branch privacy scan | the closure tip | **0 hits** | **0** |
+| commit-message scan | the closure tip | **0** in every class | **0** |
+
+**Why the four rows measured at `bdc5e27` still stand at the closure tree, as a
+measurement rather than an assurance:** `git diff bdc5e27..HEAD -- analysis/` is
+**11 added lines, 0 removed, and 0 of them are non-comment** — the comment that
+names the second reorder. No production behaviour changed after `bdc5e27`, so
+the corpus gate, the corpus-marked slice and the two mutation tables cannot
+have moved; and the 19 mutants were re-counted against the closure source to
+prove the tables would still apply rather than report NOT APPLIED.
 
 Registry 83, `ANALYSIS_STAGE_VERSION` 16, `OCR_STAGE_VERSION` 4 — unchanged.
 No registration added or moved, no pin touched, no fixture rewritten, no
