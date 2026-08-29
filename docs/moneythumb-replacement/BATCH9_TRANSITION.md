@@ -1,0 +1,113 @@
+# Batch 9 — transition manifest (opened 2026-08-29 from the frozen batch-8 state)
+
+Standing rule (unchanged from batch 8): a review verdict or closure is real only once committed on its branch; an Ocean verification is real only once written here. Newest entries at the bottom of each section.
+
+## 0. Baseline (verified before anything else)
+
+| | |
+|---|---|
+| `main` = `origin/main` = tag `batch8-final` | `68110ce` (verified: all three resolve to the same commit; working tree clean) |
+| `train9` | created from `main` at `68110ce` (`git checkout -b train9 main`) |
+| official batch-8 run | `TRAIN8-7185633 / cda8882d` — `discovery_reports/TRAIN8-7185633/2026-08-28T224640.553059-0000-cda8882d/` (pointer file `discovery_reports/train8-logs/train8_run_dir.txt`) |
+| parser code at the run vs `main` | `git diff --stat 7185633 68110ce -- '*.py'` is EMPTY — the tree the census imports from is byte-identical to the tree that produced the run |
+| run's cold cache | `.claude/recovery/webapp_data_train8_cold/` — one OCR partition (3,364 entries, 13 cached negatives) and one analysis partition (2,630 entries); every withheld/review sha resolves its analysis payload by the run's own key (73 / 73) |
+| denominator | 3,380 content shas (3,506 rows; no sha carries two outcome classes) |
+| official state | validated 2,596 · review 18 · withheld 55 · failed 698 · deferred 13 · **non-validated 784** |
+
+Batch 7 was not reconstructed, the batch-8 baseline was not rerun, no frozen batch-8 ruling was reopened.
+
+## 1. Phase 1 — deterministic census (DONE, committed with this manifest)
+
+**Instrument:** `tools/batch9_census.py` (read-only; runs no parser, no OCR, no model; imports the cache key function and the registry from this tree; refuses to write if a digit run or money-shaped token survives sha masking in its own outputs — it refused once, on 7-digit byte sizes and the run-id timestamp, which are now KB and masked constants).
+
+**Artifacts (durable, on `train9`):**
+- `docs/moneythumb-replacement/CENSUS_BATCH9.md` — population reconciliation, fixed classification rules, cluster groups, fine clusters, batch-8 family residual accounting, institution roll-up, scanned-text density, registry vocabulary, the opportunity table, sha16 lists per group.
+- `docs/moneythumb-replacement/census_batch9/per_sha.csv` — one row per sha, 77 columns: outcome / reason / error type / failure stage / folder labels / classification / route (native vs Tesseract) / dispatch (claimed, attempted, candidates, near-miss top 3, exceptions) / analysis reached / evaluated / payload resolved / reconciliation facts (ok, summary ok, coverage ratios, breaks) / ADB checks failed / integrity flags / currency + source / period present / days / transaction count / stated counts & totals present / daily-balance count / quality level / batch-8 census kind, family, rank, n, expected, conf / batch-8 withheld cause / batch-8 movement / OCR text metrics (pages, chars, densities, vowel-word share, money and date tokens per page, low-text pages, density class) / registry bank hits on the first page / bank hint + source / layout family + source / cluster, group, evidence.
+- `docs/moneythumb-replacement/census_batch9/clusters.json` — per-group counts, outcome/route/movement mixes, sha16 membership, family residual table.
+- `docs/moneythumb-replacement/census_batch9/opportunity_estimates.json` — Ocean's estimates (yield bands, confidence, difficulty, regression surface, cost, effort, score, gate), rendered by the instrument under their own heading. Not measurements.
+
+**Evidence sources, in precedence order:** run rows/telemetry (outcome, dispatch, diagnostics) → the run's own cached OCR/analysis artifacts (metrics and reconciliation facts; text never leaves the instrument) → the batch-8 census's per-sha family lists (read from the pre-redaction commit `10cc722`, keys as committed; only shas, keys and the census's own n/expected/conf cross) → human folder labels → registry bank labels found on the first text page (our constants only). Near-miss dispatch scores are recorded and never used for identity. Anything the rules cannot decide is `unknown`.
+
+**Population reconciliation (784):**
+
+| root-cause group | docs | what it is (measured) |
+|---|---:|---|
+| `FAM:*` (91 batch-8 census families still unclaimed) | 342 | digital, `no_parser_matched`; all 342 carry a committed family key; 288 dense text |
+| `DECL:*` (28 readers declining) | 125 | a registration claimed at detection and `parse` returned None; 38 are core-processor template readers (score 1.0, exclusive marker), 87 are institution readers |
+| `NOT-STATEMENT` | 117 | 104 not-statements + 13 portal/range exports, per the batch-8 census lists |
+| `SCAN-UNCLAIMED` | 89 | Tesseract text, no claim; density split dense 25 / medium 13 / thin 51 (42 single-page) |
+| `WH:*` (withheld) | 55 | 34 were in the batch-8 withheld-61 list, 21 are new (9 Frost by design) |
+| `RV:*` (review) | 18 | 11 `missing_declared_statement_page` (reconciliation OK on all 11) + 7 `not_a_formal_statement` |
+| `PF-INVALID-PDF` | 16 | every file starts with `AC ED 00 05` (Java object serialisation), 12–26 KB, 0 pages — not documents |
+| `OCR-NEGATIVE` | 13 | Tesseract produced nothing (cached negative); 11 single-page |
+| `TEXT-LAYER-DEFECT` | 8 | scrambled embedded fonts (census list); the vowel-share proxy does NOT separate them |
+| `NO-TEXT` | 1 | |
+| `DIG-UNCLAIMED-NEW` | 0 | every digital unclaimed sha is in the batch-8 census — consistent with 0 regressions |
+
+Batch-8 census families: 598 shas → 226 validated now, 372 remaining (342 unclaimed, 19 declined, 9 withheld, 1 review, 1 other); the census's own expectation pro-rated to the remainder is **200.2**.
+
+**Contradictions surfaced, not resolved (folder label vs printed identity):** the `Chase` folder holds 10 members of `american_savings_bank_hawaii`; a `Square` folder holds 22 members of eight bank families; the `TD Bank` folder holds 5 documents the `eq_bank_scanned` reader claims or declines. These are recorded in the institution roll-up for a later check; the census assigns nothing on them.
+
+## 2. Ranked opportunities (from the estimates table; score = mid yield ÷ sessions ÷ cost factor)
+
+| # | cluster | docs | current | root cause (short) | likely fix | expected | conf | difficulty | regression surface | marginal cost | score |
+|---:|---|---:|---|---|---|---|---|---|---|---|---:|
+| 1 | `DECL:huntington` | 12 | declined | one reader, one institution, native, 3–10 pages: grammar variant | probe → widen huntington → family replay | 6–10 (8) | med-high | low-med | huntington cohort | $0 | 8.0 |
+| 2 | `CP-DECLINES` | 38 | declined | core-processor templates recognised (1.0) and failing closed in parse; 17 native / 21 Tesseract | widen 4 readers' grammars, native first, OCR-tolerant tokens second | 10–22 (16) | medium | medium | all core_processor_* / category_partition families | $0 | 7.6 |
+| 3 | `RV-PAGE-COVERAGE` | 11 | review | declared vs delivered page count disagree; reconciliation OK | read-only probe; fix only a proven misread; never relax the check | 1–6 (3) | low-med | low | page-coverage check (shared) | $0 | 6.0 |
+| 4 | `FAM-PNC-LAYOUTS` | 12 | unclaimed | three PNC layouts the pnc reader does not claim (census 0.7–0.8) | widen pnc markers + rows; PNC is 17 docs with WH/DECL | 6–11 (8.5) | med-high | medium | pnc cohort | $0 | 5.7 |
+| 5 | `WH-ROW-CAPTURE` | 22 | withheld | rows missed / duplicated: rbc coverage 0.46–0.86 + 5–14 breaks, pnc ≈0, bmo 1.7 | per-reader row grammar, measured by coverage → 1.0, breaks → 0 | 8–16 (12) | med-high | medium | rbc/pnc/bmo/wells/scotia/ibc + CAD-pinned surfaces | $0 | 4.8 |
+| 6 | `DECL:community_section` | 9 | declined | section-grammar variant | probe → widen → replay 62 validated | 3–6 (4.5) | medium | medium | community_section cohort | $0 | 4.5 |
+| 7 | `WH-NO-PERIOD` | 3 | withheld | farmers_merchants publishes no period/opening (E) | read the printed labels | 1–3 (2) | medium | low | farmers_merchants | $0 | 4.0 |
+| 8 | `WH-CLOSE-FULL-COVERAGE` | 18 | withheld | coverage ≈1, 0 breaks, closing/period checks fail (A, A+C, A+D, C): unread grids / closing labels / period edges | per-reader grid & label consumption (WITHHELD-GRIDS precedent) | 4–12 (8) | medium | medium | 8 reader cohorts; ADB doctrine untouched | $0 | 3.8 |
+| 9 | `SCAN-UNCLAIMED` | 89 | unclaimed | dense 25 = reader problem on OCR text; thin/medium 64 = classification problem | OCR-tolerant variants of td_us / wells / chase / bofa for the dense 25; nothing for the 64 this wave | 5–12 (8) | med-low | med-high | scanned cohorts, OCR stage version | $0 (cached Tesseract) | 3.6 |
+| 10 | `DECL:navy_federal` / `DECL:lili` | 6 / 9 | declined | grammar variants; LILI has ~5 named defective members | probe → widen | 2–5 / 2–5 | medium / med-low | medium | cohorts | $0 | 3.5 |
+| — | `FAM-CU-SUFFIX-CORE` | 176 | unclaimed | 37 CU families sharing suffix/summary mechanics; L-1 multi-account exposure | ONE shared template family after the L-1 ruling — not 37 readers | 25–95 (50) | low→medium | high | new family; ADB + L-1 load-bearing | $0 | 0 (gated; 6.3 unscored) |
+| — | `FAM-BANK-TAIL-TOP` / `-REST` | 38 / 83 | unclaimed | per-family readers, 1–7 docs each | one reader per family, by census confidence | 15–28 / 15–40 | medium / low | breadth | new readers | $0 | 2.6 / 1.3 |
+| — | `TEXT-LAYER-DEFECT` | 8 | unclaimed | scrambled text layers; no detector yet | first cheap-OCR rung (rasterise + Tesseract on hinted, unclaimed digital docs) | 2–6 (4) | med-low | medium (a rung) | OCR ladder | $0 vendor, CPU | 2.4 |
+| — | `WH-FROST-PERIOD` / `WH-ATB` / `RV-INFORMAL-EXPORTS` / `NOT-STATEMENT` / `PF-INVALID-PDF` / `OCR-NEGATIVE`+`NO-TEXT` / `FAM-ZERO-RATED` | 9 / 2 / 7 / 117 / 16 / 14 / 27 | — | ruling-gated / ceremony-gated / doctrine / not statements / not PDFs / no text / census-rated ≤0.25 | none in batch 9 | 0 (Frost 6 only if re-argued) | — | — | — | $0 | 0 |
+
+Ceiling framing: 205 of the 784 have no deterministic path at all (16 non-PDFs, 117 non-statements, 7 exports by doctrine, 14 with no text, 51 thin single-page scans). The deterministic reservoir is therefore ~565 documents (FAM 342 + DECL 125 + WH 55 + RV 18 + dense scans 25), of which ~176 (the CU block) wait on the L-1 ruling.
+
+## 3. Carried batch-9 cards — disposition
+
+| card | census finding | disposition |
+|---|---|---|
+| **FIXTURE-PRIVACY (P0)** | not a coverage item; population = the 10,884 inherited candidates from the root-base scan + the two docstring examples (`lili.py`, `core_processor_signed_counts.py`) + the real account number in `tests/test_analysis.py` | first session of batch 9, BEFORE any parser work; 0 validated impact; its own hostile review; touches tests/docs only |
+| **RAISE-PRIVACY-4** | 8 base-inherited echoing `date()` sites (bmo ×2, farmers_merchants ×2, td_can ×4), guarded by the census test in `tests/test_privacy3_boundaries.py`; two of the three modules are Wave-1 targets (bmo in WH-ROW-CAPTURE, farmers_merchants in WH-NO-PERIOD) | land it before those readers are widened (one bounded session, 0 yield) so the widening sessions inherit the funnel |
+| **WELCH-PRINTED-ROWS** | sha `361167E3` sits in `DECL:welch_state_bank` (1 doc; census family `welch_state_bank_more_than_free`, 15 of 16 validated; movement unchanged failed → failed) | folded into `DECL-OTHER-READERS`; expected 0–1; a bounded session only if WELCH detection is touched — not on yield grounds |
+| **FROST-PERIOD-PACKET** | measured in this run: 6 of the 9 Frost withheld fail ONLY the two period-date checks (counts present, coverage 1.0, 0 breaks, 17–23 stated daily balances); 3 also fail ledger closing. This is the per-document table W3 §FZ14 asked for, from a committed read-only instrument against a named run — it is consistent with the unverified "6 of 9" but does not compute the derived-period ADB | the census does NOT justify reopening on coverage grounds (6 documents); REFUSE stands unless Gustavo re-argues the doctrine, in which case the packet starts from `per_sha.csv` |
+
+## 4. Architecture recommendation (from the census)
+
+**A mixture, weighted heavily to (1).**
+
+1. **Continued deterministic-parser expansion — YES, primary.** ~565 of 784 have a native or usable text layer and a reader-shaped root cause; the top ten opportunities are all widenings of existing readers or families with a verified oracle; marginal cost $0; the validator is untouched.
+2. **Stronger/cheaper OCR — narrow and measured.** Only ~40 documents fail on the *quality* of Tesseract text (21 core-processor declines, ~12 withheld/declined on OCR text, 8 scrambled text layers). The first rung to build is not a new engine but a deterministic trigger: rasterise + local Tesseract for digital documents with a scrambled text layer (TEXT-LAYER-DEFECT). Any engine change must report `documents tested | additional validated | regressions | cost/document | cost/additional validation | latency` on those ~40 before it enters the ladder.
+3. **Selective VLM fallback — not yet.** The VLM population is 78 documents (13 OCR-negative, 1 no-text, 64 thin/medium scans), mostly single-page screenshots/photos; expected yield is low and it would be the program's first paid/GPU cost. Defer until the deterministic reservoir is worked and the OCR rung has numbers.
+4. **Mixture — yes, in that order:** deterministic/native → one measured cheap-OCR rung → one VLM only on the measured residue → second model only on disagreement → the deterministic validator remains the only approver.
+
+## 5. Recommended Batch-9 Wave 1 (proposal — NOT started)
+
+Sequential focused sessions (max two concurrent; one during any census/probe), fresh hostile review after each, targeted cohort proofs during development, full suite / floor / cold corpus run only at the composed `train9` train against `cda8882d`:
+
+| order | session | docs | gain (cons–opt) |
+|---:|---|---:|---|
+| 0 | FIXTURE-PRIVACY (P0) then RAISE-PRIVACY-4 — hygiene, 0 yield | — | 0 |
+| 1 | `DECL:huntington` — probe then widen | 12 | 6–10 |
+| 2 | `CP-DECLINES` — native 17 first, OCR-route 21 second (two sessions) | 38 | 10–22 |
+| 3 | `FAM-PNC-LAYOUTS` + `WH:pnc` row capture | 16 | 6–11 (+ part of row 5) |
+| 4 | `WH-ROW-CAPTURE` — rbc, bmo, wells_fargo, scotiabank, ibc (CAD-pinned surfaces respected) | 18 | 8–16 (incl. pnc) |
+| 5 | `DECL:community_section` | 9 | 3–6 |
+| 6 | `RV-PAGE-COVERAGE` — read-only probe first; fix only a proven declaration misread | 11 | 1–6 |
+
+Rules carried: no statement-specific hardcodes; fail closed; never weaken the validator; every session records per-sha before/after against `per_sha.csv`; deterministic scripts own enumeration, diffs and counts.
+
+**Expected conservative gain:** +34 validated → 2,630 / 3,380 (77.8%).
+**Expected optimistic gain:** +71 → 2,667 / 3,380 (78.9%). Mid-point +52.
+**Beyond Wave 1 (deterministic, un-gated):** +91 to +212 more across the remaining rated clusters; the CU block adds 25–95 after the L-1 ruling.
+**Expected marginal operating-cost impact:** $0 vendor; no paid OCR, VLM, GPU or ensemble; CPU only (cached Tesseract text is reused; new OCR happens only in the cold run at the train, ~65–90 min on this host); model cost limited to the implementation/review sessions themselves.
+
+## 6. Stop point
+
+Phase 1 ends here. Wave 1 does not start until Gustavo approves this manifest.
