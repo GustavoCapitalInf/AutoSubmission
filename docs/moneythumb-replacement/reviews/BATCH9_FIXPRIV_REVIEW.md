@@ -760,3 +760,43 @@ card with `analysis/consumers.py:90` split out as a P0 hardcode; the record reda
 cell and I recommend not running it as specified); **the three functional-data CSVs — now the
 place where the P0's own account number still lives**; `tests/test_analysis.py`'s remaining 819
 sites; and the new one the closure raises, that the tree is unaudited for NAMES by construction.
+
+## Closure confirmation (`613e211..eaa999e`, 4 commits) — **CONFIRMED, with one residual**
+
+Bounded re-measurement of the two MAJORs only, one process at a time. **MAJOR B is fully
+closed:** the standalone `STATE_ZIP_PLUS_FOUR` branch is gone from `ADDRESS_ZIP_RES`, and all
+four of my cases — `MEMBER ID <5>-<4>`, `CARD ENDING IN <5>-<4>`, `LOAN NO. OR <5>-<4>`,
+`POLICY CO <5>-<4>` — are **HITS, 4 of 4**. **MAJOR A is closed for two of my three cases:**
+`_CLAUSE_CHAR` now stops at a full stop, hyphen, en/em dash, bracket, `!` and `?` as well as
+`;` and `|`, so `PO BOX 609 - ACCOUNT ENDING IN <5>` and `REMIT TO P.O. BOX 609. AUTH OK <5>`
+both report. The five other bounded checks all reproduce: exclusion tests **175 passed**
+(exit 0); mutation table **36 mutants / 36 killed / 0 survived** (exit 0, tree clean, run
+without `-x`, `M11e` and `M11f` present and each killed); added-lines scan
+`--base 2f24b06 --ref eaa999e` **0 hits / 0 sites over 3,838 added lines**, 3,351 documents read
+(exit 0); W3 base 54,966 → 55,558 lines with a **byte-identical prefix** and exactly **one**
+appended heading. Of the six legitimate address shapes, five stay excused and the sixth —
+`COLUMBUS OH <5>-<4>`, no comma and no box — is now reported. That is the disclosed cost of the
+narrowing (88 → 83 sites), it is pinned by its own test, and it is the safe direction: the scan
+reporting an address is a nuisance, the scan hiding a member number is not.
+
+**The residual, MAJOR:** the third of my MAJOR A cases is still silenced —
+`PO BOX 1558 CCD CO# <5> TRACE` → `institution_zip`. `_CLAUSE_CHAR` closes the case where a
+sentence or a dash separates the box from the identifier, but not the case where nothing does:
+a box marker, then an unbroken run of ordinary characters, then a word-shaped abbreviation
+(`CO`) with a short digit-free gap to five digits. That is the ACH company-id shape documented
+in `analysis/core_processor_signed_counts.py`'s own grammar, and it is the same identifier class
+that produced the original BLOCK. The four box-clause cases the closure pinned all turn on a
+clause-breaking character, and the gap-guard cases all turn on a gap longer than eight or
+carrying a digit, so nothing in the suite reaches it. Live exposure remains zero — the three
+`BOX_CLAUSE_ZIP` attributions in the tree are genuine institution PO-box addresses — so this is
+a fix for FIXTURE-PRIVACY-2, not a reason to hold composition; the shape to require is address
+furniture between the box and the state, not merely the absence of punctuation. **Second
+residual, MINOR but worth Ocean's attention while cells share this host:** the mutation harness
+died again on its first run here, with `CalledProcessError … exit status 255` from
+`checkout -- tools/privacy_scan_branch.py`, and this time **the restore did not happen — it left
+the mutant in the working tree.** The new `gc.auto=0` helper handles the stale-worktree prune it
+was written for, but not this failure, which has the signature of `index.lock` contention from
+the other cells sharing this repository's `.git`. A retry gave the full 36/36 with a clean tree.
+A harness that can leave mutated source behind is worse than one that merely reports red, so it
+should restore in a `finally` that ignores the exit code and verify with `git status --porcelain`
+before it returns.
