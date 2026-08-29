@@ -39,6 +39,15 @@ Classification:
                 close — the document's own arithmetic against its own ledger.
   ``PARSES``    the trace found no refusal (a control, or a bug in the probe —
                 the agreement check decides which).
+
+**The class of a document is a fact about a TREE, not about a document**, and
+this instrument is only useful if it says so. The gate table of W3 §CPDECL2 is a
+measurement at the BASE, where all 38 decline; run at a tree where some of them
+publish, the same probe reports those as ``PARSES``. The agreement check is what
+distinguishes that from a defect, and it earned its place here: run at this
+card's own closure tree before the mirror was realigned, it reported
+``TRACE-DISAGREES`` on exactly the three documents whose reader rule had
+changed under it.
 """
 from __future__ import annotations
 
@@ -564,7 +573,14 @@ def trace_category_partition(markdown: str) -> dict:
     if unified and not M._walks_to_the_printed_ending(rows, summary):
         return {**out, "gate": "_walks_to_the_printed_ending", "class": "IDENTITY"}
     if grid is None and not unified:
-        return {**out, "gate": "no_per_day_oracle", "class": "GRAMMAR"}
+        # This document prints no per-day evidence at all. Whether that is a
+        # REFUSAL is the one rule of this reader batch 9 changed (W3 §CPDECL5),
+        # so the mirror asks the reader instead of carrying a copy of it —
+        # which is what keeps this trace correct on BOTH sides of the change.
+        # The FACT is reported either way; only the class follows the reader.
+        out["prints_no_per_day_oracle"] = True
+        if not publishes("category_partition", markdown):
+            return {**out, "gate": "no_per_day_oracle", "class": "GRAMMAR"}
 
     return {**out, "gate": "none (parses)", "class": "PARSES"}
 

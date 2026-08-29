@@ -56758,12 +56758,34 @@ reverse — is reported as `TRACE-DISAGREES` rather than being given a gate it
 did not hit. A mirrored chain that has drifted from its reader is worse than no
 chain. Measured over all 38: **`TRACE-DISAGREES` 0.**
 
-| class | native | Tesseract | total |
+**This table is a measurement at the BASE, `71a82aa`, where all 38 decline** —
+the class of a document is a fact about a tree, and a gate table that does not
+say which one invites a later reader to treat a changed number as a defect.
+
+| class, at the base `71a82aa` | native | Tesseract | total |
 |---|---:|---:|---:|
 | GRAMMAR (a gate before the printed identities) | 16 | 8 | **24** |
 | IDENTITY (the printed identities do not close) | 1 | 13 | **14** |
 | L-1 | 0 | 0 | **0** |
 | `TRACE-DISAGREES` | 0 | 0 | **0** |
+
+At the closure tree the same instrument reports **GRAMMAR 15 / IDENTITY 14 /
+PARSES 9 / `TRACE-DISAGREES` 0**: the nine documents this card moves now publish,
+so the probe classes them `PARSES`, and the fifteen remaining GRAMMAR refusals
+are the six enclosures/daily/partition shapes minus the nine that moved. Both
+readings are correct and they are correct about different trees.
+
+**The agreement check earned its place here, on this card's own instrument.**
+Run at the closure tree before this closure, the probe reported
+`TRACE-DISAGREES` 3 — exactly the three `category_partition` movers — because
+the mirrored chain still carried the `no_per_day_oracle` REFUSAL that CPDECL5
+had moved to the ADB doctrine. The mirror had drifted from its reader and the
+probe's own control said so. It is repaired by asking the reader rather than
+carrying a copy of the rule: the FACT is still reported
+(`prints_no_per_day_oracle`) and only the CLASS follows the reader, which is
+what makes the trace correct on both sides of the change. Verified both ways —
+the repaired probe run in a detached worktree at `71a82aa` reproduces this
+table **sha for sha**, and at the closure tree it reports `TRACE-DISAGREES` 0.
 
 By reader and by first refusing gate:
 
