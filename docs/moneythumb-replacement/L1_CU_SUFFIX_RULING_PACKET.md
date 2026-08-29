@@ -902,7 +902,7 @@ ledgers. Its idle-sibling counts reproduce: 4 sibling sections print the ratifie
 | `tests/test_experiments_are_not_wired.py` | passes; guards `experiments/` and not `tools/` (MINOR-4) |
 | nothing outside `tools/l1_*` references the three instruments | grep over the tree, no hits |
 | no production file differs from base | `git diff --stat 38a94aa -- analysis ocr webapp discovery telemetry corpus_gate.py` empty |
-| branch privacy scan vs the whole population | **see W3 §L1INV.8** — the scan reads 3,351 of the 3,380 shas; the 29 with no cached text are the same 29 the pinned survey reports as NOT SURVEYED and are not scanned against |
+| branch privacy scan vs the whole population | **hit_count 0** over 4,712 added lines and 3,351 documents, all four classes zero — EXIT=0. The scan reads 3,351 of the 3,380 shas; the 29 with no cached text are the same 29 the pinned survey reports as NOT SURVEYED, and nothing on this branch is scanned against them |
 | the three instruments re-run from the run of record | EXIT=0 each; every number in this packet is in one of their outputs |
 
 The full suite, the canonical conformance set, the corpus gate and the fidelity replay were

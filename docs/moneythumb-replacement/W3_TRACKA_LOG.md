@@ -55666,7 +55666,7 @@ population does not print.
 | nothing outside `tools/l1_*` references the three instruments | grep over the tree, no hits |
 | no production file differs from base | `git diff --stat 38a94aa -- analysis ocr webapp discovery telemetry corpus_gate.py` EMPTY |
 | the three instruments re-run from the run of record | **EXIT=0 each**; every number above is in one of their outputs |
-| branch privacy scan vs the whole population | recorded in the closing commit |
+| branch privacy scan vs the whole population | **hit_count 0** over 4,712 added lines and 3,351 documents (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) at `1b26d9f` — EXIT=0. It opened at 30 and took two rewrite passes. The scan reads 3,351 of the 3,380 shas; the 29 with no cached text are the same 29 the pinned survey reports as NOT SURVEYED, and nothing on this branch is scanned against them |
 
 The full suite, the canonical conformance set, the corpus gate and the fidelity replay were
 measured at `a86f183` (6,858 / 1,270 / GREEN 105-3-1 / 179 of 179 identical) and are not
