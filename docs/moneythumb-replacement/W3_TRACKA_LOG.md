@@ -55253,9 +55253,9 @@ Two consequences, both in the instrument the branch's floor depends on:
   been reported. This is the safety half, and it is why the fix is not cosmetic.
 * **the whole-tree audit read W3 twice under two numberings.** The tree pass numbers correctly
   and the diff pass did not, so the same (class, token) arrived under two line numbers and both
-  survived the site key. W3's residue was quoted above as 3,548 sites; 1,663 of those verify
-  against the file and the rest are the same tokens counted a second time against a line that
-  does not print them.
+  survived the site key. W3's residue measured 3,548 sites before this fix; 1,663 of those
+  verify against the file, and the rest are the same tokens counted a second time against a
+  line that does not print them.
 
 The reader now takes the hunk header at its word — `@@ -a,b +c,d @@` states how many lines of
 each side the body carries — so the body is read by COUNT and every line in it is classified by
@@ -55273,7 +55273,7 @@ and its highest line number is that line, which is the file. Before, both were s
 | **MAJOR 2** | the standing added-lines scan was 2, not 0 | the same four lines, plus this closure's own first attempt at the era fixtures and the review file's four quoted durations | added-lines scan `--base 2f24b06 --ref <tip>`: **hit_count 0 / residue_sites 0**, exit 0, over the branch's added lines |
 | **MAJOR 3** | the x428 scale scaled the PERTURBATIONS, so five reconciliation tests lost 428x of their tolerance sensitivity | four deliberate errors are ONE CENT again, figures left at their scale; the fifth is a dropped posting, whose magnitude is a fixture figure and not a perturbation, and is recorded rather than changed | the reviewer's ladder is a committed instrument now: `L1`/`L2`/`L3` widen `_CENT` to one, ten and a hundred dollars — the three the base killed and the scaled fixtures survived — and all three are KILLED at this tip by four tests each. `L4` (half a dollar) is killed too, which the base never managed |
 | **MAJOR 4** | `hex_sha_substring` was line-scoped where its docstring promised position-scoped | the rule asks about the OCCURRENCE: every place the token stands must fall inside a hex run | the reviewer's case reports; `M5b` (restore line scope) and `M5c` (ANY instead of EVERY) killed |
-| **MINOR 1** | the bare invocation the card's method writes exited 2 on this branch | a path absent at either ref is SKIPPED and counted; `exists()` asks git directly, so absence is told from failure | bare: files 13, identical 4, differing 2, skipped 7. The three touched production modules are IDENTICAL in both forms; mutant `A5` |
+| **MINOR 1** | the bare invocation the card's method writes exited 2 on this branch | a path absent at either ref is SKIPPED and counted; `exists()` asks git directly, so absence is told from failure | bare: files 14, identical 4, differing 3, skipped 7. The three touched production modules are IDENTICAL in both forms; mutant `A5` |
 | **MINOR 2** | `round_money`'s justification was narrower than its reach | the table now says the class is excused because the program CHOSE to accept it wholesale, not because it cannot identify | at this tip the rule silences 8,654 sites, of which 2,606 carry a magnitude of four figures or more and 471 of five figures or more |
 | **MINOR 3** | `words_class` discards the one capability the scanner builds for names | the table now states plainly that the tree is UNAUDITED FOR CUSTOMER NAMES BY CONSTRUCTION | the rule silences 541,376 sites at this tip, which is why it is a card and not a patch |
 | **MINOR 4** | the era bound was never pinned and its residual exposure never named | the bound is DERIVED from `PROGRAM_ERA` and walked in days either side; the archive's freeze date has a test of its own | one site is silenced by the rule at this tip, and it is named in the table |
@@ -55357,9 +55357,10 @@ Excused SITES per rule at the tip (the per-rule row above is raw hits; these are
 
 **34 mutants · 34 killed · 0 survived**, run without `-x`, every killer named, tree clean before
 and after (`git status --porcelain` empty both times). Twelve are new in this closure: `M5b`,
-`M5c` (the sha OCCURRENCE), `M11b`, `M11c`, `M11d` and four gap cases (the address VOCABULARY),
-`D1`, `D2` (the diff reader), `A5` (the absent path), and `L1`..`L4` (the `_CENT` ladder, a gate
-this card did not write but whose only guard it rewrote).
+`M5c` (the sha OCCURRENCE), `M11b`, `M11c`, `M11d` (the address VOCABULARY), `D1`, `D2` (the
+diff reader), `A5` (the absent path), and `L1`..`L4` (the `_CENT` ladder, a gate this card did
+not write but whose only guard it rewrote). Four new gap CASES in the tests are not mutants
+and are counted as tests.
 
 `M11` SURVIVED the first run of the closure's own table and that is worth recording: the
 redesigned rule reads the furniture first, so the three near-misses that used to guard the GAP no
@@ -55377,10 +55378,11 @@ identical 27 · payload changed 0 · validated regressions 0**, exit 0. `--parse
 11 of 11 preserved, identical, exit 0.
 
 `fixpriv_ast_identity --base 2f24b06 --ref HEAD` over the three touched production modules:
-IDENTICAL x3, differing 0, exit 0. Bare, as the card's method writes it: files 13, identical 4,
-differing 2, skipped 7, exit 1 — and the exit 1 is the truth, not a defect: the two differing
-files are the scanner and `tests/test_lili.py`, which this card changed on purpose and not only
-in prose. No production module differs.
+IDENTICAL x3, differing 0, exit 0. Bare, as the card's method writes it: files 14, identical 4,
+differing 3, skipped 7, exit 1 — and the exit 1 is the truth, not a defect. The three differing
+files are the scanner, `tests/test_lili.py` and `tests/test_analysis.py`: this card changed all
+three on purpose and not only in prose, and a test file's fixtures are not a docstring. No
+production module differs, in either form of the run.
 
 The archive sweep is not owed: it is owed when a reader changes, and none did.
 
@@ -55406,16 +55408,17 @@ shape is what the sentence says now, and nothing the review concluded changes.
 | `fixpriv_ast_identity --base 2f24b06 --ref HEAD <3 paths>` | 3 files, 3 identical, 0 differing | **0** |
 | `fixpriv_mutation_table` (no `-x`) | 34 / 34 killed / 0 survived | **0** |
 | `cohort_replay` x3 registrations, `--expect-identical` | 27 of 27 preserved, payload identical | **0** |
-| exclusion-rule tests | passed | **0** |
-| the branch's four test files | passed | **0** |
-| canonical guards (5 files) | passed | **0** |
-| canonical conformance (7 files) | passed | **0** |
-| `python corpus_gate.py` | GREEN | **0** |
-| full default suite | the two EXCUSED failures and nothing else | 1 |
-| corpus-marked slice | passed | **0** |
+| exclusion-rule tests | 167 passed | **0** |
+| the branch's four test files | 253 passed | **0** |
+| canonical guards (5 files) | 255 passed | **0** |
+| canonical conformance (7 files) | 1,270 passed, 40 skipped | **0** |
+| `python corpus_gate.py` | **GREEN**, 105 PASS / 3 WITHHELD / 1 REFUSED; 14 CAD / 94 USD; provenance 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89 schema_default; 109 pinned PDFs, 0 exclusions | **0** |
+| full default suite | 2 failed, 6,935 passed, 43 skipped, 34 deselected — the two EXCUSED failures and nothing else | 1 |
+| corpus-marked slice | 30 passed | **0** |
 | `fixpriv_w3_redact --check-idempotent` + dry run | idempotent; W3 MONEY 1,366 · DIGITS 146 · DATES 223 | **0** |
 | W3 append-only prefix check | byte-identical over all base bytes; one appended section | — |
 
+Every row above was run at the tip that carries this section, one heavy process at a time.
 The two excused suite failures are `test_corpus_gate_outcomes::test_every_production_caller_of_
 the_analysis_is_classified` and `test_currency_source::test_only_the_readers_the_schema_and_the_
 gate_know_the_provenance_exists`. Both are Ocean's own tools, both fail at the base, and both are
@@ -55456,3 +55459,4 @@ The rulings the implementing cell asked for are unchanged and this closure adds 
 | `f4ec619` | MAJOR 1 + 2 (a): FP5 and FP6 carried the tokens they were writing about |
 | `e1facc5` | MAJOR 2 (b): the closure's own era fixtures, and the review's four durations |
 | `192499f` | BLOCK (b): `M11` survived the closure's own table; the gap is guarded inside each address shape |
+| `8aec6ac` and the commits after it | MAJOR 1 + 2 (c) + MINOR 5 + MINOR 6: this section, and the corrections that make its figures the tip's own. A record cannot print the sha of the commit that carries it; `git log 2f24b06..` is the list |
