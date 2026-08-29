@@ -55086,10 +55086,16 @@ The first pass wrote this card's tests by copying the examples the scan had just
 files this branch had written.** Every one is now an invented shape VERIFIED not to collide, by
 `tools/fixpriv_invent.py` (committed).
 
-That tool also measures why this cannot be eyeballed: against 354,835 printed figures,
-`77.77`, `7.77`, `19.07`, `10.01`, `100.01`, `1.23`, `12345` and `999999` all COLLIDE. A small
-"obviously made up" amount collides about a third of the time. The invented money convention
-therefore has to be a large figure, and the invented date convention is the card's 2031.
+That tool also measures why this cannot be eyeballed. Eight candidates of exactly the kind a
+cell invents by eye were put to it against the printed universe -- a repeated-digit amount, a
+small figure with cents, a round figure a cent off, a sequential five-digit run, a run of
+nines -- and ALL EIGHT COLLIDED with something some document prints. The eight are not
+reproduced here, and the reason is the finding itself: a sentence about figures that collide,
+written with the figures in it, puts eight archive tokens into tracked source, which is what
+the first draft of this paragraph did. This record names CLASSES; `fixpriv_invent` names
+tokens, on demand, out of tree. A small "obviously made up" amount collides about a third of
+the time. The invented money convention therefore has to be a large figure, and the invented
+date convention is the card's 2031.
 
 ## FP6 — the record redaction is REFUSED as specified, and the reason is measured
 
@@ -55099,11 +55105,14 @@ sha-protected twice over, no token list — it derives the universe the way the 
 it over the 43 record files it owns, **read what it had done, and reverted it**.
 
 Against a 208,695-token digit universe and a 354,835-token money universe, the records' own
-machine numbers collide: **abbreviated commit hashes** (`f14282e`, `32116b3`, `88540b2` — now
-excluded by rule), **CI run ids** (`Run 31131672673`), **W3 line references**
-(`lines 44034–44480`, `L39238`), **test durations** (`33.88s`, `978.52s`, `1.15s`), **software
-versions** (`ubuntu-24.04` became `ubuntu-[amount redacted]`) and **coverage-band constants**
-(`0.98–1.02`). Redacting those destroys the record's ability to name its own commits, its own
+machine numbers collide, and the classes are named here without their instances, for the
+reason FP5 gives: **abbreviated commit hashes** (`f14282e`, `32116b3`, `88540b2` — now excluded
+by rule, and the only class of the six that is), **CI run ids** (an eleven-digit run), **W3
+line references** (a five-digit line number, and a span written as two of them), **test
+durations** (seconds to the hundredth, which is money-shaped), **software versions** (a runner
+image whose two-part version number is money-shaped, redacted to `ubuntu-[amount redacted]`)
+and **coverage-band constants** (a ratio either side of one, likewise). Redacting those
+destroys the record's ability to name its own commits, its own
 runs and its own lines — which is `cc64232` / `bbeeb5c` damaging shas, one step further out, and
 it is not "redactions only; never rewrite meaning". **A ruling is requested** before any record
 is redacted.
