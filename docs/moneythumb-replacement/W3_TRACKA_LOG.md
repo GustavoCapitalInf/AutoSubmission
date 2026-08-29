@@ -54964,3 +54964,407 @@ sentences to it and takes nothing away:
 The mutation table, the poison census, the `OverflowError` census, the pinned
 replay and the family replay are this session's, on this host, with their exit
 codes in H14.6, and they need no re-run at the train.
+
+# §RAISEPRIV4 — the eight `date()` sites #HYGIENE8 carried, closed and measured on both trees
+
+Batch 9, card 9A-0 #2. Hygiene, ZERO coverage movement. Base `train9` at
+`2f24b06`; branch `wave9-raisepriv4`; Windows host, Python 3.14.5; run of
+record `TRAIN8-7185633 / cda8882d`, cold cache
+`.claude/recovery/webapp_data_train8_cold`. Ocean composes; this cell never
+merged and never pushed.
+
+## RP4.0 Population — nine candidate lines, eight echoing sites, one guarded
+
+W3 §H14.3 ran an implicit-conversion census over the nine `CHAIN_GUARDED`
+modules, reported 74 unguarded conversions of a document token, proved 66 of
+them unable to reach an exception message, and measured **EIGHT that could**.
+All eight stood in three readers that closure did not own. They were disclosed
+in `_CARRIED_ECHOING_SITES` with their measured messages and carded here.
+
+The handoff listed NINE lines and §H14 counted EIGHT sites. **The difference is
+`analysis/bmo.py`'s transaction-row `date(year, month, day)`**, and it is a
+measurement rather than an argument:
+
+* it stands inside `except ValueError: continue`, so nothing it raises escapes
+  the reader — there is no refusal here to make private, and giving it one
+  would be a NEW refusal, which this card may not introduce;
+* `except ValueError` does not catch `OverflowError`, so the guard would be
+  incomplete if a huge year could reach the line — it cannot, because
+  `dates.resolve_year` returns one of the printed period's own years and the
+  period is matched by `(\d{4})`;
+* driven: a BMO grid whose first row prints a month and day no calendar holds
+  still publishes, with that row skipped and the readable one kept
+  (`test_the_ninth_line_raises_nothing_and_skips_the_row_it_cannot_read`).
+
+**Nine candidate lines, one guarded, eight echoing.** The census reconciles the
+count by construction: closing the eight left `unaccounted == []`, so the eight
+left the list and nothing new arrived.
+
+### RP4.0.1 The eight sites, and what each ECHOED at the base tree
+
+Driven through the real reader at `2f24b06` on invented 2031 fixtures. Every
+message below is this session's own measurement and reproduces §H14.3's to the
+word.
+
+| # | site | base message (the shape, on an invented 2031 cell) |
+|---|---|---|
+| 1 | `bmo._statement_period: date(year, month, 1)` | `year must be in 1..9999, not 0` — `(\d{4})` admits `0000` |
+| 2 | `bmo._statement_period: date(year, month, calendar.monthrange(...)[1])` | the same printed year, the same call, one line down |
+| 3 | `farmers_merchants._parse_summary: date(year, start_m, start_d)` | `month must be in 1..12, not 13` |
+| 4 | `farmers_merchants._parse_summary: date(year, end_m, end_d)` | `day 31 must be in range 1..30 for month 4 in year 2031` |
+| 5 | `td_can._parse_period: date(2000 + int(sy), _MONTHS[sm], int(sd))` | `day 30 must be in range 1..28 for month 2 in year 2031` |
+| 6 | `td_can._parse_period: date(2000 + int(ey), _MONTHS[em], int(ed))` | `day 31 must be in range 1..30 for month 4 in year 2031` |
+| 7 | `td_can._date_tokens: date(year, _MONTHS[mon], int(day))` | `day 30 …` / `day 0 must be in range 1..31 for month 1 in year 2031` |
+| 8 | `td_can._native_date_to_iso: date(default_year, _MONTHS[…], int(…))` | the same two shapes |
+
+### RP4.0.2 The document population
+
+From the run of record's `rows.csv`, the four registrations these three modules
+back (`analysis/parser_registry_entries.py`: there are exactly four):
+
+| registration | shas the run dispatched | baseline outcome |
+|---|---:|---|
+| `bmo` | 4 | 4 withheld |
+| `farmers_merchants` | 3 | 3 withheld |
+| `td_canada` | 0 | — (empty cohort) |
+| `td_canada_native` | 73 | **73 validated** |
+| census groups `WH:bmo` + `WH:farmers_merchants` + `DECL:bmo_ca_business` + `WH:td_us` | 16 | 16 non-validated |
+
+Distinct union of the replayed cohorts: **89 shas**.
+
+## RP4.1 Root cause
+
+CPython's `date()` echoes the offending component — `year must be in 1..9999,
+not 0`, `month must be in 1..12, not 13`, `day 30 must be in range 1..28 for
+month 2 in year 2031` — and every one of those components is a number the
+DOCUMENT printed. A row-date or period regex proves a token's SHAPE and nothing
+more, so `13/40/31` and `FEB30` match perfectly and are not dates, and the
+value rides out of the reader on the exception.
+
+The dangerous half of this class has no `raise` to grep for, which is why
+§PRIVACY3's `_chain_offenders` could not see it and why the sites survived a
+closure that was looking for them: the raise is CPython's, not ours.
+
+## RP4.2 Solution
+
+Each site now goes through `date_tokens.iso_or_none` and raises
+`date_tokens.date_refusal` from OUTSIDE the funnel — the shape `548e518`
+installed for the first four sites — so what is raised carries neither a
+`__cause__` nor a `__context__`, names the READER and a refusal CLASS, and
+never the token.
+
+**Refusal semantics are preserved, site by site.** Every site that raised still
+raises, on the same inputs, with the same class `ValueError`, so the dispatch
+seam sees the class it saw. No site that returned `None` gained a raise; no
+site that raised gained an acceptance. Two orderings are argued rather than
+assumed:
+
+* `bmo._statement_period` evaluates `calendar.monthrange` BEFORE the refusal
+  now. It cannot raise on any pair that reaches the line: `month` is an index
+  into `calendar.month_name` and so is 1..12, and `calendar.weekday` REMAPS a
+  year outside `MINYEAR..MAXYEAR` rather than raising. Measured on this host
+  for years 0, 1 and 9999 across all twelve months.
+* `farmers_merchants._parse_summary` and `td_can._parse_period` read their two
+  cells SEQUENTIALLY, exactly as the two `date()` calls were evaluated, so a
+  document whose start cell refuses still refuses on the start cell and never
+  reaches the end cell's `_MONTHS[...]` lookup.
+
+`CHAIN_GUARDED` gains `date_refusal` for `bmo` and `farmers_merchants`; the
+now-unused `from datetime import date` goes with the sites in
+`farmers_merchants` and `td_can`, as `scotia`'s did at `548e518`. `bmo` keeps
+its import: `_statement_period` returns `date` objects and the ninth line is
+unchanged.
+
+### RP4.2.1 The one behaviour that moves, named
+
+`iso_or_none` catches `OverflowError` as well as `ValueError` — the contract
+#HYGIENE8 closed at `c455de7` (review MINOR-4) — so a year past the C `int`
+`date()` parses its arguments into now refuses through `date_refusal` instead
+of escaping as an `OverflowError`. Measured on both trees at the two sites
+where it can happen at all.
+
+It is **unreachable from any document**. Every year at these eight sites is
+`(\d{4})`, `2000 + int(\d{2})`, or `int(stmt.period_end[:4])`, and it reaches
+`td_can._date_tokens` / `_native_date_to_iso` only through a direct call with a
+crafted `default_year`. Asserted structurally as well as measured: every
+`default_year=` keyword in the reader is the grouper's loop variable or
+`int(stmt.period_end[:4])`, and `period_end` is an ISO string this tree wrote.
+
+## RP4.3 Correctness evidence — the both-tree drive
+
+`tests/test_raise_privacy4.py`, nineteen (site, shape) cells over the eight
+sites, each driven through the REAL reader. `tools.hygiene8_base_tree`
+materialises `analysis/` at `2f24b06` beside ours in ONE interpreter, so the
+comparison is between two trees rather than between two environments.
+
+| assertion | base `2f24b06` | branch `05b8751` |
+|---|---|---|
+| the cell reaches `date()` and raises | 19/19 | 19/19 |
+| the message ECHOES the printed number | **19/19** | 0/19 |
+| leaks on `str`/`repr`/`args`/`__notes__`/chain/traceback (2-digit run floor) | — | **0/19** |
+| any decimal digit at all on the message surfaces | — | **0/19** |
+| carries `reader=<the site>` | — | 19/19 |
+| `__cause__` and `__context__` both `None` | — | 19/19 |
+| class is still `ValueError` | 19/19 | 19/19 |
+
+Two assertions rather than one, because the digit-run floor cannot see every
+echo: `bmo` quotes a printed `0000` as `0`, a ONE-digit run no floor can
+distinguish from ordinary text. So the refusals are also asserted to carry no
+decimal digit AT ALL on the message surfaces — stronger than the floor, and
+proof against CPython rewording its range messages again as 3.13 did.
+
+**The other half of "only the message changed".** An in-range cell at every one
+of the seven drives produces the same payload leaf for leaf on both trees
+(`leaf_diff == []`), and the five shapes that never reach `date()` — junk,
+superscript days, superscript-only, empty, blank — produce the SAME outcome
+class on both trees, with the same payload where they return and no leak where
+they raise. `re`'s `\d` matches Unicode category Nd and a superscript is No, so
+`\d{1,2}` never admits one; the honest proof for those shapes is INVARIANCE,
+not privacy, and that is what is asserted.
+
+## RP4.4 Correctness evidence — the mutation table
+
+`tools/raisepriv4_mutation_table.py`, gate set
+`tests/test_raise_privacy4.py` + `tests/test_privacy3_boundaries.py` +
+`tests/test_raise_privacy3.py`, run WITHOUT `-x` so every killer is named.
+Baseline green first; `git status --short` empty before and after.
+
+**10 mutants / 10 KILLED / 0 SURVIVED / 0 NOT APPLIED**, 219.7 s, exit **0**.
+Every mutant's target text occurred exactly as documented (10/10).
+
+| mutant | site reverted | landed in | killers | first killer |
+|---|---|---|---:|---|
+| **N1** | `bmo._statement_period`, period START | `_statement_period` | 5 | the raw-`date()` census |
+| **N2** | `bmo._statement_period`, period END | `_statement_period` | **3** | the raw-`date()` census |
+| **N3** | `farmers_merchants._parse_summary`, START cell | `_parse_summary` | 8 | the raw-`date()` census |
+| **N4** | `farmers_merchants._parse_summary`, END cell | `_parse_summary` | 8 | the raw-`date()` census |
+| **N5** | `td_can._parse_period`, START token | `_parse_period` | 8 | the raw-`date()` census |
+| **N6** | `td_can._parse_period`, END token | `_parse_period` | 8 | the raw-`date()` census |
+| **N7** | `td_can._date_tokens`, row date | `_date_tokens` | 9 | the raw-`date()` census |
+| **N8** | `td_can._native_date_to_iso`, native row date | `_native_date_to_iso` | 9 | the raw-`date()` census |
+| **N9** | the refusal replaced by a naked `ValueError(cell)` | `_parse_summary` | 7 | the chain guard `[analysis/farmers_merchants.py]` |
+| **N10** | the refusal CHAINED (`... from ValueError(cell)`) | `_parse_period` | 7 | the chain guard `[analysis/td_can.py]` |
+
+**N2 is the row that earns the structural census.** Once a BMO period's start
+date is readable, the month's last day always is, so NO drive can reach that
+second `date()`. Its three killers are all STRUCTURAL — the raw-`date()`
+census, the implicit-conversion census, and this card's
+`test_the_eight_carried_sites_are_absent_from_the_conversion_census` — and not
+one is a poisoned drive. That is exactly the case §H14 warned about when it
+said a parser is where the next one arrives, in a commit about something else.
+
+N9 and N10 break the REFUSAL rather than the funnel, which is why the drives
+assert on five surfaces instead of on the message: N10's mutant reads perfectly
+clean on `str(exc)` and leaks the cell on `__cause__` and on the first rendered
+traceback.
+
+## RP4.5 Generalization evidence — the raw-`date()` census
+
+`tests/test_privacy3_boundaries.py` section 4b. In `analysis/bmo.py`,
+`analysis/farmers_merchants.py` and `analysis/td_can.py`, every bare
+`date(...)` / `datetime(...)` construction built from anything but literals is
+reported, and the allowlist holds **exactly one entry** — the ninth line — with
+the reason that proves it cannot echo.
+
+It is deliberately STRICTER than the implicit-conversion census, which exempts
+a call standing inside a `ValueError` handler. Two reasons, neither of them
+style: that handler does not catch `OverflowError`, so a handler-guarded
+`date()` is only safe while its year is bounded — a property of the CALLER,
+which is the kind of protection that disappears when a caller changes; and the
+census's exemption is a RULE, while this is an ENUMERATION, and a rule admits
+the next site silently.
+
+Watched failing on five synthetic shapes, including the two it must NOT flag:
+
+| shape | findings |
+|---|---:|
+| a regex group straight into `date()` | 1 |
+| the same call inside a `ValueError` handler — **still reported** | 1 |
+| the attribute spelling `datetime.date(...)` | 1 |
+| the funnel this card installed (`iso_or_none` + `date.fromisoformat`) | 0 |
+| a constant-only construction | 0 |
+
+`_CARRIED_ECHOING_SITES` is emptied and kept as an empty dict, with the reason
+in place: the next session that must disclose a site it cannot close needs
+somewhere honest to put it, and the allowlist's reason guard already covers
+what goes in.
+
+## RP4.6 Zero movement — `cohort_replay` at base and at the closure tree
+
+Instrument: `python -m tools.cohort_replay`, the committed batch-9 one, against
+the run of record's own cached text and the cold cache, both absolute.
+
+**Base fidelity** (`--expect-identical` at `2f24b06`): exit **0** on every
+non-empty cohort — `bmo` 4/4, `farmers_merchants` 3/3, `td_canada_native`
+73/73, groups 16/16. `--parser td_canada` is an **empty cohort** (exit 4): the
+run of record dispatched no sha to that registration. That is a population
+fact, not a fidelity failure, and it is recorded rather than hidden.
+
+**At the closure tree** `05b8751`:
+
+| cohort | population | newly validated | previously validated preserved | payload identical | validated regressions | unchanged non-validated | exit |
+|---|---:|---:|---|---:|---:|---|---:|
+| `--parser bmo` | 4 | 0 | 0 of 0 | 0 | **0** | 4 (payload changed on 0) | 0 |
+| `--parser farmers_merchants` | 3 | 0 | 0 of 0 | 0 | **0** | 3 (payload changed on 0) | 0 |
+| `--parser td_canada` | 0 | — | — | — | — | — | 4 (empty) |
+| `--parser td_canada_native` | 73 | 0 | **73 of 73** | **73** | **0** | 0 | 0 |
+| the four census groups | 16 | 0 | 0 of 0 | 0 | **0** | 16 (payload changed on 0) | 0 |
+
+**newly validated = 0. Other ladder movement = 0. Previously validated
+preserved = 73 of 73, payload identical 73 of 73. Regressions = 0.** Every
+non-validated member is unchanged with an identical payload. This is the shape
+a hygiene card owes: `newly validated = 0` AND `preserved = all, payload
+identical`.
+
+## RP4.7 Zero movement — the archive sweep at the final tree
+
+`python -m tools.regfp_zero_movement_sweep --rows <run>/rows.csv --data-dir
+<cold cache> --baseline-settings-key 7652A5AF…C093D`, the whole archive in four
+chunks, each with its own report, run at `05b8751`. **Exit 0 on all four**;
+3,278.0 s total.
+
+| chunk | documents | compared payload | identical | **moved** | **no_payload_now_publishes** | **payload_now_raises** | no_payload_raises_again | no_ocr_artifact | findings |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 0–850 | 850 | 658 | 658 | **0** | **0** | **0** | 186 | 6 | `[]` |
+| 850–1700 | 850 | 683 | 683 | **0** | **0** | **0** | 162 | 5 | `[]` |
+| 1700–2550 | 850 | 676 | 676 | **0** | **0** | **0** | 163 | 11 | `[]` |
+| 2550–3380 | 830 | 652 | 652 | **0** | **0** | **0** | 171 | 7 | `[]` |
+| **total** | **3,380** | **2,669** | **2,669** | **0** | **0** | **0** | 682 | 29 | **`[]`** |
+
+**Every document of the archive that published an analysis reproduces it byte
+for byte**, and neither boundary between publishing and refusing moved in
+either direction. The counts reconcile with the run of record without being
+told to: 2,669 compared payloads = 2,596 validated + 18 review + 55 withheld,
+and 2,669 + 682 + 29 = 3,380.
+
+There is therefore **nothing to explain**: the rule is that every `moved` /
+`no_payload_now_publishes` / `payload_now_raises` finding must be inside the
+card's named population, and there are none anywhere — inside it or outside
+it.
+
+## RP4.8 Privacy of this session's added lines
+
+`python tools/privacy_scan_branch.py --rows <run>/rows.csv --where
+parser_id=bmo,farmers_merchants,td_canada,td_canada_native --data-dir
+<cold cache> --base 2f24b06 --ref wave9-raisepriv4`:
+
+| measure | value |
+|---|---:|
+| documents read (the four readers' whole population) | 80 |
+| documents with no cached text | 0 |
+| printed tokens built from them | MONEY 6,382 · DIGITS 975 · WORDS 3,187 · DATES 25 |
+| of those, distinctive (absent from the tree at base) | MONEY 5,940 · DIGITS 946 · WORDS 2,446 · DATES 21 |
+| added lines scanned (`2f24b06...wave9-raisepriv4`) | 1,199 |
+| **hits** | **0** (MONEY 0 · DIGITS 0 · WORDS 0 · DATES 0) |
+
+Exit **0**. Every invented fixture date in this branch is 2031 and every figure
+is rendered from whole units at build time, so no amount-shaped literal enters
+the tree by construction rather than by argument afterwards.
+
+## RP4.9 The proof floor at the closure tree
+
+All on the Windows host at `05b8751`, durable logs in this session's private
+scratch, exit codes verbatim.
+
+| # | gate | result | exit |
+|---|---|---|---:|
+| 1 | full default suite | 2 failed, **6,856 passed**, 43 skipped, 34 deselected (196.0 s) | **1** |
+| 2 | canonical guards (5 files) | **255 passed** (11.0 s) | **0** |
+| 3 | canonical conformance (7 files) | **1,270 passed**, 40 skipped (4.1 s) | **0** |
+| 4 | `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; 1 refused / 3 review / 102 validated / 3 withheld (503.0 s) | **0** |
+| 5 | corpus-marked slice | **30 passed** (1,739.4 s) | **0** |
+| 6 | mutation table | 10/10 killed, 0 survived, 0 not applied (219.7 s) | **0** |
+| 7 | `cohort_replay` base fidelity, four cohorts | identical | **0** (+ one empty cohort, 4) |
+| 8 | `cohort_replay` at the tip, five cohorts | 0 movement | **0** (+ one empty cohort, 4) |
+| 9 | privacy scan | 0 hits | **0** |
+| 10 | archive sweep, 3,380 documents in four chunks | 2,669/2,669 identical; 0 moved / 0 now-publishes / 0 now-raises (3,278.0 s) | **0** |
+
+### RP4.9.1 The suite's exit 1 is INHERITED, and it is measured
+
+Two tests fail, and **the same two fail at the base with this branch's changes
+absent**. Measured by checking the base out in this worktree and running the
+whole suite there:
+
+| tree | suite |
+|---|---|
+| base `2f24b06` | 2 failed, **6,740 passed**, 43 skipped, 34 deselected |
+| tip `05b8751` | 2 failed, **6,856 passed**, 43 skipped, 34 deselected |
+
+`6,740 + 2 = 6,742`, which is the floor BATCH9-RULES pins for this base. The
+tip adds **116** tests and every one of them passes. The two failures are:
+
+* `tests/test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified`
+  — `tools/cohort_replay.py` (added by `2f24b06`, the batch-9 instrument
+  commit) calls the analysis and is in neither `corpus_gate.ANALYSIS_CALL_SITES`
+  nor `EXCLUDED_ANALYSIS_CALLERS`;
+* `tests/test_currency_source.py::test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists`
+  — `tools/batch9_census.py` (added by `3311a8a`, the census commit) names
+  `currency_source` and is not in `PROVENANCE_MODULES`.
+
+Neither file is in this card's diff and neither fix is in this card's
+ownership: `corpus_gate.py` and `tests/test_currency_source.py` belong to
+whoever owns the batch-9 opening commits. **Reported to Ocean as a train9
+finding, not carried as a cell defect.**
+
+## RP4.10 The commits of this cell
+
+| commit | subject |
+|---|---|
+| `f75d4d4` | the eight carried `date()` sites of three readers, funnelled and refusing without the token |
+| `9a4dad0` | the poisoned drives, both trees, and the raw-`date()` census that makes the tenth site visible |
+| `05b8751` | the mutation table — one mutant per site, plus the two ways a correct-looking refusal still leaks |
+| *(the next commit)* | this section |
+
+**One correction to `9a4dad0`'s own message**, recorded here because a commit
+message is a ledger entry and a wrong number in one is a defect however small:
+it says "sixteen (site, shape) cells". The drive table holds **nineteen**
+(`len(CELLS)` = 19: bmo 1 + farmers_merchants 3 + 3 + td_can 3 + 3 + 3 + 3).
+The count is corrected in RP4.3 above and reproduces from the committed file;
+the commit itself is not rewritten, because rewriting a commit to fix its prose
+is a worse trade than a correction that can be read beside it.
+
+## RP4.11 The one file outside this card's named ownership
+
+`tests/test_raise_privacy3.py`'s `_CARRIED_ECHOING_SITES` is emptied. It is
+**unavoidable and the test itself asks for it**: the implicit-conversion census
+asserts the disclosure list is not STALE ("the census no longer finds these;
+drop them from the list"), so closing the eight sites is precisely what empties
+it. No other way of closing them avoids it — a correct fix removes the site
+from the census however it is written.
+
+The edit is the dict, its comment, and one word in the narrative comment above
+it. Nothing else in that file is touched, and `unaccounted == []` is measured
+at this tree, so the eight left the list and nothing new arrived. Flagged for
+Ocean because FIXTURE-PRIVACY sweeps `tests/` concurrently and may also touch
+that file.
+
+## RP4.12 What the train owes, and the risks
+
+1. **Nothing to re-run.** Every headline number above was measured on this host
+   at the tree it names, with a durable log and an exit code. The mutation
+   table, the both-tree drive and the two censuses are committed instruments.
+2. **The train9 base is not green on the full suite** (RP4.9.1). Two batch-9
+   opening tools were added without wiring; both fixes are one-line list
+   entries and neither belongs to this cell.
+3. **`analysis/td_can.py` is touched by this card and by the batch-9
+   WH-ROW-CAPTURE / WH-NO-PERIOD coverage cells**, which the handoff says start
+   only after this card composes. Whoever composes them must keep the funnel,
+   the reader-name rule and the `date_refusal` registration in `CHAIN_GUARDED`.
+4. **A `KeyError` class, disclosed and NOT closed.** `td_can._parse_period`'s
+   `_MONTHS[sm]` and `_native_date_to_iso`'s `_MONTHS[m.group(1).upper()]` look
+   up a three-letter group the regex proved is `[A-Z]{3}` and not that it is a
+   month, so a non-month word raises `KeyError('<the printed word>')` — a
+   message that quotes the document. It is the SAME class of defect as the
+   eight this card closed, in the same two functions, and it is disclosed
+   rather than fixed for the reason §H14 gave for these eight: it is a
+   different construction (a dict lookup, not a conversion), no census this
+   tree runs reports it, and changing the class a reader raises is a
+   movement-bearing edit that belongs to a card of its own. In production both
+   lookups are reached behind a guard — `_native_date_index` tests
+   `text[:3] in _MONTHS` before `_native_date_to_iso` is called — so the
+   reachable surface is `_parse_period` on a period-shaped line whose month
+   word is not a month. Measured at this tree on an invented three-letter
+   non-month: `KeyError` whose single argument is that word, verbatim. It
+   behaves identically at the base — this card neither introduced it nor
+   changed it. **Carded for batch 9 or later; named here so it is visible the
+   day someone looks.**
