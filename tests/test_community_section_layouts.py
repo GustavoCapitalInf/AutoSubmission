@@ -846,3 +846,86 @@ def test_a_grid_that_gives_one_day_two_balances_is_refused():
     message = str(caught.value)
     assert "two different end-of-day balances" in message
     assert "01/03" not in message and "151" not in message and "150" not in message
+
+
+#: The J-B header names three money columns - a debit column, a credit column
+#: and a balance column - and this printing leaves the BALANCE column blank on
+#: every posting row. A row therefore carries one figure, and the direction it
+#: belongs to is the column the bank printed that figure in. The flattened text
+#: layer emits one space-separated run with no column geometry at all, so the
+#: direction is not in this reader's input; the two bookend rows are the only
+#: places a balance is printed.
+_NO_BALANCE_COLUMN_LEDGER = (
+    "Business Checking - XXXXXX1234\n"
+    "Account Summary Date Description Amount 01/01/2054 Beginning Balance $100.00"
+    " 2 Credit(s) This Period $40.00 2 Debit(s) This Period $40.00"
+    " 01/30/2054 Ending Balance $100.00\n"
+    "Account Activity\n"
+    "Post Date Description Debits Credits Balance\n"
+    "01/01/2054 Beginning Balance $100.00\n"
+    "01/02/2054 INCOMING ACH $10.00\n"
+    "01/03/2054 INCOMING ACH $30.00\n"
+    "01/03/2054 SERVICE CHARGE $5.00\n"
+    "01/04/2054 OUTGOING ACH $35.00\n"
+    "01/30/2054 Ending Balance $100.00\n"
+    "Daily Balances Date Amount 01/02/2054 $110.00 01/03/2054 $135.00"
+    " 01/04/2054 $100.00\n"
+)
+
+
+def test_an_activity_ledger_printing_no_running_balance_is_declined():
+    """The shape the archive prints, and the one this reader must not solve.
+
+    Everything else on this fixture is printed and closes: the summary grid
+    balances, the row figures sum to both stated totals, the row count equals
+    the two stated counts added together, and the printed daily-balance grid
+    covers every posting day. The ONE thing missing is the direction of each
+    row, which the bank printed as a column and the text layer does not carry.
+
+    A reader could recover it by SOLVING - by choosing the assignment of
+    directions that makes the printed identities close. This fixture is built
+    so exactly one such assignment exists, which is what makes the test worth
+    having: the refusal is not "we could not tell", it is "we will not fit".
+    Fitting would also destroy the evidence, because after it every printed
+    identity agrees BY CONSTRUCTION and nothing independent is left to catch a
+    row put on the wrong side. `_activity_rows` signs a row by the balance the
+    bank printed beside it; where no balance is printed there is nothing to
+    sign it with, and the document declines.
+
+    A day carrying more than one row is part of the shape rather than
+    decoration: it is what makes the printed grid unable to decide the rows on
+    its own, and it is what the archive's members of this shape print on nearly
+    every posting day.
+    """
+    assert parse_community_section_statement(
+        PLATFORM_HEAD + _NO_BALANCE_COLUMN_LEDGER) is None
+
+
+def test_the_same_ledger_publishes_once_the_bank_prints_the_balance_column():
+    """The control that keeps the refusal above from being vacuous.
+
+    The identical statement, with the balance column filled in as this
+    platform's other members print it, publishes - so what the refusal turns on
+    is the missing column and not some other property of the fixture.
+    """
+    stmt = parse_community_section_statement(PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2054 Beginning Balance $100.00"
+        " 2 Credit(s) This Period $40.00 2 Debit(s) This Period $40.00"
+        " 01/30/2054 Ending Balance $100.00\n"
+        "Account Activity\n"
+        "Post Date Description Debits Credits Balance\n"
+        "01/01/2054 Beginning Balance $100.00\n"
+        "01/02/2054 INCOMING ACH $10.00 $110.00\n"
+        "01/03/2054 INCOMING ACH $30.00 $140.00\n"
+        "01/03/2054 SERVICE CHARGE $5.00 $135.00\n"
+        "01/04/2054 OUTGOING ACH $35.00 $100.00\n"
+        "01/30/2054 Ending Balance $100.00\n"
+        "Daily Balances Date Amount 01/02/2054 $110.00 01/03/2054 $135.00"
+        " 01/04/2054 $100.00\n"
+    ))
+    assert stmt is not None
+    assert [(t.amount, t.direction) for t in stmt.transactions] == [
+        (10.0, "credit"), (30.0, "credit"), (-5.0, "debit"), (-35.0, "debit"),
+    ]
+    assert reconcile(stmt).ok
