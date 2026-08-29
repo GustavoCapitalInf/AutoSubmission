@@ -169,7 +169,7 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
     (
         "M11", "scan", "institution_zip",
         "widen the gap and let it cross digits, so the rule reaches past an address",
-        '_ZIP_GAP = r"[^0-9]{0,8}"',
+        '_ZIP_GAP = r"[^0-9#]{0,8}"',
         '_ZIP_GAP = r".{0,40}?"',
     ),
     (
@@ -192,8 +192,48 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "M11d", "scan", "institution_zip",
         "unbound the post-office box to the whole LINE, so a box in one clause "
         "excuses an identifier in the next",
-        r'    rf"\bP\.?\s?O\.?\s?BOX\b{_CLAUSE_CHAR}{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
-        r'    rf"\bP\.?\s?O\.?\s?BOX\b.*\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+        r'    rf"\bP\.?\s?O\.?\s?BOX\b{_TEMPERED_CHAR}{{0,50}}?{_CITY_WORD}"'
+        "\n"
+        r'    rf"{_TEMPERED_CHAR}{{0,20}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+        r'    rf"\bP\.?\s?O\.?\s?BOX\b.*{_CITY_WORD}"'
+        "\n"
+        r'    rf".*\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+    ),
+    (
+        "M11g", "scan", "institution_zip",
+        "drop the CITY between the box and the state, so the box marker reaches "
+        "across an unbroken run of ordinary characters again and an ACH company "
+        "id (`PO BOX 1558 CCD CO# 45678 TRACE`) goes quiet — the second "
+        "re-review's residual, exactly as it stood",
+        r'    rf"\bP\.?\s?O\.?\s?BOX\b{_TEMPERED_CHAR}{{0,50}}?{_CITY_WORD}"'
+        "\n"
+        r'    rf"{_TEMPERED_CHAR}{{0,20}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+        r'    rf"\bP\.?\s?O\.?\s?BOX\b{_CLAUSE_CHAR}{{0,70}}?"'
+        "\n"
+        r'    rf"\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+    ),
+    (
+        "M11h", "scan", "institution_zip",
+        "let a NUMBER SIGN back into the gap between the state and the code, so "
+        "`CO# 45678` reads as a postal code whenever a city-shaped word — a "
+        "company name will do — stands in front of it",
+        '_ZIP_GAP = r"[^0-9#]{0,8}"',
+        '_ZIP_GAP = r"[^0-9]{0,8}"',
+    ),
+    (
+        "M11i", "scan", "institution_zip",
+        "drop the identifier VOCABULARY from the city test, so `MEMBER`, "
+        "`ACCOUNT` and `AUTH` count as cities and the tempered run crosses them",
+        r'_CITY_WORD = rf"\b(?!(?:{_IDENTIFIER_WORD})\b)[A-Z]{{4,}}"',
+        r'_CITY_WORD = rf"\b[A-Z]{{4,}}"',
+    ),
+    (
+        "M11j", "scan", "institution_zip",
+        "drop the word BOUNDARY in front of the city test, so the tail of an "
+        "identifier word stands in for a city (`MEMBER` offers `EMBER`) and the "
+        "vocabulary guard is defeated one character in",
+        r'_CITY_WORD = rf"\b(?!(?:{_IDENTIFIER_WORD})\b)[A-Z]{{4,}}"',
+        r'_CITY_WORD = rf"(?!(?:{_IDENTIFIER_WORD})\b)[A-Z]{{4,}}"',
     ),
     (
         "M11e", "scan", "institution_zip",

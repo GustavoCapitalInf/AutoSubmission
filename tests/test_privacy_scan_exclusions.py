@@ -265,7 +265,9 @@ def test_the_era_bound_is_a_date_comparison_not_a_year_comparison() -> None:
 # The abbreviation is necessary and never sufficient. Roughly half the list is
 # an ordinary English word once the scanner upper-cases the line (`IN`, `OR`,
 # `OK`, `ID`, `CO`, `ME`, ...), so the rule asks for the address furniture too:
-# a city and its comma, a ZIP+4 tail, or a post-office box in the same clause.
+# a city and its comma, or a post-office box with a CITY between it and the
+# state, in the same clause. A ZIP+4 tail is not furniture (the first
+# re-review), and neither is the absence of punctuation (the second).
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
@@ -277,6 +279,19 @@ def test_the_era_bound_is_a_date_comparison_not_a_year_comparison() -> None:
         ("99999", "PO BOX 1962 ST LOUIS MO 99999"),            # a box in the clause
         ("95959", "P. O. BOX 1962, SEATTLE WA 95959-9750"),
         ("95959", "1 GUARDIAN WAY, PRATTVILLE, AL 95959  334-244-9999"),
+        # The six address shapes a box line is actually printed in, so the
+        # narrowing below is measured against what it must keep, not only
+        # against what it must lose.
+        ("99999", "PO BOX 609 PITTSBURGH PA 99999"),           # a one-word city
+        ("99999", "P.O. BOX 7889 THE WOODLANDS, TX 99999"),    # a two-word city
+        ("99999", "P.O. BOX 000000 SYNTHETIC CITY OH 99999-0000"),
+        ("99999", "P.O BOX 1558 EA1W37 COLUMBUS OH 99999-1558"),  # a routing code between
+        ("99999", "P.O BOX 179, MOOREFIELD, WV 99999"),
+        # A CITY MAY BE TWO WORDS AND THE SECOND MAY BE SHORT. This one is a
+        # real institution address in the census, and it is why the rule asks
+        # for a city SOMEWHERE between the box and the state rather than for
+        # furniture immediately in front of the state.
+        ("99999", "ASSOCIATED BANK N.A. PO BOX 19097 GREEN BAY WI 99999-9097"),
     ],
 )
 def test_institution_zip_excludes_a_postal_address(token: str, line: str) -> None:
@@ -349,6 +364,59 @@ def test_the_box_marker_does_not_reach_out_of_its_clause(token: str, line: str) 
 @pytest.mark.parametrize(
     ("token", "line"),
     [
+        # THE ABSENCE OF PUNCTUATION IS NOT FURNITURE. Every line here is one
+        # unbroken clause — no full stop, no dash, no separator — so the clause
+        # bound cannot help, and every one of them is an identifier the archive
+        # prints. The first is the second re-review's residual verbatim: the ACH
+        # company-id shape out of `core_processor_signed_counts.py`'s grammar.
+        ("45678", "PO BOX 1558 CCD CO# 45678 TRACE"),
+        ("45678", "REMIT PO BOX 1558 CCD CO# 45678"),
+        ("84213", "PO BOX 196 MEMBER ID 84213"),
+        ("84213", "PO BOX 196 THE MEMBER ID 84213"),
+        ("84213", "PO BOX 196 SOUTH MEMBER ID 84213"),
+        ("84213", "PO BOX 609 ACCOUNT NO OR 84213"),
+        ("84213", "PO BOX 609 PITTSBURGH ACCOUNT NO OR 84213"),
+        ("84213", "PO BOX 196 AUTH OK 84213"),
+        ("84213", "PO BOX 196 CHECK NO OR 84213"),
+        ("84213", "PO BOX 1962 CARD ENDING IN 84213"),
+    ],
+)
+def test_a_box_needs_a_city_between_it_and_the_state(token: str, line: str) -> None:
+    """A box marker plus an unbroken run of ordinary characters is not an address.
+
+    Three letters are not a city (`CCD`), and the words this archive prints to
+    introduce an identity — `MEMBER`, `ACCOUNT`, `AUTH`, `CHECK`, `CARD`, `NO`
+    — are not cities either, whatever their length. The run from the box to the
+    state is tempered against all of them, in both halves, so a city standing
+    legitimately in front of one (`PITTSBURGH ACCOUNT NO OR 84213`) does not
+    rescue it.
+    """
+    assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
+
+
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        ("45678", "PO BOX 1558 ACME CORP CO# 45678 TRACE"),
+        ("45678", "ACME INC, CO# 45678 TRACE"),
+        ("45678", "OZARK, AR# 45678"),
+        ("45678", "PO BOX 196 OZARK AR# 45678"),
+    ],
+)
+def test_a_number_sign_is_not_postal_furniture(token: str, line: str) -> None:
+    """`#` between the state and the digits is evidence AGAINST an address.
+
+    It is the mark this archive puts in front of an identity — `CO# 45678` —
+    and a postal code never carries one. Both address shapes share the gap, so
+    saying it once covers both, and it closes the case a city-shaped word
+    cannot: a COMPANY name standing where a city would.
+    """
+    assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
+
+
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
         # The gap between the abbreviation and the code is SHORT and DIGIT-FREE,
         # and it has to stay both even when the address furniture is present:
         # an address prints its code next to its state, and anything reached
@@ -387,6 +455,8 @@ def test_a_bare_city_state_code_with_no_furniture_is_reported_not_hidden() -> No
         ("DIGITS", "84213", "MEMBER ID 84213"),
         ("DIGITS", "84213", "THE ACCOUNT ENDING IN 84213"),
         ("DIGITS", "45678", "07/03 BETA INBOUND CCD CO# 45678 TRACE"),
+        ("DIGITS", "45678", "PO BOX 1558 CCD CO# 45678 TRACE"),
+        ("DIGITS", "84213", "PO BOX 196 MEMBER ID 84213"),
         ("DIGITS", "84213", "AUTH OK 84213"),
         ("DIGITS", "84213", "CHECK NO OR 84213"),
         ("MONEY", "777,777.77", "BEGINNING BALANCE 777,777.77"),
