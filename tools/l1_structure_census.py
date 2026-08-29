@@ -203,6 +203,10 @@ class RollUpRow:
     #: The identity token, likewise a locator only.
     token: str
     n_money: int
+    #: The row's own money block, kept in memory so a consumer can ask whether
+    #: this account's closing figure is stated here (the partition ORACLE).
+    #: Never emitted.
+    block: str = ""
 
 
 @dataclass
@@ -322,8 +326,8 @@ def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int]:
                 continue
             classified = _classify_label(label.strip()) or _classify_label(head)
             form, token = classified if classified else ("product_name_only", head)
-            rows.append(RollUpRow(label=head[:80], identity_form=form,
-                                  token=token, n_money=len(MONEY.findall(block))))
+            rows.append(RollUpRow(label=head[:80], identity_form=form, token=token,
+                                  n_money=len(MONEY.findall(block)), block=block))
             rows_end = max(rows_end, offset)
     return rows, total, rows_end
 
