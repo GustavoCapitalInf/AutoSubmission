@@ -57018,10 +57018,14 @@ fails.
 Twenty-one of the 38 are Tesseract, and none of them moves. The three findings
 are separate and each is measured:
 
-* **`core_processor_sectioned`, 13 IDENTITY.** Six read the right NUMBER of
-  rows in both directions and miss a printed total; six lose rows outright
-  (count deltas from one to ninety-eight, always negative); one misses only the
-  grid, by a single day the ledger posts on and the grid does not print. That
+* **`core_processor_sectioned`, 13 IDENTITY**, and the split is six and seven
+  rather than the six / six / one this record first gave, which reached 13 only
+  by counting one document twice. From the committed probe's own `count_delta`:
+  **six** read the right NUMBER of rows in BOTH directions — five of those miss
+  a printed total and the sixth misses only the grid, by a single day the ledger
+  posts on and the grid does not print — and **seven** lose rows outright, with
+  thirteen non-zero deltas across them running from one to ninety-eight and
+  every one negative. That
   is the module's own docstring — OCR substituting look-alike letters for
   digits inside the AMOUNT column — and the ceiling agrees: `unreachable` on all
   14 Tesseract members of the group, with the strip's own cells disagreeing with
