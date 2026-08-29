@@ -55916,7 +55916,7 @@ by +<the stated service charge>`; `captured 27% of the bank's stated debits — 
 detail is inconsistent or incomplete; do not use it for daily-balance reconstruction`;
 `bank-stated summary does not reconcile`.
 
-## HUNT9.6 Solution
+## HUNT9.6 Solution, and what it refines in the L-1 ruling packet
 
 None, and that is the finding. Every class of decline was already a named, tested refusal
 before this card opened — `test_a_service_charge_the_document_never_itemises_is_refused`
@@ -55928,15 +55928,13 @@ printed in"), `test_a_statement_printing_no_end_of_day_balances_is_refused`,
 added, pinning the CONJUNCTION the archive actually prints — no fee detail AND no daily
 balances at once — which the one-at-a-time fixtures did not cover.
 
-## HUNT9.7 What this refines in the L-1 ruling packet
-
-The packet's §1 census reports `DECL:huntington` as 12 documents / 12 confirmed / **4** L-1
+**What this refines in the L-1 ruling packet.** The packet's §1 census reports `DECL:huntington` as 12 documents / 12 confirmed / **4** L-1
 refusals / 8 with the cause written as "grammar (period/summary/blocks/validate)" — the set
 of gates that could have refused, not the one that did. Measured here the gate is
 `_validate` on **all eight**; `_period`, `_summary`, `_transactions`, `_service_charges`
 and `_daily_balances` refuse **none** of the twelve. The packet's 4 reproduces exactly.
 
-## HUNT9.8 Generalization — how wide is the shape that stays declined
+## HUNT9.7 Generalization, and the findings carried
 
 The eight are **two distinct accounts, four statements each** (account-number fingerprints,
 never the numbers); the eleven validated documents of the same product are two other
@@ -55944,7 +55942,7 @@ accounts. So the print that omits both tables is not one account's accident — 
 variant shared across two account holders — and it is still not publishable, which is the
 point: the widening is not blocked by rarity, it is blocked by the evidence not existing.
 
-## HUNT9.9 Carried findings
+### The findings carried
 
 1. **A bank-stated service charge that the statement never itemises** — population 3 here
    (`0DCABEBAE6D99BE0`, `7C351D71B06A3E10`, `F14DAFC2118B3058`, the only three where every
@@ -55958,7 +55956,7 @@ point: the widening is not blocked by rarity, it is blocked by the evidence not 
    reader's own docstring and by `L1-CU-SUFFIX-INVESTIGATION`. This card measured its four
    refusals and left them declined.
 
-## HUNT9.10 Zero movement
+## HUNT9.8 Zero movement — the replays and the archive sweep
 
 Nothing moved, and the reason is structural rather than argued: **no production file
 differs from the base.** `git diff --stat 52f1d03..HEAD -- analysis ocr webapp discovery
@@ -55988,7 +55986,7 @@ reports; nothing in either is a mover. **Zero movement, archive-wide** — which
 empty production diff has to produce, and now does so by measurement rather than by
 argument.
 
-## HUNT9.11 The proof floor at `e23107e`
+## HUNT9.9 The proof floor at the closure tree, the commits, and the contract line
 
 | proof | result |
 |---|---|
@@ -56003,7 +56001,7 @@ argument.
 | branch privacy scan vs the 50-document population | **hit_count 0** over 594 added lines and 50 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0 |
 | the instruments carry no control byte | 0 on both files |
 
-## HUNT9.12 The commits of this cell
+### The commits of this cell
 
 | commit | what |
 |---|---|
@@ -56014,7 +56012,7 @@ argument.
 | `e23107e` | the probe's unused `notes` key removed |
 | the tip | this section, appended to `W3_TRACKA_LOG.md` |
 
-## HUNT9.13 The contract line
+### The contract line
 
 **population 12** · **root cause** the L-1 second account ×4; `_validate` ×8, and inside
 those the fee the statement never itemises ×8, the absent `Balance Activity` table ×8, the
