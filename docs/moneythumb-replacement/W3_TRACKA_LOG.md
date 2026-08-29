@@ -57201,3 +57201,128 @@ The added-line count and the commit count in the two scan rows are the branch's 
    pages than the supplied PDF carries.** Their arithmetic is complete; the
    defect is the upload. Named here so a later census does not read them as a
    parser gap.
+
+## CPDECL10 The review, and what each finding became
+
+An independent adversarial review
+(`docs/moneythumb-replacement/reviews/BATCH9_CPDECL_REVIEW.md`) returned
+**BLOCK — 1 BLOCK / 2 MAJOR / 4 MINOR**. Every count in this section reproduced
+in the reviewer's own session, at the base and at the tip; the block was not a
+count but a fail-closed hole, and the two MAJORs were both numbers in this
+record that its own committed instruments contradict.
+
+| finding | closure |
+|---|---|
+| **BLOCK-1** — the blanking rule keeps the LATER token by POSITION, so in the ordinary ordering (posting date first, note second) the row takes the note's day, and with no printed grid the platform publishes and validates it | a blanked pair naming two DIFFERENT days now REQUIRES the printed daily-balance grid; three docstrings corrected, one test renamed and split, two tests and two mutants added. Zero documents cost |
+| **MAJOR-1** — "reproduces the printed figure to the cent" is false on two of the three partition movers | corrected in the production docstring and in CPDECL5: exactly on one, within a cent on two, with the platform's own `agrees_with_bank_stated_average: False` on those two stated |
+| **MAJOR-2** — the rotation table's first row is 2 of 24, not 1 | corrected, with the stale transcription's cause named (CPDECL7) |
+| **MINOR-1** — two grid-day counts wrong | corrected to 19 and 19 (CPDECL4) |
+| **MINOR-2** — CPDECL5 over-reads `adb.validations` | the four checks true by construction are separated from the six that are evidence, and the absent one is named as absent |
+| **MINOR-3** — the gate table's tree is not named, and the probe disagrees at the tip | the tree is named, both readings recorded, and the probe's drifted mirror repaired (CPDECL2) |
+| **MINOR-4** — the sectioned Tesseract split double-counts one document | corrected to six and seven (CPDECL6) |
+
+### CPDECL10.1 BLOCK-1, in the reviewer's own terms and then in this card's
+
+The rule blanks the token that closes no cell. That sentence is true, and the
+inference this record drew from it was not: which of an adjacent pair closes no
+cell is decided by the LAYER'S EMISSION ORDER, so the survivor is always the
+later token by position and is the row's posting date only when the intruding
+`mm/dd` happened to be emitted first. Reproduced here on the module's own
+invented fixture, in the ordinary ordering with the grid block dropped: the row
+published on the note's day, and the platform returned `validated / approved`.
+
+**Neither printed count nor either printed total can see it** — a moved day
+changes no count and no amount — so the control this record named as the proof
+of the call is provably blind to the failure mode the rule creates. It is sound
+for the LOST-ROW mode and reaches the MOVED-DAY mode not at all.
+
+The remedy is the reviewer's, measured and costing nothing: **where a blanked
+pair names two DIFFERENT days the printed daily-balance grid is required, and
+the document is refused without one.** The scan is now one definition with two
+readings — `_non_opening_dates` pairs the token that opens no row with the one
+that opens it instead, `_without_non_opening_dates` blanks the first and
+`_blanks_a_different_day` compares the two — so the rule and the safety question
+cannot drift apart, and `_ledger` reports the flag over the same runs after the
+same cross-reference pass.
+
+| what the remedy costs | measured |
+|---|---:|
+| newly validated | **6**, unchanged |
+| the three different-day movers (`373B73F9`, `75FE7191`, `D3177063`) | all print a 21–22-day grid; unaffected |
+| the three same-day movers (`0943986A`, `BD835DA7`, `C355B370`) | nothing extra asked; unaffected |
+| documents the reader claims at base on which the rule fires at all | **0 of 48** |
+
+Three tests carry it now instead of one. The old
+`test_the_blanked_token_can_never_move_a_row_onto_the_wrong_day` asserted the
+property this finding disproves and passed only because its fixture was written
+in the safe ordering; it is renamed to what it actually shows, and joined by
+`test_a_note_emitted_after_the_posting_date_is_refused_without_the_grid` (both
+arms: refused without a grid, refused with one because the grid catches the
+moved day) and
+`test_a_same_day_pair_needs_no_grid_because_the_choice_cannot_move_a_posting`.
+
+### CPDECL10.2 The proof floor at the closure tree `0f851d6`
+
+| proof | result |
+|---|---|
+| `cohort_replay`, the four `DECL:` groups | population 38 — **newly validated 6**, other movement up 3, 29 unchanged, payload changed 0, **regressions 0** — **EXIT=0** |
+| `cohort_replay --parser` ×4 | **10/10 · 46/46 · 13/13 · 5/5, payload identical**, regressions 0 — **EXIT=0** each |
+| mutation table | **9 rows, 8 KILLED / 1 SURVIVED**, `git status --porcelain` clean after every row, no other harness on the host |
+| … the survivor | M5, re-measured against the mutant's EXACT new form over the 57-document cohort: **identical 54, both declined 3, differences 0** |
+| full default suite | **7,067 passed, 43 skipped, 34 deselected — EXIT=0** (7,065 before this closure; the enclosures module 56 → 58) |
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped — EXIT=0** |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned, 0 exclusions — **EXIT=0** |
+| corpus-marked slice | **30 passed, 7,114 deselected — EXIT=0** |
+| the decline probe, both trees | base `71a82aa`: reproduces CPDECL2 **sha for sha**; closure tree: GRAMMAR 15 / IDENTITY 14 / PARSES 9 / **`TRACE-DISAGREES` 0** |
+
+**The archive sweep was re-run at this tree and not carried over**, because
+BLOCK-1 changed a reader: a reader that declines more can hand a document to
+another claimant, which is movement no cohort of this card's own would see.
+Its result is in CPDECL10.3.
+
+### CPDECL10.3 The archive sweep at the closure tree
+
+`tools.regfp_zero_movement_sweep` over the run of record's own `rows.csv`
+against the baseline settings key, in two chunks covering every document, at
+`0f851d6`:
+
+| chunk | documents | compared | identical | moved | `no_payload_now_publishes` | `payload_now_raises` |
+|---|---:|---:|---:|---:|---:|---:|
+| `[0, 400)` | 400 | 321 | 321 | **0** | 1 | 0 |
+| `[400, 3380)` | 2,980 | 2,348 | 2,348 | **0** | 8 | 0 |
+| **total** | **3,380** | **2,669** | **2,669** | **0** | **9** | **0** |
+
+The nine are exactly the nine named movers, and the archive's standing residue
+reconciles to the document: `no_payload_raises_again` 673 against 682 at an
+unchanged tree, and 673 + 9 = 682. **Zero movement outside the named
+population, archive-wide, at the tree that carries the remedy.**
+
+### CPDECL10.4 What the review confirmed, and what it leaves for Gustavo
+
+Every other headline of this section reproduced in the reviewer's own session:
+the five base arms, the closure arms, the nine movers by sha, 74/74 preserved
+payload-identical, all four ceilings, the gate table at the base, the M5
+equivalence, the WELCH mechanism, the rotation controls, the L-1 checks, the
+ownership and the append-only property of this log.
+
+**The GL3 reversal (`b3c1bbe`) is left standing and goes to Gustavo as a
+ruling**, with MAJOR-1's correction applied. The review's position and this
+card's agree: BATCH9-RULES does not forbid it — the proof standard applied is
+the one eight already-validated documents of a sibling reader on the same core
+already meet — but it is a reversal of an argued, recorded refusal in a frozen
+batch, and only Gustavo should ratify where the platform draws the line between
+a reader's refusal and the validator's verdict. The revert is one commit if he
+declines it.
+
+### CPDECL10.5 The closure commits
+
+| commit | finding |
+|---|---|
+| `fb0a033` | BLOCK-1 — the different-day pair requires the printed grid |
+| `10a3dca` | MAJOR-1 — exactly on one, within a cent on two |
+| `38d9e02` | MAJOR-2 — the rotation table's first row is 2 of 24 |
+| `331acd4` | MINOR-1 — two grid-day counts |
+| `19e88c5` | MINOR-2 — evidence apart from arithmetic |
+| `1137a7c` | MINOR-3 — the gate table's tree, and the repaired mirror |
+| `0f851d6` | MINOR-4 — six and seven |
