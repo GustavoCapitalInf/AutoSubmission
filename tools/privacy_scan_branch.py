@@ -300,7 +300,7 @@ _STATE = (
 )
 #: At most eight characters between the abbreviation and the code, none of
 #: them a digit and NONE OF THEM A NUMBER SIGN. `#` is the mark this archive
-#: puts in front of an identifier — `CO# 45678`, `NO# 12345` — and a postal
+#: puts in front of an identifier — `CO# 45678`, `NO# 84213` — and a postal
 #: code never carries one between its state and its digits. The character is
 #: therefore evidence AGAINST an address, and the cheapest place to say so is
 #: the gap both address shapes share.

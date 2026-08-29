@@ -287,14 +287,14 @@ def test_the_era_bound_is_a_date_comparison_not_a_year_comparison() -> None:
         # against what it must lose.
         ("99999", "PO BOX 609 PITTSBURGH PA 99999"),           # a one-word city
         ("99999", "P.O. BOX 7889 THE WOODLANDS, TX 99999"),    # a two-word city
-        ("99999", "P.O. BOX 000000 SYNTHETIC CITY OH 99999-0000"),
+        ("99999", "P.O. BOX 1962 SYNTHETIC CITY OH 99999-0000"),
         ("99999", "P.O BOX 1558 EA1W37 COLUMBUS OH 99999-1558"),  # a routing code between
         ("99999", "P.O BOX 179, MOOREFIELD, WV 99999"),
         # A CITY MAY BE TWO WORDS AND THE SECOND MAY BE SHORT. This one is a
         # real institution address in the census, and it is why the rule asks
         # for a city SOMEWHERE between the box and the state rather than for
         # furniture immediately in front of the state.
-        ("99999", "ASSOCIATED BANK N.A. PO BOX 19097 GREEN BAY WI 99999-9097"),
+        ("99999", "EXAMPLE BANK N.A. PO BOX 1962 GREEN BAY WI 99999-9097"),
     ],
 )
 def test_institution_zip_excludes_a_postal_address(token: str, line: str) -> None:

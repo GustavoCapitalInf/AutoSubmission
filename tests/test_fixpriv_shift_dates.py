@@ -86,8 +86,8 @@ def test_the_identity_covers_the_weekday_the_month_and_the_bank_holidays() -> No
 
 
 def test_february_the_twenty_ninth_survives_the_shift() -> None:
-    assert calendar.isleap(2024) and calendar.isleap(2024 + SHIFT_YEARS)
-    assert shift_text("ON 2024-02-29", SHIFT_YEARS)[0] == "ON 2052-02-29"
+    assert calendar.isleap(2032) and calendar.isleap(2032 + SHIFT_YEARS)
+    assert shift_text("ON 2032-02-29", SHIFT_YEARS)[0] == "ON 2060-02-29"
 
 
 # --- the grammar --------------------------------------------------------
@@ -96,15 +96,15 @@ def test_february_the_twenty_ninth_survives_the_shift() -> None:
 @pytest.mark.parametrize(
     ("before", "after"),
     [
-        ("PERIOD 08/01/2026 TO 08/31/2026", "PERIOD 08/01/2054 TO 08/31/2054"),
-        ("ATM W/D 1339 02/16/26", "ATM W/D 1339 02/16/54"),
-        ("period_start == '2026-08-01'", "period_start == '2054-08-01'"),
-        ("Posted January 5, 2026 net", "Posted January 5, 2054 net"),
-        ("Apr 13,2026 REMOTE ONLINE Deposit", "Apr 13,2054 REMOTE ONLINE Deposit"),
-        ("Dated 5 January 2026 here", "Dated 5 January 2054 here"),
-        ("assert day == date(2026, 8, 1)", "assert day == date(2054, 8, 1)"),
-        ("datetime(2026, 8, 1, 12, 0)", "datetime(2054, 8, 1, 12, 0)"),
-        ("<td>SEP 29/25 - OCT 31/25</td>", "<td>SEP 29/53 - OCT 31/53</td>"),
+        ("PERIOD 08/01/2031 TO 08/31/2031", "PERIOD 08/01/2059 TO 08/31/2059"),
+        ("ATM W/D 1339 02/16/31", "ATM W/D 1339 02/16/59"),
+        ("period_start == '2031-08-01'", "period_start == '2059-08-01'"),
+        ("Posted January 5, 2031 net", "Posted January 5, 2059 net"),
+        ("Apr 13,2031 REMOTE ONLINE Deposit", "Apr 13,2059 REMOTE ONLINE Deposit"),
+        ("Dated 5 January 2031 here", "Dated 5 January 2059 here"),
+        ("assert day == date(2031, 8, 1)", "assert day == date(2059, 8, 1)"),
+        ("datetime(2031, 8, 1, 12, 0)", "datetime(2059, 8, 1, 12, 0)"),
+        ("<td>SEP 29/31 - OCT 31/31</td>", "<td>SEP 29/59 - OCT 31/59</td>"),
     ],
 )
 def test_every_shape_the_tool_claims_to_read(before: str, after: str) -> None:
@@ -115,12 +115,12 @@ def test_every_shape_the_tool_claims_to_read(before: str, after: str) -> None:
     "text",
     [
         "ATM W/D 08/01 POSTED",                 # a bare day carries no year
-        "APRIL 2026.pdf",                       # a pinned document's NAME
-        "BMO_Statement_January_2026 Final.pdf",
-        "Statement Period: February 2026",      # a month and a year, no day
-        "2026 Regions Bank Member FDIC.",       # a copyright line
+        "EXAMPLE APRIL 2031.pdf",               # a pinned document's NAME
+        "EXAMPLE_Statement_January_2031 Final.pdf",
+        "Statement Period: February 2031",      # a month and a year, no day
+        "2031 Example Bank Member FDIC.",       # a copyright line
         "stated_total_credits=12023.20",        # a figure that contains a year
-        "account_number == '2023-5224784'",     # an id that starts like one
+        "account_number == '2031-7003030304'",  # an id that starts like one
         "U+2013 handled, U+2212 missed",
         "ITEMS 0 UNC BATCH 0",
     ],
@@ -142,7 +142,7 @@ def test_a_two_digit_year_wraps_and_keeps_its_width() -> None:
 
 
 def test_the_shift_preserves_the_line_count_and_every_other_byte() -> None:
-    before = "line one 2026-01-05\nline two\n\nline four 12/31/2026\n"
+    before = "line one 2031-01-05\nline two\n\nline four 12/31/2031\n"
     after, counts = shift_text(before, SHIFT_YEARS)
     assert after.count("\n") == before.count("\n")
     assert len(after) == len(before)
@@ -151,21 +151,21 @@ def test_the_shift_preserves_the_line_count_and_every_other_byte() -> None:
 
 def test_no_date_is_shifted_twice() -> None:
     """One alternation, one pass: a shape may not be re-read by another."""
-    once, _ = shift_text("2026-08-01", SHIFT_YEARS)
-    assert once == "2054-08-01"
+    once, _ = shift_text("2031-08-01", SHIFT_YEARS)
+    assert once == "2059-08-01"
     twice, _ = shift_text(once, SHIFT_YEARS)
-    assert twice == "2082-08-01"      # a second CALL shifts again; one call does not
+    assert twice == "2087-08-01"      # a second CALL shifts again; one call does not
 
 
 def test_the_counts_name_the_shapes() -> None:
-    _text, counts = shift_text("08/01/2026 and 2026-08-01 and 08/01/26", SHIFT_YEARS)
+    _text, counts = shift_text("08/01/2031 and 2031-08-01 and 08/01/31", SHIFT_YEARS)
     assert counts["slash4y"] == 1
     assert counts["isoy"] == 1
     assert counts["slash2y"] == 1
 
 
 def test_years_in_reports_what_is_left_standing() -> None:
-    assert years_in("a 2026 b 2054 c 2054") == {"2026": 1, "2054": 2}
+    assert years_in("a 2031 b 2059 c 2059") == {"2031": 1, "2059": 2}
 
 
 # --- the CLI ------------------------------------------------------------
@@ -183,9 +183,9 @@ def test_the_cli_proves_the_committed_shift(capsys) -> None:
 
 def test_a_dry_run_writes_nothing(tmp_path, capsys) -> None:
     path = tmp_path / "fixture.py"
-    path.write_text("PERIOD 08/01/2026\n", encoding="utf-8")
+    path.write_text("PERIOD 08/01/2031\n", encoding="utf-8")
     assert main(["--dry-run", str(path)]) == 0
-    assert path.read_text(encoding="utf-8") == "PERIOD 08/01/2026\n"
+    assert path.read_text(encoding="utf-8") == "PERIOD 08/01/2031\n"
     assert "1 dates shifted" in capsys.readouterr().out
 
 

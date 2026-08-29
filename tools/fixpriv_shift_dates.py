@@ -12,7 +12,7 @@ in a file. Inside one century block the Gregorian calendar has a period of
 exactly 28 years — four for the leap cycle, seven for the week, and no skipped
 leap year in between — so the shift preserves, exactly and not approximately:
 
-* every WEEKDAY (2026-08-03 is a Monday; so is 2054-08-03);
+* every WEEKDAY (2031-08-03 is a Sunday; so is 2059-08-03);
 * every MONTH LENGTH, February's included, because 28 is a multiple of four and
   no year in range crosses a skipped century leap;
 * every INTERVAL in days between any two shifted dates;
@@ -33,16 +33,16 @@ day of the range it is asked about, compares weekday and month length either
 side of the shift, and compares `analysis.adb`'s own holiday set year by year.
 
 WHAT IT REWRITES. Every shape the scanner counts as a DATES token —
-`mm/dd/yyyy`, `m/d/yy`, `yyyy-mm-dd`, `January 5, 2026`, `5 January 2026` — the
-`SEP 29/26` form a Canadian statement header prints, which is not a scanned
+`mm/dd/yyyy`, `m/d/yy`, `yyyy-mm-dd`, `January 5, 2031`, `5 January 2031` — the
+`SEP 29/31` form a Canadian statement header prints, which is not a scanned
 token but dates the period the scanned ones sit in — and
 the two shapes it does NOT count but which must move with them or the file
-stops agreeing with itself: `date(2026, 8, 1)` and `datetime(2026, 8, 1, ...)`
+stops agreeing with itself: `date(2031, 8, 1)` and `datetime(2031, 8, 1, ...)`
 literals. A bare `mm/dd` day token carries no year, identifies nobody and is
 never scanned, so it is left exactly as it is.
 
 WHAT IT CANNOT SEE, and why the suite is the real gate: a year written on its
-own (`STATEMENT PERIOD: AUGUST 2026`, `FY2026`) is not a date token and is not
+own (`STATEMENT PERIOD: AUGUST 2031`, `FY2031`) is not a date token and is not
 shifted, so a file that carries one comes out disagreeing with itself. That
 shows up as a FAILING TEST, which is the point — this tool proposes a rewrite,
 the file's own suite decides whether it happened. `--report-years` lists every
@@ -110,14 +110,14 @@ def self_check() -> None:
     if found:
         raise SystemExit(f"fixpriv_shift_dates.py carries {len(found)} control byte(s)")
     samples = {
-        "slash4": "ON 08/01/2026 HERE",
-        "slash2": "ON 08/01/26 HERE",
-        "iso": "ON 2026-08-01 HERE",
-        "spelled": "ON AUGUST 1, 2026 HERE",
-        "spelled_tight": "Apr 13,2026 REMOTE",
-        "spelled_first": "ON 1 AUGUST 2026 HERE",
-        "mdy2": "SEP 29/26 - OCT 31/26",
-        "ctor": "date(2026, 8, 1)",
+        "slash4": "ON 08/01/2031 HERE",
+        "slash2": "ON 08/01/31 HERE",
+        "iso": "ON 2031-08-01 HERE",
+        "spelled": "ON AUGUST 1, 2031 HERE",
+        "spelled_tight": "Apr 13,2031 REMOTE",
+        "spelled_first": "ON 1 AUGUST 2031 HERE",
+        "mdy2": "SEP 29/31 - OCT 31/31",
+        "ctor": "date(2031, 8, 1)",
     }
     for name, sample in samples.items():
         match = DATE_SHAPES.search(sample)
@@ -127,7 +127,7 @@ def self_check() -> None:
         group = "spelled" if name == "spelled_tight" else name
         if match is None or match.lastgroup is None or match.group(group) is None:
             raise SystemExit(f"DATE_SHAPES does not match its own {name} sample")
-    if shift_text("ON 08/01/2026 AND 2026-08-01", SHIFT_YEARS)[0] != "ON 08/01/2054 AND 2054-08-01":
+    if shift_text("ON 08/01/2031 AND 2031-08-01", SHIFT_YEARS)[0] != "ON 08/01/2059 AND 2059-08-01":
         raise SystemExit("shift_text does not move its own sample; refusing to run")
     # A bare day token has no year and must survive untouched.
     if shift_text("ATM W/D 08/01 POSTED", SHIFT_YEARS)[0] != "ATM W/D 08/01 POSTED":
