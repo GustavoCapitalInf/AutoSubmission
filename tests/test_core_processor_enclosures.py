@@ -420,18 +420,67 @@ def test_a_date_with_another_date_before_the_next_amount_opens_no_row():
     assert stmt.transactions[2].description == "PAYOUT TWO"
 
 
-def test_the_blanked_token_can_never_move_a_row_onto_the_wrong_day():
-    """Which of the two dates is blanked is the safety question, because the
-    other archive printing is a `mm/dd` inside a merchant's own name and the
-    two tokens there are DIFFERENT days. The rule always blanks the one that
-    closes no cell, so the row keeps the day of the token that actually opens
-    it — here 1/12, the printed posting day, and not the 7/25 of a renewal
-    note. Blanking the other one would publish the merchant's day."""
+def _note_first(day: str = "1/07") -> str:
+    """A merchant note emitted BEFORE the row's own posting date — the ordering
+    the archive's three card-statement members happen to carry."""
+    return _CREDIT_BLOCK.replace(
+        "1/12 EXAMPLE PAYOUT TWO 80.00",
+        f"{day} EXAMPLE MEMBER NOTE 1/12 PAYOUT TWO 80.00")
+
+
+def _note_second(day: str = "1/07") -> str:
+    """The same note emitted AFTER the row's own posting date. This is the
+    ordinary ordering whenever the `mm/dd` sits in the row's own printed label
+    rather than in a flushed detail block, and it is the one the survivor rule
+    gets WRONG — see the two tests below."""
+    return _CREDIT_BLOCK.replace(
+        "1/12 EXAMPLE PAYOUT TWO 80.00",
+        f"1/12 EXAMPLE MEMBER NOTE {day} PAYOUT TWO 80.00")
+
+
+def test_a_note_emitted_before_the_posting_date_leaves_the_posting_day_standing():
+    """The archive's ordering. The rule blanks the token that closes no cell,
+    which here is the note, so the row keeps its printed posting day — and the
+    printed grid confirms it, which is what makes the reading evidence rather
+    than luck.
+
+    This test does NOT establish that the rule cannot move a row: which token
+    survives is decided by POSITION, and the opposite ordering is the next test
+    (CP-DECLINES review BLOCK-1)."""
+    stmt = _parse(body=_note_first() + _DEBIT_BLOCK + _GRID_BLOCK)
+    assert stmt is not None
+    assert [row.date for row in stmt.transactions] == [
+        "2026-01-05", "2026-01-08", "2026-01-12", "2026-01-20"]
+
+
+def test_a_note_emitted_after_the_posting_date_is_refused_without_the_grid():
+    """The unsafe ordering, and the gate that answers it.
+
+    Here the token that closes no cell is the row's OWN posting date, so the
+    survivor is the note and the row would publish on the note's day. Neither
+    printed count nor either printed total can see that — a moved day changes
+    no count and no amount — so the reader requires the printed daily-balance
+    grid whenever a blanked pair names two different days, and refuses the
+    document without one.
+
+    With the grid printed the document is refused too, by the grid itself: the
+    walked ledger no longer agrees with the bank's own second printing of the
+    period. Both arms decline; only the reasons differ."""
+    assert _parse(body=_note_second() + _DEBIT_BLOCK) is None
+    assert _parse(body=_note_second() + _DEBIT_BLOCK + _GRID_BLOCK) is None
+
+
+def test_a_same_day_pair_needs_no_grid_because_the_choice_cannot_move_a_posting():
+    """The welded-description printing, which is three of the archive's six.
+    Both tokens name the same day, so whichever survives the row publishes on
+    the day the bank printed, and the extra requirement is not asked. The
+    document publishes with no grid at all."""
     body = (_CREDIT_BLOCK.replace("1/12 EXAMPLE PAYOUT TWO 80.00",
-                                  "1/07 EXAMPLE MEMBER NOTE 1/12 PAYOUT TWO 80.00")
-            + _DEBIT_BLOCK + _GRID_BLOCK)
+                                  "1/12 EXAMPLE 1/12 PAYOUT TWO 80.00")
+            + _DEBIT_BLOCK)
     stmt = _parse(body=body)
     assert stmt is not None
+    assert stmt.stated_daily_balances == []
     assert [row.date for row in stmt.transactions] == [
         "2026-01-05", "2026-01-08", "2026-01-12", "2026-01-20"]
 

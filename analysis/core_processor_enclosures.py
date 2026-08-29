@@ -148,14 +148,25 @@ Two printed tokens that open no row, and the gate that proves both calls
   close to the cent, and the printed grid — an independent second printing of
   the same period — agrees on every day (W3 §CPDECL).
 
-  **What the rule costs is a description, never a day and never a figure.**
-  It always blanks the token that closes no cell, never the one that does, so
-  a row keeps the day of the date that actually opens it — which is what stops
-  a merchant's `Member <mm>/<dd>` from dating a posting. Text printed before
-  the surviving date is then not in the row's span and is not published, so a
-  description can come out shorter than the bank printed it. It is bounded to a
-  token with another date AFTER it in the same run: a run that simply stops
-  mid-row is what a truncated page looks like, and there the refusal stands.
+  **Which of the two tokens survives is decided by POSITION, not by role**, and
+  an earlier form of this record claimed otherwise. The rule blanks the token
+  that closes no cell, so the survivor is always the LATER of the pair — the
+  row's posting date only when the layer emitted the intruding `mm/dd` first,
+  which is what the archive's three merchant-note members happen to do. In the
+  opposite ordering the survivor is the NOTE and the row would take the note's
+  day, and no printed count and no printed total can see that: a moved day
+  changes neither. **So where a blanked pair names two DIFFERENT days the
+  printed daily-balance grid is REQUIRED and the document is refused without
+  one** (CP-DECLINES review BLOCK-1). All three merchant-note members print a
+  21–22-day grid and the mandatory comparison passes on every day; the three
+  welded-description members blank a token carrying the SAME day, where the
+  choice cannot move a posting and nothing extra is asked.
+
+  What the rule costs is a description, never a figure: text printed before the
+  surviving date is not in the row's span and is not published, so a description
+  can come out shorter than the bank printed it. It is bounded to a token with
+  another date AFTER it in the same run — a run that simply stops mid-row is
+  what a truncated page looks like, and there the refusal stands.
 
 The issuer, and the currency
 -----------------------------
@@ -732,13 +743,18 @@ def _without_non_opening_dates(run: str) -> str:
     surviving mutant instead of pretending the choice is load-bearing
     (W3 §CPDECL).
 
-    **The gate that proves the call is the one that already proves
-    `_without_cross_references`**: both printed counts and both printed totals.
-    A date this blanks that really WAS a row whose amount the layer lost leaves
-    the ledger one row short of the bank's own count and its total short by
-    that row's amount, and the document declines at
-    `_matches_the_printed_summary` instead of here. So the reading is not
-    trusted, it is checked — against the cent, in both directions, by the bank.
+    **Two failure modes, two different controls, and only one of them is the
+    count gate.** A date this blanks that really WAS a row whose amount the
+    layer lost leaves the ledger one row short of the bank's own count and its
+    total short by that row's amount, and the document declines at
+    `_matches_the_printed_summary` — the gate that already proves
+    `_without_cross_references`. But the other failure mode is a MOVED DAY, and
+    the count gate is provably blind to it: the survivor of a pair is the later
+    token by POSITION, so where the layer emitted the row's posting date before
+    the intruding `mm/dd` the row takes the note's day, with every count and
+    every total unchanged. `_blanks_a_different_day` is what sees that, and
+    `parse` answers it by requiring the printed daily-balance grid — the only
+    control that can — whenever a blanked pair names two different days.
 
     A date that closes no cell with NO further date after it is left alone and
     still refuses the document. That is a different shape — a run that stops
@@ -752,20 +768,62 @@ def _without_non_opening_dates(run: str) -> str:
     constructions, the grid's cells carry no description for a layer to weld
     through, and a rule with no evidence behind it is a rule nothing tests.
     """
-    dates = list(_DATE_RE.finditer(run))
+    pairs = _non_opening_dates(run)
+    if not pairs:
+        return run
     blanked: list[str] = []
     cursor = 0
-    for index, found in enumerate(dates[:-1]):
-        stop = dates[index + 1].start()
-        if _LEDGER_FIGURE_RE.search(run[found.end():stop]) is not None:
-            continue
+    for found, _opener in pairs:
         blanked.append(run[cursor:found.start(1)])
         blanked.append(" " * len(found.group(1)))
         cursor = found.end(1)
-    if not blanked:
-        return run
     blanked.append(run[cursor:])
     return "".join(blanked)
+
+
+def _printed_day(token: str) -> tuple[int, int]:
+    """A printed `m/d` as the calendar day it names, so `1/07` and `01/7` are
+    the same day and a comparison of them is about the bank's printing rather
+    than about the layer's zero padding."""
+    month, _, day = token.partition("/")
+    return int(month), int(day)
+
+
+def _blanks_a_different_day(run: str) -> bool:
+    """Does any token this run blanks name a DIFFERENT day from its survivor?
+
+    The question BLOCK-1 of the CP-DECLINES review exists to make the reader
+    ask. `_non_opening_dates` pairs a token that opens no row with the token
+    that opens the row instead, and the survivor is always the LATER of the two
+    BY POSITION — which is the row's posting date only when the layer emitted
+    the intruding `mm/dd` first. In the opposite ordering, which is the ordinary
+    one whenever a merchant's `Member <mm>/<dd>` sits in the row's own printed
+    label, the survivor is the NOTE and the row takes the note's day.
+
+    Neither printed count nor either printed total can see that: moving a row
+    to another day changes no count and no amount. The only control that can is
+    the printed daily-balance grid, and `parse` therefore REQUIRES one whenever
+    this returns True (see its docstring). Where both tokens name the same day
+    the choice cannot matter and nothing extra is asked.
+    """
+    return any(_printed_day(found.group(1)) != _printed_day(opener.group(1))
+               for found, opener in _non_opening_dates(run))
+
+
+def _non_opening_dates(run: str) -> list[tuple[re.Match[str], re.Match[str]]]:
+    """`(the token that opens no row, the token that opens the row instead)`.
+
+    One scan, two readings — `_without_non_opening_dates` blanks the first of
+    each pair and `_blanks_a_different_day` compares the two — so the rule and
+    the safety question it raises can never drift apart.
+    """
+    dates = list(_DATE_RE.finditer(run))
+    pairs: list[tuple[re.Match[str], re.Match[str]]] = []
+    for index, found in enumerate(dates[:-1]):
+        stop = dates[index + 1].start()
+        if _LEDGER_FIGURE_RE.search(run[found.end():stop]) is None:
+            pairs.append((found, dates[index + 1]))
+    return pairs
 
 
 def _without_cross_references(run: str) -> str:
@@ -794,8 +852,11 @@ def _without_cross_references(run: str) -> str:
     return "".join(kept)
 
 
-def _ledger(markdown: str, blocks: dict[str, list[tuple[str, list[str]]]]) -> list[_Posting] | None:
-    """Every posting the document printed, or None if one is unreadable.
+def _ledger(markdown: str, blocks: dict[str, list[tuple[str, list[str]]]]
+            ) -> tuple[list[_Posting], bool] | None:
+    """Every posting the document printed, and whether any row took its day
+    from a blanked pair whose two tokens named DIFFERENT days; None if a row
+    is unreadable.
 
     The fee-detail block is deliberately absent: it itemizes the single service
     charge the debit ledger already carries. The SUMMARY blocks are read only
@@ -803,6 +864,7 @@ def _ledger(markdown: str, blocks: dict[str, list[tuple[str, list[str]]]]) -> li
     """
     running = bool(_RUNNING_BALANCE_RE.search(markdown))
     postings: list[_Posting] = []
+    from_a_different_day = False
     for role, (_direction, _serialled, restated, _default) in _ROLE_READING.items():
         if running and restated:
             continue
@@ -810,8 +872,13 @@ def _ledger(markdown: str, blocks: dict[str, list[tuple[str, list[str]]]]) -> li
             found = _section_rows(runs, role=role)
             if found is None:
                 return None
+            # Asked over the SAME runs, after the same cross-reference pass,
+            # so the flag covers exactly the text the rows were read from.
+            from_a_different_day = from_a_different_day or any(
+                _blanks_a_different_day(_without_cross_references(run))
+                for run in runs)
             postings.extend(found)
-    return postings
+    return postings, from_a_different_day
 
 
 def _grid(runs: list[str], *, start: date, end: date) -> dict[str, float] | None:
@@ -935,6 +1002,12 @@ def parse_core_processor_enclosures_statement(markdown: str) -> Statement | None
       follows it, which is what a truncated page looks like. A date with
       another DATE before the next figure is a different shape and opens no
       row at all (`_without_non_opening_dates`);
+    * a blanked pair names two DIFFERENT days and the document prints no
+      daily-balance grid. The survivor of such a pair is the later token by
+      position, so the day a row is published on came from the layer's emission
+      order; the printed counts and totals are invariant under a moved day and
+      the grid is the only control that is not, so without one the document is
+      refused (CP-DECLINES review BLOCK-1);
     * a row's date is not a day of the printed period;
     * the ledger does not reproduce both printed counts and both printed
       totals, or disagrees with the printed daily-balance grid.
@@ -949,7 +1022,10 @@ def parse_core_processor_enclosures_statement(markdown: str) -> Statement | None
         return None
 
     blocks = _blocks(markdown)
-    postings = _ledger(markdown, blocks)
+    read = _ledger(markdown, blocks)
+    if read is None:
+        return None
+    postings, from_a_different_day = read
     if not postings:
         return None
 
@@ -976,6 +1052,15 @@ def parse_core_processor_enclosures_statement(markdown: str) -> Statement | None
             if day in printed_grid and abs(printed_grid[day] - balance) > _TOLERANCE:
                 return None
             printed_grid[day] = balance
+    # A row whose day came from a blanked pair naming two DIFFERENT days is a
+    # row this reader placed by the layer's emission order rather than by the
+    # bank's printing, and neither printed count nor either printed total can
+    # see a moved day. The printed grid is the only control that can, so where
+    # a blank could have moved a day the grid is REQUIRED rather than optional
+    # (CP-DECLINES review BLOCK-1). Same-day pairs ask nothing extra, because
+    # there the choice cannot change a published day.
+    if from_a_different_day and not printed_grid:
+        return None
     if printed_grid and not _matches_the_printed_grid(rows, printed_grid, summary):
         return None
 

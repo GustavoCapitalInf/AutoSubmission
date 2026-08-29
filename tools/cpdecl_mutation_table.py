@@ -2,9 +2,13 @@
 
     python -m tools.cpdecl_mutation_table [--only M3] [--json <private>.json]
 
-Each row below breaks ONE decision in the production source, runs the tests
-that exist for it WITHOUT `-x`, and requires that a NAMED test fails. A test
-named after a gate is not a test of that gate; the mutant is.
+Each row of `tools/cpdecl_mutants.py` breaks ONE decision in the production
+source, runs the tests that exist for it WITHOUT `-x`, and requires that a NAMED
+test fails. A test named after a gate is not a test of that gate; the mutant is.
+
+The table lives in its own module because every row is an exact excerpt of
+production source: it has to be written and read with a file tool, never through
+a shell heredoc, and holding it apart makes that rule enforceable by looking.
 
 Host safety, in the shape BATCH9-RULES asks for after a batch-8 harness left a
 mutant in a working tree:
@@ -23,112 +27,13 @@ import argparse
 import json
 import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
-ENCLOSURES = "analysis/core_processor_enclosures.py"
-PARTITION = "analysis/category_partition.py"
-T_ENCLOSURES = "tests/test_core_processor_enclosures.py"
-T_PARTITION = "tests/test_category_partition.py"
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-
-@dataclass(frozen=True)
-class Mutant:
-    id: str
-    gate: str
-    path: str
-    old: str
-    new: str
-    tests: tuple[str, ...]
-    #: The test that MUST fail. A row whose killer survives is a gate this
-    #: branch added without a test, and the run fails.
-    killer: str
-
-
-MUTANTS: tuple[Mutant, ...] = (
-    # --- core_processor_enclosures._without_non_opening_dates --------------
-    Mutant(
-        "M1", "the rule itself: a date that opens no row is read as one",
-        ENCLOSURES,
-        "    dates = list(_DATE_RE.finditer(run))\n"
-        "    blanked: list[str] = []",
-        "    dates = []\n"
-        "    blanked: list[str] = []",
-        (T_ENCLOSURES,),
-        "test_a_date_with_another_date_before_the_next_amount_opens_no_row",
-    ),
-    Mutant(
-        "M2", "the bound: a run that STOPS mid-row must still be refused",
-        ENCLOSURES,
-        "    for index, found in enumerate(dates[:-1]):\n"
-        "        stop = dates[index + 1].start()",
-        "    for index, found in enumerate(dates):\n"
-        "        stop = (dates[index + 1].start() if index + 1 < len(dates)\n"
-        "                else len(run))",
-        (T_ENCLOSURES,),
-        "test_a_run_that_ends_on_a_date_closing_no_cell_is_still_declined",
-    ),
-    Mutant(
-        "M3", "WHICH token is blanked: the one that closes no cell, never the "
-              "one that opens the row",
-        ENCLOSURES,
-        "        blanked.append(run[cursor:found.start(1)])\n"
-        "        blanked.append(\" \" * len(found.group(1)))\n"
-        "        cursor = found.end(1)",
-        "        opener = dates[index + 1]\n"
-        "        blanked.append(run[cursor:opener.start(1)])\n"
-        "        blanked.append(\" \" * len(opener.group(1)))\n"
-        "        cursor = opener.end(1)",
-        (T_ENCLOSURES,),
-        "test_the_blanked_token_can_never_move_a_row_onto_the_wrong_day",
-    ),
-    Mutant(
-        "M4", "the test itself: a date that DOES close a cell must be left alone",
-        ENCLOSURES,
-        "        if _LEDGER_FIGURE_RE.search(run[found.end():stop]) is not None:\n"
-        "            continue",
-        "        if _LEDGER_FIGURE_RE.search(run[found.end():stop]) is None:\n"
-        "            continue",
-        (T_ENCLOSURES,),
-        "test_a_complete_statement_publishes_every_printed_figure",
-    ),
-    Mutant(
-        "M5", "blanked, not removed: the run keeps every other character",
-        ENCLOSURES,
-        "        blanked.append(run[cursor:found.start(1)])\n"
-        "        blanked.append(\" \" * len(found.group(1)))\n"
-        "        cursor = found.end(1)",
-        "        blanked.append(run[cursor:found.start(1)])\n"
-        "        cursor = stop",
-        (T_ENCLOSURES,),
-        "test_a_date_with_another_date_before_the_next_amount_opens_no_row",
-    ),
-    # --- category_partition: the per-day evidence rule ---------------------
-    Mutant(
-        "M6", "the ADB doctrine's decision is not the reader's: a document "
-              "printing no per-day evidence must still publish",
-        PARTITION,
-        "    if unified and not _walks_to_the_printed_ending(rows, summary):\n"
-        "        return None\n",
-        "    if unified and not _walks_to_the_printed_ending(rows, summary):\n"
-        "        return None\n"
-        "    if grid is None and not unified:\n"
-        "        return None\n",
-        (T_PARTITION,),
-        "test_a_collected_grids_cells_are_never_published_on_the_sectioned_issue",
-    ),
-    Mutant(
-        "M7", "the collected grid's CELLS are still never read",
-        PARTITION,
-        "    if _LEDGER_GRID_HEADING in sections:\n"
-        "        grid = _grid(sections[_LEDGER_GRID_HEADING], summary=summary)",
-        "    if _LEDGER_GRID_HEADING in sections or _COLLECTED_GRID_HEADING in sections:\n"
-        "        grid = _grid(sections.get(_LEDGER_GRID_HEADING)\n"
-        "                     or sections[_COLLECTED_GRID_HEADING], summary=summary)",
-        (T_PARTITION,),
-        "test_a_collected_grid_cell_is_never_published_as_a_daily_balance",
-    ),
-)
+from tools.cpdecl_mutants import MUTANTS, Mutant  # noqa: E402  (path set above)
 
 
 def git(*args: str) -> subprocess.CompletedProcess:
@@ -199,8 +104,8 @@ def main(argv: list[str] | None = None) -> int:
               f"by {mutant.killer} (+{len(row['failed_tests']) - 1} other) — {mutant.gate}")
 
     print()
-    print(f"| mutant | gate | killer | other failures | result |")
-    print(f"|---|---|---|---:|---|")
+    print("| mutant | gate | killer | other failures | result |")
+    print("|---|---|---|---:|---|")
     for row in table:
         if "failed_tests" not in row:
             print(f"| {row['id']} | {row['gate']} | — | — | NOT APPLIED |")
