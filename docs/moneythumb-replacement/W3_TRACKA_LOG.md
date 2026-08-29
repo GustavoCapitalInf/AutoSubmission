@@ -56500,6 +56500,7 @@ actually prints:
 | 4 | a DELIBERATELY IMPOSSIBLE year | a poisoned period in a fail-closed test; moving it made the test pass for the wrong reason |
 | 4 | a period written as a day, a spelled month and a two-digit year | read by hand: automating it means treating a quantity as a date |
 | 6 | a date inside a pinned document's FILE NAME | half the file's name; moving it points every reader at a document that does not exist |
+| the slice | a date inside a discovery RUN's own name | the same class with no file extension to give it away, and the only witness was a CORPUS-MARKED test |
 
 The last one is a REPORT and not a guard, and the tool says which it is. The characters of a date
 in a path and a date in a fixture are identical and no pattern separates them, so the tool counts
@@ -56598,6 +56599,16 @@ at its base state — and the second is not a fixture at all but the pinned-docu
 shift re-dated fourteen documents by NAME. Three tests caught it. Corrected, and the file joins
 the named exceptions.
 
+**THE DEFAULT SUITE WAS NOT ENOUGH.** `tests/test_rbc_variants.py` pins the discovery run the
+batch-5 currency corrections were measured under, by that run's directory NAME - an ISO date
+carrying the instant it started. The shift moved it and the run of record stopped being findable.
+The default suite never saw it: the only test that reads that name is CORPUS-MARKED, so it is
+deselected there, and it took the twenty-five-minute slice to say so. Restored, and the report
+learns the second shape - an ISO date carrying a time is a run id, and a line holding one is
+flagged like a line naming a file. The general statement is the one worth carrying: **an
+identifier that CONTAINS a date is indistinguishable from a date**, this tree holds at least two
+kinds, and only a suite that actually runs the reader can tell.
+
 **Two mutants survived their first table and each named a guard, not the code**, which is the
 fourth and fifth time on this line of cards. `M11e` (widen the box clause back) survived because
 every case in the box-clause block also carried an identifier word, which the tempered run refuses
@@ -56633,16 +56644,16 @@ measurement, because the same class lives in five `tests/` files as well.
 
 | proof | result | exit |
 |---|---|---|
-| `fixpriv_mutation_table` (no `-x`) | **62 mutants / 62 killed / 0 survived**, tree clean before and after | **0** |
+| `fixpriv_mutation_table` (no `-x`) | **63 mutants / 63 killed / 0 survived**, tree clean before and after | **0** |
 | canonical guards (5 files) | **255 passed** | **0** |
 | canonical conformance (7 files) | **1,270 passed, 40 skipped** | **0** |
-| full default suite | **7,253 passed, 43 skipped, 34 deselected — no failure, no error** | **0** |
+| full default suite | **7,254 passed, 43 skipped, 34 deselected — no failure, no error** | **0** |
 | `python corpus_gate.py` | **RESULT: GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; 109 pinned PDFs, 0 exclusions; 14 CAD / 94 USD; provenance 7 institution_default / 4 jurisdiction_default / 1 printed | **0** |
-| corpus-marked slice | see the closing line of this section | |
+| corpus-marked slice | **30 passed** — a FIRST run of the slice failed one test, and that failure is F2-6's fourth mistake | **0** |
 | whole-tree scan, root base, `--ref d2ab046` | **9,378 sites / 209 files**; 3,351 documents read | 1 |
-| whole-tree scan, root base, `--ref <tip>` | see the closing line | 1 |
-| added-lines scan `--base d2ab046 --ref <tip>` | see the closing line | |
-| commit-message scan over `d2ab046..<tip>` | see the closing line | |
+| whole-tree scan, root base, `--ref <tip>` | **7,533 sites / 200 files**; 3,351 documents read; **no file gains residue and no token at the tip is new** | 1 |
+| added-lines scan `--base d2ab046 --ref <tip>` | **hit_count 0 · residue_sites 0 · residue_files 0** over the branch's added lines | **0** |
+| commit-message scan over `d2ab046..<tip>` | **0 archive tokens**, scanned with the branch's own tokeniser, base-tree subtraction and exclusion table | **0** |
 | production modules touched | **NONE** — the diff is 82 files under `tests/`, 3 under `tools/`, and two deleted root logs | — |
 | registry / version / gate / webapp / ocr / discovery / telemetry | untouched | — |
 
@@ -56689,6 +56700,8 @@ Excused SITES per rule are unchanged in every class the card did not touch; `ins
 claims the same 166 rows and the same 83 sites at both trees, which is the narrowing's zero cost
 stated a second way.
 
-The closing measurement — the tip's own residue, the added-lines count, the commit-message count
-and the corpus slice — is the last thing this branch does, and it is recorded in the branch's
-final report because a record cannot print numbers measured after itself.
+**RESIDUE: 9,378 sites in 209 files at the base, 7,533 in 200 at the tip — 1,845 removed, every
+one of them a DATE in `tests/`.** No file gains residue, no token appears at the tip that was not
+at the base, and the only classes that move are the two this card owns. The tip figures were
+measured at the tip that carries this section and they reproduce there; a record cannot print the
+sha of the commit that carries it, and `git log d2ab046..` is the list.
