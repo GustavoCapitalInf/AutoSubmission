@@ -817,7 +817,7 @@ def test_the_refusal_class_at_the_four_sites_is_still_ValueError():
 # because two different things are being said. `_CANNOT_ECHO` is "this call
 # cannot put a document token in a message" and is the ordinary case.
 # `_CARRIED_ECHOING_SITES` is "this call CAN, it is the MAJOR-2 class, and it is
-# outside this closure's mandate" - eight of them, in three modules this
+# outside this closure's mandate" - eight at the time, in three modules that
 # closure does not own, each measured in this session and named in W3 §H14 for
 # the batch-9 card. A site that leaves either list, or arrives in neither,
 # fails this test loudly, which is the whole point: the next `date()` on a
@@ -1053,35 +1053,25 @@ _CANNOT_ECHO = {
     "analysis/td_can.py:_parse_summary_count_amount: int(m.group(1))": _DIGITS_ONLY_GROUP,
 }
 
-#: THE MAJOR-2 CLASS, STILL OPEN, in three modules this closure does not own.
-#: Each was DRIVEN in this session and each echoed the printed number; each is
-#: named in W3 §H14 with its measured message class. They are disclosed rather
-#: than closed because the mandate for this session is the four sites the
-#: review named, and a fifth reader changed here would be an unreviewed
-#: production edit riding in on a closure commit.
-_CARRIED_ECHOING_SITES = {
-    "analysis/bmo.py:_statement_period: date(year, month, 1)":
-        "the printed YEAR reaches date() unbounded (`(\\d{4})` admits 0000): "
-        "measured `year must be in 1..9999, not 0`",
-    "analysis/bmo.py:_statement_period: date(year, month, calendar.monthrange(year, month)[1])":
-        "the same printed year, the same call, one line down",
-    "analysis/farmers_merchants.py:_parse_summary: date(year, end_m, end_d)":
-        "`(?P<end>\\d{2}/\\d{2}/\\d{2})` proves three digit pairs and nothing "
-        "more: measured `month must be in 1..12, not 13`",
-    "analysis/farmers_merchants.py:_parse_summary: date(year, start_m, start_d)":
-        "the same shape on the period's start cell",
-    "analysis/td_can.py:_date_tokens: date(year, _MONTHS[mon], int(day))":
-        "`([A-Z]{3})\\s*(\\d{1,2})` proves a month WORD and a day shape: "
-        "measured `day 30 must be in range 1..28 for month 2 in year 2031`",
-    "analysis/td_can.py:_native_date_to_iso: date(default_year, _MONTHS[m.group(1).upper()], int(m.group(2)))":
-        "`_DATE_TOKEN_RE` proves the same shape: measured `day 30 must be in "
-        "range 1..28 for month 2 in year 2031`",
-    "analysis/td_can.py:_parse_period: date(2000 + int(ey), _MONTHS[em], int(ed))":
-        "`_PERIOD_RE`'s `(\\d{1,2})/(\\d{2})` proves two digit runs: measured "
-        "`day 30 must be in range 1..28 for month 2 in year 2031`",
-    "analysis/td_can.py:_parse_period: date(2000 + int(sy), _MONTHS[sm], int(sd))":
-        "the same shape on the period's start token",
-}
+#: THE MAJOR-2 CLASS THIS CLOSURE DISCLOSED RATHER THAN CLOSED — and it is now
+#: EMPTY, which is the outcome the disclosure was for.
+#:
+#: #HYGIENE8 measured eight of them, in three modules its own mandate did not
+#: own (`bmo._statement_period` x2, `farmers_merchants._parse_summary` x2,
+#: `td_can._parse_period` x2 / `_date_tokens` / `_native_date_to_iso`), drove
+#: every one, recorded the message each echoed in W3 §H14.3, and carded them
+#: for batch 9 rather than editing three unreviewed readers on a closure
+#: commit. Batch 9's RAISE-PRIVACY-4 closed all eight through the same funnel
+#: and the same both-tree drive (W3 §RAISEPRIV4), so the census no longer finds
+#: them and this list is empty — dropped here rather than kept as history,
+#: because the test below asserts the list is not stale and a comfortable stale
+#: entry is exactly the suppression the two-list design exists to prevent.
+#:
+#: It is kept as an empty dict rather than deleted because the NEXT session
+#: that must disclose a site it cannot close needs somewhere honest to put it,
+#: and `test_every_entry_of_the_conversion_allowlist_carries_a_reason` already
+#: guards what goes in.
+_CARRIED_ECHOING_SITES: dict[str, str] = {}
 
 
 def test_no_unguarded_conversion_of_a_document_token_is_unaccounted_for():

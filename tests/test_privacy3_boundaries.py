@@ -534,8 +534,12 @@ CHAIN_GUARDED = {
     # sweep already drives all three, but the AST guard is what covers a raise
     # nothing executes - and a parser is exactly where a fourth one arrives, in
     # a commit about something else.
-    "analysis/bmo.py": frozenset({"money_refusal"}),
-    "analysis/farmers_merchants.py": frozenset({"money_refusal"}),
+    # RAISE-PRIVACY-4 (batch 9) closed the eight carried `date()` sites in
+    # these three readers, so `bmo` and `farmers_merchants` now raise the DATE
+    # constructor as well as the money one. `td_can` already declared it and
+    # gained two more raises through it.
+    "analysis/bmo.py": frozenset({"money_refusal", "date_refusal"}),
+    "analysis/farmers_merchants.py": frozenset({"money_refusal", "date_refusal"}),
     "analysis/td_can.py": frozenset({"date_refusal"}),
     # RAISE-PRIVACY-3 (#HYGIENE8): the five sites §P10 listed in other cells'
     # files. `columbia_bank` and `scotia` hold no `raise` at all - their leak
