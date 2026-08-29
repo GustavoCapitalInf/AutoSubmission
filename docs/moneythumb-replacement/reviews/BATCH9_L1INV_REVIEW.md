@@ -546,8 +546,8 @@ understates its population by four, and its "of them with two or more posting se
 **4**. The condition is right and belongs in the list; what does not hold is the claim that its
 vocabulary was measured to completeness, and the consequence is that the deposit-versus-facility
 rule bites on the family a Stage-2 implementation would reach for next rather than on nothing.
-Whoever implements must confirm the row class on the page: a payment-card row on an enumerating
-table is a facility by the same doctrine that excludes a loan, but the word alone is not proof.
+Whoever implements must confirm what class the row belongs to: a payment-card row on an
+enumerating table is a facility by the same doctrine that excludes a loan, but the word alone is not proof.
 
 ### MINOR-A — the adjudication the closure asked for: 11 / 3 / 2 against 7 / 4 / 2.
 
