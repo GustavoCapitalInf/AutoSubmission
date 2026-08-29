@@ -13,7 +13,7 @@ private detached worktree at `71a82aa`. No archive value appears in this file.
 ## 0. Verdict
 
 **BLOCK** — one BLOCK finding, narrow, with a remedy that costs zero documents; two MAJOR
-record corrections; three MINOR. **Every count the cell claims reproduces exactly** (newly
+record corrections; four MINOR. **Every count the cell claims reproduces exactly** (newly
 validated 6 by sha, other movement 3 by sha, preserved 74/74 payload-identical, regressions 0,
 all five base arms `--expect-identical` exit 0, mutation table 6 killed / M5 survived with the
 57-document equivalence, all four ceilings, the gate table at the base tree, privacy 0). The
