@@ -1,6 +1,6 @@
 # BATCH9 HUNT9 — independent adversarial review of `wave9-huntington`
 
-Reviewer: independent Opus cell. Base `52f1d03`, tip `22d3ea2`, worktree
+Reviewer: independent Opus cell. Base `52f1d03`, tip `c963c5c`, worktree
 `.claude/worktrees/mt9-huntington`. Run of record
 `TRAIN8-7185633/2026-08-28T224640.553059-0000-cda8882d`, cold cache
 `.claude/recovery/webapp_data_train8_cold` (read-only). Nothing was asked of the cell;
@@ -23,7 +23,7 @@ measured, would publish nothing at all.
 
 | claim in W3 §HUNT9 | re-measured | agrees |
 |---|---|---|
-| no production file differs from base | `git diff --stat 52f1d03 22d3ea2 -- analysis ocr webapp discovery telemetry benchmark corpus_gate.py` → **empty**; whole-branch name-status = W3 + `tests/test_huntington.py` + the two `tools/huntington_*.py` | ✔ |
+| no production file differs from base | `git diff --stat 52f1d03 c963c5c -- analysis ocr webapp discovery telemetry benchmark corpus_gate.py` → **empty**; whole-branch name-status = W3 + `tests/test_huntington.py` + the two `tools/huntington_*.py` | ✔ |
 | instruments unwired | 0 references to either module anywhere outside `tools/` and `docs/`; no `import tools` in any production package; `test_experiments_are_not_wired.py` green | ✔ |
 | population 12, gate table 4 L-1 / 8 `_validate` / 0 grammar | probe re-run at the tip: **IDENTITY 8, L1 4**, no other class; the 4 L-1 shas are the 4 named | ✔ |
 | per-sha identity failures (3 fee+balances, 3 +section sums, 2 +summary) | reproduces sha-for-sha: `_validate:fee_net,balance_activity` ×3 · `+section_sums` ×3 · `+summary_identity` ×2 | ✔ |
@@ -192,7 +192,7 @@ argument just has to be aimed at the right doctrine.
 
 ### MINOR-1 — the redaction commit restates the shapes it redacts, on a surface no scan reads
 
-Commit `afc18d0` removes two money-shaped sub-section numbers from §HUNT9 — and its own
+Commit `29ab66b` removes two money-shaped sub-section numbers from §HUNT9 — and its own
 message quotes both of them verbatim and states that they are figures this issuer's
 documents print. Measured against the cold cache over the 50-document population, each of
 the two tokens occurs **once, in one document**: the same two hits the cell's first scan
@@ -220,7 +220,7 @@ filled in after parsing) — the ceiling should copy it.
 
 ### MINOR-3 — the record's "closure tree" is not the branch tip
 
-§HUNT9.8 attributes both closure replays to `e23107e`; the tip is `22d3ea2`, three
+§HUNT9.8 attributes both closure replays to `e23107e`; the tip is `c963c5c`, three
 docs-only commits later. Immaterial to the result — I re-ran both at the tip and got the
 same numbers — but the record should say which tree its exit codes belong to, and it is the
 tip that Ocean composes.
@@ -257,3 +257,27 @@ would otherwise put a null proposal in front of Gustavo.
 
 Retire the `DECL:huntington` opportunity to **0**. The three-document residue is real, is
 now measured, and is a repair-doctrine question — not a coverage one.
+
+## 7. Sha remap — MINOR-1 was closed by rewording, and rewording moves shas
+
+MINOR-1 asked for a commit MESSAGE change, and a message is part of a commit's identity, so
+closing it re-created that commit and every commit after it. `git filter-branch -f
+--msg-filter` was run over `52f1d03..` with a filter that rewrites exactly one message and
+passes every other through byte-for-byte; **every tree in the range is unchanged** (the
+list of tree ids over the range hashes identically before and after, and the tip tree is
+the same object).
+
+The shas in this file above have been remapped to the rewritten history so they still
+resolve:
+
+| before | after | commit |
+|---|---|---|
+| `afc18d0` | `29ab66b` | the redaction commit whose message MINOR-1 named |
+| `d48293f` | `9535372` | the privacy number recorded at the tip |
+| `22d3ea2` | `c963c5c` | the tip this review was measured at |
+| `5235f6e` | `1d9fc30` | **this review** |
+| `0b742ac` | `40a9a8d` | the review's own one-phrase reword |
+
+The last two are this review's own commits: they were written before the rewrite and now
+carry different shas. Nothing in their content changed. Commits at or before `0f0686f`
+keep their original shas — their trees, messages and parents are untouched.
