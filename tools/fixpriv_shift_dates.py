@@ -111,10 +111,15 @@ DATE_SHAPES = re.compile(
 #: The guards are `(?<![\d.])` and `(?![\d.])`: a full stop on either side
 #: means a version, a float or a FILE NAME — `APRIL 2026.pdf` is a pinned
 #: corpus document and moving its year points a test at a file that does not
-#: exist. The range stops at 2039 so a year this tool has already shifted can
-#: never be shifted twice.
+#: exist. The range is 2005..2039: it stops at 2039 so a year this tool has
+#: already shifted can never be shifted twice, and it STARTS at 2005 because
+#: 2000 is not a year in this tree, it is a century PIVOT — `year + 2000 if
+#: year < 100` is how every reader here reads a two-digit year, and shifting
+#: that constant moves every date the reader produces. The suite found that:
+#: a legacy clone and its replacement disagreed by exactly 28 years, which is
+#: the whole argument for this being a flag with a suite behind it.
 DATE_SHAPES_WITH_BARE_YEARS = re.compile(
-    DATE_SHAPES.pattern + r"|(?<![\d.])(?P<bare>(?P<barey>20[0-3]\d))(?![\d.])",
+    DATE_SHAPES.pattern + r"|(?<![\d.])(?P<bare>(?P<barey>20(?:0[5-9]|[1-3]\d)))(?![\d.])",
     re.IGNORECASE,
 )
 

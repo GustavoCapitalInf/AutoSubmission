@@ -181,10 +181,20 @@ def test_a_bare_year_moves_only_when_it_is_asked_for(text: str, shifted: str) ->
         "12031.20",                   # a figure that contains a year
         "version 2.0.2031",           # a version, not a year
         "REF 20315",                  # a digit run that starts like one
+        "year + 2000 if year < 100",  # the century PIVOT, not a year
+        "return 2000 + short_year",
+        "MAX_ROWS = 2004",            # below the range: not a year in this tree
+        "COUNT = 2040",               # above it: never a statement year either
     ],
 )
 def test_the_bare_year_guards_hold_in_both_modes(text: str) -> None:
-    """A full stop on either side means a version, a float or a FILE NAME."""
+    """A full stop on either side means a version, a float or a FILE NAME.
+
+    And 2000 is not a year here, it is the century PIVOT every reader in
+    `analysis/` uses to widen a two-digit year. Shifting it moves every date
+    the reader produces, which is how the suite found it: a legacy clone and
+    its replacement disagreed by exactly 28 years.
+    """
     assert shift_text(text, SHIFT_YEARS)[0] == text
     assert shift_text(text, SHIFT_YEARS, bare_years=True)[0] == text
 

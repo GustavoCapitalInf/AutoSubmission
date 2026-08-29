@@ -505,14 +505,14 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "drop the full stop from the bare-year guard, so `APRIL 2031.pdf` — a "
         "pinned corpus document's file name — has its year moved and every "
         "test that opens it points at a file that does not exist",
-        r'    DATE_SHAPES.pattern + r"|(?<![\d.])(?P<bare>(?P<barey>20[0-3]\d))(?![\d.])",',
+        r'    DATE_SHAPES.pattern + r"|(?<![\d.])(?P<bare>(?P<barey>20(?:0[5-9]|[1-3]\d)))(?![\d.])",',
         r'    DATE_SHAPES.pattern + r"|(?<!\d)(?P<bare>(?P<barey>20[0-3]\d))(?!\d)",',
     ),
     (
         "Z10", "shift", "the bare-year RANGE",
         "widen the bare year to any 20xx, so a year this tool has already "
         "shifted is shifted a second time and the era runs away",
-        r"(?P<barey>20[0-3]\d)",
+        r"(?P<barey>20(?:0[5-9]|[1-3]\d))",
         r"(?P<barey>20\d\d)",
     ),
     (

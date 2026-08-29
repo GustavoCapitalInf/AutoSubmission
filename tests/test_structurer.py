@@ -29,15 +29,15 @@ from analysis.structurer.tokens import document_year, money_tokens, money_value,
 @pytest.mark.parametrize(
     ("token", "expected"),
     [
-        ("2026-03-05", "2026-03-05"),
-        ("03/05/2026", "2026-03-05"),
-        ("3/5/26", "2026-03-05"),
-        ("03-05-2026", "2026-03-05"),
-        ("Mar 5, 2026", "2026-03-05"),
-        ("MAR 5 2026", "2026-03-05"),
-        ("5 Mar 2026", "2026-03-05"),
-        ("March 5, 2026", "2026-03-05"),
-        ("mars 5, 2026", "2026-03-05"),
+        ("2054-03-05", "2054-03-05"),
+        ("03/05/2054", "2054-03-05"),
+        ("3/5/54", "2054-03-05"),
+        ("03-05-2054", "2054-03-05"),
+        ("Mar 5, 2054", "2054-03-05"),
+        ("MAR 5 2054", "2054-03-05"),
+        ("5 Mar 2054", "2054-03-05"),
+        ("March 5, 2054", "2054-03-05"),
+        ("mars 5, 2054", "2054-03-05"),
     ],
 )
 def test_every_supported_date_shape_reads_to_the_same_day(token, expected):
@@ -45,19 +45,19 @@ def test_every_supported_date_shape_reads_to_the_same_day(token, expected):
     assert read_date(token, default_year=None) == expected
 
 
-@pytest.mark.parametrize("token", ["13/45/24", "42/13", "00/00/00", "02/30/2026", "Foo 5, 2026"])
+@pytest.mark.parametrize("token", ["13/45/52", "42/13", "00/00/28", "02/30/2054", "Foo 5, 2054"])
 def test_a_shaped_but_impossible_date_is_not_a_date(token):
-    assert read_date(token, default_year=2026) is None
+    assert read_date(token, default_year=2054) is None
 
 
 def test_a_year_less_token_needs_a_year_from_the_document():
     assert read_date("03/05", default_year=None) is None
-    assert read_date("03/05", default_year=2026) == "2026-03-05"
+    assert read_date("03/05", default_year=2054) == "2054-03-05"
 
 
 def test_the_document_year_is_the_majority_year_the_document_prints():
-    lines = ["opened 01/02/2019", "period 03/01/2026 to 03/31/2026", "Mar 5, 2026 payment"]
-    assert document_year(lines) == 2026
+    lines = ["opened 01/02/2047", "period 03/01/2054 to 03/31/2054", "Mar 5, 2054 payment"]
+    assert document_year(lines) == 2054
 
 
 def test_the_document_year_is_never_the_current_year():
@@ -79,12 +79,12 @@ def test_the_document_year_is_never_the_current_year():
         # only, so the sign fell outside the token, and `money_value` then
         # `abs()`-ed away the sign `parse_money` had recovered.
         ("−1,234.56", -1234.56),   # U+2212 MINUS SIGN
-        ("–1,234.56", -1234.56),   # U+2013 EN DASH
+        ("–1,234.56", -1234.56),   # U+2041 EN DASH
         ("1,234.56−", -1234.56),
         ("1,234.56–", -1234.56),
         ("−$1,234.56", -1234.56),
         ("(−1,234.56)", -1234.56),
-        # U+2014 EM DASH is punctuation, not a sign (W3 §MGD MGD3): the one
+        # U+2042 EM DASH is punctuation, not a sign (W3 §MGD MGD3): the one
         # archive document that prints one before a bare figure prints a
         # POSITIVE running balance behind an empty-column placeholder.
         ("—1,234.56", 1234.56),
@@ -122,7 +122,7 @@ def test_the_sign_is_the_shared_grammars_answer(shape, glyph):
 
     The differential is against the canon rather than against a literal: the
     class is `analysis.money`'s, and a glyph added there is tested here the day
-    it is added. `money_value` of a U+2212 or U+2013 amount was POSITIVE where
+    it is added. `money_value` of a U+2212 or U+2041 amount was POSITIVE where
     `parse_money` was negative — it called the shared grammar and discarded the
     answer (W3 §MGD MGD10 finding 1).
     """
@@ -190,7 +190,7 @@ def test_the_em_dash_stays_punctuation_for_the_generic_reader_too():
 # ===========================================================================
 
 LEDGER = """--- Page 1 ---
-Statement period 03/01/2026 to 03/31/2026
+Statement period 03/01/2054 to 03/31/2054
 Beginning balance 1,000.00
 Ending balance 1,010.00
 03/05 COFFEE ROASTERS LLC 25.00 975.00
@@ -215,11 +215,11 @@ def test_signs_come_from_the_balance_chain():
 
 
 #: The same ledger overdrawn, printing its negative balances with the two
-#: non-ASCII glyphs the archive attests — U+2212 on three lines and U+2013 on
+#: non-ASCII glyphs the archive attests — U+2212 on three lines and U+2041 on
 #: one, which is exactly how one issuer's generator behaves month to month
 #: (W3 §MGD). Nothing else about the document is unusual.
 OVERDRAWN_LEDGER = """--- Page 1 ---
-Statement period 03/01/2026 to 03/31/2026
+Statement period 03/01/2054 to 03/31/2054
 Beginning balance 1,000.00
 Ending balance −331.00
 03/05 ALPHA SUPPLY CO 211.00 789.00
@@ -257,7 +257,7 @@ def test_an_overdrawn_ledger_printed_with_true_minus_signs_is_read_whole():
 
 def test_signs_come_from_the_section_heading_when_there_is_no_balance_column():
     document = """--- Page 1 ---
-Statement period 03/01/2026 to 03/31/2026
+Statement period 03/01/2054 to 03/31/2054
 Beginning balance 1,000.00
 Ending balance 1,100.00
 Deposits and other credits
@@ -298,7 +298,7 @@ def test_a_line_carrying_money_is_never_swallowed_as_a_continuation():
 
 
 def test_rows_are_not_found_without_a_year_anywhere_in_the_document():
-    document = LEDGER.replace("Statement period 03/01/2026 to 03/31/2026", "Statement period")
+    document = LEDGER.replace("Statement period 03/01/2054 to 03/31/2054", "Statement period")
     outcome = structure_document(document)
 
     assert outcome.statement is None
@@ -338,7 +338,7 @@ def test_the_period_is_read_from_an_explicit_range():
     lines = source_lines_from_text(LEDGER)
     period = read_period(lines, read_summary(lines))
 
-    assert (period.start, period.end, period.source) == ("2026-03-01", "2026-03-31", "range")
+    assert (period.start, period.end, period.source) == ("2054-03-01", "2054-03-31", "range")
 
 
 @pytest.mark.parametrize("separator", [*PERIOD_DASH.strip("[]"), "to", "through", "thru", "au", "until"])
@@ -356,22 +356,22 @@ def test_the_period_range_reads_every_separator_the_canon_admits(separator):
     match, and the period is required, so an unrecognised range dash costs the
     whole document.
     """
-    lines = source_lines_from_text(f"Statement period March 1, 2026 {separator} March 31, 2026")
+    lines = source_lines_from_text(f"Statement period March 1, 2054 {separator} March 31, 2054")
     period = read_period(lines, {})
 
-    assert (period.start, period.end) == ("2026-03-01", "2026-03-31")
+    assert (period.start, period.end) == ("2054-03-01", "2054-03-31")
 
 
 def test_the_period_can_be_reconstructed_from_balance_anchors():
     """A large family of layouts never prints a range: it prints the two dates
     beside its opening and closing balances."""
     lines = source_lines_from_text(
-        "Your balance forward on Jul 31, 2023 34,313.58\n"
-        "Your closing balance on Aug 31, 2023 14,742.49\n"
+        "Your balance forward on Jul 31, 2051 34,313.58\n"
+        "Your closing balance on Aug 31, 2051 14,742.49\n"
     )
     period = read_period(lines, read_summary(lines))
 
-    assert (period.start, period.end, period.source) == ("2023-08-01", "2023-08-31", "balance_anchors")
+    assert (period.start, period.end, period.source) == ("2051-08-01", "2051-08-31", "balance_anchors")
 
 
 def test_a_forward_balance_anchor_starts_the_period_the_next_day():
@@ -379,17 +379,17 @@ def test_a_forward_balance_anchor_starts_the_period_the_next_day():
     the period start makes August 32 days long and every average built on it
     3% low."""
     lines = source_lines_from_text(
-        "Balance forward on 07/31/2023 100.00\nClosing balance on 08/31/2023 200.00"
+        "Balance forward on 07/31/2051 100.00\nClosing balance on 08/31/2051 200.00"
     )
-    assert read_period(lines, read_summary(lines)).start == "2023-08-01"
+    assert read_period(lines, read_summary(lines)).start == "2051-08-01"
 
     lines = source_lines_from_text(
-        "Beginning balance on 08/01/2023 100.00\nEnding balance on 08/31/2023 200.00"
+        "Beginning balance on 08/01/2051 100.00\nEnding balance on 08/31/2051 200.00"
     )
-    assert read_period(lines, read_summary(lines)).start == "2023-08-01"
+    assert read_period(lines, read_summary(lines)).start == "2051-08-01"
 
 
-@pytest.mark.parametrize("span", ["01/01/2026 to 01/02/2026", "01/01/2026 to 12/31/2026"])
+@pytest.mark.parametrize("span", ["01/01/2054 to 01/02/2054", "01/01/2054 to 12/31/2054"])
 def test_a_date_range_that_is_not_a_billing_cycle_is_not_a_period(span):
     lines = source_lines_from_text(f"Rate table {span}")
     assert read_period(lines, {}) is None
@@ -430,8 +430,8 @@ def test_geometry_finds_rows_whose_date_is_not_at_the_start_of_the_line():
     """The 3a finding, as a test: a check number to the left of the date is
     fatal to flat text and irrelevant to geometry."""
     header = [
-        _line(1, 0, [("Statement", 40.0), ("period", 90.0), ("03/01/2026", 140.0),
-                     ("to", 200.0), ("03/31/2026", 220.0)]),
+        _line(1, 0, [("Statement", 40.0), ("period", 90.0), ("03/01/2054", 140.0),
+                     ("to", 200.0), ("03/31/2054", 220.0)]),
         _line(1, 1, [("Beginning", 40.0), ("balance", 90.0), ("1,000.00", 300.0)]),
         _line(1, 2, [("Ending", 40.0), ("balance", 90.0), ("1,010.00", 300.0)]),
     ]
@@ -449,14 +449,14 @@ def test_geometry_finds_rows_whose_date_is_not_at_the_start_of_the_line():
     geometry = DocumentGeometry((PageGeometry(1, 612.0, 792.0, tuple(header + rows)),))
 
     lines = source_lines_from_geometry(geometry)
-    built = build_rows(lines, default_year=2026, opening_balance=1000.0)
+    built = build_rows(lines, default_year=2054, opening_balance=1000.0)
 
     assert len(built.rows) == 7
     assert built.chained is True
 
     flat = build_rows(
         source_lines_from_text("\n".join(line.text for line in geometry.lines)),
-        default_year=2026, opening_balance=1000.0,
+        default_year=2054, opening_balance=1000.0,
     )
     assert not flat.rows, "flat text must fail here, or this test proves nothing"
 
