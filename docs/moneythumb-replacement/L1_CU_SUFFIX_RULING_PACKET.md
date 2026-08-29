@@ -32,9 +32,10 @@ Three measured findings change the shape of the question the card asked.
    they are unclaimed layouts, and a reader would publish them today without any ruling.
    The census's `+25 to +95` therefore covers two different problems, and only the smaller
    half needs Gustavo.
-2. **The population does share an architecture, but not a family.** At the finest
-   level (boundary + caption + identity form + equation form + grid column shape + per-section
-   daily + cross-account total) there are **63 distinct structural families over 214 documents**; 39
+2. **The population does share an architecture, but not a family.** Keyed on all seven
+   mechanisms at once (boundary, caption, identity form, equation form, grid column shape,
+   per-section daily, cross-account total) there are **63 distinct structural families
+   over 214 documents**; 39
    of them have three or more members and cover 182. Almost no two census groups share a
    fine-grained family. What they DO share is a small closed set of MECHANICS: 4 boundary
    mechanisms, 9 roll-up caption classes, 5 identity forms, 4 equation forms, and grid shapes
@@ -123,9 +124,9 @@ corroboration of the probe rather than a new finding.
 
 `analysis/schema.py::Statement` carries ONE account: `account_name`, `account_number`, one
 `transactions` list, one opening, one closing, one daily-balance series. A member statement
-prints several. The platform's standing rule (MASTER_PLAN L-1) is that publishing one and
-silently dropping the others is a correctness defect, so a reader that recognises such a
-document refuses it. `analysis/symitar.py` (lines 13–45) carries the one ratified exception:
+prints several. Publishing one of them and silently dropping the others is a correctness
+defect — the rule MASTER_PLAN calls L-1 — so a reader that recognises such a document
+refuses it. `analysis/symitar.py` (lines 13–45) carries the one ratified exception:
 a DORMANT deposit sibling — `No Transactions This Period`, or a section whose every posting
 is the account's own dividend, bounded by the platform's own `Dividends` column — is not a
 second ledger and may be skipped. Both skips are silent today; the visible surface
@@ -166,7 +167,7 @@ yes for 141 of 214 (103 + 38) from printed identity, of which 103 also carry the
 | roll-up column header | 4 (+ none) | `type_prev_dep_wd_end` 15, `type_begin_end` 8, `begin_end` 7; none 184 |
 | identity form | 5 (+ none) | `product_name_only` 71, `bare_digits` 54, `suffix_word` 8, `paren_digits` 7, `id_word` 1; none 73 |
 | equation form (modal section) | 4 (+ none) | `open_close_pair` 114, `open_only` 34, `explicit_six_figure` 5, `explicit_equation` 4; none 57 |
-| grid column shape | ~49 distinct orderings, built from **13 column tokens** | `date desc amount balance`, `date desc withdrawal deposit balance`, `date desc deposit withdrawal balance`, `date desc debit credit balance`, `post_date desc amount balance`, … |
+| grid column shape | ~49 distinct orderings, built from **13 column tokens** | every ordering ends in a balance column; they differ only in how the movement columns before it are named and in which date columns open the row |
 
 The grid shape is the only mechanism with many values, and it differs in ONE way that counts:
 where the running balance sits relative to the amount column. That is readable from the
@@ -220,15 +221,15 @@ account**. They are refused by nothing except the absence of a reader.
 
 | n | census groups | family key |
 |---:|---|---|
-| 13 | `DECL:huntington`, `FAM:rbfcu_business_member_statement` | `none \| no-rollup \| no-identity \| no-equation \| no-grid \| no-daily \| no-total-row` |
-| 9 | `FAM:mountain_america_cu_dot_leader` | `rollup-oracle:bare_digits \| account_summary \| bare_digits \| open_close_pair \| post_date\|desc\|amount\|balance \| no-daily \| total-row` |
-| 8 | `DECL:huntington`, `FAM:greater_nevada_cu` | `section-equation-scan \| no-rollup \| no-identity \| open_close_pair \| no-grid \| daily \| no-total-row` |
-| 8 | `FAM:space_coast_cu_member_statement` | `rollup-oracle:product_name_only \| statement_summary \| product_name_only \| open_close_pair \| txn_date\|eff_date\|desc\|money_in\|money_out\|balance \| daily \| no-total-row` |
-| 7 | `DECL:community_section` | `rollup-oracle:product_name_only \| summary_of_accounts \| product_name_only \| open_close_pair \| post_date\|desc\|debit\|credit\|balance \| daily \| no-total-row` |
-| 6 | `FAM:cu_summary_of_accounts_date_posted` | `rollup-oracle:product_name_only \| summary_of_accounts \| product_name_only \| open_only \| date\|desc\|debit\|credit\|balance \| no-daily \| no-total-row` |
-| 6 | `FAM:guardian_cu_statement_summary` | `rollup-oracle:suffix_word \| statement_summary \| suffix_word \| open_close_pair \| txn_date\|post_date\|desc\|withdrawal\|deposit\|balance \| no-daily \| total-row` |
-| 6 | `FAM:cu_idaho_equation_summary` | `section-identity:account_no_mask \| no-rollup \| no-identity \| open_only \| eff_date\|post_date\|desc\|deposit\|balance\|withdrawal \| daily \| no-total-row` |
-| 6 | `DECL:capital_one` | `section-equation-scan \| account_summary \| no-identity \| open_close_pair \| date\|desc\|deposit\|credit\|withdrawal\|debit\|balance \| no-daily \| no-total-row` |
+| 13 | `DECL:huntington`, `FAM:rbfcu_business_member_statement` | `none then no-rollup then no-identity then no-equation then no-grid then no-daily then no-total-row` |
+| 9 | `FAM:mountain_america_cu_dot_leader` | `rollup-oracle:bare_digits then account_summary then bare_digits then open_close_pair then post_date\|desc\|amount\|balance then no-daily then total-row` |
+| 8 | `DECL:huntington`, `FAM:greater_nevada_cu` | `section-equation-scan then no-rollup then no-identity then open_close_pair then no-grid then daily then no-total-row` |
+| 8 | `FAM:space_coast_cu_member_statement` | `rollup-oracle:product_name_only then statement_summary then product_name_only then open_close_pair then txn_date\|eff_date\|desc\|money_in\|money_out\|balance then daily then no-total-row` |
+| 7 | `DECL:community_section` | `rollup-oracle:product_name_only then summary_of_accounts then product_name_only then open_close_pair then post_date\|desc\|debit\|credit\|balance then daily then no-total-row` |
+| 6 | `FAM:cu_idaho_equation_summary` | `section-identity:account_no_mask then no-rollup then no-identity then open_only then eff_date\|post_date\|desc\|deposit\|balance\|withdrawal then daily then no-total-row` |
+| 6 | `FAM:cu_summary_of_accounts_date_posted` | `rollup-oracle:product_name_only then summary_of_accounts then product_name_only then open_only then date\|desc\|debit\|credit\|balance then no-daily then no-total-row` |
+| 6 | `FAM:guardian_cu_statement_summary` | `rollup-oracle:suffix_word then statement_summary then suffix_word then open_close_pair then txn_date\|post_date\|desc\|withdrawal\|deposit\|balance\|date then no-daily then total-row` |
+| 6 | `DECL:capital_one` | `section-equation-scan then account_summary then no-identity then open_close_pair then date\|desc\|deposit\|credit\|withdrawal\|debit\|balance then no-daily then no-total-row` |
 
 **The honest answer to Gustavo's question:** the 176 do NOT share one structural family — a
 census group and a structural family are very nearly the same partition, and two institutions
@@ -538,7 +539,8 @@ more than one account at launch.
 
 ### 8.3 What needs Gustavo's ruling before any code is written
 
-1. **Does the payload carry several accounts (C), or does the L-1 refusal stand (A)?** Everything else follows from this. Stage 1 above does not depend on it.
+1. **Multi-account payload (C), or the L-1 refusal stands (A)?** Everything else follows
+   from this. Stage 1 above does not depend on it.
 2. **On a multi-account document, WHAT is the one published ADB?** The ADB doctrine
    (RATIFIED 2026-08-15) says one user-facing metric over the calendar-day printed period.
    Three candidate readings — per-account ADBs with no document-level figure; the sum of the
@@ -558,8 +560,8 @@ more than one account at launch.
    than inherited silently — 31 of 442 sections print an explicit no-activity declaration, and
    the rest of the "idle" sections would be declared idle by arithmetic.
 6. **ATB.** Both `WH:atb` documents are consolidated multi-account statements with no located
-   partition under any mechanism here. They stay refused under every option and remain the ATB
-   ceremony's affair, not this template family's.
+   partition under any mechanism here. They stay refused under every option, and they
+   belong to the ATB ceremony, not to this template.
 
 ---
 

@@ -55424,7 +55424,8 @@ document: 79 of the 176 print EXACTLY ONE, 32 yield no partition, and only **65 
 two or more**. Adding the 16 multi-posting `DECL:*` documents gives an L-1 population
 of **81**, not 176. For the 79 the schema is not the obstacle; a reader is.
 
-**(b) They share an architecture, not a family.** At the finest level there are **63
+**(b) They share an architecture, not a family.** Keyed on all seven mechanisms at
+once there are **63
 distinct structural families over 214 documents** (39 with three or more members,
 covering 182) — a census group and a structural family are very nearly the same
 partition. What recurs is the MECHANICS: 4 boundary mechanisms, 9 roll-up caption

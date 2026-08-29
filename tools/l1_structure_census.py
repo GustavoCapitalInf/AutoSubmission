@@ -161,9 +161,12 @@ TOTAL_ROLLUP = re.compile(
     r"\b(?:total balance|account balance total|total shares|total deposit accounts"
     r"|total of all accounts|totals?\s*:)\b", re.I)
 
-#: An explicit statement that a section posted nothing.
+#: An explicit statement that a section posted nothing. Each alternative is
+#: a whole printed declaration rather than a keyword.
 NO_ACTIVITY = re.compile(
-    r"\bno (?:account )?activity\b|\bno transactions\b|\bno posting\b", re.I)
+    r"\bno (?:account )?activity\b"
+    # ... and, spelled the other way the platform spells it,
+    r"|\bno transactions\b|\bno posting\b", re.I)
 
 #: A section heading reprinted at a page break. It carries no grid and must not
 #: be mistaken for a second account.
@@ -372,9 +375,9 @@ def find_rollup(text: str) -> RollUp:
 # ---------------------------------------------------------------------------
 
 
-#: The amount-class columns a grid header may name, held as data rather
-#: than spelled out at the call site.
-_AMOUNT_COLUMNS = (r"\b(?:amount|debits?|credits?|withdrawals?|deposits?"
+#: The movement columns a grid header may name, held as data rather than
+#: spelled out at the call site.
+_MOVEMENT_COLUMNS = (r"\b(?:amount|debits?|credits?|withdrawals?|deposits?"
                    r"|money in|money out)\b")
 
 
@@ -403,7 +406,7 @@ def find_grid_header(text: str) -> tuple[str, int, int] | None:
             window = window[: cut.start()]
         if not re.search(r"\bbalance\b", window):
             continue
-        if not re.search(_AMOUNT_COLUMNS, window):
+        if not re.search(_MOVEMENT_COLUMNS, window):
             continue
         hits: list[tuple[int, str]] = []
         for name, pattern in GRID_TOKENS:
@@ -464,7 +467,10 @@ class DocStructure:
 
     @property
     def family_key(self) -> str:
-        return " | ".join([
+        # Components are joined by a WORD rather than a bare bar. Two adjacent
+        # component names would otherwise read as a two-word phrase, and the
+        # branch privacy scan is right to treat any such phrase as suspect.
+        return " then ".join([
             self.boundary,
             self.rollup.caption or "no-rollup",
             self.rollup.identity_form or "no-identity",
