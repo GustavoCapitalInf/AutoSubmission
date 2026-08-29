@@ -930,7 +930,7 @@ in W3 `§L1INV.8`.
 | **MINOR-1** 442 located vs 392 offered never reconciled; "27 sections" was 27 documents | the instrument prints the reconciliation | 442 − 77 + 27 = 392 |
 | **MINOR-2** the ADB ran on the DOCUMENT's period and the condition never said so | stated in the instrument's own docstring and in §6.9 | 27 documents lose every section at once for this reason |
 | **MINOR-3** Option B rejected by argument where the measurement was available | measured over the 81 multi-posting documents | first-named UNDEFINED on 30; transaction-share UNDEFINED on 24, AMBIGUOUS on 9, decides 48; 11 print a cross-account total; identity is a bare product designation on 22 of 43 |
-| **MINOR-4** the guard named on the handoff does not cover `tools/` | recorded rather than fixed: adding a `tools/` clause to `tests/test_experiments_are_not_wired.py` is a production test change and this card owns no test | the property holds and is held by a grep: nothing outside `tools/l1_*` references any of the three instruments (verified at this tip). The card's "the guard applies" was not true as written and is not claimed here |
+| **MINOR-4** the guard named on the handoff does not cover `tools/` | recorded rather than fixed, and carded: a `tools/` clause in `tests/test_experiments_are_not_wired.py` is a production-test change and this card owns no test | the property holds and is held by a GREP, not by a gate — nothing outside `tools/l1_*` references any of the three instruments, re-verified at this tip. The card's "the guard applies" was not true as written and is not claimed here; the gate is owed by a later hygiene session |
 | **MINOR-5** the privacy number predated the tip, and 29 documents are not scanned against | re-run at this tip, and the 29 stated next to the zero | §12 |
 | **MINOR-6** "every located section closes" is not "every printed section closes" | stated in §5.3 and printed by the instrument | 38 documents have no located partition; 11 enumerate accounts that never reappear |
 
@@ -968,8 +968,8 @@ Its idle-sibling counts reproduce exactly: 4 sibling sections print the ratified
 | proof | result |
 |---|---|
 | canonical guards (5 files) | 255 passed — EXIT=0 |
-| `tests/test_experiments_are_not_wired.py` | passes; guards `experiments/` and not `tools/` (MINOR-4) |
-| nothing outside `tools/l1_*` references the three instruments | grep over the tree, no hits |
+| `tests/test_experiments_are_not_wired.py` | passes; it guards `experiments/` and says nothing about `tools/` (MINOR-4) |
+| the instruments are unwired | **held by a grep, not by a gate**: nothing outside `tools/l1_*` references any of the three, re-verified at this tip, no hits. Adding a `tools/` clause to that guard is a production-test change, which this card does not own; it is CARDED for a later hygiene session, and until it lands this row is a measurement and not a guarantee |
 | no production file differs from base | `git diff --stat 38a94aa -- analysis ocr webapp discovery telemetry corpus_gate.py` empty |
 | branch privacy scan vs the whole population | **hit_count 0** over 4,712 added lines and 3,351 documents, all four classes zero — EXIT=0. The scan reads 3,351 of the 3,380 shas; the 29 with no cached text are the same 29 the pinned survey reports as NOT SURVEYED, and nothing on this branch is scanned against them |
 | the three instruments re-run from the run of record | EXIT=0 each; every number in this packet is in one of their outputs |
