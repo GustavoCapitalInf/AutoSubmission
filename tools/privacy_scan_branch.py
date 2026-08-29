@@ -498,30 +498,66 @@ def tracked_text(ref: str) -> str:
     return batch.decode("utf-8", errors="replace").upper()
 
 
+HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def added_lines_from_diff(diff: str) -> list[tuple[str, int, str]]:
+    """(file, new-line-number, upper-cased text) for every added line of a diff.
+
+    A hunk header states exactly how many lines of each side its body carries,
+    so the body is read BY COUNT and every line in it is classified by its
+    first character alone. The reader this replaces classified every line by
+    its TEXT, which is not the same thing: a line of the FILE that begins
+    `+++` appears in the body as `++++`, matched the `not line.startswith
+    ("+++")` guard meant for file headers, and was dropped — after which every
+    line of that file was numbered one too low, once per such line. This tree's
+    own records quote three diff headers, so the whole-tree audit was reading
+    W3 twice under two different numberings and counting the difference as
+    residue.
+
+    Both halves matter. An added line the scan never reads is a leak it cannot
+    report — that is the floor's own instrument going quiet on exactly the
+    shape a diff quotes. And a hit reported against the wrong line is a site
+    nobody can find and a site count nobody can reproduce.
+    """
+    out: list[tuple[str, int, str]] = []
+    current = ""
+    line_no = 0
+    old_left = new_left = 0
+    for line in diff.splitlines():
+        if old_left > 0 or new_left > 0:
+            if line.startswith("\\"):
+                # "\ No newline at end of file" — not a line of either side.
+                continue
+            if line.startswith("+"):
+                out.append((current, line_no, line[1:].upper()))
+                line_no += 1
+                new_left -= 1
+            elif line.startswith("-"):
+                old_left -= 1
+            else:
+                line_no += 1
+                old_left -= 1
+                new_left -= 1
+            continue
+        if line.startswith("+++ "):
+            current = line[4:].removeprefix("b/")
+            continue
+        match = HUNK_RE.match(line)
+        if match:
+            line_no = int(match.group(2))
+            old_left = int(match.group(1)) if match.group(1) is not None else 1
+            new_left = int(match.group(3)) if match.group(3) is not None else 1
+    return out
+
+
 def added_lines(base: str, ref: str) -> list[tuple[str, int, str]]:
     """(file, new-line-number, upper-cased text) for every added line of base...ref."""
     diff = subprocess.run(
         ["git", "diff", f"{base}...{ref}", "--unified=0"],
         cwd=ROOT, capture_output=True, text=True, check=True, errors="replace",
     ).stdout
-    out: list[tuple[str, int, str]] = []
-    current = ""
-    line_no = 0
-    hunk = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-    for line in diff.splitlines():
-        if line.startswith("+++ "):
-            current = line[4:].removeprefix("b/")
-            continue
-        match = hunk.match(line)
-        if match:
-            line_no = int(match.group(1))
-            continue
-        if line.startswith("+") and not line.startswith("+++"):
-            out.append((current, line_no, line[1:].upper()))
-            line_no += 1
-        elif line.startswith("-") and not line.startswith("---"):
-            continue
-    return out
+    return added_lines_from_diff(diff)
 
 
 def main(argv: list[str] | None = None) -> int:

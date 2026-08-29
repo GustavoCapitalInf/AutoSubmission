@@ -169,6 +169,27 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "    for name, rule in EXCLUSIONS:",
     ),
     (
+        "D1", "scan", "added_lines_from_diff",
+        "restore the TEXT-based reader: classify each diff line by what it "
+        "looks like, so a line of the file that begins `+++` is read as a file "
+        "header, never scanned, and every line after it is numbered one low",
+        "            if line.startswith(\"+\"):\n"
+        "                out.append((current, line_no, line[1:].upper()))\n"
+        "                line_no += 1\n"
+        "                new_left -= 1",
+        "            if line.startswith(\"+\") and not line.startswith(\"+++\"):\n"
+        "                out.append((current, line_no, line[1:].upper()))\n"
+        "                line_no += 1\n"
+        "                new_left -= 1",
+    ),
+    (
+        "D2", "scan", "added_lines_from_diff",
+        "number every hunk from the file's start instead of from its own "
+        "header, so a hit is reported against a line nobody can find",
+        "            line_no = int(match.group(2))",
+        "            line_no = 1",
+    ),
+    (
         "A1", "ast", "the AST comparison",
         "compare only the root node type, so every tree reads as identical",
         "    return ast.dump(strip_docstrings(ast.parse(source)), include_attributes=False)",

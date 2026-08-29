@@ -18,6 +18,7 @@ import pytest
 from tools.privacy_scan_branch import (
     EXCLUSIONS,
     _EXCLUSION_SAMPLES,
+    added_lines_from_diff,
     excluded_by,
     self_check,
 )
@@ -337,3 +338,66 @@ def test_no_exclusion_silences_an_identifier_or_a_statement_figure(
 def test_a_run_shorter_than_an_abbreviation_is_not_an_object_name(token: str, line: str) -> None:
     """Seven is the shortest object name these records use; six is a reference."""
     assert excluded_by("DIGITS", "docs/x.md", token, line) is None
+
+
+# --------------------------------------------------------------------------
+# The diff reader. An exclusion that reaches too wide hides a token; a diff
+# reader that drops a line never sees one. Both are ways for the instrument to
+# report a zero it did not earn.
+# --------------------------------------------------------------------------
+
+_DIFF_WITH_A_QUOTED_HEADER = (
+    "diff --git a/docs/r.md b/docs/r.md\n"
+    "--- a/docs/r.md\n"
+    "+++ b/docs/r.md\n"
+    "@@ -0,0 +1,4 @@\n"
+    "+the closure quotes a diff:\n"
+    "+--- a/analysis/x.py\n"
+    "+++ b/analysis/x.py\n"
+    "+ACCOUNT 44556677\n"
+)
+
+
+def test_the_diff_reader_reads_a_line_that_begins_like_a_file_header() -> None:
+    """A quoted `+++ b/...` inside the FILE arrives as `++++ b/...` in the body.
+
+    Reading it as a header drops the line from the scan — an added line the
+    instrument never looks at — and shifts every line after it by one.
+    """
+    read = added_lines_from_diff(_DIFF_WITH_A_QUOTED_HEADER)
+    assert [(path, number) for path, number, _text in read] == [
+        ("docs/r.md", 1), ("docs/r.md", 2), ("docs/r.md", 3), ("docs/r.md", 4),
+    ]
+    assert read[2][2] == "++ B/ANALYSIS/X.PY"
+    assert read[3][2] == "ACCOUNT 44556677"
+
+
+def test_the_diff_reader_numbers_every_hunk_from_its_own_header() -> None:
+    diff = (
+        "--- a/tests/t.py\n"
+        "+++ b/tests/t.py\n"
+        "@@ -10,0 +11,2 @@\n"
+        "+first\n"
+        "+second\n"
+        "@@ -40,1 +42,1 @@\n"
+        "-gone\n"
+        "+here\n"
+    )
+    assert added_lines_from_diff(diff) == [
+        ("tests/t.py", 11, "FIRST"),
+        ("tests/t.py", 12, "SECOND"),
+        ("tests/t.py", 42, "HERE"),
+    ]
+
+
+def test_the_diff_reader_counts_no_removed_line_and_no_newline_marker() -> None:
+    diff = (
+        "--- a/tests/t.py\n"
+        "+++ b/tests/t.py\n"
+        "@@ -3,2 +3,1 @@\n"
+        "---- a quoted removal\n"
+        "-plain removal\n"
+        "+kept\n"
+        "\\ No newline at end of file\n"
+    )
+    assert added_lines_from_diff(diff) == [("tests/t.py", 3, "KEPT")]
