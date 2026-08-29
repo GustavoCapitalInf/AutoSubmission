@@ -139,6 +139,9 @@ amount). Truth-set / pinned-surface movement outside an approved ceremony = STOP
   seen once). Restore in a `finally` that ignores the exit code, verify `git status
   --porcelain` is clean before returning, refuse to start on a dirty tree, and never run two
   harnesses concurrently on this host (check `tasklist` for another python first).
+- **Heredocs.** A shell heredoc turned `\b` into 0x08 (twice) and `\n` escapes into real
+  newlines inside a mutation table (CP-DECLINES). Instruments, mutant tables and regexes are
+  written and edited with a FILE tool only, then byte-checked; never through a heredoc.
 - **Report files.** This harness refuses agent-written `.md` files in the scratch directory;
   your report is your final message plus your W3 section — put every number there.
 
