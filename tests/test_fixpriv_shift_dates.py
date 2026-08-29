@@ -50,6 +50,25 @@ def test_twenty_eight_is_the_only_shift_that_works(years: int) -> None:
     assert calendar_is_isomorphic(2005, 2045, years) != []
 
 
+@pytest.mark.parametrize(
+    ("years", "marker"),
+    [
+        # Each half of the identity, ISOLATED. Together they mask each other:
+        # a leap-multiple shift keeps every month length and is caught only by
+        # the weekday check, and a weekday change moves every nth-weekday
+        # holiday, so either half alone still refuses it. The mutation table
+        # found that — two mutants, each removing one half, both surviving —
+        # so the assertion has to name WHICH check fired.
+        (1, " days, "),                 # a month length: 2020 is leap, 2021 is not
+        (4, "changes weekday"),         # a leap multiple: only the weekday moves
+        (4, "bank holidays differ"),    # and every nth-weekday holiday with it
+    ],
+)
+def test_each_half_of_the_identity_reports_for_itself(years: int, marker: str) -> None:
+    problems = calendar_is_isomorphic(2020, 2024, years)
+    assert any(marker in problem for problem in problems), problems[:3]
+
+
 def test_twice_the_shift_is_also_an_identity_inside_the_century() -> None:
     assert calendar_is_isomorphic(2005, 2035, 56) == []
 
