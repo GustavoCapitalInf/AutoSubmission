@@ -187,9 +187,9 @@ def test_unknown_recurring_financing_counterparty_is_potential_and_fail_closed()
 def test_recurring_counterparty_normalization_removes_ids_not_business_name():
     statement = Statement(
         transactions=[
-            _txn("2026-04-01", "91003457252 EFT Payment xxxxxx1111 Lily Advance 8008545315", -328.76),
-            _txn("2026-04-02", "91004072795 EFT Payment xxxxxx1111 Lily Advance 8008545315", -328.76),
-            _txn("2026-04-03", "92004478774 EFT Payment xxxxxx1111 Lily Advance 8008545315", -328.76),
+            _txn("2054-04-01", "91003457252 EFT Payment xxxxxx1111 Lily Advance 8008545315", -328.76),
+            _txn("2054-04-02", "91004072795 EFT Payment xxxxxx1111 Lily Advance 8008545315", -328.76),
+            _txn("2054-04-03", "92004478774 EFT Payment xxxxxx1111 Lily Advance 8008545315", -328.76),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -207,9 +207,9 @@ def test_recurring_counterparty_normalization_removes_ids_not_business_name():
 def test_repeated_insurance_debits_count_rows_and_one_provider():
     statement = Statement(
         transactions=[
-            _txn("2026-01-02", "Cooperators insurance premium", -125.0),
-            _txn("2026-01-09", "CO-OPERATORS commercial policy", -125.0),
-            _txn("2026-01-16", "Cooperators insurance premium", -125.0),
+            _txn("2054-01-02", "Cooperators insurance premium", -125.0),
+            _txn("2054-01-09", "CO-OPERATORS commercial policy", -125.0),
+            _txn("2054-01-16", "Cooperators insurance premium", -125.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -233,18 +233,18 @@ def _audit_report() -> Report:
         account_number="1234",
         stated_total_credits=16898.73,
         transactions=[
-            _txn("2026-01-01", "Customer deposits", 16898.73),
-            _txn("2026-01-02", "Canacap payment", -1000.0, balance=15898.73),
-            _txn("2026-01-03", "CANA-CAP ACH debit", -500.0, balance=15398.73),
-            _txn("2026-01-04", "CAN Capital loan payment", -735.0, balance=14663.73),
-            _txn("2026-01-05", "Cooperators commercial insurance", -420.0),
-            _txn("2026-01-06", "Intact insurance premium", -180.0),
-            _txn("2026-01-07", "VLFC-Econolease finance payment", -300.0),
-            _txn("2026-01-08", "ATB Mastercard payment", -250.0),
-            _txn("2026-01-09", "INTERAC e-transfer fee", -5.0),
-            _txn("2026-01-10", "CMCA Finance BUS payment", -125.0),
-            _txn("2026-01-11", "Forward Funding payment reversal", 100.0),
-            _txn("2026-01-12", "BDC payment returned NSF", -200.0),
+            _txn("2054-01-01", "Customer deposits", 16898.73),
+            _txn("2054-01-02", "Canacap payment", -1000.0, balance=15898.73),
+            _txn("2054-01-03", "CANA-CAP ACH debit", -500.0, balance=15398.73),
+            _txn("2054-01-04", "CAN Capital loan payment", -735.0, balance=14663.73),
+            _txn("2054-01-05", "Cooperators commercial insurance", -420.0),
+            _txn("2054-01-06", "Intact insurance premium", -180.0),
+            _txn("2054-01-07", "VLFC-Econolease finance payment", -300.0),
+            _txn("2054-01-08", "ATB Mastercard payment", -250.0),
+            _txn("2054-01-09", "INTERAC e-transfer fee", -5.0),
+            _txn("2054-01-10", "CMCA Finance BUS payment", -125.0),
+            _txn("2054-01-11", "Forward Funding payment reversal", 100.0),
+            _txn("2054-01-12", "BDC payment returned NSF", -200.0),
         ],
     )
     records = classify_statement_transactions(statement)
@@ -383,9 +383,9 @@ def test_potential_funder_serialization_rebuilds_values_from_authoritative_evide
 def test_duplicate_lender_row_is_classified_but_excluded_from_all_totals():
     statement = Statement(
         transactions=[
-            _txn("2026-01-02", "Canacap payment", -250.0, balance=750.0),
-            _txn("2026-01-02", "Canacap payment", -250.0, balance=750.0),
-            _txn("2026-01-09", "Canacap payment", -250.0, balance=500.0),
+            _txn("2054-01-02", "Canacap payment", -250.0, balance=750.0),
+            _txn("2054-01-02", "Canacap payment", -250.0, balance=750.0),
+            _txn("2054-01-09", "Canacap payment", -250.0, balance=500.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -405,9 +405,9 @@ def test_duplicate_lender_row_is_classified_but_excluded_from_all_totals():
 def test_duplicate_potential_lender_row_is_excluded_from_potential_totals():
     statement = Statement(
         transactions=[
-            _txn("2026-01-02", "CMCA Finance BUS payment", -125.0, balance=875.0),
-            _txn("2026-01-02", "CMCA Finance BUS payment", -125.0, balance=875.0),
-            _txn("2026-01-09", "CMCA Finance BUS payment", -125.0, balance=750.0),
+            _txn("2054-01-02", "CMCA Finance BUS payment", -125.0, balance=875.0),
+            _txn("2054-01-02", "CMCA Finance BUS payment", -125.0, balance=875.0),
+            _txn("2054-01-09", "CMCA Finance BUS payment", -125.0, balance=750.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -425,9 +425,9 @@ def test_duplicate_potential_lender_row_is_excluded_from_potential_totals():
 def test_lender_credit_refund_and_zero_denominator_do_not_enter_numerator():
     statement = Statement(
         transactions=[
-            _txn("2026-01-01", "Rapid Finance funding deposit", 750.0),
-            _txn("2026-01-02", "Rapid Finance payment reversal", 100.0),
-            _txn("2026-01-03", "Rapid Finance payment", -500.0),
+            _txn("2054-01-01", "Rapid Finance funding deposit", 750.0),
+            _txn("2054-01-02", "Rapid Finance payment reversal", 100.0),
+            _txn("2054-01-03", "Rapid Finance payment", -500.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -439,7 +439,7 @@ def test_lender_credit_refund_and_zero_denominator_do_not_enter_numerator():
     assert metrics.withholding_rate == 500.0
 
     no_deposits = Statement(
-        transactions=[_txn("2026-01-03", "Rapid Finance payment", -500.0)]
+        transactions=[_txn("2054-01-03", "Rapid Finance payment", -500.0)]
     )
     no_deposit_metrics = compute_metrics(no_deposits)
     assert no_deposit_metrics.withholding_rate is None
@@ -450,14 +450,14 @@ def test_every_record_exposes_required_audit_fields():
     statement = Statement(
         bank="TD Canada",
         account_number="9876",
-        transactions=[_txn("2026-01-02", "Cooperators insurance premium", -125.0)],
+        transactions=[_txn("2054-01-02", "Cooperators insurance premium", -125.0)],
     )
     record = classify_statement_transactions(statement)[0]
     assert record.classification in CLASSIFICATION_STATES
     assert record.original_description == "Cooperators insurance premium"
     assert record.normalized_description == "COOPERATORS INSURANCE PREMIUM"
     assert record.canonical_entity == "Co-operators"
-    assert record.date == "2026-01-02"
+    assert record.date == "2054-01-02"
     assert record.amount == -125.0
     assert record.direction == "debit"
     assert record.bank == "TD Canada"

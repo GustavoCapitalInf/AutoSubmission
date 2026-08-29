@@ -52,7 +52,7 @@ entries.load()
 #: checkable by eye.
 ZERO_ACTIVITY = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -72,7 +72,7 @@ ZERO_ACTIVITY = (
 #: this is the exact document the relaxed branch must never admit.
 STATED_ACTIVITY_EMPTY_LEDGER = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -88,7 +88,7 @@ STATED_ACTIVITY_EMPTY_LEDGER = (
 #: something moved this account and this document does not say what. Refused.
 NO_COUNTS_BALANCES_DISAGREE = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -102,7 +102,7 @@ NO_COUNTS_BALANCES_DISAGREE = (
 #: it, which is why the stated totals are part of the test.
 ZERO_COUNTS_NONZERO_TOTAL = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -117,7 +117,7 @@ ZERO_COUNTS_NONZERO_TOTAL = (
 #: did not move. Nothing in the rule is about the figure being zero.
 ZERO_ACTIVITY_NONZERO_BALANCE = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -202,7 +202,7 @@ def test_a_statement_with_a_ledger_is_unaffected_by_the_guard():
 #: document in the archive: this is the only admitted shape.
 ZERO_ACTIVITY_AS_PRINTED = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -257,7 +257,7 @@ _UNREAD_GRID = (
 #:    so the count rows match nothing; the balances print cents and read.
 PROBE_CENTLESS_AMOUNTS = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "CHECKING SUMMARY\n"
     "INSTANCES AMOUNT\n"
@@ -273,7 +273,7 @@ PROBE_CENTLESS_AMOUNTS = (
 #:    full-width and read.
 PROBE_SHORT_HTML_CELLS = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "CHECKING SUMMARY\n"
     "<table>\n"
@@ -289,7 +289,7 @@ PROBE_SHORT_HTML_CELLS = (
 #:    label no longer stands in the first cell and every label test misses.
 PROBE_SHIFTED_HTML_COLUMN = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "CHECKING SUMMARY\n"
     "<table>\n"
@@ -407,7 +407,7 @@ def pre_card_c_guard():
 #: exactly: 1,000.00 + 500.00 - 200.00 - 0.75 = 1,299.25.
 DETACHED_SIGN_FEE = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "*start*summary\n"
     "Chase Business Complete Checking\n"
     "CHECKING SUMMARY\n"
@@ -571,7 +571,7 @@ def test_a_statement_that_read_correctly_before_is_unchanged():
 #: with the sign detached from the figure.
 SAVINGS_HEADER = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "Account Number: 000000000000000\n"
     "*start*summary\n"
     "Chase Business Total Savings\n"
@@ -816,7 +816,7 @@ def test_the_savings_posting_date_is_the_first_printed_date():
     )
     statement = parse_chase_savings_statement(two_dates)
     assert statement is not None
-    assert [t.date for t in statement.transactions] == ["2026-01-05", "2026-01-09", "2026-01-31"]
+    assert [t.date for t in statement.transactions] == ["2054-01-05", "2054-01-09", "2054-01-31"]
 
 
 def test_a_savings_header_with_no_grid_is_not_a_statement():
@@ -825,7 +825,7 @@ def test_a_savings_header_with_no_grid_is_not_a_statement():
 
 def test_a_savings_grid_with_no_summary_figures_is_not_a_statement():
     bare = (
-        "JPMorgan Chase Bank, N.A.\nJanuary 1, 2026 through January 31, 2026\n"
+        "JPMorgan Chase Bank, N.A.\nJanuary 1, 2054 through January 31, 2054\n"
         "*start*summary\nSAVINGS SUMMARY\n*end*summary\n"
     )
     assert parse_chase_savings_statement(bare + SAVINGS_GRID) is None
