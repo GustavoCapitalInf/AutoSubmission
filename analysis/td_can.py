@@ -124,6 +124,32 @@ def _parse_period(value: str | None) -> tuple[str, str] | None:
     if not m:
         return None
     sm, sd, sy, em, ed, ey = m.groups()
+    # RAISE-PRIVACY-5, the LOOKUP half of the same law, and the one shape the
+    # conversion census structurally cannot see: `_PERIOD_RE`'s `([A-Z]{3})`
+    # proves three capital letters and nothing more, so a period line whose
+    # month word is not a month reaches `_MONTHS[sm]`, and a `KeyError` IS its
+    # key — `str` and `args` measured at the base tree as the printed word
+    # itself. `.get` performs the SAME lookup in the SAME place and the
+    # refusal is a FIXED sentence raised from OUTSIDE any handler, so the
+    # raised CLASS stays `KeyError`, every outcome and published field stays
+    # what it was, and only the message stops carrying the word. `from None`
+    # would not do: it clears `__cause__` and leaves `__context__` holding the
+    # original. The literal is written out at both ends rather than named,
+    # because a plain string literal is what the `CHAIN_GUARDED` reader can
+    # verify without executing anything — and because the two ends must be
+    # indistinguishable, exactly as the two `date_refusal`s below are.
+    #
+    # The lookup is read BEFORE `2000 + int(sy)` rather than as the second
+    # argument of the call below, and that reorders nothing observable:
+    # `re`'s `\d` matches Unicode category Nd and `int()` accepts every Nd
+    # character, so `int()` on a group `(\d{2})` produced cannot raise. Driven
+    # on both trees with non-ASCII decimal digits.
+    start_month = _MONTHS.get(sm)
+    if start_month is None:
+        raise KeyError(
+            "month lookup refused a printed word "
+            "(not a month word; reader=td_can._parse_period)"
+        )
     # RAISE-PRIVACY-4, the MAJOR-2 class W3 §H14 carried out of #HYGIENE8:
     # `_PERIOD_RE`'s `(\d{1,2})/(\d{2})` proves two digit runs and nothing
     # more, so a period printed `FEB30/31` reaches `date()`, whose ValueError
@@ -132,11 +158,17 @@ def _parse_period(value: str | None) -> tuple[str, str] | None:
     # through `iso_or_none` and refused from OUTSIDE the funnel; the class
     # stays `ValueError`. The two ends are read SEQUENTIALLY, exactly as the
     # two `date()` calls were evaluated, so a document whose start cell
-    # refuses still refuses on the start cell and never reaches `_MONTHS[em]`.
-    start = iso_or_none(2000 + int(sy), _MONTHS[sm], int(sd))
+    # refuses still refuses on the start cell and never reaches the end month.
+    start = iso_or_none(2000 + int(sy), start_month, int(sd))
     if start is None:
         raise date_refusal("td_can._parse_period", m.group(0))
-    end = iso_or_none(2000 + int(ey), _MONTHS[em], int(ed))
+    end_month = _MONTHS.get(em)
+    if end_month is None:
+        raise KeyError(
+            "month lookup refused a printed word "
+            "(not a month word; reader=td_can._parse_period)"
+        )
+    end = iso_or_none(2000 + int(ey), end_month, int(ed))
     if end is None:
         raise date_refusal("td_can._parse_period", m.group(0))
     return start, end
@@ -148,6 +180,13 @@ def _date_tokens(value: str | None, *, default_year: int) -> list[str]:
     text = value.upper().replace("OCTS", "OCT").replace("SEPS", "SEP")
     out = []
     for mon, day, yy in re.findall(r"\b([A-Z]{3})\s*(\d{1,2})(?:/(\d{2}))?\b", text):
+        # RAISE-PRIVACY-5's THIRD lookup and the only one left standing as a
+        # subscript: this membership test is the guard, in the same loop body,
+        # so `_MONTHS[mon]` below cannot raise and there is no refusal here to
+        # make private. Rerouting it would turn a skipped token into a raise —
+        # a new refusal, which this card may not introduce — so it is accounted
+        # for in `TOKEN_LOOKUP_ALLOWED` instead, and the guard is DRIVEN rather
+        # than asserted (`tests/test_raise_privacy4.py`).
         if mon not in _MONTHS:
             continue
         year = 2000 + int(yy) if yy else default_year
@@ -181,13 +220,28 @@ def _native_date_to_iso(value: str, *, default_year: int) -> str:
     m = _DATE_TOKEN_RE.fullmatch(value.upper())
     if not m:
         raise date_refusal("td_can._native_date_to_iso", value)
+    # RAISE-PRIVACY-5, the lookup half. `_DATE_TOKEN_RE`'s `([A-Z]{3})` proves
+    # three capital letters, so the month word reaches `_MONTHS[...]` and a
+    # `KeyError` is its key. Production cannot reach this — `_native_date_index`
+    # goes through `_native_date_token`, which tests `text[:3] in _MONTHS`
+    # first, and a token needing the `OCTS`/`SEPS` rewrite fails the raw
+    # `fullmatch` and takes the shape refusal above — so this is the
+    # CALLER-GUARDED twin of the two in `_parse_period`, closed the same way
+    # for the same reason a guard that depends on a caller is the kind of
+    # protection that disappears when the caller changes.
+    month = _MONTHS.get(m.group(1).upper())
+    if month is None:
+        raise KeyError(
+            "month lookup refused a printed word "
+            "(not a month word; reader=td_can._native_date_to_iso)"
+        )
     # RAISE-PRIVACY-4: the fullmatch above proves the token's SHAPE and nothing
     # more, so `FEB30` passes it and reaches `date()`, whose ValueError echoes
     # the printed day — measured at the base tree as `day 30 must be in range
     # 1..28 for month 2 in year 2031`. The SECOND refusal of this reader,
     # through the same constructor and naming the same site: a caller cannot
     # tell the two refusals apart, which is the point.
-    iso = iso_or_none(default_year, _MONTHS[m.group(1).upper()], int(m.group(2)))
+    iso = iso_or_none(default_year, month, int(m.group(2)))
     if iso is None:
         raise date_refusal("td_can._native_date_to_iso", value)
     return iso
