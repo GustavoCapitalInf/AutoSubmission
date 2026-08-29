@@ -683,6 +683,14 @@ the only commit shas cited anywhere in the design or the W3 section are `ac1d034
 | the L1INV instruments re-run from the run of record | `l1_split_prototype` (both modes), `l1_structure_census`, `l1_design_idle_evidence` — EXIT=0 each; §1.1 is the ledger | 0 |
 | the cell's own instruments re-run | `l1_design_payload_probe` (2 cohorts), `l1_design_reader_probe` — EXIT=0 each | 0 |
 
+And this review's own commit, held to the same floor:
+
+| proof | result | exit |
+|---|---|---:|
+| privacy scan of THIS review's added lines vs the whole population | **hit_count 0** over **741** added lines; MONEY / DIGITS / DATES / WORDS all 0; raw 12, all excluded by `words_class` | **0** |
+| commit-message scan of this review's **2** commits | **hit_count 0**, all classes 0 | **0** |
+| files touched by this review | one: `docs/moneythumb-replacement/reviews/BATCH9_L1DESIGN_REVIEW.md`. The reviewer's four instruments stayed in private scratch, unwired and uncommitted | — |
+
 ---
 
 ## 5. The rulings list, with this reviewer's opinion
