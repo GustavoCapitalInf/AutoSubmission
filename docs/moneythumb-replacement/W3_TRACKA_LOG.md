@@ -55368,3 +55368,425 @@ that file.
    behaves identically at the base — this card neither introduced it nor
    changed it. **Carded for batch 9 or later; named here so it is visible the
    day someone looks.**
+
+# §L1INV — the L-1 reservoir is two problems, and only the smaller one needs a ruling
+
+READ-ONLY investigation (batch 9, card `L1-CU-SUFFIX-INVESTIGATION`). No production
+file changed, nothing registered, nothing moved. The deliverable is
+`docs/moneythumb-replacement/L1_CU_SUFFIX_RULING_PACKET.md`; this section records
+what was measured, with what, and what it cost.
+
+## L1INV.1 Population, and the gates re-run rather than repeated
+
+`tools/l1_census.py` over the run of record `cda8882d` and its cold cache: 214
+documents — the 176 shas under the census's 37 `FAM-CU-SUFFIX-CORE` groups, the 36
+declines of the five readers the batch-7 escalation named, and the 2 `WH:atb`
+consolidated statements.
+
+The escalation's L-1 counts were not copied. Each reader's OWN gate was re-run on
+the cached text and each decline confirmed by calling that reader's own `parse`:
+36 declines, 36 confirmed, **24 L-1 refusals** — `huntington:_LINE_OF_CREDIT_RE` 4,
+`community_section:len(parsed)!=1` (>1 posting section) 7,
+`navy_federal:_checking_account` (>1 checking product) 4,
+`consumers:_primary_checking_section` 3, `capital_one` 6 — which reproduces the
+escalation's 4 / 7 / 4 / 6 / 3 from evidence. **`capital_one` is the one that has to
+be said carefully**: its module states no L-1 gate in code. The refusal is emergent
+(`_native_summary` matches ONE `Previous Balance …` block; the six declining
+documents print three) and the instrument names it `capital_one:emergent`, never as
+a gate the module contains.
+
+A registration id is not a module. `community_section` publishes under three
+(`community_section`, `dakota_west`, `mission_valley`), and the pinned surface was
+therefore enumerated through the registry rather than from a hand list: **10 pinned
+documents are claimed by a reader carrying an L-1 rule** — capital_one 4,
+navy_federal 4, consumers 1 (the CONS-L1 document), dakota_west 1. Also measured and
+worth knowing: **29 of the 109 pinned documents are not in the run of record at all**.
+They are reported as NOT SURVEYED rather than read a second way — the native ladder is
+composed in one place and this instrument was not going to be the module that reaches
+around it (`tests/test_native_rung_parity.py` caught exactly that on the first full
+suite run, and the fallback came out). Of the 80 that were surveyed, **12 print two or
+more posting sections**, 5 of them under the strong boundary mechanisms.
+
+## L1INV.2 What the structure census measured
+
+`tools/l1_structure_census.py` reports shapes and counts only — caption classes,
+identity forms, grid COLUMN shapes, per-section booleans. Boundary strength, which is
+the finding the whole ruling turns on:
+
+| mechanism | docs | oracle? |
+|---|---:|---|
+| `rollup-oracle` (enumerating table + each identity reappears as a heading) | 103 | YES |
+| `section-identity` (headings carry their own identity, no table) | 38 | no |
+| `section-equation-scan` (opening figures only) | 35 | no — weakest |
+| `none` | 38 | n/a |
+
+**Two findings reframe the card.**
+
+**(a) The L-1 rule is not what blocks most of the 176.** Posting sections per
+document: 79 of the 176 print EXACTLY ONE, 32 yield no partition, and only **65 print
+two or more**. Adding the 16 multi-posting `DECL:*` documents gives an L-1 population
+of **81**, not 176. For the 79 the schema is not the obstacle; a reader is.
+
+**(b) They share an architecture, not a family.** Keyed on all seven mechanisms at
+once there are **63
+distinct structural families over 214 documents** (39 with three or more members,
+covering 182) — a census group and a structural family are very nearly the same
+partition. What recurs is the MECHANICS: 4 boundary mechanisms, 9 roll-up caption
+classes, 5 identity forms, 4 equation forms, and ~49 grid orderings built from 13
+column tokens. That is the `core_processor_*` shape — one template with per-issue
+markers — and it is not 37 readers.
+
+Two more measured facts the implementation will need: only **17% of sections print
+their own daily balances** (so a per-account ADB rests on the reconstructed series for
+the other 83%), and **4 documents print their roll-up in two currency columns**, which
+under `CURRENCY_DOCTRINE` is a refusal and not a feature.
+
+## L1INV.3 The prototype, and why its numbers are a floor
+
+`tools/l1_split_prototype.py` — never registered, imported by nothing. It splits at
+the measured boundaries, reconstructs each section as a `Statement`, and calls
+`analysis/reconcile.py::reconcile` and `analysis/adb.py::compute_average_daily_balance`
+**unchanged**. A section CLOSES when both return `ok`.
+
+Its only row grammar is a BALANCE CHAIN WALK, and the reason that choice is defensible
+is that it is self-validating rather than tolerant: a transaction is accepted only
+where the document prints BOTH the movement and the balance it lands on and
+`previous ± amount = balance` holds to the cent, and the chain must start on the
+section's printed opening and end on its printed closing. Skipping a figure is
+therefore SAFE — skipping a genuine ledger figure breaks continuity and the section
+fails closed anyway — which is what lets one grammar read 43 census groups with no
+per-issuer column knowledge.
+
+Measured: **392 sections offered, 97 close, 23 documents close on every located
+section** (19 multi-section, 12 with the roll-up also reproducing). Of the 81
+multi-posting documents, **11 close on every section, 6 of them with the oracle**.
+Whole families close end to end with no family-specific work at all: `guardian_cu`
+8/8 documents, `goldenwest_cu` 4/4, `altra_fcu` 3/3, `hudson_valley` 3/3.
+
+**Every one of those is a LOWER bound, stated three ways so it is not read as a
+ceiling.** The prototype refuses any section whose grid prints an amount without a
+running balance (77 sections fail there); it loses 27 sections to a generic period
+grammar, which is a defect of the probe and not of the document; and it does NOT
+apply the production ADB check `posting_dates_cover_source`, because it supplies no
+`source_markdown` — a check that can only lower a count, named in the packet as an
+unpaid debt rather than folded into a number.
+
+The sharpest fail-closed class is worth naming on its own: **16 sections whose own
+printed figures contradict the table that enumerates them**. That is the ambiguity
+the whole question is about, it has a measured population, and it must stay refused.
+
+## L1INV.4 What the packet recommends, in one paragraph
+
+Split the card. **Stage 1 needs no ruling and is the larger half**: a shared CU
+member-statement template module publishing the 79 single-posting-section documents,
+every other printed section treated as an idle sibling under symitar's ratified rule
+and the omission SURFACED — which also repays the batch-8 SIBLING-OMISSION-SURFACE
+obligation symitar's two silent skips still carry. **Stage 2 needs the ruling**:
+Option C, a multi-account payload, for the 81 multi-posting documents, gated by ten
+fail-closed conditions (printed partition; distinct identities; every posting section
+accounted for; each section's own opening/closing agreeing with the roll-up to the
+cent; `reconcile.ok`; `adb.ok` under the ratified doctrine with the source-coverage
+check applied; the roll-up reproducing; one currency; no statement-specific constant;
+zero inference). Option B is rejected on evidence, not taste: this population supplies
+no printed rule that makes one account primary, and applying one changes WHICH of
+three ledgers a pinned audited document reports.
+
+## L1INV.5 Open questions that are Gustavo's, not a cell's
+
+(1) multi-account payload or the refusal stands; (2) on a multi-account document, WHAT
+is the one published ADB the doctrine allows; (3) package math across a multi-account
+member; (4) CONS-L1 / CONS-HARDCODE, which is a truth-set ceremony under either
+answer; (5) whether symitar's ratified idle-sibling rule may be generalised to this
+whole template family, restated on the measured evidence rather than inherited;
+(6) ATB — both documents yield no partition under any mechanism and stay refused
+under every option.
+
+## L1INV.6 Cost and hygiene
+
+$0. No model call, no paid OCR, no vendor. Read-only over the archive, the run of
+record and the cold cache; nothing was written to any of them. Three instruments,
+each under 10 seconds over the whole population on this host. None of them calls
+`analyze_markdown` or `cached_analysis`, so none needed an entry in
+`corpus_gate.EXCLUDED_ANALYSIS_CALLERS` and no production file was touched to make
+them run.
+
+## L1INV.7 Proof floor, measured at `a86f183`
+
+| proof | command | result |
+|---|---|---|
+| full default suite | `python -m pytest -q` | **6858 passed, 43 skipped, 34 deselected — EXIT=0** |
+| canonical guards (5 files) | `pytest tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py` | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | `pytest tests/test_parser_conformance.py …` | **1270 passed, 40 skipped — EXIT=0** |
+| corpus gate | `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED, 109 pinned, 596.3s — EXIT=0** |
+| branch privacy scan | `privacy_scan_branch.py --rows <run>/rows.csv --data-dir <cold cache> --base 38a94aa --ref wave9-l1inv` | **hit_count 0** over 2,751 added lines and 3,351 documents (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) — EXIT=0 |
+| fidelity replay, every L-1 reader | `cohort_replay --parser huntington --parser community_section --parser navy_federal --parser capital_one --parser consumers --parser symitar --expect-identical` | population 182, **179 of 179 previously validated preserved, payload identical on all 179**, newly validated 0, regressions 0 — EXIT=0 |
+
+No mutation table is owed: this card adds no gate and no grammar to production.
+No archive sweep is owed: no reader changed, and the fidelity replay above is the
+evidence for that rather than the assertion of it.
+
+**Two things the first full-suite run corrected, recorded because they are the
+kind of thing a read-only card is assumed not to have.** The `--pinned`
+fallback reached `ocr/native_text.parse_native_pdf_text` to read the 29 pinned
+documents the run of record never saw; `tests/test_native_rung_parity.py`
+failed, the fallback came out, and those 29 are now reported as NOT SURVEYED.
+And the branch privacy scan opened at **35 hits**, one of which was real — a
+docstring quoted a printed product designation as an example. It is gone; the
+other 34 were ordinary English and code identifiers that happen to be printed
+somewhere in the 3,380, and they were rewritten rather than argued with, which
+is what a zero costs.
+
+## L1INV.8 CLOSURE — the independent review returned UNSOUND, and what the corrected instruments measure
+
+The packet above was reviewed independently
+(`docs/moneythumb-replacement/reviews/BATCH9_L1INV_REVIEW.md`). **Every published figure
+reproduced to the digit and the verdict was still UNSOUND — 2 BLOCK / 6 MAJOR / 6 MINOR —
+because two load-bearing claims meant something other than what they said, and both erred in
+favour of the answer the packet recommended.** This subsection records the correction of each
+finding, the number it moved, and the commit that carries it. The packet itself is a document
+and was rewritten in place; §L1INV.1 to §L1INV.7 above are the record of the FIRST version and
+are left as written, so the numbers there are superseded by the ones below.
+
+### The two BLOCKs
+
+**BLOCK-1 — the prototype closed sections it had read nothing on.** `chain_walk` seeded its
+accepted-prefix snapshot with the EMPTY prefix whenever the candidate opening already equalled
+the candidate closing, so a section whose two figures coincide "closed" with zero transactions
+however much the paper printed. `reconcile` saw `begin + 0 = end`, the ADB saw a flat carried
+series, and the enumerating table then "reproduced" a closing that WAS the table figure the
+walk had started from. Four corrections, commit `a9661e3`: the empty arrival is reported as its
+own class and never as a closure; a chain must account for every dated row inside the span it
+walked; a section on an inferred boundary is refused under the packet's own first condition;
+and the enumerating table's opening and closing are read from its printed COLUMN CAPTION rather
+than from position — one issue in this population prints the ENDING figure first, which is what
+was handing the walk an opening that already equalled the closing.
+
+Re-measured: **23 sections were closing on an empty ledger over printed dated rows** and 21
+more are trivially idle. Sections closing **97 to 29**. Documents closing on every located
+section **23 to 2**. The L-1 floor **11 to 2**, and with the enumerating table reproducing
+**6 to 2**. The families the packet said close end to end: `guardian_cu` 8/8 becomes **2/8**,
+`goldenwest_cu` 4/4 becomes **0/4**, `altra_fcu` 3/3 becomes **0/3**, `hudson_valley` 3/3
+becomes **0/3**.
+
+**BLOCK-2 — the "79 documents need no ruling" population does not exist.** The census called a
+section IDLE whenever it carried fewer than two dated rows. That is a threshold, not the
+ratified rule. `tools/l1_split_prototype.py --idle-siblings` (commit `fc040fc`) applies
+`analysis/symitar.py` 13-45 by calling that module's own code — its dormancy pattern for the
+printed declaration, its yield-only predicate for the arithmetic with its summary-equality
+test — to every sibling of every single-posting document.
+
+Measured: 86 documents print exactly one posting section, 79 of them `CU-SUFFIX` (which
+reproduces the packet's 79). Their **103 sibling sections** are 4 printing the ratified
+declaration, **0** satisfying the yield-only arithmetic, **30 that POSTED a dated row and
+declare nothing**, 62 empty and silent, 7 declaring idle in some other wording.
+**0 documents have every sibling satisfying the rule as written**; **26 carry a sibling that
+posted** (24 `CU-SUFFIX`); 63 `CU-SUFFIX` documents carry at least one sibling that fails it;
+16 have no sibling section located at all, which is not the same as having no sibling. At the
+packet's own one-dated-row threshold the population is 59 documents (54 `CU-SUFFIX`), their 52
+siblings are 50 empty-and-silent and 2 other-wording, and again **0** qualify — at that
+threshold a sibling has no postings, so the yield-only predicate cannot apply by construction.
+
+### The six MAJORs
+
+| finding | correction | commit | re-measured |
+|---|---|---|---|
+| MAJOR-1 the regression surface said 16 pinned documents are multi-posting where the instrument says 12 | the number is taken from the instrument | `e63b02e` | **12** (4 strong, 1 strong, 7 weak) |
+| MAJOR-2 the `capital_one` refusal described backwards | the probe calls the module's summary helper and its transaction helper and counts what they return | `2b6b5ef` | the nine-cell pattern matched **0 of 6**; the transaction grammar returned rows on **6 of 6**, min 1 / median 28 / max 41. The refusal is the ABSENCE of a match standing in front of a row reader already harvesting rows across the accounts |
+| MAJOR-3 `reconcile` satisfied by construction; "two oracles" was one | the counts each oracle refused are reported separately, and the stated evidence that lets `reconcile` do work is supplied | `a9661e3` | it refused **0 of 105** before and **11 of 48** now; the ADB refuses 10 |
+| MAJOR-4 the sections' own counts, totals and daily balances were measured and then passed as `None` | they are read and fed; the ADB is given the SECTION's text so the production source-coverage check applies; a section printing them unreadably is refused | `a9661e3` | the daily-table predicate was itself wrong — it matched the averaged figure a summary block prints — and the honest figure is **24 of 442 sections (5.4%)**, not 75 (17.0%). This gate alone removes 4 of the 7 documents that survive the review's own chain |
+| MAJOR-5 no condition about money moved between a member's own accounts | measured and added as condition 11 | `a9661e3` | **7** of the 11 documents with two non-empty reconstructed ledgers carry same-day, same-magnitude, opposite-signed pairs — **47** pairs |
+| MAJOR-6 no condition telling a deposit ledger apart from the other things a table lists | measured and added as condition 12 | `7321fca` | **15** documents list one on their enumerating table and **7 of those also print a cross-account total**, so the collision the review called latent is live |
+
+### The six MINORs
+
+| finding | disposition | commit |
+|---|---|---|
+| MINOR-1 442 located sections vs 392 offered never reconciled; "27 sections" is 27 DOCUMENTS | the prototype prints the reconciliation: 442 - 77 + 27 = 392 | `e63b02e` |
+| MINOR-2 the ADB runs on the DOCUMENT's period and the condition never said so | stated in the instrument's docstring, and the condition itself must now say whose period it means before it becomes code | `a9661e3`, `e63b02e` |
+| MINOR-3 Option B rejected by argument where a measurement was available | measured over the 81 multi-posting documents: first-named UNDEFINED on 30; the transaction-share rule UNDEFINED on 24, AMBIGUOUS on 9, deciding 48; 11 print a cross-account total; the identity is a bare product designation on 22 of 43 | `7321fca` |
+| MINOR-4 the guard named on the handoff does not cover `tools/` | RECORDED, not fixed, with the reason: adding a `tools/` clause to `tests/test_experiments_are_not_wired.py` is a production test change and this card owns no test. The property holds and is held by a grep — nothing outside `tools/l1_*` references any of the three instruments, verified at this tip — and the card's "the guard applies" is not repeated | `e63b02e` |
+| MINOR-5 the privacy number predated the tip and 29 documents are not scanned against | re-measured at this tip and the 29 stated beside the zero rather than left in a JSON file | the closing commit |
+| MINOR-6 "every located section closes" is not "every printed section closes" | separated in the headline and printed by the instrument: 38 documents have no located partition, 11 more enumerate accounts that never reappear | `e63b02e` |
+
+### The corrected headline
+
+| measure | first version | corrected |
+|---|---:|---:|
+| structural families over 214 documents (>= 3 members / covering) | 63 (39 / 182) | **62 (39 / 183)** |
+| sections offered to the validator | 392 | 392 |
+| sections that CLOSE | 97 | **29** |
+| ... under the stricter after-chain test | - | 16 |
+| sections that are TRIVIALLY idle, closing on nothing | counted as closures | **21** |
+| sections that closed on an EMPTY ledger over printed rows | counted as closures | **23** |
+| documents whose every LOCATED section closes | 23 | **2** |
+| ... with the enumerating table's own closing column reproducing | 12 | **2** |
+| L-1 documents (>= 2 posting sections) closing on every section | 11 | **2** |
+| ... with the table reproducing | 6 | **2** |
+| the Stage-1 population under the RATIFIED idle-sibling rule | 79 | **0** |
+| documents carrying a sibling that posted and declares nothing | not measured | **26** |
+| same-day opposite-signed pairs across two ledgers of one document | not measured | **7 documents, 47 pairs** |
+| enumerating tables listing something other than a deposit account | not measured | **15, of which 7 print a cross-account total** |
+| sections whose own figures contradict the table enumerating them | 16 | **2** |
+| sections printing their own daily-balance TABLE | 75 (17.0%) | **24 (5.4%)** |
+
+**The review's own corrected figures, reproduced from this run.** Under the review's condition
+chain — a printed partition, no empty ledger over printed rows, the source-coverage check, but
+WITHOUT the row-coverage gate and WITHOUT the sections' own stated evidence — this run gives
+**7** documents fully closing, an L-1 floor of **4**, and **2** with the oracle, where the
+review reported 11 / 3 / 2. The difference is the column-caption correction, which the review
+identified but did not apply to its own arithmetic. Its transfer measurement (6 documents, 44
+pairs) measures **7 and 47** here, because the corrected walk reconstructs a different set of
+ledgers. Its idle-sibling counts reproduce exactly: 4 sibling sections print the ratified
+declaration, 0 documents qualify, 63 `CU-SUFFIX` documents carry a sibling that fails the rule.
+
+### The corrected recommendation, in one paragraph
+
+There is no half of this reservoir that can be taken without a ruling. Build
+SIBLING-OMISSION-SURFACE first — the additive payload field and integrity flag that say a
+deposit section existed and was not published — because it moves no document, changes no
+reader's decision, and is owed today by symitar's two silent skips whatever is ruled here. Then
+take the idle-sibling ruling FIRST rather than fifth: 4 sibling sections in this whole
+population print the wording the ratified rule reads, 0 satisfy its arithmetic, and 44 of the
+86 single-posting documents have siblings that are empty and silent or declare idle in another
+wording — that ruling is cheap to answer and it decides whether 54 to 79 documents are
+reachable at all. Only then Option C, a multi-account payload gated by the thirteen conditions
+in the packet's §6, for the multi-posting population, and sized honestly: **2 documents close
+on every located section today, both `FAM:guardian_cu_statement_summary`, both with the table's
+own closing column reproducing.** Option A forecloses that 2 and keeps two open doctrine
+obligations; Option B has no printed evidence for a primary rule and moves a pinned audited
+document's ledger; Option D's evidence-bounded primary rule is bounded by evidence this
+population does not print.
+
+### Proof floor at the closure tip
+
+| proof | result |
+|---|---|
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| `tests/test_experiments_are_not_wired.py` | passes; guards `experiments/` and not `tools/` (MINOR-4) |
+| nothing outside `tools/l1_*` references the three instruments | grep over the tree, no hits |
+| no production file differs from base | `git diff --stat 38a94aa -- analysis ocr webapp discovery telemetry corpus_gate.py` EMPTY |
+| the three instruments re-run from the run of record | **EXIT=0 each**; every number above is in one of their outputs |
+| branch privacy scan vs the whole population | **hit_count 0** over 4,712 added lines and 3,351 documents (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) at `1b26d9f` — EXIT=0. It opened at 30 and took two rewrite passes. The scan reads 3,351 of the 3,380 shas; the 29 with no cached text are the same 29 the pinned survey reports as NOT SURVEYED, and nothing on this branch is scanned against them |
+
+The full suite, the canonical conformance set, the corpus gate and the fidelity replay were
+measured at `a86f183` (6,858 / 1,270 / GREEN 105-3-1 / 179 of 179 identical) and are not
+re-run: the whole diff from base is the packet, this log, the review and
+`tools/l1_{census,structure_census,split_prototype}.py`. No production file, no test and no
+registry entry differs from base. That is a structural argument, not a re-measurement, and it
+is offered as such.
+
+**One hygiene lesson, recorded because BATCH9-RULES names it exactly.** A shell heredoc
+turned two of this branch's word-boundary escapes into 0x08 bytes, and both new patterns
+silently matched nothing — the measurement they produced was zero and looked like a finding.
+It was caught by byte-checking the files rather than by reading them, which is the only way it
+can be caught. All three instruments are clean of control bytes at this tip.
+
+### L1INV.8a AMENDMENTS — the re-review returned SOUND WITH FINDINGS, and what the five cost
+
+The corrected packet was re-reviewed at `67fd943` by the same reviewer, same method, all five
+instrument modes re-run. **Verdict: SOUND WITH FINDINGS, 0 BLOCK / 1 MAJOR / 4 MINOR.** Both
+BLOCKs were accepted as answered at the instrument rather than in the prose, and every other
+corrected figure reproduced. The five findings are closed below, one commit each.
+
+**MAJOR-A — the facility vocabulary was narrower than the claim made for it.** `LOAN_ROW`
+carried two classes and a comment saying a wider list had been tried and fired on nothing they
+do not. The claim was false: adding the card-brand class to the same raw labels, before the
+furniture trim, gives **19 documents and not 15**, and **4 of them carry two or more posting
+sections** where condition 12's table said 0. All four are
+`FAM:goldenwest_cu_member_account_statement` — the family with the most accounts per document
+in this population, and the one a Stage-2 implementation would reach for next, so the
+deposit-versus-facility rule bites where it matters rather than on nothing. 7 of the 19 also
+print a cross-account total, so the collision with the cross-account-total condition stands.
+
+The completeness claim is replaced by a table the instrument prints: **ten classes are tried,
+each measured on its own, three COUNTED and the rest named with the reason they are not.** A
+card-network token fires on 6 documents whose enumerating line carries neither a deposit
+designation nor any card wording and which locate no partition at all — a brand word standing
+alone is not proof of an account row, so it is not counted. The debit-card class fires on 15
+(5 multi-posting) and is deliberately never counted: the member reaches a deposit account
+through one, which is not a facility of its own, and counting it would put 11 further
+documents into a condition that must not hold them. Five further classes fire on nothing here. Condition 12 now
+says what the first version's did not — the class of a row must be established from the row,
+not from a word in it. Commit `eff0969`.
+
+**MINOR-A — the adjudication, measured rather than argued.** The closure reproduced the
+review's chain on a run that refused to validate an empty arrival at all, so it could not
+express the review's own rule, which deliberately left a section printing no dated row and
+reading nothing standing as a closure. The prototype now measures every gate instead of
+short-circuiting on the empty case, and the rule is implemented as written with one guard its
+prose implies: a document whose ONLY located section is idle publishes nothing and is not a
+document that closes. Run that way: **15** documents where the review reported 11, an L-1 floor
+of **4** where it reported 3, and **2** with the oracle, which it reported. The two gaps have
+different causes and the closure had attributed both to one:
+
+* the L-1 gap IS the column fix — `9B8E7D807228DA2B` was refused as a pair disagreement against
+  a table column whose role was assumed rather than printed, and 14 of the old 16 sections in
+  that class were the same false refusal, which is why the class is now 2;
+* the document gap is DEFINITIONAL — a trivially idle section is a class here and not a
+  closure, so a document with a dormant sibling cannot reach "every located section closes"
+  under the corrected test and can under the review's. The 15 are 8 `guardian_cu`, 3
+  `altra_fcu`, 3 `cu_summary_of_accounts_date_posted` and 1 `DECL:consumers`.
+
+Nothing in the corrected headline depends on either: the 2 is reached by a stricter route that
+does not pass through the review's rule. Commit `aa3cae2`.
+
+**MINOR-B — the ratified predicate runs in its relaxed form, now disclosed.** The sibling
+classifier calls the yield-only predicate without its fourth argument, so the module skips its
+own fourth condition — the platform's six-figure equation row accounting for every skipped
+posting with its deposit column at zero — and tests only the first three. The direction is safe
+and the measurement is unaffected: a relaxed test that admits nothing proves the strict test
+admits nothing, and the measured count of siblings satisfying the rule is zero, so BLOCK-2's
+answer stands. What the disclosure buys is the next measurement, which would have to supply
+that row before a non-zero count could be trusted. Written into the predicate's own docstring
+and into the packet, beside the anchoring restatement that was already disclosed. Commit
+`bcbeeba`.
+
+**MINOR-C — the headline 2 is a floor of a floor, and the number that sizes ruling (5) was
+printed nowhere.** Because a trivially idle section is a class and never a closure, a document
+carrying a genuinely dormant sibling can never reach "every located section closes" however
+well its posting sections reconstruct. Measured, allowing such a section to be OMITTED rather
+than counted — which is exactly what the ratified rule licenses:
+
+| | documents |
+|---|---:|
+| every section either CLOSES on the corrected test or is trivially idle | **8** |
+| ... their census group | `FAM:guardian_cu_statement_summary`, all of them |
+| ... carrying two or more posting sections | 2 |
+| ... with the table's own closing column reproducing, over the sections that would be PUBLISHED | **8** |
+
+The oracle is evaluated over the sections that would be published and not over the omitted
+ones, because an omitted section publishes no closing and there is nothing for the table to
+reproduce. Two printed facts put the ruling where it bites, and the idle-sibling report now
+prints the evidence classes per census group so both are traceable: **the 4 sibling sections in
+the whole population that print the ratified declaration are all one census group**
+(`FAM:greater_nevada_cu`), and **every one of `guardian_cu`'s six single-posting documents has
+a sibling that is EMPTY AND SILENT** — the weakest class in the sibling table. So **ruling (5)
+is worth 2 to 8 documents on the only family this packet demonstrates**, and it is a ruling
+about whether silence plus arithmetic is evidence at all rather than about a wording the
+ratified rule nearly reads. That sizing now stands above the 54-to-79 range in the
+recommendation, which is where a reader deciding it will look. Commit `16579b6`.
+
+**MINOR-D — one property is held by a grep, not by a gate.** The proof floor listed the
+instruments' unwiring beside the guards, where it reads as a gate. It is not one: the
+experiments guard scans `experiments/` and says nothing about `tools/`. The packet now states
+that the property is held by a GREP re-run at this tip with no hits, and that a `tools/` clause
+in that guard is a production-test change this card does not own, CARDED for a later hygiene
+session. Until it lands the row is a measurement and not a guarantee. Commit `15fd01d`.
+
+### The headline after the amendments
+
+Unchanged where it matters and larger where it was silent. Sections closing **29**, documents
+closing on every located section **2**, the L-1 population **81** of which **2** close with the
+table reproducing on both, the Stage-1 population under the ratified rule **0**, transfer pairs
+**7 documents / 47 pairs**. What moved: facility-listing tables **15 to 19**, of which **0 to
+4** carry two or more posting sections; the review's own chain **7 to 15** documents with an
+L-1 floor of **4**; and one figure that was missing altogether — **8 documents close if a
+dormant sibling may be omitted, all one family, all eight with the table reproducing.**
+
+| proof at the amended tip | result |
+|---|---|
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| the three instruments, five modes, re-run from the run of record | **EXIT=0 each** |
+| no production file differs from base | empty |
+| the instruments are unwired | held by a grep, re-run at this tip, no hits |
+| branch privacy scan vs the whole population | **hit_count 0** over 5,213 added lines and 3,351 documents (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) at `7d16d0d` plus one further rewrite — EXIT=0. The amendments opened at 10 and took three passes; the 29 shas with no cached text are the same 29 the pinned survey reports as NOT SURVEYED |
