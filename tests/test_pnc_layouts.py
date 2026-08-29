@@ -113,12 +113,26 @@ def test_the_summary_grid_is_found_with_neither_of_the_old_two_terminators():
 
 
 def test_negative_a_summary_the_block_bound_cannot_reach_is_not_taken_from_below():
-    """The bound is what stops the reader walking on: with the grid's own row
-    short a column, the index's figures stand right below it and must not stand
-    in for it."""
+    """A figure the reader cannot read WHOLE leaves the grid's row a column
+    short, and the row is read where it stands rather than replaced."""
     doc = commercial(index=COMMERCIAL_INDEX, activity=COMMERCIAL_ACTIVITY,
                      summary="Ending balance 1 0000.00 500.00 300.00 1,200.00")
     assert parse_pnc_statement(doc) is None
+
+
+def test_negative_the_summary_block_ends_where_the_next_block_starts():
+    """The bound, on its own terms. With the grid's row printing only three
+    columns, the index below it prints four figures on one line — and the
+    reader must come up a column short rather than walk on and read the index
+    as the summary. Said of `_summary_amounts` because the identities further
+    down would refuse the document either way, and this is the refusal that has
+    to happen HERE: a summary taken from the index would be four plausible
+    figures, none of them a balance."""
+    from analysis.pnc import _summary_amounts
+
+    doc = commercial(index=COMMERCIAL_INDEX, activity=COMMERCIAL_ACTIVITY,
+                     summary="Ending balance 1,000.00 500.00 300.00")
+    assert _summary_amounts(doc) is None
 
 
 # ---------------------------------------------------------------------------
