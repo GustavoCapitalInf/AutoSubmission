@@ -60,7 +60,7 @@ def trace(markdown: str) -> dict:
     """Walk `parse_huntington_statement`'s refusal chain and name the refusal."""
     from analysis import huntington as H
 
-    out: dict = {"gate": None, "class": None, "notes": []}
+    out: dict = {"gate": None, "class": None}
 
     out["claims"] = bool(H.detect(markdown).claims)
     if not out["claims"]:
