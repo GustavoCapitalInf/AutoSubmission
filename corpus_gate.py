@@ -790,6 +790,15 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only archive differential; publishes no verdict, and already "
         "supplies the reconstructed page partition"
     ),
+    # Batch 9's shared targeted-cohort proof (BATCH9-RULES). Same class as the
+    # two instruments above: read-only over the run of record's cache,
+    # publishes no verdict — it prints outcomes, reasons, reader ids, counts and
+    # leaf PATHS for a named cohort — and it DOES supply the reconstructed page
+    # partition as `sheets`, for the same reason the sweep does.
+    "tools/cohort_replay.py": (
+        "read-only cohort replay; publishes no verdict, and supplies the "
+        "reconstructed page partition"
+    ),
     # W3 §EXTRACTPRIV. Calls the analysis to prove the LLM branch is NOT
     # reachable in deterministic mode: `extract_statement` is replaced by a
     # recording sentinel and the assertion is that it records nothing. It

@@ -582,6 +582,11 @@ PROVENANCE_MODULES = {
     # no document and publishes nothing; enumerated here for the same reason
     # `corpus_gate.EXCLUDED_ANALYSIS_CALLERS` names the replay instruments.
     "tools/frostozk_mutation_table.py",
+    # Not a reader: batch 9's census instrument reads the run of record's cached
+    # analysis payloads and carries `currency_source` as a per-sha COLUMN NAME
+    # (the provenance value a reader already published, copied into
+    # census_batch9/per_sha.csv). It reads no document and publishes nothing.
+    "tools/batch9_census.py",
     "analysis/bank_ozk.py",
     "analysis/bmo.py",
     "analysis/bmo_ca_business.py",
