@@ -55298,8 +55298,8 @@ DIGITS 208,695 · DATES 3,211 · WORDS 416,756.
 
 | | base `2f24b06` | tip |
 |---|---:|---:|
-| raw hits | 1,116,227 | 1,127,339 |
-| `words_class` | 1,071,557 | 1,082,931 |
+| raw hits | 1,116,227 | 1,127,341 |
+| `words_class` | 1,071,557 | 1,082,933 |
 | `round_money` | 17,286 | 17,308 |
 | `corpus_cache` | 4,966 | 4,966 |
 | `subunit_money` | 2,356 | 2,386 |
@@ -55350,7 +55350,7 @@ occurrences. `W3_TRACKA_LOG.md` 2,212 -> 2,212: the section you are reading, and
 above it, add none.
 
 Excused SITES per rule at the tip (the per-rule row above is raw hits; these are sites):
-`words_class` 542,144 · `round_money` 8,654 · `corpus_cache` 2,483 · `subunit_money` 1,193 ·
+`words_class` 542,145 · `round_money` 8,654 · `corpus_cache` 2,483 · `subunit_money` 1,193 ·
 `hex_sha_substring` 448 · `institution_zip` 88 · `docs_session_date` 1.
 
 ### FP-C4 — the mutation table at the real tip
@@ -55448,15 +55448,15 @@ The rulings the implementing cell asked for are unchanged and this closure adds 
 
 | commit | finding |
 |---|---|
-| `5a45bb8` | BLOCK: `institution_zip` asks for a postal ADDRESS, not a state abbreviation |
-| `ccf66ce` | MAJOR 4: `hex_sha_substring` is position-scoped |
-| `a9f9d63` | CLOSURE-EXTRA: the diff reader dropped every added line beginning `+++` |
-| `d199679` | MAJOR 3: every deliberate error in `test_lili` is one cent again |
-| `63c03f1` | MINOR 1: `fixpriv_ast_identity` runs the way the card's method writes it |
-| `794018f` | MINOR 2 + MINOR 3: the two standing exclusions say what they do |
-| `d56deb6` | MINOR 4: the era bound is pinned, its residual exposure named |
-| `0bb2678` | P0: the real account number the card named is invented now |
-| `f4ec619` | MAJOR 1 + 2 (a): FP5 and FP6 carried the tokens they were writing about |
-| `e1facc5` | MAJOR 2 (b): the closure's own era fixtures, and the review's four durations |
-| `192499f` | BLOCK (b): `M11` survived the closure's own table; the gap is guarded inside each address shape |
-| `8aec6ac` and the commits after it | MAJOR 1 + 2 (c) + MINOR 5 + MINOR 6: this section, and the corrections that make its figures the tip's own. A record cannot print the sha of the commit that carries it; `git log 2f24b06..` is the list |
+| `f82e956` | BLOCK: `institution_zip` asks for a postal ADDRESS, not a state abbreviation |
+| `ade6e8c` | MAJOR 4: `hex_sha_substring` is position-scoped |
+| `7c27508` | CLOSURE-EXTRA: the diff reader dropped every added line beginning `+++` |
+| `fee01db` | MAJOR 3: every deliberate error in `test_lili` is one cent again |
+| `1e0e085` | MINOR 1: `fixpriv_ast_identity` runs the way the card's method writes it |
+| `a21b429` | MINOR 2 + MINOR 3: the two standing exclusions say what they do |
+| `e0138b8` | MINOR 4: the era bound is pinned, its residual exposure named |
+| `7e0febd` | P0: the real account number the card named is invented now |
+| `744a9d5` | MAJOR 1 + 2 (a): FP5 and FP6 carried the tokens they were writing about |
+| `a0e5cbe` | MAJOR 2 (b): the closure's own era fixtures, and the review's four durations |
+| `9bfdaea` | BLOCK (b): `M11` survived the closure's own table; the gap is guarded inside each address shape |
+| `10cd51d` and the commits after it | MAJOR 1 + 2 (c) + MINOR 5 + MINOR 6: this section, and the corrections that make its figures the tip's own. A record cannot print the sha of the commit that carries it; `git log 2f24b06..` is the list |

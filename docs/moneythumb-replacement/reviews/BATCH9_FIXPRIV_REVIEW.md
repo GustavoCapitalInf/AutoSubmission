@@ -1,14 +1,14 @@
-# BATCH 9 REVIEW — FIXTURE-PRIVACY (`wave9-fixpriv`, base `2f24b06`, tip `31255ef`, 15 commits)
+# BATCH 9 REVIEW — FIXTURE-PRIVACY (`wave9-fixpriv`, base `2f24b06`, tip `8102ea4`, 15 commits)
 
 Independent adversarial review. I did not write this code, I asked the cell nothing, and every
 headline number below was re-measured by me from the committed instruments. Ocean composes; I
 never merge or push.
 
 **Tree under review:** worktree `.claude/worktrees/mt9-fixpriv`, branch `wave9-fixpriv`,
-base `train9` `2f24b06`, tip `31255ef`.
+base `train9` `2f24b06`, tip `8102ea4`.
 **Read first:** `docs/agent-handoffs/BATCH9-RULES.md`; `docs/agent-handoffs/FIXTURE-PRIVACY.md`;
 the branch's own W3 section `§FIXPRIV` (`docs/moneythumb-replacement/W3_TRACKA_LOG.md`, the
-appended block); the cell's final report; the full `2f24b06..31255ef` diff, commit by commit;
+appended block); the cell's final report; the full `2f24b06..8102ea4` diff, commit by commit;
 shape precedent `docs/moneythumb-replacement/reviews/BATCH8_HYGIENE8_REVIEW.md`.
 **Note on the package:** the prepared review package file named in my brief was not present in
 the scratchpad, so I built the commit list, the stat and the full diff myself from the worktree.
@@ -31,7 +31,7 @@ unflattering. Three things stop it, and all three are small, well-specified edit
    prints — the card names that condition a BLOCK in so many words;
 2. the branch's own added lines carry archive tokens (standing privacy scan = **2**, not 0);
 3. the tip half of every headline scan number in the record was measured one commit before the
-   tip and does not reproduce at `31255ef`.
+   tip and does not reproduce at `8102ea4`.
 
 Fix those and this is an APPROVE: I found nothing wrong with the AST-identity argument, the
 replay, the mutation table, the ownership, or the six files the card actually cleared.
@@ -49,11 +49,11 @@ Every row re-run by me. Exit codes verbatim.
 | 3 | base `2f24b06` residue **10,810 sites / 209 files** | **10,810 / 209** | 1 | reproduces |
 | 4 | base residue by class × directory, all 18 rows | all 18 rows identical | 1 | reproduces |
 | 5 | base per-rule take (words 1,071,553 · round 17,286 · corpus 4,966 · subunit 2,356 · hex 850 · zip 200 · session 2; raw 1,116,223) | identical, all seven rules and the raw total | 1 | reproduces |
-| 6 | **tip residue 10,645 / 203 files** | at `31255ef`: **10,677 / 203**; at `1e0a01e`: 10,645 / 203 | 1 | **does NOT reproduce at the tip** — MAJOR 1 |
-| 7 | tip per-rule take (words 1,075,091 · subunit 2,374 · hex 866; raw 1,119,479) | at `31255ef`: words 1,076,299 · subunit 2,378 · hex 876; raw 1,120,733. `round_money` 17,300, `corpus_cache` 4,966, `institution_zip` 200, `docs_session_date` 2 all match | 1 | **does NOT reproduce at the tip** — MAJOR 1 |
+| 6 | **tip residue 10,645 / 203 files** | at `8102ea4`: **10,677 / 203**; at `08d64f0`: 10,645 / 203 | 1 | **does NOT reproduce at the tip** — MAJOR 1 |
+| 7 | tip per-rule take (words 1,075,091 · subunit 2,374 · hex 866; raw 1,119,479) | at `8102ea4`: words 1,076,299 · subunit 2,378 · hex 876; raw 1,120,733. `round_money` 17,300, `corpus_cache` 4,966, `institution_zip` 200, `docs_session_date` 2 all match | 1 | **does NOT reproduce at the tip** — MAJOR 1 |
 | 8 | six files reach zero (`analysis/lili.py` 8→0, `core_processor_signed_counts.py` 8→0, `bank_ozk.py` 1→0, `tests/test_lili.py` 138→0, `tools/lili_privacy_scan.py` 1→0, `tools/privacy_scan_branch.py` 9→0) | exactly those six, exactly those counts; 165 sites removed, and the per-file breakdown reconciles to 165 with nothing left over | 1 | reproduces |
-| 9 | "**no file gained residue** and no token appears at the tip that was not at the base" | false at `31255ef`: `W3_TRACKA_LOG.md` 3,516 → **3,548**; **32 sites are new**, every one inside the cell's own appended section | — | **REFUTED** — MAJOR 1 |
-| 10 | privacy scan "0 introduced, 0 files gained" | standing ADDED-LINES scan `--base 2f24b06 --ref 31255ef`: `hit_count` **2**, `residue_sites` **2**, `residue_files` 1 (both MONEY, `W3_TRACKA_LOG.md:55090`) | 1 | **REFUTED** — MAJOR 2 |
+| 9 | "**no file gained residue** and no token appears at the tip that was not at the base" | false at `8102ea4`: `W3_TRACKA_LOG.md` 3,516 → **3,548**; **32 sites are new**, every one inside the cell's own appended section | — | **REFUTED** — MAJOR 1 |
+| 10 | privacy scan "0 introduced, 0 files gained" | standing ADDED-LINES scan `--base 2f24b06 --ref 8102ea4`: `hit_count` **2**, `residue_sites` **2**, `residue_files` 1 (both MONEY, `W3_TRACKA_LOG.md:55090`) | 1 | **REFUTED** — MAJOR 2 |
 | 11 | `fixpriv_ast_identity --base 2f24b06 --ref HEAD`: three modules IDENTICAL | with the three paths passed: `IDENTICAL` ×3, "files 3 · AST-identical 3 · differing 0" | **0** | reproduces |
 | 11b | (same tool, bare, as the card's method writes it) | `MISSING tests/test_fixpriv_ast_identity.py: at 2f24b06=False HEAD=True` | **2** | MINOR 1 |
 | 12 | `cohort_replay --expect-identical`, 27 of 27 preserved, payload identical | `--parser lili --parser bank_ozk --parser core_processor_signed_counts`: population **27** · replayed 27 · newly validated **0** · other ladder movement **0** · preserved **27 of 27** · payload identical **27** · payload changed 0 · validated regressions **0** | **0** | reproduces |
@@ -67,7 +67,7 @@ Every row re-run by me. Exit codes verbatim.
 | 18 | full suite: 2 failed / 6,876 passed / 43 skipped, both failures inherited from the base | **2 failed, 6,876 passed, 43 skipped, 34 deselected** in 3 min 32 s; the two failures are exactly `test_corpus_gate_outcomes::test_every_production_caller_of_the_analysis_is_classified` and `test_currency_source::test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists` — the pair known and excused (Ocean's own tools at the base, fixed on train9 `dedc1c9`). **No other failure, no error.** | 1 | reproduces |
 | 19 | corpus-marked slice 30 passed | **30 passed**, 6,925 deselected, 1 warning, 27 min 29 s | **0** | reproduces |
 | 20 | `fixpriv_w3_redact --check-idempotent` exit 0 | exit **0**; idempotence holds | **0** | reproduces |
-| 20b | redactor dry run over W3: MONEY 1,366 · DIGITS 145 · DATES 223 on 1,070 lines | at `31255ef`: MONEY **1,377** · DIGITS **150** · DATES 223 on **1,074** lines | 0 | same one-commit-early provenance as row 6 |
+| 20b | redactor dry run over W3: MONEY 1,366 · DIGITS 145 · DATES 223 on 1,070 lines | at `8102ea4`: MONEY **1,377** · DIGITS **150** · DATES 223 on **1,074** lines | 0 | same one-commit-early provenance as row 6 |
 | 21 | W3 is base + ONE appended section | base 54,966 lines → tip 55,207; the first 54,966 lines are **byte-identical** (`cmp` on the base-length prefix); exactly one `#` heading appended, `§FIXPRIV`, with FP1–FP10 | 0 | reproduces |
 | 22 | ownership: nothing outside the card | 14 files touched; `analysis/bmo.py`, `analysis/farmers_merchants.py`, `analysis/td_can.py`, `tests/test_privacy3_boundaries.py`, `tests/test_raise_privacy4.py` **untouched**; no registry entry, no version bump, no `webapp/ ocr/ discovery/ telemetry/ benchmark/ corpus_gate.py` change | 0 | reproduces |
 | 23 | `tests/test_analysis.py` carries 822 residue sites (FP9) | **820**, identical at base and tip | 1 | MINOR 6 |
@@ -77,7 +77,7 @@ shared host while the other cell's work was also running: **30 passed, 6,925 des
 29 s, `CORPUS_EXIT=0`. The contention cost runtime, not outcomes.
 
 **Privacy of this review file:** scanned with the branch's own instrument against the same
-3,351-document universe (`--base 31255ef --ref <this commit>`): first pass **2 MONEY hits** — the
+3,351-document universe (`--base 8102ea4 --ref <this commit>`): first pass **2 MONEY hits** — the
 full-suite runtime, written to the hundredth of a second, is money-shaped and collides. Rewritten
 as minutes and seconds; second pass **0 hits, 0 sites, exit 0** over 543 added lines. I mention
 it because it is the same trap as MAJOR 1, one commit later, and it is not a cheap trap to
@@ -142,7 +142,7 @@ mutant that restores the bare-abbreviation form.
 
 ---
 
-### MAJOR 1 — every tip scan number in the record was measured at `1e0a01e`, one commit before the tip; the branch's own W3 section then added 32 residue sites
+### MAJOR 1 — every tip scan number in the record was measured at `08d64f0`, one commit before the tip; the branch's own W3 section then added 32 residue sites
 
 `docs/moneythumb-replacement/W3_TRACKA_LOG.md` §FP1 (the base/tip table), §FP2 (the class ×
 directory table and the sentence "**No file gained residue and no token appears at the tip that
@@ -155,12 +155,12 @@ root base, one process at a time:
 | tree | residue sites | files | raw hits |
 |---|---:|---:|---:|
 | base `2f24b06` | 10,810 | 209 | 1,116,223 |
-| `1e0a01e` (last code commit) | **10,645** | 203 | 1,119,479 |
-| tip `31255ef` | **10,677** | 203 | 1,120,733 |
+| `08d64f0` (last code commit) | **10,645** | 203 | 1,119,479 |
+| tip `8102ea4` | **10,677** | 203 | 1,120,733 |
 
-At `1e0a01e` *every* number the record prints reproduces exactly — all seven per-rule counts,
+At `08d64f0` *every* number the record prints reproduces exactly — all seven per-rule counts,
 all eighteen class × directory rows, the raw total. At the tip they do not. The delta is
-`31255ef` itself, the commit that appends `§FIXPRIV`: **+32 sites, all in
+`8102ea4` itself, the commit that appends `§FIXPRIV`: **+32 sites, all in
 `W3_TRACKA_LOG.md`, 22 MONEY and 10 DIGITS**, on six lines of the new section — the FP5 list of
 "obviously made up" example figures that the cell had just measured as colliding, and the FP6
 list of the record's own machine numbers. The irony is exact: FP5's whole point is that a figure
@@ -186,7 +186,7 @@ count (**0**)", and "privacy scan 0" is a floor item.
 
 ```
 tools/privacy_scan_branch.py --rows <run>/rows.csv --data-dir <cold cache> \
-    --base 2f24b06 --ref 31255ef
+    --base 2f24b06 --ref 8102ea4
 → hit_count 2 · residue_sites 2 · residue_files 1 · hits_by_class MONEY 2
   HIT MONEY docs/moneythumb-replacement/W3_TRACKA_LOG.md:55090   (×2)
   documents_read 3351 · added_lines 2,047   EXIT=1
@@ -515,9 +515,9 @@ and not an accusation.
 | # | proof | result | exit |
 |---|---|---|---|
 | 1 | whole-tree privacy scan, root base, `--ref 2f24b06` | 10,810 sites / 209 files; 3,351 documents read | 1 |
-| 2 | whole-tree privacy scan, root base, `--ref 1e0a01e` | 10,645 / 203; every record number reproduces | 1 |
-| 3 | whole-tree privacy scan, root base, `--ref 31255ef` | **10,677 / 203**; +32 sites vs `1e0a01e` | 1 |
-| 4 | added-lines privacy scan `--base 2f24b06 --ref 31255ef` | **2 hits**, 1 file, both MONEY | 1 |
+| 2 | whole-tree privacy scan, root base, `--ref 08d64f0` | 10,645 / 203; every record number reproduces | 1 |
+| 3 | whole-tree privacy scan, root base, `--ref 8102ea4` | **10,677 / 203**; +32 sites vs `08d64f0` | 1 |
+| 4 | added-lines privacy scan `--base 2f24b06 --ref 8102ea4` | **2 hits**, 1 file, both MONEY | 1 |
 | 5 | per-rule silenced-site re-derivation at the tip (my own script over the scan's own hit list) | words 632,617 · round 9,052 · corpus 2,483 · subunit 1,270 · hex 536 · zip 104 · session 1 | 0 |
 | 6 | reviewer near-miss probe over `excluded_by` (20 invented cases) | BLOCK 1 and MAJOR 4; `round_money` / `subunit_money` / `words_class` / `docs_session_date` behave as documented | 1 |
 | 7 | reviewer over-reach probe (every silenced `hex_sha_substring` and `institution_zip` site re-read against its own line) | 8 raw over-reached hits / 3 sites, all the rule's own fixtures; 104 zip sites all genuine addresses | 0 |
@@ -535,7 +535,7 @@ and not an accusation.
 | 19 | `_CENT` mutation experiment, base vs tip fixtures, 7 runs, tree restored each time | MAJOR 3's table | — |
 | 20 | W3 append-only prefix check (`cmp` over the base-length prefix) | byte-identical; one appended section | **0** |
 | 21 | corpus-marked slice (`pytest -m corpus`) | 30 passed, 6,925 deselected, 27 min 29 s | **0** |
-| 22 | privacy scan of THIS review file (`--base 31255ef --ref HEAD`) | 2 hits on the first pass, **0** after the fix, 543 added lines, 3,351 documents read | **0** |
+| 22 | privacy scan of THIS review file (`--base 8102ea4 --ref HEAD`) | 2 hits on the first pass, **0** after the fix, 543 added lines, 3,351 documents read | **0** |
 
 ## RECOMMENDATION TO OCEAN
 
