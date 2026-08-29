@@ -57072,6 +57072,20 @@ transformation: every other character keeps its position, which is what makes
 
 ## CPDECL9 The proof floor, the commits, and the contract line
 
+**Which tree these exit codes belong to.** Every row below was measured at
+`c7f1c62`, the tip, with ONE exception named in its own row: the archive sweep
+ran at `2c68b30`. The only production file that differs between those two trees
+is `analysis/core_processor_enclosures.py`, and its AST **with docstrings
+removed is identical** — checked, not argued, so no document's analysis can
+differ between the sweep's tree and the tip.
+
+**The L-1 due diligence on the nine documents that now publish.** Each of the
+six `core_processor_enclosures` movers prints exactly ONE account field, ONE
+period sentence and ONE occurrence of the closing-balance label in the whole
+document; each of the three `category_partition` movers prints ONE account
+number, ONE summary header, and a relationship row listing exactly ONE amount.
+No document here publishes one account while another goes unpublished.
+
 | proof | result |
 |---|---|
 | `cohort_replay` at the base, all five arms, `--expect-identical` | **EXIT=0** each — fidelity established before any change |
@@ -57080,7 +57094,17 @@ transformation: every other character keeps its position, which is what makes
 | `cohort_replay --parser core_processor_enclosures` | **preserved 46 / 46, payload identical 46**, the 1 review + 1 withheld unchanged, regressions 0 — **EXIT=0** |
 | `cohort_replay --parser core_processor_daily` | **preserved 13 / 13, payload identical 13**, regressions 0 — **EXIT=0** |
 | `cohort_replay --parser category_partition` | **preserved 5 / 5, payload identical 5**, regressions 0 — **EXIT=0** |
-| mutation table | 7 rows, **6 KILLED / 1 SURVIVED**, the survivor's equivalence measured over 57 documents (identical 54, both declined 3, differ 0); tree clean after every row |
+| mutation table | 7 rows, **6 KILLED / 1 SURVIVED**, the survivor's equivalence measured over 57 documents (identical 54, both declined 3, differ 0); `git status --porcelain` clean after every row |
+| full default suite | **7,065 passed, 43 skipped, 34 deselected — EXIT=0**. The only test-count change is measured per file: `tests/test_core_processor_enclosures.py` collects 53 at the base and 56 here (+3, the three the new rule owes); `tests/test_category_partition.py` collects 89 at both, two tests re-aimed rather than added |
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped — EXIT=0** |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld — **EXIT=0** |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,112 deselected — EXIT=0** |
+| archive sweep at `2c68b30`, two chunks covering every document | 3,380 documents, **2,669 payloads compared, 2,669 identical, moved 0**, `payload_now_raises` **0**, `multi_artifact_documents` 0 — EXIT=0 on both chunks |
+| … and its nine findings | `no_payload_now_publishes` **9**, and the nine are EXACTLY the nine named movers — no document outside the named population moved in either direction. The archive's standing residue reconciles to the document: `no_payload_raises_again` 673 against 682 at an unchanged tree, and 673 + 9 = 682 |
+| branch privacy scan, ADDED FILE LINES vs the 114-document population | **hit_count 0** over 2,342 added lines and 114 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — **EXIT=0**. Its zero is not vacuous: the raw scan before exclusions finds 4, all of them class WORDS and all of them ordinary English in this card's own prose |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0** over 9 commits — and **WORDS 9**, which is reported rather than suppressed. Every one is the same two-word sequence from the co-authorship trailer every commit carries, and it matches because three of the 114 documents print a subscription charge to that vendor as a MERCHANT DESCRIPTION. It is not a token copied out of a statement; it is the same string on every branch of this batch, and the standing `words_class` exclusion the FILE scanner has applied since the batch-8 train covers exactly this class. The message scanner does not apply the exclusion table, which is why it is visible here at all |
+| the instruments carry no control byte | 0 on all four `tools/cpdecl_*.py` |
 
 ### The commits of this cell
 
@@ -57091,6 +57115,10 @@ transformation: every other character keeps its position, which is what makes
 | `43146e6` | `core_processor_enclosures`: a date with another date before the next figure opens no row |
 | `4d001b9` | `tools/cpdecl_identity_ceiling.py` and `tools/cpdecl_mutation_table.py` |
 | `2c68b30` | `tools/cpdecl_rotation_table.py` — sub-card B |
+| `90ed72d` | this section |
+| `c2e49b9` | the enclosures docstring claimed more for "blanked, not removed" than the measurement supports |
+| `6c68ee9` | the ceiling's exhaustive re-pairing mode, and CPDECL3's bound narrowed to what it measures |
+| `c7f1c62` | the rule is scoped to the ledger blocks and not the grid, said on the page |
 
 ### The findings carried
 
