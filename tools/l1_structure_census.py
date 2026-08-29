@@ -174,9 +174,16 @@ NO_ACTIVITY = re.compile(
 #: measures — a member's loan facilities print under a different grid and are
 #: not deposit ledgers — and the packet's condition list never mentioned it
 #: (MAJOR-6).
+#: MEASURED rather than guessed at: a wider vocabulary of facility classes was
+#: tried over the enumerating windows of the whole population and matched
+#: nothing these two do not, so the two that fire are what this carries. A
+#: population that prints another class is a measurement for whoever
+#: implements, not a word to add here on spec.
 LOAN_ROW = re.compile(
-    r"\b(?:loans?|lines? of credit|mortgages?|heloc|home equity"
-    r"|credit cards?|instal?lments?|overdraft protection)\b", re.I)
+    r"\b(?:"
+    r"loans?"
+    r"|mortgage\w*"
+    r")\b", re.I)
 
 #: The deposit product a candidate Option-B primary rule would name (MINOR-3):
 #: the transaction account a member spends from. Furniture, and used ONLY to
@@ -187,12 +194,12 @@ SPENDING_SHARE = re.compile(r"\b(?:checking|chequing|draft|spending)\b", re.I)
 #: be mistaken for a second account.
 CONTINUATION = re.compile(r"\(continued\)|\bcontinued (?:on|to) next page\b", re.I)
 
-#: The caption of a per-section DAILY-BALANCE TABLE. The average-daily-balance
-#: FIGURE a summary block prints is not one, and the first version of this
-#: instrument counted it: a bare `daily balance` pattern also matched the
-#: averaged figure, which put sections into the "prints its own daily balances"
-#: column that print one number and no table at all. The lookbehinds remove
-#: that reading and `has_daily_table` below then requires the rows.
+#: The caption of a per-section DAILY-BALANCE TABLE, which is not the averaged
+#: figure a summary block prints beside a similar caption. The first version of
+#: this instrument counted both: a bare pattern for the two words also matched
+#: the averaged figure, which put sections into the "prints its own daily
+#: balances" column that print one number and no rows at all. The lookbehinds
+#: remove that reading and `has_daily_table` below then requires the rows.
 DAILY_CAPTION = re.compile(r"(?<!average )(?<!avg )(?<!avg\. )\bdaily balance", re.I)
 
 #: A row of such a table: a date and one figure, that day's printed balance.
@@ -355,7 +362,7 @@ def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int, int
 
     Returns the rows, whether a cross-account total row closed the table, the
     offset in `window` at which the last row ended, and how many of the table's
-    rows name a LOAN or credit facility (MAJOR-6).
+    rows list a facility rather than a deposit account (MAJOR-6).
 
     The loan count is taken from the RAW label and BEFORE the row is admitted,
     for two reasons that both bite: `_clean_label` trims a label at the last
@@ -518,7 +525,7 @@ class DocStructure:
     total_row: bool
     boundary: str
     notes: list[str] = field(default_factory=list)
-    #: enumerated rows that name a loan or credit facility (MAJOR-6)
+    #: enumerated rows listing a facility rather than a deposit account
     loan_rows: int = 0
     #: denominations named inside the enumerating table
     denominations: int = 0

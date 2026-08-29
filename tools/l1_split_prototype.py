@@ -47,7 +47,7 @@ carry the reason it no longer does.
 * **BLOCK-2, the idle sibling.** `--idle-siblings` applies the ratified rule of
   `analysis/symitar.py` (13-45) — the printed declaration, or the yield-only
   arithmetic with its summary-equality test — to every sibling section of every
-  single-posting document, by calling that module's own predicate.
+  single-posting document; that module's own predicate is what decides.
 
 METHOD
 ------
@@ -533,7 +533,7 @@ class SectionResult:
         early is `posting_dates_cover_source`, which is deliberately quiet on
         exactly that furniture and is applied here as a REQUIRED ADB check, and
         the section's own printed counts are the second. `closes_strict` below
-        is the same section with `gap_after` made a gate as well, so both
+        applies that second measure as a gate too, so both
         bounds are on the table."""
         return self.gap_inside == 0 and self.n_rows >= 1
 
@@ -1236,7 +1236,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"| ... and the table's own closing column reproducing | "
           f"**{sum(1 for r in review_multi if r.oracle_reproduced)}** |")
     print()
-    print("| what each ADDITIONAL corrected gate costs, over those documents | documents |")
+    print("| what every further corrected gate costs, over those documents | documents |")
     print("|---|---:|")
     print(f"| + no dated row unaccounted for inside the walked span | "
           f"{sum(1 for r in review_docs if all(s.gap_inside == 0 for s in r.sections))} |")

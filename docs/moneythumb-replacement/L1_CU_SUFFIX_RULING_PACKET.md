@@ -53,7 +53,7 @@ python -m tools.l1_split_prototype   --idle-siblings \
    forms, and grid shapes built from 13 column tokens. That is the shape `core_processor_*`
    already has for banks — one shared template family with per-issue markers — and not 37
    readers. This finding is unchanged by the review and by the re-measurement (§3).
-3. **Independent per-account validation is demonstrated on two documents, not on
+3. **Validating each account on its own is demonstrated on two documents, not on
    twenty-three.** The corrected prototype splits at the printed boundaries and hands each
    section to the EXISTING `reconcile` + `compute_average_daily_balance` unchanged, with the
    section's own stated counts, totals and daily balances in hand and the production
@@ -213,7 +213,7 @@ yes for 141 of 214 (103 + 38) from printed identity, of which 103 also carry the
 
 | mechanism | distinct values measured | leading values (documents) |
 |---|---:|---|
-| roll-up caption class | 9 (+ none) | `account_summary` 52, `summary_of_accounts` 42, `statement_summary` 26, `balances_at_a_glance` 11, `account_balances` 8, `accounts_summary` 5, `summary_of_deposit_account_activity` 4, `your_account_summary` 4; none 62 |
+| roll-up caption class | 9 (+ none) | `account_summary` 52, `summary_of_accounts` 42, `statement_summary` 26, `balances_at_a_glance` 11, `account_balances` 8, `accounts_summary` 5, `your_account_summary` 4, `summary_of_deposit_account_activity` 4; none 62 |
 | roll-up COLUMN caption | 3 (+ none) | `type_prev_dep_wd_end` 15, `type_begin_end` 8, `begin_end` 7; **none 184** |
 | identity form | 5 (+ none) | `product_name_only` 71, `bare_digits` 54, `suffix_word` 8, `paren_digits` 7, `id_word` 1; none 73 |
 | equation form (modal section) | 4 (+ none) | `open_close_pair` 114, `open_only` 34, `explicit_six_figure` 5, `explicit_equation` 4; none 57 |
@@ -315,7 +315,7 @@ printed forms. A shared template module with per-issue markers is therefore the 
 
 | population | documents |
 |---|---:|
-| enumerating tables that name a LOAN or credit facility | **15** |
+| enumerating tables that list a facility rather than a deposit account | **15** |
 | ... of them with two or more posting sections | 0 |
 | ... of them ALSO printing a cross-account total row | **7** |
 | enumerating tables naming TWO denominations (`FAM:community_savings_bc`, 12 sections) | **4** |
@@ -323,7 +323,7 @@ printed forms. A shared template module with per-issue markers is therefore the 
 | documents resolving two LOCATED sections to the same identity token | **0** |
 | enumerating tables printing the same identity token twice | 44 |
 
-The loan row is the one the first version had no condition for at all, and it is not latent:
+That row class is the one the first version had no condition for at all, and it is not latent:
 **7 documents print both a facility row and a cross-account total**, and a total that includes
 a facility can never be reproduced by summing the deposit sections. The identity condition, by
 contrast, is satisfied on this population — 0 documents resolve two sections to one token —
@@ -503,7 +503,7 @@ At the one-dated-row threshold: 111 documents, of which **2** close on every loc
 `goldenwest` 4/4 were sections that published an empty ledger over 2 and 62 to 67 printed
 dated rows apiece, on an enumerating table whose first figure the probe took for an opening and
 which is that issue's CLOSING. Under the corrected column rule those documents no longer even
-get an opening from the table, and they close nothing. The empty-ledger class is concentrated,
+get an opening from that table at all, and nothing on them closes. The empty-ledger class is
 and it is worth naming so nobody re-derives the same number: `vystar` 7, `wescom` 5,
 `goldenwest` 4, `security_service` 4, `DECL:huntington` 2, `psecu` 1.
 
@@ -519,7 +519,7 @@ That is the printed signature of money moved between the member's own accounts, 
 the same money stands in two ledgers of one document. A package that sums per-account deposits
 over such a document double-counts every internal movement: gross deposit totals, deposit
 counts, and any revenue or NSF derivation built on them. **The first version's ten conditions
-said nothing about it.** It is now §6.11.
+said nothing about it.** It is now condition 11.
 
 ### 5.8 The two oracles are one oracle and a restatement
 
@@ -769,8 +769,8 @@ nothing. There is no half of this reservoir that can be taken without a ruling.
 **Step 1 — the one thing that needs no ruling and repays a standing debt.** Build
 SIBLING-OMISSION-SURFACE: the additive payload field and the integrity flag that say a deposit
 section existed and was not published. It changes no reader's decision, moves no document
-across the ladder, and it is owed today by symitar's two silent skips regardless of what is
-ruled here. Everything else in this packet is easier to argue about once a skip is visible.
+across the ladder, and it is owed today by symitar's two silent skips whatever is ruled
+here. Everything else in this packet is easier to argue about once a skip is visible.
 
 **Step 2 — take ruling (5) first, because it gates the larger population.** Ask whether the
 ratified idle-sibling rule may be generalised, and to what: 44 of the 86 single-posting
@@ -783,7 +783,7 @@ reachable at all.
 payload gated by all thirteen conditions in §6. **Measured today: 2 documents close on every
 located section**, both `FAM:guardian_cu_statement_summary`, both with the table's own closing
 column reproducing. 29 of 392 sections close. The reachable set beyond that depends on
-per-family row grammars and on the boundary layer improving — both are estimates, and this
+per-family row grammars and on a better boundary layer — both are estimates, and this
 packet declines to put a number on them after what happened to the last one.
 
 Not Option A as a permanent answer: it forecloses a demonstrated 2 and keeps two open doctrine
@@ -801,8 +801,8 @@ primary rule is bounded by evidence that is not printed.
 * A MUTATION TABLE for every condition in §6 that becomes code: each gets a mutant that removes
   it and a named killer test. The conditions with a measured population in this packet must
   have their killers drawn from it by sha — §6.5 → the 184 documents printing no column
-  caption; §6.6 → 2 sections; §6.7 → 23 + 11 sections; §6.11 → 7 documents; §6.12 → 15
-  documents, 7 of them with a cross-account total; §6.13 → 4 documents; §6.4 → the 26
+  caption; §6.6 → 2 sections; §6.7 → 23 + 11 sections; condition 11 → 7 documents; condition 12 → 15
+  documents, 7 of them with a cross-account total; condition 13 → 4 documents; §6.4 → the 26
   documents whose sibling posted.
 * `tools/regfp_zero_movement_sweep` over the WHOLE archive range at the final tree — mandatory
   for Step 3 because a schema shape change touches every payload.
@@ -818,7 +818,7 @@ primary rule is bounded by evidence that is not printed.
    yield-only arithmetic; 62 are empty and silent; 7 declare idle in another wording; 30 posted
    a dated row and declare nothing. Nothing in the reservoir is publishable without an answer.
 2. **Multi-account payload (C), or the L-1 refusal stands (A)?** Everything else follows from
-   this, and it should be decided knowing the demonstrated population is 2 documents rather
+   it, and the decision should be made knowing the demonstrated population is 2 documents rather
    than 11.
 3. **The posting threshold itself.** "A section that posts" is 2 dated rows in the census and
    1 in the packet's own condition. The populations are 79 / 81 at the first and 54 / 111 at
@@ -831,7 +831,7 @@ primary rule is bounded by evidence that is not printed.
    no daily-balance table of their own, so whichever is chosen rests on a reconstructed series.
 5. **Package math, including transfers.** If a package contains a multi-account statement, does
    each account become its own statement in the package, or does the document stay one member
-   with several ledgers? Either way §6.11 has a measured population: 7 documents, 47 pairs.
+   with several ledgers? Either way condition 11 has a measured population: 7 documents, 47 pairs.
    The currency doctrine already forbids cross-currency package math, which is why the 4
    two-currency documents must refuse under any answer.
 6. **CONS-L1 / CONS-HARDCODE.** Repairing `analysis/consumers.py` honestly changes WHICH ledger
@@ -861,7 +861,7 @@ primary rule is bounded by evidence that is not printed.
 
 ## 11. What the review found, and what each correction cost
 
-Every row is a finding, the correction made, and the number it moved. The commits are listed
+Every row is a finding, the correction applied, and the number it moved. The commits are listed
 in W3 `§L1INV.8`.
 
 | finding | the correction | measured effect |
@@ -872,8 +872,8 @@ in W3 `§L1INV.8`.
 | **MAJOR-2** `capital_one`'s refusal described backwards | the probe calls the module's own `_native_summary` and `_native_transactions` | nine-cell pattern matched **0 of 6**; rows returned on **6 of 6**, 1 / 28 / 41 |
 | **MAJOR-3** `reconcile` satisfied by construction; "two oracles" was one | the counts each oracle refused are reported separately, and the stated evidence that lets `reconcile` do work is now supplied | it refused **0 of 105** before and **11 of 48** now |
 | **MAJOR-4** the sections' own counts, totals and daily balances were measured and then passed as `None` | they are read and fed, the ADB is given the section's own text so `posting_dates_cover_source` applies, and a section printing them in an unreadable form is refused | the daily-table predicate was also wrong: 75 sections (17.0%) → **24 (5.4%)**; 4 of the 7 documents surviving the review's own chain are removed by this gate alone |
-| **MAJOR-5** no condition about money moved between a member's own accounts | measured and added as §6.11 | **7** documents of the 11 with two non-empty ledgers, **47** pairs |
-| **MAJOR-6** no deposit-versus-loan condition | measured and added as §6.12 | **15** documents enumerate a facility, **7** of them also print a cross-account total — the collision is live, not latent |
+| **MAJOR-5** no condition about money moved between a member's own accounts | measured and added as condition 11 | **7** documents of the 11 with two non-empty ledgers, **47** pairs |
+| **MAJOR-6** no deposit-versus-loan condition | measured and added as condition 12 | **15** documents enumerate a facility, **7** of them also print a cross-account total — the collision is live, not latent |
 | **MINOR-1** 442 located vs 392 offered never reconciled; "27 sections" was 27 documents | the instrument prints the reconciliation | 442 − 77 + 27 = 392 |
 | **MINOR-2** the ADB ran on the DOCUMENT's period and the condition never said so | stated in the instrument's own docstring and in §6.9 | 27 documents lose every section at once for this reason |
 | **MINOR-3** Option B rejected by argument where the measurement was available | measured over the 81 multi-posting documents | first-named UNDEFINED on 30; transaction-share UNDEFINED on 24, AMBIGUOUS on 9, decides 48; 11 print a cross-account total; identity is a bare product designation on 22 of 43 |

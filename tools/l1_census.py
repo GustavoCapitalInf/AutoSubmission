@@ -185,7 +185,7 @@ def capital_one_mechanism(markdown: str) -> dict:
 def _gate_capital_one(markdown: str) -> tuple[str, str]:
     """`capital_one.py` states no L-1 gate in code: the refusal is emergent.
 
-    Named from `capital_one_mechanism` above rather than from a story about the
+    Named by `capital_one_mechanism` above rather than by a story about the
     module: the nine-cell summary pattern does not match the multi-account
     layout, so the module has no opening and no closing and returns None."""
     from analysis import capital_one
@@ -401,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
               f"**{sum(1 for f in co_facts if f['nine_cell_summary_matched'])}** |")
         print(f"| the transaction-detail caption is present | "
               f"{sum(1 for f in co_facts if f['detail_caption_present'])} |")
-        print(f"| `_native_transactions` returned at least one row | "
+        print(f"| the module own transaction grammar returned rows | "
               f"**{sum(1 for f in co_facts if f['native_transaction_rows'])}** |")
         print(f"| rows returned, min / median / max | "
               f"{rows_per[0]} / {rows_per[len(rows_per) // 2]} / {rows_per[-1]} |")
