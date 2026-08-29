@@ -713,12 +713,122 @@ def survey(census_dir: Path, data_dir: Path) -> list[DocStructure]:
     return out
 
 
+def _pinned_main(args) -> int:
+    """The pinned-109 report: which pinned documents print more than one
+    posting account, and are therefore inside the regression surface of any
+    change to how a multi-account statement is published."""
+    survey = pinned_survey(args.data_dir, args.rows)
+    print("# L1INV — the pinned 109, structurally")
+    print(f"# data_dir={args.data_dir}")
+    print()
+    print("| text source | documents |")
+    print("|---|---:|")
+    for source, count in Counter(s for _r, _h, s, _d in survey).most_common():
+        print(f"| {source} | {count} |")
+    print()
+    multi = [(rel, sha, src, doc) for rel, sha, src, doc in survey
+             if doc is not None and sum(1 for s in doc.sections if s.n_dated_rows >= 2) >= 2]
+    single = [row for row in survey if row[3] is not None and row not in multi]
+    print("| finding | documents |")
+    print("|---|---:|")
+    print(f"| pinned documents surveyed | {sum(1 for r in survey if r[3] is not None)} |")
+    print(f"| **print TWO OR MORE posting sections** | **{len(multi)}** |")
+    print(f"| print one or none | {len(single)} |")
+    print()
+    print("Pinned documents with two or more posting sections "
+          "(sha16 | boundary | sections | posting sections | text source):")
+    print()
+    print("| sha16 | boundary | sections | posting | text source |")
+    print("|---|---|---:|---:|---|")
+    for _rel, sha, src, doc in multi:
+        posting = sum(1 for s in doc.sections if s.n_dated_rows >= 2)
+        print(f"| `{sha}` | `{doc.boundary}` | {len(doc.sections)} | {posting} | {src} |")
+    print()
+    if args.json:
+        args.json.write_text(json.dumps([
+            {"sha16": sha, "source": src,
+             "sections": len(doc.sections) if doc else 0,
+             "posting": sum(1 for s in doc.sections if s.n_dated_rows >= 2) if doc else 0,
+             "boundary": doc.boundary if doc else None}
+            for _rel, sha, src, doc in survey
+        ], indent=1), encoding="utf-8")
+    return 0
+
+
+def pinned_survey(data_dir: Path, rows_csv: Path) -> list[tuple[str, str, str, DocStructure | None]]:
+    """The pinned 109, structurally. [(relative path, sha16, text source, structure)].
+
+    Text comes from the run of record's own cold cache where the pinned
+    document is in the run, and from the committed OCR artifact or a local
+    native-text extraction where it is not. The source is REPORTED per document
+    rather than smoothed over: a pinned document read here through a different
+    extraction from the one production read is weaker evidence and must say so."""
+    import hashlib
+
+    from tools.l1_census import pinned_paths
+
+    repo = Path(__file__).resolve().parents[1]
+    cache = ColdCache(data_dir)
+    in_run: set[str] = set()
+    with rows_csv.open(encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            in_run.add(row["content_sha256"].upper())
+
+    out: list[tuple[str, str, str, DocStructure | None]] = []
+    for rel in pinned_paths(repo):
+        path = repo / "Bank Statements" / Path(rel)
+        if not path.is_file():
+            out.append((rel, "-", "missing-from-corpus-root", None))
+            continue
+        data = path.read_bytes()
+        sha = hashlib.sha256(data).hexdigest().upper()
+        markdown: str | None = None
+        source = ""
+        if sha in in_run:
+            markdown, pages = cache.text(sha)
+            source = "run-of-record cold cache"
+        if markdown is None:
+            try:
+                from corpus_artifacts import cached_markdown
+
+                markdown = cached_markdown(data)
+                pages = (markdown or "").split("--- Page ")
+                source = "committed OCR artifact"
+            except Exception:  # pragma: no cover - artifact absent
+                markdown = None
+        if markdown is None:
+            try:
+                from ocr.native_text import parse_native_pdf_text
+
+                document = parse_native_pdf_text(data, source_file=path.name)
+                markdown = document.to_markdown() if document else None
+                pages = document.pages if document else []
+                source = "local native-text extraction"
+            except Exception:  # pragma: no cover
+                markdown = None
+        if markdown is None:
+            out.append((rel, sha[:16], "no-text-available", None))
+            continue
+        out.append((rel, sha[:16], source,
+                    structure(sha[:16], "PINNED", "PINNED", markdown, len(pages))))
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--census-dir", required=True, type=Path)
     parser.add_argument("--data-dir", required=True, type=Path)
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--pinned", action="store_true",
+                        help="survey the pinned 109 instead of the census population")
+    parser.add_argument("--rows", type=Path, help="run-of-record rows.csv (with --pinned)")
     args = parser.parse_args(argv)
+    if args.pinned:
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError):  # pragma: no cover
+            pass
+        return _pinned_main(args)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, OSError):  # pragma: no cover
