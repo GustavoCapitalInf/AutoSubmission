@@ -611,11 +611,15 @@ def _printed_index(markdown: str) -> dict[str, set[tuple[int, float]]]:
                 body = body[: cut.start()]
         for name, items, amount in _INDEX_ROW.findall(body):
             name = _SECTION_ALIASES.get(name.strip(), name.strip())
-            value = _money(amount)
-            if value is None:
-                continue
+            # Every figure here is a capture group the pattern already matched,
+            # so a reader that answers None has REFUSED it rather than found it
+            # absent. `read_money` raises on that, and the dispatch boundary
+            # turns the raise into a declined document — where dropping the row
+            # would drop the bank's CLAIM about that section and let a capture
+            # nobody checked stand in for it.
+            value = read_money(amount, _money)
             was = tabled.get(name, (0, 0.0))
-            tabled[name] = (was[0] + int(items), round(was[1] + value, 2))
+            tabled[name] = (was[0] + int(items), round(was[1] + (value or 0.0), 2))
     for name, claim in tabled.items():
         entries.setdefault(name, set()).add(claim)
     for line in markdown.splitlines():
@@ -624,9 +628,10 @@ def _printed_index(markdown: str) -> dict[str, set[tuple[int, float]]]:
         if not found or head is None:
             continue
         name = _SECTION_ALIASES.get(head.group("name"), head.group("name"))
+        restated = [read_money(amount, _money) for _count, amount in found]
         entries.setdefault(name, set()).add((
             sum(int(count.replace(",", "")) for count, _ in found),
-            round(sum(_money(amount) or 0.0 for _, amount in found), 2),
+            round(sum(value or 0.0 for value in restated), 2),
         ))
     entries.pop("Total", None)
     return entries
