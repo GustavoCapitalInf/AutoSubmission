@@ -174,16 +174,50 @@ NO_ACTIVITY = re.compile(
 #: measures — a member's loan facilities print under a different grid and are
 #: not deposit ledgers — and the packet's condition list never mentioned it
 #: (MAJOR-6).
-#: MEASURED rather than guessed at: a wider vocabulary of facility classes was
-#: tried over the enumerating windows of the whole population and matched
-#: nothing these two do not, so the two that fire are what this carries. A
-#: population that prints another class is a measurement for whoever
-#: implements, not a word to add here on spec.
+#: The classes TRIED, each one measured on its own and each one printed by the
+#: report, because the first version of this vocabulary carried two classes and
+#: a comment claiming a wider list had been tried and fired on nothing. That
+#: claim was false — the re-review added the card-brand class to the same raw
+#: labels and found four more documents, all of them multi-posting — and the
+#: honest form of the claim is this table rather than a sentence (MAJOR-A).
+#:
+#: `counted` says whether the class is treated as a facility for condition 12.
+#: A class fires but is NOT counted where this probe cannot tell from the label
+#: what the row is: `card_network` matches a long enumerating line that carries
+#: neither a deposit designation nor any card wording, on documents that locate
+#: no partition at all, and a brand word standing alone is not proof of an
+#: account row. `debit_card` is deliberately never counted: a debit card is the
+#: access device of a deposit account, not a facility, and counting it would
+#: put 11 further documents into a condition that must not hold them.
+FACILITY_CLASSES: tuple[tuple[str, str, bool], ...] = (
+    ("loan", r"loans?", True),
+    ("mortgage", r"mortgage\w*", True),
+    ("card_brand", r"visa", True),
+    ("card_network", r"amex", False),
+    ("card_issuer", r"master ?card\w*", False),
+    ("card_scheme", r"discover", False),
+    ("credit_card", r"credit card\w*", False),
+    ("debit_card", r"debit card\w*", False),
+    ("home_equity", r"home equity", False),
+    ("overdraft_line", r"overdraft protection", False),
+)
+
+#: A member's facility, as a roll-up enumerates it — the classes above that are
+#: COUNTED. Furniture: the words a core processor prints for the class, never
+#: an institution's product name. `analysis/symitar.py` 13-45 states the rule
+#: this measures — a member's facilities print under a different grid and are
+#: not deposit ledgers — and the packet's condition list never mentioned it
+#: (MAJOR-6).
 LOAN_ROW = re.compile(
-    r"\b(?:"
-    r"loans?"
-    r"|mortgage\w*"
-    r")\b", re.I)
+    r"\b(?:%s)\b" % "|".join(
+        pattern for _name, pattern, counted in FACILITY_CLASSES if counted),
+    re.I)
+
+#: Every class, counted or not, for the report's own audit table.
+FACILITY_PROBES: tuple[tuple[str, re.Pattern[str], bool], ...] = tuple(
+    (name, re.compile(r"\b(?:%s)\b" % pattern, re.I), counted)
+    for name, pattern, counted in FACILITY_CLASSES
+)
 
 #: The deposit product a candidate Option-B primary rule would name (MINOR-3):
 #: the transaction account a member spends from. Furniture, and used ONLY to
@@ -272,8 +306,10 @@ class RollUp:
     window_end: int = -1
     #: absolute offset of the end of the LAST enumerated row
     rows_end: int = -1
-    #: rows naming a loan or credit facility, counted before the furniture trim
+    #: rows naming a facility, counted before the furniture trim
     loan_labels: int = 0
+    #: every facility class that fired on a raw label here, counted or not
+    facility_classes: set = field(default_factory=set)
 
     @property
     def identity_form(self) -> str | None:
@@ -357,7 +393,7 @@ def _money_blocks(line: str) -> list[tuple[str, str]]:
     return out
 
 
-def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int, int]:
+def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int, int, set]:
     """Rows of the enumerating table, read by money block (see `_money_blocks`).
 
     Returns the rows, whether a cross-account total row closed the table, the
@@ -375,6 +411,7 @@ def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int, int
     rows_end = 0
     offset = 0
     loans = 0
+    classes: set = set()
     for raw in window.splitlines():
         line = _flat(raw).strip()
         line_at = window.find(raw, offset)
@@ -382,6 +419,9 @@ def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int, int
         if not line:
             continue
         for label, block in _money_blocks(line):
+            for name, probe, _counted in FACILITY_PROBES:
+                if probe.search(label):
+                    classes.add(name)
             if LOAN_ROW.search(label):
                 loans += 1
             if TOTAL_ROLLUP.search(label):
@@ -396,7 +436,7 @@ def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int, int
                                   n_money=len(MONEY.findall(block)), block=block,
                                   loan=bool(LOAN_ROW.search(label))))
             rows_end = max(rows_end, offset)
-    return rows, total, rows_end, loans
+    return rows, total, rows_end, loans, classes
 
 
 def find_rollup(text: str) -> RollUp:
@@ -427,7 +467,8 @@ def find_rollup(text: str) -> RollUp:
             result.header = name
             break
 
-    result.rows, result.total_row, rows_end, result.loan_labels = _rollup_candidate_rows(window)
+    (result.rows, result.total_row, rows_end, result.loan_labels,
+     result.facility_classes) = _rollup_candidate_rows(window)
     result.rows_end = result.caption_at + rows_end
     result.total_row = result.total_row or bool(TOTAL_ROLLUP.search(window))
     return result
@@ -1094,11 +1135,26 @@ def main(argv: list[str] | None = None) -> int:
     print("|---|---:|")
     print(f"| documents whose enumerating table names a loan or credit facility | "
           f"**{len(loans)}**|")
-    print(f"| ... of them with two or more posting sections | {len(loans_multi)} |")
+    print(f"| ... of them with two or more posting sections | **{len(loans_multi)}** |")
+    print(f"| ... the census groups those belong to | "
+          f"{', '.join(sorted({f'`{d.group}`' for d in loans_multi})) or '-'} |")
     print(f"| ... of them ALSO printing a cross-account total row | "
           f"{sum(1 for d in loans if d.total_row)} |")
     print(f"| documents printing a cross-account total row at all | "
           f"{sum(1 for d in docs if d.total_row)} |")
+    print()
+    print("The vocabulary, class by class, so that its completeness is a table "
+          "rather than a sentence. `counted` says whether the class is treated "
+          "as a facility for the condition; a class that fires and is not "
+          "counted is one this probe cannot confirm from the label alone.")
+    print()
+    print("| facility class tried | counted | documents it fires on | of them multi-posting |")
+    print("|---|---|---:|---:|")
+    for name, _probe, counted in FACILITY_PROBES:
+        fired = [d for d in docs if name in d.rollup.facility_classes]
+        multi = [d for d in fired
+                 if sum(1 for s in d.sections if s.n_dated_rows >= 2) >= 2]
+        print(f"| `{name}` | {'yes' if counted else 'no'} | {len(fired)} | {len(multi)} |")
     print()
 
     two_ccy = [d for d in docs if d.denominations >= 2]

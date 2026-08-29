@@ -315,8 +315,8 @@ printed forms. A shared template module with per-issue markers is therefore the 
 
 | population | documents |
 |---|---:|
-| enumerating tables that list a facility rather than a deposit account | **15** |
-| ... of them with two or more posting sections | 0 |
+| enumerating tables that list a facility rather than a deposit account | **19** |
+| ... of them with two or more posting sections | **4**, all `FAM:goldenwest_cu_member_account_statement` |
 | ... of them ALSO printing a cross-account total row | **7** |
 | enumerating tables naming TWO denominations (`FAM:community_savings_bc`, 12 sections) | **4** |
 | documents printing a cross-account total row at all | 43 |
@@ -325,7 +325,15 @@ printed forms. A shared template module with per-issue markers is therefore the 
 
 That row class is the one the first version had no condition for at all, and it is not latent:
 **7 documents print both a facility row and a cross-account total**, and a total that includes
-a facility can never be reproduced by summing the deposit sections. The identity condition, by
+a facility can never be reproduced by summing the deposit sections. Nor does it bite on nothing:
+**4 of the 19 carry two or more posting sections, and all four are
+`FAM:goldenwest_cu_member_account_statement`** — the family with the most accounts per document
+in this population, and the family a Stage-2 implementation would reach for next. The
+vocabulary's completeness is a table in the instrument's own output and not a sentence here:
+ten classes were tried, three are counted, and the classes that fire and are NOT counted are
+named with the reason (a brand word alone is not proof of an account row, and a debit card is
+the access device of a deposit account rather than a facility — counting it would put 11
+further documents into a condition that must not hold them). The identity condition, by
 contrast, is satisfied on this population — 0 documents resolve two sections to one token —
 and the residual hazard there is the locator, not the condition.
 
@@ -625,10 +633,14 @@ three are new and one is rewritten, each because this population contains its co
     layer must not sum their deposits, deposit counts or any derivation built on them. *(
     Measured: 7 of the 11 documents with two non-empty reconstructed ledgers carry such pairs,
     47 pairs in total.)* **NEW.**
-12. **A loan or credit facility is not a deposit ledger.** A facility enumerated on the table
-    is never published as a section, and condition 10's cross-account total is not required —
-    and cannot be satisfied — where the total includes one. *(Measured: 15 documents enumerate
-    a facility; 7 of them also print a cross-account total.)* **NEW.**
+12. **A facility is not a deposit ledger.** A facility enumerated on the table is never
+    published as a section, and condition 10's cross-account total is not required — and cannot
+    be satisfied — where the total includes one. *(Measured: **19** documents enumerate one,
+    **4** of them carrying two or more posting sections and all four
+    `FAM:goldenwest_cu_member_account_statement`; 7 of the 19 also print a cross-account
+    total.)* The class of a row must be established from the row, not from a word in it: the
+    instrument counts three classes and names the ones it will not count, and an implementation
+    has to confirm what the row IS before excluding it. **NEW.**
 13. **One currency, established per SECTION.** Every published section must carry the same
     denomination, established by the currency doctrine's evidence hierarchy at the level of
     the section rather than the document — the doctrine resolves a denomination per DOCUMENT
@@ -801,8 +813,8 @@ primary rule is bounded by evidence that is not printed.
 * A MUTATION TABLE for every condition in §6 that becomes code: each gets a mutant that removes
   it and a named killer test. The conditions with a measured population in this packet must
   have their killers drawn from it by sha — §6.5 → the 184 documents printing no column
-  caption; §6.6 → 2 sections; §6.7 → 23 + 11 sections; condition 11 → 7 documents; condition 12 → 15
-  documents, 7 of them with a cross-account total; condition 13 → 4 documents; §6.4 → the 26
+  caption; §6.6 → 2 sections; §6.7 → 23 + 11 sections; condition 11 → 7 documents; condition 12 → 19
+  documents, 4 of them multi-posting and 7 with a cross-account total; condition 13 → 4 documents; §6.4 → the 26
   documents whose sibling posted.
 * `tools/regfp_zero_movement_sweep` over the WHOLE archive range at the final tree — mandatory
   for Step 3 because a schema shape change touches every payload.
@@ -873,7 +885,7 @@ in W3 `§L1INV.8`.
 | **MAJOR-3** `reconcile` satisfied by construction; "two oracles" was one | the counts each oracle refused are reported separately, and the stated evidence that lets `reconcile` do work is now supplied | it refused **0 of 105** before and **11 of 48** now |
 | **MAJOR-4** the sections' own counts, totals and daily balances were measured and then passed as `None` | they are read and fed, the ADB is given the section's own text so `posting_dates_cover_source` applies, and a section printing them in an unreadable form is refused | the daily-table predicate was also wrong: 75 sections (17.0%) → **24 (5.4%)**; 4 of the 7 documents surviving the review's own chain are removed by this gate alone |
 | **MAJOR-5** no condition about money moved between a member's own accounts | measured and added as condition 11 | **7** documents of the 11 with two non-empty ledgers, **47** pairs |
-| **MAJOR-6** no deposit-versus-loan condition | measured and added as condition 12 | **15** documents enumerate a facility, **7** of them also print a cross-account total — the collision is live, not latent |
+| **MAJOR-6** no deposit-versus-loan condition | measured and added as condition 12 | **19** documents enumerate one (corrected from 15 by MAJOR-A), **4** of them multi-posting and all four `FAM:goldenwest_cu_member_account_statement`, **7** also printing a cross-account total — the collision is live, not latent |
 | **MINOR-1** 442 located vs 392 offered never reconciled; "27 sections" was 27 documents | the instrument prints the reconciliation | 442 − 77 + 27 = 392 |
 | **MINOR-2** the ADB ran on the DOCUMENT's period and the condition never said so | stated in the instrument's own docstring and in §6.9 | 27 documents lose every section at once for this reason |
 | **MINOR-3** Option B rejected by argument where the measurement was available | measured over the 81 multi-posting documents | first-named UNDEFINED on 30; transaction-share UNDEFINED on 24, AMBIGUOUS on 9, decides 48; 11 print a cross-account total; identity is a bare product designation on 22 of 43 |
