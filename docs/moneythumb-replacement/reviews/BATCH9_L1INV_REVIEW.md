@@ -205,9 +205,9 @@ helpers on all six declining documents:
 | | result on all 6 |
 |---|---|
 | `Previous Balance <date>` prefix occurrences | 3 |
-| `_native_summary`'s full nine-cell regex matched | **False on all six** |
+| the nine-cell regex inside `_native_summary` matched | **False on all six** |
 | `ACCOUNT DETAIL FOR PERIOD` caption present | True on all six |
-| rows `_native_transactions` returns | 24, 32, 28, 28, 41, 1 |
+| rows returned by `_native_transactions` | 24, 32, 28, 28, 41, 1 |
 | `parse_capital_one_statement` returns None | True on all six |
 
 The refusal is: the strict nine-cell summary regex fails outright on the three-account layout,
@@ -240,7 +240,7 @@ daily evidence instead of a reconstruction. Every one of the 32 false-empty clos
 failed a count-coverage check the section itself prints. The packet names one unpaid debt
 (`posting_dates_cover_source`); these two are larger, unpaid, and unnamed.
 
-### MAJOR-5 — the ten fail-closed conditions say nothing about inter-account transfers, and this population has them.
+### MAJOR-5 — the ten fail-closed conditions say nothing about inter-account transfers, which the population contains.
 
 On the documents where two or more sections each reconstructed a non-empty ledger (11
 documents — the small base is itself a consequence of BLOCK-1), **6 carry at least one
@@ -250,18 +250,18 @@ the same money is in two ledgers of the same document.
 
 Option C publishes "package math per account" (§5) and §8.3 raises package math as a ruling
 question, but §6 contains no condition about it. A package that sums per-account deposits over
-a multi-account member statement double-counts every internal transfer: gross deposit volume,
+a multi-account member statement double-counts every internal movement: gross deposit totals,
 deposit counts, and any revenue or NSF derivation built on them. The currency condition (§6.8)
-is present and correct; the transfer condition is missing and belongs beside it.
+is present and right; a transfer condition is missing and belongs beside it.
 
 ### MAJOR-6 — §6 has no deposit-versus-loan condition, and §6.7 breaks without one.
 
 `analysis/symitar.py` 13–45 states the rule explicitly: a member's loan facilities print under
 a different grid and are not deposit ledgers. The ten conditions never mention it. Measured:
 **6 of the 103 rollup-oracle documents enumerate a loan / credit facility in at least one
-roll-up row, and 2 of those have two or more posting sections.** §6.7 then requires "where a
+roll-up row, and 2 of those print two or more posting sections.** §6.7 then requires "where a
 cross-account total is printed the published sections must sum to it" — a total that includes a
-loan balance can never be reproduced by the deposit sections, so the condition either refuses
+loan facility can never be reproduced by the deposit sections, so the condition either refuses
 every such document or has to carve out a category it does not define. (No document in this
 population prints both a loan row and a cross-account total, so the collision is latent rather
 than live — but the condition list is what the implementation will be built from.)
@@ -300,7 +300,7 @@ No candidate rule is defined on even half the population, and one is actively am
 Conclusion unchanged; evidence now measured. (In the packet's favour: sections resolving to a
 REPEATED identity token — the §6.2 hazard — measure **0** on this population.)
 
-### MINOR-4 — the guard the card cites does not cover `tools/`.
+### MINOR-4 — the guard named on the handoff does not cover `tools/`.
 
 `tests/test_experiments_are_not_wired.py` scans `analysis`, `ocr`, `webapp`, `discovery`,
 `telemetry`, `benchmark` and six root modules for `^\s*(?:from|import)\s+experiments\b`. It
@@ -350,7 +350,7 @@ document's period with a reconstructed daily series and, in the prototype, witho
 
 **(3) Inter-account transfers.** Yes, they are present in two ledgers: **6 of the 11 documents
 with two non-empty sibling ledgers carry same-day, same-magnitude, opposite-signed pairs — 44
-pairs.** Option C's per-account package math would double-count deposit volume and deposit
+pairs.** Option C's per-account package math would double-count deposit totals and deposit
 counts on exactly those documents. **The fail-closed list does not cover it** (MAJOR-5).
 
 **(4) The 4 two-currency documents.** Confirmed: 4 documents, all
@@ -422,8 +422,8 @@ the counterexamples.**
 * *A section boundary that is a page break.* Partly handled — `CONTINUATION` skips a
   `(continued)` reprint and both boundary mechanisms dedupe by identity token — but a
   page-break reprint that omits the word is a reappearance satisfying §6.1, and nothing in §6
-  requires the published sections to PARTITION the document (to be disjoint and to exhaust the
-  ledger region). Add that as a condition.
+  requires the published sections to PARTITION the document (to be disjoint and to cover the
+  ledger region completely). Add that as a condition.
 * *One account number with suffixes.* §6.2 as written is satisfied: distinct suffixes are
   distinct tokens, and 0 documents resolve two sections to the same token. The residual hazard
   is the locator, not the condition: a bare member number is a prefix of its own suffixed forms.
@@ -444,7 +444,7 @@ measurement was available:** Option B's rejection (MINOR-3 supplies the numbers)
 parser architecture can cover the family" — the packet argues this from the closed vocabularies
 and the `core_processor_*` precedent, which is a good argument and not a measurement, and its
 own §4.5 then concedes that five families need their own row grammars (a figure it correctly
-flags as an ESTIMATE). **Answered incorrectly:** "whether each account can be reconstructed and
+flags as an ESTIMATE). **Answered wrongly:** "whether each account can be reconstructed and
 validated independently" and "the expected safely recoverable population" — BLOCK-1.
 
 ---
@@ -467,7 +467,7 @@ population: not one of them has every sibling printing the declaration symitar's
 requires, and 20 have a sibling that printed activity, so Stage 1 as scoped would commit the
 L-1 defect without ever asking. The honest shape of the decision is smaller and sharper than
 the packet presents: a handful of `guardian_cu`-shaped documents demonstrably reconstruct
-account-by-account today, one structural family at a time, and every other number in §4 needs
+one account at a time as things stand, one structural family at a time, and every other number in §4 needs
 the prototype to stop accepting the empty ledger and to start using the counts, totals and
 daily balances the sections themselves print — 79 and 75 sections respectively — before it is
 worth ruling on.
