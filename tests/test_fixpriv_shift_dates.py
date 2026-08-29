@@ -18,6 +18,8 @@ from datetime import date, timedelta
 import pytest
 
 from tools.fixpriv_shift_dates import (
+    DATE_SHAPES,
+    DATE_SHAPES_WITH_BARE_YEARS,
     SHIFT_YEARS,
     calendar_is_isomorphic,
     main,
@@ -105,6 +107,17 @@ def test_february_the_twenty_ninth_survives_the_shift() -> None:
         ("assert day == date(2031, 8, 1)", "assert day == date(2059, 8, 1)"),
         ("datetime(2031, 8, 1, 12, 0)", "datetime(2059, 8, 1, 12, 0)"),
         ("<td>SEP 29/31 - OCT 31/31</td>", "<td>SEP 29/59 - OCT 31/59</td>"),
+        # Dash-separated, numeric and spelled. A tree that reads `03-05-2031`
+        # in one fixture and `2031-03-05` in the next has to move both.
+        ("shape 03-05-2031 reads", "shape 03-05-2059 reads"),
+        ("shape April-1-2031 reads", "shape April-1-2059 reads"),
+        # FRENCH. The Canadian readers' fixtures print their months in French,
+        # and half a bilingual fixture on the old calendar is a file that no
+        # longer agrees with itself.
+        ("Du 3 mars 2031 au 2 avril 2031", "Du 3 mars 2059 au 2 avril 2059"),
+        ("Releve du 1 decembre 2031", "Releve du 1 decembre 2059"),
+        ("le 15 février 2031 solde", "le 15 février 2059 solde"),
+        ("2 août 2031 depot", "2 août 2059 depot"),
     ],
 )
 def test_every_shape_the_tool_claims_to_read(before: str, after: str) -> None:
@@ -135,6 +148,62 @@ def test_what_the_tool_must_not_touch(text: str) -> None:
     the file's suite is where that is meant to be caught.
     """
     assert shift_text(text, SHIFT_YEARS)[0] == text
+
+
+# --- the opt-in bare year -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "shifted"),
+    [
+        ("start_year=2031", "start_year=2059"),
+        ('maybe_year="2031"', 'maybe_year="2059"'),
+        ('f"05/{day:02d}/2031 10.00"', 'f"05/{day:02d}/2059 10.00"'),
+        ("_federal_bank_holidays(2031)", "_federal_bank_holidays(2059)"),
+        ("Statement Period: February 2031", "Statement Period: February 2059"),
+    ],
+)
+def test_a_bare_year_moves_only_when_it_is_asked_for(text: str, shifted: str) -> None:
+    """A fixture that BUILDS its dates leaves its year behind when they move.
+
+    `2031` on its own is not a date and nothing can tell it from a count, so
+    this is a flag and not the default; the file's own suite is what makes it
+    safe to use.
+    """
+    assert shift_text(text, SHIFT_YEARS)[0] == text
+    assert shift_text(text, SHIFT_YEARS, bare_years=True)[0] == shifted
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "EXAMPLE APRIL 2031.pdf",     # a pinned document's NAME, either side
+        "12031.20",                   # a figure that contains a year
+        "version 2.0.2031",           # a version, not a year
+        "REF 20315",                  # a digit run that starts like one
+    ],
+)
+def test_the_bare_year_guards_hold_in_both_modes(text: str) -> None:
+    """A full stop on either side means a version, a float or a FILE NAME."""
+    assert shift_text(text, SHIFT_YEARS)[0] == text
+    assert shift_text(text, SHIFT_YEARS, bare_years=True)[0] == text
+
+
+def test_the_bare_year_cannot_shift_a_year_this_tool_already_shifted() -> None:
+    """The range stops at 2039, so a second pass finds nothing to move."""
+    once, _ = shift_text("start_year=2031", SHIFT_YEARS, bare_years=True)
+    assert once == "start_year=2059"
+    assert shift_text(once, SHIFT_YEARS, bare_years=True)[0] == once
+
+
+def test_the_bare_year_is_last_so_a_real_date_claims_its_year_first() -> None:
+    text, counts = shift_text("on 2031-08-01 and 2031", SHIFT_YEARS, bare_years=True)
+    assert text == "on 2059-08-01 and 2059"
+    assert counts["isoy"] == 1 and counts["barey"] == 1
+
+
+def test_the_bare_year_pattern_is_the_ordinary_one_plus_one_alternative() -> None:
+    assert DATE_SHAPES_WITH_BARE_YEARS.pattern.startswith(DATE_SHAPES.pattern)
 
 
 def test_a_two_digit_year_wraps_and_keeps_its_width() -> None:

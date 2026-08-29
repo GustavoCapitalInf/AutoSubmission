@@ -494,6 +494,28 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         r'    r"|(?P<slash2>(?<![\d/])\d{1,2}/(?P<slash2y>\d{2})(?![\d/]))"',
     ),
     (
+        "Z8", "shift", "the FRENCH month names",
+        "read English months only, so a bilingual fixture keeps half its dates "
+        "on the archive's calendar and stops agreeing with itself",
+        '    "AVR(?:IL)?|APR(?:IL)?|MAY|MAI|JUNE?|JUIN|JULY?|JUIL(?:LET)?|AO[U',
+        '    "APR(?:IL)?|MAY|JUNE?|JULY?|AO[U',
+    ),
+    (
+        "Z9", "shift", "the bare-year FULL STOP guard",
+        "drop the full stop from the bare-year guard, so `APRIL 2031.pdf` — a "
+        "pinned corpus document's file name — has its year moved and every "
+        "test that opens it points at a file that does not exist",
+        r'    DATE_SHAPES.pattern + r"|(?<![\d.])(?P<bare>(?P<barey>20[0-3]\d))(?![\d.])",',
+        r'    DATE_SHAPES.pattern + r"|(?<!\d)(?P<bare>(?P<barey>20[0-3]\d))(?!\d)",',
+    ),
+    (
+        "Z10", "shift", "the bare-year RANGE",
+        "widen the bare year to any 20xx, so a year this tool has already "
+        "shifted is shifted a second time and the era runs away",
+        r"(?P<barey>20[0-3]\d)",
+        r"(?P<barey>20\d\d)",
+    ),
+    (
         "R1", "redact", "the sha rule",
         "drop the span check that keeps a replacement out of a content sha",
         "        if any(start < hend and hstart < end for hstart, hend in protected):\n"

@@ -71,9 +71,15 @@ ROOT = Path(__file__).resolve().parent.parent
 #: Four for the leap cycle, seven for the week. See the module docstring.
 SHIFT_YEARS = 28
 
+#: English and FRENCH month names. The tree carries Canadian French readers and
+#: their fixtures print `3 mars 2026` and `Du 3 mars au 2 avril`; a grammar that
+#: reads only English leaves half of a bilingual fixture on the old calendar,
+#: which is a file that no longer agrees with itself.
 _MONTHS = (
-    "JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUNE?|JULY?|AUG(?:UST)?|"
-    "SEPT?(?:EMBER)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?"
+    "JAN(?:UARY|V(?:IER)?)?|FEB(?:RUARY)?|F[E\u00c9]VR?(?:IER)?|MAR(?:CH|S)?|"
+    "AVR(?:IL)?|APR(?:IL)?|MAY|MAI|JUNE?|JUIN|JULY?|JUIL(?:LET)?|AO[U\u00db]T|"
+    "AUG(?:UST)?|SEPT?(?:EMBER|EMBRE)?|OCT(?:OBER|OBRE)?|NOV(?:EMBER|EMBRE)?|"
+    "D[E\u00c9]C(?:EMBER|EMBRE)?"
 )
 
 #: One alternation, one pass, so no shape can be shifted twice. The groups are
@@ -85,7 +91,30 @@ DATE_SHAPES = re.compile(
     rf"|(?P<spelled>\b(?:{_MONTHS})\.? \d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"
     rf"|(?P<spelled_first>\b\d{{1,2}} (?:{_MONTHS})\.? (?P<spelled_firsty>\d{{4}})\b)"
     rf"|(?P<mdy2>\b(?:{_MONTHS})\.? ?\d{{1,2}}/(?P<mdy2y>\d{{2}})(?![\d/]))"
+    rf"|(?P<spelled_dash>\b(?:{_MONTHS})-\d{{1,2}}-(?P<spelled_dashy>\d{{4}})\b)"
+    r"|(?P<dmy_dash>(?<![\d-])\d{1,2}-\d{1,2}-(?P<dmy_dashy>\d{4})(?![\d-]))"
     r"|(?P<ctor>\b(?:date|datetime)\(\s*(?P<ctory>\d{4})\s*,)",
+    re.IGNORECASE,
+)
+
+#: The same alternation with a BARE YEAR on the end. Opt-in, and last in the
+#: alternation so every real date shape claims its year first.
+#:
+#: A bare `2026` is not a date and this tool cannot tell one from a count, an
+#: index or a version — which is exactly why it is a FLAG and not the default.
+#: It exists because a fixture that builds its dates in Python rather than
+#: printing them (`start_year=2026`, `maybe_year="2024"`,
+#: `f"05/{day:02d}/2026"`) leaves its year behind when the printed dates move,
+#: and the file then disagrees with itself in a way only its own suite can
+#: see. Use it per file, with that suite, and read the diff.
+#:
+#: The guards are `(?<![\d.])` and `(?![\d.])`: a full stop on either side
+#: means a version, a float or a FILE NAME — `APRIL 2026.pdf` is a pinned
+#: corpus document and moving its year points a test at a file that does not
+#: exist. The range stops at 2039 so a year this tool has already shifted can
+#: never be shifted twice.
+DATE_SHAPES_WITH_BARE_YEARS = re.compile(
+    DATE_SHAPES.pattern + r"|(?<![\d.])(?P<bare>(?P<barey>20[0-3]\d))(?![\d.])",
     re.IGNORECASE,
 )
 
@@ -99,6 +128,9 @@ _YEAR_GROUPS = (
     ("spelledy", 4),
     ("mdy2y", 2),
     ("spelled_firsty", 4),
+    ("spelled_dashy", 4),
+    ("dmy_dashy", 4),
+    ("barey", 4),
     ("ctory", 4),
 )
 
@@ -172,12 +204,17 @@ def _shifted_year(text: str, width: int, years: int) -> str:
     return str(int(text) + years)
 
 
-def shift_text(text: str, years: int) -> tuple[str, dict[str, int]]:
+def shift_text(text: str, years: int, bare_years: bool = False) -> tuple[str, dict[str, int]]:
     """The file with every date shifted, and a count per shape."""
+    pattern = DATE_SHAPES_WITH_BARE_YEARS if bare_years else DATE_SHAPES
     counts: dict[str, int] = {name: 0 for name, _ in _YEAR_GROUPS}
 
     def replace(match: re.Match[str]) -> str:
         for name, width in _YEAR_GROUPS:
+            # `barey` exists only in the bare-year pattern, so a group this
+            # pattern does not carry is simply not one of its shapes.
+            if name not in match.re.groupindex:
+                continue
             found = match.group(name)
             if found is None:
                 continue
@@ -191,7 +228,7 @@ def shift_text(text: str, years: int) -> tuple[str, dict[str, int]]:
             )
         return match.group(0)
 
-    return DATE_SHAPES.sub(replace, text), counts
+    return pattern.sub(replace, text), counts
 
 
 def years_in(text: str) -> dict[str, int]:
@@ -209,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--self-check", action="store_true",
                         help="prove the shift is a calendar identity and stop")
+    parser.add_argument("--bare-years", action="store_true",
+                        help="also shift a standalone four-digit year (2000..2039) "
+                             "that no date shape claimed — UNSAFE without the "
+                             "file's own suite; see the module docstring")
     parser.add_argument("--report-years", action="store_true",
                         help="list the four-digit years left standing after the shift")
     parser.add_argument("--first-year", type=int, default=2005)
@@ -232,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     status = 0
     for path in args.paths:
         original = path.read_text(encoding="utf-8", newline="")
-        shifted, counts = shift_text(original, args.years)
+        shifted, counts = shift_text(original, args.years, args.bare_years)
         moved = sum(counts.values())
         if moved == 0:
             print(f"{path}: no date token; nothing to shift", file=sys.stderr)
