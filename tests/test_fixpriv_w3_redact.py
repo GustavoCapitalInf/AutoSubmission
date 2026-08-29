@@ -13,6 +13,10 @@ import pytest
 from tools.fixpriv_w3_redact import REPLACEMENT, redact_line
 
 SHA = "1B41B7B514AE699247E7CF668D7AB0236300F57F38CEC56C15027B35C4F26A85"
+#: The record names most documents by a 16-character PREFIX of the sha, which is
+#: the shortest thing the rule has to protect. This one carries a digit run long
+#: enough to be scanned, which is the only way the test can be about anything.
+SHA16 = "1B4123456789AE99"
 
 
 def residue(**kwargs: set[str]) -> dict[str, set[str]]:
@@ -42,16 +46,19 @@ def test_a_sha_is_never_cut() -> None:
     assert classes == []
 
 
-def test_a_shortened_sha_prefix_is_still_protected() -> None:
-    line = f"the mover `{SHA[:16]}` moved\n"
-    out, _ = redact_line(line, residue(DIGITS={"699247", "51447"}), 5)
-    assert out == line
+def test_a_sixteen_character_sha_prefix_is_still_protected() -> None:
+    """The record names most documents by a 16-character prefix; that is a sha."""
+    assert len(SHA16) == 16
+    line = f"the mover `{SHA16}` moved\n"
+    out, classes = redact_line(line, residue(DIGITS={"123456789", "23456"}), 5)
+    assert out == line, "a digit run inside a 16-character sha prefix was replaced"
+    assert classes == []
 
 
 def test_a_number_beside_a_sha_is_still_redacted() -> None:
-    line = f"`{SHA[:16]}` account 8877665544 closed\n"
+    line = f"`{SHA16}` account 8877665544 closed\n"
     out, classes = redact_line(line, residue(DIGITS={"8877665544"}), 5)
-    assert SHA[:16] in out
+    assert SHA16 in out
     assert "8877665544" not in out
     assert classes == ["DIGITS"]
 
