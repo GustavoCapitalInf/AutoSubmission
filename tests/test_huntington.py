@@ -363,6 +363,17 @@ def test_the_print_that_itemises_neither_its_fees_nor_its_daily_balances_is_refu
     statement says came out, on days no printed balance can check. It is
     refused whole rather than published partially, and this test is the wall a
     future widening has to argue with rather than walk past.
+
+    What it is and is not, stated so nobody mistakes it later: it asserts one
+    refusal over a fixture missing BOTH oracles, so it is load-bearing for
+    `_validate` AS A WHOLE — relax the block to an unconditional pass and this
+    test fails — but it cannot say WHICH of the two absences refused, and it
+    would still pass if only one of them did. The one-at-a-time cases are the
+    two tests above and below it
+    (`test_a_service_charge_the_document_never_itemises_is_refused`,
+    `test_a_statement_printing_no_end_of_day_balances_is_refused`); this one
+    exists because the archive breaks both at once and nothing else pinned that
+    conjunction.
     """
     assert parse_huntington_statement(
         document(fee_detail="", fee_summary="", balances="")
