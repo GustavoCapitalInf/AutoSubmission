@@ -57429,40 +57429,6 @@ walker's attribution as a whole. A nested `date()` is now reported once rather
 than once per enclosing function, and the allowlist key format is unchanged for
 the one entry that already existed.
 
-## RP5.6 The cohort replay — 73 of 73 preserved, payload identical, at BOTH trees
-
-`python -m tools.cohort_replay --parser td_canada_native --parser td_canada
---group WH:td_us --expect-identical`, with the run of record and the cold cache
-passed as absolute paths. The base run is from a detached worktree of
-`897d69e`, so the comparison is between two checkouts rather than between a
-checkout and a description of one.
-
-| | base `897d69e` | tip |
-|---|---:|---:|
-| population | 76 | 76 |
-| replayed (text available) | 76 | 76 |
-| newly validated | **0** | **0** |
-| other ladder movement (up) | 0 | 0 |
-| previously validated preserved | **73 of 73** | **73 of 73** |
-| … payload identical | 73 | 73 |
-| … payload changed | 0 | 0 |
-| validated regressions (BLOCKING) | **0** | **0** |
-| other ladder regressions | 0 | 0 |
-| unchanged non-validated | 3 (payload changed on 0) | 3 (payload changed on 0) |
-| no text / absent | 0 | 0 |
-| `--expect-identical` exit | **0** | **0** |
-| runtime | 87 s | 82 s |
-
-## RP5.7 The five RAISE-PRIVACY-4 MINORs
-
-| # | the finding | disposition at this tip |
-|---|---|---|
-| MINOR-1 | `tests/test_raise_privacy4.py` said the parametrisation was "sixteen" drives; `len(CELLS)` is nineteen | corrected AND asserted: `test_the_drive_count_this_file_states_is_the_count_it_runs` pins 19, pins it against `POISON`, and pins the three tables to the same key set. A comment cannot drift alone again |
-| MINOR-2 | the cell's privacy scan predated its own W3 section, so its line count was a measurement at an earlier commit | procedural, and taken as a rule here: this card's branch scan is run at the FINAL tip, after the W3 append, and the line count in RP5.8 is the whole branch |
-| MINOR-3 | "no decimal digit at all" is stronger than `_refusal_class` guarantees — the over-long branch interpolates `MAX_DATE_TOKEN_CHARS` | the assertion is now what the class guarantees: no digit the DOCUMENT supplied, with this tree's own constant removed first. The exemption is exactly one constant wide, PINNED against the vocabulary (four strings, exactly one interpolating), proved unable to blind the drive (no driven token contains it), and the over-long branch is now DRIVEN — the reviewer's own period line, refusing with the bound and with nothing of the document |
-| MINOR-4 | the stated reason for leaving the `KeyError` open was not the true constraint | this whole card. No class change was needed |
-| MINOR-5 | the raw-`date()` census's claim was wider than its AST coverage | closed by widening: see RP5.4 |
-
 ## RP5.5 The mutation table — 9 mutants, 9 killed, and RAISE-PRIVACY-4's ten re-run whole
 
 `python -m tools.raisepriv5_mutation_table`. Gate set:
@@ -57507,7 +57473,47 @@ a cell that reads this ledger must not believe otherwise. Adding the poll to
 deliberately not done on a closure commit: it is a behaviour change to a
 committed instrument, and it belongs to a card that can measure it.
 
+## RP5.6 The cohort replay — 73 of 73 preserved, payload identical, at BOTH trees
+
+`python -m tools.cohort_replay --parser td_canada_native --parser td_canada
+--group WH:td_us --expect-identical`, with the run of record and the cold cache
+passed as absolute paths. The base run is from a detached worktree of
+`897d69e`, so the comparison is between two checkouts rather than between a
+checkout and a description of one.
+
+| | base `897d69e` | tip |
+|---|---:|---:|
+| population | 76 | 76 |
+| replayed (text available) | 76 | 76 |
+| newly validated | **0** | **0** |
+| other ladder movement (up) | 0 | 0 |
+| previously validated preserved | **73 of 73** | **73 of 73** |
+| … payload identical | 73 | 73 |
+| … payload changed | 0 | 0 |
+| validated regressions (BLOCKING) | **0** | **0** |
+| other ladder regressions | 0 | 0 |
+| unchanged non-validated | 3 (payload changed on 0) | 3 (payload changed on 0) |
+| no text / absent | 0 | 0 |
+| `--expect-identical` exit | **0** | **0** |
+| runtime | 87 s | 82 s |
+
+## RP5.7 The five RAISE-PRIVACY-4 MINORs
+
+| # | the finding | disposition at this tip |
+|---|---|---|
+| MINOR-1 | `tests/test_raise_privacy4.py` said the parametrisation was "sixteen" drives; `len(CELLS)` is nineteen | corrected AND asserted: `test_the_drive_count_this_file_states_is_the_count_it_runs` pins 19, pins it against `POISON`, and pins the three tables to the same key set. A comment cannot drift alone again |
+| MINOR-2 | the cell's privacy scan predated its own W3 section, so its line count was a measurement at an earlier commit | procedural, and taken as a rule here: this card's branch scan is run at the FINAL tip, after the W3 append, and the line count in RP5.8 is the whole branch |
+| MINOR-3 | "no decimal digit at all" is stronger than `_refusal_class` guarantees — the over-long branch interpolates `MAX_DATE_TOKEN_CHARS` | the assertion is now what the class guarantees: no digit the DOCUMENT supplied, with this tree's own constant removed first. The exemption is exactly one constant wide, PINNED against the vocabulary (four strings, exactly one interpolating), proved unable to blind the drive (no driven token contains it), and the over-long branch is now DRIVEN — the reviewer's own period line, refusing with the bound and with nothing of the document |
+| MINOR-4 | the stated reason for leaving the `KeyError` open was not the true constraint | this whole card. No class change was needed |
+| MINOR-5 | the raw-`date()` census's claim was wider than its AST coverage | closed by widening: see RP5.4 |
+
 ## RP5.7b Zero movement — the archive sweep at the final tree
+
+*Numbered `7b` because it was appended after the rest and the independent
+review cites it, along with `RP5.8` and `RP5.9`, by number. This card's review,
+MINOR-5, asked for reading order, not for renumbering — so the mutation table
+moved to its own number's place and every number stayed where a citation can
+still find it.*
 
 A reader changed, so the sweep is owed. `python -m
 tools.regfp_zero_movement_sweep --rows <run>/rows.csv --data-dir
