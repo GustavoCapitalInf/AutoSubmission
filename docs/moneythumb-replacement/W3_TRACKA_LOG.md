@@ -59026,10 +59026,13 @@ is why the design makes the omission a payload field written by the reader that 
 prints the first ladder rung as `len(walked) + empty_idle + empty_vacuous`, double-counting the
 two empty-arrival classes it then lists as sub-rows of that rung: at this base it prints **153**
 where the published packet's §5.2 prints **109**. 109 is `len(walked)` and is correct
-(109 − 21 − 23 = 65, the "non-empty chain" row). No conclusion depends on the printed value —
-every later rung is computed from `walked` and `non_empty` — but the packet's "every number
-reproduces from its instruments" is not true of that cell. Reported, not fixed: this cell owns
-no L1INV file.
+(109 − 21 − 23 = 65, the "non-empty chain" row): `result.reached` is set before the
+empty-arrival classification, so the 44 empty arrivals are already inside `walked`. The print
+line has read that way since the BLOCK-1 commit, which precedes the packet's final version, so
+the packet's 109 is a correct figure its own instrument does not print rather than a stale
+transcription. No conclusion depends on the printed value — every later rung is computed from
+`walked` and `non_empty` — but the packet's "every number reproduces from its instruments" is
+not true of that cell. Reported, not fixed: this cell owns no L1INV file.
 
 ## L1D5b — the fact the largest open ruling turns on, computed and dropped by the packet
 

@@ -874,10 +874,14 @@ that literal.
 double-counts the two empty-arrival classes it then lists as sub-rows of that rung. At this
 base it prints **153** where the published packet's §5.2 table prints **109**. 109 is
 `len(walked)` and is the semantically correct figure (109 − 21 − 23 = 65 = the "non-empty
-chain" row, which reconciles). No conclusion in the packet or in this design depends on the
-printed value — every downstream rung is computed from `walked` and `non_empty`, not from the
-sum — but the packet's claim that every number in it reproduces from its instruments is not
-true of that one cell. Reported, not fixed: this cell owns no L1INV file.
+chain" row, which reconciles). `result.reached` is set before the empty-arrival classification,
+so the 21 + 23 empty arrivals are already inside `walked` and adding them again is the
+double-count. The print line has read that way since the BLOCK-1 commit, which precedes the
+packet's final version, so the packet's 109 is a correct figure that its own instrument does
+not print rather than a stale transcription. No conclusion in the packet or in this design
+depends on the printed value — every downstream rung is computed from `walked` and `non_empty`,
+not from the sum — but the packet's claim that every number in it reproduces from its
+instruments is not true of that one cell. Reported, not fixed: this cell owns no L1INV file.
 
 ---
 
