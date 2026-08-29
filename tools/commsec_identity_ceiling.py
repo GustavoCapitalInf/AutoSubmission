@@ -1,7 +1,8 @@
 """commsec_identity_ceiling.py — what a `community_section` reader COULD reach.
 
     python -m tools.commsec_identity_ceiling --run <run> --data-dir <cold cache> \
-        --shas <file> [--mode structure|sign_search|publish] [--out <private>.md]
+        --shas <file> [--mode structure|sign_search|publish|cross_check] \
+        [--parser <registration id>] [--out <private>.md]
 
 The decline probe says WHICH link refuses. This says whether any reader of this
 module could publish the document at all — measured, not argued, in the shape
@@ -42,6 +43,11 @@ printed identities. Three modes measure exactly how far that reaches:
     where the search returns a unique reading, build the statement from it in
     memory and run the platform's own classifier over it — so the ceiling is a
     ladder outcome and not a claim about one.
+
+``cross_check``
+    the same count, re-derived by explicit enumeration of every subset of every
+    day rather than by the dynamic program. A headline number produced by a
+    clever method deserves a stupid one beside it; the two must agree exactly.
 
 READ-ONLY, $0, and it never prints a document value: counts, booleans, verdicts
 and outcome names only.
@@ -335,6 +341,60 @@ def sign_search(reading: Reading) -> dict:
                 sum(1 for sizes in per_day_counts if sum(sizes.values()) > 1)}
 
 
+def cross_check(reading: Reading) -> dict:
+    """The dynamic program's answer, re-derived by BRUTE FORCE.
+
+    `sign_search` counts readings with a per-day table and a convolution, which
+    is the only way the larger member of this shape is countable at all — and a
+    headline number produced by a clever method deserves a stupid one beside
+    it. This enumerates every subset of every day explicitly (feasible: the
+    widest day in the population carries well under twenty rows) and multiplies
+    out the same convolution from those counts. The two must agree exactly.
+    """
+    import itertools
+
+    verdict = sign_search(reading)
+    if "solutions" not in verdict:
+        return {"comparable": False, "dp_verdict": verdict["verdict"]}
+
+    days: dict[str, list[int]] = {}
+    for iso, amount, _desc, _count, _balance in reading.postings:
+        days.setdefault(iso, []).append(_cents(amount))
+    grid = {day: _cents(balance) for day, balance in reading.grid.items()}
+    previous = _cents(reading.beginning)
+    per_day_counts: list[dict[int, int]] = []
+    widest = 0
+    for day in sorted(grid):
+        amounts = days.get(day, [])
+        if not amounts:
+            previous = grid[day]
+            continue
+        widest = max(widest, len(amounts))
+        if len(amounts) > 20:
+            return {"comparable": False, "why": "a day too wide to enumerate",
+                    "widest_day": len(amounts)}
+        target = (grid[day] - previous + sum(amounts)) // 2
+        sizes: dict[int, int] = {}
+        for size in range(len(amounts) + 1):
+            for combo in itertools.combinations(range(len(amounts)), size):
+                if sum(amounts[i] for i in combo) == target:
+                    sizes[size] = sizes.get(size, 0) + 1
+        per_day_counts.append(sizes)
+        previous = grid[day]
+
+    combined: dict[int, int] = {0: 1}
+    for sizes in per_day_counts:
+        nxt: dict[int, int] = {}
+        for have, ways in combined.items():
+            for size, more in sizes.items():
+                nxt[have + size] = nxt.get(have + size, 0) + ways * more
+        combined = nxt
+    brute = combined.get(reading.credit_count, 0)
+    return {"comparable": True, "widest_day": widest,
+            "dynamic_program": verdict["solutions"], "brute_force": brute,
+            "agree": brute == verdict["solutions"]}
+
+
 def unique_assignment(reading: Reading) -> list[int] | None:
     """The one direction per posting row, when exactly one reading exists."""
     if sign_search(reading).get("verdict") != "UNIQUE_READING":
@@ -448,7 +508,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="baseline parser_id — the protected cohort, as a control")
     ap.add_argument("--shas", type=Path, default=None)
     ap.add_argument("--mode", default="all",
-                    choices=("all", "structure", "sign_search", "publish"))
+                    choices=("all", "structure", "sign_search", "publish",
+                             "cross_check"))
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--json", type=Path, default=None)
     args = ap.parse_args(argv)
@@ -495,8 +556,10 @@ def main(argv: list[str] | None = None) -> int:
             found: dict = {}
             if args.mode in ("all", "structure"):
                 found["structure"] = structure(reading)
-            if args.mode in ("all", "sign_search", "publish"):
+            if args.mode in ("all", "sign_search", "publish", "cross_check"):
                 found["sign_search"] = sign_search(reading)
+            if args.mode in ("all", "cross_check"):
+                found["cross_check"] = cross_check(reading)
             entry["blocks"].append(found)
         if args.mode in ("all", "structure"):
             entry["column_evidence"] = column_evidence(admissible)
