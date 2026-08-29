@@ -374,3 +374,47 @@ stated reason and by nothing else.
    name and the revision differ. I confirmed all 422 gate-file tests run with
    only the three pre-existing named skips, so neither vacuity check silently
    skipped. **Accept.**
+
+---
+
+## 7. Closure confirmation — `2f2ff51..d08876b` (5 commits, one per MINOR)
+
+**CONFIRMED.** Bounded re-measurement at `d08876b`, on this host, with the
+PNC-LAYOUTS cell's python running and no mutation harness of mine anywhere near
+it. The three privacy test files: **444 passed, 3 skipped** (the same three
+pre-existing named skips in `test_raise_privacy3.py`, so nothing was silently
+suppressed), exit **0**. Canonical guards: **255 passed**, exit **0**.
+`cohort_replay --parser td_canada_native --parser td_canada --group WH:td_us
+--expect-identical` at the closure tip: population **76**, replayed **76**,
+newly validated **0**, previously validated preserved **73 of 73**, payload
+identical **73**, payload changed **0**, validated regressions **0**, other
+ladder regressions **0**, unchanged non-validated **3 (payload changed on 0)**,
+exit **0**. Branch privacy scan over the cell's own 76-sha cohort,
+`--base 897d69e --ref d08876b`: **hit_count 0**, raw 0, MONEY 0 · DIGITS 0 ·
+WORDS 0 · DATES 0, over **2,327 added lines**, 76 documents, 0 with no cached
+text, exit **0**. Commit-message scan over the same range: **12 commits**
+scanned — the six cell commits, my review commit and the five closure commits —
+**0 in every class**, exit **0**. Every number matches what the closure claimed.
+
+The two structural claims hold as stated, and one of them holds more strongly
+than asked. `git diff bdc5e27..d08876b -- analysis/` is **11 added lines, 0
+removed**, and **every added line is a comment**; beyond that, the non-comment
+lines of `analysis/td_can.py` are identical in content and order at the two
+commits and the two files' `ast.dump` are **byte-identical** — so the four
+expensive rows §RP5.9 justifies at `bdc5e27` (suite, corpus gate, corpus-marked
+slice, archive sweep) are measuring the same program the closure tip runs, and
+the justification is sound rather than merely plausible. W3 blob to blob:
+`897d69e`'s blob is **3,462,920** bytes and the first 3,462,920 bytes of
+`d08876b`'s blob have the **same SHA-256** — a byte-exact prefix — followed by
+**473** appended lines carrying **exactly one** top-level `# §` heading
+(`§RAISEPRIV5`), whose sections now read `RP5.0 → RP5.10` in order. I confirmed
+in passing that `_TOKEN_LOOKUP_UNREPORTED`'s four driven shapes are exactly the
+four I measured as unreported (an alias bound from another name;
+`operator.getitem`; the dunder spelling; a copy of the table), with the
+cross-module-helper case named in the prose and the line-keyed allowlist
+residue recorded per Ocean's ruling. Outside the bounded scope I re-ran
+nothing — the full suite (claimed 7,407), conformance, the mutation tables, the
+corpus gate, the corpus-marked slice and the archive sweep stand on the
+closure's own measurement and on my earlier re-measurement of the same gates at
+`d5c3bd8`. All five MINORs are closed; my verdict is unchanged and the branch
+is, in my judgement, composable.
