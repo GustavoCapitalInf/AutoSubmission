@@ -467,7 +467,7 @@ population: not one of them has every sibling printing the declaration symitar's
 requires, and 20 have a sibling that printed activity, so Stage 1 as scoped would commit the
 L-1 defect without ever asking. The honest shape of the decision is smaller and sharper than
 the packet presents: a handful of `guardian_cu`-shaped documents demonstrably reconstruct
-their accounts separately, as things stand, one structural family at a step, and every other number in §4 needs
+section by section, as things stand, one structural family at a step, and every other number in §4 needs
 the prototype to stop accepting the empty ledger and to start using the counts, totals and
 daily balances the sections themselves print — 79 and 75 sections respectively — before it is
 worth ruling on.
