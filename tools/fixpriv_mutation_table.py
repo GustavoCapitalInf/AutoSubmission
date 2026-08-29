@@ -71,6 +71,12 @@ GATES: dict[str, tuple[str, str]] = {
     # pytest SUBPROCESS, and the restore is a byte comparison against text held
     # in memory since before anything was written.
     "harness": ("tools/fixpriv_mutation_table.py", "tests/test_fixpriv_mutation_table.py"),
+    # The date shift FIXTURE-PRIVACY-2 adds. Its grammar decides which dates
+    # move and its isomorphism check decides whether moving them is allowed to
+    # change anything; both are gates in every sense that matters, because a
+    # shift that is not an identity re-dates every weekday, month length and
+    # bank holiday a fixture depends on, silently, in ninety files at once.
+    "shift": ("tools/fixpriv_shift_dates.py", "tests/test_fixpriv_shift_dates.py"),
 }
 
 #: (id, gate, rule it attacks, what the mutant does, exact old, exact new)
@@ -431,6 +437,61 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "        finally:",
         "            raise\n"
         "        finally:",
+    ),
+    (
+        "Z1", "shift", "SHIFT_YEARS",
+        "shift by eight years instead of twenty-eight: still a leap-cycle "
+        "multiple, so February keeps its length and the change looks harmless "
+        "— and every weekday moves, so `weekday_only` and `banking_day` take "
+        "new values in every fixture that asserts one",
+        "SHIFT_YEARS = 28",
+        "SHIFT_YEARS = 8",
+    ),
+    (
+        "Z2", "shift", "calendar_is_isomorphic",
+        "report no problem ever, so the tool stops proving the identity and "
+        "will shift by any number it is given",
+        "    problems: list[str] = []",
+        "    return []\n    problems: list[str] = []",
+    ),
+    (
+        "Z3", "shift", "the weekday half of the identity",
+        "check only the month lengths, so a shift that keeps February right "
+        "and moves every weekday passes",
+        "                if date(year, month, day).weekday() != date(year + years, month, day).weekday():",
+        "                if False:",
+    ),
+    (
+        "Z4", "shift", "the bank-holiday half of the identity",
+        "skip the holiday comparison, so a shift that moves Thanksgiving "
+        "passes and `banking_day` quietly divides by a different number",
+        "        here = {(d.month, d.day) for d in _federal_bank_holidays(year)}\n"
+        "        there = {(d.month, d.day) for d in _federal_bank_holidays(year + years)}\n"
+        "        if here != there:",
+        "        here = {(d.month, d.day) for d in _federal_bank_holidays(year)}\n"
+        "        there = {(d.month, d.day) for d in _federal_bank_holidays(year + years)}\n"
+        "        if False:",
+    ),
+    (
+        "Z5", "shift", "the `date(...)` constructor shape",
+        "stop reading `date(2026, 8, 1)` literals, so a file's assertions stay "
+        "on the old calendar while its fixture text moves",
+        r'    r"|(?P<ctor>\b(?:date|datetime)\(\s*(?P<ctory>\d{4})\s*,)",',
+        r'    r"|(?P<ctor>\bNEVERMATCHES\(\s*(?P<ctory>\d{4})\s*,)",',
+    ),
+    (
+        "Z6", "shift", "the two-digit year",
+        "shift a two-digit year without wrapping it, so `01/02/80` becomes a "
+        "three-character year and the token stops being a date at all",
+        '        return f"{(int(text) + years) % 100:02d}"',
+        '        return str(int(text) + years)',
+    ),
+    (
+        "Z7", "shift", "the bare-day guard",
+        "let the two-digit shape read a bare `mm/dd` as a date, so a day token "
+        "that carries no year has one invented for it",
+        r'    r"|(?P<slash2>(?<![\d/])\d{1,2}/\d{1,2}/(?P<slash2y>\d{2})(?![\d/]))"',
+        r'    r"|(?P<slash2>(?<![\d/])\d{1,2}/(?P<slash2y>\d{2})(?![\d/]))"',
     ),
     (
         "R1", "redact", "the sha rule",
