@@ -327,15 +327,39 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
 _FAIL_LINE = re.compile(r"^(FAILED|ERROR) (\S+)")
 
 
+#: This repository carries stale `.git/worktrees/*` entries that OneDrive holds
+#: open, so git's automatic prune fails on them and prints a line per entry. The
+#: prune is housekeeping, not the command's work, and the command's work
+#: succeeds — but the exit code follows the prune, and the harness used to die
+#: on it with 128 in the middle of a mutant, leaving the gate file mutated. Two
+#: things fix it: `gc.auto=0`, which stops git from starting the prune at all,
+#: and treating a failure whose every stderr line is prune noise as the success
+#: it is. Neither weakens the harness: the tree-clean check and the
+#: restore-verified check both still run on the OUTPUT, and a real git failure
+#: still raises.
+_PRUNE_NOISE = re.compile(
+    r"^(error|warning): failed to (delete|remove) '.*[/\\]worktrees[/\\].*': .*$"
+)
+
+
+def _git(*args: str) -> str:
+    """git, with the stale-worktree prune neither started nor scored."""
+    proc = subprocess.run(["git", "-c", "gc.auto=0", *args], cwd=ROOT,
+                          capture_output=True, text=True, errors="replace")
+    if proc.returncode != 0:
+        noise = [line for line in proc.stderr.splitlines() if line.strip()]
+        if not noise or not all(_PRUNE_NOISE.match(line) for line in noise):
+            raise subprocess.CalledProcessError(
+                proc.returncode, args, proc.stdout, proc.stderr)
+    return proc.stdout
+
+
 def _porcelain() -> str:
-    return subprocess.run(
-        ["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True, check=True
-    ).stdout.strip()
+    return _git("status", "--porcelain").strip()
 
 
 def _restore(target: Path) -> None:
-    subprocess.run(["git", "checkout", "--", str(target.relative_to(ROOT))],
-                   cwd=ROOT, capture_output=True, text=True, check=True)
+    _git("checkout", "--", str(target.relative_to(ROOT)))
 
 
 def run(out: Path | None) -> int:

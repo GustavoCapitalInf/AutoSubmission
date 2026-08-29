@@ -120,7 +120,19 @@ rule                   what it excludes, and why that is safe
                        "hex"). And the POSITION: every occurrence of the token
                        on the line must fall inside a hex run, so a digit run
                        standing on its own beside a sha
-                       (`ACCOUNT 7000004 AT COMMIT F7000004E`) is still a finding.
+                       (`ACCOUNT 7000004 AT COMMIT F7000004E`) is still a
+                       finding. WHAT THE 7-CHARACTER FLOOR COSTS, MEASURED:
+                       the floor exists because these records name a commit
+                       in seven characters, and it is the widest part of the
+                       rule. Of the sites this rule excuses at the closure
+                       tip, one in six is excused by a run SHORTER than a
+                       16-character sha prefix, and a 7..15-character mixed
+                       run is a shape a reference or a terminal id can
+                       accidentally take. The exact counts, and the rows /
+                       sites distinction that makes them look like two
+                       different numbers, are in the closure record. Raising
+                       the floor is a card, not a patch: it would re-report
+                       every abbreviated object name these records write.
 ``docs_session_date``  a DATES token in ``docs/`` that is an ISO date on or
                        after ``2026-07-01``. Those are the PROGRAM's own
                        session dates — when a cell ran, when a train closed —
@@ -252,6 +264,13 @@ _ZIP_GAP = r"[^0-9]{0,8}"
 #: * ``CITY_STATE_ZIP`` — a city, its comma, the abbreviation, the code
 #:   (`RALEIGH, NC 99999`). The comma is the city/state junction and a
 #:   transaction description does not print one before a state word.
+#:   WHAT THIS SHAPE CANNOT TELL APART, recorded rather than hoped away: the
+#:   comma says a phrase ended, not that a city did. A company suffix
+#:   (`ACME & SONS, CO 84213`), a list item (`MEMBER, ID 84213`) or any
+#:   comma-terminated word followed by an abbreviation-shaped token and five
+#:   digits reads as an address to this rule. None occurs in the tree today
+#:   and each is a stilted line to print, but the shape is genuinely
+#:   ambiguous and the next rule that leans on it should know.
 #:
 #: A ZIP+4 tail is NOT one of the shapes. It was, and the first re-review
 #: threw it out: `NNNNN-NNNN` after an abbreviation-shaped word carries no
