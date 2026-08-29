@@ -55680,3 +55680,113 @@ turned two of this branch's word-boundary escapes into 0x08 bytes, and both new 
 silently matched nothing — the measurement they produced was zero and looked like a finding.
 It was caught by byte-checking the files rather than by reading them, which is the only way it
 can be caught. All three instruments are clean of control bytes at this tip.
+
+### L1INV.8a AMENDMENTS — the re-review returned SOUND WITH FINDINGS, and what the five cost
+
+The corrected packet was re-reviewed at `67fd943` by the same reviewer, same method, all five
+instrument modes re-run. **Verdict: SOUND WITH FINDINGS, 0 BLOCK / 1 MAJOR / 4 MINOR.** Both
+BLOCKs were accepted as answered at the instrument rather than in the prose, and every other
+corrected figure reproduced. The five findings are closed below, one commit each.
+
+**MAJOR-A — the facility vocabulary was narrower than the claim made for it.** `LOAN_ROW`
+carried two classes and a comment saying a wider list had been tried and fired on nothing they
+do not. The claim was false: adding the card-brand class to the same raw labels, before the
+furniture trim, gives **19 documents and not 15**, and **4 of them carry two or more posting
+sections** where condition 12's table said 0. All four are
+`FAM:goldenwest_cu_member_account_statement` — the family with the most accounts per document
+in this population, and the one a Stage-2 implementation would reach for next, so the
+deposit-versus-facility rule bites where it matters rather than on nothing. 7 of the 19 also
+print a cross-account total, so the collision with the cross-account-total condition stands.
+
+The completeness claim is replaced by a table the instrument prints: **ten classes are tried,
+each measured on its own, three COUNTED and the rest named with the reason they are not.** A
+card-network token fires on 6 documents whose enumerating line carries neither a deposit
+designation nor any card wording and which locate no partition at all — a brand word standing
+alone is not proof of an account row, so it is not counted. The debit-card class fires on 15
+(5 multi-posting) and is deliberately never counted: a debit card is the access device of a
+deposit account, not a facility, and counting it would put 11 further documents into a
+condition that must not hold them. Five further classes fire on nothing here. Condition 12 now
+says what the first version's did not — the class of a row must be established from the row,
+not from a word in it. Commit `eff0969`.
+
+**MINOR-A — the adjudication, measured rather than argued.** The closure reproduced the
+review's chain on a run that refused to validate an empty arrival at all, so it could not
+express the review's own rule, which deliberately left a section printing no dated row and
+reading nothing standing as a closure. The prototype now measures every gate instead of
+short-circuiting on the empty case, and the rule is implemented as written with one guard its
+prose implies: a document whose ONLY located section is idle publishes nothing and is not a
+document that closes. Run that way: **15** documents where the review reported 11, an L-1 floor
+of **4** where it reported 3, and **2** with the oracle, which it reported. The two gaps have
+different causes and the closure had attributed both to one:
+
+* the L-1 gap IS the column fix — `9B8E7D807228DA2B` was refused as a pair disagreement against
+  a table column whose role was assumed rather than printed, and 14 of the old 16 sections in
+  that class were the same false refusal, which is why the class is now 2;
+* the document gap is DEFINITIONAL — a trivially idle section is a class here and not a
+  closure, so a document with a dormant sibling cannot reach "every located section closes"
+  under the corrected test and can under the review's. The 15 are 8 `guardian_cu`, 3
+  `altra_fcu`, 3 `cu_summary_of_accounts_date_posted` and 1 `DECL:consumers`.
+
+Nothing in the corrected headline depends on either: the 2 is reached by a stricter route that
+does not pass through the review's rule. Commit `aa3cae2`.
+
+**MINOR-B — the ratified predicate runs in its relaxed form, now disclosed.** The sibling
+classifier calls the yield-only predicate without its fourth argument, so the module skips its
+own fourth condition — the platform's six-figure equation row accounting for every skipped
+posting with its deposit column at zero — and tests only the first three. The direction is safe
+and the measurement is unaffected: a relaxed test that admits nothing proves the strict test
+admits nothing, and the measured count of siblings satisfying the rule is zero, so BLOCK-2's
+answer stands. What the disclosure buys is the next measurement, which would have to supply
+that row before a non-zero count could be trusted. Written into the predicate's own docstring
+and into the packet, beside the anchoring restatement that was already disclosed. Commit
+`bcbeeba`.
+
+**MINOR-C — the headline 2 is a floor of a floor, and the number that sizes ruling (5) was
+printed nowhere.** Because a trivially idle section is a class and never a closure, a document
+carrying a genuinely dormant sibling can never reach "every located section closes" however
+well its posting sections reconstruct. Measured, allowing such a section to be OMITTED rather
+than counted — which is exactly what the ratified rule licenses:
+
+| | documents |
+|---|---:|
+| every section either CLOSES on the corrected test or is trivially idle | **8** |
+| ... their census group | `FAM:guardian_cu_statement_summary`, all of them |
+| ... carrying two or more posting sections | 2 |
+| ... with the table's own closing column reproducing, over the sections that would be PUBLISHED | **8** |
+
+The oracle is evaluated over the sections that would be published and not over the omitted
+ones, because an omitted section publishes no closing and there is nothing for the table to
+reproduce. Two printed facts put the ruling where it bites, and the idle-sibling report now
+prints the evidence classes per census group so both are traceable: **the 4 sibling sections in
+the whole population that print the ratified declaration are all one census group**
+(`FAM:greater_nevada_cu`), and **every one of `guardian_cu`'s six single-posting documents has
+a sibling that is EMPTY AND SILENT** — the weakest class in the sibling table. So **ruling (5)
+is worth 2 to 8 documents on the only family this packet demonstrates**, and it is a ruling
+about whether silence plus arithmetic is evidence at all rather than about a wording the
+ratified rule nearly reads. That sizing now stands above the 54-to-79 range in the
+recommendation, which is where a reader deciding it will look. Commit `16579b6`.
+
+**MINOR-D — one property is held by a grep, not by a gate.** The proof floor listed the
+instruments' unwiring beside the guards, where it reads as a gate. It is not one: the
+experiments guard scans `experiments/` and says nothing about `tools/`. The packet now states
+that the property is held by a GREP re-run at this tip with no hits, and that a `tools/` clause
+in that guard is a production-test change this card does not own, CARDED for a later hygiene
+session. Until it lands the row is a measurement and not a guarantee. Commit `15fd01d`.
+
+### The headline after the amendments
+
+Unchanged where it matters and larger where it was silent. Sections closing **29**, documents
+closing on every located section **2**, the L-1 population **81** of which **2** close with the
+table reproducing on both, the Stage-1 population under the ratified rule **0**, transfer pairs
+**7 documents / 47 pairs**. What moved: facility-listing tables **15 to 19**, of which **0 to
+4** carry two or more posting sections; the review's own chain **7 to 15** documents with an
+L-1 floor of **4**; and one figure that was missing altogether — **8 documents close if a
+dormant sibling may be omitted, all one family, all eight with the table reproducing.**
+
+| proof at the amended tip | result |
+|---|---|
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| the three instruments, five modes, re-run from the run of record | **EXIT=0 each** |
+| no production file differs from base | empty |
+| the instruments are unwired | held by a grep, re-run at this tip, no hits |
+| branch privacy scan vs the whole population | recorded in the closing commit |
