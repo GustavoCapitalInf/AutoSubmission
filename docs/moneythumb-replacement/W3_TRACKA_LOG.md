@@ -55298,8 +55298,8 @@ DIGITS 208,695 · DATES 3,211 · WORDS 416,756.
 
 | | base `2f24b06` | tip |
 |---|---:|---:|
-| raw hits | 1,116,227 | 1,127,293 |
-| `words_class` | 1,071,557 | 1,082,885 |
+| raw hits | 1,116,227 | 1,127,339 |
+| `words_class` | 1,071,557 | 1,082,931 |
 | `round_money` | 17,286 | 17,308 |
 | `corpus_cache` | 4,966 | 4,966 |
 | `subunit_money` | 2,356 | 2,386 |
@@ -55350,7 +55350,7 @@ occurrences. `W3_TRACKA_LOG.md` 2,212 -> 2,212: the section you are reading, and
 above it, add none.
 
 Excused SITES per rule at the tip (the per-rule row above is raw hits; these are sites):
-`words_class` 542,121 · `round_money` 8,654 · `corpus_cache` 2,483 · `subunit_money` 1,193 ·
+`words_class` 542,144 · `round_money` 8,654 · `corpus_cache` 2,483 · `subunit_money` 1,193 ·
 `hex_sha_substring` 448 · `institution_zip` 88 · `docs_session_date` 1.
 
 ### FP-C4 — the mutation table at the real tip
