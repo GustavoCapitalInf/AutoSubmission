@@ -20,9 +20,9 @@ BUSINESS_SUMMARY = """
 bankofamerica.com
 Bank of America, N.A.
 Your Business Advantage Fundamentals Banking
-for January 1, 2026 to January 31, 2026 Account number: 1111 2222 3333
+for January 1, 2054 to January 31, 2054 Account number: 1111 2222 3333
 Account summary
-Beginning balance on January 1, 2026 $1,000.00
+Beginning balance on January 1, 2054 $1,000.00
 # of deposits/credits: {credits_n}
 Deposits and other credits {credits}
 # of withdrawals/debits: {debits_n}
@@ -30,7 +30,7 @@ Withdrawals and other debits -{debits}
 # of days in cycle: 31
 Checks -{checks}
 Service fees -{fees}
-Ending balance on January 31, 2026 ${ending}
+Ending balance on January 31, 2054 ${ending}
 Your checking account
 """
 
@@ -38,15 +38,15 @@ CONSUMER_SUMMARY = """
 bankofamerica.com
 Bank of America, N.A.
 Your Adv Plus Banking
-for January 1, 2026 to January 31, 2026 Account number: 1111 2222 3333
+for January 1, 2054 to January 31, 2054 Account number: 1111 2222 3333
 Account summary
-Beginning balance on January 1, 2026 $1,000.00
+Beginning balance on January 1, 2054 $1,000.00
 Deposits and other additions {credits}
 ATM and debit card subtractions -{atm}
 Other subtractions -{other}
 Checks -0.00
 Service fees -0.00
-Ending balance on January 31, 2026 ${ending}
+Ending balance on January 31, 2054 ${ending}
 Your checking account
 """
 
@@ -68,12 +68,12 @@ def amounts(stmt) -> list[float]:
 # ---------------------------------------------------------------------------
 
 def test_f1_a_wire_detail_date_does_not_open_a_row():
-    """`PMT DET:… 26/02/03 …` is printed inside the description of ONE row
+    """`PMT DET:… 26/02/31 …` is printed inside the description of ONE row
     whose Amount cell wraps onto the next line. Segmenting on any date-shaped
     token split that row in two and lost both halves."""
     md = business(credits="10,300.00", credits_n=1, ending="11,300.00", body="""
 Deposits and other credits Date Description Amount
-01/03/26 WIRE TYPE:WIRE IN DATE: 260103 TRN:2026010300000001 ORIG:A COUNTERPARTY ID:000000001 PMT DET:BOH OF 26/01/03 /CATPURP/CTRC
+01/03/54 WIRE TYPE:WIRE IN DATE: 260103 TRN:2026010300000001 ORIG:A COUNTERPARTY ID:000000001 PMT DET:BOH OF 26/01/31 /CATPURP/CTRC
 10,300.00
 Total deposits and other credits $10,300.00
 """)
@@ -81,7 +81,7 @@ Total deposits and other credits $10,300.00
 
     assert stmt is not None
     assert amounts(stmt) == [10300.0]
-    assert stmt.transactions[0].date == "2026-01-03"
+    assert stmt.transactions[0].date == "2054-01-03"
     assert "/CATPURP/CTRC" in stmt.transactions[0].description
 
 
@@ -89,35 +89,35 @@ def test_f1_an_adjustment_row_carries_its_own_reference_date():
     """`Temporary Credit Adjustment on <date> <amount>` is one printed line."""
     md = business(credits="14.70", credits_n=1, ending="1,014.70", body="""
 Deposits and other credits Date Description Amount
-01/31/26 Temporary Credit Adjustment on 01/28/26 14.70
+01/31/54 Temporary Credit Adjustment on 01/28/54 14.70
 Total deposits and other credits $14.70
 """)
     stmt = parse_bofa_statement(md)
 
     assert stmt is not None
     assert amounts(stmt) == [14.7]
-    assert stmt.transactions[0].date == "2026-01-31"      # the DATE column
-    assert stmt.transactions[0].description == "Temporary Credit Adjustment on 01/28/26"
+    assert stmt.transactions[0].date == "2054-01-31"      # the DATE column
+    assert stmt.transactions[0].description == "Temporary Credit Adjustment on 01/28/54"
 
 
 def test_f1_negative_a_date_that_does_start_a_line_still_starts_a_row():
     md = business(credits="30.00", credits_n=2, ending="1,030.00", body="""
 Deposits and other credits Date Description Amount
-01/05/26 Deposit one 10.00
-01/06/26 Deposit two 20.00
+01/05/54 Deposit one 10.00
+01/06/54 Deposit two 20.00
 Total deposits and other credits $30.00
 """)
     stmt = parse_bofa_statement(md)
 
     assert stmt is not None
     assert amounts(stmt) == [10.0, 20.0]
-    assert [t.date for t in stmt.transactions] == ["2026-01-05", "2026-01-06"]
+    assert [t.date for t in stmt.transactions] == ["2054-01-05", "2054-01-06"]
 
 
 def test_f1_negative_an_uncalendarable_row_date_is_dropped_not_guessed():
     md = business(credits="10.00", credits_n=1, ending="1,010.00", body="""
 Deposits and other credits Date Description Amount
-26/13/24 Incoming transfer 10.00
+26/13/52 Incoming transfer 10.00
 Total deposits and other credits $10.00
 """)
     stmt = parse_bofa_statement(md)
@@ -132,7 +132,7 @@ Total deposits and other credits $10.00
 def test_f2_a_bare_amount_line_completes_the_row_above_it():
     md = business(debits="500.00", debits_n=1, ending="500.00", body="""
 Withdrawals and other debits Date Description Amount
-01/09/26 A DESCRIPTION LONG ENOUGH THAT THE AMOUNT COLUMN WRAPPED
+01/09/54 A DESCRIPTION LONG ENOUGH THAT THE AMOUNT COLUMN WRAPPED
 -500.00
 Total withdrawals and other debits -$500.00
 """)
@@ -148,7 +148,7 @@ def test_f2_a_bare_amount_cell_outranks_a_money_token_ending_the_description():
     md = business(fees="117.68", ending="882.32", body="""
 Service fees
 Date Transaction description Amount
-01/09/26 ACCT ORDER00413 DES:FEE PMT INFO: PRODUCT(S): 101.40 S&H: 9.62 MI TAX: 6.66
+01/09/54 ACCT ORDER00413 DES:FEE PMT INFO: PRODUCT(S): 101.40 S&H: 9.62 MI TAX: 6.66
 -117.68
 Total service fees -$117.68
 """)
@@ -162,9 +162,9 @@ Total service fees -$117.68
 def test_f2_negative_a_completed_row_is_not_extended_by_the_next_line():
     md = business(debits="60.00", debits_n=2, ending="940.00", body="""
 Withdrawals and other debits Date Description Amount
-01/09/26 A completed row -50.00
+01/09/54 A completed row -50.00
 Card account # XXXX XXXX XXXX 1234
-01/10/26 PURCHASE 0110 A CARD ROW -10.00
+01/10/54 PURCHASE 0110 A CARD ROW -10.00
 Subtotal for card account # XXXX XXXX XXXX 1234 -$10.00 Total withdrawals and other debits -$60.00
 """)
     stmt = parse_bofa_statement(md)
@@ -180,7 +180,7 @@ Subtotal for card account # XXXX XXXX XXXX 1234 -$10.00 Total withdrawals and ot
 
 def test_f3_a_section_total_printed_after_the_last_row_is_not_that_row_amount():
     md = business(debits="263.62", debits_n=1, ending="736.38", body="""
-Withdrawals and other debits - continued Date Description Amount 01/30/26 A CARD ROW -263.62 Subtotal for card account # XXXX XXXX XXXX 4300 -$263.62 Total withdrawals and other debits -$263.62
+Withdrawals and other debits - continued Date Description Amount 01/30/54 A CARD ROW -263.62 Subtotal for card account # XXXX XXXX XXXX 4300 -$263.62 Total withdrawals and other debits -$263.62
 """)
     stmt = parse_bofa_statement(md)
 
@@ -192,8 +192,8 @@ def test_f3_a_card_subtotal_is_never_a_row():
     md = business(debits="30.00", debits_n=2, ending="970.00", body="""
 Withdrawals and other debits Date Description Amount
 Card account # XXXX XXXX XXXX 4300
-01/10/26 PURCHASE 0110 ONE -10.00
-01/11/26 PURCHASE 0111 TWO -20.00
+01/10/54 PURCHASE 0110 ONE -10.00
+01/11/54 PURCHASE 0111 TWO -20.00
 Subtotal for card account # XXXX XXXX XXXX 4300 -$30.00
 Total withdrawals and other debits -$30.00
 """)
@@ -214,7 +214,7 @@ Total withdrawals and other debits -$30.00
 def test_f4_a_counterparty_named_total_is_still_a_row(description):
     md = business(debits="24.33", debits_n=1, ending="975.67", body=f"""
 Withdrawals and other debits Date Description Amount
-01/12/26 {description} -24.33
+01/12/54 {description} -24.33
 Total withdrawals and other debits -$24.33
 """)
     stmt = parse_bofa_statement(md)
@@ -227,7 +227,7 @@ Total withdrawals and other debits -$24.33
 def test_f4_negative_the_printed_section_total_is_never_a_row():
     md = business(credits="10.00", credits_n=1, ending="1,010.00", body="""
 Deposits and other credits Date Description Amount
-01/05/26 Deposit one 10.00
+01/05/54 Deposit one 10.00
 Total deposits and other credits $10.00
 """)
     stmt = parse_bofa_statement(md)
@@ -246,7 +246,7 @@ def test_f5_a_single_column_checks_table_is_read():
     md = business(checks="750.00", ending="250.00", body="""
 Checks
 Date Check # Amount
-01/09/26 1021 -750.00
+01/09/54 1021 -750.00
 Total checks -$750.00 Total # of checks 1
 """)
     stmt = parse_bofa_statement(md)
@@ -260,7 +260,7 @@ def test_f5_a_check_the_bank_printed_no_number_for_is_still_a_row():
     md = business(checks="500.00", ending="500.00", body="""
 Checks
 Date Check # Amount Date Check # Amount
-01/11/26 -300.00 01/15/26 1595 -200.00
+01/11/54 -300.00 01/15/54 1595 -200.00
 Total checks -$500.00 Total # of checks 2
 """)
     stmt = parse_bofa_statement(md)
@@ -274,7 +274,7 @@ def test_f5_a_gap_marked_check_number_keeps_its_marker():
     md = business(checks="68.79", ending="931.21", body="""
 Checks
 Date Check # Amount Date Check # Amount
-01/07/26 1575* -68.79
+01/07/54 1575* -68.79
 Total checks -$68.79 Total # of checks 1
 *   There is a gap in sequential check numbers
 """)
@@ -289,7 +289,7 @@ def test_f5_negative_the_account_summary_checks_line_never_opens_the_section():
     """`Checks -7,500.00` in the summary is a stated total, not a heading."""
     md = business(credits="10.00", checks="750.00", credits_n=1, ending="260.00", body="""
 Deposits and other credits Date Description Amount
-01/05/26 Deposit one 10.00
+01/05/54 Deposit one 10.00
 Total deposits and other credits $10.00
 """)
     stmt = parse_bofa_statement(md)
@@ -305,16 +305,16 @@ Total deposits and other credits $10.00
 def test_f6_the_consumer_layout_is_read_on_both_sides():
     md = CONSUMER_SUMMARY.format(credits="500.00", atm="30.00", other="70.00", ending="1,400.00") + """
 Deposits and other additions Date Description Amount
-01/03/26 Transfer from a counterparty 500.00
+01/03/54 Transfer from a counterparty 500.00
 Total deposits and other additions $500.00
 Withdrawals and other subtractions
 ATM and debit card subtractions
 Date Description Amount
-01/04/26 PURCHASE 0104 A STORE -30.00
+01/04/54 PURCHASE 0104 A STORE -30.00
 Total ATM and debit card subtractions -$30.00
 Other subtractions
 Date Description Amount
-01/05/26 Zelle payment to a counterparty -70.00
+01/05/54 Zelle payment to a counterparty -70.00
 Total other subtractions -$70.00
 """
     stmt = parse_bofa_statement(md)
@@ -348,7 +348,7 @@ def test_f7_a_scanned_column_header_does_not_hide_the_section():
 Withdrawals and other debits
 Date __Description 2.0.2.2 AMO
 Card account # XXXX XXXX XXXX 4906
-01/06/26 PURCHASE 0106 A STORE -55.40
+01/06/54 PURCHASE 0106 A STORE -55.40
 Subtotal for card account # XXXX XXXX XXXX 4906 -$55.40
 Total withdrawals and other debits -55.40
 """)
@@ -365,14 +365,14 @@ Total withdrawals and other debits -55.40
 def test_f8_a_section_continues_across_a_page_break():
     md = business(credits="30.00", credits_n=2, ending="1,030.00", body="""
 Deposits and other credits Date Description Amount
-01/05/26 Deposit one 10.00
+01/05/54 Deposit one 10.00
 continued on the next page
 Page 3 of 4
 
 --- Page 4 ---
 
-A COMPANY LLC   !   Account # 1111 2222 3333   !   January 1, 2026 to January 31, 2026
-Deposits and other credits - continued Date Description Amount 01/06/26 Deposit two 20.00
+A COMPANY LLC   !   Account # 1111 2222 3333   !   January 1, 2054 to January 31, 2054
+Deposits and other credits - continued Date Description Amount 01/06/54 Deposit two 20.00
 Total deposits and other credits $30.00
 """)
     stmt = parse_bofa_statement(md)
@@ -384,7 +384,7 @@ Total deposits and other credits $30.00
 def test_f8_negative_the_daily_ledger_series_is_never_activity():
     md = business(credits="10.00", credits_n=1, ending="1,010.00", body="""
 Deposits and other credits Date Description Amount
-01/05/26 Deposit one 10.00
+01/05/54 Deposit one 10.00
 Total deposits and other credits $10.00
 Daily ledger balances Date Balance ($) Date Balance($) Date Balance ($)
 01/01 1,000.00 01/05 1,010.00 01/31 1,010.00
@@ -398,14 +398,14 @@ Daily ledger balances Date Balance ($) Date Balance($) Date Balance ($)
 def test_f8_negative_the_page_header_line_never_joins_a_description():
     md = business(debits="500.00", debits_n=1, ending="500.00", body="""
 Withdrawals and other debits Date Description Amount
-01/09/26 A ROW WHOSE AMOUNT WRAPPED
+01/09/54 A ROW WHOSE AMOUNT WRAPPED
 -500.00
 continued on the next page
 Page 3 of 4
 
 --- Page 4 ---
 
-A COMPANY LLC   !   Account # 1111 2222 3333   !   January 1, 2026 to January 31, 2026
+A COMPANY LLC   !   Account # 1111 2222 3333   !   January 1, 2054 to January 31, 2054
 Total withdrawals and other debits -$500.00
 """)
     stmt = parse_bofa_statement(md)
@@ -423,7 +423,7 @@ def test_a_waived_fee_of_zero_is_still_an_outflow_row():
     md = business(fees="0.00", body="""
 Service fees
 Date Transaction description Amount
-01/09/26 Prfd Rwds for Bus-Wire Fee Waiver of $30 -0.00
+01/09/54 Prfd Rwds for Bus-Wire Fee Waiver of $30 -0.00
 Total service fees -$0.00
 """)
     stmt = parse_bofa_statement(md)
@@ -441,23 +441,23 @@ def test_every_section_together_reconciles_against_the_printed_summary():
         credits="1,000.00", debits="600.00", checks="300.00", fees="25.00",
         credits_n=2, debits_n=3, ending="1,075.00", body="""
 Deposits and other credits Date Description Amount
-01/03/26 WIRE TYPE:WIRE IN DATE: 260103 PMT DET:BOH OF 26/01/03 /CATPURP/CTRC
+01/03/54 WIRE TYPE:WIRE IN DATE: 260103 PMT DET:BOH OF 26/01/31 /CATPURP/CTRC
 900.00
-01/04/26 Total Quality Lo DES:PAYMENTS ID:7858 100.00
+01/04/54 Total Quality Lo DES:PAYMENTS ID:7858 100.00
 Total deposits and other credits $1,000.00
 Withdrawals and other debits Date Description Amount
 Card account # XXXX XXXX XXXX 4300
-01/05/26 PURCHASE 0105 ONE -200.00
-01/06/26 PURCHASE 0106 TWO -300.00
-01/07/26 Temporary Credit Reversal on 01/06/26 -100.00
+01/05/54 PURCHASE 0105 ONE -200.00
+01/06/54 PURCHASE 0106 TWO -300.00
+01/07/54 Temporary Credit Reversal on 01/06/54 -100.00
 Subtotal for card account # XXXX XXXX XXXX 4300 -$600.00 Total withdrawals and other debits -$600.00
 Checks
 Date Check # Amount
-01/08/26 -300.00
+01/08/54 -300.00
 Total checks -$300.00 Total # of checks 1
 Service fees
 Date Transaction description Amount
-01/09/26 Wire Transfer Fee -25.00
+01/09/54 Wire Transfer Fee -25.00
 Total service fees -$25.00
 """)
     stmt = repair_bofa_summary(md, parse_bofa_statement(md))
@@ -487,20 +487,20 @@ CHEQUES_FOLDED = dict(
     credits="1,000.00", debits="500.00", checks="350.00", fees="25.00",
     credits_n=1, debits_n=5, ending="1,125.00", body="""
 Deposits and other credits Date Description Amount
-01/03/26 Incoming wire 1,000.00
+01/03/54 Incoming wire 1,000.00
 Total deposits and other credits $1,000.00
 Withdrawals and other debits Date Description Amount
-01/05/26 PURCHASE 0105 ONE -200.00
-01/06/26 PURCHASE 0106 TWO -300.00
+01/05/54 PURCHASE 0105 ONE -200.00
+01/06/54 PURCHASE 0106 TWO -300.00
 Total withdrawals and other debits -$500.00
 Checks
 Date Check # Amount Date Check # Amount
-01/08/26 1301 -150.00 01/09/26 1302 -200.00
+01/08/54 1301 -150.00 01/09/54 1302 -200.00
 Total checks -$350.00
 Total # of checks 2
 Service fees
 Date Transaction description Amount
-01/10/26 Wire Transfer Fee -25.00
+01/10/54 Wire Transfer Fee -25.00
 Total service fees -$25.00
 """)
 
@@ -517,38 +517,38 @@ def _table_summary_document(*, debits_n: int, credits_n: int) -> str:
 bankofamerica.com
 Bank of America, N.A.
 Your Business Advantage Fundamentals Banking
-for January 1, 2026 to January 31, 2026 Account number: 1111 2222 3333
+for January 1, 2054 to January 31, 2054 Account number: 1111 2222 3333
 Account summary
 <table>
-<tr><td>Beginning balance on January 1, 2026</td><td>$1,000.00</td><td># of deposits/credits: {credits_n}</td></tr>
+<tr><td>Beginning balance on January 1, 2054</td><td>$1,000.00</td><td># of deposits/credits: {credits_n}</td></tr>
 <tr><td>Deposits and other credits</td><td>1,000.00</td><td># of withdrawals/debits: {debits_n}</td></tr>
 <tr><td>Withdrawals and other debits</td><td>-500.00</td><td># of days in cycle: 31</td></tr>
 <tr><td>Checks</td><td>-350.00</td><td></td></tr>
 <tr><td>Service fees</td><td>-25.00</td><td></td></tr>
-<tr><td>Ending balance on January 31, 2026</td><td>$1,125.00</td><td></td></tr>
+<tr><td>Ending balance on January 31, 2054</td><td>$1,125.00</td><td></td></tr>
 </table>
 Your checking account
 Deposits and other credits
 <table>
 <tr><td>Date</td><td>Description</td><td>Amount</td></tr>
-<tr><td>01/03/26</td><td>Incoming wire</td><td>1,000.00</td></tr>
+<tr><td>01/03/54</td><td>Incoming wire</td><td>1,000.00</td></tr>
 <tr><td>Total deposits and other credits</td><td>$1,000.00</td></tr>
 </table>
 Withdrawals and other debits
 <table>
 <tr><td>Date</td><td>Description</td><td>Amount</td></tr>
-<tr><td>01/05/26</td><td>PURCHASE ONE</td><td>-200.00</td></tr>
-<tr><td>01/06/26</td><td>PURCHASE TWO</td><td>-300.00</td></tr>
+<tr><td>01/05/54</td><td>PURCHASE ONE</td><td>-200.00</td></tr>
+<tr><td>01/06/54</td><td>PURCHASE TWO</td><td>-300.00</td></tr>
 <tr><td>Total withdrawals and other debits</td><td>-$500.00</td></tr>
 </table>
 Checks
 Date Check # Amount Date Check # Amount
-01/08/26 1301 -150.00 01/09/26 1302 -200.00
+01/08/54 1301 -150.00 01/09/54 1302 -200.00
 Total checks -$350.00
 Total # of checks 2
 Service fees
 Date Transaction description Amount
-01/10/26 Wire Transfer Fee -25.00
+01/10/54 Wire Transfer Fee -25.00
 Total service fees -$25.00
 """
 
@@ -606,11 +606,11 @@ def test_f9_a_statement_with_no_cheques_is_untouched():
     md = business(credits="1,000.00", debits="500.00", credits_n=1, debits_n=2,
                   ending="1,500.00", body="""
 Deposits and other credits Date Description Amount
-01/03/26 Incoming wire 1,000.00
+01/03/54 Incoming wire 1,000.00
 Total deposits and other credits $1,000.00
 Withdrawals and other debits Date Description Amount
-01/05/26 PURCHASE 0105 ONE -200.00
-01/06/26 PURCHASE 0106 TWO -300.00
+01/05/54 PURCHASE 0105 ONE -200.00
+01/06/54 PURCHASE 0106 TWO -300.00
 Total withdrawals and other debits -$500.00
 """)
     stmt = repair_bofa_summary(md, parse_bofa_statement(md))
@@ -627,13 +627,13 @@ def test_f9_the_consumer_layout_prints_no_debit_count_and_none_is_invented():
     md = CONSUMER_SUMMARY.format(credits="1,000.00", atm="200.00",
                                  other="300.00", ending="1,500.00") + """
 Deposits and other additions Date Description Amount
-01/03/26 Incoming wire 1,000.00
+01/03/54 Incoming wire 1,000.00
 Total deposits and other additions $1,000.00
 ATM and debit card subtractions Date Description Amount
-01/05/26 CHECKCARD 0105 ONE -200.00
+01/05/54 CHECKCARD 0105 ONE -200.00
 Total ATM and debit card subtractions -$200.00
 Other subtractions Date Description Amount
-01/06/26 Service charge -300.00
+01/06/54 Service charge -300.00
 Total other subtractions -$300.00
 """
     stmt = repair_bofa_summary(md, parse_bofa_statement(md))
@@ -651,12 +651,12 @@ def test_f9_negative_the_repair_no_longer_reads_the_printed_cheque_count():
     md = business(credits="1,000.00", checks="900.00", credits_n=1, debits_n=3,
                   ending="1,100.00", body="""
 Deposits and other credits Date Description Amount
-01/03/26 Incoming wire 1,000.00
+01/03/54 Incoming wire 1,000.00
 Total deposits and other credits $1,000.00
 Checks
 Date Check # Amount Date Check # Amount
-01/08/26 1401 -300.00 01/09/26 1402 -300.00
-01/10/26 1403 -300.00
+01/08/54 1401 -300.00 01/09/54 1402 -300.00
+01/10/54 1403 -300.00
 Total checks -$900.00
 Total # of checks 3
 """)

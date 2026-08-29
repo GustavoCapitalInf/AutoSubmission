@@ -25,7 +25,7 @@ from analysis.scanned_small_bank import (
     parse_southside_scanned_statement,
 )
 
-PERIOD = ("2026-04-01", "2026-04-30")
+PERIOD = ("2054-04-01", "2054-04-30")
 
 MASTHEAD = (
     "<B SOUTHSIDE STATEMENT OF ACCOUNT\n"
@@ -39,7 +39,7 @@ MASTHEAD = (
 SUMMARY = (
     "ACCOUNT SUMMARY\n"
     "Smart Business\n"
-    "Account Number 1234567 Statement Dates 4/01/26 thru 4/30/26\n"
+    "Account Number 1234567 Statement Dates 4/01/54 thru 4/30/54\n"
     "Previous Balance 1,000.00 Days in Statement Period 30\n"
     "2 Deposits/Credits 800.00\n"
     "3 Checks/Debits 500.00\n"
@@ -122,11 +122,11 @@ def test_the_whole_statement_reads_and_its_ledger_reproduces_the_printed_grid():
     assert stmt.beginning_balance == 1000.00
     assert stmt.ending_balance == 1300.00
     assert amounts(stmt) == [
-        ("2026-04-01", 500.00),
-        ("2026-04-02", -200.00),
-        ("2026-04-03", -100.00),
-        ("2026-04-10", -200.00),
-        ("2026-04-15", 300.00),
+        ("2054-04-01", 500.00),
+        ("2054-04-02", -200.00),
+        ("2054-04-03", -100.00),
+        ("2054-04-10", -200.00),
+        ("2054-04-15", 300.00),
     ]
     # The bank's own printed daily grid, walked from the beginning balance.
     walked, carry = {}, stmt.beginning_balance
@@ -134,11 +134,11 @@ def test_the_whole_statement_reads_and_its_ledger_reproduces_the_printed_grid():
         carry = round(carry + txn.amount, 2)
         walked[txn.date] = carry
     assert walked == {
-        "2026-04-01": 1500.00,
-        "2026-04-02": 1300.00,
-        "2026-04-03": 1200.00,
-        "2026-04-10": 1000.00,
-        "2026-04-15": 1300.00,
+        "2054-04-01": 1500.00,
+        "2054-04-02": 1300.00,
+        "2054-04-03": 1200.00,
+        "2054-04-10": 1000.00,
+        "2054-04-15": 1300.00,
     }
 
 
@@ -335,7 +335,7 @@ def test_a_row_whose_decimal_point_became_a_comma_still_reads():
                         "4/02 ONLINE PMT UTILITY CO CCD 200,00")
     )
     assert stmt is not None
-    assert ("2026-04-02", -200.00) in amounts(stmt)
+    assert ("2054-04-02", -200.00) in amounts(stmt)
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +350,7 @@ def test_a_one_page_statement_keeps_its_withdrawals():
     stmt = parse_southside_scanned_statement(whole())
     assert stmt is not None
     assert [t.date for t in stmt.transactions if t.amount == -200.00 and "ONLINE" in t.description] \
-        == ["2026-04-02"]
+        == ["2054-04-02"]
 
 
 def test_a_daily_balance_cell_is_never_published_as_a_withdrawal():
@@ -374,7 +374,7 @@ def test_a_grid_that_continues_across_a_sheet_break_keeps_its_later_rows():
     )
     stmt = parse_southside_scanned_statement(paged)
     assert stmt is not None
-    assert ("2026-04-15", 300.00) in amounts(stmt)
+    assert ("2054-04-15", 300.00) in amounts(stmt)
 
 
 def test_a_heading_the_scan_mangled_around_its_words_still_bounds_its_grid():
@@ -425,13 +425,13 @@ def test_two_anchors_merged_onto_one_line_do_not_crash_the_reader():
 
 
 def test_a_period_cell_shaped_like_a_date_but_not_one_refuses():
-    """`5/41/26` has the shape of a date and is not one. The conversion RAISES
+    """`5/41/54` has the shape of a date and is not one. The conversion RAISES
     on it, and a parser that raises is a parser crash: the document becomes an
     exception class in the telemetry instead of a decline with a reason. The
     widened summary reader routes four more archive documents through that
     conversion than the reader it replaced."""
-    for broken in ("5/41/26", "13/01/26", "4/00/26"):
-        maimed = whole().replace("thru 4/30/26", f"thru {broken}")
+    for broken in ("5/41/54", "13/01/54", "4/00/54"):
+        maimed = whole().replace("thru 4/30/54", f"thru {broken}")
         assert _southside_summary(maimed) is None, broken
         assert parse_southside_scanned_statement(maimed) is None, broken
 
@@ -449,7 +449,7 @@ def test_the_cheque_image_sheets_end_the_grid_above_them():
         with_images = whole() + f"--- Page 2 ---\n{marker}\n4/22 999999 9,999.99\n"
         grids = _southside_grids(with_images)
         assert "9,999.99" not in "".join(grids.values()), marker
-        assert "2026-04-22" not in _southside_posted_days(grids["daily"], PERIOD), marker
+        assert "2054-04-22" not in _southside_posted_days(grids["daily"], PERIOD), marker
         stmt = parse_southside_scanned_statement(with_images)
         assert stmt is not None, marker
         assert all(abs(t.amount) != 9999.99 for t in stmt.transactions), marker
@@ -461,8 +461,8 @@ def test_the_cheque_image_sheets_end_the_grid_above_them():
 
 
 def test_a_clean_cell_reads_as_itself():
-    assert _southside_day("4/17", PERIOD) == "2026-04-17"
-    assert _southside_day("4/01", PERIOD) == "2026-04-01"
+    assert _southside_day("4/17", PERIOD) == "2054-04-17"
+    assert _southside_day("4/01", PERIOD) == "2054-04-01"
 
 
 def test_a_cell_outside_the_printed_period_is_not_a_date():
@@ -491,11 +491,11 @@ def test_a_cell_that_is_not_all_digits_is_not_a_date_cell():
 
 
 def test_a_lost_solidus_reads_only_when_exactly_one_reading_is_possible():
-    assert _southside_day("413", PERIOD) == "2026-04-13"
-    assert _southside_day("0413", ("2026-04-01", "2026-04-30")) == "2026-04-13"
+    assert _southside_day("413", PERIOD) == "2054-04-13"
+    assert _southside_day("0413", ("2054-04-01", "2054-04-30")) == "2054-04-13"
     # `1130` inside a period spanning the new year is `1/13` in the later year
     # and `11/30` in the earlier one at once.
-    across = ("2025-11-01", "2026-01-31")
+    across = ("2053-11-01", "2054-01-31")
     assert _southside_day("1130", across) is None
 
 
@@ -504,17 +504,17 @@ def test_the_year_comes_from_the_period_and_from_both_ends_of_it():
     month, so both ends agree and the second offer changes nothing — but a
     period the scan damaged into spanning a new year would otherwise drop
     every row on the far side of it without saying so."""
-    across = ("2025-12-15", "2026-01-14")
-    assert _southside_day("12/20", across) == "2025-12-20"
-    assert _southside_day("1/05", across) == "2026-01-05"
+    across = ("2053-12-15", "2054-01-14")
+    assert _southside_day("12/20", across) == "2053-12-20"
+    assert _southside_day("1/05", across) == "2054-01-05"
     assert _southside_day("2/05", across) is None
 
 
 def test_a_solidus_resolved_as_a_digit_is_admitted_only_for_one_and_seven():
     """`4101` is `4/01` and `4724` is `4/24`; those are the glyphs a solidus is
     confused with. `4801` is not offered that reading."""
-    assert _southside_day("4101", PERIOD) == "2026-04-01"
-    assert _southside_day("4724", PERIOD) == "2026-04-24"
+    assert _southside_day("4101", PERIOD) == "2054-04-01"
+    assert _southside_day("4724", PERIOD) == "2054-04-24"
     assert _southside_day("4801", PERIOD) is None
 
 
@@ -523,10 +523,10 @@ def test_a_reconstructed_day_must_be_a_day_the_printed_grid_names():
     a day it does not name is a day nothing posted on. That is the
     corroboration a damaged cell needs and a clean one does not."""
     posted = _southside_posted_days(DAILY, PERIOD)
-    assert posted == {"2026-04-01", "2026-04-02", "2026-04-03",
-                      "2026-04-10", "2026-04-15"}
+    assert posted == {"2054-04-01", "2054-04-02", "2054-04-03",
+                      "2054-04-10", "2054-04-15"}
     assert _southside_row_date(["413"], PERIOD, posted) is None
-    assert _southside_row_date(["410"], PERIOD, posted) == ("2026-04-10", 1)
+    assert _southside_row_date(["410"], PERIOD, posted) == ("2054-04-10", 1)
 
 
 def test_a_clean_cell_beats_stray_margin_ink_that_reads_as_a_date():
@@ -535,7 +535,7 @@ def test_a_clean_cell_beats_stray_margin_ink_that_reads_as_a_date():
     first, wherever on the line it stands."""
     posted = _southside_posted_days(DAILY, PERIOD)
     assert _southside_row_date(["410", "4/02", "PAYMENT"], PERIOD, posted) \
-        == ("2026-04-02", 2)
+        == ("2054-04-02", 2)
 
 
 def test_a_row_whose_date_cell_cannot_be_read_is_dropped_not_dated():
@@ -562,7 +562,7 @@ def test_margin_ink_before_the_date_is_not_a_memorised_list():
                             f"{junk} 4/01 Regular Deposit 500.00")
         )
         assert stmt is not None, junk
-        assert ("2026-04-01", 500.00) in amounts(stmt), junk
+        assert ("2054-04-01", 500.00) in amounts(stmt), junk
 
 
 def test_a_row_with_no_description_left_is_dropped():
@@ -570,7 +570,7 @@ def test_a_row_with_no_description_left_is_dropped():
         whole().replace("4/02 ONLINE PMT UTILITY CO CCD 200.00", "4/02 200.00")
     )
     assert stmt is not None
-    assert all(t.date != "2026-04-02" for t in stmt.transactions)
+    assert all(t.date != "2054-04-02" for t in stmt.transactions)
 
 
 def test_the_column_header_is_not_read_as_a_row():
@@ -590,7 +590,7 @@ def test_the_cheque_grid_reads_several_cheques_to_a_printed_line():
     cheques = sorted(
         (t.date, t.amount) for t in stmt.transactions if t.description.startswith("Check ")
     )
-    assert cheques == [("2026-04-03", -100.00), ("2026-04-10", -200.00)]
+    assert cheques == [("2054-04-03", -100.00), ("2054-04-10", -200.00)]
 
 
 def test_a_cheque_whose_date_cell_was_reconstructed_needs_the_printed_grid():
@@ -600,7 +600,7 @@ def test_a_cheque_whose_date_cell_was_reconstructed_needs_the_printed_grid():
     reconstructed = whole().replace("4/03 1001 100.00", "403 1001 100.00")
     stmt = parse_southside_scanned_statement(reconstructed)
     assert stmt is not None
-    assert ("2026-04-03", -100.00) in amounts(stmt)
+    assert ("2054-04-03", -100.00) in amounts(stmt)
 
     off_grid = whole().replace(
         "4/03 1001 100.00 4/10 1002 200.00", "413 1001 100.00 4/10 1002 200.00"
@@ -615,7 +615,7 @@ def test_the_out_of_sequence_asterisk_does_not_cost_the_row():
         whole().replace("4/03 1001 100.00", "4/03 1001* 100.00")
     )
     assert stmt is not None
-    assert ("2026-04-03", -100.00) in amounts(stmt)
+    assert ("2054-04-03", -100.00) in amounts(stmt)
 
 
 # ---------------------------------------------------------------------------
@@ -661,7 +661,7 @@ def test_an_amount_read_too_large_is_caught_by_the_printed_daily_grid():
     )
     notes = notes_for(inflated)
     assert len(notes) == 1
-    assert "2026-04-02" in notes[0]
+    assert "2054-04-02" in notes[0]
 
 
 def test_an_over_capture_of_ONE_CENT_is_caught_and_not_rounded_away():
@@ -676,7 +676,7 @@ def test_an_over_capture_of_ONE_CENT_is_caught_and_not_rounded_away():
     )
     notes = notes_for(inflated)
     assert len(notes) == 1
-    assert "2026-04-02" in notes[0]
+    assert "2054-04-02" in notes[0]
 
 
 def test_the_walk_is_seeded_at_the_summarys_own_beginning_balance():
@@ -686,7 +686,7 @@ def test_the_walk_is_seeded_at_the_summarys_own_beginning_balance():
     inflated = whole().replace("4/01 Regular Deposit 500.00", "4/01 Regular Deposit 800.00")
     notes = notes_for(inflated)
     assert len(notes) == 1
-    assert "2026-04-01" in notes[0]
+    assert "2054-04-01" in notes[0]
 
 
 def test_a_span_covers_every_day_since_the_previous_printed_cell():
@@ -699,8 +699,8 @@ def test_a_span_covers_every_day_since_the_previous_printed_cell():
     )
     notes = notes_for(misdated)
     assert len(notes) == 2
-    assert any("2026-04-02" in note for note in notes)
-    assert any("2026-04-10" in note for note in notes)
+    assert any("2054-04-02" in note for note in notes)
+    assert any("2054-04-10" in note for note in notes)
 
 
 def test_a_day_the_grid_prints_twice_with_two_balances_is_not_an_oracle():
@@ -713,9 +713,9 @@ def test_a_day_the_grid_prints_twice_with_two_balances_is_not_an_oracle():
     )
     notes = notes_for(contradicted)
     assert len(notes) == 1
-    assert "2026-04-10" in notes[0] and "not readable" in notes[0]
+    assert "2054-04-10" in notes[0] and "not readable" in notes[0]
     grids = _southside_grids(contradicted)
-    assert "2026-04-10" in _southside_posted_days(grids["daily"], PERIOD)
+    assert "2054-04-10" in _southside_posted_days(grids["daily"], PERIOD)
 
 
 def test_the_grids_last_cell_is_held_against_the_printed_ending_balance():
@@ -750,7 +750,7 @@ def test_a_period_the_check_cannot_read_answers_nothing_rather_than_raising():
     """A check that raises is a document routed to review for no finding."""
     stmt = parse_southside_scanned_statement(whole())
     assert stmt is not None
-    for broken in ("4/31/26", "", "not-a-date"):
+    for broken in ("4/31/54", "", "not-a-date"):
         maimed = stmt.model_copy(update={"period_start": broken})
         assert daily_grid_amount_contradictions(whole(), maimed) == []
 
