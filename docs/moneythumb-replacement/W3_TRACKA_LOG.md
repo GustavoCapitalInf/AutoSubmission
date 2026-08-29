@@ -56017,7 +56017,7 @@ instruments under `tools/` and one test; neither instrument is reachable from an
 production tree (grep over `analysis`, `ocr`, `webapp`, `discovery`, `telemetry`,
 `benchmark`, `tests` and `corpus_gate.py`: 0 references).
 
-| `cohort_replay` at the closure tree `e23107e` | population | result | exit |
+| `cohort_replay` at the review-closure tip `f5b1ffb` | population | result | exit |
 |---|---:|---|---:|
 | `--group DECL:huntington --expect-identical` | 12 | 12 unchanged non-validated, 0 payload changed, 0 regressions | **0** |
 | `--parser huntington --expect-identical` | 38 | **preserved 38 / 38, payload identical 38**, 0 regressions | **0** |
@@ -56038,7 +56038,13 @@ reports; nothing in either is a mover. **Zero movement, archive-wide** — which
 empty production diff has to produce, and now does so by measurement rather than by
 argument.
 
-## HUNT9.9 The proof floor at the closure tree, the commits, and the contract line
+## HUNT9.9 The proof floor at the review-closure tip, the commits, and the contract line
+
+**Which tree these exit codes belong to** (review MINOR-3: the first record said `e23107e`,
+which was three docs-only commits behind its own tip). Every proof below was re-run at
+`f5b1ffb`, the tip after the last review-closure change. The only commits after it edit
+`docs/moneythumb-replacement/W3_TRACKA_LOG.md` and nothing else — check it with
+`git diff --name-only f5b1ffb..HEAD`.
 
 | proof | result |
 |---|---|
