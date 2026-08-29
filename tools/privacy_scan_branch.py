@@ -62,21 +62,46 @@ of them silences a bare account number). `--no-exclusions` reports the raw scan.
 ===================== ======================================================
 rule                   what it excludes, and why that is safe
 ===================== ======================================================
-``words_class``        class WORDS. Institution and template vocabulary:
-                       `DATE`, `AMOUNT`, `DEPOSIT`, an issuer's own name. An
-                       alphabetic token carries no figure and no identifier,
-                       and the census already names every institution. The
-                       standing exclusion applied at the batch-8 train.
+``words_class``        class WORDS, ALL OF IT. Institution and template
+                       vocabulary: `DATE`, `AMOUNT`, `DEPOSIT`, an
+                       issuer's own name. An alphabetic token carries no
+                       figure and no identifier, and the census already
+                       names every institution. The standing exclusion
+                       applied at the batch-8 train.
+
+                       WHAT THAT COSTS, SAID PLAINLY: `tokens_of` builds
+                       two-word sequences on purpose -- a name whose
+                       halves are each ordinary -- and this rule then
+                       discards every WORDS hit, so THE TREE IS UNAUDITED
+                       FOR CUSTOMER NAMES BY CONSTRUCTION. A holder name
+                       in tracked source would not be reported by this
+                       instrument. The card's definition of done is
+                       scoped to MONEY / DIGITS / DATES, so the scope is
+                       correct, but the identity paragraph it cites says
+                       'not a balance, an amount, A NAME, an account
+                       number, a date' -- and names are the half no scan
+                       here has ever looked at. That is a card, and it
+                       has to be written knowing this.
 ``corpus_cache``       any path under ``tests/corpus_cache/``. That directory
                        IS cached archive text, committed on purpose so the
                        pinned corpus runs offline; scanning it re-finds the
                        archive in the archive. The standing exclusion applied
                        at the batch-8 train.
-``round_money``        a MONEY token ending ``.00``. A round figure is a
-                       magnitude, not a printed identity: `100.00` is the
-                       bound of a test's tolerance as readily as it is a
-                       deposit, and no document is reconstructed from one.
-                       The standing exclusion applied at the batch-8 train.
+``round_money``        a MONEY token ending ``.00``, WHATEVER ITS
+                       MAGNITUDE. This is the program's widest standing
+                       exclusion and the one whose justification has to
+                       be stated honestly: `100.00` is the bound of a
+                       test's tolerance as readily as it is a deposit,
+                       and a small round figure reconstructs nothing --
+                       but the rule does not stop at small. Measured
+                       over the whole tree it also excuses thousands of
+                       four-figure and hundreds of five-figure round
+                       amounts, and a five-figure round deposit beside a
+                       date and an institution is not a tolerance bound.
+                       The class is excused because the program CHOSE to
+                       accept it wholesale at the batch-8 train, not
+                       because it cannot identify. Narrowing it is not
+                       this card's to do; misdescribing it would be.
 ``subunit_money``      a MONEY token whose integer part is a bare ``0``
                        (``0.01``..``0.99``). Cent and sub-unit CODE CONSTANTS
                        — a reconciliation tolerance, a rate floor. A
