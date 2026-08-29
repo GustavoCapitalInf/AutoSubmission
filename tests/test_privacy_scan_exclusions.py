@@ -333,6 +333,25 @@ def test_the_box_marker_does_not_reach_out_of_its_clause(token: str, line: str) 
     assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
 
 
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        # The gap between the abbreviation and the code is SHORT and DIGIT-FREE,
+        # and it has to stay both even when the address furniture is present:
+        # an address prints its code next to its state, and anything reached
+        # across a phrase or across another number is not that code.
+        ("84213", "OZARK, AR ACCOUNT NO 84213"),
+        ("84213", "OZARK, AR 1 84213"),
+        ("84213", "PO BOX 1962 OZARK AR ACCOUNT NO 84213"),
+        ("84213", "P. O. BOX 1962, SEATTLE WA 95959-9750 MEMBER ID 84213"),
+    ],
+)
+def test_the_gap_stays_short_and_digit_free_inside_the_address_shapes(
+    token: str, line: str
+) -> None:
+    assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
+
+
 def test_a_bare_city_state_code_with_no_furniture_is_reported_not_hidden() -> None:
     """The narrowing's own cost, pinned. `CITY ST 99999` with no comma, no box
     and no ZIP+4 is indistinguishable from `AUTH OK 84213` by shape alone, so
