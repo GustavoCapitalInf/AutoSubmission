@@ -63,8 +63,8 @@ to Gustavo's ruling R3.
 | 16 | canonical conformance 1,270 | **1,270 passed, 40 skipped** | **0** | reproduces |
 | 17 | suite 7,254 passed | **7,254 passed, 43 skipped, 34 deselected, 0 failed**, 4 min 16 s. The two failures inherited through the previous cards are gone | **0** | reproduces |
 | 18 | gate GREEN 105 / 3 / 1, 14 CAD / 94 USD | **RESULT: GREEN**, 105 PASS / 3 WITHHELD / 1 REFUSED, 109 pinned PDFs, 0 exclusions, 14 CAD / 94 USD | **0** | reproduces |
-| 19 | corpus-marked 30 | **30 passed**, 7,301 deselected, 26 min 58 s | **0** | reproduces | | |
-| 20 | mutation table 63/63 | **63 mutants / 63 killed / 0 survived**, run without `-x`, host clear, tree clean before and after; every claimed new mutant present — `M11g`–`M11j`, `S1`, `N1`, `N2`, the harness's own gate `H1`–`H4`, the shift tool's `Z1`–`Z16`, `D1`/`D2`, `L1`–`L4` | **0** | reproduces | | |
+| 19 | corpus-marked 30 | **30 passed**, 7,301 deselected, 26 min 58 s | **0** | reproduces |
+| 20 | mutation table 63/63 | **63 mutants / 63 killed / 0 survived**, run without `-x`, host clear, tree clean before and after; every claimed new mutant present — `M11g`–`M11j`, `S1`, `N1`, `N2`, the harness's own gate `H1`–`H4`, the shift tool's `Z1`–`Z16`, `D1`/`D2`, `L1`–`L4` | **0** | reproduces |
 | 21 | ownership | 88 files: `tests/` `tools/` `docs/` only, plus the two deleted root logs. `tests/test_huntington.py` **untouched**. `tests/test_privacy3_boundaries.py` **is** touched — permitted, because RAISE-PRIVACY-4 was composed at `a1f7f32` and is in the base; the edit is a pure +28 on canary fixtures that preserves the invalid month/day canaries | — | respected |
 | 22 | the deleted logs | 4 references remain at the tip and **every one is prose** (the card, `BATCH9_TRANSITION.md`, `§FIXPRIV`, my own earlier review). No tool, test, CI file or import reads either. Both blobs remain reachable at `d2ab046` | — | confirmed |
 
