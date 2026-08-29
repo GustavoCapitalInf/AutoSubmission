@@ -252,6 +252,33 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "    rf\"\\b(?:{_STATE})\\b{_ZIP_GAP}(\\d{{5}})\\s?-\\s?\\d{{4}}(?![\\d-])\"))",
     ),
     (
+        "S1", "scan", "TEXT_SUFFIXES",
+        "put the suffix list back where it was, so `.log`, `.shas` and `.ps1` "
+        "become tracked text no scan reads — a run log written by a tool that "
+        "printed document text, audited by nothing",
+        '    "py md txt json csv yml yaml toml cfg ini html js ts tsx jsx css sh bat "\n'
+        '    "gitignore in rst log shas ps1".split()',
+        '    "py md txt json csv yml yaml toml cfg ini html js ts tsx jsx css sh bat "\n'
+        '    "gitignore in rst".split()',
+    ),
+    (
+        "N1", "scan", "residue_class",
+        "answer None for every path, so the named residue class stops being "
+        "counted and the ruling loses its number",
+        "    for name, paths in NAMED_RESIDUE:\n"
+        "        if path in paths:\n"
+        "            return name\n"
+        "    return None",
+        "    return None",
+    ),
+    (
+        "N2", "scan", "docs_session_date x the named class",
+        "let the era rule reach into the truth CSVs, so a statement PERIOD "
+        "inside a counted class is silenced as the day a cell ran",
+        "        and residue_class(path) is None\n",
+        "",
+    ),
+    (
         "M12", "scan", "the table as a whole",
         "let a rule claim a hit before it is asked to, by excusing everything",
         "def excluded_by(cls: str, path: str, token: str, line: str) -> str | None:\n"

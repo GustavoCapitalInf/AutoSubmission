@@ -18,10 +18,13 @@ import pytest
 
 from tools.privacy_scan_branch import (
     EXCLUSIONS,
+    NAMED_RESIDUE,
     PROGRAM_ERA,
+    TEXT_SUFFIXES,
     _EXCLUSION_SAMPLES,
     added_lines_from_diff,
     excluded_by,
+    residue_class,
     self_check,
 )
 
@@ -563,3 +566,75 @@ def test_the_diff_reader_counts_no_removed_line_and_no_newline_marker() -> None:
         "\\ No newline at end of file\n"
     )
     assert added_lines_from_diff(diff) == [("tests/t.py", 3, "KEPT")]
+
+
+# --------------------------------------------------------------------------
+# What the scanner reads at all, and what it counts apart.
+#
+# A suffix list is a claim about what is worth reading, and a file the list
+# forgets is audited by nothing. A NAMED residue class is the opposite of an
+# exclusion: it is residue that is counted apart so a ruling can be written
+# about it, and it must never be silenced by a rule.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("suffix", ["log", "shas", "ps1"])
+def test_the_tracked_text_the_scanner_had_never_read_is_read_now(suffix: str) -> None:
+    """`.log`, `.shas` and `.ps1` are tracked TEXT and were outside the list.
+
+    One of them is a run log written by a tool that printed document text, and
+    nothing had ever looked at it. This is the first review's item 6.
+    """
+    assert suffix in TEXT_SUFFIXES
+
+
+def test_the_suffix_list_still_declines_the_corpus_documents() -> None:
+    """The list is about TEXT. A PDF is evidence, not source."""
+    assert "pdf" not in TEXT_SUFFIXES
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for _name, paths in NAMED_RESIDUE for path in paths],
+)
+def test_a_named_residue_class_is_counted_and_never_excused(path: str) -> None:
+    """Named is not excluded: every rule must still decline these paths.
+
+    The three files are per-statement audited expectations read as DATA by the
+    benchmark, so their contents ARE archive identity — real balances, real
+    account masks, real periods, one of them holding the last copy of the
+    account number the P0 card removed everywhere else. That needs a ruling,
+    and a ruling needs a number, so the sites stay residue and are counted
+    apart rather than silenced.
+    """
+    assert residue_class(path) is not None
+    # A statement figure, an account tail, a document date: all still reported.
+    assert excluded_by("MONEY", path, "818,181.81", "SHA,818,181.81,X") is None
+    assert excluded_by("DIGITS", path, "44556677", "SHA,44556677,X") is None
+    assert excluded_by("DATES", path, "2019-11-21", "SHA,2019-11-21,X") is None
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for _name, paths in NAMED_RESIDUE for path in paths],
+)
+def test_the_session_date_rule_does_not_reach_into_a_named_class(path: str) -> None:
+    """A date in a truth CSV is a statement period, not the day a cell ran.
+
+    Both are ISO and both are inside `docs/`, so the era rule would have taken
+    it — and it is the one boundary the re-review measured a live site on.
+    """
+    assert excluded_by("DATES", path, "2026-08-06", f"SHA,{path},2026-08-06") is None
+    # The same token in an ordinary record IS a session date.
+    assert excluded_by("DATES", "docs/x.md", "2026-08-06", "ON 2026-08-06") == "docs_session_date"
+
+
+def test_a_named_class_names_a_file_the_scanner_would_read() -> None:
+    for _name, paths in NAMED_RESIDUE:
+        for path in paths:
+            assert path.rsplit(".", 1)[-1].lower() in TEXT_SUFFIXES
+
+
+def test_residue_class_declines_an_ordinary_path() -> None:
+    assert residue_class("docs/moneythumb-replacement/census_batch9/per_sha.csv") is None
+    assert residue_class("tests/test_x.py") is None
+    assert residue_class("docs/adb-audit-results.csv.bak") is None

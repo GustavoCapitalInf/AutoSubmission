@@ -220,10 +220,54 @@ WORD_RE = re.compile(r"[A-Z]{4,}")
 
 #: Tracked text formats. Everything else in the tree is a PDF of the validated
 #: corpus, which is not source and cannot be what a branch added.
+#:
+#: `log`, `shas` and `ps1` were outside this set until FIXTURE-PRIVACY-2, which
+#: means the tree carried tracked text NO SCAN HAD EVER READ — including a
+#: 1,194-line run log written by a tool that prints document text. A suffix
+#: list is a claim about what is worth reading, and a file the list forgets is
+#: not audited by anything: the first review called this "the first item of the
+#: follow-up card" and it is closed here. The list is now every text format
+#: this tree actually tracks; `git ls-files` finds nothing outside it that is
+#: not a PDF.
 TEXT_SUFFIXES = frozenset(
     "py md txt json csv yml yaml toml cfg ini html js ts tsx jsx css sh bat "
-    "gitignore in rst".split()
+    "gitignore in rst log shas ps1".split()
 )
+
+#: NAMED RESIDUE CLASSES — NOT exclusions, and the distinction is the point.
+#: An exclusion says a shape cannot carry archive identity. A named class says
+#: the opposite: this residue IS archive identity, it is here on purpose, and
+#: it needs a RULING rather than a rule. Naming it costs nothing (the sites
+#: stay residue, the exit code still follows them) and buys the one thing the
+#: record has asked for three times: a number to put in front of the decision.
+#:
+#: `benchmark_truth_csv` — the three per-statement audited expectation files
+#: read as DATA by `benchmark/expectations.py`. They carry real balances,
+#: account masks and periods, one row per pinned document, and a class band is
+#: not a float, so redacting them breaks the benchmark. One of them also holds
+#: the last copy of the account number the P0 card was written to remove. That
+#: is ruling R3's, not a scanner's.
+NAMED_RESIDUE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("benchmark_truth_csv", (
+        "docs/adb-audit-results.csv",
+        "docs/balance-metrics-audit-results.csv",
+        "docs/new-statement-audit-results.csv",
+    )),
+)
+
+
+def residue_class(path: str) -> str | None:
+    """The named residue class this path belongs to, or None.
+
+    Deliberately NOT consulted by `excluded_by`: a named class is counted, not
+    silenced. A future ruling can move one of these into the exclusion table,
+    and that move should be a visible edit with a shape argument behind it —
+    never a side effect of a reporting convenience.
+    """
+    for name, paths in NAMED_RESIDUE:
+        if path in paths:
+            return name
+    return None
 
 _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -452,9 +496,19 @@ def _hex_sha_substring(cls: str, path: str, token: str, line: str) -> bool:
 
 
 def _docs_session_date(cls: str, path: str, token: str, line: str) -> bool:
+    """The program's own session dates, inside the program's own records.
+
+    A NAMED RESIDUE path is carved out, and the reason is not bookkeeping: the
+    named classes are files that hold DOCUMENT facts on purpose, one row per
+    pinned statement. A date in `docs/adb-audit-results.csv` is a statement
+    period, not the day a cell ran, and the two only share a shape. Counting a
+    class and then letting an exclusion silence part of it would make the count
+    a lie — and the reviewer measured exactly one site living on that boundary.
+    """
     return (
         cls == "DATES"
         and path.startswith("docs/")
+        and residue_class(path) is None
         and ISO_DATE_RE.match(token) is not None
         and token >= PROGRAM_ERA
     )
@@ -499,6 +553,8 @@ _EXCLUSION_SAMPLES = (
     ("hex_sha_substring", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
     ("hex_sha_substring", "DIGITS", "a.py", "70000000011", "RUN 70000000011", False),
     ("docs_session_date", "DATES", "docs/x.md", "2026-08-29", "ON 2026-08-29", True),
+    ("docs_session_date", "DATES", "docs/adb-audit-results.csv", "2026-08-29",
+     "SHA,2026-08-29,2026-08-29", False),
     ("docs_session_date", "DATES", "docs/x.md", "2019-11-21", "ON 2019-11-21", False),
     ("docs_session_date", "DATES", "docs/x.md", "2001-02-03", "ON 2001-02-03", False),
     ("docs_session_date", "DATES", "tests/x.py", "2026-08-29", "ON 2026-08-29", False),
@@ -558,6 +614,14 @@ def self_check() -> None:
     for name in named:
         if not any(sample[0] == name for sample in _EXCLUSION_SAMPLES):
             raise SystemExit(f"exclusion {name!r} carries no sample; refusing to run")
+    for name, paths in NAMED_RESIDUE:
+        if not paths:
+            raise SystemExit(f"named residue class {name!r} names no path; refusing to run")
+        for path in paths:
+            if residue_class(path) != name:
+                raise SystemExit(f"named residue class {name!r} does not claim {path!r}")
+            if path.rsplit(".", 1)[-1].lower() not in TEXT_SUFFIXES:
+                raise SystemExit(f"named residue class {name!r} names {path!r}, which is never scanned")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -823,6 +887,11 @@ def main(argv: list[str] | None = None) -> int:
     for cls, path, _number, _token in site_keys:
         top = path.split("/", 1)[0] if "/" in path else "(root)"
         by_class_dir[f"{cls} {top}"] = by_class_dir.get(f"{cls} {top}", 0) + 1
+    by_named_class: dict[str, int] = {name: 0 for name, _paths in NAMED_RESIDUE}
+    for _cls, path, _number, _token in site_keys:
+        named = residue_class(path)
+        if named is not None:
+            by_named_class[named] += 1
 
     report = {
         "population": len(shas),
@@ -840,6 +909,9 @@ def main(argv: list[str] | None = None) -> int:
         "residue_sites": len(site_keys),
         "residue_files": len({path for _cls, path, _n, _t in site_keys}),
         "residue_by_class_dir": dict(sorted(by_class_dir.items())),
+        # Counted, named and STILL RESIDUE: these sites are inside
+        # `residue_sites` above, not subtracted from it.
+        "residue_by_named_class": dict(sorted(by_named_class.items())),
         "base": args.base,
         "ref": args.ref,
     }
