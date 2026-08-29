@@ -248,8 +248,10 @@ _HEADING_LINE = re.compile(
 _GRID_HEADING = re.compile(
     r"(?im)^" + _H + r"*(?P<name>Daily Balance Detail|Daily Balance|Ledger Balance)"
     + _CONTINUED + _H + r"*$")
-#: A grid cell: `04/01 1,000.00`, or `04/03 10,488.47-` — the ladder prints a
-#: negative balance with a TRAILING minus.
+#: A grid cell: a day and its end-of-day balance, `04/01 1,000.00`. An
+#: overdrawn day is printed with a TRAILING minus, `04/03 1,000.00-`, which is
+#: the reason this pattern captures the sign separately instead of letting the
+#: money grammar decide.
 _GRID_CELL = re.compile(r"(\d{2}/\d{2})\s+(\d[\d,]*\.\d{2}|\.\d{2})(-?)")
 #: A line that closes whatever block stands above it without opening a section:
 #: the service-detail appendix, the page break, and the statement footer.
