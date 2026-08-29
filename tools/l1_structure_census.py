@@ -168,6 +168,21 @@ NO_ACTIVITY = re.compile(
     # ... and, spelled the other way the platform spells it,
     r"|\bno transactions\b|\bno posting\b", re.I)
 
+#: A member's LOAN or credit facility, as a roll-up enumerates it. Furniture:
+#: the words a core processor prints for the facility class, never an
+#: institution's product name. `analysis/symitar.py` 13-45 states the rule this
+#: measures — a member's loan facilities print under a different grid and are
+#: not deposit ledgers — and the packet's condition list never mentioned it
+#: (MAJOR-6).
+LOAN_ROW = re.compile(
+    r"\b(?:loans?|lines? of credit|mortgages?|heloc|home equity"
+    r"|credit cards?|instal?lments?|overdraft protection)\b", re.I)
+
+#: The deposit product a candidate Option-B primary rule would name (MINOR-3):
+#: the transaction account a member spends from. Furniture, and used ONLY to
+#: measure whether such a rule is even defined on this population.
+SPENDING_SHARE = re.compile(r"\b(?:checking|chequing|draft|spending)\b", re.I)
+
 #: A section heading reprinted at a page break. It carries no grid and must not
 #: be mistaken for a second account.
 CONTINUATION = re.compile(r"\(continued\)|\bcontinued (?:on|to) next page\b", re.I)
@@ -235,6 +250,9 @@ class RollUpRow:
     #: this account's closing figure is stated here (the partition ORACLE).
     #: Never emitted.
     block: str = ""
+    #: the RAW label named a loan or credit facility. Tested before the
+    #: furniture trim, which removes the very words that name one (MAJOR-6).
+    loan: bool = False
 
 
 @dataclass
@@ -247,6 +265,8 @@ class RollUp:
     window_end: int = -1
     #: absolute offset of the end of the LAST enumerated row
     rows_end: int = -1
+    #: rows naming a loan or credit facility, counted before the furniture trim
+    loan_labels: int = 0
 
     @property
     def identity_form(self) -> str | None:
@@ -330,15 +350,24 @@ def _money_blocks(line: str) -> list[tuple[str, str]]:
     return out
 
 
-def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int]:
+def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int, int]:
     """Rows of the enumerating table, read by money block (see `_money_blocks`).
 
-    Returns the rows, whether a cross-account total row closed the table, and
-    the offset in `window` at which the last row ended."""
+    Returns the rows, whether a cross-account total row closed the table, the
+    offset in `window` at which the last row ended, and how many of the table's
+    rows name a LOAN or credit facility (MAJOR-6).
+
+    The loan count is taken from the RAW label and BEFORE the row is admitted,
+    for two reasons that both bite: `_clean_label` trims a label at the last
+    piece of table furniture and the words that name a facility ARE furniture,
+    so a row reading only of a facility class is trimmed to nothing and then
+    dropped for having no name left. Counting after either step measures zero
+    and means nothing."""
     rows: list[RollUpRow] = []
     total = False
     rows_end = 0
     offset = 0
+    loans = 0
     for raw in window.splitlines():
         line = _flat(raw).strip()
         line_at = window.find(raw, offset)
@@ -346,6 +375,8 @@ def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int]:
         if not line:
             continue
         for label, block in _money_blocks(line):
+            if LOAN_ROW.search(label):
+                loans += 1
             if TOTAL_ROLLUP.search(label):
                 total = True
                 continue
@@ -355,9 +386,10 @@ def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int]:
             classified = _classify_label(label.strip()) or _classify_label(head)
             kind, token = classified if classified else ("product_name_only", head)
             rows.append(RollUpRow(label=head[:80], identity_form=kind, token=token,
-                                  n_money=len(MONEY.findall(block)), block=block))
+                                  n_money=len(MONEY.findall(block)), block=block,
+                                  loan=bool(LOAN_ROW.search(label))))
             rows_end = max(rows_end, offset)
-    return rows, total, rows_end
+    return rows, total, rows_end, loans
 
 
 def find_rollup(text: str) -> RollUp:
@@ -388,7 +420,7 @@ def find_rollup(text: str) -> RollUp:
             result.header = name
             break
 
-    result.rows, result.total_row, rows_end = _rollup_candidate_rows(window)
+    result.rows, result.total_row, rows_end, result.loan_labels = _rollup_candidate_rows(window)
     result.rows_end = result.caption_at + rows_end
     result.total_row = result.total_row or bool(TOTAL_ROLLUP.search(window))
     return result
@@ -468,6 +500,8 @@ class Section:
     has_daily: bool = False
     no_activity: bool = False
     n_dated_rows: int = 0
+    #: the section's own heading names a transaction account (MINOR-3)
+    heading_names_a_spending_share: bool = False
 
 
 @dataclass
@@ -484,6 +518,8 @@ class DocStructure:
     total_row: bool
     boundary: str
     notes: list[str] = field(default_factory=list)
+    #: enumerated rows that name a loan or credit facility (MAJOR-6)
+    loan_rows: int = 0
 
     @property
     def boundary_class(self) -> str:
@@ -512,6 +548,21 @@ DATED_ROW = re.compile(
     r"(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
     r"|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}\b)"
     r"[^\n]{0,240}?-?\$?\d[\d,]*\.\d{2}")
+
+
+def _heading_line(text: str, start: int, end: int) -> str:
+    """A section's heading window — the line it opens on, from that line's own
+    start, plus a bounded run after it.
+
+    Read from the START of the line rather than from the section offset,
+    because a roll-up-located section starts at the identity TOKEN, which these
+    layouts print after the product designation, not before it. Matched for
+    shape and never emitted."""
+    line_start = text.rfind(chr(10), 0, start) + 1
+    stop = text.find(chr(10), start)
+    if stop < 0 or stop > end:
+        stop = min(start + 160, end)
+    return text[line_start:max(stop, min(start + 160, end))]
 
 
 def _section_facts(section_text: str) -> tuple[str | None, bool, str | None, bool, bool, int]:
@@ -706,8 +757,10 @@ def structure(sha16: str, group: str, band: str, markdown: str, pages: int) -> D
     for position, (start, index) in enumerate(starts):
         end = starts[position + 1][0] if position + 1 < len(starts) else len(text)
         equation, counts, grid, daily, none_flag, rows = _section_facts(text[start:end])
+        heading = _heading_line(text, start, end)
         sections.append(Section(index, start, end, equation, counts, grid,
-                                daily, none_flag, rows))
+                                daily, none_flag, rows,
+                                bool(SPENDING_SHARE.search(heading))))
 
     grid = find_grid_header(text)
     equations = Counter(s.has_equation for s in sections if s.has_equation)
@@ -717,6 +770,7 @@ def structure(sha16: str, group: str, band: str, markdown: str, pages: int) -> D
         equation_form=equations.most_common(1)[0][0] if equations else None,
         daily_sections=sum(1 for s in sections if s.has_daily),
         total_row=rollup.total_row, boundary=boundary, notes=notes,
+        loan_rows=max(rollup.loan_labels, sum(1 for r in rollup.rows if r.loan)),
     )
 
 
@@ -998,6 +1052,72 @@ def main(argv: list[str] | None = None) -> int:
         multi_post = sum(1 for d in members
                          if sum(1 for s in d.sections if s.n_dated_rows >= 2) >= 2)
         print(f"| {band} | {len(members)} | {loc} | {multi_post} |")
+    print()
+
+    print("## Loan and credit facilities the roll-up enumerates (MAJOR-6)")
+    print()
+    print("`analysis/symitar.py` 13-45 states the rule: a member's loan "
+          "facilities print under a different grid and are not deposit "
+          "ledgers. The packet's ten fail-closed conditions never mention "
+          "them, and its cross-account-total condition cannot be satisfied on "
+          "a table whose total includes one.")
+    print()
+    loans = [d for d in docs if d.loan_rows]
+    loans_multi = [d for d in loans
+                   if sum(1 for s in d.sections if s.n_dated_rows >= 2) >= 2]
+    print("| measure | documents |")
+    print("|---|---:|")
+    print(f"| documents whose enumerating table names a loan or credit facility | "
+          f"**{len(loans)}**|")
+    print(f"| ... of them with two or more posting sections | {len(loans_multi)} |")
+    print(f"| ... of them ALSO printing a cross-account total row | "
+          f"{sum(1 for d in loans if d.total_row)} |")
+    print(f"| documents printing a cross-account total row at all | "
+          f"{sum(1 for d in docs if d.total_row)} |")
+    print()
+
+    print("## Option B, measured rather than argued (MINOR-3)")
+    print()
+    print("Each candidate PRIMARY rule, over the documents with two or more "
+          "posting sections. A rule is UNDEFINED where the printed evidence it "
+          "needs is absent and AMBIGUOUS where two sections satisfy it.")
+    print()
+    multi_post = [d for d in docs
+                  if sum(1 for s in d.sections if s.n_dated_rows >= 2) >= 2]
+    no_table = [d for d in multi_post if len(d.rollup.rows) < 2]
+    spend = {id(d): [s for s in d.sections
+                     if s.n_dated_rows >= 2 and s.heading_names_a_spending_share]
+             for d in multi_post}
+    print("| candidate rule | documents |")
+    print("|---|---:|")
+    print(f"| the multi-posting population | {len(multi_post)} |")
+    print(f"| \"the section the table names first\" — UNDEFINED, no enumerating table | "
+          f"{len(no_table)} |")
+    print(f"| \"the only transaction share\" — UNDEFINED, no such heading | "
+          f"{sum(1 for d in multi_post if not spend[id(d)])} |")
+    print(f"| \"the only transaction share\" — AMBIGUOUS, two or more of them post | "
+          f"{sum(1 for d in multi_post if len(spend[id(d)]) >= 2)} |")
+    print(f"| \"the only transaction share\" — decides the document | "
+          f"{sum(1 for d in multi_post if len(spend[id(d)]) == 1)} |")
+    print(f"| the table prints a cross-account TOTAL (the platform ranking them alike) | "
+          f"{sum(1 for d in multi_post if d.total_row)} |")
+    rollup_multi = [d for d in multi_post if d.boundary_class == "rollup-oracle"]
+    print(f"| identity is `product_name_only` on a multi-posting table document | "
+          f"{sum(1 for d in rollup_multi if d.rollup.identity_form == 'product_name_only')}"
+          f" of {len(rollup_multi)} |")
+    print()
+    print("| the fail-closed condition on identity (packet condition 2) | documents |")
+    print("|---|---:|")
+    def _section_tokens(d: DocStructure) -> list[str]:
+        return [d.rollup.rows[s.identity_index].token
+                for s in d.sections
+                if d.boundary_class == "rollup-oracle"
+                and 0 <= s.identity_index < len(d.rollup.rows)]
+
+    print(f"| two LOCATED sections resolving to the same identity token | "
+          f"{sum(1 for d in docs if len(set(_section_tokens(d))) < len(_section_tokens(d)))} |")
+    print(f"| the enumerating table itself printing the same token twice | "
+          f"{sum(1 for d in docs if len(d.rollup.rows) >= 2 and len({r.token for r in d.rollup.rows}) < len(d.rollup.rows))} |")
     print()
 
     if args.json:
