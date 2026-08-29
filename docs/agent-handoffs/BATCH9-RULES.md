@@ -41,6 +41,31 @@ a regression** (`+10 / -2` is NOT ACCEPTABLE). No statement-specific hardcodes. 
 $0 vendor: no paid OCR, no VLM, no rented GPU, no ensemble, no hosted model call anywhere
 (tests included).
 
+## Checkpoint rulings (Gustavo, 2026-08-29 — binding; BATCH9_TRANSITION §8 is the record)
+- **Official batch-9 coverage stays at 2,596** until a movement cell has passed closure,
+  hostile re-review, composition and non-regression proof. A cell reports CANDIDATE numbers.
+- **GL3 (category_partition's per-day-oracle refusal) is reversed** as a refinement of the
+  doctrine — conditional on the date-rule BLOCK's closure and re-review; correctness over the
+  count; the five pinned GLANCE documents and the protected GLANCE cohort preserved.
+- **L-1 — the independent-account architecture proceeds** under these conditions: an idle
+  sibling is admitted ONLY when explicit statement structure establishes the sibling AND its
+  empty / silent state (absence of parsed activity alone is insufficient); each account
+  reconstructs and validates independently by the unchanged validator; NO document-level
+  combined ADB; inter-account transfers stay in each account's ledger and are identified as
+  INTERNAL for package analytics (no double-counting); no arbitrary or memorised account
+  selection; explicit currency evidence outranks defaults. Design first (`L1-ARCH-DESIGN`),
+  reviewed, then implementation slices; `analysis/consumers.py:90` (a memorised
+  product-name + account-number selector on a pinned document) is a CORRECTNESS hardcode
+  and the first pinned test case — Consumers is not widened before it (`CONS-HARDCODE`).
+- **Huntington's 3-document repair-doctrine exception is REFUSED**: never synthesise a dated
+  debit from an undated bank-stated fee total. The rule generalises: a parser never writes
+  an amount or a date the paper did not print.
+- **WELCH** stays under the general DESC-COLUMNS / printed-row rung (`DESC-ROTATION`); no
+  statement-specific fix anywhere, ever.
+- **Privacy**: the 414 inherited production residue sites are CLASSIFIED before any is
+  rewritten (`PROD-RESIDUE-CLASSIFY`); record redaction stays refused where it would destroy
+  benchmark / provenance evidence; fixture / truth / name work continues in its own cards.
+
 ## Instruments (committed — use them, do not rebuild them)
 - **Targeted-cohort proof:** `python -m tools.cohort_replay --group <cluster_group|cluster>
   | --parser <registration id> | --family <b8 key> | --folder <label> | --shas <file>
