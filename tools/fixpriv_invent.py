@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROOT))
 
 from tools.privacy_scan_branch import (  # noqa: E402
     cached_text,
+    excluded_by,
     population,
     self_check,
     tokens_of,
@@ -62,9 +63,60 @@ def universe(args: argparse.Namespace) -> tuple[dict[str, set[str]], int]:
     return printed, read
 
 
-def classify(token: str, digit_min: int, word_min: int) -> list[str]:
+def generated(token: str, digit_min: int, word_min: int) -> dict[str, set[str]]:
+    """Every token of every class the candidate TEXT would put in the tree.
+
+    Not the candidate itself: writing `139196.33` into a file also writes the
+    digit run `139196`, which the scanner reads as a DIGITS token in its own
+    right. The first version of this tool asked only whether the candidate was
+    in the MONEY universe, called sixteen colliding figures CLEAR, and the
+    whole-tree scan is what caught it.
+    """
     found = tokens_of(token, digit_min, word_min)
-    return sorted(cls for cls, values in found.items() if token.upper() in values)
+    return {cls: values for cls, values in found.items() if cls != "WORDS" and values}
+
+
+def collisions(token: str, printed: dict[str, set[str]], digit_min: int, word_min: int
+               ) -> list[tuple[str, str]]:
+    """(class, token) for everything the candidate generates that would be RESIDUE.
+
+    A generated token the committed exclusion table already excuses — a round
+    `.00` figure, a sub-unit constant — is not a finding however loudly it
+    collides, so it is not one here either; otherwise `0.00` alone makes every
+    scale impossible, which is what the first scale search reported.
+    """
+    return sorted(
+        (cls, value)
+        for cls, values in generated(token, digit_min, word_min).items()
+        for value in values
+        if value in printed.get(cls, ())
+        and excluded_by(cls, "tests/invented.py", value, value) is None
+    )
+
+
+def scale_search(originals: list[str], printed: dict[str, set[str]],
+                 digit_min: int, word_min: int, limit: int) -> int | None:
+    """The smallest whole-number CENT scale under which nothing collides.
+
+    A whole-number scale on integer cents is exact, so every sum, chain and
+    total an invented fixture is built on still closes after it — which is why
+    a fixture can be moved away from the archive without being re-derived.
+    """
+    cents = []
+    for token in originals:
+        digits = token.replace(",", "").replace(".", "")
+        if not digits.isdigit():
+            return None
+        cents.append(int(digits))
+    for scale in range(2, limit + 1):
+        for value in cents:
+            product = value * scale
+            candidate = f"{product // 100}.{product % 100:02d}"
+            if collisions(candidate, printed, digit_min, word_min):
+                break
+        else:
+            return scale
+    return None
 
 
 def proposals(kind: str, count: int, printed: dict[str, set[str]]) -> list[str]:
@@ -76,14 +128,14 @@ def proposals(kind: str, count: int, printed: dict[str, set[str]]) -> list[str]:
         cents = 777_777_77
         while len(out) < count and cents < 999_999_99 * 9:
             value = f"{cents // 100:,}.{cents % 100:02d}"
-            if value not in printed["MONEY"] and value.replace(",", "") not in printed["MONEY"]:
+            if not collisions(value, printed, 5, 4) and not collisions(value.replace(",", ""), printed, 5, 4):
                 out.append(value)
             cents += 1_010_101
     elif kind == "digits":
         seed = 7_000_000_001
         while len(out) < count and seed < 9_999_999_999:
             value = str(seed)
-            if value not in printed["DIGITS"]:
+            if not collisions(value, printed, 5, 4):
                 out.append(value)
             seed += 1_010_101
     elif kind == "dates":
@@ -91,7 +143,7 @@ def proposals(kind: str, count: int, printed: dict[str, set[str]]) -> list[str]:
             if len(out) >= count:
                 break
             value = f"{INVENTED_YEAR}-{month:02d}-{day:02d}"
-            if value not in printed["DATES"]:
+            if not collisions(value, printed, 5, 4):
                 out.append(value)
     else:
         raise SystemExit(f"unknown class for --propose: {kind!r} (money, digits, dates)")
@@ -110,6 +162,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidates", type=Path, default=None)
     parser.add_argument("--propose", action="append", default=[],
                         help="<money|digits|dates>:<n> — n non-colliding tokens of that class")
+    parser.add_argument("--scale-search", type=Path, default=None,
+                        help="a file of INVENTED money tokens: report the smallest whole-number "
+                             "cent scale under which none of them, nor any digit run they "
+                             "generate, collides")
+    parser.add_argument("--scale-limit", type=int, default=100000)
     parser.add_argument("--digit-min", type=int, default=5)
     parser.add_argument("--word-min", type=int, default=4)
     args = parser.parse_args(argv)
@@ -128,17 +185,30 @@ def main(argv: list[str] | None = None) -> int:
           + " · ".join(f"{c} {len(printed[c])}" for c in ("MONEY", "DIGITS", "DATES")))
     worst = 0
     for token in candidates:
-        classes = classify(token, args.digit_min, args.word_min)
-        if not classes:
+        makes = generated(token, args.digit_min, args.word_min)
+        if not makes:
             print(f"NOT-A-TOKEN {token!r}: no class of the scan would ever look at it")
             worst = max(worst, 2)
             continue
-        hit = [cls for cls in classes if token.upper() in printed.get(cls, ())]
+        hit = collisions(token, printed, args.digit_min, args.word_min)
+        shape = "/".join(f"{cls}:{len(v)}" for cls, v in sorted(makes.items()))
         if hit:
-            print(f"COLLIDES   {token!r} as {'/'.join(hit)}")
+            print(f"COLLIDES   {token!r} — " + ", ".join(f"{c} {v}" for c, v in hit))
             worst = max(worst, 1)
         else:
-            print(f"CLEAR      {token!r} as {'/'.join(classes)}")
+            print(f"CLEAR      {token!r} generates {shape}")
+    if args.scale_search is not None:
+        originals = [line.split("#", 1)[0].strip()
+                     for line in args.scale_search.read_text(encoding="utf-8").splitlines()
+                     if line.split("#", 1)[0].strip()]
+        found = scale_search(originals, printed, args.digit_min, args.word_min, args.scale_limit)
+        if found is None:
+            print(f"NO-SCALE   no whole-number scale up to {args.scale_limit} clears "
+                  f"all {len(originals)} figures")
+            worst = max(worst, 1)
+        else:
+            print(f"SCALE      {found} clears all {len(originals)} figures and every digit "
+                  f"run they generate")
     for spec in args.propose:
         kind, _, count = spec.partition(":")
         for value in proposals(kind.strip().lower(), int(count or 5), printed):

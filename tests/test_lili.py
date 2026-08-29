@@ -8,25 +8,35 @@ members' out-of-period blocks is reproduced — the out-of-period rows below are
 invented too. `tools/lili_privacy_scan.py` is the measurement behind that
 paragraph rather than the paragraph being the assurance.
 
-INVENTED IS NOT THE SAME AS DISTINCT, which batch 9 measured and this file was
-the example of. Against the whole 3,351-document universe rather than this
-family alone, the archive prints 354,835 distinct money figures with cents, so
-a small "obviously made up" amount collides with SOMETHING about a third of the
-time: 12 of these figures did, and so did the `111111111` authorization code.
-Every figure below is therefore the original invented one with its CENT VALUE
-multiplied by 1013 — a whole-number scale, so all three closures below hold
-exactly as they did — and every scaled figure and every id is verified against
-the universe by `tools/fixpriv_invent.py`. The multiplier is applied to figures
-that were invented in the first place; an archive figure is never scaled or
-shifted, because that would be reversible.
+INVENTED IS NOT THE SAME AS DISTINCT, and this file is where batch 9 measured
+the difference. The original figures were invented against this family's 20
+documents; against the WHOLE 3,351-document archive, which prints 354,835
+distinct money figures with cents and 208,695 distinct digit runs, twelve of
+them collided with something some document prints, and so did one of the
+repeated-digit authorization codes. Nothing about the fixture said so and
+nobody could see it.
+
+Every figure here is now the original invented figure with its CENT VALUE
+multiplied by 428. A whole-number scale on integer cents is exact, so all
+three closures below hold to the cent exactly as they did, and no figure had
+to be re-derived. 428 is not a taste: `tools/fixpriv_invent.py --scale-search`
+reports it as the smallest whole-number scale under which neither any scaled
+figure NOR ANY DIGIT RUN IT GENERATES appears anywhere in the archive — the
+digit run matters, because writing a six-figure amount into a file writes a
+six-digit run with it, and the first attempt at this repair (scale 1013)
+cleared every figure and introduced sixteen colliding runs.
+
+The scale is applied only to figures that were invented in the first place. An
+archive figure is never scaled or shifted anywhere: a scale is reversible, and
+a reversible redaction is not one.
 
 The base document is arithmetically closed three ways, so that a mutant can
 only break it:
 
-    beginning 139196.33 + deposits 519294.19 - withdrawals 312196.47 - fees 13442.51
-        == ending 332851.54                        (the printed summary closes)
-    139196.33 -> -173000.14 -> 346294.05 -> 332851.54       (the printed chain walks)
-    rows: gross debits 325638.98 == 312196.47 + 13442.51 (rows == the two debit terms)
+    beginning 58811.48 + deposits 219405.64 - withdrawals 131905.32 - fees 5679.56
+        == ending 140632.24                        (the printed summary closes)
+    58811.48 -> -73093.84 -> 146311.80 -> 140632.24       (the printed chain walks)
+    rows: gross debits 137584.88 == 131905.32 + 5679.56 (rows == the two debit terms)
 """
 from __future__ import annotations
 
@@ -44,18 +54,18 @@ HEADER = (
 )
 SUMMARY = (
     "Checking Account Summary Total Checking Amount\n"
-    "Beginning balance on 1 September, 2027 $139196.33\n"
-    "Deposits and other credits $519294.19\n"
-    "Withdrawals and other debits $-312196.47\n"
-    "Fees $-13442.51\n"
-    "Ending balance on 30 September, 2027 $332851.54\n"
+    "Beginning balance on 1 September, 2027 $58811.48\n"
+    "Deposits and other credits $219405.64\n"
+    "Withdrawals and other debits $-131905.32\n"
+    "Fees $-5679.56\n"
+    "Ending balance on 30 September, 2027 $140632.24\n"
 )
 LEDGER = (
     "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-312196.47 $-173000.14\n"
-    "09/17/2027 700000002 A MOVEMENT IN $519294.19 $346294.05\n"
-    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-13442.51 $332851.54\n"
+    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84\n"
+    "09/17/2027 700000002 A MOVEMENT IN $219405.64 $146311.80\n"
+    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-5679.56 $140632.24\n"
 )
 #: The only furniture detection needs, and the only furniture reproduced: the
 #: platform's own support address.
@@ -72,16 +82,16 @@ SKIN_A_TWO_ACCOUNTS = (
     + "Checking Account Summary Checking Account\n"
     "Sibling\n"
     "Total\n"
-    "Beginning balance on 1 September, 2027 $139196.33 $41624.17 $180820.50\n"
-    "Deposits and other credits $519294.19 $25152.79 $544446.98\n"
-    "Withdrawals and other debits $-312196.47 $-34188.75 $-346385.22\n"
-    "Fees $-13442.51 $0.00 $-13442.51\n"
-    "Ending balance on 30 September, 2027 $332851.54 $32588.21 $365439.75\n"
+    "Beginning balance on 1 September, 2027 $58811.48 $17586.52 $76398.00\n"
+    "Deposits and other credits $219405.64 $10627.24 $230032.88\n"
+    "Withdrawals and other debits $-131905.32 $-14445.00 $-146350.32\n"
+    "Fees $-5679.56 $0.00 $-5679.56\n"
+    "Ending balance on 30 September, 2027 $140632.24 $13768.76 $154401.00\n"
     + LEDGER
     + "Sibling Account Activity\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/10/2027 700000004 A SIBLING TOPUP $25152.79 $66776.96\n"
-    "09/11/2027 700000005 A SIBLING DRAWDOWN $-34188.75 $32588.21\n"
+    "09/10/2027 700000004 A SIBLING TOPUP $10627.24 $28213.76\n"
+    "09/11/2027 700000005 A SIBLING DRAWDOWN $-14445.00 $13768.76\n"
     + CONTACT
 )
 
@@ -92,11 +102,11 @@ SKIN_A_THREE_COLUMNS_ONE_LEDGER = (
     + "Checking Account Summary Checking Account\n"
     "Sibling\n"
     "Total\n"
-    "Beginning balance on 1 September, 2027 $139196.33 $41624.17 $180820.50\n"
-    "Deposits and other credits $519294.19 $25152.79 $544446.98\n"
-    "Withdrawals and other debits $-312196.47 $-34188.75 $-346385.22\n"
-    "Fees $-13442.51 $0.00 $-13442.51\n"
-    "Ending balance on 30 September, 2027 $332851.54 $32588.21 $365439.75\n"
+    "Beginning balance on 1 September, 2027 $58811.48 $17586.52 $76398.00\n"
+    "Deposits and other credits $219405.64 $10627.24 $230032.88\n"
+    "Withdrawals and other debits $-131905.32 $-14445.00 $-146350.32\n"
+    "Fees $-5679.56 $0.00 $-5679.56\n"
+    "Ending balance on 30 September, 2027 $140632.24 $13768.76 $154401.00\n"
     + LEDGER + CONTACT
 )
 
@@ -109,11 +119,11 @@ SKIN_A_THREE_COLUMNS_IDLE_SIBLING = (
     + "Checking Account Summary Checking Account\n"
     "Sibling\n"
     "Total\n"
-    "Beginning balance on 1 September, 2027 $139196.33 $0.00 $139196.33\n"
-    "Deposits and other credits $519294.19 $0.00 $519294.19\n"
-    "Withdrawals and other debits $-312196.47 $0.00 $-312196.47\n"
-    "Fees $-13442.51 $0.00 $-13442.51\n"
-    "Ending balance on 30 September, 2027 $332851.54 $0.00 $332851.54\n"
+    "Beginning balance on 1 September, 2027 $58811.48 $0.00 $58811.48\n"
+    "Deposits and other credits $219405.64 $0.00 $219405.64\n"
+    "Withdrawals and other debits $-131905.32 $0.00 $-131905.32\n"
+    "Fees $-5679.56 $0.00 $-5679.56\n"
+    "Ending balance on 30 September, 2027 $140632.24 $0.00 $140632.24\n"
     + LEDGER + CONTACT
 )
 
@@ -132,15 +142,15 @@ SKIN_A_SECOND_LEDGER_HEAD = (
 SKIN_A_WITHDRAWALS_PRINTED_POSITIVE = (
     HEADER
     + "Checking Account Summary Total Checking Amount\n"
-    "Beginning balance on 1 September, 2027 $139196.33\n"
-    "Deposits and other credits $519294.19\n"
-    "Withdrawals and other debits $58976.86\n"
-    "Fees $-366635.09\n"
-    "Ending balance on 30 September, 2027 $350832.29\n"
+    "Beginning balance on 1 September, 2027 $58811.48\n"
+    "Deposits and other credits $219405.64\n"
+    "Withdrawals and other debits $24918.16\n"
+    "Fees $-154906.04\n"
+    "Ending balance on 30 September, 2027 $148229.24\n"
     "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-307658.23 $-168461.90\n"
-    "09/17/2027 700000002 A MOVEMENT IN $519294.19 $350832.29\n"
+    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-129987.88 $-71176.40\n"
+    "09/17/2027 700000002 A MOVEMENT IN $219405.64 $148229.24\n"
     + CONTACT
 )
 
@@ -148,15 +158,15 @@ SKIN_A_WITHDRAWALS_PRINTED_POSITIVE = (
 SKIN_A_FEES_PRINTED_POSITIVE = (
     HEADER
     + "Checking Account Summary Total Checking Amount\n"
-    "Beginning balance on 1 September, 2027 $139196.33\n"
-    "Deposits and other credits $519294.19\n"
-    "Withdrawals and other debits $-312196.47\n"
-    "Fees $13442.51\n"
-    "Ending balance on 30 September, 2027 $359736.56\n"
+    "Beginning balance on 1 September, 2027 $58811.48\n"
+    "Deposits and other credits $219405.64\n"
+    "Withdrawals and other debits $-131905.32\n"
+    "Fees $5679.56\n"
+    "Ending balance on 30 September, 2027 $151991.36\n"
     "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-298753.96 $-159557.63\n"
-    "09/17/2027 700000002 A MOVEMENT IN $519294.19 $359736.56\n"
+    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-126225.76 $-67414.28\n"
+    "09/17/2027 700000002 A MOVEMENT IN $219405.64 $151991.36\n"
     + CONTACT
 )
 
@@ -167,11 +177,11 @@ SKIN_A_FEES_PRINTED_POSITIVE = (
 SKIN_A_OPENING_ANCHOR_BROKEN = (
     HEADER
     + "Checking Account Summary Total Checking Amount\n"
-    "Beginning balance on 1 September, 2027 $164399.77\n"
-    "Deposits and other credits $494090.75\n"
-    "Withdrawals and other debits $-312196.47\n"
-    "Fees $-13442.51\n"
-    "Ending balance on 30 September, 2027 $332851.54\n"
+    "Beginning balance on 1 September, 2027 $69460.12\n"
+    "Deposits and other credits $208757.00\n"
+    "Withdrawals and other debits $-131905.32\n"
+    "Fees $-5679.56\n"
+    "Ending balance on 30 September, 2027 $140632.24\n"
     + LEDGER + CONTACT
 )
 
@@ -184,10 +194,10 @@ SKIN_A_UNREADABLE_POSTING_THAT_NETS_TO_NOTHING = (
     HEADER + SUMMARY
     + "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-312196.47 $-173000.14\n"
-    "09/17/2027 700000002 A MOVEMENT IN $519294.19 $346294.05\n"
+    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84\n"
+    "09/17/2027 700000002 A MOVEMENT IN $219405.64 $146311.80\n"
     "09/22/2027 700000006 A HELD AUTHORISATION $0.00 $12345678901234.00\n"
-    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-13442.51 $332851.54\n"
+    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-5679.56 $140632.24\n"
     + CONTACT
 )
 
@@ -197,11 +207,11 @@ SKIN_A_UNREADABLE_POSTING_THAT_NETS_TO_NOTHING = (
 SKIN_A_LEDGER_HEAD_WITH_NO_ROWS = (
     HEADER
     + "Checking Account Summary Total Checking Amount\n"
-    "Beginning balance on 1 September, 2027 $139196.33\n"
+    "Beginning balance on 1 September, 2027 $58811.48\n"
     "Deposits and other credits $0.00\n"
     "Withdrawals and other debits $0.00\n"
     "Fees $0.00\n"
-    "Ending balance on 30 September, 2027 $139196.33\n"
+    "Ending balance on 30 September, 2027 $58811.48\n"
     "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
     + CONTACT
@@ -213,9 +223,9 @@ SKIN_A_FIGURES_INSIDE_A_DESCRIPTION = (
     HEADER + SUMMARY
     + "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-312196.47 $-173000.14\n"
-    "09/17/2027 700000002 A MOVEMENT IN REF $7222.69 $2441.33 $519294.19 $346294.05\n"
-    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-13442.51 $332851.54\n"
+    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84\n"
+    "09/17/2027 700000002 A MOVEMENT IN REF $3051.64 $1031.48 $219405.64 $146311.80\n"
+    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-5679.56 $140632.24\n"
     + CONTACT
 )
 
@@ -225,11 +235,11 @@ SKIN_A_POSTING_PAIR_THE_SUMMARY_NETS_OUT = (
     HEADER + SUMMARY
     + "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-312196.47 $-173000.14\n"
-    "09/05/2027 700000006 AN INFLOW $58105.68 $-114894.46\n"
-    "09/06/2027 700000007 ITS REVERSAL $-58105.68 $-173000.14\n"
-    "09/17/2027 700000002 A MOVEMENT IN $519294.19 $346294.05\n"
-    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-13442.51 $332851.54\n"
+    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84\n"
+    "09/05/2027 700000006 AN INFLOW $24550.08 $-48543.76\n"
+    "09/06/2027 700000007 ITS REVERSAL $-24550.08 $-73093.84\n"
+    "09/17/2027 700000002 A MOVEMENT IN $219405.64 $146311.80\n"
+    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-5679.56 $140632.24\n"
     + CONTACT
 )
 
@@ -242,11 +252,11 @@ SKIN_B_OUT_OF_PERIOD = (
     "Summary\n"
     "Amount\n"
     "Beginning balance on 01 September, 2027\n"
-    "$139196.33\n"
+    "$58811.48\n"
     "Deposits and other credits\n"
-    "$519294.19\n"
+    "$219405.64\n"
     "Withdrawals and other debits\n"
-    "$312196.47\n"
+    "$131905.32\n"
     "Fees\n"
     "$0.00 $0.00\n"
     "Activity\n"
@@ -256,15 +266,15 @@ SKIN_B_OUT_OF_PERIOD = (
     "A MERCHANT NOWHERE\n"
     "09/03/2027\n"
     "700000007\n"
-    "$-312196.47  $-173000.14\n"
+    "$-131905.32  $-73093.84\n"
     "QQ\n"
     "AN OLDER MERCHANT\n"
     "07/14/2019\n"
     "700000008\n"
-    "$-11203.78 $-184203.92\n"
+    "$-4733.68 $-77827.52\n"
     "RR\n"
     "Ending balance on      30 September, 2027\n"
-    "$332851.54\n"
+    "$140632.24\n"
     + CONTACT
 )
 
@@ -280,18 +290,18 @@ MID_MONTH_HEADER = (
 )
 MID_MONTH_SUMMARY = (
     "Checking Account Summary Total Checking Amount\n"
-    "Beginning balance on 15 September, 2027 $139196.33\n"
-    "Deposits and other credits $519294.19\n"
-    "Withdrawals and other debits $-312196.47\n"
-    "Fees $-13442.51\n"
-    "Ending balance on 14 October, 2027 $332851.54\n"
+    "Beginning balance on 15 September, 2027 $58811.48\n"
+    "Deposits and other credits $219405.64\n"
+    "Withdrawals and other debits $-131905.32\n"
+    "Fees $-5679.56\n"
+    "Ending balance on 14 October, 2027 $140632.24\n"
 )
 MID_MONTH_LEDGER = (
     "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/16/2027 700000001 A MERCHANT NOWHERE ZZUS $-312196.47 $-173000.14\n"
-    "09/17/2027 700000002 A MOVEMENT IN $519294.19 $346294.05\n"
-    "10/14/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-13442.51 $332851.54\n"
+    "09/16/2027 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84\n"
+    "09/17/2027 700000002 A MOVEMENT IN $219405.64 $146311.80\n"
+    "10/14/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-5679.56 $140632.24\n"
 )
 SKIN_A_MID_MONTH = MID_MONTH_HEADER + MID_MONTH_SUMMARY + MID_MONTH_LEDGER + CONTACT
 
@@ -304,10 +314,10 @@ SKIN_A_UNPARSED_LEDGER_LINE = (
     HEADER + SUMMARY
     + "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-312196.47 $-173000.14\n"
-    "09/17/2027 700000002 A MOVEMENT IN $519294.19 $346294.05\n"
-    "09/22/2027 A HOLD WITH NO CODE $0.00 $346294.05\n"
-    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-13442.51 $332851.54\n"
+    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84\n"
+    "09/17/2027 700000002 A MOVEMENT IN $219405.64 $146311.80\n"
+    "09/22/2027 A HOLD WITH NO CODE $0.00 $146311.80\n"
+    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-5679.56 $140632.24\n"
     + CONTACT
 )
 
@@ -318,9 +328,9 @@ SKIN_A_LEGITIMATE_OUT_OF_PERIOD_DATES = (
     HEADER + SUMMARY
     + "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
-    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-312196.47 $-173000.14\n"
-    "09/17/2027 700000002 A MOVEMENT IN REF 04/02/2026 $519294.19 $346294.05\n"
-    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 08/25/2027) $-13442.51 $332851.54\n"
+    "09/03/2027 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84\n"
+    "09/17/2027 700000002 A MOVEMENT IN REF 04/02/2026 $219405.64 $146311.80\n"
+    "09/30/2027 700000003 A PERIODIC LEVY (Applies From 08/25/2027) $-5679.56 $140632.24\n"
     "Statement printed 10/02/2027\n"
     "These terms were last revised 01/14/2019.\n"
     "Report an error no later than 11/29/2027.\n"
@@ -377,9 +387,9 @@ def test_the_clean_printing_publishes_its_summary_and_its_ledger():
     assert statement.period_start == "2027-09-01"
     assert statement.period_end == "2027-09-30"
     assert statement.days_in_period == 30
-    assert statement.beginning_balance == 139196.33
-    assert statement.ending_balance == 332851.54
-    assert statement.stated_total_credits == 519294.19
+    assert statement.beginning_balance == 58811.48
+    assert statement.ending_balance == 140632.24
+    assert statement.stated_total_credits == 219405.64
 
 
 def test_the_debit_total_excludes_the_fee_term_the_document_prints_separately():
@@ -387,8 +397,8 @@ def test_the_debit_total_excludes_the_fee_term_the_document_prints_separately():
     its `Fees` term — the rows prove it — so the two are published apart."""
     statement = parse_lili_statement(SKIN_A)
     assert statement is not None
-    assert statement.stated_total_debits == 312196.47
-    assert statement.stated_service_charge == 13442.51
+    assert statement.stated_total_debits == 131905.32
+    assert statement.stated_service_charge == 5679.56
     debited = round(sum(-t.amount for t in statement.transactions if t.amount < 0), 2)
     assert debited == round(
         statement.stated_total_debits + statement.stated_service_charge, 2
@@ -398,7 +408,7 @@ def test_the_debit_total_excludes_the_fee_term_the_document_prints_separately():
 def test_every_posting_carries_the_balance_the_document_printed_after_it():
     statement = parse_lili_statement(SKIN_A)
     assert statement is not None
-    assert [t.running_balance for t in statement.transactions] == [-173000.14, 346294.05, 332851.54]
+    assert [t.running_balance for t in statement.transactions] == [-73093.84, 146311.80, 140632.24]
     assert [t.direction for t in statement.transactions] == ["debit", "credit", "debit"]
     assert [t.date for t in statement.transactions] == [
         "2027-09-03", "2027-09-17", "2027-09-30",
@@ -426,10 +436,10 @@ def test_a_description_that_contains_figures_does_not_steal_the_amount_column():
     description behind it."""
     statement = parse_lili_statement(SKIN_A_FIGURES_INSIDE_A_DESCRIPTION)
     assert statement is not None
-    assert statement.transactions[1].amount == 519294.19
-    assert statement.transactions[1].running_balance == 346294.05
-    assert "$7222.69" in statement.transactions[1].description
-    assert "$2441.33" in statement.transactions[1].description
+    assert statement.transactions[1].amount == 219405.64
+    assert statement.transactions[1].running_balance == 146311.80
+    assert "$3051.64" in statement.transactions[1].description
+    assert "$1031.48" in statement.transactions[1].description
 
 
 # ---------------------------------------------------------------------------
@@ -607,7 +617,7 @@ def test_a_second_ledger_is_refused_even_when_the_summary_has_one_column():
 def test_a_ragged_summary_grid_is_refused():
     """Four terms in one column and one in three is not a grid."""
     assert parse_lili_statement(
-        _swap(SKIN_A, "Fees $-13442.51", "Fees $-13442.51 $0.00 $-13442.51")
+        _swap(SKIN_A, "Fees $-5679.56", "Fees $-5679.56 $0.00 $-5679.56")
     ) is None
 
 
@@ -664,11 +674,11 @@ def test_a_document_with_no_header_at_all_is_claimed_and_declined():
 @pytest.mark.parametrize(
     "term",
     [
-        "Beginning balance on 1 September, 2027 $139196.33\n",
-        "Deposits and other credits $519294.19\n",
-        "Withdrawals and other debits $-312196.47\n",
-        "Fees $-13442.51\n",
-        "Ending balance on 30 September, 2027 $332851.54\n",
+        "Beginning balance on 1 September, 2027 $58811.48\n",
+        "Deposits and other credits $219405.64\n",
+        "Withdrawals and other debits $-131905.32\n",
+        "Fees $-5679.56\n",
+        "Ending balance on 30 September, 2027 $140632.24\n",
     ],
 )
 def test_a_summary_missing_any_one_of_its_five_terms_is_refused(term):
@@ -677,7 +687,7 @@ def test_a_summary_missing_any_one_of_its_five_terms_is_refused(term):
 
 def test_a_summary_term_printed_twice_is_refused():
     assert parse_lili_statement(
-        _swap(SKIN_A, "Fees $-13442.51\n", "Fees $-13442.51\nFees $-13442.51\n")
+        _swap(SKIN_A, "Fees $-5679.56\n", "Fees $-5679.56\nFees $-5679.56\n")
     ) is None
 
 
@@ -685,11 +695,11 @@ def test_the_five_terms_must_appear_in_the_order_the_template_prints_them():
     scrambled = (
         HEADER
         + "Checking Account Summary Total Checking Amount\n"
-        "Deposits and other credits $519294.19\n"
-        "Beginning balance on 1 September, 2027 $139196.33\n"
-        "Withdrawals and other debits $-312196.47\n"
-        "Fees $-13442.51\n"
-        "Ending balance on 30 September, 2027 $332851.54\n"
+        "Deposits and other credits $219405.64\n"
+        "Beginning balance on 1 September, 2027 $58811.48\n"
+        "Withdrawals and other debits $-131905.32\n"
+        "Fees $-5679.56\n"
+        "Ending balance on 30 September, 2027 $140632.24\n"
         + LEDGER + CONTACT
     )
     assert parse_lili_statement(scrambled) is None
@@ -699,8 +709,8 @@ def test_a_term_whose_figure_is_on_the_next_line_is_refused():
     """The second printing's layout. A term pattern joined by `\\s` rather than
     by a same-line class would match across the break and read it."""
     assert parse_lili_statement(
-        _swap(SKIN_A, "Deposits and other credits $519294.19",
-              "Deposits and other credits\n$519294.19")
+        _swap(SKIN_A, "Deposits and other credits $219405.64",
+              "Deposits and other credits\n$219405.64")
     ) is None
 
 
@@ -725,14 +735,14 @@ def test_a_summary_that_does_not_close_on_itself_is_refused():
     """One archive member prints a Deposits figure its own ledger contradicts;
     this is the gate that refuses it."""
     assert parse_lili_statement(
-        _swap(SKIN_A, "Deposits and other credits $519294.19",
-              "Deposits and other credits $477143.26")
+        _swap(SKIN_A, "Deposits and other credits $219405.64",
+              "Deposits and other credits $201596.56")
     ) is None
 
 
 def test_a_broken_chain_refuses_the_document():
     assert parse_lili_statement(
-        _swap(SKIN_A, "$519294.19 $346294.05", "$519294.19 $347307.05")
+        _swap(SKIN_A, "$219405.64 $146311.80", "$219405.64 $146739.80")
     ) is None
 
 
@@ -748,14 +758,14 @@ def test_a_dropped_posting_refuses_the_document():
     """A row lost between two printed balances breaks the walk at the next
     row: this reader needs no stated count, and the template prints none."""
     assert parse_lili_statement(
-        _swap(SKIN_A, "09/17/2027 700000002 A MOVEMENT IN $519294.19 $346294.05\n", "")
+        _swap(SKIN_A, "09/17/2027 700000002 A MOVEMENT IN $219405.64 $146311.80\n", "")
     ) is None
 
 
 def test_a_chain_that_does_not_arrive_at_the_printed_ending_is_refused():
     assert parse_lili_statement(
         _swap(SKIN_A,
-              "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-13442.51 $332851.54\n",
+              "09/30/2027 700000003 A PERIODIC LEVY (Applies From 09/08/2027) $-5679.56 $140632.24\n",
               "")
     ) is None
 
@@ -771,7 +781,7 @@ def test_a_description_that_cleans_away_to_nothing_refuses_the_document():
     """A row whose description survives the cell cleaner as an empty string is
     a row this reader cannot describe, and a blank description is not one."""
     assert parse_lili_statement(
-        _swap(SKIN_A, "A MOVEMENT IN $519294.19", "<b> $519294.19")
+        _swap(SKIN_A, "A MOVEMENT IN $219405.64", "<b> $219405.64")
     ) is None
 
 
