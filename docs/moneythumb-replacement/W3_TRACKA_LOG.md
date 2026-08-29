@@ -58043,7 +58043,7 @@ The widening is to SHAPES, and each is shared:
 | the section heading that carries its own printed count and total | 4 commercial + 4 consumer |
 | the direction taken from the umbrella in force | 8 (the commercial index prints four categories on BOTH sides) |
 | the C0 control byte as a heading separator | 1 measured here — the TAB form, which the same fix would have covered, is printed by 4 more |
-| the printed index as an identity | 54 print one |
+| the printed index as an identity | **58 of 58** print one — the table alone 50, the restatement alone 4, both 4, neither 0 |
 | the printed ladder as an identity | 56 print a readable one |
 
 No statement-specific rule, no literal from any document, no registration added
@@ -58123,8 +58123,8 @@ say why the reading carries.
 | `tools/pnc_claim_delta.py` over all 3,380 archive documents | claimed then and now 45 · claimed now, unclaimed by EVERY reader then **13** · **taken from another reader, or dropped: 0** · no cached text 29 · untouched 3,293 | **0** |
 | branch privacy scan, ADDED FILE LINES vs the 58-document population | **hit_count 0** over 2,678 added lines and 58 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text). Not vacuous: the raw scan before exclusions finds **54**, every one class WORDS and every one ordinary English in this card's own prose | **0** |
 | branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 10 commits | **0** |
-| corpus-marked slice (`pytest -m corpus`) | **NOT RETURNED** — see below | — |
-| archive sweep (`tools.regfp_zero_movement_sweep`) | **NOT RETURNED** — see below | — |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,379 deselected** — see PNC9.11 | **0** |
+| archive sweep (`tools.regfp_zero_movement_sweep`) | whole 3,380: compared 2,669 · identical 2,624 · **0 movement outside the named population** — see PNC9.11 | — |
 
 **The two scan rows count this section too, and the zero is invariant to
 that.** The added-line count and the commit count are the branch's own at the
@@ -58162,14 +58162,13 @@ its own corpus gate and its own archive sweep, and the machine spent most of
 that time at about a quarter of one core with everything blocked on file I/O —
 the corpus gate that normally takes minutes took 745s of CPU across nearly two
 hours of wall clock. The corpus-marked slice and the archive sweep were both
-started at the tip and both were still running when this section was written;
-their logs are in this card's private scratch (`corpus_marked.log`,
-`sweep_a.log`, `sweep_b.log`) and they are the first thing to re-run when the
-host is quiet. What stands in the sweep's place is NOT nothing and is not an
+started at the tip and both were still running when this section was written.
+**Both have since completed and PNC9.11 carries their numbers**; the rows above
+are corrected and this paragraph is kept as the record of why they were late. What stands in the sweep's place is NOT nothing and is not an
 argument: `tools/pnc_claim_delta.py` asks the sweep's dispatch question over
 every one of the 3,380 documents and answers it — **no document moves to this
-reader from any other, and the 13 it newly claims are exactly the 13 this card
-names**. The half the sweep would add is payload comparison for documents this
+reader from any other, and the 13 it newly CLAIMS all lie inside the named 17**
+(they are not the same 13 as the newly VALIDATED — PNC9.11 gives both sets). The half the sweep would add is payload comparison for documents this
 reader never touches, and the reader is the only production file this branch
 changes.
 
@@ -58239,3 +58238,143 @@ taken from any other reader across the whole archive.
    both directions, on every document that prints them. The disclosure text
    deserves the same sentence `core_processor_enclosures` has — a one-line
    change in a file this card does not own.
+
+## PNC9.11 CLOSURE — the review's three MINORs, closed and re-measured
+
+Independent adversarial review (`docs/moneythumb-replacement/reviews/BATCH9_PNC9_REVIEW.md`,
+`bb58f59`): **APPROVE WITH FINDINGS — 0 BLOCK / 0 MAJOR / 3 MINOR.** Every headline in
+this section reproduced under the reviewer's own hand, and both of the floor rows
+this section had recorded as NOT RETURNED are now complete. What follows is what
+each finding became.
+
+### MINOR 1 — a control byte next to a digit is refused, never joined
+
+The reviewer drove the direction this section's own prose had denied. The claim
+was that substituting a space for a control byte "can only separate two tokens,
+never join them". It is false in this module, because this module reads a space
+between digit groups as a THOUSANDS SEPARATOR: `1<NUL>000.00` normalised to
+`1 000.00` is one figure of a thousand, and every other identity then closes
+around a figure the paper may never have printed. That is the shape the repair
+doctrine is about, and the sentence was wrong in a production comment.
+
+Closed by making it fail CLOSED. A control byte adjacent to a digit on either
+side now DECLINES the document (`_DIGIT_ADJACENT_CONTROL`). Refusing rather than
+splitting is the point: the two readings — one grouped figure, or two separate
+tokens — are both available and the text layer distinguishes neither, and
+splitting would publish the smaller tail, which is exactly the silent truncation
+`_SUMMARY_MONEY_RE`'s boundary guard exists to make impossible.
+
+| measurement | result |
+|---|---|
+| control bytes across the 58 | **10, every one a NUL** |
+| of those, adjacent to a digit | **0** — the guard costs no document today |
+| the 58 re-measured after the guard | **unchanged**: 54 publish, the same 4 decline |
+| the continuation-heading repair that earns the withheld mover | untouched — the separator it repairs is not digit-adjacent |
+
+Three tests: the unsafe shape refused; the same grid with a separator the BANK
+printed still read whole (the reader refuses to manufacture one, not to honour
+one); and the away-from-digits repair still working. Mutant **M19** restores the
+join and is killed by the first.
+
+### MINOR 2 — a heading-shaped line must carry a heading's own context
+
+A section's name is also ordinary English, so a description that wraps onto its
+own line can BE a section name. Read as a heading it cuts that row's description
+at the wrap and hands the remainder to a section the bank never printed — and
+neither printed identity can see it, because the row is still booked on its own
+day for its own amount. Only the description moves. The reviewer found no
+instance in the archive (no `transactions[*].description` leaf changed on any of
+the 41), so this is a defensive narrowing, not a repair.
+
+Closed by requiring a heading to say it is one: either on its own line — a
+continuation marker, its printed count and total, or the inline column header —
+or the line under it begins the column-header block, or is itself a heading.
+
+**A row printed under the line is deliberately NOT a qualifier, and the
+measurement decided that rather than taste:**
+
+| over the 58, of 1,157 heading matches | count |
+|---|---:|
+| qualified on their own line | 686 |
+| a column-header token on the line under | 365 |
+| another heading name on the line under | 106 |
+| needing "a row under it" | **0** |
+| left over | **0** |
+
+Admitting the row qualifier would have cost the whole rule, since a wrapped
+description is followed by the next row more often than by anything else. The
+58 re-measured: unchanged. The residue is stated in the docstring rather than
+left to be found — a wrap that is exactly a section name AND is immediately
+followed by a real heading still opens one; that needs the row grammar's own
+span, not the line's neighbours. Three tests (the wrap that opens nothing, and
+both shapes of real bare heading); mutant **M20** restores the old rule and is
+killed by the first.
+
+### MINOR 3 — three record inaccuracies, corrected here
+
+**1. The printed index is printed by 58 of 58, not 54.** PNC9.8's row and
+`_matches_the_printed_index`'s docstring both understated it. Measured over this
+card's whole population: **the table alone on 50, the restatement alone on 4,
+both on 4, neither on 0.** The correction strengthens the card's own case — the
+index identity is never vacuous on this population. (The ladder row was right:
+readable on 56, absent on the 2 whose date column is detached.)
+
+**2. "The 13 it newly claims are exactly the 13 this card names" was false as
+written.** They are two different sets of the same size, and both lie wholly
+inside the named 17:
+
+| set | membership |
+|---|---|
+| newly **VALIDATED** 13 | the 12 unclaimed family documents + `4145E2C82C6B8329` (the withheld mover, which the reader already claimed at the base) |
+| newly **CLAIMED** 13 (`pnc_claim_delta`) | the same 12 + `31E43C6F9393CA15` (the decline, which no reader claimed at the base), and NOT `4145E2C8` |
+
+The substance the sentence was standing in for is unaffected and is now proved
+by the sweep itself rather than by the claim delta: **zero movement outside the
+named population.**
+
+**3. Both floor rows are complete.** They supersede the two NOT RETURNED rows in
+PNC9.10:
+
+| proof | result | exit |
+|---|---|---:|
+| corpus-marked slice (`pytest -m corpus`), at `0148b85` | **30 passed, 7,379 deselected** in 2113.42s — and it reconciles with the full suite exactly: 30 + 7,379 = 7,409 = 7,329 passed + 3 failed + 43 skipped + 34 deselected | **0** |
+| archive sweep over the whole 3,380 — chunk A this cell's, chunk B the reviewer's | compared 2,669 · **identical 2,624** · moved 42 · `no_payload_now_publishes` 21 · `payload_now_raises` 3 · `no_payload_raises_again` 661 · no OCR artifact 29 · `multi_artifact_documents` 0 | — |
+
+**The sweep's 66 findings reconcile exactly, and 57 of them are this card's:**
+
+| finding | count | what it is |
+|---|---:|---|
+| `moved` | 42 | the 41 preserved documents carrying the published ladder (and `account_name` on two), plus `4145E2C82C6B8329`, which had a payload to move |
+| `no_payload_now_publishes` | 12 | the twelve family documents that had no payload at the base |
+| `payload_now_raises` | 3 | `1F31588B36B2E4AF`, `5684857C24B79344`, `BE703D525955253C` — the three named refusals |
+| **inside the named population** | **57** | — |
+| `no_payload_now_publishes`, outside | 9 | train9's already-composed CP-DECLINES movers, proven at the base: the sweep's baseline is the TRAIN-8 run of record, so everything composed onto train9 before this card's base surfaces in ANY batch-9 branch's sweep |
+
+**The three "raises", adjudicated.** They are the pipeline's no-payload signal
+rather than a crash: `cohort_replay`, using the runner's exact call, classifies
+all three `failed / parser_declined`. `read_money`'s raising contract — the
+`3004ab9` fix — is not what produces them: it fires on **0 of the 557 index
+tokens** across the population. No severity; the outcome is the one the card
+intends, reached by the path the platform intends.
+
+### The closure's numbers
+
+| proof, at the closure tip | result | exit |
+|---|---|---:|
+| `cohort_replay --parser pnc` | 45 replayed, **preserved 41 / 41**, payload changed 41 on the SAME 14 leaf paths as before the closure and **no new path**, newly validated 1, **validated regressions 0** | **0** |
+| `cohort_replay`, the target 17 | **newly validated 13**, unchanged non-validated 1, **validated regressions 0**, other ladder regressions 3 | **0** |
+| mutation table, without `-x` | 20 mutants, **20 KILLED / 0 survived**, tree verified clean before and after | **0** |
+| `tests/test_pnc_layouts.py` + `tests/test_pnc_variants.py` | **59 passed** (53 + 6 for the two narrowings) | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| the 58 re-measured after both narrowings | 54 publish, the same 4 decline — **unchanged** | — |
+| branch privacy scan, added file lines vs the 58 | **hit_count 0** (MONEY / DIGITS / DATES / WORDS all 0) | **0** |
+| branch privacy scan, commit messages | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** | **0** |
+| `docs/moneythumb-replacement/W3_TRACKA_LOG.md` | base + this one section, append-only | — |
+
+### The closure commits
+
+| commit | finding |
+|---|---|
+| `445c968` | MINOR 1 — a control byte next to a digit is refused, never joined |
+| `1243e47` | MINOR 2 — a heading-shaped line must carry a heading's own context |
+| (this commit) | MINOR 3 — the three record corrections and this closure |

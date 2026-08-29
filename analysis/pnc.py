@@ -725,9 +725,12 @@ def _matches_the_printed_index(
     the index does not print at all, because rows in an unindexed section are
     rows the bank did not say were there.
 
-    Applied only when an index is printed. All 57 PNC documents in the archive
-    print one, in one of its two forms; a statement that prints neither is read
-    as before, with the Balance Summary totals as its only row oracle.
+    Applied only when an index is printed. Every one of the 58 documents this
+    reader claims prints one — the table alone on 50, the per-section
+    restatement alone on 4, both on 4, neither on none — so the check is
+    never vacuous on the surveyed population. A statement that printed
+    neither would be read as before, with the Balance Summary totals as its
+    only row oracle.
     """
     if not printed:
         return True
