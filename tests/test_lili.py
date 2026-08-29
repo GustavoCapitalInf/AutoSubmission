@@ -30,6 +30,18 @@ The scale is applied only to figures that were invented in the first place. An
 archive figure is never scaled or shifted anywhere: a scale is reversible, and
 a reversible redaction is not one.
 
+THE SCALE IS NOT APPLIED TO A PERTURBATION. A test that breaks this document
+on purpose is measuring a TOLERANCE, and `analysis/lili.py` compares against an
+absolute one (`_CENT`), so scaling a deliberate error scales the slack a
+widened tolerance may take before the test notices — 428 times the slack, for
+a fixture that reads identically. Every deliberate error below is therefore
+ONE CENT, whatever the figures around it are worth: the summary that does not
+close is a cent short, the broken chain is a cent out, the opening anchor moves
+a cent, and the posting pair the summary nets out is a cent in and a cent back.
+At a cent, a reader that tolerated any discrepancy at all fails here, which is
+the only thing these five tests exist to say. `tools/fixpriv_mutation_table.py`
+pins it: the `L` mutants widen `_CENT` and this file kills them.
+
 The base document is arithmetically closed three ways, so that a mutant can
 only break it:
 
@@ -170,15 +182,16 @@ SKIN_A_FEES_PRINTED_POSITIVE = (
     + CONTACT
 )
 
-#: Beginning and Deposits both wrong, in step, so the summary still closes on
-#: itself, the last printed balance is still the printed ending, and the rows
-#: still total to the two debit terms. Only a chain ANCHORED AT THE PRINTED
-#: BEGINNING can see it.
+#: Beginning and Deposits both wrong BY ONE CENT, in step, so the summary
+#: still closes on itself, the last printed balance is still the printed
+#: ending, and the rows still total to the two debit terms. Only a chain
+#: ANCHORED AT THE PRINTED BEGINNING can see it — and at a cent, only a
+#: reader that tolerates nothing.
 SKIN_A_OPENING_ANCHOR_BROKEN = (
     HEADER
     + "Checking Account Summary Total Checking Amount\n"
-    "Beginning balance on 1 September, 2031 $69460.12\n"
-    "Deposits and other credits $208757.00\n"
+    "Beginning balance on 1 September, 2031 $58811.49\n"
+    "Deposits and other credits $219405.63\n"
     "Withdrawals and other debits $-131905.32\n"
     "Fees $-5679.56\n"
     "Ending balance on 30 September, 2031 $140632.24\n"
@@ -229,15 +242,16 @@ SKIN_A_FIGURES_INSIDE_A_DESCRIPTION = (
     + CONTACT
 )
 
-#: A credit and its reversal, inserted so the chain still walks and the
-#: summary still closes. Only the GROSS-debit reading can see them.
+#: A credit and its reversal — ONE CENT in and one cent back out — inserted
+#: so the chain still walks and the summary still closes. Only the
+#: GROSS-debit reading can see them, and only at a tolerance under a cent.
 SKIN_A_POSTING_PAIR_THE_SUMMARY_NETS_OUT = (
     HEADER + SUMMARY
     + "Checking Account Activity - Main Account\n"
     "Date Authorization Code Description Amount Balance\n"
     "09/03/2031 700000001 A MERCHANT NOWHERE ZZUS $-131905.32 $-73093.84\n"
-    "09/05/2031 700000006 AN INFLOW $24550.08 $-48543.76\n"
-    "09/06/2031 700000007 ITS REVERSAL $-24550.08 $-73093.84\n"
+    "09/05/2031 700000006 AN INFLOW $0.01 $-73093.83\n"
+    "09/06/2031 700000007 ITS REVERSAL $-0.01 $-73093.84\n"
     "09/17/2031 700000002 A MOVEMENT IN $219405.64 $146311.80\n"
     "09/30/2031 700000003 A PERIODIC LEVY (Applies From 09/08/2031) $-5679.56 $140632.24\n"
     + CONTACT
@@ -736,13 +750,19 @@ def test_a_summary_that_does_not_close_on_itself_is_refused():
     this is the gate that refuses it."""
     assert parse_lili_statement(
         _swap(SKIN_A, "Deposits and other credits $219405.64",
-              "Deposits and other credits $201596.56")
+              "Deposits and other credits $219405.63")
     ) is None
 
 
 def test_a_broken_chain_refuses_the_document():
+    """ONE CENT, and the reason is the tolerance. `analysis/lili.py`
+    compares against an ABSOLUTE `_CENT`, so the size of a fixture's
+    deliberate error is the size of the widening a mutant may introduce
+    before this test notices. At a cent every widening is caught; at
+    428 cents a reader that accepted a four-dollar discrepancy between
+    a printed chain and its own walk would still pass."""
     assert parse_lili_statement(
-        _swap(SKIN_A, "$219405.64 $146311.80", "$219405.64 $146739.80")
+        _swap(SKIN_A, "$219405.64 $146311.80", "$219405.64 $146311.81")
     ) is None
 
 

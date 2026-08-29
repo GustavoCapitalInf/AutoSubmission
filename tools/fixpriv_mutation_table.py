@@ -1,12 +1,15 @@
-"""MUTATION TABLE for the two gates FIXTURE-PRIVACY adds (batch 9).
+"""MUTATION TABLE for the gates FIXTURE-PRIVACY adds, and the one it moved.
 
 An exclusion is the only way a candidate leaves the scan without being fixed,
 so the test that guards it has to be a test OF it. A test named after a rule is
 not a test of that rule: this harness proves each guard by BREAKING it in the
 direction that would hide a leak — widening an exclusion, blinding a
-comparison — and demanding that the guard's own suite fail, naming the tests
-that failed. Two gates are covered: the scanner's exclusion table, and
-`fixpriv_ast_identity`'s "no production behaviour changed" verdict.
+comparison, widening a tolerance — and demanding that the guard's own suite
+fail, naming the tests that failed. Four gates are covered: the scanner's
+exclusion table and its diff reader, `fixpriv_ast_identity`'s "no production
+behaviour changed" verdict, `fixpriv_w3_redact`'s span rules, and
+`analysis/lili.py`'s `_CENT` — the last because this card rewrote the fixtures
+that are the only thing guarding it.
 
 Every mutant is a literal, documented substitution in its gate's own file. The
 harness refuses to run on a dirty tree
@@ -33,6 +36,14 @@ GATES: dict[str, tuple[str, str]] = {
     "scan": ("tools/privacy_scan_branch.py", "tests/test_privacy_scan_exclusions.py"),
     "ast": ("tools/fixpriv_ast_identity.py", "tests/test_fixpriv_ast_identity.py"),
     "redact": ("tools/fixpriv_w3_redact.py", "tests/test_fixpriv_w3_redact.py"),
+    # Not a gate this card wrote: a gate this card's fixture repair had to keep
+    # sharp. Scaling `tests/test_lili.py`'s figures was right; scaling its
+    # deliberate ERRORS with them multiplied by 428 the slack a widened
+    # tolerance could take before the file noticed, and nothing else in the
+    # tree guards it (`corpus_gate` replays documents that close exactly, so a
+    # wider tolerance only makes the reader more permissive and the gate stays
+    # green). The `L` mutants are that ladder, committed so it can be re-run.
+    "lili": ("analysis/lili.py", "tests/test_lili.py"),
 }
 
 #: (id, gate, rule it attacks, what the mutant does, exact old, exact new)
@@ -188,6 +199,33 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "header, so a hit is reported against a line nobody can find",
         "            line_no = int(match.group(2))",
         "            line_no = 1",
+    ),
+    (
+        "L1", "lili", "_CENT, the reconciliation tolerance",
+        "widen the cent tolerance to a dollar: a reader that accepts a "
+        "dollar of discrepancy between a printed summary and its own ledger",
+        "_CENT = 0.005",
+        "_CENT = 1.0",
+    ),
+    (
+        "L2", "lili", "_CENT, the reconciliation tolerance",
+        "widen it to ten dollars",
+        "_CENT = 0.005",
+        "_CENT = 10.0",
+    ),
+    (
+        "L3", "lili", "_CENT, the reconciliation tolerance",
+        "widen it to a hundred dollars — the value at which the ORIGINAL "
+        "fixtures still died and the 428-scaled ones survived",
+        "_CENT = 0.005",
+        "_CENT = 100.0",
+    ),
+    (
+        "L4", "lili", "_CENT, the reconciliation tolerance",
+        "widen it to half a dollar, which no fixture in this file caught "
+        "before the perturbations were brought back to one cent",
+        "_CENT = 0.005",
+        "_CENT = 0.5",
     ),
     (
         "A1", "ast", "the AST comparison",
