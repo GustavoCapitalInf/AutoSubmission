@@ -27,6 +27,14 @@ and a second copy of them is a second thing to keep in step.
 Restoring is `git checkout --`, so this tool writes only to files it has just
 mutated and only inside the working tree. It reads no archive document, makes
 no model call, and costs $0.
+
+RAISE-PRIVACY-5 re-derived N5, N6 and N8's `old` and `new` text, mechanically
+and for one reason: closing `_parse_period`'s and `_native_date_to_iso`'s month
+LOOKUPS renamed the second argument of the three `iso_or_none` calls this
+table's revert text quotes. The mutants are the same mutants — each still
+reverts exactly its own `date()` site to the raw constructor — and the whole
+table was re-run at that card's tip. A harness whose target text no longer
+occurs reports NOT APPLIED, which is a hole that looks like a row.
 """
 from __future__ import annotations
 
@@ -120,20 +128,20 @@ MUTANTS = (
     Mutant(
         "N5", "td_can._parse_period, the period START token",
         "analysis/td_can.py",
-        "    start = iso_or_none(2000 + int(sy), _MONTHS[sm], int(sd))\n"
+        "    start = iso_or_none(2000 + int(sy), start_month, int(sd))\n"
         "    if start is None:\n"
         '        raise date_refusal("td_can._parse_period", m.group(0))',
-        f"    start = {_DT}.date(2000 + int(sy), _MONTHS[sm], int(sd)).isoformat()",
+        f"    start = {_DT}.date(2000 + int(sy), start_month, int(sd)).isoformat()",
         "§H14.3's `date(2000 + int(sy), _MONTHS[sm], int(sd))` reverted: "
         "`_PERIOD_RE`'s `(\\d{1,2})/(\\d{2})` proves two digit runs",
     ),
     Mutant(
         "N6", "td_can._parse_period, the period END token",
         "analysis/td_can.py",
-        "    end = iso_or_none(2000 + int(ey), _MONTHS[em], int(ed))\n"
+        "    end = iso_or_none(2000 + int(ey), end_month, int(ed))\n"
         "    if end is None:\n"
         '        raise date_refusal("td_can._parse_period", m.group(0))',
-        f"    end = {_DT}.date(2000 + int(ey), _MONTHS[em], int(ed)).isoformat()",
+        f"    end = {_DT}.date(2000 + int(ey), end_month, int(ed)).isoformat()",
         "the same shape on the period's end token",
     ),
     Mutant(
@@ -152,12 +160,12 @@ MUTANTS = (
     Mutant(
         "N8", "td_can._native_date_to_iso, the native row date",
         "analysis/td_can.py",
-        "    iso = iso_or_none(default_year, _MONTHS[m.group(1).upper()], int(m.group(2)))\n"
+        "    iso = iso_or_none(default_year, month, int(m.group(2)))\n"
         "    if iso is None:\n"
         '        raise date_refusal("td_can._native_date_to_iso", value)\n'
         "    return iso",
         f"    return {_DT}.date(\n"
-        "        default_year, _MONTHS[m.group(1).upper()], int(m.group(2))).isoformat()",
+        "        default_year, month, int(m.group(2))).isoformat()",
         "the eighth site reverted. The reader keeps its FIRST refusal (the "
         "shape one), so this mutant also asks whether a drive can tell the two "
         "refusals of one reader apart — it can, because only one of the two "

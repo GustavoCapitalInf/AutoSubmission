@@ -57799,3 +57799,476 @@ declines it.
 | `19e88c5` | MINOR-2 — evidence apart from arithmetic |
 | `1137a7c` | MINOR-3 — the gate table's tree, and the repaired mirror |
 | `0f851d6` | MINOR-4 — six and seven |
+
+# §RAISEPRIV5 — the month LOOKUP: a `KeyError` whose message is its key, closed without moving the class
+
+Batch 9, card 9A-0 #2b. Hygiene, ZERO coverage movement. Base `train9` at
+`897d69e`; branch `wave9-raisepriv5`; Windows host, Python 3.14.5; run of
+record `TRAIN8-7185633 / cda8882d`, cold cache
+`.claude/recovery/webapp_data_train8_cold` (read-only). Ocean composes; this
+cell never merged and never pushed.
+
+## RP5.0 Population — four subscripts in the three RAISE-PRIVACY readers, three closed, one guarded
+
+The RAISE-PRIVACY-4 review confirmed, on both trees and identically, one
+document-reachable echo that card disclosed and did not close, and demonstrated
+that closing it needed no class change (its §3(6), MINOR-4). This card is that
+close, plus the census that would have found it, plus the four other MINORs.
+
+The population is a STRUCTURE, not a line list: every subscript READ of a
+mapping whose key is not a literal, in the three readers RAISE-PRIVACY-4
+rerouted. Measured over `analysis/bmo.py`, `analysis/farmers_merchants.py` and
+`analysis/td_can.py`, that is **four sites, all four in `td_can`** — `bmo` and
+`farmers_merchants` index no table at all.
+
+| # | site | reachable from a document? | what the base raised | disposition |
+|---|---|---|---|---|
+| 1 | `td_can._parse_period: _MONTHS[sm]` | **yes** — a period line whose start word is three capitals and not a month | `KeyError('<the printed word>')`, `args == ('<word>',)` | CLOSED |
+| 2 | `td_can._parse_period: _MONTHS[em]` | **yes** — the same on the period's end word | the same | CLOSED |
+| 3 | `td_can._native_date_to_iso: _MONTHS[m.group(1).upper()]` | no, caller-guarded — `_native_date_index` selects through `_native_date_token`, which tests `text[:3] in _MONTHS` first | the same | CLOSED anyway |
+| 4 | `td_can._date_tokens: _MONTHS[mon]` | no — `if mon not in _MONTHS: continue` two lines above, same loop body | nothing; the token is skipped | ALLOWED, with its reason, and DRIVEN |
+
+Site 4 is the lookup-census twin of §RAISEPRIV4's ninth line and is left
+standing for the same reason that one was: **a site that raises nothing has no
+refusal to make private, and giving it one would be a NEW refusal, which a
+hygiene card may not introduce.** Rerouting it would turn a skipped token into
+a raise. It is accounted for in `TOKEN_LOOKUP_ALLOWED` with a reason and the
+guard is measured, not asserted —
+`test_the_guarded_row_date_lookup_skips_a_non_month_word_on_both_trees` drives
+all three invented non-month words through `_date_tokens` on BOTH trees and
+requires the skip and the readable neighbour.
+
+### RP5.0.1 The document population
+
+From the run of record's `rows.csv`, the two registrations `analysis/td_can.py`
+backs, plus the census group of its withheld cousins:
+
+| selector | shas | baseline outcome |
+|---|---:|---|
+| `--parser td_canada_native` | 73 | **73 validated** |
+| `--parser td_canada` | 0 | — (empty cohort) |
+| `--group WH:td_us` | 3 | 3 withheld (`withheld_adb`) |
+| union replayed | **76** | 73 validated + 3 withheld |
+
+## RP5.1 Root cause
+
+`dict.__getitem__`'s `KeyError` **carries the key as its only argument**, so
+`str`, `repr`, `args` and every rendered traceback quote it verbatim. That is
+the same law §MONEYPRIV and §PRIVACY3 wrote about `int()` and `date()`, with
+one difference that made it invisible for longer: those leak through a CALL
+that a conversion census can enumerate, and this one leaks through a
+SUBSCRIPT with no `raise` anywhere to grep for.
+
+`_PERIOD_RE`'s `([A-Z]{3})` and `_DATE_TOKEN_RE`'s `([A-Z]{3})` prove three
+capital letters and nothing more. A period line whose month word is an OCR
+misread, a truncated statement word, or any other three-letter capital run
+therefore reaches the table, and the reader hands the printed word to whatever
+renders the exception — the CSV sinks (`batch.py`, `coverage_audit.py`,
+`deterministic_coverage_audit.py`, each `f"{type(e).__name__}: {e}"` into a
+cell) and any direct caller. `parser_registry._guarded` reduces a parser crash
+to its class name and `webapp/worker.py:_stage_failure` withholds every
+message, which is why this is a law about the RAISE and carries no clause about
+who catches it.
+
+**Why RAISE-PRIVACY-4 left it, and which half of that reason was wrong.** That
+cell argued a lookup is a different construction (true), that no census in the
+tree reports it (true — `_CONVERSION_CALLS` is
+`{date, datetime, int, float, Decimal, strptime, fromisoformat}` and neither
+census walked `Subscript` nodes at all), and that changing the class a reader
+raises is a movement-bearing edit (true, but not the constraint here: closing
+this needs no class change). Review MINOR-4.
+
+## RP5.2 Solution
+
+`.get` in the same place, and a FIXED string literal raised from OUTSIDE any
+handler:
+
+```python
+start_month = _MONTHS.get(sm)
+if start_month is None:
+    raise KeyError(
+        "month lookup refused a printed word "
+        "(not a month word; reader=td_can._parse_period)"
+    )
+```
+
+Every part of that is load-bearing.
+
+* **`KeyError`, not `ValueError`.** The dispatch seam sees
+  `type(exc).__name__` and nothing else, so a changed class would move an
+  outcome with no figure moving. The class is the one thing a hygiene card may
+  not touch, and it is asserted on both trees per cell.
+* **Raised from outside any handler.** `raise ... from None` would NOT do: it
+  clears `__cause__` and sets a rendering hint while `__context__` still holds
+  `KeyError('<the word>')`. `CHAIN_GUARDED`'s third clause is what says so.
+* **A plain string LITERAL, not an f-string and not a named constant.** The
+  chain guard verifies a raise it never executes; a literal is what it can
+  verify. A named constant would read as a `Name` and fail the guard, and an
+  f-string is exactly the mutant M4 installs.
+* **The same sentence at both ends of the period.** A caller must not be able
+  to tell WHICH end was unreadable — that is a fact about the document. The
+  two `date_refusal`s of this reader already have that property; the lookup now
+  has it too, asserted.
+* **TWO evaluation-order changes, and both are named.** In `_parse_period` the
+  lookup is read before `2000 + int(sy)` rather than as the call's second
+  argument; in `_native_date_to_iso` the lookup was likewise the second
+  argument of `iso_or_none`, so `int(m.group(2))` used to run after it and now
+  runs after the refusal instead. The SECOND one went unnamed and undriven in
+  this section's first version — this card's review, MINOR-2, and its closure
+  is below. Both reorder nothing observable, for one reason: `re`'s `\d`
+  matches Unicode category Nd and `int()` accepts every Nd character, so
+  `int()` on a group `(\d{1,2})` or `(\d{2})` produced cannot raise. A
+  SUPERSCRIPT is category No — `str.isdigit()` is True for it and `int()`
+  rejects it — but `\d` never matches one, so such a token takes the SHAPE
+  refusal without reaching either the lookup or the conversion. Driven on both
+  trees over all three glyph classes, on a readable month word and an
+  unreadable one, and on both readers.
+
+The message names the reader and a refusal CLASS ("not a month word"), the same
+two halves `date_refusal` carries — and, unlike `date_refusal`, it interpolates
+nothing at all, so its privacy claim needs no exemption.
+
+## RP5.3 The both-tree drive — the base echoes, this tree does not, the class is the same
+
+Two base packages are loaded in one interpreter and asserted to be different
+trees: RAISE-PRIVACY-4's `2f24b06` (where the eight `date()` sites still echo)
+and this card's `897d69e` (where they do not and the three lookups still do).
+Three sites x three invented non-month words = **9 cells**, each run twice.
+
+| what | base `897d69e` | tip |
+|---|---|---|
+| class raised, all 9 cells | `KeyError` | `KeyError` (identical, asserted cell by cell) |
+| `args` | `('<the printed word>',)` | the fixed sentence |
+| the word on `str` / `repr` / `args` / `__notes__` / chain / rendered traceback | present | **absent, 9/9** |
+| any decimal digit on the message surfaces | — | **none, 9/9** (this message interpolates nothing) |
+| `__cause__` / `__context__` | None | None |
+| `reader=` names the refusing site | — | 9/9 |
+| the two period ends distinguishable | — | **no** — one message, asserted |
+| a readable month word, payload leaf-for-leaf | — | **identical, 3/3 sites** |
+| the five shapes that never reach the lookup, outcome + payload | — | **identical, 15/15** |
+| a period whose digits are Arabic-Indic (Nd), readable and unreadable word | — | **identical, 2/2** |
+| the SECOND reorder (`_native_date_to_iso`, and `_date_tokens` beside it): ASCII / Arabic-Indic (Nd) / superscript (No) day glyphs × readable and unreadable month word, plus an impossible day on each reader | — | **identical, 14/14** — outcome AND payload (review MINOR-2, closed on the branch) |
+| the guarded fourth lookup skips and publishes its neighbour | skips | skips, 3/3 words |
+| the native lookup selected by `_native_date_index` | never | never, 3/3 words |
+
+## RP5.4 The generalisation — a LOOKUP census, registered exactly like the `date()` census
+
+`tests/test_privacy3_boundaries.py` §4c. W3 §H14's own lesson is that a
+disclosed site with no guard is a site that comes back; the review said the
+same about this one, and the census that would have caught it did not exist.
+
+**The claim and the walk are one sentence.** In `analysis/bmo.py`,
+`analysis/farmers_merchants.py` and `analysis/td_can.py`, every SUBSCRIPT READ
+of a MAPPING whose key is not a literal is reported, with the reader, the
+enclosing scope and the subscript. A mapping is (a) a name the module binds to
+a dict literal or comprehension ANYWHERE in its own source — module scope or
+inside a reader, because a table built per document is as much a table as a
+module constant is — or (b) a global of the imported reader that is a `Mapping`
+at import time, plus ONE level of attribute, so `dt.MONTH_NUMBERS[word]` is
+reported as well as `_MONTHS[word]`.
+
+**What it does not report, and why none of them is a hole:** `.get` (the funnel
+this card installs, exactly as `date.fromisoformat` is the funnel §4b does not
+report); a literal key (a key written in this source cannot have come from a
+document); a slice, a list index, a match group (not mapping lookups, and an
+`IndexError` carries no key — a mis-shaped grid is `pipeline`'s declared
+hazard and a different law); a mapping two attribute levels deep. The last is
+STATED rather than discovered, and the depth that IS covered is pinned by its
+own test.
+
+**THE KNOWN HOLES — shapes that ARE a document token indexing a table and that
+this census does NOT report** (closure of this card's review, MINOR-1: the list
+above enumerated what is not a hole, and was read as if it were the whole
+list). Two clauses, and both are now DRIVEN at 0 rather than described:
+
+* **an alias bound from another NAME rather than from a dict literal** —
+  `t = _MONTHS` and then `t[word]`. `_dict_literal_names` follows assignments
+  whose VALUE is a dict literal or comprehension, so the alias is never
+  recognised as a table. Widening that is a dataflow question, not a syntax
+  one.
+* **a subscript performed by a CALL** — `operator.getitem(_MONTHS, word)`,
+  `_MONTHS.__getitem__(word)`, `dict(_MONTHS)[word]`, or a helper that performs
+  the subscript from OUTSIDE the three census modules. The census walks
+  `Subscript` nodes in three named files; a call is not one, and a fourth file
+  is not walked. A helper INSIDE the three IS reported — the reviewer probed it
+  and the census killed the probe, and both halves of that boundary are now
+  driven here.
+
+**Their practical bite is small and it is measured, not assumed.** Every one of
+these shapes installed at one of the REAL sites was killed by the DRIVES: the
+drives assert the printed word's absence from the raised exception and do not
+care how the lookup was spelled (the reviewer's own measurement F). They bite
+only at a NEW site that nothing drives — which is exactly the case a census
+exists for, and exactly why they are written into the guard rather than left
+for the next reviewer.
+
+**One more limit, and it is about the ALLOWLIST rather than the walk.** The
+allowlist is keyed `file:scope: subscript` — a LINE, not a guard. Delete
+`_date_tokens`'s `if mon not in _MONTHS: continue` and the entry still matches
+and the census still passes; what catches that is the DRIVE, and mutant M7 is
+killed by that drive **and by nothing else**, which is the cleanest available
+evidence that the allowlist's REASON is what is under test rather than a line
+being excused. Keying the entry to the guard — an AST check that a
+`Compare(NotIn)` on the same table dominates the subscript in the same block —
+would close the residue. **Deliberately not done here**, on Ocean's ruling: it
+is a census change rather than a refusal change, and it belongs to the card
+that widens this census rather than to the one that opened it.
+
+| measure | result |
+|---|---|
+| population | the three RAISE-PRIVACY readers, named not derived |
+| reported at the tip | **1** (`analysis/td_can.py:_date_tokens: _MONTHS[mon]`) |
+| `TOKEN_LOOKUP_ALLOWED` | 1 entry, with its reason; `unaccounted == []` and `stale == []` |
+| reported if the START funnel is reverted (synthetic) | **2** — the census is not vacuous |
+| `_MONTHS` / `_MOJIBAKE_TABLE` resolved as tables | yes, asserted |
+| mutant shapes it must SEE | 6 — the site shape, module scope, a module-level lambda, a nested def (once, not once per parent), a table built inside the reader, a subscript a membership test "excuses" |
+| mutant shapes it must NOT flag | 5 — `.get`, a literal key, a string slice, a list index, a write into the table |
+| KNOWN HOLES, driven at 0 | 4 — a local alias, `operator.getitem`, `__getitem__`, a copy of the table — plus the helper-outside-the-population boundary, driven on both sides |
+
+**Review MINOR-5 closed by widening, not by narrowing the claim.**
+`_raw_date_constructions` walked `FunctionDef` bodies only, so a construction
+at module scope or inside a module-level `lambda` was invisible while its claim
+was written over every non-literal construction. Both censuses now share one
+scope walker that attributes every node exactly ONCE and NAMES the scope
+(`<module>`, `<lambda>`, `outer.inner`, a method's own name). Four new mutants
+pin the three shapes the review measured as unreported, and one test pins the
+walker's attribution as a whole. A nested `date()` is now reported once rather
+than once per enclosing function, and the allowlist key format is unchanged for
+the one entry that already existed.
+
+## RP5.5 The mutation table — 9 mutants, 9 killed, and RAISE-PRIVACY-4's ten re-run whole
+
+`python -m tools.raisepriv5_mutation_table`. Gate set:
+`tests/test_raise_privacy4.py`, `tests/test_privacy3_boundaries.py`,
+`tests/test_raise_privacy3.py`, run WITHOUT `-x` so every killer is named.
+Baseline green before mutation; tree proved clean before, between and after.
+
+| # | what the mutant does | landed in | verdict | first killers |
+|---|---|---|---|---|
+| M1 | `_parse_period`'s START lookup reverted to the raw subscript | `_parse_period` | **killed (7)** | the lookup census; its non-vacuity test; the literal/reader test; the base-echo and branch drives |
+| M2 | the same on the END word | `_parse_period` | **killed (7)** | the same four |
+| M3 | `_native_date_to_iso`'s lookup reverted — NO production caller reaches it | `_native_date_to_iso` | **killed (6)** | the lookup census and its non-vacuity test do the work the production drive cannot |
+| M4 | the funnel kept, the MESSAGE made to quote the word (an f-string) | `_parse_period` | **killed (6)** | the chain guard's literal clause AND the branch drives, independently |
+| M5 | the refusal moved INSIDE the handler (fixed message, right class, `__context__` holds the word) | `_parse_period` | **killed (6)** | the chain guard's handler clause AND the drives' chain surface |
+| M6 | the CLASS moved `KeyError` -> `ValueError`, message still private | `_parse_period` | **killed (12)** | every `pytest.raises(KeyError)` drive and the both-tree class test |
+| M7 | `_date_tokens`'s membership test neutered — the allowlisted subscript made reachable | `_date_tokens` | **killed (3)** | the three parametrisations of the guarded-lookup drive, and nothing else: the allowlist's reason is exactly what that test proves |
+| M8 | the lookup census blinded (it stops reporting a non-literal key) | `_token_lookup_subscripts` | **killed (9)** | the `stale` clause, plus six of its own shape mutants |
+| M9 | the shared scope walker reverted to the FunctionDef-only walk (review MINOR-5's shape) | `_scoped_nodes` | **killed (6)** | `at-module-scope` and `inside-a-module-scope-lambda` on BOTH censuses, and `inside-a-method` |
+
+**9 mutants · 9 killed · 0 survived · 0 not applied · 258.0 s · exit 0.**
+
+**RAISE-PRIVACY-4's own table, re-run whole at this tip after the mechanical
+re-derivation of N5/N6/N8: 10 mutants · 10 killed · 0 survived · 0 not applied
+· 287.3 s · exit 0.** Every mutant landed in its documented function.
+
+**Who waited for the shared host, corrected.** This section first said "the
+harness polled `tasklist`". It does not, and no instrument under `tools/` does
+— `grep -rln tasklist tools/` is empty (this card's review, MINOR-3). What
+happened is that the OPERATOR waited: a throwaway shell wrapper in this cell's
+private scratch polled `tasklist` every ten seconds and launched the harness
+only once the other cell's python had exited (101 polls, ~17 minutes), so no
+two mutation harnesses ran together on this repository's `.git`. The RESULT is
+what it says; the mechanism was a person's wrapper, not a committed guard.
+
+**So the standing warning is: `tools/raisepriv5_mutation_table.py` has NO
+concurrency guard.** It refuses a dirty tree, restores without depending on
+git, and proves the tree clean at both ends — all of which limit the damage —
+but nothing in it stops it starting while another cell's harness is mid-run.
+BATCH9-RULES forbids that concurrency; the enforcement is the operator's, and
+a cell that reads this ledger must not believe otherwise. Adding the poll to
+`main()`, beside the dirty-tree refusal, is the obvious home for it and is
+deliberately not done on a closure commit: it is a behaviour change to a
+committed instrument, and it belongs to a card that can measure it.
+
+## RP5.6 The cohort replay — 73 of 73 preserved, payload identical, at BOTH trees
+
+`python -m tools.cohort_replay --parser td_canada_native --parser td_canada
+--group WH:td_us --expect-identical`, with the run of record and the cold cache
+passed as absolute paths. The base run is from a detached worktree of
+`897d69e`, so the comparison is between two checkouts rather than between a
+checkout and a description of one.
+
+| | base `897d69e` | tip |
+|---|---:|---:|
+| population | 76 | 76 |
+| replayed (text available) | 76 | 76 |
+| newly validated | **0** | **0** |
+| other ladder movement (up) | 0 | 0 |
+| previously validated preserved | **73 of 73** | **73 of 73** |
+| … payload identical | 73 | 73 |
+| … payload changed | 0 | 0 |
+| validated regressions (BLOCKING) | **0** | **0** |
+| other ladder regressions | 0 | 0 |
+| unchanged non-validated | 3 (payload changed on 0) | 3 (payload changed on 0) |
+| no text / absent | 0 | 0 |
+| `--expect-identical` exit | **0** | **0** |
+| runtime | 87 s | 82 s |
+
+## RP5.7 The five RAISE-PRIVACY-4 MINORs
+
+| # | the finding | disposition at this tip |
+|---|---|---|
+| MINOR-1 | `tests/test_raise_privacy4.py` said the parametrisation was "sixteen" drives; `len(CELLS)` is nineteen | corrected AND asserted: `test_the_drive_count_this_file_states_is_the_count_it_runs` pins 19, pins it against `POISON`, and pins the three tables to the same key set. A comment cannot drift alone again |
+| MINOR-2 | the cell's privacy scan predated its own W3 section, so its line count was a measurement at an earlier commit | procedural, and taken as a rule here: this card's branch scan is run at the FINAL tip, after the W3 append, and the line count in RP5.8 is the whole branch |
+| MINOR-3 | "no decimal digit at all" is stronger than `_refusal_class` guarantees — the over-long branch interpolates `MAX_DATE_TOKEN_CHARS` | the assertion is now what the class guarantees: no digit the DOCUMENT supplied, with this tree's own constant removed first. The exemption is exactly one constant wide, PINNED against the vocabulary (four strings, exactly one interpolating), proved unable to blind the drive (no driven token contains it), and the over-long branch is now DRIVEN — the reviewer's own period line, refusing with the bound and with nothing of the document |
+| MINOR-4 | the stated reason for leaving the `KeyError` open was not the true constraint | this whole card. No class change was needed |
+| MINOR-5 | the raw-`date()` census's claim was wider than its AST coverage | closed by widening: see RP5.4 |
+
+## RP5.7b Zero movement — the archive sweep at the final tree
+
+*Numbered `7b` because it was appended after the rest and the independent
+review cites it, along with `RP5.8` and `RP5.9`, by number. This card's review,
+MINOR-5, asked for reading order, not for renumbering — so the mutation table
+moved to its own number's place and every number stayed where a citation can
+still find it.*
+
+A reader changed, so the sweep is owed. `python -m
+tools.regfp_zero_movement_sweep --rows <run>/rows.csv --data-dir
+.claude/recovery/webapp_data_train8_cold --baseline-settings-key
+7652A5AF…C093D`, four chunks of 845, at `0687511`.
+
+| chunk | documents | compared | identical | moved | no_payload_now_publishes | payload_now_raises | findings | s |
+|---|---:|---:|---:|---:|---:|---:|---|---:|
+| 0–845 | 845 | 655 | **655** | 0 | 0 | 0 | `[]` | 936.6 |
+| 845–1690 | 845 | 678 | **678** | 0 | 0 | 0 | `[]` | 1,005.0 |
+| 1690–2535 | 845 | 671 | **671** | 0 | 0 | 0 | `[]` | 948.1 |
+| 2535–3380 | 845 | 665 | **665** | 0 | 0 | 0 | `[]` | 643.4 |
+| **total** | **3,380** | **2,669** | **2,669** | **0** | **0** | **0** | **none** | 3,533.1 |
+
+Also, across the four chunks: `no_payload_raises_again` 682, `no_ocr_artifact`
+29, `multi_artifact_documents` 0. **2,669 of 2,669 payloads identical and no
+finding of any class**, so nothing outside the named population moved — and
+nothing inside it did either, which is what a hygiene card must be able to say.
+The compared-payload total reproduces §RAISEPRIV4's own sweep at its tip
+(2,669/2,669), on the same archive and the same baseline settings key.
+
+*Operational note, recorded because it is a host lesson rather than a result:
+the four chunks were launched as one detached job and the job was killed by the
+harness's background limit after three of them. The three completed chunks are
+untouched by that (each writes its own report and exits), and the fourth was
+re-launched on its own and completed. Chunks are the unit; a long sweep on this
+host should be launched one chunk per job.*
+
+## RP5.8 Privacy of what this branch adds
+
+Every fixture is INVENTED. The three non-month words are a canary-derived word,
+an OCR misread of a month name, and a printed word that is not a month; every
+date is 2031; every figure is rendered from whole units at build time by the
+file's existing `_figure` helper. Nothing in this branch has been inside a
+document.
+
+* `tools/privacy_scan_branch.py`, population = the **76 shas of the replayed
+  cohort** (a shas file built from the cohort report's own per-sha table, so
+  the scanned population is exactly the population that was replayed), cold
+  cache read-only, `--base 897d69e --ref <the final tip>`: **hit_count 0**
+  (MONEY 0 · DIGITS 0 · WORDS 0 · DATES 0).
+* Run at the FINAL tip, AFTER this section was committed — review MINOR-2's
+  lesson taken as a rule rather than as a note. The added-line count is
+  recorded in this cell's report to Ocean rather than here: a line count
+  written into the file it counts cannot be its own final value.
+* `tools/huntington_msg_privacy_scan.py` over `git log 897d69e..<tip>
+  --format=%B`: **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0**. Messages are
+  written in CLASSES ("the printed word", "an invented 2031 fixture"), never
+  instances.
+* One WORDS hit did fire once, and it is recorded rather than argued away: an
+  ordinary English two-word phrase in a commit message that also occurs
+  somewhere in the population's printed text. Nothing archival, but the
+  instrument does not know that and neither does a reader of the ledger — and
+  a branch nobody has pushed is exactly where a message is free to change. The
+  message was reworded and the scan re-run to **0 in every class**. The
+  standing lesson is the cheap one: scan the messages, then reword, before
+  Ocean composes.
+
+## RP5.9 Proof floor (exit codes verbatim, and the TREE each row was measured at)
+
+This card's review, MINOR-4: the header used to pin one commit, and three of
+its own rows were measured later than that commit. A header cannot carry a
+truth that varies per row, so the tree moves into the table. The rule this card
+already adopted for the scans — measure at the final tip — now extends to every
+row: each names the sha it was taken at, and only the two SCAN rows say "the
+closure tip", because a scan of a commit cannot be recorded inside that commit.
+
+| gate | tree measured at | result | exit |
+|---|---|---|---:|
+| full default suite | **`8d20b5c`** (closure) | **7,407 passed · 43 skipped · 34 deselected** (210.5 s) | **0** |
+| … the same suite before the review closure | `bdc5e27` | 7,385 passed · 43 skipped · 34 deselected (227.8 s) | 0 |
+| … the same suite at the base | `897d69e` | 7,299 passed · 43 skipped · 34 deselected (225.5 s) | 0 |
+| … the delta reconciles | — | **+86** to `bdc5e27` (the two owned test files go 252 -> 338 on those two trees), then **+22** at the closure (+5 in the census file, +17 in the drives). Nothing else moved | — |
+| canonical guards (5 files) | **`8d20b5c`** (closure) | **255 passed** | **0** |
+| canonical conformance (7 files) | **`8d20b5c`** (closure) | **1,270 passed · 40 skipped** | **0** |
+| the three privacy test files | **`8d20b5c`** (closure) | **444 passed · 3 skipped** | **0** |
+| `python corpus_gate.py` | `bdc5e27` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions (690.6 s) | **0** |
+| corpus-marked slice | `bdc5e27` | **30 passed** (1,869.8 s) | **0** |
+| `cohort_replay … --expect-identical` at the base | `897d69e` | 76 replayed, 73/73 preserved identical, 0 regressions | **0** |
+| `cohort_replay … --expect-identical` at the tip | `bdc5e27` | 76 replayed, 73/73 preserved identical, 0 regressions | **0** |
+| `cohort_replay … --expect-identical` at the closure | **`8d20b5c`** | **76 replayed, 73/73 preserved identical, 0 regressions** (88 s) | **0** |
+| `tools.raisepriv5_mutation_table` | `bdc5e27` | 9 mutants · **9 killed** · 0 survived · 0 not applied (258.0 s) | **0** |
+| `tools.raisepriv4_mutation_table` (re-run whole) | `bdc5e27` | 10 mutants · **10 killed** · 0 survived · 0 not applied (287.3 s) | **0** |
+| … all 19 mutants still APPLY at the closure tree | `8d20b5c` | every `old` text occurs exactly its documented number of times; **0 mismatches** | — |
+| archive sweep, 3,380 documents in four chunks | `0687511` | 2,669/2,669 identical; 0 moved / 0 now-publishes / 0 now-raises; findings `[]` (3,533.1 s) | **0** |
+| branch privacy scan | the closure tip | **0 hits** | **0** |
+| commit-message scan | the closure tip | **0** in every class | **0** |
+
+**Why the four rows measured at `bdc5e27` still stand at the closure tree, as a
+measurement rather than an assurance:** `git diff bdc5e27..HEAD -- analysis/` is
+**11 added lines, 0 removed, and 0 of them are non-comment** — the comment that
+names the second reorder. No production behaviour changed after `bdc5e27`, so
+the corpus gate, the corpus-marked slice and the two mutation tables cannot
+have moved; and the 19 mutants were re-counted against the closure source to
+prove the tables would still apply rather than report NOT APPLIED.
+
+Registry 83, `ANALYSIS_STAGE_VERSION` 16, `OCR_STAGE_VERSION` 4 — unchanged.
+No registration added or moved, no pin touched, no fixture rewritten, no
+truth-set or pinned-surface movement.
+
+## RP5.10 Ownership, disclosures and concerns
+
+**Files owned and touched.** `analysis/td_can.py` (the three lookups and one
+comment on the fourth), `tests/test_raise_privacy4.py` (§8 and the two MINOR
+fixes), `tests/test_privacy3_boundaries.py` (§4c and the shared scope walker),
+`tools/raisepriv5_mutation_table.py` (new), and this W3 section. No registry
+change, no version bump, no fixture change, no truth-set or pinned-surface
+movement.
+
+**ONE FILE OUTSIDE THE CARD'S LIST, disclosed rather than found.**
+`tools/raisepriv4_mutation_table.py`. Closing the two `_parse_period` lookups
+and the `_native_date_to_iso` one renamed the second argument of the three
+`iso_or_none` calls that harness's N5, N6 and N8 quote as their revert targets,
+so those three mutants would have reported **NOT APPLIED** — a hole that looks
+like a row. The edit is mechanical (six string literals), the mutants are the
+same mutants, the change is disclosed in that module's own docstring, and the
+whole ten-mutant table was re-run at this tip as proof. Ocean owns the compose
+question; the alternative was to leave a committed instrument silently broken.
+
+**Concerns, in the order a reviewer should press them.**
+
+1. **`KeyError` is a strange class for a refusal, and this card keeps it.**
+   That is deliberate and it is the constraint, not an oversight: the dispatch
+   seam reduces a parser crash to `type(exc).__name__`, so changing the class
+   is a movement-bearing edit and belongs to a card that measures movement.
+   The right long-run answer is probably that neither lookup should raise
+   `KeyError` at all — but that is a NEW refusal shape, and this card may not
+   introduce one.
+2. **The message a CSV sink renders does change.** `f"{type(e).__name__}: {e}"`
+   goes from `KeyError: '<the printed word>'` to `KeyError: 'month lookup
+   refused a printed word (…)'`. That is the point of the card and it is the
+   same argument RAISE-PRIVACY-4 accepted for its eight sites; the cohort
+   replay says no document in the population reaches any of the three, so no
+   cell of the run of record changes.
+3. **The fourth subscript is still a subscript.** Allowed, with its reason,
+   driven on both trees, and killed by M7 if the guard is ever neutered. It is
+   the lookup-census twin of §RAISEPRIV4's ninth line and the disposition is
+   the same one that review accepted.
+4. **The census's depth is one attribute level.** `dt.MONTH_NUMBERS[word]` is
+   reported; `a.b.TABLE[word]` is not. Stated in the census's own comment and
+   pinned by a test, so the claim is not wider than the walk — which is the
+   whole of what MINOR-5 was about.
+5. **The census population is three readers, not the tree.** Named rather than
+   derived, exactly as §4b's is, because a derived population grows silently
+   and this guard's value is that its exception list is one line long. A
+   `_MONTHS`-shaped lookup in a fourth reader is not covered, and closing that
+   is a wider card than this one.
+6. **Two base trees are loaded in one pytest process.** `2f24b06` for
+   RAISE-PRIVACY-4's drives and `897d69e` for this card's. They are asserted to
+   be different packages and different revisions, so neither vacuity check can
+   borrow the other's tree.

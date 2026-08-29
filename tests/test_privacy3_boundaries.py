@@ -39,7 +39,9 @@ kind sees all of them:
 from __future__ import annotations
 
 import ast
+import importlib
 import traceback
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -753,34 +755,65 @@ RAW_DATE_ALLOWED = {
 }
 
 
+def _scoped_nodes(tree: ast.AST) -> list[tuple[str, ast.AST]]:
+    """`(scope, node)` for every node under `tree`, each attributed ONCE.
+
+    The scope is the nearest enclosing `def` / `async def` / `lambda`, dotted
+    for nesting (`outer.inner`, `outer.<lambda>`), and `<module>` for the
+    module body itself.
+
+    RAISE-PRIVACY-4's review, MINOR-5: the raw-`date()` census below walked
+    `FunctionDef` bodies only, so a construction at MODULE scope or inside a
+    module-level `lambda` was not reported at all while its claim was written
+    over "every bare `date(...)` built from anything but literals". A
+    module body runs at import with no document in hand, but a module-level
+    `lambda` helper called per row is an ordinary shape and it would have
+    slipped past. Both censuses in this file walk through here instead, so
+    the claim and the walk are the same thing — and a construction inside a
+    nested `def` is now reported once rather than once per enclosing function.
+    """
+    found: list[tuple[str, ast.AST]] = []
+
+    def visit(node: ast.AST, scope: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            found.append((scope, child))
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = child.name
+            elif isinstance(child, ast.Lambda):
+                name = "<lambda>"
+            else:
+                visit(child, scope)
+                continue
+            visit(child, name if scope == "<module>" else f"{scope}.{name}")
+
+    visit(tree, "<module>")
+    return found
+
+
 def _raw_date_constructions(source: str, relative: str) -> list[str]:
-    """`module:function: call` for every `date()`/`datetime()` built from a name.
+    """`module:scope: call` for every `date()`/`datetime()` built from a name.
 
     A construction whose every argument is a literal is not a reading of a
     document and is not reported; anything else is, whether or not a handler
-    stands around it.
+    stands around it, and wherever in the module it stands.
     """
-    tree = ast.parse(source)
     found: list[str] = []
-    for function in ast.walk(tree):
-        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+    for scope, node in _scoped_nodes(ast.parse(source)):
+        if not isinstance(node, ast.Call):
             continue
-        for node in ast.walk(function):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            name = (
-                func.id if isinstance(func, ast.Name)
-                else func.attr if isinstance(func, ast.Attribute) else None
-            )
-            if name not in ("date", "datetime"):
-                continue
-            arguments = list(node.args) + [kw.value for kw in node.keywords]
-            if arguments and all(
-                isinstance(argument, ast.Constant) for argument in arguments
-            ):
-                continue
-            found.append(f"{relative}:{function.name}: {ast.unparse(node)}")
+        func = node.func
+        name = (
+            func.id if isinstance(func, ast.Name)
+            else func.attr if isinstance(func, ast.Attribute) else None
+        )
+        if name not in ("date", "datetime"):
+            continue
+        arguments = list(node.args) + [kw.value for kw in node.keywords]
+        if arguments and all(
+            isinstance(argument, ast.Constant) for argument in arguments
+        ):
+            continue
+        found.append(f"{relative}:{scope}: {ast.unparse(node)}")
     return sorted(found)
 
 
@@ -826,13 +859,364 @@ _RAW_DATE_MUTANTS = [
      "    return date.fromisoformat(iso)\n", 0),
     ("a-constant-only-construction",
      "def f():\n    return date(2059, 1, 1)\n", 0),
+    # The three shapes review MINOR-5 measured as UNREPORTED, now reported.
+    ("at-module-scope",
+     "m = R.search(TEXT)\nSTAMP = date(2059, int(m.group(1)), 1)\n", 1),
+    ("inside-a-module-scope-lambda",
+     "stamp = lambda m: date(2059, int(m.group(1)), 1)\n", 1),
+    ("inside-a-nested-def-reported-once",
+     "def outer(t):\n    def inner(m):\n        return date(2059, int(m.group(1)), 1)\n"
+     "    return inner\n", 1),
+    ("inside-a-method",
+     "class C:\n    def f(self, m):\n        return date(2059, int(m.group(1)), 1)\n", 1),
 ]
 
 
-@pytest.mark.parametrize("name,source,expected", _RAW_DATE_MUTANTS)
+@pytest.mark.parametrize("name,source,expected", _RAW_DATE_MUTANTS,
+                         ids=[case[0] for case in _RAW_DATE_MUTANTS])
 def test_the_raw_date_census_can_see_each_shape(name, source, expected):
     found = _raw_date_constructions(source, f"synthetic/{name}.py")
     assert len(found) == expected, (name, found)
+
+
+def test_the_scope_walker_attributes_every_construction_exactly_once():
+    """MINOR-5's other half, stated as a property rather than as four counts:
+    the walker names the scope it reports, so a census entry is readable, and
+    a nested shape is one entry rather than one per enclosing function."""
+    source = (
+        "TOP = date(2059, int(x), 1)\n"
+        "lam = lambda m: date(2059, int(m), 1)\n"
+        "def outer(t):\n"
+        "    def inner(m):\n"
+        "        return date(2059, int(m), 1)\n"
+        "    return inner\n"
+        "class C:\n"
+        "    def method(self, m):\n"
+        "        return date(2059, int(m), 1)\n"
+    )
+    assert _raw_date_constructions(source, "s.py") == [
+        "s.py:<lambda>: date(2059, int(m), 1)",
+        "s.py:<module>: date(2059, int(x), 1)",
+        "s.py:method: date(2059, int(m), 1)",
+        "s.py:outer.inner: date(2059, int(m), 1)",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 4c. RAISE-PRIVACY-5 — the LOOKUP census over the same three readers
+# ---------------------------------------------------------------------------
+#
+# §4b's census walks CALLS, because a conversion is a call. The echo
+# RAISE-PRIVACY-4 disclosed and did not close is not a call at all: it is
+# `_MONTHS[sm]`, and a `KeyError`'s message IS its key, so the printed word
+# rides out on `str`, `repr`, `args` and the first rendered traceback with no
+# `raise` anywhere to grep for. `_CONVERSION_CALLS` in
+# `tests/test_raise_privacy3.py` is `{date, datetime, int, float, Decimal,
+# strptime, fromisoformat}` and neither census walked `Subscript` nodes at all,
+# so nothing in this tree reported it. This is that census.
+#
+# WHAT IT REPORTS, exactly — the claim and the walk are the same sentence: in
+# these three readers, every SUBSCRIPT READ of a MAPPING whose key is not a
+# literal. A mapping is either a name this module binds to a dict literal or
+# dict comprehension anywhere in its own source, or a global of the imported
+# reader that is a `Mapping` at import time (including one level of attribute,
+# so `dt.MONTH_NUMBERS[word]` is reported as well as `_MONTHS[word]`).
+#
+# WHAT IT DOES NOT REPORT, and why each is not a hole:
+#
+# * `_MONTHS.get(word)` — the funnel this card installs, exactly as
+#   `date.fromisoformat(iso)` is the funnel §4b does not report.
+# * a literal key (`_TABLE["JAN"]`) — a key written in this source cannot have
+#   come from a document.
+# * a slice (`text[:3]`), a list or tuple index (`cells[i]`), a match group —
+#   those are not mapping lookups, and an `IndexError` carries no key. A
+#   mis-shaped grid is `pipeline`'s declared `KeyError` hazard and a different
+#   law (`webapp/worker.py:_stage_failure` withholds it).
+# * a mapping reached through a name this module never binds and never
+#   imports — e.g. an attribute two levels deep. STATED, not discovered: the
+#   depth is one, and `test_the_lookup_census_resolves_a_mapping_behind_an_
+#   attribute` is what pins the depth that IS covered.
+#
+# THE KNOWN HOLES — shapes that ARE a document token indexing a table and that
+# this census does NOT report today. RAISE-PRIVACY-5's review, MINOR-1: the
+# list above was the list of things that are not holes, and it was read as if
+# it were the whole list. These two clauses are the rest of it, measured rather
+# than imagined (`_TOKEN_LOOKUP_UNREPORTED` drives each one at 0):
+#
+# * AN ALIAS bound from another NAME rather than from a dict literal —
+#   `t = _MONTHS` and then `t[word]`. `_dict_literal_names` follows `Assign`
+#   nodes whose VALUE is a `Dict`/`DictComp`, so `t` is never recognised as a
+#   table. Widening it to follow name-to-name assignment is a dataflow
+#   question, not a syntax one, and it is the next lookup-census card's job.
+# * A SUBSCRIPT PERFORMED BY A CALL — `operator.getitem(_MONTHS, word)`,
+#   `_MONTHS.__getitem__(word)`, `dict(_MONTHS)[word]`, or a helper that
+#   performs the subscript from OUTSIDE these three modules. This census walks
+#   `Subscript` nodes in three named files; a call is not one, and a fourth
+#   file is not walked. (A helper INSIDE the three IS reported — the review
+#   probed that and the census killed it.)
+#
+# WHAT THEIR PRACTICAL BITE IS, and it is measured rather than assumed: every
+# one of these shapes installed at one of the REAL sites was killed by the
+# DRIVES, because the drives check the printed word's absence from the raised
+# exception and do not care how the lookup was spelled. They bite only at a
+# NEW site that nothing drives — which is exactly the case a census exists for,
+# and exactly why they are written down here instead of being left for the next
+# reviewer to find.
+#
+# ONE MORE LIMIT, and it is about the ALLOWLIST rather than the walk: the
+# allowlist is keyed by `file:scope: subscript` — a LINE, not a guard. Delete
+# `_date_tokens`'s `if mon not in _MONTHS: continue` and the entry still
+# matches and the census still passes; what catches that is the DRIVE, and
+# mutant M7 is killed by that drive and by nothing else. Keying the entry to
+# the guard (an AST check that a `Compare(NotIn)` on the same table dominates
+# the subscript in the same block) would close the residue and is deliberately
+# NOT done here: it is a census change, not a refusal change, and it belongs to
+# the card that widens this census rather than to the one that opened it.
+
+#: The same three readers as §4b, and named for the same reason: a derived
+#: population would grow silently, and this guard's value is that its list of
+#: exceptions is one line long.
+TOKEN_LOOKUP_CENSUS_MODULES = RAW_DATE_CENSUS_MODULES
+
+#: Every mapping subscript that MAY stand in those three readers, with the
+#: reason that proves it cannot put a printed token into a message. Exactly
+#: one entry, and it is the lookup-census twin of §4b's ninth line.
+TOKEN_LOOKUP_ALLOWED = {
+    "analysis/td_can.py:_date_tokens: _MONTHS[mon]":
+        "the row-date lookup, and the ONLY one of the four this card did not "
+        "reroute: `if mon not in _MONTHS: continue` stands two lines above it "
+        "in the same loop body, so the subscript cannot raise and there is no "
+        "refusal here to make private. Rerouting it would turn a SKIPPED "
+        "token into a raise — a new refusal, which a hygiene card may not "
+        "introduce — and the guard is DRIVEN in "
+        "`tests/test_raise_privacy4.py::test_the_guarded_row_date_lookup_"
+        "skips_a_non_month_word_on_both_trees`, not asserted here",
+}
+
+
+def _dict_literal_names(tree: ast.AST) -> set[str]:
+    """Every name this module binds to a dict literal or comprehension.
+
+    Anywhere — module scope, a function body, a method — because a lookup
+    table built per document inside the reader is as much a table as a module
+    constant is, and the census must not depend on where it was written.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets, value = [node.target], node.value
+        else:
+            continue
+        if not isinstance(value, (ast.Dict, ast.DictComp)):
+            continue
+        names.update(
+            target.id for target in targets if isinstance(target, ast.Name)
+        )
+    return names
+
+
+def _imported_mapping_names(module) -> set[str]:
+    """Every global of an imported reader that is a `Mapping`, plus one level
+    of attribute (`dt.MONTH_NUMBERS`), so a table the reader imported by
+    MODULE rather than by name is covered too."""
+    names: set[str] = set()
+    for name, value in vars(module).items():
+        if isinstance(value, Mapping):
+            names.add(name)
+            continue
+        if isinstance(value, type(ast)):        # a module object
+            names.update(
+                f"{name}.{attribute}"
+                for attribute, member in vars(value).items()
+                if isinstance(member, Mapping) and not attribute.startswith("__")
+            )
+    return names
+
+
+def _token_lookup_subscripts(
+    source: str, relative: str, mappings: set[str] | frozenset[str] = frozenset()
+) -> list[str]:
+    """`module:scope: subscript` for every mapping READ whose key is not a
+    literal, anywhere in the module."""
+    tree = ast.parse(source)
+    tables = set(mappings) | _dict_literal_names(tree)
+    found: list[str] = []
+    for scope, node in _scoped_nodes(tree):
+        if not isinstance(node, ast.Subscript) or not isinstance(node.ctx, ast.Load):
+            continue
+        value = node.value
+        if isinstance(value, ast.Name):
+            root = value.id
+        elif isinstance(value, ast.Attribute):
+            root = ast.unparse(value)
+        else:
+            continue
+        if root not in tables:
+            continue
+        key = node.slice
+        # A literal key is written in THIS source; a slice is not a mapping
+        # lookup at all and cannot raise a `KeyError` carrying a document.
+        if isinstance(key, (ast.Constant, ast.Slice)):
+            continue
+        found.append(f"{relative}:{scope}: {ast.unparse(node)}")
+    return sorted(found)
+
+
+def test_no_document_token_indexes_a_lookup_table_in_the_rerouted_readers():
+    """RAISE-PRIVACY-5's generalisation. `KeyError('<the printed word>')` is a
+    leak with no `raise` to grep for; a fifth one arriving in a commit about
+    something else lands here with the reader, the scope and the subscript in
+    the failure message."""
+    found: list[str] = []
+    for relative in TOKEN_LOOKUP_CENSUS_MODULES:
+        module = importlib.import_module(f"analysis.{Path(relative).stem}")
+        source = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
+        found.extend(
+            _token_lookup_subscripts(source, relative, _imported_mapping_names(module))
+        )
+    unaccounted = sorted(set(found) - set(TOKEN_LOOKUP_ALLOWED))
+    stale = sorted(set(TOKEN_LOOKUP_ALLOWED) - set(found))
+    assert unaccounted == [], (
+        "a mapping is indexed by a token a document supplied; route it through "
+        f"`.get` and refuse with a fixed message, or account for it: {unaccounted}"
+    )
+    assert stale == [], (
+        f"these are no longer in the source; drop them from the list: {stale}"
+    )
+
+
+def test_every_entry_of_the_lookup_allowlist_carries_a_reason():
+    """A list without reasons is a suppression."""
+    for entry, reason in TOKEN_LOOKUP_ALLOWED.items():
+        assert isinstance(reason, str) and len(reason) >= 40, entry
+
+
+def test_the_lookup_census_is_not_vacuous_on_the_reader_it_was_written_for():
+    """The census resolves `_MONTHS` as a table — so a reported zero is a
+    measurement rather than a name it never recognised."""
+    from analysis import td_can
+
+    tables = _imported_mapping_names(td_can)
+    assert "_MONTHS" in tables and "_MOJIBAKE_TABLE" in tables
+    source = (PROJECT_ROOT / "analysis/td_can.py").read_text(encoding="utf-8")
+    reverted = source.replace(
+        "start_month = _MONTHS.get(sm)", "start_month = _MONTHS[sm]", 1
+    )
+    assert reverted != source, "the funnel this census watches has been reworded"
+    assert _token_lookup_subscripts(reverted, "analysis/td_can.py", tables) == [
+        "analysis/td_can.py:_date_tokens: _MONTHS[mon]",
+        "analysis/td_can.py:_parse_period: _MONTHS[sm]",
+    ]
+
+
+def test_the_lookup_census_resolves_a_mapping_behind_an_attribute():
+    """The one level of attribute the claim above states, pinned: a reader
+    that imports the date grammar as a MODULE and indexes its month table is
+    reported exactly as one that imported the table by name."""
+    from analysis import date_tokens
+
+    tables = _imported_mapping_names(date_tokens) | {"dt.MONTH_NUMBERS"}
+    assert "MONTH_NUMBERS" in _imported_mapping_names(date_tokens)
+    source = "from analysis import date_tokens as dt\n\ndef f(w):\n    return dt.MONTH_NUMBERS[w]\n"
+    assert _token_lookup_subscripts(source, "s.py", tables) == [
+        "s.py:f: dt.MONTH_NUMBERS[w]",
+    ]
+
+
+#: The guard watched failing — and watched NOT failing on the shapes it must
+#: not flag. Each source binds its own table so the static half of the census
+#: is what is under test; the dynamic half is pinned by the two tests above.
+_TOKEN_LOOKUP_MUTANTS = [
+    ("the-site-shape",
+     "T = {'JAN': 1}\ndef f(m):\n    return T[m.group(1)]\n", 1),
+    ("at-module-scope",
+     "T = {'JAN': 1}\nm = R.search(TEXT)\nSTAMP = T[m.group(1)]\n", 1),
+    ("inside-a-module-scope-lambda",
+     "T = {'JAN': 1}\nstamp = lambda m: T[m.group(1)]\n", 1),
+    ("inside-a-nested-def-reported-once",
+     "T = {'JAN': 1}\ndef outer(t):\n    def inner(m):\n        return T[m.group(1)]\n"
+     "    return inner\n", 1),
+    ("a-table-built-inside-the-reader",
+     "def f(cells, w):\n    table = {c: i for i, c in enumerate(cells)}\n"
+     "    return table[w]\n", 1),
+    ("the-membership-test-does-not-excuse-the-subscript",
+     "T = {'JAN': 1}\ndef f(w):\n    if w in T:\n        return T[w]\n    return None\n", 1),
+    # The shapes it must NOT flag.
+    ("the-get-shape-this-card-installed",
+     "T = {'JAN': 1}\ndef f(w):\n    n = T.get(w)\n    if n is None:\n"
+     "        raise KeyError('a fixed sentence')\n    return n\n", 0),
+    ("a-literal-key",
+     "T = {'JAN': 1}\ndef f():\n    return T['JAN']\n", 0),
+    ("a-slice-of-the-printed-text",
+     "def f(text):\n    return text[:3]\n", 0),
+    ("a-list-index",
+     "def f(cells, i):\n    return cells[i]\n", 0),
+    ("a-write-into-the-table",
+     "T = {}\ndef f(w, n):\n    T[w] = n\n", 0),
+]
+
+
+@pytest.mark.parametrize("name,source,expected", _TOKEN_LOOKUP_MUTANTS,
+                         ids=[case[0] for case in _TOKEN_LOOKUP_MUTANTS])
+def test_the_lookup_census_can_see_each_shape(name, source, expected):
+    found = _token_lookup_subscripts(source, f"synthetic/{name}.py")
+    assert len(found) == expected, (name, found)
+
+
+#: THE KNOWN HOLES, as drives rather than as prose. Each of these IS a document
+#: token indexing a table and each is reported ZERO times today. This list is a
+#: DISCLOSURE, not a property: it exists so the holes are measured, so a reader
+#: cannot mistake the "not a hole" list above for the whole list, and so the
+#: card that closes one of them gets a red test pointing straight at the
+#: sentence it has to delete.
+_TOKEN_LOOKUP_UNREPORTED = [
+    ("an-alias-bound-from-another-name",
+     "T = {'JAN': 1}\ndef f(w):\n    t = T\n    return t[w]\n"),
+    ("operator-getitem",
+     "import operator\nT = {'JAN': 1}\ndef f(w):\n    return operator.getitem(T, w)\n"),
+    ("the-dunder-spelling",
+     "T = {'JAN': 1}\ndef f(w):\n    return T.__getitem__(w)\n"),
+    ("a-copy-of-the-table",
+     "T = {'JAN': 1}\ndef f(w):\n    return dict(T)[w]\n"),
+]
+
+
+@pytest.mark.parametrize("name,source", _TOKEN_LOOKUP_UNREPORTED,
+                         ids=[case[0] for case in _TOKEN_LOOKUP_UNREPORTED])
+def test_the_known_holes_of_the_lookup_census_are_still_holes(name, source):
+    """A hole nobody has written down is a hole nobody can close.
+
+    If this goes RED the census has grown to cover the shape — which is good
+    news and not a failure: move the row into `_TOKEN_LOOKUP_MUTANTS` with its
+    expected count, and delete the matching clause from the KNOWN HOLES comment
+    above so the comment and the walk stay the same sentence.
+    """
+    found = _token_lookup_subscripts(source, f"synthetic/{name}.py")
+    assert found == [], (
+        f"{name} is now REPORTED; the census covers it, so move it to the "
+        f"must-see list and drop its clause from the KNOWN HOLES comment: {found}"
+    )
+
+
+def test_a_helper_inside_the_three_readers_is_reported_and_one_outside_is_not():
+    """The fourth hole, which is about the POPULATION rather than the syntax.
+
+    A helper that performs the subscript is reported when it lives in a file
+    the census walks, and invisible when it lives anywhere else — because the
+    census is three named files, by design (a derived population grows
+    silently). Both halves are driven so the boundary is a measurement."""
+    inside = (
+        "T = {'JAN': 1}\n"
+        "def month_of(w):\n    return T[w]\n"
+        "def read(period):\n    return month_of(period[:3])\n"
+    )
+    assert _token_lookup_subscripts(inside, "analysis/td_can.py") == [
+        "analysis/td_can.py:month_of: T[w]",
+    ]
+    outside = "from elsewhere import month_of\n\ndef read(period):\n    return month_of(period[:3])\n"
+    assert _token_lookup_subscripts(outside, "analysis/td_can.py") == []
 
 
 # ---------------------------------------------------------------------------

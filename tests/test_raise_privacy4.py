@@ -39,6 +39,7 @@ import importlib
 
 import pytest
 
+from analysis import date_tokens as dt
 from tests.test_privacy3_boundaries import (
     CANARY, PROJECT_ROOT, _digit_runs, _leak_surfaces,
 )
@@ -234,12 +235,25 @@ READERS = {
 }
 
 #: The (site, shape) CELLS, flattened, so the parametrisation is exactly the
-#: sixteen drives that exist rather than a cross-product with holes in it.
+#: NINETEEN drives that exist rather than a cross-product with holes in it.
+#: (Review MINOR-1: this comment said "sixteen", which is a number no reading
+#: of `POISON` produces — a reader who trusted it believed three drives did
+#: not exist. The count is asserted below rather than only written down, so
+#: the next reword cannot drift the same way.)
 CELLS = [
     (site, shape)
     for site in sorted(POISON)
     for shape in sorted(POISON[site])
 ]
+
+
+def test_the_drive_count_this_file_states_is_the_count_it_runs():
+    """MINOR-1 closed as a class rather than as a typo. `CELLS` is the
+    parametrisation of the two branch drives and of the base drive, so a
+    number written beside it is a claim about coverage."""
+    assert len(CELLS) == 19
+    assert len(CELLS) == sum(len(shapes) for shapes in POISON.values())
+    assert sorted(POISON) == sorted(READERS) == sorted(VALID)
 
 #: A cell every site CAN read. A refusal that also refused the good case would
 #: be a regression wearing a fix's clothes, and the payload comparison below is
@@ -358,26 +372,107 @@ def test_the_eight_sites_refuse_without_quoting_at_the_branch(site, shape):
     assert raised.value.__cause__ is None and raised.value.__context__ is None
 
 
+#: The one digit sequence a `date_refusal` may carry, and it is a constant of
+#: THIS tree rather than anything a document printed: `_refusal_class` answers
+#: "longer than the N-character bound" for a token past `MAX_DATE_TOKEN_CHARS`.
+#: Review MINOR-3: the assertion below used to say "no decimal digit at all",
+#: which is stronger than the refusal guarantees — it passed only because no
+#: driven cell was long enough, and the day one was, it would have failed on a
+#: message that is perfectly private. What the refusal DOES guarantee is
+#: asserted instead, and the over-long branch is driven below rather than left
+#: as an exemption nobody exercises.
+_ALLOWED_CONSTANT_DIGITS = str(dt.MAX_DATE_TOKEN_CHARS)
+
+
+def _document_digits(text: str) -> str:
+    """`text` with this tree's own constant removed, so what is left is
+    everything the message could only have got from the document."""
+    return text.replace(_ALLOWED_CONSTANT_DIGITS, "")
+
+
 @pytest.mark.parametrize("site,shape", CELLS)
-def test_the_refusal_carries_no_digit_at_all_on_the_message_surfaces(site, shape):
+def test_the_refusal_carries_no_digit_the_document_supplied(site, shape):
     """Stronger than the run floor, and version-proof.
 
     The digit-run test cannot see a one-digit echo: `year must be in 1..9999,
     not 0` quotes a printed `0000` as `0`, and CPython's wording has already
-    changed once (3.13 rewrote every `date()` range message). The refusals this
-    card installs contain no decimal digit whatsoever on the message surfaces,
-    so the assertion is made directly. The rendered traceback is excluded here
-    and covered by the run test above: it quotes line numbers and source, which
-    are digits that are not the document's.
+    changed once (3.13 rewrote every `date()` range message). So the assertion
+    is made directly on the characters — over a message with this tree's own
+    `MAX_DATE_TOKEN_CHARS` removed, which is the only digit sequence
+    `_refusal_class` can produce and is not a reading of anything. The
+    rendered traceback is excluded here and covered by the run test above: it
+    quotes line numbers and source, which are digits that are not the
+    document's.
     """
     token, _ = POISON[site][shape]
     with pytest.raises(ValueError) as raised:
         raisepriv4_drives("analysis")[site](token)
     for surface in ("str", "repr", "args", "chain", "notes"):
-        text = _surfaces(raised.value)[surface]
+        text = _document_digits(_surfaces(raised.value)[surface])
         assert not any(char.isdigit() for char in text), (
             f"{site}/{shape}: a digit reached {surface}"
         )
+
+
+#: A period line whose `\s*` run pushes `m.group(0)` past the bound, so the
+#: refusal takes the ONE branch of `_refusal_class` that interpolates. The
+#: reviewer's own shape, driven rather than described.
+_OVER_LONG_PERIOD = "FEB" + " " * 40 + "30/31 - MAR 28/31"
+
+
+def test_the_over_long_branch_carries_the_bound_and_still_carries_no_document():
+    """MINOR-3's concrete case, promoted from a caveat to a drive.
+
+    `td_can._parse_period` passes `m.group(0)` and `_PERIOD_RE`'s `\\s*` runs
+    are unbounded, so a real period line can exceed `MAX_DATE_TOKEN_CHARS`.
+    The message then carries the CONSTANT — and nothing else: not the printed
+    day, not the month word, not the token. That is exactly the guarantee
+    `_refusal_class` makes, so it is what is asserted."""
+    from analysis import td_can
+
+    with pytest.raises(ValueError) as raised:
+        td_can._parse_period(_OVER_LONG_PERIOD)
+    message = str(raised.value)
+    assert f"longer than the {dt.MAX_DATE_TOKEN_CHARS}-character bound" in message
+    assert "reader=td_can._parse_period" in message
+    assert _leaking(raised.value, _OVER_LONG_PERIOD.strip()) == []
+    # And the exemption is exactly one constant wide: with it removed, the
+    # message has no digit left.
+    for surface in ("str", "repr", "args", "chain", "notes"):
+        text = _document_digits(_surfaces(raised.value)[surface])
+        assert not any(char.isdigit() for char in text), surface
+
+
+def test_the_refusal_class_vocabulary_is_what_the_digit_claim_is_made_against():
+    """The exemption above is a claim about `_refusal_class`, so it is pinned
+    there: four fixed strings, exactly one of which interpolates, and the
+    thing it interpolates is a module constant."""
+    produced = {
+        dt._refusal_class(token)
+        # The over-long token must carry a DIGIT: `_refusal_class` answers
+        # "no digits in the cell" first, so a long alphabetic token never
+        # reaches the length branch at all.
+        for token in ("", "   ", CANARY, "13/40/31", "1" * 40)
+    }
+    assert produced == {
+        "the cell is empty",
+        "no digits in the cell",
+        f"longer than the {dt.MAX_DATE_TOKEN_CHARS}-character bound",
+        "not a date in the reader's format",
+    }
+    interpolating = [text for text in produced if any(c.isdigit() for c in text)]
+    assert interpolating == [
+        f"longer than the {dt.MAX_DATE_TOKEN_CHARS}-character bound"
+    ]
+    assert _ALLOWED_CONSTANT_DIGITS == str(dt.MAX_DATE_TOKEN_CHARS)
+    # An exemption is only safe while it cannot blind the drive it exempts: no
+    # driven token contains the constant, so removing it from a message can
+    # never remove a real echo.
+    assert not any(
+        _ALLOWED_CONSTANT_DIGITS in token
+        for shapes in POISON.values()
+        for token, _ in shapes.values()
+    ), "a driven token contains the constant; the exemption would hide an echo"
 
 
 def test_the_refusal_class_at_the_eight_sites_is_still_ValueError():
@@ -627,3 +722,468 @@ def test_the_disclosure_list_this_card_emptied_is_empty():
     assert _CARRIED_ECHOING_SITES == {}, (
         "a site was parked in the carried list; it needs a card, not an entry"
     )
+
+
+# ---------------------------------------------------------------------------
+# 8. RAISE-PRIVACY-5 — the LOOKUP the conversion census could not see
+# ---------------------------------------------------------------------------
+#
+# RAISE-PRIVACY-4's review confirmed one document-reachable echo this file's
+# card disclosed and did not close, and showed it was closable without moving
+# anything: `td_can._parse_period`'s `_MONTHS[sm]` / `_MONTHS[em]` raise
+# `KeyError('<the printed word>')` on a period line whose three-letter word is
+# not a month, and `_native_date_to_iso`'s `_MONTHS[...]` does the same behind
+# a caller's guard. A `KeyError`'s message IS its key, so there is no `raise`
+# to grep for and no conversion call for a census to walk — which is why
+# `tests/test_privacy3_boundaries.py` §4c now walks subscripts.
+#
+# THE CONSTRAINT, and it is the whole shape of the fix: the raised CLASS may
+# not move. `parser_registry._guarded` reduces a parser crash to
+# `type(exc).__name__`, so a `KeyError` that became a `ValueError` would move
+# an outcome even though no figure moved. `.get` + a FIXED sentence raised
+# from OUTSIDE any handler keeps the class, the control flow and every
+# published field, and takes only the word out of the message.
+
+#: This card's base — the tree the both-tree drive below is only a proof
+#: against. Distinct from `BASE_REVISION` above, which is RAISE-PRIVACY-4's:
+#: at THIS base the eight `date()` sites are already funnelled and the three
+#: lookups are not.
+RAISEPRIV5_BASE_REVISION = "897d69e"
+
+#: The three-letter words that are not months. Invented, and each is a shape
+#: a TD period line can really carry: a word derived from this file's own
+#: canary, an OCR misread of a month name, and a printed word that is simply
+#: not a month. `_PERIOD_RE` and `_DATE_TOKEN_RE` both prove `[A-Z]{3}` and
+#: nothing more, so all three reach the lookup.
+MONTH_WORDS = {
+    "canary": CANARY[:3],
+    "ocr-misread-month": "JUI",
+    "a-printed-word-that-is-not-a-month": "TOT",
+}
+
+
+def raisepriv5_drives(package: str) -> dict:
+    """The three lookups, driven through the REAL reader, inside one package."""
+    td = importlib.import_module(f"{package}.td_can")
+
+    return {
+        "td_can.period_start_month":
+            lambda word: td._parse_period(f"{word} 10/31 - MAR 28/31"),
+        "td_can.period_end_month":
+            lambda word: td._parse_period(f"JAN 10/31 - {word} 28/31"),
+        "td_can.native_date_month":
+            lambda word: td._native_date_to_iso(f"{word}10",
+                                                default_year=_DEFAULT_YEAR),
+    }
+
+
+#: The reader each lookup refusal must name, so a drive cannot be satisfied by
+#: some other refusal of the same reader. Both `_parse_period` ends name the
+#: same site on purpose — a caller cannot tell the start refusal from the end
+#: one, which is the same property the two `date_refusal`s of
+#: `_native_date_to_iso` have.
+LOOKUP_READERS = {
+    "td_can.period_start_month": "td_can._parse_period",
+    "td_can.period_end_month": "td_can._parse_period",
+    "td_can.native_date_month": "td_can._native_date_to_iso",
+}
+
+#: A month word each site CAN read. A refusal that also refused the good case
+#: would be a regression wearing a fix's clothes.
+LOOKUP_VALID = {
+    "td_can.period_start_month": "JAN",
+    "td_can.period_end_month": "FEB",
+    "td_can.native_date_month": "MAR",
+}
+
+LOOKUP_CELLS = [
+    (site, shape) for site in sorted(LOOKUP_READERS) for shape in sorted(MONTH_WORDS)
+]
+
+
+@pytest.fixture(scope="module")
+def raisepriv5_base_tree(tmp_path_factory):
+    """`analysis/` as it stood at THIS card's base, importable beside ours."""
+    try:
+        from tools.hygiene8_base_tree import load_base_analysis
+    except ImportError as exc:                        # pragma: no cover
+        pytest.skip(f"tools.hygiene8_base_tree is not importable: {exc!r}")
+    try:
+        return load_base_analysis(
+            RAISEPRIV5_BASE_REVISION,
+            repo=PROJECT_ROOT,
+            scratch=tmp_path_factory.mktemp("raisepriv5_base"),
+        )
+    except Exception as exc:                          # pragma: no cover
+        pytest.skip(
+            f"the base tree {RAISEPRIV5_BASE_REVISION} is unavailable: {exc!r}"
+        )
+
+
+def test_the_two_base_revisions_are_different_trees(base_tree, raisepriv5_base_tree):
+    """The vacuity check for the vacuity checks. Two base packages are loaded
+    in this process and neither may be the other: §2's drives must echo a
+    `date()` number at `2f24b06`, and §8's must echo a month WORD at the tree
+    where those eight sites are already closed."""
+    assert base_tree.package != raisepriv5_base_tree.package
+    assert base_tree.revision != raisepriv5_base_tree.revision
+
+
+# --- the base tree: the lookup echoes the printed word ---------------------
+
+@pytest.mark.parametrize("site,shape", LOOKUP_CELLS)
+def test_the_three_lookups_echoed_the_printed_word_at_the_base_tree(
+    site, shape, raisepriv5_base_tree
+):
+    """Without this, every branch assertion below could pass because the
+    fixture never reached the subscript at all."""
+    word = MONTH_WORDS[shape]
+    with pytest.raises(KeyError) as raised:
+        raisepriv5_drives(raisepriv5_base_tree.package)[site](word)
+    assert raised.value.args == (word,), (
+        f"{site}/{shape}: the base did not raise the printed word as its key, "
+        "so the fixture probably never reached the lookup"
+    )
+    assert word in str(raised.value) and word in repr(raised.value)
+
+
+# --- this tree: the same class, and the word is gone -----------------------
+
+@pytest.mark.parametrize("site,shape", LOOKUP_CELLS)
+def test_the_three_lookups_refuse_without_quoting_at_the_branch(site, shape):
+    """RAISE-PRIVACY-5, closed. Same drive, same fixture, this tree: the same
+    CLASS still refuses, and the printed word reaches neither `str`, `repr`,
+    `args`, `__notes__`, the chain nor a rendered traceback."""
+    word = MONTH_WORDS[shape]
+    with pytest.raises(KeyError) as raised:
+        raisepriv5_drives("analysis")[site](word)
+    assert _leaking(raised.value, word) == []
+    assert f"reader={LOOKUP_READERS[site]}" in str(raised.value)
+    assert raised.value.__cause__ is None and raised.value.__context__ is None
+
+
+@pytest.mark.parametrize("site,shape", LOOKUP_CELLS)
+def test_the_lookup_refusal_carries_no_digit_at_all(site, shape):
+    """Unlike the `date_refusal` above, this message interpolates NOTHING —
+    it is a string literal in the source — so the claim needs no exemption."""
+    word = MONTH_WORDS[shape]
+    with pytest.raises(KeyError) as raised:
+        raisepriv5_drives("analysis")[site](word)
+    for surface in ("str", "repr", "args", "chain", "notes"):
+        text = _surfaces(raised.value)[surface]
+        assert not any(char.isdigit() for char in text), (
+            f"{site}/{shape}: a digit reached {surface}"
+        )
+
+
+@pytest.mark.parametrize("site,shape", LOOKUP_CELLS)
+def test_the_lookup_refusal_class_is_identical_on_both_trees(
+    site, shape, raisepriv5_base_tree
+):
+    """THE constraint of this card, measured rather than argued. The dispatch
+    seam sees `type(exc).__name__` and nothing else, so this is the whole of
+    what a document's outcome can depend on."""
+    word = MONTH_WORDS[shape]
+
+    def raised_by(package):
+        try:
+            raisepriv5_drives(package)[site](word)
+        except BaseException as exc:                  # noqa: BLE001
+            return type(exc).__name__
+        return "<returned>"
+
+    theirs = raised_by(raisepriv5_base_tree.package)
+    assert theirs == raised_by("analysis") == "KeyError"
+
+
+def test_the_two_ends_of_the_period_still_refuse_indistinguishably():
+    """The property the two `date_refusal`s of this reader already have,
+    extended to the lookup: a caller cannot tell WHICH end of the printed
+    period was unreadable, because that would be a fact about the document."""
+    from analysis import td_can
+
+    messages = set()
+    for line in (f"{CANARY[:3]} 10/31 - MAR 28/31", f"JAN 10/31 - {CANARY[:3]} 28/31"):
+        with pytest.raises(KeyError) as raised:
+            td_can._parse_period(line)
+        messages.add(str(raised.value))
+    assert len(messages) == 1, messages
+
+
+# --- the other half of "only the message changed" --------------------------
+
+@pytest.mark.parametrize("site", sorted(LOOKUP_VALID))
+def test_a_readable_month_word_reads_identically_on_both_trees(
+    site, raisepriv5_base_tree
+):
+    """A month the reader CAN read publishes the same payload leaf for leaf on
+    both trees, so nothing this card touched changed what a document
+    publishes."""
+    from tools.hygiene8_base_tree import leaf_diff
+
+    word = LOOKUP_VALID[site]
+    ours = _payload(raisepriv5_drives("analysis")[site](word))
+    theirs = _payload(raisepriv5_drives(raisepriv5_base_tree.package)[site](word))
+    assert leaf_diff(theirs, ours) == []
+    assert ours, f"{site}: the valid drive published nothing"
+
+
+@pytest.mark.parametrize("shape", sorted(NON_REACHING))
+@pytest.mark.parametrize("site", sorted(LOOKUP_READERS))
+def test_a_shape_that_never_reaches_the_lookup_is_identical_on_both_trees(
+    site, shape, raisepriv5_base_tree
+):
+    """No new refusal where none existed, and no new acceptance. These shapes
+    are refused by the regex or by the earlier SHAPE refusal, so the lookup is
+    never reached and the outcome must be bit-for-bit what it was."""
+    from tools.hygiene8_base_tree import leaf_diff
+
+    word = NON_REACHING[shape]
+
+    def outcome(package):
+        try:
+            return "returned", _payload(raisepriv5_drives(package)[site](word))
+        except BaseException as exc:                  # noqa: BLE001
+            return f"raised {type(exc).__name__}", exc
+
+    base_kind, base_value = outcome(raisepriv5_base_tree.package)
+    our_kind, our_value = outcome("analysis")
+    assert base_kind == our_kind, f"{site}/{shape}: the outcome CLASS moved"
+    if base_kind == "returned":
+        assert leaf_diff(base_value, our_value) == []
+    else:
+        for exc in (base_value, our_value):
+            assert _leaking(exc, word) == [], f"{site}/{shape}: {exc!r} quotes it"
+
+
+#: Arabic-Indic decimal digits. `re`'s `\d` matches Unicode category Nd and
+#: `int()` accepts every Nd character, so these match `(\d{1,2})/(\d{2})` and
+#: convert — which is the whole of why moving the month lookup ahead of
+#: `2000 + int(sy)` reorders nothing a caller can observe.
+_ND_DIGITS = {"ten": "١٠", "thirty-one": "٣١"}
+
+
+@pytest.mark.parametrize("word", ["JAN", CANARY[:3]])
+def test_the_month_lookup_moved_ahead_of_the_year_and_that_reorders_nothing(
+    word, raisepriv5_base_tree
+):
+    """The one evaluation-order change this card makes, driven on both trees.
+
+    At the base the lookup was the SECOND argument of `iso_or_none`, so
+    `2000 + int(sy)` ran first; here it runs before the call. That is
+    unobservable only if `int()` on a group `(\\d{2})` produced cannot raise,
+    and the strongest available witness is a period line whose digits are not
+    ASCII at all: both trees must agree, on the readable word and on the
+    unreadable one."""
+    line = f"{word} {_ND_DIGITS['ten']}/{_ND_DIGITS['thirty-one']} - MAR 28/31"
+
+    def outcome(package):
+        td = importlib.import_module(f"{package}.td_can")
+        try:
+            return "returned", td._parse_period(line)
+        except BaseException as exc:                  # noqa: BLE001
+            return f"raised {type(exc).__name__}", None
+
+    assert outcome(raisepriv5_base_tree.package) == outcome("analysis")
+
+
+# --- the fourth subscript: the one the census allows, and why ---------------
+
+@pytest.mark.parametrize("shape", sorted(MONTH_WORDS))
+def test_the_guarded_row_date_lookup_skips_a_non_month_word_on_both_trees(
+    shape, raisepriv5_base_tree
+):
+    """`TOKEN_LOOKUP_ALLOWED`'s single entry, measured rather than asserted.
+
+    `_date_tokens`'s `_MONTHS[mon]` still stands as a subscript because
+    `if mon not in _MONTHS: continue` guards it in the same loop body: a
+    non-month word costs the TOKEN and raises nothing. Giving it a refusal
+    would be a new refusal, which this card may not introduce — so what is
+    proved is that it raises nothing, on both trees, and still reads the
+    month beside it."""
+    word = MONTH_WORDS[shape]
+    for package in (raisepriv5_base_tree.package, "analysis"):
+        td = importlib.import_module(f"{package}.td_can")
+        assert td._date_tokens(f"{word} 10 JAN 11", default_year=_DEFAULT_YEAR) == [
+            "2031-01-11"
+        ]
+
+
+def test_the_native_lookup_stays_unreachable_from_its_production_caller():
+    """The reachability claim in the reader's own comment, driven.
+
+    `_native_date_index` selects a column through `_native_date_token`, which
+    tests `text[:3] in _MONTHS` before anything else — so the token that would
+    reach the closed lookup is never chosen, and the refusal this card
+    installs there is a guard against a future caller rather than a change to
+    the present one."""
+    from analysis import td_can
+
+    for shape, word in MONTH_WORDS.items():
+        assert td_can._native_date_token(f"{word}10") is None, shape
+        line = f"INVENTED DESCRIPTION {_figure('row_one')} {word}10 {_figure('balance_one')}"
+        assert td_can._native_date_index(line) is None, shape
+    # And the same line with a real month IS selected, so the assertion above
+    # is about the WORD and not about the line's shape.
+    readable = f"INVENTED DESCRIPTION {_figure('row_one')} JAN10 {_figure('balance_one')}"
+    assert td_can._native_date_index(readable) is not None
+
+
+def test_the_lookup_refusal_message_is_a_literal_and_the_reader_survives():
+    """Two rules of this family in one place: the message is a plain string
+    LITERAL in the source (so `CHAIN_GUARDED` can verify it without executing
+    anything, and no interpolation can ever be added quietly), and `td_can`
+    still declares `date_refusal` — the reroute did not trade one law for the
+    other."""
+    import ast
+
+    from tests.test_privacy3_boundaries import CHAIN_GUARDED
+
+    assert CHAIN_GUARDED["analysis/td_can.py"] == frozenset({"date_refusal"})
+    tree = ast.parse((PROJECT_ROOT / "analysis" / "td_can.py").read_text(encoding="utf-8"))
+    key_errors = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Raise)
+        and isinstance(node.exc, ast.Call)
+        and isinstance(node.exc.func, ast.Name)
+        and node.exc.func.id == "KeyError"
+    ]
+    assert len(key_errors) == 3, [ast.unparse(node) for node in key_errors]
+    for node in key_errors:
+        assert node.cause is None
+        assert len(node.exc.args) == 1 and not node.exc.keywords
+        argument = node.exc.args[0]
+        assert isinstance(argument, ast.Constant) and isinstance(argument.value, str)
+        assert "reader=td_can." in argument.value
+        assert not any(char.isdigit() for char in argument.value)
+
+
+# ---------------------------------------------------------------------------
+# 9. RAISE-PRIVACY-5's SECOND evaluation-order change, named and driven
+# ---------------------------------------------------------------------------
+#
+# This card's review, MINOR-2. §RP5.2 and the reader's comment named ONE
+# reorder — `_parse_period`'s lookup moving ahead of `2000 + int(sy)` — and
+# §8's Arabic-Indic drive covered it. `_native_date_to_iso` moved its lookup
+# too: it was the SECOND argument of `iso_or_none`, so `int(m.group(2))` ran
+# after it and now runs after the refusal instead. The justification is the
+# same one and it holds; what was missing was saying so and measuring it.
+#
+# THREE GLYPH CLASSES, because the argument is entirely about what `\d` matches
+# and what `int()` accepts:
+#
+# * ASCII digits — the ordinary case, and the control;
+# * ARABIC-INDIC digits — Unicode category Nd, so `\d` matches them AND `int()`
+#   accepts them. This is the case where the reorder could be observable if the
+#   claim were wrong, because the conversion really does run;
+# * SUPERSCRIPTS — category No. `str.isdigit()` is True for them and `int()`
+#   rejects them, which is the trap `date_tokens` uses `isdecimal` to avoid —
+#   but `\d` never matches one, so the token fails the shape check and takes
+#   the shape refusal without reaching either the lookup or `int()`.
+#
+# `_date_tokens` is driven beside `_native_date_to_iso` because its guarded
+# lookup sits in the same grammar and the same reorder question is asked of it.
+
+#: One day cell per glyph class, plus a day no calendar holds — that last one
+#: paired with an unreadable month WORD, which is the cell that proves the
+#: lookup is reached before the calendar refusal rather than after it.
+_ORDER_DAYS = {
+    "ascii": "10",
+    "arabic-indic-Nd": "١٠",
+    "superscript-No": _SUPERSCRIPTS[:2],
+    "impossible-day": "30",
+}
+
+_ORDER_WORDS = {"readable": "FEB", "unreadable": CANARY[:3]}
+
+#: 14 cells: two readers x three glyph classes x two month words, plus the
+#: impossible-day cell on each reader, which is only interesting unreadable.
+ORDER_CELLS = [
+    (reader, glyphs, word)
+    for reader in ("native_date", "date_tokens")
+    for glyphs in ("ascii", "arabic-indic-Nd", "superscript-No")
+    for word in sorted(_ORDER_WORDS)
+] + [
+    ("native_date", "impossible-day", "unreadable"),
+    ("date_tokens", "impossible-day", "unreadable"),
+]
+
+
+def _order_outcome(package: str, reader: str, glyphs: str, word: str):
+    """(what happened, the payload) for one cell inside one package."""
+    td = importlib.import_module(f"{package}.td_can")
+    day, month_word = _ORDER_DAYS[glyphs], _ORDER_WORDS[word]
+    try:
+        if reader == "native_date":
+            result = td._native_date_to_iso(
+                f"{month_word}{day}", default_year=_DEFAULT_YEAR
+            )
+        else:
+            result = td._date_tokens(
+                f"{month_word} {day}", default_year=_DEFAULT_YEAR
+            )
+    except BaseException as exc:                      # noqa: BLE001
+        return f"raised {type(exc).__name__}", None
+    return "returned", _payload(result)
+
+
+def test_the_drive_count_of_the_second_reorder_is_the_count_it_states():
+    """The same discipline MINOR-1 asked for above: a number written beside a
+    parametrisation is a claim about coverage."""
+    assert len(ORDER_CELLS) == 14
+    assert len(set(ORDER_CELLS)) == 14
+
+
+@pytest.mark.parametrize("reader,glyphs,word", ORDER_CELLS)
+def test_the_second_reorder_changes_no_outcome_on_either_tree(
+    reader, glyphs, word, raisepriv5_base_tree
+):
+    """`_native_date_to_iso`'s lookup now precedes `int(m.group(2))`, and
+    `_date_tokens` is asked the same question. Base and tip must agree on what
+    happened AND on what was published."""
+    theirs = _order_outcome(raisepriv5_base_tree.package, reader, glyphs, word)
+    ours = _order_outcome("analysis", reader, glyphs, word)
+    assert theirs == ours, f"{reader}/{glyphs}/{word}: {theirs} != {ours}"
+
+
+def test_the_second_reorder_drive_actually_reaches_the_conversion():
+    """The vacuity check for the drive above, and the whole point of the
+    Arabic-Indic cell: a non-ASCII decimal day is really READ, so the cell
+    where the reorder could bite is a cell that runs the conversion rather than
+    one that refuses early."""
+    from analysis import td_can
+
+    day = _ORDER_DAYS["arabic-indic-Nd"]
+    assert td_can._native_date_to_iso(f"FEB{day}", default_year=_DEFAULT_YEAR) == (
+        "2031-02-10"
+    )
+    assert td_can._date_tokens(f"FEB {day}", default_year=_DEFAULT_YEAR) == (
+        ["2031-02-10"]
+    )
+    # And the superscript cell really does refuse before the lookup, which is
+    # why it can say nothing about the conversion order.
+    with pytest.raises(ValueError) as raised:
+        td_can._native_date_to_iso(
+            f"FEB{_ORDER_DAYS['superscript-No']}", default_year=_DEFAULT_YEAR
+        )
+    assert "reader=td_can._native_date_to_iso" in str(raised.value)
+
+
+def test_the_month_lookup_is_reached_before_the_calendar_refusal():
+    """The impossible-day cells, stated as the property they measure: with an
+    unreadable month WORD and a day no calendar holds, it is the LOOKUP that
+    refuses, not `iso_or_none` — on both trees, and with the class unchanged.
+    That is what makes the reorder a reorder of two steps rather than a change
+    of which step decides."""
+    from analysis import td_can
+
+    with pytest.raises(KeyError):
+        td_can._native_date_to_iso(
+            f"{CANARY[:3]}{_ORDER_DAYS['impossible-day']}", default_year=_DEFAULT_YEAR
+        )
+    # The same day with a READABLE word takes the calendar refusal instead, so
+    # the assertion above is about the word and not about the day.
+    with pytest.raises(ValueError):
+        td_can._native_date_to_iso(
+            f"FEB{_ORDER_DAYS['impossible-day']}", default_year=_DEFAULT_YEAR
+        )
