@@ -255,6 +255,36 @@ def test_a_year_outside_the_proved_range_is_left_alone(text: str) -> None:
     assert shift_text(text, SHIFT_YEARS, bare_years=True)[0] == text
 
 
+@pytest.mark.parametrize(
+    ("text", "on_paths"),
+    [
+        ('"path": "BofA/BofA 2026-05-29.pdf",', 1),
+        ('"path": "Chase/Chase Salomomon February 27 2026.pdf",', 1),
+        ('"path": "Regions/Regions_03-31-2026 (3) (1).pdf",', 1),
+        ('"period": ["2026-05-01", "2026-05-29"],', 0),
+        ('assert stmt.period_start == "2026-05-01"', 0),
+    ],
+)
+def test_a_date_on_a_line_that_names_a_file_is_counted_and_reported(
+    text: str, on_paths: int
+) -> None:
+    """A pinned document is often NAMED after the period it covers.
+
+    Inside a path the date is half the file's name, and moving it points every
+    reader at a document that does not exist. No pattern can tell that from a
+    fixture date — the characters are identical — so this is a REPORT, not a
+    guard, and the file's suite is what decides. That is how the one occurrence
+    in this tree was found: three tests failing at once.
+    """
+    _shifted, counts = shift_text(text, SHIFT_YEARS)
+    assert counts["on_a_path_line"] == on_paths
+
+
+def test_the_path_report_does_not_change_what_is_shifted() -> None:
+    line = '"path": "BofA/BofA 2026-05-29.pdf",'
+    assert shift_text(line, SHIFT_YEARS)[0] == '"path": "BofA/BofA 2054-05-29.pdf",'
+
+
 def test_a_year_left_alone_is_counted_as_such() -> None:
     _text, counts = shift_text("April 4, 0000 and 2026-01-05", SHIFT_YEARS)
     assert counts["out_of_range"] == 1

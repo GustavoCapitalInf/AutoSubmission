@@ -134,6 +134,18 @@ DATE_SHAPES_WITH_BARE_YEARS = re.compile(
 
 _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
+#: A line that names a FILE. Not a guard — a REPORT, and the difference is the
+#: honest part. A pinned corpus document is often named after the period it
+#: covers (`BofA 2026-05-29.pdf`, `Chase Salomomon February 27 2026.pdf`,
+#: `Regions_03-31-2026 (3) (1).pdf`), and inside a path a date is not a fixture
+#: date at all: it is half the file's NAME, and moving it points every reader
+#: at a document that does not exist. No pattern can tell the two apart — the
+#: characters are identical — so this tool does not pretend to. It COUNTS them
+#: and says so, and the file's own suite is what decides; that is exactly how
+#: the one occurrence in this tree was found, by three tests in
+#: `tests/test_parser_expectations_baseline.py` failing at once.
+PATH_HINT = re.compile(r"\.(?:pdf|md|json|csv|txt|png|jpe?g|xlsx?|docx?)\b", re.IGNORECASE)
+
 #: The year groups, and for each the width its replacement must keep.
 _YEAR_GROUPS = (
     ("slash4y", 4),
@@ -245,6 +257,20 @@ def shift_text(text: str, years: int, bare_years: bool = False) -> tuple[str, di
     pattern = DATE_SHAPES_WITH_BARE_YEARS if bare_years else DATE_SHAPES
     counts: dict[str, int] = {name: 0 for name, _ in _YEAR_GROUPS}
     counts["out_of_range"] = 0
+    counts["on_a_path_line"] = 0
+    # Line offsets, so a match can be told which line it sits on without
+    # splitting the file into lines and losing the single-pass guarantee.
+    starts = [0]
+    for index, char in enumerate(text):
+        if char == "\n":
+            starts.append(index + 1)
+
+    def _line_of(at: int) -> str:
+        import bisect
+
+        first = starts[bisect.bisect_right(starts, at) - 1]
+        end = text.find("\n", first)
+        return text[first:] if end == -1 else text[first:end]
 
     def replace(match: re.Match[str]) -> str:
         for name, width in _YEAR_GROUPS:
@@ -260,6 +286,8 @@ def shift_text(text: str, years: int, bare_years: bool = False) -> tuple[str, di
                 counts["out_of_range"] += 1
                 return match.group(0)
             counts[name] += 1
+            if PATH_HINT.search(_line_of(match.start())):
+                counts["on_a_path_line"] += 1
             start, end = match.span(name)
             whole_start = match.start()
             return (
@@ -316,6 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         original = path.read_text(encoding="utf-8", newline="")
         shifted, counts = shift_text(original, args.years, args.bare_years)
         skipped = counts.pop("out_of_range")
+        on_paths = counts.pop("on_a_path_line")
         moved = sum(counts.values())
         if moved == 0:
             print(f"{path}: no date token; nothing to shift", file=sys.stderr)
@@ -325,6 +354,11 @@ def main(argv: list[str] | None = None) -> int:
                            for name, count in counts.items() if count)
         outside = f"  [{skipped} outside {PROVED_FIRST_YEAR}..{PROVED_LAST_YEAR}, left]" if skipped else ""
         print(f"{path}: {moved} dates shifted +{args.years}y  ({shape}){outside}")
+        if on_paths:
+            print(f"    WARNING: {on_paths} of them sit on a line that NAMES A FILE. "
+                  f"A pinned document is often named after the period it covers, and "
+                  f"inside a path a date is half the file's name — read the diff.",
+                  file=sys.stderr)
         if args.report_years:
             print(f"    years still standing: {years_in(shifted)}")
         if not args.dry_run:

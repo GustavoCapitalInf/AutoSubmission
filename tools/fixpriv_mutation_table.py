@@ -542,11 +542,22 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "    if False:\n        return None",
     ),
     (
-        "Z14", "shift", "the four-digit year's WIDTH",
-        "format the shifted year without its padding, so `0000` comes back as "
-        "two characters and the token stops being a date",
+        "Z14", "shift", "the four-digit year's CENTURY",
+        "collapse a four-digit year to its last two and pad it back to four, "
+        "so 2054 is written as 0054 — the century confusion the two-digit "
+        "branch exists to keep out of the four-digit one",
         '    return f"{value + years:0{width}d}"',
-        '    return str(value + years)',
+        '    return f"{(value + years) % 100:0{width}d}"',
+    ),
+    (
+        "Z15", "shift", "the path-line report",
+        "stop counting the shifted dates that sit on a line NAMING A FILE, so "
+        "an operator gets no warning that a pinned document's own name is "
+        "about to be re-dated",
+        '            if PATH_HINT.search(_line_of(match.start())):\n'
+        '                counts["on_a_path_line"] += 1',
+        "            if False:\n"
+        '                counts["on_a_path_line"] += 1',
     ),
     (
         "R1", "redact", "the sha rule",
