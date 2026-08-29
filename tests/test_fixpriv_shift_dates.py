@@ -346,9 +346,9 @@ def test_an_escape_is_counted_as_refused_rather_than_silently_skipped() -> None:
 
 
 def test_an_escape_does_not_block_a_real_date_on_the_same_line() -> None:
-    line = r"period 2026-01-05 \u2014 to 2026-01-31"
+    line = r"period 2031-01-05 \u2014 to 2031-01-31"
     shifted, counts = shift_text(line, SHIFT_YEARS)
-    assert shifted == r"period 2054-01-05 \u2014 to 2054-01-31"
+    assert shifted == r"period 2059-01-05 \u2014 to 2059-01-31"
     assert counts["isoy"] == 2
     assert counts["in_an_escape"] == 0
 

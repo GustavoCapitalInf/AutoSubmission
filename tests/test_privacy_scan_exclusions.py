@@ -638,7 +638,7 @@ def test_the_session_date_rule_does_not_reach_into_a_named_class(path: str) -> N
         # One case per rule of the table, each chosen to be exactly the shape
         # that rule claims. Inside a named path NONE of them may claim it.
         ("MONEY", "100.00", "SHA,100.00,X"),               # round_money
-        ("MONEY", "20000.00", "SHA,20000.00,X"),           # round_money, five figures
+        ("MONEY", "70300.00", "SHA,70300.00,X"),           # round_money, five figures
         ("MONEY", "0.01", "SHA,0.01,X"),                   # subunit_money
         ("DIGITS", "98989", "SHA,AB98989CDEF09898967,X"),  # hex_sha_substring
         ("DIGITS", "99999", "SHA,OZARK, AR 99999,X"),      # institution_zip
