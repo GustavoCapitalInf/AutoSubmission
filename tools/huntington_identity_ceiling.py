@@ -100,12 +100,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--run", type=Path, default=None)
     ap.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     ap.add_argument("--clusters", type=Path, default=DEFAULT_CLUSTERS)
-    ap.add_argument("--group", action="append", default=["DECL:huntington"])
+    # `action="append"` APPENDS TO ITS DEFAULT, so a non-empty default here would
+    # make `--group OTHER` mean "DECL:huntington and OTHER" — an instrument that can
+    # be widened but never aimed. The default is filled in after parsing instead.
+    ap.add_argument("--group", action="append", default=[])
     ap.add_argument("--mode", choices=MODES, default="all_identities")
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
     if args.run is None:
         args.run = Path(DEFAULT_RUN_POINTER.read_text(encoding="utf-8").strip())
+    if not args.group:
+        args.group = ["DECL:huntington"]
 
     from tools.cohort_replay import ColdCache, load_baseline_rows, replay_one
 
