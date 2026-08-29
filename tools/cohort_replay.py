@@ -193,6 +193,13 @@ def flatten(value, prefix: str = "") -> dict[str, object]:
     (measured on the huntington cohort, 38/38). Lists of dicts keep their order:
     transaction order is semantic."""
     out: dict[str, object] = {}
+    # An EMPTY container is a leaf too. Without this an added key whose value
+    # is `[]` or `{}` projected to nothing and two payloads that differed by
+    # that key compared as identical (found by the L1-ARCH-DESIGN cell: 0
+    # byte-identical vs 208 "leaf-identical" on an omission-field variant).
+    if isinstance(value, (dict, list)) and not value:
+        out[prefix] = "<empty-dict>" if isinstance(value, dict) else "<empty-list>"
+        return out
     if isinstance(value, dict):
         for key, item in value.items():
             out.update(flatten(item, f"{prefix}.{key}" if prefix else str(key)))
