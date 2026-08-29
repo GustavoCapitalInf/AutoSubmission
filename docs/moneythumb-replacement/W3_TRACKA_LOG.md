@@ -58856,3 +58856,236 @@ intends, reached by the path the platform intends.
 Every row of the table above was measured at `b82cf75`, the tip that carries all
 four, except the mutation table and the two replays, which were re-run there
 after this table was first written and returned the same numbers.
+
+# §L1DESIGN — the independent-account publication model, designed against the checkpoint ruling and measured shape by shape
+
+Batch 9, cell `L1-ARCH-DESIGN`. Branch `wave9-l1design`, base `train9` at `ac1d034`.
+DESIGN ONLY: no production file, no registration, no test wiring. The deliverable is
+`docs/moneythumb-replacement/L1_INDEPENDENT_ACCOUNT_DESIGN.md`; the instruments are
+`tools/l1_design_payload_probe.py`, `tools/l1_design_surface_census.py` and
+`tools/l1_design_reader_probe.py`.
+
+`git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark`
+is EMPTY at the tip.
+
+## L1D0 — what the card asked, and the one thing it asked that the measurement changed
+
+The card sketched six implementation stages ending in "the surfaces". The measurement in L1D3
+inverts two of them: the untaught payload reader does not refuse the new shape, it ANSWERS,
+and the answers are wrong. So the surfaces are taught first, dark, while production still emits
+none; and transfers land with the first publisher rather than after it, because the moment two
+ledgers exist on one document the package layer double-counts. Both corrections are recorded in
+§7 of the design with the measurement that forced them.
+
+## L1D1 — RULE S, and the two shapes that cost the whole archive
+
+The design's central claim is that a `DocumentReport` wrapper can be introduced without moving
+a single payload byte on a single-account document. That is not an argument; it is a
+measurement, and `tools/l1_design_payload_probe.py` makes it. For each document it analyses
+ONCE through `analysis.pipeline.analyze_markdown(parse_mode="deterministic")` — the runner's
+exact call — and serialises the SAME in-memory `Report` four ways, so nothing in the comparison
+can move except the shape under test.
+
+Cohort: the first three VALIDATED documents of every registration in the run of record —
+**208 documents, 71 distinct registrations**, every one of them `validated` at baseline,
+including all nine registrations of the modules that carry an L-1 gate or a silent skip.
+
+| variant | byte-identical | differs | document outcome unchanged |
+|---|---:|---:|---:|
+| `wrapper_conditional` (RULE S) | **208** | 0 | 208 |
+| `wrapper_unconditional` | 0 | **208** | 208 |
+| `omission_field_always` | 0 | **208** | 208 |
+| `omission_field_elided` | **208** | 0 | 208 |
+
+RULE S is the four-clause predicate — one account, nothing omitted, no roll-up read, no
+boundary mechanism recorded — under which the document serialiser returns
+`report_to_dict(accounts[0])` and NOTHING ELSE. The two failing variants are the shapes a
+reader reaches for first, and both are archive-wide payload migrations.
+
+The second of them matters beyond this card. `omission_field_always` is
+SIBLING-OMISSION-SURFACE implemented the way `HYGIENE-8.md` proposed it — a field on
+`Statement` — and pydantic dumps it on every document whether or not anything was omitted. The
+design therefore moves the omission record off `Statement` and onto the document object, and
+elides it from the payload when empty. That single decision is the difference between a
+cheap correctness card and an archive-wide migration.
+
+## L1D2 — a blind spot in `cohort_replay`, measured and total
+
+The same 208 pairs were compared twice: as canonical JSON BYTES, and under `flatten` /
+`leaf_diff`, which is the projection every coverage cell reports `payload identical` from.
+
+| variant | byte-identical | leaf-projection identical | the gap |
+|---|---:|---:|---:|
+| `wrapper_conditional` | 208 | 208 | 0 |
+| `wrapper_unconditional` | 0 | 0 | 0 |
+| **`omission_field_always`** | **0** | **208** | **208** |
+| `omission_field_elided` | 208 | 208 | 0 |
+
+An empty list contributes no leaf, so a key whose value is `[]` moves the payload bytes and is
+invisible to the projection — on **all 208**, not on a corner case. A cell landing
+SIBLING-OMISSION-SURFACE as a `Statement` field and proving it with `cohort_replay` alone would
+have reported "previously validated preserved, payload identical" for a change that rewrites
+every payload in the archive.
+
+Consequence, carried into the design's proof plan: every stage that touches the payload shape
+owes a BYTE comparison beside the replay. Reported as a finding against the shared instrument,
+not fixed here — this cell owns no shared tool.
+
+## L1D3 — the untaught reader answers, and so does the shim
+
+A multi-account payload carries `document` + `accounts` and NO top-level `statement`: a
+consumer that reads `payload["statement"]` on a three-account document reads one account and
+calls it the document, which is the L-1 defect moved out of the parser and into the payload.
+`tools/l1_design_reader_probe.py` offered one real `validated` document's payload to every
+reader that is a pure function of the payload dict, in three shapes.
+
+| payload reader | today's shape | the document shape | the Option-D shim |
+|---|---|---|---|
+| `telemetry/record.py::classify_outcome` | `validated/approved` | **`withheld/withheld_adb`** | `validated/approved` |
+| *(this design)* `classify_document` | `validated/approved` | `validated/approved` | `validated/approved` |
+| `analysis/revenue.py::rebuild_serialized_revenue_views` | rebuilt over 27 transactions | **rebuilt over 0** | rebuilt over 27 |
+| `webapp/app.py::_analysis_rows` | 211 export rows | **0** | 211 |
+| `webapp/app.py::_adb_rows` | 0 ADB rows | 0 | 0 |
+| `webapp/app.py::_masked` | 9 top-level keys | **2** | 9 |
+
+**0 of 6 readers refuse the document shape; 6 of 6 answer it.** A valid multi-account document
+would be filed `withheld` with a reason naming a check nobody ran, and every revenue view would
+be rebuilt over an empty ledger — silently, on both counts. And **0 of 6 refuse the Option-D
+shim**: promoting one account back under `statement` makes every untaught reader answer about
+one account of several, forever. That is the measurement that refuses the shim and that orders
+the stages.
+
+## L1D4 — the regression surface, named and sized
+
+`tools/l1_design_surface_census.py`, over the run of record (3,380 documents; validated 2,596 /
+review 18 / withheld 55 / failed 698 / deferred 13 — the run's own split, reproduced).
+
+| registration | module | documents | `validated` (protected) | other |
+|---|---|---:|---:|---|
+| `huntington` | `huntington` | 38 | 38 | — |
+| `community_section` | `community_section` | 61 | 59 | `review` 2 |
+| `dakota_west` | `community_section` | 3 | 3 | — |
+| `mission_valley` | `community_section` | 36 | 36 | — |
+| `navy_federal` | `navy_federal` | 52 | 52 | — |
+| `capital_one` | `capital_one` | 22 | 21 | `withheld` 1 |
+| `consumers` | `consumers` | 2 | 2 | — |
+| `symitar` | `symitar` | 7 | 7 | — |
+| `zions` | `zions` | 13 | 12 | `withheld` 1 |
+| **total** | | **234** | **230** | |
+
+Pinned: 109 listed, all 109 digested from their own bytes, **80 present in the run** and 29
+not; **10 pinned documents are claimed by an L-1 module** (`navy_federal` 4, `capital_one` 4,
+`dakota_west` 1, `consumers` 1) — which reproduces the L1INV packet's 10 from digests rather
+than from its table.
+
+And one signal nobody reads: `likely_account_count` (`ocr/inspect.py::_account_count`) rides in
+every row and every telemetry record and is consumed by nothing. **184 documents carry 2 or
+more, 156 of them `validated`.** It is a bound, not a partition, and the design consumes it
+nowhere — the boundary layer establishes accounts from printed partition evidence or not at
+all. It is recorded because it is the only archive-wide multi-account signal that exists.
+
+## L1D5 — four defects in production code
+
+Each verified by reading the code at this base. None is a proposal; all four are what the
+platform does today.
+
+* **F1.** `analysis/symitar.py`:116 defines `_DORMANT_RE` and the module docstring (13-48)
+  ratifies the skip it licenses. **It is referenced by no code in `analysis/` or `tests/`** —
+  its only consumers in the repository are `tools/l1_split_prototype.py` and prose. What
+  production executes for the dormant skip is :421 `if not rows: continue`, a skip on the
+  ABSENCE of parsed rows. The checkpoint ruling names absence of parsed activity insufficient
+  on its own. The yield-only skip at :425 IS the ratified predicate, with its fourth condition.
+* **F2.** `analysis/community_section.py`:984 counts a section only
+  `if stmt is not None and stmt.transactions`, and :988's `len(parsed) != 1` then decides the
+  document. Same shape.
+* **F3.** `analysis/consumers.py`:88-94 slices the document between a memorised product-name
+  plus account-number literal and a memorised end caption, and :115-123 restates the literal.
+  The reader publishes one account of one member and is unusable for any other customer of that
+  institution, while its detection markers claim the document on its ALL-ACCOUNTS caption.
+  CONS-HARDCODE.
+* **F4.** `analysis/community_section.py`:701-735 selects "the section with the most
+  transactions" — a DERIVED selection, which the ruling's "no arbitrary or memorised account
+  selection" forbids — on a registration that claims a pinned document. Smaller and related:
+  :682-691 hardcodes a product label and keys its account-number pattern on it.
+
+Sized, with each module probed by its OWN committed patterns:
+
+| registration | `validated` read | print 2+ of their own section marks while publishing ONE account | print the ratified declaration |
+|---|---:|---:|---:|
+| `symitar` | 7 | 7 | 4 |
+| `community_section` | 59 | 5 | 0 |
+| `dakota_west` | 3 | 3 | 0 |
+| `mission_valley` | 36 | 0 | 0 |
+| **total** | **105** | **15** | **4** |
+
+A section-mark count is a bound: two marks and one published account means a section was
+dropped OR a heading was reprinted, and nothing outside the reader can tell those apart. That
+is why the design makes the omission a payload field written by the reader that made the skip.
+
+**F5, an instrument discrepancy rather than a defect.** `tools/l1_split_prototype.py`:1246
+prints the first ladder rung as `len(walked) + empty_idle + empty_vacuous`, double-counting the
+two empty-arrival classes it then lists as sub-rows of that rung: at this base it prints **153**
+where the published packet's §5.2 prints **109**. 109 is `len(walked)` and is correct
+(109 − 21 − 23 = 65, the "non-empty chain" row). No conclusion depends on the printed value —
+every later rung is computed from `walked` and `non_empty` — but the packet's "every number
+reproduces from its instruments" is not true of that cell. Reported, not fixed: this cell owns
+no L1INV file.
+
+## L1D6 — the packet re-run at this base
+
+Every load-bearing figure of `L1_CU_SUFFIX_RULING_PACKET.md` was re-measured at `ac1d034` by
+re-running its own three instruments. All reproduce to the digit: mechanisms 103 / 38 / 35 / 38;
+442 located and 392 offered; **29 sections close**; **2 documents close on every located
+section** and **8** under omission of a trivially idle sibling; `reconcile` refuses 11 of 48 and
+the ADB 10; multi-posting 81 (two-row) and 111 (one-row); **7 documents / 47 transfer pairs**;
+sibling sections 4 declaration / 0 yield-only / 30 posted-and-silent / 62 empty-and-silent /
+7 other, **0 documents qualifying** and **26** carrying a sibling that posted; 24 of 442
+sections print their own daily table; 30 of 214 roll-ups print a column caption; 19 facility
+roll-ups, 4 multi-posting, 7 with a cross-account total; 4 two-denomination documents / 12
+sections. The single exception is F5 above.
+
+## L1D7 — the six stages, with the measured expectation
+
+| stage | expected safely recoverable, MEASURED | pinned movement |
+|---|---|---|
+| S1 wrapper + RULE S | 0; 0 documents move; byte-identical on 208 / 208 across 71 registrations | none |
+| S2 SIBLING-OMISSION-SURFACE | 0 newly validated; payload movement on named documents only (105 read, 15 bounded, 4 with the ratified declaration) | none expected — a mover is a STOP |
+| S3 the surfaces, taught DARK | 0; every branch unreachable in production at that tree | none |
+| S4 first publisher + transfers | **2 documents** today; **8** if the idle-sibling ruling is granted; both figures on one census family, both with the table's own closing column reproducing | none |
+| S5 CONS-HARDCODE | 0 newly validated — the `DECL-L1-CANDIDATE` band closes 0 of 16 today; this is a correctness card | **1**, a truth-set ceremony |
+| S6 the remaining mechanisms | an ESTIMATE, and it is not offered | per family |
+
+The honest total is **2 documents today, 8 under one ruling**, against 2,596 validated. The
+design says so in the same table as the work, and names the place to stop (after S2) if the
+trade is not worth it.
+
+## L1D8 — eight rulings, one of which can subtract
+
+Q1 the document outcome when one account validates and another does not; Q2 the transfer
+counterpart rule and the ambiguity refusal; Q3 whether a table row stating an account's pair is
+explicit structure establishing its empty state (this is the 2 → 8, and beyond that family it
+decides whether 44 of 86 single-posting documents are reachable at all); Q4 two denominations —
+publish two accounts or refuse; Q5 whether each account enters a package as its own member and
+whether the ADB doctrine's unit is the account; Q6 whose period, where an issue prints
+per-account ranges; Q7 the posting threshold (1 or 2 dated rows: 86/81 or 59/111); **Q8 whether
+the checkpoint's idle-sibling condition applies to the EXISTING absence-based skips of F1/F2**.
+
+Q8 is the one to answer first. It is the only question here whose answer can subtract from
+2,596.
+
+## L1D9 — proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files), with the three prototypes present | **255 passed** | **0** |
+| `tests/test_experiments_are_not_wired.py` | passes; it guards `experiments/` and says nothing about `tools/` — the property is held here by a grep, as L1INV's MINOR-4 recorded | 0 |
+| the instruments are unwired | nothing outside `tools/` references any of the three, verified at this tip | — |
+| no production file differs from base | `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` **empty** | — |
+| branch privacy scan, added lines vs the whole population | **hit_count 0 over 1,922 added lines and 3,351 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 22, every one class WORDS, discarded by the standing `words_class` exclusion** | **0** |
+| commit-message scan | **hit_count 0; MONEY / DIGITS / DATES / WORDS all 0** | **0** |
+| the three L1INV instruments re-run from the run of record | EXIT=0 each; L1D6 is the reproduction ledger | 0 |
+
+No mutation table and no archive sweep are owed: this card adds no gate and no grammar to
+production. The full suite, the conformance set and the corpus gate are not re-run — the diff
+against base is this section, the design document and three files under `tools/`, and that is
+a structural argument, offered as one.

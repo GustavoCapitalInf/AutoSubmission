@@ -895,4 +895,17 @@ All three are unregistered, imported by nothing outside `tools/`, and reach no n
 
 ### 10.3 Proof floor at this tree
 
-<<PROOF-FLOOR>>
+| proof | result |
+|---|---|
+| canonical guards (5 files), with the three prototypes present | **255 passed — EXIT=0** |
+| `tests/test_experiments_are_not_wired.py` | passes; it guards `experiments/` and says nothing about `tools/` — the property here is held by a GREP, not by a gate, exactly as the L1INV packet's MINOR-4 recorded. A `tools/` clause in that guard is a production-test change this card does not own |
+| the instruments are unwired | nothing outside `tools/` references any of the three, verified at this tip |
+| no production file differs from base | `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` — **empty** |
+| branch privacy scan vs the whole population | **hit_count 0** over 1,922 added lines and 3,351 documents read (population 3,380; the 29 with no cached text are the same 29 the pinned survey cannot reach). MONEY / DIGITS / DATES / WORDS all 0. Raw scan 22, every one of them class WORDS, discarded by `words_class` — the standing exclusion applied at the batch-8 train, whose own docstring says the tree is unaudited for customer names by construction. This document names no census family and no institution outside a registration id |
+| commit-message scan | **hit_count 0**, MONEY / DIGITS / DATES / WORDS all 0 |
+| the three L1INV instruments re-run from the run of record | EXIT=0 each; §10.1 is the ledger |
+
+No mutation table and no archive sweep are owed: this card adds no gate and no grammar to
+production. The full suite, the canonical conformance set and the corpus gate are not re-run —
+the diff against base is this document, the W3 section and three files under `tools/`. That is
+a structural argument, and it is offered as one.
