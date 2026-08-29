@@ -26,7 +26,7 @@ from analysis.wells import parse_wells_statement
 
 #: The two markers the registry dispatches on, plus the year evidence R-1
 #: requires. Printed exactly as the native rung emits a Wells page header.
-_HEADER = "Wells Fargo Everyday Checking\nMarch 31, 2026         Page 1 of 4"
+_HEADER = "Wells Fargo Everyday Checking\nMarch 31, 2054         Page 1 of 4"
 
 
 def _document(*blocks: str) -> str:
@@ -80,7 +80,7 @@ class TestF1ConsumerVocabulary:
             _ONE_ROW,
         )
         stmt = parse_wells_statement(doc)
-        assert _summary_of(stmt) == ("2026-03-01", "2026-03-31", 1000.0, 1300.0, 500.0, 200.0)
+        assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 1000.0, 1300.0, 500.0, 200.0)
 
     def test_f1_the_business_vocabulary_is_unchanged(self):
         doc = _document(
@@ -93,7 +93,7 @@ class TestF1ConsumerVocabulary:
             _ONE_ROW,
         )
         stmt = parse_wells_statement(doc)
-        assert _summary_of(stmt) == ("2026-03-01", "2026-03-31", 1000.0, 1300.0, 500.0, 200.0)
+        assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 1000.0, 1300.0, 500.0, 200.0)
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@ class TestF2ClosingBalanceLabel:
             _ONE_ROW,
         )
         stmt = parse_wells_statement(doc)
-        assert (stmt.period_end, stmt.ending_balance) == ("2026-03-31", 0.0)
+        assert (stmt.period_end, stmt.ending_balance) == ("2054-03-31", 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ class TestF3FurnitureBetweenSummaryRows:
             _ONE_ROW,
         )
         stmt = parse_wells_statement(doc)
-        assert _summary_of(stmt) == ("2026-03-01", "2026-03-31", 1000.0, 1300.0, 500.0, 200.0)
+        assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 1000.0, 1300.0, 500.0, 200.0)
 
     def test_f3_negative_a_routing_number_is_not_an_amount_cell(self):
         """A digit run with no cents is not a printed money cell."""
@@ -161,7 +161,7 @@ class TestF3FurnitureBetweenSummaryRows:
             _ONE_ROW,
         )
         stmt = parse_wells_statement(doc)
-        assert stmt.period_start == "2026-03-01"
+        assert stmt.period_start == "2054-03-01"
         assert stmt.beginning_balance is None
 
 
@@ -293,7 +293,7 @@ class TestF6MultiAccountStatement:
 
     def test_f6_the_summary_published_is_the_primary_accounts(self):
         stmt = parse_wells_statement(_TWO_ACCOUNTS)
-        assert _summary_of(stmt) == ("2026-03-01", "2026-03-31", 1000.0, 1300.0, 500.0, 200.0)
+        assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 1000.0, 1300.0, 500.0, 200.0)
 
     def test_f6_the_second_accounts_ledger_reconciles_when_it_is_the_primary(self):
         """The rule is the marker, not the position: swap it and the other
@@ -306,7 +306,7 @@ class TestF6MultiAccountStatement:
         stmt = parse_wells_statement(swapped)
         assert _amounts(stmt) == [-20.0]
         assert stmt.account_number == "2222222222"
-        assert _summary_of(stmt) == ("2026-03-01", "2026-03-31", 50.0, 30.0, 0.0, 20.0)
+        assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 50.0, 30.0, 0.0, 20.0)
 
     def test_f6_negative_a_single_account_statement_is_unaffected(self):
         doc = _document(
@@ -375,7 +375,7 @@ class TestFailClosed:
             _ONE_ROW,
         )
         stmt = parse_wells_statement(doc)
-        assert (stmt.period_start, stmt.period_end) == ("2026-06-01", "2026-06-30")
+        assert (stmt.period_start, stmt.period_end) == ("2054-06-01", "2054-06-30")
         assert stmt.beginning_balance is None
         assert stmt.stated_total_credits is None
         assert stmt.stated_total_debits == 44275.81
@@ -414,7 +414,7 @@ class TestSummaryBlockBoundary:
             "Totals $500.00 $200.00",
         )
         stmt = parse_wells_statement(doc)
-        assert _summary_of(stmt) == ("2026-03-01", "2026-03-31", 1000.0, 1300.0, 500.0, 200.0)
+        assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 1000.0, 1300.0, 500.0, 200.0)
 
     def test_negative_a_heading_word_inside_prose_does_not_close_the_block(self):
         """A heading owns its line: the same words inside a sentence do not."""
@@ -429,7 +429,7 @@ class TestSummaryBlockBoundary:
             _ONE_ROW,
         )
         stmt = parse_wells_statement(doc)
-        assert _summary_of(stmt) == ("2026-03-01", "2026-03-31", 1000.0, 1300.0, 500.0, 200.0)
+        assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 1000.0, 1300.0, 500.0, 200.0)
 
     def test_negative_the_ledgers_ending_daily_balance_column_is_never_a_summary_row(self):
         doc = _document(
@@ -453,7 +453,7 @@ class TestPeriodEvidence:
     def test_a_period_that_crosses_new_year_dates_its_opening_to_the_prior_year(self):
         doc = "\n".join([
             "Wells Fargo Business Checking",
-            "January 30, 2026         Page 1 of 4",
+            "January 30, 2054         Page 1 of 4",
             _account(),
             "Statement period activity summary",
             "Beginning balance on 12/31 $1,000.00 Deposits/Credits 500.00 Withdrawals/Debits -  200.00",
@@ -462,7 +462,7 @@ class TestPeriodEvidence:
             _ONE_ROW.replace("WF_TX|3/2|", "WF_TX|1/2|"),
         ])
         stmt = parse_wells_statement(doc)
-        assert (stmt.period_start, stmt.period_end) == ("2025-12-31", "2026-01-30")
+        assert (stmt.period_start, stmt.period_end) == ("2053-12-31", "2054-01-30")
 
     def test_the_summary_rows_are_read_even_when_the_ledger_is_printed_first(self):
         """`Account number:` opens the section; order inside it is the bank's."""
@@ -474,5 +474,5 @@ class TestPeriodEvidence:
             "Ending balance on 3/31 $1,500.00",
         )
         stmt = parse_wells_statement(doc)
-        assert _summary_of(stmt) == ("2026-03-01", "2026-03-31", 1000.0, 1500.0, 500.0, 0.0)
+        assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 1000.0, 1500.0, 500.0, 0.0)
         assert _amounts(stmt) == [500.0]

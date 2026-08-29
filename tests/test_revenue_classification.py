@@ -186,8 +186,8 @@ def test_serialized_revenue_views_fail_when_a_credit_lacks_a_classification():
 def test_proven_duplicate_credit_is_non_revenue_without_changing_credit_math():
     statement = Statement(
         transactions=[
-            _txn("2026-01-02", "Customer ACH payment", 100.0, balance=1100.0),
-            _txn("2026-01-02", "Customer ACH payment", 100.0, balance=1100.0),
+            _txn("2054-01-02", "Customer ACH payment", 100.0, balance=1100.0),
+            _txn("2054-01-02", "Customer ACH payment", 100.0, balance=1100.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -206,10 +206,10 @@ def test_proven_duplicate_credit_is_non_revenue_without_changing_credit_math():
 def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
     statement = Statement(
         transactions=[
-            _txn("2026-01-02", "Customer ACH payment", 100.0),
-            _txn("2026-01-03", "Mobile deposit", 50.0),
-            _txn("2026-01-04", "Internal transfer from savings", 25.0),
-            _txn("2026-01-05", "Rent payment", -20.0),
+            _txn("2054-01-02", "Customer ACH payment", 100.0),
+            _txn("2054-01-03", "Mobile deposit", 50.0),
+            _txn("2054-01-04", "Internal transfer from savings", 25.0),
+            _txn("2054-01-05", "Rent payment", -20.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -237,12 +237,12 @@ def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
 def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
     statement = Statement(
         transactions=[
-            _txn("2026-01-02", "Customer ACH payment", 100.0),
-            _txn("2026-01-03", "Mobile deposit", 50.0),
-            _txn("2026-01-04", "Debit Card Credit", 25.0),
-            _txn("2026-01-05", "Online transfer from savings 1234", 40.0),
-            _txn("2026-01-06", "Interest paid", 1.0),
-            _txn("2026-01-07", "Merchant cash advance", 500.0),
+            _txn("2054-01-02", "Customer ACH payment", 100.0),
+            _txn("2054-01-03", "Mobile deposit", 50.0),
+            _txn("2054-01-04", "Debit Card Credit", 25.0),
+            _txn("2054-01-05", "Online transfer from savings 1234", 40.0),
+            _txn("2054-01-06", "Interest paid", 1.0),
+            _txn("2054-01-07", "Merchant cash advance", 500.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -275,11 +275,11 @@ def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
 def test_withholding_denominator_is_legacy_by_default_and_configurable():
     statement = Statement(
         transactions=[
-            _txn("2026-01-01", "Customer ACH payment", 1000.0),
-            _txn("2026-01-02", "Mobile deposit", 200.0),
-            _txn("2026-01-03", "INTERAC e-Transfer Returned", 100.0),
-            _txn("2026-01-04", "Rapid Finance funding", 500.0),
-            _txn("2026-01-05", "Rapid Finance payment", -100.0),
+            _txn("2054-01-01", "Customer ACH payment", 1000.0),
+            _txn("2054-01-02", "Mobile deposit", 200.0),
+            _txn("2054-01-03", "INTERAC e-Transfer Returned", 100.0),
+            _txn("2054-01-04", "Rapid Finance funding", 500.0),
+            _txn("2054-01-05", "Rapid Finance payment", -100.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -494,8 +494,8 @@ def test_recurring_platform_credits_supply_statement_context():
         bank="Wells Fargo",
         account_name="Business Checking",
         transactions=[
-            _txn("2026-04-01", "PayPal", 500.0),
-            _txn("2026-04-08", "PAY PAL", 625.0),
+            _txn("2054-04-01", "PayPal", 500.0),
+            _txn("2054-04-08", "PAY PAL", 625.0),
         ],
     )
     records = classify_statement_transactions(statement)
@@ -508,8 +508,8 @@ def test_two_platform_names_without_business_context_remain_unverified():
     statement = Statement(
         bank="Wells Fargo",
         transactions=[
-            _txn("2026-04-01", "PayPal", 500.0),
-            _txn("2026-04-08", "PAY PAL", 625.0),
+            _txn("2054-04-01", "PayPal", 500.0),
+            _txn("2054-04-08", "PAY PAL", 625.0),
         ],
     )
     records = classify_statement_transactions(statement)
@@ -523,8 +523,8 @@ def test_related_processing_fee_supplies_platform_context_without_classifying_de
         bank="Chase",
         account_name="Business Complete Banking",
         transactions=[
-            _txn("2026-04-01", "Stripe", 900.0),
-            _txn("2026-04-02", "Stripe processing fee", -25.0),
+            _txn("2054-04-01", "Stripe", 900.0),
+            _txn("2054-04-02", "Stripe processing fee", -25.0),
         ],
     )
     credit, debit = classify_statement_transactions(statement)
@@ -539,9 +539,9 @@ def test_reversed_check_pair_is_excluded_from_maximum_revenue():
         bank="Bank of America",
         account_name="Business Fundamentals Checking",
         transactions=[
-            _txn("2026-04-01", "Customer check deposit 1042", 750.0),
-            _txn("2026-04-02", "Reversed check 1042", -750.0),
-            _txn("2026-04-03", "Merchant processor settlement", 1000.0),
+            _txn("2054-04-01", "Customer check deposit 1042", 750.0),
+            _txn("2054-04-02", "Reversed check 1042", -750.0),
+            _txn("2054-04-03", "Merchant processor settlement", 1000.0),
         ],
     )
     records = classify_statement_transactions(statement)
@@ -658,7 +658,7 @@ def test_atb_december_revenue_regression_from_transaction_evidence():
 
 
 def test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state():
-    transaction = _txn("2026-04-01", "Merchant settlement", 100.0)
+    transaction = _txn("2054-04-01", "Merchant settlement", 100.0)
     record = asdict(classify_transaction(transaction.description, transaction.amount))
     record["revenue_classification"] = None
     record["contributes_to_verified_revenue"] = False
@@ -688,7 +688,7 @@ def test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state():
 
 
 def _reviewable_analysis() -> dict:
-    transaction = _txn("2026-01-02", "Mobile deposit", 441.0)
+    transaction = _txn("2054-01-02", "Mobile deposit", 441.0)
     record = classify_transaction(
         transaction.description,
         transaction.amount,

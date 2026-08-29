@@ -524,6 +524,14 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         '_MONTH_START = r"\\b"',
     ),
     (
+        "Z12", "shift", "the month-day space",
+        "require a space between a spelled month and its day, so a text layer "
+        "that dropped its inter-word spacing keeps its date on the archive's "
+        "calendar while the assertion beside it moves",
+        r'    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"',
+        r'    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? \d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"',
+    ),
+    (
         "R1", "redact", "the sha rule",
         "drop the span check that keeps a replacement out of a content sha",
         "        if any(start < hend and hstart < end for hstart, hend in protected):\n"

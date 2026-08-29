@@ -25,7 +25,7 @@ import pytest
 
 from analysis.us_bank import parse_us_bank_statement
 
-PERIOD = "Statement Period:\nMar 2, 2026\nthrough Mar 31, 2026\n"
+PERIOD = "Statement Period:\nMar 2, 2054\nthrough Mar 31, 2054\n"
 DESCRIBED_HEADER = "Date Description of Transaction Ref Number Amount"
 NUMBERED_HEADER = "Number Date Ref Number Amount"
 CHECK_HEADER = "Check Date Ref Number Amount Check Date Ref Number Amount"
@@ -82,7 +82,7 @@ def document(*, summary: str, opening: str = "1,000.00", closing: str,
         f"{items_heading}"
         + (f"Number of Days in Statement Period {days}\n" if days is not None else "")
         + f"Beginning Balance on Mar 2 $ {opening} {summary}\n"
-        f"Ending Balance on  Mar 31, 2026 $ {closing}\n"
+        f"Ending Balance on  Mar 31, 2054 $ {closing}\n"
         f"{sections}"
     )
 
@@ -257,7 +257,7 @@ def test_f3_several_check_column_groups_on_one_printed_line_are_separate_rows():
     assert stmt is not None
     assert amounts(stmt) == [500.00, -80.00, -100.00, -200.00, -300.00]
     assert [t.date for t in stmt.transactions] == [
-        "2026-03-03", "2026-03-06", "2026-03-04", "2026-03-05", "2026-03-06"]
+        "2054-03-03", "2054-03-06", "2054-03-04", "2054-03-05", "2054-03-06"]
 
 
 def test_f3_the_printed_check_number_is_the_description_and_keeps_its_gap_marker():
@@ -335,7 +335,7 @@ def test_f5_two_printed_rows_on_one_physical_line_are_two_rows():
     assert stmt is not None
     assert amounts(stmt) == [500.00, -6000.00, -11000.00]
     assert [t.date for t in stmt.transactions] == [
-        "2026-03-03", "2026-03-03", "2026-03-07"]
+        "2054-03-03", "2054-03-03", "2054-03-07"]
 
 
 def test_f5_negative_a_date_inside_a_description_does_not_open_a_row():
@@ -356,7 +356,7 @@ def test_f5_negative_a_date_inside_a_description_does_not_open_a_row():
     stmt = parse_us_bank_statement(doc)
     assert stmt is not None
     assert amounts(stmt) == [500.00, -250.00]
-    assert stmt.transactions[1].date == "2026-03-03"
+    assert stmt.transactions[1].date == "2054-03-03"
 
 
 # --------------------------------------------------------------------------
@@ -393,7 +393,7 @@ def test_f7_a_section_continues_across_a_page_break_and_the_letterhead_stays_out
             "$ 100.00-\n"
             "Products and services available in U.S. only.\n"
             "\n--- Page 2 ---\n\n"
-            "Mar 2, 2026 through Mar 31, 2026\n"
+            "Mar 2, 2054 through Mar 31, 2054\n"
             "Page 2 of 3\n"
             "U.S. BANK SILVER - BUSINESS CHECKING (CONTINUED)\n"
             "U.S. Bank National Association\n"
@@ -630,9 +630,9 @@ INTERLEAVED_PERIOD_DOC = (
     "Account Number:\n"
     "1 234 5678 9012 Statement Period:\n"
     "P.O. Box 1800 Saint Paul, Minnesota 55101-0800\n"
-    "Mar 2, 2026\n"
+    "Mar 2, 2054\n"
     "1499 TRN S Y ST01\n"
-    "through Mar 31, 2026\n"
+    "through Mar 31, 2054\n"
     "Page 1 of 1\n"
     "U.S. BANK GOLD - BUSINESS CHECKING\n"
     "Member FDIC\n"
@@ -642,7 +642,7 @@ INTERLEAVED_PERIOD_DOC = (
     "# Items\n"
     "Number of Days in Statement Period 31\n"
     f"Beginning Balance on Mar 2 $ 1,000.00 {ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}\n"
-    "Ending Balance on  Mar 31, 2026 $ 1,420.00\n"
+    "Ending Balance on  Mar 31, 2054 $ 1,420.00\n"
     + ANCHOR_SECTIONS
     + ANCHOR_WITHDRAWAL_SECTION
 )
@@ -651,7 +651,7 @@ INTERLEAVED_PERIOD_DOC = (
 def test_f12_a_period_split_by_an_interleaved_column_is_still_read():
     stmt = parse_us_bank_statement(INTERLEAVED_PERIOD_DOC)
     assert stmt is not None
-    assert (stmt.period_start, stmt.period_end) == ("2026-03-02", "2026-03-31")
+    assert (stmt.period_start, stmt.period_end) == ("2054-03-02", "2054-03-31")
 
 
 def test_f12_negative_a_document_printing_no_period_label_is_refused():
@@ -662,7 +662,7 @@ def test_f12_negative_a_document_printing_no_period_label_is_refused():
 
 def test_f12_negative_a_reversed_pair_is_not_a_period():
     assert parse_us_bank_statement(
-        INTERLEAVED_PERIOD_DOC.replace("through Mar 31, 2026", "through Mar 1, 2026")
+        INTERLEAVED_PERIOD_DOC.replace("through Mar 31, 2054", "through Mar 1, 2054")
     ) is None
 
 
@@ -770,7 +770,7 @@ def test_f14_a_sentence_at_the_anchor_is_not_published_as_the_product():
 @pytest.mark.parametrize("line", [
     PROSE,
     "Here's what you should know:",
-    "Effective May 11, 2026, please review updates made to the document.",
+    "Effective May 11, 2054, please review updates made to the document.",
     "usbank.com/YDAA-upcoming-version",
     "Products and services available in U.S. only.",
 ])

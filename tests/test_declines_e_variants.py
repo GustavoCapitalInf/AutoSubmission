@@ -28,7 +28,7 @@ from analysis.schema import Statement
 # ===========================================================================
 
 CHASE_HEADER = (
-    "January 1, 2026 through January 31, 2026\n"
+    "January 1, 2054 through January 31, 2054\n"
     "JPMorgan Chase Bank, N.A. P O Box 44959 Indianapolis, IN 46244 - 4959\n"
     "Account Number: 000000670732314\n"
 )
@@ -83,7 +83,7 @@ def test_the_one_grid_printing_is_read_whole():
     assert stmt.bank == "Chase"
     assert [t.amount for t in stmt.transactions] == [1500.0, -200.0, -1050.0, -25.0]
     assert [t.date for t in stmt.transactions] == [
-        "2026-01-05", "2026-01-12", "2026-01-20", "2026-01-31",
+        "2054-01-05", "2054-01-12", "2054-01-20", "2054-01-31",
     ]
     assert [t.running_balance for t in stmt.transactions] == [
         2500.0, 2300.0, 1250.0, 1225.0,
@@ -118,7 +118,7 @@ def test_the_posting_date_is_the_first_of_the_two_dates_a_card_row_prints():
     stmt = parse_chase_statement(chase_document())
     assert stmt is not None
     card = stmt.transactions[1]
-    assert card.date == "2026-01-12"
+    assert card.date == "2054-01-12"
     assert card.description.startswith("Card Purchase")
 
 
@@ -382,7 +382,7 @@ def test_a_count_the_statement_does_not_print_is_not_invented():
 def test_the_counted_printing_is_read_exactly_as_it_was():
     """The business layout heads its grid INSTANCES AMOUNT. The counted
     spelling is tried first, so nothing about it moves."""
-    stmt = Statement(bank="Chase", period_start="2026-01-01", period_end="2026-01-31")
+    stmt = Statement(bank="Chase", period_start="2054-01-01", period_end="2054-01-31")
     counted = (
         "*start*summary\n"
         "CHECKING SUMMARY\n"
@@ -420,7 +420,7 @@ def test_a_mixed_printing_publishes_no_debit_count_at_all():
     """A count summed over the counted rows of a mixed printing is a real
     number describing PART of a total — a false contradiction against a
     complete ledger."""
-    stmt = Statement(bank="Chase", period_start="2026-01-01", period_end="2026-01-31")
+    stmt = Statement(bank="Chase", period_start="2054-01-01", period_end="2054-01-31")
     mixed = (
         "*start*summary\n"
         "CHECKING SUMMARY\n"
@@ -441,7 +441,7 @@ def test_the_combined_debit_row_is_not_read_twice_by_its_shorter_labels():
     Checking layout's combined row. The counted spelling was safe because a
     count had to follow immediately; the count-less spelling is safe because a
     COMMA does."""
-    stmt = Statement(bank="Chase", period_start="2026-01-01", period_end="2026-01-31")
+    stmt = Statement(bank="Chase", period_start="2054-01-01", period_end="2054-01-31")
     combined = (
         "*start*summary\n"
         "CHECKING SUMMARY\n"
@@ -458,7 +458,7 @@ def test_the_combined_debit_row_is_not_read_twice_by_its_shorter_labels():
 def test_an_amount_the_money_grammar_refuses_leaves_the_row_unread():
     """A figure printed without cents is not this layout's money. It is left
     unstated rather than rounded into one."""
-    stmt = Statement(bank="Chase", period_start="2026-01-01", period_end="2026-01-31")
+    stmt = Statement(bank="Chase", period_start="2054-01-01", period_end="2054-01-31")
     centless = (
         "*start*summary\n"
         "CHECKING SUMMARY\n"
@@ -489,7 +489,7 @@ HUNT_HEADER = (
 HUNT_FOOTER = (
     "The Huntington National Bank is Member FDIC. , Huntington and 24-Hour Grace "
     "are federally registered service marks of Huntington Bancshares Incorporated.\n"
-    "Statement Period from 01/01/26 to 01/31/26 Page 1 of 1\n"
+    "Statement Period from 01/01/54 to 01/31/54 Page 1 of 1\n"
 )
 HUNT_SUMMARY = (
     "Beginning Balance $1,000.00 Credits (+) 1,050.00 Regular Deposits 750.00 "
@@ -497,7 +497,7 @@ HUNT_SUMMARY = (
     "Total Service Charges (-) 20.00 Ending Balance $1,730.00\n"
 )
 HUNT_PERIOD = (
-    "Statement Activity From: 01/01/26 to 01/31/26\n"
+    "Statement Activity From: 01/01/54 to 01/31/54\n"
     "Days in Statement Period 31\n"
     "Average Ledger Balance* 1,500.00 Average Collected Balance* 1,500.00\n"
     "* The above balances correspond to the service charge cycle for this account.\n"
@@ -531,7 +531,7 @@ def _with_the_printed_ending_as_the_only_date_oracle():
     def relaxed(summary, section_txns, fee_txns, service_net, balances):
         return shipped(
             summary, section_txns, fee_txns, service_net,
-            balances or [(date(2026, 1, 31), summary["Ending Balance"])],
+            balances or [(date(2054, 1, 31), summary["Ending Balance"])],
         )
 
     huntington._validate = relaxed
@@ -606,7 +606,7 @@ def test_the_relaxation_harness_reaches_the_gate_it_claims_to():
 #: summary, no rows, no money. `classification` called it digital because a
 #: text layer exists, so the OCR ladder never escalated it.
 EMPTY_TEXT_LAYER = (
-    "May 01, 2026 through May 29, 2026\n"
+    "May 01, 2054 through May 29, 2054\n"
     "JPMorgan Chase Bank, N.A. P O Box 44959 Indianapolis, IN 46244 - 4959\n"
     "Account Number:\n"
     "*start*summary\n"

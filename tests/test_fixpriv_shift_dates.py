@@ -127,6 +127,9 @@ def test_february_the_twenty_ninth_survives_the_shift() -> None:
          r"Checking\nMarch 31, 2059 Page 1"),
         (r"row\t3 mars 2031 solde", r"row\t3 mars 2059 solde"),
         (r"x\nSEP 29/31 y", r"x\nSEP 29/59 y"),
+        # A text layer that dropped its inter-word spacing still prints a date,
+        # and this tree has a test for that layer, so the grammar reads it too.
+        ("Forthe period ending April30, 2031", "Forthe period ending April30, 2059"),
     ],
 )
 def test_every_shape_the_tool_claims_to_read(before: str, after: str) -> None:

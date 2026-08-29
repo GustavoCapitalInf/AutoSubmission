@@ -25,7 +25,7 @@ from analysis.structurer.core import structure_unclaimed
 
 CLEAN = """--- Page 1 ---
 NORTHWIND MUTUAL BANK
-Statement period 03/01/2026 to 03/31/2026
+Statement period 03/01/2054 to 03/31/2054
 Account 9999999999
 Beginning balance 5,000.00
 Ending balance 5,090.00
@@ -67,7 +67,7 @@ def test_a_document_with_no_printed_period_is_refused():
     nothing else: without that, the document also loses its year and refuses
     one step earlier for a different reason.
     """
-    document = CLEAN.replace("Statement period 03/01/2026 to 03/31/2026", "")
+    document = CLEAN.replace("Statement period 03/01/2054 to 03/31/2054", "")
     for day in ("03/02", "03/05", "03/09", "03/14", "03/21", "03/28"):
         document = document.replace(f"{day} ", f"{day}/2026 ")
 
@@ -96,7 +96,7 @@ def test_amounts_with_no_establishable_direction_are_never_published():
     reconciles nowhere and misleads everywhere."""
     document = """--- Page 1 ---
 NORTHWIND MUTUAL BANK
-Statement period 03/01/2026 to 03/31/2026
+Statement period 03/01/2054 to 03/31/2054
 Beginning balance 5,000.00
 Ending balance 5,090.00
 Date Description Amount
@@ -119,7 +119,7 @@ def test_a_wrong_column_is_rejected_rather_than_believed():
     than accept a plausible-looking column."""
     document = """--- Page 1 ---
 NORTHWIND MUTUAL BANK
-Statement period 03/01/2026 to 03/31/2026
+Statement period 03/01/2054 to 03/31/2054
 Beginning balance 5,000.00
 Ending balance 5,090.00
 Date Description Amount Items
@@ -143,10 +143,10 @@ def test_summary_lines_are_not_transactions():
     into the previous period."""
     document = CLEAN.replace(
         "Beginning balance 5,000.00",
-        "Your balance forward on 02/28/2026 5,000.00",
+        "Your balance forward on 02/28/2054 5,000.00",
     ).replace(
         "Date Description Amount Balance",
-        "Date Description Amount Balance\nTotal deposits 03/31/2026 1,200.00 5,090.00",
+        "Date Description Amount Balance\nTotal deposits 03/31/2054 1,200.00 5,090.00",
     )
 
     outcome = structure_document(document)
@@ -181,11 +181,11 @@ def test_grounding_is_computed_independently_of_the_rows_that_produced_it():
     from analysis.structurer.summary import Period
 
     invented = [
-        RowCandidate("2026-03-02", "PHANTOM VENDOR", -12345.67, None, 1, 0, "03/02",
+        RowCandidate("2054-03-02", "PHANTOM VENDOR", -12345.67, None, 1, 0, "03/02",
                      "12,345.67", "balance_chain")
     ]
     result = ground_statement(
-        invented, {}, Period("2026-03-01", "2026-03-31", 1, 0, "printed"),
+        invented, {}, Period("2054-03-01", "2054-03-31", 1, 0, "printed"),
         CLEAN, published_fields=(),
     )
 
@@ -202,13 +202,13 @@ def test_one_printed_amount_cannot_ground_two_rows():
     from analysis.structurer.summary import Period
 
     duplicated = [
-        RowCandidate("2026-03-02", "ORCHARD SUPPLY CO", -150.00, None, 1, 0, "03/02",
+        RowCandidate("2054-03-02", "ORCHARD SUPPLY CO", -150.00, None, 1, 0, "03/02",
                      "150.00", "balance_chain"),
-        RowCandidate("2026-03-02", "ORCHARD SUPPLY CO", -150.00, None, 1, 0, "03/02",
+        RowCandidate("2054-03-02", "ORCHARD SUPPLY CO", -150.00, None, 1, 0, "03/02",
                      "150.00", "balance_chain"),
     ]
     result = ground_statement(
-        duplicated, {}, Period("2026-03-01", "2026-03-31", 1, 0, "printed"),
+        duplicated, {}, Period("2054-03-01", "2054-03-31", 1, 0, "printed"),
         CLEAN, published_fields=(),
     )
 
@@ -224,11 +224,11 @@ def test_a_date_the_document_never_printed_is_not_grounded():
     from analysis.structurer.summary import Period
 
     wrong_year = [
-        RowCandidate("2019-07-04", "ORCHARD SUPPLY CO", -150.00, None, 1, 0, "07/04",
+        RowCandidate("2047-07-04", "ORCHARD SUPPLY CO", -150.00, None, 1, 0, "07/04",
                      "150.00", "balance_chain")
     ]
     result = ground_statement(
-        wrong_year, {}, Period("2019-07-01", "2019-07-31", 1, 0, "printed"),
+        wrong_year, {}, Period("2047-07-01", "2047-07-31", 1, 0, "printed"),
         CLEAN, published_fields=(),
     )
 
@@ -244,7 +244,7 @@ def _mutations() -> list[tuple[str, str]]:
     return [
         ("amount_column_removed", CLEAN.replace(" 150.00 4,850.00", " 4,850.00")),
         ("balance_column_removed", CLEAN.replace(" 4,850.00", "")),
-        ("period_absent", CLEAN.replace("Statement period 03/01/2026 to 03/31/2026", "")),
+        ("period_absent", CLEAN.replace("Statement period 03/01/2054 to 03/31/2054", "")),
         ("balances_absent", CLEAN.replace("Beginning balance 5,000.00", "")
                                  .replace("Ending balance 5,090.00", "")),
             ("dates_impossible", CLEAN.replace("03/02", "13/45").replace("03/05", "99/99")),
@@ -255,7 +255,7 @@ def _mutations() -> list[tuple[str, str]]:
             "03/05 CUSTOMER DEPOSIT ZEPHYR 900.00 5,750.00")),
         ("balance_chain_broken", CLEAN.replace("5,690.00", "9,999.00")),
         ("empty", ""),
-        ("not_a_statement", "LEASE AGREEMENT\nThis agreement dated 03/01/2026 for 1,200.00 monthly."),
+        ("not_a_statement", "LEASE AGREEMENT\nThis agreement dated 03/01/2054 for 1,200.00 monthly."),
     ]
 
 
@@ -319,8 +319,8 @@ def test_the_rung_never_raises_whatever_it_is_handed(monkeypatch):
 
 ANCHORED = """--- Page 1 ---
 NORTHWIND MUTUAL BANK
-Your balance forward on Jul 31, 2026 5,000.00
-Your closing balance on Aug 31, 2026 5,090.00
+Your balance forward on Jul 31, 2054 5,000.00
+Your closing balance on Aug 31, 2054 5,090.00
 Date Description Amount Balance
 08/02 ORCHARD SUPPLY CO 150.00 4,850.00
 08/05 CUSTOMER DEPOSIT ZEPHYR 900.00 5,750.00
@@ -337,7 +337,7 @@ def test_an_inferred_period_start_is_marked_as_inferred_everywhere_it_travels():
     outcome = structure_document(ANCHORED)
 
     assert outcome.statement is not None
-    assert outcome.statement.period_start == "2026-08-01"
+    assert outcome.statement.period_start == "2054-08-01"
     assert outcome.period_provenance == "balance_anchors:start_inferred_from_prior_close"
     assert outcome.grounding.period_provenance == outcome.period_provenance
     assert any("inferred" in note for note in outcome.grounding.notes)
@@ -347,12 +347,12 @@ def test_a_printed_period_start_is_not_marked_inferred():
     """The control: an opening label that states the period's own first day is
     read as printed, and nothing is inferred."""
     outcome = structure_document(
-        ANCHORED.replace("Your balance forward on Jul 31, 2026",
-                         "Beginning balance on Aug 01, 2026")
+        ANCHORED.replace("Your balance forward on Jul 31, 2054",
+                         "Beginning balance on Aug 01, 2054")
     )
 
     assert outcome.statement is not None
-    assert outcome.statement.period_start == "2026-08-01"
+    assert outcome.statement.period_start == "2054-08-01"
     assert outcome.period_provenance == "balance_anchors"
     assert not any("inferred" in note for note in outcome.grounding.notes)
 

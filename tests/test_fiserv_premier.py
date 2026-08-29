@@ -26,7 +26,7 @@ HEAD = (
     "000-000-0000 www.example-bank.com\n"
     "Statement of Account\n"
     "Account Title: SYNTHETIC HOLDINGS LLC\n"
-    "Statement Dates 3/01/26 to 3/31/26 (31 days)\n"
+    "Statement Dates 3/01/54 to 3/31/54 (31 days)\n"
     "SYNTHETIC BUSINESS CHECKING - XXXXXX0000"
 )
 SUMMARY = (
@@ -105,7 +105,7 @@ def test_the_leading_counts_issue_is_not_claimed():
     shape here would make every one of their documents ambiguous."""
     leading = (
         "--- Page 1 ---\n\nStatement of Account\n"
-        "Account Number XXXXXXXXXXXX0000 Statement Dates 3/01/26 thru 3/31/26 "
+        "Account Number XXXXXXXXXXXX0000 Statement Dates 3/01/54 thru 3/31/54 "
         "Previous Balance 100.00 Days in the Statement Period 31 "
         "1 Deposits/Credits 50.00 Average Ledger 150.00 "
         "2 Checks/Debits 30.00 Average Collected 150.00\n"
@@ -193,7 +193,7 @@ def named_document(name: str, domain: str, *, in_directory: bool = True) -> str:
         "--- Page 1 ---\n\n"
         f"{RETURN_ADDRESS}\nCustomer Service: Website:\n000-000-0000 {domain}\n"
         "Statement of Account\nAccount Title: SYNTHETIC HOLDINGS LLC\n"
-        "Statement Dates 3/01/26 to 3/31/26 (31 days)\n"
+        "Statement Dates 3/01/54 to 3/31/54 (31 days)\n"
         "SYNTHETIC BUSINESS CHECKING - XXXXXX0000\n"
         f"{SUMMARY}\n"
         "Transaction Activity Date Description Debits Credits Balance\n"
@@ -254,8 +254,8 @@ def test_boilerplate_in_front_of_the_return_address_is_not_an_identity():
 def test_reads_the_summary_and_both_counts():
     stmt = parse_fiserv_premier_statement(activity_document())
     assert stmt is not None
-    assert stmt.period_start == "2026-03-01"
-    assert stmt.period_end == "2026-03-31"
+    assert stmt.period_start == "2054-03-01"
+    assert stmt.period_end == "2054-03-31"
     assert stmt.days_in_period == 31
     assert stmt.beginning_balance == 100.00
     assert stmt.ending_balance == 120.00
@@ -432,10 +432,10 @@ ISSUE_THREE_SUMMARY = (
     "Checks/Debits (3) $50.00 Current Balance $120.00"
 )
 #: The period, printed as two facts in two places instead of one clause.
-ISSUE_THREE_PERIOD = "Statement of Account March 01, 2026 thru March 31, 2026"
+ISSUE_THREE_PERIOD = "Statement of Account March 01, 2054 thru March 31, 2054"
 ISSUE_THREE_DAYS = "Activity Summary Days in the Statement Period:  31"
 #: The registered wording, for the counterfactuals below.
-READ_PERIOD = "Statement of Account\nStatement Dates 3/01/26 to 3/31/26 (31 days)"
+READ_PERIOD = "Statement of Account\nStatement Dates 3/01/54 to 3/31/54 (31 days)"
 
 #: The attested fee row. The FIRST money token names the item that caused the
 #: fee; the row's own amount is the last one. 109 rows of this shape are printed
@@ -450,7 +450,7 @@ DISCLOSURE_PAGE = (
     "We must hear from you no later than 60 days after we sent you the first "
     "statement on which the error appeared."
 )
-CHEQUE_IMAGE_PAGE = "3/06/26 101 $9.00"
+CHEQUE_IMAGE_PAGE = "3/06/54 101 $9.00"
 
 
 def issue_three_document(
@@ -531,8 +531,8 @@ def test_the_third_printed_issue_is_read_end_to_end():
     """
     statement = parse_fiserv_premier_statement(issue_three_document())
     assert statement is not None
-    assert statement.period_start == "2026-03-01"
-    assert statement.period_end == "2026-03-31"
+    assert statement.period_start == "2054-03-01"
+    assert statement.period_end == "2054-03-31"
     assert statement.days_in_period == 31
     assert statement.beginning_balance == 100.00
     assert statement.ending_balance == 120.00
@@ -685,7 +685,7 @@ def test_rows_do_not_merge_across_the_end_of_a_section():
     assert statement is not None
     debits = _sides(statement)[1]
     assert len(debits) == 3
-    assert [t.date for t in debits] == ["2026-03-02", "2026-03-04", "2026-03-06"]
+    assert [t.date for t in debits] == ["2054-03-02", "2054-03-04", "2054-03-06"]
 
 
 # ---------------------------------------------------------------------------
@@ -700,7 +700,7 @@ def test_the_registered_period_clause_is_still_the_first_reading():
         issue_three_document(period=READ_PERIOD, days="")
     )
     assert statement is not None
-    assert (statement.period_start, statement.period_end) == ("2026-03-01", "2026-03-31")
+    assert (statement.period_start, statement.period_end) == ("2054-03-01", "2054-03-31")
     assert statement.days_in_period == 31
 
 

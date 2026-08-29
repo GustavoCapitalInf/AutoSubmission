@@ -97,7 +97,7 @@ DATE_SHAPES = re.compile(
     r"(?P<slash4>(?<![\d/])\d{1,2}/\d{1,2}/(?P<slash4y>\d{4})(?![\d/]))"
     r"|(?P<slash2>(?<![\d/])\d{1,2}/\d{1,2}/(?P<slash2y>\d{2})(?![\d/]))"
     r"|(?P<iso>(?<![\d-])(?P<isoy>\d{4})-\d{2}-\d{2}(?![\d-]))"
-    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? \d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"
+    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"
     rf"|(?P<spelled_first>{_MONTH_START}\d{{1,2}} (?:{_MONTHS})\.? (?P<spelled_firsty>\d{{4}})\b)"
     rf"|(?P<mdy2>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}/(?P<mdy2y>\d{{2}})(?![\d/]))"
     rf"|(?P<spelled_dash>{_MONTH_START}(?:{_MONTHS})-\d{{1,2}}-(?P<spelled_dashy>\d{{4}})\b)"
@@ -162,6 +162,9 @@ def self_check() -> None:
         "spelled": "ON AUGUST 1, 2031 HERE",
         "spelled_tight": "Apr 13,2031 REMOTE",
         "spelled_after_escape": r"Checking\nMarch 31, 2031 Page 1",
+        # A text layer that dropped its inter-word spacing still prints a date,
+        # and this tree tests exactly that layer.
+        "spelled_spaceless": "Forthe period ending April30, 2031",
         "spelled_first": "ON 1 AUGUST 2031 HERE",
         "mdy2": "SEP 29/31 - OCT 31/31",
         "ctor": "date(2031, 8, 1)",

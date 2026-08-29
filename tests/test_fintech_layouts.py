@@ -26,7 +26,7 @@ def mercury_document(grid: str, *, beginning="$0.00", withdrawals="$0.00",
                      deposits="$0.00", ending="$0.00", total=None,
                      header=None) -> str:
     return (
-        (header or "April 2026 statement April 1, 2026-April 30, 2026 (30 days) All dates in UTC")
+        (header or "April 2026 statement April 1, 2054-April 30, 2054 (30 days) All dates in UTC")
         + "\nNorthwind Trading LLC\n"
         "Account details\n"
         "Account Type Checking\n"
@@ -60,7 +60,7 @@ def test_mercury_prints_the_balance_only_on_the_last_row_of_a_day():
     ))
     assert statement is not None
     assert [t.running_balance for t in statement.transactions] == [None, None, 115.00]
-    assert {t.date for t in statement.transactions} == {"2026-04-02"}
+    assert {t.date for t in statement.transactions} == {"2054-04-02"}
     assert reconcile(statement).continuity_breaks == 0
 
 
@@ -106,7 +106,7 @@ def test_mercury_keeps_the_date_when_the_description_cell_is_empty():
         beginning="$100.00", withdrawals="-$10.00", deposits="$0.00", ending="$90.00",
     ))
     assert statement is not None
-    assert statement.transactions[0].date == "2026-04-02"
+    assert statement.transactions[0].date == "2054-04-02"
     assert statement.transactions[0].description == "ACH Pull"
 
 
@@ -140,7 +140,7 @@ def test_mercury_carries_the_date_forward_across_a_page_break():
         beginning="$100.00", withdrawals="-$25.00", deposits="$0.00", ending="$75.00",
     ))
     assert statement is not None
-    assert [t.date for t in statement.transactions] == ["2026-04-02", "2026-04-02"]
+    assert [t.date for t in statement.transactions] == ["2054-04-02", "2054-04-02"]
 
 
 @pytest.mark.parametrize("minus", ["-", "\u2212", "\u2013"])
@@ -275,7 +275,7 @@ def test_mercury_does_not_read_a_month_word_in_a_description_as_the_date():
         beginning="$100.00", withdrawals="-$20.00", deposits="$0.00", ending="$80.00",
     ))
     assert statement is not None
-    assert [t.date for t in statement.transactions] == ["2026-04-02", "2026-04-02"]
+    assert [t.date for t in statement.transactions] == ["2054-04-02", "2054-04-02"]
     assert statement.transactions[1].description.startswith("May 15 Holdings")
 
 
@@ -320,7 +320,7 @@ def test_mercury_reports_a_day_count_that_disagrees_with_the_printed_period():
     document = mercury_document(
         f"Apr 02 Alpha Supply {MARK}ACH Pull -$10.00 $90.00\n",
         beginning="$100.00", withdrawals="-$10.00", deposits="$0.00", ending="$90.00",
-        header="April 2026 statement April 1, 2026-April 30, 2026 (28 days) All dates in UTC",
+        header="April 2026 statement April 1, 2054-April 30, 2054 (28 days) All dates in UTC",
     )
     statement = mercury.parse_mercury_statement(document)
     assert statement is not None
@@ -345,7 +345,7 @@ _FOUND_DISCLAIMER = (
 
 def found_document(grid: str, *, title="Account Statement", beginning="$0.00",
                    credits="+ $0.00", debits="$0.00", fees="$0.00",
-                   ending="$0.00", period="February 1 to February 28, 2026",
+                   ending="$0.00", period="February 1 to February 28, 2054",
                    sections=("Transactions",), disclaimer="") -> str:
     heading = "".join(f"{section}\nDate Description Amount Balance\n" for section in sections)
     return (
@@ -354,19 +354,19 @@ def found_document(grid: str, *, title="Account Statement", beginning="$0.00",
         f"{period}\n101 019 644\n2135 0078 7137\n"
         "Business name: Northwind Trading\n"
         "Account summary\n"
-        f"Beginning balance on February 1, 2026 {beginning}\n"
+        f"Beginning balance on February 1, 2054 {beginning}\n"
         f"Deposits & other credits {credits}\n"
         f"Purchases & other debits {debits}\n"
         f"Fees {fees}\n"
-        f"Ending balance on February 28, 2026 {ending}\n"
+        f"Ending balance on February 28, 2054 {ending}\n"
         + heading + grid + disclaimer + _FOUND_FOOTER
     )
 
 
 def test_found_reads_the_spaced_sign_and_an_overdrawn_closing_balance():
     statement = found_lead.parse_found_lead_statement(found_document(
-        "02/04/26 Alpha Supply - $30.00 -$10.00\n"
-        "02/05/26 Beta Freight + $5.00 -$5.00\n",
+        "02/04/54 Alpha Supply - $30.00 -$10.00\n"
+        "02/05/54 Beta Freight + $5.00 -$5.00\n",
         beginning="$20.00", credits="+ $5.00", debits="$30.00", ending="-$5.00",
     ))
     assert statement is not None
@@ -383,7 +383,7 @@ def test_found_excludes_pending_rows_and_still_closes_the_walk():
     statement = found_lead.parse_found_lead_statement(found_document(
         "-- Gamma Retail - $99.00 --\n"
         "Transactions\nDate Description Amount Balance\n"
-        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        "02/04/54 Alpha Supply - $30.00 $70.00\n",
         beginning="$100.00", credits="+ $0.00", debits="$30.00", ending="$70.00",
         sections=("Pending transactions",), disclaimer=_FOUND_DISCLAIMER,
     ))
@@ -410,7 +410,7 @@ def test_found_does_not_deduct_the_fee_a_second_time():
     """The printed Fees figure is a memo inside `Purchases & other debits`;
     the summary identity closes without subtracting it again."""
     statement = found_lead.parse_found_lead_statement(found_document(
-        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        "02/04/54 Alpha Supply - $30.00 $70.00\n",
         beginning="$100.00", credits="+ $0.00", debits="$30.00", fees="$5.00", ending="$70.00",
     ))
     assert statement is not None
@@ -419,9 +419,9 @@ def test_found_does_not_deduct_the_fee_a_second_time():
 
 
 def test_the_month_to_date_disclaimer_separates_the_two_found_registrations():
-    settled = found_document("02/04/26 Alpha Supply - $30.00 $70.00\n",
+    settled = found_document("02/04/54 Alpha Supply - $30.00 $70.00\n",
                              beginning="$100.00", debits="$30.00", ending="$70.00")
-    activity = found_document("02/04/26 Alpha Supply - $30.00 $70.00\n",
+    activity = found_document("02/04/54 Alpha Supply - $30.00 $70.00\n",
                               title="Activity (Month to Date)",
                               beginning="$100.00", debits="$30.00", ending="$70.00",
                               disclaimer=_FOUND_DISCLAIMER)
@@ -435,9 +435,9 @@ def test_the_month_to_date_disclaimer_separates_the_two_found_registrations():
 
 def test_found_reports_a_header_period_that_disagrees_with_the_balance_labels():
     document = found_document(
-        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        "02/04/54 Alpha Supply - $30.00 $70.00\n",
         beginning="$100.00", debits="$30.00", ending="$70.00",
-        period="February 1 to February 27, 2026",
+        period="February 1 to February 27, 2054",
     )
     statement = found_lead.parse_found_lead_statement(document)
     assert statement is not None
@@ -453,7 +453,7 @@ def brex_document(credit_rows: str, debit_rows: str, *, beginning="$0.00",
                   ending="$0.00", credit_total=None, debit_total=None,
                   appendix="") -> str:
     return (
-        "Apr 1 - Apr 30, 2026\n"
+        "Apr 1 - Apr 30, 2054\n"
         "Account Number: 63325646\n"
         "Northwind Trading checking account\n"
         "Checking provided by Column N.A., Member FDIC\n"
@@ -595,7 +595,7 @@ def test_no_fintech_parser_claims_another_fintech_layout(parser):
     each parser claims on."""
     documents = [
         mercury_document(f"Apr 02 Alpha {MARK}ACH In $10.00 $10.00\n", deposits="$10.00", ending="$10.00"),
-        found_document("02/04/26 Alpha Supply - $30.00 $70.00\n",
+        found_document("02/04/54 Alpha Supply - $30.00 $70.00\n",
                        beginning="$100.00", debits="$30.00", ending="$70.00"),
         brex_document("4/3 Alpha Supply ACH $500.00\n", "4/6 Beta ACH -$200.00\n",
                       beginning="$100.00", additions="$500.00",
@@ -610,13 +610,13 @@ def test_no_fintech_parser_claims_another_fintech_layout(parser):
 # ===========================================================================
 
 def test_found_refuses_a_date_cell_that_no_calendar_can_hold():
-    """`13/45/26` matches the row pattern's date shape perfectly. Converting it
+    """`13/45/54` matches the row pattern's date shape perfectly. Converting it
     without a guard raises out of `parse` — a `ParserCrashError` in
     deterministic mode, which is the defect class discovery hit on 17
     documents. A Date cell holding no date means the columns were not read as
     printed, so the document is refused."""
     assert found_lead.parse_found_lead_statement(found_document(
-        "13/45/26 Alpha Supply - $30.00 $70.00\n",
+        "13/45/54 Alpha Supply - $30.00 $70.00\n",
         beginning="$100.00", debits="$30.00", ending="$70.00",
     )) is None
 
@@ -631,7 +631,7 @@ def test_brex_refuses_a_date_cell_that_no_calendar_can_hold():
 
 @pytest.mark.parametrize("parser,document", [
     (found_lead.parse_found_lead_statement,
-     lambda: found_document("13/45/26 Alpha Supply - $30.00 $70.00\n",
+     lambda: found_document("13/45/54 Alpha Supply - $30.00 $70.00\n",
                             beginning="$100.00", debits="$30.00", ending="$70.00")),
     (brex.parse_brex_statement,
      lambda: brex_document("13/45 Alpha Supply ACH $500.00\n",
@@ -777,7 +777,7 @@ def test_a_month_to_date_document_whose_clause_wraps_never_validates():
     The title is what settles it, so the wrap cannot reach the decision.
     """
     document = found_document(
-        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        "02/04/54 Alpha Supply - $30.00 $70.00\n",
         title="Activity (Month to Date)",
         beginning="$100.00", debits="$30.00", ending="$70.00",
         disclaimer=_WRAPPED_DISCLAIMER,
@@ -795,7 +795,7 @@ def test_a_closed_statement_that_quotes_the_clause_is_not_demoted():
     a disclosure change, a quoted policy — was demoted to review by the
     substring boundary. Its title says what it is."""
     document = found_document(
-        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        "02/04/54 Alpha Supply - $30.00 $70.00\n",
         beginning="$100.00", debits="$30.00", ending="$70.00",
         disclaimer=(
             "Note: unlike our month-to-date view, which is not a bank statement "
@@ -815,7 +815,7 @@ def test_neither_registration_claims_a_found_document_with_no_printed_title():
     reader cannot see is claimed by neither and fails closed — rather than one
     of them taking it by default."""
     document = found_document(
-        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        "02/04/54 Alpha Supply - $30.00 $70.00\n",
         title="Statement Of Account",  # not a title this issuer prints
         beginning="$100.00", debits="$30.00", ending="$70.00",
     )
