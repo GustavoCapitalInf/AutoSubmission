@@ -427,3 +427,185 @@ the honest version of the corroboration, and it is still strong.
 Nothing else on this branch needs changing. The instruments are honest, the ceilings are real
 bounds rather than arguments, the mutation table reports its survivor instead of hiding it, the
 refusals are refusals, and every count reproduces.
+
+---
+
+# Re-review of the closure (`b2ba776..fbe1c9a`)
+
+Requested by Ocean after Gustavo's ruling. Closure range `b2ba776..fbe1c9a` — 7 closure
+commits on top of this review's 2. Tip `fbe1c9a`; the last production change is `fb0a033`
+and everything after `0f851d6` is docs-only. Same reviewer, same instruments, same run of
+record and cold cache; base arms in a private detached worktree at `71a82aa`, removed after.
+
+**Gustavo's ruling, verbatim and binding:** *"CP-DECLINES / GL3: APPROVE the GL3 reversal as
+a refinement of the existing doctrine, conditional on closure and independent re-review of the
+current date-rule BLOCK. The safe fix may reduce the +6; correctness takes priority. Preserve
+the five pinned GLANCE cases and protected GLANCE cohort correctly."*
+
+## R0. Verdict on the closure
+
+**APPROVE.** The BLOCK is closed at the mechanism, not at the symptom; the two MAJORs and four
+MINORs are corrected in the places that carried them, including the production docstring; and
+the fix costs nothing. **Ruling 1's condition is SATISFIED** — the date-rule BLOCK has a
+closure and this is its independent re-review. The candidate delta this branch carries is
+**+6, unchanged**: the safe fix did not reduce it.
+
+I found no new BLOCK, no new MAJOR and no new MINOR. Every number in CPDECL10 that I could
+re-measure, I re-measured, and all of them reproduce.
+
+## R1. The fix, attacked
+
+`_non_opening_dates` is now one scan with two readings — `_without_non_opening_dates` blanks
+the first token of each pair, `_blanks_a_different_day` compares the two — and `_ledger`
+threads the flag over the same runs after the same cross-reference pass. `parse` refuses when
+the flag is set and no grid is printed. That is the remedy I named, implemented where it
+cannot drift from the rule it guards.
+
+Sixteen fixtures through the real parse at `fbe1c9a`, and through the pipeline where it
+publishes:
+
+| # | construction | expected | measured |
+|---|---|---|---|
+| A | **my original attack** — posting date first, note second, NO grid | refused | **REFUSED** |
+| B | the same with the grid printed | refused (the grid sees the moved day) | **REFUSED** |
+| C | the archive's ordering — note first, posting date second, grid printed | publishes on the posting day | **PUBLISHED**, `validated/approved`, days correct |
+| D | the archive's ordering, NO grid | refused — the reader cannot tell C from A, so it fails closed | **REFUSED** |
+| E | same-day pair (the welded printing), grid printed | publishes | **PUBLISHED**, days correct |
+| F | same-day pair, NO grid — nothing extra may be asked | publishes | **PUBLISHED**, days correct |
+| G | **new attack** — two real postings on the SAME day, the first amount lost by the layer, grid printed | refused at the count gate | **REFUSED** |
+| G' | the same, NO grid | refused | **REFUSED** |
+| G* | control: the same three credits printed in full | publishes, both rows on their own day | **PUBLISHED**, 5 rows |
+| G'' | two real postings on DIFFERENT days, the first amount lost, NO grid | refused | **REFUSED** |
+| H | **new attack** — different-day pair, grid printed but not covering the note's day | refused | **REFUSED** |
+| H' | different-day pair, grid printing the NOTE's day instead of the true one | refused | **REFUSED** |
+| I | a run that stops mid-row | refused | **REFUSED** |
+| J / K | controls, with and without a grid | publish | **PUBLISHED**, days correct |
+| L | **new attack** — the different-day pair in the DEBIT block only, NO grid | refused (the flag must cover every role) | **REFUSED** |
+| M | **new attack** — the same day printed with different zero padding | must NOT read as two days | **PUBLISHED** |
+
+Two properties are what make H and H' work, rather than luck. `_matches_the_printed_grid`
+refuses when `set(walked) - set(printed)` is non-empty — a ledger day the grid does not print —
+**and** when the surplus goes the other way, so a moved day is caught whether the grid happens
+to print the note's day or not. And `_printed_day` compares `(int(month), int(day))`, so the
+zero padding the layer chooses cannot manufacture a "different day" and force a spurious
+refusal (M).
+
+Reading the code for gaps rather than fixtures: the flag is `any(...)` over every run of every
+role the ledger actually reads (inside the `running and restated` skip, so it covers exactly
+the text the rows came from); a grid block that parses to an EMPTY map leaves `printed_grid`
+falsy and therefore refuses a flagged document; and `_ledger`'s new tuple return is
+None-checked before it is unpacked. I found nothing to attack that the fixtures above miss.
+
+**The one cost, named honestly:** case D. A future document printed in the archive's own
+ordering that carries no grid is now refused where it would previously have published
+correctly. That is the right trade — the reader has only position to go on and cannot
+distinguish D from A — and its measured cost on this archive is zero.
+
+## R2. Re-measurement at the closure tip `fbe1c9a`
+
+| what | closure claims | re-measured | agrees |
+|---|---|---|---|
+| `cohort_replay`, four `DECL:` groups | +6 validated, +3 up, 29 unchanged, 0 regressions | **identical**, and the 9 movers are the same 9 shas as before the fix — EXIT 0 | yes |
+| `--parser core_processor_sectioned` `--expect-identical` | 10/10 identical | **10/10**, EXIT 0 | yes |
+| `--parser core_processor_enclosures` `--expect-identical` | 46/46 identical | **46/46**, EXIT 0 | yes |
+| `--parser core_processor_daily` `--expect-identical` | 13/13 identical | **13/13**, EXIT 0 | yes |
+| `--parser category_partition` `--expect-identical` | 5/5 identical | **5/5**, EXIT 0 | yes |
+| `--parser wilson_muir` `--expect-identical` — my own addition: the GLANCE neighbour that shares this template and owns the one pinned corpus document on it | not claimed | **14/14 payload-identical**, 0 regressions, EXIT 0 — the dispatch edge did not flip | yes |
+| mutation table | 9 rows, 8 KILLED / M5 SURVIVED, tree clean after every row | **8 KILLED / M5 SURVIVED**; `git status --porcelain` empty afterwards, HEAD unchanged; M8's killer is its ONLY failure and M9's has one other | yes |
+| M5 equivalence against the mutant's exact NEW form | 54 identical / 3 both declined / 0 differ over 57 | **54 / 3 / 0**, re-implemented independently | yes |
+| decline probe at the base | reproduces §CPDECL2 sha for sha | **GRAMMAR 24 (16 native / 8 Tesseract), IDENTITY 14 (1 / 13), TRACE-DISAGREES 0**, and the by-reader/by-gate aggregation reproduces all eight rows | yes |
+| decline probe at the closure tree | GRAMMAR 15 / IDENTITY 14 / PARSES 9 / TRACE-DISAGREES 0 | **identical** — the drifted mirror is repaired | yes |
+| archive sweep at `0f851d6` | 2,669 compared / 2,669 identical / moved 0 / `no_payload_now_publishes` 9 = the nine movers / `payload_now_raises` 0 | my own chunk at the TIP `fbe1c9a`, documents **[0, 700)**: 546 compared, **546 identical, moved 0, `payload_now_raises` 0, `multi_artifact_documents` 0**, and `no_payload_now_publishes` **2** — `0943986A52D8226C` and `373B73F98E63F900`, both NAMED movers | yes |
+| privacy, added file lines | 0 over 3,187 | **hit_count 0 over 3,187**, MONEY/DIGITS/DATES/WORDS all 0, raw 6 all `words_class` | yes |
+| privacy, commit messages | MONEY/DIGITS/DATES 0, WORDS = the trailer | **21 commits, MONEY 0 / DIGITS 0 / DATES 0, WORDS 21**, and all 21 hit lines are the token pair from the co-authorship trailer — I read the list | yes |
+| W3 | base + one section | `git diff 71a82aa..fbe1c9a` on the log is **one hunk `@@ -56721,0 +56722,607 @@`, 607 insertions / 0 deletions, exactly one `# §` heading** (`§CPDECL`; CPDECL10 is a `##` inside it) | yes |
+| ownership | the card's files | **11 files vs `71a82aa`**: the two readers, their two test modules, four `tools/cpdecl_*.py` (`cpdecl_mutants.py` new, `cpdecl_mutation_table.py` reduced to the harness), W3, and this review file. Nothing outside the card | yes |
+| test collection | enclosures 56 → 58 | the +2 are the split of the mis-named test; the old name is gone from the module | yes |
+
+## R3. Ruling 1's second sentence — the pinned GLANCE cases and the protected cohort
+
+One correction to the framing, because these numbers should be said precisely. The corpus
+gate's pinned manifest holds **109** documents and exactly **one** of them prints this
+template: `Misc/WMB May 25.pdf`, pinned to `wilson_muir` — the registry-edge document §GLANCE
+GL5 and its own review finding 2 named. There is no set of five pinned CORPUS documents on
+this family. The **five** are the archive's protected `category_partition` cohort, and they
+are:
+
+`2065EFBD0B1277B5`, `3A9502DFFD9EA4D9` (GL3.1's own document, the fourth of the family),
+`983F04D5AD628C79`, `A78F1E6A2231611D`, `FC3FF0D3ABA7BFAD` — **5/5, payload identical, at the
+base and at the tip, `--expect-identical` EXIT 0.**
+
+The pinned corpus document is covered three ways, all green: `--parser wilson_muir` replays
+**14/14 payload-identical**; `corpus_gate.py` is GREEN with its verdicts unchanged; and
+`tests/test_category_partition.py` pins the edge and its counterfactual on both sides. So both
+halves of ruling 1's second sentence are satisfied — and the neighbour cohort that a
+publishing-more `category_partition` could have taken documents from is measured rather than
+assumed.
+
+## R4. The movers at the closure tip
+
+Unchanged by the fix, re-measured:
+
+| sha16 | before | after | parser |
+|---|---|---|---|
+| `6E9A3A110E6829EB` | failed | **validated / approved** | `category_partition` |
+| `889DAEBE7D79133C` | failed | **validated / approved** | `category_partition` |
+| `C47BEFE559CB8600` | failed | **validated / approved** | `category_partition` |
+| `373B73F98E63F900` | failed | **validated / approved** | `core_processor_enclosures` |
+| `75FE7191FD4E74A0` | failed | **validated / approved** | `core_processor_enclosures` |
+| `D31770634E04E104` | failed | **validated / approved** | `core_processor_enclosures` |
+| `0943986A52D8226C` | failed | **review / integrity_flags** | `core_processor_enclosures` |
+| `BD835DA79B01B332` | failed | **review / integrity_flags** | `core_processor_enclosures` |
+| `C355B3706588F0B1` | failed | **review / integrity_flags** | `core_processor_enclosures` |
+
+Nine moved of 38; 29 unchanged; payload changed 0; regressions 0. The three enclosures movers
+whose blanked pair names two different days (`373B73F9`, `75FE7191`, `D3177063`) all print a
+21–22-day grid and pass the now-mandatory comparison, which is why the remedy costs nothing.
+
+## R5. The record corrections, checked in the files that carried them
+
+* **MAJOR-1** — `analysis/category_partition.py`'s module docstring now reads "EXACTLY on one
+  and WITHIN A CENT on the other two", names the platform's own
+  `agrees_with_bank_stated_average: False` on those two, and says outright that the docstring
+  claimed otherwise until the review measured it. §CPDECL5 matches. Correct, and correctly
+  self-incriminating.
+* **MAJOR-2** — CPDECL7's first row reads 2 of 24, with the cause of the stale figure named.
+* **MINOR-1** — CPDECL4's grid-day column reads 21 / 22 / 22 / 22 / **19** / **19**, which is
+  what `len(stated_daily_balances)` returns on those documents.
+* **MINOR-2** — CPDECL5 separates the four checks that are true by construction of a
+  reconstructed series from the six that are evidence, and names
+  `running_balances_support_daily_ledger` as ABSENT rather than as passing.
+* **MINOR-3** — CPDECL2 names its tree, records both readings, and the probe's mirror is
+  repaired; I verified the repair changes nothing at the base (sha for sha) and turns the tip's
+  three `TRACE-DISAGREES` into nine honest `PARSES`.
+* **MINOR-4** — CPDECL6 reads "six and seven".
+* `b3c1bbe` (the GL3 reversal) is left standing, as the ruling directs, carrying MAJOR-1's
+  corrected wording.
+
+## R6. Proof floor at the tip, re-run in this session
+
+| proof | closure claims | re-measured |
+|---|---|---|
+| canonical guards (5 files) | 255 | **255 passed, EXIT 0** |
+| canonical conformance (7 files) | 1,270 / 40 skipped | **1,270 passed, 40 skipped, EXIT 0** |
+| corpus-marked slice | 30 passed, 7,114 deselected | **30 passed, 7,114 deselected, EXIT 0** (1,900 s) |
+| `corpus_gate.py` | GREEN 105 / 3 / 1 | **GREEN**, 109 pinned PDFs (103 native / 6 committed OCR), 0 exclusions, **105 PASS / 3 WITHHELD / 1 REFUSED**, verdicts **1 refused / 3 review / 102 validated / 3 withheld** — byte-for-byte the verdicts of the pre-closure tree, EXIT 0 |
+| full default suite | 7,067 passed, 43 skipped, 34 deselected | **7,067 passed, 43 skipped, 34 deselected, EXIT 0** |
+| WELCH mechanism (untouched by the closure) | un-rotated validates, rotated declines | **reproduced**: 193 postings = 12 credits + 181 debits, both printed counts exact; the rotated form declines |
+
+## R7. Answer to the ruling, and the delta
+
+* **Is ruling 1's condition satisfied?** **Yes.** The condition was "closure and independent
+  re-review of the current date-rule BLOCK". The closure exists (`fb0a033`), it addresses the
+  mechanism I named rather than the fixture I used to show it, it is pinned by two new mutants
+  whose killers are specific to it, and this section is the independent re-review: I re-ran my
+  own attack, added five new ones, and read the code for gaps.
+* **"The safe fix may reduce the +6."** It did not. **The candidate delta this branch carries
+  is +6 newly validated and +3 failed → review, with 74/74 protected preserved
+  payload-identical, 14/14 on the neighbour cohort, and 0 regressions.**
+* **"Correctness takes priority."** The fix chooses refusal over publication in the one case
+  where the reader cannot tell a safe ordering from an unsafe one (R1 case D). That is the
+  priority applied in the direction the ruling asks for, at zero measured cost.
+* **The GL3 reversal** stands with the corrected wording, as ruled.
+
+**Verdict: APPROVE.** Nothing on this branch now blocks composition.
