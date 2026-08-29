@@ -56057,9 +56057,15 @@ which was three docs-only commits behind its own tip). Every proof below was re-
 | `cohort_replay` at the base, both cohorts, `--expect-identical` | **EXIT=0 each** — fidelity established before any change |
 | mutation table | **not owed — no gate and no grammar was added or touched** (the production diff is empty). The one test this card adds was still checked against the mutant it exists for: `_validate` replaced by an unconditional pass, the conjunction test FAILS, tree restored with `git checkout --` and 40 pass again |
 | archive sweep at the final tree | 3,380 documents in two chunks — 2,669 payloads compared, 2,669 identical, **moved 0**, `no_payload_now_publishes` 0, `payload_now_raises` 0 — EXIT=0 each |
-| branch privacy scan, ADDED FILE LINES vs the 50-document population | **hit_count 0** over 1,379 added lines and 50 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. It opened at 2 when this section first landed, both of them a two-digit sub-section number read as a printed figure — a heading of the form HUNT9-dot-twelve is also a money shape, and two documents of this issuer print that amount. The numbering was merged to nine sub-sections, which carry no such shape, and no measurement moved |
-| branch privacy scan, COMMIT MESSAGES vs the same population | **hit_count 0** over 17 commits, all four classes — EXIT=0, `tools/huntington_msg_privacy_scan.py`. Its zero is not vacuous and that is measured: run against the PRE-reword history it reports 2 MONEY hits on exactly the commit review MINOR-1 named |
+| branch privacy scan, ADDED FILE LINES vs the 50-document population | **hit_count 0** over 1,424 added lines and 50 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. It opened at 2 when this section first landed, both of them a two-digit sub-section number read as a printed figure — a heading of the form HUNT9-dot-twelve is also a money shape, and two documents of this issuer print that amount. The numbering was merged to nine sub-sections, which carry no such shape, and no measurement moved |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **hit_count 0** over 19 commits, all four classes — EXIT=0, `tools/huntington_msg_privacy_scan.py`. Its zero is not vacuous and that is measured: run against the PRE-reword history it reports 2 MONEY hits on exactly the commit review MINOR-1 named |
 | the instruments carry no control byte | 0 on all three files |
+
+The two counts above are the branch's own at `c624415`, the commit that carries this
+closure. The single commit after it changes these two numbers and nothing else, and both
+scans were re-run at it: still 0, all four classes, both instruments. The ZERO is what the
+floor asserts; the line and commit counts move with the record and are named so a reader
+can tell which tree produced them.
 
 `corpus_gate.py`, the corpus-marked slice and the archive sweep were measured before the
 review closure and are not re-run here, on a stated argument rather than an assumption:
