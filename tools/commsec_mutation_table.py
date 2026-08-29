@@ -180,14 +180,24 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             _write(path, text.replace(old, new))
             try:
+                # `-rf` and not bare `-q`: the point of the table is WHICH test
+                # killed the mutant, and a short summary that does not list the
+                # failures by name cannot answer that. Without `-x`, so one
+                # mutant's kill can never hide another test's survival.
                 done = subprocess.run(
-                    [sys.executable, "-m", "pytest", str(args.tests), "-q"],
+                    [sys.executable, "-m", "pytest", str(args.tests), "-q", "-rf"],
                     capture_output=True, text=True, timeout=1800)
-                failed = done.returncode != 0
-                detail = "KILLED" if failed else "SURVIVED"
-                named = killer in done.stdout
-                detail += "" if failed and named else (
-                    " (the named killer did not report)" if failed else "")
+                failures = {line.split("::")[-1].split()[0]
+                            for line in done.stdout.splitlines()
+                            if line.startswith("FAILED ")}
+                if done.returncode == 0:
+                    detail = "SURVIVED"
+                elif killer in failures:
+                    detail = ("KILLED" if failures == {killer}
+                              else f"KILLED (and {len(failures) - 1} other test(s))")
+                else:
+                    detail = ("KILLED BY ANOTHER TEST — the named killer did not "
+                              f"fail ({len(failures)} failure(s))")
             except Exception as exc:
                 detail = f"SURVIVED (the suite would not launch: {type(exc).__name__})"
             finally:
