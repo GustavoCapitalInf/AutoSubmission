@@ -446,22 +446,39 @@ def _collected(document: str) -> str:
     return document.replace("DAILY BALANCE SUMMARY", "COLLECTED BALANCE SUMMARY")
 
 
-def test_a_collected_grid_is_not_daily_ledger_evidence_and_the_document_is_declined():
+def test_a_collected_grids_cells_are_never_published_on_the_sectioned_issue():
     """The heading is the platform's own statement of what the series IS. A
     collected balance is the ledger balance minus uncollected float, so it is
-    not the quantity the ADB doctrine averages, and the sectioned issue prints
-    no running balance — leaving no per-day oracle at all."""
+    not the quantity the ADB doctrine averages, and NONE of its cells reaches
+    the payload — the statement published under the collected heading is the
+    one published under the ledger heading with the daily series removed and
+    nothing else changed.
+
+    This is the property §GLANCE GL3 was protecting and it is unchanged. What
+    changed (W3 §CPDECL) is what happens next: the document is no longer
+    declined for the absence, it publishes an EMPTY series and
+    `analysis/adb.py` rules on it.
+    """
     document = _collected(sectioned())
     assert cp.detect(document).claims
-    assert parse(document) is None
+    statement = published(document)
+    assert statement.stated_daily_balances == []
+    with_ledger_grid = published(sectioned()).model_dump()
+    assert with_ledger_grid["stated_daily_balances"] != []
+    with_ledger_grid["stated_daily_balances"] = []
+    assert statement.model_dump() == with_ledger_grid
 
 
-def test_the_decline_is_the_missing_oracle_and_not_the_arithmetic():
-    """Everything else about the document still reads: the same statement under
-    the ledger heading publishes, so the refusal is about the evidence class
-    and nothing else."""
-    assert parse(sectioned()) is not None
-    assert parse(_collected(sectioned())) is None
+def test_a_sectioned_document_printing_no_grid_at_all_publishes_an_empty_series():
+    """The same rule with no grid of either kind on the page. The reader has no
+    per-day evidence to gate and does not invent a verdict about it: the
+    arithmetic gates still all apply, the series is empty, and the ADB doctrine
+    decides whether an average can be published from the ledger alone."""
+    document = sectioned().replace(S_GRID, "")
+    assert document != sectioned()
+    statement = published(document)
+    assert statement.stated_daily_balances == []
+    assert statement.bank_reported_average_balance is not None
 
 
 def test_a_collected_grid_cell_is_never_published_as_a_daily_balance():
@@ -569,7 +586,8 @@ class Mutant:
     mutate: Callable[[str], str]
     #: `None` = the document must be DECLINED; `"detect"` = it must not even be
     #: claimed; `"same"` = a control arm that must publish an IDENTICAL
-    #: statement.
+    #: statement; `"no_snapshots"` = it must publish the base statement with an
+    #: EMPTY daily series and nothing else changed.
     expect: str | None
 
 
@@ -655,11 +673,19 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant("M25", "grid seed: the date",
            sectioned, _sub("Beginning Ledger Balance on 08/29/31",
                            "Beginning Ledger Balance on 08/28/31"), None),
-    Mutant("M26", "the oracle itself: a collected grid leaves the sectioned "
-                  "issue with none",
-           sectioned, _sub("DAILY BALANCE SUMMARY", "COLLECTED BALANCE SUMMARY"), None),
-    Mutant("M27", "the oracle itself: no grid at all on the sectioned issue",
-           sectioned, lambda text: text.replace(S_GRID, ""), None),
+    # M26 and M27 changed EXPECTATION in batch 9 (W3 §CPDECL) and are kept
+    # rather than deleted: the gate they pin is still here, and it is now
+    # "the collected grid's cells never reach the payload" instead of "the
+    # document is declined". `no_snapshots` is the strictest form of that —
+    # the mutant must publish the base statement with the daily series empty
+    # and every other field unchanged — so a reader that read a collected cell,
+    # or that changed anything else when the grid went away, still fails.
+    Mutant("M26", "the collected heading: its cells never reach the payload",
+           sectioned, _sub("DAILY BALANCE SUMMARY", "COLLECTED BALANCE SUMMARY"),
+           "no_snapshots"),
+    Mutant("M27", "no grid at all on the sectioned issue: an empty series, "
+                  "not a decline",
+           sectioned, lambda text: text.replace(S_GRID, ""), "no_snapshots"),
     Mutant("M28", "walk: a printed running balance",
            unified, _sub("EXAMPLE ROW BETA 33,001.13 70,007.75",
                          "EXAMPLE ROW BETA 33,001.13 70,007.76"), None),
@@ -775,6 +801,19 @@ def test_every_gate_is_killed_by_its_own_mutant(mutant: Mutant):
         assert after is not None, f"{mutant.id} ({mutant.gate}) stopped publishing"
         assert after.model_dump() == baseline.model_dump(), (
             f"{mutant.id} ({mutant.gate}) changed the published statement"
+        )
+        return
+    if mutant.expect == "no_snapshots":
+        assert cp.detect(mutated).claims
+        after = parse(mutated)
+        assert after is not None, f"{mutant.id} ({mutant.gate}) stopped publishing"
+        expected = baseline.model_dump()
+        assert expected["stated_daily_balances"] != [], (
+            f"{mutant.id} ({mutant.gate}) has no daily series to remove"
+        )
+        expected["stated_daily_balances"] = []
+        assert after.model_dump() == expected, (
+            f"{mutant.id} ({mutant.gate}) changed more than the daily series"
         )
         return
     assert parse(mutated) is None, f"{mutant.id} ({mutant.gate}) still publishes"

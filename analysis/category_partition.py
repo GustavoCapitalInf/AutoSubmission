@@ -118,13 +118,12 @@ one row, and — on the unified issue — a cheque grid that reprints rows the
 unified table already carries. None of them is a ledger section here. Two of
 them are turned into gates instead (see below).
 
-The per-day oracle this family owes, and where it comes from
-------------------------------------------------------------
+The per-day evidence this family prints, and who decides when it prints none
+----------------------------------------------------------------------------
 Everything above proves the ledger is COMPLETE — the right rows, the right
 total, the right closing balance. None of it proves any row is on the right
 DAY, and a misdated row moves the average while leaving every arithmetic gate
-satisfied. So a document must carry at least one independent per-day oracle,
-and this reader will not publish one that carries none:
+satisfied. Every per-day printing the document carries is therefore gated:
 
 * the UNIFIED issue prints a running balance on every row: the walk from the
   printed balance forward through every row onto the printed ending balance is
@@ -132,9 +131,42 @@ and this reader will not publish one that carries none:
 * a `DAILY BALANCE SUMMARY` is a per-day proof: every cell must equal the
   walked end-of-day balance and the days it prints must be exactly the days
   the ledger posts on;
-* where neither is printed the document is DECLINED. It is not published on
-  the strength of its arithmetic alone and it is certainly not published on a
-  collected grid.
+* a `COLLECTED BALANCE SUMMARY` is neither, and its cells are never read.
+
+**Where the document prints no per-day evidence at all, the reader publishes an
+empty daily series and the ADB doctrine decides** (W3 §CPDECL). An earlier form
+of this reader declined instead (§GLANCE GL3), and that was a reader making a
+doctrine's decision for it. Three things say so:
+
+* the ADB doctrine's own rule is that the canonical average is computed over
+  the printed period and WITHHELD when the daily evidence does not cover it.
+  `analysis/adb.py` owns that call and states it in `adb.validations` —
+  `all_transactions_dated`, `daily_balances_contiguous`, `covers_opening_day`,
+  `covers_closing_day`, `final_balance_matches_statement_closing`. A reader
+  that declines first replaces a stated verdict with no verdict at all;
+* the three other readers of this same core already take that position on the
+  same absence, in those words (`core_processor_sectioned`,
+  `core_processor_enclosures`: *the reader publishes and the ADB doctrine
+  decides*). The one that does not, `core_processor_daily`, gives a reason that
+  does not hold here — it prints NO transaction count, so its grid is its only
+  second opinion, while this partition prints a per-CATEGORY count and a
+  per-category total, which is finer evidence of completeness than either
+  sibling has;
+* GL3.1 priced the bank's own printed `Average Balance (<basis>)` against the
+  platform's six bases on the ONE document that then had both that entry and a
+  proven ledger grid, found it reproduced on none of them, and concluded the
+  entry is never a per-day oracle. Measured over every document of the family
+  that prints the entry, that generalisation does not hold: on three of the
+  four the calendar-day average computed from this reader's own ledger
+  reproduces the printed figure to the cent. It is still not a GATE — the
+  fourth disagrees by 39 % and the entry stays evidence-only under the ADB
+  doctrine — but it is a printed, day-sensitive quantity that agrees, so the
+  misdating the old refusal was built for is measurably absent rather than
+  merely unlikely.
+
+The collected grid remains refused for its own reason, which is unchanged and
+is the one thing a future widening must not undo: it is a DIFFERENT quantity,
+not weak evidence of the same one.
 
 The issuer, which this template does not print in a field
 ----------------------------------------------------------
@@ -894,11 +926,14 @@ def parse_category_partition_statement(markdown: str) -> Statement | None:
       before the next row opens;
     * the relationship block lists more than one account;
     * the printed running balance does not walk onto the printed ending
-      balance, or the ledger daily grid disagrees with the walked ledger;
-    * **it prints no per-day oracle at all** — no running balance and no
-      `DAILY BALANCE SUMMARY`. A `COLLECTED BALANCE SUMMARY` is not one, and
-      publishing an average against it, or against nothing, is the failure this
-      refusal exists to prevent.
+      balance, or the ledger daily grid disagrees with the walked ledger.
+
+    It does NOT decline a document that simply prints no per-day evidence. That
+    document publishes an empty daily series and `analysis/adb.py` rules on it,
+    which is the ADB doctrine's own division of labour and the position the
+    other three readers of this core take — see the module docstring. A
+    `COLLECTED BALANCE SUMMARY` is still not daily evidence: its cells are
+    never read, on either issue, so the series it would have filled is empty.
     """
     if not detect(markdown).claims:
         return None
@@ -957,15 +992,17 @@ def parse_category_partition_statement(markdown: str) -> Statement | None:
     ):
         return None
 
-    # The per-day oracle. One of the two, or nothing is published.
+    # The per-day evidence the document PRINTS is gated, and where it prints
+    # none the reader publishes an empty daily series and `analysis/adb.py`
+    # decides — the position the other three readers of this core already take
+    # (W3 §CPDECL). A collected grid is still not daily evidence and its cells
+    # are still never read: `grid` can only come from the LEDGER heading.
     grid = None
     if _LEDGER_GRID_HEADING in sections:
         grid = _grid(sections[_LEDGER_GRID_HEADING], summary=summary)
         if grid is None or not _matches_the_printed_grid(rows, grid, summary):
             return None
     if unified and not _walks_to_the_printed_ending(rows, summary):
-        return None
-    if grid is None and not unified:
         return None
 
     return Statement(
