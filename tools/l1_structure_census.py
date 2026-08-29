@@ -193,9 +193,11 @@ NO_ACTIVITY = re.compile(
 FACILITY_CLASSES: tuple[tuple[str, str, bool], ...] = (
     ("loan", r"loans?", True),
     ("mortgage",
-     r"mortgage\w*", True),
+     r"mortgage\w*",
+     True),
     ("brand_row",
-     r"visa", True),
+     r"visa",
+     True),
     ("card_network", r"amex", False),
     ("card_issuer", r"master ?card\w*", False),
     ("card_scheme", r"discover", False),
