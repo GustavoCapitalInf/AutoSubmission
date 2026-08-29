@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 GATES: dict[str, tuple[str, str]] = {
     "scan": ("tools/privacy_scan_branch.py", "tests/test_privacy_scan_exclusions.py"),
     "ast": ("tools/fixpriv_ast_identity.py", "tests/test_fixpriv_ast_identity.py"),
+    "redact": ("tools/fixpriv_w3_redact.py", "tests/test_fixpriv_w3_redact.py"),
 }
 
 #: (id, gate, rule it attacks, what the mutant does, exact old, exact new)
@@ -145,6 +146,40 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "include attributes, so prose that grows by a line reads as a change",
         "    return ast.dump(strip_docstrings(ast.parse(source)), include_attributes=False)",
         "    return ast.dump(strip_docstrings(ast.parse(source)), include_attributes=True)",
+    ),
+    (
+        "R1", "redact", "the sha rule",
+        "drop the span check that keeps a replacement out of a content sha",
+        "        if any(start < hend and hstart < end for hstart, hend in protected):\n"
+        "            continue",
+        "        if False:\n"
+        "            continue",
+    ),
+    (
+        "R2", "redact", "the sha rule",
+        "shorten the protected run so a sha PREFIX stops being a sha",
+        "_HEX_ANY_CASE = HEX_RUN_RE.pattern",
+        '_HEX_ANY_CASE = r"[0-9A-F]{48,64}"',
+    ),
+    (
+        "R3", "redact", "the residue test",
+        "redact by SHAPE alone, so the program's own counts are redacted too",
+        '        if text not in residue.get(cls, ()) and text.replace(",", "") not in residue.get(cls, ()):\n'
+        "            continue",
+        "        if False:\n"
+        "            continue",
+    ),
+    (
+        "R4", "redact", "the separator form",
+        "match only the token as printed, losing the comma-stripped form",
+        '        if text not in residue.get(cls, ()) and text.replace(",", "") not in residue.get(cls, ()):',
+        "        if text not in residue.get(cls, ()):",
+    ),
+    (
+        "R5", "redact", "the overlap filter",
+        "let a DIGITS run inside a money figure be replaced a second time",
+        "        if kept and start < kept[-1][1]:\n            continue",
+        "        if False:\n            continue",
     ),
 )
 
