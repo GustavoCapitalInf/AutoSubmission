@@ -134,17 +134,26 @@ DATE_SHAPES_WITH_BARE_YEARS = re.compile(
 
 _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
-#: A line that names a FILE. Not a guard — a REPORT, and the difference is the
-#: honest part. A pinned corpus document is often named after the period it
-#: covers (`Example 2031-05-29.pdf`, `Example February 27 2031.pdf`,
-#: `Example_03-31-2031 (3) (1).pdf`), and inside a path a date is not a fixture
-#: date at all: it is half the file's NAME, and moving it points every reader
-#: at a document that does not exist. No pattern can tell the two apart — the
-#: characters are identical — so this tool does not pretend to. It COUNTS them
-#: and says so, and the file's own suite is what decides; that is exactly how
-#: the one occurrence in this tree was found, by three tests in
-#: `tests/test_parser_expectations_baseline.py` failing at once.
-PATH_HINT = re.compile(r"\.(?:pdf|md|json|csv|txt|png|jpe?g|xlsx?|docx?)\b", re.IGNORECASE)
+#: A line that names a FILE OR A RUN. Not a guard — a REPORT, and the
+#: difference is the honest part.
+#:
+#: Two shapes, one lesson. A pinned corpus document is often named after the
+#: period it covers (`Example 2031-05-29.pdf`, `Example February 27 2031.pdf`,
+#: `Example_03-31-2031 (3) (1).pdf`). A discovery run is named after the
+#: INSTANT it started (`2031-08-16T000943.012887-0000-<sha>`). In both, the
+#: date is not a fixture date at all — it is half an IDENTIFIER, and moving it
+#: points every reader at something that does not exist. No pattern can tell
+#: those from a fixture's own dates; the characters are identical. So this tool
+#: does not pretend to: it COUNTS them and says so, and the file's own suite
+#: decides. That is exactly how both occurrences in this tree were found — the
+#: file names by three tests in `tests/test_parser_expectations_baseline.py`
+#: failing at once, the run name by one corpus-marked test that could not find
+#: the run of record any more.
+PATH_HINT = re.compile(
+    r"\.(?:pdf|md|json|csv|txt|png|jpe?g|xlsx?|docx?)\b"
+    r"|\d{4}-\d{2}-\d{2}T\d",
+    re.IGNORECASE,
+)
 
 #: The year groups, and for each the width its replacement must keep.
 _YEAR_GROUPS = (

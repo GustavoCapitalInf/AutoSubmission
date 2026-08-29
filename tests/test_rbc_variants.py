@@ -1770,7 +1770,7 @@ def test_curj_the_nine_currency_1_corrections_are_untouched():
 #: under a single settings key looks like the run's population but is not it,
 #: because a re-read preparation lives under a different key and would feed the
 #: replay a text the run never saw.
-_RUN_OF_RECORD = "2054-08-16T000943.012887-0000-2e3ea385"
+_RUN_OF_RECORD = "2026-08-16T000943.012887-0000-2e3ea385"
 
 
 def _checkout_ancestor(*relative: str):

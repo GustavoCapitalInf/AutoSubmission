@@ -261,6 +261,9 @@ def test_a_year_outside_the_proved_range_is_left_alone(text: str) -> None:
         ('"path": "Example/Example 2031-05-29.pdf",', 1),
         ('"path": "Example/Example Name February 27 2031.pdf",', 1),
         ('"path": "Example/Example_03-31-2031 (3) (1).pdf",', 1),
+        # A discovery RUN is named after the instant it started. Same lesson,
+        # different identifier, and this one has no file extension in it.
+        ('_RUN_OF_RECORD = "2031-08-16T000943.012887-0000-abc1234"', 1),
         ('"period": ["2031-05-01", "2031-05-29"],', 0),
         ('assert stmt.period_start == "2031-05-01"', 0),
     ],

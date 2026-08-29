@@ -560,6 +560,13 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         '                counts["on_a_path_line"] += 1',
     ),
     (
+        "Z16", "shift", "the run-name half of the path report",
+        "stop recognising a RUN identifier — an ISO date carrying a time — so "
+        "the one shape with no file extension in it goes unreported",
+        r'    r"|\d{4}-\d{2}-\d{2}T\d",' + "\n    re.IGNORECASE,",
+        r'    r"|NEVERMATCHESTHISSHAPE",' + "\n    re.IGNORECASE,",
+    ),
+    (
         "R1", "redact", "the sha rule",
         "drop the span check that keeps a replacement out of a content sha",
         "        if any(start < hend and hstart < end for hstart, hend in protected):\n"
