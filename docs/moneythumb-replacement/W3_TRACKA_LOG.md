@@ -55400,9 +55400,12 @@ A registration id is not a module. `community_section` publishes under three
 therefore enumerated through the registry rather than from a hand list: **10 pinned
 documents are claimed by a reader carrying an L-1 rule** — capital_one 4,
 navy_federal 4, consumers 1 (the CONS-L1 document), dakota_west 1. Also measured and
-worth knowing: **29 of the 109 pinned documents are not in the run of record at all**,
-so their structure was read through a local native-text extraction and every row of
-that table says so.
+worth knowing: **29 of the 109 pinned documents are not in the run of record at all**.
+They are reported as NOT SURVEYED rather than read a second way — the native ladder is
+composed in one place and this instrument was not going to be the module that reaches
+around it (`tests/test_native_rung_parity.py` caught exactly that on the first full
+suite run, and the fallback came out). Of the 80 that were surveyed, **12 print two or
+more posting sections**, 5 of them under the strong boundary mechanisms.
 
 ## L1INV.2 What the structure census measured
 

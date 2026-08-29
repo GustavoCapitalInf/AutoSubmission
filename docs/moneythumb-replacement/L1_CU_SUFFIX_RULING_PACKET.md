@@ -87,9 +87,11 @@ module contains.
 ### 1.2 The pinned corpus
 
 109 pinned paths, all on disk. 80 are in the run of record; **29 are not in the run at all**
-(measured, not assumed — their content sha appears in no row), so their structure below was
-read through a local native-text extraction rather than the run's own intake partition, and
-each row says which.
+(measured, not assumed — their content sha appears in no row). Those 29 are NOT surveyed
+structurally: this instrument does not reach around `ocr/native_text.py`'s ladder to read them
+a second way (`tests/test_native_rung_parity.py` forbids it, and a structure read through
+different text would not be the structure production read). The pinned structural finding
+below therefore covers 80 documents, and the 29 are a named gap.
 
 Pinned documents claimed by a reader that carries an L-1 rule today — **10**, and this is the
 regression surface any publication-model change must clear (a registration id is not a module:
@@ -105,15 +107,15 @@ and it is `dakota_west` that holds a pinned document):
 
 `symitar` and `atb` claim no pinned document. `huntington` claims none.
 
-Structurally, **16 of the 109 pinned documents print two or more posting sections** — but the
-strength of that finding differs by mechanism and is reported that way, because the weakest
-mechanism over-collects:
+Structurally, **12 of the 80 surveyed pinned documents print two or more posting sections** —
+but the strength of that finding differs by mechanism and is reported that way, because the
+weakest mechanism over-collects:
 
 | how the partition was established | pinned documents | weight |
 |---|---:|---|
 | `rollup-oracle` (the document enumerates its accounts with balances) | 4 | strong |
 | `section-identity` (headings carry their own identity, no oracle) | 1 | strong |
-| `section-equation-scan` (opening figures only) | 11 | WEAK — treat as unproven |
+| `section-equation-scan` (opening figures only) | 7 | WEAK — treat as unproven |
 
 `05E246C0ED6678E6`, the known CONS-L1 pinned document, is in the strong class, which is a
 corroboration of the probe rather than a new finding.

@@ -773,10 +773,11 @@ def pinned_survey(data_dir: Path, rows_csv: Path) -> list[tuple[str, str, str, D
     """The pinned 109, structurally. [(relative path, sha16, text source, structure)].
 
     Text comes from the run of record's own cold cache where the pinned
-    document is in the run, and from the committed OCR artifact or a local
-    native-text extraction where it is not. The source is REPORTED per document
-    rather than smoothed over: a pinned document read here through a different
-    extraction from the one production read is weaker evidence and must say so."""
+    document is in the run, and from the committed OCR artifact where there is
+    one. A pinned document with neither is reported as NOT SURVEYED: this
+    instrument does not reach around `ocr/native_text.py`'s ladder to read it
+    a third way, and a structure read through different text would not be the
+    structure production read."""
     import hashlib
 
     from tools.l1_census import pinned_paths
@@ -811,17 +812,15 @@ def pinned_survey(data_dir: Path, rows_csv: Path) -> list[tuple[str, str, str, D
             except Exception:  # pragma: no cover - artifact absent
                 markdown = None
         if markdown is None:
-            try:
-                from ocr.native_text import parse_native_pdf_text
-
-                document = parse_native_pdf_text(data, source_file=path.name)
-                markdown = document.to_markdown() if document else None
-                pages = document.pages if document else []
-                source = "local native-text extraction"
-            except Exception:  # pragma: no cover
-                markdown = None
-        if markdown is None:
-            out.append((rel, sha[:16], "no-text-available", None))
+            # DELIBERATELY NOT extracted here. The native ladder is composed in
+            # `ocr/native_text.py::native_statement` and nowhere else
+            # (`tests/test_native_rung_parity.py`), and this instrument is not
+            # going to be the module that reaches around it. A pinned document
+            # the run of record never saw is reported as NOT SURVEYED rather
+            # than surveyed through a second extraction path — which is also
+            # the more honest answer, since a structure read through different
+            # text is not the structure production read.
+            out.append((rel, sha[:16], "not-in-the-run-of-record", None))
             continue
         out.append((rel, sha[:16], source,
                     structure(sha[:16], "PINNED", "PINNED", markdown, len(pages))))
