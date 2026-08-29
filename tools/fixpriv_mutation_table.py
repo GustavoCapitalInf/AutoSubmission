@@ -101,14 +101,38 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
     (
         "M10", "scan", "institution_zip",
         "drop the address context: any five-digit run becomes a postal code",
-        "        and len(token) == 5\n        and token in ZIP_CONTEXT_RE.findall(line)",
+        "        and len(token) == 5\n"
+        "        and any(token in pattern.findall(line) for pattern in ADDRESS_ZIP_RES)",
         "        and len(token) == 5",
     ),
     (
         "M11", "scan", "institution_zip",
         "widen the gap and let it cross digits, so the rule reaches past an address",
-        r'ZIP_CONTEXT_RE = re.compile(rf"\b(?:{_STATE})\b[^0-9]{{0,8}}(\d{{5}})(?!\d)")',
-        r'ZIP_CONTEXT_RE = re.compile(rf"\b(?:{_STATE})\b.{{0,40}}?(\d{{5}})(?!\d)")',
+        '_ZIP_GAP = r"[^0-9]{0,8}"',
+        '_ZIP_GAP = r".{0,40}?"',
+    ),
+    (
+        "M11b", "scan", "institution_zip",
+        "restore the BARE-ABBREVIATION reading — a state token then five digits, "
+        "with no address furniture asked for. This is the shape the review "
+        "blocked: it reads `MEMBER ID 84213` and `AUTH OK 84213` as postal "
+        "codes and silences a member number and an authorisation code",
+        "        and any(token in pattern.findall(line) for pattern in ADDRESS_ZIP_RES)",
+        r'        and token in re.findall(rf"\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)", line)',
+    ),
+    (
+        "M11c", "scan", "institution_zip",
+        "drop the city's COMMA, so any word before the abbreviation reads as a "
+        "city and `AUTH OK 84213` is an address again",
+        r'    rf"[A-Z]{_ADDRESS_JUNK}{{0,2}},{_ADDRESS_JUNK}{{0,4}}(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+        r'    rf"[A-Z]{_ADDRESS_JUNK}{{0,4}}(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+    ),
+    (
+        "M11d", "scan", "institution_zip",
+        "unbound the post-office box to the whole LINE, so a box in one clause "
+        "excuses an identifier in the next",
+        r'    rf"\bP\.?\s?O\.?\s?BOX\b[^;|]{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
+        r'    rf"\bP\.?\s?O\.?\s?BOX\b.*\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"',
     ),
     (
         "M12", "scan", "the table as a whole",

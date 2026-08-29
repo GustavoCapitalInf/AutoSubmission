@@ -190,19 +190,27 @@ def test_docs_session_date_covers_the_iso_notation_only(token: str) -> None:
 
 
 # --------------------------------------------------------------------------
-# institution_zip — a branch's postal code, and nothing an account can be.
+# institution_zip — a postal ADDRESS, and nothing an account can be.
+#
+# The abbreviation is necessary and never sufficient. Roughly half the list is
+# an ordinary English word once the scanner upper-cases the line (`IN`, `OR`,
+# `OK`, `ID`, `CO`, `ME`, ...), so the rule asks for the address furniture too:
+# a city and its comma, a ZIP+4 tail, or a post-office box in the same clause.
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
-    "line",
+    ("token", "line"),
     [
-        "OZARK, AR 99999",
-        r'r"P\.?O\.? BOX 196\s+OZARK,\s*AR\s*99999"',
-        "ST LOUIS MO 95959",
+        ("99999", "OZARK, AR 99999"),                          # city, comma, state
+        ("99999", r'r"P\.?O\.? BOX 196\s+OZARK,\s*AR\s*99999"'),  # the same, as regex source
+        ("99999", "COLUMBUS OH 99999-1558"),                   # the ZIP+4 tail
+        ("99999", "PO BOX 1962 ST LOUIS MO 99999"),            # a box in the clause
+        ("95959", "P. O. BOX 1962, SEATTLE WA 95959-9750"),
+        ("95959", "1 GUARDIAN WAY, PRATTVILLE, AL 95959  334-244-9999"),
     ],
 )
-def test_institution_zip_excludes_a_state_and_its_code(line: str) -> None:
-    token = re.search(r"(\d{5})(?!\d)", line).group(1)
+def test_institution_zip_excludes_a_postal_address(token: str, line: str) -> None:
+    assert re.search(rf"{token}(?!\d)", line), "the fixture must print the token"
     assert excluded_by("DIGITS", "analysis/x.py", token, line) == "institution_zip"
 
 
@@ -220,6 +228,48 @@ def test_institution_zip_reaches_nothing_wider(token: str, line: str) -> None:
     assert excluded_by("DIGITS", "analysis/x.py", token, line) != "institution_zip"
 
 
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        # THE VOCABULARY, not the geometry: every abbreviation below is also an
+        # ordinary word, and every line below is a shape this archive prints.
+        ("84213", "MEMBER ID 84213"),                       # a member number
+        ("84213", "THE ACCOUNT ENDING IN 84213"),           # an account tail
+        ("45678", "07/03 BETA INBOUND CCD CO# 45678 TRACE"),  # an ACH originator id
+        ("84213", "09/17 TRANSFER IN 84213 CREDIT"),        # a posting reference
+        ("84213", "AUTH OK 84213"),                         # an authorisation code
+        ("84213", "CHECK NO OR 84213"),                     # a cheque number
+        ("84213", "PAYMENT TO ME 84213"),
+        ("84213", "BALANCE DELAWARE 84213"),                # not the abbreviation
+    ],
+)
+def test_a_state_abbreviation_that_is_an_english_word_is_not_an_address(
+    token: str, line: str
+) -> None:
+    assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
+
+
+@pytest.mark.parametrize(
+    ("token", "line"),
+    [
+        # The box marker belongs to ITS clause. A box in one sentence may not
+        # excuse a number in the next.
+        ("84213", "PO BOX 196 OZARK, AR 99999; MEMBER ID 84213"),
+        ("84213", "PO BOX 196 OZARK, AR 99999 | AUTH OK 84213"),
+        ("84213", "PO BOX 196 " + "x" * 75 + " MEMBER ID 84213"),
+    ],
+)
+def test_the_box_marker_does_not_reach_out_of_its_clause(token: str, line: str) -> None:
+    assert excluded_by("DIGITS", "analysis/x.py", token, line) is None
+
+
+def test_a_bare_city_state_code_with_no_furniture_is_reported_not_hidden() -> None:
+    """The narrowing's own cost, pinned. `CITY ST 99999` with no comma, no box
+    and no ZIP+4 is indistinguishable from `AUTH OK 84213` by shape alone, so
+    the rule declines it and the scan REPORTS it — the safe direction."""
+    assert excluded_by("DIGITS", "analysis/x.py", "99999", "ST LOUIS MO 99999") is None
+
+
 # --------------------------------------------------------------------------
 # The block: no rule, in any combination, may silence an identifier.
 # --------------------------------------------------------------------------
@@ -232,6 +282,11 @@ def test_institution_zip_reaches_nothing_wider(token: str, line: str) -> None:
         ("DIGITS", "44556677", "ACCOUNT NUMBER 44556677"),
         ("DIGITS", "98989", "CHECK 98989"),
         ("DIGITS", "70030303", "MERCHANT PURCHASE TERMINAL 70030303"),
+        ("DIGITS", "84213", "MEMBER ID 84213"),
+        ("DIGITS", "84213", "THE ACCOUNT ENDING IN 84213"),
+        ("DIGITS", "45678", "07/03 BETA INBOUND CCD CO# 45678 TRACE"),
+        ("DIGITS", "84213", "AUTH OK 84213"),
+        ("DIGITS", "84213", "CHECK NO OR 84213"),
         ("MONEY", "777,777.77", "BEGINNING BALANCE 777,777.77"),
         ("MONEY", "818,181.81", "CREDITS (3) +$818,181.81"),
         ("DATES", "02/16/31", "ATM W/D 1339 02/16/31"),

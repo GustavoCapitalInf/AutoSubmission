@@ -100,13 +100,18 @@ rule                   what it excludes, and why that is safe
                        different facts that happen to share a shape, so the
                        rule is bounded by both the directory that holds the
                        program's records and the date the program began.
-``institution_zip``    a DIGITS token of exactly five digits preceded on the
-                       line, within eight non-digit characters, by a US state
-                       abbreviation. A postal code of an institution's own
-                       service address — the furniture the doctrine allows a
-                       detection marker to carry (`P.O. BOX ... OZARK, AR
-                       99999`). It identifies a bank branch, never a customer,
-                       and its shape cannot spell an account number.
+``institution_zip``    a DIGITS token of exactly five digits standing in a
+                       POSTAL ADDRESS: a state abbreviation immediately before
+                       it AND the furniture an address carries — a city and
+                       its comma (`OZARK, AR 99999`), a ZIP+4 tail
+                       (`OH 43216-1558`), or a post-office box in the same
+                       clause (`P.O. BOX 196 OZARK AR 99999`). The postal code
+                       of an institution's own service address is the
+                       furniture the doctrine allows a detection marker to
+                       carry; it identifies a branch, never a customer. The
+                       abbreviation alone is NOT the shape — see the note on
+                       `ADDRESS_ZIP_RES` for why that reading silenced account
+                       and member numbers.
 ===================== ======================================================
 
 Exit 1 on any hit the table does not exclude, 0 on none. The JSON summary goes
@@ -179,16 +184,56 @@ _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 HEX_RUN_RE = re.compile(
     r"(?<![0-9A-Z])(?=[0-9A-F]{7,64}(?![0-9A-Z]))[0-9A-F]*[A-F][0-9A-F]*(?![0-9A-Z])"
 )
-#: `AR 99999`, `OZARK, AR\s*99999` — a state abbreviation, then at most eight
-#: characters that are not digits, then the five-digit code itself. The gap is
-#: short and digit-free so that the rule cannot reach past an address onto an
-#: unrelated number, and both US territories and the DC code are included.
+#: A state abbreviation, then at most eight characters that are not digits,
+#: then the five-digit code itself. The gap is short and digit-free so that the
+#: rule cannot reach past an address onto an unrelated number, and both US
+#: territories and the DC code are included.
 _STATE = (
     "AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|"
     "MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|PR|RI|SC|SD|TN|TX|UT|VT|VA|"
     "VI|WA|WV|WI|WY"
 )
-ZIP_CONTEXT_RE = re.compile(rf"\b(?:{_STATE})\b[^0-9]{{0,8}}(\d{{5}})(?!\d)")
+_ZIP_GAP = r"[^0-9]{0,8}"
+#: THE ABBREVIATION IS NECESSARY AND NEVER SUFFICIENT. The scanner upper-cases
+#: every line before it matches, and about half the abbreviation list is an
+#: ordinary English word or ordinary statement furniture once upper-cased:
+#: `IN`, `OR`, `OK`, `ID`, `CO`, `ME`, `LA`, `MA`, `MS`, `PA`, `MI`, `MT`,
+#: `NE`, `AL`, `DE`, `HI`, `CA`. `\b...\b` does not help — these ARE whole
+#: words. A rule of "abbreviation, then five digits" therefore reads
+#: `MEMBER ID 84213` as a postal code and silences a credit-union member
+#: number; it does the same to `THE ACCOUNT ENDING IN 84213`, to an ACH
+#: originator id (`CCD CO# 45678 TRACE`), to an authorisation code
+#: (`AUTH OK 84213`) and to a cheque number (`CHECK NO OR 84213`). Every one
+#: of those is a printed identity this scan exists to find, so the rule asks
+#: for the ADDRESS as well, in one of the three shapes an address is written:
+#:
+#: * ``CITY_STATE_ZIP`` — a city, its comma, the abbreviation, the code
+#:   (`RALEIGH, NC 27131`). The comma is the city/state junction and a
+#:   transaction description does not print one before a state word.
+#: * ``STATE_ZIP_PLUS_FOUR`` — the code carries its ZIP+4 tail
+#:   (`COLUMBUS OH 43216-1558`). Five digits, a hyphen and exactly four more
+#:   is the postal shape itself.
+#: * ``BOX_CLAUSE_ZIP`` — a post-office box in the SAME clause, at most 70
+#:   characters ahead and never across a `;` or a `|`
+#:   (`PO BOX 609 PITTSBURGH PA 15230`). A box marker is doctrine-sanctioned
+#:   institution furniture; bounding it to the clause is what stops a box in
+#:   one sentence from excusing a number in the next.
+#:
+#: The junk class allows what upper-casing a regex SOURCE leaves between the
+#: comma and the abbreviation: `\s` becomes `\S`, `\w` becomes `\W`, and a
+#: detection marker such as `r"P\.?O\.? BOX 196\s+OZARK,\s*AR\s*99999"` is
+#: read by this scanner as its own source text.
+_ADDRESS_JUNK = r"(?:\\[SW]|[^0-9A-Z])"
+CITY_STATE_ZIP = re.compile(
+    rf"[A-Z]{_ADDRESS_JUNK}{{0,2}},{_ADDRESS_JUNK}{{0,4}}(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
+)
+STATE_ZIP_PLUS_FOUR = re.compile(
+    rf"\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})\s?-\s?\d{{4}}(?![\d-])"
+)
+BOX_CLAUSE_ZIP = re.compile(
+    rf"\bP\.?\s?O\.?\s?BOX\b[^;|]{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
+)
+ADDRESS_ZIP_RES = (CITY_STATE_ZIP, STATE_ZIP_PLUS_FOUR, BOX_CLAUSE_ZIP)
 #: The archive was frozen on 2026-08-06; every record this program writes about
 #: its own work is dated after it began, and the first batch-9 record is dated
 #: from July 2026 on. Bounded by BOTH the directory and the date.
@@ -229,7 +274,7 @@ def _institution_zip(cls: str, path: str, token: str, line: str) -> bool:
     return (
         cls == "DIGITS"
         and len(token) == 5
-        and token in ZIP_CONTEXT_RE.findall(line)
+        and any(token in pattern.findall(line) for pattern in ADDRESS_ZIP_RES)
     )
 
 
@@ -266,8 +311,14 @@ _EXCLUSION_SAMPLES = (
     ("docs_session_date", "DATES", "docs/x.md", "2001-02-03", "ON 2001-02-03", False),
     ("docs_session_date", "DATES", "tests/x.py", "2026-08-29", "ON 2026-08-29", False),
     ("institution_zip", "DIGITS", "a.py", "99999", "OZARK, AR 99999", True),
+    ("institution_zip", "DIGITS", "a.py", "95959", "COLUMBUS OH 95959-1558", True),
+    ("institution_zip", "DIGITS", "a.py", "95959", "PO BOX 609 PITTSBURGH PA 95959", True),
     ("institution_zip", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
     ("institution_zip", "DIGITS", "a.py", "9898967", "OZARK, AR 9898967", False),
+    # The vocabulary, not the geometry: an abbreviation that is also a word.
+    ("institution_zip", "DIGITS", "a.py", "84213", "MEMBER ID 84213", False),
+    ("institution_zip", "DIGITS", "a.py", "45678", "CCD CO# 45678 TRACE", False),
+    ("institution_zip", "DIGITS", "a.py", "84213", "AUTH OK 84213", False),
 )
 
 
