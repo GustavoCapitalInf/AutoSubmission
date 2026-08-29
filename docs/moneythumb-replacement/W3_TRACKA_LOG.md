@@ -55998,7 +55998,7 @@ argument.
 | `cohort_replay` at base, both cohorts, `--expect-identical` | **EXIT=0 each** — fidelity established before any change |
 | `cohort_replay` at closure, both cohorts, `--expect-identical` | **EXIT=0 each**, preserved 38 / 38 payload identical |
 | mutation table | **not owed — no gate and no grammar was added or touched** (the production diff is empty) |
-| branch privacy scan vs the 50-document population | **hit_count 0** over 594 added lines and 50 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0 |
+| branch privacy scan vs the 50-document population | **hit_count 0** over 828 added lines and 50 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. It opened at 2 when this section first landed, both of them the section numbers `HUNT9.12` / `HUNT9.13` read as the figures `9.12` / `9.13`; the numbering was merged to nine and no measurement moved |
 | the instruments carry no control byte | 0 on both files |
 
 ### The commits of this cell
