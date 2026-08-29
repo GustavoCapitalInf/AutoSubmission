@@ -55789,4 +55789,4 @@ dormant sibling may be omitted, all one family, all eight with the table reprodu
 | the three instruments, five modes, re-run from the run of record | **EXIT=0 each** |
 | no production file differs from base | empty |
 | the instruments are unwired | held by a grep, re-run at this tip, no hits |
-| branch privacy scan vs the whole population | recorded in the closing commit |
+| branch privacy scan vs the whole population | **hit_count 0** over 5,213 added lines and 3,351 documents (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) at `7d16d0d` plus one further rewrite — EXIT=0. The amendments opened at 10 and took three passes; the 29 shas with no cached text are the same 29 the pinned survey reports as NOT SURVEYED |
