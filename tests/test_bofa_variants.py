@@ -68,12 +68,12 @@ def amounts(stmt) -> list[float]:
 # ---------------------------------------------------------------------------
 
 def test_f1_a_wire_detail_date_does_not_open_a_row():
-    """`PMT DET:… 26/02/31 …` is printed inside the description of ONE row
+    """`PMT DET:… 26/02/03 …` is printed inside the description of ONE row
     whose Amount cell wraps onto the next line. Segmenting on any date-shaped
     token split that row in two and lost both halves."""
     md = business(credits="10,300.00", credits_n=1, ending="11,300.00", body="""
 Deposits and other credits Date Description Amount
-01/03/54 WIRE TYPE:WIRE IN DATE: 260103 TRN:2026010300000001 ORIG:A COUNTERPARTY ID:000000001 PMT DET:BOH OF 26/01/31 /CATPURP/CTRC
+01/03/54 WIRE TYPE:WIRE IN DATE: 260103 TRN:2026010300000001 ORIG:A COUNTERPARTY ID:000000001 PMT DET:BOH OF 26/01/03 /CATPURP/CTRC
 10,300.00
 Total deposits and other credits $10,300.00
 """)
@@ -441,7 +441,7 @@ def test_every_section_together_reconciles_against_the_printed_summary():
         credits="1,000.00", debits="600.00", checks="300.00", fees="25.00",
         credits_n=2, debits_n=3, ending="1,075.00", body="""
 Deposits and other credits Date Description Amount
-01/03/54 WIRE TYPE:WIRE IN DATE: 260103 PMT DET:BOH OF 26/01/31 /CATPURP/CTRC
+01/03/54 WIRE TYPE:WIRE IN DATE: 260103 PMT DET:BOH OF 26/01/03 /CATPURP/CTRC
 900.00
 01/04/54 Total Quality Lo DES:PAYMENTS ID:7858 100.00
 Total deposits and other credits $1,000.00

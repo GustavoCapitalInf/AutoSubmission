@@ -476,8 +476,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "Z5", "shift", "the `date(...)` constructor shape",
         "stop reading `date(2026, 8, 1)` literals, so a file's assertions stay "
         "on the old calendar while its fixture text moves",
-        r'    r"|(?P<ctor>\b(?:date|datetime)\(\s*(?P<ctory>\d{4})\s*,)",',
-        r'    r"|(?P<ctor>\bNEVERMATCHES\(\s*(?P<ctory>\d{4})\s*,)",',
+        r'    rf"|(?P<ctor>\b(?:date|datetime)\(\s*(?P<ctory>{_PLAUSIBLE_YEAR})\s*,)",',
+        r'    rf"|(?P<ctor>\bNEVERMATCHES\(\s*(?P<ctory>{_PLAUSIBLE_YEAR})\s*,)",',
     ),
     (
         "Z6", "shift", "the two-digit year's century",
@@ -530,8 +530,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "require a space between a spelled month and its day, so a text layer "
         "that dropped its inter-word spacing keeps its date on the archive's "
         "calendar while the assertion beside it moves",
-        r'    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"',
-        r'    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? \d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"',
+        r'    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}(?:,\s*|\s+)(?P<spelledy>{_PLAUSIBLE_YEAR})\b)"',
+        r'    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? \d{{1,2}}(?:,\s*|\s+)(?P<spelledy>{_PLAUSIBLE_YEAR})\b)"',
     ),
     (
         "Z13", "shift", "the proved-range guard",
@@ -565,6 +565,23 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "the one shape with no file extension in it goes unreported",
         r'    r"|\d{4}-\d{2}-\d{2}T\d",' + "\n    re.IGNORECASE,",
         r'    r"|NEVERMATCHESTHISSHAPE",' + "\n    re.IGNORECASE,",
+    ),
+    (
+        "Z17", "shift", "_PLAUSIBLE_YEAR",
+        "let any four digits be read as a year, so a CHEQUE SERIAL standing "
+        "where a spelled date's year goes is silently renumbered - the defect "
+        "the review found, which the proved range could only catch in files "
+        "swept after the range existed",
+        r'_PLAUSIBLE_YEAR = r"(?:19\d\d|20\d\d|2100)"',
+        r'_PLAUSIBLE_YEAR = r"(?:\d{4})"',
+    ),
+    (
+        "Z18", "shift", "the escape guard",
+        "take a match whose year lies inside a unicode or hex ESCAPE, so the "
+        "four hex digits of an em dash are read as a year and the character "
+        "silently becomes a different one",
+        "            if any(a < year_end and year_start < b for a, b in escapes):",
+        "            if False:",
     ),
     (
         "R1", "redact", "the sha rule",

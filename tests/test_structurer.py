@@ -45,7 +45,7 @@ def test_every_supported_date_shape_reads_to_the_same_day(token, expected):
     assert read_date(token, default_year=None) == expected
 
 
-@pytest.mark.parametrize("token", ["13/45/52", "42/13", "00/00/28", "02/30/2054", "Foo 5, 2054"])
+@pytest.mark.parametrize("token", ["13/45/52", "42/13", "00/00/00", "02/30/2054", "Foo 5, 2054"])
 def test_a_shaped_but_impossible_date_is_not_a_date(token):
     assert read_date(token, default_year=2054) is None
 

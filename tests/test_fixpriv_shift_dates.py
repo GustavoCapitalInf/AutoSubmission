@@ -233,16 +233,10 @@ def test_the_bare_year_pattern_is_the_ordinary_one_plus_one_alternative() -> Non
 @pytest.mark.parametrize(
     "text",
     [
-        # A DELIBERATELY IMPOSSIBLE year, in a test about refusing bad dates
-        # privately. Shifting it to a year Python accepts turns a fail-closed
-        # test into a passing one, which is the worst thing a fixture repair
-        # can do — and the first version of this tool did it, losing the
-        # zero-padding on the way.
-        "April 4, 0000 through May 4, 0000",
         "1908-01-01",             # before the range the identity is proved over
         "on 08/01/1999 posted",
         "2099-12-31",             # after it
-        "date(1899, 12, 31)",
+        "date(1935, 12, 31)",
     ],
 )
 def test_a_year_outside_the_proved_range_is_left_alone(text: str) -> None:
@@ -289,9 +283,74 @@ def test_the_path_report_does_not_change_what_is_shifted() -> None:
 
 
 def test_a_year_left_alone_is_counted_as_such() -> None:
-    _text, counts = shift_text("April 4, 0000 and 2026-01-05", SHIFT_YEARS)
+    """A PLAUSIBLE year outside the shift window is read, then refused."""
+    _text, counts = shift_text("Posted January 5, 1999 and 2026-01-05", SHIFT_YEARS)
     assert counts["out_of_range"] == 1
     assert counts["isoy"] == 1
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A CHEQUE SERIAL beside a date. `Checks in Serial Number Order` prints
+        # `Date | Serial Number | Amount`, so the serial stands exactly where a
+        # spelled date's year would, and the tool renumbered two of them before
+        # this guard existed. 1001 is not a year.
+        "Apr 02 1001 $500.00 Apr 09 1002 $250.00",
+        "01/15/1001 posted",
+        "1001-01-15 posted",
+        "date(1001, 1, 15)",
+        # A deliberately IMPOSSIBLE year, in a fail-closed test.
+        "April 4, 0000 through May 4, 0000",
+        "date(1899, 12, 31)",
+        "2101-01-01",
+    ],
+)
+def test_an_implausible_year_is_not_read_as_a_year_at_all(text: str) -> None:
+    """Two different questions, and the grammar answers the first one.
+
+    `PROVED_FIRST_YEAR..PROVED_LAST_YEAR` decides whether a year MOVES. This
+    decides whether four digits are a year at all, and it belongs in the
+    grammar: `1999` is a year this tool will not move, `1001` is not a year.
+    The distinction has teeth because the proved range only protects a file
+    swept AFTER the range existed, and the grammar protects every file.
+    """
+    shifted, counts = shift_text(text, SHIFT_YEARS)
+    assert shifted == text
+    assert sum(counts.values()) == 0, counts
+    shifted_bare, _ = shift_text(text, SHIFT_YEARS, bare_years=True)
+    assert shifted_bare == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # `\u2014` is an em dash. Shifting the four hex digits inside it made
+        # an asterism, in a docstring, in a file whose suite could not see it.
+        r"reading a single row \u2014 it passed against a tree",
+        r"a bullet \u2026 and more",
+        r"upper case \U00002026 too",
+        r"a hex escape \x26 as well",
+    ],
+)
+def test_a_date_inside_an_escape_is_never_taken(text: str) -> None:
+    """The digits of an escape are part of a SPELLING, not a number."""
+    assert shift_text(text, SHIFT_YEARS)[0] == text
+    assert shift_text(text, SHIFT_YEARS, bare_years=True)[0] == text
+
+
+def test_an_escape_is_counted_as_refused_rather_than_silently_skipped() -> None:
+    _text, counts = shift_text(r"row \u2014 here", SHIFT_YEARS, bare_years=True)
+    assert counts["in_an_escape"] == 1
+    assert counts["barey"] == 0
+
+
+def test_an_escape_does_not_block_a_real_date_on_the_same_line() -> None:
+    line = r"period 2026-01-05 \u2014 to 2026-01-31"
+    shifted, counts = shift_text(line, SHIFT_YEARS)
+    assert shifted == r"period 2054-01-05 \u2014 to 2054-01-31"
+    assert counts["isoy"] == 2
+    assert counts["in_an_escape"] == 0
 
 
 def test_a_two_digit_year_keeps_its_width() -> None:

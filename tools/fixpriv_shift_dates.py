@@ -91,18 +91,34 @@ _MONTHS = (
 #: fixture actually glues a month to.
 _MONTH_START = r"(?:\b|(?<=\\n)|(?<=\\r)|(?<=\\t))"
 
+#: A four-digit run that could be a YEAR at all. Not the range the shift is
+#: proved over — that is `PROVED_FIRST_YEAR`..`PROVED_LAST_YEAR` and it governs
+#: whether a year MOVES. This one governs whether four digits are read as a
+#: year in the first place, and it belongs in the grammar because the two
+#: questions are different: `1999` is a year this tool will not move, and
+#: `1001` is not a year at all.
+#:
+#: The review found why that distinction has teeth. A fixture printing a
+#: `Checks in Serial Number Order` table puts a date and a CHEQUE SERIAL side
+#: by side, so `<Month> <day> <serial>` reads as a spelled date whose year is
+#: the serial. The proved range already refused to MOVE it — but only from the
+#: commit that added the range onward, and the file had been swept before it,
+#: so two serials were silently renumbered. Refusing to read them as years at
+#: all is the guard that does not depend on when it was added.
+_PLAUSIBLE_YEAR = r"(?:19\d\d|20\d\d|2100)"
+
 #: One alternation, one pass, so no shape can be shifted twice. The groups are
 #: named after the shape; the year group of each is what moves.
 DATE_SHAPES = re.compile(
-    r"(?P<slash4>(?<![\d/])\d{1,2}/\d{1,2}/(?P<slash4y>\d{4})(?![\d/]))"
+    rf"(?P<slash4>(?<![\d/])\d{{1,2}}/\d{{1,2}}/(?P<slash4y>{_PLAUSIBLE_YEAR})(?![\d/]))"
     r"|(?P<slash2>(?<![\d/])\d{1,2}/\d{1,2}/(?P<slash2y>\d{2})(?![\d/]))"
-    r"|(?P<iso>(?<![\d-])(?P<isoy>\d{4})-\d{2}-\d{2}(?![\d-]))"
-    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"
-    rf"|(?P<spelled_first>{_MONTH_START}\d{{1,2}} (?:{_MONTHS})\.? (?P<spelled_firsty>\d{{4}})\b)"
+    rf"|(?P<iso>(?<![\d-])(?P<isoy>{_PLAUSIBLE_YEAR})-\d{{2}}-\d{{2}}(?![\d-]))"
+    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}(?:,\s*|\s+)(?P<spelledy>{_PLAUSIBLE_YEAR})\b)"
+    rf"|(?P<spelled_first>{_MONTH_START}\d{{1,2}} (?:{_MONTHS})\.? (?P<spelled_firsty>{_PLAUSIBLE_YEAR})\b)"
     rf"|(?P<mdy2>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}/(?P<mdy2y>\d{{2}})(?![\d/]))"
-    rf"|(?P<spelled_dash>{_MONTH_START}(?:{_MONTHS})-\d{{1,2}}-(?P<spelled_dashy>\d{{4}})\b)"
-    r"|(?P<dmy_dash>(?<![\d-])\d{1,2}-\d{1,2}-(?P<dmy_dashy>\d{4})(?![\d-]))"
-    r"|(?P<ctor>\b(?:date|datetime)\(\s*(?P<ctory>\d{4})\s*,)",
+    rf"|(?P<spelled_dash>{_MONTH_START}(?:{_MONTHS})-\d{{1,2}}-(?P<spelled_dashy>{_PLAUSIBLE_YEAR})\b)"
+    rf"|(?P<dmy_dash>(?<![\d-])\d{{1,2}}-\d{{1,2}}-(?P<dmy_dashy>{_PLAUSIBLE_YEAR})(?![\d-]))"
+    rf"|(?P<ctor>\b(?:date|datetime)\(\s*(?P<ctory>{_PLAUSIBLE_YEAR})\s*,)",
     re.IGNORECASE,
 )
 
@@ -131,6 +147,13 @@ DATE_SHAPES_WITH_BARE_YEARS = re.compile(
     DATE_SHAPES.pattern + r"|(?<![\d.])(?P<bare>(?P<barey>20(?:0[5-9]|[1-3]\d)))(?![\d.])",
     re.IGNORECASE,
 )
+
+#: A UNICODE OR HEX ESCAPE. Its digits are not a number and are certainly not
+#: a year: `\u2014` is an em dash, and shifting the four hex digits inside it
+#: produced an asterism in a docstring — a real character change, in a file
+#: whose suite could not see it. The digits of an escape are part of a
+#: SPELLING, so no match whose year overlaps one is ever taken.
+ESCAPE_RE = re.compile(r"\\[uU][0-9A-Fa-f]{4}|\\U[0-9A-Fa-f]{8}|\\x[0-9A-Fa-f]{2}")
 
 _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -266,7 +289,12 @@ def shift_text(text: str, years: int, bare_years: bool = False) -> tuple[str, di
     pattern = DATE_SHAPES_WITH_BARE_YEARS if bare_years else DATE_SHAPES
     counts: dict[str, int] = {name: 0 for name, _ in _YEAR_GROUPS}
     counts["out_of_range"] = 0
+    counts["in_an_escape"] = 0
     counts["on_a_path_line"] = 0
+    # Every unicode or hex escape in the file, once. The digits of an escape
+    # are part of a SPELLING, not a number, so a match whose year overlaps one
+    # is never taken - see ESCAPE_RE.
+    escapes = [m.span() for m in ESCAPE_RE.finditer(text)]
     # Line offsets, so a match can be told which line it sits on without
     # splitting the file into lines and losing the single-pass guarantee.
     starts = [0]
@@ -290,6 +318,10 @@ def shift_text(text: str, years: int, bare_years: bool = False) -> tuple[str, di
             found = match.group(name)
             if found is None:
                 continue
+            year_start, year_end = match.span(name)
+            if any(a < year_end and year_start < b for a, b in escapes):
+                counts["in_an_escape"] += 1
+                return match.group(0)
             moved = _shifted_year(found, width, years)
             if moved is None:
                 counts["out_of_range"] += 1

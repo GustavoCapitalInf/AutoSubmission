@@ -189,7 +189,7 @@ def test_relay_refuses_a_statement_whose_signs_are_the_wrong_way_round():
     earlier version rewrote every `+$`/`-$` in the document, summary included,
     so the summary pattern (which requires a literal `+` before Deposits and
     `-` before Withdrawals) failed first and the parser returned None before
-    reading a single row \u2042 it passed against a tree with the entire balance
+    reading a single row \u2014 it passed against a tree with the entire balance
     walk deleted, and therefore certified nothing.
 
     With the summary intact the parser reaches the walk with a ledger whose

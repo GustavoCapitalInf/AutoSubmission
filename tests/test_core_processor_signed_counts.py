@@ -35,7 +35,7 @@ Summary
 Credits (3) +$1,326.43 Interest Paid +$.00 Debits (4) -$731.66
 Ending Balance 7/31/54 $ 1,828.94
 Deposits & Credits Date Description Amount
-7/02 ALPHA INBOUND CCD CO#7391085246 26/07/30 ID # - 618243957 TRACE # - 483720615 $517.31
+7/02 ALPHA INBOUND CCD CO#7391085246 26/07/02 ID # - 618243957 TRACE # - 483720615 $517.31
 7/03 BETA INBOUND $306.29 7/06 GAMMA INBOUND $502.83
 Debits & Withdrawals Date Description Amount
 7/02 SAMPLE ANALYSIS CHARGE $103.71-
@@ -203,7 +203,7 @@ def test_the_credit_count_is_checked_independently_of_the_credit_total():
     """One posting printed as two that sum to it: every total still closes,
     the grid still closes, and only the printed count disagrees."""
     text = STATEMENT.replace(
-        "7/02 ALPHA INBOUND CCD CO#7391085246 26/07/30 "
+        "7/02 ALPHA INBOUND CCD CO#7391085246 26/07/02 "
         "ID # - 618243957 TRACE # - 483720615 $517.31",
         "7/02 ALPHA INBOUND ONE $214.55 7/02 ALPHA INBOUND TWO $302.76",
     )

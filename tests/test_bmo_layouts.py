@@ -411,7 +411,7 @@ Checks Paid 3 $0.00 $0.00
 Total Service Charges {service}
 Checks in Serial Number Order
 Date Serial Number Amount Date Serial Number Amount
-Apr 02 1029 $500.00 Apr 09 1030 $250.00
+Apr 02 1001 $500.00 Apr 09 1002 $250.00
 2 of 2
 """
 
