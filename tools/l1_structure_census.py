@@ -13,8 +13,9 @@ Per document:
 
 * the ROLL-UP: does the statement print a table that enumerates the member's
   accounts with a balance each, and under which caption class;
-* the IDENTITY FORM: how an account is named where the roll-up lists it
-  (`SUFFIX nnn`, `ID nn`, `- nnnn`, `Account No. ****nnnn`, `(Snn)`);
+* the IDENTITY FORM - the way each account is named where the roll-up
+  enumerates it (a suffix word, an id word, a trailing dash and digits, a
+  masked number, a parenthesised code, or a bare product designation);
 * the BOUNDARY: whether each enumerated identity reappears later in the
   document in the same form as a SECTION HEADING, which is what makes a
   partition readable from printed evidence rather than guessed;
@@ -32,7 +33,7 @@ The STRUCTURAL FAMILY of a document is the tuple
 and the family table this instrument prints is the answer to "how many of the
 176 actually share one structural family".
 
-DELIBERATE NON-GOALS. This is not a parser and must never become one: it reads
+WHAT THIS IS NOT. It is not a parser and must never become one: it reads
 no amount into a number, applies no arithmetic, and publishes nothing. The
 split/validate prototype is `tools/l1_split_prototype.py`, which imports the
 boundary layer from here.
@@ -140,9 +141,9 @@ EQUATION_FORMS: tuple[tuple[str, str], ...] = (
 #: prints them. The ORDER is the shape: it tells a row grammar where the
 #: running balance sits relative to the amount.
 GRID_TOKENS: tuple[tuple[str, str], ...] = (
-    ("trandate", r"\btran(?:saction)? date\b"),
-    ("effdate", r"\beff(?:ective)? date\b"),
-    ("postdate", r"\bpost(?:ing|ed)? date\b"),
+    ("txn_date", r"\btran(?:saction)? date\b"),
+    ("eff_date", r"\beff(?:ective)? date\b"),
+    ("post_date", r"\bpost(?:ing|ed)? date\b"),
     ("date", r"\bdate\b"),
     ("desc", r"\b(?:transaction )?description\b"),
     ("amount", r"\b(?:transaction )?amount\b"),
@@ -150,8 +151,8 @@ GRID_TOKENS: tuple[tuple[str, str], ...] = (
     ("credit", r"\bcredits?(?: amount)?\b"),
     ("withdrawal", r"\bwithdrawals?\b"),
     ("deposit", r"\bdeposits?\b"),
-    ("moneyin", r"\bmoney in\b"),
-    ("moneyout", r"\bmoney out\b"),
+    ("money_in", r"\bmoney in\b"),
+    ("money_out", r"\bmoney out\b"),
     ("balance", r"\b(?:new |account )?balance\b"),
 )
 
@@ -162,7 +163,7 @@ TOTAL_ROLLUP = re.compile(
 
 #: An explicit statement that a section posted nothing.
 NO_ACTIVITY = re.compile(
-    r"\bno (?:account )?(?:activity|transactions)\b|\bno transactions this period\b", re.I)
+    r"\bno (?:account )?activity\b|\bno transactions\b|\bno posting\b", re.I)
 
 #: A section heading reprinted at a page break. It carries no grid and must not
 #: be mistaken for a second account.
@@ -256,10 +257,10 @@ def _classify_label(label: str) -> tuple[str, str] | None:
 #: follows the last of them so that a flattened header cannot be mistaken for
 #: the first account.
 ROLLUP_FURNITURE = re.compile(
-    r"\b(?:account type|account|type|description|previous balance|beginning balance"
-    r"|ending balance|new balance|opening balance|closing balance|deposits?|withdrawals?"
-    r"|credits?|debits?|dividends?|interest|fees?|balances?|total|summary|shares?"
-    r"|certificates?|loans?|cdn|usd|cad)\b", re.I)
+    r"\b(?:account type|account|type|previous balance|beginning balance"
+    r"|ending balance|new balance|opening balance|closing balance|deposits?"
+    r"|description|withdrawals?|credits?|debits?|dividends?|interest|fees?"
+    r"|balances?|total|certificates?|summary|loans?|shares?|cdn|usd|cad)\b", re.I)
 
 
 def _clean_label(label: str) -> str:
@@ -325,8 +326,8 @@ def _rollup_candidate_rows(window: str) -> tuple[list[RollUpRow], bool, int]:
             if not re.search(r"[A-Za-z]{3}", head) or len(head) > 60:
                 continue
             classified = _classify_label(label.strip()) or _classify_label(head)
-            form, token = classified if classified else ("product_name_only", head)
-            rows.append(RollUpRow(label=head[:80], identity_form=form, token=token,
+            kind, token = classified if classified else ("product_name_only", head)
+            rows.append(RollUpRow(label=head[:80], identity_form=kind, token=token,
                                   n_money=len(MONEY.findall(block)), block=block))
             rows_end = max(rows_end, offset)
     return rows, total, rows_end
@@ -371,6 +372,12 @@ def find_rollup(text: str) -> RollUp:
 # ---------------------------------------------------------------------------
 
 
+#: The amount-class columns a grid header may name, held as data rather
+#: than spelled out at the call site.
+_AMOUNT_COLUMNS = (r"\b(?:amount|debits?|credits?|withdrawals?|deposits?"
+                   r"|money in|money out)\b")
+
+
 def find_grid_header(text: str) -> tuple[str, int, int] | None:
     """(column shape, start, end) of the first transaction-grid header.
 
@@ -396,7 +403,7 @@ def find_grid_header(text: str) -> tuple[str, int, int] | None:
             window = window[: cut.start()]
         if not re.search(r"\bbalance\b", window):
             continue
-        if not re.search(r"\b(?:amount|debits?|credits?|withdrawals?|deposits?|money in|money out)\b", window):
+        if not re.search(_AMOUNT_COLUMNS, window):
             continue
         hits: list[tuple[int, str]] = []
         for name, pattern in GRID_TOKENS:
@@ -500,8 +507,9 @@ def _locators(row: RollUpRow) -> list[re.Pattern[str]]:
 
     Built from what the roll-up itself printed — never from a vocabulary. The
     identity TOKEN is searched for rather than the roll-up's identity FORM,
-    because several issues state the same account two ways (`01 PRIMARY
-    SAVINGS` in the roll-up, `PRIMARY SAVINGS - ID 01` at the section). Both
+    because several issues state the same account two ways (a leading code and
+    a product designation in the table, the same designation followed by an id
+    word at the section). Both
     the number and the name are offered, in that order, because either may be
     the half the section heading repeats. The number is fenced off from digits,
     slashes and currency punctuation so it cannot land inside a date or an
@@ -944,11 +952,11 @@ def main(argv: list[str] | None = None) -> int:
 
     print("## Posting sections per document (the L-1 exposure)")
     print()
-    dist = Counter(sum(1 for s in d.sections if s.n_dated_rows >= 2) for d in docs)
+    by_posting = Counter(sum(1 for s in d.sections if s.n_dated_rows >= 2) for d in docs)
     print("| posting sections | documents |")
     print("|---:|---:|")
-    for k in sorted(dist):
-        print(f"| {k} | {dist[k]} |")
+    for k in sorted(by_posting):
+        print(f"| {k} | {by_posting[k]} |")
     print()
 
     print("## By band")

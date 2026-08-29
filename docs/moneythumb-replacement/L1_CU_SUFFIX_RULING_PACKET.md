@@ -32,15 +32,15 @@ Three measured findings change the shape of the question the card asked.
    they are unclaimed layouts, and a reader would publish them today without any ruling.
    The census's `+25 to +95` therefore covers two different problems, and only the smaller
    half needs Gustavo.
-2. **The population does share an architecture, but not a family.** At the fine grain
-   (boundary + caption + identity form + equation form + grid column shape + per-section daily
-   + cross-account total) there are **63 distinct structural families over 214 documents**; 39
+2. **The population does share an architecture, but not a family.** At the finest
+   level (boundary + caption + identity form + equation form + grid column shape + per-section
+   daily + cross-account total) there are **63 distinct structural families over 214 documents**; 39
    of them have three or more members and cover 182. Almost no two census groups share a
    fine-grained family. What they DO share is a small closed set of MECHANICS: 4 boundary
    mechanisms, 9 roll-up caption classes, 5 identity forms, 4 equation forms, and grid shapes
    built from 13 column tokens. That is exactly the shape `core_processor_*` already has for
    banks — one shared template family with per-issue markers — and not 37 readers.
-3. **Independent per-account validation works, and it is measurable rather than assumed.**
+3. **Validating each account on its own works, and it is measured rather than assumed.**
    A read-only prototype that splits at the printed boundaries and hands each section to the
    EXISTING `reconcile` + `compute_average_daily_balance`, unchanged, closes **97 of 392
    sections**; **23 documents close on every section located** (19 of them multi-section, 12
@@ -123,7 +123,7 @@ corroboration of the probe rather than a new finding.
 
 `analysis/schema.py::Statement` carries ONE account: `account_name`, `account_number`, one
 `transactions` list, one opening, one closing, one daily-balance series. A member statement
-prints several. The platform's rule (MASTER_PLAN L-1) is that publishing one of them and
+prints several. The platform's standing rule (MASTER_PLAN L-1) is that publishing one and
 silently dropping the others is a correctness defect, so a reader that recognises such a
 document refuses it. `analysis/symitar.py` (lines 13–45) carries the one ratified exception:
 a DORMANT deposit sibling — `No Transactions This Period`, or a section whose every posting
@@ -160,15 +160,15 @@ yes for 141 of 214 (103 + 38) from printed identity, of which 103 also carry the
 
 ### 3.2 The shared mechanics (closed sets)
 
-| mechanic | distinct values measured | leading values (documents) |
+| mechanism | distinct values measured | leading values (documents) |
 |---|---:|---|
-| roll-up caption class | 9 (+ none) | `account_summary` 52, `summary_of_accounts` 42, `statement_summary` 26, `balances_at_a_glance` 11, `account_balances` 8, `accounts_summary` 5, `summary_of_deposit_account_activity` 4, `your_account_summary` 4; none 62 |
+| roll-up caption class | 9 (+ none) | `account_summary` 52, `summary_of_accounts` 42, `statement_summary` 26, `balances_at_a_glance` 11, `account_balances` 8, `accounts_summary` 5, `your_account_summary` 4, `summary_of_deposit_account_activity` 4; none 62 |
 | roll-up column header | 4 (+ none) | `type_prev_dep_wd_end` 15, `type_begin_end` 8, `begin_end` 7; none 184 |
 | identity form | 5 (+ none) | `product_name_only` 71, `bare_digits` 54, `suffix_word` 8, `paren_digits` 7, `id_word` 1; none 73 |
 | equation form (modal section) | 4 (+ none) | `open_close_pair` 114, `open_only` 34, `explicit_six_figure` 5, `explicit_equation` 4; none 57 |
-| grid column shape | ~49 distinct orderings, built from **13 column tokens** | `date desc amount balance`, `date desc withdrawal deposit balance`, `date desc deposit withdrawal balance`, `date desc debit credit balance`, `postdate desc amount balance`, … |
+| grid column shape | ~49 distinct orderings, built from **13 column tokens** | `date desc amount balance`, `date desc withdrawal deposit balance`, `date desc deposit withdrawal balance`, `date desc debit credit balance`, `post_date desc amount balance`, … |
 
-The grid shape is the only place the variety is large, and it varies in ONE way that matters:
+The grid shape is the only mechanism with many values, and it differs in ONE way that counts:
 where the running balance sits relative to the amount column. That is readable from the
 printed header, which is why §4 needs no per-issuer row grammar at all.
 
@@ -221,13 +221,13 @@ account**. They are refused by nothing except the absence of a reader.
 | n | census groups | family key |
 |---:|---|---|
 | 13 | `DECL:huntington`, `FAM:rbfcu_business_member_statement` | `none \| no-rollup \| no-identity \| no-equation \| no-grid \| no-daily \| no-total-row` |
-| 9 | `FAM:mountain_america_cu_dot_leader` | `rollup-oracle:bare_digits \| account_summary \| bare_digits \| open_close_pair \| postdate\|desc\|amount\|balance \| no-daily \| total-row` |
+| 9 | `FAM:mountain_america_cu_dot_leader` | `rollup-oracle:bare_digits \| account_summary \| bare_digits \| open_close_pair \| post_date\|desc\|amount\|balance \| no-daily \| total-row` |
 | 8 | `DECL:huntington`, `FAM:greater_nevada_cu` | `section-equation-scan \| no-rollup \| no-identity \| open_close_pair \| no-grid \| daily \| no-total-row` |
-| 8 | `FAM:space_coast_cu_member_statement` | `rollup-oracle:product_name_only \| statement_summary \| product_name_only \| open_close_pair \| trandate\|effdate\|desc\|moneyin\|moneyout\|balance \| daily \| no-total-row` |
-| 7 | `DECL:community_section` | `rollup-oracle:product_name_only \| summary_of_accounts \| product_name_only \| open_close_pair \| postdate\|desc\|debit\|credit\|balance \| daily \| no-total-row` |
+| 8 | `FAM:space_coast_cu_member_statement` | `rollup-oracle:product_name_only \| statement_summary \| product_name_only \| open_close_pair \| txn_date\|eff_date\|desc\|money_in\|money_out\|balance \| daily \| no-total-row` |
+| 7 | `DECL:community_section` | `rollup-oracle:product_name_only \| summary_of_accounts \| product_name_only \| open_close_pair \| post_date\|desc\|debit\|credit\|balance \| daily \| no-total-row` |
 | 6 | `FAM:cu_summary_of_accounts_date_posted` | `rollup-oracle:product_name_only \| summary_of_accounts \| product_name_only \| open_only \| date\|desc\|debit\|credit\|balance \| no-daily \| no-total-row` |
-| 6 | `FAM:guardian_cu_statement_summary` | `rollup-oracle:suffix_word \| statement_summary \| suffix_word \| open_close_pair \| trandate\|postdate\|desc\|withdrawal\|deposit\|balance \| no-daily \| total-row` |
-| 6 | `FAM:cu_idaho_equation_summary` | `section-identity:account_no_mask \| no-rollup \| no-identity \| open_only \| effdate\|postdate\|desc\|deposit\|balance\|withdrawal \| daily \| no-total-row` |
+| 6 | `FAM:guardian_cu_statement_summary` | `rollup-oracle:suffix_word \| statement_summary \| suffix_word \| open_close_pair \| txn_date\|post_date\|desc\|withdrawal\|deposit\|balance \| no-daily \| total-row` |
+| 6 | `FAM:cu_idaho_equation_summary` | `section-identity:account_no_mask \| no-rollup \| no-identity \| open_only \| eff_date\|post_date\|desc\|deposit\|balance\|withdrawal \| daily \| no-total-row` |
 | 6 | `DECL:capital_one` | `section-equation-scan \| account_summary \| no-identity \| open_close_pair \| date\|desc\|deposit\|credit\|withdrawal\|debit\|balance \| no-daily \| no-total-row` |
 
 **The honest answer to Gustavo's question:** the 176 do NOT share one structural family — a
@@ -340,7 +340,7 @@ partially-closing families (`vystar`, `space_coast`, `cu_idaho`, `cu_summary_of_
 | `document-prints-no-resolvable-period` | 27 | probe limitation (§4.1) |
 | `no-figures-in-ledger` | 20 | the located span carries no figures — a mis-located boundary, refused |
 | `section-prints-no-closing-and-no-roll-up-states-one` | 17 | as above, closing side |
-| `section-and-rollup-disagree-on-the-pair` | **16** | **the section's own figures contradict the table that enumerates it** — the sharpest fail-closed case there is |
+| `section-and-rollup-disagree-on-the-pair` | **16** | **the section's own figures contradict the table that enumerates it** — the sharpest refusal in the list |
 | `offered-but-validator-refused` | 8 | the chain closed, `reconcile`/ADB still said no |
 
 Plus, measured separately: **4 documents (`FAM:community_savings_bc`) print their roll-up in
@@ -374,7 +374,7 @@ Publish the account a printed rule identifies as primary, and record in the payl
 posting sections existed and were not published (`unpublished_sibling_sections` + an integrity
 NOTE — the batch-8 SIBLING-OMISSION-SURFACE design).
 
-* **What could make an account "primary", measured:** nothing in this population does it
+* **Which printed evidence would mark one account as primary, measured:** none of it does so
   safely. The candidate rules and why each fails on the evidence —
   * *"the only checking/draft share with member activity"* — 57 documents print exactly two
     posting sections and 24 print three or more; the census does not tell us how many of those
@@ -383,7 +383,7 @@ NOTE — the batch-8 SIBLING-OMISSION-SURFACE design).
     unproven on the class it is meant to decide.
   * *"the section the roll-up names first"* — print order is a layout fact, not a statement
     about the member's money. 37 documents print a cross-account total, which is the platform
-    saying the accounts are peers.
+    saying the accounts rank alike.
   * *"a product name"* — an R-1 vocabulary, forbidden.
 * **Movement on the protected 2,596:** none IF the rule is additive-only. But it is not free:
   applying a primary rule to `consumers` **changes WHICH of three ledgers a pinned audited
@@ -411,8 +411,8 @@ NOTE — the batch-8 SIBLING-OMISSION-SURFACE design).
   — but that number is an ESTIMATE and is flagged as such; the MEASURED figure is 11 (6 with
   the roll-up oracle also reproducing).
 * **Fail-closed conditions:** every one in §6.
-* **Surfaces:** `analysis/schema.py`, `analysis/reconcile.py` (per account — no change to the
-  identity, only to what it is called on), `analysis/adb.py` (one ADB per account; the ADB
+* **Surfaces:** `analysis/schema.py`; `analysis/reconcile.py` — the identity itself is
+  untouched, only what it is called on; `analysis/adb.py` (one ADB per account; the ADB
   doctrine says ONE user-facing metric, so a multi-account document needs a ruling on what the
   single published ADB IS), `analysis/metrics.py`, `analysis/revenue.py`, the package layer,
   `webapp/`, the report, `corpus_gate.py`'s pinned expectations, every audit CSV shape.
@@ -514,7 +514,7 @@ splitter, for the **81 documents with two or more posting sections**, gated by a
 conditions in §6. Measured floor today: **11 documents** close on every posting section with a
 generic splitter and no row grammar; **6** of those also reproduce against the roll-up.
 
-Not Option A (it forecloses a measured 11+ and keeps two doctrine debts). Not Option B: this
+Not Option A (it forecloses a measured 11+ and keeps two open doctrine obligations). Not B: this
 population supplies no printed evidence for a primary rule, and applying one moves a pinned
 audited document's published ledger. Option D only as C-plus-a-shim if the webapp cannot show
 more than one account at launch.
@@ -538,8 +538,7 @@ more than one account at launch.
 
 ### 8.3 What needs Gustavo's ruling before any code is written
 
-1. **Does the payload become multi-account (Option C), or does the L-1 refusal stand
-   (Option A)?** Everything else follows from this. Stage 1 above does not depend on it.
+1. **Does the payload carry several accounts (C), or does the L-1 refusal stand (A)?** Everything else follows from this. Stage 1 above does not depend on it.
 2. **On a multi-account document, WHAT is the one published ADB?** The ADB doctrine
    (RATIFIED 2026-08-15) says one user-facing metric over the calendar-day printed period.
    Three candidate readings — per-account ADBs with no document-level figure; the sum of the
@@ -560,7 +559,7 @@ more than one account at launch.
    the rest of the "idle" sections would be declared idle by arithmetic.
 6. **ATB.** Both `WH:atb` documents are consolidated multi-account statements with no located
    partition under any mechanism here. They stay refused under every option and remain the ATB
-   ceremony's business, not this family's.
+   ceremony's affair, not this template family's.
 
 ---
 

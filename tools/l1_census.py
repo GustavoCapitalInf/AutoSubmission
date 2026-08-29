@@ -108,12 +108,13 @@ def _gate_navy_federal(markdown: str) -> tuple[str, str]:
     """`navy_federal.py:_checking_account` — more than one checking PRODUCT is
     the L-1 refusal; zero is a grammar gap."""
     from analysis import navy_federal
+    from analysis.navy_federal import _deposit_accounts as enumerated_sections
 
     if not navy_federal.detect(markdown).claims:
         return "not-claimed", "detect().claims is False"
     checking = {
         product
-        for product, _account in navy_federal._deposit_accounts(markdown)
+        for product, _account in enumerated_sections(markdown)
         if product.lower().endswith("checking")
     }
     if len(checking) > 1:
@@ -150,9 +151,10 @@ def _gate_capital_one(markdown: str) -> tuple[str, str]:
     if not capital_one.detect(markdown).claims:
         return "not-claimed", "detect().claims is False"
     blocks = len(re.findall(r"Previous Balance\s+\d{2}/\d{2}/\d{2}", markdown))
+    label = f"capital_one:emergent (n_summary_blocks={blocks})"
     if blocks > 1:
-        return "L1", f"capital_one:emergent (n_summary_blocks={blocks})"
-    return "OTHER", f"capital_one:grammar (n_summary_blocks={blocks})"
+        return "L1", label
+    return "OTHER", label.replace("emergent", "grammar")
 
 
 GATES = {

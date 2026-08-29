@@ -1,9 +1,9 @@
 """L1INV instrument 3 — READ-ONLY split/reconstruct/validate prototype.
 
 **NOT A PARSER. NEVER REGISTERED. NEVER IMPORTED BY PRODUCTION OR BY A TEST.**
-It exists to MEASURE one question and then to be deleted or rewritten by
-whoever implements the ruling: if a multi-account credit-union statement were
-split at its printed boundaries and each section reconstructed as its own
+It exists to MEASURE one thing, and then to be deleted or rewritten by whoever
+implements the ruling. The thing: if a multi-account member statement were
+split at its printed boundaries and every section rebuilt as its own
 `Statement`, how many sections would close under the EXISTING deterministic
 validator, unchanged? `analysis/reconcile.py::reconcile` and
 `analysis/adb.py::compute_average_daily_balance` are called exactly as

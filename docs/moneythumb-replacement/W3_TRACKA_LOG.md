@@ -55424,7 +55424,7 @@ document: 79 of the 176 print EXACTLY ONE, 32 yield no partition, and only **65 
 two or more**. Adding the 16 multi-posting `DECL:*` documents gives an L-1 population
 of **81**, not 176. For the 79 the schema is not the obstacle; a reader is.
 
-**(b) They share an architecture, not a family.** At the fine grain there are **63
+**(b) They share an architecture, not a family.** At the finest level there are **63
 distinct structural families over 214 documents** (39 with three or more members,
 covering 182) — a census group and a structural family are very nearly the same
 partition. What recurs is the MECHANICS: 4 boundary mechanisms, 9 roll-up caption
@@ -55477,7 +55477,7 @@ Split the card. **Stage 1 needs no ruling and is the larger half**: a shared CU
 member-statement template module publishing the 79 single-posting-section documents,
 every other printed section treated as an idle sibling under symitar's ratified rule
 and the omission SURFACED — which also repays the batch-8 SIBLING-OMISSION-SURFACE
-debt that symitar's two silent skips currently owe. **Stage 2 needs the ruling**:
+obligation symitar's two silent skips still carry. **Stage 2 needs the ruling**:
 Option C, a multi-account payload, for the 81 multi-posting documents, gated by ten
 fail-closed conditions (printed partition; distinct identities; every posting section
 accounted for; each section's own opening/closing agreeing with the roll-up to the
