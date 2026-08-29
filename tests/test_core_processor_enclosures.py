@@ -7,7 +7,7 @@ one printing it is about.
 
 The invented statement all of these are variations on::
 
-    period 1/01/26 - 1/31/26, 31 days
+    period 1/01/54 - 1/31/54, 31 days
     previous 100.00
     2 credits totalling 200.00   (1/05 +120.00, 1/12 +80.00)
     2 debits totalling  60.00    (1/08  -50.00, 1/20 -10.00)
@@ -52,7 +52,7 @@ def _strip(
     product: str = "Business Example Checking",
     enclosures: str = "Number of Enclosures 3",
     account: str = "Account Number XXXXXXXX0000",
-    period: str = "Statement Dates 1/01/26 thru 1/31/26",
+    period: str = "Statement Dates 1/01/54 thru 1/31/54",
     previous: str = "Previous Balance 100.00",
     days: str = "Days in the statement period 31",
     credits: str = "2 Deposits/Credits 200.00",
@@ -140,7 +140,7 @@ def test_a_complete_statement_publishes_every_printed_figure():
     assert stmt.bank is None
     assert stmt.account_number == "XXXXXXXX0000"
     assert stmt.account_name == "Business Example Checking"
-    assert (stmt.period_start, stmt.period_end) == ("2026-01-01", "2026-01-31")
+    assert (stmt.period_start, stmt.period_end) == ("2054-01-01", "2054-01-31")
     assert stmt.days_in_period == 31
     assert stmt.beginning_balance == 100.00
     assert stmt.ending_balance == 240.00
@@ -151,14 +151,14 @@ def test_a_complete_statement_publishes_every_printed_figure():
     assert stmt.bank_reported_average_balance == 150.00
     assert stmt.bank_reported_average_label == "Average Ledger"
     assert [(row.date, row.amount, row.direction) for row in stmt.transactions] == [
-        ("2026-01-05", 120.00, "credit"),
-        ("2026-01-08", -50.00, "debit"),
-        ("2026-01-12", 80.00, "credit"),
-        ("2026-01-20", -10.00, "debit"),
+        ("2054-01-05", 120.00, "credit"),
+        ("2054-01-08", -50.00, "debit"),
+        ("2054-01-12", 80.00, "credit"),
+        ("2054-01-20", -10.00, "debit"),
     ]
     assert [(day.date, day.balance) for day in stmt.stated_daily_balances] == [
-        ("2026-01-05", 220.00), ("2026-01-08", 170.00),
-        ("2026-01-12", 250.00), ("2026-01-20", 240.00),
+        ("2054-01-05", 220.00), ("2054-01-08", 170.00),
+        ("2054-01-12", 250.00), ("2054-01-20", 240.00),
     ]
 
 
@@ -579,7 +579,7 @@ def test_the_grid_may_open_on_the_period_s_first_day_with_the_opening_balance():
     stmt = _parse(body=_CREDIT_BLOCK + _DEBIT_BLOCK
                   + _GRID_BLOCK.replace("1/05 220.00", "1/01 100.00 1/05 220.00"))
     assert stmt is not None
-    assert stmt.stated_daily_balances[0].date == "2026-01-01"
+    assert stmt.stated_daily_balances[0].date == "2054-01-01"
     assert stmt.stated_daily_balances[0].balance == 100.00
 
 

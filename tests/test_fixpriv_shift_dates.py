@@ -230,8 +230,47 @@ def test_the_bare_year_pattern_is_the_ordinary_one_plus_one_alternative() -> Non
     assert DATE_SHAPES_WITH_BARE_YEARS.pattern.startswith(DATE_SHAPES.pattern)
 
 
-def test_a_two_digit_year_wraps_and_keeps_its_width() -> None:
-    assert shift_text("ON 01/02/80 HERE", SHIFT_YEARS)[0] == "ON 01/02/08 HERE"
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A DELIBERATELY IMPOSSIBLE year, in a test about refusing bad dates
+        # privately. Shifting it to a year Python accepts turns a fail-closed
+        # test into a passing one, which is the worst thing a fixture repair
+        # can do — and the first version of this tool did it, losing the
+        # zero-padding on the way.
+        "April 4, 0000 through May 4, 0000",
+        "1908-01-01",             # before the range the identity is proved over
+        "on 08/01/1999 posted",
+        "2099-12-31",             # after it
+        "date(1899, 12, 31)",
+    ],
+)
+def test_a_year_outside_the_proved_range_is_left_alone(text: str) -> None:
+    """The identity is proved over 2005..2045 and nowhere else.
+
+    A year the check never visited has no proof behind it, so it does not move
+    — the same rule the tool applies to its own shift.
+    """
+    assert shift_text(text, SHIFT_YEARS)[0] == text
+    assert shift_text(text, SHIFT_YEARS, bare_years=True)[0] == text
+
+
+def test_a_year_left_alone_is_counted_as_such() -> None:
+    _text, counts = shift_text("April 4, 0000 and 2026-01-05", SHIFT_YEARS)
+    assert counts["out_of_range"] == 1
+    assert counts["isoy"] == 1
+
+
+def test_a_two_digit_year_keeps_its_width() -> None:
+    """`45` is 2045, inside the range; `73` is what +28 makes of it."""
+    assert shift_text("ON 01/02/45 HERE", SHIFT_YEARS)[0] == "ON 01/02/73 HERE"
+
+
+@pytest.mark.parametrize("text", ["ON 01/02/80 HERE", "ON 01/02/04 HERE"])
+def test_a_two_digit_year_outside_the_range_is_left_alone(text: str) -> None:
+    """The century rule is the tree's own: `year + 2000 if year < 100`, so
+    `80` is 2080 and `04` is 2004, and neither is a year this tool proved."""
+    assert shift_text(text, SHIFT_YEARS)[0] == text
 
 
 def test_the_shift_preserves_the_line_count_and_every_other_byte() -> None:
@@ -242,12 +281,18 @@ def test_the_shift_preserves_the_line_count_and_every_other_byte() -> None:
     assert sum(counts.values()) == 2
 
 
-def test_no_date_is_shifted_twice() -> None:
-    """One alternation, one pass: a shape may not be re-read by another."""
+def test_a_second_pass_cannot_move_what_the_first_one_wrote() -> None:
+    """One alternation, one pass — and the proved range makes it idempotent.
+
+    A second run over the same file is the one mistake this transform cannot
+    survive: fifty-six years lands outside the range the identity was ever
+    checked over. It cannot happen, because the year the first pass writes is
+    already outside the range the second pass will move.
+    """
     once, _ = shift_text("2031-08-01", SHIFT_YEARS)
     assert once == "2059-08-01"
-    twice, _ = shift_text(once, SHIFT_YEARS)
-    assert twice == "2087-08-01"      # a second CALL shifts again; one call does not
+    assert shift_text(once, SHIFT_YEARS)[0] == once
+    assert shift_text(once, SHIFT_YEARS, bare_years=True)[0] == once
 
 
 def test_the_counts_name_the_shapes() -> None:

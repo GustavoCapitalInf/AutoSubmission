@@ -480,11 +480,13 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         r'    r"|(?P<ctor>\bNEVERMATCHES\(\s*(?P<ctory>\d{4})\s*,)",',
     ),
     (
-        "Z6", "shift", "the two-digit year",
-        "shift a two-digit year without wrapping it, so `01/02/80` becomes a "
-        "three-character year and the token stops being a date at all",
-        '        return f"{(int(text) + years) % 100:02d}"',
-        '        return str(int(text) + years)',
+        "Z6", "shift", "the two-digit year's century",
+        "drop the range check on a two-digit year, so `01/02/80` is read as "
+        "2080 and shifted into a century this tool never proved",
+        "        if not PROVED_FIRST_YEAR <= 2000 + value <= PROVED_LAST_YEAR:\n"
+        "            return None",
+        "        if False:\n"
+        "            return None",
     ),
     (
         "Z7", "shift", "the bare-day guard",
@@ -530,6 +532,21 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "calendar while the assertion beside it moves",
         r'    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? ?\d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"',
         r'    rf"|(?P<spelled>{_MONTH_START}(?:{_MONTHS})\.? \d{{1,2}}(?:,\s*|\s+)(?P<spelledy>\d{{4}})\b)"',
+    ),
+    (
+        "Z13", "shift", "the proved-range guard",
+        "shift a year the identity was never proved over, so a deliberately "
+        "IMPOSSIBLE year in a fail-closed test becomes a year Python accepts "
+        "and the test starts passing for the wrong reason",
+        "    if not PROVED_FIRST_YEAR <= value <= PROVED_LAST_YEAR:\n        return None",
+        "    if False:\n        return None",
+    ),
+    (
+        "Z14", "shift", "the four-digit year's WIDTH",
+        "format the shifted year without its padding, so `0000` comes back as "
+        "two characters and the token stops being a date",
+        '    return f"{value + years:0{width}d}"',
+        '    return str(value + years)',
     ),
     (
         "R1", "redact", "the sha rule",

@@ -168,8 +168,8 @@ class TestNormalizer:
         assert parse_bool("maybe") is None
 
     def test_both_date_renderings(self):
-        assert parse_date_any("Jan 1, 2026") == "2026-01-01"
-        assert parse_date_any("2026-01-31") == "2026-01-31"
+        assert parse_date_any("Jan 1, 2054") == "2054-01-01"
+        assert parse_date_any("2054-01-31") == "2054-01-31"
         assert parse_date_any("") is None
 
     def test_parse_int(self):
@@ -186,8 +186,8 @@ class TestNormalizer:
     def test_statement_row_from_synthetic_payload(self):
         raw = {
             "account": "xxxx1234",
-            "start_date": "Jan 1, 2026",
-            "ending_date": "Jan 31, 2026",
+            "start_date": "Jan 1, 2054",
+            "ending_date": "Jan 31, 2054",
             "reconciled": "false",
             "starting_balance": "100.00",
             "ending_balance": ".00",
@@ -199,7 +199,7 @@ class TestNormalizer:
         }
         row = MTStatementRow.from_raw(raw)
         assert row.account_last4 == "1234"
-        assert row.start_date == "2026-01-01"
+        assert row.start_date == "2054-01-01"
         assert row.reconciled is False
         assert row.ending_balance == 0.0
         assert row.num_credits == 14
@@ -225,15 +225,15 @@ class TestMasking:
     def test_mask_text_long_digit_runs(self):
         assert mask_text("acct 123456789 ok") == "acct ****6789 ok"
         # Decimal amounts and ISO dates are untouched.
-        assert mask_text("amount 255500.00 on 2026-01-31") == \
-            "amount 255500.00 on 2026-01-31"
+        assert mask_text("amount 255500.00 on 2054-01-31") == \
+            "amount 255500.00 on 2054-01-31"
 
     def test_mask_text_mt_style(self):
         assert mask_text("xxxx1905") == "****1905"
 
     def test_transaction_ref_truncates(self):
         ref = transaction_ref({
-            "date": "2026-01-02",
+            "date": "2054-01-02",
             "amount": -11788.0,
             "description": "X" * 100,
         })
@@ -292,7 +292,7 @@ class TestCoverage:
                 "statements_summary": [{"total_credits": "1.00", "num_payroll": "0"}],
                 "mca_transactions": [{"lender": "L", "amount": "-1.00"}],
                 "daily_balances": [
-                    {"event_date": "2026-01-01",
+                    {"event_date": "2054-01-01",
                      "balances": [{"acctid": "x", "balance": "1.00",
                                    "od_balance": "1.00", "true_balance": "1.00"}]}
                 ],

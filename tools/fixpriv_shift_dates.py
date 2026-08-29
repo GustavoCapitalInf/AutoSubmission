@@ -214,18 +214,37 @@ def calendar_is_isomorphic(first_year: int, last_year: int, years: int) -> list[
     return problems
 
 
-def _shifted_year(text: str, width: int, years: int) -> str:
+#: The years the identity is proved over. A four-digit year outside it is left
+#: exactly where it is, and this is not caution, it is the same rule the tool
+#: applies to itself: the shift is an identity BECAUSE `calendar_is_isomorphic`
+#: walked this range, and a year the check never visited has no such proof
+#: behind it. It also catches a class of fixture the first sweep would have
+#: broken — a DELIBERATELY IMPOSSIBLE year. `"April 4, 0000"` is a poisoned
+#: input in a test about refusing bad dates privately, and shifting it to a
+#: year Python accepts turns a fail-closed test into a passing one.
+PROVED_FIRST_YEAR = 2005
+PROVED_LAST_YEAR = 2045
+
+
+def _shifted_year(text: str, width: int, years: int) -> str | None:
+    """The year moved, or None if it must not move."""
+    value = int(text)
     if width == 2:
         # The tree's own century rule is `year + 2000 if year < 100`, so a
         # two-digit year shifts by the same amount and stays two digits.
-        return f"{(int(text) + years) % 100:02d}"
-    return str(int(text) + years)
+        if not PROVED_FIRST_YEAR <= 2000 + value <= PROVED_LAST_YEAR:
+            return None
+        return f"{(value + years) % 100:02d}"
+    if not PROVED_FIRST_YEAR <= value <= PROVED_LAST_YEAR:
+        return None
+    return f"{value + years:0{width}d}"
 
 
 def shift_text(text: str, years: int, bare_years: bool = False) -> tuple[str, dict[str, int]]:
     """The file with every date shifted, and a count per shape."""
     pattern = DATE_SHAPES_WITH_BARE_YEARS if bare_years else DATE_SHAPES
     counts: dict[str, int] = {name: 0 for name, _ in _YEAR_GROUPS}
+    counts["out_of_range"] = 0
 
     def replace(match: re.Match[str]) -> str:
         for name, width in _YEAR_GROUPS:
@@ -236,12 +255,16 @@ def shift_text(text: str, years: int, bare_years: bool = False) -> tuple[str, di
             found = match.group(name)
             if found is None:
                 continue
+            moved = _shifted_year(found, width, years)
+            if moved is None:
+                counts["out_of_range"] += 1
+                return match.group(0)
             counts[name] += 1
             start, end = match.span(name)
             whole_start = match.start()
             return (
                 match.group(0)[: start - whole_start]
-                + _shifted_year(found, width, years)
+                + moved
                 + match.group(0)[end - whole_start:]
             )
         return match.group(0)
@@ -292,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     for path in args.paths:
         original = path.read_text(encoding="utf-8", newline="")
         shifted, counts = shift_text(original, args.years, args.bare_years)
+        skipped = counts.pop("out_of_range")
         moved = sum(counts.values())
         if moved == 0:
             print(f"{path}: no date token; nothing to shift", file=sys.stderr)
@@ -299,7 +323,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         shape = " · ".join(f"{name.removesuffix('y')} {count}"
                            for name, count in counts.items() if count)
-        print(f"{path}: {moved} dates shifted +{args.years}y  ({shape})")
+        outside = f"  [{skipped} outside {PROVED_FIRST_YEAR}..{PROVED_LAST_YEAR}, left]" if skipped else ""
+        print(f"{path}: {moved} dates shifted +{args.years}y  ({shape}){outside}")
         if args.report_years:
             print(f"    years still standing: {years_in(shifted)}")
         if not args.dry_run:

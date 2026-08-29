@@ -58,11 +58,11 @@ def _analysis_payload() -> dict:
         "statement": {
             "bank": "Test Bank",
             "account_number": ACCOUNT,
-            "period_start": "2026-01-01",
-            "period_end": "2026-01-31",
+            "period_start": "2054-01-01",
+            "period_end": "2054-01-31",
             "transactions": [
                 {
-                    "date": "2026-01-04",
+                    "date": "2054-01-04",
                     "description": "ACH DEPOSIT",
                     "amount": 1000.0,
                     "classification": {
@@ -338,7 +338,7 @@ def test_escape_formula_neutralises_dangerous_cells(dangerous):
 
 
 @pytest.mark.parametrize(
-    "safe", ["-1234.56", "-0", "-1e5", "+250.00", "1000", "ACH DEPOSIT", "", "2026-01-31"]
+    "safe", ["-1234.56", "-0", "-1e5", "+250.00", "1000", "ACH DEPOSIT", "", "2054-01-31"]
 )
 def test_escape_formula_leaves_numbers_and_plain_text_alone(safe):
     assert _escape_formula(safe) == safe

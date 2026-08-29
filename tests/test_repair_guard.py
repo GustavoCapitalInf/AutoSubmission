@@ -51,13 +51,13 @@ def _statement() -> Statement:
         # of this fixture wrote `statement_period_*`, which pydantic silently
         # DROPPED (the model does not forbid extras), so the fixture carried no
         # period at all and the tests still passed. W3 §PIPE5 D6.
-        period_start="2026-02-01",
-        period_end="2026-02-28",
+        period_start="2054-02-01",
+        period_end="2054-02-28",
         beginning_balance=1000.0,
         ending_balance=900.0,
         transactions=[
             Transaction(
-                date="2026-02-03",
+                date="2054-02-03",
                 description="CARD PURCHASE",
                 amount=-100.0,
                 direction="debit",
@@ -202,16 +202,16 @@ def test_the_discard_publishes_uncorrected_dates_on_a_year_boundary(monkeypatch)
     """
     december = Statement(
         bank="Seam Bank",
-        period_start="2025-12-01",
-        period_end="2026-01-31",
+        period_start="2053-12-01",
+        period_end="2054-01-31",
         beginning_balance=1000.0,
         ending_balance=900.0,
         transactions=[
             # The parser stamped the period-START year on both rows, which is
             # exactly the defect `assign_transaction_years` exists to repair.
-            Transaction(date="2025-12-15", description="DECEMBER ROW",
+            Transaction(date="2053-12-15", description="DECEMBER ROW",
                         amount=-40.0, direction="debit", running_balance=960.0),
-            Transaction(date="2025-01-09", description="JANUARY ROW",
+            Transaction(date="2053-01-09", description="JANUARY ROW",
                         amount=-60.0, direction="debit", running_balance=900.0),
         ],
     )
@@ -222,7 +222,7 @@ def test_the_discard_publishes_uncorrected_dates_on_a_year_boundary(monkeypatch)
     # Control: the stage runs, and the January row's year is corrected.
     healthy = analyze_markdown(MARKDOWN, parse_mode="deterministic")
     assert [t.date for t in healthy.statement.transactions] == [
-        "2025-12-15", "2026-01-09"
+        "2053-12-15", "2054-01-09"
     ]
     assert "repair_exception" not in healthy.integrity.flags
 
@@ -234,7 +234,7 @@ def test_the_discard_publishes_uncorrected_dates_on_a_year_boundary(monkeypatch)
     monkeypatch.setattr("analysis.pipeline.repair_b1_beginning_balance", boom)
     discarded = analyze_markdown(MARKDOWN, parse_mode="deterministic")
     assert [t.date for t in discarded.statement.transactions] == [
-        "2025-12-15", "2025-01-09"   # ← the January row keeps the wrong year
+        "2053-12-15", "2053-01-09"   # ← the January row keeps the wrong year
     ]
     # ...and the document is not published as clear: a human sees it.
     assert "repair_exception" in discarded.integrity.flags
