@@ -55966,17 +55966,47 @@ point: the widening is not blocked by rarity, it is blocked by the evidence not 
 
 ### The findings carried
 
-1. **A bank-stated service charge that the statement never itemises** — population 3 here
-   (`0DCABEBAE6D99BE0`, `7C351D71B06A3E10`, `F14DAFC2118B3058`, the only three where every
-   available identity closes). Publishing them would need `reconcile`'s sum check to
-   tolerate a ledger short by exactly `stated_service_charge`, which is a platform-level
-   ruling this card does not own (`analysis/reconcile.py` is outside its ownership). It is
-   recorded rather than proposed, and it should be argued against the ADB doctrine before
-   it is argued for coverage: the fee's DATE is never printed, so every daily balance from
-   that day forward would be wrong by the fee, and the ADB with them.
+1. **A REPAIR-DOCTRINE EXCEPTION REQUEST — expected answer: REFUSE.** Population 3:
+   `0DCABEBAE6D99BE0`, `7C351D71B06A3E10`, `F14DAFC2118B3058`, the only three where every
+   available identity closes. Each prints a non-zero `Total Service Charges (-)` that no
+   block itemises, so the published ledger is short by exactly that fee.
+
+   The only change that publishes them is a reader writing that fee into the ledger as a
+   posting — and the statement never prints its DATE. That is the repair doctrine's own
+   case (*a parser never writes an amount*), so this is an exception request against that
+   doctrine, owned by whoever rules on it, not a platform tolerance and not a coverage
+   argument. Measured both ways at this tree, so the request is weighed on numbers:
+
+   | what is granted | validated | outcome |
+   |---|---:|---|
+   | `reconcile` forced to `ok` and `summary_ok`, no amount written (`recon_forced`) | **0** | 8 `withheld / withheld_adb` |
+   | the stated fee written as a debit dated the period end (`written_fee`) | **3** | `validated / approved` |
+
+   **The reconciler tolerance publishes nothing.** `analysis/adb.py` requires
+   `final_balance_matches_statement_closing`, and a ledger short by the fee does not reach
+   the printed closing balance whatever `reconcile` is told to say about it — so the
+   platform-level ruling this card's first record proposed would have moved zero documents.
+   That framing is withdrawn; `analysis/reconcile.py` is not the owner.
+
+   **The recommendation stands at REFUSE**, and on the merits rather than on ownership: the
+   three documents would validate only because the reader chose a day the bank never
+   printed. Every daily balance from that day forward is then wrong by the fee, and the ADB
+   — the one user-facing metric — with them. A validated document whose ADB is knowingly
+   wrong is worse than a declined one. If it is ever revisited, it should be argued against
+   the ADB doctrine first and the coverage number last.
+
 2. **`_LINE_OF_CREDIT_RE` keys on today's second-account heading** — already carried by the
    reader's own docstring and by `L1-CU-SUFFIX-INVESTIGATION`. This card measured its four
    refusals and left them declined.
+
+3. **A commit message is a privacy surface no branch scan reads** (review MINOR-1, which
+   generalizes past this card). `tools/privacy_scan_branch.py` reads added FILE lines, so a
+   token written into a message is invisible to it and merges permanently. This branch hit
+   it: the commit that redacted two money-shaped tokens from this log quoted both in its own
+   message. Closed here by rewording that message and by
+   `tools/huntington_msg_privacy_scan.py`, which runs the file scan's own patterns over
+   `git log --format=%B`; nothing in it is huntington-specific. The standing rule the review
+   asks for belongs in BATCH9-RULES, which this card does not own.
 
 ## HUNT9.8 Zero movement — the replays and the archive sweep
 
