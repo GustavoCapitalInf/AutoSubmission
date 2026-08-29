@@ -21,9 +21,26 @@ touched) by:
                        ``Balance Activity`` walk where no daily-balance block
                        is printed. This is the most a defensible widening could
                        ever skip: it never skips a check the document can make.
-  ``all_identities``   every identity removed. The absolute ceiling: no reader
-                       change of any kind can beat this number, because there
-                       is nothing left to relax.
+  ``all_identities``   every identity removed. The ceiling of RELAXATION: with
+                       the payload unchanged there is nothing left to relax.
+  ``recon_forced``     `all_identities`, plus `reconcile` forced to `ok` and
+                       `summary_ok` — the platform tolerance the carried finding
+                       once asked for, granted in full, with NO amount written.
+  ``written_fee``      the reader publishes the bank-stated
+                       ``Total Service Charges (-)`` as a debit dated the period
+                       end, so the ledger closes. This is a READING, not a
+                       relaxation, and it WRITES AN AMOUNT the statement never
+                       dates — barred by the repair doctrine. It is here because
+                       the record has to name the real barrier, and because
+                       "nothing can beat the ceiling" was the claim this mode
+                       disproved (review MAJOR-1).
+
+**What this instrument bounds, stated exactly.** `absent_evidence` and
+`all_identities` bound RELAXATIONS of `_validate` over the payload the reader
+already builds. They do NOT bound every possible reader change: a reader that
+builds a DIFFERENT payload is outside them, and `written_fee` is the measured
+proof of that. Read the two together or the smaller number will be mistaken for
+an impossibility.
 
 The outcome is the platform's own — `telemetry.record.classify_outcome` over
 the pipeline payload — so a ceiling of zero validated is a measured fact about
@@ -46,7 +63,7 @@ DEFAULT_RUN_POINTER = Path("discovery_reports/train8-logs/train8_run_dir.txt")
 DEFAULT_DATA_DIR = Path(".claude/recovery/webapp_data_train8_cold")
 DEFAULT_CLUSTERS = Path("docs/moneythumb-replacement/census_batch9/clusters.json")
 
-MODES = ("absent_evidence", "all_identities")
+MODES = ("absent_evidence", "all_identities", "recon_forced", "written_fee")
 
 
 @contextlib.contextmanager
@@ -55,7 +72,58 @@ def relaxed(mode: str, markdown: str):
     from analysis import huntington as H
 
     original = H._validate
-    if mode == "all_identities":
+    original_fees = H._service_charges
+    from analysis import pipeline as P
+    original_reconcile = P.reconcile
+    undo = []
+
+    if mode == "recon_forced":
+        # The platform tolerance the carried finding once asked for, granted in
+        # full and then some: the reconciler cannot object at all. No amount is
+        # written, so the ledger is still short by the stated fee.
+        def forced(stmt, *, parser_id=None):
+            result = original_reconcile(stmt, parser_id=parser_id)
+            result.ok = True
+            result.summary_ok = True
+            return result
+        P.reconcile = forced
+        undo.append(lambda: setattr(P, "reconcile", original_reconcile))
+
+    if mode == "written_fee":
+        # A READER change, and the one the ceiling does not bound: where the
+        # print itemises no fees, publish the bank-stated total as a single
+        # debit dated the period END. `_service_charges` is where a reader
+        # would put it, and it is read as a module global at call time, so the
+        # substitution exercises the real path rather than a post-edit.
+        #
+        # This writes an amount on a date the statement never prints. That is
+        # exactly what the repair doctrine forbids, and the point of measuring
+        # it is to name the barrier correctly, never to propose it.
+        has_fee_block = ("Service Charge Detail" in markdown
+                         or "Service Charge Summary" in markdown)
+
+        def fees_with_written_charge(blocks, start, end):
+            got = original_fees(blocks, start, end)
+            if has_fee_block or got is None:
+                return got
+            rows, net = got
+            if rows:
+                return got
+            summary = H._summary(H._lines(markdown))
+            charge = None if summary is None else summary.get("Total Service Charges (-)")
+            if not charge:
+                return got
+            written = H.Transaction(
+                date=end.isoformat(),
+                description="Service charge (stated, never itemised — WRITTEN BY THE PROBE)",
+                amount=round(-charge, 2),
+                direction="debit",
+            )
+            return [written], round(charge, 2)
+        H._service_charges = fees_with_written_charge
+        undo.append(lambda: setattr(H, "_service_charges", original_fees))
+
+    if mode in ("all_identities", "recon_forced"):
         def patched(*_args, **_kwargs) -> bool:
             return True
     else:
@@ -85,10 +153,12 @@ def relaxed(mode: str, markdown: str):
             return original(summary, section_txns, fee_txns, probe_net, probe_balances)
 
     H._validate = patched
+    undo.append(lambda: setattr(H, "_validate", original))
     try:
         yield
     finally:
-        H._validate = original
+        for restore in reversed(undo):
+            restore()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -140,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     validated = [e for e in table if e["after"] == "validated"]
     lines = [f"# huntington identity ceiling — mode `{args.mode}` — run `{args.run.name}`", "",
              f"population {len(table)} · **validated at the ceiling: {len(validated)}**", "",
-             "| sha16 | baseline | with the identities relaxed | reason |", "|---|---|---|---|"]
+             f"| sha16 | baseline | under `{args.mode}` | reason |", "|---|---|---|---|"]
     for e in table:
         lines.append(f"| {e['sha16']} | {e.get('before','-')} | {e['after']} | {e['reason']} |")
     report = "\n".join(lines) + "\n"
