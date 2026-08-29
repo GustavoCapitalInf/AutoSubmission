@@ -57359,6 +57359,44 @@ hazard and a different law); a mapping two attribute levels deep. The last is
 STATED rather than discovered, and the depth that IS covered is pinned by its
 own test.
 
+**THE KNOWN HOLES — shapes that ARE a document token indexing a table and that
+this census does NOT report** (closure of this card's review, MINOR-1: the list
+above enumerated what is not a hole, and was read as if it were the whole
+list). Two clauses, and both are now DRIVEN at 0 rather than described:
+
+* **an alias bound from another NAME rather than from a dict literal** —
+  `t = _MONTHS` and then `t[word]`. `_dict_literal_names` follows assignments
+  whose VALUE is a dict literal or comprehension, so the alias is never
+  recognised as a table. Widening that is a dataflow question, not a syntax
+  one.
+* **a subscript performed by a CALL** — `operator.getitem(_MONTHS, word)`,
+  `_MONTHS.__getitem__(word)`, `dict(_MONTHS)[word]`, or a helper that performs
+  the subscript from OUTSIDE the three census modules. The census walks
+  `Subscript` nodes in three named files; a call is not one, and a fourth file
+  is not walked. A helper INSIDE the three IS reported — the reviewer probed it
+  and the census killed the probe, and both halves of that boundary are now
+  driven here.
+
+**Their practical bite is small and it is measured, not assumed.** Every one of
+these shapes installed at one of the REAL sites was killed by the DRIVES: the
+drives assert the printed word's absence from the raised exception and do not
+care how the lookup was spelled (the reviewer's own measurement F). They bite
+only at a NEW site that nothing drives — which is exactly the case a census
+exists for, and exactly why they are written into the guard rather than left
+for the next reviewer.
+
+**One more limit, and it is about the ALLOWLIST rather than the walk.** The
+allowlist is keyed `file:scope: subscript` — a LINE, not a guard. Delete
+`_date_tokens`'s `if mon not in _MONTHS: continue` and the entry still matches
+and the census still passes; what catches that is the DRIVE, and mutant M7 is
+killed by that drive **and by nothing else**, which is the cleanest available
+evidence that the allowlist's REASON is what is under test rather than a line
+being excused. Keying the entry to the guard — an AST check that a
+`Compare(NotIn)` on the same table dominates the subscript in the same block —
+would close the residue. **Deliberately not done here**, on Ocean's ruling: it
+is a census change rather than a refusal change, and it belongs to the card
+that widens this census rather than to the one that opened it.
+
 | measure | result |
 |---|---|
 | population | the three RAISE-PRIVACY readers, named not derived |
@@ -57368,6 +57406,7 @@ own test.
 | `_MONTHS` / `_MOJIBAKE_TABLE` resolved as tables | yes, asserted |
 | mutant shapes it must SEE | 6 — the site shape, module scope, a module-level lambda, a nested def (once, not once per parent), a table built inside the reader, a subscript a membership test "excuses" |
 | mutant shapes it must NOT flag | 5 — `.get`, a literal key, a string slice, a list index, a write into the table |
+| KNOWN HOLES, driven at 0 | 4 — a local alias, `operator.getitem`, `__getitem__`, a copy of the table — plus the helper-outside-the-population boundary, driven on both sides |
 
 **Review MINOR-5 closed by widening, not by narrowing the claim.**
 `_raw_date_constructions` walked `FunctionDef` bodies only, so a construction

@@ -936,6 +936,42 @@ def test_the_scope_walker_attributes_every_construction_exactly_once():
 #   imports — e.g. an attribute two levels deep. STATED, not discovered: the
 #   depth is one, and `test_the_lookup_census_resolves_a_mapping_behind_an_
 #   attribute` is what pins the depth that IS covered.
+#
+# THE KNOWN HOLES — shapes that ARE a document token indexing a table and that
+# this census does NOT report today. RAISE-PRIVACY-5's review, MINOR-1: the
+# list above was the list of things that are not holes, and it was read as if
+# it were the whole list. These two clauses are the rest of it, measured rather
+# than imagined (`_TOKEN_LOOKUP_UNREPORTED` drives each one at 0):
+#
+# * AN ALIAS bound from another NAME rather than from a dict literal —
+#   `t = _MONTHS` and then `t[word]`. `_dict_literal_names` follows `Assign`
+#   nodes whose VALUE is a `Dict`/`DictComp`, so `t` is never recognised as a
+#   table. Widening it to follow name-to-name assignment is a dataflow
+#   question, not a syntax one, and it is the next lookup-census card's job.
+# * A SUBSCRIPT PERFORMED BY A CALL — `operator.getitem(_MONTHS, word)`,
+#   `_MONTHS.__getitem__(word)`, `dict(_MONTHS)[word]`, or a helper that
+#   performs the subscript from OUTSIDE these three modules. This census walks
+#   `Subscript` nodes in three named files; a call is not one, and a fourth
+#   file is not walked. (A helper INSIDE the three IS reported — the review
+#   probed that and the census killed it.)
+#
+# WHAT THEIR PRACTICAL BITE IS, and it is measured rather than assumed: every
+# one of these shapes installed at one of the REAL sites was killed by the
+# DRIVES, because the drives check the printed word's absence from the raised
+# exception and do not care how the lookup was spelled. They bite only at a
+# NEW site that nothing drives — which is exactly the case a census exists for,
+# and exactly why they are written down here instead of being left for the next
+# reviewer to find.
+#
+# ONE MORE LIMIT, and it is about the ALLOWLIST rather than the walk: the
+# allowlist is keyed by `file:scope: subscript` — a LINE, not a guard. Delete
+# `_date_tokens`'s `if mon not in _MONTHS: continue` and the entry still
+# matches and the census still passes; what catches that is the DRIVE, and
+# mutant M7 is killed by that drive and by nothing else. Keying the entry to
+# the guard (an AST check that a `Compare(NotIn)` on the same table dominates
+# the subscript in the same block) would close the residue and is deliberately
+# NOT done here: it is a census change, not a refusal change, and it belongs to
+# the card that widens this census rather than to the one that opened it.
 
 #: The same three readers as §4b, and named for the same reason: a derived
 #: population would grow silently, and this guard's value is that its list of
@@ -1127,6 +1163,60 @@ _TOKEN_LOOKUP_MUTANTS = [
 def test_the_lookup_census_can_see_each_shape(name, source, expected):
     found = _token_lookup_subscripts(source, f"synthetic/{name}.py")
     assert len(found) == expected, (name, found)
+
+
+#: THE KNOWN HOLES, as drives rather than as prose. Each of these IS a document
+#: token indexing a table and each is reported ZERO times today. This list is a
+#: DISCLOSURE, not a property: it exists so the holes are measured, so a reader
+#: cannot mistake the "not a hole" list above for the whole list, and so the
+#: card that closes one of them gets a red test pointing straight at the
+#: sentence it has to delete.
+_TOKEN_LOOKUP_UNREPORTED = [
+    ("an-alias-bound-from-another-name",
+     "T = {'JAN': 1}\ndef f(w):\n    t = T\n    return t[w]\n"),
+    ("operator-getitem",
+     "import operator\nT = {'JAN': 1}\ndef f(w):\n    return operator.getitem(T, w)\n"),
+    ("the-dunder-spelling",
+     "T = {'JAN': 1}\ndef f(w):\n    return T.__getitem__(w)\n"),
+    ("a-copy-of-the-table",
+     "T = {'JAN': 1}\ndef f(w):\n    return dict(T)[w]\n"),
+]
+
+
+@pytest.mark.parametrize("name,source", _TOKEN_LOOKUP_UNREPORTED,
+                         ids=[case[0] for case in _TOKEN_LOOKUP_UNREPORTED])
+def test_the_known_holes_of_the_lookup_census_are_still_holes(name, source):
+    """A hole nobody has written down is a hole nobody can close.
+
+    If this goes RED the census has grown to cover the shape — which is good
+    news and not a failure: move the row into `_TOKEN_LOOKUP_MUTANTS` with its
+    expected count, and delete the matching clause from the KNOWN HOLES comment
+    above so the comment and the walk stay the same sentence.
+    """
+    found = _token_lookup_subscripts(source, f"synthetic/{name}.py")
+    assert found == [], (
+        f"{name} is now REPORTED; the census covers it, so move it to the "
+        f"must-see list and drop its clause from the KNOWN HOLES comment: {found}"
+    )
+
+
+def test_a_helper_inside_the_three_readers_is_reported_and_one_outside_is_not():
+    """The fourth hole, which is about the POPULATION rather than the syntax.
+
+    A helper that performs the subscript is reported when it lives in a file
+    the census walks, and invisible when it lives anywhere else — because the
+    census is three named files, by design (a derived population grows
+    silently). Both halves are driven so the boundary is a measurement."""
+    inside = (
+        "T = {'JAN': 1}\n"
+        "def month_of(w):\n    return T[w]\n"
+        "def read(period):\n    return month_of(period[:3])\n"
+    )
+    assert _token_lookup_subscripts(inside, "analysis/td_can.py") == [
+        "analysis/td_can.py:month_of: T[w]",
+    ]
+    outside = "from elsewhere import month_of\n\ndef read(period):\n    return month_of(period[:3])\n"
+    assert _token_lookup_subscripts(outside, "analysis/td_can.py") == []
 
 
 # ---------------------------------------------------------------------------
