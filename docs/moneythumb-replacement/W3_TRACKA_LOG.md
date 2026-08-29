@@ -59117,8 +59117,9 @@ Q8 is the one to answer first. It is the only question here whose answer can sub
 | `tests/test_experiments_are_not_wired.py` | passes; it guards `experiments/` and says nothing about `tools/` — the property is held here by a grep, as L1INV's MINOR-4 recorded | 0 |
 | the instruments are unwired | nothing outside `tools/` references any of the four, verified at this tip | — |
 | no production file differs from base | `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` **empty** | — |
-| branch privacy scan, added lines vs the whole population | **hit_count 0 over 1,922 added lines and 3,351 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 22, every one class WORDS, discarded by the standing `words_class` exclusion** | **0** |
-| commit-message scan | **hit_count 0; MONEY / DIGITS / DATES / WORDS all 0** | **0** |
+| branch privacy scan, added lines vs the whole population | **hit_count 0** over 2,396 added lines and 3,351 documents read (population 3,380; the 29 unreadable are the same 29 the pinned survey cannot reach); MONEY / DIGITS / DATES / WORDS all 0; raw 28, every one class WORDS, discarded by the standing `words_class` exclusion | **0** |
+| commit-message scan | **hit_count 0** over 6 commits; MONEY / DIGITS / DATES / WORDS all 0 — WORDS included, with the mandated co-authorship trailer on every message | **0** |
+| ... and it was NOT 0 the first time | one message used an ordinary English word this archive prints; the WORDS class caught it. The six messages were rewritten with `git filter-branch --msg-filter` — trees verified byte-identical against the pre-rewrite tip, `refs/original` deleted, and no record of this branch cites a commit sha, so nothing needed remapping. The lesson is the standing one: a message carries the CLASS, not the instance | — |
 | the three L1INV instruments re-run from the run of record | EXIT=0 each; L1D6 is the reproduction ledger | 0 |
 
 No mutation table and no archive sweep are owed: this card adds no gate and no grammar to
