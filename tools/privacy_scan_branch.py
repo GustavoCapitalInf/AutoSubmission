@@ -305,19 +305,23 @@ def main(argv: list[str] | None = None) -> int:
     # scan cannot hit inside `WELCOME`, and `26.43` cannot hit inside
     # `1,026.43`. (Substring matching on this side, with set exclusion on the
     # other, produced hundreds of fragment false positives per branch.)
-    line_tokens = [
-        (file, number, set().union(*tokens_of(text, args.digit_min, args.word_min).values()))
-        for file, number, text in lines
-    ]
-    haystack_tokens: set[str] = set().union(*(toks for _, _, toks in line_tokens)) if line_tokens else set()
+    #
+    # The attribution is an INVERTED INDEX, token -> the sites that print it,
+    # built over the tokens the document side actually asks about. The paired
+    # loop it replaces (every distinctive token x every scanned line) is
+    # quadratic: a whole-tree audit scans ~5x10^5 lines and a 3,380-document
+    # universe makes ~5x10^4 of its tokens hit, which is ~10^10 set lookups —
+    # hours, for exactly the same hit list this produces in seconds.
+    wanted: set[str] = set().union(*distinctive.values()) if distinctive else set()
+    sites: dict[str, list[tuple[str, int]]] = {}
+    for file, number, text in lines:
+        for token in set().union(*tokens_of(text, args.digit_min, args.word_min).values()) & wanted:
+            sites.setdefault(token, []).append((file, number))
     hits: list[dict[str, object]] = []
     for cls, tokens in distinctive.items():
         for token in tokens:
-            if token not in haystack_tokens:
-                continue
-            for file, number, toks in line_tokens:
-                if token in toks:
-                    hits.append({"class": cls, "file": file, "line": number, "token": token})
+            for file, number in sites.get(token, ()):
+                hits.append({"class": cls, "file": file, "line": number, "token": token})
     hits.sort(key=lambda h: (str(h["file"]), int(h["line"]), str(h["class"])))
 
     report = {
