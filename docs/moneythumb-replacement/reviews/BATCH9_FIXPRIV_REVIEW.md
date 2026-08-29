@@ -65,16 +65,23 @@ Every row re-run by me. Exit codes verbatim.
 | 16 | canonical conformance 1,270 / 40 skipped | **1,270 passed, 40 skipped**, 1 warning | **0** | reproduces |
 | 17 | `corpus_gate.py` GREEN 105 PASS / 3 WITHHELD / 1 REFUSED; currency 14 CAD / 94 USD; provenance 7 / 4 / 1 / 7 / 89 | **RESULT: GREEN**, 105 / 3 / 1; 14 CAD / 94 USD; 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89 schema_default; 109 pinned PDFs, 0 exclusions; runtime 531.8 s | **0** | reproduces |
 | 18 | full suite: 2 failed / 6,876 passed / 43 skipped, both failures inherited from the base | **2 failed, 6,876 passed, 43 skipped, 34 deselected** in 3 min 32 s; the two failures are exactly `test_corpus_gate_outcomes::test_every_production_caller_of_the_analysis_is_classified` and `test_currency_source::test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists` — the pair known and excused (Ocean's own tools at the base, fixed on train9 `dedc1c9`). **No other failure, no error.** | 1 | reproduces |
-| 19 | corpus-marked slice 30 passed | see the corpus-slice line at the end of this section | | |
+| 19 | corpus-marked slice 30 passed | **30 passed**, 6,925 deselected, 1 warning, 27 min 29 s | **0** | reproduces |
 | 20 | `fixpriv_w3_redact --check-idempotent` exit 0 | exit **0**; idempotence holds | **0** | reproduces |
 | 20b | redactor dry run over W3: MONEY 1,366 · DIGITS 145 · DATES 223 on 1,070 lines | at `31255ef`: MONEY **1,377** · DIGITS **150** · DATES 223 on **1,074** lines | 0 | same one-commit-early provenance as row 6 |
 | 21 | W3 is base + ONE appended section | base 54,966 lines → tip 55,207; the first 54,966 lines are **byte-identical** (`cmp` on the base-length prefix); exactly one `#` heading appended, `§FIXPRIV`, with FP1–FP10 | 0 | reproduces |
 | 22 | ownership: nothing outside the card | 14 files touched; `analysis/bmo.py`, `analysis/farmers_merchants.py`, `analysis/td_can.py`, `tests/test_privacy3_boundaries.py`, `tests/test_raise_privacy4.py` **untouched**; no registry entry, no version bump, no `webapp/ ocr/ discovery/ telemetry/ benchmark/ corpus_gate.py` change | 0 | reproduces |
 | 23 | `tests/test_analysis.py` carries 822 residue sites (FP9) | **820**, identical at base and tip | 1 | MINOR 6 |
 
-**Corpus-marked slice:** I ran it. `pytest -m corpus -q` at the tip, as a detached process on the
-shared host while the other cell's work was also running — result recorded in the closing line
-of this file.
+**Corpus-marked slice: I ran it.** `pytest -m corpus -q` at the tip, as a detached process on the
+shared host while the other cell's work was also running: **30 passed, 6,925 deselected**, 27 min
+29 s, `CORPUS_EXIT=0`. The contention cost runtime, not outcomes.
+
+**Privacy of this review file:** scanned with the branch's own instrument against the same
+3,351-document universe (`--base 31255ef --ref <this commit>`): first pass **2 MONEY hits** — the
+full-suite runtime, written to the hundredth of a second, is money-shaped and collides. Rewritten
+as minutes and seconds; second pass **0 hits, 0 sites, exit 0** over 543 added lines. I mention
+it because it is the same trap as MAJOR 1, one commit later, and it is not a cheap trap to
+avoid — which is part of why I grade MAJOR 1 as a measurement failure rather than as carelessness.
 
 ---
 
@@ -524,8 +531,8 @@ and not an accusation.
 | 18 | `fixpriv_w3_redact --check-idempotent` + dry run | idempotent; W3 MONEY 1,377 · DIGITS 150 · DATES 223 on 1,074 lines | **0** |
 | 19 | `_CENT` mutation experiment, base vs tip fixtures, 7 runs, tree restored each time | MAJOR 3's table | — |
 | 20 | W3 append-only prefix check (`cmp` over the base-length prefix) | byte-identical; one appended section | **0** |
-| 21 | corpus-marked slice | see the closing line | |
-| 22 | privacy scan of THIS review file | see the closing line | |
+| 21 | corpus-marked slice (`pytest -m corpus`) | 30 passed, 6,925 deselected, 27 min 29 s | **0** |
+| 22 | privacy scan of THIS review file (`--base 31255ef --ref HEAD`) | 2 hits on the first pass, **0** after the fix, 543 added lines, 3,351 documents read | **0** |
 
 ## RECOMMENDATION TO OCEAN
 
