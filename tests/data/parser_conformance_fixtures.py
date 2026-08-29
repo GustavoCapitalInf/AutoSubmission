@@ -66,9 +66,9 @@ FIXTURES: dict[str, str] = {
     "bank_ozk": (
         "CUSTOMER SERVICE CENTER P.O. BOX 196 OZARK, AR 72949 800-274-4482\n"
         "SAMPLE CHECKING* ACCOUNT - 000000\n"
-        "PREVIOUS STATEMENT BALANCE AS OF 07/30/27: 100.00 PLUS 1 DEPOSITS "
+        "PREVIOUS STATEMENT BALANCE AS OF 07/30/55: 100.00 PLUS 1 DEPOSITS "
         "AND OTHER CREDITS: 50.00 LESS 1 CHECKS AND OTHER DEBITS: 20.00 "
-        "CURRENT STATEMENT BALANCE AS OF 08/31/27: 130.00 NUMBER OF DAYS IN "
+        "CURRENT STATEMENT BALANCE AS OF 08/31/55: 130.00 NUMBER OF DAYS IN "
         "THIS STATEMENT PERIOD: 32\n"
         "BALANCE BY DATE\n"
     ),
@@ -110,8 +110,8 @@ FIXTURES: dict[str, str] = {
     # so `parse` declines it at the period gate — a header is not a statement.
     "category_partition": (
         "Invented Alpha Account SUMMARY Type :     **REG    Status :    Active\n"
-        "Category Number Amount Balance Forward From 08/29/31 41,003.77 "
-        "Alpha Credits 1 62,005.11+ Ending Balance On 09/30/31 103,008.88\n"
+        "Category Number Amount Balance Forward From 08/29/59 41,003.77 "
+        "Alpha Credits 1 62,005.11+ Ending Balance On 09/30/59 103,008.88\n"
     ),
     "chase": "JPMorgan Chase Bank\nStatement of account\n*start*summary\n",
     "chase_export": "Printed from Chase for Business\nTransactions\n",
@@ -168,7 +168,7 @@ FIXTURES: dict[str, str] = {
     # quotes it — so no single line of a fixture may carry every required
     # marker.
     "core_processor_daily": (
-        "Last statement: March 31, 2026 This statement: April 30, 2026\n"
+        "Last statement: March 31, 2054 This statement: April 30, 2054\n"
         "Total days in statement period: 30\n"
         "Direct inquiries to: 000-000-0000\n"
     ),
@@ -182,7 +182,7 @@ FIXTURES: dict[str, str] = {
     # over a product line whose counts LEAD their labels and whose closing
     # figure is `Balance this Statement`. Every figure invented.
     "core_processor_activity_summary": (
-        "Statement of Account Statement Dates:  8/01/26 thru 8/31/26\n"
+        "Statement of Account Statement Dates:  8/01/54 thru 8/31/54\n"
         "Activity Summary\n"
         "Account Number 8802417 Days in Cycle 31 "
         "Average Ledger Balance $0.00 Avg Collected Balance $0.00\n"
@@ -191,9 +191,9 @@ FIXTURES: dict[str, str] = {
         "Service Charge $0.00 Interest Paid $0.00 Balance this Statement $0.00\n"
     ),
     "core_processor_counted": (
-        "This statement: February 27, 2026 Last statement: January 30, 2026\n"
-        "Beginning balance (1/30/2026)\n"
-        "Ending balance (2/27/2026)\n"
+        "This statement: February 27, 2054 Last statement: January 30, 2054\n"
+        "Beginning balance (1/30/2054)\n"
+        "Ending balance (2/27/2054)\n"
         "Contact us:\n"
     ),
     # The FOURTH core processor's template, and like the three entries around
@@ -209,7 +209,7 @@ FIXTURES: dict[str, str] = {
     # description is not a counterparty mention any statement could carry.
     "core_processor_enclosures": (
         "Business Example Checking Number of Enclosures 3\n"
-        "Account Number XXXXXXXX0000 Statement Dates 1/01/26 thru 1/31/26 "
+        "Account Number XXXXXXXX0000 Statement Dates 1/01/54 thru 1/31/54 "
         "Previous Balance 100.00 Days in the statement period 31 "
         "2 Deposits/Credits 200.00 Average Ledger 150.00 "
         "4 Checks/Debits 50.00 Average Collected 150.00 "
@@ -217,9 +217,9 @@ FIXTURES: dict[str, str] = {
     ),
     "core_processor_sectioned": (
         "No Minimum Business Checking ACCOUNT XXXXXXXXXX1234\n"
-        "LAST STATEMENT 07/31/25 0.00 AVG AVAILABLE BALANCE 0.00 "
-        "THIS STATEMENT 08/29/25 0.00\n"
-        "TOTAL DAYS IN STATEMENT PERIOD 08/01/25 THROUGH 08/29/25: 29\n"
+        "LAST STATEMENT 07/31/53 0.00 AVG AVAILABLE BALANCE 0.00 "
+        "THIS STATEMENT 08/29/53 0.00\n"
+        "TOTAL DAYS IN STATEMENT PERIOD 08/01/53 THROUGH 08/29/53: 29\n"
     ),
     # W3 §COREISS2 rank 5: the signed parenthesised counts under a bare
     # `Summary`, over the two DATED balances. Every figure invented, and the
@@ -227,10 +227,10 @@ FIXTURES: dict[str, str] = {
     # to `fiserv_premier`'s registration and the cross-product proves it.
     "core_processor_signed_counts": (
         "Statement of Account SAMPLE BUSINESS CHECKING Account Title: Sample Holder\n"
-        "Beginning Balance 7/02/26 $ 0.00\n"
+        "Beginning Balance 7/02/54 $ 0.00\n"
         "Summary\n"
         "Credits (0) +$0.00 Interest Paid +$0.00 Debits (0) -$0.00\n"
-        "Ending Balance 7/31/26 $ 0.00\n"
+        "Ending Balance 7/31/54 $ 0.00\n"
     ),
     "dakota_west": "dakotawestcu.com\nThank you for being a member of Dakota West Credit Union.\n",
     "demo_national": "SAMPLE BUSINESS BANK STATEMENT\nBank: Demo National Bank\n",
