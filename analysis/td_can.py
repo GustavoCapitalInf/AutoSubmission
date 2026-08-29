@@ -229,6 +229,17 @@ def _native_date_to_iso(value: str, *, default_year: int) -> str:
     # CALLER-GUARDED twin of the two in `_parse_period`, closed the same way
     # for the same reason a guard that depends on a caller is the kind of
     # protection that disappears when the caller changes.
+    #
+    # THE SECOND EVALUATION-ORDER CHANGE, named here because a reorder nobody
+    # names is a reorder nobody drives: the lookup was the SECOND argument of
+    # the call below, so `int(m.group(2))` used to be evaluated after it and is
+    # now evaluated after this refusal instead. Unobservable for the same
+    # reason as the one in `_parse_period`: `re`'s `\d` matches Unicode
+    # category Nd, `int()` accepts every Nd character, and a SUPERSCRIPT is
+    # category No — so `\d{1,2}` never matches one and the token takes the
+    # shape refusal above without reaching either the lookup or `int()`.
+    # Driven on both trees over Nd, No and ASCII day glyphs, on a readable
+    # month word and an unreadable one.
     month = _MONTHS.get(m.group(1).upper())
     if month is None:
         raise KeyError(

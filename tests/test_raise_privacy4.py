@@ -1056,3 +1056,134 @@ def test_the_lookup_refusal_message_is_a_literal_and_the_reader_survives():
         assert isinstance(argument, ast.Constant) and isinstance(argument.value, str)
         assert "reader=td_can." in argument.value
         assert not any(char.isdigit() for char in argument.value)
+
+
+# ---------------------------------------------------------------------------
+# 9. RAISE-PRIVACY-5's SECOND evaluation-order change, named and driven
+# ---------------------------------------------------------------------------
+#
+# This card's review, MINOR-2. §RP5.2 and the reader's comment named ONE
+# reorder — `_parse_period`'s lookup moving ahead of `2000 + int(sy)` — and
+# §8's Arabic-Indic drive covered it. `_native_date_to_iso` moved its lookup
+# too: it was the SECOND argument of `iso_or_none`, so `int(m.group(2))` ran
+# after it and now runs after the refusal instead. The justification is the
+# same one and it holds; what was missing was saying so and measuring it.
+#
+# THREE GLYPH CLASSES, because the argument is entirely about what `\d` matches
+# and what `int()` accepts:
+#
+# * ASCII digits — the ordinary case, and the control;
+# * ARABIC-INDIC digits — Unicode category Nd, so `\d` matches them AND `int()`
+#   accepts them. This is the case where the reorder could be observable if the
+#   claim were wrong, because the conversion really does run;
+# * SUPERSCRIPTS — category No. `str.isdigit()` is True for them and `int()`
+#   rejects them, which is the trap `date_tokens` uses `isdecimal` to avoid —
+#   but `\d` never matches one, so the token fails the shape check and takes
+#   the shape refusal without reaching either the lookup or `int()`.
+#
+# `_date_tokens` is driven beside `_native_date_to_iso` because its guarded
+# lookup sits in the same grammar and the same reorder question is asked of it.
+
+#: One day cell per glyph class, plus a day no calendar holds — that last one
+#: paired with an unreadable month WORD, which is the cell that proves the
+#: lookup is reached before the calendar refusal rather than after it.
+_ORDER_DAYS = {
+    "ascii": "10",
+    "arabic-indic-Nd": "١٠",
+    "superscript-No": _SUPERSCRIPTS[:2],
+    "impossible-day": "30",
+}
+
+_ORDER_WORDS = {"readable": "FEB", "unreadable": CANARY[:3]}
+
+#: 14 cells: two readers x three glyph classes x two month words, plus the
+#: impossible-day cell on each reader, which is only interesting unreadable.
+ORDER_CELLS = [
+    (reader, glyphs, word)
+    for reader in ("native_date", "date_tokens")
+    for glyphs in ("ascii", "arabic-indic-Nd", "superscript-No")
+    for word in sorted(_ORDER_WORDS)
+] + [
+    ("native_date", "impossible-day", "unreadable"),
+    ("date_tokens", "impossible-day", "unreadable"),
+]
+
+
+def _order_outcome(package: str, reader: str, glyphs: str, word: str):
+    """(what happened, the payload) for one cell inside one package."""
+    td = importlib.import_module(f"{package}.td_can")
+    day, month_word = _ORDER_DAYS[glyphs], _ORDER_WORDS[word]
+    try:
+        if reader == "native_date":
+            result = td._native_date_to_iso(
+                f"{month_word}{day}", default_year=_DEFAULT_YEAR
+            )
+        else:
+            result = td._date_tokens(
+                f"{month_word} {day}", default_year=_DEFAULT_YEAR
+            )
+    except BaseException as exc:                      # noqa: BLE001
+        return f"raised {type(exc).__name__}", None
+    return "returned", _payload(result)
+
+
+def test_the_drive_count_of_the_second_reorder_is_the_count_it_states():
+    """The same discipline MINOR-1 asked for above: a number written beside a
+    parametrisation is a claim about coverage."""
+    assert len(ORDER_CELLS) == 14
+    assert len(set(ORDER_CELLS)) == 14
+
+
+@pytest.mark.parametrize("reader,glyphs,word", ORDER_CELLS)
+def test_the_second_reorder_changes_no_outcome_on_either_tree(
+    reader, glyphs, word, raisepriv5_base_tree
+):
+    """`_native_date_to_iso`'s lookup now precedes `int(m.group(2))`, and
+    `_date_tokens` is asked the same question. Base and tip must agree on what
+    happened AND on what was published."""
+    theirs = _order_outcome(raisepriv5_base_tree.package, reader, glyphs, word)
+    ours = _order_outcome("analysis", reader, glyphs, word)
+    assert theirs == ours, f"{reader}/{glyphs}/{word}: {theirs} != {ours}"
+
+
+def test_the_second_reorder_drive_actually_reaches_the_conversion():
+    """The vacuity check for the drive above, and the whole point of the
+    Arabic-Indic cell: a non-ASCII decimal day is really READ, so the cell
+    where the reorder could bite is a cell that runs the conversion rather than
+    one that refuses early."""
+    from analysis import td_can
+
+    day = _ORDER_DAYS["arabic-indic-Nd"]
+    assert td_can._native_date_to_iso(f"FEB{day}", default_year=_DEFAULT_YEAR) == (
+        "2031-02-10"
+    )
+    assert td_can._date_tokens(f"FEB {day}", default_year=_DEFAULT_YEAR) == (
+        ["2031-02-10"]
+    )
+    # And the superscript cell really does refuse before the lookup, which is
+    # why it can say nothing about the conversion order.
+    with pytest.raises(ValueError) as raised:
+        td_can._native_date_to_iso(
+            f"FEB{_ORDER_DAYS['superscript-No']}", default_year=_DEFAULT_YEAR
+        )
+    assert "reader=td_can._native_date_to_iso" in str(raised.value)
+
+
+def test_the_month_lookup_is_reached_before_the_calendar_refusal():
+    """The impossible-day cells, stated as the property they measure: with an
+    unreadable month WORD and a day no calendar holds, it is the LOOKUP that
+    refuses, not `iso_or_none` — on both trees, and with the class unchanged.
+    That is what makes the reorder a reorder of two steps rather than a change
+    of which step decides."""
+    from analysis import td_can
+
+    with pytest.raises(KeyError):
+        td_can._native_date_to_iso(
+            f"{CANARY[:3]}{_ORDER_DAYS['impossible-day']}", default_year=_DEFAULT_YEAR
+        )
+    # The same day with a READABLE word takes the calendar refusal instead, so
+    # the assertion above is about the word and not about the day.
+    with pytest.raises(ValueError):
+        td_can._native_date_to_iso(
+            f"FEB{_ORDER_DAYS['impossible-day']}", default_year=_DEFAULT_YEAR
+        )

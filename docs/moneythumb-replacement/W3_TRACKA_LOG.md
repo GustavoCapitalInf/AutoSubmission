@@ -57302,11 +57302,20 @@ Every part of that is load-bearing.
   to tell WHICH end was unreadable — that is a fact about the document. The
   two `date_refusal`s of this reader already have that property; the lookup now
   has it too, asserted.
-* **The lookup is read before `2000 + int(sy)`** rather than as the call's
-  second argument. That reorders nothing observable: `re`'s `\d` matches
-  Unicode category Nd and `int()` accepts every Nd character, so `int()` on a
-  group `(\d{2})` produced cannot raise. Driven on both trees with
-  Arabic-Indic digits, on a readable month word and an unreadable one.
+* **TWO evaluation-order changes, and both are named.** In `_parse_period` the
+  lookup is read before `2000 + int(sy)` rather than as the call's second
+  argument; in `_native_date_to_iso` the lookup was likewise the second
+  argument of `iso_or_none`, so `int(m.group(2))` used to run after it and now
+  runs after the refusal instead. The SECOND one went unnamed and undriven in
+  this section's first version — this card's review, MINOR-2, and its closure
+  is below. Both reorder nothing observable, for one reason: `re`'s `\d`
+  matches Unicode category Nd and `int()` accepts every Nd character, so
+  `int()` on a group `(\d{1,2})` or `(\d{2})` produced cannot raise. A
+  SUPERSCRIPT is category No — `str.isdigit()` is True for it and `int()`
+  rejects it — but `\d` never matches one, so such a token takes the SHAPE
+  refusal without reaching either the lookup or the conversion. Driven on both
+  trees over all three glyph classes, on a readable month word and an
+  unreadable one, and on both readers.
 
 The message names the reader and a refusal CLASS ("not a month word"), the same
 two halves `date_refusal` carries — and, unlike `date_refusal`, it interpolates
@@ -57331,6 +57340,7 @@ Three sites x three invented non-month words = **9 cells**, each run twice.
 | a readable month word, payload leaf-for-leaf | — | **identical, 3/3 sites** |
 | the five shapes that never reach the lookup, outcome + payload | — | **identical, 15/15** |
 | a period whose digits are Arabic-Indic (Nd), readable and unreadable word | — | **identical, 2/2** |
+| the SECOND reorder (`_native_date_to_iso`, and `_date_tokens` beside it): ASCII / Arabic-Indic (Nd) / superscript (No) day glyphs × readable and unreadable month word, plus an impossible day on each reader | — | **identical, 14/14** — outcome AND payload (review MINOR-2, closed on the branch) |
 | the guarded fourth lookup skips and publishes its neighbour | skips | skips, 3/3 words |
 | the native lookup selected by `_native_date_index` | never | never, 3/3 words |
 
