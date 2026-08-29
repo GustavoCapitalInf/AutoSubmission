@@ -119,20 +119,43 @@ Detail`) is read as a BLOCK and published as no rows at all: it itemizes the
 one `Total Service Charge` posting the debit ledger already carries, and
 publishing both would post the fee twice.
 
-Two printings this module refuses rather than repairs
-------------------------------------------------------
+Two printed tokens that open no row, and the gate that proves both calls
+-------------------------------------------------------------------------
 * **the cross-reference cheque row.** One issuer's cheque grid prints
   `date serial -See above-` for an item detailed in the ledger above instead of
   repeating its amount. That is a printed pointer, not a second posting, and it
   is skipped — a decision the count gate then proves on all four members that
   carry one, because a wrong call there moves a count;
-* **a date that closes no cell.** Six members print one: three weld a wrapped
-  description across the date column so the layer emits the row's date twice
-  with a fragment between, and three carry a `mm/dd` token inside a merchant
-  description (a card statement's `Member <mm>/<dd>` renewal note). Both are
-  documents this reader cannot read rather than gaps to paper over:
-  `tables.dated_cells` returns None and the document is declined whole. Dropping the row instead would publish a ledger
-  that disagrees with a printed total while still looking complete.
+* **a date with ANOTHER DATE between it and the next figure.** A row here is a
+  date and the first figure printed before the next date opens, so a token of
+  that shape opens nothing: the row it would open is closed by a row that
+  starts later. Six members print one, and neither printing is the bank's —
+  three weld a wrapped description across the date column so the layer emits
+  the row's own date twice with a fragment of its description between, and
+  three carry a `mm/dd` inside a merchant's printed name (a card statement's
+  `Member <mm>/<dd>` renewal note). `_without_non_opening_dates` blanks the
+  token, leaving every other character where it stood.
+
+  An earlier form of this module declined all six instead (W3 §COREENC), on
+  the ground that dropping a row is how a ledger comes to disagree with a
+  printed total while still looking complete. That ground is what the change
+  rests on rather than against: this template gates BOTH printed counts, BOTH
+  printed totals and — where it is printed — the daily-balance grid, so a
+  blanked token that really was a row leaves the ledger short of the bank's own
+  count and its total short by that row's amount, and the document declines at
+  `_matches_the_printed_summary` instead. Measured on all six: after the
+  blanking both counts land inside the interest/fee allowance, both totals
+  close to the cent, and the printed grid — an independent second printing of
+  the same period — agrees on every day (W3 §CPDECL).
+
+  **What the rule costs is a description, never a day and never a figure.**
+  It always blanks the token that closes no cell, never the one that does, so
+  a row keeps the day of the date that actually opens it — which is what stops
+  a merchant's `Member <mm>/<dd>` from dating a posting. Text printed before
+  the surviving date is then not in the row's span and is not published, so a
+  description can come out shorter than the bank printed it. It is bounded to a
+  token with another date AFTER it in the same run: a run that simply stops
+  mid-row is what a truncated page looks like, and there the refusal stands.
 
 The issuer, and the currency
 -----------------------------
@@ -647,8 +670,9 @@ def _section_rows(runs: list[str], *, role: str) -> list[_Posting] | None:
     direction, serialled, _restated, default = _ROLE_READING[role]
     read: list[tuple[str, list]] = []
     for run in runs:
-        cells = dated_cells(_without_cross_references(run),
-                            date_pattern=_DATE_RE, value_pattern=_LEDGER_FIGURE_RE)
+        cells = dated_cells(
+            _without_non_opening_dates(_without_cross_references(run)),
+            date_pattern=_DATE_RE, value_pattern=_LEDGER_FIGURE_RE)
         if cells is None:
             return None
         read.append((run, cells))
@@ -674,6 +698,59 @@ def _section_rows(runs: list[str], *, role: str) -> list[_Posting] | None:
                 description=description,
             ))
     return postings
+
+
+def _without_non_opening_dates(run: str) -> str:
+    """The run with the date tokens that open NO ROW blanked out.
+
+    A row of this ledger is a date and then the first figure printed before the
+    next date opens. A date token with ANOTHER DATE between it and the next
+    figure therefore opens nothing: the run says so itself, because the row it
+    would open is closed by a row that starts later. `tables.dated_cells`
+    refuses the whole document for one, and on this family that refusal was
+    costing six members over a token that is not a posting date at all. The
+    archive prints the shape two ways, both of them the flattened layer's doing
+    rather than the bank's:
+
+    * the row's own date emitted TWICE with a fragment of its description
+      between the two, where the layer welded the amount column through the
+      middle of the description (this family's `<desc> fr <amount> om <desc>`
+      weld, one column further left);
+    * a `mm/dd` inside a merchant's own printed name — a card statement's
+      `Member <mm>/<dd>` renewal note, in the description of a real row.
+
+    **Blanked, not removed**, and the difference is the whole safety argument:
+    every other character of the run keeps its position and its content, so no
+    description loses a word and no figure moves. Only the token that claimed
+    to open a row stops claiming it.
+
+    **The gate that proves the call is the one that already proves
+    `_without_cross_references`**: both printed counts and both printed totals.
+    A date this blanks that really WAS a row whose amount the layer lost leaves
+    the ledger one row short of the bank's own count and its total short by
+    that row's amount, and the document declines at
+    `_matches_the_printed_summary` instead of here. So the reading is not
+    trusted, it is checked — against the cent, in both directions, by the bank.
+
+    A date that closes no cell with NO further date after it is left alone and
+    still refuses the document. That is a different shape — a run that stops
+    mid-row, which is what a truncated page looks like — and this rule has no
+    evidence about it.
+    """
+    dates = list(_DATE_RE.finditer(run))
+    blanked: list[str] = []
+    cursor = 0
+    for index, found in enumerate(dates[:-1]):
+        stop = dates[index + 1].start()
+        if _LEDGER_FIGURE_RE.search(run[found.end():stop]) is not None:
+            continue
+        blanked.append(run[cursor:found.start(1)])
+        blanked.append(" " * len(found.group(1)))
+        cursor = found.end(1)
+    if not blanked:
+        return run
+    blanked.append(run[cursor:])
+    return "".join(blanked)
 
 
 def _without_cross_references(run: str) -> str:
@@ -838,9 +915,11 @@ def parse_core_processor_enclosures_statement(markdown: str) -> Statement | None
       a figure twice with two different readings;
     * its printed period is not a period;
     * it prints no ledger block this template names;
-    * a row's amount is not money, or a row prints no amount before the next
-      row opens — a wrapped description welded across the date column, or a
-      `mm/dd` token inside a merchant name;
+    * a row's amount is not money;
+    * a run STOPS mid-row — its last date prints no amount and no further date
+      follows it, which is what a truncated page looks like. A date with
+      another DATE before the next figure is a different shape and opens no
+      row at all (`_without_non_opening_dates`);
     * a row's date is not a day of the printed period;
     * the ledger does not reproduce both printed counts and both printed
       totals, or disagrees with the printed daily-balance grid.

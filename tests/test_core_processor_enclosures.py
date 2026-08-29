@@ -397,14 +397,64 @@ def test_a_captured_debit_total_that_disagrees_with_the_printed_one_is_refused()
     assert _parse(body=body) is None
 
 
-def test_a_row_whose_date_closes_no_amount_declines_the_whole_document():
+def test_a_date_with_another_date_before_the_next_amount_opens_no_row():
     """Two archive printings do this — a wrapped description welded across the
-    date column, and a `mm/dd` token inside a merchant name. Dropping the row
-    is how a ledger comes to disagree with a printed total while still looking
-    complete, so the document is declined instead."""
+    date column, so the row's own date is emitted twice with a fragment of its
+    description between, and a `mm/dd` token inside a merchant name. Neither is
+    a posting date: the run says so itself, because the row such a token would
+    open is closed by a row that starts later.
+
+    The token is blanked and the row is booked ONCE, on its own day, for its
+    own amount. The description printed BEFORE the surviving date is not
+    published — a row's description is what stands between its date and its
+    amount — so the cost of the rule is a SHORTER description, never a moved
+    day and never a moved figure (W3 §CPDECL)."""
     body = (_CREDIT_BLOCK.replace("1/12 EXAMPLE PAYOUT TWO 80.00",
                                   "1/12 EXAMPLE 1/12 PAYOUT TWO 80.00")
             + _DEBIT_BLOCK + _GRID_BLOCK)
+    stmt = _parse(body=body)
+    assert stmt is not None
+    assert [(row.date, row.amount) for row in stmt.transactions] == [
+        ("2026-01-05", 120.00), ("2026-01-08", -50.00),
+        ("2026-01-12", 80.00), ("2026-01-20", -10.00)]
+    assert stmt.transactions[2].description == "PAYOUT TWO"
+
+
+def test_the_blanked_token_can_never_move_a_row_onto_the_wrong_day():
+    """Which of the two dates is blanked is the safety question, because the
+    other archive printing is a `mm/dd` inside a merchant's own name and the
+    two tokens there are DIFFERENT days. The rule always blanks the one that
+    closes no cell, so the row keeps the day of the token that actually opens
+    it — here 1/12, the printed posting day, and not the 7/25 of a renewal
+    note. Blanking the other one would publish the merchant's day."""
+    body = (_CREDIT_BLOCK.replace("1/12 EXAMPLE PAYOUT TWO 80.00",
+                                  "1/07 EXAMPLE MEMBER NOTE 1/12 PAYOUT TWO 80.00")
+            + _DEBIT_BLOCK + _GRID_BLOCK)
+    stmt = _parse(body=body)
+    assert stmt is not None
+    assert [row.date for row in stmt.transactions] == [
+        "2026-01-05", "2026-01-08", "2026-01-12", "2026-01-20"]
+
+
+def test_blanking_a_date_that_really_was_a_row_still_declines_at_the_count():
+    """The safety property, and the reason the rule needs no judgement of its
+    own: a date whose amount the layer really lost is blanked too, and the
+    ledger is then one row short of the bank's own printed count and short by
+    that row's amount. The document declines at `_matches_the_printed_summary`
+    instead of at `dated_cells` — a different gate, the same answer."""
+    body = (_CREDIT_BLOCK.replace("1/12 EXAMPLE PAYOUT TWO 80.00",
+                                  "1/12 EXAMPLE PAYOUT TWO")
+            + _DEBIT_BLOCK + _GRID_BLOCK)
+    assert _parse(body=body) is None
+
+
+def test_a_run_that_ends_on_a_date_closing_no_cell_is_still_declined():
+    """The rule is bounded to a date with ANOTHER DATE after it in the same
+    run, which is what makes it a statement about the run rather than a guess
+    about a token. A run that simply stops mid-row is a different shape — what
+    a truncated page looks like — and this rule has no evidence about it."""
+    body = (_CREDIT_BLOCK + _DEBIT_BLOCK.rstrip("\n") + " 1/22 EXAMPLE TRAILING\n"
+            + _GRID_BLOCK)
     assert _parse(body=body) is None
 
 
