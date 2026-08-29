@@ -8,7 +8,12 @@ prose. This decides it mechanically.
 
     python -m tools.fixpriv_ast_identity --base <ref> --ref <ref> [path ...]
 
-With no paths it takes every tracked `.py` that differs between the two refs.
+With no paths it takes every tracked `.py` that differs between the two refs —
+which on a branch that ADDS a module includes files that do not exist at the
+base. A file absent at either ref is SKIPPED and counted, not treated as a git
+failure: there is no pair to compare, and a gate that exits 2 on its own branch
+reads as broken to whoever runs it next. Only a file present at both refs is
+compared, and only a real git or parse failure exits 2.
 Each file is parsed at both refs, every DOCSTRING is removed (the leading string
 expression of a module, class or function), and the two trees are compared by
 `ast.dump(..., include_attributes=False)`, which also drops line and column
@@ -19,8 +24,8 @@ What this does NOT excuse, deliberately: a string used as anything other than a
 docstring — a regex, a marker, a message — is part of the tree and any change to
 it is reported as a difference. That is the point: those are behaviour.
 
-Exit 0 when every file is identical, 1 when any differs, 2 on a parse or git
-failure. $0: git and the standard library only, no archive, no cache, no network.
+Exit 0 when every file present at both refs is identical, 1 when any differs,
+2 on a parse or git failure. $0: git and the standard library only, no archive, no cache, no network.
 """
 from __future__ import annotations
 
@@ -64,6 +69,16 @@ def show(ref: str, path: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
+def exists(ref: str, path: str) -> bool:
+    """Is this path a blob at this ref?
+
+    `git show` cannot tell absence from failure, and the difference is the
+    difference between a skip and an exit 2.
+    """
+    return subprocess.run(["git", "cat-file", "-e", f"{ref}:{path}"], cwd=ROOT,
+                          capture_output=True, text=True).returncode == 0
+
+
 def changed_python(base: str, ref: str) -> list[str]:
     proc = subprocess.run(["git", "diff", "--name-only", f"{base}...{ref}"],
                           cwd=ROOT, capture_output=True, text=True, check=True)
@@ -87,11 +102,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     identical: list[str] = []
     differing: list[str] = []
+    skipped: list[str] = []
     for path in sorted(paths):
+        at_base, at_ref = exists(args.base, path), exists(args.ref, path)
+        if not (at_base and at_ref):
+            skipped.append(path)
+            where = "added on the branch" if at_ref else "removed on the branch"
+            print(f"SKIPPED   {path} ({where})")
+            continue
         before, after = show(args.base, path), show(args.ref, path)
         if before is None or after is None:
-            print(f"MISSING {path}: at {args.base}={before is not None} "
-                  f"{args.ref}={after is not None}", file=sys.stderr)
+            failed = args.base if before is None else args.ref
+            print(f"GIT {path}: `git show` failed at {failed}", file=sys.stderr)
             return 2
         try:
             same = dump(before) == dump(after)
@@ -101,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         (identical if same else differing).append(path)
         print(f"{'IDENTICAL' if same else 'DIFFERS  '} {path}")
     print(f"\nfiles {len(paths)} · AST-identical modulo docstrings/comments "
-          f"{len(identical)} · differing {len(differing)}")
+          f"{len(identical)} · differing {len(differing)} · skipped {len(skipped)}")
     for path in differing:
         print(f"DIFFERS {path}", file=sys.stderr)
     return 1 if differing else 0

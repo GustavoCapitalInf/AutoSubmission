@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from tools.fixpriv_ast_identity import dump
+import subprocess
+
+from tools.fixpriv_ast_identity import ROOT, dump, exists, main
 
 BEFORE = '''
 """Module prose, the old wording.
@@ -110,3 +112,32 @@ def test_a_docstring_only_body_survives_stripping() -> None:
 )
 def test_every_other_string_position_is_behaviour(before: str, after: str) -> None:
     assert dump(before) != dump(after)
+
+
+# --------------------------------------------------------------------------
+# The bare invocation: the card's own method writes it, so it has to run.
+# --------------------------------------------------------------------------
+
+def _root_commit() -> str:
+    out = subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"],
+                         cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    return out.split()[-1]
+
+
+def test_exists_tells_absence_from_failure() -> None:
+    assert exists("HEAD", "tools/fixpriv_ast_identity.py")
+    assert not exists("HEAD", "tools/a_file_this_tree_does_not_carry.py")
+
+
+def test_a_path_absent_at_a_ref_is_skipped_and_counted(capsys) -> None:
+    """With no paths the tool takes every `.py` that DIFFERS between the refs,
+    which on a branch that adds a module includes files with no base version.
+    There is no pair to compare, so the gate skips and says so. Treating that
+    as a git failure exits 2 on the branch's own method line, and a gate that
+    exits 2 on its own branch reads as broken to whoever runs it next."""
+    code = main(["--base", _root_commit(), "--ref", "HEAD",
+                 "tools/fixpriv_ast_identity.py"])
+    printed = capsys.readouterr().out
+    assert code == 0, printed
+    assert "SKIPPED" in printed
+    assert "skipped 1" in printed

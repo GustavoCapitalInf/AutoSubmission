@@ -261,6 +261,17 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "    return ast.dump(strip_docstrings(ast.parse(source)), include_attributes=True)",
     ),
     (
+        "A5", "ast", "a path that is absent at one ref",
+        "restore the exit-2: read absence as a git failure, so the bare "
+        "invocation the card's method writes dies on any branch that adds a "
+        "module",
+        "        if not (at_base and at_ref):\n"
+        "            skipped.append(path)",
+        "        if not (at_base and at_ref):\n"
+        "            return 2\n"
+        "            skipped.append(path)",
+    ),
+    (
         "R1", "redact", "the sha rule",
         "drop the span check that keeps a replacement out of a content sha",
         "        if any(start < hend and hstart < end for hstart, hend in protected):\n"
