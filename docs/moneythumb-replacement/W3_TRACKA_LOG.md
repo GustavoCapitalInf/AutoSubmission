@@ -56898,8 +56898,13 @@ Measured at closure on the six:
 | `75FE7191FD4E74A0` | **validated / approved** | 1.0 | 1.0 | 22 | True |
 | `D31770634E04E104` | **validated / approved** | 1.0 | 1.0 | 22 | True |
 | `0943986A52D8226C` | failed → **review / integrity_flags** | 1.0 | 1.0 | 22 | True |
-| `BD835DA79B01B332` | failed → **review / integrity_flags** | 1.0 | 1.0 | 22 | True |
-| `C355B3706588F0B1` | failed → **review / integrity_flags** | 1.0 | 1.0 | 22 | True |
+| `BD835DA79B01B332` | failed → **review / integrity_flags** | 1.0 | 1.0 | 19 | True |
+| `C355B3706588F0B1` | failed → **review / integrity_flags** | 1.0 | 1.0 | 19 | True |
+
+(The last two counts read 22 in this record's first form; measured on the
+published payloads they are 19. The claim the column carries — that the printed
+grid is compared and agrees on every day it prints — is unaffected: the gate is
+mandatory wherever a grid is printed and all six publish.)
 
 The three that land in review are not a partial success of the rule — their
 arithmetic closes completely and the platform names a different, real defect:
