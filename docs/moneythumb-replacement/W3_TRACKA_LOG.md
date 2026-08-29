@@ -58121,10 +58121,17 @@ say why the reading carries.
 | canonical conformance (7 files) | **1,270 passed, 40 skipped** | **0** |
 | `python corpus_gate.py` — measured at `112002f` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs (103 native, 6 committed OCR), 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld, runtime 745.8s | **0** |
 | `tools/pnc_claim_delta.py` over all 3,380 archive documents | claimed then and now 45 · claimed now, unclaimed by EVERY reader then **13** · **taken from another reader, or dropped: 0** · no cached text 29 · untouched 3,293 | **0** |
-| branch privacy scan, ADDED FILE LINES vs the 58-document population | **hit_count 0** over 2,245 added lines and 58 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text). Not vacuous: the raw scan before exclusions finds **52**, every one class WORDS and every one ordinary English in this card's own prose | **0** |
-| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 9 commits | **0** |
+| branch privacy scan, ADDED FILE LINES vs the 58-document population | **hit_count 0** over 2,678 added lines and 58 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text). Not vacuous: the raw scan before exclusions finds **54**, every one class WORDS and every one ordinary English in this card's own prose | **0** |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 10 commits | **0** |
 | corpus-marked slice (`pytest -m corpus`) | **NOT RETURNED** — see below | — |
 | archive sweep (`tools.regfp_zero_movement_sweep`) | **NOT RETURNED** — see below | — |
+
+**The two scan rows count this section too, and the zero is invariant to
+that.** The added-line count and the commit count are the branch's own at the
+commit that carried them, so a section that reports a scan is itself scanned by
+the next run of it; both were re-run after this section landed and both still
+report MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0, at 2,678 added lines and 10
+commits. The numbers move with the record; what the floor asserts does not.
 
 **The three suite failures are inherited, and that is measured rather than
 argued.** `git diff 93c6132..HEAD` touches seven files and every one of them is
