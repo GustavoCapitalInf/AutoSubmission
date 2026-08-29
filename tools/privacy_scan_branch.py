@@ -360,9 +360,20 @@ _IDENTIFIER_WORD = (
     "MERCHANT|NO|NUM|NUMBER|ORIGINATOR|POLICY|PPD|REF|REFERENCE|ROUTING|SEQ|"
     "SEQUENCE|SHARE|TERMINAL|TRACE|TRANSACTION|TRANSIT|WITHDRAWAL"
 )
-#: A city-shaped word: four letters or more, beginning at a word BOUNDARY so
-#: that the tail of a longer word cannot stand in for one (without the `\b`,
-#: `MEMBER` simply offers `EMBER` instead), and not one of the words above.
+#: A city-shaped word: four letters or more, beginning at a word BOUNDARY, and
+#: not one of the words above.
+#:
+#: THE `\b` CARRIES NO MUTANT, and the reason is worth writing down rather than
+#: leaving as a gap in the table. Its job would be to stop the tail of a longer
+#: word standing in for a city — without it, `MEMBER` offers `EMBER`. The
+#: tempered run already makes that unreachable: to place a city inside
+#: `MEMBER` the run would have to cover the `M` at that word's head, which is
+#: exactly where the tempering refuses, and a run can never START inside a word
+#: because it begins at `BOX\b`. A mutant that removes the `\b` therefore
+#: cannot be killed by any line, which is the mutation table saying the
+#: character is redundant. It is kept because it is what "a city-shaped WORD"
+#: means, and because it holds if the tempering is ever loosened; the mutant
+#: that stands in its place attacks the LENGTH, which is discriminating.
 _CITY_WORD = rf"\b(?!(?:{_IDENTIFIER_WORD})\b)[A-Z]{{4,}}"
 #: One character of the run, TEMPERED: it may be anything the clause allows,
 #: except that it may not stand at the head of an identifier word. A tempered

@@ -355,6 +355,18 @@ def test_a_state_abbreviation_that_is_an_english_word_is_not_an_address(
         ("84213", "REMIT TO P.O. BOX 609. AUTH OK 84213"),
         ("84213", "PO BOX 609 \u2014 MEMBER ID 84213"),
         ("84213", "PO BOX 609 (SEE OVER) AUTH OK 84213"),
+        # And the clause characters have to do that work THEMSELVES. Every case
+        # above also carries an identifier word, which the tempered run refuses
+        # on its own, so none of them can tell whether the clause bound still
+        # holds. These four carry no identifier word at all: what stands after
+        # the punctuation is an ordinary city, state and five digits \u2014 a shape
+        # that is reported when no box vouches for it \u2014 so they fail if and
+        # only if the box marker reaches across the full stop, the hyphen, the
+        # dash or the bracket.
+        ("84213", "REMIT TO P.O. BOX 609. PITTSBURGH PA 84213"),
+        ("84213", "PO BOX 609 - GREENVILLE SC 84213"),
+        ("84213", "PO BOX 609 \u2014 DENVER CO 84213"),
+        ("84213", "PO BOX 609 (SEE OVER) BOSTON MA 84213"),
     ],
 )
 def test_the_box_marker_does_not_reach_out_of_its_clause(token: str, line: str) -> None:
@@ -371,6 +383,9 @@ def test_the_box_marker_does_not_reach_out_of_its_clause(token: str, line: str) 
         # company-id shape out of `core_processor_signed_counts.py`'s grammar.
         ("45678", "PO BOX 1558 CCD CO# 45678 TRACE"),
         ("45678", "REMIT PO BOX 1558 CCD CO# 45678"),
+        # THREE LETTERS ARE NOT A CITY, on its own and with no `#` to help.
+        ("45678", "PO BOX 1558 CCD CO 45678"),
+        ("84213", "PO BOX 1558 XYZ ID 84213"),
         ("84213", "PO BOX 196 MEMBER ID 84213"),
         ("84213", "PO BOX 196 THE MEMBER ID 84213"),
         ("84213", "PO BOX 196 SOUTH MEMBER ID 84213"),

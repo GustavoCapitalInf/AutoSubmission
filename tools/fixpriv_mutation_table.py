@@ -229,11 +229,10 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
     ),
     (
         "M11j", "scan", "institution_zip",
-        "drop the word BOUNDARY in front of the city test, so the tail of an "
-        "identifier word stands in for a city (`MEMBER` offers `EMBER`) and the "
-        "vocabulary guard is defeated one character in",
+        "shorten the city to three letters, so an ACH entry class (`CCD`) and "
+        "any other three-letter abbreviation reads as a city name",
         r'_CITY_WORD = rf"\b(?!(?:{_IDENTIFIER_WORD})\b)[A-Z]{{4,}}"',
-        r'_CITY_WORD = rf"(?!(?:{_IDENTIFIER_WORD})\b)[A-Z]{{4,}}"',
+        r'_CITY_WORD = rf"\b(?!(?:{_IDENTIFIER_WORD})\b)[A-Z]{{3,}}"',
     ),
     (
         "M11e", "scan", "institution_zip",
