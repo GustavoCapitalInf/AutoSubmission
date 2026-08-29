@@ -823,9 +823,40 @@ class DocResult:
                 and all(s.closes_under_the_reviews_conditions for s in self.sections))
 
     @property
+    def all_close_allowing_idle(self) -> bool:
+        """Every section either CLOSES on the corrected test or is trivially
+        idle — a dormant sibling omitted rather than counted (MINOR-C).
+
+        `all_close` cannot hold on a document with a genuinely dormant section,
+        because a trivially idle section is a class here and not a closure. So
+        the headline 2 is a floor of a floor, and this is the figure that sizes
+        the ruling on whether the idle-sibling rule may be generalised."""
+        return (bool(self.n_sections)
+                and any(s.closes for s in self.sections)
+                and all(s.closes or s.trivially_idle for s in self.sections))
+
+    @property
     def oracle_reproduced(self) -> bool:
         checked = [s.oracle_reproduced for s in self.sections if s.oracle_reproduced is not None]
         return bool(checked) and all(checked)
+
+    @property
+    def oracle_reproduced_excluding_idle(self) -> bool:
+        """The same test over the sections that would actually be PUBLISHED.
+
+        A section omitted as a dormant sibling publishes no closing, so there
+        is nothing for the table to reproduce and its row cannot fail the
+        document. This is the oracle figure that belongs beside
+        `all_close_allowing_idle`."""
+        checked = [s.oracle_reproduced for s in self.sections
+                   if s.oracle_reproduced is not None and not s.trivially_idle]
+        return bool(checked) and all(checked)
+
+    @property
+    def oracle_positional(self) -> bool:
+        checked = [s.oracle_positional for s in self.sections if s.oracle_positional is not None]
+        return bool(checked) and all(checked)
+
 
 def _transfer_pairs(sections: list[SectionResult]) -> int:
     """Same-day, same-magnitude, opposite-signed movements in two different
@@ -1278,6 +1309,28 @@ def main(argv: list[str] | None = None) -> int:
           f"{sum(1 for r in results if r.all_close_strict)} |")
     print()
 
+    print("## The dormant sibling, and what ruling (5) is worth (MINOR-C)")
+    print()
+    print("A trivially idle section is a class here and never a closure, so a "
+          "document carrying a genuinely dormant sibling cannot reach `every "
+          "located section closes` however well its posting sections "
+          "reconstruct. The headline is therefore a floor of a floor. Allowing "
+          "a section that prints no dated row and reads nothing to be OMITTED "
+          "rather than counted:")
+    print()
+    idle_ok = [r for r in results if r.all_close_allowing_idle]
+    print("| measure | documents |")
+    print("|---|---:|")
+    print(f"| every section either CLOSES or is trivially idle | **{len(idle_ok)}** |")
+    print(f"| ... the census groups they belong to | "
+          f"{', '.join(sorted({f'`{r.group}`' for r in idle_ok})) or '-'} |")
+    print(f"| ... carrying two or more posting sections | "
+          f"{sum(1 for r in idle_ok if r.n_posting >= 2)} |")
+    print(f"| ... with the table's own closing column reproducing, over the "
+          f"sections that would be PUBLISHED | "
+          f"**{sum(1 for r in idle_ok if r.oracle_reproduced_excluding_idle)}** |")
+    print()
+
     print("## By boundary mechanism")
     print()
     print("| boundary | docs | offered | closed | docs fully closing | table reproduces |")
@@ -1362,6 +1415,7 @@ def main(argv: list[str] | None = None) -> int:
                 "all_close": r.all_close,
                 "all_close_strict": r.all_close_strict,
                 "all_close_review": r.all_close_review,
+                "all_close_allowing_idle": r.all_close_allowing_idle,
                 "oracle_reproduced": r.oracle_reproduced,
                 "oracle_positional": r.oracle_positional,
                 "transfer_pairs": r.transfer_pairs,

@@ -457,6 +457,23 @@ table.**
 
 Both are `FAM:guardian_cu_statement_summary` (`7C7956EB5E93DB1D`, `E38FA786106F752E`).
 
+**And the 2 is a floor of a floor.** A trivially idle section is a class here and never a
+closure, so a document carrying a genuinely DORMANT sibling cannot reach "every located section
+closes" however well its posting sections reconstruct. Allowing such a section to be OMITTED
+rather than counted — which is exactly what the ratified idle-sibling rule licenses, and
+exactly what ruling (5) is about:
+
+| measure | documents |
+|---|---:|
+| every section either CLOSES on the corrected test or is trivially idle | **8** |
+| ... their census group | `FAM:guardian_cu_statement_summary`, all of them |
+| ... carrying two or more posting sections | 2 |
+| ... with the table's own closing column reproducing, over the sections that would be PUBLISHED | **8** |
+
+So the demonstrated population is **2 today and 8 under a ruling that lets a dormant sibling be
+omitted** — on one family, with the table reproducing on all eight. That is the number that
+sizes ruling (5), and §9.1 states it there.
+
 **MINOR-6, stated rather than implied: "every LOCATED section" is not "every PRINTED
 section".** 38 documents have no located partition at all and 11 more enumerate accounts none
 of which reappear as a heading. A document whose third account the boundary layer missed
@@ -784,12 +801,22 @@ section existed and was not published. It changes no reader's decision, moves no
 across the ladder, and it is owed today by symitar's two silent skips whatever is ruled
 here. Everything else in this packet is easier to argue about once a skip is visible.
 
-**Step 2 — take ruling (5) first, because it gates the larger population.** Ask whether the
-ratified idle-sibling rule may be generalised, and to what: 44 of the 86 single-posting
-documents have siblings that are empty and silent or declare idle in a wording symitar does not
-read, and 4 sibling sections in the whole population print the ratified declaration. That is a
-ruling about EVIDENCE, it is cheap to answer, and it decides whether 54 to 79 documents are
-reachable at all.
+**Step 2 — take ruling (5) first, because it is the cheapest thing on this list and it is
+worth more than the headline.** Ask whether the ratified idle-sibling rule may be generalised,
+and to what. **Sized on the family this packet actually demonstrates: 2 documents close today,
+and 8 close if a section that prints no dated row and reads nothing may be omitted rather than
+counted — all eight `FAM:guardian_cu_statement_summary`, all eight with the table's own closing
+column reproducing over the sections that would be published (§5.3).** Two printed facts put
+the ruling exactly where it bites: the 4 sibling sections in the whole population that print
+the ratified declaration are all one census group, and every one of `guardian_cu`'s six
+single-posting documents has a sibling that is EMPTY AND SILENT — the weakest evidence class in
+the sibling table. So the ruling is not about a wording symitar nearly reads; it is about
+whether silence plus arithmetic is evidence at all.
+
+Beyond that one family the same ruling governs the rest of the single-posting reservoir: 44 of
+the 86 documents have siblings that are empty and silent or declare idle in a wording symitar
+does not read, and it decides whether 54 to 79 documents are reachable at all. It is a ruling
+about EVIDENCE and it is cheap to answer.
 
 **Step 3 — Option C for the multi-posting population, and size it honestly.** A multi-account
 payload gated by all thirteen conditions in §6. **Measured today: 2 documents close on every
