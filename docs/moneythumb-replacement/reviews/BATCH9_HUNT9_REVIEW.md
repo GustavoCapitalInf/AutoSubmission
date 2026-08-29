@@ -126,8 +126,8 @@ W3 §HUNT9.5 states: *"Not one document reaches `validated` with every oracle re
 change to this reader — no widening, no relaxation, nothing** — can produce a validated
 document in this population, because what blocks it is downstream of the parser."*
 
-The first sentence is true and I reproduced it. The second is false, and the "because" is
-the wrong diagnosis. Measured, with `_validate` relaxed AND the bank-stated
+The opening claim is true and I reproduced it. The one that follows is false, and its
+"because" is the wrong diagnosis. Measured, with `_validate` relaxed AND the bank-stated
 `Total Service Charges (-)` published as a debit posting dated the LAST DAY OF THE PERIOD —
 a change entirely inside the reader, touching no platform file:
 
