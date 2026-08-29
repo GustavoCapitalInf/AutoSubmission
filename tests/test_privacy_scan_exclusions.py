@@ -273,7 +273,7 @@ def test_the_era_bound_is_a_date_comparison_not_a_year_comparison() -> None:
     [
         ("99999", "OZARK, AR 99999"),                          # city, comma, state
         ("99999", r'r"P\.?O\.? BOX 196\s+OZARK,\s*AR\s*99999"'),  # the same, as regex source
-        ("99999", "COLUMBUS OH 99999-1558"),                   # the ZIP+4 tail
+        ("99999", "PO BOX 1962 COLUMBUS OH 99999-1558"),       # a box, +4 as well
         ("99999", "PO BOX 1962 ST LOUIS MO 99999"),            # a box in the clause
         ("95959", "P. O. BOX 1962, SEATTLE WA 95959-9750"),
         ("95959", "1 GUARDIAN WAY, PRATTVILLE, AL 95959  334-244-9999"),
@@ -301,6 +301,13 @@ def test_institution_zip_reaches_nothing_wider(token: str, line: str) -> None:
 @pytest.mark.parametrize(
     ("token", "line"),
     [
+        # A ZIP+4 TAIL IS NOT EVIDENCE. `NNNNN-NNNN` after an abbreviation-shaped
+        # word is a shape the archive prints on identifiers, and the rule used to
+        # read it as an address on its own.
+        ("84213", "MEMBER ID 84213-6789"),
+        ("84213", "CARD ENDING IN 84213-6789"),
+        ("84213", "LOAN NO. OR 84213-1234"),
+        ("84213", "PAID CO 84213-1234"),
         # THE VOCABULARY, not the geometry: every abbreviation below is also an
         # ordinary word, and every line below is a shape this archive prints.
         ("84213", "MEMBER ID 84213"),                       # a member number

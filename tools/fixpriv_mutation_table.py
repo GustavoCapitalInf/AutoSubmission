@@ -177,6 +177,15 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         '_CLAUSE_CHAR = r"[^;|]"',
     ),
     (
+        "M11f", "scan", "institution_zip",
+        "put the standalone ZIP+4 branch back into the table, so a five-digit "
+        "run with a four-digit suffix reads as an address with no city and no "
+        "box anywhere near it",
+        "ADDRESS_ZIP_RES = (CITY_STATE_ZIP, BOX_CLAUSE_ZIP)",
+        "ADDRESS_ZIP_RES = (CITY_STATE_ZIP, BOX_CLAUSE_ZIP, re.compile(\n"
+        "    rf\"\\b(?:{_STATE})\\b{_ZIP_GAP}(\\d{{5}})\\s?-\\s?\\d{{4}}(?![\\d-])\"))",
+    ),
+    (
         "M12", "scan", "the table as a whole",
         "let a rule claim a hit before it is asked to, by excusing everything",
         "def excluded_by(cls: str, path: str, token: str, line: str) -> str | None:\n"

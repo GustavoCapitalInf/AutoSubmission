@@ -147,8 +147,10 @@ rule                   what it excludes, and why that is safe
                        its comma (`OZARK, AR 99999`), or a post-office box in
                        the same clause, which ends at a full stop, a dash or a
                        segment separator (`P.O. BOX 196 OZARK AR 99999`). A
-                       ZIP+4 tail STRENGTHENS either shape and is never
-                       evidence on its own. The postal code
+                       ZIP+4 tail strengthens either shape and is NEVER
+                       evidence on its own: `MEMBER ID 84213-6789` is a
+                       member number with a suffix, not an address. The
+                       postal code
                        of an institution's own service address is the
                        furniture the doctrine allows a detection marker to
                        carry; it identifies a branch, never a customer. The
@@ -250,9 +252,16 @@ _ZIP_GAP = r"[^0-9]{0,8}"
 #: * ``CITY_STATE_ZIP`` — a city, its comma, the abbreviation, the code
 #:   (`RALEIGH, NC 99999`). The comma is the city/state junction and a
 #:   transaction description does not print one before a state word.
-#: * ``STATE_ZIP_PLUS_FOUR`` — the code carries its ZIP+4 tail
-#:   (`COLUMBUS OH 99999-1558`). Five digits, a hyphen and exactly four more
-#:   is the postal shape itself.
+#:
+#: A ZIP+4 tail is NOT one of the shapes. It was, and the first re-review
+#: threw it out: `NNNNN-NNNN` after an abbreviation-shaped word carries no
+#: address evidence at all, and the archive prints identifiers in exactly
+#: that shape — `MEMBER ID 84213-6789`, `CARD ENDING IN 84213-6789`,
+#: `LOAN NO. OR 84213-1234` were all silenced by it. The tail STRENGTHENS
+#: either shape above (both accept it, because neither forbids what follows
+#: the five digits), and on its own it says nothing. Evidence of an address
+#: is a city or a box; a postal-looking suffix is not evidence, it is a
+#: coincidence a cheque number can have.
 #: * ``BOX_CLAUSE_ZIP`` — a post-office box in the SAME clause, at most 70
 #:   characters ahead and never across a clause end
 #:   (`PO BOX 609 PITTSBURGH PA 99999`). A box marker is doctrine-sanctioned
@@ -274,9 +283,6 @@ _ADDRESS_JUNK = r"(?:\\[SW]|[^0-9A-Z])"
 CITY_STATE_ZIP = re.compile(
     rf"[A-Z]{_ADDRESS_JUNK}{{0,2}},{_ADDRESS_JUNK}{{0,4}}(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
 )
-STATE_ZIP_PLUS_FOUR = re.compile(
-    rf"\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})\s?-\s?\d{{4}}(?![\d-])"
-)
 #: One character of the run between the box marker and the state. A postal
 #: address does not carry a full stop, a dash or a segment separator between
 #: its box and its state, and each of those is where the next fact begins.
@@ -284,7 +290,7 @@ _CLAUSE_CHAR = r"[^;|.\-\u2013\u2014!?()\[\]]"
 BOX_CLAUSE_ZIP = re.compile(
     rf"\bP\.?\s?O\.?\s?BOX\b{_CLAUSE_CHAR}{{0,70}}?\b(?:{_STATE})\b{_ZIP_GAP}(\d{{5}})(?!\d)"
 )
-ADDRESS_ZIP_RES = (CITY_STATE_ZIP, STATE_ZIP_PLUS_FOUR, BOX_CLAUSE_ZIP)
+ADDRESS_ZIP_RES = (CITY_STATE_ZIP, BOX_CLAUSE_ZIP)
 #: The archive was frozen on 2026-08-06; every record this program writes about
 #: its own work is dated after it began, and the first batch-9 record is dated
 #: from July 2026 on. Bounded by BOTH the directory and the date.
@@ -395,6 +401,7 @@ _EXCLUSION_SAMPLES = (
     ("institution_zip", "DIGITS", "a.py", "99999", "OZARK, AR 99999", True),
     ("institution_zip", "DIGITS", "a.py", "95959", "PO BOX 1962 COLUMBUS OH 95959-1558", True),
     ("institution_zip", "DIGITS", "a.py", "84213", "PO BOX 609 - ACCOUNT ENDING IN 84213", False),
+    ("institution_zip", "DIGITS", "a.py", "84213", "MEMBER ID 84213-6789", False),
     ("institution_zip", "DIGITS", "a.py", "95959", "PO BOX 609 PITTSBURGH PA 95959", True),
     ("institution_zip", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
     ("institution_zip", "DIGITS", "a.py", "9898967", "OZARK, AR 9898967", False),
