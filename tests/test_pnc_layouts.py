@@ -80,6 +80,29 @@ COMMERCIAL_ACTIVITY = (
 COMMERCIAL_DOC = commercial(index=COMMERCIAL_INDEX, activity=COMMERCIAL_ACTIVITY)
 
 
+def _activity_detail_skin(*, summary: str, index: str, ladder: str, activity: str) -> str:
+    """The skin that DOES print an `Activity Detail` heading, so a section can
+    stand directly under it with no direction heading above it at all."""
+    return (
+        "Business Checking\n"
+        "PNC Bank\n"
+        "For the Period 04/01/2054 to 04/30/2054\n"
+        "Primary Account Number: XX-XXXX-0000\n"
+        "Balance Summary\n"
+        "Beginning\n"
+        f"{summary}\n"
+        "Deposits and other additions\n"
+        "Checks and other\n"
+        "balance\n"
+        "deductions\n"
+        f"{index}"
+        "Daily Balance\n"
+        f"Date Ledger balance {ladder}\n"
+        "Activity Detail\n"
+        f"{activity}"
+    )
+
+
 def test_the_commercial_skin_is_read_without_an_activity_detail_heading():
     """It prints none. Its detail begins at the first direction heading printed
     after the ledger — the two above that are the index's column headers."""
@@ -121,17 +144,24 @@ def test_negative_a_summary_the_block_bound_cannot_reach_is_not_taken_from_below
 
 
 def test_negative_the_summary_block_ends_where_the_next_block_starts():
-    """The bound, on its own terms. With the grid's row printing only three
-    columns, the index below it prints four figures on one line — and the
-    reader must come up a column short rather than walk on and read the index
-    as the summary. Said of `_summary_amounts` because the identities further
-    down would refuse the document either way, and this is the refusal that has
-    to happen HERE: a summary taken from the index would be four plausible
-    figures, none of them a balance."""
+    """The bound, on its own terms.
+
+    The grid's own row prints only three columns, and a FOUR-figure line stands
+    below the block — the shape a second summary block, printed for another
+    period or another account, puts there. The reader must come up a column
+    short and refuse, not walk on and read a summary out of the next block.
+
+    Said of `_summary_amounts` because the identities further down would refuse
+    such a document either way, and this is the refusal that has to happen
+    HERE: four figures taken from another block are four plausible balances,
+    every one of them belonging to something else."""
     from analysis.pnc import _summary_amounts
 
     doc = commercial(index=COMMERCIAL_INDEX, activity=COMMERCIAL_ACTIVITY,
-                     summary="Ending balance 1,000.00 500.00 300.00")
+                     summary="Ending balance 1,000.00 500.00 300.00").replace(
+        "Checks and Other Debits\n",
+        "Checks and Other Debits\nEnding balance 9,000.00 500.00 300.00 9,200.00\n", 1)
+    assert "9,200.00" in doc
     assert _summary_amounts(doc) is None
 
 
@@ -314,16 +344,61 @@ def test_negative_a_dropped_continuation_page_is_refused_rather_than_published_s
 def test_negative_a_section_the_index_does_not_print_is_refused():
     """Rows in an unindexed section are rows the bank did not say were there.
     Measured in the archive on one document, which publishes a whole wire
-    section its own index and its own printed totals both exclude."""
-    doc = commercial(
-        index=COMMERCIAL_INDEX,
-        activity=COMMERCIAL_ACTIVITY + (
+    section its own index and its own printed totals both exclude.
+
+    Every OTHER identity is satisfied here on purpose: the summary closes with
+    the extra row in it, the ladder prints the day it lands on and the two
+    indexed sections reproduce exactly. The only thing wrong with this document
+    is that the bank never said the third section was there, so it is the only
+    thing that can refuse it."""
+    doc = _activity_detail_skin(
+        summary="Ending balance 1,000.00 500.00 400.00 1,100.00",
+        index=("Description Items Amount Deposits 1 500.00\n"
+               "Description Items Amount ACH Deductions 1 300.00\n"),
+        ladder="04/02 1,500.00 04/29 1,400.00 04/30 1,100.00",
+        activity=(
+            "Deposits and Other Additions\n"
+            "Deposits\n"
+            f"{DESCRIBED_HEADER}"
+            "04/02 500.00 Deposit 000000001\n"
+            "Checks and Other Deductions\n"
+            "ACH Deductions\n"
+            f"{DESCRIBED_HEADER}"
+            "04/30 300.00 An ACH Deduction 000000002\n"
             "Other Deductions\n"
             f"{DESCRIBED_HEADER}"
-            "04/29 100.00 An unindexed deduction 000000004\n"
+            "04/29 100.00 An unindexed deduction 000000003\n"
         ),
     )
     assert parse_pnc_statement(doc) is None
+
+
+def test_the_same_document_with_that_section_indexed_publishes():
+    """The control for the test above: one line of index added, nothing else
+    touched, and the document that could not publish now does."""
+    doc = _activity_detail_skin(
+        summary="Ending balance 1,000.00 500.00 400.00 1,100.00",
+        index=("Description Items Amount Deposits 1 500.00\n"
+               "Description Items Amount ACH Deductions 1 300.00 "
+               "Other Deductions 1 100.00\n"),
+        ladder="04/02 1,500.00 04/29 1,400.00 04/30 1,100.00",
+        activity=(
+            "Deposits and Other Additions\n"
+            "Deposits\n"
+            f"{DESCRIBED_HEADER}"
+            "04/02 500.00 Deposit 000000001\n"
+            "Checks and Other Deductions\n"
+            "ACH Deductions\n"
+            f"{DESCRIBED_HEADER}"
+            "04/30 300.00 An ACH Deduction 000000002\n"
+            "Other Deductions\n"
+            f"{DESCRIBED_HEADER}"
+            "04/29 100.00 An indexed deduction 000000003\n"
+        ),
+    )
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert sorted(amounts(stmt)) == [-300.00, -100.00, 500.00]
 
 
 def test_negative_a_section_read_LONG_is_refused_as_readily_as_one_read_short():
@@ -349,6 +424,28 @@ def test_negative_two_index_entries_that_contradict_each_other_are_both_applied(
             "Deposits 2 transactions for a total of $500.00"),
     )
     assert parse_pnc_statement(doc) is None
+
+
+def test_negative_a_description_that_ENDS_with_a_sections_words_opens_no_section():
+    """A heading owns its line, and the anchor that says so is the START of the
+    line — not the end of it.
+
+    `tests/test_pnc_variants.py` pins the case where a section's words fall in
+    the MIDDLE of a row; this is the other half, where they fall at the end and
+    a heading pattern without a line anchor would match there. The cost is
+    invisible to every count and every total — the row is still booked, on its
+    own day, for its own amount — and shows up only in the description, which
+    is why this test reads the description."""
+    doc = commercial(
+        index=COMMERCIAL_INDEX,
+        activity=COMMERCIAL_ACTIVITY.replace(
+            "04/02 500.00 Deposit 000000001",
+            "04/02 500.00 Deposit reversing Service Charges and Fees"),
+    )
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert [t.description for t in stmt.transactions][0] == (
+        "Deposit reversing Service Charges and Fees")
 
 
 def test_the_index_and_the_detail_heading_may_spell_one_section_differently():
@@ -406,8 +503,12 @@ def test_negative_a_ladder_cell_outside_the_printed_period_fails_the_document():
 
 
 def test_negative_a_ladder_that_prints_one_day_twice_with_two_balances_is_refused():
+    """The SECOND of the two cells is the one the ledger walks to, so a reader
+    that let the later cell win would publish this document and never notice
+    that the bank printed the day twice. It is refused because the ladder it
+    would be checked against is one the document does not agree on."""
     doc = commercial(index=COMMERCIAL_INDEX, activity=COMMERCIAL_ACTIVITY,
-                     ladder="04/02 1,500.00 04/30 1,200.00 04/30 1,100.00")
+                     ladder="04/02 1,500.00 04/30 1,100.00 04/30 1,200.00")
     assert parse_pnc_statement(doc) is None
 
 
@@ -488,20 +589,25 @@ def test_a_both_sided_category_takes_the_direction_of_the_group_above_it():
 
 def test_negative_a_both_sided_category_with_no_direction_printed_is_declined():
     """The name is a credit category and a debit category on the same page, so
-    with nothing above it the paper has not said which way the money moved —
-    and a guess would sign a whole section wrongly."""
-    doc = commercial(
+    with nothing above it the paper has not said which way the money moved.
+
+    The document is built so that the GUESS would be indistinguishable from a
+    reading: sign that section as a credit and every printed identity closes —
+    the summary, the index and the ladder all agree. That is exactly why the
+    refusal has to be here and cannot be left to anything downstream."""
+    doc = _activity_detail_skin(
+        summary="Ending balance 1,000.00 500.00 300.00 1,200.00",
         index=("Description Items Amount Trade Services 1 500.00\n"
-               "Description Items Amount ACH Debits 1 300.00 "
-               "Total 1 500.00 Total 1 300.00\n"),
+               "Description Items Amount ACH Deductions 1 300.00\n"),
+        ladder="04/02 1,500.00 04/30 1,200.00",
         activity=(
             "Trade Services 1 transaction for a total of $500.00\n"
             f"{DESCRIBED_HEADER}"
             "04/02 500.00 A Trade Services item 000000001\n"
-            "Checks and Other Debits\n"
-            "ACH Debits 1 transaction for a total of $300.00\n"
+            "Checks and Other Deductions\n"
+            "ACH Deductions\n"
             f"{DESCRIBED_HEADER}"
-            "04/30 300.00 An ACH Debit 000000002\n"
+            "04/30 300.00 An ACH Deduction 000000002\n"
         ),
     )
     assert parse_pnc_statement(doc) is None
