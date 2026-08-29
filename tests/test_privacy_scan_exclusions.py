@@ -172,8 +172,9 @@ def test_docs_session_date_excludes_the_programs_own_era(token: str) -> None:
 @pytest.mark.parametrize(
     ("path", "token"),
     [
-        ("docs/x.md", "1931-06-30"),   # one day before the era
-        ("docs/x.md", "1931-04-30"),   # a statement period
+        ("docs/x.md", "2019-11-21"),   # before the era, same century
+        ("docs/x.md", "2001-02-03"),   # far before it, still 20xx
+        ("docs/x.md", "2011-09-13"),   # a statement period could be any of these
         ("tests/test_x.py", "2026-08-29"),  # right era, wrong tree
         ("analysis/x.py", "2026-08-29"),
     ],
@@ -234,7 +235,7 @@ def test_institution_zip_reaches_nothing_wider(token: str, line: str) -> None:
         ("MONEY", "777,777.77", "BEGINNING BALANCE 777,777.77"),
         ("MONEY", "818,181.81", "CREDITS (3) +$818,181.81"),
         ("DATES", "02/16/31", "ATM W/D 1339 02/16/31"),
-        ("DATES", "1931-04-30", "PERIOD ENDS 1931-04-30"),
+        ("DATES", "2019-11-21", "PERIOD ENDS 2019-11-21"),
     ],
 )
 @pytest.mark.parametrize(
