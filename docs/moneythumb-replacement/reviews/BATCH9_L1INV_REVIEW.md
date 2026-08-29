@@ -240,7 +240,7 @@ daily evidence instead of a reconstruction. Every one of the 32 false-empty clos
 failed a count-coverage check the section itself prints. The packet names one unpaid debt
 (`posting_dates_cover_source`); these two are larger, unpaid, and unnamed.
 
-### MAJOR-5 — the ten fail-closed conditions say nothing about inter-account transfers, which the population contains.
+### MAJOR-5 — the ten fail-closed conditions say nothing about money moved between a member's own accounts, which the population shows.
 
 On the documents where two or more sections each reconstructed a non-empty ledger (11
 documents — the small base is itself a consequence of BLOCK-1), **6 carry at least one
@@ -467,7 +467,7 @@ population: not one of them has every sibling printing the declaration symitar's
 requires, and 20 have a sibling that printed activity, so Stage 1 as scoped would commit the
 L-1 defect without ever asking. The honest shape of the decision is smaller and sharper than
 the packet presents: a handful of `guardian_cu`-shaped documents demonstrably reconstruct
-one account at a time as things stand, one structural family at a time, and every other number in §4 needs
+their accounts separately, as things stand, one structural family at a step, and every other number in §4 needs
 the prototype to stop accepting the empty ledger and to start using the counts, totals and
 daily balances the sections themselves print — 79 and 75 sections respectively — before it is
 worth ruling on.
