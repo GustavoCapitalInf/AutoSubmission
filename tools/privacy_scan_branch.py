@@ -48,12 +48,66 @@ an audit of what the tree already carries, pass the repository's root commit:
     python tools/privacy_scan_branch.py --shas population.txt --data-dir ... \
         --base "$(git rev-list --max-parents=0 HEAD)" --ref train8 --include-tree
 
-and adjudicate the candidates by class (round `.00` figures and the
-`tests/corpus_cache/` fixtures are archive text by design).
+and adjudicate the candidates by class.
 
-Exit 1 on any hit, 0 on none. The JSON summary goes to stdout; each hit goes to
-stderr as `HIT <class> <file>:<line> <token>` — the report is for the operator's
-terminal and must never itself be committed.
+THE EXCLUSION TABLE (batch 9, FIXTURE-PRIVACY). A whole-tree audit against a
+3,351-document universe prints ~3.5x10^5 distinct money figures and ~2x10^5
+digit runs, so a candidate is not yet a finding: some shapes cannot carry
+archive identity at all, and some are archive text on purpose. Every rule below
+names a SHAPE and is applied to every file alike — never a file list, never a
+token list — and `tests/test_privacy_scan_exclusions.py` proves each one
+matches exactly the shape it names and NOTHING wider (in particular that none
+of them silences a bare account number). `--no-exclusions` reports the raw scan.
+
+===================== ======================================================
+rule                   what it excludes, and why that is safe
+===================== ======================================================
+``words_class``        class WORDS. Institution and template vocabulary:
+                       `DATE`, `AMOUNT`, `DEPOSIT`, an issuer's own name. An
+                       alphabetic token carries no figure and no identifier,
+                       and the census already names every institution. The
+                       standing exclusion applied at the batch-8 train.
+``corpus_cache``       any path under ``tests/corpus_cache/``. That directory
+                       IS cached archive text, committed on purpose so the
+                       pinned corpus runs offline; scanning it re-finds the
+                       archive in the archive. The standing exclusion applied
+                       at the batch-8 train.
+``round_money``        a MONEY token ending ``.00``. A round figure is a
+                       magnitude, not a printed identity: `100.00` is the
+                       bound of a test's tolerance as readily as it is a
+                       deposit, and no document is reconstructed from one.
+                       The standing exclusion applied at the batch-8 train.
+``subunit_money``      a MONEY token whose integer part is a bare ``0``
+                       (``0.01``..``0.99``). Cent and sub-unit CODE CONSTANTS
+                       — a reconciliation tolerance, a rate floor. A
+                       sub-unit magnitude identifies nobody and reconstructs
+                       nothing.
+``hex_sha_substring``  a DIGITS token that lies inside a 16..64-character hex
+                       run on the same line. It is part of a content sha —
+                       the program's own name for a document — and not a
+                       number anything printed. (A sha is a hash OF the
+                       document, never a token FROM it.)
+``docs_session_date``  a DATES token in ``docs/`` that is an ISO date on or
+                       after ``2026-07-01``. Those are the PROGRAM's own
+                       session dates — when a cell ran, when a train closed —
+                       written by this project after the archive was frozen
+                       on 2026-08-06. A document date and a session date are
+                       different facts that happen to share a shape, so the
+                       rule is bounded by both the directory that holds the
+                       program's records and the date the program began.
+``institution_zip``    a DIGITS token of exactly five digits preceded on the
+                       line, within eight non-digit characters, by a US state
+                       abbreviation. A postal code of an institution's own
+                       service address — the furniture the doctrine allows a
+                       detection marker to carry (`P.O. BOX ... OZARK, AR
+                       72949`). It identifies a bank branch, never a customer,
+                       and its shape cannot spell an account number.
+===================== ======================================================
+
+Exit 1 on any hit the table does not exclude, 0 on none. The JSON summary goes
+to stdout; each non-excluded hit goes to stderr as
+`HIT <class> <file>:<line> <token>` — the report is for the operator's terminal
+and must never itself be committed.
 
 SELF-CHECK (the FROST-OZK / ATB-MEASURE lesson): a scan written through a
 shell heredoc once lost the backslash of every `\\b` to a 0x08 byte and matched
@@ -99,6 +153,106 @@ TEXT_SUFFIXES = frozenset(
 
 _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
+#: A content sha as it is written in this tree: 16 to 64 hex characters. The
+#: token has to sit INSIDE one, so a bare digit run on the same line as a sha
+#: is still a finding.
+HEX_RUN_RE = re.compile(r"[0-9A-F]{16,64}")
+#: `AR 72949`, `OZARK, AR\s*72949` — a state abbreviation, then at most eight
+#: characters that are not digits, then the five-digit code itself. The gap is
+#: short and digit-free so that the rule cannot reach past an address onto an
+#: unrelated number, and both US territories and the DC code are included.
+_STATE = (
+    "AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|"
+    "MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|PR|RI|SC|SD|TN|TX|UT|VT|VA|"
+    "VI|WA|WV|WI|WY"
+)
+ZIP_CONTEXT_RE = re.compile(rf"\b(?:{_STATE})\b[^0-9]{{0,8}}(\d{{5}})(?!\d)")
+#: The archive was frozen on 2026-08-06; every record this program writes about
+#: its own work is dated after it began, and the first batch-9 record is dated
+#: from July 2026 on. Bounded by BOTH the directory and the date.
+PROGRAM_ERA = "2026-07-01"
+ISO_DATE_RE = re.compile(r"\A20\d\d-\d\d-\d\d\Z")
+
+
+def _words_class(cls: str, path: str, token: str, line: str) -> bool:
+    return cls == "WORDS"
+
+
+def _corpus_cache(cls: str, path: str, token: str, line: str) -> bool:
+    return path.startswith("tests/corpus_cache/")
+
+
+def _round_money(cls: str, path: str, token: str, line: str) -> bool:
+    return cls == "MONEY" and token.endswith(".00")
+
+
+def _subunit_money(cls: str, path: str, token: str, line: str) -> bool:
+    return cls == "MONEY" and re.fullmatch(r"0\.\d\d", token) is not None
+
+
+def _hex_sha_substring(cls: str, path: str, token: str, line: str) -> bool:
+    return cls == "DIGITS" and any(token in run for run in HEX_RUN_RE.findall(line))
+
+
+def _docs_session_date(cls: str, path: str, token: str, line: str) -> bool:
+    return (
+        cls == "DATES"
+        and path.startswith("docs/")
+        and ISO_DATE_RE.match(token) is not None
+        and token >= PROGRAM_ERA
+    )
+
+
+def _institution_zip(cls: str, path: str, token: str, line: str) -> bool:
+    return (
+        cls == "DIGITS"
+        and len(token) == 5
+        and token in ZIP_CONTEXT_RE.findall(line)
+    )
+
+
+#: The table itself, in the order it is applied. A hit is attributed to the
+#: FIRST rule that claims it, so the per-rule counts partition the raw hits.
+EXCLUSIONS: tuple[tuple[str, object], ...] = (
+    ("words_class", _words_class),
+    ("corpus_cache", _corpus_cache),
+    ("round_money", _round_money),
+    ("subunit_money", _subunit_money),
+    ("hex_sha_substring", _hex_sha_substring),
+    ("docs_session_date", _docs_session_date),
+    ("institution_zip", _institution_zip),
+)
+
+#: (rule, class, path, token, line, expected) — the shape each rule names and
+#: the nearest thing it must NOT reach. Checked on import, so the table cannot
+#: go inert the way a heredoc once made the patterns inert.
+_EXCLUSION_SAMPLES = (
+    ("words_class", "WORDS", "a.py", "BALANCE", "BALANCE", True),
+    ("words_class", "DIGITS", "a.py", "12345", "12345", False),
+    ("corpus_cache", "MONEY", "tests/corpus_cache/ocr/x.md", "1.23", "1.23", True),
+    ("corpus_cache", "MONEY", "tests/test_x.py", "1.23", "1.23", False),
+    ("round_money", "MONEY", "a.py", "100.00", "100.00", True),
+    ("round_money", "MONEY", "a.py", "100.01", "100.01", False),
+    ("subunit_money", "MONEY", "a.py", "0.01", "0.01", True),
+    ("subunit_money", "MONEY", "a.py", "10.01", "10.01", False),
+    ("hex_sha_substring", "DIGITS", "a.py", "12345", "AB12345CDEF01234567", True),
+    ("hex_sha_substring", "DIGITS", "a.py", "12345", "ACCOUNT 12345", False),
+    ("docs_session_date", "DATES", "docs/x.md", "2026-08-29", "ON 2026-08-29", True),
+    ("docs_session_date", "DATES", "docs/x.md", "2026-06-30", "ON 2026-06-30", False),
+    ("docs_session_date", "DATES", "tests/x.py", "2026-08-29", "ON 2026-08-29", False),
+    ("institution_zip", "DIGITS", "a.py", "72949", "OZARK, AR 72949", True),
+    ("institution_zip", "DIGITS", "a.py", "12345", "ACCOUNT 12345", False),
+    ("institution_zip", "DIGITS", "a.py", "1234567", "OZARK, AR 1234567", False),
+)
+
+
+def excluded_by(cls: str, path: str, token: str, line: str) -> str | None:
+    """The first rule of the table that claims this hit, or None."""
+    for name, rule in EXCLUSIONS:
+        if rule(cls, path, token, line):  # type: ignore[operator]
+            return name
+    return None
+
 
 def self_check() -> None:
     """Refuse to run as an inert instrument."""
@@ -117,6 +271,18 @@ def self_check() -> None:
             raise SystemExit(f"{name} matches nothing in its own sample; refusing to run")
     if len(SPELLED_DATE_RE.findall("ON JANUARY 5, 2026 AND 5 FEB 2026 AND SEPT 30 2025")) != 3:
         raise SystemExit("SPELLED_DATE_RE does not match all three spelled shapes; refusing to run")
+    named = {name for name, _ in EXCLUSIONS}
+    for rule, cls, path, token, line, expected in _EXCLUSION_SAMPLES:
+        if rule not in named:
+            raise SystemExit(f"exclusion sample names {rule!r}, which is not in the table")
+        got = excluded_by(cls, path, token, line) == rule
+        if got is not expected:
+            raise SystemExit(
+                f"exclusion {rule!r} answers {got} for its own sample, expected {expected}; refusing to run"
+            )
+    for name in named:
+        if not any(sample[0] == name for sample in _EXCLUSION_SAMPLES):
+            raise SystemExit(f"exclusion {name!r} carries no sample; refusing to run")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -133,6 +299,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--digit-min", type=int, default=5)
     parser.add_argument("--word-min", type=int, default=4)
     parser.add_argument("--include-tree", action="store_true")
+    parser.add_argument("--no-exclusions", action="store_true",
+                        help="report the RAW scan: attribute nothing to the exclusion table")
     parser.add_argument("--out", type=Path, default=None)
     return parser.parse_args(argv)
 
@@ -313,16 +481,37 @@ def main(argv: list[str] | None = None) -> int:
     # universe makes ~5x10^4 of its tokens hit, which is ~10^10 set lookups —
     # hours, for exactly the same hit list this produces in seconds.
     wanted: set[str] = set().union(*distinctive.values()) if distinctive else set()
-    sites: dict[str, list[tuple[str, int]]] = {}
-    for file, number, text in lines:
+    sites: dict[str, list[int]] = {}
+    for index, (_file, _number, text) in enumerate(lines):
         for token in set().union(*tokens_of(text, args.digit_min, args.word_min).values()) & wanted:
-            sites.setdefault(token, []).append((file, number))
+            sites.setdefault(token, []).append(index)
     hits: list[dict[str, object]] = []
     for cls, tokens in distinctive.items():
         for token in tokens:
-            for file, number in sites.get(token, ()):
-                hits.append({"class": cls, "file": file, "line": number, "token": token})
+            for index in sites.get(token, ()):
+                file, number, text = lines[index]
+                # `--include-tree` labels the whole-file pass `tree:<path>`;
+                # the exclusion rules are about the PATH, so they see it bare.
+                path = file[5:] if file.startswith("tree:") else file
+                rule = None if args.no_exclusions else excluded_by(cls, path, str(token), text)
+                hits.append({
+                    "class": cls, "file": file, "line": number,
+                    "token": token, "excluded_by": rule,
+                })
     hits.sort(key=lambda h: (str(h["file"]), int(h["line"]), str(h["class"])))
+
+    kept = [hit for hit in hits if hit["excluded_by"] is None]
+    # With a root-commit `--base`, the diff pass and `--include-tree` reach the
+    # same line twice under two labels. A SITE is the thing to count and to
+    # fix: one class, one path, one line, one token.
+    site_keys = {
+        (str(h["class"]), str(h["file"]).removeprefix("tree:"), int(h["line"]), str(h["token"]))
+        for h in kept
+    }
+    by_class_dir: dict[str, int] = {}
+    for cls, path, _number, _token in site_keys:
+        top = path.split("/", 1)[0] if "/" in path else "(root)"
+        by_class_dir[f"{cls} {top}"] = by_class_dir.get(f"{cls} {top}", 0) + 1
 
     report = {
         "population": len(shas),
@@ -331,17 +520,24 @@ def main(argv: list[str] | None = None) -> int:
         "printed_tokens": {cls: len(v) for cls, v in printed.items()},
         "distinctive_scanned": {cls: len(v) for cls, v in distinctive.items()},
         "added_lines": len(lines),
-        "hits_by_class": {cls: sum(1 for h in hits if h["class"] == cls) for cls in printed},
-        "hit_count": len(hits),
+        "raw_hit_count": len(hits),
+        "excluded_by_rule": {
+            name: sum(1 for h in hits if h["excluded_by"] == name) for name, _ in EXCLUSIONS
+        },
+        "hits_by_class": {cls: sum(1 for h in kept if h["class"] == cls) for cls in printed},
+        "hit_count": len(kept),
+        "residue_sites": len(site_keys),
+        "residue_files": len({path for _cls, path, _n, _t in site_keys}),
+        "residue_by_class_dir": dict(sorted(by_class_dir.items())),
         "base": args.base,
         "ref": args.ref,
     }
     if args.out is not None:
         args.out.write_text(json.dumps({**report, "hits": hits}, indent=1), encoding="utf-8")
     print(json.dumps(report, sort_keys=True))
-    for hit in hits:
+    for hit in kept:
         print(f"HIT {hit['class']} {hit['file']}:{hit['line']} {hit['token']!r}", file=sys.stderr)
-    return 1 if hits else 0
+    return 1 if kept else 0
 
 
 if __name__ == "__main__":
