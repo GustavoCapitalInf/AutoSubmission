@@ -551,3 +551,212 @@ Ocean must also rule on: the production sweep as a second card with `analysis/co
 split out as a P0 hardcode; the record redaction (my recommendation: do not run it as specified);
 the three `docs/*.csv` functional-data files; and whether `tests/test_analysis.py`'s named account
 number may be carried past a P0 card that was written to remove it.
+
+---
+---
+
+# RE-REVIEW OF THE CLOSURE (`wave9-fixpriv`, base `2f24b06`, new tip `98bfafe`, 34 commits)
+
+Second independent pass, same reviewer, same method: I asked the cell nothing and re-measured
+every number the closure claims. The branch was history-rewritten after my first review
+(messages only) and the shas moved; my three review commits are now `beda6c6`, `0605088`,
+`85b7904`, and the closure range is `f82e956..98bfafe` (16 commits).
+
+## RE-REVIEW VERDICT: **APPROVE WITH FINDINGS** — 0 BLOCK, 2 MAJOR, 4 MINOR
+
+Every finding of the first review is closed, and closed by measurement rather than by argument.
+The eight cases I blocked on all report now; nothing legitimate was broken to get there; the
+tip's numbers reproduce exactly at the tip that carries them. The closure also found and fixed a
+defect neither of us had seen — the diff reader — which means the numbers in my first review
+were themselves computed with a broken instrument. I confirm that below, against my own earlier
+figures.
+
+What stops an unqualified APPROVE is one rule, twice: `institution_zip` still has two shapes
+that silence an identifier, both narrower than the ones that produced the BLOCK, both with
+**zero live exposure in this tree**, and one of them contradicting its own docstring. That is a
+finding to fix, not a reason to hold composition.
+
+## THE HISTORY REWRITE, VERIFIED
+
+| check | result |
+|---|---|
+| the rewrite changed messages only | the 33 commits of `2f24b06..40a7907` (pre-rewrite) and `2f24b06..a515ddf` carry **identical trees, position for position, 33 of 33** |
+| `98bfafe` is a content commit | yes, and it says so: it remaps sha references in two files. `40a7907`'s tree == `a515ddf`'s tree exactly |
+| the remapped pairs denote the same commit | `31255ef`→`8102ea4` and `1e0a01e`→`08d64f0`: **same tree** in both cases |
+| my review file's remap is faithful | applying the reverse substitution to the remapped file reproduces my pre-rewrite file **byte for byte**. Not one number, word or claim of mine was altered |
+| the W3 remap is faithful | 30 changed lines: 27 sha-map rows, one map row's prose, and **three self-referential numerals** — the section's own raw-hit, `words_class` and per-rule counts, which necessarily change when the map rows' digits change. I re-measured all three at the tip and they are right (below) |
+| dangling or stale references | **0 pre-rewrite shas survive** in either record. Every hex token in the appended W3 section and in my review file resolves to a real commit, except the run-of-record's own run id, which is not a commit |
+| commit messages | `git log 2f24b06..98bfafe --format=%B`, 717 lines, scanned against the 3,351-document universe with the branch's own tokeniser, base-tree subtraction and exclusion table: **0 archive tokens** |
+| W3 shape | base 54,966 lines → tip 55,462; prefix **byte-identical**; exactly **one** appended `#` heading, `§FIXPRIV` |
+
+## RE-MEASUREMENT AT THE REAL TIP `98bfafe`
+
+| # | closure claim | my re-measurement | exit | verdict |
+|---|---|---|---|---|
+| 1 | tree scan base `2f24b06`: 9,517 sites / 210 files | **9,517 / 210**, 3,351 documents read, raw 1,116,227 | 1 | reproduces |
+| 2 | tree scan tip `98bfafe`: 9,350 / 204 | **9,350 / 204**, 3,351 read, raw **1,127,341** | 1 | reproduces |
+| 3 | the three self-referential numerals corrected by the remap | raw hits **1,127,341**, `words_class` **1,082,933**, per-rule roll-up `words_class` **542,145** · `round_money` 8,654 · `corpus_cache` 2,483 · `subunit_money` 1,193 — all four match the corrected text | 1 | reproduces |
+| 4 | no file gains residue at the tip | site-set diff base→tip: the only files whose count changes are the six that go to zero and `tests/test_analysis.py` 821 → **819**. **`W3_TRACKA_LOG.md` gains nothing.** MAJOR 1 closed | — | reproduces |
+| 5 | added-lines scan `--base 2f24b06 --ref 98bfafe` = 0 | **hit_count 0 · sites 0 · files 0** over **3,439** added lines, 3,351 read | **0** | reproduces — MAJOR 2 closed |
+| 6 | `institution_zip` whole-tree take 100 → 88 | **88** unique sites at base and at tip (176 raw attributions) | — | reproduces |
+| 7 | my six BLOCK cases report | all six report; so do both MAJOR-4 cases. **8 of 8** | — | reproduces |
+| 8 | `hex_sha_substring` position-scoped | re-read all **448** silenced sites at the tip: **0** where the token stands free anywhere on its line. MAJOR 4 closed | — | reproduces |
+| 9 | mutation table 34/34 | **34 mutants · 34 killed · 0 survived**, run without `-x`, tree clean before and after; the new ids are all present: `M5b M5c M11b M11c M11d D1 D2 L1 L2 L3 L4 A5` | **0** | reproduces (see MINOR D on a retry) |
+| 10 | `test_lili` perturbations are one cent | `_CENT` ladder re-run at the closure tip: **0.02 → 4 failed · 0.5 → 4 · 1.0 → 4 · 10.0 → 4 · 100.0 → 4**. The file now kills mutants fifty times finer than the pre-batch base did (base killed only from 1.0 up). MAJOR 3 closed, and over-closed | — | **stronger than reproduces** |
+| 11 | exclusion tests 167 | **167 passed** | **0** | reproduces |
+| 11b | the branch's four test files | 167 + 14 + 14 + 58 = **253 passed** | **0** | reproduces |
+| 12 | AST identity 3/3 | three production paths: **IDENTICAL ×3**, exit 0 | **0** | reproduces |
+| 12b | MINOR 1: the bare invocation runs | `--base 2f24b06 --ref HEAD` with no paths: files 14 · identical 4 · differing 3 · **skipped 7 ("added on the branch")**, exit 1. The exit-2 crash is gone and the skip is reported | 1 | reproduces — MINOR 1 closed |
+| 13 | `cohort_replay --expect-identical` 27/27 | population **27** · replayed 27 · newly validated **0** · preserved **27 of 27** · payload identical **27** · payload changed 0 · validated regressions **0** | **0** | reproduces |
+| 14 | canonical guards 255 | **255 passed** | **0** | reproduces |
+| 15 | canonical conformance 1,270 | **1,270 passed, 40 skipped** | **0** | reproduces |
+| 16 | corpus gate GREEN 105 / 3 / 1 | **RESULT: GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; 109 pinned PDFs, 0 exclusions; currency 14 CAD / 94 USD; provenance 7 / 4 / 1 / 7 / 89 | **0** | reproduces |
+| 17 | full suite 6,935 passed + the two excused | **2 failed, 6,935 passed, 43 skipped, 34 deselected**, 3 min 5 s. The two failures are exactly the excused pair (`test_corpus_gate_outcomes::test_every_production_caller_of_the_analysis_is_classified`, `test_currency_source::test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists`). **No other failure, no error** | 1 | reproduces |
+| 18 | corpus-marked slice 30 | **30 passed**, 6,984 deselected, 23 min 32 s — run on the shared host beside two other cells | **0** | reproduces |
+| 19 | MINOR 6: `tests/test_analysis.py` 819 | **819** | 1 | reproduces |
+| 20 | P0: the named account number is invented now | the old id occurs **0** times in `tests/test_analysis.py`; the replacement is 15 characters with 6 leading zeros, **the same shape**, so the assertion still pins a verbatim lift that no `int()`, no strip and no first-token read could produce. The scan finds no new DIGITS site in that file, which is the proof that the replacement is clear | — | reproduces — P0 closed at the named site |
+| 20b | the closure's own disclosure that the old id survives elsewhere | true: **1 occurrence, in `docs/balance-metrics-audit-results.csv`** — one of the three functional-data files awaiting a ruling. Disclosed, not hidden | — | confirmed |
+
+## CLOSURE-EXTRA: THE DIFF READER WAS BLIND, AND IT MATTERED TO MY OWN FIRST REVIEW
+
+I re-implemented the reader as it stood at `2f24b06` and ran both against the same diffs.
+
+* On the branch diff (`2f24b06...98bfafe`) the two agree exactly — 3,439 lines, no disagreement.
+  The bug is simply not exercised there, which is why it went unseen.
+* On the **root-base** diff the whole-tree audit actually uses, the old reader **dropped 4 added
+  lines** and produced a **different text at 37,890 positions**, across exactly two files —
+  `docs/moneythumb-replacement/W3_TRACKA_LOG.md` and `docs/moneythumb-replacement/H3_SCHEMA.md`,
+  the two that quote diff headers.
+* A synthetic diff isolates the mechanism: a line of the FILE that reads `+++ b/…` appears in the
+  body as `++++ b/…`, matched the guard meant for file headers, was dropped, and every following
+  line of that file was numbered one too low.
+
+Both halves of the closure's claim are therefore confirmed: the instrument went quiet on a shape
+a diff quotes, and it mis-numbered everything after it. The consequence I care about most is
+that **my first review's absolute figures — 10,810 / 10,645 / 10,677 — were computed with that
+reader and are wrong**; the correct base is 9,517. The *conclusion* of MAJOR 1 survives intact
+(the record's tip column was measured one commit early, and the appended section did add
+residue), but the arithmetic behind it did not, and the record should carry the corrected
+numbers rather than mine. Finding this while re-measuring a review's own finding is the
+behaviour the batch is supposed to produce.
+
+## NEW FINDINGS
+
+### MAJOR A — `BOX_CLAUSE_ZIP`'s clause does not end at a sentence, and its docstring says it does
+
+`tools/privacy_scan_branch.py`, `BOX_CLAUSE_ZIP`. The bound is `[^;|]{0,70}?` — it stops at a
+semicolon or a pipe and at nothing else, so a full stop, a dash or a line break inside a joined
+line does not end the "clause", and the reach is seventy characters. The docstring claims the
+opposite: *"bounding it to the clause is what stops a box in one sentence from excusing a number
+in the next."*
+
+| line the scanner sees | rule | what is silenced |
+|---|---|---|
+| `PO BOX 609 - ACCOUNT ENDING IN 84213` | `institution_zip` | an **account number** tail |
+| `REMIT TO P.O. BOX 609. AUTH OK 84213` | `institution_zip` | an **authorisation code**, one sentence later |
+| `PO BOX 1558 CCD CO# 45678 TRACE` | `institution_zip` | an ACH **originator id** |
+
+A remittance box and an account reference on the same printed line is an ordinary statement
+footer, so this is reachable in principle. **Live exposure is zero**: all three
+`BOX_CLAUSE_ZIP` attributions in the tree are genuine institution PO-box addresses, which I
+re-read individually. Closure: add `.` (and ideally `-`) to the excluded class, or require the
+box and the state to be separated by nothing but address tokens, and pin it with a mutant that
+restores `[^;|]`.
+
+### MAJOR B — `STATE_ZIP_PLUS_FOUR` asks for no address at all
+
+`tools/privacy_scan_branch.py`, `STATE_ZIP_PLUS_FOUR`: `\b(STATE)\b [^0-9]{0,8} (\d{5})-\d{4}`.
+Unlike its two siblings this shape carries **no address evidence whatsoever** — no comma, no
+city, no box. It is satisfied by any word-shaped abbreviation followed by a five-then-four digit
+pattern, which is precisely the vocabulary hole that produced the original BLOCK, one geometry
+down:
+
+| line the scanner sees | rule | what is silenced |
+|---|---|---|
+| `MEMBER ID 84213-6789` | `institution_zip` | a **member number** with a share suffix (`ID` = Idaho) |
+| `CARD ENDING IN 84213-6789` | `institution_zip` | a **card** tail |
+| `LOAN NO. OR 84213-1234` | `institution_zip` | a **loan number** |
+| `POLICY CO 84213-1234` | `institution_zip` | a **policy number** |
+
+**Live exposure is zero**: all 30 `STATE_ZIP_PLUS_FOUR` attributions in the tree are genuine
+`CITY ST NNNNN-NNNN` addresses, re-read one by one. Closure: require the same city-comma or box
+evidence the other two shapes require, and keep the `+4` tail as a *strengthener* rather than as
+the whole rule. Two of my four cases above would then still need the vocabulary guard, which is
+the point — the `+4` tail is evidence about the *number*, never about the *context*.
+
+### MINOR A — `hex_sha_substring`'s seven-character floor excuses short mixed runs
+
+The rule reads any 7-to-64 character hex run with at least one letter as one of the program's
+own object names. At the tip, **150 of its 448 sites are excused by a run shorter than sixteen
+characters** (lengths 7, 8, 12 and 15) — overwhelmingly abbreviated git names in `docs/`, which
+is the intent, but the shape does not distinguish them from an identifier with a stray hex
+letter glued on: `REF AC1234567` and `CHECK E8421399` are both silenced. The seven-character
+floor is deliberate and I am not asking for it to move; the table should say that a short run
+with one hex letter is inside the excuse, so the next card knows.
+
+### MINOR B — `CITY_STATE_ZIP` carries an irreducible ambiguity
+
+`POS PURCHASE WALMART, TX 84213` is silenced, and it should be: a merchant description that
+prints city, state and five digits is indistinguishable, by shape alone, from a merchant
+description that prints city, state and a store or terminal number. This is not a defect and I
+propose no change — it is the residual cost of the rule, and it belongs in the table's prose
+next to the others.
+
+### MINOR C — the P0's original account number still sits once in a functional-data CSV
+
+Confirmed by search over the whole tracked tree at `98bfafe`: **one occurrence, in
+`docs/balance-metrics-audit-results.csv`**. The closure discloses this itself (FP-C7 item 3) and
+cannot fix it inside this card — the file is read by `benchmark/expectations.py` and editing it
+breaks the benchmark. Ocean's ruling on the three CSVs is now the single highest-value item
+left in this class: it is the one place where a *named* real account number remains in tracked
+source after a P0 card written to remove it.
+
+### MINOR D — the mutation harness aborts on this host's git worktree pruning
+
+`tools/fixpriv_mutation_table.py` runs `git checkout --` with `check=True`. My first run died
+with `CalledProcessError … returned non-zero exit status 128` partway through. The restore had
+in fact succeeded — the tree was clean — and a bare `git checkout --` immediately afterwards
+returned 0. The cause is this repository's ~75 stale `.git/worktrees/*` entries, which git tries
+to prune on many commands and cannot delete under OneDrive, returning non-zero while doing the
+right thing. A retry gave the full 34/34. Nothing is wrong with the mutants; but a harness that
+turns a transient host error into a red mutation table is expensive, and the doctrine already
+says these are never to be scored. Suggest tolerating a non-zero exit when
+`git status --porcelain` comes back clean.
+
+## THE FIRST REVIEW'S FINDINGS, ONE LINE EACH
+
+| finding | status | evidence |
+|---|---|---|
+| **BLOCK 1** `institution_zip` silences identifiers | **CLOSED** | 8 of 8 cases report; 88 live sites all genuine addresses; `M11b/c/d` added; docstring now states the abbreviation is necessary and never sufficient |
+| **MAJOR 1** tip numbers measured a commit early | **CLOSED** | no file gains residue at the real tip; base and tip both reproduce exactly; the three self-referential numerals are right |
+| **MAJOR 2** added-lines scan = 2, not 0 | **CLOSED** | 0 over 3,439 lines at the real tip, exit 0 |
+| **MAJOR 3** ×428 scaled the perturbations | **CLOSED, over-closed** | one cent again; kills `_CENT` from 0.02 up; `L1`–`L4` pin it |
+| **MAJOR 4** `hex_sha_substring` line-scoped | **CLOSED** | 0 over-reached sites of 448; `M5b/M5c` |
+| **MINOR 1** bare AST run exits 2 | **CLOSED** | added files are skipped and reported |
+| **MINOR 2** `round_money` justification | **CLOSED** | the docstring now says the class is excused because the program chose to accept it, not because it cannot identify |
+| **MINOR 3** the tree is unaudited for names | **CLOSED as a ruling** | escalated in FP-C7 as its own card |
+| **MINOR 4** `docs_session_date` era bound | **CLOSED** | pinned on both sides; the freeze-day residual named, tested and measured at one site |
+| **MINOR 5** the mutation table's scope | **CLOSED** | 22 → 34 mutants, and the new ones attack context, not only geometry |
+| **MINOR 6** bookkeeping (822 vs 820) | **CLOSED** | 819 at the tip, and I measure 819 |
+| **P0** the named account number | **CLOSED at the named site**, one copy elsewhere disclosed | see rows 20 / 20b and MINOR C |
+
+## ANSWERS, RE-ASKED AT `98bfafe`
+
+**Newly validated = 0?** Yes. **Preserved = all, identical payloads?** Yes — 27 of 27.
+**Regressions = 0?** Yes. **Doctrine kept?** Yes — AST identity 3/3, no registry change, no
+version bump, no production behaviour change, $0. **Privacy of added lines = 0?** **Yes, 0**,
+over 3,439 lines, at the real tip. **Ownership respected?** Yes — the closure touched no
+forbidden file, and W3 is still base plus one appended section.
+
+## RECOMMENDATION TO OCEAN
+
+**APPROVE WITH FINDINGS.** The closure may compose. MAJOR A and MAJOR B are two small edits to
+one rule with zero live exposure; they can ride in this branch if Ocean wants them now, or open
+FIXTURE-PRIVACY-2 with the rest of the residue. Neither can move a document: the scanner is not
+production code and `cohort_replay` says 27 of 27 identical.
+
+Rulings still owed, unchanged from the first review plus one: the production sweep as a second
+card with `analysis/consumers.py:90` split out as a P0 hardcode; the record redaction (both the
+cell and I recommend not running it as specified); **the three functional-data CSVs — now the
+place where the P0's own account number still lives**; `tests/test_analysis.py`'s remaining 819
+sites; and the new one the closure raises, that the tree is unaudited for NAMES by construction.
