@@ -33,13 +33,13 @@ def _statement(bank: str | None) -> Statement:
         # The real field names; `statement_period_*` is silently dropped by the
         # model, which is how the first draft shipped a period-less fixture
         # that still passed. W3 §PIPE5 D6.
-        period_start="2026-02-01",
-        period_end="2026-02-28",
+        period_start="2054-02-01",
+        period_end="2054-02-28",
         beginning_balance=1000.0,
         ending_balance=900.0,
         transactions=[
             Transaction(
-                date="2026-02-03",
+                date="2054-02-03",
                 description="CARD PURCHASE",
                 amount=-100.0,
                 direction="debit",

@@ -32,14 +32,14 @@ from analysis.reconcile import reconcile
 
 HEAD = """
 CIBC Account Statement
-For Nov 1 to Nov 30, 2025
+For Nov 1 to Nov 30, 2053
 Account number 00-00000
 Branch transit number 00000
 Account summary Contact information
-Opening balance on Nov 1, 2025 ${opening}
+Opening balance on Nov 1, 2053 ${opening}
 Withdrawals - {debits}
 Deposits + {credits}
-Closing balance on Nov 30, 2025 {code}= ${closing}
+Closing balance on Nov 30, 2053 {code}= ${closing}
 Transaction details
 """
 
@@ -81,8 +81,8 @@ def test_the_english_layout_is_detected_and_parsed():
     assert stmt is not None
     assert stmt.bank == "CIBC"
     assert stmt.currency == "CAD"
-    assert stmt.period_start == "2025-11-01"
-    assert stmt.period_end == "2025-11-30"
+    assert stmt.period_start == "2053-11-01"
+    assert stmt.period_end == "2053-11-30"
     assert stmt.account_number == "00-00000"
     assert descriptions(stmt) == ["PRE-AUTH DEBIT SUPPLIER", "DEPOSIT"]
     assert amounts(stmt) == [-100.0, 250.0]

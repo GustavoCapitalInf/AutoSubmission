@@ -34,7 +34,7 @@ P O Box 77, Sample Town, XX 99999 555.555.0100
 
 !Ab1C2 mn*V#Y H+ 4JB5 T95{< tEV *Z + AAAAAAAAAAAAAAAAAAAAAA
 P O Box 77, Sample Town, XX 99999 555.555.0100
-Statement of Account Statement Dates:  8/01/26 thru 8/31/26
+Statement of Account Statement Dates:  8/01/54 thru 8/31/54
 Page:  2  of 5
 Activity Summary
 Account Number 8802417 Days in Cycle 31 Average Ledger Balance $2,417.83 Avg Collected Balance $2,318.46
@@ -47,7 +47,7 @@ Overdraft item fees year to date $0.00 $0.00 Return item fees year to date $0.00
 Account Activity
 Date Description Amount Balance
 8/01 SAMPLE INBOUND TRANSFER $418.62 $3,561.17
-8/02 SAMPLE STORE $6.83 OFF SAMPLE TOWN 08/01/26 x8134 REF:8A3C71D0 -$207.44 $3,353.73
+8/02 SAMPLE STORE $6.83 OFF SAMPLE TOWN 08/01/54 x8134 REF:8A3C71D0 -$207.44 $3,353.73
 41772603
 8/03 SAMPLE CLEARED ITEM 4408 -$4,209.18 -$855.45
 
@@ -62,7 +62,7 @@ TOTAL  $
 
 --- Page 5 ---
 
-Account Number:  8802417 Statement Dates:  8/01/26 thru 8/31/26 Page:  3  of  5 !Ab1C2 mn(]e G+
+Account Number:  8802417 Statement Dates:  8/01/54 thru 8/31/54 Page:  3  of  5 !Ab1C2 mn(]e G+
 Account Activity (Continued)
 Date Description Amount Balance
 8/04 SAMPLE MAINTENANCE ITEM -$113.07 -$968.52
@@ -75,9 +75,9 @@ Date Check No Amount Date Check No Amount Date Check No Amount
 
 --- Page 6 ---
 
-Account Number:  8802417 Statement Dates:  8/01/26 thru 8/31/26
-8802417 08/01/26 0 $418.62 8802417 08/05/26 0 $1502.36
-8802417 08/03/26 4408 $4209.18
+Account Number:  8802417 Statement Dates:  8/01/54 thru 8/31/54
+8802417 08/01/54 0 $418.62 8802417 08/05/54 0 $1502.36
+8802417 08/03/54 4408 $4209.18
 41772606
 """
 
@@ -90,7 +90,7 @@ def test_the_six_printed_oracles_close_and_the_statement_publishes():
     stmt = parsed()
     assert stmt is not None
     assert (stmt.period_start, stmt.period_end, stmt.days_in_period) == (
-        "2026-08-01", "2026-08-31", 31,
+        "2054-08-01", "2054-08-31", 31,
     )
     assert (stmt.beginning_balance, stmt.ending_balance) == (3142.55, 533.84)
     assert (stmt.stated_credit_count, stmt.stated_debit_count) == (2, 3)
@@ -120,7 +120,7 @@ def test_the_leading_counts_cohort_that_prints_previous_balance_is_not_claimed()
     clause against the archive's large `Days in the statement period` cohort."""
     other = (
         "Statement of Account\n"
-        "Account Number 8802417 Statement Dates 8/01/26 thru 8/31/26 "
+        "Account Number 8802417 Statement Dates 8/01/54 thru 8/31/54 "
         "Previous Balance 3,142.55 Days in the statement period 31 "
         "2 Deposits/Credits $1,920.98 3 Checks/Debits $4,529.69 "
         "Service Charge $0.00 Current Balance 533.84\n"
@@ -332,7 +332,7 @@ def test_a_header_with_no_ledger_publishes_nothing():
         "Statement of Account",
         "Activity Summary\nDays in Cycle 31\n",
         STATEMENT.replace("$", ""),
-        STATEMENT.replace("8/01/26", "notadate"),
+        STATEMENT.replace("8/01/54", "notadate"),
         STATEMENT.replace("Days in Cycle 31", "Days in Cycle 0"),
     ],
 )

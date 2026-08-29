@@ -26,7 +26,7 @@ def _analysis() -> dict:
             "account_number": "987654321",
             "transactions": [
                 {
-                    "date": "2026-01-04",
+                    "date": "2054-01-04",
                     "description": "ACH DEPOSIT",
                     "amount": 1000.0,
                     "classification": {

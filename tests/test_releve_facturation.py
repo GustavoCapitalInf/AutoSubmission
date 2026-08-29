@@ -31,7 +31,7 @@ def document(
     debit_total: str = "2 000,00",
     credit_count: int = 2,
     credit_total: str = "1 000,00",
-    period: str = "Période du 01-04-2026 au 30-04-2026",
+    period: str = "Période du 01-04-2054 au 30-04-2054",
     product: str = "COMPTE : COMPTE COURANT CANADIEN",
     account: str = "No de compte 00-000-00 No succursale 00000",
     pages: int = 1,
@@ -81,8 +81,8 @@ def test_the_template_is_read_and_no_bank_is_named():
     assert stmt.bank is None
     assert stmt.account_name == "COMPTE COURANT CANADIEN"
     assert stmt.account_number == "00-000-00"
-    assert stmt.period_start == "2026-04-01"
-    assert stmt.period_end == "2026-04-30"
+    assert stmt.period_start == "2054-04-01"
+    assert stmt.period_end == "2054-04-30"
     assert stmt.beginning_balance == 1000.0
     assert stmt.ending_balance == 0.0
     assert [t.amount for t in stmt.transactions] == [250.0, -2000.0, 750.0]
@@ -96,7 +96,7 @@ def test_the_opening_bookend_is_not_published_as_a_transaction():
     of it. It anchors the chain and is not a posting."""
     stmt = parse(document(LEDGER))
     assert all("SOLDE PRECEDENT" not in t.description for t in stmt.transactions)
-    assert all(t.date >= "2026-04-01" for t in stmt.transactions)
+    assert all(t.date >= "2054-04-01" for t in stmt.transactions)
 
 
 @pytest.mark.parametrize(

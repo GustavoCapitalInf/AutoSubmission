@@ -173,7 +173,7 @@ def test_native_text_pages_never_flag():
     # less-than sign, a single-decimal rate).
     for page in (
         "NAVY FEDERAL CREDIT UNION\nBeginning Balance 11,982.22\nEnding Balance 12,048.29",
-        "Statement Period 03/01/25 - 03/31/25\nPage 4 of 10",
+        "Statement Period 03/01/53 - 03/31/53\nPage 4 of 10",
         "Total withdrawals and other debits -$200.27",
         "Annual Percentage Yield Earned 0.5",
         "Overdraft applies when balance < 0",

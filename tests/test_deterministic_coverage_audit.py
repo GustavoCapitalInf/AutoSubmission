@@ -55,7 +55,7 @@ def test_audit_file_reports_successful_deterministic_parse(monkeypatch, tmp_path
         "native_statement",
         lambda pdf_bytes, source_file="": StatementMarkdown(source_file=source_file, model="native-pdf-text", pages=["hello"]),
     )
-    stmt = Statement(bank="Test Bank", account_number="1234", period_start="2026-01-01", period_end="2026-01-31")
+    stmt = Statement(bank="Test Bank", account_number="1234", period_start="2054-01-01", period_end="2054-01-31")
     report = Report(
         statement=stmt,
         reconciliation=ReconResult(ok=True, summary_ok=True, issues=[]),

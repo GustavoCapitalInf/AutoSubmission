@@ -66,7 +66,7 @@ COUNT_FLAGS = ("credit_count_mismatch", "debit_count_mismatch")
 def txn(amount: float, direction: str, desc: str = "ROW", bal: float | None = None) -> Transaction:
     """A row whose COLUMN and whose MONEY are set independently, on purpose."""
     return Transaction(
-        date="2026-01-01", description=desc, amount=amount,
+        date="2054-01-01", description=desc, amount=amount,
         direction=direction, running_balance=bal,
     )
 

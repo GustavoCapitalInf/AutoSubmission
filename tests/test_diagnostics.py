@@ -64,7 +64,7 @@ def test_only_refused_and_flagged_documents_are_diagnosed():
     """A document nobody questioned needs no autopsy.
 
     COUNTS-P2 widened this from `withheld` alone to `withheld` and `review`,
-    per the standing 2026-08-10 Ocean ruling. The reason is not that `review`
+    per the standing 2054-08-10 Ocean ruling. The reason is not that `review`
     became interesting in general: it is that phase 2 emits count codes whose
     ONLY outcome class is `review`, so a `withheld`-only scope would have made
     the new vocabulary unreadable in the rollup that exists. `validated` is
@@ -179,7 +179,7 @@ def test_an_integrity_flag_becomes_its_own_code():
 def test_summary_field_absence_is_reported_by_name():
     payload = _payload(statement={
         "transactions": [],
-        "period_start": "2026-01-01",
+        "period_start": "2054-01-01",
         "beginning_balance": 10.0,
     })
     absent = diagnose(payload, "withheld")["summary_fields_absent"]
@@ -327,7 +327,7 @@ def test_an_unknown_free_text_issue_is_counted_never_stored():
         },
         metrics={
             "average_daily_balance": None,
-            "adb": {"validations": {}, "warnings": ["also new: 2026-01-01 999.99"]},
+            "adb": {"validations": {}, "warnings": ["also new: 2054-01-01 999.99"]},
         },
     )
     result = diagnose(payload, "withheld")
@@ -448,7 +448,7 @@ def test_no_statement_text_reaches_the_diagnostics_section():
     """The I1 canary: every free-text source is poisoned, nothing survives."""
     canary_desc = "ZZCANARYDESC PAYROLL ACME"
     canary_amount = "98,765.43"
-    canary_date = "2031-07-04"
+    canary_date = "2059-07-04"
     payload = _payload(
         statement={
             "transactions": [
@@ -475,7 +475,7 @@ def test_no_statement_text_reaches_the_diagnostics_section():
                     f"transaction running balances do not support the reconstructed "
                     f"end-of-day balance on {canary_date}",
                 ],
-                "missing_posting_dates": [canary_date, "2031-07-05"],
+                "missing_posting_dates": [canary_date, "2059-07-05"],
                 "calendar_day_count": 31,
             },
         },

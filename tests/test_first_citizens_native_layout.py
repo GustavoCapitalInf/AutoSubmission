@@ -48,7 +48,7 @@ FONT_SIZE = 7.0
 HEAD = (
     "Central Bank Operations - DAC02 P.O. Box 27131 Raleigh, NC 27611-7131\n"
     "Your Account(s) At A Glance\n"
-    "Statement Period: April 1 , 2026     Thru April 30, 2026\n"
+    "Statement Period: April 1 , 2026     Thru April 30, 2054\n"
 )
 
 
