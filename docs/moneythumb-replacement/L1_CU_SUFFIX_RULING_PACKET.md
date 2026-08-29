@@ -578,3 +578,18 @@ more than one account at launch.
   test wiring. `tools/l1_split_prototype.py` is imported by nothing.
 * Instruments: `tools/l1_census.py`, `tools/l1_structure_census.py`,
   `tools/l1_split_prototype.py`.
+
+## 10. Proof floor (measured at `a86f183`)
+
+| proof | result |
+|---|---|
+| full default suite | 6858 passed, 43 skipped, 34 deselected — EXIT=0 |
+| canonical guards (5 files) | 255 passed — EXIT=0 |
+| canonical conformance (7 files) | 1270 passed, 40 skipped — EXIT=0 |
+| `python corpus_gate.py` | GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED — EXIT=0 |
+| branch privacy scan vs the whole population | hit_count **0** over 2,751 added lines, 3,351 documents — EXIT=0 |
+| `cohort_replay --expect-identical` over every L-1 reader | 182 replayed, 179 of 179 previously validated preserved, payload identical, 0 regressions — EXIT=0 |
+
+No mutation table and no archive sweep are owed: this card adds no gate and no
+grammar to production, and the fidelity replay is the evidence that no reader
+changed.

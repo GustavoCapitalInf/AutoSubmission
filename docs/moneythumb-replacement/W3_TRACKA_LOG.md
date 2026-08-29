@@ -55509,3 +55509,29 @@ each under 10 seconds over the whole population on this host. None of them calls
 `analyze_markdown` or `cached_analysis`, so none needed an entry in
 `corpus_gate.EXCLUDED_ANALYSIS_CALLERS` and no production file was touched to make
 them run.
+
+## L1INV.7 Proof floor, measured at `a86f183`
+
+| proof | command | result |
+|---|---|---|
+| full default suite | `python -m pytest -q` | **6858 passed, 43 skipped, 34 deselected — EXIT=0** |
+| canonical guards (5 files) | `pytest tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py` | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | `pytest tests/test_parser_conformance.py …` | **1270 passed, 40 skipped — EXIT=0** |
+| corpus gate | `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED, 109 pinned, 596.3s — EXIT=0** |
+| branch privacy scan | `privacy_scan_branch.py --rows <run>/rows.csv --data-dir <cold cache> --base 38a94aa --ref wave9-l1inv` | **hit_count 0** over 2,751 added lines and 3,351 documents (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) — EXIT=0 |
+| fidelity replay, every L-1 reader | `cohort_replay --parser huntington --parser community_section --parser navy_federal --parser capital_one --parser consumers --parser symitar --expect-identical` | population 182, **179 of 179 previously validated preserved, payload identical on all 179**, newly validated 0, regressions 0 — EXIT=0 |
+
+No mutation table is owed: this card adds no gate and no grammar to production.
+No archive sweep is owed: no reader changed, and the fidelity replay above is the
+evidence for that rather than the assertion of it.
+
+**Two things the first full-suite run corrected, recorded because they are the
+kind of thing a read-only card is assumed not to have.** The `--pinned`
+fallback reached `ocr/native_text.parse_native_pdf_text` to read the 29 pinned
+documents the run of record never saw; `tests/test_native_rung_parity.py`
+failed, the fallback came out, and those 29 are now reported as NOT SURVEYED.
+And the branch privacy scan opened at **35 hits**, one of which was real — a
+docstring quoted a printed product designation as an example. It is gone; the
+other 34 were ordinary English and code identifiers that happen to be printed
+somewhere in the 3,380, and they were rewritten rather than argued with, which
+is what a zero costs.
