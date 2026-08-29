@@ -55896,25 +55896,47 @@ all 8 declines. The declines' own page footers run `1 … N of N` with no gap, s
 statement page is missing from the file: this is a print of the product that omits both
 tables.
 
-## HUNT9.5 The ceiling — what the PLATFORM does if the oracles are removed
+## HUNT9.5 The ceiling — what it bounds, and the one reading that beats it
 
 `tools/huntington_identity_ceiling.py` replays the cohort with
 `analysis.huntington._validate` replaced IN MEMORY (the tree on disk is never touched) and
 classifies the result with the platform's own `telemetry.record.classify_outcome`.
 
-| mode | what is relaxed | validated | outcome |
+| mode | what it does | validated | outcome |
 |---|---|---:|---|
-| `absent_evidence` | only the identities whose blocks this print does not carry | **0** | 12 `failed / parser_declined` — the closing identity still fails by the fee |
-| `all_identities` | every identity, entirely | **0** | 8 `withheld / withheld_adb`, 4 `failed / parser_declined` (the L-1 gate precedes `_validate`) |
+| `absent_evidence` | relaxes only the identities whose blocks this print does not carry | **0** | 12 `failed / parser_declined` — the closing identity still fails by the fee |
+| `all_identities` | relaxes every identity, entirely | **0** | 8 `withheld / withheld_adb`, 4 `failed / parser_declined` (the L-1 gate precedes `_validate`) |
+| `recon_forced` | `all_identities`, plus `reconcile` forced to `ok` and `summary_ok`, no amount written | **0** | 8 `withheld / withheld_adb` |
+| `written_fee` | the reader publishes the stated `Total Service Charges (-)` as a debit dated the period end | **3** | `0DCABEBAE6D99BE0`, `7C351D71B06A3E10`, `F14DAFC2118B3058` → `validated / approved` |
 
-**Not one document reaches `validated` with every oracle removed.** No change to this
-reader — no widening, no relaxation, nothing — can produce a validated document in this
-population, because what blocks it is downstream of the parser: `recon.ok` is False, so
-`assess_quality` returns `corporate_use = manual_review_required` and the ADB is withheld.
-The platform refuses for the same reasons the reader does, in its own words: `sum check off
-by +<the stated service charge>`; `captured 27% of the bank's stated debits — line-item
-detail is inconsistent or incomplete; do not use it for daily-balance reconstruction`;
-`bank-stated summary does not reconcile`.
+**No relaxation of the identities reaches `validated`** — that is what the first three rows
+establish, and it is the whole of what they establish. **This card's first record claimed
+more than that** ("no change to this reader — no widening, no relaxation, nothing"), and
+the independent review (MAJOR-1) disproved it by measurement. The correction, stated
+plainly:
+
+* the relaxation modes bound RELAXATIONS of `_validate` **over the payload the reader
+  already builds**. They say nothing about a reader that builds a DIFFERENT payload;
+* one such reader exists and it validates **3 of the 8** — exactly the three of HUNT9.2
+  whose every available identity already closes. `written_fee` does not relax a single
+  identity: it adds the one posting the ledger is missing, and the four checks then pass on
+  their own terms. The other five stay declined, refused by their own broken arithmetic;
+* so what blocks those three is **not** downstream of the parser. It is upstream, in the
+  payload the reader chooses to build, and it is the **repair doctrine — a parser never
+  writes an amount**. The fee's DATE is never printed anywhere on these statements, so
+  placing it on a day of the reader's choosing corrupts every daily balance from that day
+  forward and the ADB with them. Barred by name, not by impossibility.
+
+The distinction is the useful part of this section: a future cell that reads only the
+zeroes would conclude this population is architecturally out of reach, when it is in fact
+doctrine-forbidden — a different question, with a different owner (HUNT9.7).
+
+What the relaxation modes DO show, and it is worth keeping: with the payload unchanged the
+platform refuses for the same reasons the reader does, in its own words — `sum check off by
++<the stated service charge>`; `captured 27% of the bank's stated debits — line-item detail
+is inconsistent or incomplete; do not use it for daily-balance reconstruction`;
+`bank-stated summary does not reconcile`. `recon.ok` is False, `assess_quality` returns
+`corporate_use = manual_review_required`, and the ADB is withheld.
 
 ## HUNT9.6 Solution, and what it refines in the L-1 ruling packet
 
