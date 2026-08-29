@@ -628,6 +628,69 @@ def test_the_session_date_rule_does_not_reach_into_a_named_class(path: str) -> N
     assert excluded_by("DATES", "docs/x.md", "2026-08-06", "ON 2026-08-06") == "docs_session_date"
 
 
+@pytest.mark.parametrize(
+    "path",
+    [path for _name, paths in NAMED_RESIDUE for path in paths],
+)
+@pytest.mark.parametrize(
+    ("cls", "token", "line"),
+    [
+        # One case per rule of the table, each chosen to be exactly the shape
+        # that rule claims. Inside a named path NONE of them may claim it.
+        ("MONEY", "100.00", "SHA,100.00,X"),               # round_money
+        ("MONEY", "20000.00", "SHA,20000.00,X"),           # round_money, five figures
+        ("MONEY", "0.01", "SHA,0.01,X"),                   # subunit_money
+        ("DIGITS", "98989", "SHA,AB98989CDEF09898967,X"),  # hex_sha_substring
+        ("DIGITS", "99999", "SHA,OZARK, AR 99999,X"),      # institution_zip
+        ("DATES", "2026-08-29", "SHA,2026-08-29,X"),       # docs_session_date
+        ("MONEY", "818,181.81", "SHA,818,181.81,X"),       # nothing claims it anyway
+    ],
+)
+def test_no_rule_of_the_table_silences_anything_inside_a_named_class(
+    path: str, cls: str, token: str, line: str
+) -> None:
+    """The class is counted WHOLE, and the count is the ruling's input.
+
+    The first version of this carve-out lived inside `docs_session_date` alone,
+    so three other rules went on silencing a quarter of the class while the
+    record called it never-excused. A `.00` figure in a per-statement audited
+    expectations file is a real printed balance; `round_money` excuses that
+    class by choice, and inside these files the choice is not the scanner's to
+    make.
+    """
+    assert excluded_by(cls, path, token, line) is None
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for _name, paths in NAMED_RESIDUE for path in paths],
+)
+def test_the_named_carve_out_stops_at_WORDS(path: str) -> None:
+    """The one class still excused inside a named path, and why.
+
+    `words_class` discards every WORDS hit everywhere — the tree is unaudited
+    for customer names by construction — so counting names here and nowhere
+    else would put a number on the ruling that means something different from
+    the number in every other file. A scope statement, not an exception.
+    """
+    assert excluded_by("WORDS", path, "SMITH JONES", "SHA,SMITH JONES,X") == "words_class"
+
+
+@pytest.mark.parametrize(
+    ("cls", "token", "line", "rule"),
+    [
+        ("MONEY", "100.00", "TOTAL 100.00", "round_money"),
+        ("MONEY", "0.01", "TOLERANCE 0.01", "subunit_money"),
+        ("DATES", "2026-08-29", "ON 2026-08-29", "docs_session_date"),
+    ],
+)
+def test_the_same_shapes_are_still_excused_outside_a_named_class(
+    cls: str, token: str, line: str, rule: str
+) -> None:
+    """The carve-out is about the PATH, and it reaches nothing wider."""
+    assert excluded_by(cls, "docs/moneythumb-replacement/x.md", token, line) == rule
+
+
 def test_a_named_class_names_a_file_the_scanner_would_read() -> None:
     for _name, paths in NAMED_RESIDUE:
         for path in paths:

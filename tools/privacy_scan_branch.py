@@ -498,17 +498,17 @@ def _hex_sha_substring(cls: str, path: str, token: str, line: str) -> bool:
 def _docs_session_date(cls: str, path: str, token: str, line: str) -> bool:
     """The program's own session dates, inside the program's own records.
 
-    A NAMED RESIDUE path is carved out, and the reason is not bookkeeping: the
-    named classes are files that hold DOCUMENT facts on purpose, one row per
-    pinned statement. A date in `docs/adb-audit-results.csv` is a statement
-    period, not the day a cell ran, and the two only share a shape. Counting a
-    class and then letting an exclusion silence part of it would make the count
-    a lie — and the reviewer measured exactly one site living on that boundary.
+    This rule used to carry the named-class carve-out itself. It does not any
+    more, and not because the carve-out stopped mattering: it moved in front of
+    the WHOLE table, where it belongs, because putting it in one rule is what
+    let three others silence a quarter of the class unnoticed. A date in
+    `docs/adb-audit-results.csv` is a statement period, not the day a cell ran,
+    and the two only share a shape — but so is a `.00` figure in that file a
+    real balance, and neither is this rule's business to decide.
     """
     return (
         cls == "DATES"
         and path.startswith("docs/")
-        and residue_class(path) is None
         and ISO_DATE_RE.match(token) is not None
         and token >= PROGRAM_ERA
     )
@@ -578,7 +578,27 @@ _EXCLUSION_SAMPLES = (
 
 
 def excluded_by(cls: str, path: str, token: str, line: str) -> str | None:
-    """The first rule of the table that claims this hit, or None."""
+    """The first rule of the table that claims this hit, or None.
+
+    A NAMED RESIDUE path is carved out FIRST, in front of the whole table, and
+    the first version of this card got that wrong: the carve-out was written
+    into `docs_session_date` alone, so the class was described as never-excused
+    while `round_money`, `subunit_money` and `hex_sha_substring` between them
+    silenced 327 more sites inside it — a quarter of the class, unreported. The
+    review measured it, and it matters because the count IS the input to the
+    ruling: a `.00` figure in a per-statement audited expectations file is a
+    real printed balance, which is exactly the case `round_money`'s own
+    docstring says it excuses by choice rather than by safety.
+
+    WORDS is the one class still excused inside a named path, and that is a
+    scope statement rather than an exception: `words_class` discards every
+    WORDS hit everywhere, the tree is unaudited for customer names by
+    construction (see the table), and counting names here and nowhere else
+    would put a number on the ruling that means something different from the
+    number in every other file.
+    """
+    if cls != "WORDS" and residue_class(path) is not None:
+        return None
     for name, rule in EXCLUSIONS:
         if rule(cls, path, token, line):  # type: ignore[operator]
             return name

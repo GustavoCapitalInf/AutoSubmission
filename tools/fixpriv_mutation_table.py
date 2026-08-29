@@ -278,22 +278,32 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "    return None",
     ),
     (
-        "N2", "scan", "docs_session_date x the named class",
-        "let the era rule reach into the truth CSVs, so a statement PERIOD "
-        "inside a counted class is silenced as the day a cell ran",
-        "        and residue_class(path) is None\n",
-        "",
+        "N2", "scan", "the named-class carve-out",
+        "let the whole exclusion table reach into the truth CSVs again, so a "
+        "real printed balance, a real account tail and a real statement period "
+        "inside a COUNTED class are silenced and the ruling loses a quarter of "
+        "its number",
+        '    if cls != "WORDS" and residue_class(path) is not None:\n'
+        "        return None",
+        "    if False:\n"
+        "        return None",
+    ),
+    (
+        "N3", "scan", "the WORDS boundary of the carve-out",
+        "carve WORDS out of the named class too, so the one class this tree is "
+        "unaudited for everywhere is suddenly counted in three files and the "
+        "ruling's number stops meaning what it means in every other file",
+        '    if cls != "WORDS" and residue_class(path) is not None:',
+        "    if residue_class(path) is not None:",
     ),
     (
         "M12", "scan", "the table as a whole",
         "let a rule claim a hit before it is asked to, by excusing everything",
-        "def excluded_by(cls: str, path: str, token: str, line: str) -> str | None:\n"
-        '    """The first rule of the table that claims this hit, or None."""\n'
-        "    for name, rule in EXCLUSIONS:",
-        "def excluded_by(cls: str, path: str, token: str, line: str) -> str | None:\n"
-        '    """The first rule of the table that claims this hit, or None."""\n'
+        "    for name, rule in EXCLUSIONS:\n"
+        "        if rule(cls, path, token, line):  # type: ignore[operator]",
         "    return EXCLUSIONS[0][0]\n"
-        "    for name, rule in EXCLUSIONS:",
+        "    for name, rule in EXCLUSIONS:\n"
+        "        if rule(cls, path, token, line):  # type: ignore[operator]",
     ),
     (
         "D1", "scan", "added_lines_from_diff",
