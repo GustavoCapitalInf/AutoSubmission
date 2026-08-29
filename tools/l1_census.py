@@ -139,20 +139,62 @@ def _gate_consumers(markdown: str) -> tuple[str, str]:
     return "OTHER", "consumers:downstream"
 
 
-def _gate_capital_one(markdown: str) -> tuple[str, str]:
-    """`capital_one.py` states no L-1 gate in code: the refusal is emergent —
-    `_native_summary` matches ONE `Previous Balance ... Ending Balance` block
-    and the declining documents print several. The structural fact is counted
-    here and named as such, never asserted as a gate the module contains."""
+def capital_one_mechanism(markdown: str) -> dict:
+    """What `analysis/capital_one.py` ACTUALLY does on a declining document.
+
+    MAJOR-2. The first version of this probe said the refusal was
+    `_native_summary` matching ONE of the several summary blocks these
+    documents print. That is not what happens, and it is wrong in the
+    reassuring direction. `_native_summary` searches for a NINE-CELL block —
+    an opening figure, a cycle-day count, a credit count and total, a debit
+    count and total, an averaged balance, a service charge and a closing
+    figure, in that printed order. On the multi-account layout that whole
+    pattern fails, so the module's opening and closing stay unset and the
+    parser returns None — WHILE its transaction grammar, anchored on a
+    different caption entirely, harvests rows that span the document's several
+    accounts. The refusal is the absence of a match, standing in front of a row
+    reader that is already reading everything.
+
+    Everything below is read by calling the module's own helpers. Nothing is
+    re-implemented, and no figure is emitted: the return is booleans and
+    counts."""
     import re
 
+    from analysis import capital_one
+    from analysis.schema import Statement
+
+    period = capital_one._period(markdown)
+    summary, _charge = capital_one._native_summary(markdown, Statement())
+    rows = capital_one._native_transactions(
+        markdown,
+        year=int(period[1][:4]) if period else 1900,
+        beginning_balance=summary.beginning_balance,
+    )
+    return {
+        "summary_block_prefixes": len(
+            re.findall(r"Previous Balance\s+\d{2}/\d{2}/\d{2}", markdown)),
+        "nine_cell_summary_matched": summary.beginning_balance is not None
+        and summary.ending_balance is not None,
+        "detail_caption_present": bool(
+            re.search(r"ACCOUNT DETAIL\s+FOR PERIOD", markdown, re.IGNORECASE)),
+        "native_transaction_rows": len(rows),
+        "period_resolved": period is not None,
+    }
+
+
+def _gate_capital_one(markdown: str) -> tuple[str, str]:
+    """`capital_one.py` states no L-1 gate in code: the refusal is emergent.
+
+    Named from `capital_one_mechanism` above rather than from a story about the
+    module: the nine-cell summary pattern does not match the multi-account
+    layout, so the module has no opening and no closing and returns None."""
     from analysis import capital_one
 
     if not capital_one.detect(markdown).claims:
         return "not-claimed", "detect().claims is False"
-    blocks = len(re.findall(r"Previous Balance\s+\d{2}/\d{2}/\d{2}", markdown))
-    label = f"capital_one:emergent (n_summary_blocks={blocks})"
-    if blocks > 1:
+    facts = capital_one_mechanism(markdown)
+    label = "capital_one:emergent (the nine-cell summary pattern does not match)"
+    if facts["summary_block_prefixes"] > 1 and not facts["nine_cell_summary_matched"]:
         return "L1", label
     return "OTHER", label.replace("emergent", "grammar")
 
@@ -331,6 +373,39 @@ def main(argv: list[str] | None = None) -> int:
         for row in rows:
             print(f"| `{group}` | `{row['sha16']}` | {row['class']} | `{row['gate']}` |")
     print()
+
+    # -- 2b. capital_one's emergent refusal, from the module's own helpers --
+    print("## `capital_one` — the emergent refusal, read off the module (MAJOR-2)")
+    print()
+    print("Not described from the outside: `_native_summary` and "
+          "`_native_transactions` are called on each declining document and "
+          "what they return is counted. The refusal is the NINE-CELL summary "
+          "pattern failing on the multi-account layout, which leaves the "
+          "module with no opening and no closing — in front of a transaction "
+          "grammar that keeps returning rows.")
+    print()
+    co_facts = []
+    for sha16 in groups["DECL:capital_one"]["shas16"]:
+        markdown, _pages = cache.text(sha_by16[sha16])
+        if markdown is None:
+            continue
+        co_facts.append(capital_one_mechanism(markdown))
+    if co_facts:
+        rows_per = sorted(f["native_transaction_rows"] for f in co_facts)
+        print("| fact, over the declining documents | documents |")
+        print("|---|---:|")
+        print(f"| documents read | {len(co_facts)} |")
+        print(f"| print more than one `Previous Balance` summary prefix | "
+              f"{sum(1 for f in co_facts if f['summary_block_prefixes'] > 1)} |")
+        print(f"| the nine-cell `_native_summary` pattern MATCHED | "
+              f"**{sum(1 for f in co_facts if f['nine_cell_summary_matched'])}** |")
+        print(f"| the transaction-detail caption is present | "
+              f"{sum(1 for f in co_facts if f['detail_caption_present'])} |")
+        print(f"| `_native_transactions` returned at least one row | "
+              f"**{sum(1 for f in co_facts if f['native_transaction_rows'])}** |")
+        print(f"| rows returned, min / median / max | "
+              f"{rows_per[0]} / {rows_per[len(rows_per) // 2]} / {rows_per[-1]} |")
+        print()
 
     # -- 3. the pinned corpus ---------------------------------------------
     print("## Pinned corpus (109) — which pinned documents the L-1 readers claim")
