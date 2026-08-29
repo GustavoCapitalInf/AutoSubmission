@@ -81,12 +81,12 @@ def test_corpus_cache_reaches_no_other_path(path: str) -> None:
 # round_money / subunit_money — magnitudes, not identities.
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("token", ["100.00", "0.00", "1,250.00", "999999.00"])
+@pytest.mark.parametrize("token", ["100.00", "0.00", "1,250.00", "777777.00"])
 def test_round_money_excludes_whole_dollar_figures(token: str) -> None:
     assert excluded_by("MONEY", "analysis/x.py", token, token) == "round_money"
 
 
-@pytest.mark.parametrize("token", ["100.01", "1,250.05", "0.10", "999999.99"])
+@pytest.mark.parametrize("token", ["8909,090.91", "1,250.05", "0.10", "777777.99"])
 def test_round_money_reaches_no_figure_with_cents(token: str) -> None:
     assert excluded_by("MONEY", "analysis/x.py", token, token) != "round_money"
 
@@ -96,14 +96,14 @@ def test_subunit_money_excludes_a_bare_zero_integer_part(token: str) -> None:
     assert excluded_by("MONEY", "analysis/x.py", token, token) == "subunit_money"
 
 
-@pytest.mark.parametrize("token", ["10.01", "1,000.99", "0,000.01", "20.05"])
+@pytest.mark.parametrize("token", ["818,181.81", "777,777.99", "0,000.01", "909,090.91"])
 def test_subunit_money_reaches_nothing_above_a_unit(token: str) -> None:
     assert excluded_by("MONEY", "analysis/x.py", token, token) != "subunit_money"
 
 
 def test_the_money_rules_do_not_between_them_cover_every_figure() -> None:
     """A statement figure with cents and dollars is still a finding."""
-    assert excluded_by("MONEY", "tests/test_x.py", "26,245.24", "26,245.24") is None
+    assert excluded_by("MONEY", "tests/test_x.py", "777,777.77", "777,777.77") is None
 
 
 # --------------------------------------------------------------------------
@@ -117,13 +117,13 @@ def test_hex_sha_substring_excludes_a_run_inside_a_sha() -> None:
 
 def test_hex_sha_substring_does_not_excuse_a_number_beside_a_sha() -> None:
     """The token must lie INSIDE the hex run, not merely share its line."""
-    line = "1B41B7B514AE699247E7CF668D7AB023 ACCOUNT 8877665544"
-    assert excluded_by("DIGITS", "tools/x.py", "8877665544", line) != "hex_sha_substring"
+    line = "1B41B7B514AE699247E7CF668D7AB023 ACCOUNT 7000000001"
+    assert excluded_by("DIGITS", "tools/x.py", "7000000001", line) != "hex_sha_substring"
 
 
 def test_hex_sha_substring_needs_a_run_long_enough_to_be_a_sha() -> None:
-    """`ACCT 12345678` is 8 hex-shaped characters; a sha is at least 16."""
-    assert excluded_by("DIGITS", "tools/x.py", "12345678", "ACCT 12345678") is None
+    """`ACCT 70030303` is 8 hex-shaped characters; a sha is at least 16."""
+    assert excluded_by("DIGITS", "tools/x.py", "70030303", "ACCT 70030303") is None
 
 
 @pytest.mark.parametrize(
@@ -142,11 +142,11 @@ def test_an_abbreviated_git_object_name_is_a_name_not_a_token(token: str, line: 
 @pytest.mark.parametrize(
     ("token", "line"),
     [
-        ("31131672673", "RUN 31131672673 (R-3 MERGE)"),   # all digits: no letter
-        ("44034", "HYGIENE8 PART 2 = LINES 44034-44480"),
-        ("8877665544", "ACCOUNT NUMBER 8877665544"),
-        ("1234567", "ACCT 1234567 CLOSED"),               # seven digits, no letter
-        ("123456789012345678901234567890123456789012", "X 123456789012345678901234567890123456789012"),
+        ("70000000011", "RUN 70000000011 (R-3 MERGE)"),   # all digits: no letter
+        ("97979", "HYGIENE8 PART 2 = LINES 97979-96969"),
+        ("7000000001", "ACCOUNT NUMBER 7000000001"),
+        ("9898967", "ACCT 9898967 CLOSED"),               # seven digits, no letter
+        ("700303039070030303907003030390700303039012", "X 700303039070030303907003030390700303039012"),
     ],
 )
 def test_the_git_object_shape_cannot_reach_an_all_digit_run(token: str, line: str) -> None:
@@ -172,8 +172,8 @@ def test_docs_session_date_excludes_the_programs_own_era(token: str) -> None:
 @pytest.mark.parametrize(
     ("path", "token"),
     [
-        ("docs/x.md", "2026-06-30"),   # one day before the era
-        ("docs/x.md", "2025-04-30"),   # a statement period
+        ("docs/x.md", "1931-06-30"),   # one day before the era
+        ("docs/x.md", "1931-04-30"),   # a statement period
         ("tests/test_x.py", "2026-08-29"),  # right era, wrong tree
         ("analysis/x.py", "2026-08-29"),
     ],
@@ -195,9 +195,9 @@ def test_docs_session_date_covers_the_iso_notation_only(token: str) -> None:
 @pytest.mark.parametrize(
     "line",
     [
-        "OZARK, AR 72949",
-        r'r"P\.?O\.? BOX 196\s+OZARK,\s*AR\s*72949"',
-        "ST LOUIS MO 63166",
+        "OZARK, AR 99999",
+        r'r"P\.?O\.? BOX 196\s+OZARK,\s*AR\s*99999"',
+        "ST LOUIS MO 95959",
     ],
 )
 def test_institution_zip_excludes_a_state_and_its_code(line: str) -> None:
@@ -208,11 +208,11 @@ def test_institution_zip_excludes_a_state_and_its_code(line: str) -> None:
 @pytest.mark.parametrize(
     ("token", "line"),
     [
-        ("1234567", "OZARK, AR 1234567"),     # seven digits is not a postal code
-        ("72949", "ACCOUNT 72949"),           # no state abbreviation
-        ("72949", "AR " + "x" * 9 + "72949"), # the gap is longer than the rule
-        ("72949", "AR 111 72949"),            # a digit run intervenes
-        ("55555", "PAID 55555"),
+        ("9898967", "OZARK, AR 9898967"),     # seven digits is not a postal code
+        ("99999", "ACCOUNT 99999"),           # no state abbreviation
+        ("99999", "AR " + "x" * 9 + "99999"), # the gap is longer than the rule
+        ("99999", "AR 111 99999"),            # a digit run intervenes
+        ("98989", "PAID 98989"),
     ],
 )
 def test_institution_zip_reaches_nothing_wider(token: str, line: str) -> None:
@@ -226,15 +226,15 @@ def test_institution_zip_reaches_nothing_wider(token: str, line: str) -> None:
 @pytest.mark.parametrize(
     ("cls", "token", "line"),
     [
-        ("DIGITS", "0836327000", 'FLAT.FIND("BUSINESSPLUS CHECKING (S70) - 0836327000")'),
-        ("DIGITS", "3329001101", '"EMINENT FUNDING": ("EMINENT", "3329001101")'),
+        ("DIGITS", "7001010102", 'FLAT.FIND("BUSINESSPLUS CHECKING (S70) - 7001010102")'),
+        ("DIGITS", "7002020203", '"EMINENT FUNDING": ("EMINENT", "7002020203")'),
         ("DIGITS", "44556677", "ACCOUNT NUMBER 44556677"),
-        ("DIGITS", "12345", "CHECK 12345"),
-        ("DIGITS", "07615556", "MERCHANT PURCHASE TERMINAL 07615556"),
-        ("MONEY", "26,245.24", "BEGINNING BALANCE 26,245.24"),
-        ("MONEY", "1,326.43", "CREDITS (3) +$1,326.43"),
-        ("DATES", "02/16/26", "ATM W/D 1339 02/16/26"),
-        ("DATES", "2026-04-30", "PERIOD ENDS 2026-04-30"),
+        ("DIGITS", "98989", "CHECK 98989"),
+        ("DIGITS", "70030303", "MERCHANT PURCHASE TERMINAL 70030303"),
+        ("MONEY", "777,777.77", "BEGINNING BALANCE 777,777.77"),
+        ("MONEY", "818,181.81", "CREDITS (3) +$818,181.81"),
+        ("DATES", "02/16/31", "ATM W/D 1339 02/16/31"),
+        ("DATES", "1931-04-30", "PERIOD ENDS 1931-04-30"),
     ],
 )
 @pytest.mark.parametrize(
@@ -250,7 +250,7 @@ def test_no_exclusion_silences_an_identifier_or_a_statement_figure(
 @pytest.mark.parametrize(
     ("token", "line"),
     [
-        ("12345", "REF 12345A CLEARED"),      # six characters: shorter than any
+        ("98989", "REF 98989A CLEARED"),      # six characters: shorter than any
         ("23456", "ITEM B23456 POSTED"),      # abbreviation this record writes
     ],
 )

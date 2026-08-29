@@ -57,7 +57,7 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
     ),
     (
         "M4", "scan", "subunit_money",
-        "search instead of fullmatch, so `10.01` reads as a sub-unit constant",
+        "search instead of fullmatch, so `818,181.81` reads as a sub-unit constant",
         'return cls == "MONEY" and re.fullmatch(r"0\\.\\d\\d", token) is not None',
         'return cls == "MONEY" and re.search(r"0\\.\\d\\d", token) is not None',
     ),

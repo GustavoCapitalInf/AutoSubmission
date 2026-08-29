@@ -16,19 +16,19 @@ from tools.fixpriv_ast_identity import dump
 BEFORE = '''
 """Module prose, the old wording.
 
-    Beginning balance 26,245.24
+    Beginning balance 777,777.77
 """
 import re
 
-PATTERN = re.compile(r"BOX 196\\s+OZARK, AR 72949")
+PATTERN = re.compile(r"BOX 196\\s+OZARK, AR 99999")
 EPSILON = 0.01
 
 
 class Reader:
-    """Class prose, the old wording — 1,326.43."""
+    """Class prose, the old wording — 818,181.81."""
 
     def read(self, text: str) -> float:
-        """Function prose, the old wording — 7/02 1,647.77."""
+        """Function prose, the old wording — 7/02 909,090.91."""
         return float(text) + EPSILON
 '''
 
@@ -37,12 +37,12 @@ class Reader:
 PROSE_ONLY = '''
 """Module prose, rewritten at greater length.
 
-    Beginning balance 88,888.88
+    Beginning balance 828,282.82
     and a second line the old one did not have
 """
 import re
 
-PATTERN = re.compile(r"BOX 196\\s+OZARK, AR 72949")
+PATTERN = re.compile(r"BOX 196\\s+OZARK, AR 99999")
 EPSILON = 0.01
 
 
@@ -50,7 +50,7 @@ class Reader:
     """Class prose, rewritten."""
 
     def read(self, text: str) -> float:
-        """Function prose, rewritten — 7/02 8,888.88."""
+        """Function prose, rewritten — 7/02 838,383.83."""
         return float(text) + EPSILON
 '''
 
@@ -65,7 +65,7 @@ def test_a_comment_is_invisible() -> None:
 
 def test_a_changed_regex_literal_is_a_difference() -> None:
     """A detection marker is behaviour, however much it looks like furniture."""
-    after = BEFORE.replace("AR 72949", "AR 99999")
+    after = BEFORE.replace("AR 99999", "AR 98989")
     assert dump(BEFORE) != dump(after)
 
 

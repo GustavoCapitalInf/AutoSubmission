@@ -18,7 +18,7 @@ SHA = "1B41B7B514AE699247E7CF668D7AB0236300F57F38CEC56C15027B35C4F26A85"
 #: The record names most documents by a 16-character PREFIX of the sha, which is
 #: the shortest thing the rule has to protect. This one carries a digit run long
 #: enough to be scanned, which is the only way the test can be about anything.
-SHA16 = "1B4123456789AE99"
+SHA16 = "1B4700303039AE99"
 
 
 def residue(**kwargs: set[str]) -> dict[str, set[str]]:
@@ -28,16 +28,16 @@ def residue(**kwargs: set[str]) -> dict[str, set[str]]:
 
 
 def test_a_money_figure_becomes_its_class() -> None:
-    line = "the summary states 26,245.24 and closes\n"
-    out, classes = redact_line(line, residue(MONEY={"26,245.24"}), 5)
+    line = "the summary states 777,777.77 and closes\n"
+    out, classes = redact_line(line, residue(MONEY={"777,777.77"}), 5)
     assert out == f"the summary states {REPLACEMENT['MONEY']} and closes\n"
     assert classes == ["MONEY"]
 
 
 def test_a_figure_is_matched_with_or_without_its_separators() -> None:
     """The scanner records both forms of a money token; either may be printed."""
-    out, _ = redact_line("total 26,245.24\n", residue(MONEY={"26245.24"}), 5)
-    assert "26,245.24" not in out
+    out, _ = redact_line("total 777,777.77\n", residue(MONEY={"777777.77"}), 5)
+    assert "777,777.77" not in out
 
 
 def test_a_sha_is_never_cut() -> None:
@@ -63,10 +63,10 @@ def test_a_sixteen_character_sha_prefix_is_still_protected() -> None:
 
 
 def test_a_number_beside_a_sha_is_still_redacted() -> None:
-    line = f"`{SHA16}` account 8877665544 closed\n"
-    out, classes = redact_line(line, residue(DIGITS={"8877665544"}), 5)
+    line = f"`{SHA16}` account 7000000001 closed\n"
+    out, classes = redact_line(line, residue(DIGITS={"7000000001"}), 5)
     assert SHA16 in out
-    assert "8877665544" not in out
+    assert "7000000001" not in out
     assert classes == ["DIGITS"]
 
 
@@ -94,8 +94,8 @@ def test_the_programs_own_counts_survive_because_they_are_not_residue() -> None:
 
 
 def test_a_digit_run_inside_a_money_figure_is_replaced_once() -> None:
-    line = "balance 123456.78 today\n"
-    out, classes = redact_line(line, residue(MONEY={"123456.78"}, DIGITS={"123456"}), 5)
+    line = "balance 989896.78 today\n"
+    out, classes = redact_line(line, residue(MONEY={"989896.78"}, DIGITS={"989896"}), 5)
     assert classes == ["MONEY"], "the widest span at a position wins"
     assert out.count("redacted") == 1
 
@@ -103,9 +103,9 @@ def test_a_digit_run_inside_a_money_figure_is_replaced_once() -> None:
 @pytest.mark.parametrize(
     ("cls", "token", "line"),
     [
-        ("DATES", "04/30/2026", "the period ends 04/30/2026 as printed\n"),
-        ("DATES", "April 30, 2026", "the period ends April 30, 2026 as printed\n"),
-        ("DATES", "2026-04-30", "the period ends 2026-04-30 as printed\n"),
+        ("DATES", "04/30/2031", "the period ends 04/30/2031 as printed\n"),
+        ("DATES", "April 30, 2031", "the period ends April 30, 2031 as printed\n"),
+        ("DATES", "2031-04-30", "the period ends 2031-04-30 as printed\n"),
     ],
 )
 def test_every_date_notation_is_reached(cls: str, token: str, line: str) -> None:
@@ -115,8 +115,8 @@ def test_every_date_notation_is_reached(cls: str, token: str, line: str) -> None
 
 
 def test_redaction_is_idempotent() -> None:
-    line = "beginning 26,245.24 and account 8877665544 on 04/30/2026\n"
-    res = residue(MONEY={"26,245.24"}, DIGITS={"8877665544"}, DATES={"04/30/2026"})
+    line = "beginning 777,777.77 and account 7000000001 on 04/30/2031\n"
+    res = residue(MONEY={"777,777.77"}, DIGITS={"7000000001"}, DATES={"04/30/2031"})
     once, first = redact_line(line, res, 5)
     twice, second = redact_line(once, res, 5)
     assert len(first) == 3

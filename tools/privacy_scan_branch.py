@@ -21,7 +21,7 @@ Token classes, taken from the documents rather than from memory:
 * DIGITS — every digit run of `--digit-min` (default 5) or more: account,
   cheque, reference and authorisation numbers, telephone digits, ZIP+4;
 * DATES — every fully-qualified date, numeric (`mm/dd/yy`, `mm/dd/yyyy`,
-  `yyyy-mm-dd`) or spelled (`January 5, 2026`, `5 January 2026`, `Jan 5 2026`);
+  `yyyy-mm-dd`) or spelled (`January 5, 2031`, `5 January 2026`, `Jan 5 2026`);
 * WORDS — every alphabetic word of `--word-min` (default 4) or more characters,
   upper-cased, and every two-word sequence of them (a name whose halves are each
   ordinary).
@@ -105,7 +105,7 @@ rule                   what it excludes, and why that is safe
                        abbreviation. A postal code of an institution's own
                        service address — the furniture the doctrine allows a
                        detection marker to carry (`P.O. BOX ... OZARK, AR
-                       72949`). It identifies a bank branch, never a customer,
+                       99999`). It identifies a bank branch, never a customer,
                        and its shape cannot spell an account number.
 ===================== ======================================================
 
@@ -179,7 +179,7 @@ _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 HEX_RUN_RE = re.compile(
     r"(?<![0-9A-Z])(?=[0-9A-F]{7,64}(?![0-9A-Z]))[0-9A-F]*[A-F][0-9A-F]*(?![0-9A-Z])"
 )
-#: `AR 72949`, `OZARK, AR\s*72949` — a state abbreviation, then at most eight
+#: `AR 99999`, `OZARK, AR\s*99999` — a state abbreviation, then at most eight
 #: characters that are not digits, then the five-digit code itself. The gap is
 #: short and digit-free so that the rule cannot reach past an address onto an
 #: unrelated number, and both US territories and the DC code are included.
@@ -250,23 +250,23 @@ EXCLUSIONS: tuple[tuple[str, object], ...] = (
 #: go inert the way a heredoc once made the patterns inert.
 _EXCLUSION_SAMPLES = (
     ("words_class", "WORDS", "a.py", "BALANCE", "BALANCE", True),
-    ("words_class", "DIGITS", "a.py", "12345", "12345", False),
-    ("corpus_cache", "MONEY", "tests/corpus_cache/ocr/x.md", "1.23", "1.23", True),
-    ("corpus_cache", "MONEY", "tests/test_x.py", "1.23", "1.23", False),
+    ("words_class", "DIGITS", "a.py", "98989", "98989", False),
+    ("corpus_cache", "MONEY", "tests/corpus_cache/ocr/x.md", "909,090.91", "909,090.91", True),
+    ("corpus_cache", "MONEY", "tests/test_x.py", "909,090.91", "909,090.91", False),
     ("round_money", "MONEY", "a.py", "100.00", "100.00", True),
-    ("round_money", "MONEY", "a.py", "100.01", "100.01", False),
+    ("round_money", "MONEY", "a.py", "8909,090.91", "8909,090.91", False),
     ("subunit_money", "MONEY", "a.py", "0.01", "0.01", True),
-    ("subunit_money", "MONEY", "a.py", "10.01", "10.01", False),
-    ("hex_sha_substring", "DIGITS", "a.py", "12345", "AB12345CDEF01234567", True),
+    ("subunit_money", "MONEY", "a.py", "818,181.81", "818,181.81", False),
+    ("hex_sha_substring", "DIGITS", "a.py", "98989", "AB98989CDEF09898967", True),
     ("hex_sha_substring", "DIGITS", "a.py", "14282", "COMMIT F14282E LANDED", True),
-    ("hex_sha_substring", "DIGITS", "a.py", "12345", "ACCOUNT 12345", False),
-    ("hex_sha_substring", "DIGITS", "a.py", "31131672673", "RUN 31131672673", False),
+    ("hex_sha_substring", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
+    ("hex_sha_substring", "DIGITS", "a.py", "70000000011", "RUN 70000000011", False),
     ("docs_session_date", "DATES", "docs/x.md", "2026-08-29", "ON 2026-08-29", True),
-    ("docs_session_date", "DATES", "docs/x.md", "2026-06-30", "ON 2026-06-30", False),
+    ("docs_session_date", "DATES", "docs/x.md", "1931-06-30", "ON 1931-06-30", False),
     ("docs_session_date", "DATES", "tests/x.py", "2026-08-29", "ON 2026-08-29", False),
-    ("institution_zip", "DIGITS", "a.py", "72949", "OZARK, AR 72949", True),
-    ("institution_zip", "DIGITS", "a.py", "12345", "ACCOUNT 12345", False),
-    ("institution_zip", "DIGITS", "a.py", "1234567", "OZARK, AR 1234567", False),
+    ("institution_zip", "DIGITS", "a.py", "99999", "OZARK, AR 99999", True),
+    ("institution_zip", "DIGITS", "a.py", "98989", "ACCOUNT 98989", False),
+    ("institution_zip", "DIGITS", "a.py", "9898967", "OZARK, AR 9898967", False),
 )
 
 
@@ -285,15 +285,15 @@ def self_check() -> None:
     if found:
         raise SystemExit(f"privacy_scan_branch.py carries {len(found)} control byte(s); refusing to run")
     samples = {
-        "MONEY_RE": (MONEY_RE, "TOTAL 12,345.67 AND 987.65 AND 1234567.89"),
-        "NUMERIC_DATE_RE": (NUMERIC_DATE_RE, "ON 01/31/2026 OR 1/2/26 OR 2026-01-31"),
-        "SPELLED_DATE_RE": (SPELLED_DATE_RE, "ON JANUARY 5, 2026 AND 5 FEB 2026 AND SEPT 30 2025"),
+        "MONEY_RE": (MONEY_RE, "TOTAL 12,345.67 AND 987.65 AND 9898967.89"),
+        "NUMERIC_DATE_RE": (NUMERIC_DATE_RE, "ON 01/31/2031 OR 1/2/31 OR 2031-01-31"),
+        "SPELLED_DATE_RE": (SPELLED_DATE_RE, "ON JANUARY 5, 2031 AND 5 FEB 2031 AND SEPT 30 2030"),
         "WORD_RE": (WORD_RE, "HOLDER NAME"),
     }
     for name, (pattern, sample) in samples.items():
         if not pattern.search(sample):
             raise SystemExit(f"{name} matches nothing in its own sample; refusing to run")
-    if len(SPELLED_DATE_RE.findall("ON JANUARY 5, 2026 AND 5 FEB 2026 AND SEPT 30 2025")) != 3:
+    if len(SPELLED_DATE_RE.findall("ON JANUARY 5, 2031 AND 5 FEB 2031 AND SEPT 30 2030")) != 3:
         raise SystemExit("SPELLED_DATE_RE does not match all three spelled shapes; refusing to run")
     named = {name for name, _ in EXCLUSIONS}
     for rule, cls, path, token, line, expected in _EXCLUSION_SAMPLES:
@@ -494,8 +494,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # The branch side is tokenised with the SAME patterns, so a match is a
     # whole token on both sides: an OCR fragment such as `WELC` printed by a
-    # scan cannot hit inside `WELCOME`, and `26.43` cannot hit inside
-    # `1,026.43`. (Substring matching on this side, with set exclusion on the
+    # scan cannot hit inside `WELCOME`, and `820.05` cannot hit inside
+    # `1,0820.05`. (Substring matching on this side, with set exclusion on the
     # other, produced hundreds of fragment false positives per branch.)
     #
     # The attribution is an INVERTED INDEX, token -> the sites that print it,
