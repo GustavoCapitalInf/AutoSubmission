@@ -214,6 +214,40 @@ def test_docs_session_date_covers_the_iso_notation_only(token: str) -> None:
     assert excluded_by("DATES", "docs/x.md", token, f"ON {token}") != "docs_session_date"
 
 
+@pytest.mark.parametrize(
+    ("token", "excused"),
+    [
+        ("2026-06-29", False),
+        ("2026-06-30", False),   # the last day before the era
+        ("2026-07-01", True),    # the era itself
+        ("2026-07-02", True),
+        ("2026-08-06", True),    # the day the archive was frozen
+    ],
+)
+def test_the_era_bound_is_pinned_on_both_sides(token: str, excused: bool) -> None:
+    """The counter-samples this rule shipped with stopped at 2019 and never
+    probed the days around the bound, so nothing pinned where the bound IS.
+
+    `2026-08-06` is the day the archive was frozen, so it is simultaneously a
+    date the program writes about itself and the last date a document can
+    print. This rule excuses it, and that is the rule's residual exposure: a
+    census entry inside `docs/` quoting a period end in ISO form between the
+    era and the freeze is silenced. One site, at this tip. The alternative --
+    dropping the era -- makes every session date the records write into
+    residue, and the `mm/dd/yyyy` form a statement actually prints is
+    untouched either way.
+    """
+    got = excluded_by("DATES", "docs/x.md", token, f"PERIOD ENDS {token}")
+    assert (got == "docs_session_date") is excused
+
+
+def test_the_era_bound_is_a_date_comparison_not_a_year_comparison() -> None:
+    """`token >= PROGRAM_ERA` on ISO strings is a date comparison, and the
+    ISO shape is what makes it one. A date in the era's own year but before
+    its month is NOT the program's."""
+    assert excluded_by("DATES", "docs/x.md", "2026-01-31", "ON 2026-01-31") is None
+
+
 # --------------------------------------------------------------------------
 # institution_zip — a postal ADDRESS, and nothing an account can be.
 #

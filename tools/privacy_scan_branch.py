@@ -129,6 +129,18 @@ rule                   what it excludes, and why that is safe
                        different facts that happen to share a shape, so the
                        rule is bounded by both the directory that holds the
                        program's records and the date the program began.
+
+                       THE RESIDUAL EXPOSURE, NAMED: the archive was frozen
+                       on 2026-08-06, so document dates DO reach into the
+                       program's era, and a census entry inside ``docs/``
+                       that quotes a statement period ending in ISO form
+                       between 2026-07-01 and the freeze is silenced by
+                       this rule. Measured at this tip: one site. The rule
+                       is kept because the alternative is worse -- every
+                       session date the records write becomes residue -- and
+                       because the numeric `mm/dd/yyyy` form a statement
+                       actually prints is untouched. The bound is pinned by
+                       tests on both sides of it.
 ``institution_zip``    a DIGITS token of exactly five digits standing in a
                        POSTAL ADDRESS: a state abbreviation immediately before
                        it AND the furniture an address carries — a city and
