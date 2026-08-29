@@ -342,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     # three ids (`community_section`, `dakota_west`, `mission_valley`), so a
     # hand list of module names would under-report the pinned surface. Expand
     # through the registry.
+    import analysis.parser_registry_entries  # noqa: F401  (registers the 83)
     from analysis.parser_registry import registrations
 
     module_of_id = {

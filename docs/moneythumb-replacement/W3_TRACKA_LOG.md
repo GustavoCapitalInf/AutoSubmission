@@ -55368,3 +55368,140 @@ that file.
    behaves identically at the base — this card neither introduced it nor
    changed it. **Carded for batch 9 or later; named here so it is visible the
    day someone looks.**
+
+# §L1INV — the L-1 reservoir is two problems, and only the smaller one needs a ruling
+
+READ-ONLY investigation (batch 9, card `L1-CU-SUFFIX-INVESTIGATION`). No production
+file changed, nothing registered, nothing moved. The deliverable is
+`docs/moneythumb-replacement/L1_CU_SUFFIX_RULING_PACKET.md`; this section records
+what was measured, with what, and what it cost.
+
+## L1INV.1 Population, and the gates re-run rather than repeated
+
+`tools/l1_census.py` over the run of record `cda8882d` and its cold cache: 214
+documents — the 176 shas under the census's 37 `FAM-CU-SUFFIX-CORE` groups, the 36
+declines of the five readers the batch-7 escalation named, and the 2 `WH:atb`
+consolidated statements.
+
+The escalation's L-1 counts were not copied. Each reader's OWN gate was re-run on
+the cached text and each decline confirmed by calling that reader's own `parse`:
+36 declines, 36 confirmed, **24 L-1 refusals** — `huntington:_LINE_OF_CREDIT_RE` 4,
+`community_section:len(parsed)!=1` (>1 posting section) 7,
+`navy_federal:_checking_account` (>1 checking product) 4,
+`consumers:_primary_checking_section` 3, `capital_one` 6 — which reproduces the
+escalation's 4 / 7 / 4 / 6 / 3 from evidence. **`capital_one` is the one that has to
+be said carefully**: its module states no L-1 gate in code. The refusal is emergent
+(`_native_summary` matches ONE `Previous Balance …` block; the six declining
+documents print three) and the instrument names it `capital_one:emergent`, never as
+a gate the module contains.
+
+A registration id is not a module. `community_section` publishes under three
+(`community_section`, `dakota_west`, `mission_valley`), and the pinned surface was
+therefore enumerated through the registry rather than from a hand list: **10 pinned
+documents are claimed by a reader carrying an L-1 rule** — capital_one 4,
+navy_federal 4, consumers 1 (the CONS-L1 document), dakota_west 1. Also measured and
+worth knowing: **29 of the 109 pinned documents are not in the run of record at all**,
+so their structure was read through a local native-text extraction and every row of
+that table says so.
+
+## L1INV.2 What the structure census measured
+
+`tools/l1_structure_census.py` reports shapes and counts only — caption classes,
+identity forms, grid COLUMN shapes, per-section booleans. Boundary strength, which is
+the finding the whole ruling turns on:
+
+| mechanism | docs | oracle? |
+|---|---:|---|
+| `rollup-oracle` (enumerating table + each identity reappears as a heading) | 103 | YES |
+| `section-identity` (headings carry their own identity, no table) | 38 | no |
+| `section-equation-scan` (opening figures only) | 35 | no — weakest |
+| `none` | 38 | n/a |
+
+**Two findings reframe the card.**
+
+**(a) The L-1 rule is not what blocks most of the 176.** Posting sections per
+document: 79 of the 176 print EXACTLY ONE, 32 yield no partition, and only **65 print
+two or more**. Adding the 16 multi-posting `DECL:*` documents gives an L-1 population
+of **81**, not 176. For the 79 the schema is not the obstacle; a reader is.
+
+**(b) They share an architecture, not a family.** At the fine grain there are **63
+distinct structural families over 214 documents** (39 with three or more members,
+covering 182) — a census group and a structural family are very nearly the same
+partition. What recurs is the MECHANICS: 4 boundary mechanisms, 9 roll-up caption
+classes, 5 identity forms, 4 equation forms, and ~49 grid orderings built from 13
+column tokens. That is the `core_processor_*` shape — one template with per-issue
+markers — and it is not 37 readers.
+
+Two more measured facts the implementation will need: only **17% of sections print
+their own daily balances** (so a per-account ADB rests on the reconstructed series for
+the other 83%), and **4 documents print their roll-up in two currency columns**, which
+under `CURRENCY_DOCTRINE` is a refusal and not a feature.
+
+## L1INV.3 The prototype, and why its numbers are a floor
+
+`tools/l1_split_prototype.py` — never registered, imported by nothing. It splits at
+the measured boundaries, reconstructs each section as a `Statement`, and calls
+`analysis/reconcile.py::reconcile` and `analysis/adb.py::compute_average_daily_balance`
+**unchanged**. A section CLOSES when both return `ok`.
+
+Its only row grammar is a BALANCE CHAIN WALK, and the reason that choice is defensible
+is that it is self-validating rather than tolerant: a transaction is accepted only
+where the document prints BOTH the movement and the balance it lands on and
+`previous ± amount = balance` holds to the cent, and the chain must start on the
+section's printed opening and end on its printed closing. Skipping a figure is
+therefore SAFE — skipping a genuine ledger figure breaks continuity and the section
+fails closed anyway — which is what lets one grammar read 43 census groups with no
+per-issuer column knowledge.
+
+Measured: **392 sections offered, 97 close, 23 documents close on every located
+section** (19 multi-section, 12 with the roll-up also reproducing). Of the 81
+multi-posting documents, **11 close on every section, 6 of them with the oracle**.
+Whole families close end to end with no family-specific work at all: `guardian_cu`
+8/8 documents, `goldenwest_cu` 4/4, `altra_fcu` 3/3, `hudson_valley` 3/3.
+
+**Every one of those is a LOWER bound, stated three ways so it is not read as a
+ceiling.** The prototype refuses any section whose grid prints an amount without a
+running balance (77 sections fail there); it loses 27 sections to a generic period
+grammar, which is a defect of the probe and not of the document; and it does NOT
+apply the production ADB check `posting_dates_cover_source`, because it supplies no
+`source_markdown` — a check that can only lower a count, named in the packet as an
+unpaid debt rather than folded into a number.
+
+The sharpest fail-closed class is worth naming on its own: **16 sections whose own
+printed figures contradict the table that enumerates them**. That is the ambiguity
+the whole question is about, it has a measured population, and it must stay refused.
+
+## L1INV.4 What the packet recommends, in one paragraph
+
+Split the card. **Stage 1 needs no ruling and is the larger half**: a shared CU
+member-statement template module publishing the 79 single-posting-section documents,
+every other printed section treated as an idle sibling under symitar's ratified rule
+and the omission SURFACED — which also repays the batch-8 SIBLING-OMISSION-SURFACE
+debt that symitar's two silent skips currently owe. **Stage 2 needs the ruling**:
+Option C, a multi-account payload, for the 81 multi-posting documents, gated by ten
+fail-closed conditions (printed partition; distinct identities; every posting section
+accounted for; each section's own opening/closing agreeing with the roll-up to the
+cent; `reconcile.ok`; `adb.ok` under the ratified doctrine with the source-coverage
+check applied; the roll-up reproducing; one currency; no statement-specific constant;
+zero inference). Option B is rejected on evidence, not taste: this population supplies
+no printed rule that makes one account primary, and applying one changes WHICH of
+three ledgers a pinned audited document reports.
+
+## L1INV.5 Open questions that are Gustavo's, not a cell's
+
+(1) multi-account payload or the refusal stands; (2) on a multi-account document, WHAT
+is the one published ADB the doctrine allows; (3) package math across a multi-account
+member; (4) CONS-L1 / CONS-HARDCODE, which is a truth-set ceremony under either
+answer; (5) whether symitar's ratified idle-sibling rule may be generalised to this
+whole template family, restated on the measured evidence rather than inherited;
+(6) ATB — both documents yield no partition under any mechanism and stay refused
+under every option.
+
+## L1INV.6 Cost and hygiene
+
+$0. No model call, no paid OCR, no vendor. Read-only over the archive, the run of
+record and the cold cache; nothing was written to any of them. Three instruments,
+each under 10 seconds over the whole population on this host. None of them calls
+`analyze_markdown` or `cached_analysis`, so none needed an entry in
+`corpus_gate.EXCLUDED_ANALYSIS_CALLERS` and no production file was touched to make
+them run.
