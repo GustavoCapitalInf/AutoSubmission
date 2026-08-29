@@ -172,7 +172,31 @@ NO_ACTIVITY = re.compile(
 #: be mistaken for a second account.
 CONTINUATION = re.compile(r"\(continued\)|\bcontinued (?:on|to) next page\b", re.I)
 
-DAILY_CAPTION = re.compile(r"\bdaily balance", re.I)
+#: The caption of a per-section DAILY-BALANCE TABLE. The average-daily-balance
+#: FIGURE a summary block prints is not one, and the first version of this
+#: instrument counted it: a bare `daily balance` pattern also matched the
+#: averaged figure, which put sections into the "prints its own daily balances"
+#: column that print one number and no table at all. The lookbehinds remove
+#: that reading and `has_daily_table` below then requires the rows.
+DAILY_CAPTION = re.compile(r"(?<!average )(?<!avg )(?<!avg\. )\bdaily balance", re.I)
+
+#: A row of such a table: a date and one figure, that day's printed balance.
+DAILY_TABLE_ROW = re.compile(
+    r"(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
+    r"|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}\b)"
+    r"[^\n\d]{0,12}?-?\$?\d[\d,]*\.\d{2}")
+
+
+def has_daily_table(section_text: str) -> bool:
+    """Whether the section prints a daily-balance TABLE of its own.
+
+    A caption alone is not a table: the window after it must carry two or more
+    rows that are a date and one figure. Counted, never read as a value."""
+    for m in DAILY_CAPTION.finditer(section_text):
+        window = section_text[m.end(): m.end() + 1500]
+        if len(DAILY_TABLE_ROW.findall(window)) >= 2:
+            return True
+    return False
 
 #: A per-section stated count/total row.
 COUNTS_ROW = re.compile(
@@ -502,7 +526,7 @@ def _section_facts(section_text: str) -> tuple[str | None, bool, str | None, boo
         equation,
         bool(COUNTS_ROW.search(flat)),
         grid[0] if grid else None,
-        bool(DAILY_CAPTION.search(flat)),
+        has_daily_table(section_text),
         bool(NO_ACTIVITY.search(flat)),
         len(DATED_ROW.findall(section_text)),
     )
