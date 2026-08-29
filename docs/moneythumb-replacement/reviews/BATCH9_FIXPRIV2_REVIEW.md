@@ -202,3 +202,43 @@ the count is in the closing line.
    shift tool over files dense with four-digit identifiers.
 4. **`test_huntington.py` (25 DATES sites)** was left by ownership while DECL-HUNTINGTON ran; now
    that DECL-HUNTINGTON is composed on `train9`, it needs an owner.
+
+## Closure confirmation (`dd74b3c..79c4923`, 6 commits) — **CONFIRMED**
+
+Bounded re-measurement, one heavy process at a time, host verified clear before the harness.
+**MAJOR 1 is closed and closed wider than I found it.** The guarded grammar carries
+`_PLAUSIBLE_YEAR` (1900–2100) inside the pattern rather than as a post-filter, and `ESCAPE_RE`
+refuses any match overlapping a `\u` / `\U` / `\x` escape: over the whole sweep my own probe now
+reports **0 unicode escapes altered** (it was 1), and the two shapes that produced the finding —
+a cheque serial read as a spelled date, and an escape whose hex digits are a plausible year —
+return **no match at all** from `shift_text`. Both sites the review named are **byte-identical to
+the base** at the tip. I then computed the revert set independently, as the lines the old tip
+changed and the new tip put back: **5 whole-line reverts across 4 files, plus 4 lines carrying an
+in-line token restored while their genuine dates stayed shifted** — which reconciles to the six
+corrections the record claims. Four of them the cell found for itself, and two of those are the
+ones that matter most: the century-pivot canaries in `tests/test_shared_parser_utils.py:51,191`
+and the all-zero canary in `tests/test_structurer.py:48` had been shifted, which changed what
+those tests assert. **A date-blinded diff cannot see either, because blinding is exactly what
+hides a canary that is a date** — my method could not have found them, and the cell's guarded
+re-run did. The tool also refuses to shift outside `PROVED_FIRST_YEAR..PROVED_LAST_YEAR`
+(2005–2045), the range its own `--self-check` proves, so an already-shifted fixture reads as
+`out_of_range` and cannot be shifted twice. **MAJOR 2 is closed exactly:** the carve-out moved to
+the front of `excluded_by`, and `benchmark_truth_csv` now counts **1,331** at both trees —
+my 1,004 counted plus the 327 the table had been silencing — with the only rule still touching
+the class being `words_class` (2,634 sites), the single documented boundary, pinned by mutant
+`N3`. All three MINORs are recorded: entanglement stated as 75, the city residual and its
+one-shape cost written into the table with tests, and the rulebook's provenance noted.
+
+Everything else re-measured reproduces. Tree scan **9,705 / 209 → 7,862 / 200** with 3,351
+documents read (the base figure moved because the truth-class carve-out changed what the base
+counts too, which is the right direction); `tests/` DATES **1,971 → 128**, the two above my
+earlier 126 being precisely the disclosed canary reverts; **NEW sites 0** and **no file gains
+residue**; `tests/` MONEY 1,392 and DIGITS 678 unchanged; added-lines scan **0 hits over 4,563
+added lines**; commit-message scan **0 archive tokens over 852 message lines**; mutation table
+**66 mutants / 66 killed / 0 survived**, run without `-x`, tree clean before and after, with
+`N3`, `Z17` and `Z18` present; W3 base 56,384 → tip 56,857 with a **byte-identical prefix** and
+exactly **one** appended heading. **No residual finding of any severity.** One wording note only,
+carrying no severity: the dry run prints `no date token; nothing to shift` for a file whose dates
+are all `out_of_range`, so a file with twenty refused dates reads as a file with none — the count
+is right and the sentence is not, and the next cell to run it over an already-swept tree will
+briefly think the grammar has gone inert, as I did.
