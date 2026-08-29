@@ -415,8 +415,8 @@ def test_a_date_with_another_date_before_the_next_amount_opens_no_row():
     stmt = _parse(body=body)
     assert stmt is not None
     assert [(row.date, row.amount) for row in stmt.transactions] == [
-        ("2026-01-05", 120.00), ("2026-01-08", -50.00),
-        ("2026-01-12", 80.00), ("2026-01-20", -10.00)]
+        ("2054-01-05", 120.00), ("2054-01-08", -50.00),
+        ("2054-01-12", 80.00), ("2054-01-20", -10.00)]
     assert stmt.transactions[2].description == "PAYOUT TWO"
 
 
@@ -450,7 +450,7 @@ def test_a_note_emitted_before_the_posting_date_leaves_the_posting_day_standing(
     stmt = _parse(body=_note_first() + _DEBIT_BLOCK + _GRID_BLOCK)
     assert stmt is not None
     assert [row.date for row in stmt.transactions] == [
-        "2026-01-05", "2026-01-08", "2026-01-12", "2026-01-20"]
+        "2054-01-05", "2054-01-08", "2054-01-12", "2054-01-20"]
 
 
 def test_a_note_emitted_after_the_posting_date_is_refused_without_the_grid():
@@ -482,7 +482,7 @@ def test_a_same_day_pair_needs_no_grid_because_the_choice_cannot_move_a_posting(
     assert stmt is not None
     assert stmt.stated_daily_balances == []
     assert [row.date for row in stmt.transactions] == [
-        "2026-01-05", "2026-01-08", "2026-01-12", "2026-01-20"]
+        "2054-01-05", "2054-01-08", "2054-01-12", "2054-01-20"]
 
 
 def test_blanking_a_date_that_really_was_a_row_still_declines_at_the_count():
