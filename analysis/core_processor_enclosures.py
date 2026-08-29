@@ -719,10 +719,18 @@ def _without_non_opening_dates(run: str) -> str:
     * a `mm/dd` inside a merchant's own printed name — a card statement's
       `Member <mm>/<dd>` renewal note, in the description of a real row.
 
-    **Blanked, not removed**, and the difference is the whole safety argument:
-    every other character of the run keeps its position and its content, so no
-    description loses a word and no figure moves. Only the token that claimed
-    to open a row stops claiming it.
+    **Blanked rather than removed**, and the honest statement of what that buys
+    is smaller than it looks: measured over the whole cohort — the members this
+    reader claims plus the declines, both forms compared field for field — the
+    two publish IDENTICAL statements, because the text between a non-opening
+    date and the next one lies outside every cell's own span and
+    `tables.dated_cells` gives a row's description as what stands between its
+    date and its amount. Blanking is kept because it is the MINIMAL edit: every
+    other character keeps its position and its content, so "only the token that
+    claimed to open a row stopped claiming it" is checkable by looking rather
+    than by reasoning. The mutation table records the equivalence as a
+    surviving mutant instead of pretending the choice is load-bearing
+    (W3 §CPDECL).
 
     **The gate that proves the call is the one that already proves
     `_without_cross_references`**: both printed counts and both printed totals.
