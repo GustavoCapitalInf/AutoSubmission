@@ -58272,3 +58272,587 @@ question; the alternative was to leave a committed instrument silently broken.
    RAISE-PRIVACY-4's drives and `897d69e` for this card's. They are asserted to
    be different packages and different revisions, so neither vacuity check can
    borrow the other's tree.
+
+# §PNC9 — four printed skins, one reader, and the two identities the bank prints about itself
+
+COVERAGE card `PNC-LAYOUTS` (batch 9, 9A-1 card 3), branch `wave9-pnc`, base
+`train9` at `93c6132`. Population 17; **newly validated 13**; the 41 protected
+documents preserved, none regressed. One production file changed
+(`analysis/pnc.py`), plus its tests and three committed instruments.
+
+## PNC9.1 Population, and baseline fidelity before anything changed
+
+Seventeen documents: `FAM:pnc_core_commercial_checking` 4,
+`FAM:pnc_treasury_enterprise_plan` 4,
+`FAM:pnc_virtual_wallet_performance_spend` 4 (all twelve
+`failed / no_parser_matched`, dispatch unclaimed), `WH:pnc` 4
+(`withheld / withheld_adb`) and `DECL:pnc` 1 (`failed / parser_declined`). The
+reader's protected baseline cohort is 41 validated. The union — the 45 the
+reader claimed in the run of record plus the 13 it did not — is the
+**58-document population** every scan on this branch is run against.
+
+Sixteen are native text; one of the withheld is `ocr_tesseract`, which the card
+described as "every document native" and is the one correction to its identity
+section.
+
+`cohort_replay` at the base `93c6132`, run of record `cda8882d`, cold cache
+`webapp_data_train8_cold`:
+
+| cohort at base | population | result | exit |
+|---|---:|---|---:|
+| the three families + `WH:pnc` + `DECL:pnc`, `--expect-identical` | 17 | 17 unchanged non-validated, payload changed 0 | **0** |
+| `--parser pnc --expect-identical` | 45 | preserved 41 / 41, payload identical 41 | **0** |
+
+## PNC9.2 The shape table — what the four skins share, and where they differ
+
+`tools/pnc_layout_probe.py` reads the cached text and reports shapes and gate
+names only. Over the whole 58:
+
+| axis | shapes, with the documents that print each |
+|---|---|
+| product title | `Business Checking` 44 · `Treasury Enterprise Plan` 6 · `PNC Core Commercial Checking` 4 · `Virtual Wallet With Performance Spend` 4 |
+| period sentence | `For the Period` 50 · `For the period` 8 |
+| continuation heading separator | space 57 · TAB 4 · **C0 control byte 1** · no continuation printed 1 |
+| daily ladder | readable date/balance cells 56 · date column detached 2 |
+| row date column | inline 55 · detached 1 · both forms in one document 2 |
+
+What every skin prints, and what makes them one reader rather than four: a
+period sentence; a `Balance Summary` whose four columns are beginning, credits,
+debits and ending on ONE physical line; dated rows in the same
+`mm/dd <amount> <description>` column group; the bank's own INDEX of what it
+itemized; and an end-of-day balance ladder. What differs is furniture:
+
+* the **commercial** skin prints no `Activity Detail` heading and no bank line
+  at all (its institution marks are the product title and the treasury domain),
+  calls its ladder `Ledger Balance`, and restates each section's item count and
+  total on the section's own heading line;
+* the **treasury** skin is the business skin with another product line — it
+  needed no grammar at all, only to be claimed;
+* the **consumer** skin prints the restatement as a sentence
+  (`There were <n> ... totaling $x.`), itemizes directly under the direction
+  heading with no sub-section and no debit umbrella, prints its first row on the
+  heading's own line after the inline column header, and calls its ladder
+  `Daily Balance Detail`.
+
+**The gate table at the BASE tree `93c6132`**, over the 17: `detect` refuses 12,
+`_summary_amounts` refuses none, the row grammar yields no rows on 1, and 4 —
+the withheld — parse. That is a MARKER problem on twelve documents and a
+ROW-CAPTURE problem on four, and the two need different work. (The committed
+probe now walks the reader's own links and therefore reports the TIP's table
+when re-run; the base reading above is recorded here because it cannot be
+reproduced at a tree where the reader claims these skins.)
+
+## PNC9.3 The four causes, each measured
+
+**1 — the reader claimed one of four product lines (12 documents).** The
+`product` marker required `Business Checking`; the `bank_name` marker required
+`PNC Bank`, which the commercial skin never prints. Both are widened to the
+same list of four printed product titles — the list `account_name` is also read
+from, so a fifth skin this reader cannot NAME is left unclaimed rather than
+published under a guess.
+
+**2 — the period sentence is printed in two casings (8 documents).**
+
+**3 — the summary block had no end on the commercial skin (4 documents).** The
+block was bounded by whichever of `Overdraft and Returned Item Fee Summary` or
+`Activity Detail` came next, and the commercial skin prints NEITHER anywhere in
+the document, so the block never matched and the four columns were never read.
+The bound is now the first line that opens the next block, whatever that block
+is.
+
+**4 — a C0 control byte where a continuation heading's column gap belongs
+(1 document).** `4145E2C82C6B8329` prints ten continuation headings as
+`<section> <NUL>- continued`. `\s` does not match a control byte, so none of
+them was a heading, and every page of those sections after the first belonged
+to no section at all: credit coverage 0.236, debit coverage 0.474. Normalising
+C0 controls to a space at the reader's entry — the minimal repair, since every
+other character keeps its position and a space can only separate tokens, never
+join them — takes that document to **coverage 1.0 / 1.0, with all eleven of its
+printed index categories reproduced exactly**. It is this card's only WH:pnc
+mover, and the shape generalises: the same byte in the same position would cost
+any reader the same pages.
+
+## PNC9.4 The two identities, and what they cost
+
+The card required the printed identities to stay mandatory. They were not
+mandatory before — the reader published whatever it captured — so they are now,
+and both were measured against the whole cohort BEFORE being made so:
+
+* **the printed index.** PNC prints its own statement of what it itemized: a
+  `Description Items Amount` table with a per-category item count and total, or
+  the same two figures restated on each section's heading line. The reader's
+  per-section capture must reproduce every printed category exactly, in count
+  and in total, and must not itemize a section the index does not print.
+* **the printed ladder.** The ledger is walked day by day from the printed
+  beginning balance and must equal the bank's own end-of-day balance on every
+  day the ladder prints, all of which must fall inside the printed period.
+
+Measured at the base tree over the 45 the reader claimed: the index identity
+holds on **41 of 41 validated** and fails on **4 of 4 withheld**; the ladder
+agrees with the reconstruction on **every printed day of all 41**, and differs
+on 3 of the 4 withheld (the fourth prints no readable ladder). Neither gate
+costs a document that was right and both refuse every document that was not —
+which is why they are mandatory rather than advisory.
+
+The ladder is also PUBLISHED, as `stated_daily_balances`. That is safe for a
+reason the gate makes checkable rather than assertable: the reader declines
+unless every printed cell ALREADY equals the day the ledger walks to, so the
+ladder the platform overrides with is the ladder it already had. Measured on
+the 41: `metrics.adb.daily_balances[*].ending_balance` does not change on any
+document, and neither does `underwriting_adb`.
+
+**What the ladder check bounds, exactly.** A row moved between two days the
+ladder prints, or onto one, changes at least one printed cell and is refused. A
+row moved ACROSS a stretch the ladder does not print — PNC prints a cell for
+every day the account moved, so that stretch is a weekend or a holiday —
+changes no printed cell and is invisible here. It is a bound on misdating, not
+a proof of its absence, and it is the only control that sees misdating at all:
+the index and the summary are both invariant under moving a row.
+
+## PNC9.5 The movers, by sha
+
+Thirteen newly validated (`failed / no_parser_matched -> validated / approved`
+unless noted):
+
+| family | sha16 |
+|---|---|
+| `pnc_core_commercial_checking` | `059FBDC9539A0D94`, `8E830F06DC3D72F7`, `A4F79D175A8686FD`, `ABDC6C8EBE3EDEF0` |
+| `pnc_treasury_enterprise_plan` | `5BDEAC480C50BD57`, `92B161D89019118E`, `9607A01E00D167F1`, `A88122B84542B4ED` |
+| `pnc_virtual_wallet_performance_spend` | `028A40341991F9A5`, `392712FC2E9E6919`, `3EA2CEF559AD67D4`, `CC533142FA14EDD5` |
+| `WH:pnc` (`withheld / withheld_adb -> validated / approved`) | `4145E2C82C6B8329` |
+
+All thirteen: credit coverage 1.0 and debit coverage 1.0, continuity breaks 0,
+`adb.ok` true, currency USD by the schema default (the doctrine for these), and
+one account, one Balance Summary block and one printed period each — the L-1
+check, run on every one of them.
+
+**Three withheld documents now DECLINE** (`withheld / withheld_adb ->
+failed / parser_declined`). Each is refused by a printed identity it fails, and
+each is named:
+
+| sha16 | printed index categories | reproduced exactly | what the document does |
+|---|---:|---:|---|
+| `1F31588B36B2E4AF` | 3 | 2 | the scan's text layer carries the cheque section's heading and column header and NO row under them; the index says the section has one item |
+| `5684857C24B79344` | 11 | 0 | the row date column is emitted apart from the rows, and the printed ladder region shares 15 of its 18 figures with the ladder of a DIFFERENT statement of the same account two months later, while neither this statement's own printed beginning nor its own printed ending appears in it at all |
+| `BE703D525955253C` | 8 | 0 | the row date column is emitted apart from the rows, and the document itemizes a whole section its own index and its own printed debit total both exclude |
+
+That movement is deliberate and it is a correctness correction, not a loss: on
+all three the reader was publishing a ledger the bank's own index contradicts —
+on `BE703D` including a section the bank never indexed and one read LONG. The
+ceiling below measures what publishing them would have been worth.
+
+One document is unchanged: `31E43C6F9393CA15`, `failed / parser_declined`
+before and after, the whole of whose row date column is detached.
+
+## PNC9.6 The ceiling — nothing reaches these four, and the reading that could is named
+
+`tools/pnc_identity_ceiling.py`, five modes, classified by
+`telemetry.record.classify_outcome`, patched in memory only, measured at the
+tip:
+
+| mode | what it does | validated |
+|---|---|---:|
+| `as_is` | the tip | **1** |
+| `no_index` | the printed-index identity always passes | **1** |
+| `no_ladder` | the printed-ladder identity always passes | **1** |
+| `all_identities` | both | **1** |
+| `ordered_dates` | a READING: pairs the k-th printed day of a section with the k-th row where the date column is detached | **1** |
+
+The one is `4145E2C82C6B8329` in every mode. **No relaxation of the identities
+reaches `validated` on any of the other four**, and neither does the one reader
+change that could beat a relaxation ceiling on this population. Under
+`all_identities` the three that now decline return to
+`withheld / withheld_adb`, which is exactly where they were: the identities
+cost no validated coverage, they convert "published and unusable" into
+"refused".
+
+`ordered_dates` is not vacuous, and that is what makes its zero worth reporting:
+on `31E43C6F` it recovers three whole sections that were empty without it and
+reproduces their printed counts and totals exactly. It still fails, because the
+flattening on these documents loses more than the date column — on the same
+document the six debit sections stay at zero rows against 390 printed items.
+Had it succeeded it would still have been barred: pairing by print order infers
+a posting date from geometry the flattened text layer does not carry, which is
+the DESC-COLUMNS rung's question and not this reader's.
+
+## PNC9.7 Correctness evidence
+
+| what | the 13 newly validated | the 41 preserved |
+|---|---:|---:|
+| published rows | 3,095 | 6,377 |
+| printed index categories reproduced exactly | 96 | 321 |
+| printed ladder days matched, day for day | 233 | 821 |
+| coverage (credit / debit) | 1.0 / 1.0 on all 13 | unchanged |
+
+**The bank's printed average, measured rather than claimed.** Four of the
+thirteen print no average this reader reads (the commercial skin prints none).
+Of the nine that do, the calendar-day ADB computed from the reader's own ledger
+agrees with the printed figure **exactly on two, to within a cent on one, and
+differs on six** — by amounts running from about a dollar to about four hundred.
+That is expected and it is not a defect: PNC's `Average ledger balance` is its
+service-charge cycle's average, and the ADB doctrine makes a bank-stated
+average evidence-only. The day-sensitive corroboration these documents DO have
+is the ladder, which is matched on every printed day of all thirteen.
+
+**The payload changes on the 41, by leaf path.** Two classes, both proved:
+
+| leaf paths | documents | why it is correct |
+|---|---:|---|
+| `statement.stated_daily_balances[*]`, `metrics.adb.stated_daily_balance_count`, `metrics.adb.daily_balances[*].source` | 41 | the printed ladder is now published as bank evidence. No balance and no ADB moves, and cannot: the reader declines unless every printed cell already equals the reconstructed day |
+| `statement.account_name` and the eight classification paths that carry it | 2 | `6E89A8586805241B` and `B2217059EA40E360` are `Treasury Enterprise Plan` statements that were published under the reader's hardcoded `Business Checking`. They print `Business Checking` only in the relationship-pricing table that names the OTHER accounts the balance requirement was met against. The product is now the one the statement TITLES itself with |
+
+Nothing else changed on any of the 41: no transaction, no summary figure, no
+period, no account number, no daily balance, no ADB.
+
+## PNC9.8 Generalization
+
+The widening is to SHAPES, and each is shared:
+
+| shape | documents in this population that print it |
+|---|---:|
+| the four product titles as one detection + naming list | 58 |
+| `For the period` in lower case | 8 |
+| a summary block bounded by the next block rather than by two named ones | 58 (it tightens the bound on every skin) |
+| the section heading that carries its own printed count and total | 4 commercial + 4 consumer |
+| the direction taken from the umbrella in force | 8 (the commercial index prints four categories on BOTH sides) |
+| the C0 control byte as a heading separator | 1 measured here — the TAB form, which the same fix would have covered, is printed by 4 more |
+| the printed index as an identity | **58 of 58** print one — the table alone 50, the restatement alone 4, both 4, neither 0 |
+| the printed ladder as an identity | 56 print a readable one |
+
+No statement-specific rule, no literal from any document, no registration added
+(all four skins carry the same identities, so the registry pins are untouched
+and no stratified non-target probe was owed). The one alias table maps two
+printed spellings of one section onto one key and is applied to the index and
+to the detail heading alike, so it cannot go stale when a skin spells a heading
+the other way.
+
+## PNC9.9 The mutation table
+
+`tools/pnc_mutation_table.py` over `tools/pnc_mutants.py`, every mutant an
+exact string replacement applied exactly once, tests run WITHOUT `-x`, restore
+in a `finally` whose exit code is ignored, the file verified byte-for-byte
+against text held since before the first mutant, and `git status --porcelain`
+verified clean before any table is printed. The harness borrows that restore,
+its git wrapper and its retried `status` from `tools/fixpriv_mutation_table.py`
+rather than keeping a second copy of logic that took two incidents to harden.
+
+**18 mutants · 18 KILLED · 0 survived · EXIT=0**, at `0148b85`.
+
+| mutant | the decision it breaks | killed by |
+|---|---|---|
+| M1 | the control byte is normalised at entry | `test_a_continuation_heading_separated_by_a_control_byte_still_opens_the_section` (+1) |
+| M2 | the printed index is an identity at all | `test_negative_a_section_the_index_does_not_print_is_refused` (+2) |
+| M3 | the index is checked in BOTH directions | `test_negative_a_section_the_index_does_not_print_is_refused` |
+| M4 | the index's COUNT, not only its total | `test_negative_a_section_read_LONG_is_refused_as_readily_as_one_read_short` (+1) |
+| M5 | the printed ladder is an identity at all | `test_negative_a_row_on_the_wrong_day_is_refused_by_the_ladder_alone` (+1) |
+| M6 | a ladder cell outside the printed period fails the document | `test_negative_a_ladder_cell_outside_the_printed_period_fails_the_document` |
+| M7 | a ladder printing one day twice with two balances is refused | `test_negative_a_ladder_that_prints_one_day_twice_with_two_balances_is_refused` |
+| M8 | a both-sided category with no direction printed is declined | `test_negative_a_both_sided_category_with_no_direction_printed_is_declined` |
+| M9 | the umbrella heading's own direction | `test_a_both_sided_category_takes_the_direction_of_the_group_above_it` |
+| M10 | the product is the one the statement TITLES itself with | `test_the_product_is_the_title_and_not_a_product_named_further_down` |
+| M11 | a heading owns its line at its START | `test_negative_a_description_that_ENDS_with_a_sections_words_opens_no_section` |
+| M12 | the summary block ends where the next block starts | `test_negative_the_summary_block_ends_where_the_next_block_starts` |
+| M13 | the ladder is published as bank evidence | `test_the_published_ladder_can_never_move_a_reconstructed_balance` (+1) |
+| M14 | detection is as narrow as what the reader can name | `test_negative_a_pnc_product_this_reader_cannot_name_is_left_unclaimed` |
+| M15 | the period sentence is printed in two casings | 15 tests |
+| M16 | the activity region on a skin printing no `Activity Detail` | 12 tests |
+| M17 | one section's two printed spellings are one key | `test_the_index_and_the_detail_heading_may_spell_one_section_differently` |
+| M18 | a row that moves no money is not a posting | `test_f6_a_dated_zero_amount_line_is_not_published_as_a_transaction` (+1) |
+
+**The first run of this table killed 13 and left 5, and that is the part worth
+keeping.** Every survivor was a test asserting the right VERDICT for the wrong
+reason: the document it built was refused by a LATER identity, so breaking the
+gate under test changed nothing about the answer. A test named after a gate is
+not a test of that gate, and neither is a test that reaches the same verdict
+without it. Each of the five was rebuilt so the gate under test is the only
+thing wrong with the document — the unindexed-section case now closes its
+summary and matches its ladder, the duplicate-day case now prints the CORRECT
+balance in its second cell, the no-direction case moved to the skin that prints
+an activity heading and is built so the guess would satisfy every identity, the
+block-bound case now has a four-figure line standing below the block, and the
+line-anchor case puts a section's words at the END of a description where the
+mid-row case could not reach. One of the five also earned a control document
+(`test_the_same_document_with_that_section_indexed_publishes`): one index line
+longer, nothing else touched, and it publishes.
+
+## PNC9.10 The proof floor, the commits, and the contract line
+
+**Which tree each row belongs to.** Everything below was measured at `0148b85`
+unless its row says otherwise. The two rows that name another tree name it, and
+say why the reading carries.
+
+| proof | result | exit |
+|---|---|---:|
+| `cohort_replay` at base `93c6132`, the three families + `WH:pnc` + `DECL:pnc`, `--expect-identical` | 17 unchanged non-validated, payload changed 0 | **0** |
+| `cohort_replay` at base `93c6132`, `--parser pnc --expect-identical` | 45 replayed, preserved **41 / 41**, payload identical 41 | **0** |
+| `cohort_replay` at closure, the target 17 | **newly validated 13**, other ladder movement up 0, unchanged non-validated 1, **validated regressions 0**, other ladder regressions 3 | **0** |
+| `cohort_replay` at closure, `--parser pnc` | 45 replayed, **preserved 41 / 41**, payload changed 41 (two named classes, PNC9.7), newly validated 1, **validated regressions 0**, other ladder regressions 3 | **0** |
+| mutation table, `tools/pnc_mutation_table.py` | 18 mutants, **18 KILLED / 0 survived**; `git status --porcelain` clean before the run and verified clean after; every file verified byte-for-byte against text held since before the first mutant | **0** |
+| identity ceiling, five modes | validated **1** in every mode, and the one is the WH mover | **0** each |
+| full default suite | **7,329 passed, 3 failed, 43 skipped, 34 deselected** in 222s. The three failures are `tests/test_core_processor_enclosures.py`'s three date assertions and they are INHERITED — see below | 1 |
+| canonical guards (5 files) | **255 passed** | **0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped** | **0** |
+| `python corpus_gate.py` — measured at `112002f` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs (103 native, 6 committed OCR), 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld, runtime 745.8s | **0** |
+| `tools/pnc_claim_delta.py` over all 3,380 archive documents | claimed then and now 45 · claimed now, unclaimed by EVERY reader then **13** · **taken from another reader, or dropped: 0** · no cached text 29 · untouched 3,293 | **0** |
+| branch privacy scan, ADDED FILE LINES vs the 58-document population | **hit_count 0** over 2,678 added lines and 58 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text). Not vacuous: the raw scan before exclusions finds **54**, every one class WORDS and every one ordinary English in this card's own prose | **0** |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 10 commits | **0** |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,379 deselected** — see PNC9-C | **0** |
+| archive sweep (`tools.regfp_zero_movement_sweep`) | whole 3,380: compared 2,669 · identical 2,624 · **0 movement outside the named population** — see PNC9-C | — |
+
+**The two scan rows count this section too, and the zero is invariant to
+that.** The added-line count and the commit count are the branch's own at the
+commit that carried them, so a section that reports a scan is itself scanned by
+the next run of it; both were re-run after this section landed and both still
+report MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0, at 2,678 added lines and 10
+commits. The numbers move with the record; what the floor asserts does not.
+
+**The three suite failures are inherited, and that is measured rather than
+argued.** `git diff 93c6132..HEAD` touches seven files and every one of them is
+`analysis/pnc.py`, `tests/test_pnc_*.py` or `tools/pnc_*.py`;
+`analysis/core_processor_enclosures.py` and its test file are byte-identical to
+the base. Restoring the BASE's `analysis/pnc.py` into this worktree and
+re-running that test file reproduces the same three failures, so they do not
+depend on this branch at all. They are three assertions in the CP-DECLINES
+tests that expect a different YEAR from the one their own fixture prints (the
+module's fixture year is one thing, three of its tests assert another). Ocean
+owns them; this card does not touch that file.
+
+**Why the corpus gate's tree is `112002f` and why the reading carries.** The
+gate takes about two hours of wall time on this host and was launched before
+the branch's last two production-affecting commits. The only production file
+that differs between `112002f` and the tip is `analysis/pnc.py`; the difference
+is one docstring example and one refusal path (a refused index figure raises
+instead of reading as zero), and `detect` is byte-identical across it. The
+gate's own log names every one of its 109 documents and **none of them is a PNC
+statement** — `pnc` does not occur in it once — which is corroborated by
+`pnc_claim_delta`: across the whole 3,380-document archive this reader claims
+exactly 58 documents and every one is in this card's named population. A file
+that no corpus document reaches cannot move a corpus verdict.
+
+**The two proofs that did not return, said plainly.** This host was shared for
+the whole of this card's closure with a cell running its own mutation harness,
+its own corpus gate and its own archive sweep, and the machine spent most of
+that time at about a quarter of one core with everything blocked on file I/O —
+the corpus gate that normally takes minutes took 745s of CPU across nearly two
+hours of wall clock. The corpus-marked slice and the archive sweep were both
+started at the tip and both were still running when this section was written.
+**Both have since completed and PNC9-C carries their numbers**; the rows above
+are corrected and this paragraph is kept as the record of why they were late. What stands in the sweep's place is NOT nothing and is not an
+argument: `tools/pnc_claim_delta.py` asks the sweep's dispatch question over
+every one of the 3,380 documents and answers it — **no document moves to this
+reader from any other, and the 13 it newly CLAIMS all lie inside the named 17**
+(they are not the same 13 as the newly VALIDATED — PNC9-C gives both sets). The half the sweep would add is payload comparison for documents this
+reader never touches, and the reader is the only production file this branch
+changes.
+
+### The commits of this cell
+
+| commit | what |
+|---|---|
+| `d3037d9` | `tools/pnc_layout_probe.py` — the shape table and the gate table |
+| `2a20e4a` | the reader: four printed skins, and the index and the ladder as identities |
+| `c3cc8b5` | the index is summed per direction; the probe walks the reader's own links |
+| `cd378c0` | `tools/pnc_identity_ceiling.py` — five modes, including the reading that could beat a relaxation |
+| `112002f` | `tools/pnc_mutation_table.py` and `tools/pnc_mutants.py` |
+| `ac42699` | a docstring's example figure was lifted off a page, not invented |
+| `3004ab9` | a refused index figure is a refusal, not a zero — the suite's fail-open guard found it |
+| `0148b85` | five gates were named but not tested, and the mutants said so |
+| `b1925ca` | `tools/pnc_claim_delta.py` — the dispatch half of the sweep |
+
+### The contract line
+
+population **17** | root cause: a reader claiming one of four printed product
+lines (12), a period sentence in two casings (8), a summary block with no end
+on the skin that prints neither of its two old terminators (4), and a C0
+control byte where a continuation heading's column gap belongs (1) | solution:
+one reader widened to the shapes the four skins share, with the bank's own
+printed index and printed ladder made mandatory identities | **newly validated
+13** — `059FBDC9539A0D94`, `8E830F06DC3D72F7`, `A4F79D175A8686FD`,
+`ABDC6C8EBE3EDEF0`, `5BDEAC480C50BD57`, `92B161D89019118E`, `9607A01E00D167F1`,
+`A88122B84542B4ED`, `028A40341991F9A5`, `392712FC2E9E6919`, `3EA2CEF559AD67D4`,
+`CC533142FA14EDD5`, `4145E2C82C6B8329` | other ladder movement: three withheld
+documents now DECLINE (`1F31588B36B2E4AF`, `5684857C24B79344`,
+`BE703D525955253C`), each refused by a printed identity it fails, each named
+with its measurement, and all three back at `withheld` under the ceiling's
+`all_identities` mode — so the refusals cost no validated coverage | previously
+validated preserved **41 / 41**, payload changed on 41 in two proved classes |
+**unexpected validated regressions 0** | correctness evidence: 3,095 published
+rows, 96 printed index categories reproduced exactly and 233 printed ladder
+days matched on the thirteen; 6,377 rows, 321 categories and 821 ladder days on
+the forty-one; coverage 1.0 / 1.0, continuity breaks 0, `adb.ok`, quality
+`transaction_level` and integrity flags 0 on all thirteen; USD by the schema
+default; one account, one summary block and one printed period each |
+generalization evidence: eight shapes, each shared, in PNC9.8; 0 documents
+taken from any other reader across the whole archive.
+
+### The findings carried
+
+1. **The detached date column is a text-layer defect, not a PNC defect**, and it
+   costs three documents here (`5684857C`, `BE703D`, `31E43C6F` — two accounts).
+   The days are printed; the correspondence between a day and a row is geometry
+   the flattening drops. It belongs beside the DESC-COLUMNS / printed-rows
+   rotation rung in `ocr/native_text.py`, and `ordered_dates` in
+   `tools/pnc_identity_ceiling.py` is the measurement a later cell should start
+   from — including its negative half, that re-attaching the date column alone
+   does not recover the sections the same flattening emptied.
+2. **A C0 control byte in a heading separator is a cross-reader hazard.** It is
+   fixed inside `analysis/pnc.py` because that is this card's ownership, but the
+   byte comes out of the shared native-text extraction and any reader whose
+   heading grammar uses `\s` has the same hole. Worth one census query across
+   the archive before another cell pays for it a second time.
+3. **`5684857C24B79344` carries another statement's ladder page.** Measured, not
+   inferred: 15 of its 18 ladder figures are the ladder of a different statement
+   of the same account, and neither of its own printed balances is among them.
+   Named here so a later census does not read it as a parser gap.
+4. **`analysis/count_semantics.py` still lists `pnc` as a section-level oracle
+   that no parser assigns.** That is now only half true: the reader does not
+   assign a per-direction count field (the schema still cannot hold a
+   per-section one), but it does GATE on the per-section counts internally, in
+   both directions, on every document that prints them. The disclosure text
+   deserves the same sentence `core_processor_enclosures` has — a one-line
+   change in a file this card does not own.
+
+## PNC9-C CLOSURE — the review's three MINORs, closed and re-measured
+
+Independent adversarial review (`docs/moneythumb-replacement/reviews/BATCH9_PNC9_REVIEW.md`,
+`bb58f59`): **APPROVE WITH FINDINGS — 0 BLOCK / 0 MAJOR / 3 MINOR.** Every headline in
+this section reproduced under the reviewer's own hand, and both of the floor rows
+this section had recorded as NOT RETURNED are now complete. What follows is what
+each finding became.
+
+### MINOR 1 — a control byte next to a digit is refused, never joined
+
+The reviewer drove the direction this section's own prose had denied. The claim
+was that substituting a space for a control byte "can only separate two tokens,
+never join them". It is false in this module, because this module reads a space
+between digit groups as a THOUSANDS SEPARATOR: `1<NUL>000.00` normalised to
+`1 000.00` is one figure of a thousand, and every other identity then closes
+around a figure the paper may never have printed. That is the shape the repair
+doctrine is about, and the sentence was wrong in a production comment.
+
+Closed by making it fail CLOSED. A control byte adjacent to a digit on either
+side now DECLINES the document (`_DIGIT_ADJACENT_CONTROL`). Refusing rather than
+splitting is the point: the two readings — one grouped figure, or two separate
+tokens — are both available and the text layer distinguishes neither, and
+splitting would publish the smaller tail, which is exactly the silent truncation
+`_SUMMARY_MONEY_RE`'s boundary guard exists to make impossible.
+
+| measurement | result |
+|---|---|
+| control bytes across the 58 | **10, every one a NUL** |
+| of those, adjacent to a digit | **0** — the guard costs no document today |
+| the 58 re-measured after the guard | **unchanged**: 54 publish, the same 4 decline |
+| the continuation-heading repair that earns the withheld mover | untouched — the separator it repairs is not digit-adjacent |
+
+Three tests: the unsafe shape refused; the same grid with a separator the BANK
+printed still read whole (the reader refuses to manufacture one, not to honour
+one); and the away-from-digits repair still working. Mutant **M19** restores the
+join and is killed by the first.
+
+### MINOR 2 — a heading-shaped line must carry a heading's own context
+
+A section's name is also ordinary English, so a description that wraps onto its
+own line can BE a section name. Read as a heading it cuts that row's description
+at the wrap and hands the remainder to a section the bank never printed — and
+neither printed identity can see it, because the row is still booked on its own
+day for its own amount. Only the description moves. The reviewer found no
+instance in the archive (no `transactions[*].description` leaf changed on any of
+the 41), so this is a defensive narrowing, not a repair.
+
+Closed by requiring a heading to say it is one: either on its own line — a
+continuation marker, its printed count and total, or the inline column header —
+or the line under it begins the column-header block, or is itself a heading.
+
+**A row printed under the line is deliberately NOT a qualifier, and the
+measurement decided that rather than taste:**
+
+| over the 58, of 1,157 heading matches | count |
+|---|---:|
+| qualified on their own line | 686 |
+| a column-header token on the line under | 365 |
+| another heading name on the line under | 106 |
+| needing "a row under it" | **0** |
+| left over | **0** |
+
+Admitting the row qualifier would have cost the whole rule, since a wrapped
+description is followed by the next row more often than by anything else. The
+58 re-measured: unchanged. The residue is stated in the docstring rather than
+left to be found — a wrap that is exactly a section name AND is immediately
+followed by a real heading still opens one; that needs the row grammar's own
+span, not the line's neighbours. Three tests (the wrap that opens nothing, and
+both shapes of real bare heading); mutant **M20** restores the old rule and is
+killed by the first.
+
+### MINOR 3 — three record inaccuracies, corrected here
+
+**1. The printed index is printed by 58 of 58, not 54.** PNC9.8's row and
+`_matches_the_printed_index`'s docstring both understated it. Measured over this
+card's whole population: **the table alone on 50, the restatement alone on 4,
+both on 4, neither on 0.** The correction strengthens the card's own case — the
+index identity is never vacuous on this population. (The ladder row was right:
+readable on 56, absent on the 2 whose date column is detached.)
+
+**2. "The 13 it newly claims are exactly the 13 this card names" was false as
+written.** They are two different sets of the same size, and both lie wholly
+inside the named 17:
+
+| set | membership |
+|---|---|
+| newly **VALIDATED** 13 | the 12 unclaimed family documents + `4145E2C82C6B8329` (the withheld mover, which the reader already claimed at the base) |
+| newly **CLAIMED** 13 (`pnc_claim_delta`) | the same 12 + `31E43C6F9393CA15` (the decline, which no reader claimed at the base), and NOT `4145E2C8` |
+
+The substance the sentence was standing in for is unaffected and is now proved
+by the sweep itself rather than by the claim delta: **zero movement outside the
+named population.**
+
+**3. Both floor rows are complete.** They supersede the two NOT RETURNED rows in
+PNC9.10:
+
+| proof | result | exit |
+|---|---|---:|
+| corpus-marked slice (`pytest -m corpus`), at `0148b85` | **30 passed, 7,379 deselected** in 2113.42s — and it reconciles with the full suite exactly: 30 + 7,379 = 7,409 = 7,329 passed + 3 failed + 43 skipped + 34 deselected | **0** |
+| archive sweep over the whole 3,380 — chunk A this cell's, chunk B the reviewer's | compared 2,669 · **identical 2,624** · moved 42 · `no_payload_now_publishes` 21 · `payload_now_raises` 3 · `no_payload_raises_again` 661 · no OCR artifact 29 · `multi_artifact_documents` 0 | — |
+
+**The sweep's 66 findings reconcile exactly, and 57 of them are this card's:**
+
+| finding | count | what it is |
+|---|---:|---|
+| `moved` | 42 | the 41 preserved documents carrying the published ladder (and `account_name` on two), plus `4145E2C82C6B8329`, which had a payload to move |
+| `no_payload_now_publishes` | 12 | the twelve family documents that had no payload at the base |
+| `payload_now_raises` | 3 | `1F31588B36B2E4AF`, `5684857C24B79344`, `BE703D525955253C` — the three named refusals |
+| **inside the named population** | **57** | — |
+| `no_payload_now_publishes`, outside | 9 | train9's already-composed CP-DECLINES movers, proven at the base: the sweep's baseline is the TRAIN-8 run of record, so everything composed onto train9 before this card's base surfaces in ANY batch-9 branch's sweep |
+
+**The three "raises", adjudicated.** They are the pipeline's no-payload signal
+rather than a crash: `cohort_replay`, using the runner's exact call, classifies
+all three `failed / parser_declined`. `read_money`'s raising contract — the
+`3004ab9` fix — is not what produces them: it fires on **0 of the 557 index
+tokens** across the population. No severity; the outcome is the one the card
+intends, reached by the path the platform intends.
+
+### The closure's numbers
+
+| proof, at the closure tip | result | exit |
+|---|---|---:|
+| `cohort_replay --parser pnc` | 45 replayed, **preserved 41 / 41**, payload changed 41 on the SAME 14 leaf paths as before the closure and **no new path**, newly validated 1, **validated regressions 0** | **0** |
+| `cohort_replay`, the target 17 | **newly validated 13**, unchanged non-validated 1, **validated regressions 0**, other ladder regressions 3 | **0** |
+| mutation table, without `-x` | 20 mutants, **20 KILLED / 0 survived**, tree verified clean before and after | **0** |
+| `tests/test_pnc_layouts.py` + `tests/test_pnc_variants.py` | **59 passed** (53 + 6 for the two narrowings) | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| the 58 re-measured after both narrowings | 54 publish, the same 4 decline — **unchanged** | — |
+| branch privacy scan, added file lines vs the 58 | **hit_count 0** (MONEY / DIGITS / DATES / WORDS all 0) | **0** |
+| branch privacy scan, commit messages | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** | **0** |
+| `docs/moneythumb-replacement/W3_TRACKA_LOG.md` | base + this one section, append-only | — |
+
+### The closure commits
+
+| commit | finding |
+|---|---|
+| `445c968` | MINOR 1 — a control byte next to a digit is refused, never joined |
+| `1243e47` | MINOR 2 — a heading-shaped line must carry a heading's own context |
+| `45e7759` | MINOR 3 — the three record corrections and this closure |
+| `b82cf75` | the closure's own floor, caught by re-running it: the calendar scan read the `00` of a byte range this card spelled twice, and the privacy scan read this section's own number as an amount. The class is now spelled once and the section is numbered the batch's way; the compiled pattern and every reader decision are unchanged |
+
+Every row of the table above was measured at `b82cf75`, the tip that carries all
+four, except the mutation table and the two replays, which were re-run there
+after this table was first written and returned the same numbers.
