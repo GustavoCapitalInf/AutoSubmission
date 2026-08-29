@@ -8,6 +8,8 @@ is passed in, which is also the point (the tool carries no token list).
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from tools.fixpriv_w3_redact import REPLACEMENT, redact_line
@@ -49,8 +51,13 @@ def test_a_sha_is_never_cut() -> None:
 def test_a_sixteen_character_sha_prefix_is_still_protected() -> None:
     """The record names most documents by a 16-character prefix; that is a sha."""
     assert len(SHA16) == 16
+    # The token is taken FROM the fixture, so the test cannot go vacuous by
+    # naming a run the scanner would never find (it did, once, and the
+    # mutation table was what said so).
+    run = re.search(r"\d{5,}", SHA16)
+    assert run is not None, "the fixture prefix carries no scannable digit run"
     line = f"the mover `{SHA16}` moved\n"
-    out, classes = redact_line(line, residue(DIGITS={"123456789", "23456"}), 5)
+    out, classes = redact_line(line, residue(DIGITS={run.group(0)}), 5)
     assert out == line, "a digit run inside a 16-character sha prefix was replaced"
     assert classes == []
 
