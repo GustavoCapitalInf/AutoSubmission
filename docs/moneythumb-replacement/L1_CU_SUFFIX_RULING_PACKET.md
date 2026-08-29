@@ -818,7 +818,7 @@ primary rule is bounded by evidence that is not printed.
    yield-only arithmetic; 62 are empty and silent; 7 declare idle in another wording; 30 posted
    a dated row and declare nothing. Nothing in the reservoir is publishable without an answer.
 2. **Multi-account payload (C), or the L-1 refusal stands (A)?** Everything else follows from
-   it, and the decision should be made knowing the demonstrated population is 2 documents rather
+   it, and it must be decided knowing the demonstrated population is 2 documents rather
    than 11.
 3. **The posting threshold itself.** "A section that posts" is 2 dated rows in the census and
    1 in the packet's own condition. The populations are 79 / 81 at the first and 54 / 111 at

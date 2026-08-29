@@ -55595,14 +55595,14 @@ threshold a sibling has no postings, so the yield-only predicate cannot apply by
 | MAJOR-3 `reconcile` satisfied by construction; "two oracles" was one | the counts each oracle refused are reported separately, and the stated evidence that lets `reconcile` do work is supplied | `a9661e3` | it refused **0 of 105** before and **11 of 48** now; the ADB refuses 10 |
 | MAJOR-4 the sections' own counts, totals and daily balances were measured and then passed as `None` | they are read and fed; the ADB is given the SECTION's text so the production source-coverage check applies; a section printing them unreadably is refused | `a9661e3` | the daily-table predicate was itself wrong — it matched the averaged figure a summary block prints — and the honest figure is **24 of 442 sections (5.4%)**, not 75 (17.0%). This gate alone removes 4 of the 7 documents that survive the review's own chain |
 | MAJOR-5 no condition about money moved between a member's own accounts | measured and added as condition 11 | `a9661e3` | **7** of the 11 documents with two non-empty reconstructed ledgers carry same-day, same-magnitude, opposite-signed pairs — **47** pairs |
-| MAJOR-6 no condition separating a deposit ledger from a member's other facilities | measured and added as condition 12 | `7321fca` | **15** documents list one on their enumerating table and **7 of those also print a cross-account total**, so the collision the review called latent is live |
+| MAJOR-6 no condition telling a deposit ledger apart from the other things a table lists | measured and added as condition 12 | `7321fca` | **15** documents list one on their enumerating table and **7 of those also print a cross-account total**, so the collision the review called latent is live |
 
 ### The six MINORs
 
 | finding | disposition | commit |
 |---|---|---|
 | MINOR-1 442 located sections vs 392 offered never reconciled; "27 sections" is 27 DOCUMENTS | the prototype prints the reconciliation: 442 - 77 + 27 = 392 | `e63b02e` |
-| MINOR-2 the ADB runs on the DOCUMENT's period and the condition never said so | stated in the instrument's docstring and in the condition, which must say whose period it means before it becomes code | `a9661e3`, `e63b02e` |
+| MINOR-2 the ADB runs on the DOCUMENT's period and the condition never said so | stated in the instrument's docstring, and the condition itself must now say whose period it means before it becomes code | `a9661e3`, `e63b02e` |
 | MINOR-3 Option B rejected by argument where a measurement was available | measured over the 81 multi-posting documents: first-named UNDEFINED on 30; the transaction-share rule UNDEFINED on 24, AMBIGUOUS on 9, deciding 48; 11 print a cross-account total; the identity is a bare product designation on 22 of 43 | `7321fca` |
 | MINOR-4 the guard named on the handoff does not cover `tools/` | RECORDED, not fixed, with the reason: adding a `tools/` clause to `tests/test_experiments_are_not_wired.py` is a production test change and this card owns no test. The property holds and is held by a grep — nothing outside `tools/l1_*` references any of the three instruments, verified at this tip — and the card's "the guard applies" is not repeated | `e63b02e` |
 | MINOR-5 the privacy number predated the tip and 29 documents are not scanned against | re-measured at this tip and the 29 stated beside the zero rather than left in a JSON file | the closing commit |
@@ -55675,7 +55675,7 @@ re-run: the whole diff from base is the packet, this log, the review and
 registry entry differs from base. That is a structural argument, not a re-measurement, and it
 is offered as such.
 
-**One hygiene lesson, recorded because BATCH9-RULES warns about it by name.** A shell heredoc
+**One hygiene lesson, recorded because BATCH9-RULES names it exactly.** A shell heredoc
 turned two of this branch's word-boundary escapes into 0x08 bytes, and both new patterns
 silently matched nothing — the measurement they produced was zero and looked like a finding.
 It was caught by byte-checking the files rather than by reading them, which is the only way it
