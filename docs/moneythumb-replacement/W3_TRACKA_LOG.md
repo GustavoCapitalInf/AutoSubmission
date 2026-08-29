@@ -57106,6 +57106,8 @@ No document here publishes one account while another goes unpublished.
 | branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0** over 9 commits — and **WORDS 9**, which is reported rather than suppressed. Every one is the same two-word sequence from the co-authorship trailer every commit carries, and it matches because three of the 114 documents print a subscription charge to that vendor as a MERCHANT DESCRIPTION. It is not a token copied out of a statement; it is the same string on every branch of this batch, and the standing `words_class` exclusion the FILE scanner has applied since the batch-8 train covers exactly this class. The message scanner does not apply the exclusion table, which is why it is visible here at all |
 | the instruments carry no control byte | 0 on all four `tools/cpdecl_*.py` |
 
+The added-line count and the commit count in the two scan rows are the branch's own at the commit that carried them, and they move with the record — a section that reports a scan is itself scanned by the next run of it. **The ZERO is what the floor asserts, and it is invariant to that**: both scans were re-run at the tip after this sentence landed and report MONEY 0 / DIGITS 0 / DATES 0 on both surfaces, with the WORDS row on the message surface still the co-authorship trailer and nothing else. The counts are named so a reader can tell which tree produced them.
+
 ### The commits of this cell
 
 | commit | what |
