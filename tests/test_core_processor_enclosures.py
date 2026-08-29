@@ -397,14 +397,113 @@ def test_a_captured_debit_total_that_disagrees_with_the_printed_one_is_refused()
     assert _parse(body=body) is None
 
 
-def test_a_row_whose_date_closes_no_amount_declines_the_whole_document():
+def test_a_date_with_another_date_before_the_next_amount_opens_no_row():
     """Two archive printings do this — a wrapped description welded across the
-    date column, and a `mm/dd` token inside a merchant name. Dropping the row
-    is how a ledger comes to disagree with a printed total while still looking
-    complete, so the document is declined instead."""
+    date column, so the row's own date is emitted twice with a fragment of its
+    description between, and a `mm/dd` token inside a merchant name. Neither is
+    a posting date: the run says so itself, because the row such a token would
+    open is closed by a row that starts later.
+
+    The token is blanked and the row is booked ONCE, on its own day, for its
+    own amount. The description printed BEFORE the surviving date is not
+    published — a row's description is what stands between its date and its
+    amount — so the cost of the rule is a SHORTER description, never a moved
+    day and never a moved figure (W3 §CPDECL)."""
     body = (_CREDIT_BLOCK.replace("1/12 EXAMPLE PAYOUT TWO 80.00",
                                   "1/12 EXAMPLE 1/12 PAYOUT TWO 80.00")
             + _DEBIT_BLOCK + _GRID_BLOCK)
+    stmt = _parse(body=body)
+    assert stmt is not None
+    assert [(row.date, row.amount) for row in stmt.transactions] == [
+        ("2026-01-05", 120.00), ("2026-01-08", -50.00),
+        ("2026-01-12", 80.00), ("2026-01-20", -10.00)]
+    assert stmt.transactions[2].description == "PAYOUT TWO"
+
+
+def _note_first(day: str = "1/07") -> str:
+    """A merchant note emitted BEFORE the row's own posting date — the ordering
+    the archive's three card-statement members happen to carry."""
+    return _CREDIT_BLOCK.replace(
+        "1/12 EXAMPLE PAYOUT TWO 80.00",
+        f"{day} EXAMPLE MEMBER NOTE 1/12 PAYOUT TWO 80.00")
+
+
+def _note_second(day: str = "1/07") -> str:
+    """The same note emitted AFTER the row's own posting date. This is the
+    ordinary ordering whenever the `mm/dd` sits in the row's own printed label
+    rather than in a flushed detail block, and it is the one the survivor rule
+    gets WRONG — see the two tests below."""
+    return _CREDIT_BLOCK.replace(
+        "1/12 EXAMPLE PAYOUT TWO 80.00",
+        f"1/12 EXAMPLE MEMBER NOTE {day} PAYOUT TWO 80.00")
+
+
+def test_a_note_emitted_before_the_posting_date_leaves_the_posting_day_standing():
+    """The archive's ordering. The rule blanks the token that closes no cell,
+    which here is the note, so the row keeps its printed posting day — and the
+    printed grid confirms it, which is what makes the reading evidence rather
+    than luck.
+
+    This test does NOT establish that the rule cannot move a row: which token
+    survives is decided by POSITION, and the opposite ordering is the next test
+    (CP-DECLINES review BLOCK-1)."""
+    stmt = _parse(body=_note_first() + _DEBIT_BLOCK + _GRID_BLOCK)
+    assert stmt is not None
+    assert [row.date for row in stmt.transactions] == [
+        "2026-01-05", "2026-01-08", "2026-01-12", "2026-01-20"]
+
+
+def test_a_note_emitted_after_the_posting_date_is_refused_without_the_grid():
+    """The unsafe ordering, and the gate that answers it.
+
+    Here the token that closes no cell is the row's OWN posting date, so the
+    survivor is the note and the row would publish on the note's day. Neither
+    printed count nor either printed total can see that — a moved day changes
+    no count and no amount — so the reader requires the printed daily-balance
+    grid whenever a blanked pair names two different days, and refuses the
+    document without one.
+
+    With the grid printed the document is refused too, by the grid itself: the
+    walked ledger no longer agrees with the bank's own second printing of the
+    period. Both arms decline; only the reasons differ."""
+    assert _parse(body=_note_second() + _DEBIT_BLOCK) is None
+    assert _parse(body=_note_second() + _DEBIT_BLOCK + _GRID_BLOCK) is None
+
+
+def test_a_same_day_pair_needs_no_grid_because_the_choice_cannot_move_a_posting():
+    """The welded-description printing, which is three of the archive's six.
+    Both tokens name the same day, so whichever survives the row publishes on
+    the day the bank printed, and the extra requirement is not asked. The
+    document publishes with no grid at all."""
+    body = (_CREDIT_BLOCK.replace("1/12 EXAMPLE PAYOUT TWO 80.00",
+                                  "1/12 EXAMPLE 1/12 PAYOUT TWO 80.00")
+            + _DEBIT_BLOCK)
+    stmt = _parse(body=body)
+    assert stmt is not None
+    assert stmt.stated_daily_balances == []
+    assert [row.date for row in stmt.transactions] == [
+        "2026-01-05", "2026-01-08", "2026-01-12", "2026-01-20"]
+
+
+def test_blanking_a_date_that_really_was_a_row_still_declines_at_the_count():
+    """The safety property, and the reason the rule needs no judgement of its
+    own: a date whose amount the layer really lost is blanked too, and the
+    ledger is then one row short of the bank's own printed count and short by
+    that row's amount. The document declines at `_matches_the_printed_summary`
+    instead of at `dated_cells` — a different gate, the same answer."""
+    body = (_CREDIT_BLOCK.replace("1/12 EXAMPLE PAYOUT TWO 80.00",
+                                  "1/12 EXAMPLE PAYOUT TWO")
+            + _DEBIT_BLOCK + _GRID_BLOCK)
+    assert _parse(body=body) is None
+
+
+def test_a_run_that_ends_on_a_date_closing_no_cell_is_still_declined():
+    """The rule is bounded to a date with ANOTHER DATE after it in the same
+    run, which is what makes it a statement about the run rather than a guess
+    about a token. A run that simply stops mid-row is a different shape — what
+    a truncated page looks like — and this rule has no evidence about it."""
+    body = (_CREDIT_BLOCK + _DEBIT_BLOCK.rstrip("\n") + " 1/22 EXAMPLE TRAILING\n"
+            + _GRID_BLOCK)
     assert _parse(body=body) is None
 
 

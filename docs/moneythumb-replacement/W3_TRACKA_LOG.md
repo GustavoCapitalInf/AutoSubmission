@@ -57192,3 +57192,610 @@ is new.** `tests/` DATES is 128 rather than the 126 F2-9 reported, and the two e
 price of MAJOR 1: reverting a corrupted canary puts back a token the archive also prints. One is in
 `test_structurer.py` and one in `test_bofa_variants.py`, both are canaries a fixture repair must
 not touch, and reporting them is the correct outcome.
+
+# §CPDECL — thirty-eight core-processor declines: six published, thirty-two refused, and a rotation that is one document
+
+COVERAGE card `CP-DECLINES` (batch 9, 9A-1 card 2, with `WELCH-PRINTED-ROWS`
+folded in as sub-card B), branch `wave9-cpdecl`, base `train9` at `71a82aa`.
+Two production files change, both of them a reader that was answering a
+question it does not own. **Newly validated 6**, other ladder movement up 3,
+the seventy-six protected preserved with identical payloads, regressions 0.
+
+## CPDECL1 Population and baseline fidelity
+
+The 38 documents one of four core-processor TEMPLATE readers claims on an
+exclusive marker pair and then declines in `parse`:
+`DECL:core_processor_sectioned` 22, `DECL:core_processor_enclosures` 9,
+`DECL:core_processor_daily` 4, `DECL:category_partition` 3 — **17 native and 21
+Tesseract**.
+
+`cohort_replay` at the base, run of record `cda8882d`, cold cache
+`webapp_data_train8_cold`, every arm `--expect-identical`:
+
+| cohort at base `71a82aa` | population | result | exit |
+|---|---:|---|---:|
+| the four `DECL:` groups | 38 | 38 unchanged non-validated, 0 payload changed | **0** |
+| `--parser core_processor_sectioned` | 10 | preserved 10 / 10, payload identical 10 | **0** |
+| `--parser core_processor_enclosures` | 48 | preserved 46 / 46, identical 46; the 1 review + 1 withheld unchanged | **0** |
+| `--parser core_processor_daily` | 13 | preserved 13 / 13, payload identical 13 | **0** |
+| `--parser category_partition` | 5 | preserved 5 / 5, payload identical 5 | **0** |
+
+## CPDECL2 The gate table, and the control that makes it worth reading
+
+`tools/cpdecl_decline_probe.py` walks each reader's own refusal chain in the
+reader's own order and names the first link that refused. It adds one thing to
+the huntington probe's shape and it is the thing that matters: **the trace is
+checked against the reader.** After tracing, the real `parse_*` runs on the same
+text, and a sha whose trace says "declines" while the parser publishes — or the
+reverse — is reported as `TRACE-DISAGREES` rather than being given a gate it
+did not hit. A mirrored chain that has drifted from its reader is worse than no
+chain. Measured over all 38: **`TRACE-DISAGREES` 0.**
+
+**This table is a measurement at the BASE, `71a82aa`, where all 38 decline** —
+the class of a document is a fact about a tree, and a gate table that does not
+say which one invites a later reader to treat a changed number as a defect.
+
+| class, at the base `71a82aa` | native | Tesseract | total |
+|---|---:|---:|---:|
+| GRAMMAR (a gate before the printed identities) | 16 | 8 | **24** |
+| IDENTITY (the printed identities do not close) | 1 | 13 | **14** |
+| L-1 | 0 | 0 | **0** |
+| `TRACE-DISAGREES` | 0 | 0 | **0** |
+
+At the closure tree the same instrument reports **GRAMMAR 15 / IDENTITY 14 /
+PARSES 9 / `TRACE-DISAGREES` 0**: the nine documents this card moves now publish,
+so the probe classes them `PARSES`, and the fifteen remaining GRAMMAR refusals
+are the six enclosures/daily/partition shapes minus the nine that moved. Both
+readings are correct and they are correct about different trees.
+
+**The agreement check earned its place here, on this card's own instrument.**
+Run at the closure tree before this closure, the probe reported
+`TRACE-DISAGREES` 3 — exactly the three `category_partition` movers — because
+the mirrored chain still carried the `no_per_day_oracle` REFUSAL that CPDECL5
+had moved to the ADB doctrine. The mirror had drifted from its reader and the
+probe's own control said so. It is repaired by asking the reader rather than
+carrying a copy of the rule: the FACT is still reported
+(`prints_no_per_day_oracle`) and only the CLASS follows the reader, which is
+what makes the trace correct on both sides of the change. Verified both ways —
+the repaired probe run in a detached worktree at `71a82aa` reproduces this
+table **sha for sha**, and at the closure tree it reports `TRACE-DISAGREES` 0.
+
+By reader and by first refusing gate:
+
+| reader | n | route | first refusing gate | class |
+|---|---:|---|---|---|
+| `core_processor_sectioned` | 7 | native | `_summary:` one or more strip cells | GRAMMAR |
+| `core_processor_sectioned` | 1 | native | `_matches_the_printed_summary` | IDENTITY |
+| `core_processor_sectioned` | 1 | Tesseract | `_summary:credit_row,debit_row` | GRAMMAR |
+| `core_processor_sectioned` | 13 | Tesseract | `_matches_the_printed_summary` / `_matches_the_printed_grid` | IDENTITY |
+| `core_processor_enclosures` | 6 | native | `_section_rows:{credit,debit}` | GRAMMAR |
+| `core_processor_enclosures` | 3 | Tesseract | `_strip:no_closing_balance_on_the_line` | GRAMMAR |
+| `core_processor_daily` | 4 | Tesseract | `_rows:CREDITS` | GRAMMAR |
+| `category_partition` | 3 | native | `no_per_day_oracle` | GRAMMAR |
+
+Four shapes, each shared by at least three documents. Two of them close in this
+card and two of them are refusals, and the ceiling is what decided which.
+
+## CPDECL3 The sectioned strip — the adjacency is ALREADY wrong on the printing that loses it
+
+`core_processor_sectioned` reads its summary strip by ADJACENCY: a label, then
+the figure printed after it. On seven native documents the flattened text layer
+emits the strip's labels and its figures in separate runs, in an order that is
+not the printed one, so a cell that IS printed is not read. That is a shape
+seven documents share, and it looks exactly like a widening.
+
+It is not, and `tools/cpdecl_identity_ceiling.py --mode sectioned_strip` is what
+says so. The ledger sections are read independently of the strip, so the row
+count and row total in each direction are known and the summary's identity fixes
+the closing balance. The ceiling asks the only question a cross-run pairing rule
+depends on: is the figure the printed identities REQUIRE printed, unclaimed, in
+the strip's own region — and does the cell the adjacency grammar DID read agree
+with the ledger?
+
+| verdict over `DECL:core_processor_sectioned` | documents |
+|---|---:|
+| `REACHABLE` | **0** |
+| `unreachable` | **22** |
+
+The native eight, in detail, and the finding is in the middle column:
+
+| sha16 | cells the strip grammar lost | cells it READ that disagree with the ledger | required figure not printed in the region | printed grid |
+|---|---|---|---|---|
+| `29CA4402F172B7B9` | credits, debits | — | the credit COUNT | agrees |
+| `6BC052E9B49DB281` | closing, credits | debits | — | agrees |
+| `4BE815516A392B34` | credits | debits, closing | — | disagrees |
+| `4D806D550CFD5A5A` | credits | debits, closing, debit count | — | disagrees |
+| `586B9481FFE276BD` | — | debits, closing, debit count | — | disagrees |
+| `D03F4D27CC73202B` | closing, credits | debits, debit count | the closing balance | disagrees |
+| `A3427B2BE24EB245` | closing, credits, debits | — | the debit total, the closing balance, the debit count | disagrees |
+| `D59DE10944242B1E` | closing, credits, debits | — | — | disagrees |
+
+### The same question with the adjacency grammar thrown away entirely
+
+A reviewer is right to ask whether a rule that re-paired EVERY cell would do
+better than one that inherits the pairings above, so
+`--mode sectioned_strip_search` asks it exhaustively rather than by argument.
+The ledger fixes almost everything: the sections are read independently of the
+strip, so both row counts and both row totals are known, and the summary's
+identity determines the closing balance from the opening one. **One free
+parameter remains — which printed token is the opening balance — and every
+candidate for it is tried.** A candidate is accepted only when every figure the
+identities require is a token the region actually prints, and, where a
+`DAILY BALANCE` grid is printed, when the walk from that opening reproduces it.
+
+| verdict, over all 22 | documents |
+|---|---:|
+| `no_reading_exists` — no pairing rule can ever read it | **21** |
+| `UNIQUE_READING` | **1** (`6BC052E9B49DB281`) |
+| `ambiguous` (two or more readings) | 0 |
+
+So the bound is not "today's grammar cannot": it is that **twenty-one of the
+twenty-two do not contain a readable summary at all**, and the twenty-second is
+one document. A pairing rule written to reach it would be fitted to a scramble
+that differs document by document, on the only member it helps, with the four
+other native members it touches already mis-pairing. That is the fitting the
+doctrine forbids, and one document is not a rule.
+
+**On five of the eight the reader's existing label-to-figure pairing is already
+wrong** — it reads a figure the label does not belong to, and the printed
+identities are what catch it. On two more the figure the identities require is
+not printed in the strip region at all. A pairing rule for this arrangement
+would therefore be built on an adjacency the text does not carry, on a printing
+whose scramble differs document by document, and it would be checked by
+identities that are themselves computed from the mis-paired cells. **All 22 stay
+declined, and the two that come closest are named**: `29CA4402` loses only its
+printed credit COUNT (the bank prints none adjacent to the label), and
+`6BC052E9` has one mis-paired cell — each one document, each a different fault.
+
+## CPDECL4 The enclosures six — a date with another date before the next figure opens no row
+
+`tables.dated_cells` refuses a whole document when a date closes no cell, and
+`core_processor_enclosures` declined six native members for one.
+`--mode enclosures_cells` measured what a skip would cost and what it would buy:
+each document carries **one to three** such dates, and after the most generous
+possible skip **both direction totals close to the cent and both counts land
+inside the interest/fee allowance the reader already grants** — 6 of 6
+`REACHABLE_BY_SKIP`.
+
+The construction is not the bank's, and there are two of them. Three members
+(six pages each) weld a wrapped description across the date column, so the layer
+emits the row's OWN date twice with a fragment of its description between; three
+members (twenty to twenty-two pages) carry a `mm/dd` inside a merchant's printed
+name — a card statement's membership-renewal note in the description of a real
+row. Both are a token that opens nothing, and the run says so itself: the row
+such a token would open is closed by a row that starts later.
+
+`_without_non_opening_dates` blanks the token and leaves every other character
+where it stood. Three properties carry it:
+
+* **it always blanks the one that closes no cell, never the one that closes
+  it.** That is the whole safety question, because in the merchant-note
+  printing the two tokens are different days and blanking the other one would
+  date a posting on the merchant's day;
+* **the gate that proves the call is the one that already proves the module's
+  cross-reference skip** — both printed counts, both printed totals, and the
+  printed daily-balance grid. A blanked token that really was a row leaves the
+  ledger short of the bank's own count and short by that row's amount, and the
+  document declines one gate later instead;
+* **it is bounded to a token with another date AFTER it in the same run.** A run
+  that simply stops mid-row is what a truncated page looks like, and there the
+  refusal stands.
+
+What it costs is a description: text printed before the surviving date is not in
+the row's span and is not published, so a description can come out shorter than
+the bank printed it. Nothing moves a day and nothing moves a figure.
+
+Measured at closure on the six:
+
+| sha16 | outcome | credit coverage | debit coverage | printed grid days matched | `adb_ok` |
+|---|---|---:|---:|---:|---|
+| `373B73F98E63F900` | **validated / approved** | 1.0 | 1.0 | 21 | True |
+| `75FE7191FD4E74A0` | **validated / approved** | 1.0 | 1.0 | 22 | True |
+| `D31770634E04E104` | **validated / approved** | 1.0 | 1.0 | 22 | True |
+| `0943986A52D8226C` | failed → **review / integrity_flags** | 1.0 | 1.0 | 22 | True |
+| `BD835DA79B01B332` | failed → **review / integrity_flags** | 1.0 | 1.0 | 19 | True |
+| `C355B3706588F0B1` | failed → **review / integrity_flags** | 1.0 | 1.0 | 19 | True |
+
+(The last two counts read 22 in this record's first form; measured on the
+published payloads they are 19. The claim the column carries — that the printed
+grid is compared and agrees on every day it prints — is unaffected: the gate is
+mandatory wherever a grid is printed and all six publish.)
+
+The three that land in review are not a partial success of the rule — their
+arithmetic closes completely and the platform names a different, real defect:
+`missing_declared_statement_page`, the statement declaring more bank pages than
+the supplied PDF carries. A document whose ledger is published and whose real
+defect is stated is strictly better placed than one refused over a token that
+was never a posting.
+
+**The independent confirmation is the grid.** On all six the printed
+daily-balance grid — a second printing of the same period, read by a different
+path — agrees with the walked ledger on every day. A blanked token that had been
+a row would have broken the grid on the day it posted.
+
+## CPDECL5 The category partition — a decision the ADB doctrine owns
+
+The three `DECL:category_partition` documents reach the LAST gate in the reader
+and fail only it. Measured at base by the probe, before anything changed: the
+partition identity, both direction counts, both direction totals and the
+uncounted-category bound against the service-charge recap all pass on all three.
+What they do not print is a per-day oracle — they are the sectioned issue, so no
+running balance, and they print a `COLLECTED BALANCE SUMMARY` rather than a
+`DAILY BALANCE SUMMARY`. §GLANCE GL3 declined them for that.
+
+That refusal is a reader making a doctrine's decision for it, and this card
+takes it back. Three measurements, in the order they were made:
+
+1. **the siblings.** `core_processor_sectioned` and `core_processor_enclosures`
+   both state in their own docstrings that where the grid is not printed the
+   reader publishes and the ADB doctrine decides — and it is not only a
+   sentence: **8 of the 46 validated `core_processor_enclosures` documents
+   publish NO daily grid at all and are `validated`.** The platform already
+   validates a ledger-reconstructed calendar-day series on this very complex.
+   The one sibling that does require its grid, `core_processor_daily`, gives a
+   reason that does not carry here — it prints no transaction count at all, so
+   the grid is its only second opinion, while this partition prints a
+   per-CATEGORY count and a per-category total, which is finer evidence of
+   completeness than either of the other two has;
+2. **what the platform actually says, with the checks that are evidence kept
+   apart from the checks that are arithmetic.** Published, all three are
+   `validated / approved`: `recon.ok`, `summary_ok`, integrity flags empty,
+   quality `approved`, on the canonical `calendar_day_printed_period` basis
+   under `canonical_v1`. Of `adb.validations`' thirteen keys the EVIDENTIAL
+   ones — the ones that could have come out false on these documents — are
+   `opening_balance_matches_statement`, `final_balance_matches_statement_closing`,
+   `ledger_reconciles_to_closing`, `all_transactions_dated`,
+   `transactions_within_period` and `posting_dates_cover_source`, and all six
+   are true on all three. This record's first form ALSO listed
+   `daily_balances_contiguous`, `daily_balance_count_equals_calendar_days`,
+   `covers_opening_day` and `covers_closing_day`, which is an over-read: a
+   series `adb.py` reconstructs itself over the inclusive printed period is
+   contiguous, covers both ends and has one entry per calendar day BY
+   CONSTRUCTION, so those four say nothing about these documents and citing
+   them made the argument look stronger than it is. A fifth,
+   `running_balances_support_daily_ledger`, is not vacuously true either — it
+   is ABSENT, because `adb.py` registers it only where a transaction carries a
+   printed running balance and this issue prints none;
+3. **GL3.1's generalisation does not hold, and the correction is the useful
+   part.** GL3.1 priced the bank's own printed `Average Balance (<basis>)`
+   against the platform's six bases on the ONE document that then had both that
+   entry and a proven ledger grid, found it reproduced on none of them, and
+   concluded the entry is never a per-day oracle. Four documents of the family
+   print the entry. On `3A9502DF` — GL3.1's document — the computed
+   calendar-day average misses the printed figure by about two fifths of it. On
+   the other three, which are exactly these three declines, **the calendar-day
+   average computed from this reader's own ledger lands on the printed figure
+   EXACTLY on one and WITHIN A CENT on the other two.** The review measured
+   that and this record said "to the cent" on all three, which is wrong: the
+   platform records the one-cent gap as `agrees_with_bank_stated_average:
+   False` on `6E9A3A110E6829EB` and `C47BEFE559CB8600`, and True only on
+   `889DAEBE7D79133C`. The corroboration survives the correction — on a
+   twenty-nine to thirty-two day average a misdated row moves the figure much
+   further than a cent — but it is corroboration and not agreement. It is
+   still not a GATE, and this card does not make it one:
+   the fourth document disagrees, and under the ADB doctrine a bank's printed
+   average is evidence only. But it is a printed, DAY-SENSITIVE quantity that
+   agrees, so the misdating the old refusal was built for is measurably absent
+   on these three rather than merely unlikely.
+
+**What is unchanged is the thing GL3 was really protecting**, and it is now
+pinned harder than before: a collected grid's CELLS are still never read, on
+either issue. The mutation table's two oracle rows are kept and re-aimed at that
+property in its strictest form — the mutant must publish the base statement with
+the daily series EMPTY and every other field unchanged — so a reader that read a
+collected cell, or that changed anything else when the grid went away, still
+fails.
+
+## CPDECL6 The Tesseract twenty-one, and the two shapes that reach none of them
+
+Twenty-one of the 38 are Tesseract, and none of them moves. The three findings
+are separate and each is measured:
+
+* **`core_processor_sectioned`, 13 IDENTITY**, and the split is six and seven
+  rather than the six / six / one this record first gave, which reached 13 only
+  by counting one document twice. From the committed probe's own `count_delta`:
+  **six** read the right NUMBER of rows in BOTH directions — five of those miss
+  a printed total and the sixth misses only the grid, by a single day the ledger
+  posts on and the grid does not print — and **seven** lose rows outright, with
+  thirteen non-zero deltas across them running from one to ninety-eight and
+  every one negative. That
+  is the module's own docstring — OCR substituting look-alike letters for
+  digits inside the AMOUNT column — and the ceiling agrees: `unreachable` on all
+  14 Tesseract members of the group, with the strip's own cells disagreeing with
+  the ledger on 12 of them;
+* **`core_processor_enclosures`, 3 Tesseract.** The strip is one printed line on
+  every addressable member, and on these three that line carries **zero** money
+  tokens: Tesseract destroyed the weld the whole strip read depends on. The
+  ceiling reports `no_summary`; there is nothing to widen toward;
+* **`core_processor_daily`, 4 Tesseract.** These refuse at `_rows:CREDITS` with
+  one to three dates that close no cell — the same SHAPE the enclosures rule
+  reads. It was measured rather than assumed: with that rule applied to this
+  reader in memory, **0 of the 4 publish.** Three print no `DAILY BALANCES`
+  section at all, and that reader requires its grid for the reason quoted above;
+  the fourth still fails. So the rule is not carried across, and this is the
+  card's answer to "OCR-tolerant structure, only after the native subset
+  closes": the native subset closed, the structure was tried, and it reaches
+  nothing.
+
+## CPDECL7 Sub-card B — the rotation, asked of the population
+
+`tools/cpdecl_rotation_table.py`. Both forms are the platform's own and neither
+is reconstructed: the ROTATED text is the run of record's own cached OCR
+artifact, and a document is rotated exactly when that artifact's recorded model
+is `native-pdf-text+printed-rows` — the rung returns None whenever it changes
+nothing, so the model string IS the rung's verdict. The UN-ROTATED text is the
+same content sha's artifact under an earlier settings key in the working cache.
+
+Two controls: the rung's own token-conservation gate must hold between the two
+forms (it does on every document compared), and on documents the rung did NOT
+fire on the two caches must hold identical text — **25 of 25 identical**, so a
+difference below is the rotation's and not some other change between the stage
+versions.
+
+| population | native documents | rotated and comparable | routing or outcome DIFFERS |
+|---|---:|---:|---:|
+| the card's population (non-validated, `text_route = native`) | 612 | 24 | **2** |
+| every native document of the run, validated included | 3,208 | 83 | **2** |
+
+Both rows are 2, and the second row adds no mover: every one of the 59 rotated
+documents the run VALIDATED validates on both forms. This record carried **1**
+in the first row until the CP-DECLINES review re-ran the committed instrument
+and got 2. The wrong number has a traceable cause and it is worth naming,
+because it is the failure mode a committed instrument exists to prevent: the
+first version of `route()` classified with `analyze_markdown` alone and without
+the runner's page partition, so an unclaimed document raised and was recorded as
+a crash rather than as `failed / no_parser_matched`. That was fixed before the
+tool was committed — it now classifies through `cohort_replay.replay_one`, the
+runner's own call — but the first row of this table was transcribed from the
+run made before the fix and was never re-transcribed after it. The instrument
+was right; the record was stale.
+
+| sha16 | rotated | un-rotated |
+|---|---|---|
+| `361167E3A263C346` | `welch_state_bank` claims → `failed / parser_declined` | `welch_state_bank` claims → **`validated / approved`** |
+| `01B82FEC38EEEF16` | nothing claims → `failed / parser_declined` | `community_section` claims → `failed / parser_declined` |
+
+**No registration has two affected documents**, so no rotation-tolerant marker
+is owed and neither `analysis/welch_state_bank.py` nor `ocr/native_text.py` is
+touched — which is the outcome the card contemplated: one document is not a
+rule. `01B82FEC` is a detection difference with no ladder consequence at all.
+
+The mechanism on the named instance is recorded so a future cell does not have
+to re-derive it: on both forms `welch_state_bank` detects, reads its summary and
+its period, and finds the same number of grid snapshots. On the rotated text its
+region walk books **181** postings against **193** on the un-rotated one, and
+the entire loss is on the CREDIT side — the printed credit count and credit
+total both miss while the debit count and debit total are exact. So the
+rotation re-serialises this member's deposit block into a shape that reader's
+region walk drops rows from.
+
+One thing this table does NOT measure, said plainly so it is not read as more
+than it is: it compares ROUTING and the LADDER outcome. §DESCCOLS' gain was in
+descriptions — which row a merchant block is attached to — and a payload
+improvement that does not move a document up the ladder is invisible here. What
+the table establishes is that across every document the rung fired on in the run
+of record, the rotation changes the ladder outcome on exactly one, and that one
+is a loss.
+
+## CPDECL8 The mutation table, and the mutant that survives because the two forms are equal
+
+`tools/cpdecl_mutation_table.py`, every mutant applied by exact string
+replacement to the production source, tests run WITHOUT `-x`, restore in a
+`finally` and `git status --porcelain` verified clean after every row.
+
+| mutant | gate | killer | result |
+|---|---|---|---|
+| M1 | the rule itself: a date that opens no row is read as one | `test_a_date_with_another_date_before_the_next_amount_opens_no_row` | **KILLED** |
+| M2 | the bound: a run that STOPS mid-row must still be refused | `test_a_run_that_ends_on_a_date_closing_no_cell_is_still_declined` | **KILLED** |
+| M3 | WHICH token is blanked | `test_the_blanked_token_can_never_move_a_row_onto_the_wrong_day` | **KILLED** |
+| M4 | a date that DOES close a cell must be left alone | `test_a_complete_statement_publishes_every_printed_figure` | **KILLED** |
+| M5 | blanked, not removed | `test_a_date_with_another_date_before_the_next_amount_opens_no_row` | **SURVIVED** |
+| M6 | the ADB doctrine's decision is not the reader's | `test_a_collected_grids_cells_are_never_published_on_the_sectioned_issue` | **KILLED** |
+| M7 | the collected grid's CELLS are still never read | `test_a_collected_grid_cell_is_never_published_as_a_daily_balance` | **KILLED** |
+
+**M5 survives, and it survives because the two forms are EQUAL rather than
+because a gate is untested** — the §DESCCOLS G6/G7 case, measured the same way
+instead of argued. Blanking the token and deleting its whole span differ only in
+text that lies outside every cell's own span, and `tables.dated_cells` gives a
+row's description as what stands between its date and its amount, so nothing
+outside that span can reach a payload. Run over the whole cohort — the 48
+documents the baseline claimed with this reader plus the nine declines,
+**57** documents — the two forms publish **identical statements on 54 and
+decline the same 3; differences 0.** Blanking is kept because it is the minimal
+transformation: every other character keeps its position, which is what makes
+"nothing else moves" checkable rather than assertable.
+
+## CPDECL9 The proof floor, the commits, and the contract line
+
+**Which tree these exit codes belong to.** Every row below was measured at
+`c7f1c62`, the tip, with ONE exception named in its own row: the archive sweep
+ran at `2c68b30`. The only production file that differs between those two trees
+is `analysis/core_processor_enclosures.py`, and its AST **with docstrings
+removed is identical** — checked, not argued, so no document's analysis can
+differ between the sweep's tree and the tip.
+
+**The L-1 due diligence on the nine documents that now publish.** Each of the
+six `core_processor_enclosures` movers prints exactly ONE account field, ONE
+period sentence and ONE occurrence of the closing-balance label in the whole
+document; each of the three `category_partition` movers prints ONE account
+number, ONE summary header, and a relationship row listing exactly ONE amount.
+No document here publishes one account while another goes unpublished.
+
+| proof | result |
+|---|---|
+| `cohort_replay` at the base, all five arms, `--expect-identical` | **EXIT=0** each — fidelity established before any change |
+| `cohort_replay` at closure, the four `DECL:` groups | population 38 — **newly validated 6**, other ladder movement up 3, 29 unchanged non-validated, payload changed 0, **regressions 0** — **EXIT=0** |
+| `cohort_replay --parser core_processor_sectioned` | **preserved 10 / 10, payload identical 10**, regressions 0 — **EXIT=0** |
+| `cohort_replay --parser core_processor_enclosures` | **preserved 46 / 46, payload identical 46**, the 1 review + 1 withheld unchanged, regressions 0 — **EXIT=0** |
+| `cohort_replay --parser core_processor_daily` | **preserved 13 / 13, payload identical 13**, regressions 0 — **EXIT=0** |
+| `cohort_replay --parser category_partition` | **preserved 5 / 5, payload identical 5**, regressions 0 — **EXIT=0** |
+| mutation table | 7 rows, **6 KILLED / 1 SURVIVED**, the survivor's equivalence measured over 57 documents (identical 54, both declined 3, differ 0); `git status --porcelain` clean after every row |
+| full default suite | **7,065 passed, 43 skipped, 34 deselected — EXIT=0**. The only test-count change is measured per file: `tests/test_core_processor_enclosures.py` collects 53 at the base and 56 here (+3, the three the new rule owes); `tests/test_category_partition.py` collects 89 at both, two tests re-aimed rather than added |
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped — EXIT=0** |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld — **EXIT=0** |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,112 deselected — EXIT=0** |
+| archive sweep at `2c68b30`, two chunks covering every document | 3,380 documents, **2,669 payloads compared, 2,669 identical, moved 0**, `payload_now_raises` **0**, `multi_artifact_documents` 0 — EXIT=0 on both chunks |
+| … and its nine findings | `no_payload_now_publishes` **9**, and the nine are EXACTLY the nine named movers — no document outside the named population moved in either direction. The archive's standing residue reconciles to the document: `no_payload_raises_again` 673 against 682 at an unchanged tree, and 673 + 9 = 682 |
+| branch privacy scan, ADDED FILE LINES vs the 114-document population | **hit_count 0** over 2,342 added lines and 114 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — **EXIT=0**. Its zero is not vacuous: the raw scan before exclusions finds 4, all of them class WORDS and all of them ordinary English in this card's own prose |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0** over 9 commits — and **WORDS 9**, which is reported rather than suppressed. Every one is the same two-word sequence from the co-authorship trailer every commit carries, and it matches because three of the 114 documents print a subscription charge to that vendor as a MERCHANT DESCRIPTION. It is not a token copied out of a statement; it is the same string on every branch of this batch, and the standing `words_class` exclusion the FILE scanner has applied since the batch-8 train covers exactly this class. The message scanner does not apply the exclusion table, which is why it is visible here at all |
+| the instruments carry no control byte | 0 on all four `tools/cpdecl_*.py` |
+
+The added-line count and the commit count in the two scan rows are the branch's own at the commit that carried them, and they move with the record — a section that reports a scan is itself scanned by the next run of it. **The ZERO is what the floor asserts, and it is invariant to that**: both scans were re-run at the tip after this sentence landed and report MONEY 0 / DIGITS 0 / DATES 0 on both surfaces, with the WORDS row on the message surface still the co-authorship trailer and nothing else. The counts are named so a reader can tell which tree produced them.
+
+### The commits of this cell
+
+| commit | what |
+|---|---|
+| `0f0cbce` | `tools/cpdecl_decline_probe.py` — the gate table, checked against the reader |
+| `b3c1bbe` | `category_partition`: no per-day evidence is the ADB doctrine's call |
+| `43146e6` | `core_processor_enclosures`: a date with another date before the next figure opens no row |
+| `4d001b9` | `tools/cpdecl_identity_ceiling.py` and `tools/cpdecl_mutation_table.py` |
+| `2c68b30` | `tools/cpdecl_rotation_table.py` — sub-card B |
+| `90ed72d` | this section |
+| `c2e49b9` | the enclosures docstring claimed more for "blanked, not removed" than the measurement supports |
+| `6c68ee9` | the ceiling's exhaustive re-pairing mode, and CPDECL3's bound narrowed to what it measures |
+| `c7f1c62` | the rule is scoped to the ledger blocks and not the grid, said on the page |
+
+### The findings carried
+
+1. **The DESC-COLUMNS rotation costs exactly one validated document.**
+   `361167E3A263C346`, measured both ways at this tree. It is one document, so
+   this card leaves it: the named instance is not a rule, and the owner is
+   `ocr/native_text.py`'s rung rather than `welch_state_bank`'s grammar. The
+   mechanism is in CPDECL7 so the next cell starts from a measurement.
+2. **`core_processor_sectioned`'s strip pairs a label to a figure across the
+   flattening's own scramble, and on five archive documents it pairs them
+   wrongly.** Nothing is published today because the printed identities refuse
+   the document — that is the reader working. It is carried because it is a
+   latent wrong READING rather than a missing one, and any future widening of
+   this strip has to start from CPDECL3's table rather than from the shape.
+3. **The three enclosures documents that land in `review` declare more bank
+   pages than the supplied PDF carries.** Their arithmetic is complete; the
+   defect is the upload. Named here so a later census does not read them as a
+   parser gap.
+
+## CPDECL10 The review, and what each finding became
+
+An independent adversarial review
+(`docs/moneythumb-replacement/reviews/BATCH9_CPDECL_REVIEW.md`) returned
+**BLOCK — 1 BLOCK / 2 MAJOR / 4 MINOR**. Every count in this section reproduced
+in the reviewer's own session, at the base and at the tip; the block was not a
+count but a fail-closed hole, and the two MAJORs were both numbers in this
+record that its own committed instruments contradict.
+
+| finding | closure |
+|---|---|
+| **BLOCK-1** — the blanking rule keeps the LATER token by POSITION, so in the ordinary ordering (posting date first, note second) the row takes the note's day, and with no printed grid the platform publishes and validates it | a blanked pair naming two DIFFERENT days now REQUIRES the printed daily-balance grid; three docstrings corrected, one test renamed and split, two tests and two mutants added. Zero documents cost |
+| **MAJOR-1** — "reproduces the printed figure to the cent" is false on two of the three partition movers | corrected in the production docstring and in CPDECL5: exactly on one, within a cent on two, with the platform's own `agrees_with_bank_stated_average: False` on those two stated |
+| **MAJOR-2** — the rotation table's first row is 2 of 24, not 1 | corrected, with the stale transcription's cause named (CPDECL7) |
+| **MINOR-1** — two grid-day counts wrong | corrected to 19 and 19 (CPDECL4) |
+| **MINOR-2** — CPDECL5 over-reads `adb.validations` | the four checks true by construction are separated from the six that are evidence, and the absent one is named as absent |
+| **MINOR-3** — the gate table's tree is not named, and the probe disagrees at the tip | the tree is named, both readings recorded, and the probe's drifted mirror repaired (CPDECL2) |
+| **MINOR-4** — the sectioned Tesseract split double-counts one document | corrected to six and seven (CPDECL6) |
+
+### CPDECL10.1 BLOCK-1, in the reviewer's own terms and then in this card's
+
+The rule blanks the token that closes no cell. That sentence is true, and the
+inference this record drew from it was not: which of an adjacent pair closes no
+cell is decided by the LAYER'S EMISSION ORDER, so the survivor is always the
+later token by position and is the row's posting date only when the intruding
+`mm/dd` happened to be emitted first. Reproduced here on the module's own
+invented fixture, in the ordinary ordering with the grid block dropped: the row
+published on the note's day, and the platform returned `validated / approved`.
+
+**Neither printed count nor either printed total can see it** — a moved day
+changes no count and no amount — so the control this record named as the proof
+of the call is provably blind to the failure mode the rule creates. It is sound
+for the LOST-ROW mode and reaches the MOVED-DAY mode not at all.
+
+The remedy is the reviewer's, measured and costing nothing: **where a blanked
+pair names two DIFFERENT days the printed daily-balance grid is required, and
+the document is refused without one.** The scan is now one definition with two
+readings — `_non_opening_dates` pairs the token that opens no row with the one
+that opens it instead, `_without_non_opening_dates` blanks the first and
+`_blanks_a_different_day` compares the two — so the rule and the safety question
+cannot drift apart, and `_ledger` reports the flag over the same runs after the
+same cross-reference pass.
+
+| what the remedy costs | measured |
+|---|---:|
+| newly validated | **6**, unchanged |
+| the three different-day movers (`373B73F9`, `75FE7191`, `D3177063`) | all print a 21–22-day grid; unaffected |
+| the three same-day movers (`0943986A`, `BD835DA7`, `C355B370`) | nothing extra asked; unaffected |
+| documents the reader claims at base on which the rule fires at all | **0 of 48** |
+
+Three tests carry it now instead of one. The old
+`test_the_blanked_token_can_never_move_a_row_onto_the_wrong_day` asserted the
+property this finding disproves and passed only because its fixture was written
+in the safe ordering; it is renamed to what it actually shows, and joined by
+`test_a_note_emitted_after_the_posting_date_is_refused_without_the_grid` (both
+arms: refused without a grid, refused with one because the grid catches the
+moved day) and
+`test_a_same_day_pair_needs_no_grid_because_the_choice_cannot_move_a_posting`.
+
+### CPDECL10.2 The proof floor at the closure tree `0f851d6`
+
+| proof | result |
+|---|---|
+| `cohort_replay`, the four `DECL:` groups | population 38 — **newly validated 6**, other movement up 3, 29 unchanged, payload changed 0, **regressions 0** — **EXIT=0** |
+| `cohort_replay --parser` ×4 | **10/10 · 46/46 · 13/13 · 5/5, payload identical**, regressions 0 — **EXIT=0** each |
+| mutation table | **9 rows, 8 KILLED / 1 SURVIVED**, `git status --porcelain` clean after every row, no other harness on the host |
+| … the survivor | M5, re-measured against the mutant's EXACT new form over the 57-document cohort: **identical 54, both declined 3, differences 0** |
+| full default suite | **7,067 passed, 43 skipped, 34 deselected — EXIT=0** (7,065 before this closure; the enclosures module 56 → 58) |
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped — EXIT=0** |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned, 0 exclusions — **EXIT=0** |
+| corpus-marked slice | **30 passed, 7,114 deselected — EXIT=0** |
+| the decline probe, both trees | base `71a82aa`: reproduces CPDECL2 **sha for sha**; closure tree: GRAMMAR 15 / IDENTITY 14 / PARSES 9 / **`TRACE-DISAGREES` 0** |
+
+**The archive sweep was re-run at this tree and not carried over**, because
+BLOCK-1 changed a reader: a reader that declines more can hand a document to
+another claimant, which is movement no cohort of this card's own would see.
+Its result is in CPDECL10.3.
+
+### CPDECL10.3 The archive sweep at the closure tree
+
+`tools.regfp_zero_movement_sweep` over the run of record's own `rows.csv`
+against the baseline settings key, in two chunks covering every document, at
+`0f851d6`:
+
+| chunk | documents | compared | identical | moved | `no_payload_now_publishes` | `payload_now_raises` |
+|---|---:|---:|---:|---:|---:|---:|
+| `[0, 400)` | 400 | 321 | 321 | **0** | 1 | 0 |
+| `[400, 3380)` | 2,980 | 2,348 | 2,348 | **0** | 8 | 0 |
+| **total** | **3,380** | **2,669** | **2,669** | **0** | **9** | **0** |
+
+The nine are exactly the nine named movers, and the archive's standing residue
+reconciles to the document: `no_payload_raises_again` 673 against 682 at an
+unchanged tree, and 673 + 9 = 682. **Zero movement outside the named
+population, archive-wide, at the tree that carries the remedy.**
+
+### CPDECL10.4 What the review confirmed, and what it leaves for Gustavo
+
+Every other headline of this section reproduced in the reviewer's own session:
+the five base arms, the closure arms, the nine movers by sha, 74/74 preserved
+payload-identical, all four ceilings, the gate table at the base, the M5
+equivalence, the WELCH mechanism, the rotation controls, the L-1 checks, the
+ownership and the append-only property of this log.
+
+**The GL3 reversal (`b3c1bbe`) is left standing and goes to Gustavo as a
+ruling**, with MAJOR-1's correction applied. The review's position and this
+card's agree: BATCH9-RULES does not forbid it — the proof standard applied is
+the one eight already-validated documents of a sibling reader on the same core
+already meet — but it is a reversal of an argued, recorded refusal in a frozen
+batch, and only Gustavo should ratify where the platform draws the line between
+a reader's refusal and the validator's verdict. The revert is one commit if he
+declines it.
+
+### CPDECL10.5 The closure commits
+
+| commit | finding |
+|---|---|
+| `fb0a033` | BLOCK-1 — the different-day pair requires the printed grid |
+| `10a3dca` | MAJOR-1 — exactly on one, within a cent on two |
+| `38d9e02` | MAJOR-2 — the rotation table's first row is 2 of 24 |
+| `331acd4` | MINOR-1 — two grid-day counts |
+| `19e88c5` | MINOR-2 — evidence apart from arithmetic |
+| `1137a7c` | MINOR-3 — the gate table's tree, and the repaired mirror |
+| `0f851d6` | MINOR-4 — six and seven |
