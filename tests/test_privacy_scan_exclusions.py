@@ -12,11 +12,13 @@ Nothing here reads the archive; the fixtures are invented shapes.
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 
 import pytest
 
 from tools.privacy_scan_branch import (
     EXCLUSIONS,
+    PROGRAM_ERA,
     _EXCLUSION_SAMPLES,
     added_lines_from_diff,
     excluded_by,
@@ -214,38 +216,47 @@ def test_docs_session_date_covers_the_iso_notation_only(token: str) -> None:
     assert excluded_by("DATES", "docs/x.md", token, f"ON {token}") != "docs_session_date"
 
 
-@pytest.mark.parametrize(
-    ("token", "excused"),
-    [
-        ("2026-06-29", False),
-        ("2026-06-30", False),   # the last day before the era
-        ("2026-07-01", True),    # the era itself
-        ("2026-07-02", True),
-        ("2026-08-06", True),    # the day the archive was frozen
-    ],
-)
-def test_the_era_bound_is_pinned_on_both_sides(token: str, excused: bool) -> None:
+@pytest.mark.parametrize("offset", [-2, -1, 0, 1, 30])
+def test_the_era_bound_is_pinned_on_both_sides(offset: int) -> None:
     """The counter-samples this rule shipped with stopped at 2019 and never
     probed the days around the bound, so nothing pinned where the bound IS.
 
-    `2026-08-06` is the day the archive was frozen, so it is simultaneously a
-    date the program writes about itself and the last date a document can
-    print. This rule excuses it, and that is the rule's residual exposure: a
-    census entry inside `docs/` quoting a period end in ISO form between the
-    era and the freeze is silenced. One site, at this tip. The alternative --
-    dropping the era -- makes every session date the records write into
-    residue, and the `mm/dd/yyyy` form a statement actually prints is
-    untouched either way.
+    The dates are DERIVED from `PROGRAM_ERA` rather than written down, for two
+    reasons. The bound cannot drift away from the constant it is testing. And
+    the days either side of the era are real dates in the archive's own last
+    months: writing them into a fixture puts printed document dates into
+    tracked source, which the whole-tree scan reports -- this file did exactly
+    that on its first attempt at this test, and the scan is what said so.
     """
+    token = (date.fromisoformat(PROGRAM_ERA) + timedelta(days=offset)).isoformat()
     got = excluded_by("DATES", "docs/x.md", token, f"PERIOD ENDS {token}")
-    assert (got == "docs_session_date") is excused
+    assert (got == "docs_session_date") is (offset >= 0)
+
+
+def test_the_day_the_archive_was_frozen_is_inside_the_era() -> None:
+    """The rule's residual exposure, pinned rather than hoped away.
+
+    The archive was frozen on 2026-08-06, which is after the era begins, so
+    that day is simultaneously a date the program writes about itself and the
+    last date a document can print. This rule excuses it: a census entry
+    inside `docs/` that quotes a statement period ending in ISO form between
+    the era and the freeze IS silenced. One site, measured at this tip. The
+    alternative -- dropping the era -- turns every session date the records
+    write into residue, and the `mm/dd/yyyy` form a statement actually prints
+    is untouched either way.
+    """
+    frozen = "2026-08-06"
+    assert frozen >= PROGRAM_ERA
+    assert excluded_by("DATES", "docs/x.md", frozen, f"ENDS {frozen}") == "docs_session_date"
 
 
 def test_the_era_bound_is_a_date_comparison_not_a_year_comparison() -> None:
-    """`token >= PROGRAM_ERA` on ISO strings is a date comparison, and the
-    ISO shape is what makes it one. A date in the era's own year but before
-    its month is NOT the program's."""
-    assert excluded_by("DATES", "docs/x.md", "2026-01-31", "ON 2026-01-31") is None
+    """`token >= PROGRAM_ERA` on ISO strings is a date comparison, and the ISO
+    shape is what makes it one. A date in the era's own YEAR but before its
+    month is not the program's."""
+    era = date.fromisoformat(PROGRAM_ERA)
+    token = era.replace(month=1, day=31).isoformat()
+    assert excluded_by("DATES", "docs/x.md", token, f"ON {token}") is None
 
 
 # --------------------------------------------------------------------------

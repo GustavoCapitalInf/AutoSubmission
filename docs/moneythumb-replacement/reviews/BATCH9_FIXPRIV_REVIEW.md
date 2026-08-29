@@ -438,8 +438,11 @@ hardcode and a correctness defect, not a privacy edit.
 
 **3. The record redaction is refused as specified — ruling needed.** **I agree with the refusal,
 and I verified the reason rather than taking it.** Running the committed redactor's patterns over
-the record's own vocabulary: `ubuntu-24.04` → the `24.04` matches `MONEY_RE`; so do `978.52s`,
-`33.88s` and `1.15s`. Under the tool's rule any of those that a document also prints is replaced
+the record's own vocabulary: a runner image's two-part version number matches `MONEY_RE`, and so
+does every test duration written as seconds to the hundredth. (The four I measured are not
+quoted here: each is a figure some document prints, which is the finding, and quoting them
+would put them in tracked source -- the closure's MAJOR 1 trap, one paragraph on.) Under the
+tool's rule any of those that a document also prints is replaced
 by `[amount redacted]`, and a five-or-more-digit CI run id or W3 line reference that collides is
 replaced by `[digits redacted]`. That destroys the record's ability to name its own runs, its own
 lines and its own durations — which is `cc64232` / `bbeeb5c` damaging shas, one step further out,
