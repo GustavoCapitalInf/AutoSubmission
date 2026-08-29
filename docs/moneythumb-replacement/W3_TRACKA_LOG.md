@@ -57443,6 +57443,35 @@ Both runs waited for the shared host: the harness polled `tasklist` and did not
 start until the other cell's python had exited (101 polls, ~17 minutes), so no
 two mutation harnesses ran together on this repository's `.git`.
 
+## RP5.7b Zero movement — the archive sweep at the final tree
+
+A reader changed, so the sweep is owed. `python -m
+tools.regfp_zero_movement_sweep --rows <run>/rows.csv --data-dir
+.claude/recovery/webapp_data_train8_cold --baseline-settings-key
+7652A5AF…C093D`, four chunks of 845, at `0687511`.
+
+| chunk | documents | compared | identical | moved | no_payload_now_publishes | payload_now_raises | findings | s |
+|---|---:|---:|---:|---:|---:|---:|---|---:|
+| 0–845 | 845 | 655 | **655** | 0 | 0 | 0 | `[]` | 936.6 |
+| 845–1690 | 845 | 678 | **678** | 0 | 0 | 0 | `[]` | 1,005.0 |
+| 1690–2535 | 845 | 671 | **671** | 0 | 0 | 0 | `[]` | 948.1 |
+| 2535–3380 | 845 | 665 | **665** | 0 | 0 | 0 | `[]` | 643.4 |
+| **total** | **3,380** | **2,669** | **2,669** | **0** | **0** | **0** | **none** | 3,533.1 |
+
+Also, across the four chunks: `no_payload_raises_again` 682, `no_ocr_artifact`
+29, `multi_artifact_documents` 0. **2,669 of 2,669 payloads identical and no
+finding of any class**, so nothing outside the named population moved — and
+nothing inside it did either, which is what a hygiene card must be able to say.
+The compared-payload total reproduces §RAISEPRIV4's own sweep at its tip
+(2,669/2,669), on the same archive and the same baseline settings key.
+
+*Operational note, recorded because it is a host lesson rather than a result:
+the four chunks were launched as one detached job and the job was killed by the
+harness's background limit after three of them. The three completed chunks are
+untouched by that (each writes its own report and exits), and the fourth was
+re-launched on its own and completed. Chunks are the unit; a long sweep on this
+host should be launched one chunk per job.*
+
 ## RP5.8 Privacy of what this branch adds
 
 Every fixture is INVENTED. The three non-month words are a canary-derived word,
@@ -57479,6 +57508,7 @@ document.
 | `cohort_replay … --expect-identical` at tip | 76 replayed, 73/73 preserved identical, 0 regressions | **0** |
 | `tools.raisepriv5_mutation_table` | 9 mutants · **9 killed** · 0 survived · 0 not applied | **0** |
 | `tools.raisepriv4_mutation_table` (re-run whole) | 10 mutants · **10 killed** · 0 survived · 0 not applied | **0** |
+| archive sweep, 3,380 documents in four chunks | 2,669/2,669 identical; 0 moved / 0 now-publishes / 0 now-raises; findings `[]` (3,533.1 s) | **0** |
 | branch privacy scan | **0 hits** | 0 |
 | commit-message scan | **0** MONEY / DIGITS / DATES | 0 |
 
