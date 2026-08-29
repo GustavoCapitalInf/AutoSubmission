@@ -417,3 +417,106 @@ a zero amount (§3.7). Fail-closed; no measured instance.
 `tip_replay.log`, `floor.log`, `mutation.log`, `rev_sweep_b.log`, `hostile.py`, `hostile2.py`,
 `census.py`, `movers.py`, `claims.py`, `l1.py`, `raises.py`. They print shas, gate names,
 shapes, counts and hashes only — never a document value.*
+
+---
+
+# Closure confirmation — `bb58f59..00c911a` (5 commits)
+
+**CONFIRMED.** Re-measured in the reviewer's own detached worktrees at `00c911a` (the two
+temp worktrees from the first pass had been cleared by the host, so both were recreated at
+the closure tip; the main checkout was never touched). The host was verified clear of every
+other python process before the mutation harness ran, and the harness ran alone, without
+`-x`, in a worktree of its own.
+
+## What was re-measured
+
+| item | closure claim | reviewer's measurement | |
+|---|---|---|---|
+| `cohort_replay --parser pnc` at `00c911a` | 41/41 preserved, the same 14 leaf paths, no new path | 45 replayed, preserved **41/41**, payload changed 41, validated regressions **0**, exit 0 | ✓ |
+| the leaf-path SET vs the first pass | unchanged | **14 paths at `ddc5702`, 14 at `00c911a`; new paths NONE, paths gone NONE, and every per-path leaf count identical** | ✓ |
+| `cohort_replay` target 17 | 13 / 3 / 1 unchanged | newly validated **13** (set-equal to the named shas), withheld→failed the **3** named, unchanged non-validated 1, regressions **0**, exit 0 | ✓ |
+| mutation table, no `-x`, host clear | 20/20 | **20 mutants · 20 killed · 0 survived · exit 0**; `git status --porcelain` empty after, `analysis/pnc.py` identical to HEAD | ✓ |
+| pnc tests | 59 | **59 passed** | ✓ |
+| guards / conformance | 255 / 1,270 | **255** / **1,270 passed, 40 skipped** | ✓ |
+| the 58 re-driven | 54 publish / same 4 decline | **54 published · 4 declined · 0 raised**; the digit-adjacent guard refuses **none** of them | ✓ |
+| privacy, added file lines | 0 over 3,453 | **hit_count 0** over **3,453** added lines, 58 documents; MONEY/DIGITS/DATES/WORDS all 0 | ✓ |
+| privacy, commit messages | 0/0/0/0 over 17 | **0 in every class over 17 commits** | ✓ |
+| W3 | one section, 584 added / 0 removed | **584 added / 0 removed**, exactly one section header (`§PNC9`), no other section touched | ✓ |
+| `_CONTROL_BYTE` after the `b82cf75` re-spelling | compiled pattern identical | pattern string **equal to the `ddc5702` literal**; `_DIGIT_ADJACENT_CONTROL` built from the same `_CONTROL_CLASS`; no byte disagrees with the intended class | ✓ |
+
+## MINOR 1 — CLOSED, and the repair it guards is intact
+
+Driven through the real parse at `00c911a`:
+
+| fixture | before (`ddc5702`) | at `00c911a` |
+|---|---|---|
+| a NUL between two digit groups of the grid row (my original attack) | published a JOINED figure | **DECLINED** |
+| a form feed between two digit groups | published a joined figure | **DECLINED** |
+| **NEW** a form feed as a page break directly after a figure's last digit | — | **DECLINED** |
+| **NEW** a control byte adjacent to a digit in FURNITURE only (a page number) | — | **DECLINED** |
+| **NEW** a control byte adjacent to a digit ACROSS a newline | — | **DECLINED** (the guard is not line-scoped) |
+| **NEW** a DEL byte, outside the substituted class | — | **DECLINED** — by a different route: the byte is neither substituted nor joined, the column reads short, and the document fails its own identities. No join is reachable from outside the class either. |
+| the heading-separator NUL that earns the WH mover (not digit-adjacent) | published | **still publishes** |
+
+Refusing rather than splitting is the right call and the docstring now argues it correctly:
+joining invents a figure, splitting publishes the smaller tail, the text layer carries
+evidence for neither, so the document is not read. The false sentence — that a space can only
+separate two tokens and never join them — is gone. Exposure is unchanged at nil: the guard
+refuses none of the 58, and the continuation-heading repair that earns
+`4145E2C82C6B8329` is untouched.
+
+*Recorded, not a finding:* the guard's blast radius is the whole document, so a control byte
+adjacent to a digit anywhere — including furniture with no figure at risk — refuses it. That
+is the fail-closed direction and costs nothing today; it is worth knowing if a future text
+layer emits a page-break byte straight after a digit.
+
+## MINOR 2 — NARROWED, NOT CLOSED (residual, carried)
+
+The rule does what it claims for the shape I reported, and it loses no real heading:
+
+| fixture | at `00c911a` |
+|---|---|
+| my original: a wrapped description line that IS exactly a section name, a row under it | **fixed** — no false section, the description is published whole |
+| a real heading whose only evidence is the column-header block under it | opens correctly |
+| a real umbrella whose only evidence is the heading under it | opens correctly |
+
+The qualifier census reproduces **exactly** when scoped as the reader scopes it — over the
+activity body: **own line 686 · column header under 365 · another heading under 106 · left
+over 0 · total 1,157**, matching §PNC9 figure for figure. (Scoped to the whole document the
+totals differ, but `_captured_sections` never scans there; my first reading of a discrepancy
+was a scope artefact, not a defect.)
+
+**Two new attacks defeat it, both by the same mechanism.** The column-token vocabulary —
+date, posted, amount, transaction, description, reference, number, check — is ordinary
+English that begins merchant description continuations, so the line UNDER a wrapped
+section-name line can qualify it as a heading:
+
+| new attack | result |
+|---|---|
+| wrapped section name, next line begins with the word *Reference* followed by prose | **false section opens; the description is truncated at the wrap** |
+| wrapped section name, next line begins with the word *Amount* followed by prose | **false section opens; description truncated** |
+| the gap the cell itself discloses: wrapped section name immediately followed by a real heading | false section opens; description truncated (as disclosed) |
+
+Severity is unchanged from the original MINOR 2 and does not block: **description fidelity
+only.** The row is still booked on its own day for its own amount, both printed identities
+stay satisfied, and there is no measured instance — the leaf-path set at `00c911a` carries no
+`statement.transactions[*].description`, so no description moved on any of the 41 protected
+documents. The cell's own docstring already names the direction that would close it — that it
+needs the row grammar's own span: a heading candidate standing between a row's date and the
+next row's date is inside a row, not above one. Carried for a later cell, or for whoever owns
+the DESC-COLUMNS rung.
+
+## MINOR 3 — CLOSED
+
+The index is now stated as printed by **58 of 58** (50 table only, 4 restatement only, 4
+both, 0 neither) in both §PNC9.8 and the `_matches_the_printed_index` docstring; both sets of
+13 are stated separately; the two NOT RETURNED rows are replaced with the completed
+readings; and §PNC9-C carries the sweep's 66 findings reconciled and the three raises
+adjudicated.
+
+## Verdict
+
+**CONFIRMED.** No regression, no new leaf path, no weakened check, the tree clean after the
+harness, and the floor green at the closure tree. One residual carried (MINOR 2's remaining
+shape, description-only, no measured instance). Candidate delta unchanged: **+13, regressions
+0**.
