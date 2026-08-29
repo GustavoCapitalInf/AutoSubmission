@@ -57488,9 +57488,24 @@ Baseline green before mutation; tree proved clean before, between and after.
 re-derivation of N5/N6/N8: 10 mutants · 10 killed · 0 survived · 0 not applied
 · 287.3 s · exit 0.** Every mutant landed in its documented function.
 
-Both runs waited for the shared host: the harness polled `tasklist` and did not
-start until the other cell's python had exited (101 polls, ~17 minutes), so no
-two mutation harnesses ran together on this repository's `.git`.
+**Who waited for the shared host, corrected.** This section first said "the
+harness polled `tasklist`". It does not, and no instrument under `tools/` does
+— `grep -rln tasklist tools/` is empty (this card's review, MINOR-3). What
+happened is that the OPERATOR waited: a throwaway shell wrapper in this cell's
+private scratch polled `tasklist` every ten seconds and launched the harness
+only once the other cell's python had exited (101 polls, ~17 minutes), so no
+two mutation harnesses ran together on this repository's `.git`. The RESULT is
+what it says; the mechanism was a person's wrapper, not a committed guard.
+
+**So the standing warning is: `tools/raisepriv5_mutation_table.py` has NO
+concurrency guard.** It refuses a dirty tree, restores without depending on
+git, and proves the tree clean at both ends — all of which limit the damage —
+but nothing in it stops it starting while another cell's harness is mid-run.
+BATCH9-RULES forbids that concurrency; the enforcement is the operator's, and
+a cell that reads this ledger must not believe otherwise. Adding the poll to
+`main()`, beside the dirty-tree refusal, is the obvious home for it and is
+deliberately not done on a closure commit: it is a behaviour change to a
+committed instrument, and it belongs to a card that can measure it.
 
 ## RP5.7b Zero movement — the archive sweep at the final tree
 
