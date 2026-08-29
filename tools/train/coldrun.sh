@@ -82,7 +82,7 @@ documents = sum((summary.get("classification") or {}).values())
 sys.exit(0 if documents >= 3400 else 1)
 PY
   then NEW="$d"; fi
-done < <(comm -13 <(echo \"$before\") <(echo \"$after\") | sed 's#/$##')
+done < <(comm -13 <(echo "$before") <(echo "$after") | sed 's#/$##')
 echo \"NEW_RUN_DIR=$NEW\" >> "$LOG"
 
 if [ -n "$NEW" ]; then
