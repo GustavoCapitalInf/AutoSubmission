@@ -4,6 +4,7 @@ import calendar
 import re
 from datetime import date
 
+from .date_tokens import date_refusal, iso_or_none
 from .dates import resolve_year
 from .money import money_refusal, parse_money
 from .parser_registry import make_detector, required
@@ -67,8 +68,28 @@ def _statement_period(text: str) -> tuple[date, date] | None:
         year = int(match.group(2))
     except ValueError:
         return None
-    start = date(year, month, 1)
-    return start, date(year, month, calendar.monthrange(year, month)[1])
+    # RAISE-PRIVACY-4, the MAJOR-2 class W3 §H14 carried out of #HYGIENE8:
+    # `(\d{4})` proves four digits and nothing more, so a header printed `0000`
+    # reaches `date()`, whose ValueError echoes the printed year — measured at
+    # the base tree as `year must be in 1..9999, not 0`. Funnelled through
+    # `iso_or_none` and refused from OUTSIDE the funnel, so nothing is chained
+    # and nothing is quoted; the class stays `ValueError`, so this document
+    # refuses exactly as it refused before.
+    #
+    # `calendar.monthrange` is evaluated BEFORE the refusal now rather than
+    # after the first `date()` raised, and that reordering is a MEASUREMENT
+    # rather than an oversight: `month` is an index into `calendar.month_name`
+    # and so is 1..12, and `calendar.weekday` remaps a year outside
+    # `MINYEAR..MAXYEAR` instead of raising, so `monthrange(year, month)`
+    # cannot raise on any pair that reaches this line (measured for years
+    # 0, 1 and 9999 across all twelve months).
+    start_iso = iso_or_none(year, month, 1)
+    end_iso = iso_or_none(year, month, calendar.monthrange(year, month)[1])
+    if start_iso is None or end_iso is None:
+        raise date_refusal(
+            "bmo._statement_period", f"{match.group(1)} {match.group(2)}"
+        )
+    return date.fromisoformat(start_iso), date.fromisoformat(end_iso)
 
 
 def _account_name(markdown: str, text: str) -> str | None:

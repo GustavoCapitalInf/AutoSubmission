@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import re
-from datetime import date
 
-from .date_tokens import iso_from_month_day
+from .date_tokens import date_refusal, iso_from_month_day, iso_or_none
 from .money import money_refusal, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -54,8 +53,23 @@ def _parse_summary(markdown: str, stmt: Statement) -> None:
     start_m, start_d, _ = [int(part) for part in m.group("start").split("/")]
     end_m, end_d, _ = [int(part) for part in m.group("end").split("/")]
     stmt.account_number = m.group("acct")
-    stmt.period_start = date(year, start_m, start_d).isoformat()
-    stmt.period_end = date(year, end_m, end_d).isoformat()
+    # RAISE-PRIVACY-4, the MAJOR-2 class W3 §H14 carried out of #HYGIENE8:
+    # `(?P<start>\d{2}/\d{2}/\d{2})` proves three digit pairs and nothing more,
+    # so a period cell printed `13/40/31` reaches `date()`, whose ValueError
+    # echoes the printed month (and the printed day and year on a day-range
+    # failure) — measured at the base tree as `month must be in 1..12, not 13`.
+    # Funnelled through `iso_or_none` and refused from OUTSIDE the funnel; the
+    # class stays `ValueError`, so this document refuses exactly as it refused
+    # before, and the two cells are read in the order they were read before, so
+    # the start cell still refuses first.
+    period_start = iso_or_none(year, start_m, start_d)
+    if period_start is None:
+        raise date_refusal("farmers_merchants._parse_summary", m.group("start"))
+    stmt.period_start = period_start
+    period_end = iso_or_none(year, end_m, end_d)
+    if period_end is None:
+        raise date_refusal("farmers_merchants._parse_summary", m.group("end"))
+    stmt.period_end = period_end
     stmt.beginning_balance = _amount(m.group("begin"))
     stmt.ending_balance = _amount(m.group("ending"))
     stmt.days_in_period = int(m.group("days"))

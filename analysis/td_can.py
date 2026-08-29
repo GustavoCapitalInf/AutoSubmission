@@ -16,10 +16,9 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Callable
-from datetime import date
 from typing import NamedTuple
 
-from .date_tokens import date_refusal
+from .date_tokens import date_refusal, iso_or_none
 from .money import parse_money, parse_money_tokens, strip_currency
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -125,9 +124,22 @@ def _parse_period(value: str | None) -> tuple[str, str] | None:
     if not m:
         return None
     sm, sd, sy, em, ed, ey = m.groups()
-    start = date(2000 + int(sy), _MONTHS[sm], int(sd))
-    end = date(2000 + int(ey), _MONTHS[em], int(ed))
-    return start.isoformat(), end.isoformat()
+    # RAISE-PRIVACY-4, the MAJOR-2 class W3 §H14 carried out of #HYGIENE8:
+    # `_PERIOD_RE`'s `(\d{1,2})/(\d{2})` proves two digit runs and nothing
+    # more, so a period printed `FEB30/31` reaches `date()`, whose ValueError
+    # echoes the printed day, month number and year — measured at the base tree
+    # as `day 30 must be in range 1..28 for month 2 in year 2031`. Funnelled
+    # through `iso_or_none` and refused from OUTSIDE the funnel; the class
+    # stays `ValueError`. The two ends are read SEQUENTIALLY, exactly as the
+    # two `date()` calls were evaluated, so a document whose start cell
+    # refuses still refuses on the start cell and never reaches `_MONTHS[em]`.
+    start = iso_or_none(2000 + int(sy), _MONTHS[sm], int(sd))
+    if start is None:
+        raise date_refusal("td_can._parse_period", m.group(0))
+    end = iso_or_none(2000 + int(ey), _MONTHS[em], int(ed))
+    if end is None:
+        raise date_refusal("td_can._parse_period", m.group(0))
+    return start, end
 
 
 def _date_tokens(value: str | None, *, default_year: int) -> list[str]:
@@ -139,7 +151,18 @@ def _date_tokens(value: str | None, *, default_year: int) -> list[str]:
         if mon not in _MONTHS:
             continue
         year = 2000 + int(yy) if yy else default_year
-        out.append(date(year, _MONTHS[mon], int(day)).isoformat())
+        # RAISE-PRIVACY-4, the same class one function down: `([A-Z]{3})\s*
+        # (\d{1,2})` proves a month WORD and a day SHAPE, so a cell printed
+        # `FEB 30` reaches `date()` — measured at the base tree as `day 30 must
+        # be in range 1..28 for month 2 in year 2031`. The refused token is
+        # rebuilt from the groups that produced it rather than sliced out of
+        # the cell, so the refusal measures exactly what the reader read.
+        iso = iso_or_none(year, _MONTHS[mon], int(day))
+        if iso is None:
+            raise date_refusal(
+                "td_can._date_tokens", f"{mon}{day}/{yy}" if yy else f"{mon}{day}"
+            )
+        out.append(iso)
     return out
 
 
@@ -158,7 +181,16 @@ def _native_date_to_iso(value: str, *, default_year: int) -> str:
     m = _DATE_TOKEN_RE.fullmatch(value.upper())
     if not m:
         raise date_refusal("td_can._native_date_to_iso", value)
-    return date(default_year, _MONTHS[m.group(1).upper()], int(m.group(2))).isoformat()
+    # RAISE-PRIVACY-4: the fullmatch above proves the token's SHAPE and nothing
+    # more, so `FEB30` passes it and reaches `date()`, whose ValueError echoes
+    # the printed day — measured at the base tree as `day 30 must be in range
+    # 1..28 for month 2 in year 2031`. The SECOND refusal of this reader,
+    # through the same constructor and naming the same site: a caller cannot
+    # tell the two refusals apart, which is the point.
+    iso = iso_or_none(default_year, _MONTHS[m.group(1).upper()], int(m.group(2)))
+    if iso is None:
+        raise date_refusal("td_can._native_date_to_iso", value)
+    return iso
 
 
 def _native_date_index(line: str) -> int | None:
