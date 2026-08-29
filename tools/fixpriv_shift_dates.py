@@ -136,8 +136,8 @@ _CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 #: A line that names a FILE. Not a guard — a REPORT, and the difference is the
 #: honest part. A pinned corpus document is often named after the period it
-#: covers (`BofA 2026-05-29.pdf`, `Chase Salomomon February 27 2026.pdf`,
-#: `Regions_03-31-2026 (3) (1).pdf`), and inside a path a date is not a fixture
+#: covers (`Example 2031-05-29.pdf`, `Example February 27 2031.pdf`,
+#: `Example_03-31-2031 (3) (1).pdf`), and inside a path a date is not a fixture
 #: date at all: it is half the file's NAME, and moving it points every reader
 #: at a document that does not exist. No pattern can tell the two apart — the
 #: characters are identical — so this tool does not pretend to. It COUNTS them

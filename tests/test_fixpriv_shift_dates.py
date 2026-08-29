@@ -258,11 +258,11 @@ def test_a_year_outside_the_proved_range_is_left_alone(text: str) -> None:
 @pytest.mark.parametrize(
     ("text", "on_paths"),
     [
-        ('"path": "BofA/BofA 2026-05-29.pdf",', 1),
-        ('"path": "Chase/Chase Salomomon February 27 2026.pdf",', 1),
-        ('"path": "Regions/Regions_03-31-2026 (3) (1).pdf",', 1),
-        ('"period": ["2026-05-01", "2026-05-29"],', 0),
-        ('assert stmt.period_start == "2026-05-01"', 0),
+        ('"path": "Example/Example 2031-05-29.pdf",', 1),
+        ('"path": "Example/Example Name February 27 2031.pdf",', 1),
+        ('"path": "Example/Example_03-31-2031 (3) (1).pdf",', 1),
+        ('"period": ["2031-05-01", "2031-05-29"],', 0),
+        ('assert stmt.period_start == "2031-05-01"', 0),
     ],
 )
 def test_a_date_on_a_line_that_names_a_file_is_counted_and_reported(
@@ -281,8 +281,8 @@ def test_a_date_on_a_line_that_names_a_file_is_counted_and_reported(
 
 
 def test_the_path_report_does_not_change_what_is_shifted() -> None:
-    line = '"path": "BofA/BofA 2026-05-29.pdf",'
-    assert shift_text(line, SHIFT_YEARS)[0] == '"path": "BofA/BofA 2054-05-29.pdf",'
+    line = '"path": "Example/Example 2031-05-29.pdf",'
+    assert shift_text(line, SHIFT_YEARS)[0] == '"path": "Example/Example 2059-05-29.pdf",'
 
 
 def test_a_year_left_alone_is_counted_as_such() -> None:
