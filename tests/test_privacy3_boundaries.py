@@ -702,6 +702,140 @@ def test_the_date_refusal_constructor_assigns_to_no_attribute():
 
 
 # ---------------------------------------------------------------------------
+# 4b. RAISE-PRIVACY-4 — the raw `date()` census over the three rerouted readers
+# ---------------------------------------------------------------------------
+#
+# W3 §H14 closed four `date()` sites, disclosed EIGHT more it did not own, and
+# warned about the NINTH: "a parser is exactly where a fourth one arrives, in a
+# commit about something else". RAISE-PRIVACY-4 closed the eight. This is the
+# guard that makes the ninth visible the day it is written.
+#
+# It is deliberately STRICTER than `test_raise_privacy3.py`'s
+# implicit-conversion census, which exempts a call standing inside a handler
+# that catches `ValueError`. Two reasons, and neither is style:
+#
+# * `except ValueError` does NOT catch `OverflowError`, which `date()` raises
+#   for a year past the C `int` it parses its arguments into. A handler-guarded
+#   `date()` is only safe while its year is bounded, and that is a property of
+#   the CALLER, which is exactly the kind of protection that disappears when a
+#   caller changes (§PRIVACY3's measurement over `date_tokens`'s eleven entry
+#   points: eight let it escape, and the two that did not were saved by a regex
+#   rather than by a handler).
+# * the census's exemption is a rule; this list is an ENUMERATION. A rule
+#   admits the next site silently. A list of one has to be edited.
+#
+# So: in these three readers, every bare `date(...)` / `datetime(...)`
+# CONSTRUCTION that is not built purely from literals is reported, and the
+# allowlist below is the whole of what may stand. `date.fromisoformat(iso)` on
+# an `iso` a `date_tokens` funnel returned is not a construction from
+# components and is not reported — it is the shape the reroute installs.
+
+#: The readers RAISE-PRIVACY-4 rerouted. Named rather than derived, because a
+#: derived population ("every parser") would grow silently and this guard's
+#: value is that its list of exceptions is one line long.
+RAW_DATE_CENSUS_MODULES = (
+    "analysis/bmo.py",
+    "analysis/farmers_merchants.py",
+    "analysis/td_can.py",
+)
+
+#: Every raw construction that MAY stand in those three readers, with the
+#: reason that proves it cannot put a printed number into a message. Exactly
+#: one entry: the ninth line, and the reason is measured in
+#: `tests/test_raise_privacy4.py`, not asserted here.
+RAW_DATE_ALLOWED = {
+    "analysis/bmo.py:parse_bmo_statement: date(year, month, day)":
+        "the transaction-row date, and the ONLY line of the nine the card "
+        "listed that §H14's census did not report: it stands inside "
+        "`except ValueError: continue`, so nothing it raises escapes the "
+        "reader, and its year comes from `dates.resolve_year` over a period "
+        "matched by `(\\d{4})`, so it cannot raise `OverflowError` either",
+}
+
+
+def _raw_date_constructions(source: str, relative: str) -> list[str]:
+    """`module:function: call` for every `date()`/`datetime()` built from a name.
+
+    A construction whose every argument is a literal is not a reading of a
+    document and is not reported; anything else is, whether or not a handler
+    stands around it.
+    """
+    tree = ast.parse(source)
+    found: list[str] = []
+    for function in ast.walk(tree):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.id if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute) else None
+            )
+            if name not in ("date", "datetime"):
+                continue
+            arguments = list(node.args) + [kw.value for kw in node.keywords]
+            if arguments and all(
+                isinstance(argument, ast.Constant) for argument in arguments
+            ):
+                continue
+            found.append(f"{relative}:{function.name}: {ast.unparse(node)}")
+    return sorted(found)
+
+
+def test_no_raw_date_is_constructed_from_components_in_the_rerouted_readers():
+    """RAISE-PRIVACY-4's generalisation. The eight sites are gone and the
+    ninth is named; a tenth arriving in a commit about something else lands
+    here with the reader and the call in the failure message."""
+    found: list[str] = []
+    for relative in RAW_DATE_CENSUS_MODULES:
+        source = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
+        found.extend(_raw_date_constructions(source, relative))
+    unaccounted = sorted(set(found) - set(RAW_DATE_ALLOWED))
+    stale = sorted(set(RAW_DATE_ALLOWED) - set(found))
+    assert unaccounted == [], (
+        "a raw date construction from parsed components arrived in a rerouted "
+        f"reader; funnel it through `date_tokens` or account for it: {unaccounted}"
+    )
+    assert stale == [], (
+        f"these are no longer in the source; drop them from the list: {stale}"
+    )
+
+
+def test_every_entry_of_the_raw_date_allowlist_carries_a_reason():
+    """A list without reasons is a suppression."""
+    for entry, reason in RAW_DATE_ALLOWED.items():
+        assert isinstance(reason, str) and len(reason) >= 40, entry
+
+
+#: The guard watched failing — and watched NOT failing on the two shapes it
+#: must not flag. A guard that flags everything is not a guard either.
+_RAW_DATE_MUTANTS = [
+    ("the-site-6-shape",
+     "def f(t):\n    m = R.search(t)\n    return date(2031, int(m.group(1)), 1)\n", 1),
+    ("inside-a-value-error-handler-is-STILL-reported",
+     "def f(t):\n    m = R.search(t)\n    try:\n"
+     "        return date(2031, int(m.group(1)), 1)\n"
+     "    except ValueError:\n        return None\n", 1),
+    ("the-attribute-spelling",
+     "def f(t):\n    m = R.search(t)\n    return datetime.date(2031, int(m.group(1)), 1)\n", 1),
+    ("the-funnel-shape-this-card-installed",
+     "def f(t):\n    m = R.search(t)\n    iso = iso_or_none(2031, int(m.group(1)), 1)\n"
+     "    if iso is None:\n        raise date_refusal('f', t)\n"
+     "    return date.fromisoformat(iso)\n", 0),
+    ("a-constant-only-construction",
+     "def f():\n    return date(2031, 1, 1)\n", 0),
+]
+
+
+@pytest.mark.parametrize("name,source,expected", _RAW_DATE_MUTANTS)
+def test_the_raw_date_census_can_see_each_shape(name, source, expected):
+    found = _raw_date_constructions(source, f"synthetic/{name}.py")
+    assert len(found) == expected, (name, found)
+
+
+# ---------------------------------------------------------------------------
 # 5. The `AmountFormat` / `_compiled` residency note (§MONEYPRIV MP8 item 4)
 # ---------------------------------------------------------------------------
 
