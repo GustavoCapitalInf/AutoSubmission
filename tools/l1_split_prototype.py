@@ -553,6 +553,13 @@ class SectionResult:
                 and self.evidence_readable and self.validator_ok)
 
     @property
+    def trivially_idle(self) -> bool:
+        """The section prints no dated row and its two figures coincide, so
+        there was nothing to read. Never a closure here; the review's own rule
+        left it standing as one, which is the whole of MINOR-A's second half."""
+        return self.refusal == "trivially-idle-opening-equals-closing-and-no-row-printed"
+
+    @property
     def closes_strict(self) -> bool:
         """`closes`, and nothing dated printed after the chain either."""
         return self.closes and self.gap_after == 0
@@ -567,7 +574,7 @@ class SectionResult:
         section's own stated counts, totals and daily balances, neither of
         which the review's arithmetic had. Reported so the two ladders can be
         compared instead of asserted against each other."""
-        return (self.n_rows >= 1 and self.printed_partition
+        return ((self.n_rows >= 1 or self.trivially_idle) and self.printed_partition
                 and self.recon_ok_bare and self.adb_ok_bare)
 
 
@@ -691,13 +698,6 @@ def reconstruct_and_validate(section_text: str, period: tuple[date, date],
     if not walk.ok:
         result.refusal = walk.refusal
         return result
-    if walk.empty:
-        # BLOCK-1. The two figures coincide and nothing was read. Reported as
-        # its own class, split by whether the paper printed anything to read.
-        result.refusal = ("trivially-idle-opening-equals-closing-and-no-row-printed"
-                          if result.dated_ledger_rows == 0 else
-                          "vacuous-empty-ledger-over-printed-rows")
-        return result
     inside = len(DATED_ROW.findall(countable[:min(walk.end_at, len(countable))]))
     result.gap_inside = max(0, inside - result.n_rows)
     result.gap_after = max(0, result.dated_ledger_rows - inside)
@@ -706,10 +706,20 @@ def reconstruct_and_validate(section_text: str, period: tuple[date, date],
 
     # Every gate from here on is MEASURED rather than short-circuited, so the
     # ladder can show what each one costs and so the review's own condition
-    # chain can be reproduced from the same run rather than argued about.
+    # chain can be reproduced from the same run rather than argued about. That
+    # includes the EMPTY arrival: it is never a closure here, but the review's
+    # own rule left an empty section that prints no dated row standing as one,
+    # and its rule cannot be reproduced from a run that refused to validate it
+    # (MINOR-A, MINOR-C).
     stated = read_stated(section_text, prints_counts, prints_daily, period)
     result.evidence_readable = not (stated.counts_unreadable or stated.daily_unreadable)
-    if result.gap_inside:
+    if walk.empty:
+        # BLOCK-1. The two figures coincide and nothing was read. Reported as
+        # its own class, split by whether the paper printed anything to read.
+        result.refusal = ("trivially-idle-opening-equals-closing-and-no-row-printed"
+                          if result.dated_ledger_rows == 0 else
+                          "vacuous-empty-ledger-over-printed-rows")
+    elif result.gap_inside:
         result.refusal = "chain-leaves-a-hole-inside-the-span-it-walked"
     elif not printed_partition:
         result.refusal = "boundary-inferred-not-printed"
@@ -801,19 +811,21 @@ class DocResult:
 
     @property
     def all_close_review(self) -> bool:
-        return bool(self.n_sections) and all(
-            s.closes_under_the_reviews_conditions for s in self.sections)
+        """The review's own rule, as the review wrote it.
+
+        Every located section qualifies, AND at least one of them read
+        something: a document whose only located section is idle publishes
+        nothing, and counting it as a document that closes would be the same
+        vacuity BLOCK-1 was about, one level up."""
+        return (bool(self.n_sections)
+                and any(s.closes_under_the_reviews_conditions and not s.trivially_idle
+                        for s in self.sections)
+                and all(s.closes_under_the_reviews_conditions for s in self.sections))
 
     @property
     def oracle_reproduced(self) -> bool:
         checked = [s.oracle_reproduced for s in self.sections if s.oracle_reproduced is not None]
         return bool(checked) and all(checked)
-
-    @property
-    def oracle_positional(self) -> bool:
-        checked = [s.oracle_positional for s in self.sections if s.oracle_positional is not None]
-        return bool(checked) and all(checked)
-
 
 def _transfer_pairs(sections: list[SectionResult]) -> int:
     """Same-day, same-magnitude, opposite-signed movements in two different
@@ -908,6 +920,7 @@ def classify_sibling(section_text: str, period: tuple[date, date] | None,
     while "empty and silent" is a candidate for a ruling that generalises the
     rule, and a recommendation that merges the two is the thing the review
     called the door marked no ruling needed."""
+
     from analysis.symitar import _DORMANT_RE, _yield_only
 
     if _DORMANT_RE.search(section_text):
@@ -1082,6 +1095,25 @@ def _idle_main(args, groups, opportunities, per_sha) -> int:
         print(f"| carry a sibling that fails the rule, `CU-SUFFIX` only | "
               f"{sum(1 for d in cu if d.siblings and not d.every_sibling_satisfies)} |")
         print()
+        if threshold == 2:
+            print("Where the evidence classes sit, by census group — this is "
+                  "what sizes the ruling on whether the ratified rule may be "
+                  "generalised, because a group whose siblings all print the "
+                  "ratified wording needs no ruling and a group whose siblings "
+                  "are all silent needs one for every document it has.")
+            print()
+            print("| census group | single-posting documents | sibling classes |")
+            print("|---|---:|---|")
+            by_group: dict[str, list[IdleDoc]] = defaultdict(list)
+            for doc in docs:
+                by_group[doc.group].append(doc)
+            for group in sorted(by_group, key=lambda g: (-len(by_group[g]), g)):
+                members = by_group[group]
+                kinds = Counter(v.verdict for m in members for v in m.siblings)
+                shown = ", ".join(f"`{k}` {n}" for k, n in kinds.most_common()) or "no sibling located"
+                print(f"| `{group}` | {len(members)} | {shown} |")
+            print()
+
         if args.json and threshold == 2:
             args.json.write_text(json.dumps([
                 {"sha16": d.sha16, "group": d.group, "band": d.band,

@@ -883,7 +883,7 @@ in W3 `§L1INV.8`.
 | **MAJOR-1** §7 printed a pinned exposure of 16 that §1.2 measured as 12 | the regression surface takes its number from the instrument | **12** (4 strong / 1 strong / 7 weak) |
 | **MAJOR-2** `capital_one`'s refusal described backwards | the probe calls the module's own `_native_summary` and `_native_transactions` | nine-cell pattern matched **0 of 6**; rows returned on **6 of 6**, 1 / 28 / 41 |
 | **MAJOR-3** `reconcile` satisfied by construction; "two oracles" was one | the counts each oracle refused are reported separately, and the stated evidence that lets `reconcile` do work is now supplied | it refused **0 of 105** before and **11 of 48** now |
-| **MAJOR-4** the sections' own counts, totals and daily balances were measured and then passed as `None` | they are read and fed, the ADB is given the section's own text so `posting_dates_cover_source` applies, and a section printing them in an unreadable form is refused | the daily-table predicate was also wrong: 75 sections (17.0%) → **24 (5.4%)**; 4 of the 7 documents surviving the review's own chain are removed by this gate alone |
+| **MAJOR-4** the sections' own counts, totals and daily balances were measured and then passed as `None` | they are read and fed, the ADB is given the section's own text so `posting_dates_cover_source` applies, and a section printing them in an unreadable form is refused | the daily-table predicate was also wrong: 75 sections (17.0%) → **24 (5.4%)**; 13 of the 15 documents surviving the review's own chain are removed by this gate and the row-coverage gate together |
 | **MAJOR-5** no condition about money moved between a member's own accounts | measured and added as condition 11 | **7** documents of the 11 with two non-empty ledgers, **47** pairs |
 | **MAJOR-6** no deposit-versus-loan condition | measured and added as condition 12 | **19** documents enumerate one (corrected from 15 by MAJOR-A), **4** of them multi-posting and all four `FAM:goldenwest_cu_member_account_statement`, **7** also printing a cross-account total — the collision is live, not latent |
 | **MINOR-1** 442 located vs 392 offered never reconciled; "27 sections" was 27 documents | the instrument prints the reconciliation | 442 − 77 + 27 = 392 |
@@ -893,15 +893,31 @@ in W3 `§L1INV.8`.
 | **MINOR-5** the privacy number predated the tip, and 29 documents are not scanned against | re-run at this tip, and the 29 stated next to the zero | §12 |
 | **MINOR-6** "every located section closes" is not "every printed section closes" | stated in §5.3 and printed by the instrument | 38 documents have no located partition; 11 enumerate accounts that never reappear |
 
-Two of the review's own corrected figures did not reproduce exactly, and both are corrected
-here with evidence rather than argued with. Run under the review's own condition chain — a
-printed partition, no empty ledger over printed rows, and the source-coverage check, but
-WITHOUT the row-coverage gate and WITHOUT the sections' own stated evidence — this run gives
-**7** documents fully closing, an L-1 floor of **4**, and **2** with the oracle, where the
-review reported 11 / 3 / 2. The difference is the column-caption correction, which the review
-identified but did not apply to its own arithmetic. Its transfer measurement (6 documents, 44
-pairs) measures **7 and 47** here, because the corrected walk reconstructs a different set of
-ledgers. Its idle-sibling counts reproduce: 4 sibling sections print the ratified declaration,
+**The review's own corrected figures, adjudicated rather than asserted.** Its chain was a
+printed partition, no ledger published EMPTY over printed rows, and the source-coverage check
+— without the row-coverage gate and without the sections' own stated evidence, neither of which
+its arithmetic had. Its rule deliberately left a section that prints no dated row and reads
+nothing standing as a closure, which is a dormant sibling. Implemented exactly that way on this
+run, it gives **15** documents where it reported 11, an L-1 floor of **4** where it reported 3,
+and **2** with the oracle, which it reported. The two gaps have different causes and only one
+of them is the column fix:
+
+* **The L-1 figure is the column fix.** `9B8E7D807228DA2B` was refused as a pair disagreement
+  between a section and the table's first figure, and that comparison was against a column
+  whose role was assumed rather than printed. With the roles read from the caption it closes
+  under the review's conditions, so its floor is 4 and not 3. 14 of the old 16 "contradicts its
+  own table" sections were the same false refusal, which is why that class is now 2.
+* **The document figure is definitional.** A document carrying a dormant sibling can never
+  reach "every located section closes" here, because a trivially idle section is a class and
+  not a closure; under the review's rule it can. 15 documents qualify under its rule (8
+  `guardian_cu`, 3 `altra_fcu`, 3 `cu_summary_of_accounts_date_posted`, 1 `DECL:consumers`),
+  and a document whose ONLY located section is idle is excluded from both counts, because a
+  document that publishes nothing is not a document that closes.
+
+**Nothing in §5's headline depends on either.** The 2 is reached by a stricter route that does
+not pass through the review's rule at all. Its transfer measurement (6 documents, 44 pairs)
+measures **7 and 47** here, because the corrected walk reconstructs a different set of ledgers.
+Its idle-sibling counts reproduce exactly: 4 sibling sections print the ratified declaration,
 0 documents qualify, and 63 `CU-SUFFIX` documents carry a sibling that fails the rule.
 
 ---
