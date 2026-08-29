@@ -159,11 +159,36 @@ _THOUSANDS_SPACE = "\u0020\u00a0\u202f"
 #: marker belongs (`Other Additions <NUL>- continued`), and a heading grammar
 #: written with `\s` — which does not match a control byte — then fails to
 #: recognise the continuation heading and silently drops every page of that
-#: section after the first. Substituting a SPACE is the minimal repair: every
-#: other character keeps its position, so nothing moves, and a space can only
-#: separate two tokens, never join them. It is applied once, at the reader's
-#: entry, so every grammar below sees the same text.
+#: section after the first. Substituting a SPACE puts the column gap back, and
+#: every other character keeps its position, so nothing else moves.
+#:
+#: A SPACE IS NOT NEUTRAL HERE, and an earlier version of this comment claimed
+#: it was ("a space can only separate two tokens, never join them"). It can
+#: join them: this module reads a space between digit groups as a THOUSANDS
+#: SEPARATOR (`_THOUSANDS_SPACE`), so `1<NUL>234.56` would normalise to
+#: `1 234.56` and be read as one figure a thousand times the tail — a figure
+#: the paper may never have printed. That is the shape the repair doctrine is
+#: about, and it is the one direction the substitution must not be allowed to
+#: take. `_DIGIT_ADJACENT_CONTROL` below is the guard, and it fails CLOSED.
 _CONTROL_BYTE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+#: A control byte standing next to a digit, on either side. Where one does, the
+#: document is DECLINED rather than normalised.
+#:
+#: Refusing rather than splitting, and why: the two readings of
+#: `1<NUL>234.56` are one grouped figure and two separate tokens, and the text
+#: layer carries no evidence for either. Joining invents a figure; splitting
+#: publishes the `234.56` tail of a figure that may have been a thousand times
+#: larger, which is the silent truncation `_SUMMARY_MONEY_RE`'s boundary guard
+#: exists to make impossible. Neither reading is available, so the document is
+#: not read.
+#:
+#: Measured over this card's 58-document population: 10 control bytes, every
+#: one a NUL, and **0 of them adjacent to a digit** — so the guard costs no
+#: document today and the continuation-heading repair that earns the withheld
+#: mover is untouched. It is a bound on what the substitution may do, written
+#: before the archive prints the shape rather than after.
+_DIGIT_ADJACENT_CONTROL = re.compile(
+    r"\d[\x00-\x08\x0b\x0c\x0e-\x1f]|[\x00-\x08\x0b\x0c\x0e-\x1f]\d")
 
 #: A Balance Summary figure. PNC drops the leading zero on a sub-dollar amount,
 #: so a balance of eighty-seven cents is printed `.87` — and a `\b` before the
@@ -758,6 +783,8 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
     * its rows do not reproduce the bank's own printed index of them;
     * its ledger does not reproduce the bank's own end-of-day balance ladder.
     """
+    if _DIGIT_ADJACENT_CONTROL.search(markdown):
+        return None
     markdown = _CONTROL_BYTE.sub(" ", markdown)
     if not detect(markdown).claims:
         return None

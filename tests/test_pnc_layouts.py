@@ -626,3 +626,47 @@ def test_negative_a_pnc_product_this_reader_cannot_name_is_left_unclaimed():
                                  "Virtual Wallet With Performance Select Statement")
     assert not detect(doc).claims
     assert parse_pnc_statement(doc) is None
+
+
+# ---------------------------------------------------------------------------
+# The control byte, in the direction the review drove: a space is NOT neutral
+# between two digit groups, because this module reads one as a thousands
+# separator. Review MINOR 1.
+# ---------------------------------------------------------------------------
+
+NUL = "\x00"
+
+
+def test_negative_a_control_byte_between_digit_groups_is_refused_not_joined():
+    """The whole point of the guard, and the one direction the substitution
+    must not be allowed to take.
+
+    `1<NUL>000.00` normalises to `1 000.00`, which this module reads as ONE
+    figure of a thousand — a figure the paper may never have printed, on a
+    document where every other identity then closes around it. The two readings
+    (one grouped figure, or two separate tokens) are both available and the text
+    layer distinguishes neither, so the document is not read at all.
+    """
+    doc = commercial(index=COMMERCIAL_INDEX, activity=COMMERCIAL_ACTIVITY,
+                     summary=f"Ending balance 1{NUL}000.00 500.00 300.00 1,200.00")
+    assert parse_pnc_statement(doc) is None
+
+
+def test_the_same_grid_with_a_printed_space_is_read_as_the_grouped_figure():
+    """The control: where the BANK printed the separator, the figure is read
+    whole. The reader refuses to manufacture that separator, not to honour it."""
+    doc = commercial(index=COMMERCIAL_INDEX, activity=COMMERCIAL_ACTIVITY,
+                     summary="Ending balance 1 000.00 500.00 300.00 1,200.00")
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert stmt.beginning_balance == 1000.00
+
+
+def test_a_control_byte_away_from_any_digit_still_repairs_the_heading():
+    """The narrowing must not cost the repair that earns the withheld mover:
+    the separator between a section's name and its `- continued` marker is not
+    digit-adjacent, and it is still put back."""
+    plain = parse_pnc_statement(_split_over_two_pages(" "))
+    control = parse_pnc_statement(_split_over_two_pages(NUL))
+    assert plain is not None and control is not None
+    assert amounts(plain) == amounts(control) == [500.00, 300.00, -300.00]

@@ -172,6 +172,16 @@ MUTANTS: tuple[Mutant, ...] = (
         LAYOUTS,
     ),
     Mutant(
+        "M19", PNC, "a control byte next to a digit is refused, never joined",
+        "the substitution runs over a digit-adjacent control byte, so a space "
+        "is manufactured between two digit groups and this module reads it as "
+        "a THOUSANDS SEPARATOR — one figure a thousand times the tail, on a "
+        "document whose every other identity then closes around it",
+        "    if _DIGIT_ADJACENT_CONTROL.search(markdown):\n        return None",
+        "    if False:\n        return None",
+        LAYOUTS,
+    ),
+    Mutant(
         "M18", PNC, "a row that moves no money is not a posting",
         "a dated informational line is published as a transaction, and no "
         "printed identity can see it",
