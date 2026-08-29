@@ -670,3 +670,60 @@ def test_a_control_byte_away_from_any_digit_still_repairs_the_heading():
     control = parse_pnc_statement(_split_over_two_pages(NUL))
     assert plain is not None and control is not None
     assert amounts(plain) == amounts(control) == [500.00, 300.00, -300.00]
+
+
+# ---------------------------------------------------------------------------
+# A wrapped description line that is exactly a section name. Review MINOR 2.
+# ---------------------------------------------------------------------------
+
+WRAPPED_NAME_DOC = commercial(
+    summary="Ending balance 1,000.00 800.00 300.00 1,500.00",
+    ladder="04/02 1,500.00 04/03 1,800.00 04/30 1,500.00",
+    index=("Description Items Amount Deposits 2 800.00\n"
+           "Description Items Amount ACH Debits 1 300.00 "
+           "Total 2 800.00 Total 1 300.00\n"),
+    activity=(
+        "Deposits and Other Credits\n"
+        "Deposits 2 transactions for a total of $800.00\n"
+        f"{DESCRIBED_HEADER}"
+        "04/02 500.00 Deposit reversing\n"
+        "Other Deductions\n"
+        "04/03 300.00 Second deposit 000000002\n"
+        "Checks and Other Debits\n"
+        "ACH Debits 1 transaction for a total of $300.00\n"
+        f"{DESCRIBED_HEADER}"
+        "04/30 300.00 An ACH Debit 000000003\n"
+    ),
+)
+
+
+def test_a_description_that_wraps_onto_a_line_that_is_a_section_name_opens_nothing():
+    """The wrap is ordinary English that happens to be a section's name, and
+    what stands under it is the row it belongs with — not a column header and
+    not another heading. So it is description, and it stays in the description.
+
+    Neither printed identity can see this one: the row is booked on its own day
+    for its own amount either way, so the count and the total are unchanged and
+    only the DESCRIPTION moves. That is why the assertion is the description.
+    """
+    stmt = parse_pnc_statement(WRAPPED_NAME_DOC)
+    assert stmt is not None
+    assert amounts(stmt) == [500.00, 300.00, -300.00]
+    assert [t.description for t in stmt.transactions][0] == "Deposit reversing Other Deductions"
+
+
+def test_a_heading_with_a_column_header_under_it_is_still_a_heading():
+    """The other side of the same rule — the shape 365 of the archive's bare
+    headings actually have — so the narrowing cannot be satisfied by refusing
+    every bare heading."""
+    stmt = parse_pnc_statement(COMMERCIAL_DOC)
+    assert stmt is not None
+    assert amounts(stmt) == [500.00, -300.00]
+
+
+def test_a_group_heading_standing_over_its_first_section_is_still_a_heading():
+    """And the shape the other 106 have: a direction umbrella whose next line
+    is the sub-section it opens."""
+    stmt = parse_pnc_statement(TREASURY_DOC)
+    assert stmt is not None
+    assert [t.direction for t in stmt.transactions] == ["credit", "debit"]

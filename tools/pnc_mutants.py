@@ -182,6 +182,17 @@ MUTANTS: tuple[Mutant, ...] = (
         LAYOUTS,
     ),
     Mutant(
+        "M20", PNC, "a heading-shaped line must carry a heading's own context",
+        "any line that reads like a section name opens a section, so a wrapped "
+        "description cuts its own row's description in half and hands the rest "
+        "to a section the bank never printed — invisible to both identities",
+        "        if _opens_a_section(body, match):\n"
+        "            marks.append((match.start(), match.end(), match.group(\"name\")))",
+        "        if True:\n"
+        "            marks.append((match.start(), match.end(), match.group(\"name\")))",
+        LAYOUTS,
+    ),
+    Mutant(
         "M18", PNC, "a row that moves no money is not a posting",
         "a dated informational line is published as a transaction, and no "
         "printed identity can see it",

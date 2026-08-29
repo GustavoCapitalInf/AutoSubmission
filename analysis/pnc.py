@@ -269,6 +269,12 @@ _HEADING_LINE = re.compile(
     + _COLUMN_HEADER + _GAP_FOOTNOTE
     + rf"(?:{_H}*$|{_ROW_AHEAD})"
 )
+#: The first word of the column-header block a section prints over its rows.
+#: PNC breaks that block across lines in several ways (`Date posted` alone, or
+#: `Date` and `posted` on separate lines, or the whole run and the first row on
+#: ONE line), so the test is the first token rather than the whole shape.
+_COLUMN_TOKEN = re.compile(
+    r"(?i)^[ \t]*(?:date|posted|amount|transaction|description|reference|number|check)\b")
 #: The end-of-day balance ladder, under each of the three names PNC gives it.
 _GRID_HEADING = re.compile(
     r"(?im)^" + _H + r"*(?P<name>Daily Balance Detail|Daily Balance|Ledger Balance)"
@@ -432,6 +438,47 @@ def _product(markdown: str) -> str | None:
     return min(found)[1] if found else None
 
 
+def _opens_a_section(text: str, match: "re.Match[str]") -> bool:
+    """Whether a line SHAPED like a heading is one, from its own context.
+
+    A heading's name is also ordinary English, and a description that wraps
+    onto its own line can be exactly a section's name — at which point a
+    grammar that reads any such line as a heading opens a section that is not
+    there, cuts the row's description at the wrap, and hands the remainder to a
+    section the bank never printed. Neither printed identity can see it: the
+    row is still booked, on its own day, for its own amount, so the count and
+    the total are unchanged. Only the description moves, which is why the rule
+    is here rather than downstream.
+
+    So a heading has to carry evidence that it IS one. Either it says so on its
+    own line — a continuation marker, its printed item count and total, or the
+    inline column header (with or without its first row after it) — or the line
+    under it begins the section's column-header block, or is itself a heading
+    (a direction umbrella standing over its first sub-section).
+
+    A row printed under the line is deliberately NOT a qualifier, and that is
+    measured rather than assumed: over this card's 58-document population
+    **not one** of the 1,157 heading matches needs it (686 qualify on their own
+    line, 365 have a column header under them, 106 another heading, none left
+    over). Admitting it would have cost the whole rule — a wrapped description
+    is followed by the next row more often than by anything else.
+
+    What it does NOT reach, said rather than left to be found: a wrapped
+    description line that is exactly a section name AND is immediately followed
+    by a real heading still opens a section. That needs the row grammar's own
+    span, not the line's neighbours.
+    """
+    name = match.group("name")
+    whole = match.group(0)
+    if whole[whole.index(name) + len(name):].strip():
+        return True
+    for line in text[match.end():].splitlines():
+        if not line.strip():
+            continue
+        return bool(_COLUMN_TOKEN.match(line) or _HEADING_LINE.match(line))
+    return False
+
+
 def _activity_body(markdown: str) -> str:
     """The region the itemized sections are printed in.
 
@@ -449,7 +496,8 @@ def _activity_body(markdown: str) -> str:
         if grid is None:
             return ""
         group = _HEADING_LINE.search(markdown, grid.end())
-        while group is not None and group.group("name") not in _GROUP_SIGNS:
+        while group is not None and not (group.group("name") in _GROUP_SIGNS
+                                         and _opens_a_section(markdown, group)):
             group = _HEADING_LINE.search(markdown, group.end())
         if group is None:
             return ""
@@ -555,7 +603,8 @@ def _captured_sections(markdown: str, *, year: int) -> dict[str, list[Transactio
         return {}
     marks: list[tuple[int, int, str | None]] = []
     for match in _HEADING_LINE.finditer(body):
-        marks.append((match.start(), match.end(), match.group("name")))
+        if _opens_a_section(body, match):
+            marks.append((match.start(), match.end(), match.group("name")))
     for pattern in (_BLOCK_CLOSER, _GRID_HEADING):
         for match in pattern.finditer(body):
             marks.append((match.start(), match.end(), None))
