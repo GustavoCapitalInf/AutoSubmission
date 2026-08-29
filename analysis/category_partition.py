@@ -157,12 +157,18 @@ doctrine's decision for it. Three things say so:
   proven ledger grid, found it reproduced on none of them, and concluded the
   entry is never a per-day oracle. Measured over every document of the family
   that prints the entry, that generalisation does not hold: on three of the
-  four the calendar-day average computed from this reader's own ledger
-  reproduces the printed figure to the cent. It is still not a GATE — the
-  fourth disagrees by 39 % and the entry stays evidence-only under the ADB
-  doctrine — but it is a printed, day-sensitive quantity that agrees, so the
-  misdating the old refusal was built for is measurably absent rather than
-  merely unlikely.
+  four the calendar-day average computed from this reader's own ledger lands
+  on the printed figure EXACTLY on one and WITHIN A CENT on the other two,
+  against a fourth that misses it by about two fifths of the printed figure.
+  The platform records that one-cent gap as
+  `agrees_with_bank_stated_average: False` on those two, and a reader of the
+  payload will see it — so it is corroboration, not agreement, and this
+  docstring said "to the cent" until the CP-DECLINES review measured it.
+  It is not a GATE either: the entry stays evidence-only under the ADB
+  doctrine. What it is, on a twenty-nine to thirty-two day average, is a
+  printed DAY-SENSITIVE quantity that a misdated row would move much further
+  than a cent — which is why the misdating the old refusal was built for is
+  measurably absent on these three rather than merely unlikely.
 
 The collected grid remains refused for its own reason, which is unchanged and
 is the one thing a future widening must not undo: it is a DIFFERENT quantity,

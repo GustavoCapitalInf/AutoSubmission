@@ -56953,8 +56953,15 @@ takes it back. Three measurements, in the order they were made:
    print the entry. On `3A9502DF` — GL3.1's document — the computed
    calendar-day average misses the printed figure by about two fifths of it. On
    the other three, which are exactly these three declines, **the calendar-day
-   average computed from this reader's own ledger reproduces the printed figure
-   to the cent.** It is still not a GATE, and this card does not make it one:
+   average computed from this reader's own ledger lands on the printed figure
+   EXACTLY on one and WITHIN A CENT on the other two.** The review measured
+   that and this record said "to the cent" on all three, which is wrong: the
+   platform records the one-cent gap as `agrees_with_bank_stated_average:
+   False` on `6E9A3A110E6829EB` and `C47BEFE559CB8600`, and True only on
+   `889DAEBE7D79133C`. The corroboration survives the correction — on a
+   twenty-nine to thirty-two day average a misdated row moves the figure much
+   further than a cent — but it is corroboration and not agreement. It is
+   still not a GATE, and this card does not make it one:
    the fourth document disagrees, and under the ADB doctrine a bank's printed
    average is evidence only. But it is a printed, DAY-SENSITIVE quantity that
    agrees, so the misdating the old refusal was built for is measurably absent
