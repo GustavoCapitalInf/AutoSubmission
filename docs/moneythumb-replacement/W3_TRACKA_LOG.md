@@ -55703,9 +55703,9 @@ each measured on its own, three COUNTED and the rest named with the reason they 
 card-network token fires on 6 documents whose enumerating line carries neither a deposit
 designation nor any card wording and which locate no partition at all — a brand word standing
 alone is not proof of an account row, so it is not counted. The debit-card class fires on 15
-(5 multi-posting) and is deliberately never counted: a debit card is the access device of a
-deposit account, not a facility, and counting it would put 11 further documents into a
-condition that must not hold them. Five further classes fire on nothing here. Condition 12 now
+(5 multi-posting) and is deliberately never counted: a debit card is how a member reaches a
+deposit account and is not a facility of its own, and counting it would put 11 further
+documents into a condition that must not hold them. Five further classes fire on nothing here. Condition 12 now
 says what the first version's did not — the class of a row must be established from the row,
 not from a word in it. Commit `eff0969`.
 

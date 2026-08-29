@@ -332,8 +332,8 @@ in this population, and the family a Stage-2 implementation would reach for next
 vocabulary's completeness is a table in the instrument's own output and not a sentence here:
 ten classes were tried, three are counted, and the classes that fire and are NOT counted are
 named with the reason (a brand word alone is not proof of an account row, and a debit card is
-the access device of a deposit account rather than a facility — counting it would put 11
-further documents into a condition that must not hold them). The identity condition, by
+how a member reaches a deposit account rather than a facility of its own — counting it would
+put 11 further documents into a condition that must not hold them). The identity condition, by
 contrast, is satisfied on this population — 0 documents resolve two sections to one token —
 and the residual hazard there is the locator, not the condition.
 
@@ -670,8 +670,8 @@ three are new and one is rewritten, each because this population contains its co
     **4** of them carrying two or more posting sections and all four
     `FAM:goldenwest_cu_member_account_statement`; 7 of the 19 also print a cross-account
     total.)* The class of a row must be established from the row, not from a word in it: the
-    instrument counts three classes and names the ones it will not count, and an implementation
-    has to confirm what the row IS before excluding it. **NEW.**
+    instrument counts three classes and names each one it declines to count, and an
+    implementation has to confirm what the row IS before excluding it. **NEW.**
 13. **One currency, established per SECTION.** Every published section must carry the same
     denomination, established by the currency doctrine's evidence hierarchy at the level of
     the section rather than the document — the doctrine resolves a denomination per DOCUMENT
@@ -939,8 +939,8 @@ printed partition, no ledger published EMPTY over printed rows, and the source-c
 — without the row-coverage gate and without the sections' own stated evidence, neither of which
 its arithmetic had. Its rule deliberately left a section that prints no dated row and reads
 nothing standing as a closure, which is a dormant sibling. Implemented exactly that way on this
-run, it gives **15** documents where it reported 11, an L-1 floor of **4** where it reported 3,
-and **2** with the oracle, which it reported. The two gaps have different causes and only one
+run, it gives **15** documents where it reported 11, an L-1 floor of **4** against its 3, and
+**2** with the oracle, which it reported. The two gaps have different causes and only one
 of them is the column fix:
 
 * **The L-1 figure is the column fix.** `9B8E7D807228DA2B` was refused as a pair disagreement

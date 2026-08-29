@@ -186,13 +186,16 @@ NO_ACTIVITY = re.compile(
 #: what the row is: `card_network` matches a long enumerating line that carries
 #: neither a deposit designation nor any card wording, on documents that locate
 #: no partition at all, and a brand word standing alone is not proof of an
-#: account row. `debit_card` is deliberately never counted: a debit card is the
-#: access device of a deposit account, not a facility, and counting it would
-#: put 11 further documents into a condition that must not hold them.
+#: account row. `debit_card` is deliberately never counted: a debit card is how
+#: a member reaches a deposit account and is not a facility of its own, and
+#: counting it would put 11 further documents into a condition that must not
+#: hold them.
 FACILITY_CLASSES: tuple[tuple[str, str, bool], ...] = (
     ("loan", r"loans?", True),
-    ("mortgage", r"mortgage\w*", True),
-    ("card_brand", r"visa", True),
+    ("mortgage",
+     r"mortgage\w*", True),
+    ("brand_row",
+     r"visa", True),
     ("card_network", r"amex", False),
     ("card_issuer", r"master ?card\w*", False),
     ("card_scheme", r"discover", False),
