@@ -516,6 +516,14 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         r"(?P<barey>20\d\d)",
     ),
     (
+        "Z11", "shift", "_MONTH_START",
+        "require a plain word boundary in front of a spelled month, so a "
+        "month glued to an escape sequence in a SOURCE string goes unread "
+        "and the fixture keeps a date the assertion beside it no longer has",
+        '_MONTH_START = r"(?:\\b|(?<=\\\\n)|(?<=\\\\r)|(?<=\\\\t))"',
+        '_MONTH_START = r"\\b"',
+    ),
+    (
         "R1", "redact", "the sha rule",
         "drop the span check that keeps a replacement out of a content sha",
         "        if any(start < hend and hstart < end for hstart, hend in protected):\n"

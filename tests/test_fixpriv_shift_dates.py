@@ -118,6 +118,15 @@ def test_february_the_twenty_ninth_survives_the_shift() -> None:
         ("Releve du 1 decembre 2031", "Releve du 1 decembre 2059"),
         ("le 15 février 2031 solde", "le 15 février 2059 solde"),
         ("2 août 2031 depot", "2 août 2059 depot"),
+        # A month GLUED TO AN ESCAPE. A fixture writes its page header as
+        # one Python string with an escaped newline inside it, and in the
+        # source the month is preceded by the letter of that escape: two
+        # word characters, no boundary, the date unread while the ISO
+        # expectation beside it moves. This is a source file, not a page.
+        (r"Checking\nMarch 31, 2031 Page 1",
+         r"Checking\nMarch 31, 2059 Page 1"),
+        (r"row\t3 mars 2031 solde", r"row\t3 mars 2059 solde"),
+        (r"x\nSEP 29/31 y", r"x\nSEP 29/59 y"),
     ],
 )
 def test_every_shape_the_tool_claims_to_read(before: str, after: str) -> None:
@@ -136,6 +145,8 @@ def test_every_shape_the_tool_claims_to_read(before: str, after: str) -> None:
         "account_number == '2031-7003030304'",  # an id that starts like one
         "U+2013 handled, U+2212 missed",
         "ITEMS 0 UNC BATCH 0",
+        "nMarch 31, 2031",                      # a WORD ending in the escape
+                                                # letter is not an escape
     ],
 )
 def test_what_the_tool_must_not_touch(text: str) -> None:
