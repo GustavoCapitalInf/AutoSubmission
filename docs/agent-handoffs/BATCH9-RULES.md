@@ -97,6 +97,22 @@ reader publishes the schema default and names itself a future mover), the L-1 ru
 publish one account and silently drop another), the repair doctrine (parsers never write an
 amount). Truth-set / pinned-surface movement outside an approved ceremony = STOP and report.
 
+## Surfaces the batch-9 reviews found unscanned (now part of every branch's proof floor)
+- **Commit messages.** Three batch-9 branches carried archive tokens in commit MESSAGES
+  (dates, small figures, an authorisation-code-shaped token, two money shapes restated from
+  a redaction). Before you report, scan `git log <base>..HEAD --format=%B` against your
+  population's universe (the same scanner over a temp file) → 0; write messages in CLASSES
+  ("a fixture date", "an example figure"), never instances. A branch is unpushed until Ocean
+  composes, so a message reword (`git filter-branch --msg-filter`, trees byte-identical,
+  sha references remapped in your records) is cheap — a token in a pushed message is not.
+- **Mutation harnesses on a shared host.** A harness that restores with `git checkout --`
+  can leave a MUTANT in the working tree when git dies mid-run (index.lock contention was
+  seen once). Restore in a `finally` that ignores the exit code, verify `git status
+  --porcelain` is clean before returning, refuse to start on a dirty tree, and never run two
+  harnesses concurrently on this host (check `tasklist` for another python first).
+- **Report files.** This harness refuses agent-written `.md` files in the scratch directory;
+  your report is your final message plus your W3 section — put every number there.
+
 ## Report contract (your final message to Ocean AND your W3 section)
 `population | root cause | solution | newly validated | other ladder movement | previously
 validated preserved | regressions | correctness evidence | generalization evidence` — plus
