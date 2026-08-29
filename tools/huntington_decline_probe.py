@@ -174,7 +174,13 @@ def unread_figures(lines: list[str], blocks, H) -> dict:
     therefore bounds the gap from above — a document with nothing unread
     outside its known furniture has no unread section to widen for.
 
-    Reported as a count plus the masked SHAPE of each carrying line (digits to
+    A line the reader DID read has a second hiding place, and it is counted
+    separately: `_row_groups` takes one figure per row and everything after it
+    is that row's description, so money printed inside a tail is money on a
+    read line that was never booked. ``in_row_tails`` is that count, and it
+    must be zero for the line-level count to mean what it says.
+
+    Reported as counts plus the masked SHAPE of each carrying line (digits to
     ``#``, money to ``<money>``), which names the furniture without printing a
     figure.
     """
@@ -194,7 +200,13 @@ def unread_figures(lines: list[str], blocks, H) -> dict:
         if hits:
             count += len(hits)
             where.append(mask(line)[:60])
-    return {"count": count, "lines": sorted(set(where))}
+    in_tails = 0
+    for _name, _sign, body in blocks:
+        for line in body:
+            for _day, _figure, tail in H._row_groups(line):
+                in_tails += len(
+                    [t for t in _MONEY_TOKEN.findall(tail) if H._figure(t) is not None])
+    return {"count": count, "in_row_tails": in_tails, "lines": sorted(set(where))}
 
 
 def fee_refusal(blocks, start, end, H) -> dict:
@@ -378,7 +390,8 @@ def main(argv: list[str] | None = None) -> int:
                 lines.append(f"- {key}: {e[key]}")
         if e.get("unread_figures"):
             unread = e["unread_figures"]
-            lines.append(f"- unread printed figures: {unread['count']}")
+            lines.append(f"- unread printed figures: {unread['count']} "
+                         f"(inside a read row's tail: {unread['in_row_tails']})")
             for shape in unread["lines"]:
                 lines.append(f"  - `{shape}`")
         if e.get("summary_labels"):
