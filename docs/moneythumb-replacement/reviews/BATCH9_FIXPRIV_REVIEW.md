@@ -64,7 +64,7 @@ Every row re-run by me. Exit codes verbatim.
 | 15 | canonical guards 255 | **255 passed**, 1 warning | **0** | reproduces |
 | 16 | canonical conformance 1,270 / 40 skipped | **1,270 passed, 40 skipped**, 1 warning | **0** | reproduces |
 | 17 | `corpus_gate.py` GREEN 105 PASS / 3 WITHHELD / 1 REFUSED; currency 14 CAD / 94 USD; provenance 7 / 4 / 1 / 7 / 89 | **RESULT: GREEN**, 105 / 3 / 1; 14 CAD / 94 USD; 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89 schema_default; 109 pinned PDFs, 0 exclusions; runtime 531.8 s | **0** | reproduces |
-| 18 | full suite: 2 failed / 6,876 passed / 43 skipped, both failures inherited from the base | **2 failed, 6,876 passed, 43 skipped, 34 deselected** in 211.89 s; the two failures are exactly `test_corpus_gate_outcomes::test_every_production_caller_of_the_analysis_is_classified` and `test_currency_source::test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists` — the pair known and excused (Ocean's own tools at the base, fixed on train9 `dedc1c9`). **No other failure, no error.** | 1 | reproduces |
+| 18 | full suite: 2 failed / 6,876 passed / 43 skipped, both failures inherited from the base | **2 failed, 6,876 passed, 43 skipped, 34 deselected** in 3 min 32 s; the two failures are exactly `test_corpus_gate_outcomes::test_every_production_caller_of_the_analysis_is_classified` and `test_currency_source::test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists` — the pair known and excused (Ocean's own tools at the base, fixed on train9 `dedc1c9`). **No other failure, no error.** | 1 | reproduces |
 | 19 | corpus-marked slice 30 passed | see the corpus-slice line at the end of this section | | |
 | 20 | `fixpriv_w3_redact --check-idempotent` exit 0 | exit **0**; idempotence holds | **0** | reproduces |
 | 20b | redactor dry run over W3: MONEY 1,366 · DIGITS 145 · DATES 223 on 1,070 lines | at `31255ef`: MONEY **1,377** · DIGITS **150** · DATES 223 on **1,074** lines | 0 | same one-commit-early provenance as row 6 |
@@ -520,7 +520,7 @@ and not an accusation.
 | 14 | canonical guards (5 files) | 255 passed | **0** |
 | 15 | canonical conformance (7 files) | 1,270 passed, 40 skipped | **0** |
 | 16 | `python corpus_gate.py` | GREEN, 105 / 3 / 1, 14 CAD / 94 USD, provenance 7 / 4 / 1 / 7 / 89, 531.8 s | **0** |
-| 17 | full default suite | 2 failed (both inherited and excused), 6,876 passed, 43 skipped, 211.89 s | 1 |
+| 17 | full default suite | 2 failed (both inherited and excused), 6,876 passed, 43 skipped, 3 min 32 s | 1 |
 | 18 | `fixpriv_w3_redact --check-idempotent` + dry run | idempotent; W3 MONEY 1,377 · DIGITS 150 · DATES 223 on 1,074 lines | **0** |
 | 19 | `_CENT` mutation experiment, base vs tip fixtures, 7 runs, tree restored each time | MAJOR 3's table | — |
 | 20 | W3 append-only prefix check (`cmp` over the base-length prefix) | byte-identical; one appended section | **0** |
