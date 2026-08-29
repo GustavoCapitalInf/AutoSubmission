@@ -57019,8 +57019,21 @@ versions.
 
 | population | native documents | rotated and comparable | routing or outcome DIFFERS |
 |---|---:|---:|---:|
-| the card's population (non-validated, `text_route = native`) | 612 | 24 | **1** |
+| the card's population (non-validated, `text_route = native`) | 612 | 24 | **2** |
 | every native document of the run, validated included | 3,208 | 83 | **2** |
+
+Both rows are 2, and the second row adds no mover: every one of the 59 rotated
+documents the run VALIDATED validates on both forms. This record carried **1**
+in the first row until the CP-DECLINES review re-ran the committed instrument
+and got 2. The wrong number has a traceable cause and it is worth naming,
+because it is the failure mode a committed instrument exists to prevent: the
+first version of `route()` classified with `analyze_markdown` alone and without
+the runner's page partition, so an unclaimed document raised and was recorded as
+a crash rather than as `failed / no_parser_matched`. That was fixed before the
+tool was committed — it now classifies through `cohort_replay.replay_one`, the
+runner's own call — but the first row of this table was transcribed from the
+run made before the fix and was never re-transcribed after it. The instrument
+was right; the record was stale.
 
 | sha16 | rotated | un-rotated |
 |---|---|---|
