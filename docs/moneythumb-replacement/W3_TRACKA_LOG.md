@@ -55268,7 +55268,7 @@ and its highest line number is that line, which is the file. Before, both were s
 
 | # | what the review found | what changed | how it was measured |
 |---|---|---|---|
-| **BLOCK 1** | `institution_zip` silenced account, member and ACH numbers: about half the state abbreviations are ordinary English words once the scanner upper-cases the line | the abbreviation is necessary and never sufficient. The rule now asks for the furniture an ADDRESS carries in one of three shapes: a city and its comma, a ZIP+4 tail, or a post-office box in the SAME clause (bounded, never across a `;` or a `\|`) | all six of the reviewer's failing cases report; five address shapes still excuse; the whole-tree take falls from 100 sites to 88 (FP-C3); four vocabulary mutants (`M11b` bare abbreviation, `M11c` no comma, `M11d` unbounded box, plus `M10`/`M11`) all killed |
+| **BLOCK 1** | `institution_zip` silenced account, member and ACH numbers: about half the state abbreviations are ordinary English words once the scanner upper-cases the line | the abbreviation is necessary and never sufficient. The rule now asks for the furniture an ADDRESS carries in one of three shapes: a city and its comma, a ZIP+4 tail, or a post-office box in the SAME clause (bounded, never across a `;` or a `\|`) | all six of the reviewer's failing cases report; five address shapes still excuse; the whole-tree take falls from 100 sites to 83 (FP-C3, FP-C9); four vocabulary mutants (`M11b` bare abbreviation, `M11c` no comma, `M11d` unbounded box, plus `M10`/`M11`) all killed |
 | **MAJOR 1** | every tip number was measured one commit early, and the appended section then added residue | FP5 and FP6 name the CLASS and not the instance; 16 verified sites removed from four lines | W3 residue base to tip: **2,212 -> 2,212**. The appended section adds none |
 | **MAJOR 2** | the standing added-lines scan was 2, not 0 | the same four lines, plus this closure's own first attempt at the era fixtures and the review file's four quoted durations | added-lines scan `--base 2f24b06 --ref <tip>`: **hit_count 0 / residue_sites 0**, exit 0, over the branch's added lines |
 | **MAJOR 3** | the x428 scale scaled the PERTURBATIONS, so five reconciliation tests lost 428x of their tolerance sensitivity | four deliberate errors are ONE CENT again, figures left at their scale; the fifth is a dropped posting, whose magnitude is a fixture figure and not a perturbation, and is recorded rather than changed | the reviewer's ladder is a committed instrument now: `L1`/`L2`/`L3` widen `_CENT` to one, ten and a hundred dollars — the three the base killed and the scaled fixtures survived — and all three are KILLED at this tip by four tests each. `L4` (half a dollar) is killed too, which the base never managed |
@@ -55282,10 +55282,11 @@ and its highest line number is that line, which is the file. Before, both were s
 | **P0** | the real account number the card named was not fixed | both occurrences replaced with an invented id of the same shape | the assertion pins that the reader lifts the printed value VERBATIM: fifteen characters, six of them leading zeros, read as a string. `fixpriv_invent` reports the replacement CLEAR and the original COLLIDING |
 
 The BLOCK's narrowing has a cost and it is counted rather than argued away. With the corrected
-instrument the blocked rule excuses 100 sites and the shipped rule 88. Of the 12 that return to
-the residue, **10 are genuine institution or customer postal addresses** printed with no comma,
-no box marker and no ZIP+4 — they are reported now, which is the safe direction and the
-direction a privacy instrument should fail in. The other **2 were never postal codes at all**:
+instrument the blocked rule excuses 100 sites and the shipped rule 83 (88 before the re-review
+took the ZIP+4 branch out — FP-C9). Of the 17 that return to the residue, **15 are genuine
+institution or customer postal addresses** printed with no comma and no box marker — they are
+reported now, which is the safe direction and the direction a privacy instrument should fail
+in. The other **2 were never postal codes at all**:
 the blocked rule was silencing a milliseconds field in a schema example and a W3 LINE REFERENCE.
 Silencing a line number is one of the things the block set forbids in so many words, so the
 narrowing removes an over-reach the review's own re-derivation had classified as harmless.
@@ -55298,15 +55299,15 @@ DIGITS 208,695 · DATES 3,211 · WORDS 416,756.
 
 | | base `2f24b06` | tip |
 |---|---:|---:|
-| raw hits | 1,116,227 | 1,127,341 |
-| `words_class` | 1,071,557 | 1,082,933 |
+| raw hits | 1,116,227 | 1,129,911 |
+| `words_class` | 1,071,557 | 1,085,499 |
 | `round_money` | 17,286 | 17,308 |
 | `corpus_cache` | 4,966 | 4,966 |
-| `subunit_money` | 2,356 | 2,386 |
+| `subunit_money` | 2,356 | 2,390 |
 | `hex_sha_substring` | 850 | 870 |
-| `institution_zip` | 176 | 176 |
+| `institution_zip` | 166 | 166 |
 | `docs_session_date` | 2 | 2 |
-| **RESIDUE (sites)** | **9,517** | **9,350** |
+| **RESIDUE (sites)** | **9,522** | **9,355** |
 | residue files | 210 | 204 |
 
 The per-rule row is the RAW hit count each rule claims, as FP1 wrote it. Two of those figures
@@ -55322,7 +55323,7 @@ Residue by class and directory:
 | DATES tests | 1,974 | 1,971 | -3 |
 | MONEY tests | 1,511 | 1,391 | -120 |
 | DATES docs | 766 | 766 | 0 |
-| DIGITS tests | 690 | 673 | -17 |
+| DIGITS tests | 695 | 678 | -17 |
 | DIGITS docs | 426 | 426 | 0 |
 | MONEY analysis | 231 | 216 | -15 |
 | DATES analysis | 79 | 79 | 0 |
@@ -55336,11 +55337,11 @@ Residue by class and directory:
 | DIGITS tools | 3 | 3 | 0 |
 | DATES benchmark | 2 | 2 | 0 |
 | DIGITS ocr | 1 | 1 | 0 |
-| **total** | **9,517** | **9,350** | **-167** |
+| **total** | **9,522** | **9,355** | **-167** |
 
 Rolled up under the card's own definition of production (`analysis/ ocr/ webapp/ discovery/
 telemetry/` and the root scripts): **429 -> 412**. With `benchmark` added, as FP2 counted it:
-431 -> 414. `tests/` **4,175 -> 4,035**; `docs/` **4,893 -> 4,893**; `tools/` **18 -> 8**.
+431 -> 414. `tests/` **4,180 -> 4,040**; `docs/` **4,893 -> 4,893**; `tools/` **18 -> 8**.
 
 **No file gains residue.** Six reach zero, the same six FP2 named: `analysis/lili.py` 8 -> 0,
 `analysis/core_processor_signed_counts.py` 8 -> 0, `analysis/bank_ozk.py` 1 -> 0,
@@ -55350,13 +55351,14 @@ occurrences. `W3_TRACKA_LOG.md` 2,212 -> 2,212: the section you are reading, and
 above it, add none.
 
 Excused SITES per rule at the tip (the per-rule row above is raw hits; these are sites):
-`words_class` 542,145 · `round_money` 8,654 · `corpus_cache` 2,483 · `subunit_money` 1,193 ·
-`hex_sha_substring` 448 · `institution_zip` 88 · `docs_session_date` 1.
+`words_class` 543,428 · `round_money` 8,654 · `corpus_cache` 2,483 · `subunit_money` 1,195 ·
+`hex_sha_substring` 448 · `institution_zip` 83 · `docs_session_date` 1.
 
 ### FP-C4 — the mutation table at the real tip
 
-**34 mutants · 34 killed · 0 survived**, run without `-x`, every killer named, tree clean before
-and after (`git status --porcelain` empty both times). Twelve are new in this closure: `M5b`,
+**36 mutants · 36 killed · 0 survived**, run without `-x`, every killer named, tree clean before
+and after (`git status --porcelain` empty both times). Fourteen are new across the two closure
+passes; `M11e` and `M11f` arrive with FP-C9. Twelve are new in this pass: `M5b`,
 `M5c` (the sha OCCURRENCE), `M11b`, `M11c`, `M11d` (the address VOCABULARY), `D1`, `D2` (the
 diff reader), `A5` (the absent path), and `L1`..`L4` (the `_CENT` ladder, a gate this card did
 not write but whose only guard it rewrote). Four new gap CASES in the tests are not mutants
@@ -55402,23 +55404,27 @@ shape is what the sentence says now, and nothing the review concluded changes.
 
 | proof | result | exit |
 |---|---|---|
-| whole-tree privacy scan, root base, `--ref 2f24b06` | 9,517 sites / 210 files; 3,351 documents read | 1 |
-| whole-tree privacy scan, root base, `--ref <tip>` | 9,350 sites / 204 files; 3,351 documents read | 1 |
+| whole-tree privacy scan, root base, `--ref 2f24b06` | 9,522 sites / 210 files; 3,351 documents read | 1 |
+| whole-tree privacy scan, root base, `--ref <tip>` | 9,355 sites / 204 files; 3,351 documents read | 1 |
 | added-lines privacy scan `--base 2f24b06 --ref <tip>` | **hit_count 0 · residue_sites 0 · residue_files 0**; 3,351 documents read | **0** |
 | `fixpriv_ast_identity --base 2f24b06 --ref HEAD <3 paths>` | 3 files, 3 identical, 0 differing | **0** |
-| `fixpriv_mutation_table` (no `-x`) | 34 / 34 killed / 0 survived | **0** |
+| `fixpriv_mutation_table` (no `-x`) | 36 / 36 killed / 0 survived | **0** |
 | `cohort_replay` x3 registrations, `--expect-identical` | 27 of 27 preserved, payload identical | **0** |
-| exclusion-rule tests | 167 passed | **0** |
+| exclusion-rule tests | 175 passed | **0** |
 | the branch's four test files | 253 passed | **0** |
 | canonical guards (5 files) | 255 passed | **0** |
 | canonical conformance (7 files) | 1,270 passed, 40 skipped | **0** |
 | `python corpus_gate.py` | **GREEN**, 105 PASS / 3 WITHHELD / 1 REFUSED; 14 CAD / 94 USD; provenance 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89 schema_default; 109 pinned PDFs, 0 exclusions | **0** |
-| full default suite | 2 failed, 6,935 passed, 43 skipped, 34 deselected — the two EXCUSED failures and nothing else | 1 |
+| full default suite | 2 failed, 6,943 passed, 43 skipped, 34 deselected — the two EXCUSED failures and nothing else | 1 |
 | corpus-marked slice | 30 passed | **0** |
 | `fixpriv_w3_redact --check-idempotent` + dry run | idempotent; W3 MONEY 1,366 · DIGITS 146 · DATES 223 | **0** |
 | W3 append-only prefix check | byte-identical over all base bytes; one appended section | — |
 
-Every row above was run at the tip that carries this section, one heavy process at a time.
+Every row above was run one heavy process at a time. The scans, the mutation table, the
+exclusion tests and the guards were run at the tip that carries this section; the corpus gate,
+the full suite and the corpus-marked slice were run at the final CODE tip, and the commits
+after it change only this record. No test in the tree reads `W3_TRACKA_LOG.md` — the ten test
+files that name it do so in prose — so a W3-only commit cannot move them.
 The two excused suite failures are `test_corpus_gate_outcomes::test_every_production_caller_of_
 the_analysis_is_classified` and `test_currency_source::test_only_the_readers_the_schema_and_the_
 gate_know_the_provenance_exists`. Both are Ocean's own tools, both fail at the base, and both are
@@ -55426,8 +55432,8 @@ fixed on train9 at `dedc1c9`. Anything else in that suite would be this cell's.
 
 ### FP-C7 — what remains, and the rulings still owed
 
-FP9's list stands, with its numbers corrected by the new instrument: **9,350 sites in 204 files**,
-of which production 412 in the card's own class, `tests/` 4,035, `docs/` 4,893 and `tools/` 8.
+FP9's list stands, with its numbers corrected by the new instrument: **9,355 sites in 204 files**,
+of which production 412 in the card's own class, `tests/` 4,040, `docs/` 4,893 and `tools/` 8.
 The rulings the implementing cell asked for are unchanged and this closure adds one:
 
 1. the production sweep as a second card, sized from 412 / the file count, with
@@ -55460,3 +55466,93 @@ The rulings the implementing cell asked for are unchanged and this closure adds 
 | `a0e5cbe` | MAJOR 2 (b): the closure's own era fixtures, and the review's four durations |
 | `9bfdaea` | BLOCK (b): `M11` survived the closure's own table; the gap is guarded inside each address shape |
 | `10cd51d` and the commits after it | MAJOR 1 + 2 (c) + MINOR 5 + MINOR 6: this section, and the corrections that make its figures the tip's own. A record cannot print the sha of the commit that carries it; `git log 2f24b06..` is the list |
+
+## FP-C9 — RE-REVIEW CLOSURE: two MAJORs on the address rule, four MINORs recorded
+
+The independent re-review returned **APPROVE WITH FINDINGS** — 0 BLOCK, 2 MAJOR, 4 MINOR — and
+confirmed every first-review finding closed by measurement, including that FP-C1's instrument
+repair corrected the reviewer's own base figures. Both MAJORs are the same defect one level down
+from the BLOCK: the redesigned `institution_zip` asks for address FURNITURE, and two of its three
+shapes did not actually carry any.
+
+### The two MAJORs
+
+**MAJOR A — the clause ended only at `;` and `|`.** `BOX_CLAUSE_ZIP` bounded its reach with
+`[^;|]{0,70}?`. A postal address is one unbroken run of words, and the punctuation that ends a
+sentence or splits a segment is where it stops — but neither a full stop nor a dash was in the
+class, so the box marker reached past the address onto the next fact and silenced
+`PO BOX 609 - ACCOUNT ENDING IN 84213` (an account tail) and
+`REMIT TO P.O. BOX 609. AUTH OK 84213` (an authorisation code). The clause character class is now
+`_CLAUSE_CHAR`, which also stops at a full stop, a hyphen, an en or em dash, a bracket, an
+exclamation and a question mark. Four cases in the box-clause block, one sample, and mutant
+`M11e`, which widens the class back and dies on them.
+
+**MAJOR B — a ZIP+4 tail was standing in for evidence.** `STATE_ZIP_PLUS_FOUR` excused any five
+digits with a four-digit suffix that followed an abbreviation-shaped word. That is a suffix, not
+an address, and this archive prints identifiers carrying one: `MEMBER ID 84213-6789`,
+`CARD ENDING IN 84213-6789`, `LOAN NO. OR 84213-1234` were all silenced. The standalone branch is
+removed. The table is now the two shapes that carry real evidence — a city and its comma, or a box
+in the same clause — and both already accept a ZIP+4 tail, because neither forbids what follows
+the five digits. The tail therefore keeps every genuine address it ever helped and strengthens the
+shapes instead of standing in for them. Four cases, one sample, and mutant `M11f`, which puts the
+branch back and dies on them.
+
+**What the two cost, counted.** `institution_zip` excuses **83 sites** at this tip, against 88
+before this pass and 100 for the blocked rule the first review rejected. The five sites the ZIP+4
+removal gives up are all genuine addresses in `tests/`, printed with a ZIP+4 tail and no comma and
+no box: a street address repeated three times across two files, and two bare `CITY ST NNNNN-NNNN`
+lines. They are REPORTED now rather than hidden, which is the direction this instrument is
+supposed to fail in, and they are the reason the tree residue rises by five. No production module,
+and no file that reached zero, is affected: the six files FP2 named are still at zero and no file
+gains residue between base and tip.
+
+### The four MINORs
+
+1. **The 7-character hex floor's reach is recorded** in the exclusion table and measured here. Of
+   the 870 raw hits `hex_sha_substring` claims at this tip, **150 are excused by a run shorter
+   than a 16-character sha prefix**; those 150 rows are **75 of the rule's 448 sites**. The two
+   numbers are the same fact counted twice — the tree pass and the diff pass reach the same line —
+   and both are given because the re-review quoted the row figure and this record quotes sites
+   everywhere else. One site in six, either way. The floor exists because these records name a
+   commit in seven characters; raising it is a card, not a patch, because it would re-report every
+   abbreviated object name the records write.
+2. **`CITY_STATE_ZIP`'s ambiguity is recorded** in the table: the comma says a phrase ended, not
+   that a city did. `ACME & SONS, CO 84213` and `MEMBER, ID 84213` read as addresses to it.
+   Neither occurs in the tree and both are stilted lines to print, but the shape is genuinely
+   ambiguous and the next rule that leans on it should know.
+3. **The P0's original account number still sits once in `docs/balance-metrics-audit-results.csv`**,
+   which `benchmark/expectations.py` reads as DATA. The card's named item is closed in
+   `tests/test_analysis.py`, where it was named; the CSV copy is the functional-data class this
+   record has asked a ruling on twice (FP-C7 item 3), and it is now named explicitly rather than
+   left to be inferred: **ruling R3 covers a real account number, not only balances**.
+4. **The mutation harness died on git's stale-worktree prune.** This repository carries
+   `.git/worktrees/*` entries that OneDrive holds open; git's automatic prune fails on them, prints
+   a line per entry, and takes the exit code with it, so `git status` and `git checkout --` under
+   `check=True` raised 128 in the middle of a mutant and left the gate file mutated on disk. Every
+   git call in the harness now goes through one helper that passes `gc.auto=0`, so the prune never
+   starts, and that treats a failure whose every stderr line is prune noise as the success it is.
+   The clean-tree refusal and the restore-verified check both still run on the OUTPUT, and any
+   other git failure still raises.
+
+### The floor at the re-review closure tip
+
+| proof | result | exit |
+|---|---|---|
+| exclusion-rule tests | **175 passed** | **0** |
+| `fixpriv_mutation_table` (no `-x`) | **36 mutants / 36 killed / 0 survived**, tree clean before and after | **0** |
+| whole-tree scan, root base, `--ref 2f24b06` | **9,522 sites / 210 files**; 3,351 documents read | 1 |
+| whole-tree scan, root base, `--ref <tip>` | **9,355 sites / 204 files**; 3,351 documents read; `institution_zip` take 166 rows / 83 sites | 1 |
+| added-lines scan `--base 2f24b06 --ref <tip>` | **hit_count 0 · residue_sites 0 · residue_files 0** | **0** |
+| commit-message scan over `2f24b06..<tip>` | **0 tokens** | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| full default suite | 2 failed, **6,943 passed**, 43 skipped, 34 deselected — the two EXCUSED failures and nothing else | 1 |
+| `python corpus_gate.py` | **GREEN**, 105 PASS / 3 WITHHELD / 1 REFUSED; 109 pinned PDFs, 0 exclusions | **0** |
+| corpus-marked slice | **30 passed** | **0** |
+| W3 = base log + exactly one appended section | prefix byte-identical over every base byte; one `#` heading | — |
+
+The suite, the gate and the slice ran at the final CODE tip; the commits after it change only this
+record, and no test in the tree reads `W3_TRACKA_LOG.md`. Everything else ran at the tip that
+carries this section. Coverage movement is unchanged and unchecked again for a reason: this pass
+touched `tools/privacy_scan_branch.py`, its tests and the mutation harness, and nothing a reader
+imports — `fixpriv_ast_identity` and the replay were run at the first closure tip over production
+modules this pass did not open.
