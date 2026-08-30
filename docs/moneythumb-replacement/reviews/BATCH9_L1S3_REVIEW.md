@@ -1,0 +1,608 @@
+# BATCH9 — independent adversarial review of `wave9-l1s3` (`L1-S3-SURFACES-DARK`)
+
+**Reviewer:** independent Opus cell. **Branch** `wave9-l1s3`, tip `70998a3`, base `train9` `4953806`.
+**Composition target at review time:** `train9` `5c32046` (L1-S2 and Q3-CORROBORATION-PROBE composed).
+Everything below was re-measured on this host. Nothing was accepted on the cell's word.
+
+---
+
+## VERDICT
+
+# APPROVE WITH FINDINGS — 1 BLOCK · 4 MAJOR · 9 MINOR
+
+The card's central claim is **confirmed**: the nine seams take the document entry point, the readers
+are taught, and the stage is **dark and moves nothing**. I reproduced zero movement independently —
+seam probe base-vs-tip `MOVED_TOTAL=0` over 232 documents / 80 registrations; a 350-document archive
+sweep at **both** trees with all nine counts identical and `l1s3_sweep_attribution` exit 0 (0 tip-only
+/ 0 base-only / 0 differing); corpus gate GREEN; full suite; guards; conformance; both censuses;
+mutation table 6/6 — and I reproduced every Q10 semantic and every C18 property on constructed
+payloads.
+
+**The branch may not be composed as it stands.** BLOCK-1 is a *semantic* composition failure: at the
+merged tree eleven of L1-S2's Q10 pins go red, because `classify_document` handed a `DocumentReport`
+neither refuses nor answers — it dies with an `AttributeError` two frames down. I proved the fix and
+proved it green. That is the only BLOCK.
+
+| | finding | where |
+|---|---|---|
+| **BLOCK-1** | 11 S2 Q10 pins fail at the merged tree; `classify_document` fails deep instead of refusing at its door | §4 |
+| **MAJOR-1** | the census's reverse direction is blind to the document shape's OWN key (`accounts`), to a non-literal `statement` subscript, and to an aliased account publisher — 7 undeclared readers, census exit 0 | §3.1 |
+| **MAJOR-2** | `webapp/static/app.js` does not fully refuse: three other consumers of `currentAnalysis` / `modalAnalysis` answer a document payload quietly, one of them the copied credit-memo summary | §3.3 |
+| **MAJOR-3** | the package's cross-account arithmetic counts one calendar period twice; design §6.5's fourth bullet — the check that would have caught it — is not implemented | §3.5 |
+| **MAJOR-4** | **three of the eight refusals are untested.** A mutant that leaves the refusal in place but never runs it passes the WHOLE default suite and the census, at `adb_forensic_audit::audit_one`, `balance_forensic_audit::audit_source` and `corpus_gate::check_currency_source` — one of them the legacy-indexing path the card promised to pin | §5.7 |
+| MINOR-1 | five of §6.5's seven per-account gate assertions are absent at this tip | §5.1 |
+| MINOR-2 | `stated_counts.evaluate_accounts` has no caller; the module's own CLI still calls the refusing `evaluate` | §5.2 |
+| MINOR-3 | the census's forward check is a NAME check, not a reachability check (mutant M7) | §5.3 |
+| MINOR-4 | two refusal messages name the wrong surface | §5.4 |
+| MINOR-5 | the privacy row's "raw 0" is wrong — raw was 21 at the cell's scan tree, 28 at the tip | §7.1 |
+| MINOR-6 | `refuse_document_payload` / `is_document_payload` return silently on a non-Mapping; L1-C16's third clause is never reached by either outcome function | §4.3 |
+| MINOR-7 | the mutation table scores any non-zero pytest exit as a kill (4/5 would count) | §5.5 |
+| MINOR-8 | the guard count is reported over nine files; the canonical five reproduce at 255 | §6 |
+| MINOR-9 | neither census can see inside `analysis/serialization.py` — both exclude it wholesale | §5.6 |
+| COMP | composition map: two text conflicts, one line re-pin, one tripwire to retire | §4.4 |
+
+---
+
+## 1. What I reproduced, claim by claim
+
+| the cell claimed | I measured | verdict |
+|---|---|---|
+| nine seams at the document entry point; by AST **eight** real calls, the ninth a docstring example | AST census prints exactly the eight, at `adb_forensic_audit.py:492`, `analyze.py:176`, `balance_forensic_audit.py:515`, `batch.py:185`, `benchmark/ourside.py:117`, `corpus_gate.py:1553`, `discovery/runner.py:503`, `webapp/worker.py:36`. `webapp/artifact_cache.py:215` read in place: it is inside that module's docstring | **CONFIRMED** |
+| `tools/l1s3_surface_census.py` exit 0 both ways — 20 readers, 13 excused, 31 key-reads swept, 8 seams | exit 0, same four numbers | **CONFIRMED** |
+| `tools.l1_design_reader_probe --census` exit 0 at the tip, exit 1 at the base | tip exit 0 (9 found / 0 undeclared / 0 missing); **base exit 1** — 12 found, `corpus_gate.py:1355` missing, four undeclared (three in `analysis/serialization.py`, one at `corpus_gate.py:1444`). Stale since S1, as claimed | **CONFIRMED** |
+| a doctored census fails forward, reverse and on the seam half | reverting one seam to the account publisher → AST census exit 1 naming `webapp/worker.py:36`. Inserting one blank line above a seam → design probe exit 1 naming both `analyze.py:176` (missing) and `:177` (undeclared) while the AST census stays 0 | **CONFIRMED** |
+| mutation table 6 / 6 killed | 6 / 6, each with **≥1 named FAILED test** (3, 1, 1, 1, 2, 1); M4 also census exit 1; tree clean after every mutant | **CONFIRMED** |
+| zero movement at the pipeline seam | ran `tools/l1s1_seam_probe.py` at the tip and at `mt9-l1s3-base`, base capture compared against tip: 232 documents / 80 registrations; **document seam byte-identical 232**, account seam 232, **integrity flags list AND order 232**, ladder outcome unchanged 232, documents publishing exactly one account 232, `MOVED_TOTAL=0` | **CONFIRMED** |
+| full suite 7,578 / 43 | **7,578 passed / 43 skipped**, exit 0, 219 s | **CONFIRMED** |
+| conformance 1,270 | **1,270 passed / 40 skipped**, exit 0 | **CONFIRMED** |
+| guards 349 (nine files) | canonical five (BATCH9-RULES): **255 passed**, exit 0 — the base floor exactly. The cell's 349 is a superset over nine files | CONFIRMED, see MINOR-8 |
+| corpus gate GREEN 105 / 3 / 1 | **GREEN**, exit 0 — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; 108/108 currency; 108/108 currency provenance; 109 resolved offline; 664.8 s | **CONFIRMED** |
+| C18 — the discovery row carries the DOCUMENT outcome and no account | on a constructed two-account payload: `account_last4 = None`, serialised to rows.csv as **empty**, `account_count = 2`, `outcome_class` = the **weakest** account's. Single-account row unchanged (`account_count = 1`, last4 present) | **CONFIRMED** |
+| Q10 wired as ruled | ratified omission + one validated account → `('validated', 'approved')`; unratified omission → `('failed', 'document_omission_unratified')` and the account published as **excluded**, never as `partial`; today's package carries **no** Q10 key, **no** `account_index`, and unchanged member ids; the ratified-omission package publishes `sibling_account_omission_detected: true` / `completeness: partial` / `omitted_section_count` / `omitted_sections` | **CONFIRMED** |
+| the review override NOT wired | `classify_document` wires two of the three overrides; the third is absent and two tests name Q10 | **CONFIRMED** |
+| `count_semantics` is not a reader | no payload-key read anywhere in the module; every `statement` occurrence is prose in a docstring | **CONFIRMED** |
+| register unchanged; the new tools need no key | `EXCLUDED_ANALYSIS_CALLERS` **byte-identical to the base**; none of the three new `tools/l1s3_*.py` calls `analyze_markdown`, `analyze_document` or `cached_analysis`; `train9` excuses no `l1s3` tool | **CONFIRMED** |
+| privacy — messages MONEY / DIGITS / DATES 0, WORDS 2 | reproduced exactly: `hit_count 2`, `{"DATES": 0, "DIGITS": 0, "MONEY": 0, "WORDS": 2}`, the two named commits and the two named bigrams | **CONFIRMED** |
+| privacy — added lines 0 / **raw 0** | `hit_count 0`, MONEY / DIGITS / DATES / WORDS all 0, residue files 0, residue sites 0 — but **raw 21** at the cell's own scan tree and **raw 28** at the tip, every one WORDS-class and discharged by the scanner's own `words_class` rule | CONFIRMED except "raw 0" — see MINOR-5 |
+| archive sweep, 3,380 at both trees, nine counts identical, 70 findings attributed, 0 tip-only / 0 base-only / 0 differing | re-ran a **bounded slice** (documents 0-350) at both trees: **all nine aggregate counts identical**, and `tools/l1s3_sweep_attribution.py` **exit 0** — 6 findings at both trees identically, **0 differing / 0 tip-only / 0 base-only**. The method reproduces; the full 3,380 does not | **CONFIRMED on a slice** |
+| 677-document wide seam probe; the 80-registration replay pair at both trees; the remaining archive sweep; the corpus-marked slice | **NOT re-run** — carried on the cell's evidence plus the equivalence argument in §6 | CARRIED |
+
+---
+
+## 2. The WORDS-2 judgement — DISCHARGED, and not for the cell's reason
+
+The message scan is reproduced exactly: `commits_scanned 14`, population 3,380, `documents_read 3,351`,
+**MONEY 0 · DIGITS 0 · DATES 0 · WORDS 2**, exit 1.
+
+I read the scanner's WORDS rule before judging. `privacy_scan_branch.py` builds the WORDS class as
+every alphabetic word of `--word-min` (default 4) characters or more **plus every adjacent bigram**
+of those words, over both sides. The printed vocabulary it compares against is 416,756 WORDS tokens
+across 3,351 documents. A class built from adjacent-pair coincidence over a vocabulary that large
+will collide with ordinary English; the class is a screen, not a verdict, which is why BATCH9-RULES
+already instructs a cell to report the WORDS count **with an attribution** while MONEY / DIGITS /
+DATES must be hard zeros.
+
+Both hits are bigrams, and I read each in its full message:
+
+* `THOUGH THEY` — `661c005`, from *"the package — where a person reads a member's figures **as though
+  they** were the member's whole banking — says a section was established and not published"*. A
+  subordinate clause about what a package means.
+* `NINE LINE` — `7b1250b`, from *"every one of its **nine line**-pinned sites moved to the document
+  entry point"*. `nine` is the count of seams the design declares — a number this branch took from a
+  design document, not from any statement — and `line` is the first half of `line-pinned`.
+
+Neither is a value, a name, a date, an amount, an identifier, a label, or anything read out of a
+document. Neither restates a redaction. The words were supplied by the author for their ordinary
+English meaning and the pairing is coincidence with some statement's prose.
+
+**Judgement: dischargeable. No history rewrite is required.**
+
+One correction to the record. The W3 section justifies keeping the messages on the ground that *"a
+reword would invalidate those citations to hide two common English words"*. That is not a good
+reason — BATCH9-RULES says explicitly that on an unpushed branch a `--msg-filter` reword is cheap and
+the sha references are remapped in the records. The correct reason, and the one I am recording, is
+that **the two hits are not tokens**: had they been, the cost of the reword would have been
+irrelevant.
+
+---
+
+## 3. The attacks
+
+### 3.1 Attack 1 — MAJOR-1: the reverse census is blind to the key this stage introduced
+
+The census's reverse direction is its only quantifier: the forward half checks *declared* readers,
+so nothing but the reverse half makes "every reader is taught" falsifiable. Its predicate
+(`_reads_statement_key`) matches exactly three shapes — a `Subscript` whose slice is the **constant**
+`"statement"`, and `.get` / `.setdefault` / `.pop` whose **first positional argument** is that
+constant.
+
+I wrote a scratch module of seven readers at the repository root — a swept production path — each one
+answering about ONE account, none declared and none excused:
+
+| reader | how it reaches an account | swept? |
+|---|---|---|
+| `payload["accounts"][0]["metrics"]` | the document shape's own key | **no** |
+| `next(iter(payload.get("accounts") or []), {})` | the same, through an iterator | **no** |
+| `(payload.get("accounts") or [{}])[0].get("metrics", {})` | the pattern the cell's own risk list names | **no** |
+| `_KEY = "statement"` … `payload[_KEY]` | the swept key itself, through a name | **no** |
+| `for key, value in payload.items(): if key == "statement"` | a mapping walk | **no** |
+| `report.statement` | attribute access on the parsed object | **no** |
+| `from analysis.serialization import report_to_dict as _publish_one_account` … `_publish_one_account(report)` | the ACCOUNT publisher under an alias | **no** |
+
+**Measured with all seven in the tree: `tools/l1s3_surface_census.py` exit 0, "payload-key reads
+swept: 31" — unchanged. `tools.l1_design_reader_probe --census` exit 0 as well.** The aliased seam is
+missed by both: the AST census matches the call *name*, the design probe greps the text
+`report_to_dict(`, and an alias defeats each.
+
+**How much does it matter.** I then swept the real tree for `accounts`-key reads with the census's own
+machinery. There are exactly **two** production sites: `telemetry/record.py::classify_document`
+(declared) and `benchmark/normalize.py::lenders` — which reads MoneyThumb's `scorecard` JSON, not our
+payload. So **nothing is missed today**, and closing the gap costs one widened predicate plus one
+excused entry. But the guarantee the census states — *"a new reader written tomorrow fails this"* — is
+measurably false for the most natural new reader, one that reads `accounts`. **S4 is the stage that
+writes exactly those readers.** Graded MAJOR for that reason, not for a live miss.
+
+### 3.2 Attack 2 — the line-pinned census fails LOUDLY on drift
+
+Inserting one blank line above `analyze.py`'s seam moved it from 176 to 177.
+`tools.l1_design_reader_probe --census` → **exit 1**, naming both halves (`declared but NOT found: 1 —
+analyze.py:176`, `found but NOT declared: 1 — analyze.py:177`). It does **not** pass silently. The AST
+census, which pins by call rather than by line, stayed **exit 0** through the same edit. The cell's
+characterisation is exactly right, and running both is the right answer.
+
+The corollary is COMP-3 in §4.4: the line pin is red again at the composed tree.
+
+### 3.3 Attack 3 — MAJOR-2: `app.js` refuses in two places and answers quietly in three
+
+`node --check` passes. The two refusal branches are real and both key on
+`Array.isArray(report.accounts)`, so neither can fire on a payload this tree publishes. But I traced
+the render path rather than stopping at the two branches, and the refusal is not the whole surface:
+
+* `renderAnalysis` assigns **`currentAnalysis = report` (line 1105) before returning at the refusal
+  (line 1108)**;
+* `openStatementModal` assigns **`modalAnalysis = payload.analysis` (line 1633) before calling
+  `renderStatementModal`**.
+
+Three other consumers read `.statement` off those globals and answer with an empty object:
+
+1. **`generateSummary()` (line 1810)** — bound unconditionally at line 1896 to `els.summaryBtn`, and
+   **not** gated by `setActions`, which only touches the download links. On a document payload it
+   takes the non-package branch (`currentAnalysis.package` is absent), reads
+   `currentAnalysis.statement || {}`, and writes into `els.summaryBox` a complete credit-memo sentence
+   — issuer, period, average daily balance, ending balance, cash flow, NSF count, lender detections,
+   exposure and a `Status:` — with every field rendered as its "N/A" placeholder. This is the
+   artefact an analyst pastes into a memo. It is the quiet wrong answer this whole stage exists to
+   remove, on the one surface the card admits it did not test.
+2. **`mainTransactionContext()` → `renderMainTransactions()`** — reached by every
+   `[data-transaction-filter]` handler, the sort control and the "show more" control. It reads
+   `currentAnalysis?.statement || {}`, yields zero rows and labels the scope "This statement".
+   `renderError` does not hide `els.transactionCard`, which `uploadFiles` has already set to
+   `display: block`.
+3. **`renderModalTransactions()`** — same shape, through `modalAnalysis`.
+
+Dark today, and S4 owns the account selector. But the claim in W3 — *"`webapp/static/app.js` … refuses
+in the UI"* — is broader than the code. Two of five reachable consumers refuse. The minimal correction
+is to move the two global assignments **after** the refusal (or null them on the refusal path), which
+turns the three quiet answers into the same loud one.
+
+### 3.4 Attack 4 — `_RISK_ORDER` cannot reorder any existing gate outcome
+
+`_RISK_ORDER = ("clear", "review", "high")` is reached only inside the
+`is_document_payload(payload)` branch of `document_verdicts`; the account-shape path returns
+`_account_verdict(payload, None)` immediately, built field-for-field as this gate always built one. No
+published payload at this tree carries `accounts`, so the fold is unreachable. Measured on a
+single-account payload: the document verdict is **identical to its account's verdict**, `account_index`
+`None` on both.
+
+The three tokens are also exactly the vocabulary `analysis/pipeline.py` emits (`high` / `review` /
+`clear`, lines 621-625), so the "unknown ranks WORST" clause has no live input. `_Verdict`'s new sixth
+field defaults to `None` and every pin in `PINNED_OUTCOMES` / `PUBLISHED_OUTCOME` is constructed as a
+`_Verdict`, so both sides of every comparison gained the same default. **Not a movement risk.** The
+policy is new and conservative; recorded, not flagged.
+
+### 3.5 Attack 5 — MAJOR-3: members vs jobs is not merely "noted", it is arithmetically wrong
+
+The cell records the divergence as a risk (`totals["completed"]` counts MEMBERS,
+`totals["documents"]` counts JOBS) and adds a comment. I measured what the divergence does to the
+published figures, on the cell's own fixtures, comparing three packages that hold the **same
+banking**:
+
+* **A** — one job, one account (today's shape);
+* **B** — one job publishing **two different validated accounts** over **one** statement period;
+* **C** — two **separate** jobs, one account each.
+
+Measured: **B and C publish identical `months`, identical `avg_monthly_credits`,
+`avg_monthly_debits` and `avg_monthly_cash_flow`.** For B, `totals["documents"] = 1` while
+`totals["months"] = 2`, because `months = max(1, len(monthly))` (line 1341) counts **members** and
+`_package_members` promotes each account to a member. The three per-month averages are
+`total / months`, so a member whose one month of banking spans two accounts has every published
+monthly average **halved**.
+
+This is design §6.5's fourth bullet verbatim: *"**and no published average is computed over two
+accounts of one document** — the arithmetic, not the field name. The package ADB's member set is
+checked for two members sharing a `content_sha256`."* The card implemented a **duplicate-content-digest**
+refusal instead, which by construction only catches two accounts publishing *identical* content; two
+**different** accounts of one document pass it. I measured B's two member rows carrying **one shared
+`content_sha256`** and the package publishing without complaint.
+
+The duplicate-digest refusal is a good check and should stay. It is not the check §6.5 asked for, and
+the check §6.5 asked for is the one that would have caught this. Dark today; **S4 must not light the
+publisher without it.**
+
+### 3.6 Attack 6 — C18 and the refusals, on a constructed payload
+
+Reproduced through the production functions (results in §1). Two additions:
+
+* **Every KeyError-capable `statement` subscript is accounted for.** I re-swept the tree with the
+  census's own matcher and split the 31 sites by form: 19 are subscripts, and 17 of those read an
+  **audit CSV's `statement` column** (a filename) or sit in `_rebuild_account_revenue_views`, which
+  has exactly two callers, both inside the taught head. The only subscripts on a *payload* are
+  `balance_forensic_audit.py:539-540`, and they sit **after** that function's
+  `refuse_document_payload`. A `KeyError` into `statement` is not reachable.
+* **`_adb_rows` and `_masked` are genuinely agnostic.** `_adb_rows` takes a **metrics** dict, not the
+  payload, and is called from the per-account renderer (line 340), so a document payload reaches it
+  once per account. `_masked` is a recursive key-name filter and descends `accounts` unchanged. On a
+  two-account payload `_analysis_rows` produced 54 rows under sections `document`, `account_1`,
+  `account_2` — the collision on `("statement", "ending_balance")` the design named is gone.
+
+### 3.7 Attack 7 — Q10, both fixtures
+
+Constructed on `tests/l1s3_payloads.py` after checking the fixture is one `classify_outcome` really
+calls `validated` (it is: `('validated', 'approved')`).
+
+| construction | measured |
+|---|---|
+| ratified-class omission + one validated account | `('validated', 'approved')` — **not demoted**, as Q10 rules |
+| **un**ratified omission + one validated account | `('failed', 'document_omission_unratified')` — L1-C17, and consistent with §1.5's second override |
+| two accounts, one withheld | `('withheld', 'account_withheld_adb')` — the weakest account, tie broken by printed order |
+| today's package (two single-account jobs) | **no** `sibling_account_omission_detected`, **no** `completeness`, **no** `omitted_section_count`, **no** top-level `omitted_sections` or `excluded_accounts`, member ids unchanged, no `account_index` key |
+| ratified-omission package | `sibling_account_omission_detected: true`, `completeness: partial`, `omitted_section_count: 1`, `omitted_sections` length 1 |
+| unratified-omission package | **neither** Q10 key present; the account published under `excluded_accounts` with reason `document_omission_unratified`; no document row |
+
+The "publish only when there is something to surface" property holds, and the unratified case is
+excluded from membership rather than dressed as `partial` — exactly as the card claims and as Q10
+requires.
+
+---
+
+## 4. Attack 8 — SEMANTIC COMPOSITION with L1-S2
+
+Merged in a throwaway worktree (`train9` `5c32046`, `git merge --no-ff --no-commit wave9-l1s3`),
+resolved, measured, then aborted and removed. Nothing was committed to either real branch.
+
+### 4.1 BLOCK-1 — eleven S2 Q10 pins fail at the merged tree
+
+```
+FAILED tests/test_l1s2_omission_ruling.py  (11 of them)
+FAILED tests/test_l1s2_document_outcome.py::test_this_tree_declares_no_document_fold_yet
+12 failed, 60 passed
+```
+
+The tripwire is expected (§4.2). The eleven are not.
+
+**Root cause, traced.** S2's resolver `tests/test_l1s2_document_outcome.py::document_outcome` is built
+to survive S3 landing a fold: it discovers the fold by AST, then tries **two call shapes** —
+
+```python
+for argument in (report, document_report_to_dict(report)):
+    try:
+        verdict = fold(argument)
+    except TypeError as exc:      # not this call shape; try the other
+        refusals.append(...); continue
+```
+
+It tries the `DocumentReport` **object** first. `classify_document` gates on
+`is_document_payload(payload)`, which is `False` for a non-Mapping, and therefore **delegates the
+object to `classify_outcome`**, which dies at `telemetry/record.py:389` with
+`AttributeError: 'DocumentReport' object has no attribute 'get'`. `AttributeError` is not `TypeError`,
+so the resolver never reaches the payload leg and every Q10 pin that reads the document leg goes red.
+
+**Proven resolution.** I made `classify_document` refuse a non-Mapping at its own door:
+
+```python
+if payload is not None and not isinstance(payload, Mapping):
+    raise TypeError("classify_document reads a published PAYLOAD, not " + type(payload).__name__)
+```
+
+At the merged tree with that one clause: **71 passed, 1 failed** — and the one failure is the
+intentional tripwire. All eleven Q10 pins go green through the payload leg.
+
+This is a defect in `classify_document`, not only a test incompatibility: a function whose contract is
+`payload: dict | None`, handed something else, should refuse rather than fail two frames down inside
+another function. Widening the resolver's `except` would also make the pins pass, but it would leave
+the production function failing deep. **I recommend the production fix**, with the resolver left as
+S2 wrote it.
+
+### 4.2 The tripwire — expected red, and nobody owns retiring it
+
+`test_this_tree_declares_no_document_fold_yet` asserts `declared_document_folds() == []`. Its own
+docstring says *"S3 landing the fold turns this red, which is the whole point"*. The composition must
+retire or invert it; the pins that matter (`test_every_declared_document_fold_is_reachable_by_the_resolver`,
+`test_l1s2_protected_carriers.py`, `test_l1s2_omission_ruling.py`) then read the fold, which is what
+S2 built the resolver for. **`tests/test_l1s2_protected_carriers.py` passes at the merged tree** — the
+15 protected carriers stay green once BLOCK-1 is fixed.
+
+### 4.3 MINOR-6 — the shape helpers are silent on a non-Mapping
+
+The mechanism behind BLOCK-1 generalises. Measured:
+
+```
+refuse_document_payload(None)   -> RETURNED (no refusal)
+refuse_document_payload([])     -> RETURNED
+refuse_document_payload(<obj>)  -> RETURNED
+refuse_document_payload("str")  -> RETURNED
+refuse_document_payload(3)      -> RETURNED
+```
+
+`assert_payload_shape` *does* refuse a non-Mapping (`payload_not_a_mapping`) — that is L1-C16's
+third clause — but neither `classify_outcome` nor `classify_document` calls it; both call only
+`refuse_document_payload`, which keys on `ACCOUNTS_KEY in payload` and returns for anything that is
+not a Mapping. So the loudest of the three helpers is the one the outcome path never reaches.
+
+### 4.4 The composition map for Ocean
+
+| file | conflict | resolution |
+|---|---|---|
+| `docs/moneythumb-replacement/W3_TRACKA_LOG.md` | CONTENT, one hunk (`61432` / `62572` / `62877`) | append-only concatenation: train9's `§L1S2` + `§Q3PROBE` block, then this branch's `§L1S3`. The train helper's usual case |
+| `tests/test_corpus_gate_outcomes.py` | CONTENT, one hunk | **both sides make the identical edit** — `WATCHED = {"analyze_markdown", "analyze_document", "cached_analysis"}` — with different comments. Keep train9's comment (S2's, which explains the gap rather than the tool); the code line is the same either way |
+| `corpus_gate.py` | **auto-merges** | train9's `EXCLUDED_ANALYSIS_CALLERS` addition (`tools/l1s2_admission_probe.py`, ~line 832) and this branch's hunks (85-88, 205-225, 1400-1500, 1525-1560, 1709, 1792) are disjoint. **The register is byte-identical to the base on this branch** — the shared-append-surface collision Ocean warned about does not occur here |
+| `analysis/pipeline.py` | none | train9 changed it (S2); this branch does not touch it |
+| **BLOCK-1** | semantic | apply the `classify_document` non-Mapping `TypeError` clause **in the composition**, or the branch amends it before compose |
+| **COMP-3** | semantic, MINOR | `tools/l1_design_reader_probe.py`'s `SEAMS` needs one line re-pinned: `corpus_gate.py` **1553 → 1564** (S2 added 11 lines above it). Without it `--census` is **exit 1** at the merged tree, and that census is one of the card's headline exits |
+| **COMP-4** | semantic, MINOR | retire or invert `test_this_tree_declares_no_document_fold_yet` (§4.2) |
+
+**Measured at the merged tree** (after resolving the two text conflicts):
+
+| check | result |
+|---|---|
+| `tests/test_l1s2_omission_ruling.py` + `test_l1s2_document_outcome.py` + `test_l1s2_protected_carriers.py` + `test_sibling_omission.py` | 12 failed / 60 passed → **with the BLOCK-1 fix: 1 failed (the tripwire) / 71 passed** |
+| `tools/l1s3_surface_census.py` | **exit 0** |
+| `tools.l1_design_reader_probe --census` | **exit 1** — COMP-3 |
+| `tests/test_l1s3_census.py`, `test_l1s3_readers.py`, `test_l1s3_surfaces.py`, `test_payload_shape.py`, `test_document_outcome.py`, `test_document_report.py` | **115 passed**, exit 0 |
+| canonical guards (5) | **255 passed**, exit 0 |
+| canonical conformance (7) | **1,270 passed / 40 skipped**, exit 0 |
+
+---
+
+## 5. The rest of the findings
+
+### 5.1 MINOR-1 — §6.5's per-account gate assertions are mostly absent
+
+§6.5 says its seven assertions are *"Added by stage S3, dark, and lit by S4"*, and §7's S4 row says
+*"corpus gate's new per-account assertions lit"*. At this tip the gate gained `document_verdicts`,
+`_account_verdict`, `_RISK_ORDER` and two refusals. It did **not** gain:
+
+* the per-account verdicts **asserted both ways**, so a document verdict that does not follow from
+  its accounts fails the gate (they are returned and discarded: `verdict, _accounts = document_verdicts(payload)`);
+* `PINNED_CURRENCY` / `PINNED_CURRENCY_SOURCE` totality per `(path, account)` — replaced by a refusal,
+  which is the fail-closed answer but not the assertion;
+* the ADB basis / policy stamps on **every account** plus *"no document-level ADB field exists"*;
+* the no-average-over-two-accounts member-set check (**MAJOR-3**);
+* `document.omitted_sections` reasons asserted against L1-C17's vocabulary **at the gate** (it is
+  asserted in `classify_document` instead);
+* `document.internal_transfers` indices resolving one-to-one.
+
+The card's own Scope names only two of the seven, so this is a design-vs-card scope question rather
+than a broken promise — but S4 is told to *light* assertions that were never *added*. Ocean should
+say which stage owns them.
+
+Related and reconciled: §7's S3 row and §1.6 say `TELEMETRY_VERSION` is bumped by S3. It is **not**
+bumped on this branch — correctly, because the card's Git-ownership section says *"no version
+constant"* and the record shape does not move. Recording it so the discrepancy is on the record
+rather than found later.
+
+### 5.2 MINOR-2 — `evaluate_accounts` is written and unreachable
+
+`telemetry/stated_counts.py::evaluate_accounts` has **no caller anywhere in the tree** outside its own
+test. The module is deliberately unwired into production (`test_the_observer_is_not_wired_into_any_production_module`)
+and is run as `python -m telemetry.stated_counts --run <run>` — and that CLI, at line 1007, calls
+**`evaluate`**, which now *refuses* a document payload. So the count observer will **raise** on a
+multi-account document rather than render one observation per account. Fail-closed, so not a quiet
+answer; but the W3 table presents `evaluate_accounts` as a taught renders-per-account reader, and the
+only entry point never reaches it. S4 must wire it.
+
+### 5.3 MINOR-3 — `refuses` is a name check, not a reachability check
+
+`_called_names` collects every `ast.Call` name under `ast.walk(node)` with no reachability analysis.
+I wrote the mutant the cell's table does not have — **M7: the refusal moved into `if False:`** — and
+applied it to each of the eight refusal call sites in turn.
+
+**The census stayed exit 0 at all eight.** The unit tests are the killers. Per site, the named
+specific killer (full default suite, one mutant at a time, tree verified clean after each):
+
+| refusal site | census | named killer |
+|---|---:|---|
+| `telemetry/record.py::classify_outcome` | 0 | `test_classify_outcome_refuses_the_document_shape` |
+| `telemetry/diagnostics.py::diagnose` | 0 | `test_diagnose_refuses_the_document_shape` |
+| `telemetry/stated_counts.py::evaluate` | 0 | `test_evaluate_refuses_the_document_shape` |
+| `benchmark/ourside.py::_account` | 0 | `test_the_benchmark_refuses_a_document_it_cannot_declare_a_second_value_for` |
+| `corpus_gate.py::check_currency` | 0 | `test_the_gate_refuses_to_pin_a_denomination_it_cannot_key` |
+| `adb_forensic_audit.py::audit_one` | 0 | **NONE** — §5.7 |
+| `balance_forensic_audit.py::audit_source` | 0 | **NONE** — §5.7 |
+| `corpus_gate.py::check_currency_source` | 0 | **NONE** — §5.7 |
+
+The consequence for the record: the W3 sentence *"`refuses` must call the refusal"* should read *"must
+mention the refusal"*. What proves the refusal fires is the per-reader test, and M7 is the mutant that
+shows the difference. Worth adding to the table.
+
+### 5.4 MINOR-4 — two refusal messages name the wrong surface
+
+* `balance_forensic_audit.py::audit_source` passes `surface="balance_forensic_audit.py::audit_one"` —
+  a function name that exists in the *other* audit;
+* `benchmark/ourside.py::_account` passes `surface="benchmark/ourside.py::OurFileResult"` — the class,
+  not the census key.
+
+Both are constants of ours, so there is no privacy question; but the refusal message is the thing a
+person reads when a document publisher first breaks, and naming a different function is a wrong
+signpost. Neither census can catch it: the forward check looks at the call, never at its argument.
+
+### 5.5 MINOR-7 — the mutation table's scoring would count a non-run as a kill
+
+`killed = code != 0 or census != 0`. pytest exits 2 (interrupted), 3 (internal), 4 (usage) and 5 (no
+tests collected) would all score as kills. **Discharged here**: I re-ran the table and every one of the
+six mutants produced at least one named `FAILED` test (3 / 1 / 1 / 1 / 2 / 1), which is the evidence
+the exit code alone would not have been. Recommend `killed = code == 1 and failing` (or an explicit
+`DID_NOT_RUN` row) so the next table cannot be satisfied by a collection error.
+
+### 5.6 MINOR-9 — both censuses are blind inside `analysis/serialization.py`
+
+`tools/l1s3_surface_census.py` skips `PUBLISHER_MODULE` in its seam half, and this branch added the
+same exclusion to `tools/l1_design_reader_probe.py` (which is what turns the base's four "undeclared"
+findings into zero). The exclusion is right — the module that *defines* the publisher is not one of
+its call sites — but it is wholesale, so a *new* single-account publish added inside
+`analysis/serialization.py` would be invisible to both instruments. RULE S is covered instead by S1's
+seam probe, which is the right coverage; recording the gap so nobody later reads "the census holds" as
+covering the serialiser.
+
+### 5.7 MAJOR-4 — three of the eight refusals have no test at all
+
+Five of the eight refusal sites had a named specific killer in the fast run. For the other three I
+re-ran M7 against the **whole default suite**, one mutant at a time, from a driver **outside** the
+tree, restoring by writing the original bytes back and verifying `git status --porcelain` empty after
+each:
+
+```
+BASELINE full suite exit 0   7578 passed, 43 skipped, 34 deselected   (288.96s)
+M7 adb_forensic_audit.py::audit_one          census=0  suite=PASS  failing=0  clean=True
+M7 balance_forensic_audit.py::audit_one      census=0  suite=PASS  failing=0  clean=True
+M7 corpus_gate.py::check_currency_source     census=0  suite=PASS  failing=0  clean=True
+
+HOLES: adb_forensic_audit.py::audit_one, balance_forensic_audit.py::audit_one,
+       corpus_gate.py::check_currency_source
+```
+
+(The second row is `balance_forensic_audit.py::audit_source`; the mutant is located by the surface
+string the code passes, which is misnamed — MINOR-4.)
+
+**Three refusals can be neutralised with the whole 7,578-test suite green and the census green.** For
+those three readers, the entire proof that they refuse is the census's name check — and §5.3 shows the
+name check is satisfied by dead code. BATCH9-RULES requires "a MUTATION TABLE for every gate … every
+killer named"; `refuse_document_payload` at each site is a gate this card added, and three of the
+eight have no killer.
+
+It matters most for `balance_forensic_audit.py::audit_source`. That is the **legacy indexing path** —
+the one reader of the design's ten that raised at all, and the one the card's own Proof section
+promises to pin ("the loud refusal on the legacy indexing path"). Its guard is now the only thing
+standing between a document payload and the bare `KeyError` at `:539-540`, and nothing tests it.
+
+Three small tests close this. It moves nothing.
+
+**An aside worth recording**, because it cost me a re-run:
+`tests/test_currency_source.py::test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists`
+enumerates every production `*.py` whose text contains `currency_source`. My first M7 driver lived at
+the repository root and listed `"tests/test_currency_source.py"` in a constant — which put the token in
+a production-looking module and turned that guard red for every mutant, manufacturing a killer that
+was mine, not the tree's. The guard is behaving exactly as designed; a harness that writes a file into
+the tree under test is not.
+
+---
+
+## 6. The floor, and what I did not re-run
+
+Reproduced at the tip, exit codes verbatim:
+
+| proof | command | result |
+|---|---|---|
+| full default suite | `python -m pytest tests/ -q -p no:randomly` | **7,578 passed / 43 skipped / 34 deselected**, exit 0, 219 s |
+| canonical guards (5, BATCH9-RULES) | the five named | **255 passed**, exit 0 |
+| canonical conformance (7) | the seven named | **1,270 passed / 40 skipped**, exit 0 |
+| the S3 surface census, both ways | `python tools/l1s3_surface_census.py` | **exit 0** — 20 / 13 / 31 / 8 |
+| the design's seam census | `python -m tools.l1_design_reader_probe --census` | **exit 0** at tip, **exit 1** at base (verified stale) |
+| the census's own tests + the reader tests | the six L1-S3 / L1-S1 test files | **115 passed**, exit 0 |
+| the mutation table | `python -m tools.l1s3_mutation_table` | **6 / 6 killed**, exit 0, every killer named, tree clean after each |
+| RULE S at the pipeline seam | `tools/l1s1_seam_probe.py`, base capture vs tip capture, `--per-parser 3`, `PYTHONHASHSEED=0` | 232 documents / 80 registrations; **document seam 232/232 byte-identical**, account seam 232/232, integrity flags list **and order** 232/232, ladder unchanged 232, **`MOVED_TOTAL=0`**, exit 0 |
+| the corpus gate | `python corpus_gate.py` | **GREEN**, exit 0 — 105 / 3 / 1; verdicts 1 / 3 / 102 / 3; 108/108 currency; 108/108 provenance; 109 offline; 664.8 s |
+| privacy — added lines | `tools/privacy_scan_branch.py --rows <run>/rows.csv --data-dir <cold> --base 4953806 --ref HEAD` | **hit_count 0**; MONEY / DIGITS / DATES / WORDS 0; residue files 0, residue sites 0; 3,510 added lines vs 3,380 documents (3,351 with cached text). **raw 28**, all `words_class` |
+| privacy — messages | `tools/huntington_msg_privacy_scan.py`, same population | **exit 1** — MONEY 0 / DIGITS 0 / DATES 0 / **WORDS 2**; 14 commits scanned; both hits named and judged in §2 |
+| **archive sweep, a bounded slice, at BOTH trees** | `tools.regfp_zero_movement_sweep --start 0 --end 350`, run at the tip and at `mt9-l1s3-base` over the identical population | **every one of the nine aggregate counts identical at both trees**: 350 documents, 280 compared, **277 identical**, 3 moved, 3 no-payload-now-publishes, **0 payload-now-raises**, 64 no-payload-raises-again, 3 no-OCR-artifact, 0 multi-artifact. Both exit 1 (the tool exits non-zero on any finding). 235 s / 226 s |
+| **attribution of that slice** | `python -m tools.l1s3_sweep_attribution --base … --tip …` | **exit 0** — **6 findings at BOTH trees, identical** (same document, same verdict, same changed field names); **0 differing, 0 tip-only, 0 base-only**. Every finding is train9's composed movement against the batch-8 run of record; **none is this branch's** |
+| composition | see §4 | two text conflicts; **BLOCK-1**; COMP-3; COMP-4 |
+
+**The attribution instrument works, and it also refuses correctly.** My first attempt pointed it at the
+sweep's `--out` *report* rather than its stdout log; it declined with *"one of the two sweeps produced
+no findings at all, so a diff of the two would be a claim about a measurement that did not happen"* and
+exit 2, rather than reporting a vacuous zero. That guard is the right one for an instrument whose
+headline is a zero, and it fired on a reviewer's mistake, which is when such a guard is worth having.
+
+**Not re-run, and why.** The 677-document wide seam probe, the 80-registration replay pair at both
+trees, the remaining ~3,030 documents of the archive sweep, and the corpus-marked slice. The
+equivalence argument I am relying on: the 232-document / 80-registration seam probe I *did* run is the
+same instrument over the same seam and returns `MOVED_TOTAL=0` with the integrity-flag **order** held;
+the 350-document sweep slice I *did* run at both trees reproduces the cell's method end to end and
+attributes every finding away from this branch; the corpus gate — the pinned-surface oracle those
+sweeps protect — is GREEN with all 108 currency and provenance pins intact; and the only mechanism
+that could move a byte is `document_report_to_dict`'s RULE S branch, which the probe exercises on
+every one of the 232 and the sweep on every one of the 280 compared. The wide probe and the
+80-registration replay pair remain the cell's evidence.
+
+**Host discipline.** One heavy proof at a time; `Get-CimInstance Win32_Process` checked before each;
+detached runs with an `EXIT=` terminator on a durable log. The mutation table and my own M7 harness
+both verified the tree clean after every mutant. One M7 run was killed by a tool timeout and left a
+mutant in **my throwaway worktree** (not the branch); I restored it and verified
+`git status --porcelain` empty in both `zz3` and `mt9-l1s3` before continuing. The branch worktree was
+never modified.
+
+---
+
+## 7. Two corrections to the record
+
+### 7.1 MINOR-5 — "raw 0" is not what the scanner says
+
+The W3 privacy row reads *"**0 hits / raw 0** — 3,133 added lines"*. Measured at `081fd28`, the tree
+with exactly 3,133 added lines: `hit_count 0`, **`raw_hit_count 21`**, `excluded_by_rule
+{"words_class": 21}`. At the tip: `hit_count 0`, **`raw_hit_count 28`**, `{"words_class": 28}`. Every
+raw hit is WORDS-class and discharged by the scanner's own documented exclusion; the substantive
+numbers (MONEY / DIGITS / DATES 0, residue 0) reproduce exactly. BATCH9-RULES asks for the raw figure
+specifically, so the row should read `0 hits / raw 28, all WORDS-class`.
+
+### 7.2 MINOR-8 — the guard count
+
+The W3 row reads *"canonical guards (9 files) … 349 passed"*. BATCH9-RULES' canonical guard set is
+**five** files and reproduces at **255** — the base floor exactly. The cell's nine-file run is a
+superset and green; the canonical figure should be the one stated so the floor is comparable across
+cells.
+
+---
+
+## 8. What I would ask before compose
+
+1. **Fix BLOCK-1** — `classify_document` refuses a non-Mapping with `TypeError` (proved green at the
+   merged tree), and re-run the S2 pins there.
+2. **Re-pin COMP-3** — `corpus_gate.py` `1553 → 1564` in `tools/l1_design_reader_probe.py::SEAMS`, at
+   the composed tree.
+3. **Retire COMP-4** — `test_this_tree_declares_no_document_fold_yet`, whose whole purpose was to go
+   red here.
+4. **MAJOR-3 is S4's gate condition.** The publisher may not light until the package refuses — or
+   correctly divides for — two members sharing one `content_sha256`. §6.5 named this; it is not built.
+5. **MAJOR-2** — move `currentAnalysis = report` and `modalAnalysis = payload.analysis` after their
+   refusals, so the summary button and the transaction controls cannot answer a document payload.
+6. **MAJOR-1** — widen the reverse sweep to the `accounts` key (cost measured: one excused entry for
+   `benchmark/normalize.py::lenders`), before S4 writes readers that reach for it.
+7. **MAJOR-4** — three tests, one per untested refusal, and M7 (the refusal in a dead branch) added to
+   the mutation table so the next stage cannot re-open the hole. The `balance_forensic_audit` one is
+   owed by the card's own Proof section.
+
+None of 4-7 moves a document, and none is a reason to hold the *measurement*. 1-3 are.
+
+---
+
+## 9. What this review is not
+
+I did not re-run the 677-document wide seam probe, the 80-registration replay pair, the remaining
+~3,030 documents of the archive sweep, or the corpus-marked slice. Those four numbers are the cell's,
+and §6 states the equivalence argument I am relying on instead. Everything else in this document was
+measured on this host, and every measurement that disagreed with the W3 section is recorded as a
+finding rather than smoothed over.
+
+**This review's own scans**, reported the way MINOR-5 asks the cell to report its own. Branch scan
+with this file committed: `hit_count 0`, MONEY / DIGITS / DATES / WORDS **0**, residue files 0,
+residue sites 0, exit 0, over 4,118 added lines — **raw 49**, every one WORDS-class and discharged by
+the scanner's `words_class` rule (this document adds 21 of them to the tip's 28). Message scan of this
+review's own commit alone: `hit_count 0`, all four classes **0**, exit 0 — the first draft of that
+message produced two WORDS bigrams, and since nothing cites an unpushed tip I reworded rather than
+attribute them, which is the option §2 notes was available to the cell as well. The branch's message
+scan is therefore unchanged at WORDS 2, both of them the cell's and both judged dischargeable in §2.
+
+**Throwaway trees.** Two worktrees were created for the attacks (the composition merge; the census and
+mutation scratch) and both were removed; `git worktree list` carries neither. `mt9-l1s3` was never
+modified except by this one file, and `git status --porcelain` is empty at close.
