@@ -149,6 +149,25 @@ WIDENED_SCOPE_SET = SCOPE_SET.replace(
     '    "parser_ambiguous",\n    "summary_math_inconsistent",\n',
 )
 
+#: The prompt-surface mutants: a docstring on a model the extraction call's
+#: `response_schema` reaches. Pydantic publishes it to the MODEL as the
+#: schema's `description`, so it changes what an extractor is told and nothing
+#: about what a parser computes — invisible to every payload, every replay and
+#: every byte comparison in this repository. The second one is on a model the
+#: schema reaches by NESTING, because the hazard is the schema's reach rather
+#: than the one class the discovery was about.
+STATEMENT_CLASS = "class Statement(BaseModel):\n"
+STATEMENT_CLASS_WITH_DOCSTRING = (
+    "class Statement(BaseModel):\n"
+    '    """One account\'s statement."""\n'
+)
+
+TRANSACTION_CLASS = "class Transaction(BaseModel):\n"
+TRANSACTION_CLASS_WITH_DOCSTRING = (
+    "class Transaction(BaseModel):\n"
+    '    """One posted row."""\n'
+)
+
 SEAM_RETURN = "    return DocumentReport(accounts=[report])"
 
 SEAM_RETURN_LEAKING = (
@@ -202,9 +221,15 @@ MUTANTS: list[Mutant] = [
            "analysis/pipeline.py", SCOPE_SET, WIDENED_SCOPE_SET,
            expect_cohort_movers="none — the set is unread at this stage, so "
                                 "the pinned set is the killer"),
+    Mutant("M12", "a docstring on `Statement`, which pydantic sends to the "
+                  "extraction model as the schema's description",
+           "analysis/schema.py", STATEMENT_CLASS, STATEMENT_CLASS_WITH_DOCSTRING),
+    Mutant("M13", "the same hazard on a model the schema reaches by NESTING",
+           "analysis/schema.py", TRANSACTION_CLASS, TRANSACTION_CLASS_WITH_DOCSTRING),
 ]
 
-TESTS = ["tests/test_document_report.py"]
+TESTS = ["tests/test_document_report.py",
+         "tests/test_extraction_schema_prompt_surface.py"]
 
 
 def git(*args: str) -> subprocess.CompletedProcess:
