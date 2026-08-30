@@ -59382,3 +59382,574 @@ That correction is the reason this subsection re-measures rather than
 transcribes. A review that reproduces a cell's numbers earns the cell's trust,
 and a cell that copies a reviewer's number without re-deriving it has simply
 moved the unchecked claim from one document to another.
+
+# §L1DESIGN — the independent-account publication model, designed against the checkpoint ruling and measured shape by shape
+
+Batch 9, cell `L1-ARCH-DESIGN`. Branch `wave9-l1design`, base `train9` at `ac1d034`.
+DESIGN ONLY: no production file, no registration, no test wiring. The deliverable is
+`docs/moneythumb-replacement/L1_INDEPENDENT_ACCOUNT_DESIGN.md`; the instruments are
+`tools/l1_design_payload_probe.py`, `tools/l1_design_surface_census.py`,
+`tools/l1_design_reader_probe.py` and `tools/l1_design_idle_evidence.py`.
+
+`git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark`
+is EMPTY at the tip.
+
+## L1D0 — what the card asked, and the one thing it asked that the measurement changed
+
+The card sketched six implementation stages ending in "the surfaces". The measurement in L1D3
+inverts two of them: the untaught payload reader does not refuse the new shape, it ANSWERS,
+and the answers are wrong. So the surfaces are taught first, dark, while production still emits
+none; and transfers land with the first publisher rather than after it, because the moment two
+ledgers exist on one document the package layer double-counts. Both corrections are recorded in
+§7 of the design with the measurement that forced them.
+
+## L1D1 — RULE S, and the two shapes that cost the whole archive
+
+The design's central claim is that a `DocumentReport` wrapper can be introduced without moving
+a single payload byte on a single-account document. That is not an argument; it is a
+measurement, and `tools/l1_design_payload_probe.py` makes it. For each document it analyses
+ONCE through `analysis.pipeline.analyze_markdown(parse_mode="deterministic")` — the runner's
+exact call — and serialises the SAME in-memory `Report` four ways, so nothing in the comparison
+can move except the shape under test.
+
+Cohort: the first three VALIDATED documents of every registration in the run of record —
+**208 documents, 71 distinct registrations**, every one of them `validated` at baseline,
+including all nine registrations of the modules that carry an L-1 gate or a silent skip.
+
+| variant | byte-identical | differs | document outcome unchanged |
+|---|---:|---:|---:|
+| `wrapper_conditional` (RULE S) | **208** | 0 | 208 |
+| `wrapper_unconditional` | 0 | **208** | 208 |
+| `omission_field_always` | 0 | **208** | 208 |
+| `omission_field_elided` | **208** | 0 | 208 |
+
+RULE S is the four-clause predicate — one account, nothing omitted, no roll-up read, no
+boundary mechanism recorded — under which the document serialiser returns
+`report_to_dict(accounts[0])` and NOTHING ELSE. The two failing variants are the shapes a
+reader reaches for first, and both are archive-wide payload migrations.
+
+The second of them matters beyond this card. `omission_field_always` is
+SIBLING-OMISSION-SURFACE implemented the way `HYGIENE-8.md` proposed it — a field on
+`Statement` — and pydantic dumps it on every document whether or not anything was omitted. The
+design therefore moves the omission record off `Statement` and onto the document object, and
+elides it from the payload when empty. That single decision is the difference between a
+cheap correctness card and an archive-wide migration.
+
+## L1D2 — a blind spot in `cohort_replay`, measured and total
+
+The same 208 pairs were compared twice: as canonical JSON BYTES, and under `flatten` /
+`leaf_diff`, which is the projection every coverage cell reports `payload identical` from.
+
+| variant | byte-identical | leaf-projection identical | the gap |
+|---|---:|---:|---:|
+| `wrapper_conditional` | 208 | 208 | 0 |
+| `wrapper_unconditional` | 0 | 0 | 0 |
+| **`omission_field_always`** | **0** | **208** | **208** |
+| `omission_field_elided` | 208 | 208 | 0 |
+
+An empty list contributes no leaf, so a key whose value is `[]` moves the payload bytes and is
+invisible to the projection — on **all 208**, not on a corner case. A cell landing
+SIBLING-OMISSION-SURFACE as a `Statement` field and proving it with `cohort_replay` alone would
+have reported "previously validated preserved, payload identical" for a change that rewrites
+every payload in the archive.
+
+Consequence, carried into the design's proof plan: every stage that touches the payload shape
+owes a BYTE comparison beside the replay. Reported as a finding against the shared instrument,
+not fixed here — this cell owns no shared tool.
+
+## L1D3 — the untaught reader answers, and so does the shim
+
+A multi-account payload carries `document` + `accounts` and NO top-level `statement`: a
+consumer that reads `payload["statement"]` on a three-account document reads one account and
+calls it the document, which is the L-1 defect moved out of the parser and into the payload.
+`tools/l1_design_reader_probe.py` offered one real `validated` document's payload to every
+reader that is a pure function of the payload dict, in three shapes.
+
+| payload reader | today's shape | the document shape | the Option-D shim |
+|---|---|---|---|
+| `telemetry/record.py::classify_outcome` | `validated/approved` | **`withheld/withheld_adb`** | `validated/approved` |
+| *(this design)* `classify_document` | `validated/approved` | `validated/approved` | `validated/approved` |
+| `analysis/revenue.py::rebuild_serialized_revenue_views` | rebuilt over 27 transactions | **rebuilt over 0** | rebuilt over 27 |
+| `webapp/app.py::_analysis_rows` | 211 export rows | **0** | 211 |
+| `webapp/app.py::_adb_rows` | 0 ADB rows | 0 | 0 |
+| `webapp/app.py::_masked` | 9 top-level keys | **2** | 9 |
+
+**0 of 6 readers refuse the document shape; 6 of 6 answer it.** A valid multi-account document
+would be filed `withheld` with a reason naming a check nobody ran, and every revenue view would
+be rebuilt over an empty ledger — silently, on both counts. And **0 of 6 refuse the Option-D
+shim**: promoting one account back under `statement` makes every untaught reader answer about
+one account of several, forever. That is the measurement that refuses the shim and that orders
+the stages.
+
+## L1D4 — the regression surface, named and sized
+
+`tools/l1_design_surface_census.py`, over the run of record (3,380 documents; validated 2,596 /
+review 18 / withheld 55 / failed 698 / deferred 13 — the run's own split, reproduced).
+
+| registration | module | documents | `validated` (protected) | other |
+|---|---|---:|---:|---|
+| `huntington` | `huntington` | 38 | 38 | — |
+| `community_section` | `community_section` | 61 | 59 | `review` 2 |
+| `dakota_west` | `community_section` | 3 | 3 | — |
+| `mission_valley` | `community_section` | 36 | 36 | — |
+| `navy_federal` | `navy_federal` | 52 | 52 | — |
+| `capital_one` | `capital_one` | 22 | 21 | `withheld` 1 |
+| `consumers` | `consumers` | 2 | 2 | — |
+| `symitar` | `symitar` | 7 | 7 | — |
+| `zions` | `zions` | 13 | 12 | `withheld` 1 |
+| **total** | | **234** | **230** | |
+
+Pinned: 109 listed, all 109 digested from their own bytes, **80 present in the run** and 29
+not; **10 pinned documents are claimed by an L-1 module** (`navy_federal` 4, `capital_one` 4,
+`dakota_west` 1, `consumers` 1) — which reproduces the L1INV packet's 10 from digests rather
+than from its table.
+
+And one signal nobody reads: `likely_account_count` (`ocr/inspect.py::_account_count`) rides in
+every row and every telemetry record and is consumed by nothing. **184 documents carry 2 or
+more, 156 of them `validated`.** It is a bound, not a partition, and the design consumes it
+nowhere — the boundary layer establishes accounts from printed partition evidence or not at
+all. It is recorded because it is the only archive-wide multi-account signal that exists.
+
+## L1D5 — four defects in production code
+
+Each verified by reading the code at this base. None is a proposal; all four are what the
+platform does today.
+
+* **F1.** `analysis/symitar.py`:116 defines `_DORMANT_RE` and the module docstring (13-48)
+  ratifies the skip it licenses. **It is referenced by no code in `analysis/` or `tests/`** —
+  its only consumers in the repository are `tools/l1_split_prototype.py` and prose. What
+  production executes for the dormant skip is :421 `if not rows: continue`, a skip on the
+  ABSENCE of parsed rows. The checkpoint ruling names absence of parsed activity insufficient
+  on its own. The yield-only skip at :425 IS the ratified predicate, with its fourth condition.
+* **F2.** `analysis/community_section.py`:984 counts a section only
+  `if stmt is not None and stmt.transactions`, and :988's `len(parsed) != 1` then decides the
+  document. Same shape.
+* **F3.** `analysis/consumers.py`:88-94 slices the document between a memorised product-name
+  plus account-number literal and a memorised end caption, and :115-123 restates the literal.
+  The reader publishes one account of one member and is unusable for any other customer of that
+  institution, while its detection markers claim the document on its ALL-ACCOUNTS caption.
+  CONS-HARDCODE.
+* **F4.** `analysis/community_section.py`:701-735 selects "the section with the most
+  transactions" — a DERIVED selection, which the ruling's "no arbitrary or memorised account
+  selection" forbids — on a registration that claims a pinned document. Smaller and related:
+  :682-691 hardcodes a product label and keys its account-number pattern on it.
+
+Sized, with each module probed by its OWN committed patterns:
+
+| registration | `validated` read | print 2+ of their own section marks while publishing ONE account | print the ratified declaration |
+|---|---:|---:|---:|
+| `symitar` | 7 | 7 | 4 |
+| `community_section` | 59 | 5 | 0 |
+| `dakota_west` | 3 | 3 | 0 |
+| `mission_valley` | 36 | 0 | 0 |
+| **total** | **105** | **15** | **4** |
+
+A section-mark count is a bound: two marks and one published account means a section was
+dropped OR a heading was reprinted, and nothing outside the reader can tell those apart. That
+is why the design makes the omission a payload field written by the reader that made the skip.
+
+**F5, an instrument discrepancy rather than a defect.** `tools/l1_split_prototype.py`:1246
+prints the first ladder rung as `len(walked) + empty_idle + empty_vacuous`, double-counting the
+two empty-arrival classes it then lists as sub-rows of that rung: at this base it prints **153**
+where the published packet's §5.2 prints **109**. 109 is `len(walked)` and is correct
+(109 − 21 − 23 = 65, the "non-empty chain" row): `result.reached` is set before the
+empty-arrival classification, so the 44 empty arrivals are already inside `walked`. The print
+line has read that way since the BLOCK-1 commit, which precedes the packet's final version, so
+the packet's 109 is a correct figure its own instrument does not print rather than a stale
+transcription. No conclusion depends on the printed value — every later rung is computed from
+`walked` and `non_empty` — but the packet's "every number reproduces from its instruments" is
+not true of that cell. Reported, not fixed: this cell owns no L1INV file.
+
+## L1D5b — the fact the largest open ruling turns on, computed and dropped by the packet
+
+The idle-sibling ruling is worth 2 documents against 8. What decides it under the checkpoint
+condition is one fact: **where did the idle section's opening and closing figures come from?**
+If the paper printed them, the section is not "absence of parsed activity"; it is a printed
+statement about an account that opened and closed at the same figure.
+
+`tools/l1_split_prototype.py` computes exactly that — `open_from` / `close_from` on every
+section — and emits it as `pair_source` only for a NON-EMPTY successful walk, so for every
+trivially idle section the provenance is lost before it reaches the JSON.
+`tools/l1_design_idle_evidence.py` re-runs that instrument's own `run_document` and reports the
+two fields it already produced. It writes no grammar, no predicate and no arithmetic of its own.
+
+| the 21 trivially idle sections in the whole population | sections |
+|---|---:|
+| opening AND closing both read from the SECTION's own printed captions | **21** |
+| either figure read from the enumerating table instead | **0** |
+| also printing a dated row somewhere in the section | 3 |
+| also printing a dated row in its LEDGER region | **0** |
+
+| the 6 sections the ruling would license, on 6 documents (the other 2 of the 8 close already) | sections |
+|---|---:|
+| opening AND closing both from the section's own printed captions | **6** |
+| printing a dated row anywhere, or counts, or totals, or a daily table | **0** |
+
+All six are one census group. The ruling is therefore not "may silence be evidence" — it is
+"is a printed opening caption and a printed closing caption carrying the same figure, with no
+row printed anywhere in the section, explicit statement structure establishing that account's
+empty state". That is a materially easier question than the one the packet left, and it is
+Q3 in the design.
+
+## L1D6 — the packet re-run at this base
+
+Every load-bearing figure of `L1_CU_SUFFIX_RULING_PACKET.md` was re-measured at `ac1d034` by
+re-running its own three instruments. All reproduce to the digit: mechanisms 103 / 38 / 35 / 38;
+442 located and 392 offered; **29 sections close**; **2 documents close on every located
+section** and **8** under omission of a trivially idle sibling; `reconcile` refuses 11 of 48 and
+the ADB 10; multi-posting 81 (two-row) and 111 (one-row); **7 documents / 47 transfer pairs**;
+sibling sections 4 declaration / 0 yield-only / 30 posted-and-silent / 62 empty-and-silent /
+7 other, **0 documents qualifying** and **26** carrying a sibling that posted; 24 of 442
+sections print their own daily table; 30 of 214 roll-ups print a column caption; 19 facility
+roll-ups, 4 multi-posting, 7 with a cross-account total; 4 two-denomination documents / 12
+sections. The single exception is F5 above.
+
+## L1D7 — the six stages, with the measured expectation
+
+| stage | expected safely recoverable, MEASURED | pinned movement |
+|---|---|---|
+| S1 wrapper + RULE S | 0; 0 documents move; byte-identical on 208 / 208 across 71 registrations | none |
+| S2 SIBLING-OMISSION-SURFACE | 0 newly validated; payload movement on named documents only (105 read, 15 bounded, 4 with the ratified declaration) | none expected — a mover is a STOP |
+| S3 the surfaces, taught DARK | 0; every branch unreachable in production at that tree | none |
+| S4 first publisher + transfers | **2 documents** today; **8** if the idle-sibling ruling is granted; both figures on one census family, both with the table's own closing column reproducing | none |
+| S5 CONS-HARDCODE | 0 newly validated — the `DECL-L1-CANDIDATE` band closes 0 of 16 today; this is a correctness card | **1**, a truth-set ceremony |
+| S6 the remaining mechanisms | an ESTIMATE, and it is not offered | per family |
+
+The honest total is **2 documents today, 8 under one ruling**, against 2,596 validated. The
+design says so in the same table as the work, and names the place to stop (after S2) if the
+trade is not worth it.
+
+## L1D8 — eight rulings, one of which can subtract
+
+Q1 the document outcome when one account validates and another does not; Q2 the transfer
+counterpart rule and the ambiguity refusal; Q3 whether a section's OWN printed opening and
+closing captions carrying the same figure, with no row printed anywhere in it, are explicit
+structure establishing that account's empty state (L1D5b measures that this is the evidence on
+all six such sections; this is the 2 → 8, and beyond that family it decides whether 44 of 86
+single-posting documents are reachable at all); Q4 two denominations —
+publish two accounts or refuse; Q5 whether each account enters a package as its own member and
+whether the ADB doctrine's unit is the account; Q6 whose period, where an issue prints
+per-account ranges; Q7 the posting threshold (1 or 2 dated rows: 86/81 or 59/111); **Q8 whether
+the checkpoint's idle-sibling condition applies to the EXISTING absence-based skips of F1/F2**.
+
+Q8 is the one to answer first. It is the only question here whose answer can subtract from
+2,596.
+
+## L1D9 — proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files), with the four prototypes present | **255 passed** | **0** |
+| `tests/test_experiments_are_not_wired.py` | passes; it guards `experiments/` and says nothing about `tools/` — the property is held here by a grep, as L1INV's MINOR-4 recorded | 0 |
+| the instruments are unwired | nothing outside `tools/` references any of the four, verified at this tip | — |
+| no production file differs from base | `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` **empty** | — |
+| branch privacy scan, added lines vs the whole population | **hit_count 0** over 2,396 added lines and 3,351 documents read (population 3,380; the 29 unreadable are the same 29 the pinned survey cannot reach); MONEY / DIGITS / DATES / WORDS all 0; raw 28, every one class WORDS, discarded by the standing `words_class` exclusion | **0** |
+| commit-message scan | **hit_count 0** over every commit on this branch; MONEY / DIGITS / DATES / WORDS all 0 — WORDS included, with the mandated co-authorship trailer on every message | **0** |
+| ... and it was NOT 0 the first two times | TWICE, an ordinary English word in a message matched a token this archive prints and the WORDS class caught it. The first rewrite used `git filter-branch --msg-filter` over the whole branch (trees verified byte-identical against the pre-rewrite tip, `refs/original` removed, and no record of this branch cites a commit sha, so nothing needed remapping); the second was one message at the tip. The lesson is the standing one, and one pass does not discharge it: a message carries the CLASS, not the instance, and the scan is re-run after every reword | — |
+
+The two scan rows above were measured at `348663d`. The only change after that
+measurement is this record's own correction, which adds these lines and no code;
+the branch scan's line count moves with it and its hit count does not.
+| the three L1INV instruments re-run from the run of record | EXIT=0 each; L1D6 is the reproduction ledger | 0 |
+
+No mutation table and no archive sweep are owed: this card adds no gate and no grammar to
+production. The full suite, the conformance set and the corpus gate are not re-run — the diff
+against base is this section, the design document and three files under `tools/`, and that is
+a structural argument, offered as one.
+
+## §L1DESIGN.2 — the closure: 4 BLOCK / 6 MAJOR / 12 MINOR, every one closed on the branch
+
+The independent adversarial review (`docs/moneythumb-replacement/reviews/BATCH9_L1DESIGN_REVIEW.md`,
+`d850ae6` + `0574f4e`, 741 lines) returned **SOUND WITH FINDINGS** and reproduced every one of
+the design's 45 measurements. Its four BLOCKs were not disagreements about the architecture:
+three were places where this cell's own instruments already held the answer to a question the
+design was putting to Gustavo as an open risk, and the fourth was a fail-closed rule that
+removed money on a coincidence. All 22 findings are closed below. **The architecture did not
+change.** Two instruments were added and two extended, and the numbers they produced changed
+four of the design's own claims — one of them the largest.
+
+### The headline: the ruling the design called the only one that could subtract, cannot
+
+The design said of the silent-skip population that a mark count "cannot tell a dropped section
+from a reprinted heading — no instrument outside the reader itself can tell those apart", and
+put Q8 to Gustavo as the one question whose answer could take documents away from 2,596.
+`tools/l1_design_skip_probe.py` instruments the reader itself, on the production dispatch path:
+
+| registration | `validated` read | documents where a skip FIRES | sections skipped | with printed evidence | with NONE |
+|---|---:|---:|---:|---:|---:|
+| `symitar` | 7 | 4 | 7 | 7 | **0** |
+| `community_section` | 59 | 5 | 6 | 6 | **0** |
+| `dakota_west` | 3 | 2 | 2 | 2 | **0** |
+| `mission_valley` | 36 | 0 | 0 | 0 | 0 |
+| `zions` | 12 | 1 | 1 | 1 | **0** |
+| **total** | **117** | **12** | **16** | **16** | **0** |
+
+**Applying the checkpoint's idle-sibling condition to the existing skips removes 0 validated
+documents.** Eight sections carry a printed no-activity declaration (seven under one reader's
+ratified wording, one under another's); the other eight each print their own opening, a closing
+coinciding to the cent, a zero credit total, a zero debit total, a zero credit count and a zero
+debit count — all six clauses on all eight. The subtraction the design warned about does not
+exist. What exists is twelve documents whose skip must be re-founded on evidence already
+printed, sixteen sections that must become visible, and a vocabulary that has to be able to name
+them — which the first version's could not.
+
+### BLOCK-1 — the vocabulary named none of it, and would have refused twelve protected documents
+
+`L1-C17` admitted three tokens. None of them names a printed opening plus a coinciding closing
+plus zero totals plus zero counts, which is what eight of the sixteen sections print; and none
+names either of the third reader's two printed grounds — a reader the design listed as a skip
+site and no instrument had ever probed. With §1.5's override in force, an implementer would have
+had to invent a token (which C17 forbids) or file twelve protected documents `failed`.
+
+Closed: the vocabulary is **closed against ABSENCE and open to EVIDENCE**, with four members,
+each naming what the reader must actually have. Its dormancy member is **wording-independent** —
+two issuers' phrasings are two printings of one fact, and keying the class on one of them would
+rebuild the per-issuer vocabulary R-1 forbids. Its zero-activity member is exactly what the
+third reader's own inert test requires, so that reader's skip is a member of the class rather
+than an exception to the list. And a member is the EVIDENCE, never the reader.
+
+S2's expected movement is restated from "none expected" to the measurement: **0 validated lost,
+12 re-founded, 16 surfaced**, with its file list corrected to the sites the readers take. Its
+one pinned exposure is named rather than assumed: the registration holding a pinned document has
+three documents in the run, two carry this skip and the third carries the live derived
+selection, so every one of them is inside S2's or S5's blast radius.
+
+### BLOCK-2 — the document-level strict count, on the line after the one the design carried
+
+The instrument prints `documents whose EVERY LOCATED section closes: 2` and, on the next line,
+`... under the STRICTER test as well: 0`. The design carried the section-level strict figure and
+not the document-level one. Closed: both are in the headline table, in the stage table and in
+the totals, each labelled with the test it is measured under, together with the instrument's own
+reason for preferring the middle figure (a section's span runs to the next heading, so the last
+section carries the document's trailing tables and the dated-row pattern cannot tell a fee table
+from a truncated ledger). **The honest range is 0 to 8, not 2 to 8**, and which point is the
+planning figure is now its own ruling rather than a choice this cell made quietly.
+
+### BLOCK-3 — the census the whole staging rests on was six of eleven, and four seams were unnamed
+
+The ordering constraint — teach every payload reader before any document publishes two accounts
+— was stated over "every payload reader", a universal quantifier over a set nobody had written
+down. By the probe's own criterion there are **eleven**, and the five the design missed include
+the one that rides in every discovery telemetry record and the one that turns the corpus gate
+red. Re-measured: **10 readers probed, 9 answer a shape they were not taught, 1 raises** — and
+the one that raises does so only because it INDEXES the key where the others use a safe
+accessor, so the loudness is an accident of style rather than a guard. The conclusion is
+unchanged and stronger.
+
+The seam census was as incomplete: **nine** production call sites pair the analysis entry point
+with the serialiser; four were unnamed (including the CLI and the cache every web upload passes
+through) and two were cited outside the range that holds them. All nine are named now.
+
+And the exit criterion is a list that can FAIL rather than a quantifier that cannot: the probe
+gained a `--census` mode that compares the declared seams against the tree in both directions
+and exits non-zero on a seam that moved or a seam that appeared. Measured at this tip: 9 found,
+0 undeclared, 0 missing — **the census holds**.
+
+### BLOCK-4 — an arithmetic coincidence could delete a deposit the paper printed
+
+The transfer rule set INTERNAL from date, magnitude and sign alone, and the flag's own
+consequence removes the pairing from every package total. A member who moves the same sum into
+one account and out of another on one day, for unrelated reasons, produced a unique unambiguous
+pair — flagged, and a printed deposit then absent from a funder's view of the business. That is
+the repair doctrine's error pointing the other way.
+
+Closed with a fourth clause — the paper must PRINT a transfer designation on at least one leg —
+and the clause is priced with the classifier's OWN committed vocabularies rather than a grammar
+written here:
+
+| population | pairs | with a printed designation |
+|---|---:|---:|
+| the published greedy rule | 47 | **46** |
+| the unique-counterpart rule | 47 | **46** |
+
+**One pair of forty-seven**, and that one is precisely the class the clause exists to refuse.
+
+The two pairing defects the killer population carried are re-measured rather than argued: the
+published rule takes the first admissible counterpart where the design's own rule says two
+counterparts pair with none, and it resets its used-posting set per ledger pair while **3**
+documents reconstruct three or more live ledgers. Both are real; neither bites here — **0**
+postings have two admissible counterparts, so all three pairing rules return the same 47. The
+population is therefore usable as a killer set, which the design could not claim before, and the
+ambiguity branch's killer is named as a constructed fixture because the archive does not print
+one.
+
+### The six MAJORs
+
+| | finding | closed as |
+|---|---|---|
+| **MAJOR-1** | the condition forbidding a chosen account, against the surface table that made two discovery columns "the FIRST account's" | resolved in favour of the condition: a per-document field that can hold one account's value is left EMPTY and the count carries the fact. The condition now binds SURFACES as well as readers, and the rule is stated once above the table. Printed order stays evidence about a sequence, not evidence that the first element stands for the whole |
+| **MAJOR-2** | the byte-identity claim is a tautology at the seam it tests | the cohort is widened to **232 documents / 80 registrations**, adding the 9 registrations whose payloads take the nulled-balance and emptied-ADB branches; and the risk one layer up is MEASURED. Three assemblies of the integrity scope split: order-preserved **232/232 identical**, naive concatenation **232/232 here** but one document from moving a tuple the gate pins in published order, and the design's own prose read literally **moves 3 of 232**. S1's proof plan now names the pipeline seam and the split as what it is proving |
+| **MAJOR-3** | a package ADB over one document's accounts is a document ADB by another name, and the gate forbids a FIELD | the gate assertion becomes a property of the ARITHMETIC — no published average over two members sharing a content digest — plus the package-membership rule (a member is an account whose own outcome is `validated`), because the aggregation gates on job status alone and never on the outcome. Both questions put explicitly rather than left to fall out of the surface table |
+| **MAJOR-4** | F2's mechanism and site are not the ones production takes | measured: the named call-site clause drops **0**; the drop is inside the per-section parser and fires **8** times. File list and the place the omission record must be written both move inside the callee |
+| **MAJOR-5** | the pinned movement was a disjunction and omitted the second document | stated whole: **2 validated → failed, one pinned**, on a correctness argument, with both audit paths re-derived. Two figures already in the design decide it — the memorised literal is the only thing that finds the slice and the reader refuses on an empty slice, and the band closes nothing today |
+| **MAJOR-6** | a default could outrank a document-level printed currency statement | the missing rung is added and the whole precedence written out. A document-level printed statement is explicit evidence wherever on the page it is printed; only a section that CONTRADICTS it refuses. The two-denomination ruling now says it needs this rung first |
+
+### The twelve MINORs
+
+Corrected: both skip-site citations (one of them a comment); the instrument count; the relaxed
+form the ratified sibling predicate actually runs in, which the design called the strict one;
+two different denominators printed as one fact; the caption condition that had no vocabulary and
+so was not yet a predicate; the condition whose truth depends on an unruled threshold; the
+facility condition whose measured population counts three classes while three more fire
+uncounted; the idle-section table's missing row; the probe label that said "no payload changed"
+where it meant "no leaf path changed" — the blind spot itself wearing the wrong words; and the
+outcome fold that ranked an unranked class lowest, where a refusal is what an unreachable state
+should get.
+
+Stated rather than corrected: **four of the eighteen conditions have no measured killer
+population** and the preamble implied all did. Each needs a constructed fixture, and the card
+that writes the condition owns building one — a mutation table whose killer is a citation is not
+a mutation table.
+
+### The shared instrument's fix, carried into the plan
+
+Ocean's `train9` change to `flatten` closes the empty-container half of the blind spot this
+design measured, and a stage should rebase onto it. Two consequences belong in every stage's
+plan: the fix is BROAD — the baseline payloads already carry thousands of empty containers, so
+**every cell's `--expect-identical` fidelity control must be re-established at `train9`
+`7755665` or later before it is used as a control** — and it leaves the scalar-list-ORDER half
+open, so the byte comparison beside every payload-shape replay stays.
+
+### Three corrections the new instruments made to themselves
+
+Recorded because an instrument that once over-counted has to carry the reason it no longer does.
+
+* The first skip probe used `sys.settrace`, whose global call hook fires for every call in the
+  interpreter; it did not finish in ten minutes. It uses `sys.monitoring` with LOCAL events on
+  three code objects instead, so nothing else in the process is instrumented.
+* `resolve` calls `parse` on EVERY candidate registration and three of these registrations route
+  into one module function, so counting line hits without asking whose parse attempt they belong
+  to attributed losing candidates' drops to the winner — **71 sections where the claiming parser
+  drops 6**. Only skips inside the claiming registration's own entry point are counted.
+* One watched site is an `if`, not a skip: counting its executions counted blocks (**65**), and
+  counting its first operand counted the callee's drops a second time. Its own contribution is
+  the second operand alone, and that is **0** — which is what confirms MAJOR-4.
+
+### The closure's proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files), with the six prototypes present | **255 passed** | **0** |
+| `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` | **empty** | — |
+| instruments unwired | nothing outside `tools/` references any of the six | — |
+| the six instruments re-run at the closure tip | EXIT=0 each | 0 |
+| seam census (`l1_design_reader_probe --census`) | 9 declared, 9 found, 0 undeclared, 0 missing | **0** |
+| W3 | base + §L1DESIGN + this closure section; no earlier line touched | — |
+| branch privacy scan, added lines vs the whole population | **hit_count 0** over 4,948 added lines and 3,351 documents read (population 3,380); MONEY / DIGITS / DATES / WORDS all 0; raw 70, every one class WORDS, discarded by the standing `words_class` exclusion | **0** |
+| commit-message scan | **hit_count 0** over 22 commits; MONEY / DIGITS / DATES / WORDS all 0 | **0** |
+| ... and it was NOT 0 the first time, again | seven ordinary two-word English sequences across six of the closure's messages matched printed tokens (class WORDS). Two `--msg-filter` passes over `8751d20..HEAD`, trees verified byte-identical against the pre-rewrite tip each time, `refs/original` removed, and the only commit sha this branch's records cite — `348663d`, in §L1DESIGN L1D9 — is before the rewritten range and still resolves. The last pass needed a second attempt because the scanner drops short stopwords before it pairs, so a phrase can still yield an adjacent pair after a word is put between them; the sentence was rewritten rather than patched. The standing lesson holds and one pass never discharges it: the scan is re-run after every reword |
+| the closure's own measurements | the two rows above were measured at `6af1d95`; the only change after them is this record's own numbers, which add lines and move no hit count |
+
+## §L1DESIGN.3 — the re-review closure: 0 BLOCK / 1 MAJOR / 3 MINOR, and the one that mattered
+
+The same independent reviewer re-measured the closure at `1113ce5` and returned **SOUND WITH
+FINDINGS — 0 BLOCK / 1 MAJOR / 3 MINOR**. Every number the first closure claimed reproduced to
+the digit, including the three it had corrected itself on. Its verdict on cards: **S1, S2 and S3
+may be cut now; S4 may not, until the new MAJOR is closed; S5 waits on Gustavo.** All four
+findings are closed below, and S4's blocker with them.
+
+### RR-MAJOR-1 — the clause that closed BLOCK-4 was founded on a vocabulary containing payment rails
+
+BLOCK-4 was closed by the right rule — *the paper must PRINT a transfer designation on at least
+one of the two legs* — read by an instrument that ORed two of the classifier's tuples. They are
+not the same kind of thing, and the reviewer was right that only one of them can decide this.
+
+* `_INTERNAL_TRANSFER_CREDIT_PATTERNS` (`transaction_classifier.py`:433-465) names movement
+  between a member's OWN accounts. Correct for the clause.
+* `_TRANSFER_PATTERNS` (`:300-308`) has **one** use in production, at `:976-981`, building a
+  `strong_non_lender_exclusion` whose own reason string says the descriptor identifies "an
+  account, online, or **person-to-person** transfer". It lists three third-party peer-to-peer
+  rails by name, and on the Canadian issuers in this archive its e-transfer wording is
+  ordinarily a payment from someone else.
+
+A row on a payment rail is a payment to or from another PERSON. Reading it as evidence that
+money moved inside one member's ledger set flags the pairing INTERNAL and then subtracts the
+matching printed deposit from package gross deposits, deposit counts, revenue and the
+withholding denominator — **the exact failure the clause was added to prevent, re-admitted
+through the vocabulary it was founded on.** The design's own words for it applied to it
+unchanged.
+
+Closed at the root: the probe reads the internal vocabulary alone, refuses the other in its own
+docstring with the production citation that settles it, and **prints the split on every run** so
+the two can never be merged again by accident. Re-measured over the same 47 pairs:
+
+| which vocabulary admitted the pair | pairs |
+|---|---:|
+| the INTERNAL vocabulary alone | **41** |
+| both | 2 |
+| **the GENERIC peer-to-peer vocabulary alone — REFUSED** | **3** |
+| **neither — nothing printed at all** | **1** |
+
+| | old (both vocabularies) | **corrected (internal only)** |
+|---|---:|---:|
+| designated pairs | 46 | **43** |
+| ... documents they sit on | 6 | **5** |
+| **refused pairs — the clause's live killers** | 1 | **4** |
+| designated on ONE leg only | 45 of 46 | **42 of 43** |
+
+The 46 is **withdrawn in the text**, not quietly replaced. The design gains the finding as a
+RULE — *a peer-to-peer rail vocabulary can never be transfer evidence for this clause* — with
+the production citation beside it; the whole 47 stays the killer set, and the four refused are
+named as the class the clause exists to catch. Three of those four are one document's, admitted
+by a single rail pattern; the fourth prints nothing at all.
+
+**"At least one of the two legs" is load-bearing**, and that is now recorded: it decides **42 of
+the 43** on the words of a single printed row, which is precisely why the choice of vocabulary
+mattered as much as it did — on 42 pairs there is no second row to contradict a wrong reading.
+
+### The three MINORs
+
+* **RR-MINOR-1** (the designated pairs sit on six documents, not seven) and **RR-MINOR-2**
+  (45 of 46 are designated on one leg) are both absorbed by the correction above, which moved
+  both figures: the population is **7 documents / 47 pairs**, the designated set is **43 on 5
+  documents**, and **42 of the 43** rest on one leg. Both are in §3.2 and in L1-C11's cell.
+* **RR-MINOR-3** — the four conditions with no measured killer were flattened into one class and
+  are **three situations**. `L1-C15` is a standing property and owes nothing. `L1-C14` already
+  has a live killer in the canonical 255 and owes an **extension** of it, catching the instance
+  this design measured — the extension S5 needs anyway. Only `L1-C2`, `L1-C18` and `L1-C11`'s
+  ambiguity branch genuinely need constructed fixtures. Each is now assigned to the slice that
+  writes its rule (S4, S3, S4 respectively; C14 to S5), and **each is a condition of CLOSING
+  that card, not a backlog item** — its mutation table is not accepted without it, because the
+  way this slips through is a card closing on the strength of the other seventeen conditions'
+  killers.
+
+### The reviewer's ruling opinions, carried verbatim
+
+§8.1 of the design now carries the reviewer's opinion on all nine open questions, verbatim and
+marked as the reviewer's rather than as the design's: **Q8** yes and it costs nothing, measured
+twice (11/15 independently, 12/16 with `zions` added); **Q9** plan against 2, report 0-8, judge
+S4 against 2 (or 8 with Q3); **Q3** grant it — the platform already relies on the same evidence
+class one level up; **Q1** rule the package half explicitly and yes; **Q2** right answers, after
+RR-MAJOR-1 (now settled); **Q4** after the new currency rung's population is measured; **Q5**
+yes to both, and forbid the arithmetic rather than the field name; **Q6** refuse until ruled;
+**Q7** rule at two rows. §8.2 carries the card-cutting verdict with what each stage owes at its
+card.
+
+### The re-review's own vacuity tests, recorded
+
+The reviewer did not take the closure's zeros on trust, and two of its tests belong in this
+record because they are what makes those zeros findings rather than silences. `classify_evidence`
+was run against **nine constructed fixtures** — invented figures, the committed patterns' own
+wordings, nothing from the archive — and returned the expected class on **9 of 9**, including
+the five that must be REFUSED (absence only; a summary printing activity; a non-coinciding pair;
+a zero pair with a non-zero total; a summary missing a balance row). The seam census was
+doctored in both directions and failed as designed (declared-but-absent → exit 1;
+present-but-undeclared → exit 1; unmodified → exit 0), and moving a watched line by one produces
+the probe's refusal rather than a silent zero. One residual the reviewer names and this design
+adopts: `git grep` sees TRACKED files only, so a seam added in an untracked file is invisible to
+the census until it is added.
+
+### The closure's proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files), six prototypes present | **255 passed** | **0** |
+| `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` | **empty** | — |
+| instruments unwired | nothing outside `tools/` references any of the six | — |
+| the transfer instrument, re-run on the corrected vocabulary | 47 pairs; **43 designated / 4 refused**; split 41 / 2 / 3 / 1; 42 of 43 on one leg; 0 ambiguous | **0** |
+| W3 | base + §L1DESIGN + its two closure sections; no earlier line touched | — |
+| branch privacy scan, added lines vs the whole population | **hit_count 0** over 5,489 added lines and 3,351 documents read (population 3,380); MONEY / DIGITS / DATES / WORDS all 0; raw 141, every one class WORDS, discarded by the standing `words_class` exclusion | **0** |
+| commit-message scan | **hit_count 0** over 27 commits; all classes 0 | **0** |
+| ... and it was NOT 0 the first time, a third time | four WORDS collisions across three messages. Two were ordinary pairs; the third was a SINGLE distinctive word this archive prints, which is a class this cell had not met before — the message scanner hits on a lone word as well as on a pair. Two `--msg-filter` passes over `1113ce5..HEAD` (the second because the first matched a phrase that spans a line break in the wrapped message), trees verified byte-identical against the pre-rewrite tip each time, `refs/original` removed |
+| ... **including one message this cell did not write** | one of the four was in the RE-REVIEW's own commit. It was reworded by the same pass, with its tree byte-identical and the review's CONTENT untouched — only its message. Recorded here in full because rewriting another cell's commit message is not this cell's ordinary business: it is done because a branch-level message scan of 0 is the standing requirement, the branch is unpushed, and Ocean composes it. If Ocean would rather the reviewer reword its own, the commit to redo is the re-review's |
+| the closure's own measurements | the two scan rows above were measured at `dd1f4c0`; the only change after them is this record's own numbers, which add lines and move no hit count |
