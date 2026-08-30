@@ -61612,7 +61612,8 @@ census is for.
 | a doctored surface FAILS the census | `tests/test_l1s3_census.py` | `tests/test_l1s3_census.py` 13 passed — the census fails FORWARD (a taught reader whose branch is gone; a declared reader the tree lost; an `agnostic` one that starts reading the key), REVERSE (a reader the list does not know about) and on the SEAM half (a module publishing through the single-account serialiser, doctored in a temp tree) |
 | the mutation table | `python -m tools.l1s3_mutation_table` | **6 / 6 killed**, exit 0; M4 killed by the census as well as by a test. Tree verified clean after every mutant |
 | full default suite | `python -m pytest tests/ -q -p no:randomly` | **7,578 passed / 43 skipped**, exit 0 (277.7 s) |
-| canonical guards (9 files) | the nine named in the card | **349 passed**, exit 0 |
+| canonical guards | BATCH9-RULES' canonical **five** | **255 passed**, exit 0 — the base floor exactly |
+| the card's nine-file superset | the nine named in the card | **349 passed**, exit 0 |
 | canonical conformance (7 files) | the seven named in the card | **1,270 passed / 40 skipped**, exit 0 |
 | the corpus gate | `python corpus_gate.py` | **GREEN**, exit 0 — 105 PASS / 3 WITHHELD / 1 REFUSED, verdicts 1 refused / 3 review / 102 validated / 3 withheld, 108/108 ADB basis, 108/108 currency, 108/108 currency provenance, 109 resolved offline (567.4 s) |
 | the corpus-marked slice | `python -m pytest -q -m corpus` | 30 passed, exit 0 (1782 s), run from a worktree beneath the repo |
@@ -61621,7 +61622,7 @@ census is for.
 | zero movement, every registration | `tools.cohort_replay --parser … --expect-identical`, all 80 registrations the run of record claimed, four chunks, at BOTH trees | 2,743 claimed documents, 2,669 replayed. Identical totals at base and tip: **previously validated payload identical 2,555**, payload changed 41, newly validated 3, other ladder regressions (down, from a non-validated class) 3, **validated regressions — BLOCKING 0**; chunk exits `[0, 0, 3, 3]` at BOTH trees. Per document: **0 of 2,669 replay rows differ** between the trees (`--replay-base/--replay-tip`, ignoring only the per-document `ms` timing) — same before and after outcome, reason, registration, payload identity and changed leaf paths |
 | the archive sweep, all 3,380 | `tools.regfp_zero_movement_sweep`, four chunks, at BOTH trees | 3,380 documents each; 2,669 compared, **2,620 identical**, 46 moved, 21 no-payload-now-publishes, 3 payload-now-raises, 0 multi-artifact — **the same nine numbers at the base tree and at the tip**. Four chunk exits 1 at each tree (the tool exits non-zero on any finding) |
 | attribution of every sweep finding | `python -m tools.l1s3_sweep_attribution --base … --tip …` | **exit 0** — 70 findings at BOTH trees identically (same document, same verdict, same changed field names); **0 differing, 0 tip-only, 0 base-only**. Every one of the 70 is train9's composed movement against the batch-8 run of record, and none is this branch's |
-| privacy — added lines | `tools/privacy_scan_branch.py` | **0 hits / raw 0** — 3,133 added lines against the printed tokens of 3,380 documents (3,351 with cached text): MONEY 0, DIGITS 0, DATES 0, WORDS 0, residue files 0, residue sites 0. Exit 0 |
+| privacy — added lines | `tools/privacy_scan_branch.py` | **0 hits**, exit 0 — added lines against the printed tokens of 3,380 documents (3,351 with cached text): MONEY 0, DIGITS 0, DATES 0, WORDS 0, residue files 0, residue sites 0. **raw** is NOT 0 and the first version of this row said it was: see the closure table below for the figure at the closure tip, and the reason every raw hit is discharged |
 | privacy — commit messages | `tools/huntington_msg_privacy_scan.py` | the branch's commit messages against the same 3,380: **MONEY 0, DIGITS 0, DATES 0**; WORDS 2 (exit 1) — both named and attributed below. 13 messages at the tree that produced this section; re-running the command after this section is committed scans the W3 commits too |
 
 ### Why the sweep AND the replay are each run TWICE
@@ -61669,9 +61670,14 @@ The message scan over the same 3,380 reports **MONEY 0, DIGITS 0, DATES 0** and
 "its nine line-pinned sites", and the bigram `THOUGH THEY` in a sentence about two
 package keys. Both are ordinary English prose about the seam census and the package
 surface; neither is a value, a name, a date, an amount or anything read out of a
-document. They are reported with that attribution rather than removed by a history
-rewrite, because every proof in this section cites a commit sha and a reword would
-invalidate those citations to hide two common English words.
+document. **The reason they were kept was wrong, and the reviewer was right to say so.**
+The first version of this row argued that a reword would invalidate the sha citations
+in this section. That is not a ground: BATCH9-RULES says plainly that on an unpushed
+branch a `--msg-filter` reword is cheap and the sha references are remapped in the
+records, and the reviewer reworded its own first draft for exactly two such bigrams.
+The only ground that matters is that **the hits are not tokens** — had they been, the
+cost of the reword would have been irrelevant. See the closure table for what the two
+messages say now.
 
 ## Generalization
 

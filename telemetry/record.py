@@ -473,8 +473,8 @@ def classify_document(
         raise TypeError(
             f"classify_document reads a published payload — a mapping, or None "
             f"for a document that produced none; got {type(payload).__name__}. "
-            f"A `DocumentReport` is the OBJECT; its payload is "
-            f"`analysis.serialization.document_report_to_dict(document)`"
+            f"A `DocumentReport` is the OBJECT; its payload is what "
+            f"`analysis.serialization.document_report_to_dict` returns for it"
         )
     if deferred is not None or not is_document_payload(payload):
         return classify_outcome(
