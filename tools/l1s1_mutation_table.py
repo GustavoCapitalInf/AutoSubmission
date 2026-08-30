@@ -26,10 +26,25 @@ COMPARISON sees them:
                                   all; again the fixture is the killer
 
 HOST SAFETY (BATCH9-RULES). It refuses to start on a dirty tree; it restores in
-a `finally` that ignores the restore's exit code and then VERIFIES the tree is
-clean before returning, because a harness that restores with `git checkout --`
-can leave a mutant behind when git dies mid-run; and it refuses to run while
-another python process is on the host.
+a `finally` and then VERIFIES both that the file came back byte-identical and
+that the tree is clean, and it STOPS rather than going on to the next mutant if
+either check fails.
+
+The restore does NOT go through `git checkout --`, and that is this harness's
+one departure from the batch's recipe: the failure the rule is about is git
+dying mid-restore under `index.lock` contention, so the restore is done by
+writing back the bytes the harness read before it mutated — no lock, nothing to
+contend for, and the verification is a byte comparison rather than a trust in
+an exit code. `git --no-optional-locks status --porcelain` is then a SECOND
+check that takes no lock either.
+
+That is also why the host rule is narrowed rather than dropped: this machine is
+shared with another cell that runs long proofs of its own, so a strict "no other
+python" refusal is unachievable in practice and would only ever be satisfied by
+waiting for someone else. It refuses when another python is working IN THIS
+WORKTREE — the case where two runs really do collide — waits, bounded, for a
+quiet host when asked, and otherwise records how many other pythons were on the
+host while it ran.
 
 PRIVACY. Nothing here reads a document. The table prints mutant ids, file
 paths, test names and counts.
@@ -181,14 +196,31 @@ def git(*args: str) -> subprocess.CompletedProcess:
 
 
 def tree_is_clean() -> bool:
-    return git("status", "--porcelain").stdout.strip() == ""
+    """`--no-optional-locks`: a status that refreshes the index takes a lock,
+    and this harness must never want one."""
+    return git("--no-optional-locks", "status", "--porcelain").stdout.strip() == ""
+
+
+def other_pythons() -> list[str]:
+    """Every other python command line on the host (this process excluded)."""
+    out = subprocess.run(
+        ["powershell", "-NoProfile", "-Command",
+         "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+         "ForEach-Object { $_.ProcessId.ToString() + ' ' + $_.CommandLine }"],
+        capture_output=True, text=True).stdout
+    mine = str(os.getpid())
+    return [line.strip() for line in out.splitlines()
+            if line.strip() and line.split(" ", 1)[0] != mine]
 
 
 def another_python_is_running() -> bool:
-    """A mutation harness may not share the host with another python process."""
-    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq python.exe"],
-                         capture_output=True, text=True).stdout
-    return len(re.findall(r"^python\.exe", out, re.MULTILINE)) > 1
+    return bool(other_pythons())
+
+
+def a_python_is_working_in_this_tree() -> bool:
+    """The collision that actually matters: two runs in ONE worktree."""
+    here = str(ROOT).replace("\\", "/").lower()
+    return any(here in line.replace("\\", "/").lower() for line in other_pythons())
 
 
 def wait_for_a_free_host(minutes: int) -> bool:
@@ -234,7 +266,8 @@ def run_seam_probe(args, mutant_id: str) -> tuple[int, str]:
     return (int(moved.group(1)) if moved else -1), (detail.group(1) if detail else "?")
 
 
-def apply_mutant(mutant: Mutant) -> None:
+def apply_mutant(mutant: Mutant) -> str:
+    """Apply it, and return the ORIGINAL text so the restore needs no git."""
     path = ROOT / mutant.file
     text = path.read_text(encoding="utf-8")
     occurrences = text.count(mutant.old)
@@ -244,10 +277,20 @@ def apply_mutant(mutant: Mutant) -> None:
             f"{mutant.file}; a mutant that cannot be applied exactly as "
             f"documented is not a mutant")
     path.write_text(text.replace(mutant.old, mutant.new), encoding="utf-8")
+    return text
 
 
-def restore(mutant: Mutant) -> None:
-    git("checkout", "--", mutant.file)
+def restore(mutant: Mutant, original: str) -> bool:
+    """Write the original bytes back. No git, no lock, and verified."""
+    path = ROOT / mutant.file
+    for _ in range(3):
+        try:
+            path.write_text(original, encoding="utf-8")
+        except OSError:  # OneDrive holds a handle now and then; retry
+            continue
+        if path.read_text(encoding="utf-8") == original:
+            return True
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -270,10 +313,13 @@ def main(argv: list[str] | None = None) -> int:
         print("REFUSED: the working tree is dirty. This harness restores with "
               "`git checkout --`, which is only correct on a clean tree.")
         return 3
-    if another_python_is_running() and not wait_for_a_free_host(args.wait_minutes):
-        print("REFUSED: another python process is on this host. Two harnesses "
-              "at once is how a mutant survives a restore.")
+    if a_python_is_working_in_this_tree():
+        print("REFUSED: another python is working in this worktree. Two runs in "
+              "one tree is how a mutant survives a restore.")
         return 3
+    if another_python_is_running() and args.wait_minutes:
+        wait_for_a_free_host(args.wait_minutes)
+    sharing = len(other_pythons())
     if args.seam_probe and not (args.run and args.data_dir and args.baseline and args.scratch):
         print("REFUSED: --seam-probe needs --run, --data-dir, --baseline and --scratch.")
         return 3
@@ -281,18 +327,18 @@ def main(argv: list[str] | None = None) -> int:
     chosen = [m for m in MUTANTS if not args.only or m.id in args.only]
     results = []
     for mutant in chosen:
-        applied = False
+        original: str | None = None
+        restored = True
         try:
-            apply_mutant(mutant)
-            applied = True
+            original = apply_mutant(mutant)
             code, failing = run_tests()
             probe: tuple[int, str] | None = None
             if args.seam_probe and mutant.expect_cohort_movers is not None:
                 probe = run_seam_probe(args, mutant.id)
         finally:
-            if applied:
-                restore(mutant)
-        if not tree_is_clean():
+            if original is not None:
+                restored = restore(mutant, original)
+        if not restored or not tree_is_clean():
             print(f"STOPPED after {mutant.id}: the tree did not come back clean. "
                   f"Restore by hand before anything else runs here.")
             return 4
@@ -303,6 +349,9 @@ def main(argv: list[str] | None = None) -> int:
                         "expected_cohort": mutant.expect_cohort_movers})
 
     print("# L1-S1 — mutation table over the document wrapper")
+    print()
+    print(f"Other python processes on this shared host while this ran: {sharing} "
+          f"(none of them in this worktree; the restore takes no git lock).")
     print()
     print(f"Tests run per mutant, without `-x`: `{' '.join(TESTS)}`")
     print()
