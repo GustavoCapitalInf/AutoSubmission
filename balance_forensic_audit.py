@@ -521,7 +521,7 @@ def audit_source(
     # payload readers that was loud, and loud by accident of punctuation rather
     # than by a guard (design §1.4). This is the guard.
     refuse_document_payload(
-        payload, surface="balance_forensic_audit.py::audit_one")
+        payload, surface="balance_forensic_audit.py::audit_source")
     report = analysed.accounts[0]
     statement = report.statement
     oracle = independent_balances(statement, markdown)

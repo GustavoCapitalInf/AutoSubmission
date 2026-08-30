@@ -7,6 +7,7 @@ unreachable in production at this tree.
 from __future__ import annotations
 
 import copy
+import pathlib
 
 import pytest
 
@@ -270,6 +271,75 @@ def test_the_benchmark_still_answers_todays_payload():
                            markdown="", payload=payload)
     assert result.statement == payload["statement"]
     assert result.metrics == payload["metrics"]
+
+
+def test_the_balance_audit_refuses_the_document_shape(monkeypatch, tmp_path):
+    """The LEGACY INDEXING PATH — the one reader of the design's ten that raised
+    at all, and the one this card's Proof section promised to pin.
+
+    Its guard is the only thing standing between a document payload and the
+    bare `KeyError` at the `payload["statement"]` two lines below it, and until
+    the L1-S3 review (MAJOR-4) nothing exercised it: the whole 7,578-test suite
+    and both censuses stayed green with the refusal moved into a dead branch.
+    """
+    import balance_forensic_audit as audit
+
+    monkeypatch.setattr(audit, "source_markdown",
+                        lambda path, **kwargs: ("markdown", "digital/native", b""))
+    monkeypatch.setattr(audit, "analyze_document", lambda *a, **k: object())
+    monkeypatch.setattr(audit, "document_report_to_dict",
+                        lambda document: document_payload())
+    with pytest.raises(PayloadShapeError, match="reader_is_account_scope") as raised:
+        audit.audit_source(tmp_path / "synthetic.pdf", tmp_path)
+    assert "balance_forensic_audit.py::audit_source" in str(raised.value)
+
+
+def test_the_adb_audit_refuses_the_document_shape(monkeypatch, tmp_path):
+    """One ADB per row against a path-keyed truth set with no account column —
+    and the ADB doctrine forbids a document-level combined figure outright, so
+    there is no fold that could stand in for the missing column."""
+    import adb_forensic_audit as audit
+
+    monkeypatch.setattr(audit, "analyze_document", lambda *a, **k: object())
+    monkeypatch.setattr(audit, "document_report_to_dict",
+                        lambda document: document_payload())
+    with pytest.raises(PayloadShapeError, match="reader_is_account_scope") as raised:
+        audit.audit_one(tmp_path / "synthetic.pdf", tmp_path, "markdown")
+    assert "adb_forensic_audit.py::audit_one" in str(raised.value)
+
+
+def test_the_gate_refuses_to_pin_a_provenance_it_cannot_key():
+    """`PINNED_CURRENCY_SOURCE` is path-keyed for the same reason
+    `PINNED_CURRENCY` is: two accounts may rest their denomination on two
+    different classes of evidence."""
+    import corpus_gate
+
+    result = corpus_gate.Result()
+    with pytest.raises(PayloadShapeError, match="reader_is_account_scope") as raised:
+        corpus_gate.check_currency_source(
+            result, ["synthetic.pdf"], {"synthetic.pdf": document_payload()})
+    assert "corpus_gate.py::check_currency_source" in str(raised.value)
+
+
+def test_every_refusal_names_its_own_surface():
+    """MINOR-4. The refusal message is what a person reads when a document
+    publisher first breaks, and two of them named a different function — one of
+    them a function that exists in the OTHER audit."""
+    import re
+
+    for module, expected in (
+        ("balance_forensic_audit.py", {"balance_forensic_audit.py::audit_source"}),
+        ("adb_forensic_audit.py", {"adb_forensic_audit.py::audit_one"}),
+        ("benchmark/ourside.py", {"benchmark/ourside.py::_account"}),
+        ("corpus_gate.py", {"corpus_gate.py::check_currency",
+                            "corpus_gate.py::check_currency_source",
+                            "corpus_gate.py::document_verdicts"}),
+    ):
+        text = pathlib.Path(module).read_text(encoding="utf-8")
+        # Both spellings: the keyword argument, and the local named once and
+        # passed several times.
+        found = set(re.findall(r'surface\s*=\s*"([^"]+)"', text))
+        assert found == expected, (module, found)
 
 
 def test_the_forensic_reader_refuses_where_it_used_to_raise_a_bare_key_error():

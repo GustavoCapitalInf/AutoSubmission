@@ -49,7 +49,7 @@ class OurFileResult:
         two audit CSVs, not a shim here.
         """
         refuse_document_payload(
-            self.payload, surface="benchmark/ourside.py::OurFileResult")
+            self.payload, surface="benchmark/ourside.py::_account")
         return self.payload
 
     @property
