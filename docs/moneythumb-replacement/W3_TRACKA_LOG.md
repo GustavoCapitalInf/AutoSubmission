@@ -60587,3 +60587,355 @@ drop. And `corpus_gate.py` is outside this card's ownership list: the change is
 data-only, three entries in `EXCLUDED_ANALYSIS_CALLERS`, made because
 `test_every_production_caller_of_the_analysis_is_classified` requires a
 decision for every new caller and refuses to pass without one.
+
+# §L1S1 — the document object, and RULE S proved at the PIPELINE seam
+
+L-1 stage 1, exactly the reviewed design's S1 row. The publication model learns that one PDF can
+carry several accounts, and nothing it publishes moves. Population **every registration (83) and
+every document (3,380)**; newly validated **0**; other ladder movement **0**; previously validated
+preserved **ALL — 2,596 of 2,596**, byte-identical; regressions **0**. Zero movement of any kind
+was the requirement and it is the measurement.
+
+### What landed
+
+`analysis/pipeline.py` gains three dataclasses and one entry point. `SiblingOmission` and
+`RollupOracle` are the document's printed facts about a section it did not publish and about the
+enumerating table it printed — the roll-up kept as an ORACLE, never as a source of value.
+`DocumentReport` holds N account `Report`s in PRINTED ORDER plus those facts. `analyze_document`
+is the document entry point and is built ON `analyze_markdown` rather than around it: the account
+entry point is untouched, every existing caller still reaches it, and **no seam moves in this
+stage** — teaching the payload readers the document shape is S3's work, and moving a seam before
+they are taught would publish a shape that 9 of the 11 measured readers ANSWER rather than refuse.
+
+`analysis/serialization.py` gains RULE S. A document carrying exactly one account, which omitted
+nothing, read no roll-up and recorded no boundary mechanism, publishes exactly today's payload
+with no added key of any kind — and publishes it by returning today's dict VERBATIM, so there is
+no assembly on that path that could reorder a flag, drop a key or add one. All four clauses,
+because each is a way the document could carry a fact the single-account payload has nowhere to
+put; the mutant that weakens the conjunction to "one account" is M5 below.
+
+The integrity flags gain a named scope split: `DOCUMENT_SCOPE_FLAGS` — the five flags that are
+facts about the PDF rather than about a ledger (the two dispatch outcomes, the discarded repair
+stage, a raising integrity check, the missing declared page) — and `split_integrity_flags`, which
+is a PARTITION and never a re-ordering: each half is a subsequence of the published list, so
+filtering the original by membership rebuilds the original. `DocumentReport.document_scope_flags`
+is a VIEW over the accounts' own blocks; the document scope is carried IN ADDITION, never instead.
+That is the row the design said S1 must PROVE rather than assume, and the numbers below prove it
+at the seam and at archive scale.
+
+`ANALYSIS_STAGE_VERSION` is NOT bumped, and that is measured rather than asserted: the analysis
+settings key at this tree is byte-identical to the base tree's AND to the key the run of record
+wrote under, with stage version 16 and OCR stage version 4 unchanged. A warm cache serves a
+single-account document exactly what it served before, because the key material and the cached
+shape are the same.
+
+### One deliberate departure from the design, and it is a mechanism rather than a wording
+
+The design put the "one account" clarification in `Statement`'s DOCSTRING. `analysis/extract.py`
+passes `Statement` as the extraction call's `response_schema`, and pydantic publishes a model's
+docstring as its JSON-schema `description` — so a docstring there is prompt text sent to a model,
+and prose addressed to implementers would have quietly become an instruction addressed to an
+extractor. Measured both ways: as a docstring, `Statement.model_json_schema()` carries a
+`description`; as a comment it does not. The words are a comment, and the schema keeps the shape
+it had.
+
+### The three refusals this card owed as fixtures
+
+Each is a fail-closed condition whose killer is the WRAPPER's own shape, and none can be reached
+from production at this tree — which is exactly why each is constructed rather than measured:
+
+* **an empty `accounts`** — a document object with no account may not be published. It is a
+  publisher defect, not a document with nothing to say, and publishing it would put an empty
+  container in front of readers that ANSWER about it instead of refusing (the design measured 9 of
+  10 answering an untaught shape and 1 raising, and the one that raises does so only because it
+  indexes where the others `.get()`). `test_a_document_publishing_no_account_is_refused`;
+* **two accounts sharing a content digest** — refused, and refused on the ARITHMETIC rather than
+  on tidiness: a section published twice is counted twice by every cross-account total, average
+  and count a package computes, and no reader downstream can tell it from a member with two
+  accounts. By CONTENT, because a duplicate is a duplicate whatever identity token the paper
+  printed over it. Its positive control sits beside it, so a gate that refused every two-account
+  document could not pass. `test_two_accounts_publishing_identical_content_are_refused` /
+  `test_two_accounts_that_differ_are_not_refused`;
+* **a per-document field that could hold one account's value** — left EMPTY, with `account_count`
+  carrying the fact. The document block's period stays null on a two-account document whose
+  accounts both carry one, and `analyze_document` fills NO document-level field at all — not even
+  on a one-account document, where there is no choice to make and therefore no selection to
+  forbid: a per-document fact taken from the account is a fact this stage did not read.
+  `test_a_per_document_field_is_left_empty_and_account_count_carries_the_fact` and
+  `test_analyze_document_fills_no_document_level_field`.
+
+A fourth guard was added after the fixtures, against the failure they cannot see: the document
+object's FIELD SET is pinned, because a later stage that adds a document-level fact and forgets a
+clause of RULE S would publish that document as though the model had learned nothing, and the
+fact would live in the object and in no payload. Adding a field is now a red test that says what
+to do about it.
+
+### The numbers
+
+**Fidelity at base**, re-established at `d533e55` with the fixed `flatten` (an EMPTY container is
+a leaf, so a control from before that fix is not a control for a tree after it):
+`cohort_replay --expect-identical` over `huntington`, `rbc`, `WH:rbc`, `RV:linkbank` — **207
+replayed, 197 of 197 previously validated preserved, payload identical on 197, 0 movement,
+EXIT 0**.
+
+**A finding the first control produced, at BASE, before this card changed anything.** That control
+was first drawn with `pnc` in it and exited 3 on **45** documents: 41 previously validated
+preserved with a CHANGED payload, 1 newly validated, 3 `withheld -> failed`. Every one is `pnc`,
+the changed leaf paths are the printed daily ladder and its ADB consequences, and the counts
+reproduce the composed `PNC-LAYOUTS` cell's own claim at `ac1d034`. It is a composition already on
+`train9` surfacing against the batch-8 run of record — attributed here because a cell that
+reported it as its own movement would be reporting someone else's work, and because a fidelity
+control has to be drawn over registrations no composition has moved.
+
+**RULE S at the PIPELINE seam, ACROSS TREES.** The design measured RULE S by serialising one
+in-memory `Report` two ways inside one process, which is an equality by construction — the
+re-review called it a tautology at that seam and required the proof at the pipeline.
+`tools/l1s1_seam_probe.py` captures one digest per document AT A TREE and compares two captures
+taken at DIFFERENT trees: the base tree's `report_to_dict(analyze_markdown(text))` against this
+tree's `document_report_to_dict(analyze_document(text))`, with `PYTHONHASHSEED` pinned in both
+because two of the payload's lists are serialised SETS whose order follows the process's hash
+seed. Over the design's cohort — **232 documents spanning 80 registrations**, the first three
+validated documents of every registration plus the first three of the nine registrations holding
+no validated document at all, so the nulled-balance and emptied-ADB branches are exercised:
+
+| property | documents |
+|---|---:|
+| compared at both trees | **232** |
+| RULE S at the seam — payload BYTE-identical | **232** |
+| … payload moved | **0** |
+| the account seam — payload byte-identical | **232** |
+| the integrity block — published flag list AND ORDER identical | **232** |
+| ladder outcome unchanged | **232** |
+| documents publishing exactly one account | **232** |
+| documents carrying any integrity flag | 15 |
+| … of them carrying a DOCUMENT-scope flag | **3** |
+
+That last row is the size of the mistake the design's prose invites, measured at this tree: three
+of the cohort's documents carry a flag whose SCOPE is the document, and a split read literally
+would move them — and their ladder outcome with them, because `classify_outcome` reads three of
+those five flags out of the account block to route a document to review.
+
+**The design's own payload probe, re-run at this tree**, reproduces its published table: 232
+documents / 80 registrations; `wrapper_conditional` **232** byte-identical, `wrapper_unconditional`
+**0**, `omission_field_always` **0**, `omission_field_elided` **232**,
+`integrity_split_order_preserved` **232**, `integrity_split_naive_order` **232**,
+`integrity_split_dropped` **229** — 3 move. Its blind-spot table now reads a gap of **0** on every
+row where the design measured 232 on one of them: Ocean's `flatten` fix closes the empty-container
+half of that gap, and this is the first measurement of the fix against the case that found it.
+
+**Every registration, at BOTH trees.** `cohort_replay` over all 83 registrations — **2,669
+documents, every one replayed** — run at the base tree and at this one, and compared PER SHA on
+outcome, reason, claiming reader, direction, payload verdict and changed leaf paths:
+
+| measure | base `d533e55` | this tree | difference |
+|---|---:|---:|---:|
+| population replayed | 2,669 | 2,669 | 0 |
+| previously validated preserved | **2,596 / 2,596** | **2,596 / 2,596** | 0 |
+| … payload identical | 2,555 | 2,555 | 0 |
+| … payload changed (all `pnc`) | 41 | 41 | 0 |
+| newly validated | 1 | 1 | 0 |
+| validated regressions (BLOCKING) | **0** | **0** | 0 |
+| other ladder regressions | 3 | 3 | 0 |
+| **per-sha verdict differences, base vs this tree** | — | — | **0 of 2,669** |
+
+`--expect-identical` at this tree exits **3**, and on exactly **45** documents, all `pnc`, all of
+them equally non-identical at the base tree. Over the other **82** registrations — **2,624
+documents** — the replay is **2,624 identical and unchanged**, which is the exit-0 statement drawn
+where no composition has moved.
+
+**The archive sweep, all 3,380, at the final tree**, four chunks:
+
+| class | documents |
+|---|---:|
+| identical | **2,624** |
+| moved | 42 |
+| `payload_now_raises` | 3 |
+| `no_payload_now_publishes` | 21 |
+| `no_payload_raises_again` | 661 |
+| no OCR artifact in the cold cache | 29 |
+| multi-artifact documents | 0 |
+| compared against a stored payload | 2,669 |
+
+**66 findings, and all 66 are attributed by content sha rather than by argument.** Replayed at the
+base tree and at this one: **0 per-sha differences**. 45 are `pnc`-claimed — the same 45 the
+control found at base. The 21 that publish where nothing was cached were claimed by NOBODY at
+baseline and are claimed now by `pnc` 12, `core_processor_enclosures` 6 and `category_partition`
+3, moving `failed -> validated` 18 and `failed -> review` 3 — which is `PNC-LAYOUTS`' remaining
+newly validated plus `CP-DECLINES`' 6 newly validated and 3 `failed -> review`, both composed on
+`train9` before this card began. **0 findings are this card's.**
+
+### The mutation table
+
+`tools/l1s1_mutation_table.py`, re-run at the final tree. Ten mutants, one exact edit each, tests
+run WITHOUT `-x`; a mutant whose target text does not occur exactly once is refused rather than
+applied. **10 of 10 killed, 0 survivors.** Four are also carried through the whole 232-document
+byte comparison, because for those four the question is not whether a unit test fails but whether
+an archive-scale proof would have SEEN them:
+
+| mutant | what it does | killed by | documents the BYTE comparison moves |
+|---|---|---|---:|
+| M1 | RULE S adds a key to the single-account payload | `test_rule_s_adds_no_key_of_any_kind` (+2) | **232** |
+| M2 | the flag list assembled document-scope-then-account-scope | `test_the_published_account_block_keeps_every_flag_in_published_order` (+1) | **0** |
+| M3 | the document-scope flags LEAVE the account block | the same two | **3** |
+| M4 | an account's period written into the document's period field | `test_analyze_document_fills_no_document_level_field` | **0** |
+| M5 | RULE S weakened to "one account" | `test_each_clause_of_rule_s_is_load_bearing` ×3 | — |
+| M6 | the no-account refusal removed | `test_a_document_publishing_no_account_is_refused` | — |
+| M7 | the duplicate-account refusal removed | `test_two_accounts_publishing_identical_content_are_refused` | — |
+| M8 | the published accounts sorted instead of printed order | `test_accounts_are_published_in_printed_order_and_never_sorted` | — |
+| M9 | the document shape also publishes a top-level `statement` | `test_the_document_shape_has_no_top_level_statement` (+3) | — |
+| M10 | the document-scope flag set emptied | `test_split_integrity_flags_partitions_without_reordering` (+2) | — |
+
+**M2 and M4 are the honest rows.** For both, the cohort-scale byte comparison sees NOTHING, and
+that is measured rather than assumed: the 232 contain no document carrying flags of both scopes in
+the order a concatenation would change, and RULE S publishes no document block at all, so an
+account's value sitting in a document field is invisible to it. Their killers are the constructed
+fixtures, named as such. The reason M2 must die is not that this cohort caught it — it did not —
+but that `corpus_gate.py` pins the published flag tuple in "Published ORDER, not sorted", so the
+assembly is one document away from moving a pinned tuple.
+
+### Two things this card found in the tree it inherited
+
+**The default suite was RED at the base of this card**, and not for anything this card did. The
+canonical sweep that requires every production module calling the analysis to be classified failed
+on three read-only instruments the composed design cell landed and never declared. That guard runs
+only in the full suite, which is the train's, and the design cell's floor ran the canonical guards
+instead. All three are excused here on the same two grounds every replay above them is excused on
+— they publish no verdict, and they already supply the reconstructed page partition — because a
+card cannot report a green floor over an inherited failure. Declarations only: neither list is read
+by the gate's logic, so no pinned verdict, flag, note or class moves.
+
+**The document entry point is DECLARED rather than excused**, and the distinction is the point of
+the entry: it forwards the page partition it was handed, and the declared seams move to it in S3,
+so a version of it that stopped forwarding `sheets` would take the page-declaration check offline
+for every caller at once. That is exactly the drift the declaration exists to make loud.
+
+### The harness, and one departure from the batch's recipe
+
+The batch's rule restores a mutant with `git checkout --`, and the failure it warns about is git
+dying mid-restore under index-lock contention. This harness restores by writing back the bytes it
+read before it mutated: no lock, nothing to contend for, and the check is a byte comparison of the
+file rather than trust in an exit code. `git --no-optional-locks status --porcelain` is a second
+opinion that takes no lock either, and the run STOPS rather than going on if either check fails.
+With the restore unable to lose a race, the "no other python on the host" precondition is narrowed
+to another python working IN THIS WORKTREE, because this machine is shared with another cell
+running long proofs and a precondition satisfiable only by waiting for someone else is one that
+gets skipped rather than kept. The table records the host state it ran under (2 other pythons,
+neither in this worktree) and the tree came back clean.
+
+### Proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| full default suite | **7,473 passed**, 43 skipped, 34 deselected | **0** |
+| … the same suite at the BASE tree | **1 failed** (the inherited caller classification above) | 1 |
+| canonical guards (5 files) | **255 passed** | **0** |
+| canonical conformance (7 files) | **1,270 passed**, 40 skipped | **0** |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**; verdicts 1 refused / 3 review / 102 validated / 3 withheld | **0** |
+| the corpus-marked slice | **30 passed** | **0** |
+| `cohort_replay --expect-identical` at BASE (fidelity control) | 207 replayed; 197/197 preserved, payload identical; 0 movement | **0** |
+| `cohort_replay` over EVERY registration, at BASE | 2,669 replayed; 2,596/2,596 preserved | 0 |
+| `cohort_replay --expect-identical` over EVERY registration, here | identical to base on every sha (0 differences of 2,669); exit 3 on the 45 attributed `pnc` documents; 2,624/2,624 identical over the other 82 registrations | 3 (attributed) |
+| RULE S at the pipeline seam, base -> this tree | **232/232 byte-identical**; flag list and ORDER 232/232; outcome 232/232; MOVED_TOTAL 0 | **0** |
+| the design's payload probe, re-run here | 232 / 80; conditional 232; dropped 229 | **0** |
+| mutation table, at the final tree | 10 mutants, **10 killed, 0 survived**; cohort byte comparison 232 / 0 / 3 / 0 | **0** |
+| archive sweep, all 3,380, at the final tree | 2,624 identical; **66 findings, 0 of them this card's** — every one attributed by sha to `PNC-LAYOUTS` or `CP-DECLINES` and identical at the base tree | 1 (findings) |
+| analysis settings key vs base and vs the run of record | IDENTICAL; stage version 16, OCR 4, unchanged | — |
+| branch privacy scan, added lines vs the whole archive | **hit_count 0** over **1,736 added lines** and 3,351 documents read (population 3,380; 29 have no cached text); MONEY / DIGITS / DATES / WORDS all 0; raw 25, every one discarded by the standing `words_class` exclusion; measured at the tip, this record included | **0** |
+| commit-message scan | **hit_count 0** — and it was **4** the first time: four ordinary English word-pairs across three messages, class WORDS, MONEY / DIGITS / DATES 0 throughout. Reworded with `--msg-filter`, trees verified byte-identical against the pre-rewrite tip, `refs/original` removed, re-scanned | **0** |
+| W3 | this section appended; no earlier line touched | — |
+
+### What this stage did NOT do, so the next one is not surprised
+
+No reader is taught the document shape (S3), no site records an omission (S2), no document
+publishes two accounts (S4), no seam moves, no version constant is bumped, and
+`DocumentReport.internal_transfers` is deliberately absent — the transfer object arrives with the
+publisher that makes two ledgers exist on one document, and a field nothing can fill is a field
+nothing can test. `document_report_to_dict`'s document shape is therefore exercised by tests and
+by nothing else at this tree, which is the same "dark" state S3's readers will be in.
+
+### The independent review's closure — 0 BLOCK / 2 MAJOR / 3 MINOR, all closed
+
+APPROVE WITH FINDINGS (`docs/moneythumb-replacement/reviews/BATCH9_L1S1_REVIEW.md`). The reviewer
+re-ran this card's claims, extended the zero-movement measurement to 361 documents including every
+`review` / `withheld` / `deferred` one, checked 93 refusals as the same class, confirmed the
+settings key against the run of record's — and then found two things this record had not.
+
+**MAJOR-1 — the scope table had its membership PREDICATE pinned and not its SET.** This card named
+two mutants its archive-scale byte comparison cannot see; the reviewer found a third that the
+FIXTURES miss as well. Add an account-scope flag to `DOCUMENT_SCOPE_FLAGS` — the reviewer used
+`summary_math_inconsistent`, ledger arithmetic about one account if anything is — and nothing goes
+red: the partition still partitions, the account block still keeps every flag in published order,
+the source guard still reads *a subset of what the pipeline raises*, and no comparison at any scale
+can see it because **the split publishes no byte at this stage**. Seven of the fifteen flags the
+pipeline raises could be added that way undetected.
+
+It is harmless today for exactly the reason it is invisible, and it stops being harmless at S3,
+where readers begin consuming `document_scope_flags()`: from then on a flag in that set promotes
+ONE account's ledger failure to a fact about the whole file, on a document where *which account
+failed* is the question. The set is now pinned by equality, with a message stating what a member
+has to be — the same treatment the document object's field list already had, for the same reason,
+and the reviewer was right that this card owns the set. The reviewer's mutant is **M11** in the
+table, carried through the cohort-scale comparison with the other two: **it moves 0 of 232**, so
+the class this record described as two rows is now stated as three.
+
+**MAJOR-2 — the prompt-surface hazard was guarded by a comment.** This card's own finding was that
+prose on `Statement` is not documentation but text sent to the extraction model, and its remedy was
+a comment explaining why. A comment is not a guard: the next reader can write a docstring without
+ever seeing it, and the effect is invisible to every payload, replay and byte comparison in the
+repository, because it changes what a MODEL is told and nothing about what a parser computes. The
+reviewer also noted the hazard is wider than the comment: `Transaction` and `StatementDailyBalance`
+are reachable from the same schema and publish their docstrings under `$defs` in the same way.
+
+`tests/test_extraction_schema_prompt_surface.py` now pins the surface: all three models carry no
+prose of their own; the published schema carries no class-level `description` anywhere (asserted
+from the OUTPUT as well as from the classes, so a future pydantic that sourced one elsewhere still
+fails); the set of models the schema reaches is pinned, so a fourth is named rather than hidden in
+a hash; the call is read from `analysis/extract.py`'s source, so switching the extraction to
+another model fails here instead of leaving the guard aimed at nothing; and the whole schema is
+pinned by DIGEST, because a reworded field description changes what the extractor is told just as
+surely. The failure message asks the only question that matters when it fires — prose, or a real
+schema change — and says what to do in each case. Two mutants join the table: **M12** a docstring
+on `Statement`, **M13** the same on a model the schema reaches only by nesting; each is killed by
+three of the seven new tests.
+
+**And the composed design is corrected where it still instructed the harmful edit.** §1.1, §5's
+`analysis/schema.py` row and §7's S1 row said *docstring*; all three now say COMMENT, never the
+docstring, with the reason and the test named. A later cell reads that document as its card, and it
+was telling that cell to do the thing this one refused to do — which is how the defect would have
+arrived anyway, one stage later, with this card's comment still sitting beside it.
+
+**MINOR-1 — the W3 record was an H2** and therefore a subsection of the design cell's section, so
+anything splitting the log by top-level heading filed this work under `§L1DESIGN`. Promoted to a
+top-level `# §L1S1`: exactly one new top-level heading in the log, no earlier line touched.
+
+**MINOR-2 — the leftover worktree directory is cleared.** The reviewer reproduced the failure with
+its own review worktree and confirmed it is the host rather than the cell: `git worktree remove`
+hits a OneDrive handle, deregisters the worktree and leaves the tree on disk. The reviewer's own
+cleared on one retry. This card's had already been deregistered, so a retry could no longer act on
+it and the directory was removed directly; `git worktree list` carries only `mt9-l1s1` and the main
+repo's status is clean.
+
+**MINOR-3 — `corpus_gate.py` is outside this card's stated ownership**, disclosed at closure and
+recorded by the reviewer as a departure rather than a defect: declarations only, three of the four
+entries repairing an inherited red rather than serving this card. For compose: Ocean's `473be2c`
+already carries those three on `train9`, so the merge adds ONE entry — the document entry point's
+declared call site — and re-states three.
+
+### The closure's proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| the S1 fixtures + the new prompt-surface tests | **33 passed** (26 + 7) | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| `tests/test_corpus_gate_outcomes.py` | **24 passed** | **0** |
+| full default suite | **7,481 passed**, 43 skipped, 34 deselected | **0** |
+| mutation table, at the closure tip | **13 mutants, 13 killed, 0 survived**; cohort byte comparison M1 232 / M2 0 / M3 3 / M4 0 / **M11 0** | **0** |
+| RULE S at the pipeline seam, base -> closure tip | **232/232 byte-identical**; flag list and ORDER 232/232; outcome 232/232; one account 232; 3 carrying a document-scope flag; MOVED_TOTAL 0 | **0** |
+| branch privacy scan, added lines vs the whole archive | **hit_count 0** over **2,412 added lines**; MONEY / DIGITS / DATES / WORDS all 0; raw 34, every one discarded by the standing `words_class` exclusion | **0** |
+| commit-message scan | **hit_count 0** over 11 commits — and, as in the record above, it was **4** first: four more ordinary English word-pairs, class WORDS, MONEY / DIGITS / DATES 0 throughout. Reworded with `--msg-filter`, trees verified byte-identical against the pre-rewrite tip, `refs/original` removed, re-scanned. The review's own commit is inside the range and its message is byte-identical after the pass; only the four commits after it carry new shas | **0** |
+| W3 | one top-level `# §L1S1`; the base blob is a byte-exact prefix, verified blob-to-blob | — |
+
+Nothing in this closure touches a payload: the two MAJORs add tests, one line of set equality and
+three corrections to a design document. The seam proof and the mutation table were re-run at the
+closure tip rather than carried over, and the zero-movement measurements of the record above stand
+unchanged at it.

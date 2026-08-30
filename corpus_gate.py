@@ -741,10 +741,19 @@ PRODUCTION_SUPPLIES_SHEETS = True
 #: to `build_record`, which runs `classify_outcome` — so batch.py publishes an
 #: outcome class derived from these flags into its telemetry JSONL. It is a
 #: production caller and must be wired at activation.
+#:
+#: `analysis/pipeline.py::analyze_document` is the L-1 DOCUMENT entry point.
+#: It is declared rather than excused, and the distinction is load-bearing: it
+#: forwards the page partition it was handed to `analyze_markdown`, and the
+#: seams above move to it in the stage that teaches the payload readers the
+#: document shape — so a version of it that stopped forwarding `sheets` would
+#: take the page-declaration check offline for EVERY caller at once, which is
+#: precisely the drift this declaration exists to make loud.
 ANALYSIS_CALL_SITES = (
     ("discovery/runner.py", "_analyse"),
     ("webapp/worker.py", "_analyze_doc"),
     ("batch.py", "main"),
+    ("analysis/pipeline.py", "analyze_document"),
 )
 
 #: Modules that call the analysis but must NOT be wired, each with the reason.
@@ -972,6 +981,13 @@ EXCLUDED_ANALYSIS_CALLERS = {
     ),
     "tools/rowcap_sheet_strips.py": (
         "read-only printed-strip check; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
+    # W3 §L1S1's cross-tree seam probe (RULE S at the pipeline seam), excused
+    # on the same two grounds: it publishes no verdict — byte digests and leaf
+    # paths only — and supplies the reconstructed page partition as `sheets`.
+    "tools/l1s1_seam_probe.py": (
+        "read-only cross-tree seam probe; publishes no verdict, and already "
         "supplies the reconstructed page partition"
     ),
 }

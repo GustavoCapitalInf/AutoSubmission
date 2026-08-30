@@ -119,6 +119,27 @@ class StatementDailyBalance(BaseModel):
 
 
 class Statement(BaseModel):
+    # ONE ACCOUNT's statement — which is what this model has always meant.
+    #
+    # Every field below is singular by construction: one account number, one
+    # period, one opening and closing balance, one ledger. That is not a
+    # limitation to be widened. A PDF may print several accounts of one member,
+    # and the object for that is `analysis.pipeline.DocumentReport`, which
+    # holds one of these PER ACCOUNT plus the facts that belong to the document
+    # rather than to any account. The word "statement" keeps meaning "one
+    # account's statement"; the word for "one PDF" is DOCUMENT. So a reader
+    # that finds a second account on the page does not stretch this model to
+    # carry it, and a surface that needs one value for a document does not take
+    # it from one of these.
+    #
+    # DELIBERATELY A COMMENT AND NOT A DOCSTRING, which is the one place this
+    # class cannot say it: `analysis/extract.py`:222 passes `Statement` as the
+    # extraction call's `response_schema`, and pydantic publishes a model's
+    # docstring as its JSON-schema `description` — so a docstring here is
+    # prompt text sent to the extractor, and prose addressed to implementers
+    # would silently become an instruction addressed to a model. The words
+    # belong to the reader of this file; the schema keeps the shape it had.
+
     # `populate_by_name` so a caller may use either the canonical field name or
     # a deprecated alias declared below; both resolve to the same storage.
     model_config = ConfigDict(populate_by_name=True)
