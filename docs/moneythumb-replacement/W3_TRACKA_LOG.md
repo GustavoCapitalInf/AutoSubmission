@@ -60958,13 +60958,13 @@ ruling is made against a number rather than an impression.
 | `tools/pagecov_probe.py` over the 14 and over all 20 flag-carrying documents | `TRACE-DISAGREES` **0** on both — **EXIT=0** |
 | `tools/pagecov_form_census.py` over 3,380, BOTH halves, each form separately | the tables above — **EXIT=0** |
 | `tools/pagecov_probe.py --outcome-counterfactual` over the 14 | the 8 text-empty-sheet documents, each replayed twice: **8 of 8 `review / integrity_flags` → `validated / approved`, 0 flags** — **EXIT=0** |
-| full default suite | **1 failed** — **EXIT=1**, the single failure being `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified`. At the tip it names the THREE L-1 design probes and nothing else; it named a fourth — this branch's own probe — until the review caught it (PAGECOV9, MAJOR-3). Measured: with train9's `473be2c` applied the unclassified set is EMPTY, stale 0, nothing both declared and excused |
+| full default suite | **7,455 passed, 43 skipped, 1 failed** — **EXIT=1**, the single failure being `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified`. At the closure tip it names the THREE L-1 design probes and nothing else; it named a fourth — this branch's own probe — until the review caught it (PAGECOV9, MAJOR-3). Measured against the guard's own three assertions: with train9's `473be2c` applied the unclassified set is EMPTY, stale 0, nothing both declared and excused |
 | canonical guards (5 files) | **255 passed** — **EXIT=0** |
 | canonical conformance (7 files) | **1,270 passed, 40 skipped** — **EXIT=0** |
 | `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld — **EXIT=0** |
 | corpus-marked slice (`pytest -m corpus`, from this worktree beneath the repository) | **30 passed** — **EXIT=0** |
-| `tools/privacy_scan_branch.py`, population = the 20 flag-carrying documents | **1,021 added lines, hits 0, raw hits 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) against 5,012 MONEY / 729 DIGITS / 318 DATES / 8,022 WORDS printed tokens, measured at `6fde58f`; the only change after it is this row itself, which adds lines and moves no hit count |
-| commit-message scan, same population, every commit on the branch | 5 commits at `6fde58f` — **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0**; the WORDS class is 0 outright, so the co-authorship-trailer attribution the rule allows for is not needed here |
+| `tools/privacy_scan_branch.py`, population = the 20 flag-carrying documents | **1,597 added lines, hits 0, raw hits 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) against 5,012 MONEY / 729 DIGITS / 318 DATES / 8,022 WORDS printed tokens, measured at the closure tree over the whole branch including the review file and this section's own rendering figures; the only change after it is this row itself, which adds lines and moves no hit count |
+| commit-message scan, same population, every commit on the branch | 13 commits at the closure tree — **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0**; the WORDS class is 0 outright, so the co-authorship-trailer attribution the rule allows for is not needed here |
 
 **128 validated documents across the six readers this check touches, all
 preserved, every payload identical.**  The 26 assertions that pin
