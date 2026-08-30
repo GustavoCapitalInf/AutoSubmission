@@ -60780,30 +60780,68 @@ documents' decision would change, split into `cleared` and `RAISED` and by
 baseline outcome.
 
 **3,380 shas · 29 with no cached text · 1,425 printing no page declaration ·
-1,926 with one.**  The forms the corpus prints, by documents carrying them on a
-sheet: `READ_BY_CHECK` 1,926 · `N_SLASH_M_BARE` 1,334 (untrusted by
-construction — the shape is also every fraction and half of every printed date)
-· `WORD_PAGE_NO_ORDINAL` 79 · `PAGE_N_NO_DENOMINATOR` 74 ·
-`N_OF_M_NO_PAGE_WORD` 42 · `PAGE_N_OF_M_NO_SPACE` 5 ·
-`PAGE_N_OF_M_SPLIT_BY_CONTROL_BYTE` 0.
+1,926 with one — and BOTH halves are measured.** The first form of this census
+returned early on every document the check reads no declaration on, so 42 per
+cent of the archive entered neither table. That is the half where a raise comes
+from: a document with no declared total cannot carry this flag at all today, and
+a form the reading newly sees gives it one for the first time. Measuring
+"raises nothing" over the half where a raise is impossible is not a measurement,
+and the review said so (MAJOR-2). The forms the corpus prints, by documents
+carrying them on a sheet, in both halves:
 
-| candidate widening | documents CLEARED | documents RAISED |
-|---|---|---|
-| read the trusted alternative forms — the **(b)** fix: the no-space shape, `Page N/M`, and a declaration split by a C0 control byte | **0** | **0** |
-| take the denominator by WEIGHT of declarations rather than by size — the **(c)** fix | 1, baseline `failed` | **0** |
-| count a text-empty sheet as a present, unlabelled sheet — the **(a′)** weakening | **11** — 5 `review`, 6 `failed` (three of them this card's movers) | **0** |
+| declaration form on a sheet | check reads a declaration | check reads none | all |
+|---|---:|---:|---:|
+| `READ_BY_CHECK` | 1,926 | 0 | 1,926 |
+| `N_SLASH_M_BARE` (untrusted by construction) | 1,334 | 808 | 2,142 |
+| `WORD_PAGE_NO_ORDINAL` | 79 | 689 | 768 |
+| `N_OF_M_NO_PAGE_WORD` | 42 | 367 | 409 |
+| `PAGE_N_NO_DENOMINATOR` | 74 | 240 | 314 |
+| `PAGE_N_OF_M_NO_SPACE` | 5 | 23 | 28 |
+| `PAGE_N_SLASH_M` | 0 | 27 | 27 |
+
+**And each form is now measured on its own, not only as a set** — because the
+set was hiding which member did the damage:
+
+| candidate | given a declared total for the FIRST time | CLEARED | RAISED |
+|---|---|---|---|
+| only `PAGE_N_OF_M_NO_SPACE` — the **(b)** fix this card actually needs | 23, all `validated` | 0 | **0** |
+| only `PAGE_N_OF_M_SPLIT_BY_CONTROL_BYTE` | 0 | 0 | **0** |
+| only `PAGE_N_SLASH_M` | 27 (20 `validated`, 7 `failed`) | 0 | **7 — 3 `validated`, 4 `failed`** |
+| all three together, the set as this branch was reviewed | 50 (43 `validated`, 7 `failed`) | 0 | **7 — 3 `validated`, 4 `failed`** |
+| the trusted set now, with the slash form dropped | 23, all `validated` | 0 | **0** |
+| the denominator by WEIGHT rather than by size — the **(c)** fix | — | 1, baseline `failed` | **0** |
+| a text-empty sheet counted as present and unlabelled — the **(a′)** weakening | — | **11** — 5 `review`, 6 `failed` (three of them this card's movers) | **0** |
 
 Three things follow, and they are the card's whole answer.
 
-**The (b) fix is inert.** Five documents in the entire archive print the
-no-space form, and reading it changes NO document's decision in either
-direction — including the one document in this population that prints it, where
-the flag stands with the fix and without it. `PAGE_N_OF_M_SPLIT_BY_CONTROL_BYTE`,
-carried in from §PNC9's NUL-in-a-column-gap, fires on nothing at all. A widening
-of a fraud-relevant reader that buys zero coverage is not worth its own blast
-radius, so the production pattern is left byte-identical and the shape is
-carried as a card. **The measurement is the point**: this is "it moves nothing,
-archive-wide", not "I chose not to".
+**The (b) fix is not inert — the aggregate was.** Read on its own, the no-space
+form gives 23 documents a declared total they did not have, all of them
+`validated`, and changes NOT ONE decision: 0 cleared, 0 raised, over all 3,380.
+That is a far stronger statement than "it moves nothing" measured over half the
+archive — it is now read on 28 documents rather than 5 and still moves nothing.
+`PAGE_N_OF_M_SPLIT_BY_CONTROL_BYTE`, carried in from §PNC9's NUL-in-a-column-gap,
+fires on nothing at all in either half.
+
+**The damage was one form, and it was never a page declaration.** All seven
+raises — `0A14AC169DEA62D4`, `9C5B7D628D7511EE` and `C067BE96F6B0BE0F`, all
+`validated`, all one reader, plus four `failed` — come from `PAGE_N_SLASH_M` and
+from nothing else. The mechanism is in the pattern: its whitespace class matches
+a NEWLINE, so on a document whose column-header row ends in the word `Page` and
+whose value row begins with a date, the header's last word joins the first cell
+below it and reads as an ordinal over a denominator of ONE — against four or
+five supplied sheets, manufacturing a missing page 1. The real page number sits
+at the far end of that value row, under the column the header named. It is the
+`N_SLASH_M_BARE` defect wearing an adjacent word, and it got into the trusted
+set because the word was `Page`. Every one of the seven is the same shape.
+
+So the form is moved OUT of the probe's trusted set with that mechanism
+recorded, its pattern kept byte-identical so the set as reviewed stays a
+reproducible row in the table above, and it stays a reported SHAPE because a
+`Page`-adjacent slash pair is a real thing to count. **Nothing shipped**: no
+production reading changed on this branch, so the seven are a measured property
+of a candidate, never a regression in a tree. `PAGECOV-NO-SPACE-FORM` is
+correspondingly re-scoped — it is the no-space form ALONE, measured safe on the
+whole archive, and it must never be implemented as "the alternative forms".
 
 **The (c) fix is worse than inert.** Taking the denominator by weight clears one
 document — a `failed` one outside this population that supplies 4 text-bearing
@@ -60888,9 +60926,17 @@ ruling is made against a number rather than an impression.
    in the content stream with inline images included; it is not an XObject
    inventory.** The capability the card needs is unchanged; only its test was
    wrong.
-2. **`PAGECOV-NO-SPACE-FORM` (P3).** The `Page Nof M` reading, measured inert on
-   all 3,380. Worth folding into any other change to this pattern; not worth a
-   commit of its own.
+2. **`PAGECOV-NO-SPACE-FORM` (P3) — the NO-SPACE FORM ALONE, and the scope is
+   load-bearing.** The `Page Nof M` reading, measured over both halves of the
+   archive: read on 28 documents rather than the 5 the first census saw, giving
+   23 of them a declared total for the first time, and changing no decision in
+   either direction on any of the 3,380. Worth folding into any other change to
+   this pattern; not worth a commit of its own. **It must never be implemented
+   as "the alternative forms"**: the set this branch first trusted raises the
+   flag on 7 documents, 3 of them `validated`, and every one of those raises is
+   the `Page N/M` form, which PAGECOV5 shows was never a page declaration at
+   all. A cell inheriting the aggregate would retire a safe form beside an
+   unsafe one, or ship the unsafe one beside the safe one.
 3. **`PAGECOV-GLYPH-ORDINAL` (P3).** `WORD_PAGE_NO_ORDINAL` 9 and
    `DUPLICATE_ORDINAL` 2 across the flag-carrying documents. A reading cannot
    recover destroyed digits; this belongs with the scanned-ladder OCR work.
@@ -60971,10 +61017,20 @@ unchanged, the two pinned `review` verdicts still hold, and
   prints is invisible to it. What it does establish is that on these 20
   documents, every sheet the check calls unlabelled either carries no page
   declaration at all or carries one whose digits the scan destroyed.
-* **`N_SLASH_M_BARE` fires on 1,334 documents and is deliberately never
-  trusted.** It is reported so a later cell does not rediscover it and read it as
-  an opportunity: the shape is also every fraction and half of every printed
-  date, and trusting it would put arbitrary numbers into `declared_total`.
+* **`N_SLASH_M_BARE` fires on 2,142 documents and is deliberately never
+  trusted — and the review proved the point on a form that WAS trusted.** The
+  bare shape is reported so a later cell does not rediscover it and read it as an
+  opportunity: it is also every fraction and half of every printed date, and
+  trusting it would put arbitrary numbers into `declared_total`. The lesson
+  generalises past the bare form. `PAGE_N_SLASH_M` was trusted for one reason —
+  the word `Page` was adjacent — and adjacency is not structure: with a
+  whitespace class that crosses a newline, "adjacent" spanned a column header and
+  the row beneath it. **A form earns trust from the shape of the FOOTER it sits
+  in, not from a nearby word**, and the cheapest available check is the one this
+  card's own data makes obvious: a real page declaration's ordinal INCREMENTS
+  from sheet to sheet, and on six of the seven raised documents the IDENTICAL
+  pair repeated on every sheet — four to eleven of them (the seventh supplies a
+  single sheet, so it says nothing either way).
 * **The population was 11 in the card and 14 at the base.** A composition landing
   between a card being written and a cell being launched can change an
   outcome-defined population. Re-derive it; do not read it.
