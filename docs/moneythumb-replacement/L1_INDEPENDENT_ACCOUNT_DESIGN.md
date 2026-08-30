@@ -635,8 +635,24 @@ section:
 * `printed` and `product` evidence must be read from the SECTION's own text; a section may
   **not** inherit a sibling's `printed` evidence — that is exactly the silent denomination R-f
   forbids;
+* **a DOCUMENT-level printed statement of denomination — a masthead or footer line stating the
+  currency, not attached to any section — is explicit evidence and outranks BOTH defaults for
+  every section that earned nothing of its own.** The first version of this rule was right about
+  siblings and silent about the document, and the silence inverted R-f: a statement printing its
+  denomination once and then printing two sections neither of which repeats it would have
+  resolved both sections to a DEFAULT, with the printed statement outranked by an assumption.
+  R-f is "explicit currency evidence outranks defaults", without qualification as to where on
+  the page it is printed. The class published is the class actually earned — `printed`, because
+  the page printed it — and only a section that CONTRADICTS the document-level statement
+  refuses;
+* the precedence is therefore, strongest first: the section's own `printed`, the section's own
+  `product`, the document's own `printed`, then `jurisdiction_default`, then
+  `institution_default`, then `schema_default`;
 * `jurisdiction_default` and `institution_default` are document/institution facts and are
   inherited by every section that earned no stronger class of its own;
+* the population of the new rung is not measured here: the two-denomination class is 4 documents
+  / 12 sections, and the single-denomination document-level class is measured by nothing in this
+  packet or this design. An implementation card owns measuring it before it writes the rung;
 * two published sections resolving to different denominations → **ruling needed** (§8, Q4):
   R-f says "publishes two accounts or refuses", and both are consistent with the currency
   doctrine's ban on cross-currency package math. The measured population is 4 documents / 12
@@ -880,7 +896,7 @@ standing debt, move nothing, and leave the rest carded.
 | **Q1** | When one account validates and another does not, does the document publish the validating account's figures (as `withheld`/`review` at document level) or refuse entirely? **And whichever is ruled, is a PACKAGE member an account whose own outcome is `validated`?** The design's answer to the second half is yes, and it must be ruled because today `_package_analysis` gates a member on job status alone (`webapp/app.py`:661) and never on `classify_outcome` — so "publish it and mark the document `withheld`" would silently mean "aggregate it anyway" | whether the model produces `failed → withheld` improvements or nothing at all until every account closes; and what a package does with a partially-closing document | every multi-account document that partially closes; today all such documents are `failed` |
 | **Q2** | Must a transfer's counterpart be on the SAME document to be INTERNAL (this design says yes)? And does an AMBIGUOUS pair refuse only the package aggregation (this design's proposal) or the whole document? | §3.2, §3.3 | 7 documents, 47 pairs |
 | **Q3** | May a section be OMITTED rather than counted when it prints its OWN opening caption and its OWN closing caption, the two figures coincide, and it prints no dated row, no counts, no totals and no daily table? R-a says absence of parsed activity alone is insufficient — and this is not that: the paper printed two figures about that account and they agree. Is that "explicit statement structure establishing its empty state"? | **2 documents → 8**; and beyond that family, whether 44 of the 86 single-posting documents (siblings empty-and-silent, or declaring idle in a wording symitar does not read) are reachable at all | 6 idle sections on 6 documents, all one census group, **all six with both figures from the section's own captions and 0 of them printing a dated row, counts, totals or a daily table**; 21 such sections in the whole population, every one of them on the same provenance; 62 empty-and-silent sibling sections and 7 in other wording |
-| **Q4** | Two published sections in two denominations: publish two accounts, or refuse the document? R-f allows both | L1-C13 | 4 documents, one census group, 12 sections |
+| **Q4** | Two published sections in two denominations: publish two accounts, or refuse the document? R-f allows both. **Ruling it needs §4's new rung first**: a document-level printed statement of denomination outranks a jurisdiction or institution default, or the question is being asked about a hierarchy that inverts R-f | L1-C13 | 4 documents, one census group, 12 sections; the single-denomination document-level class is measured by nothing yet |
 | **Q5** | Does each account of a multi-account document enter a PACKAGE as its own member? And is `analysis/adb.py`'s "one statement yields one ADB" read as one ACCOUNT yields one ADB (which R-c forces)? **And, the part R-c does not settle: a package holding one multi-account document publishes `package_average_daily_balance` as the days-weighted mean of its members — which is one average over that document's accounts. Is that permitted?** "A package of one document is still a package" is defensible; so is refusing it. It must be ruled, not left to fall out of the surface table, and §6.5 now carries a gate for whichever way it goes | §2.5, §3.2, `webapp/app.py`:1152-1164 | the package layer; 95% of sections print no daily table of their own |
 | **Q6** | Where an issue prints a per-account activity RANGE rather than one document cycle, whose period does L1-C9 mean? | §2.4 | 27 documents lose every section today for printing no resolvable period at all; the per-account-range class is not separately measured |
 | **Q7** | The posting threshold: is "a section that posts" one dated row or two? | the whole population's size | at two rows: 86 single-posting / 81 multi-posting. At one row: 59 / 111. The 2 documents that close, close at BOTH |
