@@ -229,12 +229,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"| `{probe.sha16}` | `{probe.parser_id}` | `{probe.error}` |")
     print()
 
-    print("## The documents carrying an omission, by sha16")
+    print("## The documents carrying an omission, by sha16 and evidence class")
     print()
+    print("| sha16 | registration | sections | evidence classes |")
+    print("|---|---|---:|---|")
     for registration in registrations:
-        shas = [probe.sha16 for probe in results[registration] if probe.omissions]
-        if shas:
-            print(f"* `{registration}` — " + ", ".join(f"`{sha}`" for sha in shas))
+        for probe in sorted(results[registration], key=lambda p: p.sha16):
+            if not probe.omissions:
+                continue
+            classes = collections.Counter(reason for reason, _rows in probe.omissions)
+            print(f"| `{probe.sha16}` | `{registration}` | {len(probe.omissions)} | "
+                  + ", ".join(f"`{name}`x{count}"
+                              for name, count in sorted(classes.items())) + " |")
     print()
 
     if args.json:
@@ -250,6 +256,11 @@ def main(argv: list[str] | None = None) -> int:
                 registration: sorted(p.sha16 for p in results[registration] if p.omissions)
                 for registration in registrations
             },
+            "by_document": [
+                {"sha16": p.sha16, "parser_id": p.parser_id,
+                 "classes": dict(collections.Counter(r for r, _n in p.omissions))}
+                for p in sorted(carriers, key=lambda p: (p.parser_id, p.sha16))
+            ],
             "account_payload_identical": identical,
             "account_payload_moved": [
                 {"sha16": p.sha16, "parser_id": p.parser_id, "paths": p.changed_leaves}
