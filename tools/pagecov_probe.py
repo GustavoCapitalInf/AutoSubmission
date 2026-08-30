@@ -78,8 +78,21 @@ _ALT_FORMS: tuple[tuple[str, "re.Pattern[str] | None", bool], ...] = (
     ("PAGE_N_OF_M_NO_SPACE", re.compile(r"\bPage\s*:?\s*(\d{1,3})\s*of\s+(\d{1,3})\b", re.IGNORECASE), True),
     # `Page 3 of 8` with a C0 control byte in one of the gaps (handled below).
     ("PAGE_N_OF_M_SPLIT_BY_CONTROL_BYTE", None, True),
-    # `Page 3/8`, `Page: 3 / 8`.
-    ("PAGE_N_SLASH_M", re.compile(r"\bPage\s*:?\s*(\d{1,3})\s*/\s*(\d{1,3})\b", re.IGNORECASE), True),
+    # `Page 3/8`, `Page: 3 / 8`. REPORTED, AND NO LONGER TRUSTED — measured, not
+    # suspected. This form was in the trusted set when the branch was reviewed,
+    # and the whole-archive census then found it raising the flag on 7
+    # documents, 3 of them `validated`. Every one of those raises is this form
+    # and none is any other, and the mechanism is in the pattern above: `\s*`
+    # matches a NEWLINE, so on a document whose header row ends in the word
+    # `Page` and whose value row begins with a date, `Page` + newline + `03/01`
+    # reads as page 3 of 1 — a declared total of 1 against four or five supplied
+    # sheets, manufacturing a missing page. The real page number sits at the END
+    # of the value row, under the column the header named. It was never a page
+    # declaration; it is the `N_SLASH_M_BARE` defect wearing an adjacent word.
+    # Kept as a reported SHAPE — a `Page`-adjacent slash pair is a real thing to
+    # count — and kept byte-identical so `AS_SHIPPED` in the census still
+    # reproduces the review's number at this tree.
+    ("PAGE_N_SLASH_M", re.compile(r"\bPage\s*:?\s*(\d{1,3})\s*/\s*(\d{1,3})\b", re.IGNORECASE), False),
     # `3 of 8` with no `Page` word in front of it — reported, not trusted: the
     # shape is also `3 of 8 checks enclosed`.
     ("N_OF_M_NO_PAGE_WORD", re.compile(r"(?<![A-Za-z])(\d{1,3})\s+of\s+(\d{1,3})(?!\d)", re.IGNORECASE), False),
