@@ -480,9 +480,22 @@ had its own stated evidence readable and fed, and both `reconcile` and the ADB r
 |---|---:|
 | sections that CLOSE | **29** |
 | **documents whose EVERY LOCATED section closes** | **2** |
+| **... under the STRICTER test as well** | **0** |
 | ... whose table's own CLOSING column reproduces every section's closing | **2** |
 | documents where every section either closes or is trivially idle (i.e. under the ruling of §8 Q3) | **8** |
 | ... with the table's closing column reproducing over the sections that would be PUBLISHED | **8** |
+
+**The 0 is on the line after the 2 in the instrument's own output, and it belongs here.** The
+strict test asks that a section print nothing dated AFTER its chain reached the closing, and at
+document level no document passes it. The design carries 2 as the headline for the reason the
+instrument gives for itself (`l1_split_prototype.py`:528-537): a section's span runs to the next
+section heading, so the LAST section of a document runs to the end of the document and carries
+its trailing tables, and the dated-row pattern cannot tell a trailing fee table from a truncated
+ledger. That is a good reason to prefer 2 and a bad reason to omit 0. **The honest range this
+evidence supports is 0 to 8** — 0 if the strict bound is taken at face value, 2 under the
+production checks that were designed for exactly this furniture
+(`posting_dates_cover_source`, plus the sections' own printed counts), 8 if §8 Q3 is granted.
+Every count in §7 says which test it is measured under.
 
 | by mechanism | docs | sections offered | closed | docs fully closing |
 |---|---:|---:|---:|---:|
@@ -781,12 +794,16 @@ the two changes are both forced by measurement:
 | **S1 — the wrapper and RULE S** | `analysis/pipeline.py` (the three dataclasses + the document seam), `analysis/serialization.py` (`document_report_to_dict`, RULE S), docstring of `analysis/schema.py` | **0 newly validated. 0 documents move.** `accounts` is length 1 on every document by construction; RULE S returns today's dict verbatim — measured byte-identical on 208 of 208 documents across 71 registrations | **none** | `cohort_replay --expect-identical` over every registration + BYTE comparison (§1.3) + archive sweep (0 findings expected, and 0 is the pass condition). `ANALYSIS_STAGE_VERSION` NOT bumped |
 | **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note), `analysis/symitar.py`, `analysis/community_section.py`, `analysis/zions.py` — the skip SITES only | **0 newly validated.** Payload movement on the documents whose reader skips a section today. Measured over the four probed registrations: **105** validated documents read, **15** print two or more of their OWN module's section marks while publishing one account (symitar 7 of 7, `dakota_west` 3 of 3, `community_section` 5 of 59, `mission_valley` 0 of 36), and only **4** print the ratified declaration — all four symitar. §9 F1/F2: on today's evidence most of these skips have no member of L1-C17's vocabulary to name, which is what makes this stage a correctness card and not a cosmetic one | **none expected** — a pinned mover is a STOP | mutation table on the omission-reason vocabulary; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
 | **S3 — the surfaces, taught DARK** | `telemetry/record.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `balance_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | unit tests per reader over synthetic document payloads; the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
-| **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **2 documents** close on every located section today, both one census group, both with the enumerating table's own closing column reproducing. **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
+| **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **0 to 8, and the test decides which.** **0** documents pass the STRICT after-chain bound; **2** close on every located section under the production checks (both one census group, both with the enumerating table's own closing column reproducing); **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
 | **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94 and the second copy at :115-123) | **0 newly validated** — the `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today. This is a CORRECTNESS card: it removes an R-1 hardcode that publishes one memorised account of a member's several | **1 — `05E246C0ED6678E6`** (§6.3). Ceremony required BEFORE the change lands | truth-set ceremony; `cohort_replay --parser consumers` (2 documents in the run, both `validated`, one of them the pinned one); corpus gate; the audit CSVs re-derived and re-approved |
 | **S6 — the remaining mechanisms** | per-family row grammars on the shared template | **an ESTIMATE, and it is not offered.** What is measured: 29 of 392 sections close today; `section-identity` closes 10 sections and 0 documents; `section-equation-scan` closes 0 and always will (L1-C1) | unknown; each family carded separately | as S4, per family |
 
-**The honest total.** Across all six stages the measured newly-validated count is **2**
-documents today and **8** under one ruling — out of a run of 3,380 with 2,596 validated. The
+**The honest total.** Across all six stages the measured newly-validated count is **0 to 8**,
+and the three points of that range are three different tests, all printed by the same
+instrument (§2.6): **0** under the strict after-chain bound, **2** under the production checks
+built for the furniture that bound cannot tell apart, **8** if §8 Q3 is granted. The design
+recommends 2 as the planning figure and says so with the reason; it does not offer 2 as the
+only number its evidence supports. Out of a run of 3,380 with 2,596 validated. The
 work is worth doing for what it fixes, not for what it adds: four production defects (§9), two
 silent skips the platform carries today with nothing in the payload to show for them, a
 memorised account number selecting the ledger on an audited pinned document, and a publication
@@ -807,10 +824,13 @@ standing debt, move nothing, and leave the rest carded.
 | **Q5** | Does each account of a multi-account document enter a PACKAGE as its own member? And is `analysis/adb.py`'s "one statement yields one ADB" read as one ACCOUNT yields one ADB (which R-c forces)? | §2.5, §3.2, `_package_analysis` | the package layer; 95% of sections print no daily table of their own |
 | **Q6** | Where an issue prints a per-account activity RANGE rather than one document cycle, whose period does L1-C9 mean? | §2.4 | 27 documents lose every section today for printing no resolvable period at all; the per-account-range class is not separately measured |
 | **Q7** | The posting threshold: is "a section that posts" one dated row or two? | the whole population's size | at two rows: 86 single-posting / 81 multi-posting. At one row: 59 / 111. The 2 documents that close, close at BOTH |
-| **Q8** | §9 F1/F2: symitar and community_section skip sections on the ABSENCE of parsed rows today, which R-a names insufficient. Does R-a apply to those EXISTING skips (which would move already-validated documents), or only to new admissions? | whether S2 is a payload-only card or a correctness card that can REMOVE validated documents | the cohorts of §6.2 |
+| **Q8** | §9 F1/F2: symitar, community_section and zions skip sections today. Does R-a apply to those EXISTING skips, or only to new admissions? | whether S2 is a payload-only card or a correctness card that can REMOVE validated documents | **ANSWERED BY MEASUREMENT — §2.7. The skips fire on 12 validated documents / 16 sections, and 16 of 16 print the evidence R-a demands. Applying R-a to the existing skips removes 0 validated documents.** What remains for Gustavo is the vocabulary widening L1-C17 now carries |
+| **Q9** | Which point of the measured range is the planning figure: **0** (the strict after-chain bound), **2** (the production checks), or **8** (with Q3)? | what S4 is judged against | §2.6: the same instrument prints all three |
 
-**Q8 is the one to answer first.** It is the only question here whose answer can subtract from
-2,596.
+**Q8 was the one to answer first, and it is now answered.** The design said it was the only
+question whose answer could subtract from 2,596; measured on the dispatch path, it subtracts
+nothing (§2.7). The question that remains under it is not a risk but a vocabulary: L1-C17 has
+to be able to NAME the evidence the platform's own skipped sections print, and §4 now does.
 
 ---
 
