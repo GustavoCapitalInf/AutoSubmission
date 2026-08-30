@@ -799,6 +799,30 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only cohort replay; publishes no verdict, and supplies the "
         "reconstructed page partition"
     ),
+    # The L-1 design cell's three read-only instruments and stage 1's seam
+    # probe, excused on the same two grounds as every replay above: each
+    # publishes no verdict — payload/leaf comparisons, reader answers by CLASS,
+    # skip-site counts, digests and content sha16s, never a figure, a name or a
+    # date — and each already supplies the reconstructed page partition as
+    # `sheets`. The first three were composed with the design and this guard was
+    # RED for them at `train9` before stage 1 began: it runs only in the full
+    # default suite, which is the train's, and the design cell's own floor ran
+    # the canonical guards rather than the suite. Classified here rather than
+    # left red, because a card cannot report a green floor over an inherited
+    # failure and the classification is the honest answer to the question the
+    # list asks.
+    "tools/l1_design_payload_probe.py": (
+        "read-only payload-shape probe; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
+    "tools/l1_design_reader_probe.py": (
+        "read-only payload-reader probe; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
+    "tools/l1_design_skip_probe.py": (
+        "read-only sibling-skip probe on the dispatch path; publishes no "
+        "verdict, and already supplies the reconstructed page partition"
+    ),
     # W3 §EXTRACTPRIV. Calls the analysis to prove the LLM branch is NOT
     # reachable in deterministic mode: `extract_statement` is replaced by a
     # recording sentinel and the assertion is that it records nothing. It
