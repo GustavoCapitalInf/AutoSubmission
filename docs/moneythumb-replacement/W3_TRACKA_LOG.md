@@ -59954,7 +59954,7 @@ the census until it is added.
 | ... **including one message this cell did not write** | one of the four was in the RE-REVIEW's own commit. It was reworded by the same pass, with its tree byte-identical and the review's CONTENT untouched — only its message. Recorded here in full because rewriting another cell's commit message is not this cell's ordinary business: it is done because a branch-level message scan of 0 is the standing requirement, the branch is unpushed, and Ocean composes it. If Ocean would rather the reviewer reword its own, the commit to redo is the re-review's |
 | the closure's own measurements | the two scan rows above were measured at `dd1f4c0`; the only change after them is this record's own numbers, which add lines and move no hit count |
 
-## §L1S1 — the document object, and RULE S proved at the PIPELINE seam
+# §L1S1 — the document object, and RULE S proved at the PIPELINE seam
 
 L-1 stage 1, exactly the reviewed design's S1 row. The publication model learns that one PDF can
 carry several accounts, and nothing it publishes moves. Population **every registration (83) and
