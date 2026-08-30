@@ -61338,6 +61338,15 @@ name; the caller sweep watching the document entry point; the probe's per-docume
 this section; two comment corrections in the readers' own prose; the pattern-identity fixture; the
 sweep differencer; and the sweep subsection above.
 
-Every number in the table is measured at the branch tip on a clean tree, with one stated exception:
-the suite / guards / conformance / privacy rows were re-run at the final tip, and the corpus gate
-and the corpus-marked slice are named with the tree they ran at in the log alongside.
+### Which tree each proof ran at
+
+The suite, the guards, the conformance set, both privacy scans, `corpus_gate.py` and the
+corpus-marked slice were all re-run at the FINAL tip `2440e65` on a clean tree. The measurements
+that take twenty minutes to an hour each — the two cohort replays, the seam probe, the admission
+probe, the mutation table and the two archive sweeps — ran at earlier tips of this same branch
+(`5a36ed7` and `ce67cdd`), and the reason that is sound is checkable rather than asserted:
+`git diff 5a36ed7..HEAD -- analysis/ corpus_gate.py` changes exactly three things, and none of
+them is executable — two paragraphs of module prose in `analysis/symitar.py` and
+`analysis/zions.py`, and one data entry in `corpus_gate.py`'s caller register. The analysis this
+branch performs is byte-for-byte the same code at every tip a number above was taken at.
+
