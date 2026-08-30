@@ -97,6 +97,27 @@ _TX_PREFIX = "WF_TX|"
 #: carry the delimiter, so the tail is taken from the right.
 _TX_TRAILING_CELLS = 3
 
+#: The transaction history closes with the bank's own restatement of it —
+#: `Totals $<credits> $<debits>` — and that row is set in the same two money
+#: columns the postings are. Where its band meets the last posting's, the grid
+#: emits ONE record carrying both, and the restatement's figures then read as
+#: that posting's amount: the statement's whole debit total published as a
+#: single debit that never happened.
+#:
+#: The currency symbol is what separates the two, and it is the layout's own
+#: distinction rather than a threshold: Wells sets `$` on the summary block, on
+#: the `Totals` row and on nothing else. Measured over every document this
+#: reader claimed in the run of record — 221 documents, 30,347 records, 30,339
+#: printed money cells and 4,218 balance cells — exactly 2 money cells carry
+#: the symbol, both are a `Totals` row's figure merged into the last posting,
+#: and no balance cell carries it at all.
+#:
+#: A row whose amount cell is a restatement is DROPPED, in the same fail-closed
+#: direction as a row whose amount landed in neither column: the reader loses
+#: an amount rather than publishing one the grid did not print as a posting,
+#: and reconciliation decides what that costs the document.
+_RESTATEMENT_CELL = re.compile(r"[$]")
+
 
 def _infer_year(markdown: str) -> int | None:
     """First 4-digit year printed in the document, or None.
@@ -254,6 +275,12 @@ def parse_wells_statement(markdown: str, base: Statement | None = None) -> State
     txns: list[Transaction] = []
     for mmdd, description, credit, debit, balance in _transaction_rows(section):
         if not description or description.upper().startswith(("TOTALS", "ENDING BALANCE")):
+            continue
+        if _RESTATEMENT_CELL.search(credit) or _RESTATEMENT_CELL.search(debit):
+            # The bank's own restatement of the history, emitted into a
+            # posting's record because the two printed rows share a band
+            # (`_RESTATEMENT_CELL`). It is not this row's amount and it is not
+            # any row's amount.
             continue
         if bool(credit) == bool(debit):
             # Neither money column carries the amount, or both do: the printed

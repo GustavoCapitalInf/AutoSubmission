@@ -446,3 +446,135 @@ def test_f17_a_row_whose_amount_cell_is_missing_is_not_invented():
     assert abs(stmt.transactions[0].amount) == 50.00
     assert stmt.transactions[0].running_balance == 990.00
     assert not reconcile(stmt).ok
+
+
+# ---------------------------------------------------------------------------
+# The bundle's binding order is not the ledger's order (§ROWCAP)
+# ---------------------------------------------------------------------------
+
+def _two_sheet_bundle(first_sheet: str, second_sheet: str, summary: str) -> str:
+    """One PDF, two `Account Details` sheets, each declaring its own columns."""
+    return (
+        "1 SAMPLE STREET 00000 SOMEWHERE NS A0A0A0 000-0000\n"
+        "NORTHWIND SUPPLY LTD. Statement Of: Account Number: From: To: "
+        "Business Account 00000 00000 00 Jan 30 2054 Feb 27 2054 "
+        "Account Summary for this Period:\n"
+        f"{summary}\n"
+        "Account Details:\n"
+        "Date Description Withdrawals/Debits ($) Deposits/Credits ($) "
+        f"Balance ($) {first_sheet}\n"
+        "Date Description Withdrawals/Debits ($) Deposits/Credits ($) "
+        f"Balance ($) {second_sheet}\n"
+        f"{FOOTER}"
+    )
+
+
+def test_f21_a_bundle_bound_out_of_ledger_order_still_walks_one_chain():
+    """The sheets are bound out of order; the dates put the chain back.
+
+    Sheet one carries the period's LAST posting; sheet two carries the two
+    that precede it. Read in print order the chain steps 1,000 -> 950 -> 1,050
+    -> 990, which is not the ledger and breaks twice, and the closing balance
+    is taken from a row dated mid-period. Read in the order the bank DATED the
+    rows there is one chain and no break.
+    """
+    stmt = parse_scotiabank_statement(_two_sheet_bundle(
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/04/2054 SERVICE CHARGE 40.00 950.00",
+        "02/02/2054 MISC PAYMENT SAMPLE PAYER 50.00 1,050.00 "
+        "02/03/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 990.00",
+        SUMMARY_2D_1C,
+    ))
+    assert stmt is not None
+    assert [t.date for t in stmt.transactions] == [
+        "2054-02-02", "2054-02-03", "2054-02-04",
+    ]
+    assert [t.amount for t in stmt.transactions] == [50.00, -60.00, -40.00]
+    assert stmt.ending_balance == 950.00
+    assert reconcile(stmt).continuity_breaks == 0
+
+
+def test_f22_the_direction_is_read_from_the_ledgers_predecessor_not_the_binders():
+    """A row printed on the wrong sheet is not a fall in the balance.
+
+    The period's last posting is a $300.00 CREDIT: it takes the account from
+    200.00 to 500.00. Printed first, its predecessor is the opening 1,000.00,
+    so a print-order walk reads a fall and publishes it as a debit — the row
+    is captured, and its direction is wrong.
+    """
+    summary = (
+        "No. of Debits Total Amount - Debits No. of Credits Total Amount "
+        "- Credits 1 $900.00 2 $400.00"
+    )
+    stmt = parse_scotiabank_statement(_two_sheet_bundle(
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/04/2054 MISC PAYMENT SAMPLE PAYER 300.00 500.00",
+        "02/02/2054 CREDIT MEMO 12345678 INTERAC E-TRANSFER RTN 100.00 1,100.00 "
+        "02/03/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 900.00 200.00",
+        summary,
+    ))
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [100.00, -900.00, 300.00]
+    assert [t.direction for t in stmt.transactions] == ["credit", "debit", "credit"]
+    result = reconcile(stmt)
+    assert result.continuity_breaks == 0
+    assert result.sum_delta == 0.0
+
+
+def test_negative_rows_sharing_a_date_keep_the_order_they_were_printed_in():
+    """The sort is stable: within a day the print order is the only order.
+
+    Both rows are dated the same day and both move the balance by the same
+    magnitude, so only their printed sequence distinguishes them. Reordering
+    them would change which balance each row carries and break the chain.
+    """
+    stmt = parse_scotiabank_statement(_statement(
+        SUMMARY_2D_1C,
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/02/2054 SERVICE CHARGE 50.00 950.00 "
+        "02/02/2054 MISC PAYMENT SAMPLE PAYER 50.00 1,000.00 "
+        "02/02/2054 SERVICE CHARGE 50.00 950.00",
+    ))
+    assert stmt is not None
+    assert [t.running_balance for t in stmt.transactions] == [950.00, 1000.00, 950.00]
+    assert [t.amount for t in stmt.transactions] == [-50.00, 50.00, -50.00]
+    assert reconcile(stmt).continuity_breaks == 0
+
+
+def test_negative_ordering_does_not_repair_a_row_whose_printed_cell_disagrees():
+    """Putting the sheets back in order is not a licence to fix arithmetic.
+
+    One chain, in date order, with a middle row whose printed cell says
+    $50.00 while its printed balance moved by $70.00. The disagreement must
+    still reach `reconcile` exactly as it does on a single-sheet statement.
+    """
+    stmt = parse_scotiabank_statement(_two_sheet_bundle(
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/03/2054 SERVICE CHARGE 30.00 1,040.00",
+        "02/02/2054 MISC PAYMENT SAMPLE PAYER 50.00 1,070.00",
+        SUMMARY_2D_1C,
+    ))
+    assert stmt is not None
+    assert [t.date for t in stmt.transactions] == ["2054-02-02", "2054-02-03"]
+    assert stmt.transactions[0].amount == 50.00
+    result = reconcile(stmt)
+    assert result.continuity_breaks >= 1
+    assert result.sum_delta != 0.0
+    assert not result.ok
+
+
+def test_negative_a_row_printed_before_the_opening_balance_is_still_dropped():
+    """The opening bound is the printed `BALANCE FORWARD`, not the earliest date.
+
+    A row printed above the opening row has no predecessor to take a direction
+    from and is dropped, exactly as before. Ordering happens after the sweep,
+    so it cannot readmit a row the sweep refused.
+    """
+    stmt = parse_scotiabank_statement(_statement(
+        SUMMARY_2D_1C,
+        "02/02/2054 MISC PAYMENT SAMPLE PAYER 50.00 1,050.00 "
+        "01/30/2054 BALANCE FORWARD 1,000.00 "
+        "02/03/2054 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00",
+    ))
+    assert stmt is not None
+    assert [t.date for t in stmt.transactions] == ["2054-02-03"]

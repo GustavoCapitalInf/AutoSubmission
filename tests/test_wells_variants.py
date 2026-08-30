@@ -476,3 +476,61 @@ class TestPeriodEvidence:
         stmt = parse_wells_statement(doc)
         assert _summary_of(stmt) == ("2054-03-01", "2054-03-31", 1000.0, 1500.0, 500.0, 0.0)
         assert _amounts(stmt) == [500.0]
+
+
+class TestTheHistorysOwnRestatement:
+    """The `Totals` row is the bank restating the history, not a posting (§ROWCAP).
+
+    Where the restatement's band meets the last posting's, the grid emits one
+    record carrying both, and the restatement's figures then read as that
+    posting's amount — the statement's whole debit total published as a single
+    debit that never happened. The currency symbol is the layout's own
+    distinction: Wells sets it on the summary block and on the `Totals` row,
+    and on no posting amount.
+    """
+
+    def test_a_restated_total_in_an_amount_cell_is_not_a_posting(self):
+        doc = _document(
+            _account(),
+            "Statement period activity summary",
+            "Beginning balance on 3/1 $1,000.00 Deposits/Credits 500.00 Withdrawals/Debits -  40.00",
+            "Ending balance on 3/31 $1,460.00",
+            _history(
+                "WF_TX|3/2|Deposit From A Customer|500.00||1,500.00",
+                "WF_TX|3/31|Monthly Service Fee $500.00||$40.00|",
+            ),
+        )
+        stmt = parse_wells_statement(doc)
+        assert _amounts(stmt) == [500.0]
+
+    def test_the_same_record_without_the_symbol_is_an_ordinary_posting(self):
+        """The control: only the symbol separates the two readings."""
+        doc = _document(
+            _account(),
+            "Statement period activity summary",
+            "Beginning balance on 3/1 $1,000.00 Deposits/Credits 500.00 Withdrawals/Debits -  40.00",
+            "Ending balance on 3/31 $1,460.00",
+            _history(
+                "WF_TX|3/2|Deposit From A Customer|500.00||1,500.00",
+                "WF_TX|3/31|Monthly Service Fee||40.00|1,460.00",
+            ),
+        )
+        stmt = parse_wells_statement(doc)
+        assert _amounts(stmt) == [500.0, -40.0]
+
+    def test_negative_a_currency_symbol_in_the_description_does_not_refuse_the_row(self):
+        """Only the two money COLUMNS are read for the symbol.
+
+        Wells quotes the authorized amount inside a posting's own description
+        (`Transaction Posted on <date> $<amount> ...`); that is description
+        text and the row's printed cell is still its amount.
+        """
+        doc = _document(
+            _account(),
+            _ONE_ROW.replace(
+                "WF_TX|3/2|Deposit From A Customer|500.00||1,500.00",
+                "WF_TX|3/2|Transaction Posted on 03/01 $500.00 From A Customer|500.00||1,500.00",
+            ),
+        )
+        stmt = parse_wells_statement(doc)
+        assert _amounts(stmt) == [500.0]
