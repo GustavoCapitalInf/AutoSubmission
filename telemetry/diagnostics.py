@@ -8,10 +8,13 @@ statement by statement.
 
 **Read-only projection.** Everything here reads the already-serialized analysis
 payload — the same dict `build_record` is handed. Nothing is recomputed, no
-analysis code is called, no object is mutated. `analysis/` is protected and is
-not imported by this module at all (the vocabulary drift-guard test reads its
-*source text*, which is also read-only). A test asserts the payload is
-byte-identical before and after diagnosis.
+analysis code is called, no object is mutated. No module of `analysis/` that
+reads a statement is imported here (the vocabulary drift-guard test reads its
+*source text*, which is also read-only); the single exception is
+`analysis.payload_shape`, a leaf that computes nothing about a statement and
+only answers which of the two published SHAPES a payload is — the alternative
+being a second copy of that predicate here, drifting from the first. A test
+asserts the payload is byte-identical before and after diagnosis.
 
 **Sensitivity invariant (H3_SCHEMA I1) applies absolutely.** Reconciliation
 issues and ADB warnings are free text that quotes amounts, dates and
@@ -33,6 +36,8 @@ is not in the tables below.
 Mapping rationale, per code: `docs/moneythumb-replacement/W3_2_TAXONOMY.md`.
 """
 from __future__ import annotations
+
+from analysis.payload_shape import payload_accounts, refuse_document_payload
 
 #: Bumped when a code is added, removed or re-classed. Travels in every record
 #: so a rollup over mixed runs can tell which vocabulary produced a row.
@@ -461,6 +466,12 @@ def diagnose(payload: dict | None, outcome_class: str) -> dict:
     """
     if outcome_class not in DIAGNOSABLE_CLASSES or not isinstance(payload, dict):
         return empty_diagnostics()
+    # Measured (design §1.4): handed a document payload this function returned
+    # an EMPTY diagnosis marked `evaluated=True` — a taxonomy saying it looked
+    # and found nothing, on a document whose accounts carry every code there
+    # is. It rides in every discovery telemetry record, so the quiet answer
+    # would have been the archive's. `diagnose_document` is the fold.
+    refuse_document_payload(payload, surface="telemetry/diagnostics.py::diagnose")
 
     reconciliation = payload.get("reconciliation") or {}
     metrics = payload.get("metrics") or {}
@@ -574,6 +585,83 @@ def diagnose(payload: dict | None, outcome_class: str) -> dict:
             "source_posting_days": _count(adb.get("source_posting_days")),
         },
         "unmapped": sorted(unmapped),
+    }
+
+
+def diagnose_document(payload: dict | None, outcome_class: str) -> dict:
+    """The taxonomy for one DOCUMENT. `diagnose` verbatim when it carries one account.
+
+    A record carries ONE diagnostics block, because a rollup ranks
+    check-class x parser x volume per DOCUMENT and a list would not rank. So
+    the document's block is the UNION of its accounts' — every code, flag,
+    failed check and absent field any account produced, de-duplicated and
+    sorted exactly as `diagnose` sorts them; the counts summed, with `None`
+    preserved when NO account measured the thing (H3_SCHEMA I5: a count of
+    zero is a measurement and `None` is the absence of one).
+
+    A union rather than a selection, because the alternative is to pick an
+    account and publish its diagnosis under the document's name — the same
+    defect the document payload exists to remove. And no code is invented: a
+    document-scope code is one an account produced.
+
+    On today's every payload this is `diagnose(payload, outcome_class)` and
+    nothing else, by construction: a payload with no `accounts` key never
+    reaches the fold.
+    """
+    if not isinstance(payload, dict) or "accounts" not in payload:
+        return diagnose(payload, outcome_class)
+    accounts = payload_accounts(
+        payload, surface="telemetry/diagnostics.py::diagnose_document")
+    parts = [diagnose(account, outcome_class) for account in accounts]
+    if not any(part.get("evaluated") for part in parts):
+        return empty_diagnostics()
+
+    codes: set[str] = set()
+    for part in parts:
+        codes.update(part.get("codes") or ())
+    classes = sorted(
+        {CLASS_OF[code] for code in codes if code in CLASS_OF},
+        key=lambda name: _RANK[name],
+    )
+    if not classes:
+        classes = ["advisory_only" if codes else "undiagnosed"]
+
+    def _union(field: str) -> list[str]:
+        merged: set[str] = set()
+        for part in parts:
+            merged.update(part.get(field) or ())
+        return sorted(merged)
+
+    # First-seen key order, which is `diagnose`'s literal order: a re-sorted
+    # counts block would read as a different measurement set to anything that
+    # compares two records field by field.
+    counts: dict[str, object] = {}
+    for part in parts:
+        for key in part.get("counts") or {}:
+            counts.setdefault(key, None)
+    for key in counts:
+        measured = [
+            value for value in ((part.get("counts") or {}).get(key) for part in parts)
+            if isinstance(value, int) and not isinstance(value, bool)
+        ]
+        counts[key] = sum(measured) if measured else None
+
+    return {
+        "evaluated": True,
+        "diagnostics_version": DIAGNOSTICS_VERSION,
+        "primary_class": classes[0],
+        "classes": classes,
+        "codes": sorted(codes),
+        "adb_checks_failed": _union("adb_checks_failed"),
+        "integrity_flags": _union("integrity_flags"),
+        # Not sorted, to match `diagnose`: `SUMMARY_FIELDS` order is the
+        # schema's order and a sorted list would read as a different field set.
+        "summary_fields_absent": [
+            field for field in SUMMARY_FIELDS
+            if any(field in (part.get("summary_fields_absent") or ()) for part in parts)
+        ],
+        "counts": counts,
+        "unmapped": _union("unmapped"),
     }
 
 

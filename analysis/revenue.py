@@ -5,6 +5,12 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Literal
 
+from .payload_shape import DOCUMENT_SHAPE, assert_payload_shape, payload_accounts
+
+#: Named once: it reaches a refusal message, and a surface that names itself
+#: two ways is two surfaces to a reader of the message.
+_REVENUE_SURFACE = "analysis/revenue.py::rebuild_serialized_revenue_views"
+
 
 RevenueState = Literal["verified_revenue", "unverified_deposit", "non_revenue"]
 REVENUE_STATES: tuple[RevenueState, ...] = (
@@ -51,8 +57,34 @@ def _number(value: object) -> float:
 
 
 def rebuild_serialized_revenue_views(analysis: dict) -> dict:
-    """Rebuild every serialized revenue view from transaction records in place."""
-    statement = analysis.setdefault("statement", {})
+    """Rebuild every serialized revenue view from transaction records in place.
+
+    Per ACCOUNT, always: revenue is a property of a ledger, and a document's
+    accounts each have one. A document payload has its accounts rebuilt in
+    printed order and is returned; an account payload is rebuilt exactly as it
+    always was, in the same call, with no branch between.
+
+    The head used to be `analysis.setdefault("statement", {})`, and that one
+    word was the quiet failure this teaching exists to remove: handed a shape
+    it had never seen, this function INSERTED an empty ledger and rebuilt every
+    revenue view over it — totals of 0.00, evidence lists emptied,
+    `revenue_reconciles` true because nothing failed to reconcile (measured,
+    design §1.4). The shape assertion (L1-C16) is what turns that into a
+    refusal. It is reached only by a payload that carries neither shape, which
+    no publisher in this tree can produce: `report_to_dict` always writes a
+    statement.
+    """
+    shape = assert_payload_shape(analysis, surface=_REVENUE_SURFACE)
+    if shape == DOCUMENT_SHAPE:
+        for account in payload_accounts(analysis, surface=_REVENUE_SURFACE):
+            _rebuild_account_revenue_views(account)
+        return analysis
+    return _rebuild_account_revenue_views(analysis)
+
+
+def _rebuild_account_revenue_views(analysis: dict) -> dict:
+    """One ACCOUNT's serialized revenue views, rebuilt in place."""
+    statement = analysis["statement"]
     transactions = statement.get("transactions") or []
     evidence: dict[str, list[dict]] = {state: [] for state in REVENUE_STATES}
     totals: dict[str, float] = {state: 0.0 for state in REVENUE_STATES}

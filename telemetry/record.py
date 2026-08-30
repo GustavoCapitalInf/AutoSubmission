@@ -25,8 +25,15 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from analysis.payload_shape import (
+    is_document_payload,
+    payload_accounts,
+    payload_document_block,
+    refuse_document_payload,
+)
+
 from .collect import DETERMINISTIC_MODEL_SUFFIX, reconstructed_claim
-from .diagnostics import diagnose
+from .diagnostics import diagnose, diagnose_document
 from .prices import estimate
 
 
@@ -55,6 +62,34 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred")
 #: and inferring it would let a real failure hide as a decision.
 DEFERRED_REASONS = ("deferred_scanned", "deferred_visual_ocr", "profile_only")
 SOURCE_PATHS = ("native", "local_tesseract", "visual", "none")
+
+#: The outcome ladder, ranked worst to best. `discovery/compare.py::LADDER` is
+#: the same tuple and is the one the whole non-regression regime is measured
+#: on; it is not imported because `discovery` imports THIS module and a cycle
+#: is a worse coupling than a pinned duplicate.
+#: `tests/test_document_outcome.py` holds the two equal, so a divergence is a
+#: red test rather than a document fold that ranks by a private order.
+#: `deferred` is deliberately absent: it is a statement about the RUN, so it is
+#: not a rung and a document fold may not produce it.
+DOCUMENT_LADDER = ("failed", "withheld", "review", "validated")
+
+#: L1-C17. The CLOSED vocabulary an omitted sibling section's `reason` comes
+#: from (`analysis/pipeline.py::SiblingOmission`), every member of which names
+#: PRINTED evidence — design §4's table. Declared here, beside `DEFERRED_REASONS`
+#: and for the same reason: this module is where a token from a closed
+#: vocabulary decides an outcome, and a caller that invents one must be refused
+#: rather than believed.
+#:
+#: The list is closed against ABSENCE and open to EVIDENCE:
+#: `absence_of_parsed_rows` is the member this condition exists to refuse, and
+#: a member names the evidence rather than the reader that read it — two
+#: modules reading one printed fact share one token.
+RATIFIED_OMISSION_REASONS = (
+    "printed_dormancy_declaration",
+    "printed_zero_activity_summary",
+    "yield_only_arithmetic_with_summary_equality",
+    "printed_pair_coincides_and_no_row_printed",
+)
 
 #: How this record's routing block was established. The vocabulary is
 #: unchanged since H-3 shipped; what changed at #TELCOV is that all three
@@ -345,6 +380,11 @@ def classify_outcome(
         return "deferred", deferred
     if payload is None:
         return "failed", error_reason or ("exception" if error_type else "no_analysis")
+    # This function answers about ONE account, and measured (design §1.4) it
+    # answers a document-shaped payload `withheld/withheld_adb` — a refusal
+    # naming a check nobody ran, on a document whose every account may have
+    # validated. `classify_document` below is the fold; this is the rung.
+    refuse_document_payload(payload, surface="telemetry/record.py::classify_outcome")
 
     metrics = payload.get("metrics") or {}
     quality = payload.get("quality") or {}
@@ -370,6 +410,82 @@ def classify_outcome(
     return "validated", "approved"
 
 
+def classify_document(
+    payload: dict | None,
+    *,
+    error_type: str | None = None,
+    error_reason: str | None = None,
+    deferred: str | None = None,
+) -> tuple[str, str]:
+    """(class, reason) for one DOCUMENT: the WEAKEST account's, fail-closed.
+
+    One outcome per document is not a convenience. `discovery/compare.py` ranks
+    on `LADDER` keyed on `content_sha256` alone, and that ladder is what the
+    whole non-regression regime is measured on — so the document's answer is a
+    FOLD over its accounts, never a list.
+
+    Today's answer on every document that carries one account, by construction
+    rather than by measurement: an account payload never reaches the fold, and
+    a `deferred` declaration is a statement about the RUN that outranks the
+    document's contents exactly as it always did.
+
+    Three document-level overrides sit on top of the fold, and each can only
+    LOWER the result:
+
+    * no account at all — a publisher defect rather than a document, so it
+      `failed`s instead of being scored on an empty minimum;
+    * an omission whose `reason` is not in `RATIFIED_OMISSION_REASONS`
+      (L1-C17): the section should never have been published as omitted, so
+      the document `failed`s rather than being graded around it;
+    * an omission on ratified evidence: a published GAP, so the document may
+      not be `validated` — it is `review/sibling_section_omitted`.
+
+    `validated` on a document therefore means *every account validated and
+    nothing was omitted*, which is strictly stronger than today's meaning and,
+    on a one-account document, IS today's meaning.
+    """
+    if deferred is not None or not is_document_payload(payload):
+        return classify_outcome(
+            payload, error_type=error_type, error_reason=error_reason,
+            deferred=deferred,
+        )
+    surface = "telemetry/record.py::classify_document"
+    accounts = (payload.get("accounts") or []) if isinstance(payload, dict) else []
+    if not accounts:
+        # Refusing here rather than letting `payload_accounts` raise: an
+        # outcome function that raises inside a run kills the record, and a
+        # document that publishes no account is a finding to be FILED.
+        return "failed", "document_publishes_no_account"
+    per = [classify_outcome(account) for account in payload_accounts(payload, surface=surface)]
+    for klass, _reason in per:
+        if klass not in DOCUMENT_LADDER:
+            # Ranking an unranked class LOWEST would make it the document's
+            # class, and `discovery/compare.py::direction` scores an unranked
+            # class as neither an improvement nor a regression — invisible to
+            # the whole non-regression regime. Unreachable today (the
+            # per-account call is made without `deferred=`), and a refusal is
+            # what an unreachable state should get.
+            raise ValueError(
+                f"account outcome {klass!r} is not on the ladder; a document "
+                f"fold over an unranked class would be invisible to the "
+                f"non-regression regime"
+            )
+    omitted = payload_document_block(payload, surface=surface).get("omitted_sections") or []
+    for omission in omitted:
+        reason = omission.get("reason") if isinstance(omission, dict) else None
+        if reason not in RATIFIED_OMISSION_REASONS:
+            return "failed", "document_omission_unratified"
+    # Printed order breaks ties: `min` is stable, so the FIRST account holding
+    # the weakest rung supplies the reason, and printed order is printed
+    # evidence about a sequence rather than a selection of one account.
+    weakest = min(per, key=lambda pair: DOCUMENT_LADDER.index(pair[0]))
+    if weakest[0] == "validated":
+        if omitted:
+            return "review", "sibling_section_omitted"
+        return "validated", "approved"
+    return weakest[0], f"account_{weakest[1]}"
+
+
 def build_record(
     *,
     run_id: str,
@@ -387,7 +503,11 @@ def build_record(
     fallback_reason: str | None = None,
     job_id: str | None = None,
 ) -> dict:
-    outcome_class, reason = classify_outcome(
+    # The DOCUMENT's outcome. `classify_document` is `classify_outcome` on
+    # every payload the tree publishes today (an account payload never reaches
+    # the fold), so this record is byte-identical until a document publishes a
+    # second account.
+    outcome_class, reason = classify_document(
         payload, error_type=error_type, error_reason=error_reason, deferred=deferred
     )
     return {
@@ -414,5 +534,8 @@ def build_record(
         # diagnostics up with no change of their own. A read-only projection:
         # `diagnose` does not mutate `payload` and never stores a string that
         # came out of a statement (see telemetry/diagnostics.py).
-        "diagnostics": diagnose(payload, outcome_class),
+        # `diagnose_document` is `diagnose` verbatim on an account payload and
+        # the per-account union on a document one, so a record never carries
+        # one account's diagnosis under the document's name.
+        "diagnostics": diagnose_document(payload, outcome_class),
     }
