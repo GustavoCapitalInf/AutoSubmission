@@ -11,7 +11,7 @@ import copy
 import pytest
 
 from analysis.payload_shape import PayloadShapeError
-from tests.l1s3_payloads import account_payload, document_payload
+from tests.l1s3_payloads import account_payload, document_payload, omission
 
 
 # --- webapp/app.py: the exports ---------------------------------------------
@@ -164,6 +164,62 @@ def test_the_package_never_folds_two_accounts_into_one_member():
     package = _package_analysis([_Job("job-1", document_payload())])
     openings = sorted(row["beginning_balance"] for row in package["documents"])
     assert openings == [1000.0, 1001.0]
+
+
+# --- Q10: surface the omission, do not demote -------------------------------
+
+
+def test_a_ratified_omission_is_surfaced_by_the_package():
+    """Q10 (BATCH9_TRANSITION §8.7). The document stays `validated` and the
+    package says a section was established and not published."""
+    from webapp.app import _package_analysis
+
+    payload = document_payload(outcomes=("validated",),
+                               omitted_sections=(omission(),))
+    package = _package_analysis([_Job("job-1", payload)])
+    assert package["totals"]["sibling_account_omission_detected"] is True
+    assert package["totals"]["completeness"] == "partial"
+    assert package["totals"]["omitted_section_count"] == 1
+    assert package["omitted_sections"][0]["reason"] == "printed_dormancy_declaration"
+    # ... and the account is still a member: surfacing never demotes.
+    assert len(package["documents"]) == 1
+    assert "excluded_accounts" not in package
+
+
+def test_a_package_of_todays_payloads_carries_none_of_the_q10_keys():
+    """The darkness property for Q10: absence IS today's package."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_Job("job-1", account_payload())])
+    assert "sibling_account_omission_detected" not in package["totals"]
+    assert "completeness" not in package["totals"]
+    assert "omitted_section_count" not in package["totals"]
+    assert "omitted_sections" not in package
+
+
+def test_the_q10_surface_reaches_the_export_an_underwriter_reads():
+    """A refusal that lives only in the JSON is invisible to the person the
+    package is for."""
+    from webapp.app import _package_analysis, _package_csv
+
+    payload = document_payload(outcomes=("validated",),
+                               omitted_sections=(omission(),))
+    text = _package_csv(_package_analysis([_Job("job-1", payload)]))
+    assert "sibling_account_omission_detected" in text
+    assert "completeness" in text
+
+
+def test_an_unratified_omission_is_not_surfaced_as_partial():
+    """A defect dressed as a policy is worse than a defect. L1-C17 fails the
+    document; the package excludes its accounts rather than calling it partial."""
+    from webapp.app import _package_analysis
+
+    payload = document_payload(outcomes=("validated",),
+                               omitted_sections=(omission("absence_of_parsed_rows"),))
+    package = _package_analysis([_Job("job-1", payload)])
+    assert "sibling_account_omission_detected" not in package["totals"]
+    assert package["excluded_accounts"][0]["reason"] == "document_omission_unratified"
+    assert package["documents"] == []
 
 
 # --- webapp/jobs.py and the reviewer's decision -----------------------------

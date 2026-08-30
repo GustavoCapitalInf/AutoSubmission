@@ -18,6 +18,7 @@ from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
 from analysis.payload_shape import (
+    DOCUMENT_KEY as _DOCUMENT_KEY,
     account_content_digest,
     is_document_payload,
     payload_account_count,
@@ -615,6 +616,54 @@ def _package_duplicates(jobs) -> tuple[dict[str, str], list[dict]]:
     return duplicate_of, [groups[key] for key in sorted(groups)]
 
 
+def _ratified_omissions(analysis: object) -> list[dict]:
+    """The RATIFIED sibling omissions this document published, if it is one.
+
+    Q10 (Gustavo, 2026-08-30 — BATCH9_TRANSITION §8.7): *surface the omission,
+    do not demote.* A section admitted as omitted on PRINTED evidence beside an
+    account that validated independently leaves the document `validated`; what
+    it must never do is disappear. So the package — which is where a person
+    reads a member's figures as though they were the member's whole banking —
+    says that a section of one of its documents was established and not
+    published.
+
+    An omission whose reason is NOT a ratified class is not surfaced here: it
+    is a publisher defect, `classify_document` already fails the document for
+    it, and reporting a defect as "partial" would dress it as a policy.
+    """
+    from telemetry.record import RATIFIED_OMISSION_REASONS
+
+    if not is_document_payload(analysis):
+        return []
+    block = analysis.get(_DOCUMENT_KEY)
+    omissions = (block or {}).get("omitted_sections") or []
+    return [
+        omission for omission in omissions
+        if isinstance(omission, dict)
+        and omission.get("reason") in RATIFIED_OMISSION_REASONS
+    ]
+
+
+def _unratified_omissions(analysis: object) -> list[dict]:
+    """The omissions whose reason is not a ratified class — a publisher defect.
+
+    A document carrying one is `failed` at `classify_document`, so none of its
+    accounts may enter a package: a member contributing money out of a document
+    the platform failed would be a total nobody could defend.
+    """
+    from telemetry.record import RATIFIED_OMISSION_REASONS
+
+    if not is_document_payload(analysis):
+        return []
+    block = analysis.get(_DOCUMENT_KEY)
+    omissions = (block or {}).get("omitted_sections") or []
+    return [
+        omission for omission in omissions
+        if not isinstance(omission, dict)
+        or omission.get("reason") not in RATIFIED_OMISSION_REASONS
+    ]
+
+
 def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
 
@@ -652,6 +701,7 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
         surface = "webapp/app.py::_package_members"
         accounts = payload_accounts(analysis, surface=surface)
         count = payload_account_count(analysis, surface=surface)
+        unratified = _unratified_omissions(analysis)
         digests = [account_content_digest(account) for account in accounts]
         if len(set(digests)) != len(digests):
             raise ValueError(
@@ -662,6 +712,17 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
             )
         for index, account in enumerate(accounts, start=1):
             outcome, reason = classify_outcome(account)
+            if unratified:
+                # The DOCUMENT failed (L1-C17). Its accounts may not carry
+                # money into a package on their own validation.
+                excluded.append({
+                    "job_id": job.id,
+                    "account_index": index,
+                    "account_count": count,
+                    "outcome": "failed",
+                    "reason": "document_omission_unratified",
+                })
+                continue
             if outcome != "validated":
                 excluded.append({
                     "job_id": job.id,
@@ -678,6 +739,15 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
 def _package_analysis(jobs) -> dict:
     duplicate_of, duplicate_groups = _package_duplicates(jobs)
     members, excluded_accounts = _package_members(jobs)
+    #: Q10. Every ratified sibling omission any member document published. The
+    #: package says so rather than demoting anything: an omission admitted on
+    #: printed evidence beside an independently validated account is a
+    #: COMPLETENESS fact about the paper, not a fault in the account's figures.
+    omitted_sections = [
+        omission
+        for job in jobs
+        for omission in _ratified_omissions(job.analysis or {})
+    ]
     documents = []
     monthly = []
     adb_weighted_sum = Decimal("0")
@@ -1408,6 +1478,16 @@ def _package_analysis(jobs) -> dict:
 
     published_totals = {
         **totals,
+        # Q10 (BATCH9_TRANSITION §8.7): surfaced, never demoted, and published
+        # ONLY when there is something to surface. A `False` / `"complete"`
+        # default would put two new fields on every package this platform has
+        # ever produced, which is movement — and this stage moves nothing. Their
+        # ABSENCE is today's package, unchanged; their presence is the fact.
+        **({
+            "sibling_account_omission_detected": True,
+            "completeness": "partial",
+            "omitted_section_count": len(omitted_sections),
+        } if omitted_sections else {}),
         "months": months,
         "avg_monthly_credits": round(totals["total_credits"] / months, 2),
         "avg_monthly_debits": round(totals["total_debits"] / months, 2),
@@ -1518,6 +1598,10 @@ def _package_analysis(jobs) -> dict:
         # The key exists only when there is something to say, so a package of
         # today's single-account payloads is byte-identical to what it was.
         **({"excluded_accounts": excluded_accounts} if excluded_accounts else {}),
+        # Q10: the omissions themselves, so a reader of the package can see
+        # WHICH sections were established and not published rather than only
+        # that some were. Conditional for the same reason as the totals above.
+        **({"omitted_sections": omitted_sections} if omitted_sections else {}),
     }
 
 
