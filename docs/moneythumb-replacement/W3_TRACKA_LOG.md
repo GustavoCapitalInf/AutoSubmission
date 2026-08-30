@@ -61038,6 +61038,15 @@ through in the same commit and discards the ledger it passes, because it asks a 
 | documents whose DOCUMENT-seam payload gained the omission record | 15 |
 | sections surfaced | 19 |
 
+**The card's expected movement is 15 documents / 19 sections, superseding the 12 / 16 the card
+and the design's S2 row state** (review MAJOR-1, accepted by Ocean 2026-08-30; the design is
+amended in §6.2 with a dated note in §7). The 12 / 16 remains exactly right about the three
+ABSENCE-shaped sites and is reported unchanged above; the delivered population adds
+`symitar._yield_only` on three further documents. Movement is 0 either way, and the number that
+matters downstream is S3's: when §1.5's omission override lands, **15** protected batch-8 shas
+fold to `review`, not 12. That override is a ruling in flight and S3 keeps it dark until it is
+answered; this card implements no fold and no integrity note.
+
 `cohort_replay` over every registration of every module touched — `symitar`, `community_section`,
 `dakota_west`, `mission_valley`, `zions` — at the base with `--expect-identical` and at the tip:
 
