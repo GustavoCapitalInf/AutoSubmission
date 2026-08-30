@@ -216,8 +216,12 @@ MUTANTS: tuple[Mutant, ...] = (
                        "    sink = _COLLECTING.get()\n",
                        "    return  # MUTANT Q-1: the record never reaches the document\n"
                        "    sink = _COLLECTING.get()\n"),),
-        killers=(UNIT, Q10_PINS),
-        archive_killers=(Q10_CARRIERS,),
+        # `Q10_CARRIERS` is a plain killer and NOT an archive one: archive
+        # killers have `--run` / `--data-dir` appended, and pytest answers an
+        # unknown option with exit 4 — which would have counted as a kill while
+        # the test never ran. It reaches the archive through the test's own
+        # ancestor walk instead.
+        killers=(UNIT, Q10_PINS, Q10_CARRIERS),
         note="the re-review's Q-1; it was already killed before this closure",
     ),
     Mutant(
@@ -235,8 +239,7 @@ MUTANTS: tuple[Mutant, ...] = (
                        "    if getattr(document, \"omissions\", None):\n"
                        "        return (\"review\", \"sibling_section_omitted\")\n"
                        "    return (\"validated\", \"approved\")\n"),),
-        killers=(Q10_PINS,),
-        archive_killers=(Q10_CARRIERS,),
+        killers=(Q10_PINS, Q10_CARRIERS),
         note=("the re-review's Q-3, which passed EVERY pin before this closure. "
               "It is killed on three legs now: the document-outcome assertions "
               "read the fold through the resolver, the tripwire's "
@@ -246,9 +249,23 @@ MUTANTS: tuple[Mutant, ...] = (
 )
 
 
+#: Exit codes that mean THE KILLER DID NOT RUN, not that it fired. `pytest`
+#: answers a usage error with 4 and "no tests collected" with 5, and
+#: `cohort_replay` answers an empty cohort with 4. Counting those as kills is
+#: the exact vacuity this harness exists to prevent — it was found the ordinary
+#: way, by a killer that was handed an option pytest does not take and reported
+#: a confident 4 while the test never executed.
+DID_NOT_RUN = (4, 5)
+
+
 def _run(argv: tuple[str, ...]) -> int:
     completed = subprocess.run(list(argv), cwd=REPO, capture_output=True, text=True)
     return completed.returncode
+
+
+def _fired(code: int) -> bool:
+    """Did this killer actually detect the mutant?"""
+    return code > 0 and code not in DID_NOT_RUN
 
 
 def _other_python_processes() -> list[str]:
@@ -378,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
             print("STOP: the tree did not come back clean after this mutant.")
             print(left)
             return 4
-        if not any(code > 0 for _label, code in results):
+        if not any(_fired(code) for _label, code in results):
             survived.append(mutant.id)
         rows.append((mutant, results))
 
@@ -388,9 +405,11 @@ def main(argv: list[str] | None = None) -> int:
     print("| mutant | what it removes | killers that FIRED | killers that did not |")
     print("|---|---|---|---|")
     for mutant, results in rows:
-        fired = [label for label, code in results if code > 0]
-        quiet = [f"{label} (not run)" if code == -1 else label
-                 for label, code in results if code <= 0]
+        fired = [f"{label} (exit {code})" for label, code in results if _fired(code)]
+        quiet = [f"{label} (not run)" if code == -1
+                 else f"{label} (DID NOT RUN — exit {code})" if code in DID_NOT_RUN
+                 else label
+                 for label, code in results if not _fired(code)]
         print(f"| `{mutant.id}` | {mutant.what_it_removes} | "
               f"{'; '.join(fired) or '**NONE — SURVIVED**'} | {'; '.join(quiet) or '-'} |")
     print()
