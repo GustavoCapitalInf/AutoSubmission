@@ -276,6 +276,36 @@ def test_the_document_scope_view_de_duplicates_across_accounts(monkeypatch):
     assert document.document_scope_flags() == ["parser_ambiguous", "repair_exception"]
 
 
+def test_the_document_scope_flag_set_is_pinned_exactly():
+    """The membership PREDICATE is not the SET, and only the set is the rule.
+
+    Everything else about this table is checked by a property that an ADDED
+    flag still satisfies: the partition still partitions, the account block
+    still keeps every flag in published order, and the source guard below still
+    reads `subset of what the pipeline raises`. And no comparison at any scale
+    can see the addition, because the split publishes no byte at this stage —
+    which is exactly the window in which it is cheap to get wrong.
+
+    What it would cost is paid later and elsewhere: from the stage that teaches
+    readers to consume `document_scope_flags()`, an account-scope flag in this
+    set promotes ONE account's ledger failure to a fact about the whole PDF, on
+    a document where "which account failed" is the question. Seven of the
+    fifteen flags the pipeline raises are account-scope and could be added
+    undetected, so the set is pinned by equality — the same treatment the
+    document object's field list gets, for the same reason.
+    """
+    assert DOCUMENT_SCOPE_FLAGS == {
+        "parser_ambiguous",
+        "parser_exception",
+        "repair_exception",
+        "integrity_check_exception",
+        "missing_declared_statement_page",
+    }, ("the document-scope set changed. A flag belongs here only if it is a "
+        "fact about the PDF rather than about one account's ledger; if a new "
+        "pipeline flag really is one, add it here AND to this assertion, and "
+        "say in the message why the document rather than the account owns it")
+
+
 def test_every_document_scope_flag_is_one_the_pipeline_actually_raises():
     """A scope table naming a flag no code path produces is a table about
     nothing — and it fails SILENTLY, by classifying every real flag as

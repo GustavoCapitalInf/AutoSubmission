@@ -138,6 +138,17 @@ SCOPE_SET = (
 
 EMPTY_SCOPE_SET = "DOCUMENT_SCOPE_FLAGS: frozenset[str] = frozenset()"
 
+#: The independent review's own mutant (its MAJOR-1): an ACCOUNT-scope flag
+#: added to the document-scope set. `summary_math_inconsistent` is ledger
+#: arithmetic about one account if anything is. It moves no byte at this stage,
+#: because the split publishes nothing yet, so only a pinned SET can see it —
+#: the membership predicates the table already had are all still true of a set
+#: with one more real flag in it.
+WIDENED_SCOPE_SET = SCOPE_SET.replace(
+    '    "parser_ambiguous",\n',
+    '    "parser_ambiguous",\n    "summary_math_inconsistent",\n',
+)
+
 SEAM_RETURN = "    return DocumentReport(accounts=[report])"
 
 SEAM_RETURN_LEAKING = (
@@ -186,6 +197,11 @@ MUTANTS: list[Mutant] = [
            "analysis/serialization.py", DOCUMENT_KEY, DOCUMENT_KEY_WITH_STATEMENT),
     Mutant("M10", "the document-scope flag set is emptied",
            "analysis/pipeline.py", SCOPE_SET, EMPTY_SCOPE_SET),
+    Mutant("M11", "an ACCOUNT-scope flag is added to the document-scope set "
+                  "(the independent review's own mutant)",
+           "analysis/pipeline.py", SCOPE_SET, WIDENED_SCOPE_SET,
+           expect_cohort_movers="none — the set is unread at this stage, so "
+                                "the pinned set is the killer"),
 ]
 
 TESTS = ["tests/test_document_report.py"]
