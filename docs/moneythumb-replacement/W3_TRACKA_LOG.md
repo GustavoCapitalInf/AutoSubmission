@@ -61730,14 +61730,27 @@ is the case that shows the census is a gate and not a report.
 
 ## Commits
 
-`868ec64` the shape discipline and the constructed fixtures · `f852584` the telemetry
-and revenue readers · `2446dde` the nine seams and the readers behind them · `7b1250b`
-the surface census and the four readers it found · `4890d5e` the per-reader tests, the
-census tests and the mutation table · `46b92eb` jobs vs members · `0a58c3e` one
-definition of the account digest · `981a076` the constructed credit as a named constant
-· `fbdbc4f` the third override not wired (Q10) · `661c005` Q10 surfaced at the package
-layer · `081fd28` the sweep attribution instrument · `6d411c4` this section · `d44e7ca`
-the replay pair's numbers, and the replay mode of the attribution instrument.
+Seven messages were REWORDED after the review, by `git filter-branch --msg-filter`,
+and the trees are byte-identical across the rewrite (`HEAD^{tree}`
+`be54bebb6f222a3d45fc5076292184d98163f3f8` before and after). The shas below are the
+post-rewrite ones and are what every measurement in this section was taken at or
+before; the reviewer's own commit is in the range and its message was passed through
+untouched.
+
+**The stage:** `868ec64` the shape discipline and the constructed fixtures · `f852584`
+the telemetry and revenue readers · `2446dde` the nine seams and the readers behind
+them · `27a51cd` the surface census and the four readers it names · `e77285b` the
+per-reader tests, the census tests and the mutation table · `b5b1250` jobs vs members ·
+`d60f598` one definition of the account digest · `da35d0b` the constructed credit as a
+named constant · `38cb951` the third override not wired (Q10) · `8582fd1` Q10 at the
+package layer · `a23ecb8` the sweep attribution instrument · `a5f707d` / `92f691d` /
+`acfb529` this section.
+
+**Answering the review:** `bbe338a` BLOCK-1 and MINOR-6 · `da891be` MAJOR-4 and MINOR-4
+· `ba926e1` MAJOR-2 · `c3c26e1` MAJOR-3 · `b70bac4` MAJOR-1, MINOR-3 and MINOR-9 ·
+`c07d9a5` MINOR-2 and MINOR-7 · `1231347` MINOR-1 · `1fb32a8` the two censuses re-pinned
+· `df6d42b` this closure.
+
 
 ---
 
