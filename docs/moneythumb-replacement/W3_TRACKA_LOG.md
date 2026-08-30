@@ -61541,9 +61541,11 @@ The file states the ruling's five independence conditions and where each is enfo
 that none of them is new machinery — they are the unchanged validator, which is the point: the
 ruling does not buy the account's outcome, it declines to take it away.
 
-**There is no document classifier at this tree.** `classify_outcome` classifies ONE ACCOUNT's
-payload; §1.5's fold is S3's, and Q10 is what it must implement. The file says so and names Q10 for
-S3 to extend when `classify_document` lands, keeping the account assertions.
+**There is no document classifier at this tree** — `classify_outcome` classifies ONE ACCOUNT's
+payload and §1.5's fold is S3's. The first version of these pins left that to a docstring, and the
+re-review showed a fold demoting all 15 while every pin stayed green. It is a MECHANISM now:
+`tests/test_l1s2_document_outcome.py` resolves the DOCUMENT's outcome through whatever this tree
+exposes and both pin files assert it, so S3's fold is read the day it lands. See Closure 2 below.
 
 **`tests/test_l1s2_protected_carriers.py`** (marked `corpus`) — the same property on the real 15,
 replayed from the run of record's own cached text through `analyze_document`: each publishes, each
@@ -61558,4 +61560,129 @@ any ancestor (a worktree carries neither, so it walks upwards, the idiom
 Neither file registers a tool — they add none, and the caller sweep is out of scope for `tests/` by
 its own directory rule; the register test passes with both present.
 
+
+
+## Closure 2 — the re-review's two blockers (`## Re-review (closure 9f30b88)`)
+
+NOT CONFIRMED on two items, both documentation and coverage, neither a production change; every
+other finding CLOSED with its numbers reproduced. Production is byte-identical across this closure
+too: `git diff f7d7aca..HEAD` touches the design, W3, three test files and two instruments, and
+nothing under `analysis/` or `telemetry/`.
+
+### BLOCKING-1 — the design's §6.2 / §7 wording contradicted the RULED Q10
+
+Both passages were written while the consequence was open and they said so — "S3 prices 15
+protected shas under §1.5's omission override", "15 … fold to `review` … a ruling Ocean is putting
+to Gustavo; S3 keeps it dark until it is answered". It is open no longer. On `train9` design §1.5's
+third override already reads **SUPERSEDED by Q10**, and the two edits touch different hunks, so
+left alone they would have merged **cleanly into a document that contradicts itself exactly where
+S3 reads for its scope**: §1.5 saying do not demote, §6.2 and §7 saying price fifteen demotions.
+
+Only those sentences were rewritten. The substance is unchanged — the population is 15 / 19, the
+widening was Ocean's to accept and not the design cell's, S3 prices fifteen rather than twelve —
+and what changed is what it prices them AS: **protected-and-pinned carriers that KEEP their account
+`validated` and surface the omission at the document / package layer**
+(`sibling_account_omission_detected: true`, `completeness: partial`), not a fold population.
+Fail-closed is restated unchanged: an omission that makes the boundaries ambiguous or prevents
+independent validation still refuses the document.
+
+§1.5 is **not touched** — verified byte-identical to the base, 2,092 bytes — so Ocean's annotation
+there merges beside this. Against the ORIGINAL design the branch stays purely additive: **0 lines
+of it deleted or changed**; the three deletions in that commit's diff are two sentences this branch
+itself wrote one commit earlier.
+
+### BLOCKING-2 — the pins covered the account leg, and a document fold walked through the other
+
+The re-review built design §1.5's original fold as a mutant — a `classify_document` in
+`telemetry/record.py` returning `("review", "sibling_section_omitted")` whenever the document
+carries an omission — and it **demoted all 15 protected carriers while every pin stayed green**:
+the ruling file 20 passed, the carriers 1 passed, document-report and register 50 passed. The pins
+asserted the ACCOUNT outcome; a fold decides the other leg. Q10 asked for a mechanism and what had
+been delivered was a docstring saying "S3, extend these when your classifier lands".
+
+**The mechanism, in three sentences.** `tests/test_l1s2_document_outcome.py` scans `analysis/` and
+`telemetry/` by AST for a symbol named like a document-level outcome (`classify_document*`,
+`document_outcome*`) and imports the module that declares one, so discovery is by SCAN rather than
+by a hard-coded name and a fold landing in a module nobody anticipated is still found. Its
+`document_outcome(report)` returns that fold's verdict when one exists and the published account's
+otherwise — which is what a document's outcome IS at a tree with one account and no fold — and both
+pin files now call ONLY that, so the assertions start reading S3's fold the day it lands without
+anyone remembering to extend them. Three tripwire tests pin that this tree declares no fold and
+that the resolver agrees, fail naming Q10 if a declared fold cannot be imported or its verdict
+read, and fail if production ever emits the superseded reason string as a value — with three more
+tests doctoring a synthetic module and a synthetic verdict so the scanner and the interpreter are
+SEEN to catch what they ban.
+
+Both pin files assert the document leg: every constructed ratified-omission fixture and all 15
+carriers must resolve to `validated`, and the with-sibling / without-sibling comparison now runs on
+both legs.
+
+### The two mutants, re-run and killed
+
+`python -m tools.l1s2_mutation_table --only Q1_…,Q3_… --allow-concurrent`, in a **disposable
+worktree** of the tip so the cell's own checkout was never mutated:
+
+| mutant | killers that FIRED | survived |
+|---|---|---|
+| `Q1_the_omission_is_admitted_but_never_surfaced` — the record never reaches the document | the constructed fixtures (exit 1); the ruling pins + tripwire (exit 1); the 15 carriers, replayed (exit 1) | **no** |
+| `Q3_a_document_fold_demotes_on_any_omission` — §1.5's fold as it stood before Q10 | the ruling pins + tripwire (exit 1); the 15 carriers, replayed (exit 1) | **no** |
+
+`MUTANTS=2 SURVIVED=0`; the isolated worktree and the cell's checkout both `git status --porcelain`
+empty afterwards. Q-3's failure names every one of the fifteen individually —
+*"DOCUMENT outcome is 'review' ('sibling_section_omitted'), not 'validated' — Q10 forbids demoting
+a protected carrier for surfacing its omission"* — which is the assertion the re-review found
+missing.
+
+**And the harness found a trap in itself while proving this.** The two mutants were first declared
+as ARCHIVE killers, so the harness appended `--run` / `--data-dir` to a pytest invocation; pytest
+answered the unknown option with **exit 4** and the harness scored a kill **while the test never
+executed**. Run by hand the same mutants failed properly, so the pins were never in doubt — but a
+harness that scores a usage error as a detection is the exact vacuity it exists to prevent. Two
+repairs: the carrier killer is a plain killer and reaches the archive through the test's own
+ancestor walk; and exit codes **4 and 5** — pytest's usage error and no-tests-collected,
+`cohort_replay`'s empty cohort — are now `DID_NOT_RUN` rather than a kill, excluded from the
+survival test and printed as such beside every real kill's exit code. The table above is the run
+AFTER that repair, and every killer in it is a genuine exit 1.
+
+### The fail-closed cases, made as strong as the rest of the file
+
+The re-review's non-blocking observation, taken. `pytest.raises(Exception)` passed on any
+exception, including one from a fixture that never reached the site. Each of the three now names
+the refusal — `pytest.raises(RuntimeError, match="no deterministic parser matched this statement")`
+— and each gained a POSITIVE CONTROL on the nearest page that does print evidence, which must
+publish, record its omission and resolve to `validated`. The ambiguous pair gained the byte-level
+companion the symitar pair already had.
+
+### A host lesson, recorded because it made two logs lie
+
+The wait-loops in this cell's scratch scripts called `tasklist /FI "IMAGENAME eq python.exe"` from
+MSYS bash, which rewrites the leading `/FI` into a Windows path — so the filter never applied, the
+grep never matched, and the loop reported "host clear" while the concurrent cell's whole-archive
+sweep was plainly running. The mutation harness's OWN check is not affected (it calls `tasklist`
+through `subprocess.run` with an argument list) and it refused correctly, twice, which is how the
+bug surfaced. Later scripts call `tasklist` with no filter and grep the output.
+
+### Closure-2 floor
+
+Measured at `44cc882`, the final CODE commit; the only commit after it is this section, and
+`git diff --stat 44cc882..HEAD` is one Markdown file.
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files) | **255 passed** | **0** |
+| `tests/test_corpus_gate_outcomes.py` (the caller register) | **24 passed**, 10 deselected | **0** |
+| `tests/test_document_report.py` | **26 passed** | **0** |
+| `tests/test_l1s2_omission_ruling.py` + `tests/test_l1s2_document_outcome.py` | **34 passed** (28 + 6) | **0** |
+| `tests/test_l1s2_protected_carriers.py` (corpus-marked) | **1 passed**, 41 s — it really replays | **0** |
+| full default suite | **7,561 passed**, 43 skipped, 35 deselected — at `315abfc`; the only diff to `44cc882` is `tools/l1s2_mutation_table.py`, which no test imports (grepped: 0 references under `tests/`, `analysis/`, `telemetry/`, `corpus_gate.py`) | **0** |
+| the two Q10 mutants | **2 applied, 2 killed, 0 survived**; both trees clean before and after | **0** |
+| branch privacy scan, added lines vs the five registrations' printed universe | **hit_count 0** over **4,010 added lines**, 120 documents; MONEY / DIGITS / DATES / WORDS all 0; raw 4, discarded by the standing rules (1 `round_money`, 3 `words_class`) | **0** |
+| commit-message scan, `--shas` the 15 carriers | **hit_count 0** over **25** commits, 15 documents; every class 0 | **0** |
+
+`corpus_gate.py` GREEN 105 / 3 / 1 and the corpus-marked slice are carried from `67f4b8d` on the
+grounds the re-review already accepted and re-checked: the gate reads no document under `docs/`,
+`-m corpus` collects no test from it, and the one member of that slice this closure changed was run
+directly at the tip (the row above). The suite count moves 7,547 → **7,561** with the fourteen new
+pin cases: six tripwire, and eight added to the ruling file by the document leg and the
+positive controls.
 
