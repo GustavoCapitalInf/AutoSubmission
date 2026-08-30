@@ -59382,3 +59382,494 @@ That correction is the reason this subsection re-measures rather than
 transcribes. A review that reproduces a cell's numbers earns the cell's trust,
 and a cell that copies a reviewer's number without re-deriving it has simply
 moved the unchecked claim from one document to another.
+
+## ROWCAP.1 Population, and baseline fidelity before anything changed
+
+Eighteen withheld documents whose OWN payload in the run of record carries a
+row-capture signature, across five readers: `WH:rbc` 6, `WH:bmo` 4,
+`WH:wells_fargo` 4, `WH:scotiabank` 3, `WH:ibc` 1. All eighteen are
+`withheld / withheld_adb` and all eighteen are native text. The protected
+baseline is the **454** documents these five readers validated in the run —
+rbc 159, wells_fargo 217, scotiabank 78, bmo 0, ibc 0 — and the union of the
+**472** documents the five readers CLAIMED is the population every scan on this
+branch is run against.
+
+`cohort_replay` at the base `aaa3441`, run of record `cda8882d`, cold cache
+`webapp_data_train8_cold`, every row `--expect-identical`:
+
+| cohort at base | population | result | exit |
+|---|---:|---|---:|
+| the five `WH:` groups | 18 | 18 unchanged non-validated, payload changed 0 | **0** |
+| `--parser rbc` | 165 | preserved **159 / 159**, payload identical 159 | **0** |
+| `--parser bmo` | 4 | no validated document; 4 unchanged, payload changed 0 | **0** |
+| `--parser wells_fargo` | 221 | preserved **217 / 217**, payload identical 217 | **0** |
+| `--parser scotiabank` | 81 | preserved **78 / 78**, payload identical 78 | **0** |
+| `--parser ibc` | 1 | no validated document; 1 unchanged, payload changed 0 | **0** |
+
+## ROWCAP.2 The signature table — what "row capture" turned out to mean
+
+`tools/rowcap_probe.py` re-runs the reader over the run's own cached text and
+reports, per document, shapes and gate names only: postings published against
+the instance count the BANK printed; the published credit and debit totals as a
+RATIO of the printed totals; the number of postings whose printed running
+balance does not move by the magnitude printed beside it (`chain`); whether the
+postings come out in the order the bank DATED them (`order`); and the NAMES of
+the failing ADB checks.
+
+At the **base** tree, over the eighteen:
+
+| group | rows vs the bank's printed count | coverage cr / db | `chain` | `order` |
+|---|---|---|---:|---|
+| `WH:rbc` 6 | -15 to +1 against a printed count on all six | 0.46-0.86 / 0.77-1.31 | 13-27 | dated |
+| `WH:bmo` 4 | no printed instance count; 55/57, 57/57, 57/57, 41/41 against the page footers | 0.87-1.77 / 0.78-1.36 | 0-36 | dated |
+| `WH:wells_fargo` 4 | no printed instance count | 0.96-1.00 / 0.96-1.99 | 2-21 | dated |
+| `WH:scotiabank` 3 | -1, 0, 0 | 1.00-1.02 / 1.00-1.24 | 0-5 | **binder** on 2 |
+| `WH:ibc` 1 | 0 | 1.000 / 1.000 | 20 | dated |
+
+Three classes come out of that table and only one of them is a row-capture
+defect this wave's readers can repair.
+
+* **The sheets are bound out of the ledger's order** (`WH:scotiabank`, 2). The
+  rows are all there and the totals are the bank's own; what is wrong is the
+  ORDER they are read in. This is ROWCAP.3.
+* **A restatement is read as a posting** (`WH:wells_fargo`, 2). The row set is
+  one row too long, and the extra row carries the statement's whole debit
+  total. This is ROWCAP.4.
+* **Printed cells the text layer lost or garbled** (`WH:rbc` 6, `WH:bmo` 4,
+  `WH:wells_fargo` 2, `WH:ibc` 1, `WH:scotiabank` 1). No reading of the rows
+  recovers a figure the page no longer carries, and inventing one is what the
+  repair doctrine refuses. Each is measured and named in ROWCAP.7.
+
+The `order` column is measured AT THE TREE, so the `binder` reading above
+cannot be reproduced at a tree where the reader has been repaired. It was taken
+by restoring the base reader into this worktree, running the probe, restoring
+the tree and verifying `git status --porcelain` clean — the same shape the
+mutation harness uses.
+
+## ROWCAP.3 scotiabank — the binder's order is not the ledger's order
+
+A Scotiabank PDF is a BUNDLE of sheets. Each one re-declares the
+`Date Description Withdrawals/Debits ($) Deposits/Credits ($) Balance ($)`
+header and closes with its own `No. of Debits ...` footer strip, and **nothing
+in the document declares that the sheets are bound in the order the ledger
+ran**. The reader walked the rows in PRINT order, which breaks two things at
+once on a bundle bound out of order:
+
+* the running-balance chain steps across a sheet boundary that is not a ledger
+  step, so a posting takes its direction from a predecessor it never had — the
+  reader reads a fall where the account rose;
+* the balance of the last printed row, a mid-period figure, is published as the
+  period's closing balance, and this layout prints no closing-balance label
+  anywhere for it to be checked against.
+
+The date the bank printed beside each row is the only ordering evidence the
+sheet carries, and it is what settles it. `_in_ledger_order` sorts the swept
+rows by that date and `_postings` walks the sorted list. The sort is **stable**,
+so rows sharing a date keep the order they were printed in: within a day the
+print order is the only order there is, and it is left alone. Nothing is
+computed and no value is rewritten — the amounts and the balances are the
+printed cells, and the closing balance is a running balance this statement
+prints, chosen by the date beside it.
+
+**Measured before it was written, over every document this reader claimed in
+the run of record: 78 are already in date order and the sort cannot move them,
+and 2 are not** — both bundles whose sheets are bound out of order, both
+withheld, both in this card's population.
+
+## ROWCAP.4 wells_fargo — the history's own restatement is not a posting
+
+The transaction history closes with the bank restating it — a `Totals` row
+carrying the period's credit and debit totals — and that row is set in the same
+two money columns the postings are. Where its band meets the last posting's,
+the native grid emits ONE record carrying both, and the restatement's figures
+then read as that posting's amount: **the statement's whole debit total
+published as a single debit that never happened**, on a ledger the reader
+otherwise reads faithfully.
+
+The currency symbol is what separates the two, and it is the layout's own
+distinction rather than a threshold: this bank sets `$` on the activity summary
+and on the restatement row, and on no posting amount. Measured over every
+document this reader claimed in the run of record — **221 documents, 30,347
+records, 30,339 printed money cells and 4,218 balance cells — exactly 2 money
+cells carry the symbol**, both are a restatement figure merged into the last
+posting, and no balance cell carries it at all.
+
+A row whose amount cell is a restatement is DROPPED, in the same fail-closed
+direction the reader already takes for a row whose amount landed in neither
+money column: it loses an amount rather than publishing one the grid did not
+print as a posting, and reconciliation decides what that costs the document.
+Only the two money COLUMNS are read for the symbol — this bank quotes an
+authorized amount inside a posting's own description (`Transaction Posted on
+... $x ...`), and that is description text.
+
+Both documents were withheld before and remain withheld: this is a correctness
+correction, not coverage. What it removes is a fabricated posting worth the
+whole printed debit total.
+
+## ROWCAP.5 The movers, by sha
+
+Two newly validated, both `withheld / withheld_adb -> validated / approved`,
+both `WH:scotiabank`:
+
+| sha16 | postings | printed instance counts | coverage cr / db | continuity breaks | `adb.ok` |
+|---|---:|---|---|---:|---|
+| `D00562176BEC0AAE` | 185 | 74 credits + 111 debits, reproduced exactly | 1.000 / 1.000 | 0 | true |
+| `B52CDF2BA874BBB4` | 213 | 82 credits + 131 debits, reproduced exactly | 1.000 / 1.000 | 0 | true |
+
+Both: `sum_delta` 0.00, `summary_ok` true, quality `transaction_level` /
+`approved`, integrity flags 0, one account each, one printed period each, and
+currency **CAD by the institution default** — the value and the provenance both
+unchanged from the base, so neither document moves the pinned currency surface.
+
+No other document in the population changes ladder class in either direction.
+
+## ROWCAP.6 Correctness evidence — the check the reader does not read
+
+`analysis/scotia.py` takes each row's direction from the printed running
+balance and never reads the per-sheet footer strips. Those strips are therefore
+an **independent** check on every direction the reader assigned and on the
+ordering this card put the sheets back into: a row whose direction is wrong
+changes two of its sheet's four printed figures at once.
+
+`tools/rowcap_sheet_strips.py`, at the tip:
+
+| sha16 | sheet strips printed | reproduced EXACTLY, in count and in total | differing |
+|---|---:|---:|---:|
+| `D00562176BEC0AAE` | 17 | **17** | 0 |
+| `B52CDF2BA874BBB4` | 19 | **19** | 0 |
+| `125127F359039F2F` | 4 | 1 | **3** |
+
+The third document is this card's third `WH:scotiabank` and it is NOT a mover;
+its three differing sheets are the measurement that says so, and ROWCAP.7 names
+what is wrong with it.
+
+What the ordering fixed, in the documents' own terms:
+
+* `B52CDF2BA874BBB4` — at the base, 213 postings against 213 printed instances,
+  but **81 credits and 132 debits against the bank's printed 82 and 131**: one
+  posting on the wrong side. Its three chain breaks cancelled to the cent, which
+  is the signature of an excursion and a return rather than of a lost figure.
+  In ledger order the direction is right, the counts are the bank's, and the
+  reconstruction lands on the printed closing balance exactly.
+* `D00562176BEC0AAE` — at the base, counts and totals already exact in both
+  directions, and the ledger still off by a small residue, because the closing
+  balance had been taken from a sheet dated mid-period. In ledger order the
+  reconstruction and the printed closing balance are the same figure.
+
+## ROWCAP.7 The ceiling — the sixteen that stay withheld, each named
+
+`tools/rowcap_ceiling.py` asks two questions of the PAPER before asking
+anything of a reader: does the bank's own summary close, from the four printed
+figures alone; and do the captured magnitudes total the printed credit-plus-debit
+pair, as a ratio. At 1.000 the reader holds every printed figure and only the
+COLUMN each was printed in is lost, which is solvable; away from 1.000 printed
+cells are missing or misread, which no row grammar recovers.
+
+| group | documents | captured magnitude / printed pair | the bank's own summary closes | what stays wrong |
+|---|---:|---|---|---|
+| `WH:rbc` | 6 | 0.739 - 0.998 | yes on all six | printed cells the flattening lost or merged |
+| `WH:bmo` | 4 | 0.872, 1.609, 1.684, 1.723 | no on 3, yes on 1 | the itemisation and the summary contradict each other |
+| `WH:wells_fargo` | 4 | 0.962, 0.964, 0.981, not readable | yes on 3, not readable on 1 | amounts absent from the emitted grid |
+| `WH:scotiabank` | 1 | 1.127 | yes | two printed rows emitted as one |
+| `WH:ibc` | 1 | **1.000** | **no** | the recap contradicts the document's own ladder |
+
+**`WH:rbc` (6) — one account, six consecutive months, and a text layer that
+loses cells.** The six are consecutive statements of one business account, each
+opening on the previous one's closing balance. The row set is close to the
+bank's own printed instance count (-15 to +1) but the captured magnitudes fall
+short of the printed pair on every one. `--mode wrapped_amount` measures the one
+reading available inside this reader — a line carrying ONLY money cells
+continues the description line above it, which is how this layout sets a row
+whose description ran the width of its column, and without which the previous
+row (still open, because a description-only line does not close it) takes that
+amount as its BALANCE. It moves the capture ratio on four of the six
+(0.926 -> 1.003, 0.991 -> 1.005, 0.992 -> 0.994, 0.998 -> 1.009) and reaches
+`validated` on **none**, while overshooting past 1.000 on three, where a second
+printed cell then reads as an amount. That is why it is a ceiling mode and not
+a production change: it trades one misreading for another and closes nothing.
+The residue is in the text layer, which is the DESC-COLUMNS / geometry rung.
+
+`42405BDA7E97986B` is the sharpest case and worth naming on its own: **57
+postings against the bank's printed 57**, and the captured magnitudes still
+0.999 of the printed pair. Nothing is missing structurally; specific printed
+cells carry a different figure from the one the bank's own summary and its own
+balance chain both require. A reader that closed that gap would be writing an
+amount the page does not print.
+
+**`WH:bmo` (4) — the row set is the bank's and the summary is not.** Measured
+against this layout's own page footers (`Page n - Transactions a-b`), the reader
+captures 57/57, 57/57, 41/41 and **55/57**. The two it does not capture are
+dated the 29th of a February the statement itself dates to a NON-LEAP year: the
+calendar has no such day, the parser refuses rather than moving them, and the
+Huntington ruling is exactly this — a parser never writes a date the paper did
+not print. On three of the four the bank's own summary does not close; on the
+fourth it does, and the itemisation then totals 1.684 of it. Both halves are
+printed, they disagree, and no capture reconciles them.
+
+**`WH:wells_fargo` (4) — amounts that never reach the grid.** After the
+restatement fix, two of the four still fall short (0.962, 0.981) because rows
+were emitted with an amount in NEITHER money column, or with two printed rows
+merged into one record carrying a credit and a debit at once. The fourth
+(`A4E41C80E7362D58`, 15 pages, 354 postings) prints its four summary rows with
+their cells emitted apart from their labels: its beginning balance and its
+credit total are both on the page, in the wrong places, and the two candidate
+assignments BOTH satisfy the block's own arithmetic identity, so the reader
+cannot choose between them without going outside the document. Its debits are
+short besides.
+
+**`WH:scotiabank` (1) — `125127F359039F2F`.** One posting short of the bank's
+printed 55, and 3 of its 4 sheet strips not reproduced. Its own page evidence
+says what is wrong twice over. On one sheet a posting is emitted with its
+BALANCE cell and no amount cell at all — the reader drops it rather than
+back-solving one, which is the existing fail-closed rule and is why the count
+is one short. On another, the printed credit total exceeds the three captured
+credits by exactly the figure that same sheet's balance chain says one of them
+is short by, so the cell the text layer carries is not the cell the page's own
+two identities both require. Both are printed cells this reader would have to
+rewrite or invent.
+
+**`WH:ibc` (1) — `413AD4C2FBFB71A0`, the one where capture is already
+perfect.** 317 postings against the recap's printed 21 credits and 296 debits,
+and the published totals equal the printed totals **to the cent in both
+directions** — capture ratio 1.000. It stays withheld because the DOCUMENT does
+not close: the recap's own arithmetic (beginning + credits - debits) misses its
+own printed closing balance, and the daily-ending-balance ladder the same
+statement prints agrees with the itemisation exactly while disagreeing with the
+recap at both ends. The statement contradicts itself in two places; a parser
+that picked a winner would be choosing which printed figure to believe.
+
+## ROWCAP.8 Generalization
+
+Both changes are to SHAPES, and each shape is measured over the reader's whole
+claimed cohort rather than over the documents that moved:
+
+| shape | documents that print it | documents it moves |
+|---|---:|---:|
+| a bundle whose sheets are bound out of ledger order | 81 swept, 2 out of order | 2 |
+| the stability requirement (rows sharing a printed date) | 81 | 0 — it is what keeps the other 79 still |
+| a money cell carrying the currency symbol | 221 swept, 30,339 cells, 2 carry it | 2 |
+| the symbol read in the money COLUMNS and not the description | 221 | 0 — it is what keeps ordinary postings |
+
+No statement-specific rule, no literal from any document, no registration added
+and no registry pin touched. Neither reader gained a vocabulary: one gained an
+ordering rule that is a no-op wherever the paper is bound in order, and the
+other gained a refusal that fires on a figure this layout never prints on a
+posting.
+
+## ROWCAP.9 The mutation table
+
+`tools/rowcap_mutation_table.py` over `tools/rowcap_mutants.py`, every mutant an
+exact string replacement applied exactly once, tests run WITHOUT `-x`, restore
+in a `finally` whose exit code is ignored, every file verified byte-for-byte
+against text held since before the first mutant, and `git status --porcelain`
+verified clean before the table is printed. The harness borrows its restore, its
+git wrapper and its retried `status` from `tools/fixpriv_mutation_table.py` and
+its loop from `tools/pnc_mutation_table.py` rather than keeping a third copy of
+logic that took two incidents to harden.
+
+**5 mutants · 5 KILLED · 0 survived · EXIT=0**, at `279391c`.
+
+| mutant | the decision it breaks | killed by |
+|---|---|---|
+| S1 | the postings are ordered by the date the bank printed | `test_f21_a_bundle_bound_out_of_ledger_order_still_walks_one_chain` (+2) |
+| S2 | the ordering is STABLE within one printed date | `test_negative_rows_sharing_a_date_keep_the_order_they_were_printed_in` |
+| S3 | the direction walk starts at the printed opening balance | `test_f1_printed_cell_is_the_amount_not_the_balance_movement` (+4) |
+| W1 | the history's own restatement is not a posting | `test_a_restated_total_in_an_amount_cell_is_not_a_posting` |
+| W2 | only the two money COLUMNS are read for the symbol | `test_negative_a_currency_symbol_in_the_description_does_not_refuse_the_row` |
+
+S1's third killer is the negative that pins the ordering cannot be used to
+repair arithmetic, and that is the point of having it: a document whose printed
+cell disagrees with its own balance movement must still reach `reconcile` with
+the disagreement intact after the sheets are put back in order.
+
+## ROWCAP.10 Zero movement — the replays, and the two payloads that changed
+
+`cohort_replay` at the closure tree, over the target cohort and over the
+baseline cohort of every registration of every module this branch touched:
+
+| cohort at closure | population | result | exit |
+|---|---:|---|---:|
+| the five `WH:` groups | 18 | **newly validated 2**, other movement up 0, unchanged non-validated 16 (payload changed on 2), **validated regressions 0**, other ladder regressions 0 | **0** |
+| `--parser rbc` | 165 | preserved **159 / 159**, payload identical 159, newly validated 0, regressions 0 | **0** |
+| `--parser bmo` | 4 | 4 unchanged, payload changed 0, regressions 0 | **0** |
+| `--parser wells_fargo` | 221 | preserved **217 / 217**, payload identical 217, newly validated 0, regressions 0, unchanged non-validated 4 (payload changed on 2) | **0** |
+| `--parser scotiabank` | 81 | preserved **78 / 78**, payload identical 78, **newly validated 2**, regressions 0 | **0** |
+| `--parser ibc` | 1 | 1 unchanged, payload changed 0, regressions 0 | **0** |
+
+**No previously validated document's payload changes at all** — 454 of 454
+preserved, every one byte-identical after canonicalisation. The only two
+payloads that move belong to `3725BB1189EA74D5` and `59FAF1FC17745A6E`,
+withheld before and withheld after, and every changed leaf on both is
+downstream of ONE removed posting: that posting's own leaves, the debit total
+and the debit coverage, `sum_delta` and `computed_ending`, the withdrawal
+counts, and the reconciliation issues, ADB warnings and metric notes that
+restate them.
+
+One of the two gains an integrity flag, and that is the change reading
+correctly rather than a new defect. On `3725BB1189EA74D5` the removed record
+carried the only posting the reader had dated to the period's last day, so
+`posting_dates_cover_source` now fails: the page prints a posting on that day
+whose amount the grid did not carry, and the reader now says so instead of
+covering the day with a figure that was the history's restatement. The document
+was `withheld / withheld_adb` before and is `withheld / withheld_adb` after.
+
+## ROWCAP.11 The proof floor, the commits, and the contract line
+
+Everything below was measured at `5fcfd85`, which is this branch's last
+production and tooling commit — the only commit after it is this section, and a
+log entry cannot move a verdict.
+
+| proof | result | exit |
+|---|---|---:|
+| `cohort_replay` at base `aaa3441`, the five `WH:` groups, `--expect-identical` | 18 unchanged non-validated, payload changed 0 | **0** |
+| `cohort_replay` at base, `--parser` × 5, `--expect-identical` | 472 replayed, preserved **454 / 454**, payload identical 454 | **0** each |
+| `cohort_replay` at closure, the target 18 | **newly validated 2**, unchanged non-validated 16 (payload changed on 2), **validated regressions 0**, other ladder regressions 0 | **0** |
+| `cohort_replay` at closure, `--parser` × 5 | 472 replayed, preserved **454 / 454**, payload identical **454**, newly validated 2, **validated regressions 0**, other ladder regressions 0 | **0** each |
+| mutation table, `tools/rowcap_mutation_table.py` | 5 mutants, **5 KILLED / 0 survived**; `git status --porcelain` verified clean before and after; every file verified byte-for-byte | **0** |
+| `tools/rowcap_sheet_strips.py` | 36 of 36 printed sheet strips reproduced exactly on the two movers; 1 of 4 on the third `WH:scotiabank` | **0** |
+| `tools/rowcap_ceiling.py`, both modes | `as_is` validated 2; `wrapped_amount` validated 2 — the SAME two, and no RBC document | **0** each |
+| full default suite | **7,456 passed, 43 skipped, 34 deselected** in 245s | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped** | **0** |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,503 deselected** in 1,427s | **0** |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs (103 native, 6 committed OCR), 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld, runtime 474.3s. **currency 108/108 = 14 CAD / 94 USD** and **currency_source 108/108 = 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89 schema_default** — neither surface moves | **0** |
+| branch privacy scan, ADDED FILE LINES vs the 472-document population | **hit_count 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) over 1,097 added lines and 472 documents read, no sha without cached text. Not vacuous: the raw scan before exclusions finds 6, every one the `round_money` class | **0** |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 6 commits | **0** |
+| archive sweep (`tools.regfp_zero_movement_sweep`), three chunks | whole **3,380**: compared 2,669 · identical 2,620 · moved 46 · no-payload-now-publishes 21 · payload-now-raises 3 · no OCR artifact 29 — **70 findings, 4 of them inside this card's named population and 66 outside** | 1 per chunk (findings exist) |
+| attribution of the 66 outside findings | `cohort_replay --expect-identical` over exactly those 66, with the BASE's `analysis/scotia.py` and `analysis/wells.py` restored into this worktree — the branch's only two production files — reports **baseline fidelity FAILED on all 66**. Every one of them already differs from the run of record without this branch, so all 66 belong to the compositions train9 already carries and **zero movement is attributable to this card outside its named population**. Tree restored and `git status --porcelain` verified clean | **0** |
+
+**The suite was green only on the second reading, and the first reading is
+worth keeping.** The first closure run reported one failure —
+`tests/test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified`
+— naming this card's three new instruments as callers of the analysis that are
+in neither `ANALYSIS_CALL_SITES` nor `EXCLUDED_ANALYSIS_CALLERS`. That guard is
+right and it caught a real omission; ROWCAP.12 records what the decision was
+and the second defect it uncovered. The first run ALSO recorded `EXIT=0` beside
+that failure, because the harness script piped pytest into `tail` and captured
+the pipeline's exit code rather than pytest's. Both were fixed and every row
+above is from a re-run whose exit code is the command's own.
+
+**The two scan rows count this section too, and the zero is invariant to
+that.** The added-line count and the commit count are the branch's own at the
+commit that carried them, so a section that reports a scan is itself scanned by
+the next run of it; both were re-run after this section landed and both still
+report MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0.
+
+**The four findings inside the population are the four documents this card
+touched**, and nothing else: `D00562176BEC0AAE` and `B52CDF2BA874BBB4`, the two
+movers, and `3725BB1189EA74D5` and `59FAF1FC17745A6E`, the two withheld
+documents whose ledger lost the restatement. The sweep is therefore the
+strongest form of this card's non-regression claim: it recomputed every one of
+the 3,380 documents the run of record analysed and found nothing else moved.
+
+### The commits of this cell
+
+| commit | what |
+|---|---|
+| `b3bdedc` | `tools/rowcap_probe.py` — the signature probe |
+| `ee8435f` | `analysis/scotia.py`: the binder's order is not the ledger's order, with its five tests and the first three mutants |
+| `83948b5` | `analysis/wells.py`: the history's own restatement is not a posting, with its three tests and two mutants |
+| `be28a50` | `tools/rowcap_ceiling.py` — the two questions of the paper, and the one reading available inside the reader |
+| `279391c` | `tools/rowcap_sheet_strips.py` — the check the reader does not read |
+| `5fcfd85` | the three instruments analyse the run's own page partition, and are classified in `corpus_gate.EXCLUDED_ANALYSIS_CALLERS`; one docstring's example figure named as a class |
+
+### The contract line
+
+population **18** | root cause: a bundle whose sheets are bound out of the
+ledger's order, so the running-balance chain steps across a boundary that is
+not a ledger step and a mid-period balance is published as the closing balance
+(2); the transaction history's own restatement emitted into the last posting's
+record, so the statement's whole debit total is published as a posting that
+never happened (2); and printed cells the text layer lost, merged or garbled
+(14, overlapping) | solution: the postings are ordered by the date the bank
+printed beside them, with a stable sort so a shared date keeps its print order;
+and a money cell carrying the currency symbol is the history's restatement and
+not a posting amount | **newly validated 2** — `D00562176BEC0AAE`,
+`B52CDF2BA874BBB4` | other ladder movement: none — no document moves class in
+either direction except the two movers | previously validated preserved
+**454 / 454**, payload IDENTICAL on all 454; two withheld documents' payloads
+change and stay withheld, every changed leaf downstream of one removed
+posting | **unexpected validated regressions 0** | correctness evidence: on
+both movers the published ledger reproduces the bank's printed instance counts
+exactly in both directions (74 + 111 and 82 + 131), coverage 1.000 / 1.000,
+continuity breaks 0, `sum_delta` 0.00, `adb.ok`, quality `transaction_level` /
+`approved`, integrity flags 0, and **all 17 and all 19 of their printed sheet
+strips reproduced exactly in count and in total** by evidence the reader never
+reads; currency CAD by the institution default, value and provenance unchanged |
+generalization evidence: 81 documents swept for the ordering and 2 move; 221
+documents and 30,339 printed money cells swept for the restatement and 2 move;
+no statement-specific rule, no literal, no registration and no registry pin.
+
+## ROWCAP.12 What the guard caught, and the defect behind it
+
+`test_every_production_caller_of_the_analysis_is_classified` failed on the
+first closure run, naming `tools/rowcap_probe.py`, `tools/rowcap_ceiling.py`
+and `tools/rowcap_sheet_strips.py`. Answering it turned up a second defect the
+guard was not looking for.
+
+The question the list asks is whether a caller publishes a verdict anyone sees.
+These three do not: between them they print a content sha, an outcome CLASS and
+reason, row counts, coverage and capture RATIOS, gate NAMES and how many
+printed strips a ledger reproduces — never an amount, a date, a description or
+an account number. So all three are EXCUSED rather than declared.
+
+The entries beside them are excused on a second ground as well — that they
+already supply the reconstructed page partition as `sheets` — and these three
+did not. They called `analyze_markdown` with the cached TEXT and no page list,
+where `discovery.runner._analyse` passes the partition the intake produced. A
+measurement that feeds the analysis a different partition from the one the run
+fed it is measuring a difference it created itself. `ColdCache.text` now
+returns the text AND its pages and all three callers pass them, which is what
+`tools/cohort_replay.py` does and why its baseline row is trustworthy.
+
+Re-measured after the fix, every table in this section is unchanged except one
+cell, and that cell moved for the READER's reason rather than the partition's:
+`3725BB1189EA74D5` also fails `posting_dates_cover_source` once the
+restatement is no longer standing in for a posting on the period's last day.
+The lesson is the one the guard exists for — a new caller of the analysis is a
+decision, and the decision is worth making carefully enough to notice what else
+the caller was doing wrong.
+
+### The findings carried
+
+1. **The RBC six are a text-layer problem, and the measurement to start from is
+   committed.** Six consecutive statements of one account, capture ratios 0.739
+   to 0.999 against the bank's own printed pair, and `tools/rowcap_ceiling.py
+   --mode wrapped_amount` is the reading a later cell should begin at —
+   including its negative half, that joining a wrapped description to its own
+   amount line closes none of them and overshoots on three. It belongs beside
+   the DESC-COLUMNS / printed-rows rung, not inside `analysis/rbc.py`.
+2. **`analysis/tables.py:read_grid_rows` takes a money cell that OPENS a
+   physical line as the previous row's BALANCE.** That is the mechanism behind
+   the RBC finding above, it is shared with `analysis/cibc.py`, and it is
+   outside this card's ownership. The rule that would fix it is that a
+   description-only line closes the open row's balance slot — measured here on
+   six documents, unmeasured on CIBC's cohort, and worth a card of its own
+   rather than a change smuggled through a reader.
+3. **`analysis/bmo.py` silently drops a printed row whose date does not
+   exist.** One document prints two postings dated the 29th of a February it
+   itself dates to a non-leap year; the reader `continue`s past them and
+   publishes 55 of 57 printed rows with no flag. The refusal to invent a date
+   is right and it is the Huntington ruling; the silence is not. A row the
+   paper printed and the reader could not date is a fact the document should
+   carry.
+4. **`analysis/bmo.py` still carries a description keyword list**
+   (`_WITHDRAWAL_KEYS`) used to sign a row when the printed balances cannot
+   settle it. Every entry is a description printed by the same synthetic
+   four-document cohort, and that cohort is this card's whole `WH:bmo`
+   population. It is a hardcode by any reading of the guard's spirit, it is
+   load-bearing on nothing that validates (the reader validates 0 documents),
+   and removing it belongs in a hygiene card with its own replay.
+5. **`413AD4C2FBFB71A0` contradicts itself in two places, measured.** Its
+   recap's beginning and closing balances disagree with the daily-ending-balance
+   ladder printed in the same statement, by different amounts, and the recap's
+   own arithmetic misses its own closing figure by the difference between them.
+   Capture is already perfect on it — 317 postings, both printed totals matched
+   to the cent — so a later census should not read it as a parser gap.
+6. **`A4E41C80E7362D58`'s summary block is emitted cell-apart-from-label.** Its
+   beginning balance and its credit total are both printed and both land away
+   from their labels, and the two possible assignments BOTH satisfy the block's
+   own arithmetic identity, so the block cannot disambiguate itself. Anything
+   that resolves it comes from outside the block — the neighbouring statement of
+   the same account, or the geometry the flattening dropped — and both are
+   another rung's question.
