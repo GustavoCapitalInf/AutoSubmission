@@ -61244,6 +61244,45 @@ Nothing here is keyed to an issuer, a product, a phrase or a document.
   change safe; the point is that on the next archive it will fire rather than shrink a statement
   quietly.
 
+## The archive sweep, and why it had to be run TWICE
+
+`tools/regfp_zero_movement_sweep.py` compares a tree's recomputed analysis against the payload the
+RUN OF RECORD stored — and the run of record is the batch-8 tree. Every batch-9 card is based on
+`train9`, which already carries several composed cells, so a sweep at ANY train9 descendant reports
+train9's cumulative movement as well as the card's. Reading its findings as this card's movers would
+attribute other cells' work, improvements included, to this one. So the sweep was run at BOTH trees
+over the same four ranges — the tip, and a detached worktree at the base `fea0bd2` — and
+`tools/l1s2_sweep_diff.py` differences the finding sets per (sha, verdict, moved fields, exception),
+so a document whose verdict or moved-field set CHANGED shows up as one finding removed and one
+added rather than as a silent match.
+
+| aggregate over all 3,380 documents | base `fea0bd2` | tip `wave9-l1s2` |
+|---|---:|---:|
+| documents | 3,380 | 3,380 |
+| payloads compared | 2,669 | 2,669 |
+| identical | 2,620 | 2,620 |
+| `moved` | 46 | 46 |
+| `no_payload_now_publishes` | 21 | 21 |
+| `payload_now_raises` | 3 | 3 |
+| `no_payload_raises_again` | 661 | 661 |
+| documents with no OCR artifact | 29 | 29 |
+
+| finding set | count |
+|---|---:|
+| present at BOTH trees — inherited from `train9`, not this card | **70** |
+| **present only at the TIP — this card's movers** | **0** |
+| present only at the BASE — findings this card removed | **0** |
+
+`MOVERS_AT_THE_TIP=0 OUTSIDE_THE_NAMED_POPULATION=0 INHERITED=70 REMOVED=0`, exit 0. Every
+aggregate is identical between the two trees, and the 70 inherited findings are `train9`'s standing
+distance from the batch-8 run of record — not this card's, and not this card's to explain.
+
+**The expected mover count for this card is 0 rather than 15, and that is the design.** The sweep
+measures what production publishes, production reaches `analyze_markdown` -> `report_to_dict`, and
+the omission is a document-level fact that lands on the document object. The 15 carriers are
+movers at the DOCUMENT seam, which the seam probe above measures directly, and at no seam the
+archive is served from.
+
 ## What this card did NOT do, stated so the next stage does not have to find it
 
 * **`assess_document_integrity` adds no note.** The design's §2.3 says an omission is surfaced by
@@ -61288,6 +61327,7 @@ Nothing here is keyed to an issuer, a product, a phrase or a document.
 | `l1s2_admission_probe` at the tip | 117 read / **15** carriers / **19** sections / **0 REFUSED**; 8 + 8 + 3 by class; account block byte-identical **15 of 15**; document facts beyond the record **0** | **0** |
 | `l1s1_seam_probe`, base -> tip, 232 documents / 80 registrations | ACCOUNT seam **232/232 byte-identical**; flags and ORDER 232/232; outcome 232/232; DOCUMENT seam 226 identical / **6 moved, all inside the named 15** | **2** (the 6, explained) |
 | `l1s2_mutation_table` | **6 mutants, 6 killed, 0 survived**; tree verified clean after each | **0** |
+| archive sweep, whole archive (3,380), base tree AND tip differenced | aggregates identical; **70 findings, all inherited from `train9`; 0 movers at the tip; 0 removed** | **0** |
 | branch privacy scan, added lines vs the five registrations' whole printed universe | **hit_count 0** over **1,636 added lines**, 120 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 3, all discarded by the standing rules (1 `round_money`, 2 `words_class`) | **0** |
 | commit-message scan | **hit_count 0** over **5** commits; every class 0 | **0** |
 | W3 | one top-level `# §L1S2`, appended | — |
