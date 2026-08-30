@@ -59383,6 +59383,8 @@ transcribes. A review that reproduces a cell's numbers earns the cell's trust,
 and a cell that copies a reviewer's number without re-deriving it has simply
 moved the unchecked claim from one document to another.
 
+# §ROWCAP — the binder's order is not the ledger's order, and a restatement is not a posting
+
 ## ROWCAP.1 Population, and baseline fidelity before anything changed
 
 Eighteen withheld documents whose OWN payload in the run of record carries a
@@ -59492,11 +59494,33 @@ otherwise reads faithfully.
 
 The currency symbol is what separates the two, and it is the layout's own
 distinction rather than a threshold: this bank sets `$` on the activity summary
-and on the restatement row, and on no posting amount. Measured over every
-document this reader claimed in the run of record — **221 documents, 30,347
-records, 30,339 printed money cells and 4,218 balance cells — exactly 2 money
-cells carry the symbol**, both are a restatement figure merged into the last
-posting, and no balance cell carries it at all.
+and on the restatement row, and on no posting amount.
+
+**The census, over both populations a record can be counted in**
+(`tools/rowcap_wells_cells.py`, run at this branch's closure tree — the commit
+that carries the tool and this table — over the 221 documents this reader
+claimed in the run of record, all 221 read; the reader's own
+`_published_section` and `_transaction_rows` do the reading in both rows, so
+neither denominator is a second implementation of the grammar):
+
+| population | records | money cells | balance cells | money cells with the symbol | balance cells with the symbol |
+|---|---:|---:|---:|---:|---:|
+| **printed** — every `WF_TX` record the document carries | 30,347 | 30,339 | 4,218 | **2** | **0** |
+| **published** — every record inside the section the reader publishes | 29,857 | 29,849 | 4,074 | **2** | **0** |
+
+The two denominators differ by the 490 records the reader never reaches: a
+Wells statement bundles several accounts' sections and this reader publishes
+the one the bank marks primary (`_published_section`), so a document-wide sweep
+counts records from sections that are never read. The record originally carried
+only the first row, which is what the review could not reproduce; both are
+stated now, because a denominator without its population is not a measurement.
+
+**The load-bearing half is invariant to the choice**: exactly 2 money cells
+carry the symbol and 0 balance cells do, in EITHER population, and in both they
+are the same two cells on the same two documents — `3725BB1189EA74D5` and
+`59FAF1FC17745A6E` — each a restatement figure merged into the last posting.
+The refusal is applied inside the published section, so the `published` row is
+the one that bounds what the rule can touch.
 
 A row whose amount cell is a restatement is DROPPED, in the same fail-closed
 direction the reader already takes for a row whose amount landed in neither
@@ -59651,7 +59675,7 @@ claimed cohort rather than over the documents that moved:
 |---|---:|---:|
 | a bundle whose sheets are bound out of ledger order | 81 swept, 2 out of order | 2 |
 | the stability requirement (rows sharing a printed date) | 81 | 0 — it is what keeps the other 79 still |
-| a money cell carrying the currency symbol | 221 swept, 30,339 cells, 2 carry it | 2 |
+| a money cell carrying the currency symbol | 221 swept; 29,849 cells inside the published sections (30,339 printed), 2 carry it in either | 2 |
 | the symbol read in the money COLUMNS and not the description | 221 | 0 — it is what keeps ordinary postings |
 
 No statement-specific rule, no literal from any document, no registration added
@@ -59737,8 +59761,8 @@ log entry cannot move a verdict.
 | canonical conformance (7 files) | **1,270 passed, 40 skipped** | **0** |
 | corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,503 deselected** in 1,427s | **0** |
 | `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs (103 native, 6 committed OCR), 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld, runtime 474.3s. **currency 108/108 = 14 CAD / 94 USD** and **currency_source 108/108 = 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89 schema_default** — neither surface moves | **0** |
-| branch privacy scan, ADDED FILE LINES vs the 472-document population | **hit_count 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) over **1,592 added lines** and 472 documents read, no sha without cached text. Not vacuous: the raw scan before exclusions finds 7 — six the `round_money` class, one the `words_class` — and it found two real hits on earlier trees, both fixed (a docstring's example figure, and this section's coverage column at two decimals) | **0** |
-| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over **8 commits** | **0** |
+| branch privacy scan, ADDED FILE LINES vs the 472-document population — at `2b88d94` | **hit_count 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) over **1,598 added lines** and 472 documents read, no sha without cached text. Not vacuous: the raw scan before exclusions finds 7 — six the `round_money` class, one the `words_class` — and it found two real hits on earlier trees, both fixed (a docstring's example figure, and this section's coverage column at two decimals) | **0** |
+| branch privacy scan, COMMIT MESSAGES vs the same population — at `2b88d94` | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over **9 commits** | **0** |
 | archive sweep (`tools.regfp_zero_movement_sweep`), three chunks | whole **3,380**: compared 2,669 · identical 2,620 · moved 46 · no-payload-now-publishes 21 · payload-now-raises 3 · no OCR artifact 29 — **70 findings, 4 of them inside this card's named population and 66 outside** | 1 per chunk (findings exist) |
 | attribution of the 66 outside findings | `cohort_replay --expect-identical` over exactly those 66, with the BASE's `analysis/scotia.py` and `analysis/wells.py` restored into this worktree — the branch's only two production files — reports **baseline fidelity FAILED on all 66**. Every one of them already differs from the run of record without this branch, so all 66 belong to the compositions train9 already carries and **zero movement is attributable to this card outside its named population**. Tree restored and `git status --porcelain` verified clean | **0** |
 
@@ -59807,8 +59831,9 @@ continuity breaks 0, `sum_delta` 0.00, `adb.ok`, quality `transaction_level` /
 strips reproduced exactly in count and in total** by evidence the reader never
 reads; currency CAD by the institution default, value and provenance unchanged |
 generalization evidence: 81 documents swept for the ordering and 2 move; 221
-documents and 30,339 printed money cells swept for the restatement and 2 move;
-no statement-specific rule, no literal, no registration and no registry pin.
+documents swept for the restatement — 29,849 money cells inside the published
+sections, 30,339 printed — and 2 move on either count; no statement-specific
+rule, no literal, no registration and no registry pin.
 
 ## ROWCAP.12 What the guard caught, and the defect behind it
 
@@ -59850,12 +59875,28 @@ the caller was doing wrong.
    amount line closes none of them and overshoots on three. It belongs beside
    the DESC-COLUMNS / printed-rows rung, not inside `analysis/rbc.py`.
 2. **`analysis/tables.py:read_grid_rows` takes a money cell that OPENS a
-   physical line as the previous row's BALANCE.** That is the mechanism behind
-   the RBC finding above, it is shared with `analysis/cibc.py`, and it is
-   outside this card's ownership. The rule that would fix it is that a
-   description-only line closes the open row's balance slot — measured here on
-   six documents, unmeasured on CIBC's cohort, and worth a card of its own
-   rather than a change smuggled through a reader.
+   physical line as the previous row's BALANCE** — this is
+   **`TABLES-GRID-BALANCE`**, the card already carded on train9, and this is
+   its blast radius. It is the mechanism behind the RBC finding above, it is
+   shared with `analysis/cibc.py`, and it is outside this card's ownership. The
+   rule that would fix it is that a description-only line closes the open row's
+   balance slot.
+
+   **The trigger shape, counted per reader** (a money-cells-only line inside
+   the activity table; the review measured this and it is carried here because
+   without it the next cell cannot size the work):
+
+   | reader | documents | lines carrying the trigger shape |
+   |---|---|---|
+   | `rbc` | 165 — 159 validated, 6 withheld | **58 lines, on the 6 withheld only — 0 of the 159 protected** |
+   | `cibc` | 34 — all validated | **2,098 lines, on all 34 protected** |
+
+   So the repair cannot disturb a protected RBC document through this shape at
+   all, and its exposure is **every one of CIBC's 34 validated documents**.
+   That asymmetry is the reason it belongs in `TABLES-GRID-BALANCE` with a full
+   CIBC replay rather than as a change smuggled through a reader — and it is
+   also why this card, whose CIBC baseline is not established, was right to
+   leave it alone.
 3. **`analysis/bmo.py` silently drops a printed row whose date does not
    exist.** One document prints two postings dated the 29th of a February it
    itself dates to a non-leap year; the reader `continue`s past them and
@@ -59883,3 +59924,95 @@ the caller was doing wrong.
    that resolves it comes from outside the block — the neighbouring statement of
    the same account, or the geometry the flattening dropped — and both are
    another rung's question.
+
+## ROWCAP-C CLOSURE — the review's three MINORs, closed and re-measured
+
+Independent adversarial review
+(`docs/moneythumb-replacement/reviews/BATCH9_ROWCAP_REVIEW.md`, `9c6edde` +
+`92929bc`): **APPROVE WITH FINDINGS — 0 BLOCK / 0 MAJOR / 3 MINOR.** Every
+headline in this section reproduced under the reviewer's own hand, including
+the 66 outside sweep findings attributed at the reviewer's own true base rather
+than at this cell's two-file restoration of it. What follows is what each
+finding became.
+
+**MINOR 1 — the section had no header.** True, and structural: the block opened
+at `## ROWCAP.1`, so the train helper — which rebuilds the log keyed on
+sections — read this record as a continuation of `§COMMSEC9`'s body. One line
+added, `# §ROWCAP — …`, at the head of the block.
+
+Asserted BLOB to BLOB rather than by eye, and blob to blob for a reason worth
+recording: this checkout materialises the log with CRLF while the stored object
+is LF, so a working-file comparison diverges at the first newline and proves
+nothing. Against the stored objects, **`aaa3441`'s whole blob is a byte-exact
+PREFIX of this branch's** — 3,609,235 bytes of base, unchanged, followed by the
+appended remainder — and the appended remainder carries **exactly one**
+top-level `# ` heading, `# §ROWCAP …`, against the 397 the base already had.
+Nothing before this block is touched by a byte.
+
+**MINOR 2 — three record figures did not reproduce, and both halves are now
+measured.**
+
+*(a) The scan counts.* The floor rows said 1,592 added lines over 8 commits;
+they were taken before this section's last two commits, which the row's own
+caveat anticipated but did not excuse. They now read **1,598 / 9** and each
+NAMES the tree it was taken at (`2b88d94`), which is what makes a moving count
+checkable instead of merely honest.
+
+*(b) The wells denominators.* Both readings are right and they answer different
+questions, which is exactly why one of them alone was not a measurement. This
+cell counted every `WF_TX` record the document carries; the review counted the
+records inside the section the reader publishes. `tools/rowcap_wells_cells.py`
+is committed and reports both side by side — **printed 30,347 / 30,339 /
+4,218** and **published 29,857 / 29,849 / 4,074**, differing by the 490 records
+the reader never reaches because a Wells statement bundles several accounts'
+sections and this reader publishes the primary one. The load-bearing figures
+are invariant to the choice: **2 symbol money cells and 0 symbol balance
+cells**, on `3725BB1189EA74D5` and `59FAF1FC17745A6E`, in EITHER population.
+ROWCAP.4 now carries the table; the `published` row is the one that bounds what
+the rule can touch, because that is where the refusal is applied.
+
+**MINOR 3 — the `tables.py` finding is now sized.** Carried finding 2 above
+names the card (`TABLES-GRID-BALANCE`) and carries the review's per-reader
+count: the trigger shape touches **0 of the 159 protected rbc** documents (58
+lines, all on the 6 withheld) and **all 34 protected cibc** documents (2,098
+lines). That asymmetry is the finding — the repair is safe on the reader this
+card owns and touches every validated document of a reader it does not.
+
+### The two operational notes the review adds
+
+**1. What the ordering rule refuses, and it is a behaviour change.** The stable
+sort has two bounds, both driven by the review rather than asserted here. A
+same-day inversion ACROSS sheets is not repaired — the sort is stable, so two
+rows sharing a date keep their print order even when the printed balances say
+otherwise, and `reconcile` is the only thing that sees it. And a **back-dated
+correction printed after later-dated rows is now MOVED, which breaks the chain
+and REFUSES the document**, where the base — walking print order — would have
+reconciled it. That is a real change in what the reader accepts, in the
+fail-closed direction, and its exposure is **nil**: no document in the archive
+prints that shape, and the closure replays measure it — 78 of 78 protected
+scotiabank documents preserved with identical payloads, so zero validated
+documents are movable by it. It is recorded because a change with no exposure
+today is still a change, and the next cell to widen this reader should know the
+rule refuses rather than reorders.
+
+**2. The corpus-marked slice must be run from the repository tree.**
+`tests/test_rbc_variants.py`'s archive-currency proof resolves the D-3 OCR
+artifact store by walking ancestors of the checkout, and FAILS rather than
+skips when it cannot find one — deliberately, because a currency proof that
+quietly passes when it could not find its evidence is the defect that test
+exists to remove. A detached worktree under the system temp directory has no
+such ancestor, so a reviewer running the slice from one reads **1 failed** by
+design. Run from the repository tree or a worktree beneath it, the test passes;
+this card's `30 passed` was measured in this worktree, which is beneath the
+repository, and the review re-ran it from a reachable checkout and got the
+same. The trap is worth carrying: it costs the next reviewer an hour and looks
+exactly like a regression.
+
+**Two review notes carried without change.** The wells coverage claim is
+exhaustive over the archive cohort and not over Wells layouts generally, and
+the drop is invisible where the statement's own totals do not cover the dropped
+row — the same pre-existing shape as the reader's existing both-or-neither
+drop. And `corpus_gate.py` is outside this card's ownership list: the change is
+data-only, three entries in `EXCLUDED_ANALYSIS_CALLERS`, made because
+`test_every_production_caller_of_the_analysis_is_classified` requires a
+decision for every new caller and refuses to pass without one.
