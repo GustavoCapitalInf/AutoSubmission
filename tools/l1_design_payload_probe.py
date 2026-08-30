@@ -17,7 +17,7 @@ METHOD
 For every document in the cohort: the run of record's own cached OCR text is
 read (READ-ONLY), `analysis.pipeline.analyze_markdown(parse_mode=
 "deterministic")` is called exactly as `tools/cohort_replay.py` calls it, and
-the resulting `Report` is serialised FOUR ways from the SAME in-memory object,
+the resulting `Report` is serialised SEVEN ways from the SAME in-memory object,
 so nothing in the comparison can move except the shape under test:
 
   `baseline`
@@ -37,6 +37,16 @@ so nothing in the comparison can move except the shape under test:
       dumps on every document whether or not anything was omitted.
   `omission_field_elided`
       the same field, elided from the payload when it is empty.
+  `integrity_split_order_preserved` / `integrity_split_naive_order` /
+  `integrity_split_dropped`
+      the review's MAJOR-2. RULE S's byte-identity is a property of the
+      SERIALISER; the risk it is offered against lives one layer up, in the
+      `assess_document_integrity` scope split the design prescribes. These
+      three are the same split assembled three ways — the safe one, the one an
+      implementer writes first (the two scopes concatenated, which is identical
+      as a SET and different as the LIST the corpus gate pins), and the one the
+      design's prose reads as literally (the document-scope flags MOVE, so the
+      account payload stops carrying them).
 
 Each variant is compared with the baseline as CANONICAL JSON BYTES
 (`json.dumps(..., sort_keys=True)`), and `classify_outcome` is run on the
@@ -197,7 +207,87 @@ def _document_shape(doc: DocumentReport, to_dict) -> dict:
 # the two SIBLING-OMISSION-SURFACE variants
 # ---------------------------------------------------------------------------
 
+VARIANTS = ("wrapper_conditional", "wrapper_unconditional",
+            "omission_field_always", "omission_field_elided",
+            "integrity_split_order_preserved",
+            "integrity_split_naive_order",
+            "integrity_split_dropped")
+
 OMISSION_KEY = "unpublished_sibling_sections"
+
+# ---------------------------------------------------------------------------
+# the `assess_document_integrity` SCOPE SPLIT (the review's MAJOR-2)
+# ---------------------------------------------------------------------------
+#
+# RULE S's byte-identity is a statement about the SERIALISER, and the review was
+# right that the risk it is offered against lives one layer up: the design has
+# `assess_document_integrity` (`analysis/pipeline.py`:260-512) SPLIT BY SCOPE,
+# with some flags moving to the document block and the rest staying per account.
+# On a single-account document those flags must land in exactly the payload keys
+# they land in today — and that is a property of the pipeline change, not of the
+# serialiser.
+#
+# It is measurable here without touching production: partition the integrity
+# block the way the design says to, then re-assemble it under RULE S, and
+# compare. Three assemblies are measured because two of them are the ones an
+# implementer would write first and both are wrong in a way no test would name.
+
+#: Flags whose SCOPE is the document, not one account
+#: (`pipeline.py`:345-358, :388-395, :400, :481).
+DOCUMENT_SCOPE_FLAGS: frozenset[str] = frozenset({
+    "parser_ambiguous",
+    "parser_exception",
+    "repair_exception",
+    "integrity_check_exception",
+    "missing_declared_statement_page",
+})
+
+
+def _split_integrity(integrity: dict) -> tuple[list, list]:
+    """(document-scope flags, account-scope flags), each in PUBLISHED order."""
+    flags = list(integrity.get("flags") or [])
+    document = [f for f in flags if f in DOCUMENT_SCOPE_FLAGS]
+    account = [f for f in flags if f not in DOCUMENT_SCOPE_FLAGS]
+    return document, account
+
+
+def integrity_split_order_preserved(payload: dict) -> dict:
+    """The SAFE assembly: split by scope, and re-assemble in PUBLISHED order.
+
+    RULE S says a single-account document publishes today's payload, so the
+    account's integrity block must be re-assembled as the original list, not as
+    a concatenation of the two scopes.
+    """
+    out = json.loads(json.dumps(payload, sort_keys=True, default=str))
+    integrity = out.get("integrity") or {}
+    document, account = _split_integrity(integrity)
+    original = list(integrity.get("flags") or [])
+    rebuilt = [f for f in original if f in set(document) | set(account)]
+    integrity["flags"] = rebuilt
+    return out
+
+
+def integrity_split_naive_order(payload: dict) -> dict:
+    """The assembly an implementer writes first: the two scopes concatenated,
+    document-scope leading. Identical as a SET, different as a LIST — and
+    `corpus_gate.py`:1360-1362 pins the flag tuple in "Published ORDER, not
+    sorted"."""
+    out = json.loads(json.dumps(payload, sort_keys=True, default=str))
+    integrity = out.get("integrity") or {}
+    document, account = _split_integrity(integrity)
+    integrity["flags"] = document + account
+    return out
+
+
+def integrity_split_dropped(payload: dict) -> dict:
+    """The assembly that follows the design's prose literally: the
+    document-scope flags MOVE to the document block, so a single-account
+    document's account payload no longer carries them."""
+    out = json.loads(json.dumps(payload, sort_keys=True, default=str))
+    integrity = out.get("integrity") or {}
+    _document, account = _split_integrity(integrity)
+    integrity["flags"] = account
+    return out
 
 
 def omission_field_always(payload: dict, omissions: list[SiblingOmission]) -> dict:
@@ -243,7 +333,20 @@ def classify_document(payload: dict, classify) -> tuple[str, str]:
         # document: it fails rather than being scored on an empty minimum.
         return "failed", "document_publishes_no_account"
     per = [classify(account) for account in accounts]
-    weakest = min(per, key=lambda pair: LADDER.index(pair[0]) if pair[0] in LADDER else -1)
+    for klass, _reason in per:
+        if klass not in LADDER:
+            # The review's MINOR-11. Ranking an unranked class LOWEST (`-1`)
+            # would make it the document's class, and `discovery/compare.py::
+            # direction` scores an unranked class as neither an improvement nor
+            # a regression — i.e. invisible to the whole non-regression regime.
+            # Unreachable today (per-account `classify_outcome` is called
+            # without `deferred=`), and a refusal rather than a rank is what an
+            # unreachable state should get.
+            raise ValueError(
+                f"account outcome {klass!r} is not on the ladder; a document "
+                f"fold over an unranked class would be invisible to the "
+                f"non-regression regime")
+    weakest = min(per, key=lambda pair: LADDER.index(pair[0]))
     if weakest[0] == "validated":
         omitted = ((payload.get("document") or {}).get("omitted_sections")) or []
         if omitted:
@@ -261,10 +364,18 @@ def classify_document(payload: dict, classify) -> tuple[str, str]:
 
 
 def select_cohort(rows: dict[str, dict], per_parser: int, shas_file: Path | None,
-                  limit: int | None) -> list[str]:
+                  limit: int | None, include_unvalidated: bool = False) -> list[str]:
     """A deterministic cohort: the first `per_parser` VALIDATED documents of
     every registration in the run, so the claim is made about every reader the
-    archive has rather than about a convenient family."""
+    archive has rather than about a convenient family.
+
+    `include_unvalidated` adds the registrations that claim documents but hold
+    NO validated one — the review's extension. Those documents are where
+    `report_to_dict` takes its OTHER branches: `ending_balance` nulled
+    (`serialization.py`:146-151) and the ADB block emptied by `_metrics_dict`
+    (:102-133). A byte-identity claim that never exercised them would be a
+    claim about the happy path.
+    """
     chosen: list[str] = []
     if shas_file is not None:
         for line in shas_file.read_text(encoding="utf-8").splitlines():
@@ -282,6 +393,17 @@ def select_cohort(rows: dict[str, dict], per_parser: int, shas_file: Path | None
                 continue
             if len(by_parser[parser]) < per_parser:
                 by_parser[parser].append(sha)
+        if include_unvalidated:
+            unvalidated: dict[str, list[str]] = collections.defaultdict(list)
+            for sha in sorted(rows):
+                row = rows[sha]
+                parser = (row.get("parser_id") or "").strip()
+                if not parser or parser in by_parser:
+                    continue
+                if len(unvalidated[parser]) < per_parser:
+                    unvalidated[parser].append(sha)
+            for parser in sorted(unvalidated):
+                by_parser[parser] = unvalidated[parser]
         for parser in sorted(by_parser):
             chosen.extend(by_parser[parser])
     seen: set[str] = set()
@@ -346,6 +468,9 @@ def probe_one(sha: str, parser_id: str, cache: ColdCache) -> DocProbe:
             document_to_payload_unconditional(doc, report_to_dict), sort_keys=True, default=str)),
         "omission_field_always": omission_field_always(baseline, []),
         "omission_field_elided": omission_field_elided(baseline, []),
+        "integrity_split_order_preserved": integrity_split_order_preserved(baseline),
+        "integrity_split_naive_order": integrity_split_naive_order(baseline),
+        "integrity_split_dropped": integrity_split_dropped(baseline),
     }
     for name, payload in candidates.items():
         probe.variants[name] = canonical(payload) == reference
@@ -364,6 +489,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--per-parser", type=int, default=2)
     parser.add_argument("--shas", type=Path)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--include-unvalidated", action="store_true",
+                        help="also cover registrations holding no validated document")
     parser.add_argument("--json", type=Path)
     args = parser.parse_args(argv)
     try:
@@ -372,7 +499,8 @@ def main(argv: list[str] | None = None) -> int:
         pass
 
     rows = load_baseline_rows(args.run)
-    cohort = select_cohort(rows, args.per_parser, args.shas, args.limit)
+    cohort = select_cohort(rows, args.per_parser, args.shas, args.limit,
+                           include_unvalidated=args.include_unvalidated)
     cache = ColdCache(args.data_dir)
 
     probes = [probe_one(sha, (rows.get(sha, {}).get("parser_id") or ""), cache)
@@ -400,8 +528,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("| variant | payload byte-identical | payload differs | ladder unchanged |")
     print("|---|---:|---:|---:|")
-    for name in ("wrapper_conditional", "wrapper_unconditional",
-                 "omission_field_always", "omission_field_elided"):
+    for name in VARIANTS:
         same = sum(1 for p in analysed if p.variants.get(name))
         diff = len(analysed) - same
         ladder = sum(1 for p in analysed
@@ -420,8 +547,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("| variant | byte-identical | leaf-projection identical | the gap |")
     print("|---|---:|---:|---:|")
-    for name in ("wrapper_conditional", "wrapper_unconditional",
-                 "omission_field_always", "omission_field_elided"):
+    for name in VARIANTS:
         same = sum(1 for p in analysed if p.variants.get(name))
         leaf = sum(1 for p in analysed if p.leaf_same.get(name))
         print(f"| `{name}` | {same} | {leaf} | **{leaf - same}** |")
@@ -431,14 +557,19 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("| variant | changed leaf paths (collapsed), most frequent first |")
     print("|---|---|")
-    for name in ("wrapper_conditional", "wrapper_unconditional",
-                 "omission_field_always", "omission_field_elided"):
+    for name in VARIANTS:
         counter: collections.Counter = collections.Counter()
         for probe in analysed:
             for path in probe.paths.get(name, []):
                 counter[path] += 1
         if not counter:
-            print(f"| `{name}` | *(none — no document's payload changed)* |")
+            # The review's MINOR-10. "no payload changed" was the wrong words
+            # for this cell, and wrong in the exact direction this instrument
+            # exists to expose: for `omission_field_always` the bytes changed on
+            # every document and the LEAF PROJECTION saw nothing, which is the
+            # blind spot itself. The label now says what was measured.
+            print(f"| `{name}` | *(no leaf path changed — which is not the same "
+                  f"as no payload change; see the blind-spot table)* |")
             continue
         listed = ", ".join(f"`{path}` ×{count}" for path, count in counter.most_common(6))
         print(f"| `{name}` | {listed} |")

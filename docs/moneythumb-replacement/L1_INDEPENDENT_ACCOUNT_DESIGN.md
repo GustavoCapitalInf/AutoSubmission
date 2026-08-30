@@ -843,34 +843,29 @@ does today — not a proposal.
 `analysis/symitar.py`:116 defines `_DORMANT_RE`, and the module's docstring (13-48) ratifies the
 skip it licenses. Measured by grep at this tree: **`_DORMANT_RE` is referenced by no code in
 `analysis/` or `tests/`.** Its only consumers in the repository are `tools/l1_split_prototype.py`
-and prose. What production actually executes for the dormant skip is `symitar.py`:421-422
+and prose. What production actually executes for the dormant skip is **`symitar.py`:419-420**
 `if not rows: continue` — a skip on the ABSENCE of parsed rows, which R-a names insufficient on
-its own. The yield-only skip at :425 IS on printed evidence and IS the ratified predicate,
-including its fourth condition. So one of the module's two ratified skips is implemented as
-ratified and the other is not.
+its own. (`:421-423` is the comment that follows it; the design's first version cited the
+comment. `tools/l1_design_skip_probe.py` now verifies the watched line against the source text
+it must sit on before it reads a document, so this class of citation error fails loudly.) The
+yield-only skip at :425 IS on printed evidence and IS the ratified predicate, including its
+fourth condition. So one of the module's two ratified skips is implemented as ratified and the
+other is not.
 
-**F2 — the same shape in `community_section`.** `analysis/community_section.py`:984 counts a
-section only `if stmt is not None and stmt.transactions`, and :988's `len(parsed) != 1` gate
-then decides the document. A section that parses but posts nothing is silently not counted —
-absence of parsed activity again, and the document publishes as if the section were not there.
+**F2 — the same shape in `community_section`, at the site the reader takes.**
+The design's first version named `community_section.py`:984 —
+`if stmt is not None and stmt.transactions` at the call site. Measured on the dispatch path
+(§2.7): that clause drops **0** sections on this archive. The drop production actually takes is
+**`community_section.py`:621-622**, `if not txns: return None` INSIDE
+`_parse_sectioned_statement`, which fires **8** times. The substance of F2 survives untouched —
+the drop is on absence of parsed rows and it is silent — and two things follow from the
+correction:
 
-**F1/F2, sized** (`tools/l1_design_surface_census.py`, each module probed with its OWN
-committed patterns — `symitar._SECTION_MARK_RE`, `community_section._PLATFORM_ACCOUNT_RE` /
-`_ACCOUNT_HEADING_RE`, and `symitar._DORMANT_RE` for the declaration):
-
-| registration | `validated` documents read | print 2+ of their own section marks while publishing ONE account | print the ratified declaration |
-|---|---:|---:|---:|
-| `symitar` | 7 | **7** | 4 |
-| `community_section` | 59 | **5** | 0 |
-| `dakota_west` | 3 | **3** | 0 |
-| `mission_valley` | 36 | 0 | 0 |
-| **total** | **105** | **15** | **4** |
-
-A section-mark count is a BOUND, not a partition: a document printing two distinct section
-marks and publishing one account either dropped a section or reprinted a heading, and no
-instrument outside the reader itself can tell those apart. That is precisely why the design
-makes the omission a PAYLOAD FIELD written by the reader that made the skip, rather than a
-count in a report — the reader is the only thing that knows.
+* S2's file list must name `:621-622`, not `:984`. An implementation card told to instrument
+  `:984` would surface nothing at all.
+* the omission record must be written where the reader that made the skip can see the block,
+  which is INSIDE `_parse_sectioned_statement`, not at its call site. The call site has already
+  lost the block by then.
 
 **F3 — a memorised account number selects the ledger on a pinned audited document.**
 `analysis/consumers.py`:88-94 slices the document between a memorised product-name-plus-

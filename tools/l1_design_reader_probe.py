@@ -1,4 +1,5 @@
-"""L1-ARCH-DESIGN instrument 3 — READ-ONLY payload-reader response probe.
+"""L1-ARCH-DESIGN instrument 3 — READ-ONLY payload-reader response probe,
+plus the `analyze_markdown` -> `report_to_dict` SEAM CENSUS.
 
 **NOT A PARSER. NEVER REGISTERED. NEVER IMPORTED BY PRODUCTION OR BY A TEST.**
 
@@ -32,6 +33,23 @@ account. Every reader then answers, and answers about one account. That is
 the measurement that makes "publish one, carry the rest" a defect rather than
 a preference.
 
+WHAT THE REVIEW ADDED (BLOCK-3)
+-------------------------------
+The first version of this probe measured SIX readers and the design stated its
+ordering constraint as a universal quantifier over "every payload reader" — an
+unstated set. The review found five more by the probe's own criterion. All
+eleven are here now, and the design's exit criterion for the "teach the
+surfaces dark" stage is no longer a universal quantifier: it is
+`READERS` below, plus `SEAMS` below, both of which are CHECKED.
+
+`--census` is what makes the zero non-vacuous. There are nine production call
+sites pairing `analyze_markdown` with `report_to_dict`, and each must move to
+the document entry point or a multi-account document publishes one account
+through the old seam. The census greps the tree for them and compares what it
+finds against the declared list: an undeclared seam, or a declared seam that
+has moved, makes this instrument EXIT NON-ZERO. A list that cannot fail is not
+an exit criterion.
+
 PRIVACY
 -------
 Reader names, response classes and one outcome token per reader. No payload
@@ -42,12 +60,15 @@ Usage:
 
     python -m tools.l1_design_reader_probe --run <run dir> --data-dir <cold cache> \
         [--sha <content sha256>] [--json <private>.json]
+    python -m tools.l1_design_reader_probe --census        # the seam census alone
 """
 from __future__ import annotations
 
 import argparse
 import copy
 import json
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -59,6 +80,9 @@ from tools.l1_design_payload_probe import (  # noqa: E402
     classify_document,
     document_to_payload_unconditional,
 )
+
+
+REPO = Path(__file__).resolve().parent.parent
 
 
 def _shape_variants(report) -> dict[str, dict]:
@@ -104,54 +128,197 @@ def _reader_revenue_views(payload: dict) -> str:
     out = rebuild_serialized_revenue_views(copy.deepcopy(payload))
     statement = out.get("statement") or {}
     transactions = statement.get("transactions") or []
-    metrics = out.get("metrics") or {}
-    return (f"rebuilt over {len(transactions)} transaction(s); "
-            f"verified_revenue_total is "
-            f"{'absent' if 'verified_revenue_total' not in metrics else 'present'}")
+    return f"rebuilt over {len(transactions)} transaction(s)"
 
 
 def _reader_analysis_rows(payload: dict) -> str:
     from webapp.app import _analysis_rows
 
-    rows = _analysis_rows(copy.deepcopy(payload))
-    return f"{len(rows)} export row(s)"
+    return f"{len(_analysis_rows(copy.deepcopy(payload)))} export row(s)"
 
 
 def _reader_adb_rows(payload: dict) -> str:
     from webapp.app import _adb_rows
 
-    rows = _adb_rows(copy.deepcopy(payload))
-    return f"{len(rows)} ADB row(s)"
+    return f"{len(_adb_rows(copy.deepcopy(payload)))} ADB row(s)"
 
 
 def _reader_masked(payload: dict) -> str:
     from webapp.app import _masked
 
-    out = _masked(copy.deepcopy(payload))
-    return f"{len(out)} top-level key(s) returned"
+    return f"{len(_masked(copy.deepcopy(payload)))} top-level key(s)"
+
+
+# ---- the five the review found, by the same criterion --------------------
+
+
+def _reader_diagnose(payload: dict) -> str:
+    """Wired into `telemetry/record.py::build_record`:417 — it rides in EVERY
+    discovery telemetry record."""
+    from telemetry.diagnostics import diagnose
+    from telemetry.record import classify_outcome
+
+    outcome, _reason = classify_outcome(copy.deepcopy(payload))
+    result = diagnose(copy.deepcopy(payload), outcome)
+    codes = result.get("codes") if isinstance(result, dict) else None
+    evaluated = result.get("evaluated") if isinstance(result, dict) else None
+    return f"{len(codes or ())} code(s), evaluated={evaluated}"
+
+
+def _reader_stated_counts(payload: dict) -> str:
+    from telemetry.stated_counts import evaluate
+
+    observation = evaluate(copy.deepcopy(payload))
+    status = getattr(observation, "status", None)
+    reason = getattr(observation, "reason", None)
+    return f"{status}/{reason}"
+
+
+def _reader_ourside(payload: dict) -> str:
+    from benchmark.ourside import OurFileResult
+
+    result = OurFileResult(relative_path="probe.pdf", source_type="digital/native",
+                           markdown="", payload=copy.deepcopy(payload))
+    return (f"{len(result.statement)} statement / {len(result.metrics)} metrics / "
+            f"{len(result.reconciliation)} reconciliation key(s)")
+
+
+def _reader_forensic_production(payload: dict) -> str:
+    """`balance_forensic_audit.py`:528-529 indexes rather than `.get()`s."""
+    statement = payload["statement"]
+    return (f"opening {'present' if 'beginning_balance' in statement else 'absent'}, "
+            f"ending {'present' if 'ending_balance' in statement else 'absent'}")
+
+
+def _reader_production_verdict(payload: dict) -> str:
+    """The `_Verdict` `corpus_gate.py::production_verdict`:1358-1366 builds."""
+    from telemetry.record import classify_outcome
+
+    outcome, _reason = classify_outcome(copy.deepcopy(payload))
+    integrity = payload.get("integrity") or {}
+    return (f"_Verdict({outcome!r}, flags {len(integrity.get('flags') or ())}, "
+            f"risk {str(integrity.get('risk_level') or '')!r})")
 
 
 READERS = (
     ("telemetry/record.py::classify_outcome", _reader_classify_outcome),
     ("(design) classify_document", _reader_classify_document),
+    ("telemetry/diagnostics.py::diagnose (in every telemetry record)", _reader_diagnose),
+    ("telemetry/stated_counts.py::evaluate", _reader_stated_counts),
     ("analysis/revenue.py::rebuild_serialized_revenue_views", _reader_revenue_views),
     ("webapp/app.py::_analysis_rows (CSV/XLSX export)", _reader_analysis_rows),
     ("webapp/app.py::_adb_rows (ADB export)", _reader_adb_rows),
     ("webapp/app.py::_masked (the /analysis route)", _reader_masked),
+    ("benchmark/ourside.py::OurFileResult.statement/.metrics/.reconciliation", _reader_ourside),
+    ("balance_forensic_audit.py:528-529 (indexes `payload['statement']`)",
+     _reader_forensic_production),
+    ("corpus_gate.py::production_verdict -> _Verdict", _reader_production_verdict),
 )
+
+
+# ---------------------------------------------------------------------------
+# the seam census — every `analyze_markdown` -> `report_to_dict` call site
+# ---------------------------------------------------------------------------
+#
+# Nine, measured at this base. Each must move to the document entry point or a
+# multi-account document publishes ONE account through the old seam. The list
+# is checked against the tree, so it cannot quietly go stale.
+
+SEAMS: tuple[tuple[str, int, str], ...] = (
+    ("discovery/runner.py", 452, "the discovery run"),
+    ("corpus_gate.py", 1355, "production_verdict — the pinned corpus"),
+    ("benchmark/ourside.py", 99, "the benchmark's production side"),
+    ("batch.py", 181, "the batch CLI"),
+    ("balance_forensic_audit.py", 516, "the balance forensic audit"),
+    ("webapp/artifact_cache.py", 215, "the analysis cache — every web upload"),
+    ("analyze.py", 175, "the CLI"),
+    ("webapp/worker.py", 29, "the web worker"),
+    ("adb_forensic_audit.py", 493, "the ADB forensic audit"),
+)
+
+_SEAM_RE = re.compile(r"report_to_dict\(")
+
+
+def census_seams() -> tuple[list[tuple[str, int]], list[tuple[str, int]], list[str]]:
+    """(found, undeclared, missing) — the census, checked both ways."""
+    out = subprocess.run(
+        ["git", "grep", "-n", "report_to_dict(", "--", "*.py"],
+        cwd=REPO, capture_output=True, text=True, check=False)
+    found: list[tuple[str, int]] = []
+    for line in out.stdout.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        path, lineno, text = parts[0], int(parts[1]), parts[2]
+        if path.startswith(("tools/", "tests/")):
+            continue
+        if "def report_to_dict" in text or "import" in text:
+            continue
+        if not _SEAM_RE.search(text):
+            continue
+        found.append((path, lineno))
+    declared = {(path, lineno) for path, lineno, _why in SEAMS}
+    undeclared = sorted(set(found) - declared)
+    missing = [f"{path}:{lineno}" for path, lineno, _why in SEAMS
+               if (path, lineno) not in set(found)]
+    return sorted(found), undeclared, missing
+
+
+def print_census() -> int:
+    found, undeclared, missing = census_seams()
+    print("## The `analyze_markdown` -> `report_to_dict` seam census")
+    print()
+    print("Every production call site that turns a `Report` into the published "
+          "payload. Each must move to the document entry point, or a "
+          "multi-account document publishes ONE account through the old seam. "
+          "The declared list is checked against the tree in BOTH directions, "
+          "so it cannot go stale without this instrument failing.")
+    print()
+    print("| seam | what it feeds |")
+    print("|---|---|")
+    for path, lineno, why in SEAMS:
+        print(f"| `{path}`:{lineno} | {why} |")
+    print(f"| **declared** | **{len(SEAMS)}** |")
+    print()
+    print("| check | result |")
+    print("|---|---|")
+    print(f"| call sites found in the tree | {len(found)} |")
+    print(f"| declared but NOT found (moved or removed) | "
+          f"{len(missing)}{'' if not missing else ' — ' + ', '.join(missing)} |")
+    print(f"| found but NOT declared (a new seam) | "
+          f"{len(undeclared)}{'' if not undeclared else ' — ' + ', '.join(f'{p}:{n}' for p, n in undeclared)} |")
+    print()
+    if undeclared or missing:
+        print("**CENSUS FAILS.** The list and the tree disagree; the exit "
+              "criterion built on this list is not safe to use until they are "
+              "reconciled.")
+        return 1
+    print("**CENSUS HOLDS** at this tree: the declared list is exactly the "
+          "tree's, both ways.")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="L1 design payload-reader probe")
-    parser.add_argument("--run", required=True, type=Path)
-    parser.add_argument("--data-dir", required=True, type=Path)
+    parser.add_argument("--run", type=Path)
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--sha", help="content sha256; default: the first validated document")
+    parser.add_argument("--census", action="store_true",
+                        help="run the seam census alone and exit")
     parser.add_argument("--json", type=Path)
     args = parser.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, OSError):  # pragma: no cover
         pass
+
+    if args.census:
+        print("# L1-ARCH-DESIGN — seam census")
+        print()
+        return print_census()
+
+    if args.run is None or args.data_dir is None:
+        parser.error("--run and --data-dir are required unless --census is given")
 
     rows = load_baseline_rows(args.run)
     sha = (args.sha or "").upper() or next(
@@ -192,13 +359,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"| `{name}` | {row['baseline']} | {row['document']} | {row['shim']} |")
     print()
 
-    loud = sum(1 for row in results.values() if row["document"].startswith("RAISES"))
-    quiet = len(results) - loud
-    shim_loud = sum(1 for row in results.values() if row["shim"].startswith("RAISES"))
+    # `classify_document` is the design's own, taught function: it is measured
+    # for contrast and is not part of the census of readers that exist TODAY.
+    census = {name: row for name, row in results.items()
+              if not name.startswith("(design)")}
+    loud = sum(1 for row in census.values() if row["document"].startswith("RAISES"))
+    quiet = len(census) - loud
+    shim_loud = sum(1 for row in census.values() if row["shim"].startswith("RAISES"))
     print("| measure | value |")
     print("|---|---:|")
-    print(f"| payload readers probed | {len(results)} |")
-    print(f"| ... that REFUSE the document shape (loud, fail-closed) | {loud} |")
+    print(f"| payload readers probed (excluding the design's own) | {len(census)} |")
+    print(f"| ... that REFUSE the document shape (loud, fail-closed) | **{loud}** |")
     print(f"| ... that ANSWER a shape they were not taught (quiet) | **{quiet}** |")
     print(f"| ... that refuse the Option-D shim | **{shim_loud}** |")
     print()
@@ -209,23 +380,22 @@ def main(argv: list[str] | None = None) -> int:
           "every reader to be taught BEFORE the first document publishes two "
           "accounts, because the untaught failure is not loud either.")
     print()
-    print("Readers that are NOT pure functions of the payload dict are not "
-          "probed here and are named in the design's surface table by file "
-          "and line: `webapp/app.py::_package_analysis` (needs Job objects), "
-          "`discovery/runner.py` and `corpus_gate.py` (inline "
-          "`payload[\"statement\"][...]` reads), `webapp/jobs.py::"
-          "_classification_for`, `webapp/static/app.js::renderAnalysis`.")
+
+    code = print_census()
 
     if args.json:
         args.json.write_text(json.dumps({
             "sha16": sha[:16],
             "parser_id": rows[sha].get("parser_id"),
             "results": results,
+            "readers_probed": len(census),
             "document_shape_loud": loud,
             "document_shape_quiet": quiet,
             "shim_loud": shim_loud,
+            "seams_declared": len(SEAMS),
+            "census_exit": code,
         }, indent=1), encoding="utf-8")
-    return 0
+    return code
 
 
 if __name__ == "__main__":  # pragma: no cover

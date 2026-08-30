@@ -215,9 +215,9 @@ def main(argv: list[str] | None = None) -> int:
           "`declares` is `analysis/symitar.py::_DORMANT_RE`, the ratified "
           "wording — defined at `symitar.py:116` and, measured by grep at this "
           "tree, referenced by NO code in `analysis/` or `tests/`. The "
-          "production dormant skip is `symitar.py:421` `if not rows: "
-          "continue`, and `community_section.py:984` counts a section only "
-          "`if stmt is not None and stmt.transactions`. Both are skips on the "
+          "production dormant skip is `symitar.py:419-420` `if not rows: "
+          "continue`, and `community_section.py:621-622` returns None from "
+          "`_parse_sectioned_statement` when a block parsed no row. Both are skips on the "
           "ABSENCE of parsed rows, which the checkpoint ruling names as "
           "insufficient on its own.")
     print()
