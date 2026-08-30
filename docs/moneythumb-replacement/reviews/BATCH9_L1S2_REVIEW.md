@@ -671,3 +671,177 @@ lines and reproduces the pristine-base numbers exactly, the floor is rebuilt wit
 provenance named per tree, both instrument defects are fixed and verified by exercising them,
 the scans are 0, and the register composes as a union. No production code changed, and the
 archive still does not move.
+
+---
+
+## Re-review (closure-2 036b87d) — 2026-08-30
+
+**CONFIRMED — COMPOSE.** Both blockers are closed and re-measured; the raises tightening is
+done and its positive controls are live. One MINOR residual is named below (the tripwire's
+fallback is silent), with two one-clause prose qualifiers suggested. None of it blocks.
+
+Bounded to the two blockers plus the raises tightening, as asked. Closure-2 tip `036b87d`,
+final code commit `44cc882`; `git diff --stat 44cc882..036b87d` is **one Markdown file**.
+`git diff --stat 315abfc..036b87d` touches only that file and `tools/l1s2_mutation_table.py`,
+neither of which the default suite collects or the gate reads — which is what lets the suite,
+the gate and the corpus slice be carried, as agreed.
+
+### BLOCKING-1 — CLOSED
+
+| claim | **measured** |
+|---|---|
+| design still purely additive vs `fea0bd2` | `git diff --numstat fea0bd2..036b87d` = **48 insertions / 0 deletions** |
+| §1.5 byte-identical to base | **md5 identical** base vs tip over the whole §1.5 block; the branch's only design hunks are at `@@ -1058` and `@@ -1193`, so train9's `SUPERSEDED` annotation at `@@ -329` merges beside it with no conflict |
+| §6.2 and §7 rewritten per the ruled Q10 | read in full — see below |
+
+**Does any sentence still describe a fold as pending, or as S3's obligation? No.** §6.2 now ends
+"S3 prices 15 protected-and-pinned carriers, not 12 — and it prices them as documents that KEEP
+their account `validated` … What S3 wires for these 15 is the SURFACE —
+`sibling_account_omission_detected: true` and `completeness: partial` … not a fold." §7 states
+the ruling supersedes the override, that the 15 do **NOT** fold, that each keeps its account
+`validated` under the five independence conditions, that fail-closed is unchanged, and that
+"S3's obligation on these 15 is therefore to WIRE THE SURFACE and to leave the account outcome
+alone." The one backward-looking sentence — "when this note was first written the consequence
+was open and it said so" — is correctly past tense.
+
+Three other mentions of a fold survive in the design and all three are **base text that should
+stay**: `:332-333` is §1.5's original override, which is exactly where train9's annotation
+lands; `:988` and `:1181` describe the *weakest-account* fold in general, which Q10 does not
+supersede. Nothing to change.
+
+### BLOCKING-2 — CLOSED, and it is a mechanism rather than a reminder — with one residual
+
+The pins now assert **both legs**, and the document leg goes through
+`tests/test_l1s2_document_outcome.py::document_outcome`, which discovers a fold by AST scan
+rather than by a hard-coded module list and falls back to the published account when none
+exists. Both pin files call it; the carriers test names each failing carrier.
+
+**The attack the coordinator asked for, run as five cases.** Each appends one document-level
+fold to `telemetry/record.py` (or `analysis/pipeline.py`), runs the tripwire and the ruling
+pins, runs the 15 carriers whenever those pass, and restores in a `finally`; the tree was
+verified clean after every case.
+
+| # | the fold | caught by | result |
+|---|---|---|---|
+| **A** | `classify_document` returning `("review", "sibling_section_omitted")` — **the exact Q-3 that beat the previous pins** | name pattern, superseded-reason scan, and the ruling pins' new DOCUMENT leg | **13 failed / 21 passed** |
+| **B** | `outcome_for_document`, same superseded reason — name pattern MISSES | superseded-reason scan alone | **1 failed / 33 passed** |
+| **C** | `outcome_for_document` returning `("review", "omitted_sibling_present")` — **neither stem nor the superseded reason** | *nothing* | **34 passed**, and **the 15 carriers passed** (39 s, genuinely replayed) |
+| **D** | `classify_document = lambda …`, novel reason | name pattern (an `Assign` target) + the document leg | **12 failed / 22 passed** |
+| **E** | `classify_document` as a METHOD on a class in `analysis/pipeline.py` | name pattern, then "declared but not resolvable" — fail closed | **2 failed / 32 passed** |
+
+**Verdict on the mechanism.** It is a real mechanism against every spelling that uses either the
+design's own vocabulary or the superseded reason string, and it is fail-closed on the awkward
+shapes: a method it can see but not import turns the tripwire red rather than silently absent
+(E), and a lambda is caught because the scan reads `Assign` targets and not just `def` (D). The
+decisive improvement over closure-1 is that **the exact mutant that beat every previous pin now
+fails thirteen tests**, and that the resolver wires the pins to a fold automatically the day one
+lands — nobody has to remember.
+
+**MINOR (residual) — the fallback is silent.** Case C shows the limit: a fold named outside the
+two stems *and* carrying a reason other than the superseded one is invisible, `document_outcome`
+quietly reverts to the account leg, and all 15 can be demoted with every pin green. The
+structural cause is that "no fold found" and "no fold exists" are the same answer. I do not
+think this blocks:
+
+* the design's own name for the fold is `classify_document` — §1.5 and §5's `discovery/compare.py`
+  row both say so — and the pattern covers it and `document_outcome*` besides;
+* evading requires S3 to rename away from the design *and* invent a new demotion reason, which
+  is a deliberate act, not an oversight;
+* the failure mode Q10 was actually written against — §1.5's original text landing unnoticed —
+  is now caught on three independent legs.
+
+Worth carrying to S3 rather than fixing here, and worth two one-clause honesty edits whenever
+those files are next touched: design §7 says the carriers test "pins all fifteen against a fold
+that forgets it", and the carriers docstring says the resolver finds a fold "by scanning
+`analysis/` and `telemetry/`, not by a hard-coded name". Both are true of a hard-coded
+*pattern* over two stems; a qualifier would stop a later reader trusting them further than they
+reach.
+
+### The mutants — both killed, and no kill scored on a test that did not run
+
+The scoring rule, read in the committed harness: `DID_NOT_RUN = (4, 5)` and
+`_fired(code) = code > 0 and code not in DID_NOT_RUN`; survival is "no killer fired", and a
+4/5 is printed as `DID NOT RUN — exit N` in its own column. That is the right rule — `pytest`
+answers a usage error with 4 and an empty collection with 5, and either would otherwise have
+been counted as a kill. The Q-1 note records the concrete instance: `Q10_CARRIERS` is a plain
+killer rather than an archive one precisely because archive killers get `--run` / `--data-dir`
+appended and pytest would answer 4.
+
+Re-run at the tip:
+
+```
+Q1_the_omission_is_admitted_but_never_surfaced
+   the constructed fixtures: exit 1
+   the Q10 ruling pins + the document-outcome tripwire: exit 1
+   the 15 protected carriers, replayed: exit 1
+Q3_a_document_fold_demotes_on_any_omission
+   the Q10 ruling pins + the document-outcome tripwire: exit 1
+   the 15 protected carriers, replayed: exit 1
+MUTANTS=2 SURVIVED=0        tree clean before and after
+```
+
+**Every killer exited 1** — a real fire, none in the `DID_NOT_RUN` set — so no kill rests on a
+test that never ran.
+
+A note on how that run was taken. The harness's own concurrency guard **refused first**
+(`exit 5`, naming the other process), which is an unplanned second confirmation that closure-1's
+MINOR-4 works in the wild. The neighbour was the concurrent L1-S3 cell's whole-archive
+`regfp_zero_movement_sweep`, which is read-only and performs no git writes, so the hazard the
+guard exists for — two harnesses contending to mutate and restore — did not apply. I used
+`--allow-concurrent` deliberately, which is what the flag is for, and verified
+`git status --porcelain` empty before and after.
+
+### The three fail-closed cases, and their positive controls
+
+Now `pytest.raises(RuntimeError, match=NO_PARSER)` — the refusal is named rather than merely
+raised. Each of the three carries a positive control built from the nearest page that DOES print
+evidence, and the control asserts all three things: it publishes, it records an omission, and
+`document_outcome` resolves `validated`. **28 passed** in that file. The controls are live rather
+than decorative: under mutants A and D above,
+`test_each_refusal_has_a_positive_control_that_publishes` appears in the failure list for all
+three cases.
+
+### Floor, re-measured at the tip `036b87d`
+
+| proof | claimed | **measured** | exit |
+|---|---|---|---:|
+| canonical guards | 255 | **255 passed** | 0 |
+| register test | 24 | **24 passed**, 10 deselected (inside the 84 below) | 0 |
+| document-report | 26 | **26 passed** (inside the 84 below) | 0 |
+| ruling file | 28 | **28 passed** | 0 |
+| tripwire file | 6 | **6 passed** | 0 |
+| ruling + tripwire | 34 | **34 passed** | 0 |
+| ruling + tripwire + register + document-report | 84 | **84 passed**, 10 deselected | 0 |
+| the 15 protected carriers | 1 | **1 passed**, 39 s — genuinely replaying | 0 |
+| added-line privacy scan | 0 over 4,010 lines | **4,010 added lines, raw 4, `hit_count` 0** at `44cc882` — exact; **4,137 / raw 4 / 0** at the tip | 0 |
+| commit-message scan, `--shas` the 15 | 0 over 25 commits | **`hit_count` 0**, every class 0, population 15 — **25** commits at `44cc882`, **26** at the tip | 0 |
+| full suite / gate / corpus slice | 7,561 / 43 / 35 at `315abfc`; gate and slice as before | **carried on equivalence**, and the equivalence checked: `315abfc..036b87d` touches only `W3_TRACKA_LOG.md` and `tools/l1s2_mutation_table.py`, which pytest never collects and the gate never reads | — |
+
+### Register set-difference
+
+`train9` has moved again — it is `7e8bdcc` now, past both `918de4c` and the `eb94046` named in
+the request; the movement is docs plus a 27-insertion / 0-deletion `corpus_gate.py` addition.
+
+| comparison | keys | difference |
+|---|---:|---|
+| base `fea0bd2` | 33 | — |
+| tip `036b87d` | 34 | ADDED `tools/l1s2_admission_probe.py`; removed none |
+| `train9` `7e8bdcc` | 34 | vs base, ADDED `tools/pagecov_probe.py` |
+| both | — | **no key added by both, no duplicate, no re-declaration** |
+
+Files changed by both since base: `corpus_gate.py` (a clean union — the two additions are in
+different regions), the design (non-overlapping hunks, and §1.5 untouched by the branch so
+train9's annotation lands cleanly), and `W3_TRACKA_LOG.md` (append-only; the train helper
+rebuilds it).
+
+### Verdict
+
+**CONFIRMED — COMPOSE.**
+
+BLOCKING-1 is closed: the design reads per the ruled Q10, stays purely additive, and leaves §1.5
+byte-identical so the train's annotation merges beside it. BLOCKING-2 is closed: the pins gained
+the document leg, the resolver wires them to S3's fold automatically, and the mutant that beat
+every previous pin now fails thirteen tests — with the limit of the discovery pattern measured
+and named rather than assumed away. The raises tightening is done and its positive controls
+demonstrably bite. Both mutants are killed with every killer genuinely running, the scans are 0,
+and the register composes as a union.
