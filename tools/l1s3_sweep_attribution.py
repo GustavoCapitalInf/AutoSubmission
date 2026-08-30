@@ -1,6 +1,7 @@
 """l1s3_sweep_attribution.py — whose movement is it? The sweep, run twice.
 
     python -m tools.l1s3_sweep_attribution --base <base logs glob> --tip <tip logs glob>
+    python -m tools.l1s3_sweep_attribution --replay-base <glob> --replay-tip <glob>
 
 **NOT A PARSER. NEVER REGISTERED. IT CALLS NO ANALYSIS AND READS NO DOCUMENT.**
 
@@ -25,6 +26,12 @@ population, and this instrument diffs the two finding sets by content sha:
 A finding is `(content_sha256, verdict)`. The changed FIELD NAMES the sweep
 reports are compared too, because a document that moved at both trees for
 different reasons is not the same finding.
+
+`--replay-base` / `--replay-tip` do the same job for `tools/cohort_replay.py`'s
+per-document JSON, which has the same baseline and therefore the same problem.
+One field is ignored there and named here rather than dropped quietly: `ms`,
+the per-document elapsed TIME, which differs between any two runs of anything
+and says nothing about what was published.
 
 PRIVACY. Content sha16s, verdict tokens, field NAMES (the sweep's own, which
 are payload keys rather than values) and counts. No amount, date, name or path.
@@ -68,11 +75,77 @@ def _findings(paths: list[str]) -> tuple[dict[str, tuple], dict[str, int]]:
     return findings, totals
 
 
+#: The per-document field a replay row carries that is not about the payload.
+REPLAY_IGNORED_FIELDS = {"ms"}
+
+
+def _replay_rows(paths: list[str]) -> dict[str, dict]:
+    rows: dict[str, dict] = {}
+    for path in sorted(paths):
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+        for row in payload.get("rows") or []:
+            rows[row["sha"]] = row
+    return rows
+
+
+def attribute_replay(base_glob: str, tip_glob: str) -> int:
+    base = _replay_rows(glob.glob(base_glob))
+    tip = _replay_rows(glob.glob(tip_glob))
+    if not base or not tip:
+        print("REFUSING: one of the two replays produced no rows at all.")
+        return 2
+    fields: dict[str, int] = {}
+    differing: list[str] = []
+    for sha in set(base) | set(tip):
+        before, after = base.get(sha), tip.get(sha)
+        if before is None or after is None:
+            differing.append(sha)
+            fields["MISSING_AT_ONE_TREE"] = fields.get("MISSING_AT_ONE_TREE", 0) + 1
+            continue
+        moved = False
+        for field in set(before) | set(after):
+            if field in REPLAY_IGNORED_FIELDS:
+                continue
+            if before.get(field) != after.get(field):
+                fields[field] = fields.get(field, 0) + 1
+                moved = True
+        if moved:
+            differing.append(sha)
+    print("# L1-S3 — replay attribution: the base tree and the tip, same cohort")
+    print()
+    print("| measure | documents |")
+    print("|---|---:|")
+    print(f"| documents replayed at both trees | {len(set(base) | set(tip))} |")
+    print(f"| whose replay row DIFFERS (ignoring {sorted(REPLAY_IGNORED_FIELDS)}) | {len(differing)} |")
+    print()
+    if differing:
+        print("**THIS BRANCH MOVED DOCUMENTS.** Fields that differ, and on how many:")
+        print()
+        for field, count in sorted(fields.items()):
+            print(f"* `{field}` — {count}")
+        for sha in sorted(differing)[:50]:
+            print(f"* `{sha[:16]}`")
+        return 1
+    print("**ZERO MOVEMENT ATTRIBUTABLE TO THIS BRANCH.** Every document's "
+          "before and after outcome, reason, registration, payload identity "
+          "and changed leaf paths are the same at both trees.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="attribute sweep findings to a tree")
-    parser.add_argument("--base", required=True, help="glob for the BASE sweep logs")
-    parser.add_argument("--tip", required=True, help="glob for the TIP sweep logs")
+    parser.add_argument("--base", help="glob for the BASE sweep logs")
+    parser.add_argument("--tip", help="glob for the TIP sweep logs")
+    parser.add_argument("--replay-base", help="glob for the BASE cohort_replay JSON")
+    parser.add_argument("--replay-tip", help="glob for the TIP cohort_replay JSON")
     args = parser.parse_args(argv)
+    if bool(args.replay_base) != bool(args.replay_tip):
+        parser.error("--replay-base and --replay-tip go together")
+    if args.replay_base:
+        return attribute_replay(args.replay_base, args.replay_tip)
+    if not (args.base and args.tip):
+        parser.error("--base and --tip are required for the sweep mode")
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, OSError):  # pragma: no cover

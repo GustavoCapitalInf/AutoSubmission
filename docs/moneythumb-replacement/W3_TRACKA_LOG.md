@@ -61618,13 +61618,13 @@ census is for.
 | the corpus-marked slice | `python -m pytest -q -m corpus` | 30 passed, exit 0 (1782 s), run from a worktree beneath the repo |
 | RULE S at the pipeline seam | `tools/l1s1_seam_probe.py`, base `4953806` vs tip, `--per-parser 3` | 232 documents / 80 registrations; **RULE S payload byte-identical 232/232**, moved 0; the account seam 232/232, moved 0; the published integrity flag list AND ORDER identical 232/232; ladder outcome unchanged 232; `MOVED_TOTAL=0`, exit 0 |
 | the same, WIDE | the same probe, `--per-parser 12`, both trees | **677 documents / 80 registrations**; document seam byte-identical **677/677**, account seam 677/677, integrity flag list AND ORDER 677/677, ladder outcome unchanged 677, documents publishing exactly one account 677 (18 carry an integrity flag, 4 of them document-scope); `MOVED_TOTAL=0`, exit 0 |
-| zero movement, every registration | `tools.cohort_replay --parser … --expect-identical`, all 80 registrations the run claimed, at BOTH trees | REPLAY |
+| zero movement, every registration | `tools.cohort_replay --parser … --expect-identical`, all 80 registrations the run of record claimed, four chunks, at BOTH trees | 2,743 claimed documents, 2,669 replayed. Identical totals at base and tip: **previously validated payload identical 2,555**, payload changed 41, newly validated 3, other ladder regressions (down, from a non-validated class) 3, **validated regressions — BLOCKING 0**; chunk exits `[0, 0, 3, 3]` at BOTH trees. Per document: **0 of 2,669 replay rows differ** between the trees (`--replay-base/--replay-tip`, ignoring only the per-document `ms` timing) — same before and after outcome, reason, registration, payload identity and changed leaf paths |
 | the archive sweep, all 3,380 | `tools.regfp_zero_movement_sweep`, four chunks, at BOTH trees | 3,380 documents each; 2,669 compared, **2,620 identical**, 46 moved, 21 no-payload-now-publishes, 3 payload-now-raises, 0 multi-artifact — **the same nine numbers at the base tree and at the tip**. Four chunk exits 1 at each tree (the tool exits non-zero on any finding) |
 | attribution of every sweep finding | `python -m tools.l1s3_sweep_attribution --base … --tip …` | **exit 0** — 70 findings at BOTH trees identically (same document, same verdict, same changed field names); **0 differing, 0 tip-only, 0 base-only**. Every one of the 70 is train9's composed movement against the batch-8 run of record, and none is this branch's |
 | privacy — added lines | `tools/privacy_scan_branch.py` | **0 hits / raw 0** — 3,133 added lines against the printed tokens of 3,380 documents (3,351 with cached text): MONEY 0, DIGITS 0, DATES 0, WORDS 0, residue files 0, residue sites 0. Exit 0 |
 | privacy — commit messages | `tools/huntington_msg_privacy_scan.py` | 11 commits scanned against the same 3,380: **MONEY 0, DIGITS 0, DATES 0**; WORDS 2 (exit 1) — see the attribution below |
 
-### Why the sweep is run TWICE, and what its 70 findings are
+### Why the sweep AND the replay are each run TWICE
 
 `tools/regfp_zero_movement_sweep.py` compares a tree's recomputed payload against the
 payload the RUN OF RECORD cached — and the run of record is **batch 8's**. train9 has
@@ -61639,6 +61639,14 @@ two finding sets diffed by content sha (`tools/l1s3_sweep_attribution.py`, commi
 Every one of the nine aggregate counts is the same at both trees, and all **70**
 per-document findings are present at both, identically. Nothing appears at the tip that
 is not at the base; nothing disappears either.
+
+`tools/cohort_replay.py` has the same baseline and therefore the same problem, and
+it was run the same way. At the BASE tree two of its four chunks already exit 3 — 3
+newly validated, 3 ladder regressions down from a non-validated class, 41 previously
+validated documents with a changed payload — and the tip reproduces every one of those
+numbers exactly. Per document, **0 of 2,669 replay rows differ** between the two trees
+once the per-document elapsed-time field is set aside (which the instrument names
+rather than drops quietly). `validated regressions — BLOCKING` is **0 at both**.
 
 One consequence worth stating plainly: **the sweep replays the ACCOUNT seam**
 (`analyze_markdown` → `report_to_dict`), which this card did not change. What
