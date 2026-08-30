@@ -505,3 +505,169 @@ that could change it.
 None of the five MINORs blocks composition. **MAJOR-1 does not block it either** — it asks for
 a decision and a documentation amendment, not a code change — but the decision should be taken
 before S3, because S3 is where the extra three shas are paid for.
+
+---
+
+## Re-review (closure 9f30b88) — 2026-08-30
+
+**NOT CONFIRMED — two items, both documentation/coverage, neither a production change.**
+Production code is unchanged by the closure and everything that was APPROVE-able before is
+still measured green. What stops composition is (1) a §7 note that now contradicts Gustavo's
+Q10 ruling and will merge beside Ocean's `SUPERSEDED` annotation, and (2) a Q10 pin that a
+document-level fold walks straight past — demonstrated with a mutant, fixable in one commit.
+
+Closure tip `9f30b88` (21 commits from `fea0bd2`, including this review's own `f7d7aca`);
+floor tree `67f4b8d`; `git diff --stat 67f4b8d..9f30b88` is **one file**,
+`docs/moneythumb-replacement/W3_TRACKA_LOG.md`. `git diff --stat f7d7aca..9f30b88` touches
+**no production module** — the design, W3, two new test files, and three instruments
+(`l1_design_skip_probe.py`, `l1s2_mutation_table.py`, `l1s2_sweep_diff.py`). `analysis/` is
+byte-identical to the tree this review already approved.
+
+### Per finding
+
+| finding | claimed | **measured** | verdict |
+|---|---|---|---|
+| **MAJOR-1** design amended additively | 32 insertions / 0 deletions; §6.2 block 12/16 + 3/3 = 15/19 with the three sha prefixes; dated §7 note attributing the widening to Ocean | `git diff --numstat` = **32 / 0**. §6.2 carries the delivered-population table and the three prefixes; §7 carries a dated note that names Ocean as the acceptor and this review's §2 as the adjudication. Purely additive — the original 12/16 measurement is untouched, which is right | **CLOSED on the amendment, NOT CLOSED on its wording — see BLOCKING-1** |
+| **MINOR-1** skip probe re-anchored | `:453` / `:655` / `:1043`, both-outcome lines; exit 0, 117 / 12 / 16, sites 7/8/0/1, 8+8+0 | **exit 0; 117 read / 12 documents / 16 sections; sites 7 / 8 / 0 / 1; 8 + 8 + 0 by class; seven clauses 8 of 8.** Identical, number for number, to the run this review took at a *pristine `fea0bd2` worktree* — which is what makes the re-anchoring correct rather than merely non-refusing | **CLOSED** |
+| **MINOR-2** floor rebuilt, provenance named | guards 255, conformance 1,270/40, register 24, document-report 26, fixtures 58 (38+20), suite 7,547/43/35 | **255 / 1,270 + 40 skipped / 24 + 10 deselected / 26 / 58 (and 20 for the ruling file alone) / 7,547 passed, 43 skipped, 35 deselected** — all exit 0, all at `9f30b88`. The W3 floor table names its tree (`67f4b8d`) and the message-scan row now names its count *per tree*, which is the actual repair | **CLOSED** |
+| **MINOR-3** carried to S3/S4 | this review's numbers, no code change, because routing the other exits would refuse the "no sibling section LOCATED" class (16 documents, §2.3) | **Agreed.** The reason is correct and it is the reviewer's own measurement: the population is 0 on this archive, and the three unrouted exits sit in front of a class the design has already assigned to S4's boundary rung. Refusing there would trade a measured zero for 16 documents | **CLOSED as carried** |
+| **MINOR-4** concurrency refusal implemented | tasklist/ps, self excluded, exit 5, `--allow-concurrent` | **Verified against a sleeping python**: the harness printed `REFUSING: another python process is working on this host`, listed the offenders as `name:pid`, and returned **exit 5** — *before* the dirty-tree check and before any patch was written; `git status --porcelain` empty throughout. `--allow-concurrent` then ran the mutant to completion (1 killed, 0 survived) and left the tree clean. Self-exclusion is by `os.getpid()`, and the clean-host runs did not refuse | **CLOSED** |
+| **MINOR-5** `action="extend"` | both spellings → 3,380 / 70 / 0 / 0, exit 0 | **Both spellings measured: `documents` 3,380 / 3,380, `compared_payload` 2,669, `INHERITED=70 MOVERS_AT_THE_TIP=0 REMOVED=0`, exit 0.** The repeated-flag form, which silently differenced one chunk before (830 / 14), now covers the whole archive | **CLOSED** |
+| **scans** | 0 over 3,221 added lines, raw 4 (1 `round_money` + 3 `words_class`); messages 0 with `--shas` over 20 commits | **Reproduced exactly at the trees named**: at `67f4b8d`, 3,221 added lines, raw 4, `round_money` 1 + `words_class` 3, `hit_count` **0**. At the tip `9f30b88`: 3,419 added lines, raw 3 (1 + 2), `hit_count` **0**; messages `hit_count` **0** over **21** commits (19 at `67f4b8d`, 20 at `3b92785`, 21 at the tip). Every count the W3 states is right for the tree it names. Discards judged: the same two standing, committed, self-tested rules as before, firing on the cell's own invented fixture arithmetic and on generic English word-pairs in prose | **CLOSED** |
+| **register** | union with `train9` | base 33 → tip 34: **ADDED `tools/l1s2_admission_probe.py`**, removed none. `train9` (`918de4c`) adds `tools/pagecov_probe.py`. **No key added by both, no duplicate, no re-declaration** | **CLOSED** |
+
+### The Q10 pins, read and mutated
+
+`tests/test_l1s2_omission_ruling.py` (**20 passed**) pins both halves per evidence class: the
+omission is surfaced with a ratified class named; the account stays `validated` through the
+*unchanged* `classify_outcome`; and — stronger than a literal `validated` —
+`test_the_omission_changes_the_accounts_outcome_by_nothing` asserts the same account reaches
+the *same verdict for the same reason* with and without the idle sibling on the page.
+`test_nothing_is_misattributed_from_the_omitted_sibling` gives independence condition 5 as a
+byte comparison. The fail-closed half carries two absence-only fixtures and an
+ambiguous-boundary one (a sibling that POSTED).
+
+`tests/test_l1s2_protected_carriers.py` (**1 passed, 26 s — it really replays**) pins the
+population at **exactly 15**, asserts the pinned `dakota_west` carrier is inside it, and for
+each: publishes, carries at least one omission, every reason in `EVIDENCE_CLASSES`, account
+outcome `validated`, account block byte-identical to the run of record. It skips **only** when
+the cold cache or the run pointer is absent, with a stated reason, and a *resolvable* document
+whose text is missing is a **failure**, not a skip. No vacuous pass.
+
+**Mutant Q-1 — the omission is admitted but never surfaced** (`publish_omissions` made a
+no-op; applied in-tree, restored, `git status --porcelain` empty before and after):
+
+```
+ruling pins        -> 5 failed, 15 passed   (exit 1)
+protected carriers -> 1 failed              (exit 1)   "publishes with NO omission recorded"
+```
+
+The *surface* half bites, on constructed fixtures and on the real 15 alike.
+
+**Mutant Q-3 — the S3 fold, written exactly as design §1.5 originally had it** (a
+`classify_document` added to `telemetry/record.py` returning
+`("review", "sibling_section_omitted")` whenever `document.omissions` is non-empty; restored,
+tree clean):
+
+```
+ruling pins                -> 20 passed  (exit 0)
+protected carriers         ->  1 passed  (exit 0)
+document-report + register -> 50 passed  (exit 0)
+```
+
+**Every pin passes while all 15 protected carriers are demoted.** That is BLOCKING-2.
+
+### BLOCKING-1 — the §7 note now contradicts the ruling it will merge beside
+
+The dated §7 note ends:
+
+> "when §1.5's omission override lands, **15** protected batch-8 shas fold to `review`, not 12.
+> That override is a ruling Ocean is putting to Gustavo; S3 keeps it dark until it is answered."
+
+and the §6.2 block ends "**S3 prices 15 protected shas under §1.5's omission override, not 12.**"
+
+The ruling has been answered. On `train9` (`918de4c`) design §1.5's third override already reads
+**"SUPERSEDED by Gustavo's Q10 ruling (2026-08-30, BATCH9_TRANSITION §8.7): the document is NOT
+demoted"**. The two edits do not collide textually — `train9` touches `@@ -329`, this branch
+touches `@@ -1058` and `@@ -1193` — so they will merge **cleanly into a document that
+contradicts itself**, and it will contradict itself precisely where S3 reads for its scope:
+§1.5 saying do not demote, §6.2 and §7 saying price 15 demotions and keep the ruling dark.
+
+Given that Q10 exists *specifically* to stop a silent demotion of these 15, shipping a design
+that instructs S3 to perform one is not a cosmetic defect. **Correct before composition.** The
+substance of both blocks is right and should stay: the population is 15 / 19, the widening was
+Ocean's to accept, and S3 must price 15 rather than 12 — what changes is that it prices them as
+documents that **surface an omission and keep their account validated**, not as demotions.
+
+### BLOCKING-2 — the pins cover the account leg only, and a document fold demotes through the other
+
+The ruling as relayed requires that "the 15 protected carriers must carry pinning coverage so
+S3 cannot silently demote them." As delivered they carry coverage of the **account** outcome.
+Mutant Q-3 shows a document-level fold demoting all 15 with every pin green.
+
+This is disclosed rather than hidden — both test docstrings say "there is no document
+classifier at this tree" and "S3: when `classify_document` lands, extend these cases to assert
+its verdict too". That is honest, and it is a comment. Q10 asked for a mechanism, and the
+failure mode it was written against is exactly a stage landing a fold that nobody's test
+notices — which is how §1.5's override survived unchallenged until Gustavo ruled.
+
+**The remedy is cheap and does not require S3's work**: a tripwire that fails the moment a
+document-outcome fold exists without the carrier assertions being extended — e.g. assert that
+no `classify_document` (or equivalently-named document-outcome symbol) is exported by
+`telemetry.record` or `analysis.pipeline`, with the failure message reading "a document fold has
+landed: extend `tests/test_l1s2_protected_carriers.py` to assert its verdict on all 15, per Q10".
+Ten lines, no production change, and it converts the hand-off comment into the mechanism the
+ruling asked for. Alternatively Ocean rules explicitly that the account-leg pin plus the written
+hand-off is the coverage intended, and this becomes CLOSED by decision rather than by code.
+
+### A smaller observation, not blocking
+
+The fail-closed cases assert `pytest.raises(Exception)`. That passes on *any* exception,
+including one thrown by a fixture that never reached the site, so it is weaker than the rest of
+the file — and only the symitar absence case has an anti-vacuity companion
+(`test_the_refusal_fixtures_differ_from_the_admitted_ones_only_in_the_evidence`). Naming the
+class, or asserting that nothing was published rather than that something was raised, would
+make those three cases as strong as the four above them. Worth doing whenever the file is next
+touched; it does not affect this verdict.
+
+### Floor, re-measured at the closure tip `9f30b88`
+
+| proof | measured | exit |
+|---|---|---:|
+| tree state | `git status --porcelain` empty before and after every run, both mutants included | — |
+| canonical guards (5 files) | 255 passed | 0 |
+| canonical conformance (7 files) | 1,270 passed, 40 skipped | 0 |
+| `tests/test_corpus_gate_outcomes.py` | 24 passed, 10 deselected | 0 |
+| `tests/test_document_report.py` | 26 passed | 0 |
+| `tests/test_sibling_omission.py` + `tests/test_l1s2_omission_ruling.py` | 58 passed (38 + 20) | 0 |
+| `tests/test_l1s2_protected_carriers.py` (corpus-marked) | 1 passed, 26 s | 0 |
+| full default suite | 7,547 passed, 43 skipped, 35 deselected | 0 |
+| `l1_design_skip_probe`, re-anchored | 117 / 12 / 16; sites 7/8/0/1; 8+8+0; clauses 8 of 8 | 0 |
+| `l1s2_sweep_diff`, both flag spellings | 3,380; 70 inherited / 0 movers / 0 removed | 0 |
+| `l1s2_mutation_table` concurrency refusal | exit 5 on a busy host, tree untouched; `--allow-concurrent` runs, 1 killed / 0 survived | 5 / 0 |
+| added-line privacy scan | `hit_count` 0 over 3,419 added lines (3,221 at `67f4b8d`) | 0 |
+| commit-message scan, `--shas` the 15 carriers | `hit_count` 0 over 21 commits | 0 |
+| `python corpus_gate.py` | **carried from `67f4b8d`** — GREEN, 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 / 3 / 102 / 3 | 0 |
+| corpus-marked slice | **carried from `67f4b8d`** — 31 passed (30 + the protected-carriers proof), 7,594 deselected | 0 |
+
+**The gate and the slice, carried again and why.** `git diff --stat 67f4b8d..9f30b88` is one
+Markdown file; the gate reads no document under `docs/` and `-m corpus` collects no test from
+it, so the `67f4b8d` runs *are* the runs at `9f30b88`. The corpus-marked slice's new member was
+run directly at the tip anyway (1 passed, above), which is the only part of that slice this
+closure changed. The host was held throughout by the concurrent L1-S3 cell's whole-archive
+`regfp_zero_movement_sweep`; one heavy harness per host, and a 40-minute re-confirmation of a
+result a one-file diff already guarantees is not worth contending for it.
+
+### Verdict
+
+**NOT CONFIRMED — BLOCKING-1 (the §6.2 / §7 wording contradicts the ruled Q10 and will merge
+beside `train9`'s `SUPERSEDED` annotation) and BLOCKING-2 (the Q10 pins pass while a document
+fold demotes all 15; needs a tripwire, or Ocean's explicit ruling that the account-leg pin is
+the coverage intended).**
+
+Everything else this closure set out to do is CLOSED and re-measured: the design amendment is
+additive and attributes the decision correctly, the skip probe is re-anchored on both-outcome
+lines and reproduces the pristine-base numbers exactly, the floor is rebuilt with its
+provenance named per tree, both instrument defects are fixed and verified by exercising them,
+the scans are 0, and the register composes as a union. No production code changed, and the
+archive still does not move.
