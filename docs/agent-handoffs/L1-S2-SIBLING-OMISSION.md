@@ -48,6 +48,17 @@ lacks evidence. `ANALYSIS_STAGE_VERSION` bump is Ocean's at the train.
 Base `train9` after S1 composes. Branch `wave9-l1s2`, worktree `.claude/worktrees/mt9-l1s2`. Own:
 the three skip sites named above, their tests, `tools/l1s2_*.py`, W3 `§L1S2`. No other reader.
 
+# Findings from S1 that bind this card
+- `Statement`'s class docstring is published by pydantic as the extraction call's
+  `response_schema` description — a MODEL PROMPT. Never edit it to document the model; use
+  comments. The same applies to any field description on `Statement`.
+- `DocumentReport` carries a pinned field-set test: a new document-level field (the omission
+  record lives on the document object, not on `Statement`) must come with its RULE S clause and
+  the test updated in the same commit, or the suite is red by design.
+- RULE S was proven at the pipeline seam over 232 documents / 80 registrations; your change must
+  keep every single-account payload byte-identical EXCEPT the 12 re-founded documents, whose
+  only changed leaf is the omission record.
+
 # Report
 BATCH9-RULES contract with the per-registration table (validated read / skip fires / sections /
 evidence class per section), newly validated 0, preserved ALL with the 12 leaf changes classified,

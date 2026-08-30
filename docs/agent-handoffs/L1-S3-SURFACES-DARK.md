@@ -47,6 +47,17 @@ Base `train9` after S1 composes (S2 may run concurrently — disjoint files; say
 the design's census (file by file in W3), their tests, `tools/l1s3_*.py`, W3 `§L1S3`. No reader
 under `analysis/` beyond the seams; no version constant.
 
+# Findings from S1 that bind this card
+- `Statement`'s class docstring (and its field descriptions) are published by pydantic as the
+  extraction call's `response_schema` — a MODEL PROMPT. Never edit them to document the model.
+- S1 introduced `analyze_document` / `document_report_to_dict` beside the legacy seam and a
+  pinned field-set test on `DocumentReport`. Teaching a seam means moving it to the document
+  functions with RULE S intact (byte-identical single-account payloads — re-run S1's
+  `tools/l1s1_seam_probe.py` at your tip); a document-level field you need must gain its RULE S
+  clause and the field-set test in the same commit.
+- `corpus_gate.py`'s caller register already declares `analyze_document` and the design's three
+  probes (train9 473be2c); keep the register truthful for every seam you move.
+
 # Report
 BATCH9-RULES contract: newly validated 0 · other movement 0 · preserved ALL byte-identical ·
 regressions 0 · correctness (the census both ways; the per-reader tests; the mutants) ·
