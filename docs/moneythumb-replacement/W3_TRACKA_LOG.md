@@ -59420,11 +59420,15 @@ At the **base** tree, over the eighteen:
 
 | group | rows vs the bank's printed count | coverage cr / db | `chain` | `order` |
 |---|---|---|---:|---|
-| `WH:rbc` 6 | -15 to +1 against a printed count on all six | 0.46-0.86 / 0.77-1.31 | 13-27 | dated |
-| `WH:bmo` 4 | no printed instance count; 55/57, 57/57, 57/57, 41/41 against the page footers | 0.87-1.77 / 0.78-1.36 | 0-36 | dated |
-| `WH:wells_fargo` 4 | no printed instance count | 0.96-1.00 / 0.96-1.99 | 2-21 | dated |
-| `WH:scotiabank` 3 | -1, 0, 0 | 1.00-1.02 / 1.00-1.24 | 0-5 | **binder** on 2 |
+| `WH:rbc` 6 | -15 to +1 against a printed count on all six | 0.464-0.855 / 0.772-1.309 | 13-27 | dated |
+| `WH:bmo` 4 | no printed instance count; 55/57, 57/57, 57/57, 41/41 against the page footers | 0.867-1.772 / 0.775-1.361 | 0-36 | dated |
+| `WH:wells_fargo` 4 | no printed instance count | 0.962-1.000 / 0.957-1.991 | 2-21 | dated |
+| `WH:scotiabank` 3 | -1, 0, 0 | 0.997-1.019 / 1.003-1.236 | 0-5 | **binder** on 2 |
 | `WH:ibc` 1 | 0 | 1.000 / 1.000 | 20 | dated |
+
+Every figure in the `coverage` column is a RATIO of the bank's own printed
+total, to three decimals as `tools/rowcap_probe.py` reports it, and never an
+amount.
 
 Three classes come out of that table and only one of them is a row-capture
 defect this wave's readers can repair.
