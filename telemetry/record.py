@@ -436,13 +436,23 @@ def classify_document(
       `failed`s instead of being scored on an empty minimum;
     * an omission whose `reason` is not in `RATIFIED_OMISSION_REASONS`
       (L1-C17): the section should never have been published as omitted, so
-      the document `failed`s rather than being graded around it;
-    * an omission on ratified evidence: a published GAP, so the document may
-      not be `validated` — it is `review/sibling_section_omitted`.
+      the document `failed`s rather than being graded around it.
 
-    `validated` on a document therefore means *every account validated and
-    nothing was omitted*, which is strictly stronger than today's meaning and,
-    on a one-account document, IS today's meaning.
+    **The design's third override is deliberately NOT wired** (Ocean, from the
+    L1-S2 review; ruling Q10 is with Gustavo). §1.5 proposed that an omission on
+    RATIFIED evidence should stop a document being `validated` and file it
+    `review/sibling_section_omitted`. L1-S2 records exactly such omissions on
+    15 documents that batch 8 validated, every one admitted on printed evidence
+    — so wiring that override would fold 15 protected documents from
+    `validated` to `review`. That is a regression under the batch-9 doctrine
+    whatever its merits as a policy, and it is not a thing a stage that moves
+    zero documents may decide on its own. A ratified omission therefore leaves
+    the fold alone until the ruling lands; an UNRATIFIED one still fails the
+    document, because that one is a defect rather than a policy.
+
+    `validated` on a document therefore means *every account validated, and
+    nothing was omitted except on ratified printed evidence*, which on a
+    one-account document IS today's meaning.
     """
     if deferred is not None or not is_document_payload(payload):
         return classify_outcome(
@@ -480,8 +490,10 @@ def classify_document(
     # evidence about a sequence rather than a selection of one account.
     weakest = min(per, key=lambda pair: DOCUMENT_LADDER.index(pair[0]))
     if weakest[0] == "validated":
-        if omitted:
-            return "review", "sibling_section_omitted"
+        # A ratified omission does NOT lower the document here. See the
+        # docstring: the design proposed it, 15 batch-8 validated documents
+        # carry one, and lowering them is a ruling (Q10) rather than a stage's
+        # decision.
         return "validated", "approved"
     return weakest[0], f"account_{weakest[1]}"
 

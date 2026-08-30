@@ -100,12 +100,27 @@ def test_a_document_publishing_no_account_fails():
     assert classify_document(payload) == ("failed", "document_publishes_no_account")
 
 
-def test_an_omission_on_ratified_evidence_blocks_validated():
-    """A published gap. `validated` means every account validated AND nothing
-    was omitted."""
+def test_an_omission_on_ratified_evidence_does_not_lower_the_document():
+    """The design's third override is deliberately NOT wired — Q10.
+
+    §1.5 proposed that a ratified omission should stop a document being
+    `validated` and file it `review/sibling_section_omitted`. L1-S2 records
+    exactly such omissions on 15 documents batch 8 validated, each admitted on
+    printed evidence, so wiring it would fold 15 protected documents from
+    `validated` to `review` — a regression under the batch-9 doctrine and not a
+    decision a stage that moves zero documents may take. The ruling is with
+    Gustavo as Q10; until it lands, a ratified omission leaves the fold alone.
+    """
     for reason in RATIFIED_OMISSION_REASONS:
         payload = document_payload(omitted_sections=(omission(reason),))
-        assert classify_document(payload) == ("review", "sibling_section_omitted")
+        assert classify_document(payload) == ("validated", "approved")
+
+
+def test_one_validated_account_with_a_ratified_omission_stays_validated():
+    """The protected shape L1-S2 produces, stated on its own (Q10)."""
+    payload = document_payload(outcomes=("validated",),
+                               omitted_sections=(omission(),))
+    assert classify_document(payload) == ("validated", "approved")
 
 
 def test_an_omission_on_unratified_evidence_fails_the_document():
@@ -120,7 +135,7 @@ def test_the_omission_vocabulary_is_closed_against_absence():
 
 
 def test_an_omission_never_raises_a_weak_account():
-    """Every override can only LOWER the result."""
+    """Every override that IS wired can only LOWER the result."""
     payload = document_payload(outcomes=("withheld", "validated"),
                                omitted_sections=(omission(),))
     assert classify_document(payload) == ("withheld", "account_withheld_adb")
