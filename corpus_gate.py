@@ -741,10 +741,19 @@ PRODUCTION_SUPPLIES_SHEETS = True
 #: to `build_record`, which runs `classify_outcome` — so batch.py publishes an
 #: outcome class derived from these flags into its telemetry JSONL. It is a
 #: production caller and must be wired at activation.
+#:
+#: `analysis/pipeline.py::analyze_document` is the L-1 DOCUMENT entry point.
+#: It is declared rather than excused, and the distinction is load-bearing: it
+#: forwards the page partition it was handed to `analyze_markdown`, and the
+#: seams above move to it in the stage that teaches the payload readers the
+#: document shape — so a version of it that stopped forwarding `sheets` would
+#: take the page-declaration check offline for EVERY caller at once, which is
+#: precisely the drift this declaration exists to make loud.
 ANALYSIS_CALL_SITES = (
     ("discovery/runner.py", "_analyse"),
     ("webapp/worker.py", "_analyze_doc"),
     ("batch.py", "main"),
+    ("analysis/pipeline.py", "analyze_document"),
 )
 
 #: Modules that call the analysis but must NOT be wired, each with the reason.
@@ -927,6 +936,34 @@ EXCLUDED_ANALYSIS_CALLERS = {
     "tools/hygiene8_pinned_replay.py": (
         "read-only base-vs-branch replay of the pinned 109; publishes no verdict, "
         "and already supplies the intake page list it computes once for both trees"
+    ),
+    # The L-1 design cell's three read-only instruments and stage 1's seam
+    # probe, excused on the same two grounds as every replay above: each
+    # publishes no verdict — payload/leaf comparisons, reader answers by CLASS,
+    # skip-site counts, digests and content sha16s, never a figure, a name or a
+    # date — and each already supplies the reconstructed page partition as
+    # `sheets`. The first three were composed with the design and this guard was
+    # RED for them at `train9` before stage 1 began: it runs only in the full
+    # default suite, which is the train's, and the design cell's own floor ran
+    # the canonical guards rather than the suite. Classified here rather than
+    # left red, because a card cannot report a green floor over an inherited
+    # failure and the classification is the honest answer to the question the
+    # list asks.
+    "tools/l1_design_payload_probe.py": (
+        "read-only payload-shape probe; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
+    "tools/l1_design_reader_probe.py": (
+        "read-only payload-reader probe; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
+    "tools/l1_design_skip_probe.py": (
+        "read-only sibling-skip probe on the dispatch path; publishes no "
+        "verdict, and already supplies the reconstructed page partition"
+    ),
+    "tools/l1s1_seam_probe.py": (
+        "read-only cross-tree seam probe; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
     ),
 }
 
