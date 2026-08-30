@@ -239,8 +239,8 @@ def test_the_refusal_guard_is_one_rule_in_both_oracles(exc, recognised, monkeypa
     def raise_it(*args, **kwargs):
         raise exc
 
-    monkeypatch.setattr(adb_forensic_audit, "analyze_markdown", raise_it)
-    monkeypatch.setattr(balance_forensic_audit, "analyze_markdown", raise_it)
+    monkeypatch.setattr(adb_forensic_audit, "analyze_document", raise_it)
+    monkeypatch.setattr(balance_forensic_audit, "analyze_document", raise_it)
 
     if not recognised:
         with pytest.raises(type(exc)):

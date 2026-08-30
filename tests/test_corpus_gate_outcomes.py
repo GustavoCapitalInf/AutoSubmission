@@ -43,7 +43,12 @@ ROOT = Path(corpus_gate.__file__).resolve().parent
 # --- the declaration that keeps the harness honest ---------------------------
 
 
-WATCHED = {"analyze_markdown", "cached_analysis"}
+#: `analyze_document` is the DOCUMENT entry point (L1-S1) and is what the nine
+#: production seams call since L1-S3. It is watched beside `analyze_markdown`
+#: because it IS the analysis: leaving it out would let a caller move to it and
+#: fall out of this sweep entirely, which is the one thing the sweep exists to
+#: prevent.
+WATCHED = {"analyze_markdown", "analyze_document", "cached_analysis"}
 
 #: Directories that are not production code, so their callers are out of scope.
 NON_PRODUCTION_DIRS = ("tests", "docs", ".claude", ".git", "build")

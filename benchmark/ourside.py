@@ -4,8 +4,8 @@ Source text is resolved exactly the way the corpus gate does:
 ``balance_forensic_audit.source_markdown(path, ocr_cache=tests/corpus_cache)``
 (native text first; image-only PDFs served from the committed OCR artifacts;
 no live OCR, no Gemini, no network).  Analysis uses
-``analysis.pipeline.analyze_markdown(..., parse_mode="deterministic")`` and the
-production ``report_to_dict`` contract.  Package aggregation reuses the same
+``analysis.pipeline.analyze_document(..., parse_mode="deterministic")`` and the
+production ``document_report_to_dict`` contract.  Package aggregation reuses the same
 code path the webapp serves (``webapp.app._package_analysis``) with in-memory
 jobs, so package semantics match production.  None of those modules are
 modified by this package.
@@ -17,8 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from balance_forensic_audit import source_markdown
-from analysis.pipeline import analyze_markdown
-from analysis.serialization import report_to_dict
+from analysis.payload_shape import refuse_document_payload
+from analysis.pipeline import analyze_document
+from analysis.serialization import document_report_to_dict
 from webapp.jobs import Job
 from webapp.app import _package_analysis
 
@@ -34,21 +35,38 @@ class OurFileResult:
     markdown: str
     payload: dict[str, Any]
 
+    def _account(self) -> dict[str, Any]:
+        """This file's ONE account payload, or a refusal.
+
+        The benchmark compares our published figures against `expectations`,
+        which declares ONE opening, ONE ending and ONE ADB per statement
+        FILENAME and has no account column. So a document publishing several
+        accounts has nowhere here to be compared, and every view below refuses
+        rather than answering about one of them — measured before this
+        teaching, all three returned EMPTY dicts, which the comparison would
+        have read as "our side produced nothing" for a document that produced
+        everything. Admitting a second account is a truth-set ceremony on the
+        two audit CSVs, not a shim here.
+        """
+        refuse_document_payload(
+            self.payload, surface="benchmark/ourside.py::OurFileResult")
+        return self.payload
+
     @property
     def statement(self) -> dict[str, Any]:
-        return self.payload.get("statement") or {}
+        return self._account().get("statement") or {}
 
     @property
     def metrics(self) -> dict[str, Any]:
-        return self.payload.get("metrics") or {}
+        return self._account().get("metrics") or {}
 
     @property
     def reconciliation(self) -> dict[str, Any]:
-        return self.payload.get("reconciliation") or {}
+        return self._account().get("reconciliation") or {}
 
     @property
     def detection(self) -> dict[str, Any]:
-        return self.payload.get("detection") or {}
+        return self._account().get("detection") or {}
 
     def daily_ledger(self) -> dict[str, float]:
         """Validated per-day ledger (ISO date -> EOD balance); empty if withheld."""
@@ -96,7 +114,8 @@ def run_set(
     for relative in benchmark_set.files:
         path = corpus_root / relative
         markdown, source_type, _pdf_bytes = source_markdown(path, ocr_cache=ocr_cache)
-        payload = report_to_dict(analyze_markdown(markdown, parse_mode="deterministic"))
+        payload = document_report_to_dict(
+            analyze_document(markdown, parse_mode="deterministic"))
         result.files.append(
             OurFileResult(
                 relative_path=relative,

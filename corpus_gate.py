@@ -201,13 +201,25 @@ PINNED_REFUSALS: dict[str, str] = {
 
 class _Verdict(NamedTuple):
     """One pinned document's published verdict: the class plus the whole
-    integrity block, field order exactly as the payload serialises it."""
+    integrity block, field order exactly as the payload serialises it.
+
+    `account_index` is the discriminator. `None` means *the document* — the
+    verdict `PINNED_OUTCOMES` pins and the one a person reads. An integer means
+    one ACCOUNT of a document that published several, in printed order, and a
+    document verdict is never one of those wearing the document's name: the
+    document's outcome is the fold `telemetry/record.py::classify_document`
+    performs, and its integrity block is the DOCUMENT-scope one.
+
+    The field is last and defaults to `None`, so every entry pinned before this
+    existed constructs and compares exactly as it did.
+    """
 
     outcome: str
     flags: tuple[str, ...]
     notes: tuple[str, ...]
     risk_level: str
     possible_document_issue: bool
+    account_index: int | None = None
 
 
 #: What every pinned path ABSENT from `PINNED_OUTCOMES` must publish.
@@ -1384,6 +1396,100 @@ CURRENCY_SOURCES = (
 )
 
 
+#: Published integrity risk, ranked clear -> worst. A level this gate has never
+#: seen ranks WORST, so an unknown token cannot make a document look safer than
+#: the strongest thing any of its accounts said.
+_RISK_ORDER = ("clear", "review", "high")
+
+
+def _account_verdict(payload: dict, index: int | None) -> _Verdict:
+    """One ACCOUNT's verdict, exactly as this gate has always built one."""
+    from telemetry.record import classify_outcome
+
+    outcome, _reason = classify_outcome(payload)
+    integrity = payload.get("integrity") or {}
+    return _Verdict(
+        outcome,
+        # Published ORDER, not sorted: the block is pinned as it is served.
+        flags=tuple(integrity.get("flags") or ()),
+        notes=tuple(integrity.get("notes") or ()),
+        risk_level=str(integrity.get("risk_level") or ""),
+        possible_document_issue=bool(integrity.get("possible_document_issue")),
+        account_index=index,
+    )
+
+
+def document_verdicts(payload: dict) -> tuple[_Verdict, tuple[_Verdict, ...]]:
+    """`(document verdict, per-account verdicts)` for one published payload.
+
+    On today's payload the account tuple holds exactly one verdict and the
+    document verdict IS it, field for field, `account_index` included (`None`).
+    That is not a special case bolted on: a single-account payload takes the
+    same path it always did, so every pinned entry in `PINNED_OUTCOMES` and
+    `PUBLISHED_OUTCOME` compares against the same object it compared against
+    before.
+
+    On a document publishing several accounts the document verdict is a FOLD,
+    and every clause of it can only make the document's verdict WORSE than an
+    account's:
+
+    * the outcome is `classify_document`'s — the weakest account's, with the
+      document-level overrides;
+    * the flags are the DOCUMENT-SCOPE ones (`split_integrity_flags`, the
+      partition S1 built for exactly this question), de-duplicated in printed
+      account order. An account-scope flag stays where it was read: it is a
+      fact about that account and reading it at the document would say the
+      whole document carries it;
+    * the notes are the union, in printed order;
+    * the risk level is the WORST any account published, and
+      `possible_document_issue` is true if ANY account said so.
+
+    Nothing here picks an account. The pinned corpus is path-keyed with no
+    account column, which is why the per-account verdicts are RETURNED rather
+    than pinned: a multi-account pinned document needs a path+account key and
+    that is a truth-set ceremony, not a gate change.
+    """
+    from analysis.payload_shape import is_document_payload, payload_accounts
+    from analysis.pipeline import split_integrity_flags
+    from telemetry.record import classify_document
+
+    if not is_document_payload(payload):
+        verdict = _account_verdict(payload, None)
+        return verdict, (verdict,)
+
+    surface = "corpus_gate.py::document_verdicts"
+    accounts = payload_accounts(payload, surface=surface)
+    per = tuple(
+        _account_verdict(account, index)
+        for index, account in enumerate(accounts, start=1)
+    )
+    outcome, _reason = classify_document(payload)
+    flags: dict[str, None] = {}
+    notes: dict[str, None] = {}
+    for verdict in per:
+        for flag in split_integrity_flags(verdict.flags)[0]:
+            flags.setdefault(flag, None)
+        for note in verdict.notes:
+            notes.setdefault(note, None)
+    risk = max(
+        (verdict.risk_level for verdict in per),
+        key=lambda level: (
+            _RISK_ORDER.index(level) if level in _RISK_ORDER else len(_RISK_ORDER)
+        ),
+        default="",
+    )
+    document = _Verdict(
+        outcome,
+        flags=tuple(flags),
+        notes=tuple(notes),
+        risk_level=risk,
+        possible_document_issue=any(
+            verdict.possible_document_issue for verdict in per),
+        account_index=None,
+    )
+    return document, per
+
+
 def production_verdict(path: Path, cache: Path) -> tuple[_Verdict, dict]:
     """The published verdict for one pinned statement, resolved as production does.
 
@@ -1415,11 +1521,10 @@ def production_verdict(path: Path, cache: Path) -> tuple[_Verdict, dict]:
     # keep loading without the production analysis stack: this check reads the
     # product's own verdict on purpose and is the one check in this file that
     # is not oracle-independent.
-    from analysis.pipeline import analyze_markdown
-    from analysis.serialization import report_to_dict
+    from analysis.pipeline import analyze_document
+    from analysis.serialization import document_report_to_dict
     from ocr.inspect import inspect_pdf
     from ocr.pipeline import parse_statement
-    from telemetry.record import classify_outcome
 
     raw = path.read_bytes()
     document = parse_statement(
@@ -1441,19 +1546,10 @@ def production_verdict(path: Path, cache: Path) -> tuple[_Verdict, dict]:
                 f"{path} has no native text and no committed OCR artifact in "
                 f"{cache}; refusing to run OCR in offline mode"
             )
-    payload = report_to_dict(
-        analyze_markdown(markdown, parse_mode="deterministic", sheets=sheets)
+    payload = document_report_to_dict(
+        analyze_document(markdown, parse_mode="deterministic", sheets=sheets)
     )
-    outcome, _reason = classify_outcome(payload)
-    integrity = payload.get("integrity") or {}
-    verdict = _Verdict(
-        outcome,
-        # Published ORDER, not sorted: the block is pinned as it is served.
-        flags=tuple(integrity.get("flags") or ()),
-        notes=tuple(integrity.get("notes") or ()),
-        risk_level=str(integrity.get("risk_level") or ""),
-        possible_document_issue=bool(integrity.get("possible_document_issue")),
-    )
+    verdict, _accounts = document_verdicts(payload)
     # The payload rides along so `check_adb_doctrine` can read the published
     # ADB basis without a THIRD full analysis pass over the manifest.
     return verdict, payload

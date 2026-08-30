@@ -9,8 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from analysis.pipeline import analyze_markdown, Report
-from analysis.serialization import report_to_dict
+from analysis.pipeline import analyze_document, DocumentReport, Report
+from analysis.serialization import document_report_to_dict
 
 
 def _render(report: Report) -> str:
@@ -171,8 +171,9 @@ def _render(report: Report) -> str:
     return "\n".join(L)
 
 
-def _json_safe(report: Report) -> dict:
-    return report_to_dict(report)
+def _json_safe(document: DocumentReport) -> dict:
+    """The DOCUMENT's payload. RULE S: one account publishes today's, verbatim."""
+    return document_report_to_dict(document)
 
 
 def main() -> None:
@@ -184,12 +185,16 @@ def main() -> None:
     with open(args.markdown, encoding="utf-8") as f:
         markdown = f.read()
 
-    report = analyze_markdown(markdown)
-    print(_render(report))
+    document = analyze_document(markdown)
+    # One rendering per ACCOUNT, in printed order. Printing the first and
+    # stopping would drop an account without saying so, which is the one thing
+    # this whole model exists to stop.
+    for account in document.accounts:
+        print(_render(account))
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(_json_safe(report), f, indent=2)
+            json.dump(_json_safe(document), f, indent=2)
         print(f"\nWrote JSON report to {args.json}", file=sys.stderr)
 
 

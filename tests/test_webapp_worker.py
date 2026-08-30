@@ -14,7 +14,7 @@ import pytest
 
 from webapp.jobs import JobStore
 from webapp.storage import Storage
-from webapp.worker import report_to_json, run_job
+from webapp.worker import document_to_json, run_job
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def store(tmp_path):
     return JobStore(Storage(tmp_path / "data"))
 from analysis.detect import DetectionResult
 from analysis.metrics import Metrics
-from analysis.pipeline import DocumentIntegrity, Quality, Report
+from analysis.pipeline import DocumentIntegrity, DocumentReport, Quality, Report
 from analysis.reconcile import ReconResult
 from analysis.schema import Statement
 
@@ -44,8 +44,8 @@ def test_run_job_success(monkeypatch, store):
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
     run_job(job.id, b"%PDF-fake", "s.pdf", store)
 
@@ -93,8 +93,8 @@ def test_deterministic_run_prefers_native_before_forced_visual_ocr(monkeypatch, 
                         lambda *a, **k: pytest.fail("tesseract rung must not run"))
     monkeypatch.setattr("ocr.pipeline.load_settings",
                         lambda **k: pytest.fail("visual OCR rung must not run"))
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
     run_job(job.id, b"%PDF-fake", "td.pdf", store, force_ocr=True, parse_mode="deterministic")
 
@@ -126,8 +126,8 @@ def test_deterministic_run_retries_visual_ocr_when_native_parser_does_not_match(
         return object()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_markdown", fake_analyze)
-    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.worker.analyze_document", fake_analyze)
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
     run_job(job.id, b"%PDF-fake", "unsupported.pdf", store, force_ocr=True, parse_mode="deterministic")
 
@@ -176,8 +176,8 @@ def test_auto_run_uses_local_ocr_before_remote_visual_ocr(monkeypatch, store):
                         lambda pdf_bytes, source_file="", **k: LocalDoc())
     monkeypatch.setattr("ocr.pipeline.load_settings",
                         lambda **k: pytest.fail("remote visual OCR must not run"))
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
     run_job(job.id, b"%PDF-fake", "scan.pdf", store)
 
@@ -198,8 +198,8 @@ def test_deterministic_run_uses_local_ocr_before_reporting_no_text(monkeypatch, 
                         lambda pdf_bytes, source_file="", **k: LocalDoc())
     monkeypatch.setattr("ocr.pipeline.load_settings",
                         lambda **k: pytest.fail("remote OCR should not run"))
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
     run_job(job.id, b"%PDF-fake", "scan.pdf", store, parse_mode="deterministic")
 
@@ -210,7 +210,7 @@ def test_deterministic_run_uses_local_ocr_before_reporting_no_text(monkeypatch, 
     assert fetched.analysis_error is None
 
 
-def test_report_to_json_includes_document_integrity():
+def test_document_to_json_includes_document_integrity():
     report = Report(
         statement=Statement(bank="Test Bank"),
         reconciliation=ReconResult(ok=False, summary_ok=False, issues=[]),
@@ -232,7 +232,7 @@ def test_report_to_json_includes_document_integrity():
         escalated=False,
     )
 
-    body = report_to_json(report)
+    body = document_to_json(DocumentReport(accounts=[report]))
 
     assert body["integrity"]["risk_level"] == "high"
     assert body["integrity"]["possible_document_issue"] is True

@@ -18,7 +18,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from analysis.pipeline import analyze_markdown, Report
+from analysis.pipeline import analyze_document, DocumentReport, Report
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -167,7 +167,7 @@ def _emit(
     timer: StageTimer,
     seen_hashes: set[str],
     *,
-    report: Report | None = None,
+    document: DocumentReport | None = None,
     error_type: str | None = None,
 ) -> None:
     """One telemetry record per document. Never raises (H3_SCHEMA I4).
@@ -176,9 +176,13 @@ def _emit(
     business names, so documents are identified by content hash alone.
     """
     try:
-        from analysis.serialization import report_to_dict
+        from analysis.serialization import document_report_to_dict
 
-        payload = report_to_dict(report) if report is not None else None
+        # The DOCUMENT's payload. RULE S makes this byte-identical to the
+        # single-account serialisation this seam used to call, on every
+        # document carrying one account -- which is every document this CLI
+        # produces.
+        payload = document_report_to_dict(document) if document is not None else None
         content_hash = (
             profile.content_sha256 if profile is not None
             else _content_sha256(path.read_bytes())
@@ -253,13 +257,16 @@ def main() -> None:
                 # than re-splitting the text (W3 §PIPEFIX P4b.1). This CLI
                 # publishes an outcome class derived from these flags into its
                 # telemetry JSONL, so it is a production caller (W3 §WIRING W4).
-                report = analyze_markdown(
+                analysed = analyze_document(
                     markdown, on_dispatch=collector,
                     sheets=doc.pages if doc is not None else None,
                 )
-            rows.append(_row(path, report))
+            # One CSV row per ACCOUNT, in printed order: a sheet that printed
+            # one row per document would publish one account of several and
+            # drop the rest without saying so.
+            rows.extend(_row(path, account) for account in analysed.accounts)
             _emit(sink, run_id, path, markdown, doc, profile, byte_size,
-                  collector, timer, seen_hashes, report=report)
+                  collector, timer, seen_hashes, document=analysed)
         except Exception as e:  # keep going; record the failure in its row
             traceback.print_exc()
             rows.append({**{k: "" for k in FIELDS}, "file": path.name,

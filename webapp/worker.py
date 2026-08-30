@@ -1,6 +1,6 @@
 from __future__ import annotations
-from analysis.pipeline import Report, analyze_markdown
-from analysis.serialization import report_to_dict
+from analysis.pipeline import DocumentReport, analyze_document
+from analysis.serialization import document_report_to_dict
 from ocr.document import StatementMarkdown
 from ocr.inspect import DocumentProfile, inspect_pdf
 from ocr.pipeline import parse_statement
@@ -25,8 +25,15 @@ from .jobs import JobStore
 _RUN_ID = new_run_id()
 
 
-def report_to_json(report: Report) -> dict:
-    return report_to_dict(report)
+def document_to_json(document: DocumentReport) -> dict:
+    """The published payload for one DOCUMENT.
+
+    The seam moved off `report_to_dict` at L1-S3: every account this document
+    carries is published, and RULE S makes that byte-identical to what this
+    function returned before on every document carrying one — which is every
+    document `analyze_document` produces at this tree.
+    """
+    return document_report_to_dict(document)
 
 
 # O-1: the worker owns NO routing decisions. The single intake ladder
@@ -175,8 +182,8 @@ def _analyze_doc(
             # on it for the same reason (W3 §WIRING W3).
             analyzed = cached_analysis(
                 markdown,
-                compute=lambda: report_to_json(
-                    analyze_markdown(
+                compute=lambda: document_to_json(
+                    analyze_document(
                         markdown, parse_mode=parse_mode, on_dispatch=collector,
                         sheets=doc.pages,
                     )
@@ -356,7 +363,7 @@ def run_job(
     store.set_status(job_id, "processing")
     cache = store.cache
     # Telemetry (H-3): write-only side-band. The collector observes the R-3
-    # Dispatch through analyze_markdown's on_dispatch seam; the timer collects
+    # Dispatch through the analysis's on_dispatch seam; the timer collects
     # per-stage wall clock and cache disposition. Neither can change a result,
     # and _emit swallows its own failures.
     timer = StageTimer()

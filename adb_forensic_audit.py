@@ -17,8 +17,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from analysis.pipeline import analyze_markdown
-from analysis.serialization import report_to_dict
+from analysis.payload_shape import refuse_document_payload
+from analysis.pipeline import analyze_document
+from analysis.serialization import document_report_to_dict
 from corpus_artifacts import ArtifactError, cached_markdown
 from ocr.local_tesseract import parse_local_tesseract
 # The production native-text ladder itself — see
@@ -477,7 +478,7 @@ def refusal_row(path: Path, root: Path, reason: str) -> dict[str, Any]:
 
 def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
     try:
-        report = analyze_markdown(markdown, parse_mode="deterministic")
+        analysed = analyze_document(markdown, parse_mode="deterministic")
     except Exception as exc:
         # `type(exc) is RuntimeError`, not `except RuntimeError`, and the same
         # rule `corpus_gate.check_outcome_classes` applies to the same refusal:
@@ -488,9 +489,16 @@ def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
         if type(exc) is not RuntimeError or str(exc) != DECLARED_REFUSAL:
             raise
         return refusal_row(path, root, str(exc))
+    payload = document_report_to_dict(analysed)
+    # One ADB per row, compared against `docs/adb-audit-results.csv`, which is
+    # path-keyed with no account column — and the ADB doctrine forbids a
+    # document-level combined figure outright, so there is no fold that could
+    # stand in for the missing column. A document publishing several accounts
+    # refuses here rather than auditing one of them under the document's name.
+    refuse_document_payload(payload, surface="adb_forensic_audit.py::audit_one")
+    report = analysed.accounts[0]
     stmt = report.statement
     independent = independent_ledger(stmt, markdown)
-    payload = report_to_dict(report)
     backend = report.metrics.average_daily_balance
     api = payload.get("metrics", {}).get("average_daily_balance")
     package = _package_analysis(

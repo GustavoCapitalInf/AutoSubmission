@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hashlib
 import io
 import csv
 import json
@@ -17,6 +18,12 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
+from analysis.payload_shape import (
+    is_document_payload,
+    payload_account_count,
+    payload_accounts,
+    payload_document_block,
+)
 from analysis.revenue import (
     apply_serialized_revenue_review,
     normalize_withholding_denominator_mode,
@@ -283,6 +290,38 @@ _EXPORT_SUPPRESSED_KEYS = {("statement", "stated_average_balance")}
 
 
 def _analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
+    """The flat export sheet for one published payload.
+
+    A document carrying several accounts renders EVERY account, each under its
+    own section prefix in printed order, with the document's own facts in a
+    `document` section of their own. Measured before this teaching, the same
+    call returned ZERO rows for a document payload: an underwriter would have
+    downloaded an empty sheet for a statement that reconciled.
+
+    The section prefix is what keeps two accounts apart. The flat sheet is
+    keyed on `(section, field)`, so two accounts writing `("statement",
+    "ending_balance")` would collide and one would silently win.
+    """
+    if is_document_payload(analysis):
+        surface = "webapp/app.py::_analysis_rows"
+        rows: list[tuple[str, str, object]] = []
+        for key, item in payload_document_block(analysis, surface=surface).items():
+            if isinstance(item, (dict, list)):
+                item = json.dumps(item)
+            rows.append(("document", key, "" if item is None else item))
+        for index, account in enumerate(
+            payload_accounts(analysis, surface=surface), start=1
+        ):
+            rows.extend(
+                (f"account_{index}.{section}", field, value)
+                for section, field, value in _account_analysis_rows(account)
+            )
+        return rows
+    return _account_analysis_rows(analysis)
+
+
+def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
+    """One ACCOUNT's rows — today's sheet, unchanged."""
     rows: list[tuple[str, str, object]] = []
     for section in ("statement", "metrics", "quality", "integrity", "reconciliation"):
         value = analysis.get(section)
@@ -576,8 +615,77 @@ def _package_duplicates(jobs) -> tuple[dict[str, str], list[dict]]:
     return duplicate_of, [groups[key] for key in sorted(groups)]
 
 
+def _account_content_digest(account: dict) -> str:
+    """A digest of ONE account's published content, for the identity check."""
+    return hashlib.sha256(
+        json.dumps(account, sort_keys=True, default=str, ensure_ascii=False)
+        .encode("utf-8")
+    ).hexdigest()
+
+
+def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
+    """`(members, excluded)` — what enters the package math, and what does not.
+
+    A member is ONE ACCOUNT. A job publishing today's payload is one member and
+    is admitted exactly as it always was — this function cannot change what a
+    single-account package computes, because for such a job it yields the same
+    one `(job, job.analysis)` pair the loop used to read straight off the job.
+
+    Two rules apply to a job that publishes several accounts, and both are the
+    package's own arithmetic protecting itself:
+
+    * **membership requires the account's OWN `validated`.** A package sums,
+      counts and days-weights its members. An account the platform did not
+      validate has no authoritative figure to contribute, and admitting it
+      because a SIBLING validated would let one account's proof carry
+      another's numbers. Excluded accounts are RETURNED, never dropped: the
+      package publishes what it left out.
+    * **no average over one content digest twice.** Two accounts of one
+      document publishing identical content are one account published twice,
+      and every cross-account total here — a sum, a count, the days-weighted
+      ADB — would count that money twice. `document_report_to_dict` refuses to
+      publish such a document; this is the same refusal standing where the
+      arithmetic happens, because a payload can reach a package from a store
+      that was written before the publisher learned to refuse it.
+    """
+    from telemetry.record import classify_outcome
+
+    members: list[tuple] = []
+    excluded: list[dict] = []
+    for job in jobs:
+        analysis = job.analysis or {}
+        if not is_document_payload(analysis):
+            members.append((job, analysis, None, 1))
+            continue
+        surface = "webapp/app.py::_package_members"
+        accounts = payload_accounts(analysis, surface=surface)
+        count = payload_account_count(analysis, surface=surface)
+        digests = [_account_content_digest(account) for account in accounts]
+        if len(set(digests)) != len(digests):
+            raise ValueError(
+                "two accounts of one document publish identical content; a "
+                "duplicate section would be double-counted by every "
+                "cross-account total in this package "
+                "(document_publishes_duplicate_account)"
+            )
+        for index, account in enumerate(accounts, start=1):
+            outcome, reason = classify_outcome(account)
+            if outcome != "validated":
+                excluded.append({
+                    "job_id": job.id,
+                    "account_index": index,
+                    "account_count": count,
+                    "outcome": outcome,
+                    "reason": reason,
+                })
+                continue
+            members.append((job, account, index, count))
+    return members, excluded
+
+
 def _package_analysis(jobs) -> dict:
     duplicate_of, duplicate_groups = _package_duplicates(jobs)
+    members, excluded_accounts = _package_members(jobs)
     documents = []
     monthly = []
     adb_weighted_sum = Decimal("0")
@@ -649,8 +757,7 @@ def _package_analysis(jobs) -> dict:
     #: each declared currency has, and how many declared none at all.
     currency_documents: dict[str, int] = {}
     undeclared_currency_documents = 0
-    for job in jobs:
-        analysis = job.analysis or {}
+    for job, analysis, account_index, account_count in members:
         statement = analysis.get("statement") or {}
         metrics = analysis.get("metrics") or {}
         quality = analysis.get("quality") or {}
@@ -1070,7 +1177,12 @@ def _package_analysis(jobs) -> dict:
                 package_revenue_evidence[revenue_state].append(evidence)
 
         doc_row = {
-            "id": job.id,
+            # One row per MEMBER. An account of a multi-account document is
+            # named by the document it came from plus its printed position —
+            # never by the document alone, which would give two members one id
+            # and let the second overwrite the first everywhere a package row
+            # is looked up by id.
+            "id": job.id if account_index is None else f"{job.id}#account_{account_index}",
             "filename": job.filename,
             "status": job.status,
             # D-3: the content identity of this member, and the earlier member
@@ -1146,6 +1258,11 @@ def _package_analysis(jobs) -> dict:
                 or potential_lender_debit_count > 0
             ),
         }
+        if account_index is not None:
+            # Only a multi-account document has these to say, so a package of
+            # today's payloads carries neither key and is byte-identical.
+            doc_row["account_index"] = account_index
+            doc_row["account_count"] = account_count
         documents.append(doc_row)
         if ready:
             monthly.append(doc_row)
@@ -1394,6 +1511,16 @@ def _package_analysis(jobs) -> dict:
             "potential_revenue_evidence": package_revenue_evidence["unverified_deposit"],
             "non_revenue_evidence": package_revenue_evidence["non_revenue"],
         },
+        # An account of a multi-account document that the platform did not
+        # validate is not a package member — a package sums, counts and
+        # days-weights its members, and an unvalidated account has no
+        # authoritative figure to contribute. It is PUBLISHED as excluded
+        # rather than dropped: a member that vanished quietly is the L-1
+        # defect wearing a package's clothes.
+        #
+        # The key exists only when there is something to say, so a package of
+        # today's single-account payloads is byte-identical to what it was.
+        **({"excluded_accounts": excluded_accounts} if excluded_accounts else {}),
     }
 
 

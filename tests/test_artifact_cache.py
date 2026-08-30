@@ -633,10 +633,10 @@ class _CallCounter:
             return object()
 
         monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-        monkeypatch.setattr("webapp.worker.analyze_markdown", fake_analyze)
+        monkeypatch.setattr("webapp.worker.analyze_document", fake_analyze)
         monkeypatch.setattr(
-            "webapp.worker.report_to_json",
-            lambda report: {"statement": {"bank": "Test Bank"},
+            "webapp.worker.document_to_json",
+            lambda document: {"statement": {"bank": "Test Bank"},
                             "quality": {"level": "transaction_level"}},
         )
 
