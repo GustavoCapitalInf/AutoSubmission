@@ -28,6 +28,8 @@ class Mutant(NamedTuple):
 
 SCOTIA = "analysis/scotia.py"
 SCOTIA_TESTS = ("tests/test_scotia_layouts.py",)
+WELLS = "analysis/wells.py"
+WELLS_TESTS = ("tests/test_wells_variants.py",)
 
 
 MUTANTS: tuple[Mutant, ...] = (
@@ -55,5 +57,24 @@ MUTANTS: tuple[Mutant, ...] = (
         "    txns: list[Transaction] = []\n    previous = opening",
         "    txns: list[Transaction] = []\n    previous = rows[0][\"balance\"] if rows else opening",
         SCOTIA_TESTS,
+    ),
+    Mutant(
+        "W1", WELLS, "the history's own restatement is not a posting",
+        "the `Totals` row's figures, emitted into the last posting's record, "
+        "are published as that posting's amount — the statement's whole debit "
+        "total as a single debit that never happened",
+        "        if _RESTATEMENT_CELL.search(credit) or _RESTATEMENT_CELL.search(debit):",
+        "        if False:",
+        WELLS_TESTS,
+    ),
+    Mutant(
+        "W2", WELLS, "only the two money COLUMNS are read for the symbol",
+        "a currency symbol quoted inside a posting's own description refuses "
+        "the row, so an ordinary posting is dropped for its description text",
+        "        if _RESTATEMENT_CELL.search(credit) or _RESTATEMENT_CELL.search(debit):",
+        "        if (_RESTATEMENT_CELL.search(description)\n"
+        "                or _RESTATEMENT_CELL.search(credit)\n"
+        "                or _RESTATEMENT_CELL.search(debit)):",
+        WELLS_TESTS,
     ),
 )
