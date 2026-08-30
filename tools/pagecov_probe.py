@@ -17,7 +17,13 @@ same cold-cache read `tools.cohort_replay` makes — and reports, per document:
 * the declaration FORMS each sheet carries, as named shapes;
 * which declared labels the check cannot find, and how many sheets carry no
   declaration it can read;
-* CAUSE TAGS (below), and the (a)/(b)/(c) class the card asks for;
+* CAUSE TAGS (below), and the class — the card's (a)/(b)/(c), with (a) split
+  three ways because "the flag is correct" has three different reasons:
+  `a_SHEETS_GENUINELY_ABSENT` (the PDF carries fewer sheets than it declares),
+  `a_DECLARED_SHEET_CARRIES_NO_TEXT` (it carries enough sheets, one of which
+  holds no text, so the check drops it from both counts) and
+  `a_LABEL_GLYPHS_DESTROYED` (every declared sheet is there and text-bearing;
+  what is missing is a readable LABEL);
 * three COUNTERFACTUALS — for each candidate widening, whether the flag would
   clear on this document. A cause that clears nothing is still reported: the
   card's deliverable is the table, not the movement.
@@ -261,6 +267,12 @@ def probe_one(markdown: str, sheets: list[str]) -> dict:
     )
     would["all_three"] = probe_flag and not flag_all
 
+    # The residual class is NOT "the sheets are absent". A document can carry
+    # every sheet it declares, all of them text-bearing, and still be flagged
+    # because two sheets were read with the SAME ordinal or a footer's digits
+    # came out of the scan as letters. Calling that "genuinely absent" would be
+    # the probe asserting the one thing it cannot see, so the shortfall is named
+    # for where it actually is — in the labels — and the cause tags say why.
     if not probe_flag:
         klass = "NOT_FLAGGED"
     elif "FORM_UNREAD_ON_SHEET" in tags:
@@ -269,8 +281,10 @@ def probe_one(markdown: str, sheets: list[str]) -> dict:
         klass = "c_DENOMINATOR_NOT_A_PAGE_COUNT"
     elif "BLANK_SHEET_SHORTFALL" in tags:
         klass = "a_DECLARED_SHEET_CARRIES_NO_TEXT"
-    else:
+    elif "SHEETS_SHORT" in tags:
         klass = "a_SHEETS_GENUINELY_ABSENT"
+    else:
+        klass = "a_LABEL_GLYPHS_DESTROYED"
 
     record.update({
         "declared_total": declared_total,
