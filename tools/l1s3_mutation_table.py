@@ -2,7 +2,7 @@
 
     python -m tools.l1s3_mutation_table [--only M1 --only M3]
 
-Six mutants, each ONE exact edit to one production file, each run against the
+Twelve mutants, each ONE exact edit to one production file, each run against the
 L1-S3 tests WITHOUT `-x` (so every failure is seen rather than the first) and
 against `tools/l1s3_surface_census.py`, because for two of them the census is
 the killer and a table that only ran the tests would report them as holes.
@@ -157,6 +157,23 @@ MUTANTS: list[Mutant] = [
             '        refuse_document_payload(payload, surface="adb_forensic_audit.py::audit_one")',
         ),
     ),
+    # M11 and M12 are the two directions of RULE S's clause, which the
+    # L1-S3 / L1-S2 composition corrected to the account count alone. M11 is
+    # the exact regression that broke the composed tree.
+    Mutant(
+        "M11", "RULE S regains the omission clause, so a SINGLE-account document "
+               "carrying one flips to the document shape (the composition defect)",
+        "analysis/serialization.py",
+        "    return len(document.accounts) == 1",
+        "    return len(document.accounts) == 1 and not document.omissions",
+    ),
+    Mutant(
+        "M12", "RULE S loses its account-count condition, so a TWO-account "
+               "document publishes its first account as the whole document",
+        "analysis/serialization.py",
+        "    return len(document.accounts) == 1",
+        "    return True",
+    ),
     Mutant(
         "M10", "the gate's currency-provenance refusal moved into a dead branch",
         "corpus_gate.py",
@@ -177,6 +194,9 @@ TESTS = [
     "tests/test_document_outcome.py",
     "tests/test_l1s3_readers.py",
     "tests/test_l1s3_surfaces.py",
+    # S1's wrapper pins. RULE S's clause is serialized shape, so its mutants are
+    # killed here rather than by a reader test.
+    "tests/test_document_report.py",
 ]
 
 

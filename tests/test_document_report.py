@@ -4,14 +4,19 @@
 object that knows one PDF can carry several accounts, and RULE S is the promise
 that introducing it costs the archive nothing:
 
-    a document carrying exactly one account, which omitted nothing, read no
-    roll-up and recorded no boundary mechanism, publishes exactly today's
-    payload — with no added key of any kind.
+    a document carrying exactly ONE account publishes exactly today's payload —
+    with no added key of any kind. The `document` + `accounts` shape requires
+    more than one.
 
-These tests pin the WRAPPER's own shape: what RULE S publishes, what each of
-its four clauses is for, that the integrity block keeps every flag it publishes
-today IN PUBLISHED ORDER, and the three things a document object refuses to do
-even though nothing in production can ask it to yet. The archive-scale proof of
+RULE S was a four-way conjunction (one account AND no omission AND no roll-up
+AND no boundary mechanism) until the L1-S3 / L1-S2 composition; the composed
+tree measured what that cost, and `analysis/serialization.py
+::_publishes_todays_payload` carries the whole reasoning. These tests pin the
+WRAPPER's own shape: what RULE S publishes, that a single-account document
+publishes it WHATEVER document-level fact it carries, that the integrity block
+keeps every flag it publishes today IN PUBLISHED ORDER, and the three things a
+document object refuses to do even though nothing in production can ask it to
+yet. The archive-scale proof of
 RULE S is a byte comparison over the run of record (`tools/l1s1_seam_probe.py`);
 what cannot be measured there is the behaviour of shapes production never
 builds, and that is what is constructed here.
@@ -127,50 +132,82 @@ def test_rule_s_adds_no_key_of_any_kind(monkeypatch):
     assert "accounts" not in published
 
 
-@pytest.mark.parametrize("weakened", [
+@pytest.mark.parametrize("carries", [
     "omission",
     "rollup",
     "boundary_mechanism",
 ])
-def test_each_clause_of_rule_s_is_load_bearing(monkeypatch, weakened):
-    """All four clauses, because each is a way the document could carry a fact
-    the single-account payload has nowhere to put. A document that carries one
-    of them takes the DOCUMENT shape even though it holds one account — the
-    mutant this kills is RULE S weakened to "one account"."""
+def test_a_single_account_document_publishes_todays_payload_whatever_it_carries(
+    monkeypatch, carries
+):
+    """RULE S is the ACCOUNT COUNT, and this is the case that decided it.
+
+    L1-S2 records `omissions` on the 15 protected carriers — every one a
+    single-account document batch 8 validated. Under the four-way conjunction
+    those 15 took the `document` + `accounts` shape at the production seams,
+    and at the composed tree `python corpus_gate.py` died with
+    `balance_forensic_audit.py::audit_source answers about one ACCOUNT and was
+    handed a document carrying 1 of them`. The readers were right; the shape
+    was wrong.
+
+    The cost is named in `_publishes_todays_payload` and pinned by
+    `test_every_document_level_field_is_declared_against_rule_s` below: the
+    fact is on the object and not in this payload until S4 gives a
+    single-account payload a document block, which is a shape change with a
+    version bump and a ceremony.
+    """
     account = _first_account(monkeypatch)
     document = DocumentReport(accounts=[account])
-    if weakened == "omission":
+    if carries == "omission":
         document.omissions = [SiblingOmission(
             label=None, reason="printed_dormancy_declaration", posting_count=0)]
-    elif weakened == "rollup":
+    elif carries == "rollup":
         document.rollup = RollupOracle(
             caption_class="begin_end", column_roles_printed=True, rows=2,
             cross_account_total_printed=False)
     else:
         document.boundary_mechanism = "rollup-oracle"
     published = document_report_to_dict(document)
-    assert "accounts" in published and "document" in published
-    assert "statement" not in published
+    assert published == report_to_dict(account)
+    assert "document" not in published and "accounts" not in published
+    assert "statement" in published
 
 
-def test_every_document_level_field_is_a_clause_of_rule_s():
-    """RULE S is a conjunction over the document's OWN facts, so it has to be
-    revisited whenever the document gains one.
+def test_the_document_shape_needs_more_than_one_account(monkeypatch):
+    """The other direction of the same clause, so neither can move alone."""
+    one = DocumentReport(accounts=[_first_account(monkeypatch)])
+    two = DocumentReport(accounts=[_first_account(monkeypatch),
+                                   _second_account(monkeypatch)])
+    assert "accounts" not in document_report_to_dict(one)
+    assert "accounts" in document_report_to_dict(two)
+
+
+#: Where a SINGLE-account document carries each document-level fact. RULE S
+#: publishes today's payload for it, so none of these is in that payload; each
+#: entry says where the fact does live and who owns lighting it.
+DOCUMENT_LEVEL_FIELDS = {
+    "accounts": "not a document FACT — the accounts themselves; RULE S is its length",
+    "document_period": "on the object; unset at this tree (analyze_document fills no document field)",
+    "rollup": "on the object; the boundary layer that reads a roll-up is S4's",
+    "omissions": "on the object, where L1-S2's protected-carrier pins read it; the "
+                 "package surface publishes it for a MULTI-account payload only (Q10, dark)",
+    "boundary_mechanism": "on the object; set by the boundary layer, which is S4's",
+}
+
+
+def test_every_document_level_field_is_declared_against_rule_s():
+    """RULE S is the account count, so every OTHER document fact is invisible in
+    a single-account payload — and that has to be a decision, not an accident.
 
     The failure this prevents is silent and total: a later stage adds a
-    document-level field, populates it, and RULE S — still asking its four
-    questions — publishes that document as though the model had learned
-    nothing, so the fact is carried in the object and in no payload. Pinning
-    the field set turns "remember to add a clause" into a red test.
-
-    `accounts` is the one field that is not a document FACT (it is the accounts
-    themselves), and its clause is the length check.
+    document-level field, populates it on a single-account document, and the
+    payload says nothing about it. Pinning the field set with a declaration of
+    where each fact lives turns "remember to decide" into a red test.
     """
-    assert {f.name for f in fields(DocumentReport)} == {
-        "accounts", "document_period", "rollup", "omissions", "boundary_mechanism",
-    }, ("DocumentReport gained or lost a field: give it a clause in "
-        "`analysis/serialization.py::_publishes_todays_payload`, or state here "
-        "why a document carrying it still publishes today's payload")
+    assert {f.name for f in fields(DocumentReport)} == set(DOCUMENT_LEVEL_FIELDS), (
+        "DocumentReport gained or lost a field: declare in DOCUMENT_LEVEL_FIELDS "
+        "where a SINGLE-account document carries it, given that RULE S publishes "
+        "today's payload for it and this payload therefore cannot")
 
 
 def test_a_document_carrying_two_accounts_takes_the_document_shape(monkeypatch):
