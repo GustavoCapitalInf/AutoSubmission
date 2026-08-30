@@ -127,3 +127,125 @@ def test_the_mutation_table_refuses_a_dirty_tree():
 @pytest.mark.parametrize("disposition", ["per_account", "refuses"])
 def test_each_disposition_is_actually_used(disposition):
     assert any(entry[2] == disposition for entry in census.READERS)
+
+# --- MAJOR-1: the L1-S3 review's seven scratch readers ----------------------
+#
+# The review wrote seven readers, each reaching ONE account, none declared and
+# none excused, and measured the census exit 0 with all seven in the tree. They
+# are the test vector now: six are caught, and the seventh is out of scope for
+# a stated reason this test pins rather than leaves to memory.
+
+_SEVEN = {
+    "one": 'def read(payload):\n    return payload["accounts"][0]["metrics"]\n',
+    "two": 'def read(payload):\n    return next(iter(payload.get("accounts") or []), {})\n',
+    "three": 'def read(payload):\n    return (payload.get("accounts") or [{}])[0].get("metrics", {})\n',
+    "four": '_KEY = "statement"\n\n\ndef read(payload):\n    return payload[_KEY]\n',
+    "five": (
+        'def read(payload):\n'
+        '    for key, value in payload.items():\n'
+        '        if key == "statement":\n'
+        '            return value\n'
+        '    return {}\n'
+    ),
+    "six_out_of_scope": 'def read(report):\n    return report.statement\n',
+    "seven_aliased_publisher": (
+        'from analysis.serialization import report_to_dict as _publish_one_account\n'
+        '\n\ndef publish(report):\n    return _publish_one_account(report)\n'
+    ),
+}
+
+
+def _tree_with(tmp_path, names):
+    for name in names:
+        (tmp_path / f"scratch_{name}.py").write_text(_SEVEN[name], encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.parametrize("name", ["one", "two", "three", "four", "five"])
+def test_each_reverse_scratch_reader_is_caught(tmp_path, monkeypatch, name):
+    """Five of the review's seven reach an account through the PAYLOAD, and the
+    widened predicate sees each: the document shape's own key three ways, the
+    swept key through a NAME, and a key comparison — which is how a `.items()`
+    walk picks a key out of a payload it is iterating."""
+    monkeypatch.setattr(census, "REPO", _tree_with(tmp_path, [name]))
+    monkeypatch.setattr(census, "READERS", ())
+    monkeypatch.setattr(census, "EXCUSED", {})
+    failures, _notes, sites = census.census_readers()
+    assert sites >= 1
+    assert any(f"scratch_{name}.py::read" in failure for failure in failures)
+
+
+def test_the_aliased_account_publisher_is_caught(tmp_path, monkeypatch):
+    """The seventh. Both censuses missed it before: the AST one matched the
+    call NAME, and the design's probe greps the text `report_to_dict(`."""
+    monkeypatch.setattr(census, "REPO", _tree_with(tmp_path, ["seven_aliased_publisher"]))
+    failures, _notes, seams = census.census_seams()
+    assert seams == []
+    assert any("aliased as" in failure and "scratch_seven" in failure
+               for failure in failures)
+
+
+def test_attribute_access_on_a_report_is_out_of_scope_and_the_document_object_is_not(
+    tmp_path, monkeypatch
+):
+    """The sixth, and the one boundary this census draws deliberately.
+
+    `report.statement` reads a `Report`, and a `Report` IS one account by
+    construction — there is no second account there to drop. The hazard is
+    reaching one account out of something that holds SEVERAL, and that is
+    `document.accounts`, which IS swept. Pinned so the boundary is a decision
+    on the record rather than an omission.
+    """
+    monkeypatch.setattr(census, "REPO", _tree_with(tmp_path, ["six_out_of_scope"]))
+    monkeypatch.setattr(census, "READERS", ())
+    monkeypatch.setattr(census, "EXCUSED", {})
+    failures, _notes, sites = census.census_readers()
+    assert sites == 0 and failures == []
+
+    (tmp_path / "scratch_document_object.py").write_text(
+        "def read(document):\n    return document.accounts[0]\n", encoding="utf-8")
+    failures, _notes, sites = census.census_readers()
+    assert sites >= 1
+    assert any("scratch_document_object.py::read" in failure for failure in failures)
+
+
+def test_a_refusal_in_a_dead_branch_no_longer_satisfies_the_forward_check(
+    tmp_path, monkeypatch
+):
+    """MINOR-3. The review moved the refusal into `if False:` at all eight
+    refusal sites and the census stayed exit 0 at every one."""
+    module = tmp_path / "scratch_dead_refusal.py"
+    module.write_text(
+        "def read(payload):\n"
+        "    if False:\n"
+        "        refuse_document_payload(payload, surface='x')\n"
+        "    return payload\n", encoding="utf-8")
+    monkeypatch.setattr(census, "REPO", tmp_path)
+    monkeypatch.setattr(census, "READERS", (
+        ("scratch_dead_refusal.py", "read", "refuses", "doctored"),
+    ))
+    monkeypatch.setattr(census, "EXCUSED", {})
+    failures, _notes, _sites = census.census_readers()
+    assert any("never calls" in failure for failure in failures)
+
+    module.write_text(
+        "def read(payload):\n"
+        "    refuse_document_payload(payload, surface='x')\n"
+        "    return payload\n", encoding="utf-8")
+    failures, _notes, _sites = census.census_readers()
+    assert not any("never calls" in failure for failure in failures)
+
+
+def test_a_new_single_account_publish_inside_the_publisher_is_caught(tmp_path, monkeypatch):
+    """MINOR-9. Both censuses skip the publisher module wholesale, which is
+    right and was blind: the count of its internal account-publisher calls is
+    pinned, so a third one has to be declared."""
+    publisher = tmp_path / "analysis"
+    publisher.mkdir()
+    (publisher / "serialization.py").write_text(
+        "def report_to_dict(report):\n    return {}\n\n\n"
+        "def document_report_to_dict(document):\n"
+        "    return report_to_dict(document.accounts[0])\n", encoding="utf-8")
+    monkeypatch.setattr(census, "REPO", tmp_path)
+    failures, _notes, _seams = census.census_seams()
+    assert any("inside itself" in failure for failure in failures)
