@@ -71,11 +71,12 @@ def _sheet_rows(page: str) -> list[tuple[str, str, float, float]]:
     return rows
 
 
-def check(markdown: str) -> tuple[int, int]:
+def check(markdown: str, pages: list[str]) -> tuple[int, int]:
     """(strips reproduced exactly, strips that differ)."""
     from analysis.pipeline import analyze_markdown
 
-    statement = analyze_markdown(markdown, parse_mode="deterministic").statement
+    statement = analyze_markdown(
+        markdown, parse_mode="deterministic", sheets=pages).statement
     published: dict[tuple, list[float]] = {}
     for txn in statement.transactions or []:
         published.setdefault((txn.date, txn.description, txn.running_balance), []).append(txn.amount)
@@ -136,11 +137,11 @@ def main(argv: list[str] | None = None) -> int:
     cache = ColdCache(args.data_dir)
     lines = ["| sha16 | sheet strips | reproduced exactly | differing |", "|---|---:|---:|---:|"]
     for sha in chosen:
-        markdown = cache.text(sha)
-        if markdown is None:
+        cached = cache.text(sha)
+        if cached is None:
             lines.append(f"| {sha[:16]} | no text | - | - |")
             continue
-        agree, differ = check(markdown)
+        agree, differ = check(*cached)
         lines.append(f"| {sha[:16]} | {agree + differ} | {agree} | {differ} |")
     table = "\n".join(lines) + f"\n\ndocuments {len(chosen)}\n"
     print(table)

@@ -521,9 +521,9 @@ class TestTheHistorysOwnRestatement:
     def test_negative_a_currency_symbol_in_the_description_does_not_refuse_the_row(self):
         """Only the two money COLUMNS are read for the symbol.
 
-        Wells quotes an authorized amount inside a posting's own description
-        (`Transaction Posted on ... $16.32 ...`); that is description text and
-        the row's printed cell is still its amount.
+        Wells quotes the authorized amount inside a posting's own description
+        (`Transaction Posted on <date> $<amount> ...`); that is description
+        text and the row's printed cell is still its amount.
         """
         doc = _document(
             _account(),

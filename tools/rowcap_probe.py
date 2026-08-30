@@ -67,7 +67,15 @@ class ColdCache:
         from ocr.document import StatementMarkdown
         self._markdown = StatementMarkdown
 
-    def text(self, sha: str) -> str | None:
+    def text(self, sha: str) -> tuple[str, list[str]] | None:
+        """`(markdown, pages)` — the text AND the partition the run analysed.
+
+        The page list is returned with the text, and every caller passes it to
+        `analyze_markdown` as `sheets`, because that is what
+        `discovery.runner._analyse` does: a measurement that fed the analysis a
+        different partition from the one the run fed it would be measuring a
+        difference it had itself created.
+        """
         found = self.conn.execute(
             "SELECT artifact_path FROM artifact_cache WHERE stage = ? AND input_sha256 = ?",
             ("ocr", sha)).fetchall()
@@ -81,9 +89,10 @@ class ColdCache:
         if not isinstance(document, dict):
             return None
         pages = [str(page) for page in (document.get("pages") or [])]
-        return self._markdown(source_file="probe.pdf",
-                              model=str(document.get("model") or ""),
-                              pages=pages).to_markdown()
+        markdown = self._markdown(source_file="probe.pdf",
+                                  model=str(document.get("model") or ""),
+                                  pages=pages).to_markdown()
+        return markdown, pages
 
 
 def _ratio(published: float | None, stated: float | None) -> str:
@@ -92,10 +101,10 @@ def _ratio(published: float | None, stated: float | None) -> str:
     return f"{published / stated:.3f}"
 
 
-def probe_one(markdown: str) -> dict:
+def probe_one(markdown: str, pages: list[str]) -> dict:
     from analysis.pipeline import analyze_markdown
 
-    report = analyze_markdown(markdown, parse_mode="deterministic")
+    report = analyze_markdown(markdown, parse_mode="deterministic", sheets=pages)
     statement = report.statement
     postings = list(statement.transactions or [])
     credits = [t for t in postings if (t.amount or 0) > 0]
@@ -180,14 +189,14 @@ def main(argv: list[str] | None = None) -> int:
              "|---|---|---|---:|---:|---:|---:|---:|---:|---|---|---|"]
     counted = 0
     for sha in sorted(chosen):
-        markdown = cache.text(sha)
+        cached = cache.text(sha)
         baseline = rows.get(sha, {})
         outcome = (baseline.get("outcome_class") or baseline.get("outcome") or "-")
-        if markdown is None:
+        if cached is None:
             lines.append(f"| {sha[:16]} | {outcome} | - | - | - | - | - | - | - | - | no text | |")
             continue
         try:
-            fact = probe_one(markdown)
+            fact = probe_one(*cached)
         except Exception as error:  # noqa: BLE001 — a probe never stops on one document
             lines.append(f"| {sha[:16]} | {outcome} | - | - | - | - | - | - | - | - "
                          f"| raised | {type(error).__name__} |")

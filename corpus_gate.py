@@ -928,6 +928,28 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only base-vs-branch replay of the pinned 109; publishes no verdict, "
         "and already supplies the intake page list it computes once for both trees"
     ),
+    # W3 §ROWCAP's three measurements — the row-capture signature probe, the
+    # ceiling and the sheet-strip check. Excused on the same two grounds as
+    # §REGFP's sweep above. None publishes a verdict: between them they print
+    # a content_sha256, an outcome CLASS and reason, row COUNTS, coverage and
+    # capture RATIOS, gate NAMES and how many printed strips a ledger
+    # reproduces — never an amount, a date, a description or an account
+    # number. And each supplies the reconstructed page partition as `sheets`,
+    # because a measurement that fed the analysis a different partition from
+    # the one the run fed it would be measuring a difference it had itself
+    # created.
+    "tools/rowcap_probe.py": (
+        "read-only row-capture probe; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
+    "tools/rowcap_ceiling.py": (
+        "read-only ceiling measurement; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
+    "tools/rowcap_sheet_strips.py": (
+        "read-only printed-strip check; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
 }
 
 # Audited columns whose value is a path, compared without regard to separator.

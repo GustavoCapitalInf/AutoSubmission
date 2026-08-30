@@ -90,12 +90,12 @@ def _ratio(numerator, denominator) -> str:
     return f"{numerator / denominator:.3f}"
 
 
-def measure(markdown: str) -> dict:
+def measure(markdown: str, pages: list[str]) -> dict:
     from analysis.pipeline import analyze_markdown
     from analysis.serialization import report_to_dict
     from telemetry.record import classify_outcome
 
-    report = analyze_markdown(markdown, parse_mode="deterministic")
+    report = analyze_markdown(markdown, parse_mode="deterministic", sheets=pages)
     statement = report.statement
     klass, reason = classify_outcome(report_to_dict(report))
     postings = list(statement.transactions or [])
@@ -155,12 +155,12 @@ def main(argv: list[str] | None = None) -> int:
              "printed pair | the bank's own summary closes |",
              "|---|---|---:|---:|---:|---|"]
     for sha in chosen:
-        markdown = cache.text(sha)
-        if markdown is None:
+        cached = cache.text(sha)
+        if cached is None:
             lines.append(f"| {sha[:16]} | no text | - | - | - | - |")
             continue
         try:
-            fact = measure(markdown)
+            fact = measure(*cached)
         except Exception as error:  # noqa: BLE001 — a ceiling never stops on one document
             lines.append(f"| {sha[:16]} | raised {type(error).__name__} | - | - | - | - |")
             continue
