@@ -34,10 +34,15 @@ moves out only when Gustavo rules it an exception or Phase 2 absorbs it.
 | RAISE-PRIVACY-6 | `RAISE-PRIVACY-6` | proposal; ruling never taken |
 | record redaction | — | REFUSED where it destroys benchmark / provenance evidence (§8.3) — stays refused |
 
-## Rulings never taken (closed by the freeze unless re-raised)
-Q1 / Q5 (partial-closing documents and package membership — the design's answer stands: a package
-member is an account whose own outcome is `validated`), Q2, Q4, Q6, Q7 (see the design §8); the
-PAGECOV-IMAGE-SHEET ceremony; RAISE-PRIVACY-6. S4 proceeds on Q3 (corroborated), Q9 (B) and Q10.
+## Rulings
+**Required before S4 launches (packaged 2026-08-30, BATCH9_TRANSITION §7, under the freeze's
+exception (c)):** Q1 (partial-closing documents; package member = an account whose own outcome is
+`validated`), Q2 (the transfer clause's three halves), Q5 (per-account package membership and the
+no-average-over-one-document rule), Q7 (posting threshold two). The design's defaults and the
+reviewer's positions are in `docs/agent-handoffs/L1-S4-FIRST-PUBLISHER.md`.
+**Closed by the freeze unless re-raised:** Q4 (two denominations, 4 documents / 12 sections — refused
+until ruled), Q6 (per-account activity range — refused until ruled); the PAGECOV-IMAGE-SHEET
+ceremony; RAISE-PRIVACY-6. S4 proceeds on Q3 (corroborated), Q9 (B) and Q10.
 
 ## Standing risk carried into Phase 2 (Q3 probe review MINOR-1, 2026-08-30)
 The corroborated Q3 class (`printed_pair_coincides_and_no_row_printed`, seven conditions) was measured 6 / 6 on the
