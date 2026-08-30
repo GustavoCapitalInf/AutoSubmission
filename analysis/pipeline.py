@@ -163,6 +163,126 @@ class Report:
     classifications: list[TransactionClassification] = field(default_factory=list)
 
 
+#: Integrity flags whose SCOPE is the DOCUMENT rather than one account.
+#:
+#: Every other flag `assess_document_integrity` raises is a statement about one
+#: account's ledger — the reconciliation, coverage and count flags, and every
+#: consequence `assess_quality` produces. These five are statements about the
+#: PDF: more than one parser claimed it, a parser raised on it, the repair
+#: stage raised and was discarded whole, a registered integrity check raised,
+#: or it declares bank pages the supplied file does not carry. A document
+#: carrying N accounts carries each of them ONCE, not N times.
+#:
+#: THE SPLIT IS ADDITIVE, and reading it any other way is the mistake this
+#: partition invites. Moving these flags OUT of an account's published block
+#: changes what the platform publishes: `telemetry.record.classify_outcome`
+#: reads `parser_ambiguous`, `parser_exception` and `integrity_check_exception`
+#: from that block to route a document to review, and `corpus_gate` pins the
+#: block as it is served. So the account keeps every flag it publishes today,
+#: in published order, and the document object carries the document-scope
+#: subset IN ADDITION — never instead.
+DOCUMENT_SCOPE_FLAGS: frozenset[str] = frozenset({
+    "parser_ambiguous",
+    "parser_exception",
+    "repair_exception",
+    "integrity_check_exception",
+    "missing_declared_statement_page",
+})
+
+
+def split_integrity_flags(flags: Sequence[str]) -> tuple[list[str], list[str]]:
+    """`(document-scope, account-scope)` flags, each in PUBLISHED order.
+
+    A partition, not a re-ordering: each half is a SUBSEQUENCE of the input, so
+    re-assembling them by filtering the original list yields the original list.
+    That is load-bearing rather than cosmetic — `corpus_gate.py` pins the
+    published flag tuple exactly as it is served ("Published ORDER, not
+    sorted"), so an assembly that concatenates the two scopes moves a pinned
+    tuple on the first document that carries flags of both scopes in the other
+    order.
+    """
+    document = [flag for flag in flags if flag in DOCUMENT_SCOPE_FLAGS]
+    account = [flag for flag in flags if flag not in DOCUMENT_SCOPE_FLAGS]
+    return document, account
+
+
+@dataclass
+class SiblingOmission:
+    """A printed section that was established as an account and NOT published.
+
+    An omission is a published GAP: the document said this account exists and
+    the platform is not publishing it, so it is recorded rather than dropped.
+    `reason` names the PRINTED evidence that admitted the omission and comes
+    from a closed vocabulary; a section omitted for the absence of parsed rows
+    is not an omission, it is a defect. `posting_count` is the number of dated
+    rows the omitted section printed.
+
+    Nothing constructs one at this stage — the sites that skip a section are
+    taught to record it in the stage that owns them.
+    """
+
+    label: str | None
+    reason: str
+    posting_count: int
+
+
+@dataclass
+class RollupOracle:
+    """The document's printed enumerating table, kept as EVIDENCE.
+
+    A roll-up that lists a member's accounts is the one cross-account oracle
+    this paper prints, and it is recorded so it can be AUDITED — never so a
+    figure can be taken from it. No value is read out of a table whose column
+    ROLES were not printed (`column_roles_printed`); position is never
+    evidence of what a column means.
+    """
+
+    caption_class: str
+    column_roles_printed: bool
+    rows: int
+    cross_account_total_printed: bool
+
+
+@dataclass
+class DocumentReport:
+    """One DOCUMENT: N account `Report`s plus the document's own printed facts.
+
+    `Statement` and `Report` are one ACCOUNT's and stay so. This is the object
+    that knows a PDF can carry several accounts, and it is the only place a
+    fact about the DOCUMENT rather than about an account may live.
+
+    `accounts` is in PRINTED ORDER and is never sorted. Printed order is
+    printed evidence about a SEQUENCE; it is not evidence that the first
+    element stands for the whole document, and nothing here selects one account
+    to do so. A per-document field that can hold only one account's value is
+    left EMPTY, with `account_count` carrying the fact instead.
+
+    Every document this stage builds carries exactly one account and no
+    document-level fact, which is precisely the shape RULE S
+    (`analysis/serialization.py::document_report_to_dict`) publishes as today's
+    payload, byte for byte.
+    """
+
+    accounts: list[Report]
+    document_period: tuple[str, str] | None = None
+    rollup: RollupOracle | None = None
+    omissions: list[SiblingOmission] = field(default_factory=list)
+    boundary_mechanism: str | None = None
+
+    def document_scope_flags(self) -> list[str]:
+        """The document-scope integrity flags its accounts carry.
+
+        In printed account order, de-duplicated, and IN ADDITION to what each
+        account publishes: this is a VIEW over the accounts' own blocks, and
+        reading it never removes a flag from one.
+        """
+        seen: dict[str, None] = {}
+        for account in self.accounts:
+            for flag in split_integrity_flags(account.integrity.flags)[0]:
+                seen.setdefault(flag, None)
+        return list(seen)
+
+
 def _registration_for(stmt: Statement, dispatch: Dispatch | None) -> Registration | None:
     """The parser whose knowledge applies to this statement.
 
@@ -797,3 +917,50 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         escalated=escalated,
         classifications=classifications,
     )
+
+
+def analyze_document(markdown: str, *, settings: Settings | None = None,
+                     parse_mode: str = "auto",
+                     document_geometry: object | None = None,
+                     sheets: Sequence[str] | None = None,
+                     on_dispatch: Callable[[Dispatch], None] | None = None) -> DocumentReport:
+    """The DOCUMENT entry point: one PDF's text in, one `DocumentReport` out.
+
+    `analyze_markdown` answers "what does this account's statement say" and
+    keeps answering exactly that — it is unchanged, every existing caller still
+    reaches it, and this function is built ON it rather than around it. What is
+    new is only that the answer is now handed back inside the object that can
+    hold more than one of them.
+
+    WHAT THIS STAGE DOES NOT DO, stated because the omissions are the design
+    and not an unfinished edge:
+
+    * it publishes exactly ONE account, always. Establishing a second one from
+      a document's printed partition is a later stage's work, and until that
+      evidence is read, claiming a document has one account is what the paper
+      supported all along;
+    * it fills NO document-level field. `document_period` in particular stays
+      empty even though the single account carries a period: a per-document
+      fact taken from an account is a fact this stage did not read, and it is
+      the first thing a reader reaches for when the account list has length
+      one. The boundary layer that reads the document's own printed period
+      fills it, or nothing does;
+    * it therefore satisfies RULE S on every document by construction, so the
+      payload `analysis/serialization.py::document_report_to_dict` publishes
+      here is today's payload, byte for byte — which is a measurement, not a
+      hope, and the measurement is what this stage is for.
+
+    Nothing in production calls this yet. The seams that reach
+    `analyze_markdown` -> `report_to_dict` move to it in the stage that teaches
+    the payload readers the document shape; moving one before they are taught
+    would publish a shape that nine of them answer WRONGLY rather than refuse.
+    """
+    report = analyze_markdown(
+        markdown,
+        settings=settings,
+        parse_mode=parse_mode,
+        document_geometry=document_geometry,
+        sheets=sheets,
+        on_dispatch=on_dispatch,
+    )
+    return DocumentReport(accounts=[report])
