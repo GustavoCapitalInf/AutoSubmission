@@ -43,7 +43,17 @@ ROOT = Path(corpus_gate.__file__).resolve().parent
 # --- the declaration that keeps the harness honest ---------------------------
 
 
-WATCHED = {"analyze_markdown", "cached_analysis"}
+#: `analyze_document` joined this set at L-1 stage 2, and the reason is the
+#: gap rather than the tool that found it. It is the DOCUMENT entry point —
+#: already a declared call site in `corpus_gate.ANALYSIS_CALL_SITES` — and the
+#: seams reach it in the stage that teaches the payload readers the document
+#: shape. A sweep watching only the account entry point would therefore go
+#: blind to every production caller at exactly the moment they moved, which is
+#: the drift this declaration exists to make loud. It costs nothing today:
+#: `analysis/pipeline.py` is already swept through the `analyze_markdown` call
+#: inside `analyze_document`, and the only other callers are two read-only
+#: probes that were already excused.
+WATCHED = {"analyze_markdown", "analyze_document", "cached_analysis"}
 
 #: Directories that are not production code, so their callers are out of scope.
 NON_PRODUCTION_DIRS = ("tests", "docs", ".claude", ".git", "build")
