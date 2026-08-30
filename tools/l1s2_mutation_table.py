@@ -21,8 +21,11 @@ it from the declaration class beside it.
 SAFETY (the batch-9 lesson, stated because a harness that leaves a mutant in a
 shared tree is worse than no harness). It refuses to start on a dirty tree; it
 restores in a `finally` that ignores the restore's own exit code; it verifies
-`git status --porcelain` is clean before it returns; and it refuses to run when
-another python process is already working on this host.
+`git status --porcelain` is clean before it returns; and it refuses to start
+while another python process is already working on this host — the one-heavy-
+harness-per-host rule, enforced rather than described. `--allow-concurrent`
+overrides that last one and is a deliberate act: two harnesses mutating and
+restoring one shared checkout is how a mutant gets left behind.
 
 PRIVACY. Mutant ids, killer command lines, exit codes and counts. Nothing this
 instrument writes or prints comes from a document.
@@ -30,6 +33,7 @@ instrument writes or prints comes from a document.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -194,6 +198,42 @@ def _run(argv: tuple[str, ...]) -> int:
     return completed.returncode
 
 
+def _other_python_processes() -> list[str]:
+    """Other python processes on this host, as `name:pid`, excluding this one.
+
+    The rule the batch-9 records state is "check `tasklist` for another python
+    first"; this is that check, made mechanical. `tasklist` is the Windows host's
+    own tool and `ps` covers a POSIX one; if neither answers, the list is empty
+    and the harness proceeds — a probe that cannot see is not evidence that the
+    host is busy, and refusing on a failed probe would make the tool unrunnable
+    wherever it cannot look.
+    """
+    mine = str(os.getpid())
+    found: list[str] = []
+    try:
+        listing = subprocess.run(["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV"],
+                                 capture_output=True, text=True, timeout=30)
+        rows = [line for line in listing.stdout.splitlines() if line.startswith('"python')]
+        for row in rows:
+            cells = [cell.strip('"') for cell in row.split('","')]
+            if len(cells) >= 2 and cells[1] != mine:
+                found.append(f"{cells[0]}:{cells[1]}")
+        if rows:
+            return found
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        listing = subprocess.run(["ps", "-eo", "pid,comm"], capture_output=True,
+                                 text=True, timeout=30)
+        for line in listing.stdout.splitlines()[1:]:
+            parts = line.split(None, 1)
+            if len(parts) == 2 and "python" in parts[1] and parts[0] != mine:
+                found.append(f"{parts[1].strip()}:{parts[0]}")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return found
+
+
 def _dirty() -> str:
     return subprocess.run(["git", "status", "--porcelain"], cwd=REPO,
                           capture_output=True, text=True).stdout.strip()
@@ -222,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--only", default="")
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--allow-concurrent", action="store_true",
+                        help="run even though another python process is working on this host")
     args = parser.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -234,6 +276,16 @@ def main(argv: list[str] | None = None) -> int:
         for mutant in chosen:
             print(f"{mutant.id}: {mutant.what_it_removes}")
         return 0
+
+    others = [] if args.allow_concurrent else _other_python_processes()
+    if others:
+        print("REFUSING: another python process is working on this host, and two "
+              "harnesses mutating and restoring one shared checkout is how a "
+              "mutant gets left behind.")
+        for other in others:
+            print(f"  * {other}")
+        print("Wait for it, or pass --allow-concurrent deliberately.")
+        return 5
 
     dirty = _dirty()
     if dirty:

@@ -60,8 +60,15 @@ def load(paths: list[Path]) -> tuple[dict[tuple, dict], dict[str, int]]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--base", nargs="+", required=True, type=Path)
-    parser.add_argument("--tip", nargs="+", required=True, type=Path)
+    # `action="extend"` and not the default `nargs="+"` store: argparse ACCEPTS a
+    # repeated flag under a plain store and silently keeps only the LAST
+    # occurrence, so `--base a --base b` differences one chunk and prints a
+    # complete-looking table over it with nothing in the output saying so. The
+    # review hit exactly that on its first run (830 documents / 14 inherited
+    # instead of 3,380 / 70). Extending makes every spelling of the invocation
+    # mean the same thing.
+    parser.add_argument("--base", nargs="+", required=True, type=Path, action="extend")
+    parser.add_argument("--tip", nargs="+", required=True, type=Path, action="extend")
     parser.add_argument("--population", action="append", default=[],
                         help="a sha of this card's named population (16 or 64 hex, repeatable)")
     args = parser.parse_args(argv)
