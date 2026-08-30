@@ -30,15 +30,25 @@ RAISED on 7, three of them validated (symitar) — so no widening of the reader 
 
 # The question for Gustavo
 May a declared sheet that prints no text count as PRESENT when the PDF proves it carries INK —
-an embedded image XObject or drawing operators covering a page-sized area (a scanned notice, a
-signature page, a marketing insert) — deterministically, locally, at $0, with the proof recorded
-in the payload (`sheet_evidence: text | image | blank`)? A truly blank sheet (no text, no image,
+page-sized rendered ink, or marking operators counted WITH inline images (`BI … ID … EI`; the
+eight measured sheets are single inline images, which `get_images()` (XObjects) and
+`get_drawings()` both MISS — 0 on all eight, re-measured by the closure re-review) — a scanned
+notice, a signature page, a marketing insert — deterministically, locally, at $0, with the proof
+recorded in the payload (`sheet_evidence: text | image | blank`)? A truly blank sheet (no text, no image,
 no drawing) stays absent. Nothing about the CHECK changes; only what "present" is evidenced by.
 
 # Method (if ruled)
+0. NEVER implement this as "the alternative declaration forms": widening the declaration
+   READER is a different change, measured by the both-halves census to RAISE the flag on 7
+   documents (3 validated, all from the `PAGE_N_SLASH_M` form whose `\s*` crosses a newline);
+   it does not ride here. This card changes only what "present" is EVIDENCED by.
 1. Intake: extend the intake object with per-sheet structure evidence (`ocr/inspect.py` /
-   `ocr/pipeline.py` — read-only over the PDF page objects: text operators, image XObjects,
-   drawing operators, bounding coverage) — never text content; OCR_STAGE_VERSION bump is Ocean's.
+   `ocr/pipeline.py` — read-only over the PDF page content: text operators; marking operators
+   counted WITH inline images (`BI … ID … EI`) as well as image XObjects and drawing operators;
+   rendered ink coverage by the RECORDED method — grayscale page pixmap at dpi 50, a pixel is ink
+   when < 255 (the eight measure 34.5 % linkbank / 12.2 % core_processor at dpi 50 and 22.8 % /
+   8.7 % at dpi 72, so the dpi is part of the definition)) — never text content;
+   OCR_STAGE_VERSION bump is Ocean's.
 2. The check consumes the evidence: a sheet with no text but page-sized ink counts as present
    and labelled-unknown; the asymmetry stays (this can only ever ADD a present sheet, and only
    with proof; the pinned Columbia refusal — 5 declared / 4 supplied — is unaffected; the
@@ -50,8 +60,12 @@ no drawing) stays absent. Nothing about the CHECK changes; only what "present" i
    parity tests (`tests/test_native_rung_parity.py`) byte-identical on their fixtures.
 
 # Also carried (P3, measured inert)
-`PAGECOV-NO-SPACE-FORM` (`Page Nof M`, 5 documents, changes no decision) and
-`PAGECOV-GLYPH-ORDINAL` (a destroyed label glyph — an OCR question).
+`PAGECOV-NO-SPACE-FORM` (`Page Nof M` ALONE — read on 28 documents, 23 gaining a declared total,
+0 decisions moved over 3,380; re-scoped by the closure to that safe form after the both-halves
+census showed the slash form raising 7) and `PAGECOV-GLYPH-ORDINAL` (a destroyed label glyph —
+an OCR question). Ceremony scope: TWO pinned `review` verdicts carry this flag —
+`AF6BD563A3D7165A` (one of the eight, a′) and `4C96DDA28A6728FB` (class a, physically short:
+NOT a mover) — so the expected movement is exactly one pinned verdict, 102 / 3 → 103 / 2.
 
 # Git ownership (if ruled)
 Base `train9` at launch. Branch `wave9-pagecovimg`, worktree `.claude/worktrees/mt9-pagecovimg`.

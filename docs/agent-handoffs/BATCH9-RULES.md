@@ -183,3 +183,10 @@ grep -c '"tools/<name>.py"'`) — lift nothing from another branch into the regi
 chain `git add` / `git commit` after a resolver write on this host — a OneDrive lock can fail the
 write while the chain continues and COMMITS THE MARKERS; verify `git show HEAD:<file> | grep -c
 '^<<<<<<<'` is 0 on the committed blob before running anything against the tree.
+Two more from the RV-PAGE-COVERAGE re-review (2026-08-30): `tools/huntington_msg_privacy_scan.py`
+run WITHOUT `--shas` reports `population 0` and a vacuous zero — every recorded message-scan
+command names its population (the documents the branch worked on); and the one-harness-per-host
+rule was not honoured (a second cell's `pytest -m corpus`, full suite, `corpus_gate.py` and
+sweeps overlapped a reviewer's corpus slice, which took 1,973 s) — heavy proofs run ONE at a time
+on this host; check `tasklist | findstr python` before launching one and wait if another cell's
+harness is running.
