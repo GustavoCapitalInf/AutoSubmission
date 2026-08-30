@@ -105,6 +105,8 @@ from tools.l1_split_prototype import (  # noqa: E402
     _money_value,
     _population,
     _rollup_pair,
+    find_period,
+    read_stated,
     run_document,
 )
 from tools.l1_structure_census import (  # noqa: E402
@@ -496,6 +498,37 @@ def witness_discriminates(witness: RollUpWitness,
     return True
 
 
+def ratified_class_also_applies(section_text: str, period, prints_counts: bool,
+                                prints_daily: bool) -> str | None:
+    """Would an ALREADY-RATIFIED evidence class admit this section anyway?
+
+    The card asks it of every FAIL, and it is worth asking of every PASS too:
+    a section already admitted by `printed_dormancy_declaration` or
+    `printed_zero_activity_summary` does not need Q3, and a population entirely
+    made of those would mean the new class carries nothing.
+
+    The classifier is production's own — `analysis.sibling_omission.evidence_class`,
+    composed at L1-S2 as L1-C17 in code — handed what the design's own readers
+    read off this section. `None` is its answer for `no ratified class applies`,
+    which is the answer that makes Q3 load-bearing."""
+    from analysis.sibling_omission import evidence_class
+
+    if period is None:
+        return None
+    own_open = _figure(section_text, _OPEN_FIG, _OPEN_FIG_LEFT)
+    own_close = _figure(section_text, _CLOSE_FIG, _CLOSE_FIG_LEFT)
+    stated = read_stated(section_text, prints_counts, prints_daily, period)
+    return evidence_class(
+        text=section_text,
+        opening=own_open[0] if own_open is not None else None,
+        closing=own_close[0] if own_close is not None else None,
+        credit_total=stated.total_credits,
+        debit_total=stated.total_debits,
+        credit_count=stated.credit_count,
+        debit_count=stated.debit_count,
+    )
+
+
 # ---------------------------------------------------------------------------
 # the mutants — each names the cell it must flip and the class it must flip to
 # ---------------------------------------------------------------------------
@@ -595,6 +628,7 @@ class Record:
     rollup_movement_columns_zero: bool | None = None
     witness_discriminates: bool | None = None
     identities_distinct: bool = False
+    ratified_class: str | None = None
     kills: list[Kill] = field(default_factory=list)
 
     @property
@@ -618,6 +652,7 @@ class Record:
                 "rollup_movement_columns_zero": self.rollup_movement_columns_zero,
                 "witness_discriminates": self.witness_discriminates,
                 "identities_distinct": self.identities_distinct,
+                "already_ratified_class": self.ratified_class,
             },
             "mutants": [{"mutant": k.mutant, "killed": k.killed, "got": k.got}
                         for k in self.kills],
@@ -655,7 +690,9 @@ def measure(targets: list[Target]) -> list[Record]:
             rollup_movement_columns_zero=rollup_movement_columns_zero(witness),
             witness_discriminates=witness_discriminates(
                 witness, own_close[0] if own_close else None),
-            identities_distinct=len(set(indices)) == len(indices))
+            identities_distinct=len(set(indices)) == len(indices),
+            ratified_class=ratified_class_also_applies(
+                body, find_period(_flat(text)), section.has_counts, section.has_daily))
         record.kills = attack(body, witness, locate, target)
         records.append(record)
     return records
@@ -765,6 +802,20 @@ def render(records: list[Record], documents: int, run: str | None) -> None:
               f"{words[record.identities_distinct]} | "
               f"{words[record.rollup_movement_columns_zero]} | "
               f"{words[record.witness_discriminates]} |")
+    print()
+
+    print("## Does an ALREADY-RATIFIED class admit these sections anyway?")
+    print()
+    print("`analysis.sibling_omission.evidence_class` — production's own L1-C17 "
+          "classifier, composed at L1-S2 — handed what the design's readers read "
+          "off each section. `none` means no already-ratified class applies and "
+          "the section rests on Q3 alone.")
+    print()
+    print("| document | already-ratified class |")
+    print("|---|---|")
+    for record in records:
+        print(f"| `{record.sha16}` | "
+              f"{'`' + record.ratified_class + '`' if record.ratified_class else '**none**'} |")
     print()
 
     print("## The mutation table — every mutant applied to the SAME sections")

@@ -36,6 +36,7 @@ from tools.q3_corroboration_probe import (  # noqa: E402
     apply_mutant,
     decide_section,
     exit_code,
+    ratified_class_also_applies,
     rollup_movement_columns_zero,
     witness_discriminates,
 )
@@ -332,6 +333,23 @@ def test_a_witness_that_cannot_tell_the_documents_accounts_apart_says_so():
     assert witness_discriminates(apart, 1250.00) is True
     assert witness_discriminates(witness(), 1250.00) is None
     assert witness_discriminates(apart, None) is None
+
+
+def test_whether_an_already_ratified_class_applies_is_asked_of_productions_own():
+    """The question the card asks of every FAIL, asked here of a fixture.
+
+    A section printing the ratified declaration needs no Q3; the constructed
+    idle section prints none, so no ratified class admits it and Q3 is what it
+    rests on."""
+    from datetime import date
+
+    period = (date(2026, 3, 1), date(2026, 3, 31))
+    assert ratified_class_also_applies(IDLE_SECTION, period, False, False) is None
+    declared = IDLE_SECTION + "\nNo Transactions This Period"
+    assert ratified_class_also_applies(declared, period, False, False) == (
+        "printed_dormancy_declaration")
+    # no period resolved is not an answer, and is never a class
+    assert ratified_class_also_applies(declared, None, False, False) is None
 
 
 def test_the_discrimination_reading_never_moves_a_cell():
