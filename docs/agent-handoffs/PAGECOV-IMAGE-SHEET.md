@@ -14,6 +14,20 @@ the `sheets` argument): if those sheets counted, **8 of 8 would go review → va
 flags**. The candidate +8 is refused on doctrine; the non-weakening path is to PROVE the sheet
 is a real page.
 
+# Measured by the review (BATCH9_PAGECOV_REVIEW, 2026-08-30) — the +8 is REAL, and it is a CEREMONY
+The eight sheets are the most heavily inked pages in their documents: rendered pixel coverage
+12.2–34.5 % (on two documents more than twice the ink of the statement page before them); each
+is a single INLINE image filling 99.5–100 % of its content stream, byte-identical within each
+issuer group (the issuer's standard appended sheet). **Detection must be by inline-image /
+content-stream operators or rendered ink coverage — `get_images()` (XObjects) and
+`get_drawings()` both return 0 on all eight.** One of the eight, `AF6BD563A3D7165A`, is a
+PINNED corpus document whose `review` verdict is pinned in `corpus_gate.py`: this card is a
+pinned-surface ceremony (verdicts 102 validated / 3 review → 103 / 2), executed only with the
+exact expected movement named and Gustavo's approval, like the batch-7 REPAIR-DOCTRINE ceremony.
+Also measured: a (b)-class widening of the declaration reader is NOT inert — over the 1,425
+documents where the check finds no declaration today, 50 would gain one and the flag would be
+RAISED on 7, three of them validated (symitar) — so no widening of the reader rides with this card.
+
 # The question for Gustavo
 May a declared sheet that prints no text count as PRESENT when the PDF proves it carries INK —
 an embedded image XObject or drawing operators covering a page-sized area (a scanned notice, a
