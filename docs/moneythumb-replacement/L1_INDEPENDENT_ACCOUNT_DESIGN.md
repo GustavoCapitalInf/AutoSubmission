@@ -329,8 +329,17 @@ it is the ladder the whole non-regression regime is measured on, and it stays.
 > * no account at all → `("failed", "document_publishes_no_account")`;
 > * an omission whose `reason` is not a ratified evidence class → `("failed", ...)`; it should
 >   never have been published (L1-C17);
-> * an omission on ratified evidence → the document may not be `validated`; it is
->   `("review", "sibling_section_omitted")`.
+> * an omission on ratified evidence → **SUPERSEDED by Gustavo's Q10 ruling (2026-08-30,
+>   BATCH9_TRANSITION §8.7): the document is NOT demoted.** The omission is recorded at the
+>   document / package layer (`document.omissions`; package `sibling_account_omission_detected:
+>   true`, `completeness: partial`) and the published account keeps its own independently
+>   validated outcome PROVIDED it still, on its own, has explicit / unambiguous boundaries,
+>   reconstructs correctly, passes the unchanged validator, proves its period, currency,
+>   opening / closing balances, transactions, ledger identity and ADB, and carries nothing
+>   misattributed from the sibling; if the omission makes the boundaries ambiguous or prevents
+>   independent validation, fail closed (the account's OWN outcome falls). The proposal as
+>   originally written — `("review", "sibling_section_omitted")` — is retained here only as
+>   the superseded text.
 
 Fail-closed by construction: `validated` on a document now means *every account validated and
 nothing was omitted*. It is strictly stronger than today's meaning, and on a single-account

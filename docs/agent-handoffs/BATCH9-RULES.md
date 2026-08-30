@@ -66,6 +66,8 @@ $0 vendor: no paid OCR, no VLM, no rented GPU, no ensemble, no hosted model call
   rewritten (`PROD-RESIDUE-CLASSIFY`); record redaction stays refused where it would destroy
   benchmark / provenance evidence; fixture / truth / name work continues in its own cards.
 
+**Q10 (Gustavo, 2026-08-30) — sibling omission: SURFACE, DO NOT DEMOTE.** An explicit sibling omission beside an independently valid account keeps the account `validated` and surfaces the omission separately (document / package layer: `document.omissions`; `sibling_account_omission_detected: true`, `completeness: partial`). The account must still, on its own: have explicit / unambiguous boundaries; reconstruct correctly; pass the UNCHANGED validator; prove period, currency, opening / closing balances, transactions, ledger identity and ADB; carry nothing misattributed from the sibling. If the omission makes the boundaries ambiguous or prevents independent validation → FAIL CLOSED. The design's §1.5 `("review", "sibling_section_omitted")` override is SUPERSEDED — never wire it. The 15 protected carriers (W3 §L1S2) carry pinning coverage so no later stage can demote them silently.
+
 ## Instruments (committed — use them, do not rebuild them)
 - **Targeted-cohort proof:** `python -m tools.cohort_replay --group <cluster_group|cluster>
   | --parser <registration id> | --family <b8 key> | --folder <label> | --shas <file>

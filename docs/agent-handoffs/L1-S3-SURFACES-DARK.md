@@ -62,3 +62,12 @@ under `analysis/` beyond the seams; no version constant.
 BATCH9-RULES contract: newly validated 0 · other movement 0 · preserved ALL byte-identical ·
 regressions 0 · correctness (the census both ways; the per-reader tests; the mutants) ·
 generalization (every surface, every seam).
+
+# Q10 ruling (Gustavo, 2026-08-30) — binds this card
+Surface the omission, do not demote. The document outcome is the weakest ACCOUNT's, with only the two `failed`
+overrides (no account; an omission whose reason is not a ratified class). An omission on ratified evidence beside an
+independently validated account leaves the document `validated`; the omission is surfaced at the document / package
+layer (`document.omissions`; package `sibling_account_omission_detected: true`, `completeness: partial`) — DARK here,
+unit-tested on constructed payloads. Never wire the design's §1.5 `("review", "sibling_section_omitted")` override.
+Pin it: a constructed document with a ratified-class omission and one validated account classifies `validated`; the
+15 protected carriers S2 pins at the seam stay green at your tip and at composition.
