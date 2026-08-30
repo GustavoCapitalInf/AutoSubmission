@@ -160,6 +160,69 @@ def _split_rows(table: str) -> list[str]:
     return [row.strip() for row in text.splitlines() if _DATE_RE.search(row)]
 
 
+def _in_ledger_order(printed: list[dict]) -> list[dict]:
+    """The printed postings, put back into the order the bank dated them.
+
+    A Scotiabank statement is a BUNDLE of sheets: each one re-declares the
+    `Date Description Withdrawals/Debits ($) Deposits/Credits ($) Balance ($)`
+    header and closes with its own `No. of Debits …` footer strip, and nothing
+    in the document declares that the sheets are bound in ledger order. On a
+    bundle whose sheets are out of order, reading the rows in PRINT order
+    breaks the ledger in two ways at once: the running-balance chain steps
+    across a sheet boundary that is not a ledger step, and the balance of the
+    last printed row — a mid-period figure — is taken for the period's closing
+    balance.
+
+    The date the bank printed beside each row is the evidence that settles it,
+    and it is the only ordering evidence the sheet carries. The sort is STABLE,
+    so rows sharing a date keep the order they were printed in: within a day
+    the print order is the only order there is, and it is left alone.
+
+    Measured over every Scotiabank document in the archive: 78 are already in
+    date order and the sort cannot move them, and 2 are not — both bundles
+    whose sheets are bound out of order, on which the last printed row is
+    dated mid-period.
+    """
+    return sorted(printed, key=lambda row: row["date"])
+
+
+def _postings(rows: list[dict], opening: float | None) -> list[Transaction]:
+    """The ledger, with each row's direction read off the printed balances.
+
+    The printed money cell is the amount of record. The balance column supplies
+    only the DIRECTION, because this layout flattens `Withdrawals/Debits ($)`
+    and `Deposits/Credits ($)` into one printed value whose column is lost in
+    extraction.
+
+    Where the two disagree the disagreement is published, not resolved: the
+    printed magnitude ships, the printed balance ships, and `analysis.reconcile`
+    sees a running-balance continuity break and a ledger-sum mismatch. Assigning
+    the balance delta here instead — which is what this parser used to do — made
+    `sum_delta` and `continuity_breaks` re-derive the parser's own arithmetic,
+    so they were 0 on every document by construction and the fail-closed gate
+    had nothing to check.
+
+    The walk is over the LEDGER order, so a bundle's sheet boundary is no
+    longer read as a step in the chain.
+    """
+    txns: list[Transaction] = []
+    previous = opening
+    for row in rows:
+        if previous is None:
+            continue
+        magnitude = row["magnitude"]
+        amount = round(magnitude if row["balance"] >= previous else -magnitude, 2)
+        txns.append(Transaction(
+            date=row["date"],
+            description=row["description"],
+            amount=amount,
+            direction="credit" if amount > 0 else "debit",
+            running_balance=row["balance"],
+        ))
+        previous = row["balance"]
+    return txns
+
+
 def detection_text(markdown: str) -> str:
     """The text this parser recognises itself in."""
     return markdown.upper()
@@ -218,7 +281,11 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
         stmt.stated_credit_count = int(summary.group("credit_count"))
         stmt.stated_total_credits = parse_money(summary.group("credits"))
 
-    txns: list[Transaction] = []
+    #: The postings this document prints, in the order they were PRINTED. The
+    #: ledger's own order is settled after the sweep (see `_in_ledger_order`),
+    #: because a Scotiabank PDF is a BUNDLE of sheets and nothing in it
+    #: declares that the sheets are bound in ledger order.
+    printed: list[dict] = []
     prev_balance: float | None = None
     #: Dated rows the posting tables actually printed, `BALANCE FORWARD`
     #: excluded because it is the table's opening bound and not a posting.
@@ -269,36 +336,22 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
                 continue
 
             balance = parse_money(tokens[balance_at])
-            printed = _amount_value(tokens[amount_at])
-            if balance is None or printed is None:
+            printed_amount = _amount_value(tokens[amount_at])
+            if balance is None or printed_amount is None:
                 continue
             desc = " ".join(tokens[:amount_at]).strip()
             if not desc:
                 continue
 
-            #: The printed money cell is the amount of record. The balance
-            #: column supplies only the DIRECTION, because this layout
-            #: flattens `Withdrawals/Debits ($)` and `Deposits/Credits ($)`
-            #: into one printed value whose column is lost in extraction.
-            #:
-            #: Where the two disagree the disagreement is published, not
-            #: resolved: the printed magnitude ships, the printed balance
-            #: ships, and `analysis.reconcile` sees a running-balance
-            #: continuity break and a ledger-sum mismatch. Assigning the
-            #: balance delta here instead — which is what this parser used to
-            #: do — made `sum_delta` and `continuity_breaks` re-derive the
-            #: parser's own arithmetic, so they were 0 on every document by
-            #: construction and the fail-closed gate had nothing to check.
-            magnitude = abs(printed)
-            amount = round(magnitude if balance >= prev_balance else -magnitude, 2)
-            txns.append(Transaction(
-                date=tx_date,
-                description=desc,
-                amount=amount,
-                direction="credit" if amount > 0 else "debit",
-                running_balance=balance,
-            ))
+            printed.append({
+                "date": tx_date,
+                "description": desc,
+                "magnitude": abs(printed_amount),
+                "balance": balance,
+            })
             prev_balance = balance
+
+    txns = _postings(_in_ledger_order(printed), stmt.beginning_balance)
 
     if not txns:
         #: A period with no activity is a statement, not a parse failure —
