@@ -85,6 +85,10 @@ from typing import Any, NamedTuple
 
 import adb_forensic_audit
 import balance_forensic_audit
+# A leaf that computes nothing about a statement: it answers which of the two
+# published SHAPES a payload is. Importing it here does not couple this gate to
+# the analysis stack the two oracles above deliberately load without.
+from analysis.payload_shape import refuse_document_payload
 from corpus_artifacts import (
     DEFAULT_CACHE,
     ArtifactError,
@@ -1705,6 +1709,12 @@ def check_currency(result: Result, manifest: list[str], payloads: dict[str, dict
         if payload is None:
             details.append(f"{rel}: no payload was produced, so its currency is unverified")
             continue
+        # `PINNED_CURRENCY` is keyed by corpus-relative PATH with no account
+        # column, and a document publishing several accounts can denominate
+        # them differently. Reading one account's code as the document's would
+        # pin a denomination the paper never gave the document. Admitting one
+        # needs a path+account key, which is a truth-set ceremony.
+        refuse_document_payload(payload, surface="corpus_gate.py::check_currency")
         actual = (payload.get("statement") or {}).get("currency")
         counts[str(actual)] = counts.get(str(actual), 0) + 1
         if expected is None:
@@ -1782,6 +1792,8 @@ def check_currency_source(result: Result, manifest: list[str],
                 f"{rel}: no payload was produced, so its currency source is unverified"
             )
             continue
+        refuse_document_payload(
+            payload, surface="corpus_gate.py::check_currency_source")
         actual = (payload.get("statement") or {}).get("currency_source")
         counts[str(actual)] = counts.get(str(actual), 0) + 1
         if expected is None:

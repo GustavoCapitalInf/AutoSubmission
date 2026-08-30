@@ -232,7 +232,7 @@ READERS = (
 #: this census is here to make checkable.
 SEAMS: tuple[tuple[str, int, str], ...] = (
     ("discovery/runner.py", 503, "the discovery run"),
-    ("corpus_gate.py", 1549, "production_verdict — the pinned corpus"),
+    ("corpus_gate.py", 1553, "production_verdict — the pinned corpus"),
     ("benchmark/ourside.py", 117, "the benchmark's production side"),
     ("batch.py", 185, "the batch CLI"),
     ("balance_forensic_audit.py", 515, "the balance forensic audit"),

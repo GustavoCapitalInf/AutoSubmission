@@ -1075,9 +1075,39 @@ function summaryRowsHtml(rows) {
   `).join("");
 }
 
+function isDocumentPayload(report) {
+  // The multi-account shape: `document` + `accounts`, and deliberately no
+  // top-level `statement`. Keyed on the account list and nothing else, so
+  // every payload this dashboard is served today takes the path it always did.
+  return Boolean(report) && Array.isArray(report.accounts);
+}
+
+function documentRefusalMessage(report) {
+  // A panel shows ONE account. Rendering `report.statement` on a document that
+  // has none would show an empty panel; rendering the first account under the
+  // document's name would show one account's figures as the whole statement,
+  // which is the defect the document payload exists to remove. So the
+  // dashboard says what it holds and refuses to draw it, until it has an
+  // account selector to draw it with.
+  const doc = report.document || {};
+  const count = Array.isArray(report.accounts) ? report.accounts.length : 0;
+  const omitted = Array.isArray(doc.omitted_sections) ? doc.omitted_sections.length : 0;
+  const omittedNote = omitted
+    ? ` ${omitted} printed section${omitted === 1 ? " was" : "s were"} established and not published.`
+    : "";
+  return `This statement publishes ${count} accounts. This view shows one account `
+    + `at a time and has no account selector yet, so it is not showing you one `
+    + `of them as though it were the document.${omittedNote} Download the CSV or `
+    + `XLSX export, which carries every account.`;
+}
+
 function renderAnalysis(report) {
   currentAnalysis = report;
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
+  if (isDocumentPayload(report)) {
+    renderError(documentRefusalMessage(report));
+    return;
+  }
   const statement = report.statement || {};
   const metrics = report.metrics || {};
   const detection = report.detection || {};
@@ -1644,6 +1674,21 @@ function openStatementModal(jobId) {
 }
 
 function renderStatementModal(jobId, report, markdown) {
+  if (isDocumentPayload(report)) {
+    els.statementModalTitle.textContent = "Multi-account statement";
+    els.statementModalSubtitle.textContent = documentRefusalMessage(report);
+    els.statementModalMetrics.innerHTML = "";
+    els.statementModalAccount.innerHTML = "";
+    els.statementModalLenders.innerHTML = "";
+    els.statementModalInsurance.innerHTML = "";
+    els.statementModalRevenue.innerHTML = "";
+    els.statementModalTransactions.innerHTML = "";
+    els.statementModalTransactionCount.textContent = "";
+    // The modal is already open -- `openStatementModal` ran before the fetch
+    // that produced this payload, and calling it again would clear the job it
+    // was opened for.
+    return;
+  }
   const statement = report.statement || {};
   const metrics = report.metrics || {};
   const detection = report.detection || {};

@@ -10,6 +10,7 @@ from .payload_shape import DOCUMENT_SHAPE, assert_payload_shape, payload_account
 #: Named once: it reaches a refusal message, and a surface that names itself
 #: two ways is two surfaces to a reader of the message.
 _REVENUE_SURFACE = "analysis/revenue.py::rebuild_serialized_revenue_views"
+_REVIEW_SURFACE = "analysis/revenue.py::apply_serialized_revenue_review"
 
 
 RevenueState = Literal["verified_revenue", "unverified_deposit", "non_revenue"]
@@ -211,10 +212,21 @@ def apply_serialized_revenue_review(
     source_location: str,
     decision: Literal["confirm", "reject", "reset"],
 ) -> dict:
-    """Apply a human decision to one potential credit and rebuild all views."""
+    """Apply a human decision to one potential credit and rebuild all views.
+
+    Every account is searched, in printed order. A reviewer acts on a POSTING,
+    and a posting belongs to one account of the document; searching only the
+    first would raise `transaction source location was not found` for every
+    posting in the second — a message about the reviewer's request rather than
+    about the shape this function was handed.
+    """
     if decision not in {"confirm", "reject", "reset"}:
         raise ValueError("decision must be confirm, reject, or reset")
-    transactions = (analysis.get("statement") or {}).get("transactions") or []
+    transactions = [
+        transaction
+        for account in payload_accounts(analysis, surface=_REVIEW_SURFACE)
+        for transaction in (account.get("statement") or {}).get("transactions") or []
+    ]
     target = next(
         (
             transaction
