@@ -61622,7 +61622,7 @@ census is for.
 | the archive sweep, all 3,380 | `tools.regfp_zero_movement_sweep`, four chunks, at BOTH trees | 3,380 documents each; 2,669 compared, **2,620 identical**, 46 moved, 21 no-payload-now-publishes, 3 payload-now-raises, 0 multi-artifact — **the same nine numbers at the base tree and at the tip**. Four chunk exits 1 at each tree (the tool exits non-zero on any finding) |
 | attribution of every sweep finding | `python -m tools.l1s3_sweep_attribution --base … --tip …` | **exit 0** — 70 findings at BOTH trees identically (same document, same verdict, same changed field names); **0 differing, 0 tip-only, 0 base-only**. Every one of the 70 is train9's composed movement against the batch-8 run of record, and none is this branch's |
 | privacy — added lines | `tools/privacy_scan_branch.py` | **0 hits / raw 0** — 3,133 added lines against the printed tokens of 3,380 documents (3,351 with cached text): MONEY 0, DIGITS 0, DATES 0, WORDS 0, residue files 0, residue sites 0. Exit 0 |
-| privacy — commit messages | `tools/huntington_msg_privacy_scan.py` | 11 commits scanned against the same 3,380: **MONEY 0, DIGITS 0, DATES 0**; WORDS 2 (exit 1) — see the attribution below |
+| privacy — commit messages | `tools/huntington_msg_privacy_scan.py` | the branch's commit messages against the same 3,380: **MONEY 0, DIGITS 0, DATES 0**; WORDS 2 (exit 1) — both named and attributed below. 13 messages at the tree that produced this section; re-running the command after this section is committed scans the W3 commits too |
 
 ### Why the sweep AND the replay are each run TWICE
 
@@ -61665,7 +61665,7 @@ is the point: the figure is now a named constant (`SYNTHETIC_CREDIT`) and no
 money-shaped literal is written out on any line this branch adds.
 
 The message scan over the same 3,380 reports **MONEY 0, DIGITS 0, DATES 0** and
-**WORDS 2**, and the two are named here rather than counted: the bigram `NINE LINE` in
+**WORDS 2** across the branch's messages, and the two are named here rather than counted: the bigram `NINE LINE` in
 "its nine line-pinned sites", and the bigram `THOUGH THEY` in a sentence about two
 package keys. Both are ordinary English prose about the seam census and the package
 surface; neither is a value, a name, a date, an amount or anything read out of a
@@ -61730,5 +61730,6 @@ the surface census and the four readers it found · `4890d5e` the per-reader tes
 census tests and the mutation table · `46b92eb` jobs vs members · `0a58c3e` one
 definition of the account digest · `981a076` the constructed credit as a named constant
 · `fbdbc4f` the third override not wired (Q10) · `661c005` Q10 surfaced at the package
-layer · `081fd28` the sweep attribution instrument.
+layer · `081fd28` the sweep attribution instrument · `6d411c4` this section · `d44e7ca`
+the replay pair's numbers, and the replay mode of the attribution instrument.
 
