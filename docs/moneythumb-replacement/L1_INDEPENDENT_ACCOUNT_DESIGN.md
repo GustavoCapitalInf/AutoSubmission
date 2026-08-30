@@ -453,9 +453,25 @@ Average Daily Balance"*. Under this design a three-account document yields three
 contradiction if the doctrine's unit is read as the ACCOUNT rather than the PDF — which is the
 reading R-c forces — but the docstring says "statement" and the word now means one account. It
 must be amended to say so **in the same commit** as the first multi-account publisher, and the
-amendment is a one-line doctrine clarification, not a policy change. **Ruling needed** (§8, Q5)
-only to confirm that reading, and to say what a PACKAGE containing a multi-account document
-publishes.
+amendment is a one-line doctrine clarification, not a policy change.
+
+**And R-c has a leak the payload rule does not close.** §8 Q5 proposes that each account enters
+a PACKAGE as its own member. `webapp/app.py`:1152-1164 then publishes
+`package_average_daily_balance` as the days-weighted mean of its members' ADBs — so a package
+holding exactly one multi-account document publishes **one figure averaged over that document's
+accounts**, which is a document-level combined ADB by another name. §6.5's gate assertion cannot
+see it: that assertion forbids a document-level FIELD, and this is a package field computed
+from per-account ones. Three consequences, and the design takes all three:
+
+* the gate assertion is widened (§6.5) so it is a property of the ARITHMETIC and not of a field
+  name: **no published average may be computed over two accounts of the same document.** The
+  package ADB's member set is checked for two members sharing a `content_sha256`, and the check
+  is red if it finds any;
+* **a package member is an account whose OWN outcome is `validated`** — see Q1. Today
+  `_package_analysis` gates a member on `ready = job.status == "done" and job.analysis is not
+  None` (:661) and never on `classify_outcome`, so "publish it and mark the document `withheld`"
+  would silently mean "aggregate it anyway";
+* Q5 must be ruled explicitly and is restated to ask it (§8).
 
 ### 2.6 What closes today — measured, at this base
 
@@ -782,6 +798,12 @@ Added by stage S3, dark, and lit by S4:
 * the ADB basis and policy stamps (`calendar_day_printed_period`, `canonical_v1`) are asserted
   on **every account** and **no document-level ADB field exists** — a gate that goes red if a
   document ADB is ever reintroduced (R-c, made mechanical);
+* **and no published average is computed over two accounts of one document** — the arithmetic,
+  not the field name. The package ADB's member set is checked for two members sharing a
+  `content_sha256`. Without this the R-c assertion above is satisfiable by a package that
+  averages a document's three accounts and calls the result a package figure (§2.5);
+* a package member's own outcome is `validated`, asserted at the member set rather than
+  inferred from the document's;
 * a published document's `document.omitted_sections` reasons are all in L1-C17's vocabulary;
 * `document.internal_transfers` indices resolve, are one-to-one, and are excluded from the
   package totals `balance_forensic_audit.apply_package_results` asserts.
@@ -828,11 +850,11 @@ standing debt, move nothing, and leave the rest carded.
 
 | | question | what it decides | measured population |
 |---|---|---|---|
-| **Q1** | When one account validates and another does not, does the document publish the validating account's figures (as `withheld`/`review` at document level) or refuse entirely? | whether the model produces `failed → withheld` improvements or nothing at all until every account closes | every multi-account document that partially closes; today all such documents are `failed` |
+| **Q1** | When one account validates and another does not, does the document publish the validating account's figures (as `withheld`/`review` at document level) or refuse entirely? **And whichever is ruled, is a PACKAGE member an account whose own outcome is `validated`?** The design's answer to the second half is yes, and it must be ruled because today `_package_analysis` gates a member on job status alone (`webapp/app.py`:661) and never on `classify_outcome` — so "publish it and mark the document `withheld`" would silently mean "aggregate it anyway" | whether the model produces `failed → withheld` improvements or nothing at all until every account closes; and what a package does with a partially-closing document | every multi-account document that partially closes; today all such documents are `failed` |
 | **Q2** | Must a transfer's counterpart be on the SAME document to be INTERNAL (this design says yes)? And does an AMBIGUOUS pair refuse only the package aggregation (this design's proposal) or the whole document? | §3.2, §3.3 | 7 documents, 47 pairs |
 | **Q3** | May a section be OMITTED rather than counted when it prints its OWN opening caption and its OWN closing caption, the two figures coincide, and it prints no dated row, no counts, no totals and no daily table? R-a says absence of parsed activity alone is insufficient — and this is not that: the paper printed two figures about that account and they agree. Is that "explicit statement structure establishing its empty state"? | **2 documents → 8**; and beyond that family, whether 44 of the 86 single-posting documents (siblings empty-and-silent, or declaring idle in a wording symitar does not read) are reachable at all | 6 idle sections on 6 documents, all one census group, **all six with both figures from the section's own captions and 0 of them printing a dated row, counts, totals or a daily table**; 21 such sections in the whole population, every one of them on the same provenance; 62 empty-and-silent sibling sections and 7 in other wording |
 | **Q4** | Two published sections in two denominations: publish two accounts, or refuse the document? R-f allows both | L1-C13 | 4 documents, one census group, 12 sections |
-| **Q5** | Does each account of a multi-account document enter a PACKAGE as its own member? And is `analysis/adb.py`'s "one statement yields one ADB" read as one ACCOUNT yields one ADB (which R-c forces)? | §2.5, §3.2, `_package_analysis` | the package layer; 95% of sections print no daily table of their own |
+| **Q5** | Does each account of a multi-account document enter a PACKAGE as its own member? And is `analysis/adb.py`'s "one statement yields one ADB" read as one ACCOUNT yields one ADB (which R-c forces)? **And, the part R-c does not settle: a package holding one multi-account document publishes `package_average_daily_balance` as the days-weighted mean of its members — which is one average over that document's accounts. Is that permitted?** "A package of one document is still a package" is defensible; so is refusing it. It must be ruled, not left to fall out of the surface table, and §6.5 now carries a gate for whichever way it goes | §2.5, §3.2, `webapp/app.py`:1152-1164 | the package layer; 95% of sections print no daily table of their own |
 | **Q6** | Where an issue prints a per-account activity RANGE rather than one document cycle, whose period does L1-C9 mean? | §2.4 | 27 documents lose every section today for printing no resolvable period at all; the per-account-range class is not separately measured |
 | **Q7** | The posting threshold: is "a section that posts" one dated row or two? | the whole population's size | at two rows: 86 single-posting / 81 multi-posting. At one row: 59 / 111. The 2 documents that close, close at BOTH |
 | **Q8** | §9 F1/F2: symitar, community_section and zions skip sections today. Does R-a apply to those EXISTING skips, or only to new admissions? | whether S2 is a payload-only card or a correctness card that can REMOVE validated documents | **ANSWERED BY MEASUREMENT — §2.7. The skips fire on 12 validated documents / 16 sections, and 16 of 16 print the evidence R-a demands. Applying R-a to the existing skips removes 0 validated documents.** What remains for Gustavo is the vocabulary widening L1-C17 now carries |
