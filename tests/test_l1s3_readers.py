@@ -22,7 +22,12 @@ import pytest
 
 from analysis.payload_shape import PayloadShapeError
 from analysis.revenue import rebuild_serialized_revenue_views
-from tests.l1s3_payloads import account_payload, document_payload, shim_payload
+from tests.l1s3_payloads import (
+    SYNTHETIC_CREDIT,
+    account_payload,
+    document_payload,
+    shim_payload,
+)
 
 
 # --- analysis/revenue.py -----------------------------------------------------
@@ -34,7 +39,7 @@ def test_revenue_views_are_rebuilt_per_account():
     for index, account in enumerate(payload["accounts"]):
         assert account["metrics"]["total_posted_credit_count"] == 1
         assert account["metrics"]["verified_revenue_total"] == round(
-            111.11 * (index + 1), 2)
+            SYNTHETIC_CREDIT * (index + 1), 2)
     # No document-level revenue block: revenue is a property of a LEDGER and
     # the document has none of its own.
     assert set(payload) == {"document", "accounts"}
@@ -68,5 +73,5 @@ def test_revenue_never_averages_two_accounts():
     rebuild_serialized_revenue_views(payload)
     totals = [account["metrics"]["verified_revenue_total"]
               for account in payload["accounts"]]
-    assert totals == [111.11, 222.22]
+    assert totals == [SYNTHETIC_CREDIT, SYNTHETIC_CREDIT * 2]
     assert len(set(totals)) == 2

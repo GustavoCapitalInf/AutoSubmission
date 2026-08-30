@@ -1,10 +1,11 @@
 """CONSTRUCTED payloads for the L1-S3 surface tests. Never a real document.
 
 Every value here is invented and obviously so: the bank is a placeholder, the
-account numbers are runs of zeroes, the money is repeated digits and the dates
-are the first days of a year no statement in the archive covers. Nothing in
-this module is read from, derived from, or shaped after any statement — the
-document shape has never been published, so there is nothing real to copy.
+account numbers are runs of zeroes, the money is a single named constant scaled
+by the account index, and the dates are the first days of a year no statement in
+the archive covers. Nothing in this module is read from, derived from, or shaped
+after any statement — the document shape has never been published, so there is
+nothing real to copy.
 
 The builders produce the two shapes `analysis/serialization.py` publishes:
 
@@ -25,6 +26,15 @@ SYNTHETIC_BANK = "SYNTHETIC TEST BANK"
 
 #: The ladder rungs an account fixture can be built on.
 ACCOUNT_OUTCOMES = ("validated", "review", "withheld")
+
+#: The invented credit each constructed account posts, scaled by its index so
+#: two accounts of one document never publish identical content. Deliberately a
+#: SHORT, unremarkable number and named once rather than written out in the
+#: tests: the branch privacy scanner compares a branch's added lines against the
+#: money tokens the archive prints, and a made-up figure with enough digits
+#: WILL eventually coincide with one a real statement printed. A name costs
+#: nothing and keeps that coincidence off every line this branch adds.
+SYNTHETIC_CREDIT = 7.0
 
 
 def _classification(index: int, *, posted: bool = True) -> dict:
@@ -50,7 +60,7 @@ def account_payload(index: int = 0, *, outcome: str = "validated") -> dict:
     """
     if outcome not in ACCOUNT_OUTCOMES:
         raise ValueError(f"unknown fixture outcome: {outcome!r}")
-    amount = 111.11 * (index + 1)
+    amount = SYNTHETIC_CREDIT * (index + 1)
     payload = {
         "statement": {
             "bank": SYNTHETIC_BANK,
