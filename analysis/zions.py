@@ -284,6 +284,14 @@ def _omission_evidence(block: dict) -> str | None:
     own printed text is offered, so a dormancy declaration admits the block in
     either ratified wording — which is what the one archive block that reaches
     here actually prints.
+
+    What is deliberately NOT added is a clause for this layout's THIRD count,
+    the cheque register's. L1-C17's class names the credit and debit counts and
+    those two only, and inventing a seventh clause for one reader's grid is the
+    per-issuer drift the closed vocabulary exists to prevent. The money is
+    covered anyway: `_inert` already requires the cheque AMOUNT to be zero, and
+    a cheque that posted would have posted in `CHARGES/DEBITS`, whose count is
+    one of the two this class does require.
     """
     amounts, counts = block["amounts"], block["counts"]
     if len(amounts) < 4 or len(counts) < 2:

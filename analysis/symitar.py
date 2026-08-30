@@ -34,16 +34,18 @@ platform's six-figure equation row — the platform's own `Dividends` column to
 account for every skipped posting with its `Credits / Deposits` column at
 zero. The skip fails closed on any of them.
 
-**Neither skip is silent any more, and neither rests on absence.** Both were:
-a deposit section that parsed no row was dropped for the ABSENCE of rows, with
-nothing in the payload to say a section had been read and left out. Both are
-now decided by what the paper PRINTED (`analysis/sibling_omission.py`, L1-C17)
-and recorded as an omission on the DOCUMENT object — the dormant sibling under
-`printed_dormancy_declaration`, the yield-only sibling under
-`yield_only_arithmetic_with_summary_equality`. A deposit section that prints
-NONE of the classes is no longer skipped: the document is refused, because a
-statement one of whose accounts this reader cannot account for is not a
-statement it has read. The rule also
+**Neither skip is silent any more, and the two were silent for different
+reasons.** The DORMANT skip decided on ABSENCE: a deposit section that parsed
+no row was dropped because it parsed no row, which is the one ground Gustavo's
+L-1 condition says may never admit an omission. The YIELD-ONLY skip never did —
+it rests on the platform's own arithmetic, which is printed evidence — but it
+left no more trace than the other one. Both are now decided by what the paper
+PRINTED (`analysis/sibling_omission.py`, L1-C17) and recorded as an omission on
+the DOCUMENT object: the dormant sibling under `printed_dormancy_declaration`,
+the yield-only sibling under `yield_only_arithmetic_with_summary_equality`. And
+a deposit section printing NONE of the classes is no longer skipped at all: the
+document is refused, because a statement one of whose accounts this reader
+cannot account for is not a statement it has read. The rule also
 carries no materiality bound: a five-dollar sibling and a five-hundred-thousand
 -dollar sibling are skipped alike, because a size bound in a parser would be
 exactly the statement-specific constant R-1 forbids. The cost of not reading it was measured: four
