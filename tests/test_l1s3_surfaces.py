@@ -515,3 +515,67 @@ def test_the_row_field_list_carries_the_new_column():
 
     assert "account_count" in ROW_FIELDS
     assert set(ROW_FIELDS) <= set(_row().as_dict())
+
+def _verdict(outcome, flags=(), risk="clear", index=None):
+    import corpus_gate
+
+    return corpus_gate._Verdict(outcome, tuple(flags), (), risk, False, index)
+
+
+def test_a_document_outcome_no_account_holds_is_refused():
+    """MINOR-1 / design §6.5's first bullet.
+
+    The per-account verdicts were returned and DISCARDED at the only call site,
+    which made "one verdict per account plus a document verdict" a shape rather
+    than a claim. Each clause is doctored, because a self-check nothing can
+    break is not a check.
+    """
+    import corpus_gate
+
+    with pytest.raises(ValueError, match="document_verdict_does_not_follow"):
+        corpus_gate._assert_document_verdict_follows(
+            _verdict("withheld"),
+            (_verdict("review", index=1), _verdict("validated", index=2)),
+        )
+
+
+def test_a_document_flag_no_account_raised_is_refused():
+    import corpus_gate
+
+    with pytest.raises(ValueError, match="document_verdict_invents_a_flag"):
+        corpus_gate._assert_document_verdict_follows(
+            _verdict("review", flags=("a_flag_no_account_raised",)),
+            (_verdict("review", index=1), _verdict("validated", index=2)),
+        )
+
+
+def test_a_document_risk_milder_than_an_accounts_is_refused():
+    import corpus_gate
+
+    with pytest.raises(ValueError, match="document_verdict_softens_an_account"):
+        corpus_gate._assert_document_verdict_follows(
+            _verdict("review", risk="clear"),
+            (_verdict("review", risk="high", index=1),
+             _verdict("validated", index=2)),
+        )
+
+
+def test_a_document_level_refusal_is_allowed_to_hold_no_accounts_outcome():
+    """`failed` is the one outcome the fold may reach on its own — a document
+    that publishes no account, or one whose omission is unratified."""
+    import corpus_gate
+
+    corpus_gate._assert_document_verdict_follows(
+        _verdict("failed"),
+        (_verdict("validated", index=1),),
+    )
+
+
+def test_the_self_check_is_silent_on_a_verdict_that_does_follow():
+    import corpus_gate
+
+    document, per = corpus_gate.document_verdicts(
+        document_payload(outcomes=("review", "validated")))
+    assert document.outcome == "review"
+    assert [verdict.outcome for verdict in per] == ["review", "validated"]
+    assert document.risk_level == "review"

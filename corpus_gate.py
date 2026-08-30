@@ -1423,6 +1423,49 @@ def _account_verdict(payload: dict, index: int | None) -> _Verdict:
     )
 
 
+def _assert_document_verdict_follows(
+    document: _Verdict, per: tuple[_Verdict, ...]
+) -> None:
+    """Design §6.5's first bullet: the document verdict must FOLLOW from its accounts.
+
+    The L1-S3 review found the per-account verdicts returned and discarded at
+    the only call site (`verdict, _accounts = document_verdicts(payload)`),
+    which made "one verdict per account plus a document verdict" a shape rather
+    than a claim. Three ways the fold could stop following, each its own
+    refusal — and a named function rather than a block inside the fold, so each
+    clause can be doctored from outside and shown to fire:
+
+    * an outcome no account holds, that is not a document-level refusal;
+    * a document flag no account raised — a flag the fold invented;
+    * a risk level milder than the strongest an account published.
+
+    It raises rather than returning: a gate that publishes a verdict it cannot
+    derive is worse than one that stops.
+    """
+    account_outcomes = [verdict.outcome for verdict in per]
+    if document.outcome not in account_outcomes and document.outcome != "failed":
+        raise ValueError(
+            f"the document verdict {document.outcome!r} is an outcome none of "
+            f"its {len(per)} accounts holds {account_outcomes!r}, and it is not "
+            f"a document-level refusal (document_verdict_does_not_follow)")
+    account_flags = {flag for verdict in per for flag in verdict.flags}
+    invented = [flag for flag in document.flags if flag not in account_flags]
+    if invented:
+        raise ValueError(
+            f"the document verdict carries flag(s) {invented!r} that no account "
+            f"raised (document_verdict_invents_a_flag)")
+
+    def _rank(level: str) -> int:
+        return _RISK_ORDER.index(level) if level in _RISK_ORDER else len(_RISK_ORDER)
+
+    strongest_account = max((_rank(verdict.risk_level) for verdict in per), default=0)
+    if _rank(document.risk_level) < strongest_account:
+        raise ValueError(
+            f"the document risk level {document.risk_level!r} is milder than "
+            f"the strongest an account published "
+            f"(document_verdict_softens_an_account)")
+
+
 def document_verdicts(payload: dict) -> tuple[_Verdict, tuple[_Verdict, ...]]:
     """`(document verdict, per-account verdicts)` for one published payload.
 
@@ -1491,6 +1534,7 @@ def document_verdicts(payload: dict) -> tuple[_Verdict, tuple[_Verdict, ...]]:
             verdict.possible_document_issue for verdict in per),
         account_index=None,
     )
+    _assert_document_verdict_follows(document, per)
     return document, per
 
 
