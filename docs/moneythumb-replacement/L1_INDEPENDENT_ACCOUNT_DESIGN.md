@@ -530,6 +530,70 @@ the sections' own printed counts, totals and daily balances are fed (L1-C8). Pas
 there disables the only checks capable of seeing a truncated ledger; the first prototype did,
 and `reconcile` refused 0 of 105.
 
+### 2.7 What the platform skips TODAY, and what those sections print — Q8, answered
+
+The design's first version bounded this population with each module's own section-mark pattern
+and said, correctly, that a mark count cannot tell a dropped section from a reprinted heading:
+*"no instrument outside the reader itself can tell those apart."* The answer to that is to
+instrument the reader itself, and `tools/l1_design_skip_probe.py` does. It runs each reader over
+its own `validated` documents through `analyze_markdown(parse_mode="deterministic")` — the
+production dispatch path — and watches the skip execute, with each watched line verified against
+the source text it must sit on before any document is read.
+
+| registration | `validated` documents read | documents where a skip FIRES | sections skipped |
+|---|---:|---:|---:|
+| `symitar` | 7 | **4** | 7 |
+| `community_section` | 59 | **5** | 6 |
+| `dakota_west` | 3 | **2** | 2 |
+| `mission_valley` | 36 | 0 | 0 |
+| `zions` | 12 | **1** | 1 |
+| **total** | **117** | **12** | **16** |
+
+| skip site | sections |
+|---|---:|
+| `symitar.py`:419-420 `if not rows: continue` | 7 |
+| `community_section.py`:621-622 `if not txns: return None`, inside `_parse_sectioned_statement` | 8 |
+| `community_section.py`:984, the `stmt.transactions` clause at the CALL SITE | **0** |
+| `zions.py`:248-250 `_inert` — no row AND every printed summary column zero | 1 |
+
+**And what the paper printed on each of those 16 sections**, classified only by a module's own
+committed pattern or helper (`symitar._DORMANT_RE`, `zions._NO_ACTIVITY_RE`,
+`community_section._summary`, which is fail-closed by its own docstring):
+
+| evidence class | sections |
+|---|---:|
+| `printed_dormancy_declaration` — the section prints a no-activity declaration | **8** (7 `symitar`, 1 `zions`) |
+| `printed_zero_activity_summary` — its own opening, its own closing coinciding to the cent, zero credit total, zero debit total, zero credit count, zero debit count | **8** (6 `community_section`, 2 `dakota_west`) |
+| ... each of those seven clauses, satisfied | **8 of 8**, every clause |
+| **`no_printed_evidence` — the class R-a refuses** | **0** |
+
+> **Q8 is answered by measurement: applying R-a to the existing skips removes 0 validated
+> documents.** The exposure the design warned about does not exist. What exists is 12 documents
+> whose skip must be RE-FOUNDED on the evidence already printed, and 16 sections that must
+> become visible in the payload — and a vocabulary (L1-C17) that has to be able to name that
+> evidence, which the first version's could not.
+
+**`zions` is in this table because it was in no instrument before.** The design named it an S2
+skip site and never probed it. Its skip is not absence-based at all: `_inert` (`zions.py`
+:248-250) requires `not rows` **and** every printed summary column to be `0.0`, which is the
+`printed_zero_activity_summary` class arriving through a different reader; and `_NO_ACTIVITY_RE`
+(`zions.py`:78, live at :200) is a printed dormancy declaration in a wording symitar's pattern
+does not read. Both are printed grounds, neither was nameable by L1-C17's first vocabulary, and
+`zions` carries 12 protected documents.
+
+**Two corrections this probe made to itself, both caught by running it.** They are recorded
+because a probe that once over-counted has to carry the reason it no longer does.
+
+* `analysis/parser_registry.py::resolve` (:998-1024) calls `parse` on EVERY candidate
+  registration, and three of these registrations route into the same module function. Counting
+  line hits without asking whose parse attempt they belong to attributed losing candidates'
+  drops to the winner — 71 sections where the claiming parser drops 6. Only skips inside the
+  CLAIMING registration's own entry point are counted.
+* `community_section.py`:984 is an `if`, not a skip: counting its executions counts blocks
+  (65), and counting `stmt is None` counts blocks already recorded at `:622` a second time. Its
+  own contribution is the second operand alone — a statement that parsed and carries no
+  transaction — and that is **0**.
+
 ---
 
 ## 3. Transfers between a member's own accounts
@@ -625,8 +689,28 @@ this cell.
 | **L1-C14** | no statement-specific constant anywhere in the split: an account number, a product name or a memorised heading is R-1 | test failure (`tests/test_no_statement_hardcodes.py`) | `analysis/consumers.py`:88-94 today (§9, F3) |
 | **L1-C15** | zero inference — deterministic, $0, no model call | — | standing |
 | **L1-C16** | *(new)* a payload carrying `accounts` never also carries `statement`; a reader given a payload with neither raises `ValueError` | `ValueError` at the reader | measured: **6 of 6** probed readers ANSWER the untaught shape today instead of refusing it (§1.4) |
-| **L1-C17** | *(new)* an omission's `reason` is from a CLOSED vocabulary, every member of which names PRINTED evidence: `printed_dormancy_declaration`, `yield_only_arithmetic_with_summary_equality`, and — ONLY if §8 Q3 is granted — `printed_pair_coincides_and_no_row_printed`. **`absence_of_parsed_rows` is not a member and cannot become one** | `None` — the document may not publish | §9 F1/F2: the two skips production performs today are absence-based, on the cohorts §6.2 sizes. The third member's population is the 6 sections of §2.3, all six with both figures read from the section's own captions |
+| **L1-C17** | *(new)* an omission's `reason` is from a CLOSED vocabulary, every member of which names PRINTED evidence — see the vocabulary below. **`absence_of_parsed_rows` is not a member and cannot become one**, and the vocabulary is closed against ABSENCE, never against evidence: a class the archive prints and this list cannot name is a defect in the list | `None` — the document may not publish | §2.7: the skips production performs today fire on 16 sections and **16 of 16 print evidence in this vocabulary; 0 print none**. §2.3: the Q3 member's population is 6 sections on 6 documents |
 | **L1-C18** | *(new)* no reader, and no SURFACE, selects one account to stand for a document — not by a derived quantity (most transactions, largest balance) and not by printed position (the first account). A per-document field that can hold only one account's value is left EMPTY on a multi-account document; it is never filled from a chosen account (R-e) | `None` at a reader; an EMPTY column at a surface | §9 F4: `analysis/community_section.py`:731-734 selects the busiest section today, on a cohort that includes a pinned document. And §5's own `discovery/runner.py` row, which this condition caught |
+
+**L1-C17's vocabulary, widened to the evidence the archive prints.** The first version admitted
+three tokens, and §2.7 measures that they name NONE of what 8 of the 16 skipped sections
+actually print, and nothing at all of what `zions` reads. A closed vocabulary that cannot name
+printed evidence does not fail closed — it forces an implementer either to invent a token
+(which C17 forbids) or to refuse 12 protected documents. The vocabulary is therefore closed
+against ABSENCE and open to EVIDENCE, and its members are:
+
+| member | what the reader must have | measured population (§2.7) |
+|---|---|---:|
+| `printed_dormancy_declaration` | the section prints a no-activity declaration. **Wording-independent**: `symitar._DORMANT_RE` and `zions._NO_ACTIVITY_RE` (`zions.py`:78) are two printings of one fact, and a vocabulary keyed on one issuer's phrasing is an R-1 vocabulary. A new wording is admitted by adding the pattern, never by relaxing the class | **8** (7 `symitar`, 1 `zions`) |
+| `printed_zero_activity_summary` | the section prints its OWN opening balance, its OWN closing balance coinciding to the cent, a zero credit total, a zero debit total, a zero credit count and a zero debit count. All six, read fail-closed: a grid missing either balance or either count yields nothing rather than a partial answer. This is also exactly what `zions._inert` (:248-250) requires — no row AND every printed summary column zero — so that reader's skip is a member of this class rather than an exception to the list | **8** (6 `community_section`, 2 `dakota_west`); every one of the six clauses satisfied on 8 of 8 |
+| `yield_only_arithmetic_with_summary_equality` | the ratified `symitar._yield_only` predicate, applied AS WRITTEN with its fourth condition | 0 sections in this population satisfy it (§2.3) |
+| `printed_pair_coincides_and_no_row_printed` | **only if §8 Q3 is granted** — the section prints its own opening and closing captions, the two coincide, and it prints no dated row, no counts, no totals and no daily table | 6 sections on 6 documents |
+
+Two rules govern the list itself. **Nothing may be added for absence** — a member must name
+something the paper printed, and `absence_of_parsed_rows` is the class this condition exists to
+refuse. And **a member is the EVIDENCE, not the reader**: `zions._inert` gets no token of its
+own because what it reads is `printed_zero_activity_summary` arriving through a different
+module, and giving each reader its own token would rebuild the per-issuer vocabulary R-1 forbids.
 
 **Currency, at section level (L1-C13, serving R-f).** The doctrine resolves a denomination per
 DOCUMENT today and `jurisdiction_default` is affirmative evidence at the INSTITUTION level. Per
@@ -749,6 +833,22 @@ capital_one 6, consumers 3) are not in the table above — a refused document is
 nobody. They are the population any stage that opens a refusal must name, and the L1INV packet
 measures them from each reader's own gate.
 
+**And the subset S2 actually touches**, measured on the dispatch path rather than bounded
+(§2.7) — this is the population Q8 is decided on:
+
+| registration | `validated` (protected) | documents where a skip FIRES | sections skipped | sections with printed evidence | sections with NONE |
+|---|---:|---:|---:|---:|---:|
+| `symitar` | 7 | 4 | 7 | 7 | **0** |
+| `community_section` | 59 | 5 | 6 | 6 | **0** |
+| `dakota_west` | 3 | 2 | 2 | 2 | **0** |
+| `mission_valley` | 36 | 0 | 0 | 0 | 0 |
+| `zions` | 12 | 1 | 1 | 1 | **0** |
+| **total** | **117** | **12** | **16** | **16** | **0** |
+
+**R-a removes 0 validated documents.** Every skipped section on this archive prints the evidence
+the condition demands; none rests on absence alone. The exposure is a vocabulary that has to
+name it (L1-C17) and a payload field that has to show it (S2) — not a subtraction from 2,596.
+
 ### 6.3 The pinned exposure
 
 | measure | value |
@@ -868,7 +968,7 @@ the two changes are both forced by measurement:
 | stage | files | expected safely recoverable, MEASURED | pinned movement | proof plan |
 |---|---|---|---|---|
 | **S1 — the wrapper and RULE S** | `analysis/pipeline.py` (the three dataclasses + the document seam), `analysis/serialization.py` (`document_report_to_dict`, RULE S), docstring of `analysis/schema.py` | **0 newly validated. 0 documents move.** `accounts` is length 1 on every document by construction; RULE S returns today's dict verbatim — measured byte-identical on 208 of 208 documents across 71 registrations | **none** | `cohort_replay --expect-identical` over every registration + BYTE comparison (§1.3) + archive sweep (0 findings expected, and 0 is the pass condition). `ANALYSIS_STAGE_VERSION` NOT bumped |
-| **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note), `analysis/symitar.py`, `analysis/community_section.py`, `analysis/zions.py` — the skip SITES only | **0 newly validated.** Payload movement on the documents whose reader skips a section today. Measured over the four probed registrations: **105** validated documents read, **15** print two or more of their OWN module's section marks while publishing one account (symitar 7 of 7, `dakota_west` 3 of 3, `community_section` 5 of 59, `mission_valley` 0 of 36), and only **4** print the ratified declaration — all four symitar. §9 F1/F2: on today's evidence most of these skips have no member of L1-C17's vocabulary to name, which is what makes this stage a correctness card and not a cosmetic one | **none expected** — a pinned mover is a STOP | mutation table on the omission-reason vocabulary; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
+| **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note); the skip SITES only — **`analysis/symitar.py`:419-420, `analysis/community_section.py`:621-622 (INSIDE `_parse_sectioned_statement`, not at its call site), `analysis/zions.py`:248-250** | **0 newly validated, and 0 validated LOST.** Measured on the dispatch path (§2.7): the skips fire on **12** validated documents / **16** sections across 117 read, and **16 of 16 print evidence L1-C17 can name — 0 print none**. So this stage re-founds 12 documents' skips on printed evidence and surfaces 16 sections; it removes nothing. Payload bytes move on those 12 documents and on no others | **1 named exposure, not "none".** `dakota_west` holds a pinned document and has 3 documents in the run: 2 carry this skip and the third carries F4's live derived selection (§6.3). The card must name which is pinned before it claims no pinned movement | mutation table on the omission-reason vocabulary, with killers drawn by sha from the 12; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
 | **S3 — the surfaces, taught DARK** | `telemetry/record.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `balance_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | unit tests per reader over synthetic document payloads; the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
 | **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **0 to 8, and the test decides which.** **0** documents pass the STRICT after-chain bound; **2** close on every located section under the production checks (both one census group, both with the enumerating table's own closing column reproducing); **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
 | **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94, and :115-123, which restates the product designation but NOT the account number) | **0 newly validated, and −2 validated.** The `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today, and removing the literal makes the reader refuse (§6.3). This is a CORRECTNESS card whose measured effect on the count is negative: it removes an R-1 hardcode that publishes one memorised account of a member's several | **2 validated → failed, 1 of them pinned** (§6.3). STOP-and-report with per-sha evidence, and the ceremony, BEFORE the change lands | truth-set ceremony over BOTH paths; `cohort_replay --parser consumers` (2 documents, both `validated`); corpus gate; both audit CSVs' rows re-derived and re-approved |
