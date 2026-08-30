@@ -62176,3 +62176,395 @@ directly at the tip (the row above). The suite count moves 7,547 → **7,561** w
 pin cases: six tripwire, and eight added to the ruling file by the document leg and the
 positive controls.
 
+# §Q3PROBE — the roll-up witness, measured: 6 / 6, and the mutants that would have said otherwise
+
+Card `Q3-CORROBORATION-PROBE` (batch 9, L-1), branch `wave9-q3probe`, base
+`train9` `e5b0342` (L1-S2 composed), code tip `9f594e9`. **Bounded, READ-ONLY, no
+production change of any kind.** The branch is one instrument, its test file and
+this section: `git diff e5b0342..HEAD --stat` is two code files (+1,205 / -0)
+plus this log section (+288 / -0), nothing
+under `analysis/`, `ocr/`, `webapp/` or `discovery/`, and no entry in
+`corpus_gate.py`'s register — the probe calls neither `analyze_markdown` nor
+`cached_analysis`, `tests/test_corpus_gate_outcomes.py` passes with it present,
+and `git show train9:corpus_gate.py | grep -c q3_corroboration_probe` is 0, so
+there is no key to collide at composition.
+
+Gustavo's instruction was literal (BATCH9_TRANSITION §8.8): *"Before S4 relies on
+this class, run the bounded corroboration probe over the six measured
+`guardian_cu` sections. Do not assume the roll-up witness. Measure it."*
+
+**SCOPE — the headline risk, and it belongs before the numbers rather than after
+them (review MINOR-1, closed here).** All six documents carry the extractor model
+**`native-pdf-text`**: their text came from the PDF's own embedded text layer.
+**None of the six was OCR'd.** The class
+`printed_pair_coincides_and_no_row_printed` exists to bound the hazard where OCR
+loses ledger rows while the captions survive and happen to net to zero — and on
+this population that hazard cannot arise. So the roll-up witness has been
+measured **exactly as Gustavo ordered, and has NOT been exercised against the
+failure mode it was ruled in to guard.** N = 6 is unaffected: the ruling asked
+whether the witness exists and reads, and on all six it does. But the sentence
+this cell first wrote — that the result is "a fact about that OCR partition" —
+understated it, and the corrected statement is this: **this is a fact about six
+documents that were never OCR'd.** It follows that **Phase 2 must re-measure this
+class on OCR'd input before relying on it there** — when Unlimited OCR or
+PaddleOCR feed the same deterministic validator, that will be the first time the
+witness is asked to do the job it was ruled in for, and these six are the
+population to re-run. That sentence belongs in `BATCH9_BACKLOG` and in the
+`OCR-LEGACY-AUDIT` card's inputs; Ocean owns placing it there, since this card
+owns no file outside its own. Independently reproduced at this tip: 6 of 6
+`native-pdf-text`, one distinct model across the population.
+
+## Q3PROBE1 The population is the design's, and nothing here chooses it
+
+`tools/q3_corroboration_probe.py` derives its population the way
+`tools/l1_design_idle_evidence.py` derives §2.3's: `l1_split_prototype`'s own
+`run_document` over its own `_population`, the sections carrying that
+instrument's own idle refusal class, on the documents its own
+`all_close_allowing_idle` admits. No document is named by hand anywhere in the
+instrument, and a population of a size other than the design's is a STOP with
+its own exit code (2) rather than a probe result.
+
+| the population, at `e5b0342` | value |
+|---|---:|
+| sections emitted | **6** |
+| documents they sit on | **6** |
+| census groups they span | **1** (`FAM:guardian_cu_statement_summary`) |
+| sections whose index in their document is 0 | 6 |
+| documents' located sections / enumerated roll-up rows | 2 / 2 on all six |
+
+The six documents, by content sha16: `333E226A75FE5441`, `472A0966A5204513`,
+`596804AA1ACD01EB`, `C3D3E48F1E14AE2A`, `F5BC9FB6D084559E`, `FFAC0A88768A8A59`.
+That is §2.3's *6 sections on 6 documents* reproduced at this base, and the
+card's "a different count is a STOP" did not fire.
+
+## Q3PROBE2 The 6 × 7 table
+
+Each cell is decided from the OCR-v4 artifact in the cold cache
+(`.claude/recovery/webapp_data_train8_cold`, run of record `TRAIN8-7185633 /
+cda8882d`) and cited by page and line — never by quoting what the paper says.
+Every reader is the design's own, IMPORTED: the section's own opening / closing
+caption readers, L1-C5's column-role map and its row reader, the dated-row,
+counts and daily-table readers, and the structure census itself. The one thing
+the instrument adds is a locator.
+
+| # | document | C1 | C2 | C3 | C4 | C5 | C6 | C7 | all seven |
+|---:|---|---|---|---|---|---|---|---|---|
+| 1 | `333E226A75FE5441` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **YES** |
+| 2 | `472A0966A5204513` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **YES** |
+| 3 | `596804AA1ACD01EB` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **YES** |
+| 4 | `C3D3E48F1E14AE2A` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **YES** |
+| 5 | `F5BC9FB6D084559E` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **YES** |
+| 6 | `FFAC0A88768A8A59` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **YES** |
+
+C1 the section prints its own opening caption AND figure · C2 its own closing
+caption AND figure · C3 the two coincide to the cent · C4 no dated ledger row
+printed in the section · C5 no counts / totals printed for the section · C6 no
+daily-balance table printed for the section · C7 the roll-up witness reproduces
+the section's closing.
+
+**42 cells, 42 decided, 0 UNDECIDABLE** — exit 0, which under this instrument's
+contract means every cell is a result and none is an inability to read.
+
+Where the evidence sits, so a reviewer can go and look without this log printing
+anything the paper printed:
+
+| document | section opens | own opening caption | own closing caption | roll-up row |
+|---|---|---|---|---|
+| `333E226A75FE5441` | page 1, line 16 | page 1, line 16 | page 1, line 18 | page 1, line 14 |
+| `472A0966A5204513` | page 1, line 16 | page 1, line 16 | page 1, line 18 | page 1, line 14 |
+| `596804AA1ACD01EB` | page 1, line 17 | page 1, line 17 | page 1, line 20 | page 1, line 15 |
+| `C3D3E48F1E14AE2A` | page 1, line 16 | page 1, line 16 | page 1, line 18 | page 1, line 14 |
+| `F5BC9FB6D084559E` | page 1, line 16 | page 1, line 16 | page 1, line 18 | page 1, line 14 |
+| `FFAC0A88768A8A59` | page 1, line 16 | page 1, line 16 | page 1, line 18 | page 1, line 14 |
+
+**The witness's independence is a location fact and not a claim.** On all six the
+roll-up row is printed on a line ABOVE the section it corroborates — two lines
+above the section's own opening caption, four or more above its closing — so the
+two figures condition 7 compares are two separate printings and not one figure
+read twice. That is the property that makes C7 a witness rather than a mirror,
+and it is the reason it is worth having: C1–C6 are all read inside the section,
+and C7 is the only one of the seven whose evidence the section does not control.
+
+## Q3PROBE3 N, and the S4 demonstrated target
+
+**N = 6** — the number of sections passing all seven conditions.
+
+**S4 demonstrated target = 2 + N = 2 + 6 = 8 (maximum 8, never forced).**
+
+The 8 is not rounded up and not assumed: it is 2 (Q9's pre-probe figure, the
+documents that close under the production checks today) plus the six documents
+that satisfied EVERY corroboration condition, which is six because six were
+measured and six passed — not because eight was the ceiling. Had one failed, the
+line would read 2 + 5 = 7. Per Q9 (Option B) S4 still reports three figures every
+time — strict after-chain diagnostic · production-check population · Q3-eligible
+population — and this probe supplies only the third.
+
+Official batch-9 coverage is unchanged at **2,596**. This card moves no
+document, publishes nothing and has no ladder movement of any kind: newly
+validated 0, other ladder movement 0, previously validated preserved (nothing
+was replayed because no analysis path differs from the base), regressions 0.
+
+## Q3PROBE4 No section FAILED — and what that sentence is worth
+
+A cell that reports six PASSes from an instrument nobody tried to break has
+reported nothing, so the probe attacks its own result on the SAME six sections,
+in memory, and every mutant names in advance the cell it must flip and the
+refusal class it must flip it to. A surviving mutant makes the exit non-zero (4).
+
+| mutant | must flip | to | killed / applied |
+|---|---|---|---:|
+| `rollup-closing-misread-by-a-cent` | C7 | `rollup_closing_does_not_reproduce_the_sections_closing` | **6 / 6** |
+| `rollup-column-caption-removed` | C7 | `rollup_prints_the_closing_under_a_column_whose_role_is_not_identifiable` | **6 / 6** |
+| `rollup-row-not-located-by-the-sections-label` | C7 | `no_rollup_row_located_by_the_sections_own_label` | **6 / 6** |
+| `document-prints-no-rollup` | C7 | `no_rollup_or_enumerating_table_printed_by_the_document` | **6 / 6** |
+| `one-dated-row-printed-in-the-section` | C4 | `dated_row_printed_in_the_section_count_1` | **6 / 6** |
+
+**30 / 30.** The first mutant is the one that matters most: moving the roll-up's
+closing figure by a single cent — the smallest change the paper could have made —
+turns all six PASSes into FAILs. The witness is therefore doing arithmetic and
+not merely existing.
+
+The same five mutants run against a constructed fixture in
+`tests/test_q3_corroboration_probe.py`, so the attack is proved to work
+independently of the archive; the card's three required checks are the first
+three tests in that file (a mis-read roll-up figure flips C7; one dated row flips
+C4; column roles that are not identifiable yield FAIL WITH A REASON, never PASS).
+
+**Because no section failed, the card's per-FAIL question — which condition, and
+whether another already-ratified class applies instead — has no instance.** It is
+answered in Q3PROBE5 anyway, in the direction that actually carries information.
+
+## Q3PROBE5 No already-ratified class admits any of the six, so Q3 is load-bearing
+
+The card asks the alternative-class question of every FAIL. Asked of every PASS
+it decides something larger: whether the ruling moves anything at all. A section
+already admitted by `printed_dormancy_declaration` or
+`printed_zero_activity_summary` does not need Q3, and a population made entirely
+of those would mean the new class is decorative.
+
+The classifier is production's own — `analysis.sibling_omission.evidence_class`,
+composed at L1-S2 as L1-C17 in code — handed what the design's own readers read
+off each section, so this is not a second opinion about what the evidence classes
+are.
+
+| document | already-ratified class that would admit it |
+|---|---|
+| `333E226A75FE5441` | **none** |
+| `472A0966A5204513` | **none** |
+| `596804AA1ACD01EB` | **none** |
+| `C3D3E48F1E14AE2A` | **none** |
+| `F5BC9FB6D084559E` | **none** |
+| `FFAC0A88768A8A59` | **none** |
+
+**0 of 6.** `printed_dormancy_declaration` does not fire — neither ratified
+wording is printed on these sections. `printed_zero_activity_summary` cannot
+fire, and the reason is C5 itself: that class requires a printed zero credit
+total, a printed zero debit total and two printed zero counts, and these sections
+print no counts or totals at all, which is exactly what C5 measured. Its six
+clauses are read fail-closed, so absence refuses the class rather than defaulting
+into it. `yield_only_arithmetic_with_summary_equality` cannot fire either — it is
+a predicate over postings, and C4 measured that there are none.
+
+So all six rest on `printed_pair_coincides_and_no_row_printed` alone, and the
+whole of the +6 is the new class's. That is the finding a reviewer should press
+hardest on, because it is the one with consequences.
+
+## Q3PROBE6 The case the ruling's wording turns on, measured
+
+The ruling's seventh condition is conditional — *where the document prints a
+roll-up / enumerating table with identifiable column roles*. The card's warning
+is that L1-C5 must not be widened to make a witness appear, and that a section
+whose roll-up prints the closing under a column whose ROLE is not identifiable is
+a FAIL with that reason.
+
+**Measured: that case does not occur in this population — 0 of 6.** All six
+documents print a column caption from L1-C5's closed vocabulary, and it is the
+strongest member of it: `type_prev_dep_wd_end`, which names four columns
+(previous balance, deposits, withdrawals, ending balance) and therefore states in
+print which figure is the closing. The witness is read from the `close` role of
+that map, never from a position.
+
+The case is nevertheless exercised rather than left theoretical. The
+`rollup-column-caption-removed` mutant constructs it on all six — the row still
+carries a figure equal to the section's closing, and the column caption is gone —
+and the probe reports it under its own refusal class,
+`rollup_prints_the_closing_under_a_column_whose_role_is_not_identifiable`, 6 / 6,
+never as a PASS. A fixture in the test file pins the same behaviour against a
+plausible-sounding caption that is simply not in the vocabulary. The design's
+L1-C5 row already measures the scale of the hazard across the wider population:
+**30 of 214 documents print such a caption and 184 print none**, so a probe that
+took position for evidence would have had a great deal of room to be wrong.
+
+## Q3PROBE7 Two vacuity readings that decide nothing, and both come out well
+
+Neither is a condition of the class; both are reported because condition 7 cannot
+ask them about itself.
+
+| document | roll-up movement columns all zero | another row would have corroborated the same closing | identities distinct (L1-C3) |
+|---|---|---|---|
+| `333E226A75FE5441` | yes | no | yes |
+| `472A0966A5204513` | yes | no | yes |
+| `596804AA1ACD01EB` | yes | no | yes |
+| `C3D3E48F1E14AE2A` | yes | no | yes |
+| `F5BC9FB6D084559E` | yes | no | yes |
+| `FFAC0A88768A8A59` | yes | no | yes |
+
+**The table also states that nothing moved.** Read through L1-C5's own role map
+on the `movement` roles that the pair reader discards, the deposits and
+withdrawals columns of each section's roll-up row are zero to the cent on all
+six. That is a seventh printed fact beyond the seven conditions, and it speaks
+directly to the ruling's stated intent — closing the OCR-loss risk where ledger
+rows disappear while the two captions survive and happen to net to zero. On these
+six the document does not merely fail to contradict the section; it prints, in a
+second place and under captions that say which column is which, that no deposit
+and no withdrawal occurred.
+
+**The witness discriminates.** On all six, the OTHER enumerated row of the same
+table closes at a figure DIFFERENT from this section's closing, so condition 7
+could not have been satisfied by tying the section to the wrong row. Two accounts
+of one member closing at the same figure would have made C7 true whichever row it
+was tied to; that is not what these documents print. The section-to-row link
+itself is the printed label (`_sections_from_rollup`), and on all six the
+document's two located sections map to two DISTINCT roll-up rows, which is L1-C3
+satisfied here.
+
+## Q3PROBE8 What this measurement does NOT license
+
+* It does not move a document. Official coverage stays **2,596**; the S4 target is
+  a planning figure, not a count of validated documents.
+* It says nothing about the OTHER account on these six documents. Every one of
+  them is a two-section document, and the six measured sections are the idle
+  siblings; whether the sibling may be omitted is what was measured, and whether
+  the PUBLISHED account validates on its own is S4's question under the unchanged
+  production standard (Q9, Option B) with Q10's rule for the omission —
+  `sibling_account_omission_detected: true`, `completeness: partial`, and never an
+  automatic downgrade of an independently valid account.
+* **It does not license the class on OCR'd input.** See the SCOPE block above: all
+  six are `native-pdf-text` and none was OCR'd, so the witness is measured but
+  untested against the hazard the class was ruled in for. Phase 2 /
+  `OCR-LEGACY-AUDIT` re-measures before relying on it there.
+* **It cannot be corroborated by a second reading of the same paper, and that is
+  unmitigable at this base** (review MINOR-2, closed here). Verified directly
+  against the cache: **exactly one `ocr`-stage artifact per document** for each of
+  the six, and **zero PDFs anywhere under the cache**. So the six cannot be
+  cross-read from here at all — the honest bound on the OCR-loss question is that
+  the artifact is internally consistent with an account that carried a balance and
+  posted nothing, and a loss that erased every trace of itself before this
+  artifact was written cannot be excluded from inside this cache. A second reading
+  must come from outside it.
+* The population is 1 census group and 6 documents. Nothing here generalises the
+  class to a section outside it; a new section enters the class only by being
+  measured against the same seven conditions.
+* `--expect-sections` defaults to the design's 6 precisely so that a future base
+  with a different population stops rather than silently reporting a different N.
+
+**Two caveats on how C7 binds a row to a section, both measured absent here and
+both for S4 to re-check if its population widens.**
+
+*The probe cannot see a mis-binding* (review MINOR-3). `witness_for` establishes
+"the row for this section" as `boundary.startswith("rollup-oracle")` plus
+`section.identity_index` — and because `_sections_from_rollup` located the section
+FROM that row, the index is correct by construction, which is also why a row bound
+to the wrong heading would be invisible to this probe. `identities_distinct` does
+not catch it either: two wrong bindings are still two distinct indices. Measured
+here the hazard is absent (no label is a prefix of another, and the review's
+independent label-and-token route reaches the same row on all six), so it lowers
+no cell. If S4's population widens beyond this family, the row↔section link must
+be re-established from the printed label rather than inherited from the boundary,
+and the probe as written will not raise its hand.
+
+*On one document the link is thinner than "located by the section's own label"
+suggests* (review MINOR-4, reproduced here). `_locators` offers two patterns in a
+fixed order — the identity NUMBER first, the NAME from the roll-up's label second
+— and `_sections_from_rollup` takes the first that finds an acceptable
+reappearance. Measured over the six, as distinct matched LINES per locator
+(number, name):
+
+| document | number locator | name locator |
+|---|---:|---:|
+| `333E226A75FE5441` | 2 | 2 |
+| `472A0966A5204513` | 2 | **11** |
+| `596804AA1ACD01EB` | **5** | 2 |
+| `C3D3E48F1E14AE2A` | 2 | 2 |
+| `F5BC9FB6D084559E` | 2 | 2 |
+| `FFAC0A88768A8A59` | **5** | 2 |
+
+On `472A0966A5204513` the design's `find_rollup` trims the printed product
+designation out of that row's label, so the name locator is built from the bare
+caption word and matches 11 lines including the sibling's reprinted headings. The
+binding is nevertheless correct and C7 stands: the number locator is tried FIRST
+and matches exactly the two lines the account occupies, and the review's
+independent label route agrees. But on that one document "located by the section's
+own label" is really "located by the section's own identity TOKEN", and the label
+half would have been degenerate had the token not been unique. Two documents have
+the reverse shape, where the label is the discriminating half. **This is named for
+the S4 card rather than written into the design's L1-C3 row**: that row is in
+`L1_INDEPENDENT_ACCOUNT_DESIGN.md`, a shared surface with L1-S3 in flight, and a
+non-W3 edit there is exactly the composition conflict the L1-S1 lesson warns
+about. S4 should carry it as: *the two locators are not interchangeable, and which
+half is load-bearing varies by document within one family.*
+
+## Q3PROBE9 Proof floor
+
+Instrument `tools/q3_corroboration_probe.py`; test
+`tests/test_q3_corroboration_probe.py`. Four cell commits (`24e319b` / `9f594e9`
+the code, this log section, the review closure) plus the reviewer's own file; both
+scans were re-run at the FINAL tip, so their added lines include that file too.
+
+| proof | result | exit |
+|---|---|---:|
+| the probe, run of record `cda8882d`, cold cache `webapp_data_train8_cold` | 6 sections / 6 documents, 42 cells decided, 0 UNDECIDABLE, N = 6, mutation table 30 / 30 | **0** |
+| `tests/test_q3_corroboration_probe.py` | 28 passed | **0** |
+| canonical guards (`test_no_statement_hardcodes` `test_no_parser_helper_clones` `test_r1_hardcodes` `test_experiments_are_not_wired` `test_filename_boundary`) | 255 passed | **0** |
+| `tests/test_corpus_gate_outcomes.py` `tests/test_currency_source.py` + this card's test | 89 passed, 10 deselected (corpus-marked) | **0** |
+| `tools/privacy_scan_branch.py --base e5b0342 --ref HEAD --shas <FILE of the six 64-hex content_sha256>` | added lines 2,072 (this section, the probe, its test and the 394-line review file) · population 6 · documents read 6 · **hits 0** · residue sites 0 | **0** |
+| the same with `--no-exclusions` (the RAW scan) | added lines 2,072 · **raw hits 0**, attributed to no exclusion rule | **0** |
+| `tools/huntington_msg_privacy_scan.py --base e5b0342 --ref HEAD --shas <FILE of the six 64-hex content_sha256>` | commits scanned 5 · population 6 · **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0** | **0** |
+| W3 append-only check | prefix byte-identical to train9's blob; **one** new top-level heading, stated on both conventions: `^# §` **99 → 100**, plain `^# ` **402 → 403**; insertions only, 0 deletions | **0** |
+
+Both `--shas` invocations above take a **FILE** of 64-hex `content_sha256`
+values, one per line — sha16s typed on the command line are rejected, and the
+line is written out here so the next cell can copy it rather than rediscover it
+(review MINOR-5). The message scan names its population, so its zero is not the
+vacuous zero the PAGECOV re-review warned about. The WORDS class is 0 rather than the co-authorship
+trailer's usual count: this population does not print that vendor as a merchant
+description.
+
+Not owed and not run, with the reason in each case: the full default suite, the
+corpus gate and the corpus-marked slice (no production path differs from the
+base — `git diff e5b0342..HEAD` touches two new files under `tools/` and `tests/`
+and nothing else, and one heavy harness per host was already in use by two other
+cells); `cohort_replay` (there is no reader to replay and no payload can move);
+the archive sweep (no reader changed). Registry, `ANALYSIS_STAGE_VERSION` and
+`OCR_STAGE_VERSION` are untouched at 83 / 16 / 4.
+
+**Risks, last, in the order they matter after the review.** ONE, and it is the
+SCOPE block at the top of this section: none of the six was OCR'd — all are
+`native-pdf-text` — so the witness is measured as ordered but untested against the
+OCR row-loss the class was ruled in for; Phase 2 / `OCR-LEGACY-AUDIT` must
+re-measure on OCR'd input before relying on the class there. TWO: there is exactly
+one text artifact per document in this cache and no PDFs, so no second reading of
+the same paper exists to cross-check against — unmitigable at this base, not
+merely unattempted. THREE: the population is a single census group, so 6 / 6 is a
+strong result about `guardian_cu` and no result at all about any other family; S4
+must re-measure rather than inherit if its population ever widens, and the two
+row↔section binding caveats above (a mis-binding is invisible to this probe; the
+number and name locators are not interchangeable) are the specific things it must
+re-check. FOUR: the roll-up witness is only as independent as the extracted line
+structure — the measured line gap (row above section, on every one of the six) is
+the evidence for independence, and a layout printing the enumerating row INSIDE
+the section it enumerates would need that check made again.
+
+**Review closure.** The adversarial review (`reviews/BATCH9_Q3PROBE_REVIEW.md`,
+`1f81fbc`) CONFIRMED the cell: N = 6, 42 / 42 cells reproduced by an independent
+reader, mutants 30 / 30 re-killed, 5 MINOR and none lowering N. All five are
+closed in this section — MINOR-1 as the SCOPE block, MINOR-2 and MINOR-3 in
+Q3PROBE8, MINOR-4 in Q3PROBE8 with its locator table reproduced here and named for
+the S4 card, MINOR-5 in the floor table above. The review also measured four
+corroborating facts this cell did not and they strengthen the result rather than
+qualify it: the roll-up's OPENING column reproduces the section's own opening too
+(condition 7 asks only about the closing), the coinciding pair is a non-zero
+carried balance rather than a zero matching a zero, the printed year-to-date
+dividend figure is zero, and the account is named on exactly two lines of the
+whole document. They are the review's measurements and are cited to it, not
+restated as this cell's own.
