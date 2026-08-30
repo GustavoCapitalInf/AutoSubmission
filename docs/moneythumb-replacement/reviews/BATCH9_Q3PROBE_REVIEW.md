@@ -392,3 +392,53 @@ these six, which remains S4's question under the unchanged production standard
 census group and six documents. And per MINOR-1 it is a result about six
 documents whose text was never OCR'd, so the witness's value against OCR row-loss
 — the reason the class was ruled in — remains to be measured in Phase 2.
+
+---
+
+## Closure confirmation (`e24a7bc`)
+
+**CONFIRMED — COMPOSE.** The probe cell's closure commit `e24a7bc` (one commit
+over this review's `1f81fbc`) closes all five MINORs. Verified bounded — no
+re-measurement beyond one probe re-run at the tip.
+
+**Blast radius.** `git diff --name-status 1f81fbc..e24a7bc` is two files:
+W3 `§Q3PROBE` and the probe's module docstring (+12 lines, prose only). **0** paths
+under `analysis/` `ocr/` `webapp/` `discovery/` and **0** lines in `corpus_gate.py`.
+
+**W3 is append-only and no measurement moved.** The file's prefix up to the
+`# §Q3PROBE` heading is **byte-identical** to train9's blob at `e5b0342` —
+sha256 `2133653a…`, 3,807,050 bytes on both sides, `diff` empty. Against the base
+the whole file is **392 insertions / 0 deletions**. Comparing every table row in
+`§Q3PROBE` at `65041bf` against `e24a7bc`, the only rows that changed are the
+**three scan rows**, and they changed exactly as they should: the `--shas`
+argument is now written as a FILE of 64-hex values (MINOR-5) and the counts were
+re-run at the grown tip (added lines 1,565 → 2,072, commits 3 → 5). The 6 × 7
+table, the population table, the mutation table, the ratified-class table, the
+supplementary table and the evidence-location table are unchanged, row for row.
+
+**Each MINOR, checked against what I originally measured.**
+
+| finding | closed how | my check |
+|---|---|---|
+| **MINOR-1** | promoted to a bolded **SCOPE** block at the head of `§Q3PROBE`, before the numbers, and to the probe's docstring under `WHAT THE MEASURED RESULT DOES NOT COVER` | reproduces my measurement: 6 of 6 `native-pdf-text`, one distinct model; states plainly that none was OCR'd, that N = 6 is unaffected, and that Phase 2 / `OCR-LEGACY-AUDIT` must re-measure. Correctly names Ocean as the owner of placing the sentence in `BATCH9_BACKLOG`, since the card owns no file outside its own |
+| **MINOR-2** | recorded as **unmitigable at this base** with the direct cache check | matches mine exactly: one `ocr`-stage artifact per document, zero PDFs under the cache; keeps my honest bound that a loss erasing every trace of itself cannot be excluded from inside this cache |
+| **MINOR-3** | caveat recorded, with the reason the probe cannot see a mis-binding (`identities_distinct` does not catch two wrong bindings) and the instruction that S4 re-establishes the row↔section link from the printed label if the population widens | accurate |
+| **MINOR-4** | reproduced with a locator-breadth table | **the table reproduces my own numbers cell for cell** — `472A0966A5204513` 2 / 11, `596804AA1ACD01EB` and `FFAC0A88768A8A59` 5 / 2, the other three 2 / 2. Named for the S4 card rather than edited into L1-C3's row in `L1_INDEPENDENT_ACCOUNT_DESIGN.md`; that file is a shared surface with L1-S3 in flight, so **I accept the reasoning** — the finding is recorded where S4 will read it and no composition conflict is created |
+| **MINOR-5** | both slips fixed | `--shas` documented as a FILE of 64-hex `content_sha256` values on all three scan rows; the heading claim now states both conventions, `^# §` 99 → 100 and plain `^# ` 402 → 403 — I re-count both at the tip and both are right |
+
+**Re-verified at `e24a7bc`.**
+
+| proof | result | exit |
+|---|---|---:|
+| the probe at the tip | 6 sections / 6 documents / N = **6** / 0 undecided; mutants **30 / 30** | **0** |
+| `tests/test_q3_corroboration_probe.py` | 28 passed | **0** |
+| `privacy_scan_branch.py --no-exclusions` | added lines **2,072** · population 6 · documents read 6 · hits 0 · raw hits 0 · residue 0 | **0** |
+| `huntington_msg_privacy_scan.py` | commits **5** · population 6 · MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0 | **0** |
+| W3 vs base | 392 insertions / **0** deletions; prefix sha256 identical | — |
+
+Nothing changed that would alter this review's verdict, and the verdict stands:
+**N = 6**, S4 demonstrated target **2 + 6 = 8**. The one item that leaves the
+branch is the MINOR-1 sentence, which is Ocean's to carry into
+`BATCH9_BACKLOG.md` and the `OCR-LEGACY-AUDIT` card's inputs.
+
+**CONFIRMED — COMPOSE.**
