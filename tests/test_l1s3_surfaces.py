@@ -90,7 +90,10 @@ class _Job:
         self.analysis = analysis
         self.analysis_error = None
         self.error = None
-        self.content_sha256 = None
+        # An obviously synthetic content identity, distinct per job, so the
+        # member-set check has something real to key on and two separate jobs
+        # are never mistaken for one document.
+        self.content_sha256 = f"SYNTHETIC-{ident.upper()}"
 
 
 def test_package_membership_requires_each_accounts_own_validation():
@@ -165,6 +168,68 @@ def test_the_package_never_folds_two_accounts_into_one_member():
     package = _package_analysis([_Job("job-1", document_payload())])
     openings = sorted(row["beginning_balance"] for row in package["documents"])
     assert openings == [1000.0, 1001.0]
+
+
+# --- MAJOR-3: no published average over two accounts of one document --------
+
+
+def _two_accounts_one_period():
+    """One job publishing two DIFFERENT validated accounts over ONE period."""
+    return _Job("job-1", document_payload(outcomes=("validated", "validated")))
+
+
+def test_a_package_refuses_the_per_period_averages_over_two_accounts_of_one_document():
+    """Design §6.5's fourth bullet. The L1-S3 review measured the halving: a
+    package holding one job with two accounts over one statement period
+    published every per-month average divided by TWO, because `months` counts
+    members and each account is a member."""
+    from webapp.app import _package_analysis
+
+    totals = _package_analysis([_two_accounts_one_period()])["totals"]
+    assert totals["cross_account_averages_refused"] is True
+    assert totals["documents_with_several_members"] == 1
+    for key in ("avg_monthly_credits", "avg_monthly_debits",
+                "avg_monthly_cash_flow", "average_daily_balance",
+                "monthly_lender_debits"):
+        assert totals[key] is None, key
+    # The SUMS stay: two accounts of one document really did move that money,
+    # and adding them counts each posting once.
+    assert totals["total_credits"] > 0
+
+
+def test_the_duplicate_digest_refusal_does_not_catch_this_and_never_could():
+    """The card implemented a duplicate-CONTENT-digest refusal, which fires
+    only when two accounts publish IDENTICAL content. Two DIFFERENT accounts of
+    one document pass it — which is why §6.5 asked for a member-set check
+    keyed on the document, and this is that check."""
+    from webapp.app import _package_members
+
+    members, excluded = _package_members([_two_accounts_one_period()])
+    assert len(members) == 2 and excluded == []
+    shas = {member[0].content_sha256 for member in members}
+    assert shas == {"SYNTHETIC-JOB-1"}  # one document identity, two members
+
+
+def test_two_separate_documents_still_publish_their_averages():
+    """The refusal is keyed on ONE document with several members, not on member
+    count: two separate jobs are two documents and two periods."""
+    from webapp.app import _package_analysis
+
+    totals = _package_analysis([
+        _Job("job-1", account_payload(0)),
+        _Job("job-2", account_payload(1)),
+    ])["totals"]
+    assert "cross_account_averages_refused" not in totals
+    assert totals["avg_monthly_credits"] is not None
+
+
+def test_a_package_of_todays_payloads_carries_no_refusal_key():
+    from webapp.app import _package_analysis
+
+    totals = _package_analysis([_Job("job-1", account_payload())])["totals"]
+    assert "cross_account_averages_refused" not in totals
+    assert "documents_with_several_members" not in totals
+    assert totals["avg_monthly_credits"] is not None
 
 
 # --- Q10: surface the omission, do not demote -------------------------------

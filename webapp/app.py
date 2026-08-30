@@ -502,6 +502,18 @@ def _contributes_to_potential_totals(classification: dict) -> bool:
 #: `formatMoney` already renders it "N/A". A silent zero would read as "the
 #: package moved no money" and a converted figure would be fabricated evidence;
 #: the doctrine forbids both, so refusal is the only honest shape.
+#: The published figures whose denominator is a count of MEMBERS. Two accounts
+#: of one document are one period of banking and two members, so every one of
+#: these is wrong by exactly that factor unless the package refuses it
+#: (design §6.5's fourth bullet; the L1-S3 review measured the halving).
+_PER_PERIOD_AVERAGE_KEYS = frozenset({
+    "average_daily_balance",
+    "avg_monthly_cash_flow",
+    "avg_monthly_credits",
+    "avg_monthly_debits",
+    "monthly_lender_debits",
+})
+
 _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "average_daily_balance",
     "avg_monthly_cash_flow",
@@ -1338,6 +1350,37 @@ def _package_analysis(jobs) -> dict:
                 adb_weighted_sum += adb_value * adb_calendar_days
                 adb_weight += adb_calendar_days
 
+    # Design §6.5's fourth bullet, and Q5's direction: **no published average is
+    # computed over two accounts of one document.** The L1-S3 review measured
+    # what its absence does — a package holding one job that publishes two
+    # different validated accounts over ONE statement period published every
+    # per-month average HALVED, because `months` counts MEMBERS and each
+    # account is a member. Two accounts of one document are one period of
+    # banking, not two.
+    #
+    # The duplicate-content-digest refusal in `_package_members` does not catch
+    # this and cannot: it fires only when two accounts publish IDENTICAL
+    # content, and two different accounts of one document pass it. This is the
+    # member-set check §6.5 actually asked for, and it is keyed on the document
+    # identity two members share.
+    #
+    # It REFUSES rather than re-divides. Choosing a denominator — periods,
+    # documents, distinct months — is a policy about what a package average
+    # means, and a stage whose whole claim is zero movement may not choose one.
+    # A refused average is published as `None` beside the reason, the way
+    # CURRENCY DOCTRINE §F refuses a cross-currency total, so no consumer has
+    # to read a null as missing data.
+    members_by_document: dict[str, int] = {}
+    for member_job, _member_analysis, member_index, _member_count in members:
+        if member_index is None:
+            continue  # a single-account job is one member and one document
+        identity = getattr(member_job, "content_sha256", None) or member_job.id
+        members_by_document[identity] = members_by_document.get(identity, 0) + 1
+    documents_with_several_members = sorted(
+        identity for identity, count in members_by_document.items() if count > 1
+    )
+    refuse_cross_account_averages = bool(documents_with_several_members)
+
     months = max(1, len(monthly))
     # Days-weighted mean of the per-statement daily-balance averages: summing
     # every statement's daily balances and dividing by every calendar day.
@@ -1346,6 +1389,11 @@ def _package_analysis(jobs) -> dict:
         package_average_daily_balance = float(
             (adb_weighted_sum / adb_weight).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         )
+    if refuse_cross_account_averages:
+        # The ADB doctrine forbids a document-level combined ADB outright, so a
+        # days-weighted mean over two accounts of one document is the forbidden
+        # figure arrived at by a different route.
+        package_average_daily_balance = None
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
     totals["maximum_revenue"] = round(
@@ -1478,6 +1526,17 @@ def _package_analysis(jobs) -> dict:
 
     published_totals = {
         **totals,
+        # §6.5 / Q5. Published only when the refusal fires, so a package of
+        # today's payloads carries neither key and is byte-identical.
+        **({
+            "cross_account_averages_refused": True,
+            "cross_account_average_refusal_reason": (
+                "two or more members are accounts of ONE document, so a "
+                "per-period average over them would divide one period of "
+                "banking by a count of accounts (no_average_over_one_document)"
+            ),
+            "documents_with_several_members": len(documents_with_several_members),
+        } if refuse_cross_account_averages else {}),
         # Q10 (BATCH9_TRANSITION §8.7): surfaced, never demoted, and published
         # ONLY when there is something to surface. A `False` / `"complete"`
         # default would put two new fields on every package this platform has
@@ -1520,6 +1579,15 @@ def _package_analysis(jobs) -> dict:
         "cross_currency_totals_refused": refuse_cross_currency,
         "currency_refusal_reason": currency_refusal_reason,
     }
+
+    if refuse_cross_account_averages:
+        # Only the PER-PERIOD figures. The sums and counts are unaffected: two
+        # accounts of one document really did move that money, and adding them
+        # counts each posting once. What cannot be divided by a member count is
+        # a per-period average, and the ADB is refused for the doctrine's own
+        # reason rather than for this one.
+        for key in _PER_PERIOD_AVERAGE_KEYS:
+            published_totals[key] = None
 
     if refuse_cross_currency:
         for key in _CROSS_CURRENCY_TOTAL_KEYS:
