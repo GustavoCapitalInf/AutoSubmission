@@ -765,6 +765,11 @@ def _package_analysis(jobs) -> dict:
         detection = analysis.get("detection") or {}
         corporate_use = quality.get("corporate_use") or ""
         integrity_risk = integrity.get("risk_level") or ""
+        # `totals["documents"]` counts JOBS and the counters below count
+        # MEMBERS, which are the same number until a document publishes two
+        # accounts and different on purpose after that: a package sums, counts
+        # and days-weights ACCOUNTS, and one document contributing two of them
+        # is two contributions.
         ready = job.status == "done" and job.analysis is not None
 
         # CURRENCY DOCTRINE §F. A member with no analysis at all contributes
