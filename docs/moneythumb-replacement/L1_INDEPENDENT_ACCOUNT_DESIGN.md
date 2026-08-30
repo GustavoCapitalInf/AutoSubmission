@@ -1067,6 +1067,30 @@ measures them from each reader's own gate.
 the condition demands; none rests on absence alone. The exposure is a vocabulary that has to
 name it (L1-C17) and a payload field that has to show it (S2) — not a subtraction from 2,596.
 
+**AMENDED 2026-08-30 — the population S2 DELIVERED is 15 documents / 19 sections.** The table
+above measures the three ABSENCE-shaped sites and stays exactly as measured. What it does not
+count is `symitar._yield_only` (:425), the second skip in a file S2 rewrites, which §9 F1 already
+records as resting on printed evidence and on the ratified predicate — and which L1-C17's
+vocabulary already names, `yield_only_arithmetic_with_summary_equality`. S2 surfaced it too
+rather than leave one silent drop in a file it had just made evidence-based. Measured on the
+dispatch path at the S2 tree:
+
+| the S2 population, delivered | documents | sections |
+|---|---:|---:|
+| the three absence-shaped sites, as measured above | 12 | 16 |
+| `symitar._yield_only`, on documents disjoint from those | **3** | **3** |
+| **total** | **15** | **19** |
+
+The three are `3600FE7830C4A484`, `9C5B7D628D7511EE` and `C067BE96F6B0BE0F`, one omitted section
+each, admitted by `yield_only_arithmetic_with_summary_equality`. Movement is **0** on all three:
+`validated` before and after, payload byte-identical, and the archive sweep finds no mover.
+**S3 prices 15 protected-and-pinned carriers, not 12 — and it prices them as documents that
+KEEP their account `validated`.** Gustavo's Q10 ruling (2026-08-30, `BATCH9_TRANSITION.md`
+§8.7) supersedes §1.5's omission override: an explicit sibling omission beside an
+independently valid account does not demote it. What S3 wires for these 15 is the SURFACE —
+`sibling_account_omission_detected: true` and `completeness: partial` at the document /
+package layer — not a fold. See the dated note in §7.
+
 ### 6.3 The pinned exposure
 
 | measure | value |
@@ -1201,6 +1225,30 @@ the two changes are both forced by measurement:
 | **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **0 to 8, and the test decides which.** **0** documents pass the STRICT after-chain bound; **2** close on every located section under the production checks (both one census group, both with the enumerating table's own closing column reproducing); **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the **47 pairs on 7 documents** as the killer set - the **43** designated (on 5 documents) for the package exclusion, and the **4** refused for the printed-evidence clause: 3 that only a peer-to-peer vocabulary would admit, and 1 with nothing printed; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
 | **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94, and :115-123, which restates the product designation but NOT the account number) | **0 newly validated, and −2 validated.** The `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today, and removing the literal makes the reader refuse (§6.3). This is a CORRECTNESS card whose measured effect on the count is negative: it removes an R-1 hardcode that publishes one memorised account of a member's several | **2 validated → failed, 1 of them pinned** (§6.3). STOP-and-report with per-sha evidence, and the ceremony, BEFORE the change lands | truth-set ceremony over BOTH paths; `cohort_replay --parser consumers` (2 documents, both `validated`); corpus gate; both audit CSVs' rows re-derived and re-approved |
 | **S6 — the remaining mechanisms** | per-family row grammars on the shared template | **an ESTIMATE, and it is not offered.** What is measured: 29 of 392 sections close today; `section-identity` closes 10 sections and 0 documents; `section-equation-scan` closes 0 and always will (L1-C1) | unknown; each family carded separately | as S4, per family |
+
+**NOTE 2026-08-30 — S2's population is 15 / 19, and who decided that.** The S2 row above says
+"12 validated documents / 16 sections" and "payload bytes move on those 12 documents and on no
+others". The card as delivered surfaces **15 documents / 19 sections**: the three absence-shaped
+sites the row names, plus `symitar._yield_only` on three further documents (§6.2, amended). The
+widening was proposed by the implementation cell on the authority of the symitar module's own
+docstring ("SIBLING-OMISSION-SURFACE … owns both together"), was measured at **0 movement** — 0
+newly validated, 0 validated lost, 117 of 117 payloads byte-identical, 0 archive movers over
+3,380 — was adjudicated legitimate rather than absence-shaped by the independent review of
+`wave9-l1s2` (`reviews/BATCH9_L1S2_REVIEW.md` §2, MAJOR-1), and was **accepted by Ocean**.
+It was NOT a decision of this design cell, and it is recorded here so S3 prices the right number:
+**15** protected batch-8 shas carry a surfaced omission, not 12.
+
+**And it prices them the way Gustavo ruled.** When this note was first written the consequence
+was open and it said so. It is open no longer: **Q10 (2026-08-30, `BATCH9_TRANSITION.md` §8.7)**
+supersedes §1.5's omission override — see the annotation there — and the 15 do **NOT** fold to
+`review`. Each keeps its account `validated`, having on its own unambiguous boundaries, a
+correct reconstruction, the unchanged validator's verdict and nothing misattributed from the
+omitted sibling; the omission is surfaced beside it at the document / package layer
+(`sibling_account_omission_detected: true`, `completeness: partial`). Fail-closed is unchanged:
+an omission that makes the boundaries ambiguous or prevents independent validation refuses the
+document. S3's obligation on these 15 is therefore to WIRE THE SURFACE and to leave the account
+outcome alone, and `tests/test_l1s2_protected_carriers.py` pins all fifteen against a fold that
+forgets it.
 
 **The honest total.** Across all six stages the measured newly-validated count is **0 to 8**,
 and the three points of that range are three different tests, all printed by the same

@@ -1,6 +1,36 @@
-"""L1-ARCH-DESIGN instrument 5 — READ-ONLY silent-skip probe, on the DISPATCH PATH.
+"""L1-ARCH-DESIGN instrument 5 — READ-ONLY sibling-omission probe, on the DISPATCH PATH.
 
 **NOT A PARSER. NEVER REGISTERED. NEVER IMPORTED BY PRODUCTION OR BY A TEST.**
+
+RE-ANCHORED AT L-1 STAGE 2, AND WHAT IT MEASURES NOW
+----------------------------------------------------
+This instrument verifies its three watched lines against the source text they
+must sit on and REFUSES rather than reporting a zero if one has moved. L1-S2
+rewrote all three, so from the moment that card landed the probe refused on
+every tree that carried it — a committed instrument that produces the design's
+§2.7 headline table, unrunnable. The lines are re-anchored here.
+
+**The sites are the same sites and the count is the same count; what changed is
+what the reader DOES there.** Before S2 the watched line was the skip itself: a
+printed section that parsed no dated row was dropped, silently. After S2 the
+same section reaching the same site is either ADMITTED on printed evidence and
+recorded as an omission on the document object, or the DOCUMENT IS REFUSED. So
+"a skip fires" now reads "the absence-shaped SITE was reached and the section
+was not published", which is the thing this probe always counted.
+
+The anchors are deliberately the lines that execute on BOTH outcomes — the
+`omitted.record(...)` test in `symitar`, the `return None` that follows
+`ledger.record(...)` in `community_section` — and not the admitted-only branch
+beside them. Anchoring on the admitted branch would make the
+`no_printed_evidence` column zero BY CONSTRUCTION, because production would
+already have refused anything else, and this instrument exists to count that
+column honestly. At the tree where S2 lands the column is 0 because the paper
+prints evidence on every one of the 16, which is a measurement and not a
+tautology.
+
+The classification below stays the probe's OWN second opinion, computed from
+each module's committed pattern rather than read out of the reader's record, so
+it can still disagree with production and be believed when it does.
 
 The design's first version bounded the silent-skip population with each module's
 own section-mark pattern and said, honestly, that a mark count cannot tell a
@@ -121,13 +151,16 @@ class LineSite:
 
 
 LINE_SITES: tuple[LineSite, ...] = (
-    LineSite("analysis.symitar", 420, "continue", "text",
-             "symitar `if not rows: continue` — the absence-based dormant skip"),
-    LineSite("analysis.community_section", 622, "return None", "block",
-             "community_section `if not txns: return None` inside _parse_sectioned_statement"),
+    # Re-anchored at L-1 stage 2. Each of these is the line that executes for
+    # EVERY section reaching the absence-shaped site, whichever way the reader
+    # then decides — which is what the pre-S2 `continue` and `return None` were.
+    LineSite("analysis.symitar", 453, "omitted.record", "text",
+             "symitar `if not rows:` — the section that parsed no dated row"),
+    LineSite("analysis.community_section", 655, "return None", "block",
+             "community_section `if not txns:` inside _parse_sectioned_statement"),
     # The line the design's first version named. Watched here so that its count
     # is a measurement rather than an omission (the review's MAJOR-4).
-    LineSite("analysis.community_section", 984, "stmt.transactions", "block",
+    LineSite("analysis.community_section", 1043, "stmt.transactions", "block",
              "community_section — the `stmt.transactions` clause at the CALL SITE",
              _dropped_at_call_site),
 )
@@ -458,9 +491,12 @@ def main(argv: list[str] | None = None) -> int:
     print("Every row below is produced by RUNNING the reader over its own "
           "`validated` documents through "
           "`analyze_markdown(parse_mode=\"deterministic\")` and watching the "
-          "skip execute. The watched line numbers are verified against the "
-          "source text they must sit on before any document is read, so a zero "
-          "here cannot be a refactor going unnoticed.")
+          "absence-shaped site execute. The watched line numbers are verified "
+          "against the source text they must sit on before any document is "
+          "read, so a zero here cannot be a refactor going unnoticed. Since "
+          "L-1 stage 2 the reader either ADMITS the section on printed "
+          "evidence and records the omission, or refuses the document; the "
+          "sites, and these counts, are the same either way.")
     print()
     print("| registration | `validated` documents read | documents where a skip FIRES | sections skipped | (skips seen during dispatch, any candidate) |")
     print("|---|---:|---:|---:|---:|")

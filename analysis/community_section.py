@@ -7,6 +7,7 @@ from .date_tokens import parsed_datetime
 from .money import STRICT_LEADING_SIGN, STRICT_UNSIGNED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+from .sibling_omission import SectionLedger, evidence_class, publish_omissions
 
 
 _DATE = r"\d{2}/\d{2}/\d{4}"
@@ -582,6 +583,14 @@ def _parse_sectioned_statement(
     account_name: str,
     account_heading: str | None = None,
     account_number_pattern: str | None = None,
+    #: The calling parse attempt's record of the sections it did not publish.
+    #: REQUIRED and given no default on purpose: this function is called once
+    #: per printed ACCOUNT BLOCK by three entry points, so it is the one place
+    #: that can tell a sibling admitted on printed evidence from a sibling
+    #: dropped for the absence of rows — and a caller that was allowed to omit
+    #: the argument would be allowed to lose that distinction silently, which is
+    #: the whole defect L1-C17 exists to close.
+    ledger: SectionLedger,
 ) -> Statement | None:
     block = _account_block(markdown, account_heading)
     if not block:
@@ -619,6 +628,30 @@ def _parse_sectioned_statement(
         # moved to. Adding `_check_rows` here would publish those cheques twice.
         txns = _activity_rows(block, year=end_year)
     if not txns:
+        # ABSENCE IS NOT A GROUND (L1-C17). This line used to be the whole
+        # decision: a printed account block that parsed no row was dropped
+        # because it parsed no row, and nothing downstream could tell that from
+        # a block the document never printed. What may admit it is what the
+        # PAPER printed, and this template prints the answer in the summary grid
+        # `_summary` has already read fail-closed — its own opening, its own
+        # closing, and the four instance figures. The block's text is offered
+        # too, so a dormancy declaration in either ratified wording is read
+        # here as readily as on the platforms that print one.
+        #
+        # The verdict is recorded, not acted on: this function reads ONE account
+        # block and a document's fate is its caller's to decide.
+        ledger.record(
+            account_name,
+            evidence_class(
+                text=block,
+                opening=_balance(beginning),
+                closing=_balance(ending),
+                credit_total=_money(credits),
+                debit_total=_money(debits),
+                credit_count=credit_count,
+                debit_count=debit_count,
+            ),
+        )
         return None
     txns.sort(key=lambda t: t.date)
 
@@ -683,12 +716,23 @@ def parse_mission_valley_statement(markdown: str) -> Statement | None:
     # Bank marker only - the customer-name gate is gone (R-1 item 4).
     if not detect_mission_valley(markdown).claims:
         return None
-    return _parse_sectioned_statement(
+    ledger = SectionLedger()
+    stmt = _parse_sectioned_statement(
         markdown,
         bank="Mission Valley Bank",
         account_name="Business Checking",
         account_number_pattern=r"Business Checking\s*-\s*([X0-9]+)",
+        ledger=ledger,
     )
+    # `ledger.refused` is a section dropped with NO printed evidence of its
+    # empty state; the document fails closed. It is checked here rather than
+    # assumed unreachable because this entry point reads the whole document as
+    # one block, and "the only block" is exactly the account a reader may not
+    # dismiss on absence.
+    if stmt is None or ledger.refused:
+        return None
+    publish_omissions(ledger.omissions)
+    return stmt
 
 
 #: Section headings of this platform: "<product> (Checking|Savings) - <acct>"
@@ -717,6 +761,7 @@ def parse_dakota_west_statement(markdown: str) -> Statement | None:
         return None
 
     best: Statement | None = None
+    ledger = SectionLedger()
     for index, (heading, product, start) in enumerate(headings):
         # Truncate at the next different account's heading so one section's
         # summary can never be attributed to another account.
@@ -727,11 +772,20 @@ def parse_dakota_west_statement(markdown: str) -> Statement | None:
             bank="Dakota West Credit Union",
             account_name=product,
             account_number_pattern=re.escape(product) + r"\s*-\s*(\d+)",
+            ledger=ledger,
         )
         if stmt is not None and (
             best is None or len(stmt.transactions) > len(best.transactions)
         ):
             best = stmt
+    # A heading this document printed whose block parsed no row and printed no
+    # evidence of an empty state is an account this reader cannot account for,
+    # and the document is refused. (The derived selection above — "the section
+    # with the most transactions" — is a DIFFERENT defect, L1-C18, and is not
+    # touched here.)
+    if best is None or ledger.refused:
+        return None
+    publish_omissions(ledger.omissions)
     return best
 
 
@@ -933,8 +987,11 @@ def parse_community_section_statement(markdown: str) -> Statement | None:
       that print a membership share, a checking account and a savings account
       side by side. Publishing the busiest one silently would report a subset
       of the customer's money as though it were all of it. Where exactly one
-      account posted anything the others are dormant bookends, and reading that
-      one is reading the document;
+      account posted anything AND every other block printed evidence of its own
+      empty state (L1-C17), the others are dormant bookends and reading that one
+      is reading the document. A block that posted nothing and declared nothing
+      is not a bookend — it is an account this reader cannot account for, and
+      since batch 9 it refuses the document rather than disappearing from it;
 
     and refuses through `_parse_sectioned_statement`'s own gate whenever the
     ledger does not reproduce every figure the summary grid printed.
@@ -977,14 +1034,21 @@ def parse_community_section_statement(markdown: str) -> Statement | None:
     issuer = domains.pop() if domains else None
 
     parsed: list[Statement] = []
+    ledger = SectionLedger()
     for product, number, block in _account_blocks(markdown):
         stmt = _parse_sectioned_statement(
-            block, bank=issuer, account_name=product, account_number_pattern=None
+            block, bank=issuer, account_name=product, account_number_pattern=None,
+            ledger=ledger,
         )
         if stmt is not None and stmt.transactions:
             stmt.account_number = number
             parsed.append(stmt)
 
-    if len(parsed) != 1:
+    # "Where exactly one account posted anything the others are dormant
+    # bookends" — the docstring above said that, and until batch 9 nothing
+    # checked it. `ledger.refused` is the check: a bookend is an account the
+    # PAPER declared empty, and a block that declared nothing is not one.
+    if len(parsed) != 1 or ledger.refused:
         return None
+    publish_omissions(ledger.omissions)
     return parsed[0]

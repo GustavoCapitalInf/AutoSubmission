@@ -82,6 +82,7 @@ def _gate_community_section(markdown: str) -> tuple[str, str]:
     """`community_section.py:990` — `len(parsed) != 1`: more than one printed
     account posted, and the schema holds one."""
     from analysis import community_section
+    from analysis.sibling_omission import SectionLedger
 
     if not community_section.detect_platform(markdown).claims:
         return "not-claimed", "detect_platform().claims is False"
@@ -93,7 +94,14 @@ def _gate_community_section(markdown: str) -> tuple[str, str]:
     blocks = community_section._account_blocks(markdown)
     for product, _number, block in blocks:
         stmt = community_section._parse_sectioned_statement(
-            block, bank=issuer, account_name=product, account_number_pattern=None
+            block, bank=issuer, account_name=product, account_number_pattern=None,
+            # L1-S2 made the omission ledger a required argument, so that no
+            # caller can lose the distinction between a sibling admitted on
+            # printed evidence and one dropped for the absence of rows. This
+            # census asks a different question — which gate refused a document —
+            # and reads no omission, so it passes a ledger of its own and
+            # discards it.
+            ledger=SectionLedger(),
         )
         if stmt is not None and stmt.transactions:
             posting += 1

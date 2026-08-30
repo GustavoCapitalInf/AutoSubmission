@@ -20,6 +20,13 @@ from .transaction_classifier import (
 )
 from .bofa import repair_bofa_summary
 from .regions import repair_regions_summary
+# Re-exported, not re-declared. `SiblingOmission` is CONSTRUCTED at the skip
+# sites inside three readers, and a reader cannot import this module (it is
+# downstream of the registry that imports the readers). Its home is therefore
+# the leaf module `analysis/sibling_omission.py`, which imports nothing of
+# ours; the name stays published here because `DocumentReport` is what carries
+# the record and this is where a reader of the document model looks for it.
+from .sibling_omission import SiblingOmission, collecting as _collecting_omissions
 from .first_community import repair_first_community_posted_activity
 from .parser_registry import (
     AmbiguousParserError,
@@ -204,26 +211,6 @@ def split_integrity_flags(flags: Sequence[str]) -> tuple[list[str], list[str]]:
     document = [flag for flag in flags if flag in DOCUMENT_SCOPE_FLAGS]
     account = [flag for flag in flags if flag not in DOCUMENT_SCOPE_FLAGS]
     return document, account
-
-
-@dataclass
-class SiblingOmission:
-    """A printed section that was established as an account and NOT published.
-
-    An omission is a published GAP: the document said this account exists and
-    the platform is not publishing it, so it is recorded rather than dropped.
-    `reason` names the PRINTED evidence that admitted the omission and comes
-    from a closed vocabulary; a section omitted for the absence of parsed rows
-    is not an omission, it is a defect. `posting_count` is the number of dated
-    rows the omitted section printed.
-
-    Nothing constructs one at this stage — the sites that skip a section are
-    taught to record it in the stage that owns them.
-    """
-
-    label: str | None
-    reason: str
-    posting_count: int
 
 
 @dataclass
@@ -939,28 +926,38 @@ def analyze_document(markdown: str, *, settings: Settings | None = None,
       a document's printed partition is a later stage's work, and until that
       evidence is read, claiming a document has one account is what the paper
       supported all along;
-    * it fills NO document-level field. `document_period` in particular stays
-      empty even though the single account carries a period: a per-document
-      fact taken from an account is a fact this stage did not read, and it is
-      the first thing a reader reaches for when the account list has length
-      one. The boundary layer that reads the document's own printed period
-      fills it, or nothing does;
-    * it therefore satisfies RULE S on every document by construction, so the
-      payload `analysis/serialization.py::document_report_to_dict` publishes
-      here is today's payload, byte for byte — which is a measurement, not a
-      hope, and the measurement is what this stage is for.
+    * it fills NO document-level field EXCEPT the omission record. Read the
+      exception exactly: `document_period` stays empty even though the single
+      account carries a period, because a per-document fact taken from an
+      account is a fact this stage did not read. `omissions` is different in
+      kind — it is not derived from the published account at all, it is what
+      the READER established about a section it declined to publish, and the
+      L-1 rule is that such a gap is surfaced or the document is refused. It
+      arrives from the skip sites through
+      `analysis/sibling_omission.py::collecting`, which is opened HERE because
+      this is the seam that owns the object the record belongs on;
+    * it therefore satisfies RULE S on every document that omitted nothing, so
+      the payload `analysis/serialization.py::document_report_to_dict`
+      publishes for one is today's payload, byte for byte — which is a
+      measurement, not a hope. A document that DID omit a sibling fails RULE
+      S's second clause on purpose: the account block it publishes is
+      unchanged, and what is added is exactly the gap.
 
     Nothing in production calls this yet. The seams that reach
     `analyze_markdown` -> `report_to_dict` move to it in the stage that teaches
     the payload readers the document shape; moving one before they are taught
     would publish a shape that nine of them answer WRONGLY rather than refuse.
+    That staging is also why the ACCOUNT entry point opens no collector: a
+    single-account payload has nowhere to put a document-level fact, so a
+    reader's omission is recorded where it can be published and nowhere else.
     """
-    report = analyze_markdown(
-        markdown,
-        settings=settings,
-        parse_mode=parse_mode,
-        document_geometry=document_geometry,
-        sheets=sheets,
-        on_dispatch=on_dispatch,
-    )
-    return DocumentReport(accounts=[report])
+    with _collecting_omissions() as omitted:
+        report = analyze_markdown(
+            markdown,
+            settings=settings,
+            parse_mode=parse_mode,
+            document_geometry=document_geometry,
+            sheets=sheets,
+            on_dispatch=on_dispatch,
+        )
+    return DocumentReport(accounts=[report], omissions=list(omitted))
