@@ -61,6 +61,18 @@ and one dated row printed in the section. Each mutant names the condition it
 must flip and the refusal class it must flip it to, and a mutant that does NOT
 kill is reported and makes the exit non-zero.
 
+WHAT THE MEASURED RESULT DOES NOT COVER
+---------------------------------------
+Measured at the batch-8 cold run and recorded in W3 `§Q3PROBE`: all six documents
+of this population carry the extractor model `native-pdf-text` — their text came
+from the PDF's own embedded text layer and **none of them was OCR'd**. The class
+this probe corroborates exists to bound the hazard where OCR loses ledger rows
+while the captions survive, so on this population that hazard cannot arise: the
+roll-up witness is measured exactly as the ruling ordered and is NOT exercised
+against the failure mode it was ruled in to guard. Anyone re-running this probe
+against OCR'd input — Phase 2, `OCR-LEGACY-AUDIT` — is asking the question for
+the first time, and must not read this instrument's earlier N as an answer to it.
+
 EXIT CODES
 ----------
 0 — every cell of the 6 x 7 table is decided (PASS and FAIL are both results).
