@@ -302,6 +302,52 @@ def probe_one(markdown: str, sheets: list[str]) -> dict:
     return record
 
 
+def outcome_of(markdown: str, sheets: list[str]) -> tuple[str, str, list[str]]:
+    """The runner's own classification of this text and this page list."""
+    from analysis.pipeline import analyze_markdown
+    from analysis.serialization import report_to_dict
+    from telemetry.record import classify_outcome
+
+    try:
+        payload = report_to_dict(
+            analyze_markdown(markdown, parse_mode="deterministic", sheets=sheets)
+        )
+    except Exception as exc:  # the runner's own boundary: never raises
+        return "failed", f"raised:{type(exc).__name__}", []
+    klass, reason = classify_outcome(payload)
+    flags = sorted((payload.get("integrity") or {}).get("flags") or [])
+    return klass, reason, flags
+
+
+def blank_sheet_counterfactual(markdown: str, sheets: list[str]) -> dict | None:
+    """What outcome would this document reach if a TEXT-EMPTY sheet counted?
+
+    No production code is changed and no rule is relaxed: the counterfactual is
+    expressed entirely in the `sheets` ARGUMENT — the intake object's page list —
+    by substituting a single placeholder character for each text-empty sheet.
+    The document text passed as `markdown` is untouched, so the substitution
+    reproduces exactly what the check would see if `printed_sheets` kept a blank
+    sheet: one more present sheet, and one more UNLABELLED sheet, since a
+    placeholder carries no declaration.
+
+    Returns None for a document with no text-empty sheet, which is every
+    document this question is not about.
+    """
+    blank = sum(1 for sheet in sheets if not sheet.strip())
+    if not blank:
+        return None
+    actual_class, actual_reason, actual_flags = outcome_of(markdown, sheets)
+    substituted = [sheet if sheet.strip() else "." for sheet in sheets]
+    cf_class, cf_reason, cf_flags = outcome_of(markdown, substituted)
+    return {
+        "blank_sheets": blank,
+        "actual": f"{actual_class}/{actual_reason}",
+        "actual_flags": actual_flags,
+        "counterfactual": f"{cf_class}/{cf_reason}",
+        "counterfactual_flags": cf_flags,
+    }
+
+
 def published_flags(markdown: str, sheets: list[str]) -> tuple[list[str] | None, str]:
     """The real pipeline's integrity flags on the same text — the probe's control."""
     from analysis.pipeline import analyze_markdown
@@ -330,6 +376,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", type=Path, default=None)
     parser.add_argument("--label", default="")
     parser.add_argument("--forms", action="store_true", help="print the per-sheet form table")
+    parser.add_argument(
+        "--outcome-counterfactual", action="store_true",
+        help="for each document with a text-empty sheet, the OUTCOME it reaches now and the "
+             "outcome it would reach if that sheet counted (expressed in the sheets argument "
+             "only; no production code is changed)",
+    )
     args = parser.parse_args(argv)
 
     shas = [
@@ -348,6 +400,10 @@ def main(argv: list[str] | None = None) -> int:
             continue
         record = probe_one(markdown, sheets)
         record["sha16"] = sha[:16]
+        if args.outcome_counterfactual:
+            counterfactual = blank_sheet_counterfactual(markdown, sheets)
+            if counterfactual is not None:
+                record["blank_sheet_outcome"] = counterfactual
         flags, status = published_flags(markdown, sheets)
         record["control_status"] = status
         if flags is None:
@@ -406,6 +462,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"| {key} | {cleared} |")
     print()
     print(f"**TRACE-DISAGREES {disagrees}**")
+
+    if args.outcome_counterfactual:
+        measured = [row for row in rows if row.get("blank_sheet_outcome")]
+        print()
+        print("## the text-empty sheet, as an OUTCOME rather than a flag")
+        print()
+        print("| sha16 | blank sheets | outcome now | flags now | outcome if the sheet counted | flags then |")
+        print("|---|---:|---|---:|---|---:|")
+        for row in measured:
+            cell = row["blank_sheet_outcome"]
+            print(
+                f"| `{row['sha16']}` | {cell['blank_sheets']} | {cell['actual']} | "
+                f"{len(cell['actual_flags'])} | **{cell['counterfactual']}** | "
+                f"{len(cell['counterfactual_flags'])} |"
+            )
+        moved = sum(
+            1 for row in measured
+            if row["blank_sheet_outcome"]["counterfactual"].startswith("validated")
+            and not row["blank_sheet_outcome"]["actual"].startswith("validated")
+        )
+        print()
+        print(f"**{moved} of {len(measured)} would reach `validated`** — measured, not inferred, "
+              "and refused: a text-empty sheet is not a proven page.")
 
     if args.forms:
         print()

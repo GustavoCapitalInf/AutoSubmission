@@ -60787,6 +60787,29 @@ page from being replaced by a blank one, and because Gustavo's rule for this
 card admits only a proven misread of the DECLARATION. It is named here in full
 so the ruling is cheap to make and nobody re-derives it from scratch.
 
+And it is a MEASUREMENT, not an inference. The probe's
+`--outcome-counterfactual` mode replays each of the eight through the real
+pipeline twice, with the counterfactual expressed entirely in the `sheets`
+ARGUMENT — a single placeholder character substituted for the text-empty
+sheet, the document text untouched — which is exactly what the check would
+see if `printed_sheets` kept a blank sheet: one more present sheet and one
+more UNLABELLED one. No production code is changed to measure it.
+
+| sha16 | blank sheets | outcome now | flags now | outcome if the sheet counted | flags then |
+|---|---:|---|---:|---|---:|
+| `4A38F944469B8A43` | 1 | `review / integrity_flags` | 1 | **`validated / approved`** | 0 |
+| `931AA83E94362F52` | 1 | `review / integrity_flags` | 1 | **`validated / approved`** | 0 |
+| `AF6BD563A3D7165A` | 1 | `review / integrity_flags` | 1 | **`validated / approved`** | 0 |
+| `E002430E81CADFE7` | 1 | `review / integrity_flags` | 1 | **`validated / approved`** | 0 |
+| `68D4F9F06AA764D9` | 1 | `review / integrity_flags` | 1 | **`validated / approved`** | 0 |
+| `0943986A52D8226C` | 1 | `review / integrity_flags` | 1 | **`validated / approved`** | 0 |
+| `BD835DA79B01B332` | 1 | `review / integrity_flags` | 1 | **`validated / approved`** | 0 |
+| `C355B3706588F0B1` | 1 | `review / integrity_flags` | 1 | **`validated / approved`** | 0 |
+
+**8 of 8 reach `validated / approved` with no flag left.** That is the exact
+size of what this card refuses, stated in the ladder's own units so the
+ruling is made against a number rather than an impression.
+
 ## PAGECOV6 What is carried
 
 1. **`PAGECOV-IMAGE-SHEET` (P1, +8 candidate, needs a ruling AND intake
@@ -60820,6 +60843,7 @@ so the ruling is cheap to make and nobody re-derives it from scratch.
 | `cohort_replay --parser texas_first_scanned --expect-identical` | population 5, **preserved 4 / 4, identical 4** — **EXIT=0** |
 | `tools/pagecov_probe.py` over the 14 and over all 20 flag-carrying documents | `TRACE-DISAGREES` **0** on both — **EXIT=0** |
 | `tools/pagecov_form_census.py` over 3,380 | the table above — **EXIT=0** |
+| `tools/pagecov_probe.py --outcome-counterfactual` over the 14 | the 8 text-empty-sheet documents, each replayed twice: **8 of 8 `review / integrity_flags` → `validated / approved`, 0 flags** — **EXIT=0** |
 | full default suite | **7,455 passed, 43 skipped, 1 failed** — **EXIT=1**, the single failure being the base's own excused `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified` (three L-1 design probes unclassified; Ocean's composition miss, fixed on `train9` at `473be2c` and not in this branch's base) |
 | canonical guards (5 files) | **255 passed** — **EXIT=0** |
 | canonical conformance (7 files) | **1,270 passed, 40 skipped** — **EXIT=0** |
@@ -60857,7 +60881,8 @@ unchanged, and `test_filename_boundary.py` passes in the guard slice.
 
 * **The +8 is real and it is refused on doctrine, not on measurement.** The
   eight `a′` documents reconcile, publish complete ledgers, and carry exactly one
-  flag each; every one would validate if a text-empty sheet counted. This section
+  flag each, and the probe MEASURES what they would become — 8 of 8
+  `review / integrity_flags` → `validated / approved`, no flag left. This section
   argues that counting it deletes the check's only defence against a page
   replaced by a blank, and that this card's rule admits only a proven misread of
   the declaration. A reviewer who disagrees should attack `PAGECOV-IMAGE-SHEET` —
