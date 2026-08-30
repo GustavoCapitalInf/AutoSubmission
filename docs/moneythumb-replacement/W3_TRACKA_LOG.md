@@ -60587,3 +60587,291 @@ drop. And `corpus_gate.py` is outside this card's ownership list: the change is
 data-only, three entries in `EXCLUDED_ANALYSIS_CALLERS`, made because
 `test_every_production_caller_of_the_analysis_is_classified` requires a
 decision for every new caller and refuses to pass without one.
+
+# §PAGECOV — the eleven were fourteen, thirteen of them are the upload, and the one misread moves nothing
+
+PROBE-FIRST card `RV-PAGE-COVERAGE` (batch 9, 9A-1 card 6), branch
+`wave9-pagecov`, base `train9` at `8da8239`. **Newly validated 0** — the outcome
+the card allowed for, earned by measurement rather than assumed. **No production
+file changes**: `git diff 8da8239..HEAD` touches `tools/` and this log, and
+`analysis/pipeline.py` is byte-identical to the base. Two instruments are
+committed and everything else here is a number. Regressions 0; the corpus gate's
+`REFUSED` 1 unchanged; no completeness or integrity rule weakened.
+
+## PAGECOV1 The population is FOURTEEN, and it has to be re-derived rather than read
+
+The card names eleven documents in `review / integrity_flags` carrying exactly
+one flag, `missing_declared_statement_page`, with reconciliation OK on every
+one: `RV:linkbank` 4, `RV:community_section` 2, `RV:southside_scanned` 2,
+`RV:citizens` 1, `RV:core_processor_enclosures` 1, `RV:texas_first_scanned` 1.
+
+At THIS branch's base that count is stale, and by three. The `CP-DECLINES`
+composition moved `0943986A52D8226C`, `BD835DA79B01B332` and `C355B3706588F0B1`
+from `failed / parser_declined` to `review / integrity_flags` — §CPDECL9 names
+them and names their flag — so at `8da8239` they sit in exactly the cell this
+card owns. **The population is 14.** It is derived by replaying the composed
+tree, not by reading the batch-8 census, and that is the general lesson: a
+census column is a fact about the run of record, and a card whose population is
+defined by an OUTCOME has to re-measure it at its own base.
+
+`cohort_replay`, run of record `cda8882d`, cold cache `webapp_data_train8_cold`:
+
+| cohort at the base `8da8239` | population | result | exit |
+|---|---:|---|---:|
+| the eleven, `--expect-identical` | 11 | 11 unchanged non-validated, payload changed 0 | **0** |
+| the three CP-DECLINES movers | 3 | 3 improved (`failed → review / integrity_flags`), reproducing §CPDECL9 | **0** |
+
+## PAGECOV2 The probe, and the control that makes its table worth reading
+
+`tools/pagecov_probe.py` reads each document from the run of record's own cached
+text and reports, per document: the intake object's sheet count and the subset
+the check counts; the declared total the check derives; the declaration FORMS
+each sheet carries, as named shapes; the labels the check cannot find; how many
+sheets it calls unlabelled; cause tags; the class; and — the part that decides
+the card — a measured COUNTERFACTUAL per candidate widening.
+
+Two properties are worth stating because they are what a mirrored instrument
+usually gets wrong.
+
+**It asks the reader rather than carrying a copy of the rule.**  The probe
+imports `_PAGE_DECLARATION_RE` from `analysis.pipeline`; only the ALTERNATIVE
+forms are its own. At a tree where the reading changes it reports THAT tree's
+reading, so one instrument is correct on both sides of a change. That is
+§CPDECL2's lesson applied before it could cost anything.
+
+**The trace is checked against the check.**  After tracing, the real pipeline
+runs on the same text and the published integrity flags are compared with the
+probe's own decision; a document where they differ is reported as
+`TRACE-DISAGREES`, is given no class, and makes the exit code 2. Measured over
+the 14: **`TRACE-DISAGREES` 0.** Measured over ALL TWENTY documents in the run
+of record that carry the flag at all — the 14 plus the six `withheld` documents
+that carry it alongside other flags — **`TRACE-DISAGREES` 0.**
+
+## PAGECOV3 The table, at the tip
+
+Counts and page ordinals only; no document value appears here or in the
+instrument's output.
+
+| sha16 | sheets | printed | declared | denominators | missing labels | unlabelled | cause tags | class |
+|---|---:|---:|---:|---|---|---:|---|---|
+| `008E53F5C39E6766` | 3 | 3 | 6 | 6x3 | 2,5,6 | 0 | `SHEETS_SHORT` | **a** |
+| `25038CB7E38DB036` | 3 | 3 | 6 | 6x3 | 2,5,6 | 0 | `SHEETS_SHORT` | **a** |
+| `4C96DDA28A6728FB` | 4 | 4 | 5 | 5x2 | 1,2,3 | 2 | `SHEETS_SHORT` `WORD_PAGE_NO_ORDINAL` | **a** |
+| `90A1EBAC3745317F` | 2 | 2 | 3 | 3x1 | 1,2 | 1 | `SHEETS_SHORT` `WORD_PAGE_NO_ORDINAL` | **a** |
+| `4A38F944469B8A43` | 15 | 14 | 15 | 15x14 | 15 | 0 | `BLANK_SHEET_SHORTFALL` | **a′** |
+| `931AA83E94362F52` | 20 | 19 | 20 | 20x19 | 20 | 0 | `BLANK_SHEET_SHORTFALL` | **a′** |
+| `AF6BD563A3D7165A` | 20 | 19 | 20 | 20x19 | 20 | 0 | `BLANK_SHEET_SHORTFALL` | **a′** |
+| `E002430E81CADFE7` | 19 | 18 | 19 | 19x18 | 19 | 0 | `BLANK_SHEET_SHORTFALL` | **a′** |
+| `68D4F9F06AA764D9` | 6 | 5 | 6 | 6x5 | 6 | 0 | `BLANK_SHEET_SHORTFALL` | **a′** |
+| `0943986A52D8226C` | 6 | 5 | 6 | 6x5 | 6 | 0 | `BLANK_SHEET_SHORTFALL` | **a′** |
+| `BD835DA79B01B332` | 6 | 5 | 6 | 6x5 | 6 | 0 | `BLANK_SHEET_SHORTFALL` | **a′** |
+| `C355B3706588F0B1` | 6 | 5 | 6 | 6x5 | 6 | 0 | `BLANK_SHEET_SHORTFALL` | **a′** |
+| `13B6B39D629BCA0D` | 10 | 10 | 10 | 10x9 | 1,7 | 1 | `DUPLICATE_ORDINAL` `WORD_PAGE_NO_ORDINAL` | **a″** |
+| `A20AACF22B6A475A` | 11 | 11 | 14 | 11x6 14x1 | 1–5, 7–14 | 4 | `FORM_UNREAD_ON_SHEET` `MINORITY_DENOMINATOR` `SHEETS_SHORT` `WORD_PAGE_NO_ORDINAL` | **b + c** |
+
+| class | of the 14 | of all 20 | reader groups in the 14 |
+|---|---:|---:|---|
+| **a** `a_SHEETS_GENUINELY_ABSENT` — the PDF carries fewer sheets than it declares | 4 | 9 | `community_section` 2, `southside_scanned` 2 |
+| **a′** `a_DECLARED_SHEET_CARRIES_NO_TEXT` — every declared sheet is supplied; one holds no text | 8 | 8 | `linkbank` 4, `core_processor_enclosures` 4 |
+| **a″** `a_LABEL_GLYPHS_DESTROYED` — every sheet is supplied and text-bearing; a LABEL is unreadable | 1 | 2 | `citizens` 1 |
+| **b + c** a form the check does not read, and a denominator one declaration disagrees about | 1 | 1 | `texas_first_scanned` 1 |
+
+**Thirteen of the fourteen are the upload or the scan; one is the reader.** The
+(a) split into three is not decoration: "the flag is correct" has three
+different reasons, and only one of them is what the flag's own note says.
+
+## PAGECOV4 The four causes, each measured rather than asserted
+
+**(a) Four uploads are genuinely partial, and the flag is the platform
+working.** Two documents supply three sheets against a printed six and label
+them 1, 3 and 4 — pages 2, 5 and 6 were never uploaded. Two more are short by
+one sheet against their own footer (4 against a declared 5, 2 against a declared
+3); whichever labels the scan preserved, the intake object holds fewer sheets
+than the paper says the statement has, and no reading can change that. All four
+stay `review`, which is the correct place for them.
+
+**(a′) Eight declare exactly as many pages as the PDF carries sheets, and the
+last sheet holds no text at all.** This is the largest finding on the card and
+the one that decides its outcome. On all eight the intake object's page list is
+exactly `declared_total` long, the labels `1 … N-1` map one-to-one onto sheets
+`1 … N-1` in printed order, and sheet `N` — an image-only sheet in a native-text
+document: cheque images, or an appended notice — extracts to ZERO characters.
+The check drops it, because `printed_sheets` excludes a whitespace-only sheet,
+so the PDF reads as short of its own total and the flag stands.
+
+That exclusion is deliberate and the production comment reserves it in advance:
+"a blank or whitespace-only sheet is excluded from `printed_sheets` and raises
+neither count … Closing that needs a reader that can tell a statement page from
+a filler page, which is a different capability from counting them."  **A blank
+sheet is not a misread of a declaration.**  Counting one as a present page is
+exactly the padding the exclusion refuses — delete a page, insert a blank one,
+and the count matches again — so it is a WEAKENING of a fraud-relevant
+completeness rule and this card refuses it. Eight documents stay `review`. What
+would NOT be a weakening is carried as a card in PAGECOV6.
+
+**(a″) One document has every sheet it declares and still cannot find two
+labels.** `DUPLICATE_ORDINAL` says why: two different sheets were read carrying
+the same ordinal, because one footer's digit came out of the scan as another
+digit; and on a second sheet the footer's ordinal came out as letters, so that
+sheet counts as unlabelled. Two labels unfound against one unlabelled sheet
+keeps the flag. The information is not in the text; no change to the READING can
+recover it.
+
+**(b) One document prints a footer form the check's pattern cannot read.**
+`_PAGE_DECLARATION_RE` requires whitespace between the ordinal and `of`
+(`(\d+)\s+of\s+(\d+)`). On a Tesseract scan, two of that document's eleven
+sheets print that gap closed — the `Page Nof M` shape — so two sheets that ARE
+labelled are counted as unlabelled. That is precisely the misread the card
+admits as fixable.
+
+**(c) The same document's declared total comes from one denominator out of
+seven.** Six sheets declare one denominator; a seventh sheet's denominator was
+read differently by the scan, it happens to be the LARGER of the two, and
+`declared_total = max(...)` takes it. Six sheets of agreement lose to one.
+
+**The glyph failures, named so they are never mistaken for pattern failures.**
+`WORD_PAGE_NO_ORDINAL` fires on 9 of the 20 flag-carrying documents and
+`DUPLICATE_ORDINAL` on 2. They belong to the scanned-ladder OCR question, not to
+this check, and a cell that reads them as a reading defect will spend its wave
+widening a regex against glyphs that are not there.
+
+## PAGECOV5 The counterfactuals, measured over the WHOLE archive
+
+The check is SHARED: every document that prints a page declaration is in the
+blast radius of any change to its reading, and a widened reading is NOT
+restriction-only. `declared_total` is the largest denominator found, so a form
+the check newly reads can INCREASE the total and manufacture a flag on a
+document that did not carry one — a `validated -> review` regression.
+`tools/pagecov_form_census.py` therefore walks every sha in the run of record
+from that run's own cached text and reports, for each candidate, how many
+documents' decision would change, split into `cleared` and `RAISED` and by
+baseline outcome.
+
+**3,380 shas · 29 with no cached text · 1,425 printing no page declaration ·
+1,926 with one.**  The forms the corpus prints, by documents carrying them on a
+sheet: `READ_BY_CHECK` 1,926 · `N_SLASH_M_BARE` 1,334 (untrusted by
+construction — the shape is also every fraction and half of every printed date)
+· `WORD_PAGE_NO_ORDINAL` 79 · `PAGE_N_NO_DENOMINATOR` 74 ·
+`N_OF_M_NO_PAGE_WORD` 42 · `PAGE_N_OF_M_NO_SPACE` 5 ·
+`PAGE_N_OF_M_SPLIT_BY_CONTROL_BYTE` 0.
+
+| candidate widening | documents CLEARED | documents RAISED |
+|---|---|---|
+| read the trusted alternative forms — the **(b)** fix: the no-space shape, `Page N/M`, and a declaration split by a C0 control byte | **0** | **0** |
+| take the denominator by WEIGHT of declarations rather than by size — the **(c)** fix | 1, baseline `failed` | **0** |
+| count a text-empty sheet as a present, unlabelled sheet — the **(a′)** weakening | **11** — 5 `review`, 6 `failed` (three of them this card's movers) | **0** |
+
+Three things follow, and they are the card's whole answer.
+
+**The (b) fix is inert.** Five documents in the entire archive print the
+no-space form, and reading it changes NO document's decision in either
+direction — including the one document in this population that prints it, where
+the flag stands with the fix and without it. `PAGE_N_OF_M_SPLIT_BY_CONTROL_BYTE`,
+carried in from §PNC9's NUL-in-a-column-gap, fires on nothing at all. A widening
+of a fraud-relevant reader that buys zero coverage is not worth its own blast
+radius, so the production pattern is left byte-identical and the shape is
+carried as a card. **The measurement is the point**: this is "it moves nothing,
+archive-wide", not "I chose not to".
+
+**The (c) fix is worse than inert.** Taking the denominator by weight clears one
+document — a `failed` one outside this population that supplies 4 text-bearing
+sheets against a declared 12 and whose majority denominator is 2. Weight would
+clear a document that is genuinely, badly short. It is refused on its merits,
+not merely for buying nothing.
+
+**The only thing that moves this population is the weakening.** Counting a
+text-empty sheet would clear 8 of the 14 — and 3 further `failed` documents
+blocked elsewhere — with zero raises anywhere in the archive. That is a real +8
+and it is refused, because the rule it deletes is the one that stops a removed
+page from being replaced by a blank one, and because Gustavo's rule for this
+card admits only a proven misread of the DECLARATION. It is named here in full
+so the ruling is cheap to make and nobody re-derives it from scratch.
+
+## PAGECOV6 What is carried
+
+1. **`PAGECOV-IMAGE-SHEET` (P1, +8 candidate, needs a ruling AND intake
+   structure).** The admissible form of the (a′) finding is not to COUNT a blank
+   sheet but to PROVE one: a sheet that renders with ink — an embedded image or
+   any drawing operator — is a supplied page whose text layer is empty, and a
+   sheet that renders empty is padding. That is deterministic, local and $0, and
+   it satisfies the check's own doctrine, "a caller can only ever weaken this
+   check by proving structure, never by staying silent". It needs per-sheet
+   structure the intake object does not carry today, so it is an intake-layer
+   card rather than a declaration-reading one, and it is outside this card's
+   ownership in both directions.
+2. **`PAGECOV-NO-SPACE-FORM` (P3).** The `Page Nof M` reading, measured inert on
+   all 3,380. Worth folding into any other change to this pattern; not worth a
+   commit of its own.
+3. **`PAGECOV-GLYPH-ORDINAL` (P3).** `WORD_PAGE_NO_ORDINAL` 9 and
+   `DUPLICATE_ORDINAL` 2 across the flag-carrying documents. A reading cannot
+   recover destroyed digits; this belongs with the scanned-ladder OCR work.
+
+## PAGECOV7 Proofs
+
+| proof at the tip | result |
+|---|---|
+| `cohort_replay --shas` the eleven, `--expect-identical` | 11 unchanged non-validated, payload changed 0 — **EXIT=0** |
+| `cohort_replay --shas` the three movers | 3 improved, identical to the base reading — **EXIT=0** |
+| `cohort_replay --parser linkbank --expect-identical` | population 4, preserved 0 / 0, regressions 0 — **EXIT=0** |
+| `cohort_replay --parser community_section --expect-identical` | population 61, **preserved 59 / 59, payload identical 59** — **EXIT=0** |
+| `cohort_replay --parser southside_scanned --expect-identical` | population 9, **preserved 2 / 2, identical 2** — **EXIT=0** |
+| `cohort_replay --parser citizens --expect-identical` | population 21, **preserved 17 / 17, identical 17** — **EXIT=0** |
+| `cohort_replay --parser core_processor_enclosures --expect-identical` | population 48, **preserved 46 / 46, identical 46** — **EXIT=0** |
+| `cohort_replay --parser texas_first_scanned --expect-identical` | population 5, **preserved 4 / 4, identical 4** — **EXIT=0** |
+| `tools/pagecov_probe.py` over the 14 and over all 20 flag-carrying documents | `TRACE-DISAGREES` **0** on both — **EXIT=0** |
+| `tools/pagecov_form_census.py` over 3,380 | the table above — **EXIT=0** |
+| full default suite | **7,455 passed, 43 skipped, 1 failed** — **EXIT=1**, the single failure being the base's own excused `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified` (three L-1 design probes unclassified; Ocean's composition miss, fixed on `train9` at `473be2c` and not in this branch's base) |
+| canonical guards (5 files) | **255 passed** — **EXIT=0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped** — **EXIT=0** |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld — **EXIT=0** |
+| corpus-marked slice (`pytest -m corpus`, from this worktree beneath the repository) | **30 passed** — **EXIT=0** |
+| `tools/privacy_scan_branch.py`, population = the 20 flag-carrying documents | 615 added lines against 5,012 MONEY / 729 DIGITS / 318 DATES / 8,022 WORDS printed tokens — **hits 0, raw hits 0** |
+| commit-message scan, same population, every commit on the branch | **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0** |
+
+**128 validated documents across the six readers this check touches, all
+preserved, every payload identical.**  The 26 assertions that pin
+`missing_declared_statement_page` across seven test files
+(`test_analysis`, `test_filename_boundary`, `test_corpus_gate_outcomes`,
+`test_diagnostics`, `test_telemetry`, `test_telemetry_corpus`,
+`test_artifact_cache`) all pass unchanged — the direct evidence that nothing was
+weakened.
+
+**No mutation table is owed and none is offered**: no gate, grammar or reading
+changed. For the same reason the archive movement sweep was not run — at a tree
+whose production surface is byte-identical to its base the sweep measures the
+base against itself, and the whole-archive form census above is the stronger
+evidence for the question this card actually asks, which is what a CHANGE to the
+reading would do to every document. If Ocean reads the sweep as unconditional,
+say so and it runs.
+
+**On the pinned Columbia refusal.** The card names it as the check's anchor
+(declares 5, supplies 4, labels 4). Since the REPAIR-DOCTRINE ceremony (§REPAIRDOC)
+that document publishes nothing at all — no registration claims it — so it is
+pinned in `corpus_gate.py` as a PARSER refusal and the page-declaration check no
+longer runs on it. The anchor that is still live is the synthetic Wells fixture
+behind the FILENAME-BOUNDARY suppression test, and it is untouched. Both were
+verified rather than assumed: the gate's `REFUSED` count and its pinned name are
+unchanged, and `test_filename_boundary.py` passes in the guard slice.
+
+## PAGECOV8 Risks, and what a reviewer should press on
+
+* **The +8 is real and it is refused on doctrine, not on measurement.** The
+  eight `a′` documents reconcile, publish complete ledgers, and carry exactly one
+  flag each; every one would validate if a text-empty sheet counted. This section
+  argues that counting it deletes the check's only defence against a page
+  replaced by a blank, and that this card's rule admits only a proven misread of
+  the declaration. A reviewer who disagrees should attack `PAGECOV-IMAGE-SHEET` —
+  proving the sheet carries ink is the version of the change that weakens
+  nothing — rather than the exclusion itself.
+* **The probe's alternative-form list is a hypothesis, not a completeness
+  proof.** It reads the forms this corpus prints; a form nothing in the archive
+  prints is invisible to it. What it does establish is that on these 20
+  documents, every sheet the check calls unlabelled either carries no page
+  declaration at all or carries one whose digits the scan destroyed.
+* **`N_SLASH_M_BARE` fires on 1,334 documents and is deliberately never
+  trusted.** It is reported so a later cell does not rediscover it and read it as
+  an opportunity: the shape is also every fraction and half of every printed
+  date, and trusting it would put arbitrary numbers into `declared_total`.
+* **The population was 11 in the card and 14 at the base.** A composition landing
+  between a card being written and a cell being launched can change an
+  outcome-defined population. Re-derive it; do not read it.
