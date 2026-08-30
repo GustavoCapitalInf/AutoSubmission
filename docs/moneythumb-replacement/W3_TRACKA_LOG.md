@@ -59309,5 +59309,7 @@ Recorded because an instrument that once over-counted has to carry the reason it
 | the six instruments re-run at the closure tip | EXIT=0 each | 0 |
 | seam census (`l1_design_reader_probe --census`) | 9 declared, 9 found, 0 undeclared, 0 missing | **0** |
 | W3 | base + §L1DESIGN + this closure section; no earlier line touched | — |
-| branch privacy scan, added lines vs the whole population | see the row below | — |
-| commit-message scan | see the row below | — |
+| branch privacy scan, added lines vs the whole population | **hit_count 0** over 4,948 added lines and 3,351 documents read (population 3,380); MONEY / DIGITS / DATES / WORDS all 0; raw 70, every one class WORDS, discarded by the standing `words_class` exclusion | **0** |
+| commit-message scan | **hit_count 0** over 22 commits; MONEY / DIGITS / DATES / WORDS all 0 | **0** |
+| ... and it was NOT 0 the first time, again | seven ordinary two-word English sequences across six of the closure's messages matched printed tokens (class WORDS). Two `--msg-filter` passes over `8751d20..HEAD`, trees verified byte-identical against the pre-rewrite tip each time, `refs/original` removed, and the only commit sha this branch's records cite — `348663d`, in §L1DESIGN L1D9 — is before the rewritten range and still resolves. The last pass needed a second attempt because the scanner drops short stopwords before it pairs, so a phrase can still yield an adjacent pair after a word is put between them; the sentence was rewritten rather than patched. The standing lesson holds and one pass never discharges it: the scan is re-run after every reword |
+| the closure's own measurements | the two rows above were measured at `6af1d95`; the only change after them is this record's own numbers, which add lines and move no hit count |
