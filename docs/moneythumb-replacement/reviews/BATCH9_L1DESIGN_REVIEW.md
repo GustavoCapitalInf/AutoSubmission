@@ -739,3 +739,243 @@ range Gustavo is deciding against is **2–8** or **0–8** (BLOCK-2).
 
 Nothing above requires the checkpoint ruling to be re-opened, and nothing above changes the
 architecture. The design is the right shape; it needs its own measurements carried into it.
+
+---
+
+# Re-review — the closure
+
+Same reviewer, same method: nothing was taken on the closure's word. Branch `wave9-l1design`,
+base `train9` `ac1d034`, review tip `0574f4e`, closure tip **`1113ce5`** (13 closure commits,
+23 in total). Every claim below was re-measured at `1113ce5` against the same run of record and
+the same read-only cold cache.
+
+**VERDICT ON THE DESIGN: SOUND WITH FINDINGS — 0 BLOCK / 1 MAJOR / 3 MINOR.**
+
+All four BLOCKs and all six MAJORs of the first review are closed, and closed at the root rather
+than argued with. Every number the closure claims reproduces, to the digit, including the three
+it corrected itself on. The one new MAJOR is in the clause that closed BLOCK-4: the rule is
+right and the vocabulary it is founded on is not.
+
+**Implementation cards S1, S2 and S3 may be cut now. S4 may not** — its named killer population
+is the thing the new MAJOR is about. S5 waits on Gustavo (a `validated -> failed` pair).
+
+## RR-1. Re-measurement of the closure
+
+| closure claim | claimed | this re-run at `1113ce5` | agrees |
+|---|---|---|---|
+| **BLOCK-1** skip probe, on the dispatch path | 117 read / **12** documents / **16** sections | 117 / **12** / **16** | **yes** |
+| ... per registration | symitar 7·4·7, community_section 59·5·6, dakota_west 3·2·2, mission_valley 36·0·0, zions 12·1·1 | identical, row by row | **yes** |
+| ... by skip SITE | symitar `:419-420` 7; community_section `:621-622` **8**; the `:984` call-site clause **0**; zions `_inert` 1 | identical | **yes** |
+| ... evidence classes | declaration **8** (7 symitar, 1 zions), zero-summary **8** (6 community_section, 2 dakota_west), `no_printed_evidence` **0** | identical | **yes** |
+| ... the zero-summary's seven clauses | 8 of 8 on every clause | 8 of 8 on every clause | **yes** |
+| **BLOCK-2** `all_close_strict` carried; range 0-8; Q9 opened | 0 / 2 / 8 | §2.6 and §7 carry all three; Q9 asks which is the planning figure | **yes** |
+| **BLOCK-3** reader census | 6 -> **11** (10 probed: **9 quiet, 1 loud**) | 10 probed, **1** loud (`balance_forensic_audit`, KeyError), **9** quiet, **0** refuse the shim | **yes** |
+| **BLOCK-3** seam census | 9 declared, 0 missing, 0 undeclared, exit 0 | 9 / 0 / 0, **exit 0**, and the 9 are exactly the tree's | **yes** |
+| **BLOCK-4** designation required; 46 of 47 carry one | 46 / 1 | **46 / 1** | **yes** |
+| **BLOCK-4** three pairing rules agree; 0 ambiguous; 3 documents with 3+ ledgers | 47 / 47 / 47, 0, 3 | **47 / 47 / 47**, **0** ambiguous, **3** with 3+ live ledgers, 0 sections without printed text | **yes** |
+| **MAJOR-2** cohort and the integrity split | 232 docs / 80 registrations; order-preserved 232/232; naive 232/232; literal reading moves 3 | 232 / 80 (71 validated at baseline); **232 / 232 / 229** — the literal reading moves exactly **3** | **yes** |
+| ... and RULE S over the widened cohort | 232 byte-identical | 232 byte-identical; `wrapper_unconditional` 0; `omission_field_always` 0 with a leaf gap of **232**; `omission_field_elided` 232 | **yes** |
+| **MAJOR-4** the site numbers | `:984` 0, `:621-622` 8, symitar `:419-420` | reproduced by the probe, and the watched line at `symitar.py`:420 is literally `continue` | **yes** |
+| **MAJOR-5** CONS-HARDCODE | 2 validated -> failed, 1 pinned, both audit paths | §6.3 and the S5 row state exactly that, with `-2 validated` in the count column and STOP-and-report | **yes** |
+| **MAJOR-1 / 3 / 6** | empty per-document field + `account_count`; no average over two members sharing a content digest + member must be `validated`; the document-level currency rung with full precedence | all three present, with the precedence written out strongest-first | **yes** |
+| privacy scan, added lines vs the whole population | 0 over 4,950 | **hit_count 0** over **4,950** added lines, 3,351 documents read; MONEY/DIGITS/DATES/WORDS all 0; raw 71, all `words_class` | **yes** |
+| commit-message scan | 0 over 23 | **hit_count 0** over **23** commits, all classes 0 | **yes** |
+| canonical guards | 255 | **255 passed, EXIT=0** | **yes** |
+| production diff | empty | `git diff --stat ac1d034 1113ce5 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` **empty** | **yes** |
+| ownership / W3 | 9 files; W3 = base + section + closure, 0 deletions | 9 files (design, W3, this review, 6 `tools/`); W3 **+457 / -0** vs base, and the base blob is a **byte-exact prefix** of the closure blob, as is the review tip's; the closure appended `## §L1DESIGN.2` (183 lines) under the cell's own section | **yes** |
+| instruments unwired | 6, all unwired | grep: nothing outside `tools/` references any of the six | **yes** |
+| cited shas resolve | `348663d` still resolves | **six** shas are cited (`ac1d034`, `348663d`, `0574f4e`, `d850ae6`, `6af1d95`, `7755665`); all six resolve; five are on this branch and `7755665` is Ocean's `train9` commit carrying the `cohort_replay` fix, cited deliberately | **yes** |
+
+## RR-2. The zeros, tested for vacuity
+
+A zero is only a finding if the instrument that produced it could have produced something else.
+Three of the closure's load-bearing zeros were tested directly.
+
+**`no_printed_evidence` = 0.** `classify_evidence` was run against nine constructed fixtures —
+invented figures, the committed patterns' own wordings, nothing from the archive:
+
+| fixture | expected | got |
+|---|---|---|
+| absence only — a heading and nothing else | `no_printed_evidence` | **as expected** |
+| absence only — an empty grid header, no summary | `no_printed_evidence` | **as expected** |
+| the symitar declaration wording | `printed_dormancy_declaration` | **as expected** |
+| the zions declaration wording | `printed_dormancy_declaration` | **as expected** |
+| a printed ZERO-activity summary, all seven clauses | `printed_zero_activity_summary` | **as expected** |
+| a summary that printed ACTIVITY (one credit) | `no_printed_evidence` | **as expected** |
+| a summary whose pair does not coincide | `no_printed_evidence` | **as expected** |
+| a summary with a zero pair but a non-zero debit total | `no_printed_evidence` | **as expected** |
+| a summary missing its second balance row | `no_printed_evidence` | **as expected** |
+
+**9 of 9**, including the five that must be REFUSED. The class R-a refuses is reachable, and a
+section that printed activity does not reach the admitting classes. The 0 is real. This is also
+the constructed absence-only fixture the re-review was asked for, and the design may cite it.
+
+**The watched lines.** `verify_sites()` returns clean at this tree; moving one watched line by
+`+1` produces *"analysis.symitar:421 does not contain 'continue'"* and moving it past EOF is
+caught too. A refactor cannot turn this probe's counts into a silent zero.
+
+**The seam census.** It holds at this tree (9 found, 0 missing, 0 undeclared, exit 0). Doctored
+in both directions it fails as designed: a declared-but-absent seam -> **exit 1**; a
+present-but-undeclared seam -> **exit 1**; unmodified -> **exit 0**. It is a real `git grep` over
+the tracked tree, not a static list, so S3's exit criterion is checkable rather than asserted.
+(One residual, not a finding: `git grep` sees tracked files only, so a seam added in an
+untracked file is invisible until it is added.)
+
+## RR-3. The one new finding
+
+### RR-MAJOR-1 — the transfer clause is founded on a vocabulary that includes third-party payment rails, and three of its 46 designated pairs are admitted by `VENMO`
+
+BLOCK-4 is closed by the right rule: *the paper must PRINT a transfer designation on at least
+one of the two legs.* The designation is decided by
+`tools/l1_design_transfer_probe.py::prints_transfer_designation`, which ORs two production
+vocabularies. They are not the same kind of thing.
+
+* `_INTERNAL_TRANSFER_CREDIT_PATTERNS` (`transaction_classifier.py`:433-465, 13 patterns) names
+  movement between a member's OWN accounts: `TRANSFER FROM <CHECKING|SAVINGS|SHARE|...>`,
+  `SH TO SH`, `ACCOUNT TO ACCOUNT`, `TRANSFER FROM <masked account> TO <masked account>`. This
+  is the right vocabulary for the clause.
+* `_TRANSFER_PATTERNS` (`:300-308`, 7 patterns) is used in production at `:976-981` as a
+  **`strong_non_lender_exclusion`** — it answers "this row is not a lender debit", not "this row
+  is an internal movement" — and it contains `ZELLE`, `VENMO`, `CASH APP`, `E TRANSFER`,
+  `ETRANSFER`, `XFER` and `ONLINE TRANSFER`. The first three are third-party peer-to-peer rails
+  by definition; `E TRANSFER` on the Canadian issuers this archive carries is an Interac
+  transfer, which is ordinarily a payment from someone else.
+
+**Measured over the same 47 pairs, splitting the 46 by which vocabulary fired:**
+
+| which vocabulary admitted the pair | pairs |
+|---|---:|
+| the INTERNAL vocabulary alone | **41** |
+| both | 2 |
+| **the GENERIC vocabulary alone** | **3** |
+| neither — the clause's live killer | 1 |
+
+**All three generic-only pairs are admitted by `\bVENMO\b`**, and all three are on one document
+(`A137F6D65E29CAD5`). The internal vocabulary's own hits come from
+`TRANSFER|XFER|TFR FROM <own-account class>` (43 pairs) and the branch/online/mobile
+`TRANSFER FROM <account>` pattern (9) — both genuinely internal.
+
+A Venmo row is a payment to or from another person. Treating it as printed evidence that money
+moved between the member's own accounts flags the pair INTERNAL and then removes the matching
+deposit from package gross deposits, deposit counts, revenue and the withholding denominator —
+**which is exactly the failure the clause was added to prevent, re-admitted through the
+vocabulary it was founded on.** The design's own words for it apply unchanged: *money the paper
+printed, deleted from a funder's view of the business by an inference.*
+
+**The fix is small and the design already holds the right vocabulary.** Found the clause on
+`_INTERNAL_TRANSFER_CREDIT_PATTERNS` alone (or on a designation vocabulary of its own that names
+internal movement, justified as such). Re-measured under that reading the cost is **43
+designated / 4 undesignated of 47** — still four pairs on two documents, still small, and the
+rule then says what it means. Until it is settled, S4's stated killer population ("the 46
+designated pairs ... as the package exclusion's named killers") contains three killers that
+should be refusals.
+
+### RR-MINOR-1 — the 46 sit on six documents, not seven
+
+S4's proof column reads "the **46** designated pairs on **7** documents". Per document the
+designated counts are 27, 7, 5, 3, 3, 1 and **0** — the seventh document (`2A8F1A9D95DD0672`)
+carries the single undesignated pair and contributes none of the 46. The population is 7
+documents / 47 pairs (L1-C11's cell says this correctly); the *designated* population is
+**6 documents / 46 pairs**.
+
+### RR-MINOR-2 — "at least one leg" is doing almost all the work, and that is worth recording
+
+Of the 46 designated pairs, **45 are designated on ONE leg only** and 1 on both. The clause's
+"at least one of the two legs" is therefore not a formality — it decides 45 of 46 pairs on the
+words of a single printed row, which is also why RR-MAJOR-1's choice of vocabulary matters as
+much as it does. It belongs beside the 46.
+
+### RR-MINOR-3 — the four unkillered conditions are not one class, and the design flattens them
+
+The closure states plainly that four of eighteen have no measured killer and owes each a
+constructed fixture. Right, and the honesty is welcome — but the four are in three different
+situations, and an implementer reading "each needs a constructed fixture" will build one thing
+where two are wanted and none is:
+
+* **`L1-C15`** (zero inference, deterministic, $0) is a standing property already enforced by
+  the batch rule and by the registry / experiments guards. It needs no fixture of its own.
+* **`L1-C14`** (no statement-specific constant) already HAS a live killer in the canonical 255:
+  `tests/test_no_statement_hardcodes.py`. What it lacks is a killer that catches the instance
+  the design itself measured — `consumers.py`:90. Its fixture is an EXTENSION of an existing
+  guard, and it is the extension S5 needs anyway.
+* **`L1-C2`** (disjoint sections, complete coverage) and **`L1-C18`** (no chosen account), plus
+  **`L1-C11`'s ambiguity branch**, genuinely need constructed fixtures. C18's is cheap — a
+  two-account payload and an assertion that every per-document single-value field is EMPTY — and
+  belongs in S3, where the surfaces learn the rule. C2's needs a synthetic document with a
+  duplicated section. C11's needs a synthetic posting with two admissible counterparts.
+
+## RR-4. The question asked: must the four unkillered conditions be measured now?
+
+**No — a design may name a condition it cannot yet kill, provided it says so, and this one now
+does.** Two qualifications, and they are the difference between an owed fixture and a lost one:
+
+1. **The fixture is a gate on the card that writes the condition, not a backlog item.** The
+   design already says "the card that writes the condition owns building one"; it should also
+   say that the card's mutation table is not accepted without it. A mutation table whose killer
+   is a citation is the failure mode the batch rules already name ("a test named after a gate is
+   not a test of that gate"), and the way it slips through is a card closing on the strength of
+   the other seventeen.
+2. **The four should be split as RR-MINOR-3 sets out**, so that C15 is not "owed" anything,
+   C14's owed work is scoped as extending an existing guard, and the three that genuinely need
+   construction are named as three.
+
+Measuring them now would mean building three synthetic documents inside a design cell that owns
+no test wiring — which is the wrong cell for it. The population that decides whether the
+conditions are RIGHT is measured; the fixtures that decide whether they are ENFORCED belong with
+the code.
+
+## RR-5. Rulings, Q8 and Q9 first
+
+| | question | this reviewer's opinion |
+|---|---|---|
+| **Q8** | does R-a apply to the EXISTING absence-based skips? | **Answer it YES; it costs nothing, and that is now measured twice.** The closure's probe reports 12 documents / 16 sections / **0** with no printed evidence, on the dispatch path, with the watched lines verified and the refusing class shown reachable by nine constructed fixtures. My own independent instrument, written before `zions` was probed by anyone, reported 11 documents / 15 sections with the same per-registration split — the difference is `zions`, which the closure added. **Q8 goes to Gustavo as a measurement, not a risk**, and the only work it creates is re-founding 12 documents' skips on evidence already printed |
+| **Q9** | which point of 0 / 2 / 8 is the planning figure? | **Plan against 2; report 0-8; judge S4 against 2, or against 8 if Q3 is granted.** **Not 0**: the strict after-chain bound counts any printed date-plus-figure as an unaccounted row, and the instrument's own docstring (`l1_split_prototype.py`:528-537) says the last section of a document runs to the end of the page and carries its trailing tables — so the 0 refuses work the production validator accepts. **Not 8 by default**: that is Q3's to grant. **2** is what `reconcile`, the ADB and `posting_dates_cover_source` actually accept today, which is the standard every other batch-9 number is measured against. Carry 0 in the same table as the reason it is pessimistic — which the closure now does |
+| **Q3** | may a section printing its own coinciding opening and closing, with no row, be OMITTED? | **Grant it.** The closure strengthens the case rather than restating it: the platform already relies on the same evidence class one level up — 8 sections whose printed summary shows an opening, a coinciding closing, and zero totals AND zero counts — and granting Q3 is the same act as the C17 widening that keeps 12 protected documents. Worth 2 -> 8, all one census family |
+| **Q1** | publish the validating account's figures, or refuse? **And is a package member an account whose own outcome is `validated`?** | Rule the second half explicitly and YES. The design's answer is right and the reason is measured: `_package_analysis` gates on job status alone (`webapp/app.py`:661), so "publish it and mark the document `withheld`" silently means "aggregate it anyway" |
+| **Q2** | same-document counterpart; ambiguity refuses the aggregation or the document? | Both of the design's answers are right. **But settle RR-MAJOR-1 first** — the designation vocabulary decides 45 of 46 pairs, and three of them on a third-party rail. Ambiguity refusing only the aggregation is correct and its killer is a constructed fixture (0 in the archive) |
+| **Q4** | two denominations: two accounts or refuse? | Rule after the new document-level rung's population is measured — the design says an implementation card owns measuring it, and that ordering is right. The two-denomination class is 4 documents / 12 sections |
+| **Q5** | each account a package member; is the ADB doctrine's unit the account? | Yes to both, and the mechanism the closure chose is the right one: forbid the ARITHMETIC (no published average over two members sharing a `content_sha256`), not the field name |
+| **Q6** | whose period where an issue prints per-account ranges? | No objection; refuse until ruled. Unmeasured by anyone, correctly |
+| **Q7** | one dated row or two? | Rule at **two**, which is what every table in the packet, the design and the closure uses. Low stakes for S4 (the 2 close at both) and high for what L1-C4 means |
+
+## RR-6. May S1-S3 be cut now?
+
+**Yes, all three.**
+
+* **S1 — the wrapper and RULE S.** The claim has moved off the serialiser, where it was near
+  enough a tautology, onto the seam it is offered against. The assembly rule is named (published
+  order), the three assemblies are measured (232 / 232 / 229), the literal reading's cost is
+  sized at 3 of 232, and the reason order must be preserved is a pinned tuple at
+  `corpus_gate.py`:1360-1362 rather than a cohort that happened to pass. Nothing in RR-MAJOR-1
+  touches it. **Cut it.**
+* **S2 — SIBLING-OMISSION-SURFACE.** The population is measured on the dispatch path, the
+  evidence is measured section by section, the vocabulary can name all of it, and the pinned
+  exposure is stated as an exposure rather than as "none". **Cut it, with one thing owed at the
+  card:** name which of the three `dakota_west` documents is the pinned one before the card
+  claims no pinned movement.
+* **S3 — the surfaces, taught DARK.** Both censuses are complete and, more importantly,
+  checkable — the seam census fails in both directions when doctored. **Cut it, with one thing
+  owed at the card:** L1-C18's constructed fixture (a two-account payload, every per-document
+  single-value field asserted EMPTY), because S3 is where the surfaces learn that rule.
+
+**S4 may not be cut yet.** Its named killer population is "the 46 designated pairs", three of
+which are admitted by `VENMO` (RR-MAJOR-1) and one of which is a document-count error
+(RR-MINOR-1). Settle the designation vocabulary, re-measure, and S4 is ready.
+
+**S5 waits on Gustavo.** It is a `validated -> failed` on two protected shas, one pinned; the
+design now states it as one and asks for the ceremony, which is the right place for it to stop.
+
+## RR-7. Proof floor of this re-review
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards at `1113ce5` | **255 passed** | **0** |
+| production diff `ac1d034..1113ce5` over `analysis ocr webapp discovery telemetry corpus_gate.py benchmark` | **empty** | — |
+| W3 append-only | base blob is a **byte-exact prefix** of the closure blob; `+457 / -0` vs base | — |
+| branch privacy scan at `1113ce5` | **hit_count 0** over 4,950 added lines | **0** |
+| commit-message scan `ac1d034..1113ce5` | **hit_count 0** over 23 commits | **0** |
+| the closure's instruments, re-run | skip, transfer, payload, reader (+ `--census`) — EXIT=0 each | 0 |
+| this reviewer's re-review instruments | the C17 fixture set (9 cases), the vocabulary split over the 47 pairs, the census failure-path test, the watched-line failure-path test — all in private scratch, unwired, uncommitted | — |
+| files this re-review adds to the tree | one: this section of `BATCH9_L1DESIGN_REVIEW.md` | — |
+| privacy scan of THIS section's added lines vs the whole population | **hit_count 0** over **240** added lines; MONEY / DIGITS / DATES / WORDS all 0; raw 14, all `words_class` | **0** |
+| commit-message scan of this re-review's commit | **hit_count 0**, all classes 0 — **and it was not 0 the first two times.** Three ordinary English word-pairs, then one more, matched printed text and the WORDS class caught them; the message was reworded twice and re-scanned after each, which is the standing lesson the design cell recorded and this reviewer has now paid as well | **0** |
