@@ -920,14 +920,23 @@ section:
 killer test, and the killers of C4/C5/C6/C7/C10/C11/C12/C13/C17 are drawn by sha from the
 populations above. A test named after a gate is not a test of that gate.
 
-**Four of the eighteen have no measured killer population, and the preamble should not have
-implied otherwise.** `L1-C2`'s cell is a hypothesis (a duplicated section — no document in this
-population is measured to print a page-break reprint that satisfies C1); `L1-C14`'s and
-`L1-C18`'s are code citations rather than populations; `L1-C15`'s is standing. Each of those
-four needs a CONSTRUCTED fixture as its killer, and the implementation card that writes the
-condition owns building one — a mutation table whose killer is a citation is not a mutation
-table. The same is true of `L1-C11`'s ambiguity branch, which the archive does not exercise
-(§3.3).
+**Four of the eighteen have no measured killer population, and they are in THREE different
+situations.** The preamble above should not have implied all eighteen had one, and the first
+closure should not have flattened the four into one class: an implementer reading "each needs a
+constructed fixture" builds one thing where two are wanted and none is.
+
+| condition | what it actually needs | who owns it |
+|---|---|---|
+| **L1-C15** — zero inference, deterministic, $0 | **nothing of its own.** It is a standing property already enforced by the batch rule and by the registry and experiments guards. It is not an owed fixture and should not be carried as one | — |
+| **L1-C14** — no statement-specific constant | it already HAS a live killer in the canonical 255: `tests/test_no_statement_hardcodes.py`. What it lacks is a killer that catches the instance this design MEASURED (`consumers.py`:90). Its work is an **EXTENSION of an existing guard**, not a new fixture — and it is the extension S5 needs anyway | **S5** |
+| **L1-C2** — disjoint sections, complete coverage | a constructed synthetic document with a DUPLICATED section | **S4** |
+| **L1-C18** — no chosen account | a constructed two-account payload, with every per-document single-value field asserted EMPTY. Cheap, and it belongs where the surfaces learn the rule | **S3** |
+| *(and)* **L1-C11's ambiguity branch** | a constructed synthetic posting with TWO admissible counterparts — the archive prints none (§3.3) | **S4** |
+
+**Each fixture is a CONDITION OF CLOSING the card that writes its rule, not a backlog item.**
+The card's mutation table is not accepted without it. The failure mode is named in the batch
+rules already — *"a test named after a gate is not a test of that gate"* — and the way it slips
+through is a card closing on the strength of the other seventeen conditions' killers.
 
 ---
 
@@ -1205,6 +1214,35 @@ standing debt, move nothing, and leave the rest carded.
 question whose answer could subtract from 2,596; measured on the dispatch path, it subtracts
 nothing (§2.7). The question that remains under it is not a risk but a vocabulary: L1-C17 has
 to be able to NAME the evidence the platform's own skipped sections print, and §4 now does.
+
+### 8.1 The independent reviewer's opinion on each ruling
+
+Carried verbatim from the re-review (`docs/moneythumb-replacement/reviews/BATCH9_L1DESIGN_REVIEW.md`),
+marked as the reviewer's and not as this design's. They are recorded because Gustavo is
+deciding, and a second independent reading of the same measurements is evidence about them.
+
+| | the reviewer's opinion, verbatim |
+|---|---|
+| **Q8** | "Answer it YES; it costs nothing, and that is now measured twice. The closure's probe reports 12 documents / 16 sections / 0 with no printed evidence, on the dispatch path, with the watched lines verified and the refusing class shown reachable by nine constructed fixtures. My own independent instrument, written before `zions` was probed by anyone, reported 11 documents / 15 sections with the same per-registration split — the difference is `zions`, which the closure added. Q8 goes to Gustavo as a measurement, not a risk, and the only work it creates is re-founding 12 documents' skips on evidence already printed" |
+| **Q9** | "Plan against 2; report 0-8; judge S4 against 2, or against 8 if Q3 is granted. **Not 0**: the strict after-chain bound counts any printed date-plus-figure as an unaccounted row, and the instrument's own docstring (`l1_split_prototype.py`:528-537) says the last section of a document runs to the end of the page and carries its trailing tables — so the 0 refuses work the production validator accepts. **Not 8 by default**: that is Q3's to grant. **2** is what `reconcile`, the ADB and `posting_dates_cover_source` actually accept today, which is the standard every other batch-9 number is measured against. Carry 0 in the same table as the reason it is pessimistic" |
+| **Q3** | "Grant it. The closure strengthens the case rather than restating it: the platform already relies on the same evidence class one level up — 8 sections whose printed summary shows an opening, a coinciding closing, and zero totals AND zero counts — and granting Q3 is the same act as the C17 widening that keeps 12 protected documents. Worth 2 -> 8, all one census family" |
+| **Q1** | "Rule the second half explicitly and YES. The design's answer is right and the reason is measured: `_package_analysis` gates on job status alone (`webapp/app.py`:661), so 'publish it and mark the document `withheld`' silently means 'aggregate it anyway'" |
+| **Q2** | "Both of the design's answers are right. **But settle RR-MAJOR-1 first** — the designation vocabulary decides 45 of 46 pairs, and three of them on a third-party rail. Ambiguity refusing only the aggregation is correct and its killer is a constructed fixture (0 in the archive)." *(RR-MAJOR-1 is now settled: the vocabulary is the internal one alone, and the corrected figures are 43 designated / 4 refused, 42 of the 43 on one leg — §3.2.)* |
+| **Q4** | "Rule after the new document-level rung's population is measured — the design says an implementation card owns measuring it, and that ordering is right. The two-denomination class is 4 documents / 12 sections" |
+| **Q5** | "Yes to both, and the mechanism the closure chose is the right one: forbid the ARITHMETIC (no published average over two members sharing a `content_sha256`), not the field name" |
+| **Q6** | "No objection; refuse until ruled. Unmeasured by anyone, correctly" |
+| **Q7** | "Rule at **two**, which is what every table in the packet, the design and the closure uses. Low stakes for S4 (the 2 close at both) and high for what L1-C4 means" |
+
+### 8.2 Which cards may be cut — the reviewer's verdict
+
+| stage | verdict | what is owed at the card |
+|---|---|---|
+| **S1** | **may be cut now** | — |
+| **S2** | **may be cut now** | name which of the three `dakota_west` documents is the pinned one, before the card claims no pinned movement |
+| **S3** | **may be cut now** | L1-C18's constructed fixture — a two-account payload with every per-document single-value field asserted EMPTY (§4) |
+| **S4** | **not until RR-MAJOR-1 is closed** — its named killer population was the thing that finding was about. *(Closed at this tip: the vocabulary is the internal one alone and the population is re-measured — §3.2.)* | L1-C2's and L1-C11's ambiguity fixtures (§4) |
+| **S5** | **waits on Gustavo** — a `validated → failed` on two protected shas, one pinned | the ceremony (§6.3), and L1-C14's guard extension (§4) |
+
 
 ---
 
