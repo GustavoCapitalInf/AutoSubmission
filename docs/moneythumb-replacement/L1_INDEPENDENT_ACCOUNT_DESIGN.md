@@ -610,7 +610,7 @@ this cell.
 | **L1-C15** | zero inference — deterministic, $0, no model call | — | standing |
 | **L1-C16** | *(new)* a payload carrying `accounts` never also carries `statement`; a reader given a payload with neither raises `ValueError` | `ValueError` at the reader | measured: **6 of 6** probed readers ANSWER the untaught shape today instead of refusing it (§1.4) |
 | **L1-C17** | *(new)* an omission's `reason` is from a CLOSED vocabulary, every member of which names PRINTED evidence: `printed_dormancy_declaration`, `yield_only_arithmetic_with_summary_equality`, and — ONLY if §8 Q3 is granted — `printed_pair_coincides_and_no_row_printed`. **`absence_of_parsed_rows` is not a member and cannot become one** | `None` — the document may not publish | §9 F1/F2: the two skips production performs today are absence-based, on the cohorts §6.2 sizes. The third member's population is the 6 sections of §2.3, all six with both figures read from the section's own captions |
-| **L1-C18** | *(new)* no reader selects an account by a DERIVED quantity — most transactions, largest balance, first printed. Selection is by printed partition or there is no selection (R-e) | `None` | §9 F4: `analysis/community_section.py`:731-733 selects the busiest section today, on a cohort that includes a pinned document |
+| **L1-C18** | *(new)* no reader, and no SURFACE, selects one account to stand for a document — not by a derived quantity (most transactions, largest balance) and not by printed position (the first account). A per-document field that can hold only one account's value is left EMPTY on a multi-account document; it is never filled from a chosen account (R-e) | `None` at a reader; an EMPTY column at a surface | §9 F4: `analysis/community_section.py`:731-734 selects the busiest section today, on a cohort that includes a pinned document. And §5's own `discovery/runner.py` row, which this condition caught |
 
 **Currency, at section level (L1-C13, serving R-f).** The doctrine resolves a denomination per
 DOCUMENT today and `jurisdiction_default` is affirmative evidence at the INSTITUTION level. Per
@@ -637,6 +637,17 @@ populations above. A test named after a gate is not a test of that gate.
 `nothing` in the middle column means: byte-identical payload, unchanged behaviour, proved by
 §1.2's byte comparison plus the archive sweep. Line numbers are at this base.
 
+**One rule governs every per-document field in this table**, and the design's first version
+broke it in the row it is most tempting to break: *a field that can hold one account's value is
+left EMPTY on a multi-account document, never filled from a chosen account.* `account_last4` is
+the column by which a person identifies a document; making it "the FIRST account's" is L1-C18's
+forbidden selection wearing printed order as a disguise, and it puts the L-1 defect in the
+discovery row after the design has removed it from the payload. Printed ORDER is printed
+evidence about a SEQUENCE — which is why `accounts` is a list in printed order and why §1.5
+breaks outcome ties by it — and it is not evidence that the first element represents the whole.
+A surface that needs one value per document gets `account_count` and an empty column; a surface
+that needs the values gets the account list.
+
 | file | single-account document | multi-account document |
 |---|---|---|
 | `analysis/schema.py`:121-221 | nothing — `Statement` unchanged; only its docstring says "one account" | unchanged; one instance per account |
@@ -652,7 +663,7 @@ populations above. A test named after a gate is not a test of that gate.
 | `corpus_gate.py`:217 `PINNED_OUTCOMES`, :424 `PINNED_CURRENCY`, :594 `PINNED_CURRENCY_SOURCE` | nothing | all three are keyed by corpus-relative PATH only; a multi-account pinned document needs a path+account key, and the totality subtractions at :1503-1513 / :1572-1582 follow |
 | `corpus_gate.py`:1213-1268 `check_outcomes`, :1651-1733 `check_outcome_classes` | nothing | one row per document stays; the per-account assertions are new checks beside them |
 | `docs/balance-metrics-audit-results.csv`, `docs/adb-audit-results.csv` | nothing | both are path-keyed with no account column — a multi-account pinned document cannot declare a second opening/ending/ADB until they gain one. **A truth-set ceremony** |
-| `discovery/runner.py`:119-176, :654-657, :661-665 | nothing | `statement_bank` (:162) and `account_last4` (:163) are the only two Statement-derived columns; they become the FIRST account's, plus a new `account_count`. One row per document stays |
+| `discovery/runner.py`:119-176, :452, :654-657, :661-665 | nothing | `statement_bank` (:162) and `account_last4` (:163) are the only two Statement-derived columns. On a multi-account document **`account_last4` is EMPTY and a new `account_count` carries the fact instead** — see the note below; `statement_bank` is the document's issuer, which every published section of a member statement shares (a document whose sections disagree about the issuer refuses under L1-C3's spirit). One row per document stays, carrying the DOCUMENT outcome (§1.5). The `analyze_markdown` → `report_to_dict` seam at :452 moves to the document entry point |
 | `discovery/report.py`:443-453 `ROW_FIELDS`, :31-106 `folder_agreement` | nothing | one bank label per document is `folder_agreement`'s assumption (:95-106); a document whose accounts share an issuer is unaffected, and one whose accounts do not is a refusal (they are one member statement) |
 | `discovery/compare.py`:37-52, :71-160 | nothing | **nothing** — the ladder stays keyed on `content_sha256` with one outcome per document, which `classify_document` supplies (§1.5). This is why the document outcome is a fold and not a list |
 | `discovery/evidence.py`:94-121 | nothing | `Document` is per-sha and stays |
