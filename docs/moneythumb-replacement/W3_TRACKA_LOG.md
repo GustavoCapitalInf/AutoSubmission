@@ -60297,8 +60297,8 @@ declared call site — and re-states three.
 | full default suite | **7,481 passed**, 43 skipped, 34 deselected | **0** |
 | mutation table, at the closure tip | **13 mutants, 13 killed, 0 survived**; cohort byte comparison M1 232 / M2 0 / M3 3 / M4 0 / **M11 0** | **0** |
 | RULE S at the pipeline seam, base -> closure tip | **232/232 byte-identical**; flag list and ORDER 232/232; outcome 232/232; one account 232; 3 carrying a document-scope flag; MOVED_TOTAL 0 | **0** |
-| branch privacy scan, added lines vs the whole archive | **hit_count 0**; MONEY / DIGITS / DATES / WORDS all 0 | **0** |
-| commit-message scan | **hit_count 0**, all classes 0 | **0** |
+| branch privacy scan, added lines vs the whole archive | **hit_count 0** over **2,412 added lines**; MONEY / DIGITS / DATES / WORDS all 0; raw 34, every one discarded by the standing `words_class` exclusion | **0** |
+| commit-message scan | **hit_count 0** over 11 commits — and, as in the record above, it was **4** first: four more ordinary English word-pairs, class WORDS, MONEY / DIGITS / DATES 0 throughout. Reworded with `--msg-filter`, trees verified byte-identical against the pre-rewrite tip, `refs/original` removed, re-scanned. The review's own commit is inside the range and its message is byte-identical after the pass; only the four commits after it carry new shas | **0** |
 | W3 | one top-level `# §L1S1`; the base blob is a byte-exact prefix, verified blob-to-blob | — |
 
 Nothing in this closure touches a payload: the two MAJORs add tests, one line of set equality and
