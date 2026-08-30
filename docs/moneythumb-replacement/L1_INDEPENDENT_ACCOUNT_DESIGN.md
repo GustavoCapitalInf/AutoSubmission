@@ -757,14 +757,41 @@ treated as unproven. `05E246C0ED6678E6`, the CONS-L1 / CONS-HARDCODE document, i
 class.
 
 **The truth-set ceremony.** Exactly one pinned document is expected to move under this design,
-and it moves in stage S5:
+and it moves in stage S5 — but it does not move alone, and the movement is not a disjunction:
 
-| pinned sha16 | registration | today | after S5 | why it is a ceremony |
-|---|---|---|---|---|
-| `05E246C0ED6678E6` | `consumers` | published under a memorised product-name + account-number slice (`consumers.py`:88-94) | either published from the printed partition, or REFUSED under L1-C1/C4 | the PUBLISHED LEDGER changes — a different set of postings, a different opening and closing, a different ADB. Not a parser fix: the audit CSVs' expected values for this path must be re-derived and re-approved before the change lands |
+| sha16 | registration | pinned? | today | after S5 | evidence |
+|---|---|---|---|---|---|
+| `05E246C0ED6678E6` | `consumers` | **yes** | `validated`, published from a memorised product-name + account-number slice (`consumers.py`:90) | **`failed`** | see below |
+| the second `consumers` document | `consumers` | no | `validated`, same slice | **`failed`** | the same argument; §6.2 measures that `consumers` claims exactly 2 documents in the run and both are `validated` |
+
+**Why `failed` and not "either published or refused".** The design's first version stated this
+as a disjunction, which is not a movement. Two measurements in this document decide it:
+
+* `_primary_checking_section` (`consumers.py`:88-94) finds its start ONLY at the memorised
+  literal; `parse_consumers_statement`:111-112 returns `None` when the slice is empty. So
+  removing the literal — which is the whole point of the card — makes the reader refuse unless
+  a printed partition replaces it;
+* §7's S5 row measures that the `DECL-L1-CANDIDATE` band closes **0** of its 16 multi-posting
+  documents today. On today's evidence the printed partition does not close, so the branch taken
+  is REFUSED, and it is taken for **both** documents or neither: one literal is what makes the
+  reader return anything at all.
+
+This is a `validated → failed` on two protected shas, one of them pinned. BATCH9-RULES makes
+that a STOP-and-report requiring explicit per-sha evidence that the batch-8 validation was
+itself incorrect — **and the evidence is exactly what F3 states**: the published ledger today is
+one memorised account of a member with several, and the document's own summary caption says so.
+The ceremony must approve that argument, and the audit CSVs must be re-derived for **both**
+paths, before the card is cut.
 
 Every other pinned document is expected to be **byte-identical**, and that expectation is the
 gate: a pinned mover outside this table is a STOP-and-report.
+
+**One more pinned exposure, named because §6.2 measures it.** `dakota_west` claims **3**
+documents and holds **1** pinned one. Of the three, **2** carry the S2 skip (§2.7) and **1** is
+the document on which F4's derived selection actually chooses among two or more candidate
+sections. So every `dakota_west` document is inside S2's or S5's blast radius, and "no pinned
+movement expected" for S2 is not established until the implementation card names which of the
+three the pinned one is and what happens to it.
 
 ### 6.4 Per stage
 
@@ -828,7 +855,7 @@ the two changes are both forced by measurement:
 | **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note), `analysis/symitar.py`, `analysis/community_section.py`, `analysis/zions.py` — the skip SITES only | **0 newly validated.** Payload movement on the documents whose reader skips a section today. Measured over the four probed registrations: **105** validated documents read, **15** print two or more of their OWN module's section marks while publishing one account (symitar 7 of 7, `dakota_west` 3 of 3, `community_section` 5 of 59, `mission_valley` 0 of 36), and only **4** print the ratified declaration — all four symitar. §9 F1/F2: on today's evidence most of these skips have no member of L1-C17's vocabulary to name, which is what makes this stage a correctness card and not a cosmetic one | **none expected** — a pinned mover is a STOP | mutation table on the omission-reason vocabulary; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
 | **S3 — the surfaces, taught DARK** | `telemetry/record.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `balance_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | unit tests per reader over synthetic document payloads; the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
 | **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **0 to 8, and the test decides which.** **0** documents pass the STRICT after-chain bound; **2** close on every located section under the production checks (both one census group, both with the enumerating table's own closing column reproducing); **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
-| **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94 and the second copy at :115-123) | **0 newly validated** — the `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today. This is a CORRECTNESS card: it removes an R-1 hardcode that publishes one memorised account of a member's several | **1 — `05E246C0ED6678E6`** (§6.3). Ceremony required BEFORE the change lands | truth-set ceremony; `cohort_replay --parser consumers` (2 documents in the run, both `validated`, one of them the pinned one); corpus gate; the audit CSVs re-derived and re-approved |
+| **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94, and :115-123, which restates the product designation but NOT the account number) | **0 newly validated, and −2 validated.** The `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today, and removing the literal makes the reader refuse (§6.3). This is a CORRECTNESS card whose measured effect on the count is negative: it removes an R-1 hardcode that publishes one memorised account of a member's several | **2 validated → failed, 1 of them pinned** (§6.3). STOP-and-report with per-sha evidence, and the ceremony, BEFORE the change lands | truth-set ceremony over BOTH paths; `cohort_replay --parser consumers` (2 documents, both `validated`); corpus gate; both audit CSVs' rows re-derived and re-approved |
 | **S6 — the remaining mechanisms** | per-family row grammars on the shared template | **an ESTIMATE, and it is not offered.** What is measured: 29 of 392 sections close today; `section-identity` closes 10 sections and 0 documents; `section-equation-scan` closes 0 and always will (L1-C1) | unknown; each family carded separately | as S4, per family |
 
 **The honest total.** Across all six stages the measured newly-validated count is **0 to 8**,
@@ -902,8 +929,11 @@ correction:
 
 **F3 — a memorised account number selects the ledger on a pinned audited document.**
 `analysis/consumers.py`:88-94 slices the document between a memorised product-name-plus-
-account-number literal and a memorised end caption; :115-123 restates the same literal in the
-summary regex. It is R-1 in its purest form: the reader publishes exactly one account of one
+account-number literal and a memorised end caption. The account NUMBER appears once, at `:90`;
+`:116` restates the product designation and its suffix but captures the number rather than
+naming it (`(\d+)`), so "the same literal twice" over-stated it. One literal is enough: it is
+the only thing that finds the slice, and `:111-112` refuses when the slice is empty. It is R-1
+in its purest form — the reader publishes exactly one account of one
 member and is unusable for any other customer of that institution. Its detection markers claim
 the document on its ALL-ACCOUNTS summary caption. This is CONS-HARDCODE and it is S5.
 
