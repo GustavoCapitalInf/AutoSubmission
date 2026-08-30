@@ -36,6 +36,12 @@ from .date_tokens import iso_unique_in_period
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
+from .sibling_omission import (
+    NO_ACTIVITY_RE,
+    SectionLedger,
+    evidence_class,
+    publish_omissions,
+)
 
 _MONTHS = {
     "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4, "MAY": 5, "JUNE": 6,
@@ -75,7 +81,13 @@ _PERIOD_RE = re.compile(
     r"This Statement:\s*([A-Za-z]+ \d{1,2}, \d{4})\s*Last Statement:\s*([A-Za-z]+ \d{1,2}, \d{4})"
 )
 _DAYS_RE = re.compile(r"Number Of Days This Statement Period\s+(\d+)")
-_NO_ACTIVITY_RE = re.compile(r"There were no transactions this period", re.IGNORECASE)
+#: This issue's dormancy wording, kept under this module's own name because it
+#: is live inside `_rows` and this platform ratified it. The PATTERN itself now
+#: lives in `analysis/sibling_omission.py` beside the other ratified printing of
+#: the same fact: L1-C17's dormancy class is wording-independent, and two copies
+#: of one class in two readers is a per-issuer vocabulary (R-1) waiting to
+#: drift.
+_NO_ACTIVITY_RE = NO_ACTIVITY_RE
 _TOTAL_ROW_RE = re.compile(rf"Total\s+\$({_AMOUNT})")
 _SUMMARY_HEADER_RE = re.compile(r"SUMMARY OF ACCOUNT BALANCES?")
 
@@ -250,6 +262,46 @@ def _inert(block: dict, rows: list[Transaction]) -> bool:
     return not rows and all(value == 0.0 for value in block["amounts"])
 
 
+def _block_text(block: dict) -> str:
+    """Everything this account block PRINTED beneath its summary grid."""
+    return "\n".join(str(body) for body in block["sections"].values())
+
+
+def _omission_evidence(block: dict) -> str | None:
+    """Which class of printed evidence admits omitting this account block.
+
+    `_inert` is already a printed ground rather than an absence one — it needs
+    every summary amount the grid printed to be zero — so this reader was never
+    the offender L1-C17 was written against. What it lacked was a NAME for what
+    it reads, and `printed_zero_activity_summary` is that name: the class is the
+    evidence, not the reader, and giving this module a token of its own would
+    rebuild the per-issuer vocabulary R-1 forbids.
+
+    Two things are added rather than assumed. The class's sixth and seventh
+    clauses are the INSTANCE COUNTS, which `_inert` does not read: a grid
+    printing a non-zero count beside a zero amount is a block this reader has
+    not accounted for, and it now refuses instead of passing. And the block's
+    own printed text is offered, so a dormancy declaration admits the block in
+    either ratified wording — which is what the one archive block that reaches
+    here actually prints.
+    """
+    amounts, counts = block["amounts"], block["counts"]
+    if len(amounts) < 4 or len(counts) < 2:
+        return None
+    # The column ORDER is the printed legend's (`_BLOCK_RE`): previous balance
+    # first, then deposits/credits and withdrawals/debits, with the optional
+    # `Checks Processed` column sitting between them and the ending balance.
+    return evidence_class(
+        text=_block_text(block),
+        opening=amounts[0],
+        closing=amounts[-1],
+        credit_total=amounts[1],
+        debit_total=amounts[2],
+        credit_count=counts[0],
+        debit_count=counts[1],
+    )
+
+
 def parse_zions_statement(markdown: str, base: Statement | None = None) -> Statement | None:
     if not detect(markdown).claims:
         return None
@@ -265,17 +317,25 @@ def parse_zions_statement(markdown: str, base: Statement | None = None) -> State
         return None
 
     funded = []
+    omitted = SectionLedger()
     for block in blocks:
         rows = _rows(block, start=start, end=end)
         if rows is None:
             return None
         if not _inert(block, rows):
             funded.append((block, rows))
+            continue
+        # An inert block is one this reader is about to leave out of the
+        # document, so it may only be left out on PRINTED evidence (L1-C17) and
+        # the omission is recorded rather than dropped.
+        if not omitted.record(block["product"], _omission_evidence(block)):
+            return None
 
     # More than one funded account on one PDF is a multi-account document and
     # the schema holds one account (L-1). An account block printing zero for
-    # every column and carrying no row is arithmetically absent, so a funded
-    # account published beside such blocks is exact rather than partial.
+    # every column, carrying no row and printing evidence of that empty state is
+    # arithmetically absent, so a funded account published beside such blocks is
+    # exact rather than partial.
     if len(funded) != 1:
         return None
     block, rows = funded[0]
@@ -327,6 +387,10 @@ def parse_zions_statement(markdown: str, base: Statement | None = None) -> State
 
     stmt.stated_daily_balances = _daily_balances(block, start=start, end=end)
     stmt.transactions = rows
+    # Published only now, on the one path that publishes a statement: a reader
+    # that returns `None` has claimed nothing, and its findings about a block it
+    # left out are not the document's omissions.
+    publish_omissions(omitted.omissions)
     return stmt
 
 

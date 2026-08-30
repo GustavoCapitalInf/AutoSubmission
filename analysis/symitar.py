@@ -34,11 +34,16 @@ platform's six-figure equation row — the platform's own `Dividends` column to
 account for every skipped posting with its `Credits / Deposits` column at
 zero. The skip fails closed on any of them.
 
-**Both idle-declarations are published SILENTLY today.** Neither the
-dormant skip nor the yield-only skip leaves any trace in the payload that a
-deposit section existed and was not published — the schema has no field and
-the integrity-flag vocabulary has no member. That visible surface is
-SIBLING-OMISSION-SURFACE (batch 8), which owns both together. The rule also
+**Neither skip is silent any more, and neither rests on absence.** Both were:
+a deposit section that parsed no row was dropped for the ABSENCE of rows, with
+nothing in the payload to say a section had been read and left out. Both are
+now decided by what the paper PRINTED (`analysis/sibling_omission.py`, L1-C17)
+and recorded as an omission on the DOCUMENT object — the dormant sibling under
+`printed_dormancy_declaration`, the yield-only sibling under
+`yield_only_arithmetic_with_summary_equality`. A deposit section that prints
+NONE of the classes is no longer skipped: the document is refused, because a
+statement one of whose accounts this reader cannot account for is not a
+statement it has read. The rule also
 carries no materiality bound: a five-dollar sibling and a five-hundred-thousand
 -dollar sibling are skipped alike, because a size bound in a parser would be
 exactly the statement-specific constant R-1 forbids. The cost of not reading it was measured: four
@@ -68,6 +73,13 @@ from datetime import date
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+from .sibling_omission import (
+    DORMANT_RE,
+    YIELD_ONLY_ARITHMETIC,
+    SectionLedger,
+    evidence_class,
+    publish_omissions,
+)
 
 _MONEY = r"-?\$?\s?-?[\d,]+\.\d{2}"
 
@@ -113,7 +125,13 @@ _OPENING_RE = re.compile(
     r"(?<![\d/])(\d{2}/\d{2}(?:/\d{2,4})?)\s+(%s)\s+Beginning\s+Balance" % _MONEY,
     re.IGNORECASE,
 )
-_DORMANT_RE = re.compile(r"No\s+Transactions\s+This\s+Period", re.IGNORECASE)
+#: This issue's dormancy wording, kept under this module's own name because it
+#: is this platform's ratified declaration and the design's instruments read it
+#: here. The PATTERN itself now lives in `analysis/sibling_omission.py` beside
+#: the other ratified printing of the same fact: L1-C17's dormancy class is
+#: wording-independent, and a per-issuer copy of it is a per-issuer vocabulary
+#: (R-1) waiting to drift.
+_DORMANT_RE = DORMANT_RE
 
 #: A posting the credit union credited to the account as the yield the account
 #: itself earned. ANCHORED at the start of the description, which is where this
@@ -376,6 +394,10 @@ def parse_symitar_statement(markdown: str, base: Statement | None = None) -> Sta
     summary_balances = _account_summary_balances(lines)
 
     active: list[tuple[_Section, list[dict], float | None, list[float] | None]] = []
+    # What this attempt learned about the deposit sections it does NOT publish.
+    # Local to the attempt: a parse that goes on to decline has established
+    # nothing about the document, so its ledger is discarded with it.
+    omitted = SectionLedger()
     for section in deposits:
         text = section.text
         opening_match = _OPENING_RE.search(text)
@@ -417,12 +439,30 @@ def parse_symitar_statement(markdown: str, base: Statement | None = None) -> Sta
                 }
             )
         if not rows:
+            # ABSENCE IS NOT A GROUND (L1-C17). Until batch 9 this line read
+            # `continue` and dropped the section because it parsed no row —
+            # which is exactly "absence of parsed activity", the one thing
+            # Gustavo's L-1 condition says may never admit an omission. What
+            # admits it is what the PAPER printed, and this issue prints its
+            # declaration in the section's own text. Nothing else is offered:
+            # this layout prints no instance counts, so the zero-activity
+            # summary class cannot be satisfied here and correctly refuses
+            # rather than falling through on a partial reading.
+            if not omitted.record(section.name, evidence_class(text=text)):
+                # A deposit section this reader cannot account for. Refuse the
+                # DOCUMENT rather than shrink it silently: L-1 stands.
+                return None
             continue
         # The account's ending balance as the DOCUMENT states it, read the same
         # way it is read for the account this parser goes on to publish, so the
         # two can never disagree about where that figure comes from.
         stated_closing = equation[4] if equation else summary_balances.get(section.key)
         if _yield_only(rows, opening, stated_closing, equation):
+            # The platform's own arithmetic said this section holds yield and no
+            # member deposits. That was already printed evidence rather than
+            # absence, so this skip was never the defect above — what it lacked
+            # was a RECORD, and it has one now.
+            omitted.omit(section.name, YIELD_ONLY_ARITHMETIC, len(rows))
             continue
         active.append((section, rows, opening, equation))
 
@@ -469,4 +509,8 @@ def parse_symitar_statement(markdown: str, base: Statement | None = None) -> Sta
         )
         for row in rows
     ]
+    # Published only now, on the one path that publishes a statement: a reader
+    # that returns `None` has claimed nothing, and its findings about a section
+    # it dropped are not the document's omissions.
+    publish_omissions(omitted.omissions)
     return stmt
