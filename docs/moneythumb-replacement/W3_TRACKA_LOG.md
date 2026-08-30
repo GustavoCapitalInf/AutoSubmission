@@ -59130,3 +59130,184 @@ No mutation table and no archive sweep are owed: this card adds no gate and no g
 production. The full suite, the conformance set and the corpus gate are not re-run — the diff
 against base is this section, the design document and three files under `tools/`, and that is
 a structural argument, offered as one.
+
+## §L1DESIGN.2 — the closure: 4 BLOCK / 6 MAJOR / 12 MINOR, every one closed on the branch
+
+The independent adversarial review (`docs/moneythumb-replacement/reviews/BATCH9_L1DESIGN_REVIEW.md`,
+`d850ae6` + `0574f4e`, 741 lines) returned **SOUND WITH FINDINGS** and reproduced every one of
+the design's 45 measurements. Its four BLOCKs were not disagreements about the architecture:
+three were places where this cell's own instruments already held the answer to a question the
+design was putting to Gustavo as an open risk, and the fourth was a fail-closed rule that
+removed money on a coincidence. All 22 findings are closed below. **The architecture did not
+change.** Two instruments were added and two extended, and the numbers they produced changed
+four of the design's own claims — one of them the largest.
+
+### The headline: the ruling the design called the only one that could subtract, cannot
+
+The design said of the silent-skip population that a mark count "cannot tell a dropped section
+from a reprinted heading — no instrument outside the reader itself can tell those apart", and
+put Q8 to Gustavo as the one question whose answer could take documents away from 2,596.
+`tools/l1_design_skip_probe.py` instruments the reader itself, on the production dispatch path:
+
+| registration | `validated` read | documents where a skip FIRES | sections skipped | with printed evidence | with NONE |
+|---|---:|---:|---:|---:|---:|
+| `symitar` | 7 | 4 | 7 | 7 | **0** |
+| `community_section` | 59 | 5 | 6 | 6 | **0** |
+| `dakota_west` | 3 | 2 | 2 | 2 | **0** |
+| `mission_valley` | 36 | 0 | 0 | 0 | 0 |
+| `zions` | 12 | 1 | 1 | 1 | **0** |
+| **total** | **117** | **12** | **16** | **16** | **0** |
+
+**Applying the checkpoint's idle-sibling condition to the existing skips removes 0 validated
+documents.** Eight sections carry a printed no-activity declaration (seven under one reader's
+ratified wording, one under another's); the other eight each print their own opening, a closing
+coinciding to the cent, a zero credit total, a zero debit total, a zero credit count and a zero
+debit count — all six clauses on all eight. The subtraction the design warned about does not
+exist. What exists is twelve documents whose skip must be re-founded on evidence already
+printed, sixteen sections that must become visible, and a vocabulary that has to be able to name
+them — which the first version's could not.
+
+### BLOCK-1 — the vocabulary named none of it, and would have refused twelve protected documents
+
+`L1-C17` admitted three tokens. None of them names a printed opening plus a coinciding closing
+plus zero totals plus zero counts, which is what eight of the sixteen sections print; and none
+names either of the third reader's two printed grounds — a reader the design listed as a skip
+site and no instrument had ever probed. With §1.5's override in force, an implementer would have
+had to invent a token (which C17 forbids) or file twelve protected documents `failed`.
+
+Closed: the vocabulary is **closed against ABSENCE and open to EVIDENCE**, with four members,
+each naming what the reader must actually have. Its dormancy member is **wording-independent** —
+two issuers' phrasings are two printings of one fact, and keying the class on one of them would
+rebuild the per-issuer vocabulary R-1 forbids. Its zero-activity member is exactly what the
+third reader's own inert test requires, so that reader's skip is a member of the class rather
+than an exception to the list. And a member is the EVIDENCE, never the reader.
+
+S2's expected movement is restated from "none expected" to the measurement: **0 validated lost,
+12 re-founded, 16 surfaced**, with its file list corrected to the sites the readers take. Its
+one pinned exposure is named rather than assumed: the registration holding a pinned document has
+three documents in the run, two carry this skip and the third carries the live derived
+selection, so every one of them is inside S2's or S5's blast radius.
+
+### BLOCK-2 — the document-level strict count, on the line after the one the design carried
+
+The instrument prints `documents whose EVERY LOCATED section closes: 2` and, on the next line,
+`... under the STRICTER test as well: 0`. The design carried the section-level strict figure and
+not the document-level one. Closed: both are in the headline table, in the stage table and in
+the totals, each labelled with the test it is measured under, together with the instrument's own
+reason for preferring the middle figure (a section's span runs to the next heading, so the last
+section carries the document's trailing tables and the dated-row pattern cannot tell a fee table
+from a truncated ledger). **The honest range is 0 to 8, not 2 to 8**, and which point is the
+planning figure is now its own ruling rather than a choice this cell made quietly.
+
+### BLOCK-3 — the census the whole staging rests on was six of eleven, and four seams were unnamed
+
+The ordering constraint — teach every payload reader before any document publishes two accounts
+— was stated over "every payload reader", a universal quantifier over a set nobody had written
+down. By the probe's own criterion there are **eleven**, and the five the design missed include
+the one that rides in every discovery telemetry record and the one that turns the corpus gate
+red. Re-measured: **10 readers probed, 9 answer a shape they were not taught, 1 raises** — and
+the one that raises does so only because it INDEXES the key where the others use a safe
+accessor, so the loudness is an accident of style rather than a guard. The conclusion is
+unchanged and stronger.
+
+The seam census was as incomplete: **nine** production call sites pair the analysis entry point
+with the serialiser; four were unnamed (including the CLI and the cache every web upload passes
+through) and two were cited outside the range that holds them. All nine are named now.
+
+And the exit criterion is a list that can FAIL rather than a quantifier that cannot: the probe
+gained a `--census` mode that compares the declared seams against the tree in both directions
+and exits non-zero on a seam that moved or a seam that appeared. Measured at this tip: 9 found,
+0 undeclared, 0 missing — **the census holds**.
+
+### BLOCK-4 — an arithmetic coincidence could delete a deposit the paper printed
+
+The transfer rule set INTERNAL from date, magnitude and sign alone, and the flag's own
+consequence removes the pairing from every package total. A member who moves the same sum into
+one account and out of another on one day, for unrelated reasons, produced a unique unambiguous
+pair — flagged, and a printed deposit then absent from a funder's view of the business. That is
+the repair doctrine's error pointing the other way.
+
+Closed with a fourth clause — the paper must PRINT a transfer designation on at least one leg —
+and the clause is priced with the classifier's OWN committed vocabularies rather than a grammar
+written here:
+
+| population | pairs | with a printed designation |
+|---|---:|---:|
+| the published greedy rule | 47 | **46** |
+| the unique-counterpart rule | 47 | **46** |
+
+**One pair of forty-seven**, and that one is precisely the class the clause exists to refuse.
+
+The two pairing defects the killer population carried are re-measured rather than argued: the
+published rule takes the first admissible counterpart where the design's own rule says two
+counterparts pair with none, and it resets its used-posting set per ledger pair while **3**
+documents reconstruct three or more live ledgers. Both are real; neither bites here — **0**
+postings have two admissible counterparts, so all three pairing rules return the same 47. The
+population is therefore usable as a killer set, which the design could not claim before, and the
+ambiguity branch's killer is named as a constructed fixture because the archive does not print
+one.
+
+### The six MAJORs
+
+| | finding | closed as |
+|---|---|---|
+| **MAJOR-1** | the condition forbidding a chosen account, against the surface table that made two discovery columns "the FIRST account's" | resolved in favour of the condition: a per-document field that can hold one account's value is left EMPTY and the count carries the fact. The condition now binds SURFACES as well as readers, and the rule is stated once above the table. Printed order stays evidence about a sequence, not evidence that the first element stands for the whole |
+| **MAJOR-2** | the byte-identity claim is a tautology at the seam it tests | the cohort is widened to **232 documents / 80 registrations**, adding the 9 registrations whose payloads take the nulled-balance and emptied-ADB branches; and the risk one layer up is MEASURED. Three assemblies of the integrity scope split: order-preserved **232/232 identical**, naive concatenation **232/232 here** but one document from moving a tuple the gate pins in published order, and the design's own prose read literally **moves 3 of 232**. S1's proof plan now names the pipeline seam and the split as what it is proving |
+| **MAJOR-3** | a package ADB over one document's accounts is a document ADB by another name, and the gate forbids a FIELD | the gate assertion becomes a property of the ARITHMETIC — no published average over two members sharing a content digest — plus the package-membership rule (a member is an account whose own outcome is `validated`), because the aggregation gates on job status alone and never on the outcome. Both questions put explicitly rather than left to fall out of the surface table |
+| **MAJOR-4** | F2's mechanism and site are not the ones production takes | measured: the named call-site clause drops **0**; the drop is inside the per-section parser and fires **8** times. File list and the place the omission record must be written both move inside the callee |
+| **MAJOR-5** | the pinned movement was a disjunction and omitted the second document | stated whole: **2 validated → failed, one pinned**, on a correctness argument, with both audit paths re-derived. Two figures already in the design decide it — the memorised literal is the only thing that finds the slice and the reader refuses on an empty slice, and the band closes nothing today |
+| **MAJOR-6** | a default could outrank a document-level printed currency statement | the missing rung is added and the whole precedence written out. A document-level printed statement is explicit evidence wherever on the page it is printed; only a section that CONTRADICTS it refuses. The two-denomination ruling now says it needs this rung first |
+
+### The twelve MINORs
+
+Corrected: both skip-site citations (one of them a comment); the instrument count; the relaxed
+form the ratified sibling predicate actually runs in, which the design called the strict one;
+two different denominators printed as one fact; the caption condition that had no vocabulary and
+so was not yet a predicate; the condition whose truth depends on an unruled threshold; the
+facility condition whose measured population counts three classes while three more fire
+uncounted; the idle-section table's missing row; the probe label that said "no payload changed"
+where it meant "no leaf path changed" — the blind spot itself wearing the wrong words; and the
+outcome fold that ranked an unranked class lowest, where a refusal is what an unreachable state
+should get.
+
+Stated rather than corrected: **four of the eighteen conditions have no measured killer
+population** and the preamble implied all did. Each needs a constructed fixture, and the card
+that writes the condition owns building one — a mutation table whose killer is a citation is not
+a mutation table.
+
+### The shared instrument's fix, carried into the plan
+
+Ocean's `train9` change to `flatten` closes the empty-container half of the blind spot this
+design measured, and a stage should rebase onto it. Two consequences belong in every stage's
+plan: the fix is BROAD — the baseline payloads already carry thousands of empty containers, so
+**every cell's `--expect-identical` fidelity control must be re-established at `train9`
+`7755665` or later before it is used as a control** — and it leaves the scalar-list-ORDER half
+open, so the byte comparison beside every payload-shape replay stays.
+
+### Three corrections the new instruments made to themselves
+
+Recorded because an instrument that once over-counted has to carry the reason it no longer does.
+
+* The first skip probe used `sys.settrace`, whose global call hook fires for every call in the
+  interpreter; it did not finish in ten minutes. It uses `sys.monitoring` with LOCAL events on
+  three code objects instead, so nothing else in the process is instrumented.
+* `resolve` calls `parse` on EVERY candidate registration and three of these registrations route
+  into one module function, so counting line hits without asking whose parse attempt they belong
+  to attributed losing candidates' drops to the winner — **71 sections where the claiming parser
+  drops 6**. Only skips inside the claiming registration's own entry point are counted.
+* One watched site is an `if`, not a skip: counting its executions counted blocks (**65**), and
+  counting its first operand counted the callee's drops a second time. Its own contribution is
+  the second operand alone, and that is **0** — which is what confirms MAJOR-4.
+
+### The closure's proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files), with the six prototypes present | **255 passed** | **0** |
+| `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` | **empty** | — |
+| instruments unwired | nothing outside `tools/` references any of the six | — |
+| the six instruments re-run at the closure tip | EXIT=0 each | 0 |
+| seam census (`l1_design_reader_probe --census`) | 9 declared, 9 found, 0 undeclared, 0 missing | **0** |
+| W3 | base + §L1DESIGN + this closure section; no earlier line touched | — |
+| branch privacy scan, added lines vs the whole population | see the row below | — |
+| commit-message scan | see the row below | — |
