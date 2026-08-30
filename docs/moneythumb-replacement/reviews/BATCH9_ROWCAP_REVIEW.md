@@ -284,6 +284,29 @@ guard-forced; recorded so composition sees it named.
 
 ---
 
+---
+
+## 6. Addendum — the corpus-marked slice, and a trap for the next reviewer
+
+The reviewer's own corpus-marked run, executed from a detached worktree under the system
+temp directory, returned **1 failed / 29 passed** on
+`tests/test_rbc_variants.py::test_curj_the_nine_currency_1_corrections_publish_their_pinned_currency_from_the_archive`.
+**That failure is an artefact of where it was run, not a defect in this branch.** The test
+resolves the D-3 OCR artifact store by walking ancestors of the checkout
+(`_checkout_ancestor("webapp_data", "artifacts", "ocr")`) and, by design, FAILS rather than
+skips when it cannot find it — "a currency proof that quietly passes when it could not find
+the evidence is the defect this test exists to remove". A temp worktree has no `webapp_data`
+ancestor; the repository root does.
+
+Re-run at the same tip from a checkout that can reach the archive, the test **PASSES** (88s).
+So the cell's `corpus-marked 30 passed` stands, and the RBC pinned-currency surface is
+confirmed intact at the tip by the one test that dereferences the nine corrected shas
+against the archive rather than asserting a literal list.
+
+Two things worth carrying from it: the test's fail-closed design worked exactly as intended,
+and a reviewer running the corpus slice from a detached temp worktree will get a false
+failure on this row — it must be run from the repository tree or from a worktree beneath it.
+
 *Reviewer's instruments and logs are private (`scratchpad/b9/review_rowcap/`):
 `base_replay.log`, `tip_replay.log`, `floor.log`, `mutation.log`, `scotia_attack.py`,
 `wells_attack.py`, `wells_census.py`, `order_census.py`, `tables_population.py`,
