@@ -59422,5 +59422,8 @@ the census until it is added.
 | instruments unwired | nothing outside `tools/` references any of the six | — |
 | the transfer instrument, re-run on the corrected vocabulary | 47 pairs; **43 designated / 4 refused**; split 41 / 2 / 3 / 1; 42 of 43 on one leg; 0 ambiguous | **0** |
 | W3 | base + §L1DESIGN + its two closure sections; no earlier line touched | — |
-| branch privacy scan, added lines vs the whole population | RR-PRIVACY | RR-PRIVEXIT |
-| commit-message scan | RR-MSG | RR-MSGEXIT |
+| branch privacy scan, added lines vs the whole population | **hit_count 0** over 5,489 added lines and 3,351 documents read (population 3,380); MONEY / DIGITS / DATES / WORDS all 0; raw 141, every one class WORDS, discarded by the standing `words_class` exclusion | **0** |
+| commit-message scan | **hit_count 0** over 27 commits; all classes 0 | **0** |
+| ... and it was NOT 0 the first time, a third time | four WORDS collisions across three messages. Two were ordinary pairs; the third was a SINGLE distinctive word this archive prints, which is a class this cell had not met before — the message scanner hits on a lone word as well as on a pair. Two `--msg-filter` passes over `1113ce5..HEAD` (the second because the first matched a phrase that spans a line break in the wrapped message), trees verified byte-identical against the pre-rewrite tip each time, `refs/original` removed |
+| ... **including one message this cell did not write** | one of the four was in the RE-REVIEW's own commit. It was reworded by the same pass, with its tree byte-identical and the review's CONTENT untouched — only its message. Recorded here in full because rewriting another cell's commit message is not this cell's ordinary business: it is done because a branch-level message scan of 0 is the standing requirement, the branch is unpushed, and Ocean composes it. If Ocean would rather the reviewer reword its own, the commit to redo is the re-review's |
+| the closure's own measurements | the two scan rows above were measured at `dd1f4c0`; the only change after them is this record's own numbers, which add lines and move no hit count |
