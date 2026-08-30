@@ -239,3 +239,272 @@ eight documents.
 
 The eight sheets are real pages with real ink. The flag on them is correct today and the
 refusal is right; the opportunity is real too, and it is now measured.
+
+## Re-review (closure 77f909a) — 2026-08-30
+
+Second independent adversarial reviewer, not the author of the review above (that
+session did not survive the context turnover). Base `train9` `8da8239`, reviewed tip
+`7d96c64`, closure tip `77f909a`, worktree `.claude/worktrees/mt9-pagecov`. Run of
+record `TRAIN8-7185633/2026-08-28T224640.553059-0000-cda8882d`, cold cache
+`.claude/recovery/webapp_data_train8_cold` (read-only). **Every number below is one I
+produced at the closure tree.** The cell's prose was read only to know what to attack;
+where my instrument and the cell's disagree I say so. My instruments were written with a
+file tool into the scratchpad (0 control bytes), never committed; the worktree was clean
+before this commit and carries only it.
+
+### Verdict
+
+**CONFIRMED — COMPOSE.** All six findings closed, the floor reproduced at the closure
+tree, no production reading change. Two items travel with it and neither is on this
+branch: a register key union at composition (mechanical, set difference below), and an
+amendment `docs/agent-handoffs/PAGECOV-IMAGE-SHEET.md` on train9 still owes — it carries
+MAJOR-1's correction in its finding paragraph but **not** in the two sections a cell would
+implement from.
+
+### Per-finding
+
+| # | finding | verdict | claimed | I measured |
+|---|---|---|---|---|
+| MAJOR-1 | the card's two named tests return 0 on all eight sheets | **CLOSED** | `get_images` 0 / `get_drawings` 0; one inline image at 99.5–100 % of the content stream; 279,848 B / 38,199 B; byte-identical within each issuer group; coverage 34.5 % / 12.2 % | `get_images(full=True)` **0 on all 8**; `get_drawings()` **0 on all 8**; extractable characters **0 on all 8**; exactly **1** inline image per sheet; **279,848 B** (share **100.0 %**, stream 279,959 B) and **38,199 B** (share **99.5 %**, stream 38,378 B); payload sha256 **1 distinct value per group** — byte-identical, not merely same-sized; coverage **34.5 %** / **12.2 %**, grey levels **175** / **239** |
+| MAJOR-2 | the census walks both halves, per form | **CLOSED** | 3,380 · 29 · 1,425 · 1,926; as_shipped gains 50 (43 v / 7 f), RAISES 7 (3 v / 4 f); no-space alone 23 gains, 0/0; slash form alone 7 raises; all 7 one form | identical on every cell, and the three validated raises are `0A14AC169DEA62D4`, `9C5B7D628D7511EE`, `C067BE96F6B0BE0F`, all `symitar`; the `as_shipped` raised SET equals the `only:PAGE_N_SLASH_M` raised SET; `trusted_now`, `only:PAGE_N_OF_M_NO_SPACE` and `only:PAGE_N_OF_M_SPLIT_BY_CONTROL_BYTE` each change **0** decisions over 3,380 |
+| MAJOR-3 | the probe is classified; the register goes green at the train | **CLOSED** | unclassified = the three L-1 probes alone; green under train9's fix; stale 0 | the test fails naming exactly `['tools/l1_design_payload_probe.py','tools/l1_design_reader_probe.py','tools/l1_design_skip_probe.py']`; stale **0**; nothing both declared and excused; UNION with train9's register → unclassified **[]** |
+| MINOR-1 | the carried card is a pinned-surface ceremony | **CLOSED** | two pinned `review` verdicts, `AF6BD563A3D7165A` and `4C96DDA28A6728FB`; 102/3 → 103/2 | both hashes verified from the pinned files themselves; both pinned `review` on this flag alone with their notes; gate verdicts unchanged |
+| MINOR-2 | the twenty spans two frames | **CLOSED** | 17 in the run of record's payloads (11 `review` + 6 `withheld`) + 3 only at this base | scanned the run of record's own 2,630 cached analysis payloads: **17** carry the flag, **11** as their only flag, **6** alongside others; the three movers are `failed` in that run and publish no payload |
+| MINOR-3 | the census JSON backs its own headline table | **CLOSED** | every record + totals + candidate definitions | the artefact holds **3,351** records (3,380 − 29 no-text), `shas` / `no_cached_text` / `no_declaration`, `form_counts`, `form_counts_by_half` and `candidates`; I re-derived the form table, the gain table and the change table from the JSON alone |
+
+### What I attacked, and what survived
+
+**MAJOR-1 — the eight sheets, opened again from the paper.** I did not take the
+review's figures. My own instrument (PyMuPDF, read-only; `get_text("dict")`,
+`read_contents()`, `get_pixmap()`, and a `BI … ID … EI` scanner of my own) over the eight
+PDFs, each located by hashing the file and matching `content_sha256` — all eight hashes
+verified:
+
+| | last sheet chars | `get_images` | `get_drawings` | content stream | inline images | inline bytes | share | coverage | grey levels |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| the four `linkbank` | 0 | 0 | 0 | 279,959 B | 1 | 279,848 | 100.0 % | 34.5 % | 175 |
+| the four `core_processor_enclosures` | 0 | 0 | 0 | 38,378 B | 1 | 38,199 | 99.5 % | 12.2 % | 239 |
+
+Stronger than the record claims on one point: I hashed the inline payloads and each issuer
+group has **exactly one distinct sha256** across its four documents, so "byte-identical
+within each group" is proved rather than inferred from equal lengths. The record's coverage
+figures reproduce **exactly** once the method is recovered — a grayscale page pixmap at
+**dpi 50**, any pixel below 255 counted as ink; the grey-level counts (175 / 239) reproduce
+at the same setting, which is what identifies the method. **The method is not written
+down anywhere**, and I had to sweep dpi × threshold to find it (at 72 dpi the same sheets
+measure 22.8 % / 8.7 %). See the record note below.
+
+The closure's substantive conclusion holds in every direction: the sheet is a supplied,
+fully inked page; both of the tests the card first named report nothing on it; and the
+flag is still correct today because the check counts text and there is none.
+
+**MAJOR-2 — the census, re-run whole.** One foreground run over all 3,380 shas from the
+run of record's own cached text, the branch's own instrument at the closure tree
+(`python -m tools.pagecov_form_census --rows <run>/rows.csv --data-dir <cold cache> --json
+<private>.json`, **EXIT=0**). Every cell of both W3 tables reproduced: the population line
+(3,380 · 29 · 1,425 · 1,926), all seven rows of the form table in both halves, all six
+candidate rows of the change table. The decomposition is real and I checked it as a set
+identity, not as a count: the documents `as_shipped` raises are *the same documents*
+`only:PAGE_N_SLASH_M` raises, and the two remaining trusted forms raise and clear nothing
+anywhere in the archive.
+
+The mechanism is measured, not asserted. On the three previously `validated` documents the
+widened denominator is **1** against **4, 5 and 5** supplied sheets — exactly the
+"ordinal over a denominator of one" the record describes — and on the four `failed` ones it
+is 29, 30, 31 and 2, which are day-of-month values. Every one is a date read as a page
+declaration.
+
+I also checked the direction this could have gone wrong in silence: `_TRUSTED` feeds the
+probe's `FORM_UNREAD_ON_SHEET` tag as well as its counterfactual, so dropping a form from
+it *could* have moved a document's class. The `PAGE_N_SLASH_M` regex is byte-identical
+across the closure (only its `supplies` flag changed True → False), the census pins the
+reviewed set in its own `AS_SHIPPED` constant, and the probe's class table is unchanged —
+verified below.
+
+**MAJOR-3 — the register, and what composition will do.** The excuse text is TRUE: I read
+the probe. `published_flags()` and the `actual` arm of `blank_sheet_counterfactual()` pass
+the reconstructed page list; the second arm passes `[sheet if sheet.strip() else "." for
+sheet in sheets]` — a deliberately substituted partition. The probe publishes no verdict
+and writes nothing but stdout and an optional private JSON. Excusing it rather than
+declaring it is the correct call, and the reason says so in the one place it differs from
+every entry above it.
+
+The composition arithmetic, since Ocean will need it:
+
+| register | tip `77f909a` | train9 `d18a5e4` | tip − train9 | train9 − tip |
+|---|---:|---:|---|---|
+| `EXCLUDED_ANALYSIS_CALLERS` | 30 | 33 | `tools/pagecov_probe.py` | the three L-1 design probes, `tools/l1s1_seam_probe.py` |
+| `ANALYSIS_CALL_SITES` | 3 | 4 | — | `('analysis/pipeline.py', 'analyze_document')` |
+
+No key collides. Swept callers at the tip: 36. Unclassified with the tip's register = the
+three L-1 probes; with train9's register = `tools/pagecov_probe.py`; **with the union =
+`[]`**. The conflict at composition is a pure append-union of disjoint keys.
+
+### The headline claim, and the sweep
+
+The W3 opening now says **"No production READING changes"** where it said "no production
+file changes". The diff supports the corrected wording exactly and would not support the
+old one. `git diff --name-only 8da8239..77f909a` = `corpus_gate.py`, the W3 log, the review
+file, and the two `tools/pagecov_*.py`. `git diff --quiet 8da8239..77f909a --
+analysis/pipeline.py` → **identical**; `analysis/ ocr/ webapp/ discovery/` show no change at
+all; the whole of `corpus_gate.py`'s diff is one key and its comment in
+`EXCLUDED_ANALYSIS_CALLERS`.
+
+**I agree no whole-archive sweep is owed**, and on a stronger ground than "no analysis file
+changed". `corpus_gate.py` IS imported by production — `discovery/inventory.py:14` — so
+"nothing production imports changed" would have been false. But that importer uses only
+`manifest_paths`, `read_csv` and `BALANCE_CSV`; `EXCLUDED_ANALYSIS_CALLERS` is read by
+`tests/test_corpus_gate_outcomes.py` and by nothing else in the tree. A key added to a dict
+that no analysis path reads cannot move a document, so the sweep would replay the base
+against itself. Ocean's standing ruling holds.
+
+Append-only holds too: the base W3 blob is a **byte-exact prefix** of the tip blob,
+`# §` headings 96 → 97, exactly one `# §PAGECOV` and it is the last section. The closure
+did not touch the review file above. Both instruments carry **0** control bytes.
+
+### The one thing that still owes: `PAGECOV-IMAGE-SHEET` on train9
+
+MAJOR-1 is closed *on this branch*. It is **not** closed in the card the finding exists to
+protect. `docs/agent-handoffs/PAGECOV-IMAGE-SHEET.md` at train9 `d18a5e4` carries the
+correction in its "Measured by the review" paragraph — "`get_images()` (XObjects) and
+`get_drawings()` both return 0 on all eight" — and then, in the two sections a cell would
+actually implement from, still names those tests:
+
+* **The question put to Gustavo**: "when the PDF proves it carries INK — *an embedded image
+  XObject or drawing operators* covering a page-sized area".
+* **Method step 1**: "read-only over the PDF page objects: text operators, *image XObjects*,
+  drawing operators, bounding coverage".
+
+Both measure **0 on all eight documents**, which I reproduced. A cell that reads the card
+top-to-bottom and implements the Method would land in exactly the failure MAJOR-1 was
+raised to prevent, and Gustavo would be ruling on a capability that cannot detect the eight
+sheets the ruling is about. **Ocean must amend both lines to rendering / marking-operator
+counting with inline images included, before that card launches.** Not blocking this
+branch's composition; blocking the next one.
+
+Two smaller divergences in the same file, both in the direction of the card being staler
+than the branch:
+
+* the card's carried P3 line still reads "`PAGECOV-NO-SPACE-FORM` (`Page Nof M`, **5
+  documents**, changes no decision)" — the pre-MAJOR-2 figure. Measured at this tree the
+  form is printed by **28** documents and would hand **23** a declared total for the first
+  time, still changing no decision on any of the 3,380. The card also does not carry W3's
+  "**it must never be implemented as 'the alternative forms'**", which is the operative
+  warning: the aggregate that reads safely in the card is the one that raises 7.
+* the card says the widening "would RAISE the flag on 7, three of them validated" without
+  the decomposition. That is conservative and therefore safe, but a cell reading it cannot
+  tell that the form the card itself carries is not one of the seven.
+
+### Record notes (no finding; nothing blocks)
+
+1. **The rendering method is not recorded.** The coverage figures 34.5 % / 12.2 % and the
+   grey-level counts 175 / 239 reproduce only at a grayscale page pixmap at **dpi 50**
+   counting every pixel below 255. Nothing in the W3, the review above or the card says
+   dpi, colour space or threshold, and the same sheets measure 22.8 % / 8.7 % at 72 dpi.
+   A follow-on cell measuring "ink coverage" will get a different number and think the
+   record wrong. One clause naming the render settings fixes it.
+2. **Two decorative figures in the same table did not reproduce.** At the recovered method
+   the "clearly-dark ink" column measures **15.9 %** (record: 16.6 %) on the `linkbank`
+   sheets and **8.5 %** (record: 8.5 %) on the others — the second is exact, the first is
+   0.7 pp out, so the dark threshold is near but not exactly the one I used. And the
+   `linkbank` "statement page before it" range reads **15.7–34.9 %**, not the recorded
+   15.7–26.1 %: two of the four preceding pages measure 33.0 % and 34.9 %. Both numbers
+   came from the review above rather than from the cell's instruments, and neither is
+   load-bearing — the claim they support, "on `E002430E81CADFE7` and `68D4F9F06AA764D9`
+   the sheet carries more than twice the ink of the page before it", reproduces (34.5 vs
+   15.7 = 2.2×; 12.2 vs 4.0 = 3.1×).
+
+### The probe table, re-run at the closure tree
+
+I re-ran the probe because `PAGE_N_SLASH_M` leaving `_TRUSTED` also feeds the
+`FORM_UNREAD_ON_SHEET` tag, which feeds the CLASS — a trust change could have moved a
+document's class in silence. It did not:
+
+`PYTHONPATH=. python -m tools.pagecov_probe --shas <the 14> --data-dir <cold cache>` →
+the PAGECOV3 table row for row, all 14 · `flag probe/published` **True/True on all 14** ·
+**TRACE-DISAGREES 0** · classes `a_SHEETS_GENUINELY_ABSENT` **4**,
+`a_DECLARED_SHEET_CARRIES_NO_TEXT` **8**, `a_LABEL_GLYPHS_DESTROYED` **1**,
+`b_DECLARATION_FORM_UNREAD` **1** · counterfactuals `form_widened` **0**,
+`majority_denominator` **0**, `blank_sheet_counted` **8**, `all_three` **8** — **EXIT=0**.
+`A20AACF22B6A475A` keeps class **b**, so the form the closure distrusted was never what
+made that document a (b).
+
+`--outcome-counterfactual` over the same population: the eight text-empty-sheet documents,
+each replayed twice, **8 of 8 `review / integrity_flags` → `validated / approved`, 0 flags**
+— **EXIT=0**. The size of what the card refuses is unchanged.
+
+PAGECOV1 reproduces too, and its lesson with it: `cohort_replay --shas` over the eleven
+with `--expect-identical` → population 11, **11 unchanged non-validated, payload changed 0,
+EXIT=0**; over the three CP-DECLINES movers → population 3, **3 improved (other ladder
+movement up), newly validated 0, regressions 0, EXIT=0**. The population at this base
+really is 14.
+
+### Proof floor, re-run at 77f909a
+
+| proof | claimed | I measured |
+|---|---|---|
+| canonical guards (5 files) | 255 | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | 1,270 + 40 skipped | **1,270 passed, 40 skipped — EXIT=0** |
+| `python corpus_gate.py` | GREEN 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1/3/102/3 | **RESULT: GREEN — EXIT=0.** 109 pinned PDFs (103 native, 6 committed OCR), 0 exclusions, **Outcomes 105 PASS / 3 WITHHELD / 1 REFUSED**, **Verdicts 1 refused / 3 review / 102 validated / 3 withheld**, all 15 checks PASS (runtime 794.8 s) |
+| six reader cohorts, `--expect-identical` | 128/128 preserved, payload identical | populations 4 / 61 / 9 / 21 / 48 / 5 = 148; preserved **0+59+2+17+46+4 = 128 of 128**, payload identical **128**, payload changed **0**, validated regressions **0**, other ladder regressions **0** — **EXIT=0 on all six** |
+| `tests/test_corpus_gate_outcomes.py` register test | fails only on the three L-1 design probes | **1 failed, 23 passed**; the assertion names exactly `['tools/l1_design_payload_probe.py', 'tools/l1_design_reader_probe.py', 'tools/l1_design_skip_probe.py']` — the branch's own probe is gone from it; stale **0** |
+| `tools/pagecov_form_census.py` over 3,380, both halves, per form | the two tables | **every cell reproduced — EXIT=0** |
+| `tools/pagecov_probe.py` over the 14 / the 20 | TRACE-DISAGREES 0 | **0 on both — EXIT=0** |
+| privacy, added lines | 1,597 added lines, hits 0 / raw 0, against 5,012 MONEY / 729 DIGITS / 318 DATES / 8,022 WORDS | **added_lines 1,597 · hit_count 0 · raw_hit_count 0 · printed_tokens 5,012 / 729 / 318 / 8,022 · population 20, documents_read 20 — EXIT=0** |
+| privacy, commit messages | 0 in all four classes | **15 commits scanned, MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0**, raw identical — **EXIT=0** |
+| the 26 assertions pinning the flag across 7 test files | 26 | **26**, and the per-file split matches (`test_analysis` 10 · `test_corpus_gate_outcomes` 6 · `test_filename_boundary` 5 · `test_diagnostics` 2 · `test_telemetry` 1 · `test_telemetry_corpus` 1 · `test_artifact_cache` 1) |
+| corpus-marked slice (`pytest -m corpus`, from this worktree beneath the repository) | 30 | **30 passed**, 7,503 deselected — **EXIT=0** (1,973 s under the host contention below) |
+| full default suite | 7,455 passed / 43 skipped / 1 failed (the register) | **1 failed, 7,455 passed, 43 skipped** — **EXIT=1**, the single failure being `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified`, naming the three L-1 probes and nothing else |
+
+Two notes on running the floor rather than on its results.
+
+* **The commit-message scan is vacuous without a population.** Run exactly as the closure
+  brief records it — `--data-dir … --base 8da8239` — it reports `population 0`,
+  `documents_read 0` and an empty token universe, so its four zeros mean nothing. With
+  `--shas <the 20>` it reads 20 documents against 5,012 / 729 / 318 / 8,022 printed tokens
+  and is still 0 in every class. The zeros are real; **the recorded command should name the
+  population** so the next reader does not reproduce the empty form of it.
+* **Four other harnesses from other sessions ran on this host while I measured** — two
+  `pytest -m corpus`, a full suite, a second `corpus_gate.py` and a
+  `regfp_zero_movement_sweep`, under different task parents. Nothing here mutates a tree,
+  so the results stand, but the gate took 794.8 s and BATCH9-RULES' one-harness-per-host
+  rule was not being honoured by whoever else was running.
+
+### Nothing was weakened
+
+The closure's whole non-documentary surface is three things, and none of them can move a
+document:
+
+1. one key in `EXCLUDED_ANALYSIS_CALLERS`, read by `tests/test_corpus_gate_outcomes.py`
+   and by nothing else in the tree — the classification is honest and I read the probe to
+   check it;
+2. `PAGE_N_SLASH_M`'s `supplies` flag in the probe, True → False, which makes the probe's
+   counterfactual strictly MORE conservative and whose regex is byte-identical either way;
+3. the census rewritten to measure more of the archive, not less.
+
+Neither instrument is imported by anything (`grep pagecov_` over the tree hits only the two
+tools and the register string), both open the cold cache `mode=ro`, and neither writes
+anywhere but its explicit `--json`. `missing_declared_statement_page` is untouched: the
+production check is byte-identical, the 26 assertions pinning it pass, the gate's two
+pinned `review` verdicts on it still hold, and the eight documents the card refuses are
+still refused.
+
+### Recommendation
+
+**Compose.** The cell did the harder version of a closure: it corrected the record in the
+direction that made its own earlier claim weaker (the census), corrected a claim in the
+direction that made it stronger (the anchors), and corrected the headline sentence that
+stopped being true rather than letting the phrase cover the new commit. Every number it
+put in the record reproduces at the tree, including the two I expected to fail — the
+inline-image byte counts, which are byte-identical and not merely equal-length, and the
+probe's class table, which the trust change could have moved and did not.
+
+Two things must travel with it, neither on this branch:
+
+1. **At composition** — union the register. `tools/pagecov_probe.py` is the branch's only
+   addition and collides with nothing; the union is green.
+2. **Before `PAGECOV-IMAGE-SHEET` launches** — amend the card's *question* and *Method
+   step 1* to name rendering or marking-operator counting with inline images. They still
+   name `image XObjects` and `drawing operators`, which measure **0 on all eight documents
+   the card exists for**. MAJOR-1 is closed in the record and open in the artefact the
+   record was written to protect.
