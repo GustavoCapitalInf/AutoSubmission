@@ -65,6 +65,21 @@ class Mutant:
     new: str
 
 
+def _lines(*parts: str) -> str:
+    """A multi-line mutant anchor, joined at runtime.
+
+    Never an escape inside a literal: a shell heredoc turned `\\n` into a real
+    newline here once already, and a mutant anchor that cannot be applied
+    exactly as documented is not a mutant (BATCH9-RULES).
+    """
+    return "\n".join(parts)
+
+
+#: pytest exit codes that mean the tests never ran. None of them is evidence
+#: that a mutant was killed (L1-S3 review, MINOR-7).
+DID_NOT_RUN_EXITS = frozenset({2, 3, 4, 5})
+
+
 MUTANTS: list[Mutant] = [
     Mutant(
         "M1", "the export renders the document block and DROPS every account",
@@ -106,6 +121,54 @@ MUTANTS: list[Mutant] = [
         "webapp/app.py",
         "        if len(set(digests)) != len(digests):",
         "        if False and len(set(digests)) != len(digests):",
+    ),
+    Mutant(
+        "M7", "the package's member-set check removed, so a per-period average "
+              "is published over two accounts of ONE document",
+        "webapp/app.py",
+        "    refuse_cross_account_averages = bool(documents_with_several_members)",
+        "    refuse_cross_account_averages = False",
+    ),
+    # M8-M10 are the L1-S3 review's own mutant, at the three refusal sites it
+    # found untested: the refusal LEFT IN PLACE but moved into a dead branch.
+    # The review proved all three passed the whole 7,578-test suite and both
+    # censuses. They are killed twice now — by a test, and by the census, whose
+    # forward check no longer walks into a constant-false branch.
+    Mutant(
+        "M8", "the balance audit's refusal moved into a dead branch (the LEGACY "
+              "INDEXING path)",
+        "balance_forensic_audit.py",
+        _lines(
+            '    refuse_document_payload(',
+            '        payload, surface="balance_forensic_audit.py::audit_source")',
+        ),
+        _lines(
+            '    if False:',
+            '        refuse_document_payload(',
+            '            payload, surface="balance_forensic_audit.py::audit_source")',
+        ),
+    ),
+    Mutant(
+        "M9", "the ADB audit's refusal moved into a dead branch",
+        "adb_forensic_audit.py",
+        '    refuse_document_payload(payload, surface="adb_forensic_audit.py::audit_one")',
+        _lines(
+            '    if False:',
+            '        refuse_document_payload(payload, surface="adb_forensic_audit.py::audit_one")',
+        ),
+    ),
+    Mutant(
+        "M10", "the gate's currency-provenance refusal moved into a dead branch",
+        "corpus_gate.py",
+        _lines(
+            '        refuse_document_payload(',
+            '            payload, surface="corpus_gate.py::check_currency_source")',
+        ),
+        _lines(
+            '        if False:',
+            '            refuse_document_payload(',
+            '                payload, surface="corpus_gate.py::check_currency_source")',
+        ),
     ),
 ]
 
@@ -204,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     bystanders = len(other_pythons())
 
     chosen = [m for m in MUTANTS if not args.only or m.id in args.only]
+    did_not_run: list[str] = []
     print("# L1-S3 — the mutation table")
     print()
     print(f"Tests: `{' '.join(TESTS)}` plus `tools/l1s3_surface_census.py`, "
@@ -241,21 +305,38 @@ def main(argv: list[str] | None = None) -> int:
             print()
             print(f"**STOPPED**: the tree is dirty after {mutant.id}.")
             return 3
-        killed = code != 0 or census != 0
-        if not killed:
-            holes.append(mutant.id)
+        # L1-S3 review, MINOR-7. `code != 0` counted a NON-RUN as a kill:
+        # pytest exits 2 (interrupted), 3 (internal error), 4 (usage) and 5 (no
+        # tests collected) are all non-zero and none of them is evidence that
+        # anything failed. A kill is exit 1 WITH at least one named failing
+        # test, or a census that went red. Anything else is DID_NOT_RUN and is
+        # excluded from the score rather than counted for it.
+        if code in DID_NOT_RUN_EXITS:
+            did_not_run.append(f"{mutant.id} (pytest exit {code})")
+            outcome = f"DID NOT RUN ({code})"
+            killed = False
+        else:
+            killed = (code == 1 and bool(failing)) or census != 0
+            outcome = f"{'FAIL' if code else 'pass'} ({len(failing)})"
+            if not killed:
+                holes.append(mutant.id)
         names = ", ".join(f"`{name.split('::')[-1]}`" for name in failing[:4])
         if len(failing) > 4:
             names += f", +{len(failing) - 4} more"
         print(f"| {mutant.id} | {mutant.what} | `{mutant.file}` | "
-              f"{'FAIL' if code else 'pass'} ({len(failing)}) | {census} | "
-              f"{names or '—'} |")
+              f"{outcome} | {census} | {names or '—'} |")
     print()
+    if did_not_run:
+        print(f"**DID NOT RUN**: {', '.join(did_not_run)} — pytest exited "
+              f"without running the tests. That is not a kill, and it is not a "
+              f"hole either: nothing is scored for these. Re-run them.")
+        return 2
     if holes:
         print(f"**HOLES**: {', '.join(holes)} — no test and no census failed on "
               f"these, which is a gap in the proof, not a property of the code.")
         return 1
-    print(f"Every mutant killed: {len(chosen)} / {len(chosen)}.")
+    print(f"Every mutant killed: {len(chosen)} / {len(chosen)}, each by a NAMED "
+          f"failing test or a red census.")
     return 0
 
 

@@ -1004,7 +1004,15 @@ def observe_run(
         if payload is None:
             out.append((context, unavailable(parser_id, REASON_PAYLOAD_ABSENT)))
             continue
-        out.append((context, evaluate(payload, parser_id=parser_id)))
+        # ONE observation per ACCOUNT, in printed order. `evaluate_accounts`
+        # returns exactly `[evaluate(payload)]` for every payload this tree
+        # publishes, so this loop is unchanged today — and it is the only entry
+        # point the observer has, so wiring it here is what keeps the
+        # renders-per-account reader reachable rather than written and unused
+        # (L1-S3 review, MINOR-2). Left on `evaluate`, this CLI would RAISE on
+        # the first multi-account document instead of observing its accounts.
+        for observation in evaluate_accounts(payload, parser_id=parser_id):
+            out.append((context, observation))
     return out
 
 

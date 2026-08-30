@@ -8,6 +8,7 @@ tree.
 from __future__ import annotations
 
 import json
+import pathlib
 
 import pytest
 
@@ -309,3 +310,25 @@ def test_evaluate_accounts_never_sums_a_total_the_bank_never_printed():
     several = evaluate_accounts(document_payload())
     assert isinstance(several, list)
     assert len(several) == 2
+
+def test_the_count_observer_reaches_the_per_account_reader():
+    """MINOR-2. `evaluate_accounts` was written and had no caller anywhere in
+    the tree outside its own test, while the observer's only entry point called
+    the REFUSING `evaluate` — so on a multi-account document the count observer
+    would have raised instead of observing each account.
+
+    Checked with the census's own live-call helper, which skips constant-dead
+    branches, so wiring it back into `if False:` does not satisfy this either.
+    """
+    import ast
+
+    from tools.l1s3_surface_census import _called_names
+
+    tree = ast.parse(pathlib.Path("telemetry/stated_counts.py").read_text(encoding="utf-8"))
+    loader = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "observe_run"
+    )
+    called = _called_names(loader)
+    assert "evaluate_accounts" in called
+    assert "evaluate" not in called
