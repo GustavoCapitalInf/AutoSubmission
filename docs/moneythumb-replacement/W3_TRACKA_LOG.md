@@ -59737,8 +59737,8 @@ log entry cannot move a verdict.
 | canonical conformance (7 files) | **1,270 passed, 40 skipped** | **0** |
 | corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,503 deselected** in 1,427s | **0** |
 | `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs (103 native, 6 committed OCR), 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld, runtime 474.3s. **currency 108/108 = 14 CAD / 94 USD** and **currency_source 108/108 = 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89 schema_default** — neither surface moves | **0** |
-| branch privacy scan, ADDED FILE LINES vs the 472-document population | **hit_count 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) over 1,097 added lines and 472 documents read, no sha without cached text. Not vacuous: the raw scan before exclusions finds 6, every one the `round_money` class | **0** |
-| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 6 commits | **0** |
+| branch privacy scan, ADDED FILE LINES vs the 472-document population | **hit_count 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) over **1,592 added lines** and 472 documents read, no sha without cached text. Not vacuous: the raw scan before exclusions finds 7 — six the `round_money` class, one the `words_class` — and it found two real hits on earlier trees, both fixed (a docstring's example figure, and this section's coverage column at two decimals) | **0** |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over **8 commits** | **0** |
 | archive sweep (`tools.regfp_zero_movement_sweep`), three chunks | whole **3,380**: compared 2,669 · identical 2,620 · moved 46 · no-payload-now-publishes 21 · payload-now-raises 3 · no OCR artifact 29 — **70 findings, 4 of them inside this card's named population and 66 outside** | 1 per chunk (findings exist) |
 | attribution of the 66 outside findings | `cohort_replay --expect-identical` over exactly those 66, with the BASE's `analysis/scotia.py` and `analysis/wells.py` restored into this worktree — the branch's only two production files — reports **baseline fidelity FAILED on all 66**. Every one of them already differs from the run of record without this branch, so all 66 belong to the compositions train9 already carries and **zero movement is attributable to this card outside its named population**. Tree restored and `git status --porcelain` verified clean | **0** |
 
@@ -59776,6 +59776,12 @@ the 3,380 documents the run of record analysed and found nothing else moved.
 | `be28a50` | `tools/rowcap_ceiling.py` — the two questions of the paper, and the one reading available inside the reader |
 | `279391c` | `tools/rowcap_sheet_strips.py` — the check the reader does not read |
 | `5fcfd85` | the three instruments analyse the run's own page partition, and are classified in `corpus_gate.EXCLUDED_ANALYSIS_CALLERS`; one docstring's example figure named as a class |
+| `c115028` | this section |
+| `0f43f6e` | the coverage column at the probe's own three decimals, after the scan read two ratios as money |
+
+The mutation table, both privacy scans and the whole-archive sweep's
+attribution were all re-run at the tip after this section landed, and every one
+of them reports what its row above says.
 
 ### The contract line
 
