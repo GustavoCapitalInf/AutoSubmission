@@ -453,9 +453,13 @@ def test_the_record_never_reaches_the_statement():
     text = SYM_HEAD + SYM_ACTIVE + SYM_DORMANT
     document = analyze_document(text, parse_mode="deterministic")
     statement = document.accounts[0].statement
-    assert not [name for name in statement.model_dump() if "omi" in name.lower()]
-    assert PRINTED_DORMANCY_DECLARATION not in canonical(
-        report_to_dict(document.accounts[0]))
+    assert not [name for name in statement.model_dump()
+                if any(word in name.lower()
+                       for word in ("omission", "omitted", "sibling", "unpublished"))]
+    # And the SUBSTANCE rather than the field name: no evidence class this card
+    # can record appears anywhere in the account's published payload.
+    published = canonical(report_to_dict(document.accounts[0]))
+    assert not [reason for reason in EVIDENCE_CLASSES if reason in published]
 
 
 def test_the_account_seam_publishes_todays_payload_for_a_document_with_an_omission():
