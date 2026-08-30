@@ -10,6 +10,7 @@ from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
 )
+from .payload_shape import account_content_digest
 from .revenue import rebuild_serialized_revenue_views
 
 if TYPE_CHECKING:
@@ -227,13 +228,6 @@ def _publishes_todays_payload(document: DocumentReport) -> bool:
     )
 
 
-def _account_content_digest(account_payload: dict) -> str:
-    """A digest of ONE account's published content, for the identity check."""
-    canonical = json.dumps(account_payload, sort_keys=True, default=str,
-                           ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
 def document_report_to_dict(document: DocumentReport) -> dict:
     """The document's JSON payload. RULE S: one account publishes today's.
 
@@ -268,7 +262,7 @@ def document_report_to_dict(document: DocumentReport) -> dict:
         return report_to_dict(document.accounts[0])
 
     accounts = [report_to_dict(account) for account in document.accounts]
-    digests = [_account_content_digest(account) for account in accounts]
+    digests = [account_content_digest(account) for account in accounts]
     if len(set(digests)) != len(digests):
         raise ValueError(
             "two accounts of one document publish identical content; a "

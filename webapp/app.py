@@ -1,5 +1,4 @@
 from __future__ import annotations
-import hashlib
 import io
 import csv
 import json
@@ -19,6 +18,7 @@ from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
 from analysis.payload_shape import (
+    account_content_digest,
     is_document_payload,
     payload_account_count,
     payload_accounts,
@@ -615,14 +615,6 @@ def _package_duplicates(jobs) -> tuple[dict[str, str], list[dict]]:
     return duplicate_of, [groups[key] for key in sorted(groups)]
 
 
-def _account_content_digest(account: dict) -> str:
-    """A digest of ONE account's published content, for the identity check."""
-    return hashlib.sha256(
-        json.dumps(account, sort_keys=True, default=str, ensure_ascii=False)
-        .encode("utf-8")
-    ).hexdigest()
-
-
 def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
 
@@ -660,7 +652,7 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
         surface = "webapp/app.py::_package_members"
         accounts = payload_accounts(analysis, surface=surface)
         count = payload_account_count(analysis, surface=surface)
-        digests = [_account_content_digest(account) for account in accounts]
+        digests = [account_content_digest(account) for account in accounts]
         if len(set(digests)) != len(digests):
             raise ValueError(
                 "two accounts of one document publish identical content; a "

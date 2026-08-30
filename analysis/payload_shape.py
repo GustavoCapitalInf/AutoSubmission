@@ -58,6 +58,8 @@ produce.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 
 #: The document block of the multi-account shape — facts about the DOCUMENT.
@@ -209,3 +211,17 @@ def payload_account_count(payload: object, *, surface: str) -> int:
             f"(account_count_contradicts_the_list)"
         )
     return len(accounts)
+
+
+def account_content_digest(account_payload: Mapping) -> str:
+    """A digest of ONE account's published content, for the identity check.
+
+    Defined once, here, because two places need the same answer and would be a
+    silent disagreement if they computed it two ways: the PUBLISHER refuses to
+    publish a document whose accounts carry identical content, and the PACKAGE
+    refuses to do cross-account arithmetic over one — and a payload can reach a
+    package from a store written before the publisher learned to refuse it.
+    """
+    canonical = json.dumps(account_payload, sort_keys=True, default=str,
+                           ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
