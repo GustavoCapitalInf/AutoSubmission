@@ -59313,3 +59313,114 @@ Recorded because an instrument that once over-counted has to carry the reason it
 | commit-message scan | **hit_count 0** over 22 commits; MONEY / DIGITS / DATES / WORDS all 0 | **0** |
 | ... and it was NOT 0 the first time, again | seven ordinary two-word English sequences across six of the closure's messages matched printed tokens (class WORDS). Two `--msg-filter` passes over `8751d20..HEAD`, trees verified byte-identical against the pre-rewrite tip each time, `refs/original` removed, and the only commit sha this branch's records cite — `348663d`, in §L1DESIGN L1D9 — is before the rewritten range and still resolves. The last pass needed a second attempt because the scanner drops short stopwords before it pairs, so a phrase can still yield an adjacent pair after a word is put between them; the sentence was rewritten rather than patched. The standing lesson holds and one pass never discharges it: the scan is re-run after every reword |
 | the closure's own measurements | the two rows above were measured at `6af1d95`; the only change after them is this record's own numbers, which add lines and move no hit count |
+
+## §L1DESIGN.3 — the re-review closure: 0 BLOCK / 1 MAJOR / 3 MINOR, and the one that mattered
+
+The same independent reviewer re-measured the closure at `1113ce5` and returned **SOUND WITH
+FINDINGS — 0 BLOCK / 1 MAJOR / 3 MINOR**. Every number the first closure claimed reproduced to
+the digit, including the three it had corrected itself on. Its verdict on cards: **S1, S2 and S3
+may be cut now; S4 may not, until the new MAJOR is closed; S5 waits on Gustavo.** All four
+findings are closed below, and S4's blocker with them.
+
+### RR-MAJOR-1 — the clause that closed BLOCK-4 was founded on a vocabulary containing payment rails
+
+BLOCK-4 was closed by the right rule — *the paper must PRINT a transfer designation on at least
+one of the two legs* — read by an instrument that ORed two of the classifier's tuples. They are
+not the same kind of thing, and the reviewer was right that only one of them can decide this.
+
+* `_INTERNAL_TRANSFER_CREDIT_PATTERNS` (`transaction_classifier.py`:433-465) names movement
+  between a member's OWN accounts. Correct for the clause.
+* `_TRANSFER_PATTERNS` (`:300-308`) has **one** use in production, at `:976-981`, building a
+  `strong_non_lender_exclusion` whose own reason string says the descriptor identifies "an
+  account, online, or **person-to-person** transfer". It lists three third-party peer-to-peer
+  rails by name, and on the Canadian issuers in this archive its e-transfer wording is
+  ordinarily a payment from someone else.
+
+A row on a payment rail is a payment to or from another PERSON. Reading it as evidence that
+money moved inside one member's ledger set flags the pairing INTERNAL and then subtracts the
+matching printed deposit from package gross deposits, deposit counts, revenue and the
+withholding denominator — **the exact failure the clause was added to prevent, re-admitted
+through the vocabulary it was founded on.** The design's own words for it applied to it
+unchanged.
+
+Closed at the root: the probe reads the internal vocabulary alone, refuses the other in its own
+docstring with the production citation that settles it, and **prints the split on every run** so
+the two can never be merged again by accident. Re-measured over the same 47 pairs:
+
+| which vocabulary admitted the pair | pairs |
+|---|---:|
+| the INTERNAL vocabulary alone | **41** |
+| both | 2 |
+| **the GENERIC peer-to-peer vocabulary alone — REFUSED** | **3** |
+| **neither — nothing printed at all** | **1** |
+
+| | old (both vocabularies) | **corrected (internal only)** |
+|---|---:|---:|
+| designated pairs | 46 | **43** |
+| ... documents they sit on | 6 | **5** |
+| **refused pairs — the clause's live killers** | 1 | **4** |
+| designated on ONE leg only | 45 of 46 | **42 of 43** |
+
+The 46 is **withdrawn in the text**, not quietly replaced. The design gains the finding as a
+RULE — *a peer-to-peer rail vocabulary can never be transfer evidence for this clause* — with
+the production citation beside it; the whole 47 stays the killer set, and the four refused are
+named as the class the clause exists to catch. Three of those four are one document's, admitted
+by a single rail pattern; the fourth prints nothing at all.
+
+**"At least one of the two legs" is load-bearing**, and that is now recorded: it decides **42 of
+the 43** on the words of a single printed row, which is precisely why the choice of vocabulary
+mattered as much as it did — on 42 pairs there is no second row to contradict a wrong reading.
+
+### The three MINORs
+
+* **RR-MINOR-1** (the designated pairs sit on six documents, not seven) and **RR-MINOR-2**
+  (45 of 46 are designated on one leg) are both absorbed by the correction above, which moved
+  both figures: the population is **7 documents / 47 pairs**, the designated set is **43 on 5
+  documents**, and **42 of the 43** rest on one leg. Both are in §3.2 and in L1-C11's cell.
+* **RR-MINOR-3** — the four conditions with no measured killer were flattened into one class and
+  are **three situations**. `L1-C15` is a standing property and owes nothing. `L1-C14` already
+  has a live killer in the canonical 255 and owes an **extension** of it, catching the instance
+  this design measured — the extension S5 needs anyway. Only `L1-C2`, `L1-C18` and `L1-C11`'s
+  ambiguity branch genuinely need constructed fixtures. Each is now assigned to the slice that
+  writes its rule (S4, S3, S4 respectively; C14 to S5), and **each is a condition of CLOSING
+  that card, not a backlog item** — its mutation table is not accepted without it, because the
+  way this slips through is a card closing on the strength of the other seventeen conditions'
+  killers.
+
+### The reviewer's ruling opinions, carried verbatim
+
+§8.1 of the design now carries the reviewer's opinion on all nine open questions, verbatim and
+marked as the reviewer's rather than as the design's: **Q8** yes and it costs nothing, measured
+twice (11/15 independently, 12/16 with `zions` added); **Q9** plan against 2, report 0-8, judge
+S4 against 2 (or 8 with Q3); **Q3** grant it — the platform already relies on the same evidence
+class one level up; **Q1** rule the package half explicitly and yes; **Q2** right answers, after
+RR-MAJOR-1 (now settled); **Q4** after the new currency rung's population is measured; **Q5**
+yes to both, and forbid the arithmetic rather than the field name; **Q6** refuse until ruled;
+**Q7** rule at two rows. §8.2 carries the card-cutting verdict with what each stage owes at its
+card.
+
+### The re-review's own vacuity tests, recorded
+
+The reviewer did not take the closure's zeros on trust, and two of its tests belong in this
+record because they are what makes those zeros findings rather than silences. `classify_evidence`
+was run against **nine constructed fixtures** — invented figures, the committed patterns' own
+wordings, nothing from the archive — and returned the expected class on **9 of 9**, including
+the five that must be REFUSED (absence only; a summary printing activity; a non-coinciding pair;
+a zero pair with a non-zero total; a summary missing a balance row). The seam census was
+doctored in both directions and failed as designed (declared-but-absent → exit 1;
+present-but-undeclared → exit 1; unmodified → exit 0), and moving a watched line by one produces
+the probe's refusal rather than a silent zero. One residual the reviewer names and this design
+adopts: `git grep` sees TRACKED files only, so a seam added in an untracked file is invisible to
+the census until it is added.
+
+### The closure's proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files), six prototypes present | **255 passed** | **0** |
+| `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` | **empty** | — |
+| instruments unwired | nothing outside `tools/` references any of the six | — |
+| the transfer instrument, re-run on the corrected vocabulary | 47 pairs; **43 designated / 4 refused**; split 41 / 2 / 3 / 1; 42 of 43 on one leg; 0 ambiguous | **0** |
+| W3 | base + §L1DESIGN + its two closure sections; no earlier line touched | — |
+| branch privacy scan, added lines vs the whole population | RR-PRIVACY | RR-PRIVEXIT |
+| commit-message scan | RR-MSG | RR-MSGEXIT |
