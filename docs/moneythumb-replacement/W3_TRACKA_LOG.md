@@ -61315,9 +61315,9 @@ archive is served from.
 | proof | result | exit |
 |---|---|---:|
 | canonical guards (5 files) | **255 passed** | **0** |
-| `tests/test_corpus_gate_outcomes.py` + currency + document-object + prompt-surface + this card's fixtures | **131 passed**, 10 deselected | **0** |
+| `tests/test_corpus_gate_outcomes.py` + currency + document-object + prompt-surface + this card's fixtures | **131 passed**, 10 deselected (measured mid-branch; the fixtures are 38 at the tip and run inside the suite above) | **0** |
 | canonical conformance (7 files) | **1,270 passed**, 40 skipped | **0** |
-| full default suite | **7,526 passed**, 43 skipped, 34 deselected | **0** |
+| full default suite | **7,527 passed**, 43 skipped, 34 deselected | **0** |
 | `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; 109 pinned PDFs, 0 exclusions | **0** |
 | corpus-marked slice | **30 passed**, 7,573 deselected | **0** |
 | `cohort_replay` at the base, `--expect-identical` | 120 population, 117/117 preserved, 117 identical, 0 regressions | **0** |
@@ -61328,10 +61328,16 @@ archive is served from.
 | `l1s1_seam_probe`, base -> tip, 232 documents / 80 registrations | ACCOUNT seam **232/232 byte-identical**; flags and ORDER 232/232; outcome 232/232; DOCUMENT seam 226 identical / **6 moved, all inside the named 15** | **2** (the 6, explained) |
 | `l1s2_mutation_table` | **6 mutants, 6 killed, 0 survived**; tree verified clean after each | **0** |
 | archive sweep, whole archive (3,380), base tree AND tip differenced | aggregates identical; **70 findings, all inherited from `train9`; 0 movers at the tip; 0 removed** | **0** |
-| branch privacy scan, added lines vs the five registrations' whole printed universe | **hit_count 0** over **1,636 added lines**, 120 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 3, all discarded by the standing rules (1 `round_money`, 2 `words_class`) | **0** |
-| commit-message scan | **hit_count 0** over **5** commits; every class 0 | **0** |
+| branch privacy scan, added lines vs the five registrations' whole printed universe | **hit_count 0** over **2,191 added lines**, 120 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 3, all discarded by the standing rules (1 `round_money`, 2 `words_class`) | **0** |
+| commit-message scan | **hit_count 0** over **10** commits; every class 0 | **0** |
 | W3 | one top-level `# §L1S2`, appended | — |
 
-Five commits on `wave9-l1s2`, base `fea0bd2`: the readers and the record; the fixtures, the
+Ten commits on `wave9-l1s2`, base `fea0bd2`: the readers and the record; the fixtures, the
 omission probe and the mutation table; the RULE S fixture reading substance rather than a field
-name; the caller sweep watching the document entry point; the probe's per-document class table.
+name; the caller sweep watching the document entry point; the probe's per-document class table;
+this section; two comment corrections in the readers' own prose; the pattern-identity fixture; the
+sweep differencer; and the sweep subsection above.
+
+Every number in the table is measured at the branch tip on a clean tree, with one stated exception:
+the suite / guards / conformance / privacy rows were re-run at the final tip, and the corpus gate
+and the corpus-marked slice are named with the tree they ran at in the log alongside.
