@@ -1,8 +1,7 @@
 # Agent Handoff — L1-S4-FIRST-PUBLISHER (batch 9, L-1 stage 4: the first multi-account publisher + internal transfers; the LAST coverage cell of batch 9)
 
-**DRAFT — cut 2026-08-30 after the Q3 probe confirmed; to be AMENDED when L1-S3 composes (its
-findings bind this card) and NOT launched until the four rulings in "Rulings required" are recorded
-in BATCH9_TRANSITION §8.** Read `docs/agent-handoffs/BATCH9-RULES.md` first — the "Batch-9 final
+**AMENDED 2026-08-30 with L1-S3's composed findings (see "Inherited from S3" below); NOT launched
+until the four rulings in "Rulings required" are recorded in BATCH9_TRANSITION §8.** Read `docs/agent-handoffs/BATCH9-RULES.md` first — the "Batch-9 final
 rulings" block binds (Q3 corroborated, Q9 option B, Q10, the SCOPE FREEZE: this is the last
 deterministic coverage cell; after it composes, batch 9 closes). Then the reviewed design
 `docs/moneythumb-replacement/L1_INDEPENDENT_ACCOUNT_DESIGN.md` — §2 (per-account reconstruction;
@@ -89,6 +88,32 @@ per-account assertions), the S4 row of §7 — and the three review files for S1
   named (`--shas` file). Register truthful; no key re-declared (`git show train9:corpus_gate.py`).
 - W3 `§L1S4` with the three figures, the per-document table (published accounts, omitted sections
   by class, transfers flagged, package fields), and the Q10 / Q3 / Q9 rulings by number.
+
+# Inherited from S3 (composed; the review map's S4 lane — each needs a test or a recorded reason)
+- Your readers are now WATCHED: `tools/l1s3_surface_census.py` sweeps 46 read shapes (the
+  `accounts` key, name-bound subscripts, comparisons in `.items()` walks, attribute access,
+  aliased publisher imports) and the reviewer's seven evasions are its committed test vector.
+  Every reader you add is either taught (renders per account under the weakest-account rule /
+  refuses loudly) or truthfully excused BY NAME in the census — the census red is a floor failure.
+- The document fold is `telemetry/record.py::classify_document` and it is PINNED:
+  `tests/test_l1s2_document_outcome.py` asserts exactly one declared fold with that name, wired
+  and callable, and the Q10 pins resolve through it. If you touch the classifier, the pins and the
+  tripwire move WITH it in the same commit; a rename outside the `classify_document*` /
+  `document_outcome*` stems is forbidden (the S2 re-review's residual).
+- `classify_document` and `refuse_document_payload` raise `TypeError` at their doors on a
+  non-Mapping — that TypeError IS the S2 resolver's contract; never broaden it to swallow shapes.
+- Cross-account package math REFUSES: the member-set check keyed on the shared document identity
+  publishes `None` + `cross_account_averages_refused` for the five per-period figures (sums
+  untouched). Your publisher makes this branch REACHABLE for the first time — prove the refusal on
+  a real two-account document and take §6.5's remaining four gate assertions (the review's
+  MINOR-1 names them as owed).
+- S3 review MINOR-10: `totals["months"]` counts MEMBERS and `app.js:1458` labels them "statement
+  periods" — a two-account document reads as two periods. Dark today (all five per-period keys
+  `None`); your publisher lights it — fix the count or the label in your lane, with a test.
+- `webapp/artifact_cache.py`'s seam is prose; the real cache seam is `webapp/worker.py`'s
+  `compute=` lambda. The seam census (`tools/l1_design_reader_probe.py::SEAMS`) pins LINE NUMBERS
+  — corpus_gate.py is pinned at 1608 at this tree; if your edits move a pinned line, re-pin in the
+  same commit and say so in W3.
 
 # Rulings required BEFORE launch (design §8; the freeze's exception (c) — strictly required for S4)
 | | question | design's default | reviewer |
