@@ -115,15 +115,39 @@ per-account assertions), the S4 row of §7 — and the three review files for S1
   — corpus_gate.py is pinned at 1608 at this tree; if your edits move a pinned line, re-pin in the
   same commit and say so in W3.
 
-# Rulings required BEFORE launch (design §8; the freeze's exception (c) — strictly required for S4)
-| | question | design's default | reviewer |
-|---|---|---|---|
-| Q1 | one account validates, another does not: publish the validating account (document `withheld` / `review`) or refuse the document? and is a PACKAGE member an account whose own outcome is `validated`? | publish per account; document = weakest; package member = own `validated` | rule the second half YES explicitly |
-| Q2 | may an arithmetic coincidence set INTERNAL with nothing printed (design: NO); must the counterpart be on the SAME document (design: YES); does an ambiguous pair refuse only the aggregation (design) or the whole document? | NO / YES / aggregation only | both answers right; ambiguity refuses the aggregation |
-| Q5 | each account its own package member (YES); one ACCOUNT yields one ADB (YES); a package holding one multi-account document publishing a days-weighted mean over its accounts — permitted? | forbid the arithmetic over two members sharing a `content_sha256` | yes to both; forbid the arithmetic |
-| Q7 | posting threshold: a section that posts is one dated row or two? | two | two |
-Q4 (two denominations) and Q6 (per-account activity range) are NOT in S4's population: refuse until
-ruled, as the design says — record the refusal count.
+# Rulings RECORDED (Gustavo, 2026-08-30; BATCH9_TRANSITION §8.13–§8.16 — binding; S4 is unblocked on the ruling side)
+- **Q1 — Option A (with Q5).** Publish the independently validated account; surface the document /
+  package incompleteness (`completeness: partial`); the document outcome may reflect the weaker
+  account without invalidating the one that passed. **Package membership is ACCOUNT-based: an
+  account enters the package iff its OWN outcome is `validated`** — never the parent job / document
+  status. No package analytic of any kind (ADB, revenue, deposits, counts, withholding, transfers)
+  incorporates a non-validated account.
+- **Q2 — Option A on all three halves.** INTERNAL requires an admissible printed designation on at
+  least one leg — arithmetic coincidence never suffices, the four refused pairs stay refused, and
+  P2P rail vocabulary (ZELLE / VENMO / CASH APP) is not proof of same-customer ownership.
+  Counterparts on the SAME document only (cross-document matching is a future architecture problem
+  S4 must not infer). Ambiguity refuses the PACKAGE AGGREGATION of that document — the ledger, the
+  account validation and the ADB history stay untouched; both printed legs remain in their ledgers.
+  Transfer flags affect package analytics only.
+- **Q5 — Option A (with Q1).** One ACCOUNT → one ADB, never one PDF → one blended ADB; each member
+  keeps its own; for multiple members from one multi-account document,
+  `package_average_daily_balance: None` + `cross_account_averages_refused`; legitimately additive
+  fields stay where their own rules permit; do NOT refuse the whole package — forbid the blending
+  arithmetic, not the field or the package; never reintroduce the halving defect.
+- **Q7 — two dated rows.** "A section that posts" = at least TWO dated rows, unchanged through S4;
+  the zero-row Q3 / yield-only classes unaffected.
+- **Combined doctrine:** validated accounts publish and enter the package individually;
+  non-validated accounts are excluded and do not contaminate validated siblings; the package
+  surfaces partial completeness, recognizes only explicitly evidenced internal transfers, refuses
+  ambiguous transfer aggregation, never blends separate account ADBs. Q3 / Q9 / Q10 in force as
+  ruled. *Validation belongs to the account. Completeness and aggregation belong to the package.*
+Q4 (two denominations) and Q6 (per-account activity range) remain NOT in S4's population: refuse
+until ruled, as the design says — record the refusal count.
+
+# Launch gate (the only remaining blocker)
+The L1-S3 re-composition: closure-2 must land (the serializer shape decided by account count alone),
+the same reviewer confirm, and Ocean compose with the gate and corpus slice GREEN at the composed
+tree. Launch base is train9 AFTER that composition.
 
 # Git ownership
 Base `train9` after L1-S3 composes. Branch `wave9-l1s4`, worktree `.claude/worktrees/mt9-l1s4`. Own:

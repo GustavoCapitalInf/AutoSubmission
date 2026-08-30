@@ -35,11 +35,10 @@ moves out only when Gustavo rules it an exception or Phase 2 absorbs it.
 | record redaction | — | REFUSED where it destroys benchmark / provenance evidence (§8.3) — stays refused |
 
 ## Rulings
-**Required before S4 launches (packaged 2026-08-30, BATCH9_TRANSITION §7, under the freeze's
-exception (c)):** Q1 (partial-closing documents; package member = an account whose own outcome is
-`validated`), Q2 (the transfer clause's three halves), Q5 (per-account package membership and the
-no-average-over-one-document rule), Q7 (posting threshold two). The design's defaults and the
-reviewer's positions are in `docs/agent-handoffs/L1-S4-FIRST-PUBLISHER.md`.
+**RULED 2026-08-30 (BATCH9_TRANSITION §8.13–§8.16, all Option A):** Q1 (publish the validated
+account; ACCOUNT-based package membership on own `validated`), Q2 (printed designation; same-document
+counterparts; ambiguity refuses aggregation only), Q5 (one ACCOUNT → one ADB; refuse the blending
+arithmetic, keep the package), Q7 (two dated rows). S4 is unblocked from the ruling side.
 **Closed by the freeze unless re-raised:** Q4 (two denominations, 4 documents / 12 sections — refused
 until ruled), Q6 (per-account activity range — refused until ruled); the PAGECOV-IMAGE-SHEET
 ceremony; RAISE-PRIVACY-6. S4 proceeds on Q3 (corroborated), Q9 (B) and Q10.
