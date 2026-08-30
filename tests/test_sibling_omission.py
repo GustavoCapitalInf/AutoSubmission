@@ -36,6 +36,7 @@ from analysis.community_section import (
 from analysis.pipeline import analyze_document, analyze_markdown
 from analysis.serialization import document_report_to_dict, report_to_dict
 from analysis.sibling_omission import (
+    DORMANCY_DECLARATIONS,
     EVIDENCE_CLASSES,
     PRINTED_DORMANCY_DECLARATION,
     PRINTED_ZERO_ACTIVITY_SUMMARY,
@@ -171,6 +172,26 @@ def test_a_ratified_reason_is_accepted():
     record = SiblingOmission(label="SAVINGS", reason=PRINTED_ZERO_ACTIVITY_SUMMARY,
                              posting_count=0)
     assert record.reason in EVIDENCE_CLASSES
+
+
+def test_both_readers_ratified_wordings_are_the_shared_class_itself():
+    """The relocation, pinned. Each reader still publishes its own wording under
+    its own name, and each name IS the object in the shared tuple — so the class
+    cannot fork into two readers' opinions of what a declaration is, and
+    `zions._NO_ACTIVITY_RE`'s LIVE use inside `_rows` reads the same pattern it
+    always did."""
+    import re as _re
+
+    from analysis import symitar, zions
+
+    assert symitar._DORMANT_RE is DORMANCY_DECLARATIONS[0]
+    assert zions._NO_ACTIVITY_RE is DORMANCY_DECLARATIONS[1]
+    # Carried over byte for byte: a "tidied" pattern would be a behaviour
+    # change wearing a refactor's clothes, and one of the two is live.
+    assert symitar._DORMANT_RE.pattern == r"No\s+Transactions\s+This\s+Period"
+    assert zions._NO_ACTIVITY_RE.pattern == "There were no transactions this period"
+    for pattern in DORMANCY_DECLARATIONS:
+        assert pattern.flags & _re.IGNORECASE
 
 
 def test_a_ledger_records_a_refusal_when_no_class_admits_the_section():
