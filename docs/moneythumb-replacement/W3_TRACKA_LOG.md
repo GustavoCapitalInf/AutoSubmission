@@ -60643,9 +60643,19 @@ reading, so one instrument is correct on both sides of a change. That is
 runs on the same text and the published integrity flags are compared with the
 probe's own decision; a document where they differ is reported as
 `TRACE-DISAGREES`, is given no class, and makes the exit code 2. Measured over
-the 14: **`TRACE-DISAGREES` 0.** Measured over ALL TWENTY documents in the run
-of record that carry the flag at all — the 14 plus the six `withheld` documents
-that carry it alongside other flags — **`TRACE-DISAGREES` 0.**
+the 14: **`TRACE-DISAGREES` 0.** Measured over a wider TWENTY — **`TRACE-DISAGREES`
+0** there too.
+
+That twenty needs its frame stated, because it spans two of them and an earlier
+form of this line put all of it in one. **The run of record's own payloads carry
+the flag on SEVENTEEN documents**: 11 `review`, each carrying it as its only
+flag — the card's original eleven — and 6 `withheld` carrying it alongside
+others. The remaining three of the twenty are the CP-DECLINES movers, which are
+`failed / parser_declined` in the run of record and publish no payload there at
+all; they carry the flag only at THIS branch's base. So the twenty is 17 in the
+run of record plus 3 at the base, and every count in this section that says
+"of all 20" means that union. The population and the `TRACE-DISAGREES` 0 are
+unaffected — only the frame was mixed (PAGECOV review, MINOR-2).
 
 ## PAGECOV3 The table, at the tip
 
@@ -60844,6 +60854,20 @@ ruling is made against a number rather than an impression.
    today, so it is an intake-layer card rather than a declaration-reading one,
    and it is outside this card's ownership in both directions.
 
+   **And it is a CEREMONY, not only a ruling.** `AF6BD563A3D7165A` — one of the
+   eight — is a PINNED corpus document, and `corpus_gate.py` pins its verdict as
+   `review` with this exact flag and a pinned note naming the declared total and
+   the absent label. Proving that sheet inked moves a pinned verdict
+   `review → validated` and the gate's pinned counts from **102 validated / 3
+   review to 103 / 2**. Under BATCH9-RULES that is truth-set movement and needs
+   an approved ceremony, so the card's cost is a ruling, an intake capability AND
+   a ceremony — named now rather than discovered by the cell that takes it
+   (PAGECOV review, MINOR-1). The ceremony has one specific thing to re-argue:
+   the gate's own comment beside that pin says of this document that "a page
+   really is unaccounted for", and the rendering measurement in PAGECOV4 is what
+   would overturn it. That sentence is left exactly as it stands here — a pinned
+   note is not something a cell edits on its way past.
+
    **The TEST is the part this record got wrong, and it would have retired the
    card.** The first wording named "an embedded image or any drawing operator",
    whose two natural implementations are the two obvious library calls. Measured
@@ -60914,10 +60938,22 @@ say so and it runs.
 (declares 5, supplies 4, labels 4). Since the REPAIR-DOCTRINE ceremony (§REPAIRDOC)
 that document publishes nothing at all — no registration claims it — so it is
 pinned in `corpus_gate.py` as a PARSER refusal and the page-declaration check no
-longer runs on it. The anchor that is still live is the synthetic Wells fixture
-behind the FILENAME-BOUNDARY suppression test, and it is untouched. Both were
+longer runs on it.
+
+**The live anchors are stronger than this record first said**, and understating
+them understated the protection. Besides the synthetic Wells fixture behind the
+FILENAME-BOUNDARY suppression test, `corpus_gate.py` pins the `review` VERDICT
+of two REAL corpus documents on this flag, with their notes: one declaring 5
+pages against three absent labels — `4C96DDA28A6728FB`, which is one of this
+population's class-(a) four — and one declaring 20 against a single absent label
+— `AF6BD563A3D7165A`, which is one of the (a′) eight. Both hashes were verified
+against the pinned files rather than taken from the review. So one document in
+each of the two big classes has its `review` verdict pinned by the gate: the
+refusal this card makes is protected by the corpus gate on both sides, and any
+future movement of either is a ceremony by construction. Everything here was
 verified rather than assumed: the gate's `REFUSED` count and its pinned name are
-unchanged, and `test_filename_boundary.py` passes in the guard slice.
+unchanged, the two pinned `review` verdicts still hold, and
+`test_filename_boundary.py` passes in the guard slice.
 
 ## PAGECOV8 Risks, and what a reviewer should press on
 
