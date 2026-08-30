@@ -32,10 +32,22 @@ own `run_document`, called unchanged):
   posting with two or more admissible counterparts pairs with none of them;
 * the **document-wide one-to-one** count, where `taken` is a single set across
   every ledger of the document rather than one per ledger pair;
-* how many pairs carry a **PRINTED transfer designation** on either leg,
-  decided by `analysis/transaction_classifier.py`'s OWN committed vocabularies
-  (`_INTERNAL_TRANSFER_CREDIT_PATTERNS`, 13 patterns, and `_TRANSFER_PATTERNS`,
-  7) — this instrument writes no transfer grammar of its own;
+* how many pairs carry a **PRINTED internal-movement designation** on either leg,
+  decided by `analysis/transaction_classifier.py`'s
+  `_INTERNAL_TRANSFER_CREDIT_PATTERNS` **alone** (13 patterns) — this instrument
+  writes no transfer grammar of its own;
+* **the vocabulary split**, because the first version of this probe also ORed
+  `_TRANSFER_PATTERNS` and that was wrong. That tuple is production's
+  `strong_non_lender_exclusion` (`:976-981`), whose own reason string says it
+  identifies "an account, online, or **person-to-person** transfer", and it
+  contains `ZELLE`, `VENMO` and `CASH APP`. A peer-to-peer rail is a payment to
+  or from another PERSON and can never be evidence of movement within one
+  member's own ledger set — admitting it flags a pair INTERNAL and then deletes
+  the matching printed deposit from every package total, which is the exact
+  failure the clause exists to prevent. The split is printed on every run so the
+  two vocabularies cannot be conflated again by accident;
+* **how many legs carry the designation**, because "at least one of the two
+  legs" turns out to decide almost every pair on a single printed row;
 * how many documents reconstruct **three or more** live ledgers, which is where
   problem 3 can bite at all.
 
@@ -128,19 +140,56 @@ def _descriptions_for(section, walks) -> list[str] | None:
 
 
 def prints_transfer_designation(description: str) -> bool:
-    from analysis.transaction_classifier import (
-        _INTERNAL_TRANSFER_CREDIT_PATTERNS,
-        _TRANSFER_PATTERNS,
-    )
+    """Does this printed row designate a movement between the member's OWN accounts?
+
+    **Only `_INTERNAL_TRANSFER_CREDIT_PATTERNS` decides this**
+    (`analysis/transaction_classifier.py`:433-465, 13 patterns): `TRANSFER FROM
+    <CHECKING|SAVINGS|SHARE|...>`, `SH TO SH`, `ACCOUNT TO ACCOUNT`,
+    `TRANSFER FROM <masked account> TO <masked account>`. Every member of it
+    names one member's own accounts as the source or the destination.
+
+    THE VOCABULARY THIS DELIBERATELY REFUSES, AND WHY
+    -------------------------------------------------
+    The first version of this instrument also ORed `_TRANSFER_PATTERNS`
+    (`:300-308`), and that was wrong in the exact direction the clause it feeds
+    exists to prevent. That tuple is not an internal-movement vocabulary: it is
+    used once in production, at `:976-981`, to build a
+    `strong_non_lender_exclusion`, and the record it builds says in its own
+    reason string that the descriptor identifies "an account, online, or
+    **person-to-person** transfer". It contains `ZELLE`, `VENMO`, `CASH APP`,
+    `E TRANSFER`, `ETRANSFER` and `XFER`. The first three are third-party
+    peer-to-peer rails by definition, and an Interac e-Transfer on the Canadian
+    issuers in this archive is ordinarily a payment from someone else.
+
+    A row on a peer-to-peer rail is a payment to or from another PERSON. It is
+    not evidence that money moved between one member's own accounts, and
+    treating it as such flags the pair INTERNAL and then removes the matching
+    deposit from package gross deposits, deposit counts, revenue and the
+    withholding denominator — money the paper printed, deleted from a funder's
+    view of the business by an inference. Measured: 3 of the 46 pairs the first
+    version admitted were admitted by `\\bVENMO\\b` alone.
+
+    **A peer-to-peer rail vocabulary can never be transfer evidence for this
+    clause**, and the split below is reported on every run so the two can never
+    be conflated again by accident.
+    """
+    from analysis.transaction_classifier import _INTERNAL_TRANSFER_CREDIT_PATTERNS
 
     upper = description.upper()
-    for pattern in _INTERNAL_TRANSFER_CREDIT_PATTERNS:
-        if pattern.search(upper):
-            return True
-    for pattern in _TRANSFER_PATTERNS:
-        if pattern.search(upper):
-            return True
-    return False
+    return any(pattern.search(upper) for pattern in _INTERNAL_TRANSFER_CREDIT_PATTERNS)
+
+
+def prints_generic_transfer_word(description: str) -> bool:
+    """The REFUSED vocabulary, measured so its exclusion is a number.
+
+    `_TRANSFER_PATTERNS` — production's non-lender exclusion, peer-to-peer rails
+    included. Never evidence for the INTERNAL clause; counted only so the design
+    can say what refusing it costs and what admitting it would have cost.
+    """
+    from analysis.transaction_classifier import _TRANSFER_PATTERNS
+
+    upper = description.upper()
+    return any(pattern.search(upper) for pattern in _TRANSFER_PATTERNS)
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +297,14 @@ class DocTransfers:
     designated_unique: int = 0
     sections_without_text: int = 0
     postings_without_text: int = 0
+    #: the vocabulary split over the greedy pairs (RR-MAJOR-1)
+    internal_only: int = 0
+    both_vocabularies: int = 0
+    generic_only: int = 0
+    neither: int = 0
+    #: of the designated pairs, how many carry the designation on ONE leg only
+    designated_one_leg: int = 0
+    designated_both_legs: int = 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -311,6 +368,27 @@ def main(argv: list[str] | None = None) -> int:
 
         record.designated_greedy = designated(greedy)
         record.designated_unique = designated(unique)
+
+        # RR-MAJOR-1's split, and RR-MINOR-2's one-leg measurement, over the
+        # greedy pairs — the population the design cites as its killer set.
+        for left, right in greedy:
+            texts = [t for t in (left.description, right.description) if t is not None]
+            legs_internal = [prints_transfer_designation(t) for t in texts]
+            internal = any(legs_internal)
+            generic = any(prints_generic_transfer_word(t) for t in texts)
+            if internal and generic:
+                record.both_vocabularies += 1
+            elif internal:
+                record.internal_only += 1
+            elif generic:
+                record.generic_only += 1
+            else:
+                record.neither += 1
+            if internal:
+                if sum(1 for flag in legs_internal if flag) == 1:
+                    record.designated_one_leg += 1
+                else:
+                    record.designated_both_legs += 1
         results.append(record)
 
     movers = [r for r in results if r.greedy]
@@ -347,14 +425,41 @@ def main(argv: list[str] | None = None) -> int:
           f"**{sum(1 for r in results if r.ambiguous_postings)}** documents.")
     print()
 
-    print("## Does the paper print a transfer designation?")
+    print("## Does the paper print an INTERNAL-movement designation?")
     print()
-    print("| population | pairs | pairs with a PRINTED designation on either leg |")
+    print("Decided by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` ALONE. The generic "
+          "`_TRANSFER_PATTERNS` tuple is production's non-lender exclusion — "
+          "peer-to-peer rails included — and is never evidence here; the split "
+          "below is what refusing it costs.")
+    print()
+    print("| population | pairs | pairs with a PRINTED internal designation on either leg |")
     print("|---|---:|---:|")
+    designated_docs = sum(1 for r in results if r.designated_greedy)
     print(f"| greedy | {sum(r.greedy for r in results)} | "
-          f"**{sum(r.designated_greedy for r in results)}** |")
+          f"**{sum(r.designated_greedy for r in results)}** on **{designated_docs}** document(s) |")
     print(f"| unique counterpart | {sum(r.unique for r in results)} | "
           f"**{sum(r.designated_unique for r in results)}** |")
+    print()
+
+    print("## The vocabulary split — RR-MAJOR-1")
+    print()
+    print("| which vocabulary admitted the pair | pairs |")
+    print("|---|---:|")
+    print(f"| the INTERNAL vocabulary alone | **{sum(r.internal_only for r in results)}** |")
+    print(f"| both | {sum(r.both_vocabularies for r in results)} |")
+    print(f"| **the GENERIC (peer-to-peer) vocabulary alone — REFUSED** | "
+          f"**{sum(r.generic_only for r in results)}** |")
+    print(f"| neither — the clause's live killers | **{sum(r.neither for r in results)}** |")
+    print()
+    print("| how many legs carry the designation | pairs |")
+    print("|---|---:|")
+    print(f"| ONE leg only | **{sum(r.designated_one_leg for r in results)}** |")
+    print(f"| both legs | {sum(r.designated_both_legs for r in results)} |")
+    print()
+    print("The one-leg row is why the clause says \"at least one of the two "
+          "legs\": it is not a formality, it decides almost every pair on the "
+          "words of a single printed row — which is also why the choice of "
+          "vocabulary matters as much as it does.")
     print()
     print(f"Sections whose accepted walk could not be correlated to its printed "
           f"text, and which are therefore EXCLUDED from the designation counts "
@@ -385,6 +490,13 @@ def main(argv: list[str] | None = None) -> int:
             "ambiguous_postings": sum(r.ambiguous_postings for r in results),
             "designated_greedy": sum(r.designated_greedy for r in results),
             "designated_unique": sum(r.designated_unique for r in results),
+            "designated_documents": sum(1 for r in results if r.designated_greedy),
+            "internal_only": sum(r.internal_only for r in results),
+            "both_vocabularies": sum(r.both_vocabularies for r in results),
+            "generic_only": sum(r.generic_only for r in results),
+            "neither": sum(r.neither for r in results),
+            "designated_one_leg": sum(r.designated_one_leg for r in results),
+            "designated_both_legs": sum(r.designated_both_legs for r in results),
             "sections_without_text": sum(r.sections_without_text for r in results),
             "per_document": [vars(r) for r in results],
         }, indent=1), encoding="utf-8")
