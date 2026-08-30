@@ -446,16 +446,26 @@ module's own code (`tools/l1_split_prototype.py --idle-siblings`, re-run at this
 | the 103 sibling sections of the 86 single-posting documents | sections |
 |---|---:|
 | print the ratified declaration | **4** |
-| satisfy the yield-only arithmetic as written | **0** |
+| satisfy the yield-only arithmetic (see the disclosure below) | **0** |
 | POSTED a dated row and declare nothing | **30** |
 | empty and silent — no declaration of any kind | 62 |
 | declare idle in some other wording | 7 |
 
 | the Stage-1 question | documents |
 |---|---:|
-| **EVERY sibling satisfies the ratified rule as written** | **0** |
+| **EVERY sibling satisfies the ratified rule** | **0** |
 | carry a sibling that POSTED and declares nothing (the L-1 defect itself) | **26** |
 | no sibling section LOCATED at all — which is not "no sibling" | 16 |
+
+**The yield-only row carries a disclosure, and the design's first version dropped it.**
+`tools/l1_split_prototype.py::classify_sibling` calls `_yield_only(rows, opening, closing,
+None)` — the THREE-condition relaxed form. The fourth ratified condition (`symitar.py`:339-345,
+the platform's six-figure equation row accounting for every skipped posting with its deposit
+column at zero) is an artefact of one platform's layout that a generic probe does not read, so
+it is not applied. The direction is safe and is why the 0 stands: a RELAXED test that admits
+nothing proves the strict test admits nothing. But "as written" was the wrong phrase for a
+predicate running in its relaxed form, and a future non-zero here would have to supply that row
+before it could be trusted.
 
 **The population that needs no ruling is zero documents.** Under R-a as written, an
 empty-and-silent section — a heading printed, no rows, no declaration — is *absence of parsed
@@ -476,11 +486,16 @@ two fields it already produced:
 | either figure read from the enumerating table instead | **0** |
 | also printing a dated row somewhere in the section | 3 |
 | also printing a dated row in its LEDGER region | **0** |
+| also printing their own counts or totals | **7** |
 
 | the 6 sections the ruling would license (on 6 documents; the other 2 of the 8 close already) | sections |
 |---|---:|
 | opening AND closing both read from the SECTION's own printed captions | **6** |
 | printing a dated row anywhere, or counts, or totals, or a daily table | **0** |
+
+The 7 that print their own counts or totals are among the OTHER 15; on the six the ruling would
+license the figure is 0, which is why nothing downstream moves — but the population's other
+sections are described completely now rather than by the rows that suited the argument.
 
 So the evidence on those six is not silence and not a missing table row. **The section prints
 its own opening caption and its own closing caption and the two figures coincide** — a printed
@@ -797,15 +812,15 @@ this cell.
 | **L1-C1** | every published section's boundary is PRINTED — an enumerating roll-up whose identities reappear as section headings, or section headings each carrying their own identity | reader returns `None` | 35 documents are `section-equation-scan`; they close **0** sections today |
 | **L1-C2** | the published sections are disjoint and cover the document's ledger region completely | `None` | a page-break reprint that omits the continuation word satisfies C1 and nothing else forbids publishing it twice — the mutant is a duplicated section |
 | **L1-C3** | the identities are distinct; two sections resolving to one token, or a `product_name_only` identity shared by two sections, refuses | `None` | 0 documents violate it today; **44 enumerating tables print a repeated token** — a hazard for the LOCATOR, not for this condition |
-| **L1-C4** | every posting section is accounted for; a section with a dated ledger row may not be dropped. Omission ONLY under §2.3, and always SURFACED | `None`, or an omission record | **26** documents carry a sibling that posted and declares nothing; **0** documents have every sibling satisfying the ratified rule |
-| **L1-C5** | where a section takes its opening or closing from the enumerating table, the table must print a COLUMN CAPTION naming which column is which; position is never evidence | `None` | **30** of 214 documents print such a caption; **184 print none**; this condition's absence produced 23 false closures |
+| **L1-C4** | every posting section is accounted for; a section with a dated ledger row may not be dropped. Omission ONLY under §2.3, and always SURFACED. **This condition's truth depends on Q7**: at the two-row threshold a section printing ONE dated row is not a posting section and C4 permits dropping it; at one row it does not. The condition is not implementable until Q7 is ruled, and it is written here at the ONE-row threshold, which is the stricter of the two | `None`, or an omission record | **26** documents carry a sibling that posted and declares nothing; **0** documents have every sibling satisfying the ratified rule |
+| **L1-C5** | where a section takes its opening or closing from the enumerating table, the table must print a COLUMN CAPTION **from the closed vocabulary below**, and the role map is what says which column is which; position is never evidence | `None` | **30** of 214 documents print such a caption — `type_prev_dep_wd_end` 15, `type_begin_end` 8, `begin_end` 7 — and **184 print none**. The role map is `tools/l1_split_prototype.py`:132. Without the vocabulary the condition is not yet a predicate: a table printing an ambiguous caption satisfies the letter and is mapped by position after all. This condition's absence produced 23 false closures |
 | **L1-C6** | each published section states its own opening and closing, or the table states them under C5; where both are printed they agree to the cent | `None` | **2** sections fail exactly here |
 | **L1-C7** | no published section closes on an empty or partial ledger: a section printing a dated row may not publish zero transactions, and the published ledger accounts for every dated row inside the span it read | `None` | **23** sections would close vacuously without it; **11** more leave a hole inside their own span |
 | **L1-C8** | `reconcile(section).ok`, with the section's own stated counts and totals supplied wherever it prints them — never `None` where they are printed | not validated (per-account outcome) | 79 of 442 sections print them; `reconcile` refuses **11 of 48** when they are fed and **0 of 105** when they are not |
 | **L1-C9** | `compute_average_daily_balance(section).ok` under the ratified calendar-day doctrine, `posting_dates_cover_source` applied against the SECTION's text, the section's own printed daily balances supplied where printed | not validated (per-account outcome) | the ADB refuses **10 of 48**; **24 of 442** sections print a daily table |
-| **L1-C10** | the roll-up reproduces: every published section's closing appears in that account's row under C5's roles, and where a cross-account total is printed the published sections sum to it. A mismatch refuses the DOCUMENT, not the section | `None` | 43 documents print a cross-account total; the table reproduces on the **2** that close |
+| **L1-C10** | the roll-up reproduces: every published section's closing appears in that account's row under C5's roles, and where a cross-account total is printed the published sections sum to it. A mismatch refuses the DOCUMENT, not the section | `None` | **43** documents print a cross-account total *over all 214*; **37** do *over the documents with a LOCATED roll-up* (§2.2). Both reproduce and they are different denominators, not a disagreement. The table reproduces on the **2** that close |
 | **L1-C11** | no money moved between the member's own accounts is counted twice (§3), and **nothing is called INTERNAL without a printed transfer designation on at least one leg** — an arithmetic coincidence alone never removes a printed deposit from a package total | the pair is not flagged; the package refuses to aggregate that document | **7** documents, **47** pairs, of which **46** carry a printed designation and **1** does not — that 1 is the condition's live killer. **0** ambiguous postings, so the ambiguity branch's killer is a constructed fixture, named as one |
-| **L1-C12** | a facility enumerated on the table is never published as a deposit section, and C10's cross-account total is neither required nor satisfiable where the total includes one. The class of a row is established from the ROW, not from a word in it | `None` for the section; C10 suspended for the document | **19** documents enumerate one; **4** of them carry two or more posting sections (all one family); **7** of the 19 also print a cross-account total |
+| **L1-C12** | a facility enumerated on the table is never published as a deposit section, and C10's cross-account total is neither required nor satisfiable where the total includes one. The class of a row is established from the ROW, not from a word in it | `None` for the section; C10 suspended for the document | **19** documents enumerate one; **4** of them carry two or more posting sections (all one family); **7** of the 19 also print a cross-account total. **That 19 is the COUNTED classes only** — `loan` 14, `mortgage` 5, `brand_row` 4. Three further classes fire and are deliberately not counted: `debit_card` on **15** documents (**5** multi-posting) and `card_network` on **6** (0 multi-posting), because a debit card is how a member reaches a deposit account rather than a facility of its own, and a brand word alone is not proof of an account row. The condition's real REACH is therefore wider than its counted population, which is the doctrine in the cell doing its work — and an implementation must confirm what a row IS before excluding it |
 | **L1-C13** | one currency per section, established at SECTION level by the doctrine's hierarchy; a document printing two denominated columns refuses | `None` | **4** documents, one census group, **12** sections |
 | **L1-C14** | no statement-specific constant anywhere in the split: an account number, a product name or a memorised heading is R-1 | test failure (`tests/test_no_statement_hardcodes.py`) | `analysis/consumers.py`:88-94 today (§9, F3) |
 | **L1-C15** | zero inference — deterministic, $0, no model call | — | standing |
@@ -864,8 +879,17 @@ section:
   sections, all one census group.
 
 **Mutation tables.** Every condition that becomes code gets a mutant that removes it and a named
-killer test, and the killers of C4/C5/C6/C7/C10/C11/C12/C13 are drawn by sha from the
+killer test, and the killers of C4/C5/C6/C7/C10/C11/C12/C13/C17 are drawn by sha from the
 populations above. A test named after a gate is not a test of that gate.
+
+**Four of the eighteen have no measured killer population, and the preamble should not have
+implied otherwise.** `L1-C2`'s cell is a hypothesis (a duplicated section — no document in this
+population is measured to print a page-break reprint that satisfies C1); `L1-C14`'s and
+`L1-C18`'s are code citations rather than populations; `L1-C15`'s is standing. Each of those
+four needs a CONSTRUCTED fixture as its killer, and the implementation card that writes the
+condition owns building one — a mutation table whose killer is a citation is not a mutation
+table. The same is true of `L1-C11`'s ambiguity branch, which the archive does not exercise
+(§3.3).
 
 ---
 
@@ -1045,7 +1069,17 @@ Every stage owes, at its closure tree, in this order:
    validated preserved (payload identical / changed, with leaf PATHS) | validated regressions
    (BLOCKING, exit 2)`;
 3. **a BYTE comparison alongside it** (§1.3) — `cohort_replay`'s leaf projection cannot see an
-   added empty-list key, and this design's payload-shape stages add exactly that class of key;
+   added empty-list key, and this design's payload-shape stages add exactly that class of key.
+   **This survives the fix.** Ocean's `train9` change to `flatten` — "an EMPTY container is a
+   leaf too" — closes the empty-container half of the gap, and a stage should rebase onto it.
+   Two things follow and both belong in a stage's plan. First, the fix is BROAD: the baseline
+   payloads already carry thousands of empty containers, so the projection now compares leaves
+   it did not before, and **every cell's `--expect-identical` fidelity control must be
+   re-established at `train9` `7755665` or later before it is used as a control** — a fidelity
+   run from before the fix is not a control for a tree after it. Second, the gap is narrowed and
+   not closed: `flatten` still compares an all-scalar list as a sorted multiset, deliberately,
+   so a payload whose scalar-list ORDER changes still moves bytes and no leaves. The byte
+   comparison stays;
 4. a MUTATION TABLE for every condition of §4 that became code in that stage: each mutant
    applied exactly as documented, run without `-x`, every killer named, killers drawn by sha
    from the measured populations in §4;
@@ -1243,16 +1277,23 @@ re-running its own three instruments against the run of record and its cold cach
 * `tools/l1_design_idle_evidence.py` — where every trivially idle section's opening and closing
   came from. It re-runs `tools/l1_split_prototype.py`'s own `run_document` and reports two
   fields that instrument computes and does not emit; it writes no grammar of its own.
+* `tools/l1_design_skip_probe.py` — the silent skip on the DISPATCH PATH: which sections each
+  reader actually drops, and what those sections print, classified only by the modules' own
+  committed patterns. Every watched line is verified against the source text it must sit on
+  before a document is read, so its zeros cannot be a refactor going unnoticed.
+* `tools/l1_design_transfer_probe.py` — the internal-transfer pairs under three pairing rules,
+  and how many carry a printed transfer designation, decided by
+  `analysis/transaction_classifier.py`'s own committed vocabularies.
 
-All four are unregistered, imported by nothing outside `tools/`, and reach no network.
+All six are unregistered, imported by nothing outside `tools/`, and reach no network.
 
 ### 10.3 Proof floor at this tree
 
 | proof | result |
 |---|---|
-| canonical guards (5 files), with the four prototypes present | **255 passed — EXIT=0** |
+| canonical guards (5 files), with the **six** prototypes present | **255 passed — EXIT=0** |
 | `tests/test_experiments_are_not_wired.py` | passes; it guards `experiments/` and says nothing about `tools/` — the property here is held by a GREP, not by a gate, exactly as the L1INV packet's MINOR-4 recorded. A `tools/` clause in that guard is a production-test change this card does not own |
-| the instruments are unwired | nothing outside `tools/` references any of the four, verified at this tip |
+| the instruments are unwired | nothing outside `tools/` references any of the **six**, verified at this tip |
 | no production file differs from base | `git diff --stat ac1d034 -- analysis ocr webapp discovery telemetry corpus_gate.py benchmark` — **empty** |
 | branch privacy scan vs the whole population | **hit_count 0** over 2,396 added lines and 3,351 documents read (population 3,380; the 29 with no cached text are the same 29 the pinned survey cannot reach). MONEY / DIGITS / DATES / WORDS all 0. Raw scan 28, every one of them class WORDS, discarded by `words_class` — the standing exclusion applied at the batch-8 train, whose own docstring says the tree is unaudited for customer names by construction. This document names no census family and no institution outside a registration id |
 | commit-message scan | **hit_count 0** over every commit on this branch, MONEY / DIGITS / DATES / WORDS all 0 — WORDS included, with the mandated co-authorship trailer on every one. It was not 0 the first two times: twice, an ordinary English word this archive prints was caught by the WORDS class. The messages were rewritten (once over the whole branch with `--msg-filter`, trees verified byte-identical and no record here citing a commit sha; once at the tip) and the scan re-run after each |
@@ -1260,5 +1301,5 @@ All four are unregistered, imported by nothing outside `tools/`, and reach no ne
 
 No mutation table and no archive sweep are owed: this card adds no gate and no grammar to
 production. The full suite, the canonical conformance set and the corpus gate are not re-run —
-the diff against base is this document, the W3 section and three files under `tools/`. That is
-a structural argument, and it is offered as one.
+the diff against base is this document, the W3 section, the review, and **six** files under
+`tools/`. That is a structural argument, and it is offered as one.
