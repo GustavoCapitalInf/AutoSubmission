@@ -16,13 +16,22 @@ own cached text:
   raised where it was built, so this asserts the vocabulary end to end;
 * every one's ACCOUNT outcome, through the unchanged `classify_outcome`, is
   `validated`;
+* every one's DOCUMENT outcome, through
+  `tests/test_l1s2_document_outcome.py::document_outcome`, is `validated`;
 * every one's published account block is byte-identical to the payload the run
   of record stored — so nothing crossed the boundary from the omitted sibling.
 
-**There is no document classifier at this tree** (§1.5's fold is S3's). When
-`classify_document` lands, add its verdict to the assertions below and keep the
-account ones: Q10 is the statement that the second does not follow the first
-downwards.
+**The document leg is the one a fold walks through, and it is why that resolver
+exists.** The first version of this file asserted the account leg and left the
+other to a docstring — "when `classify_document` lands, add its verdict" — and
+the independent re-review showed a `classify_document` demoting all 15 while
+every assertion here stayed green. `document_outcome` resolves the document's
+verdict through whatever this tree exposes: a declared fold if one exists (found
+by scanning `analysis/` and `telemetry/`, not by a hard-coded name), the
+published account otherwise. So the assertion below starts reading S3's fold on
+the day it lands, with nobody remembering to extend anything, and
+`tests/test_l1s2_document_outcome.py`'s tripwire fails if a fold is declared that
+the resolver cannot reach.
 
 FAIL CLOSED, never vacuously. The population is asserted to be exactly 15 when
 the archive is present, and the whole module SKIPS with a stated reason only
@@ -113,6 +122,7 @@ def test_the_fifteen_carriers_surface_their_omission_and_stay_validated():
     from analysis.serialization import report_to_dict
     from analysis.sibling_omission import EVIDENCE_CLASSES
     from telemetry.record import classify_outcome
+    from tests.test_l1s2_document_outcome import document_outcome
     from tools.cohort_replay import ColdCache, leaf_diff, load_baseline_rows
 
     cache_dir, run = _archive()
@@ -152,6 +162,15 @@ def test_the_fifteen_carriers_surface_their_omission_and_stay_validated():
         outcome = tuple(classify_outcome(account))
         if outcome[0] != "validated":
             failures.append(f"{prefix}: account outcome is {outcome[0]!r}, not 'validated'")
+        # The other leg, and the one a document-level fold walks through. Q10
+        # says a surfaced omission does not demote the document either.
+        folded = document_outcome(document)
+        if folded[0] != "validated":
+            failures.append(
+                f"{prefix}: DOCUMENT outcome is {folded[0]!r} ({folded[1]!r}), not "
+                f"'validated' — Q10 (BATCH9_TRANSITION §8.7) forbids demoting a "
+                f"protected carrier for surfacing its omission"
+            )
 
         baseline = cache.baseline_payload(markdown, pages)
         if baseline is None:

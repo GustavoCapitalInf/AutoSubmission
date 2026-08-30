@@ -64,6 +64,7 @@ class Mutant:
 SIBLING = "analysis/sibling_omission.py"
 SYMITAR = "analysis/symitar.py"
 SCHEMA = "analysis/schema.py"
+RECORD = "telemetry/record.py"
 
 UNIT = ("the constructed fixtures",
         ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider",
@@ -80,6 +81,16 @@ PLATFORM_SUITE = ("the core-processor layout suite",
 DOCUMENT_SUITE = ("the document-object suite (RULE S)",
                   ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider",
                    "tests/test_document_report.py"))
+#: Gustavo's Q10 pins. The ruling file and the tripwire run in the default
+#: selection; the protected-carrier replay is `corpus`-marked, which `pytest.ini`
+#: deselects, so its killer names the marker explicitly.
+Q10_PINS = ("the Q10 ruling pins + the document-outcome tripwire",
+            ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+             "tests/test_l1s2_omission_ruling.py",
+             "tests/test_l1s2_document_outcome.py"))
+Q10_CARRIERS = ("the 15 protected carriers, replayed",
+                ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                 "-m", "corpus", "tests/test_l1s2_protected_carriers.py"))
 
 
 def _admission(registrations: str) -> tuple[str, tuple[str, ...]]:
@@ -189,6 +200,48 @@ MUTANTS: tuple[Mutant, ...] = (
         note=("the archive killer IS the byte comparison: `--expect-identical` "
               "exits 3 when any replayed payload differs from the run of "
               "record's stored one"),
+    ),
+    # ---------------------------------------------------------------------
+    # The two the independent re-review built. Q-1 was already killed; Q-3 was
+    # NOT, and it is why the document-outcome resolver and its tripwire exist.
+    # Both are carried here so the kill is reproducible rather than asserted.
+    # ---------------------------------------------------------------------
+    Mutant(
+        id="Q1_the_omission_is_admitted_but_never_surfaced",
+        what_it_removes=(
+            "the SURFACE half of Gustavo's Q10 ruling: the section is still "
+            "admitted on printed evidence, but the record never reaches the "
+            "document — a silent drop wearing an evidence-based skip's clothes"),
+        patches=(Patch(SIBLING,
+                       "    sink = _COLLECTING.get()\n",
+                       "    return  # MUTANT Q-1: the record never reaches the document\n"
+                       "    sink = _COLLECTING.get()\n"),),
+        killers=(UNIT, Q10_PINS),
+        archive_killers=(Q10_CARRIERS,),
+        note="the re-review's Q-1; it was already killed before this closure",
+    ),
+    Mutant(
+        id="Q3_a_document_fold_demotes_on_any_omission",
+        what_it_removes=(
+            "the DO-NOT-DEMOTE half: design §1.5's original fold, written "
+            "exactly as it stood before Q10 superseded it — a document-level "
+            "classifier returning `review` / `sibling_section_omitted` whenever "
+            "the document carries an omission, which demotes all 15 protected "
+            "carriers"),
+        patches=(Patch(RECORD,
+                       "TELEMETRY_VERSION = 1\n",
+                       "TELEMETRY_VERSION = 1\n\n\n"
+                       "def classify_document(document):  # MUTANT Q-3\n"
+                       "    if getattr(document, \"omissions\", None):\n"
+                       "        return (\"review\", \"sibling_section_omitted\")\n"
+                       "    return (\"validated\", \"approved\")\n"),),
+        killers=(Q10_PINS,),
+        archive_killers=(Q10_CARRIERS,),
+        note=("the re-review's Q-3, which passed EVERY pin before this closure. "
+              "It is killed on three legs now: the document-outcome assertions "
+              "read the fold through the resolver, the tripwire's "
+              "`no document fold yet` pin fires, and the superseded-reason scan "
+              "fires on the reason string itself"),
     ),
 )
 

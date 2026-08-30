@@ -62,6 +62,7 @@ from analysis.sibling_omission import (
     YIELD_ONLY_ARITHMETIC,
 )
 from telemetry.record import classify_outcome
+from tests.test_l1s2_document_outcome import document_outcome
 from tests.test_community_section_layouts import SIMPLE_BODY
 from tests.test_sibling_omission import (
     BUSY_BUT_EMPTY_BODY,
@@ -137,12 +138,29 @@ def test_the_account_beside_an_omission_stays_validated(_label, with_sibling, _a
     assert _account_outcome(_document(with_sibling))[0] == "validated"
 
 
+@pytest.mark.parametrize("_label,with_sibling,_alone,_reason", CASES, ids=IDS)
+def test_the_DOCUMENT_beside_an_omission_stays_validated(_label, with_sibling, _alone, _reason):
+    """The same half, on the OTHER leg — and this is the one a document-level
+    fold walks through.
+
+    The account assertion above passes happily while a `classify_document` that
+    demotes on any omission demotes every carrier: the re-review demonstrated
+    exactly that with a mutant. `document_outcome` resolves the DOCUMENT's
+    verdict through whatever this tree exposes — a declared fold if one exists,
+    the published account otherwise — so this assertion reads the fold the day
+    S3 lands one, without anyone remembering to extend it.
+    """
+    assert document_outcome(_document(with_sibling))[0] == "validated"
+
+
 @pytest.mark.parametrize("_label,with_sibling,alone,_reason", CASES, ids=IDS)
 def test_the_omission_changes_the_accounts_outcome_by_nothing(_label, with_sibling, alone, _reason):
     """The ruling stated as the difference it forbids, which is stronger than a
     literal `validated`: the SAME account read with the idle sibling on the page
-    and without it reaches the same verdict, for the same reason."""
+    and without it reaches the same verdict, for the same reason — on BOTH legs,
+    so a fold that demotes only the omission carriers is caught here too."""
     assert _account_outcome(_document(with_sibling)) == _account_outcome(_document(alone))
+    assert document_outcome(_document(with_sibling)) == document_outcome(_document(alone))
 
 
 @pytest.mark.parametrize("_label,with_sibling,alone,_reason", CASES, ids=IDS)
@@ -165,29 +183,65 @@ def test_nothing_is_misattributed_from_the_omitted_sibling(_label, with_sibling,
 SYM_AMBIGUOUS = SYM_HEAD + SYM_ACTIVE + _money_market(
     "05/02/54 -25.00 -19.81 Card purchase FUEL STOP")
 
+#: The refusal this reader performs when no registration publishes a statement.
+#: `analysis/pipeline.py` raises it by name in deterministic mode, and asserting
+#: the CLASS and its message is what keeps these cases from passing on an
+#: exception thrown by a fixture that never reached the site.
+NO_PARSER = "no deterministic parser matched this statement"
+
+#: (label, the page that must be REFUSED, the nearest page that must PUBLISH).
+#: Every refusal is paired with its own positive control, so each case proves a
+#: refusal of the thing under test rather than of a fixture that was broken.
 REFUSALS = (
     ("absence only — a printed sibling, no row and no declaration",
-     SYM_HEAD + SYM_ACTIVE + SYM_DORMANT_SILENT),
+     SYM_HEAD + SYM_ACTIVE + SYM_DORMANT_SILENT,
+     SYM_HEAD + SYM_ACTIVE + SYM_DORMANT),
     ("absence only — a block whose grid states activity it printed no row for",
-     PLATFORM_MULTI_HEAD + SIMPLE_BODY + BUSY_BUT_EMPTY_BODY),
-    ("ambiguous boundary — a second sibling that POSTED", SYM_AMBIGUOUS),
+     PLATFORM_MULTI_HEAD + SIMPLE_BODY + BUSY_BUT_EMPTY_BODY,
+     PLATFORM_MULTI_HEAD + SIMPLE_BODY + IDLE_BODY),
+    ("ambiguous boundary — a second sibling that POSTED",
+     SYM_AMBIGUOUS,
+     SYM_HEAD + SYM_ACTIVE + SYM_DORMANT),
 )
 
+REFUSAL_IDS = [case[0] for case in REFUSALS]
 
-@pytest.mark.parametrize("_label,markdown", REFUSALS, ids=[case[0] for case in REFUSALS])
-def test_the_document_is_refused_rather_than_published_short(_label, markdown):
+
+@pytest.mark.parametrize("_label,refused,_admitted", REFUSALS, ids=REFUSAL_IDS)
+def test_the_document_is_refused_rather_than_published_short(_label, refused, _admitted):
     """Q10 admits an omission; it does not admit a gap nobody can account for.
     Nothing is published, so there is no account to keep validated and no
-    omission to surface."""
-    with pytest.raises(Exception):
-        _document(markdown)
+    omission to surface — and the refusal is named, not merely raised."""
+    with pytest.raises(RuntimeError, match=NO_PARSER):
+        _document(refused)
+
+
+@pytest.mark.parametrize("_label,_refused,admitted", REFUSALS, ids=REFUSAL_IDS)
+def test_each_refusal_has_a_positive_control_that_publishes(_label, _refused, admitted):
+    """The anti-vacuity companion for every refusal above. The nearest page that
+    DOES print evidence reaches the same reader, publishes, records the omission
+    and keeps its document `validated` — so the refusal beside it is a refusal of
+    the missing evidence and not of a fixture that never arrived."""
+    document = _document(admitted)
+    assert document.omissions
+    assert document_outcome(document)[0] == "validated"
 
 
 def test_the_refusal_fixtures_differ_from_the_admitted_ones_only_in_the_evidence():
-    """A refusal that came from a fixture which never reached the site would
-    prove nothing. The absence-only page is the admitted page with the printed
-    declaration removed and nothing put in its place."""
+    """Same argument at the level of the bytes, for the symitar pair: the
+    absence-only page is the admitted page with the printed declaration removed
+    and nothing put in its place."""
     assert SYM_DORMANT.replace("No Transactions This Period ", "") == SYM_DORMANT_SILENT
     assert "No Transactions This Period" not in SYM_DORMANT_SILENT
+    assert len(SYM_DORMANT) - len(SYM_DORMANT_SILENT) == len("No Transactions This Period ")
     document = _document(SYM_HEAD + SYM_ACTIVE + SYM_DORMANT)
     assert document.omissions and _account_outcome(document)[0] == "validated"
+
+
+def test_the_ambiguous_page_differs_from_the_admitted_one_only_in_what_the_sibling_POSTED():
+    """And for the ambiguous pair, where the difference is not a declaration but
+    a dated row: the same document furniture and the same active account, with a
+    sibling that posted rather than one that declared itself idle."""
+    assert SYM_AMBIGUOUS.startswith(SYM_HEAD + SYM_ACTIVE)
+    assert "No Transactions This Period" not in SYM_AMBIGUOUS
+    assert "Card purchase FUEL STOP" in SYM_AMBIGUOUS
