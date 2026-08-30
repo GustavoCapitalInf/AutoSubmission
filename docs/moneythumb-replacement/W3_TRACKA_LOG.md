@@ -58567,11 +58567,17 @@ after this table landed and report 0 in all four classes on both surfaces.
 | `51fbb51` | the ceiling's cross-check, and a population selectable by registration id |
 | `2c0f2e5` and the tip | this section, and the archive sweep it closes on |
 
-Every proof above was measured at `51fbb51`, the last commit that changes
-anything but this log; the two commits after it edit
-`docs/moneythumb-replacement/W3_TRACKA_LOG.md` and nothing else — check it with
-`git diff --name-only 51fbb51..HEAD` — except the two privacy scans and the
-archive sweep, which ran after it and are named with the tree they ran at.
+**Which tree each proof belongs to**, because "the closure tree" and "the tip"
+are not the same commit and a record that blurs them invites a later reader to
+re-measure the wrong one. The suite, the guards, the conformance files, the
+corpus gate, the corpus-marked slice, the mutation table and the three closure
+replays were all measured at `8d92ae5`. Exactly two files change after it:
+this log, and `tools/commsec_identity_ceiling.py` at `51fbb51` — an instrument
+no test imports and no production file references (grep for `commsec_` over
+`tests`, `analysis`, `ocr`, `webapp`, `discovery`, `telemetry`, `benchmark` and
+`corpus_gate.py`: **0**), so no proof in the table can differ between those
+trees. The archive sweep and both privacy scans ran AFTER `51fbb51`, at the
+tip's production tree, which is byte-identical to the base.
 
 ### The findings carried
 
