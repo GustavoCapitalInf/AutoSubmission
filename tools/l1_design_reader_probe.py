@@ -169,9 +169,12 @@ def _reader_stated_counts(payload: dict) -> str:
     from telemetry.stated_counts import evaluate
 
     observation = evaluate(copy.deepcopy(payload))
-    status = getattr(observation, "status", None)
-    reason = getattr(observation, "reason", None)
-    return f"{status}/{reason}"
+    # `DirectionObservation` carries the bank-STATED count, so only its two
+    # enum tokens are projected. This instrument publishes classes, never
+    # figures a document printed.
+    credit = observation.credit
+    return (f"{observation.transactions} transaction(s), "
+            f"credit {credit.result}/{credit.reason}")
 
 
 def _reader_ourside(payload: dict) -> str:

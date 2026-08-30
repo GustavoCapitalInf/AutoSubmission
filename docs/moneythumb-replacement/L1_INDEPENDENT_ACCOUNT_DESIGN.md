@@ -190,17 +190,22 @@ promotes the first account back under `statement`):
 | payload reader | `baseline` | `document` shape | Option-D `shim` |
 |---|---|---|---|
 | `telemetry/record.py::classify_outcome` | `validated/approved` | **`withheld/withheld_adb`** | `validated/approved` |
-| *(this design)* `classify_document` | `validated/approved` | `validated/approved` | `validated/approved` |
+| `telemetry/diagnostics.py::diagnose` — called by `build_record`:417, so it rides in EVERY discovery telemetry record | 0 codes, `evaluated=False` | **0 codes, `evaluated=True`** — an empty diagnosis that says it evaluated | 0 codes, `evaluated=False` |
+| `telemetry/stated_counts.py::evaluate` | 27 transactions, `semantics_incomparable` | **0 transactions, `check_unavailable/statement_absent`** | 27 transactions, `semantics_incomparable` |
 | `analysis/revenue.py::rebuild_serialized_revenue_views` | rebuilt over 27 transactions | **rebuilt over 0 transactions** | rebuilt over 27 transactions |
 | `webapp/app.py::_analysis_rows` (CSV / XLSX export) | 211 export rows | **0 export rows** | 211 export rows |
 | `webapp/app.py::_adb_rows` (ADB export) | 0 ADB rows | 0 ADB rows | 0 ADB rows |
 | `webapp/app.py::_masked` (the `/analysis` route) | 9 top-level keys | **2 top-level keys** | 9 top-level keys |
+| `benchmark/ourside.py::OurFileResult.statement/.metrics/.reconciliation` | 23 / 91 / 22 keys | **0 / 0 / 0 keys** | 23 / 91 / 22 keys |
+| `balance_forensic_audit.py`:528-529 — indexes `payload["statement"]` rather than `.get()`s it | opening and ending present | **RAISES `KeyError`** | opening and ending present |
+| `corpus_gate.py::production_verdict` → `_Verdict` | `_Verdict('validated', flags 0, 'clear')` | **`_Verdict('withheld', flags 0, '')`** — which mismatches `PUBLISHED_OUTCOME` and turns the gate red | `_Verdict('validated', flags 0, 'clear')` |
+| *(this design)* `classify_document`, for contrast — it is taught the shape | `validated/approved` | `validated/approved` | `validated/approved` |
 
 | measure | value |
 |---|---:|
-| payload readers probed | 6 |
-| ... that REFUSE the document shape (loud, fail-closed) | **0** |
-| ... that ANSWER a shape they were not taught (quiet, wrong) | **6** |
+| payload readers probed (excluding this design's own) | **10** |
+| ... that REFUSE the document shape (loud, fail-closed) | **1** |
+| ... that ANSWER a shape they were not taught (quiet, wrong) | **9** |
 | ... that refuse the Option-D shim | **0** |
 
 Two findings, and both are load-bearing:
@@ -212,9 +217,13 @@ Two findings, and both are load-bearing:
    `validated/approved` document becomes `withheld/withheld_adb` under the document shape).
    `analysis/revenue.py::rebuild_serialized_revenue_views` (:55-56) does
    `analysis.setdefault("statement", {})` and rebuilds every revenue view over an empty ledger.
-   Neither raises. **Therefore: no document may publish two accounts until every payload reader
-   has been taught the shape.** That is the ordering constraint §7 is built around, and it is a
-   correction to the delivery order the card sketched.
+   `telemetry/diagnostics.py::diagnose` returns an empty diagnosis marked `evaluated=True` and
+   rides in every discovery telemetry record. **9 of the 10 answer; 1 raises.** The one that
+   raises (`balance_forensic_audit.py`:528-529) does so only because it INDEXES the key where
+   the others `.get()` it — the loudness is an accident of style, not a guard.
+   **Therefore: no document may publish two accounts until every payload reader on the list
+   below has been taught the shape.** That is the ordering constraint §7 is built around, and it
+   is a correction to the delivery order the card sketched.
 2. **The Option-D shim is refused on evidence.** Under the shim every untaught reader answers,
    and answers about one account of several, silently, on every surface, forever. The shim is
    exactly what makes the defect invisible.
@@ -223,6 +232,32 @@ The design therefore adds a **shape assertion** (L1-C16): a payload carrying `ac
 never also carry `statement`, and every reader taught the shape raises `ValueError` on a
 payload carrying neither. The assertion is what converts the quiet failure above into a loud
 one for every reader written after this design.
+
+**The census, and why it is a list rather than a quantifier.** The first version of this table
+measured six readers, and the design then stated its ordering constraint over "every payload
+reader" — a universal quantifier over an unstated set, which is not a criterion a stage can be
+held to. The set is now enumerated and CHECKED: eleven readers above, and nine production seams
+below. `tools/l1_design_reader_probe.py --census` compares the declared seam list against the
+tree in BOTH directions and **exits non-zero** if a declared seam has moved or an undeclared one
+appears; a list that cannot fail is not an exit criterion. Measured at this base: 9 found, 0
+undeclared, 0 missing — **the census holds**.
+
+| seam: `analyze_markdown` → `report_to_dict` | what it feeds |
+|---|---|
+| `discovery/runner.py`:452 | the discovery run |
+| `corpus_gate.py`:1355 | `production_verdict` — the pinned corpus |
+| `benchmark/ourside.py`:99 | the benchmark's production side |
+| `batch.py`:181 | the batch CLI |
+| `balance_forensic_audit.py`:516 | the balance forensic audit |
+| `webapp/artifact_cache.py`:215 | the analysis cache — every web upload |
+| `analyze.py`:175 | **the CLI** |
+| `webapp/worker.py`:29 | the web worker |
+| `adb_forensic_audit.py`:493 | the ADB forensic audit |
+
+Each must move to the document entry point, or a multi-account document publishes ONE account
+through the old seam. Four of the nine — the CLI, the worker, the ADB forensic audit and the
+cache — were absent from §5 in the first version, and the cache is the one every web upload goes
+through.
 
 ### 1.5 The document outcome
 
@@ -790,11 +825,16 @@ that needs the values gets the account list.
 | `webapp/app.py`:318-362 `_package_rows` | nothing | `document_{idx}` (:330-332) is per JOB; it becomes per account with the document named |
 | `webapp/jobs.py`:61-66 `_classification_for` | nothing | reaches `analysis["statement"]["transactions"]`; takes the account path |
 | `webapp/storage.py`:70, :591, :614-616 | nothing — payload stored as opaque text, no migration | nothing |
-| `webapp/artifact_cache.py`:436 | nothing — not bumped by a byte-identical stage | `ANALYSIS_STAGE_VERSION` bumped in the SAME commit as any payload-shape change (:150-151, :165) |
+| `webapp/artifact_cache.py`:436, **and the seam at :215-216** | nothing — not bumped by a byte-identical stage | `ANALYSIS_STAGE_VERSION` bumped in the SAME commit as any payload-shape change (:150-151, :165); the seam at :215-216 is the one EVERY web upload passes through and was unnamed in the first version |
+| **`analyze.py`:175/187 — the CLI** | nothing | unnamed in the first version, while §1.1's own rationale cites the CLI as a `report_to_dict` consumer. Takes the document entry point |
+| **`webapp/worker.py`:29** | nothing | unnamed in the first version. Takes the document entry point |
+| **`adb_forensic_audit.py`:480/493** | nothing | unnamed in the first version. Takes the document entry point |
+| `telemetry/diagnostics.py`:455-... `diagnose` | nothing | called by `build_record`:417, so it rides in every discovery telemetry record; takes the account path, or the document branch that says a document-shaped payload is not diagnosable |
+| `telemetry/stated_counts.py`:390-... `evaluate` | nothing | reads `payload["statement"]`; takes the account path |
 | `webapp/static/app.js`:1078-1177, :256-277 | nothing | one statement panel today; an account selector, one panel per account, and the omission note rendered |
 | `benchmark/expectations.py`:23-54, :62-103 | nothing | one expected value per field per document; a multi-account document has nowhere to declare a second opening/ending/ADB. Follows the two CSVs |
-| `benchmark/ourside.py`:88-113, `batch.py`:87-176 | nothing | one row per document today; one per account |
-| `balance_forensic_audit.py`:650-700 | nothing | asserts `document_{index}` package rows; follows `_package_rows` |
+| `benchmark/ourside.py`:88-113 (seam at :99), `batch.py`:87-176 (**seam at :181**, outside the range the first version cited) | nothing | one row per document today; one per account |
+| `balance_forensic_audit.py`:650-700, **and the payload read at :516-529** (the seam plus the one reader on this list that RAISES on the document shape, because it indexes rather than `.get()`s) | nothing | asserts `document_{index}` package rows; follows `_package_rows` |
 
 ---
 
@@ -969,7 +1009,7 @@ the two changes are both forced by measurement:
 |---|---|---|---|---|
 | **S1 — the wrapper and RULE S** | `analysis/pipeline.py` (the three dataclasses + the document seam), `analysis/serialization.py` (`document_report_to_dict`, RULE S), docstring of `analysis/schema.py` | **0 newly validated. 0 documents move.** `accounts` is length 1 on every document by construction; RULE S returns today's dict verbatim — measured byte-identical on 208 of 208 documents across 71 registrations | **none** | `cohort_replay --expect-identical` over every registration + BYTE comparison (§1.3) + archive sweep (0 findings expected, and 0 is the pass condition). `ANALYSIS_STAGE_VERSION` NOT bumped |
 | **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note); the skip SITES only — **`analysis/symitar.py`:419-420, `analysis/community_section.py`:621-622 (INSIDE `_parse_sectioned_statement`, not at its call site), `analysis/zions.py`:248-250** | **0 newly validated, and 0 validated LOST.** Measured on the dispatch path (§2.7): the skips fire on **12** validated documents / **16** sections across 117 read, and **16 of 16 print evidence L1-C17 can name — 0 print none**. So this stage re-founds 12 documents' skips on printed evidence and surfaces 16 sections; it removes nothing. Payload bytes move on those 12 documents and on no others | **1 named exposure, not "none".** `dakota_west` holds a pinned document and has 3 documents in the run: 2 carry this skip and the third carries F4's live derived selection (§6.3). The card must name which is pinned before it claims no pinned movement | mutation table on the omission-reason vocabulary, with killers drawn by sha from the 12; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
-| **S3 — the surfaces, taught DARK** | `telemetry/record.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `balance_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | unit tests per reader over synthetic document payloads; the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
+| **S3 — the surfaces, taught DARK** | the **11 readers** and the **9 seams** of §1.4, by name: `telemetry/record.py`, `telemetry/diagnostics.py`, `telemetry/stated_counts.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/artifact_cache.py`, `webapp/worker.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `analyze.py`, `balance_forensic_audit.py`, `adb_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | **Exit criterion, checkable:** every one of the 11 readers has a document branch with a unit test over a synthetic document payload, AND `l1_design_reader_probe --census` exits 0 (the 9 seams are the tree's, both ways), AND each of the 9 seams calls the document entry point. Plus: the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
 | **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **0 to 8, and the test decides which.** **0** documents pass the STRICT after-chain bound; **2** close on every located section under the production checks (both one census group, both with the enumerating table's own closing column reproducing); **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
 | **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94, and :115-123, which restates the product designation but NOT the account number) | **0 newly validated, and −2 validated.** The `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today, and removing the literal makes the reader refuse (§6.3). This is a CORRECTNESS card whose measured effect on the count is negative: it removes an R-1 hardcode that publishes one memorised account of a member's several | **2 validated → failed, 1 of them pinned** (§6.3). STOP-and-report with per-sha evidence, and the ceremony, BEFORE the change lands | truth-set ceremony over BOTH paths; `cohort_replay --parser consumers` (2 documents, both `validated`); corpus gate; both audit CSVs' rows re-derived and re-approved |
 | **S6 — the remaining mechanisms** | per-family row grammars on the shared template | **an ESTIMATE, and it is not offered.** What is measured: 29 of 392 sections close today; `section-identity` closes 10 sections and 0 documents; `section-equation-scan` closes 0 and always will (L1-C1) | unknown; each family carded separately | as S4, per family |
