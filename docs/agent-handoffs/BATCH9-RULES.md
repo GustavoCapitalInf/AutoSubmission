@@ -172,3 +172,14 @@ durable log (background tool commands die at ~10 minutes; a headline number with
 not exist); OneDrive `PermissionError`s are transient — retry, never score them; mutation
 harnesses restore with `git checkout --` and are only correct on a CLEAN tree; archive and
 caches READ-ONLY; keep probes light — the machine is shared with one other cell.
+
+## Composition lessons (Ocean, 2026-08-30 — from composing L1-S1)
+`corpus_gate.py`'s `EXCLUDED_ANALYSIS_CALLERS` register is a SHARED APPEND SURFACE: two cells
+appending at its end collide at composition as a non-W3 conflict (`train_merge_one` aborts exit 3;
+Ocean resolves by hand — ours + theirs MINUS every entry train9 already carries, a register-scoped
+duplicate-key check, `ast.parse`, `import corpus_gate`, then the amend). Cells: before you report,
+check that no tool you register is already excused on `train9` (`git show train9:corpus_gate.py |
+grep -c '"tools/<name>.py"'`) — lift nothing from another branch into the register. Ocean: never
+chain `git add` / `git commit` after a resolver write on this host — a OneDrive lock can fail the
+write while the chain continues and COMMITS THE MARKERS; verify `git show HEAD:<file> | grep -c
+'^<<<<<<<'` is 0 on the committed blob before running anything against the tree.
