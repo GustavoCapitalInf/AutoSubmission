@@ -22,6 +22,7 @@ quotes a fragment of the document.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -453,7 +454,28 @@ def classify_document(
     `validated` on a document therefore means *every account validated, and
     nothing was omitted except on ratified printed evidence*, which on a
     one-account document IS today's meaning.
+
+    **The contract at the door**, and it is part of the contract rather than a
+    nicety: what this reads is a published PAYLOAD — a mapping, or `None` for a
+    document that produced none. Anything else raises `TypeError` HERE, naming
+    the shape it wanted, rather than being passed on to `classify_outcome` to
+    fail several frames down inside a `.get`. The L1-S3 review found what the
+    quiet version cost: `tests/test_l1s2_document_outcome.py`'s resolver
+    discovers this fold by AST and probes it with two call shapes — the
+    `DocumentReport` object first, then the payload — narrowing on `TypeError`
+    to mean *not this call shape, try the other*. Delegating the object instead
+    produced `AttributeError` two frames down, the resolver never reached the
+    payload leg, and eleven of L1-S2's Q10 pins went red at the merged tree.
+    `TypeError` at this door is therefore a published contract that a sibling
+    stage already depends on, not an implementation detail.
     """
+    if payload is not None and not isinstance(payload, Mapping):
+        raise TypeError(
+            f"classify_document reads a published payload — a mapping, or None "
+            f"for a document that produced none; got {type(payload).__name__}. "
+            f"A `DocumentReport` is the OBJECT; its payload is "
+            f"`analysis.serialization.document_report_to_dict(document)`"
+        )
     if deferred is not None or not is_document_payload(payload):
         return classify_outcome(
             payload, error_type=error_type, error_reason=error_reason,

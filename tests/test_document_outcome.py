@@ -61,6 +61,43 @@ def test_classify_outcome_is_unchanged_on_every_shape_the_tree_publishes():
     assert classify_outcome({}) == ("withheld", "withheld_adb")
 
 
+# --- classify_document: the contract at its door (L1-S3 review BLOCK-1) ----
+
+
+@pytest.mark.parametrize("not_a_payload", [[], "text", 3, object()])
+def test_the_fold_refuses_a_non_mapping_with_a_type_error(not_a_payload):
+    """It reads a published PAYLOAD, and says so at its own door.
+
+    `TypeError`, not `PayloadShapeError`: "this is not a published payload at
+    all" is a different statement from "this is the wrong one of the two
+    published shapes", and a caller probing which call shape a function wants
+    reads the first as *try the other argument*.
+    """
+    with pytest.raises(TypeError, match="reads a published payload"):
+        classify_document(not_a_payload)
+
+
+def test_the_fold_refuses_the_document_OBJECT_and_names_its_payload_function():
+    """The exact call the L1-S2 resolver makes first.
+
+    It used to be delegated to `classify_outcome` and die two frames down with
+    `AttributeError: 'DocumentReport' object has no attribute 'get'`; the
+    resolver narrows on `TypeError` to mean "try the other call shape", so it
+    never reached the payload leg and eleven Q10 pins went red at the merged
+    tree. The message names the function that turns the object into a payload.
+    """
+    from analysis.pipeline import DocumentReport
+
+    with pytest.raises(TypeError, match="document_report_to_dict"):
+        classify_document(DocumentReport(accounts=[]))
+
+
+def test_the_fold_still_answers_none_and_a_mapping():
+    """The door refuses a non-payload and nothing else."""
+    assert classify_document(None) == ("failed", "no_analysis")
+    assert classify_document({}) == ("withheld", "withheld_adb")
+
+
 # --- classify_document: the fold -------------------------------------------
 
 

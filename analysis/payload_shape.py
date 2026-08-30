@@ -90,6 +90,14 @@ def is_document_payload(payload: object) -> bool:
     to decide whether to take a branch, and a predicate that could answer True
     for a merely malformed account payload would let a malformed payload reach
     the document branch. The malformed cases are the assertion's business.
+
+    It answers `False` for a non-Mapping and does NOT raise, and that is on
+    purpose: this is a QUESTION, and a question that raises cannot be asked.
+    The guards are `refuse_document_payload` and `assert_payload_shape`, and
+    both are loud about a non-Mapping. A caller that branches on this predicate
+    and then reads the payload must reach one of those two first — which is
+    what the L1-S3 review's BLOCK-1 was: a branch taken on the predicate with
+    no guard behind it.
     """
     return isinstance(payload, Mapping) and ACCOUNTS_KEY in payload
 
@@ -130,11 +138,33 @@ def assert_payload_shape(payload: object, *, surface: str) -> str:
 def refuse_document_payload(payload: object, *, surface: str) -> None:
     """The LOUD refusal for a reader whose answer is about ONE account.
 
-    Fires on the presence of ``accounts`` and on nothing else, so a reader that
-    gains this line answers every payload the tree can currently publish
-    exactly as it did before — the property that makes the whole teaching stage
-    provably dark.
+    Two refusals, and the second was missing until the L1-S3 review found what
+    it cost:
+
+    * a payload that is not a MAPPING at all is refused with `TypeError`. This
+      helper used to return silently for `None`, a list, a string or an
+      arbitrary object, which meant the caller carried on and failed several
+      frames down inside whatever it did next — measured: `classify_document`
+      handed a `DocumentReport` delegated it to `classify_outcome`, which died
+      `AttributeError: 'DocumentReport' object has no attribute 'get'`. A guard
+      whose whole job is to refuse a shape it was not taught may not be the
+      quietest thing in the call stack. `TypeError` rather than
+      `PayloadShapeError`, because "this is not a published payload at all" is
+      a different statement from "this is the wrong ONE of the two published
+      shapes", and a caller probing which call shape a function wants reads the
+      first as *try the other argument* — which is exactly what
+      `tests/test_l1s2_document_outcome.py`'s resolver does;
+    * a document-shaped payload is refused with `PayloadShapeError`, as before.
+
+    A MAPPING without ``accounts`` still returns silently, which is the
+    property that keeps this stage dark: a reader that gains this line answers
+    every payload the tree can currently publish exactly as it did before.
     """
+    if payload is not None and not isinstance(payload, Mapping):
+        raise TypeError(
+            f"{surface} reads a published payload — a mapping, or None; got "
+            f"{type(payload).__name__} (payload_is_not_a_payload)"
+        )
     if is_document_payload(payload):
         raise PayloadShapeError(
             f"{surface} answers about one ACCOUNT and was handed a document "

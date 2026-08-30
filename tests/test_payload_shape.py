@@ -108,17 +108,38 @@ def test_the_document_block_must_be_present_on_the_document_shape():
         payload_document_block(payload, surface="probe")
 
 
-def test_the_account_scope_refusal_fires_only_on_the_account_list():
+def test_the_account_scope_refusal_is_silent_on_every_mapping_without_accounts():
     """The darkness property, stated as a test.
 
-    `refuse_document_payload` must key on `accounts` and on NOTHING else, so a
-    reader that gains the line answers every payload the tree can publish today
-    exactly as it did before.
+    Among MAPPINGS, `refuse_document_payload` must key on `accounts` and on
+    nothing else, so a reader that gains the line answers every payload the
+    tree can publish today exactly as it did before. `None` is admitted too —
+    a document that produced no payload is a thing every outcome reader
+    already handles.
     """
-    for benign in ({}, {"statement": {}}, {"metrics": {}}, None, [], "text"):
+    for benign in ({}, {"statement": {}}, {"metrics": {}}, None):
         refuse_document_payload(benign, surface="probe")
     with pytest.raises(PayloadShapeError, match="reader_is_account_scope"):
         refuse_document_payload(document_payload(), surface="probe")
+
+
+@pytest.mark.parametrize("not_a_payload", [[], "text", 3, 3.5, object(), set()])
+def test_the_account_scope_refusal_is_LOUD_on_a_non_mapping(not_a_payload):
+    """L1-S3 review, MINOR-6 and the mechanism behind BLOCK-1.
+
+    A guard whose whole job is to refuse a shape it was not taught may not be
+    the quietest thing in the call stack. It used to return here, and the
+    caller then failed several frames down inside whatever it did next.
+    """
+    with pytest.raises(TypeError, match="payload_is_not_a_payload"):
+        refuse_document_payload(not_a_payload, surface="probe")
+
+
+def test_the_predicate_is_a_question_and_does_not_raise():
+    """`is_document_payload` stays total: a question that raises cannot be asked.
+    What must be loud is the GUARD, and the test above pins that."""
+    for anything in ([], "text", 3, object(), None, {}, {"accounts": []}):
+        assert isinstance(is_document_payload(anything), bool)
 
 
 def test_the_surface_name_reaches_the_message():
