@@ -58628,3 +58628,173 @@ independent ways, agreeing · **generalization evidence** the shape is 2 account
 blocks against 25 of the same arrangement, on the same platform, in the 109
 documents this module claims — and the two that print it are the only two of
 the 109 whose activity rows carry one figure.
+
+## COMMSEC9.9 The review, and what each finding became
+
+An independent adversarial review
+(`docs/moneythumb-replacement/reviews/BATCH9_COMMSEC9_REVIEW.md`, `2132614`)
+returned **CONFIRMED WITH FINDINGS — 0 BLOCK / 0 MAJOR / 4 MINOR**. Every
+headline of this section reproduced in the reviewer's own session, and one
+number was made stronger than this cell could make it: preservation was proved a
+second time under `train9`'s stricter `cohort_replay` (empty containers counted
+as leaves), population 100, **preserved 98 of 98, payload identical 98**,
+regressions 0, EXIT=0.
+
+All four findings are record corrections; none touches a proof, a count that
+matters, or the verdict. **This subsection is APPENDED rather than applied in
+place**, so each closure names the sentence it supersedes — a record that
+rewrites itself silently is not a record. And each correction was RE-MEASURED
+here rather than transcribed from the review, which is how the one arithmetic
+slip below was found.
+
+| finding | closure |
+|---|---|
+| MINOR-1 — the stated discriminator for the absent balance column has counterexamples in this card's own census | COMMSEC9.9.1: the field is zero for three different reasons, only one of which is the absent column; the discriminator is the ledger's own balance column, and the field's own scope is named |
+| MINOR-2 — the three refusal reasons are mis-ordered, and two of them do not apply to the document that decides the card | COMMSEC9.9.2: re-ordered and re-worded, with the reviewer's entailment measurement attached to the reason that actually carries |
+| MINOR-3 — two scan counts are stale relative to the tip | COMMSEC9.9.3: re-stated at `588d8f4`, both surfaces still zero |
+| MINOR-4 — "grammar" carries two meanings in one table | COMMSEC9.9.4: the two senses named and counted separately; the instrument's class literal left alone, with the rename recorded for whoever next edits it |
+
+### COMMSEC9.9.1 The discriminator, scoped — and what actually discriminates
+
+**Superseded**: the sentence in COMMSEC9.3 beginning *"The last column is the
+measurement that says the balance column is ABSENT rather than assumed absent"*,
+and its general claim that a ledger printing the column *"ends each day's last
+row on the balance the printed grid gives for that day"*. As a general property
+of column-printing ledgers that is FALSE, and the counterexamples are inside
+this card's own census.
+
+Re-measured over the 109-document census, restricted to blocks that print a
+running balance on **every** row — the field
+`posting_days_whose_last_row_ends_on_that_days_printed_balance` is zero for
+three different reasons:
+
+| why a column-printing block scores zero | blocks |
+|---|---:|
+| it prints **no daily-balance grid at all**, so the field is trivially zero (`0139C091430B34CD`, `4D15B2AC6493B82C`, `823BE33E3E8DE9DC`, `909DEE0149E9916B`, `A6A1234C1262826C`, `F388C2767F71CDBE`) | **6** |
+| it prints a grid that does **not cover its posting day** — one grid day, `posting_days_in_the_printed_grid` 0 of 1 (`8AB3A4213D009DA4`, block 2) | **1** |
+| it prints a grid covering its posting days, and lands | **18** |
+
+Scoped to that third row — the only scope in which the field says anything —
+**18 of 18 land, on every posting day they print** (26/26, 26/26, 24/24, 22/22,
+21/21, 19/19, 19/19, 18/18 …). Both in-scope documents are inside that scope:
+their grids cover **every** posting day (20 of 20 and 4 of 4), and they land on
+**none**. So the field does discriminate where it applies, and the corrected
+sentence is: *among blocks whose printed grid covers their posting days, every
+column-printing one lands on all of them and these two land on none.*
+
+**What actually discriminates is the ledger's own balance column, not the grid**
+— `figures_per_row` (`{1: 107, 2: 10}` and `{1: 6}` against `{2: n}` on all 25
+others), and `_activity_rows` needing two money tokens on a row before it will
+book one. The grid field is corroboration, and it is now stated at the strength
+it has.
+
+### COMMSEC9.9.2 The three reasons, re-ordered — and the entailment measurement that decides which one carries
+
+**Superseded**: the three-bullet list in COMMSEC9.4, both in its order and in
+the wording of its first and third items. Re-measured here, the correct order is:
+
+**First — fitting destroys the evidence, and this is the reason that carries on
+the document that decides the card.** The review built the sharpest test this
+argument could face and it is now part of the record. A posting day whose
+printed net equals plus or minus its own gross has every one of its rows'
+directions **forced by the printed grid alone** — that is a READING and not a
+fit, and it never consults the printed counts or totals, so on a fully entailed
+document those four identities would survive as genuinely independent checks and
+this objection would not apply. Measured at this tree, reproducing the review:
+
+| sha16 | posting rows | entailed by the printed grid alone | needing a choice | entailed days / free days |
+|---|---:|---:|---:|---|
+| `EA62440C2FB7330D` | 117 | **12** | 105 | 5 / 15 |
+| `FA0B3967E477B9F7` | 6 | **4** | 2 | 3 / 1 |
+
+**Neither document is fully entailed — including the one that would validate.**
+`FA0B3967E477B9F7`'s last two rows can be fixed only by consuming the printed
+credit total and the printed credit count, so those two identities stop being
+independent checks on precisely the rows they were used to decide. The objection
+is therefore not a general worry: it holds, measured, on the single document the
+card turns on.
+
+**Second — the rule is general and fail-closed; its measured yield is one
+document.** The first record said the population *"contradicts it on half its
+members"*, and that word is wrong. The ambiguous member is **declined** by the
+proposed rule (solve; publish only where the reading is unique), which is
+fail-closed behaviour, not a counterexample. The rule is general in scope; what
+is small is its YIELD. The distinction matters because "contradicted" invites
+dismissing a general rule as a one-document special case, and that is not what
+the measurement says — the measurement says a general, safe rule would move one
+document.
+
+**Third — uniqueness is not correctness, ON `EA62440C2FB7330D`.** The evidence
+for it is that 10 of 117 rows carry a second figure inside their own
+description, and every one of those rows is on the AMBIGUOUS document, which
+publishes nothing either way. `FA0B3967E477B9F7` prints `figures_per_row
+{1: 6}` — one figure on every one of its six rows — so the misread hazard this
+reason names is **absent** there. Scoped to the document it was measured on it
+is a real caution about the shape; unscoped, as first written, it claimed more
+than it measured.
+
+### COMMSEC9.9.3 The two scan counts, at `588d8f4`
+
+**Superseded**: the added-line and commit counts in COMMSEC9.8's two privacy
+rows (1,592 added lines, 8 commits), which were the branch's own at an earlier
+commit. At `588d8f4`, the tip the review examined, and independently re-run by
+the reviewer:
+
+| surface | at `588d8f4` |
+|---|---|
+| ADDED FILE LINES vs the 70-document population | **hit_count 0** over **1,667** added lines, 70 documents read, `no_cached_text` empty — MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0. `raw_hit_count` 5 before exclusions: `round_money` 3 (this card's own synthetic fixture) and `words_class` 2 |
+| COMMIT MESSAGES vs the same population | **10** commits, **0** in all four classes |
+
+The commit that carries this subsection moves both counts again and leaves both
+zeros where they are; the numbers re-measured after it are reported with the
+closure rather than pinned here, because a record that quotes its own scan is
+always one run behind itself. **The ZERO is what the floor asserts, and it is
+what is invariant.**
+
+### COMMSEC9.9.4 "Grammar", split into the two things it was saying
+
+**Clarified** (nothing superseded — both statements were true, in different
+senses, and only their sharing a word was the defect). COMMSEC9.2's table
+reports **2** documents whose every account block refused before the printed
+identities, which is the probe's own class literal `GRAMMAR`, and in the same
+table reports **0** for *"a grammar gap on a shape ≥ 2 documents share,
+reachable by reading"*. A later reader tallying "grammar" from the class column
+would read 2 where this card means 0. The two senses, named:
+
+* **refusal site** — WHERE in the reader's chain the refusal happened; the
+  probe's `GRAMMAR` means "a gate before the printed identities". **2**;
+* **readable grammar gap** — whether a RULE exists that would READ what the
+  paper prints, rather than solve for it. **0**.
+
+The instrument's class literal is deliberately **not** renamed here. Its output
+has been quoted in this record and independently reproduced by the reviewer, and
+changing what a committed instrument prints after its numbers were reproduced
+costs more than the confusion it removes. Whoever next edits
+`tools/commsec_decline_probe.py` should rename that class `NO_BLOCK_PUBLISHES`,
+which says what it measures; recorded here so the rename is not re-derived.
+
+### COMMSEC9.9.5 What the review added, and the one number this cell had to correct
+
+Two facts the review established beyond this record, both **re-measured here**:
+
+1. **Entailment by the printed grid alone reaches 12 of 117 and 4 of 6 rows** —
+   COMMSEC9.9.2, reproduced exactly.
+2. **The seven L-1 documents carry EIGHTEEN independently publishing,
+   independently reconciling accounts — not seventeen.** The review's
+   strengthening is right and reproduces: every block that publishes also passes
+   `reconcile(...).ok` under the unchanged validator, so publishing and
+   reconciling are the same set. Its TOTAL is an arithmetic slip against its own
+   printed list: the review states the per-document counts as `3 3 2 3 3 2 2`,
+   which sums to **18**, and then reports 17 in prose. Re-measured block by
+   block at this tree — 21 account blocks across the seven, **18 publish, 18 of
+   those 18 reconcile**, and the three that do not publish are the dormant
+   sibling blocks (`8AB3A4213D009DA4`, `C49144D76DCE44F0`,
+   `E32EFCCCC63DA611`, one each). COMMSEC9.8's carried finding 1 is strengthened
+   accordingly: what `L1-ARCH-DESIGN` inherits from this card is **18
+   reconstructable accounts that each reconcile on their own terms**, reached
+   with no account selection of any kind — not merely 18 parseable blocks.
+
+That correction is the reason this subsection re-measures rather than
+transcribes. A review that reproduces a cell's numbers earns the cell's trust,
+and a cell that copies a reviewer's number without re-deriving it has simply
+moved the unchecked claim from one document to another.
