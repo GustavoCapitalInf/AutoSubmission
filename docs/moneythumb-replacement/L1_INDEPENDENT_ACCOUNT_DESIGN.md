@@ -644,11 +644,55 @@ them.
 
 ### 3.2 The rule (R-d)
 
-> **A movement is INTERNAL when, and only when, a movement in a SIBLING account published on the
-> SAME document has the same posting date, the same magnitude to the cent, and the opposite
-> sign, and that pairing is one-to-one.**
-> Where the paper prints a transfer designation on either leg, the designation must not
-> contradict the pairing; where it prints one on neither, the arithmetic signature stands alone.
+> **A movement is INTERNAL when, and only when, ALL FOUR hold:** a movement in a SIBLING account
+> published on the SAME document has the same posting date, the same magnitude to the cent and
+> the opposite sign; that pairing is one-to-one, checked DOCUMENT-WIDE; the counterpart is
+> unique (a posting with two or more admissible counterparts pairs with none — §3.3); **and the
+> paper PRINTS a transfer designation on at least one of the two legs.**
+> An arithmetic coincidence alone never sets INTERNAL.
+
+**The fourth clause is new, and it is the one that matters.** The first version said "where the
+paper prints one on neither, the arithmetic signature stands alone" — so a member who deposits a
+sum into checking on the day they withdraw the same sum from savings for an unrelated purpose
+produced a unique, unambiguous, entirely non-internal pair; §3.2 flagged it; and §3.2's own
+consequence then removed that deposit from package gross deposits, deposit counts, revenue and
+the withholding denominator. That is money the paper printed, deleted from a funder's view of
+the business by an inference — the same class of error the repair doctrine forbids, pointing the
+other way. R-d says transfers are "identified as INTERNAL"; it does not license identifying them
+from a coincidence.
+
+**What the clause costs, measured** (`tools/l1_design_transfer_probe.py`, same population, same
+reconstruction, the designation decided by `analysis/transaction_classifier.py`'s OWN committed
+vocabularies — 13 internal-transfer credit patterns and 7 transfer patterns; this instrument
+writes no transfer grammar):
+
+| population | pairs | pairs with a PRINTED designation on either leg |
+|---|---:|---:|
+| the published greedy rule | 47 | **46** |
+| the unique-counterpart rule | 47 | **46** |
+
+**One pair of 47.** Requiring printed evidence costs exactly one pairing, on one document — and
+that one pair is precisely the class the rule exists to refuse: a same-day, same-magnitude,
+opposite-signed coincidence with nothing printed to say it was a transfer. Under the corrected
+rule it is not flagged, and the document refuses package aggregation for it (§3.3) rather than
+having a real deposit removed on an inference.
+
+**And the two pairing defects the first version's killer population carried**, both re-measured:
+
+| rule | pairs | documents |
+|---|---:|---:|
+| greedy — first admissible counterpart, `taken` re-initialised per ledger pair (the published 47) | 47 | 7 |
+| document-wide one-to-one — one `taken` for the whole document | **47** | 7 |
+| unique counterpart — §3.3's own fail-closed rule, mutual and document-wide | **47** | 7 |
+
+The three agree. `_transfer_pairs` (`l1_split_prototype.py`:861-888) takes the FIRST admissible
+counterpart and breaks, which is the opposite of §3.3, and it re-initialises `taken` per ledger
+pair, so on a document with three or more live ledgers one posting can be counted twice —
+**3 documents reconstruct three or more live ledgers**, so the defect is reachable. Both are
+real defects in that instrument and **neither bites on this archive**: postings with two or more
+admissible counterparts number **0**, so the greedy choice never chooses and the document-wide
+match never differs. The 47 is therefore usable as a killer population, which the design could
+not claim before and can now.
 
 * **Both legs stay in their ledgers.** Removing either would break the account's own
   reconciliation and its ADB — the money really was in that account on that day. R-d says
@@ -674,8 +718,10 @@ them.
 > aggregate that document** rather than aggregating it wrongly.
 
 Never guess: a wrong pairing silently removes a real deposit from a package total, which is
-worse than refusing the package. **Ruling needed** (§8, Q2): whether ambiguity refuses only the
-aggregation (this design's proposal) or the whole document.
+worse than refusing the package. Measured: **0** postings in this population have two or more
+admissible counterparts, so the ambiguity branch is unexercised by the archive and its killer
+must be a constructed fixture rather than a sha. **Ruling needed** (§8, Q2): whether ambiguity
+refuses only the aggregation (this design's proposal) or the whole document.
 
 **Ruling needed** (§8, Q2, second half): whether a counterpart must be on the SAME document.
 This design says yes — a counterpart on another document in the same package is not printed
@@ -718,7 +764,7 @@ this cell.
 | **L1-C8** | `reconcile(section).ok`, with the section's own stated counts and totals supplied wherever it prints them — never `None` where they are printed | not validated (per-account outcome) | 79 of 442 sections print them; `reconcile` refuses **11 of 48** when they are fed and **0 of 105** when they are not |
 | **L1-C9** | `compute_average_daily_balance(section).ok` under the ratified calendar-day doctrine, `posting_dates_cover_source` applied against the SECTION's text, the section's own printed daily balances supplied where printed | not validated (per-account outcome) | the ADB refuses **10 of 48**; **24 of 442** sections print a daily table |
 | **L1-C10** | the roll-up reproduces: every published section's closing appears in that account's row under C5's roles, and where a cross-account total is printed the published sections sum to it. A mismatch refuses the DOCUMENT, not the section | `None` | 43 documents print a cross-account total; the table reproduces on the **2** that close |
-| **L1-C11** | no money moved between the member's own accounts is counted twice (§3) | package refuses to aggregate | **7** documents, **47** pairs |
+| **L1-C11** | no money moved between the member's own accounts is counted twice (§3), and **nothing is called INTERNAL without a printed transfer designation on at least one leg** — an arithmetic coincidence alone never removes a printed deposit from a package total | the pair is not flagged; the package refuses to aggregate that document | **7** documents, **47** pairs, of which **46** carry a printed designation and **1** does not — that 1 is the condition's live killer. **0** ambiguous postings, so the ambiguity branch's killer is a constructed fixture, named as one |
 | **L1-C12** | a facility enumerated on the table is never published as a deposit section, and C10's cross-account total is neither required nor satisfiable where the total includes one. The class of a row is established from the ROW, not from a word in it | `None` for the section; C10 suspended for the document | **19** documents enumerate one; **4** of them carry two or more posting sections (all one family); **7** of the 19 also print a cross-account total |
 | **L1-C13** | one currency per section, established at SECTION level by the doctrine's hierarchy; a document printing two denominated columns refuses | `None` | **4** documents, one census group, **12** sections |
 | **L1-C14** | no statement-specific constant anywhere in the split: an account number, a product name or a memorised heading is R-1 | test failure (`tests/test_no_statement_hardcodes.py`) | `analysis/consumers.py`:88-94 today (§9, F3) |
@@ -1010,7 +1056,7 @@ the two changes are both forced by measurement:
 | **S1 — the wrapper and RULE S** | `analysis/pipeline.py` (the three dataclasses + the document seam), `analysis/serialization.py` (`document_report_to_dict`, RULE S), docstring of `analysis/schema.py` | **0 newly validated. 0 documents move.** `accounts` is length 1 on every document by construction; RULE S returns today's dict verbatim — measured byte-identical on 208 of 208 documents across 71 registrations | **none** | `cohort_replay --expect-identical` over every registration + BYTE comparison (§1.3) + archive sweep (0 findings expected, and 0 is the pass condition). `ANALYSIS_STAGE_VERSION` NOT bumped |
 | **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note); the skip SITES only — **`analysis/symitar.py`:419-420, `analysis/community_section.py`:621-622 (INSIDE `_parse_sectioned_statement`, not at its call site), `analysis/zions.py`:248-250** | **0 newly validated, and 0 validated LOST.** Measured on the dispatch path (§2.7): the skips fire on **12** validated documents / **16** sections across 117 read, and **16 of 16 print evidence L1-C17 can name — 0 print none**. So this stage re-founds 12 documents' skips on printed evidence and surfaces 16 sections; it removes nothing. Payload bytes move on those 12 documents and on no others | **1 named exposure, not "none".** `dakota_west` holds a pinned document and has 3 documents in the run: 2 carry this skip and the third carries F4's live derived selection (§6.3). The card must name which is pinned before it claims no pinned movement | mutation table on the omission-reason vocabulary, with killers drawn by sha from the 12; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
 | **S3 — the surfaces, taught DARK** | the **11 readers** and the **9 seams** of §1.4, by name: `telemetry/record.py`, `telemetry/diagnostics.py`, `telemetry/stated_counts.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/artifact_cache.py`, `webapp/worker.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `analyze.py`, `balance_forensic_audit.py`, `adb_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | **Exit criterion, checkable:** every one of the 11 readers has a document branch with a unit test over a synthetic document payload, AND `l1_design_reader_probe --census` exits 0 (the 9 seams are the tree's, both ways), AND each of the 9 seams calls the document entry point. Plus: the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
-| **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **0 to 8, and the test decides which.** **0** documents pass the STRICT after-chain bound; **2** close on every located section under the production checks (both one census group, both with the enumerating table's own closing column reproducing); **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 47 transfer pairs on 7 documents as the package exclusion's named killers; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
+| **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **0 to 8, and the test decides which.** **0** documents pass the STRICT after-chain bound; **2** close on every located section under the production checks (both one census group, both with the enumerating table's own closing column reproducing); **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 46 designated pairs on 7 documents as the package exclusion's named killers and the 1 undesignated pair as the printed-evidence clause's; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
 | **S5 — CONS-HARDCODE** | `analysis/consumers.py` (:88-94, and :115-123, which restates the product designation but NOT the account number) | **0 newly validated, and −2 validated.** The `DECL-L1-CANDIDATE` band closes **0** of 16 multi-posting documents today, and removing the literal makes the reader refuse (§6.3). This is a CORRECTNESS card whose measured effect on the count is negative: it removes an R-1 hardcode that publishes one memorised account of a member's several | **2 validated → failed, 1 of them pinned** (§6.3). STOP-and-report with per-sha evidence, and the ceremony, BEFORE the change lands | truth-set ceremony over BOTH paths; `cohort_replay --parser consumers` (2 documents, both `validated`); corpus gate; both audit CSVs' rows re-derived and re-approved |
 | **S6 — the remaining mechanisms** | per-family row grammars on the shared template | **an ESTIMATE, and it is not offered.** What is measured: 29 of 392 sections close today; `section-identity` closes 10 sections and 0 documents; `section-equation-scan` closes 0 and always will (L1-C1) | unknown; each family carded separately | as S4, per family |
 
@@ -1034,7 +1080,7 @@ standing debt, move nothing, and leave the rest carded.
 | | question | what it decides | measured population |
 |---|---|---|---|
 | **Q1** | When one account validates and another does not, does the document publish the validating account's figures (as `withheld`/`review` at document level) or refuse entirely? **And whichever is ruled, is a PACKAGE member an account whose own outcome is `validated`?** The design's answer to the second half is yes, and it must be ruled because today `_package_analysis` gates a member on job status alone (`webapp/app.py`:661) and never on `classify_outcome` — so "publish it and mark the document `withheld`" would silently mean "aggregate it anyway" | whether the model produces `failed → withheld` improvements or nothing at all until every account closes; and what a package does with a partially-closing document | every multi-account document that partially closes; today all such documents are `failed` |
-| **Q2** | Must a transfer's counterpart be on the SAME document to be INTERNAL (this design says yes)? And does an AMBIGUOUS pair refuse only the package aggregation (this design's proposal) or the whole document? | §3.2, §3.3 | 7 documents, 47 pairs |
+| **Q2** | **The prior question, which the first version did not ask: may an arithmetic coincidence set INTERNAL at all, with nothing printed?** This design now says NO — a printed transfer designation on at least one leg is required, and a pair without one refuses the aggregation rather than being flagged. Then: must the counterpart be on the SAME document (this design says yes)? And does an AMBIGUOUS pair refuse only the package aggregation (this design's proposal) or the whole document? | §3.2, §3.3 — whether a printed deposit can be removed from a funder's view of the business by an inference | 7 documents, 47 pairs; **46 of the 47 carry a printed designation**, so the printed-evidence requirement costs exactly **1 pair**; **0** postings are ambiguous, so that branch's killer must be a constructed fixture |
 | **Q3** | May a section be OMITTED rather than counted when it prints its OWN opening caption and its OWN closing caption, the two figures coincide, and it prints no dated row, no counts, no totals and no daily table? R-a says absence of parsed activity alone is insufficient — and this is not that: the paper printed two figures about that account and they agree. Is that "explicit statement structure establishing its empty state"? | **2 documents → 8**; and beyond that family, whether 44 of the 86 single-posting documents (siblings empty-and-silent, or declaring idle in a wording symitar does not read) are reachable at all | 6 idle sections on 6 documents, all one census group, **all six with both figures from the section's own captions and 0 of them printing a dated row, counts, totals or a daily table**; 21 such sections in the whole population, every one of them on the same provenance; 62 empty-and-silent sibling sections and 7 in other wording |
 | **Q4** | Two published sections in two denominations: publish two accounts, or refuse the document? R-f allows both. **Ruling it needs §4's new rung first**: a document-level printed statement of denomination outranks a jurisdiction or institution default, or the question is being asked about a hierarchy that inverts R-f | L1-C13 | 4 documents, one census group, 12 sections; the single-denomination document-level class is measured by nothing yet |
 | **Q5** | Does each account of a multi-account document enter a PACKAGE as its own member? And is `analysis/adb.py`'s "one statement yields one ADB" read as one ACCOUNT yields one ADB (which R-c forces)? **And, the part R-c does not settle: a package holding one multi-account document publishes `package_average_daily_balance` as the days-weighted mean of its members — which is one average over that document's accounts. Is that permitted?** "A package of one document is still a package" is defensible; so is refusing it. It must be ruled, not left to fall out of the surface table, and §6.5 now carries a gate for whichever way it goes | §2.5, §3.2, `webapp/app.py`:1152-1164 | the package layer; 95% of sections print no daily table of their own |
