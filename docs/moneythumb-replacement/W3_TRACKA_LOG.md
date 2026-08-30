@@ -60694,10 +60694,32 @@ stay `review`, which is the correct place for them.
 last sheet holds no text at all.** This is the largest finding on the card and
 the one that decides its outcome. On all eight the intake object's page list is
 exactly `declared_total` long, the labels `1 … N-1` map one-to-one onto sheets
-`1 … N-1` in printed order, and sheet `N` — an image-only sheet in a native-text
-document: cheque images, or an appended notice — extracts to ZERO characters.
+`1 … N-1` in printed order, and sheet `N` extracts to ZERO characters.
 The check drops it, because `printed_sheets` excludes a whitespace-only sheet,
 so the PDF reads as short of its own total and the flag stands.
+
+**And that sheet is not blank — it is the most heavily inked page in the
+document.** This record first called it "an image-only sheet … cheque images,
+or an appended notice", which was true about the substance and misleading about
+the mechanism; the review opened the PDFs, the one source neither instrument
+can see, and measured what is physically there. Recorded here in full because
+the card carried out of this cell depends on it:
+
+| | rendered coverage of the last sheet | clearly-dark ink | the statement page before it |
+|---|---:|---:|---|
+| the four `linkbank` documents | **34.5%** | **16.6%** | 15.7–26.1% |
+| the four `core_processor_enclosures` documents | **12.2%** | **8.5%** | 4.0–12.7% |
+
+On two of the eight the "empty" sheet carries more than TWICE the ink of the
+real statement page preceding it. Structurally each is a single INLINE image
+occupying 99.5–100% of the page's content stream — 279,848 bytes on each of the
+four `linkbank` sheets and 38,199 on each of the four `core_processor` ones,
+byte-identical across all four documents within each group. Statements of
+different months carrying the same appended sheet: this is the issuer's
+standard trailer, not filler inserted
+per document and not a page that went missing while the sheet count happened to
+match. The flag is still correct TODAY, because the check counts text and there
+is none; what the measurement settles is that the opportunity is real.
 
 That exclusion is deliberate and the production comment reserves it in advance:
 "a blank or whitespace-only sheet is excluded from `printed_sheets` and raises
@@ -60812,16 +60834,36 @@ ruling is made against a number rather than an impression.
 
 ## PAGECOV6 What is carried
 
-1. **`PAGECOV-IMAGE-SHEET` (P1, +8 candidate, needs a ruling AND intake
-   structure).** The admissible form of the (a′) finding is not to COUNT a blank
-   sheet but to PROVE one: a sheet that renders with ink — an embedded image or
-   any drawing operator — is a supplied page whose text layer is empty, and a
-   sheet that renders empty is padding. That is deterministic, local and $0, and
-   it satisfies the check's own doctrine, "a caller can only ever weaken this
-   check by proving structure, never by staying silent". It needs per-sheet
-   structure the intake object does not carry today, so it is an intake-layer
-   card rather than a declaration-reading one, and it is outside this card's
-   ownership in both directions.
+1. **`PAGECOV-IMAGE-SHEET` (P1, +8 candidate; needs intake structure, a ruling
+   AND a pinned-surface ceremony).** The admissible form of the (a′) finding is
+   not to COUNT a blank sheet but to PROVE one: a sheet that renders with ink is
+   a supplied page whose text layer is empty, and a sheet that renders empty is
+   padding. Deterministic, local, $0, and it satisfies the check's own doctrine
+   — "a caller can only ever weaken this check by proving structure, never by
+   staying silent". It needs per-sheet structure the intake object does not carry
+   today, so it is an intake-layer card rather than a declaration-reading one,
+   and it is outside this card's ownership in both directions.
+
+   **The TEST is the part this record got wrong, and it would have retired the
+   card.** The first wording named "an embedded image or any drawing operator",
+   whose two natural implementations are the two obvious library calls. Measured
+   on the eight sheets the card exists for:
+
+   | test | result on the eight |
+   |---|---|
+   | embedded image XObjects (`page.get_images`) | **0 on all eight** |
+   | drawing operators (`page.get_drawings`) | **0 on all eight** |
+   | rasterise and measure ink | **12.2–34.5% coverage on all eight** |
+   | inline-image share of the content stream | **99.5–100% on all eight** |
+
+   Both named tests return ZERO, because an inline image (`BI … ID … EI`) is
+   neither an XObject nor a drawing. A cell implementing the card as first
+   written would have concluded the sheets carry nothing, reported the finding
+   refuted and retired a genuine eight-document opportunity — the failure mode
+   one card downstream. **The test is RENDERING, or counting marking operators
+   in the content stream with inline images included; it is not an XObject
+   inventory.** The capability the card needs is unchanged; only its test was
+   wrong.
 2. **`PAGECOV-NO-SPACE-FORM` (P3).** The `Page Nof M` reading, measured inert on
    all 3,380. Worth folding into any other change to this pattern; not worth a
    commit of its own.
