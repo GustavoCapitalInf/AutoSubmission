@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -151,6 +151,26 @@ def test_each_clause_of_rule_s_is_load_bearing(monkeypatch, weakened):
     published = document_report_to_dict(document)
     assert "accounts" in published and "document" in published
     assert "statement" not in published
+
+
+def test_every_document_level_field_is_a_clause_of_rule_s():
+    """RULE S is a conjunction over the document's OWN facts, so it has to be
+    revisited whenever the document gains one.
+
+    The failure this prevents is silent and total: a later stage adds a
+    document-level field, populates it, and RULE S — still asking its four
+    questions — publishes that document as though the model had learned
+    nothing, so the fact is carried in the object and in no payload. Pinning
+    the field set turns "remember to add a clause" into a red test.
+
+    `accounts` is the one field that is not a document FACT (it is the accounts
+    themselves), and its clause is the length check.
+    """
+    assert {f.name for f in fields(DocumentReport)} == {
+        "accounts", "document_period", "rollup", "omissions", "boundary_mechanism",
+    }, ("DocumentReport gained or lost a field: give it a clause in "
+        "`analysis/serialization.py::_publishes_todays_payload`, or state here "
+        "why a document carrying it still publishes today's payload")
 
 
 def test_a_document_carrying_two_accounts_takes_the_document_shape(monkeypatch):

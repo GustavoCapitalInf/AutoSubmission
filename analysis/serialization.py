@@ -213,6 +213,11 @@ def _publishes_todays_payload(document: DocumentReport) -> bool:
 
     The clause set is a CONJUNCTION over document facts, never over a count of
     accounts alone: "one account" is necessary and, on its own, not sufficient.
+    A document-level field added later needs a clause here, or a document
+    carrying that fact publishes as though nothing had been learned and the
+    fact lives in the object and in no payload. `tests/test_document_report.py
+    ::test_every_document_level_field_is_a_clause_of_rule_s` pins the field set
+    so that omission is a red test rather than a silent one.
     """
     return (
         len(document.accounts) == 1
