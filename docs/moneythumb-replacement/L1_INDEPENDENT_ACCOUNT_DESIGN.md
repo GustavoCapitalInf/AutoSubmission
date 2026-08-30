@@ -108,18 +108,25 @@ All four, because each is a way the document could carry a fact the single-accou
 nowhere to put. A document meeting all four is one about which the new model learned nothing
 the old payload could not say — so it says it the old way, byte for byte.
 
-**Measured** (`tools/l1_design_payload_probe.py`, at this base, over 208 validated
-documents spanning 71 distinct registrations — the first three validated documents
-of every registration in the run of record; each analysed ONCE and serialised four ways from
-the same in-memory `Report`, so nothing in the comparison can move except the shape under
-test):
+**Measured** (`tools/l1_design_payload_probe.py`, at this base, over **232 documents spanning
+80 distinct registrations** — the first three `validated` documents of every registration in
+the run of record, PLUS the first three of every registration that claims documents and holds
+no validated one at all. The extension matters: on those 9 registrations' documents
+`report_to_dict` takes its OTHER branches — `ending_balance` nulled (`serialization.py`
+:146-151) and the ADB block emptied by `_metrics_dict` (:102-133) — and a byte-identity claim
+that never exercised them would be a claim about the happy path. Each document is analysed ONCE
+and serialised seven ways from the same in-memory `Report`, so nothing in the comparison can
+move except the shape under test):
 
 | variant | payload byte-identical | payload differs | document outcome unchanged |
 |---|---:|---:|---:|
-| **`wrapper_conditional`** — RULE S | **208** | **0** | 208 |
-| `wrapper_unconditional` — `accounts` + `document` on every document | 0 | **208** | 208 |
-| `omission_field_always` — the omission record as a plain `Statement` field | 0 | **208** | 208 |
-| **`omission_field_elided`** — the same field, elided when empty | **208** | **0** | 208 |
+| **`wrapper_conditional`** — RULE S | **232** | **0** | 232 |
+| `wrapper_unconditional` — `accounts` + `document` on every document | 0 | **232** | 232 |
+| `omission_field_always` — the omission record as a plain `Statement` field | 0 | **232** | 232 |
+| **`omission_field_elided`** — the same field, elided when empty | **232** | **0** | 232 |
+| `integrity_split_order_preserved` — the scope split, re-assembled in PUBLISHED order | **232** | **0** | 232 |
+| `integrity_split_naive_order` — the scope split, the two scopes concatenated | **232** | **0** | 232 |
+| `integrity_split_dropped` — the scope split read literally: the document-scope flags LEAVE the account payload | 229 | **3** | 229 |
 
 Two of those four are the shapes a reader reaches for first, and both cost the whole archive:
 
@@ -134,6 +141,36 @@ That second one is why this design puts the omission record on `DocumentReport` 
 from the payload when it is empty: as a `Statement` field it would have made batch 9's cheapest
 correctness card an archive-wide payload migration.
 
+**And the last three rows are the risk RULE S is offered against, which RULE S does not
+address.** Byte-identity here is a property of the SERIALISER, and it is close to a tautology at
+that seam: the probe compares `report_to_dict(report)` with a wrapper that, under RULE S,
+returns `report_to_dict(doc.accounts[0])` where `doc.accounts[0] is report`. What the 232 proves
+is that the serialiser is deterministic over one object — worth knowing, and not what "state
+how that is guaranteed and PROVED" asks for. The risk lives one layer up, in the
+`assess_document_integrity` scope split §5 prescribes (`pipeline.py`:260-512), where
+`missing_declared_statement_page` (:481), `parser_ambiguous` / `parser_exception` (:346, :353),
+`repair_exception` (:389) and `integrity_check_exception` (:400) move to the document block
+while the reconciliation, coverage and count flags (:289-343) and all of `assess_quality`
+(:179-240) stay per account. On a single-account document those flags must land in exactly the
+payload keys they land in today — a property of the PIPELINE change, not of the serialiser — and
+the three variants measure the three ways an implementer assembles it:
+
+* **`integrity_split_order_preserved`** — split by scope, re-assemble in PUBLISHED order:
+  **232 / 232 byte-identical.** This is the rule S1 must implement.
+* **`integrity_split_naive_order`** — the two scopes concatenated, document-scope leading:
+  **232 / 232 identical here too**, because no document in this cohort carries flags of both
+  scopes in an order the concatenation would change. That is a fact about the cohort and not
+  about the rule: `corpus_gate.py`:1360-1362 pins the flag tuple in *"Published ORDER, not
+  sorted"*, so the assembly is one document away from moving a pinned tuple, and S1 must
+  preserve order because the order is pinned — not because this cohort caught it.
+* **`integrity_split_dropped`** — the design's own prose read literally, the document-scope
+  flags LEAVING the account payload: **3 of 232 documents move.** Those 3 are the cohort's
+  document-scope carriers, and they are the measured size of the mistake the prose invites.
+
+**S1's proof plan therefore names the pipeline seam and the integrity split as what it is
+proving**, and its byte comparison runs over a tree that actually carries them — not over the
+serialiser alone.
+
 ### 1.3 A blind spot in the proof instrument every coverage cell reports under
 
 `tools/cohort_replay.py` reports `payload identical` from a LEAF projection (`flatten`,
@@ -143,12 +180,15 @@ under sees nothing at all. Measured on the same pairs:
 
 | variant | byte-identical | leaf-projection identical | the gap |
 |---|---:|---:|---:|
-| `wrapper_conditional` | 208 | 208 | 0 |
+| `wrapper_conditional` | 232 | 232 | 0 |
 | `wrapper_unconditional` | 0 | 0 | 0 |
-| **`omission_field_always`** | **0** | **208** | **208** |
-| `omission_field_elided` | 208 | 208 | 0 |
+| **`omission_field_always`** | **0** | **232** | **232** |
+| `omission_field_elided` | 232 | 232 | 0 |
+| `integrity_split_order_preserved` | 232 | 232 | 0 |
+| `integrity_split_naive_order` | 232 | 232 | 0 |
+| `integrity_split_dropped` | 229 | 229 | 0 |
 
-The third row is the finding, and it is total: **on all 208 documents the byte comparison says
+The third row is the finding, and it is total: **on all 232 documents the byte comparison says
 the payload changed and the leaf projection says it did not.** A cell landing
 `SIBLING-OMISSION-SURFACE` as a plain `Statement` field and proving it with `cohort_replay`
 alone would have reported `previously validated preserved, payload identical` for an
@@ -283,7 +323,7 @@ it is the ladder the whole non-regression regime is measured on, and it stays.
 Fail-closed by construction: `validated` on a document now means *every account validated and
 nothing was omitted*. It is strictly stronger than today's meaning, and on a single-account
 document it IS today's meaning — measured, not asserted: the function reproduced
-`classify_outcome` exactly on 208 of 208 documents in the cohort,
+`classify_outcome` exactly on 232 of 232 documents in the cohort,
 including under the document shape.
 
 **Movement this creates.** A document whose account A validates and whose account B withholds
@@ -849,7 +889,7 @@ that needs the values gets the account list.
 |---|---|---|
 | `analysis/schema.py`:121-221 | nothing — `Statement` unchanged; only its docstring says "one account" | unchanged; one instance per account |
 | `analysis/pipeline.py`:153-163, :515-519 | nothing — `analyze_markdown` keeps returning one `Report` for a one-account document | new `DocumentReport` (§1.1); a document-level entry point returning it; RULE S at the seam |
-| `analysis/pipeline.py`:260-512 `assess_document_integrity` | nothing | split by scope: `missing_declared_statement_page` (:409-486), `parser_ambiguous`/`parser_exception` (:345-358) and `repair_exception` (:388-395) are DOCUMENT facts and move to the document block; the reconciliation, coverage and count flags (:288-344) and all of `assess_quality` (:179-240) are per ACCOUNT and stay there |
+| `analysis/pipeline.py`:260-512 `assess_document_integrity` | **nothing — and this is the row S1 has to PROVE, not assume** (§1.2): the account payload keeps every flag it carries today, in PUBLISHED order. Reading the split literally moves 3 of 232 cohort documents; concatenating the two scopes is one document away from moving a flag tuple `corpus_gate.py`:1360-1362 pins | split by scope: `missing_declared_statement_page` (:481), `parser_ambiguous`/`parser_exception` (:346, :353), `integrity_check_exception` (:400) and `repair_exception` (:389) are DOCUMENT facts and are ALSO carried in the document block; the reconciliation, coverage and count flags (:289-343) and all of `assess_quality` (:179-240) are per ACCOUNT |
 | `analysis/reconcile.py`, `analysis/adb.py`, `analysis/metrics.py` | nothing | **nothing** — called per account, unchanged (R-b). `adb.py`'s docstring gains the one-line unit clarification of §2.5 |
 | `analysis/serialization.py`:136-194 | nothing — RULE S returns `report_to_dict(accounts[0])` verbatim | a `document_report_to_dict`; per-account payloads are today's payload each; the per-account `ending_balance` nulling (:146-151) becomes a per-account decision |
 | `analysis/revenue.py`:53-173 | nothing | runs PER ACCOUNT; `setdefault("statement", {})` (:55-56) becomes a shape assertion (L1-C16) — today it silently rebuilds every view over an empty ledger |
@@ -1053,7 +1093,7 @@ the two changes are both forced by measurement:
 
 | stage | files | expected safely recoverable, MEASURED | pinned movement | proof plan |
 |---|---|---|---|---|
-| **S1 — the wrapper and RULE S** | `analysis/pipeline.py` (the three dataclasses + the document seam), `analysis/serialization.py` (`document_report_to_dict`, RULE S), docstring of `analysis/schema.py` | **0 newly validated. 0 documents move.** `accounts` is length 1 on every document by construction; RULE S returns today's dict verbatim — measured byte-identical on 208 of 208 documents across 71 registrations | **none** | `cohort_replay --expect-identical` over every registration + BYTE comparison (§1.3) + archive sweep (0 findings expected, and 0 is the pass condition). `ANALYSIS_STAGE_VERSION` NOT bumped |
+| **S1 — the wrapper and RULE S** | `analysis/pipeline.py` (the three dataclasses + the document seam), `analysis/serialization.py` (`document_report_to_dict`, RULE S), docstring of `analysis/schema.py` | **0 newly validated. 0 documents move.** `accounts` is length 1 on every document by construction; RULE S returns today's dict verbatim — measured byte-identical on **232 of 232** documents across **80** registrations, including the 9 that hold no validated document and whose payloads take the nulled-balance and emptied-ADB branches | **none** | **The proof is of the PIPELINE SEAM and the `assess_document_integrity` scope split, not of the serialiser** (§1.2): the byte comparison runs over a tree that carries both, and the split is re-assembled in PUBLISHED order — the literal reading of the prose moves 3 of 232, and the concatenated assembly is one document away from moving a tuple the corpus gate pins. Plus `cohort_replay --expect-identical` over every registration + archive sweep (0 findings expected, and 0 is the pass condition). `ANALYSIS_STAGE_VERSION` NOT bumped |
 | **S2 — SIBLING-OMISSION-SURFACE** | `analysis/pipeline.py` (`SiblingOmission`, the integrity note); the skip SITES only — **`analysis/symitar.py`:419-420, `analysis/community_section.py`:621-622 (INSIDE `_parse_sectioned_statement`, not at its call site), `analysis/zions.py`:248-250** | **0 newly validated, and 0 validated LOST.** Measured on the dispatch path (§2.7): the skips fire on **12** validated documents / **16** sections across 117 read, and **16 of 16 print evidence L1-C17 can name — 0 print none**. So this stage re-founds 12 documents' skips on printed evidence and surfaces 16 sections; it removes nothing. Payload bytes move on those 12 documents and on no others | **1 named exposure, not "none".** `dakota_west` holds a pinned document and has 3 documents in the run: 2 carry this skip and the third carries F4's live derived selection (§6.3). The card must name which is pinned before it claims no pinned movement | mutation table on the omission-reason vocabulary, with killers drawn by sha from the 12; `cohort_replay --parser` for symitar / community_section ×3 / zions; BYTE comparison; archive sweep with every mover named by sha. `ANALYSIS_STAGE_VERSION` bumped (payload bytes move on the named documents) |
 | **S3 — the surfaces, taught DARK** | the **11 readers** and the **9 seams** of §1.4, by name: `telemetry/record.py`, `telemetry/diagnostics.py`, `telemetry/stated_counts.py`, `analysis/revenue.py`, `analysis/count_semantics.py`, `corpus_gate.py`, `discovery/runner.py`, `discovery/report.py`, `webapp/app.py`, `webapp/jobs.py`, `webapp/artifact_cache.py`, `webapp/worker.py`, `webapp/static/app.js`, `benchmark/expectations.py`, `benchmark/ourside.py`, `batch.py`, `analyze.py`, `balance_forensic_audit.py`, `adb_forensic_audit.py` | **0 newly validated. 0 documents move** — production emits no multi-account payload at this tree, so every branch added here is unreachable in production and exercised only by unit tests and a gate fixture | **none** | **Exit criterion, checkable:** every one of the 11 readers has a document branch with a unit test over a synthetic document payload, AND `l1_design_reader_probe --census` exits 0 (the 9 seams are the tree's, both ways), AND each of the 9 seams calls the document entry point. Plus: the shape assertion (L1-C16) with a mutation table; `cohort_replay --expect-identical` over EVERY registration; BYTE comparison; archive sweep 0 findings. `TELEMETRY_VERSION` bumped |
 | **S4 — the first publisher + transfers** | a new shared CU member-statement template module (the `rollup-oracle` mechanism), its registration, `analysis/pipeline.py` (transfer identification), `webapp/app.py` (`_package_analysis` exclusions) | **0 to 8, and the test decides which.** **0** documents pass the STRICT after-chain bound; **2** close on every located section under the production checks (both one census group, both with the enumerating table's own closing column reproducing); **8** if §8 Q3 is granted (a section that prints its own opening and closing captions with the two figures coinciding, and prints no dated row, may be OMITTED rather than counted) — all eight the same family, all eight with the table reproducing over the sections that would be published, and all six of the omitted sections measured to take both figures from their own printed captions (§2.3). Beyond that family the reachable set depends on per-family row grammars and a better boundary layer, and this design declines to put a number on it | **none** | mutation tables for L1-C1…C13; the 46 designated pairs on 7 documents as the package exclusion's named killers and the 1 undesignated pair as the printed-evidence clause's; `cohort_replay --group` per census group claimed; the whole-archive sweep; corpus gate's new per-account assertions lit |
