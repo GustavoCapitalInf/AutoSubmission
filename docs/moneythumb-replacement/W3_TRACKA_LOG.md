@@ -60593,10 +60593,12 @@ decision for every new caller and refuses to pass without one.
 PROBE-FIRST card `RV-PAGE-COVERAGE` (batch 9, 9A-1 card 6), branch
 `wave9-pagecov`, base `train9` at `8da8239`. **Newly validated 0** — the outcome
 the card allowed for, earned by measurement rather than assumed. **No production
-file changes**: `git diff 8da8239..HEAD` touches `tools/` and this log, and
-`analysis/pipeline.py` is byte-identical to the base. Two instruments are
-committed and everything else here is a number. Regressions 0; the corpus gate's
-`REFUSED` 1 unchanged; no completeness or integrity rule weakened.
+READING changes**: `analysis/pipeline.py` is byte-identical to the base, and so
+is every reader. The branch is two instruments, this log, and — added at the
+review's closure — one data-only entry in `corpus_gate.py` classifying the
+branch's own probe as an analysis caller, which is disclosed here rather than
+described away (PAGECOV9, MAJOR-3). Regressions 0; the corpus gate's `REFUSED` 1
+unchanged; no completeness or integrity rule weakened.
 
 ## PAGECOV1 The population is FOURTEEN, and it has to be re-derived rather than read
 
@@ -60954,9 +60956,9 @@ ruling is made against a number rather than an impression.
 | `cohort_replay --parser core_processor_enclosures --expect-identical` | population 48, **preserved 46 / 46, identical 46** — **EXIT=0** |
 | `cohort_replay --parser texas_first_scanned --expect-identical` | population 5, **preserved 4 / 4, identical 4** — **EXIT=0** |
 | `tools/pagecov_probe.py` over the 14 and over all 20 flag-carrying documents | `TRACE-DISAGREES` **0** on both — **EXIT=0** |
-| `tools/pagecov_form_census.py` over 3,380 | the table above — **EXIT=0** |
+| `tools/pagecov_form_census.py` over 3,380, BOTH halves, each form separately | the tables above — **EXIT=0** |
 | `tools/pagecov_probe.py --outcome-counterfactual` over the 14 | the 8 text-empty-sheet documents, each replayed twice: **8 of 8 `review / integrity_flags` → `validated / approved`, 0 flags** — **EXIT=0** |
-| full default suite | **7,455 passed, 43 skipped, 1 failed** — **EXIT=1**, the single failure being the base's own excused `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified` (three L-1 design probes unclassified; Ocean's composition miss, fixed on `train9` at `473be2c` and not in this branch's base) |
+| full default suite | **1 failed** — **EXIT=1**, the single failure being `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified`. At the tip it names the THREE L-1 design probes and nothing else; it named a fourth — this branch's own probe — until the review caught it (PAGECOV9, MAJOR-3). Measured: with train9's `473be2c` applied the unclassified set is EMPTY, stale 0, nothing both declared and excused |
 | canonical guards (5 files) | **255 passed** — **EXIT=0** |
 | canonical conformance (7 files) | **1,270 passed, 40 skipped** — **EXIT=0** |
 | `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld — **EXIT=0** |
@@ -60973,9 +60975,12 @@ preserved, every payload identical.**  The 26 assertions that pin
 weakened.
 
 **No mutation table is owed and none is offered**: no gate, grammar or reading
-changed. For the same reason the archive movement sweep was not run — at a tree
-whose production surface is byte-identical to its base the sweep measures the
-base against itself, and the whole-archive form census above is the stronger
+changed. The one `corpus_gate.py` edit is a dictionary entry naming a module and
+a reason — it decides nothing about a document and mutating it would only assert
+that the guard notices a missing entry, which is the guard's own subject and is
+already proved by the red it produced. For the same reason the archive movement
+sweep was not run — no analysis path differs from the base, so the sweep measures
+the base against itself, and the whole-archive form census above is the stronger
 evidence for the question this card actually asks, which is what a CHANGE to the
 reading would do to every document. If Ocean reads the sweep as unconditional,
 say so and it runs.
@@ -61034,3 +61039,41 @@ unchanged, the two pinned `review` verdicts still hold, and
 * **The population was 11 in the card and 14 at the base.** A composition landing
   between a card being written and a cell being launched can change an
   outcome-defined population. Re-derive it; do not read it.
+
+## PAGECOV9 The review, and what each finding became
+
+An independent adversarial review
+(`docs/moneythumb-replacement/reviews/BATCH9_PAGECOV_REVIEW.md`) returned
+**CONFIRMED WITH FINDINGS — 0 BLOCK / 3 MAJOR / 3 MINOR**. It reproduced every
+headline in this section — the probe table row for row, `TRACE-DISAGREES` 0, the
+class split, the archive counts, the form counts, 128 of 128 preserved with
+identical payloads, both privacy surfaces 0, and the base as a byte-exact prefix
+of this log — and then did the one thing neither instrument on this branch can:
+**it opened the PDFs.** That is where all three MAJORs come from, directly or
+indirectly, and it is the lesson to carry: a card whose outcome turns on what is
+physically on a sheet cannot be closed from the text layer alone.
+
+| finding | closure |
+|---|---|
+| **MAJOR-1** — the carried card named `get_images` / `get_drawings`, both of which return 0 on all eight sheets, because the ink is an INLINE image; a cell implementing it literally would have retired a real +8 | the card's test is re-scoped to RENDERING or marking-operator counting with inline images included, and PAGECOV4 now carries the measured coverage, ink, content-stream share and byte-identity. The misleading prose that pointed the same way is corrected. The refusal is unchanged |
+| **MAJOR-2** — the census's `RAISED 0` was measured over the 1,926 documents where the check already reads a declaration, skipping the 1,425 where a widening CREATES one; measured there, the trusted set raises the flag on 7 documents, 3 of them `validated` | the census walks both halves and evaluates each form separately. Reproduced exactly: 50 gain a declaration, 7 raised, 3 `validated`. Decomposed: ALL of it is one form, which the mechanism shows was never a page declaration; the form the card needs raises 0 and clears 0 over all 3,380 while now being read on 28 documents instead of 5. That form is moved out of the trusted set, its pattern kept byte-identical so the reviewed set stays a reproducible row |
+| **MAJOR-3** — the caller register names FOUR modules at this tip, one of them this branch's own probe, and the record blamed only the base | the entry is added to `EXCLUDED_ANALYSIS_CALLERS`, disclosing that one of the probe's two arms deliberately substitutes the page partition. Measured: unclassified is now the three L-1 probes alone and is EMPTY under train9's `473be2c`; stale 0. The census instrument is deliberately NOT added — it calls no analysis, and the same guard fails on a stale entry |
+| **MINOR-1** — one of the eight is a PINNED corpus document, so the carried card is a ceremony, not only a ruling | recorded, with the pinned counts it would move. The anchor paragraph is corrected in the stronger direction: TWO real corpus documents have their `review` verdict pinned on this flag, one from each of this population's two big classes, and both hashes were verified against the pinned files rather than taken from the review |
+| **MINOR-2** — "all twenty in the run of record" mixes two frames | the frame is stated: 17 in the run of record's own payloads (11 `review` + 6 `withheld`) plus 3 that publish no payload there and carry the flag only at this base |
+| **MINOR-3** — the census JSON held only the movers, so its own headline table was not re-derivable from it | the artefact now carries every record plus the population totals and the candidate definitions |
+
+**What the review changed about the card's conclusion: nothing, and that is the
+result.** Newly validated stays 0, the fourteen flags stay correct — the reviewer
+checked all four classes against the paper and could not overturn one — and the
+refusal to count a text-empty sheet stands. What changed is that two of the
+supporting claims were weaker than they sounded and one was stronger, and all
+three are now measured: the eight sheets are inked rather than blank, the form
+the card carries is safe rather than merely inconsequential, and the form that
+was dangerous was dangerous alone.
+
+**Three lessons worth more than this card.** A probe that cannot see the artefact
+its conclusion is about should say so in the conclusion. An aggregate over a set
+of candidate rules reports the WORST member and credits it to all of them, so
+measure each one alone. And an instrument that returns early on the population it
+finds uninteresting has chosen that population's answer — here it chose it for
+42 per cent of the archive, in the direction that looked safe.
