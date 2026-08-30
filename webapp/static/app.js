@@ -1102,12 +1102,28 @@ function documentRefusalMessage(report) {
 }
 
 function renderAnalysis(report) {
-  currentAnalysis = report;
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
+  // The refusal comes BEFORE the global is set, and the global is CLEARED on
+  // the refusal path. Three other consumers read `.statement` off
+  // `currentAnalysis` -- `generateSummary()`, bound unconditionally to the
+  // summary button, and the two transaction renderers reached by every filter
+  // and sort control -- and none of them is gated by the refusal. Assigning
+  // first left them reading `currentAnalysis.statement || {}` on a document
+  // payload and answering: a complete credit-memo sentence with every figure
+  // rendered as its "N/A" placeholder. That is the quiet wrong answer this
+  // whole stage exists to remove, on the surface an analyst copies from.
   if (isDocumentPayload(report)) {
+    currentAnalysis = null;
+    // `renderError` does not hide the transaction card, and `uploadFiles` has
+    // already shown it. Hidden HERE rather than inside `renderError`, because
+    // that would change what every other error does on a single-account
+    // document; this branch is reachable only by a payload no publisher in
+    // this tree can build.
+    if (els.transactionCard) els.transactionCard.style.display = "none";
     renderError(documentRefusalMessage(report));
     return;
   }
+  currentAnalysis = report;
   const statement = report.statement || {};
   const metrics = report.metrics || {};
   const detection = report.detection || {};
@@ -1630,7 +1646,9 @@ function openStatementModal(jobId) {
   ])
     .then(([payload, markdown]) => {
       if (!payload.analysis) throw new Error(friendlyAnalysisError(payload.analysis_error));
-      modalAnalysis = payload.analysis;
+      // Same rule as `renderAnalysis`: the modal's transaction renderer reads
+      // `.statement` off this global, so a refused payload must not reach it.
+      modalAnalysis = isDocumentPayload(payload.analysis) ? null : payload.analysis;
       renderStatementModal(jobId, payload.analysis, markdown || "");
       if (els.statementModalClose) els.statementModalClose.focus();
     })
@@ -1972,7 +1990,8 @@ async function submitRevenueReview(button) {
     }
 
     if (modalJobId === jobId) {
-      modalAnalysis = payload.analysis;
+      // The refresh path, held to the same rule as the open path above.
+      modalAnalysis = isDocumentPayload(payload.analysis) ? null : payload.analysis;
       renderStatementModal(jobId, payload.analysis, "");
     }
   } catch (error) {
