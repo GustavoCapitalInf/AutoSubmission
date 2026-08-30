@@ -1075,7 +1075,12 @@ dispatch path at the S2 tree:
 The three are `3600FE7830C4A484`, `9C5B7D628D7511EE` and `C067BE96F6B0BE0F`, one omitted section
 each, admitted by `yield_only_arithmetic_with_summary_equality`. Movement is **0** on all three:
 `validated` before and after, payload byte-identical, and the archive sweep finds no mover.
-**S3 prices 15 protected shas under §1.5's omission override, not 12.** See the dated note in §7.
+**S3 prices 15 protected-and-pinned carriers, not 12 — and it prices them as documents that
+KEEP their account `validated`.** Gustavo's Q10 ruling (2026-08-30, `BATCH9_TRANSITION.md`
+§8.7) supersedes §1.5's omission override: an explicit sibling omission beside an
+independently valid account does not demote it. What S3 wires for these 15 is the SURFACE —
+`sibling_account_omission_detected: true` and `completeness: partial` at the document /
+package layer — not a fold. See the dated note in §7.
 
 ### 6.3 The pinned exposure
 
@@ -1222,8 +1227,19 @@ newly validated, 0 validated lost, 117 of 117 payloads byte-identical, 0 archive
 3,380 — was adjudicated legitimate rather than absence-shaped by the independent review of
 `wave9-l1s2` (`reviews/BATCH9_L1S2_REVIEW.md` §2, MAJOR-1), and was **accepted by Ocean**.
 It was NOT a decision of this design cell, and it is recorded here so S3 prices the right number:
-when §1.5's omission override lands, **15** protected batch-8 shas fold to `review`, not 12. That
-override is a ruling Ocean is putting to Gustavo; S3 keeps it dark until it is answered.
+**15** protected batch-8 shas carry a surfaced omission, not 12.
+
+**And it prices them the way Gustavo ruled.** When this note was first written the consequence
+was open and it said so. It is open no longer: **Q10 (2026-08-30, `BATCH9_TRANSITION.md` §8.7)**
+supersedes §1.5's omission override — see the annotation there — and the 15 do **NOT** fold to
+`review`. Each keeps its account `validated`, having on its own unambiguous boundaries, a
+correct reconstruction, the unchanged validator's verdict and nothing misattributed from the
+omitted sibling; the omission is surfaced beside it at the document / package layer
+(`sibling_account_omission_detected: true`, `completeness: partial`). Fail-closed is unchanged:
+an omission that makes the boundaries ambiguous or prevents independent validation refuses the
+document. S3's obligation on these 15 is therefore to WIRE THE SURFACE and to leave the account
+outcome alone, and `tests/test_l1s2_protected_carriers.py` pins all fifteen against a fold that
+forgets it.
 
 **The honest total.** Across all six stages the measured newly-validated count is **0 to 8**,
 and the three points of that range are three different tests, all printed by the same
