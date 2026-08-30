@@ -58856,3 +58856,529 @@ intends, reached by the path the platform intends.
 Every row of the table above was measured at `b82cf75`, the tip that carries all
 four, except the mutation table and the two replays, which were re-run there
 after this table was first written and returned the same numbers.
+
+# §COMMSEC9 — seven are the second account, and the other two print the direction in a column the text does not carry
+
+COVERAGE card `DECL-COMMUNITY-SECTION` (batch 9, 9A-1 card 4), branch
+`wave9-commsec`, base `train9` at `e26ec8d`. **No production file changed** —
+`git diff e26ec8d..HEAD -- analysis ocr webapp discovery telemetry benchmark
+corpus_gate.py batch.py analyze.py parse.py` is empty at EVERY commit of this
+branch, not only at the tip. The deliverable is the probe, the ceiling, the
+per-sha gate table and two tests: **newly validated 0**, said plainly, with the
+numbers it stands on and with the one document a solver would reach named.
+
+## COMMSEC9.1 Population and baseline fidelity
+
+Census group `DECL:community_section`: **9** documents, every one
+`failed / parser_declined`, every one native text, every one already declined in
+the batch-7 control (folders Rogue Credit Union 3, Chase 2, Unidentified 4). The
+reader's protected baseline cohort is **61** — 59 validated and 2
+`review / integrity_flags`, the two the RV-PAGE-COVERAGE probe owns.
+
+`cohort_replay` at the base `e26ec8d`, run of record `cda8882d`, cold cache
+`webapp_data_train8_cold`:
+
+| cohort at base | population | result | exit |
+|---|---:|---|---:|
+| `--group DECL:community_section --expect-identical` | 9 | 9 unchanged non-validated, 0 payload changed | **0** |
+| `--parser community_section --expect-identical` | 61 | preserved 59 / 59, payload identical 59; the 2 review unchanged | **0** |
+
+## COMMSEC9.2 The gate table — which link refuses, per sha, and the control that makes it readable
+
+`tools/commsec_decline_probe.py` walks `parse_community_section_statement`'s own
+refusal chain in the reader's own order. It adds one thing to the CP-DECLINES
+shape, and it is the thing this reader needs: because the LAST gate here is
+`len(parsed) != 1`, the chain is walked **once per printed account block**, so
+"no account could be read" and "more than one account publishes and the schema
+holds one" stop being the same `None`. The CP-DECLINES agreement check is kept —
+after tracing, the real `parse` runs on the same text and a disagreement is
+reported as `TRACE-DISAGREES` rather than given a gate it did not hit.
+
+**This table is a measurement at the BASE `e26ec8d`, where all 9 decline.**
+
+| class, at the base | documents | first refusing gate |
+|---|---:|---|
+| L-1 refusal (out of scope; the independent-account architecture owns it) | **7** | `len(parsed)!=1:two_or_more_accounts_publish` |
+| every account block refused before the printed identities | **2** | `len(parsed)!=1:no_account_publishes -> no_rows` |
+| a grammar gap on a shape ≥ 2 documents share, reachable by reading | **0** | — |
+| `TRACE-DISAGREES` | **0** | — |
+
+**The control that makes the zero non-vacuous**: the same instrument over the 61
+protected documents reports `PARSES` **61 / 61**, `TRACE-DISAGREES` **0**. The
+mirror agrees with the reader on all seventy documents of this cohort.
+
+The seven L-1 refusals, named and left declined, with what each prints — the
+number of account blocks the document carries and how many of them publish a
+statement of their own:
+
+| sha16 | account blocks | blocks that publish |
+|---|---:|---:|
+| `01B82FEC38EEEF16` | 3 | 3 |
+| `868ECE6AD6640AFA` | 3 | 3 |
+| `8AB3A4213D009DA4` | 3 | 2 |
+| `9D97506F7221D012` | 3 | 3 |
+| `A90F51E67FB86E1C` | 3 | 3 |
+| `C49144D76DCE44F0` | 3 | 2 |
+| `E32EFCCCC63DA611` | 3 | 2 |
+
+This reproduces `L1_CU_SUFFIX_RULING_PACKET.md` §1's **7** exactly, and refines
+its other row: the packet records the remaining two as
+`len(parsed)!=1 (0 posting sections)`, which is the OUTCOME of the block walk
+rather than the gate inside it. Measured here, both print exactly ONE account
+block, that block's summary grid reads end to end, and what refuses is `no_rows`
+— the ledger, not the summary. **Every one of the seven carries a second
+account that publishes on its own terms**, which is the fact `L1-ARCH-DESIGN`
+needs from this card: if the independent-account architecture lands, these seven
+documents hold two or three reconstructable accounts each, and no memorised
+selection is involved in reaching any of them.
+
+## COMMSEC9.3 The two, and the column that is not in the text
+
+Both print sub-layout J-B: one `Account Activity` ledger under the printed
+header `Post Date Description Debits Credits Balance`. The reader signs a row by
+the running balance printed beside it — and on these two the **`Balance` column
+is blank on every posting row**. A posting row carries ONE figure, and which of
+the two money columns the bank printed it in IS its direction.
+
+`tools/commsec_identity_ceiling.py --mode structure`, at the base:
+
+| sha16 | posting rows | figures per row | stated rows | row figures sum to BOTH printed totals | summary closes | printed grid days | posting days | days with >1 row | widest day | posting days whose last row ends on that day's printed balance |
+|---|---:|---|---:|---|---|---:|---:|---:|---:|---:|
+| `EA62440C2FB7330D` | 117 | 107 one · 10 two | 117 | **yes** | **yes** | 20 | 20 | 18 | 13 | **0** |
+| `FA0B3967E477B9F7` | 6 | 6 one | 6 | **yes** | **yes** | 4 | 4 | 2 | 2 | **0** |
+
+The last column is the measurement that says the balance column is ABSENT rather
+than assumed absent: a ledger printing it ends each day's last row on the balance
+the printed grid gives for that day, and neither document does so on any day.
+The middle columns say the single figure is an AMOUNT and not a mis-read
+balance — the row figures reproduce the bank's own two printed totals, and the
+row count equals the two printed counts added together, on both documents.
+
+**Is the column recoverable from the text at all?** `column_evidence` measures
+the raw printed rows — the one read in this cell that does not collapse
+whitespace, because spacing is the only thing a flattened layer could carry a
+column in:
+
+| sha16 | rows on their own printed line | distinct gap widths before the row's figure | characters after the figure |
+|---|---:|---|---|
+| `EA62440C2FB7330D` | 109 | **1** — a single space, on every row | **0** on every row |
+| `FA0B3967E477B9F7` | 7 | **1** | **0** |
+
+There is no geometry, no trailing marker, nothing. (The rows not measured are
+the ones the layer welded onto a neighbour's line; they carry the same single
+space between their own tokens.) And no geometry reaches this path by another
+route either: `analysis/pipeline.py`'s `document_geometry` parameter is consumed
+ONLY by `structure_unclaimed` on the unclaimed branch, and no production caller
+passes it — grepped, 0. **The direction is not in this reader's input.**
+
+## COMMSEC9.4 The ceiling — the only mechanical route is a SEARCH, and it reaches one document
+
+If the direction cannot be read it can only be SOLVED for, against the printed
+identities. `--mode sign_search` counts every assignment of a direction to every
+posting row satisfying ALL of them at once — both printed counts, both printed
+totals, and every day of the printed daily-balance grid. It is exact and
+complete, not sampled: the grid fixes each day's net change and a day's rows have
+a known gross, so the day's credit total is determined and only the SUBSET
+making it up is free; the count is a per-day table convolved on the printed
+credit count.
+
+| sha16 | readings consistent with everything the bank printed | verdict | the platform, with that reading installed in memory |
+|---|---:|---|---|
+| `EA62440C2FB7330D` | **32** | `ambiguous` | `failed / parser_declined`, 0 rows published |
+| `FA0B3967E477B9F7` | **1** | `UNIQUE_READING` | **`validated / approved`**, ADB published, `adb_ok` true, integrity flags empty |
+
+`--mode cross_check` re-derives both counts by explicit enumeration of every
+subset of every day instead of by the dynamic program — widest day 13 and 2 —
+and they **agree exactly**, 32 against 32 and 1 against 1.
+
+So the bound is not "today's grammar cannot read it". It is that on the larger
+document **thirty-two different ledgers are each consistent with every figure the
+bank printed**, and on the smaller one the reading is unique and would validate.
+Stated the way HUNT9.5 had to be corrected into stating it: the barrier on that
+one document is **not** downstream of the parser and not a platform refusal — it
+is the rule that a reader READS a direction rather than fitting one, and the
+count on the other side of that rule is **one document**.
+
+Three reasons this card refuses it, in the order they carry weight:
+
+* **one document is not a rule.** The shape is shared by two; the search reaches
+  one. A widening whose own population contradicts it on half its members is
+  fitted to the member it helps — the CPDECL3 finding, in a smaller population;
+* **fitting destroys the evidence.** After a solve, the printed credit count, the
+  printed debit count, both printed totals and the printed grid all agree BY
+  CONSTRUCTION — they are what the assignment was chosen to satisfy. The reader
+  would publish a ledger with no independent check left on the direction of any
+  row, which is exactly the blindness the CP-DECLINES BLOCK-1 was blocked for: a
+  control that cannot see the failure mode the rule creates;
+* **uniqueness is not correctness.** The search assumes every posting row is
+  present and that each row's last figure is its amount. On the larger document
+  10 of 117 rows carry a second figure inside their own description, and a
+  mis-read row would produce a unique WRONG ledger with nothing to say so.
+
+## COMMSEC9.5 Generalization — the shape against the platform that prints it
+
+`--mode structure` over **109** documents — every document the three
+registrations of this module claim in the run of record (`community_section` 61,
+`dakota_west` and `mission_valley` 39) plus the 9 declines:
+
+| account blocks of this platform | blocks |
+|---|---:|
+| print no `Account Activity` header at all (the sectioned arrangement) | 98 |
+| print one **with a running balance on every row** (two figures) | **25** |
+| print one carrying no rows at all (a dormant sibling) | 7 |
+| print one whose rows carry **one figure** | **2** — the two in scope |
+
+So the shape is not rare-because-unlucky and it is not one document's accident:
+it is two, against twenty-five ledgers of the same arrangement, on the same
+platform, that DO print the column. What separates them is a printing choice of
+the issuer, and the two that make it are not readable by anything that reads.
+
+## COMMSEC9.6 What was added, and the mutants it must kill
+
+Two tests, and no production change.
+`test_an_activity_ledger_printing_no_running_balance_is_declined` pins the shape
+the archive prints, on a fixture built so that **exactly one** assignment of
+directions satisfies every printed identity — which is what makes it worth
+having: the refusal is not "we could not tell", it is "we will not fit". Its
+control, `test_the_same_ledger_publishes_once_the_bank_prints_the_balance_column`,
+is the identical statement with the column filled in, and it publishes — so the
+refusal turns on the missing column and nothing else about the fixture.
+
+`tools/commsec_mutation_table.py`, restore in a `finally` in two stages neither
+of which can raise, a content restore against the bytes read before anything was
+mutated, line endings preserved (this tree is checked out with `autocrlf`), a
+refusal to start on a dirty tree and a refusal to REPORT unless every file
+equals its original byte for byte and `git status --porcelain` comes back clean
+— an unanswered status treated as unknown rather than as clean. Tests without
+`-x`, and the failing test names read back so the table can say WHICH test
+killed each mutant:
+
+| mutant | what it breaks | killer | result |
+|---|---|---|---|
+| M1 | a posting row with no balance beside it is booked anyway, its direction guessed from words in its description | `test_an_activity_ledger_printing_no_running_balance_is_declined` | **KILLED** — by its named killer and nothing else |
+| M2 | the balance column is read but the row's direction is not taken from it | `test_the_same_ledger_publishes_once_the_bank_prints_the_balance_column` | **KILLED** — by its named killer and two other tests |
+
+The harness earned the "which test" reading immediately: M1's first form also
+booked the ledger's own opening and closing BOOKEND rows, so it broke the row
+count before it ever reached the direction question and was killed by an
+unrelated test. A mutant that dies of an unrelated wound proves nothing about the
+test it was written for, and the table said so instead of reporting KILLED.
+
+## COMMSEC9.7 Zero movement — the replays and the archive sweep
+
+Nothing moved, and the reason is structural rather than argued: **no production
+file differs from the base, at any commit of this branch.** The three
+instruments are not reachable from any production tree (grep over `analysis`,
+`ocr`, `webapp`, `discovery`, `telemetry`, `benchmark`, `tests` and
+`corpus_gate.py`: 0 references).
+
+| `cohort_replay` at the closure tip | population | result | exit |
+|---|---:|---|---:|
+| `--group DECL:community_section --expect-identical` | 9 | 9 unchanged non-validated, 0 payload changed, 0 regressions | **0** |
+| `--parser community_section --expect-identical` | 61 | **preserved 59 / 59, payload identical 59**, the 2 review unchanged, 0 regressions | **0** |
+| `--parser dakota_west --parser mission_valley --expect-identical` | 39 | **preserved 39 / 39, payload identical 39**, 0 regressions | **0** |
+
+The third arm is owed because a registration id is not a module: this module
+publishes under three ids, and `dakota_west` holds a pinned corpus document.
+Payload-identical on all 98 validated documents of the module includes
+WITHHELD-GRIDS' running-balance leaves, which are part of the compared payload
+rather than a separate check.
+
+**The archive sweep** is not owed by the letter of the floor — it is owed when a
+reader changed, and none did — but an argument that nothing moved is worth less
+than a measurement of it, so `tools.regfp_zero_movement_sweep` ran over the run
+of record's own `rows.csv` against the baseline settings key, in two chunks
+covering every document:
+
+| chunk | documents | compared | identical | moved | `no_payload_now_publishes` | `payload_now_raises` | seconds |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `[0, 400)` | 400 | 321 | 321 | **0** | 1 | 0 | 440 |
+| `[400, 3380)` | 2,980 | 2,348 | 2,348 | **0** | 8 | 0 | 2,990 |
+| **total** | **3,380** | **2,669** | **2,669** | **0** | **9** | **0** | 3,430 |
+
+**The nine findings are outside this card's population and every one is
+attributed.** They are exactly the nine documents CP-DECLINES moved, composed
+onto `train9` BEFORE this branch's base: the six `core_processor_enclosures`
+members `373B73F98E63F900`, `75FE7191FD4E74A0`, `D31770634E04E104`,
+`0943986A52D8226C`, `BD835DA79B01B332`, `C355B3706588F0B1` and the three
+`category_partition` members `6E9A3A110E6829EB`, `889DAEBE7D79133C`,
+`C47BEFE559CB8600`. The sweep's baseline is the batch-8 run of record, so a
+composition that landed between that run and this base necessarily reports as a
+finding here; the attribution does not rest on recognising the shas, it rests on
+the production tree being byte-identical to the base at every commit of this
+branch, which makes the finding set at this tip and at `e26ec8d` the same set by
+construction. The archive's standing residue reconciles to the same document:
+`no_payload_raises_again` 74 + 599 = **673**, exactly CPDECL10.3's figure, and
+673 + 9 = 682, the residue an unchanged batch-8 tree reports. `no_ocr_artifact`
+4 + 25 = 29 is that same standing residue. **Zero movement outside the named
+population, archive-wide.**
+
+## COMMSEC9.8 The proof floor, and the commits
+
+| proof | result |
+|---|---|
+| full default suite | **7,414 passed, 43 skipped, 34 deselected — EXIT=0**. The only test-count change is measured per file: `tests/test_community_section_layouts.py` collects 44 at the base and 46 here, +2, the refusal and its control |
+| canonical guards (5 files) | **255 passed — EXIT=0** |
+| canonical conformance (7 files) | **1,270 passed, 40 skipped — EXIT=0** |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld — EXIT=0 |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed, 7,461 deselected — EXIT=0** |
+| `cohort_replay` at the base, both arms, `--expect-identical` | **EXIT=0 each** — fidelity established before anything was written |
+| `cohort_replay` at closure, all three arms | **EXIT=0 each**, table above |
+| mutation table | 2 rows, **2 KILLED**, each by its own named killer; `git status --porcelain` proved clean after the run; no other python harness on the host when it ran |
+| the decline probe, base tree | L-1 7 / block-walk 2 / **`TRACE-DISAGREES` 0**; control over the 61 protected: **PARSES 61 / 61** |
+| the ceiling's two counting methods | dynamic program and brute force **agree**, 32 = 32 and 1 = 1 |
+| archive sweep at the final tree | 3,380 documents in two chunks — **2,669 payloads compared, 2,669 identical, moved 0**, `payload_now_raises` 0, `multi_artifact_documents` 0; `no_payload_now_publishes` 9, all nine outside this population and attributed in COMMSEC9.7 |
+| branch privacy scan, ADDED FILE LINES vs the 70-document population | **hit_count 0** over 1,592 added lines and 70 documents read (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0; no sha without cached text) — EXIT=0. Its zero is not vacuous: the raw scan before exclusions finds 5 — 3 of the `round_money` shape, all in this card's own synthetic fixture, and 2 of the standing `words_class` |
+| branch privacy scan, COMMIT MESSAGES vs the same population | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 8 commits — EXIT=0. The co-authorship trailer's WORDS class does not fire here: no document of this population prints that vendor as a merchant description |
+| the instruments carry no control byte | 0 on all three `tools/commsec_*.py` |
+
+The added-line and commit counts in the two scan rows are this branch's own at
+the commit that carries them, and they move with the record — a section that
+reports a scan is itself scanned by the next run of it. **The ZERO is what the
+floor asserts and it is invariant to that**: both scans were re-run at the tip
+after this table landed and report 0 in all four classes on both surfaces.
+
+### The commits of this cell
+
+| commit | what |
+|---|---|
+| `9962829` | `tools/commsec_decline_probe.py` — the per-sha gate table, walked per account block, checked against the reader |
+| `86614d1` | `tools/commsec_identity_ceiling.py` — the structure, the exhaustive sign search and the in-memory publish |
+| `682750e` | `tests/` — an activity ledger printing no running balance is declined, and the control that keeps that from being vacuous |
+| `cbdc4cf` | `tools/commsec_mutation_table.py` — the mutants those two tests must kill |
+| `8fca8a1` | the harness names the test that actually killed each mutant |
+| `8d92ae5` | M1 aimed at the property rather than past it |
+| `51fbb51` | the ceiling's cross-check, and a population selectable by registration id |
+| `2c0f2e5` and the tip | this section, and the archive sweep it closes on |
+
+**Which tree each proof belongs to**, because "the closure tree" and "the tip"
+are not the same commit and a record that blurs them invites a later reader to
+re-measure the wrong one. The suite, the guards, the conformance files, the
+corpus gate, the corpus-marked slice, the mutation table and the three closure
+replays were all measured at `8d92ae5`. Exactly two files change after it:
+this log, and `tools/commsec_identity_ceiling.py` at `51fbb51` — an instrument
+no test imports and no production file references (grep for `commsec_` over
+`tests`, `analysis`, `ocr`, `webapp`, `discovery`, `telemetry`, `benchmark` and
+`corpus_gate.py`: **0**), so no proof in the table can differ between those
+trees. The archive sweep and both privacy scans ran AFTER `51fbb51`, at the
+tip's production tree, which is byte-identical to the base.
+
+### The findings carried
+
+1. **The seven L-1 documents each hold two or three independently
+   reconstructable accounts** — measured, per sha, in COMMSEC9.2. They are the
+   largest single-reader block of L-1 refusals in the batch-9 census, and under
+   the independent-account architecture they are reachable without any
+   memorised or arbitrary account selection: every block is discovered from the
+   document's own printed heading-and-grid pair, and every one that publishes
+   does so through the same unchanged identity gate. `L1-ARCH-DESIGN` owns them.
+2. **A direction printed as a COLUMN is lost by the text layer, and the owner is
+   not this reader.** The two in-scope declines fail for a reason that lives
+   above `analysis/`: `ocr/native_text.py`'s ladder emits one space-separated
+   run, and no geometry is passed into the claiming-parser path at all. If this
+   shape is ever to be read it will be read by a text stage that keeps columns,
+   not by a grammar. Named here so a later census does not re-file it as a
+   parser gap — and priced: even a stage that recovered nothing but ORDER would
+   not help, because there is only one token to order.
+3. **A search against the printed identities is not a reading, and this is the
+   population that shows why.** Thirty-two ledgers pass every printed check on
+   one document. Any future proposal to solve for a missing direction, on any
+   reader, should be measured this way first: count the readings, and if the
+   count is not one on every member of the shape, the identities were never
+   evidence about the direction in the first place.
+
+### The contract line
+
+**population 9** · **root cause** a second account that publishes on its own
+terms ×7 (`len(parsed)!=1`, the L-1 gate, out of scope and named by sha); an
+`Account Activity` ledger printing no running balance on any posting row ×2,
+where the row's direction is the COLUMN the bank printed its figure in and the
+flattened text carries no column at all · **solution** none — measured. No
+reading of the two reaches a direction: the search that solves for one is
+`ambiguous` on the wider document (32 ledgers consistent with every printed
+figure, cross-checked by brute force) and `UNIQUE_READING` on the narrower, so
+even granting a solver the widening reaches **one document**, and one document
+is not a rule — with the further objection that fitting the directions to the
+printed identities leaves those identities as evidence about nothing ·
+**newly validated 0** · **other ladder movement 0** · **previously validated
+preserved 98 / 98 across the module's three registrations, payload identical
+(59 + 39), and the 2 review unchanged** · **regressions 0** ·
+**correctness evidence** the gate table with `TRACE-DISAGREES` 0 and the
+control's `PARSES` 61 / 61; the measured absence of the balance column (no
+posting day ends on its printed grid balance, on either document); the raw
+printed rows carrying a single space before the figure and nothing after it; no
+geometry reaching the claiming-parser path at all; the sign search counted two
+independent ways, agreeing · **generalization evidence** the shape is 2 account
+blocks against 25 of the same arrangement, on the same platform, in the 109
+documents this module claims — and the two that print it are the only two of
+the 109 whose activity rows carry one figure.
+
+## COMMSEC9.9 The review, and what each finding became
+
+An independent adversarial review
+(`docs/moneythumb-replacement/reviews/BATCH9_COMMSEC9_REVIEW.md`, `2132614`)
+returned **CONFIRMED WITH FINDINGS — 0 BLOCK / 0 MAJOR / 4 MINOR**. Every
+headline of this section reproduced in the reviewer's own session, and one
+number was made stronger than this cell could make it: preservation was proved a
+second time under `train9`'s stricter `cohort_replay` (empty containers counted
+as leaves), population 100, **preserved 98 of 98, payload identical 98**,
+regressions 0, EXIT=0.
+
+All four findings are record corrections; none touches a proof, a count that
+matters, or the verdict. **This subsection is APPENDED rather than applied in
+place**, so each closure names the sentence it supersedes — a record that
+rewrites itself silently is not a record. And each correction was RE-MEASURED
+here rather than transcribed from the review, which is how the one arithmetic
+slip below was found.
+
+| finding | closure |
+|---|---|
+| MINOR-1 — the stated discriminator for the absent balance column has counterexamples in this card's own census | COMMSEC9.9.1: the field is zero for three different reasons, only one of which is the absent column; the discriminator is the ledger's own balance column, and the field's own scope is named |
+| MINOR-2 — the three refusal reasons are mis-ordered, and two of them do not apply to the document that decides the card | COMMSEC9.9.2: re-ordered and re-worded, with the reviewer's entailment measurement attached to the reason that actually carries |
+| MINOR-3 — two scan counts are stale relative to the tip | COMMSEC9.9.3: re-stated at `588d8f4`, both surfaces still zero |
+| MINOR-4 — "grammar" carries two meanings in one table | COMMSEC9.9.4: the two senses named and counted separately; the instrument's class literal left alone, with the rename recorded for whoever next edits it |
+
+### COMMSEC9.9.1 The discriminator, scoped — and what actually discriminates
+
+**Superseded**: the sentence in COMMSEC9.3 beginning *"The last column is the
+measurement that says the balance column is ABSENT rather than assumed absent"*,
+and its general claim that a ledger printing the column *"ends each day's last
+row on the balance the printed grid gives for that day"*. As a general property
+of column-printing ledgers that is FALSE, and the counterexamples are inside
+this card's own census.
+
+Re-measured over the 109-document census, restricted to blocks that print a
+running balance on **every** row — the field
+`posting_days_whose_last_row_ends_on_that_days_printed_balance` is zero for
+three different reasons:
+
+| why a column-printing block scores zero | blocks |
+|---|---:|
+| it prints **no daily-balance grid at all**, so the field is trivially zero (`0139C091430B34CD`, `4D15B2AC6493B82C`, `823BE33E3E8DE9DC`, `909DEE0149E9916B`, `A6A1234C1262826C`, `F388C2767F71CDBE`) | **6** |
+| it prints a grid that does **not cover its posting day** — one grid day, `posting_days_in_the_printed_grid` 0 of 1 (`8AB3A4213D009DA4`, block 2) | **1** |
+| it prints a grid covering its posting days, and lands | **18** |
+
+Scoped to that third row — the only scope in which the field says anything —
+**18 of 18 land, on every posting day they print** (26/26, 26/26, 24/24, 22/22,
+21/21, 19/19, 19/19, 18/18 …). Both in-scope documents are inside that scope:
+their grids cover **every** posting day (20 of 20 and 4 of 4), and they land on
+**none**. So the field does discriminate where it applies, and the corrected
+sentence is: *among blocks whose printed grid covers their posting days, every
+column-printing one lands on all of them and these two land on none.*
+
+**What actually discriminates is the ledger's own balance column, not the grid**
+— `figures_per_row` (`{1: 107, 2: 10}` and `{1: 6}` against `{2: n}` on all 25
+others), and `_activity_rows` needing two money tokens on a row before it will
+book one. The grid field is corroboration, and it is now stated at the strength
+it has.
+
+### COMMSEC9.9.2 The three reasons, re-ordered — and the entailment measurement that decides which one carries
+
+**Superseded**: the three-bullet list in COMMSEC9.4, both in its order and in
+the wording of its first and third items. Re-measured here, the correct order is:
+
+**First — fitting destroys the evidence, and this is the reason that carries on
+the document that decides the card.** The review built the sharpest test this
+argument could face and it is now part of the record. A posting day whose
+printed net equals plus or minus its own gross has every one of its rows'
+directions **forced by the printed grid alone** — that is a READING and not a
+fit, and it never consults the printed counts or totals, so on a fully entailed
+document those four identities would survive as genuinely independent checks and
+this objection would not apply. Measured at this tree, reproducing the review:
+
+| sha16 | posting rows | entailed by the printed grid alone | needing a choice | entailed days / free days |
+|---|---:|---:|---:|---|
+| `EA62440C2FB7330D` | 117 | **12** | 105 | 5 / 15 |
+| `FA0B3967E477B9F7` | 6 | **4** | 2 | 3 / 1 |
+
+**Neither document is fully entailed — including the one that would validate.**
+`FA0B3967E477B9F7`'s last two rows can be fixed only by consuming the printed
+credit total and the printed credit count, so those two identities stop being
+independent checks on precisely the rows they were used to decide. The objection
+is therefore not a general worry: it holds, measured, on the single document the
+card turns on.
+
+**Second — the rule is general and fail-closed; its measured yield is one
+document.** The first record said the population *"contradicts it on half its
+members"*, and that word is wrong. The ambiguous member is **declined** by the
+proposed rule (solve; publish only where the reading is unique), which is
+fail-closed behaviour, not a counterexample. The rule is general in scope; what
+is small is its YIELD. The distinction matters because "contradicted" invites
+dismissing a general rule as a one-document special case, and that is not what
+the measurement says — the measurement says a general, safe rule would move one
+document.
+
+**Third — uniqueness is not correctness, ON `EA62440C2FB7330D`.** The evidence
+for it is that 10 of 117 rows carry a second figure inside their own
+description, and every one of those rows is on the AMBIGUOUS document, which
+publishes nothing either way. `FA0B3967E477B9F7` prints `figures_per_row
+{1: 6}` — one figure on every one of its six rows — so the misread hazard this
+reason names is **absent** there. Scoped to the document it was measured on it
+is a real caution about the shape; unscoped, as first written, it claimed more
+than it measured.
+
+### COMMSEC9.9.3 The two scan counts, at `588d8f4`
+
+**Superseded**: the added-line and commit counts in COMMSEC9.8's two privacy
+rows (1,592 added lines, 8 commits), which were the branch's own at an earlier
+commit. At `588d8f4`, the tip the review examined, and independently re-run by
+the reviewer:
+
+| surface | at `588d8f4` |
+|---|---|
+| ADDED FILE LINES vs the 70-document population | **hit_count 0** over **1,667** added lines, 70 documents read, `no_cached_text` empty — MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0. `raw_hit_count` 5 before exclusions: `round_money` 3 (this card's own synthetic fixture) and `words_class` 2 |
+| COMMIT MESSAGES vs the same population | **10** commits, **0** in all four classes |
+
+The commit that carries this subsection moves both counts again and leaves both
+zeros where they are; the numbers re-measured after it are reported with the
+closure rather than pinned here, because a record that quotes its own scan is
+always one run behind itself. **The ZERO is what the floor asserts, and it is
+what is invariant.**
+
+### COMMSEC9.9.4 "Grammar", split into the two things it was saying
+
+**Clarified** (nothing superseded — both statements were true, in different
+senses, and only their sharing a word was the defect). COMMSEC9.2's table
+reports **2** documents whose every account block refused before the printed
+identities, which is the probe's own class literal `GRAMMAR`, and in the same
+table reports **0** for *"a grammar gap on a shape ≥ 2 documents share,
+reachable by reading"*. A later reader tallying "grammar" from the class column
+would read 2 where this card means 0. The two senses, named:
+
+* **refusal site** — WHERE in the reader's chain the refusal happened; the
+  probe's `GRAMMAR` means "a gate before the printed identities". **2**;
+* **readable grammar gap** — whether a RULE exists that would READ what the
+  paper prints, rather than solve for it. **0**.
+
+The instrument's class literal is deliberately **not** renamed here. Its output
+has been quoted in this record and independently reproduced by the reviewer, and
+changing what a committed instrument prints after its numbers were reproduced
+costs more than the confusion it removes. Whoever next edits
+`tools/commsec_decline_probe.py` should rename that class `NO_BLOCK_PUBLISHES`,
+which says what it measures; recorded here so the rename is not re-derived.
+
+### COMMSEC9.9.5 What the review added, and the one number this cell had to correct
+
+Two facts the review established beyond this record, both **re-measured here**:
+
+1. **Entailment by the printed grid alone reaches 12 of 117 and 4 of 6 rows** —
+   COMMSEC9.9.2, reproduced exactly.
+2. **The seven L-1 documents carry EIGHTEEN independently publishing,
+   independently reconciling accounts — not seventeen.** The review's
+   strengthening is right and reproduces: every block that publishes also passes
+   `reconcile(...).ok` under the unchanged validator, so publishing and
+   reconciling are the same set. Its TOTAL is an arithmetic slip against its own
+   printed list: the review states the per-document counts as `3 3 2 3 3 2 2`,
+   which sums to **18**, and then reports 17 in prose. Re-measured block by
+   block at this tree — 21 account blocks across the seven, **18 publish, 18 of
+   those 18 reconcile**, and the three that do not publish are the dormant
+   sibling blocks (`8AB3A4213D009DA4`, `C49144D76DCE44F0`,
+   `E32EFCCCC63DA611`, one each). COMMSEC9.8's carried finding 1 is strengthened
+   accordingly: what `L1-ARCH-DESIGN` inherits from this card is **18
+   reconstructable accounts that each reconcile on their own terms**, reached
+   with no account selection of any kind — not merely 18 parseable blocks.
+
+That correction is the reason this subsection re-measures rather than
+transcribes. A review that reproduces a cell's numbers earns the cell's trust,
+and a cell that copies a reviewer's number without re-deriving it has simply
+moved the unchecked claim from one document to another.
