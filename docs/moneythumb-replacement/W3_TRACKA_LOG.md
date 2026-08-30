@@ -60218,3 +60218,90 @@ publishes two accounts (S4), no seam moves, no version constant is bumped, and
 publisher that makes two ledgers exist on one document, and a field nothing can fill is a field
 nothing can test. `document_report_to_dict`'s document shape is therefore exercised by tests and
 by nothing else at this tree, which is the same "dark" state S3's readers will be in.
+
+### The independent review's closure — 0 BLOCK / 2 MAJOR / 3 MINOR, all closed
+
+APPROVE WITH FINDINGS (`docs/moneythumb-replacement/reviews/BATCH9_L1S1_REVIEW.md`). The reviewer
+re-ran this card's claims, extended the zero-movement measurement to 361 documents including every
+`review` / `withheld` / `deferred` one, checked 93 refusals as the same class, confirmed the
+settings key against the run of record's — and then found two things this record had not.
+
+**MAJOR-1 — the scope table had its membership PREDICATE pinned and not its SET.** This card named
+two mutants its archive-scale byte comparison cannot see; the reviewer found a third that the
+FIXTURES miss as well. Add an account-scope flag to `DOCUMENT_SCOPE_FLAGS` — the reviewer used
+`summary_math_inconsistent`, ledger arithmetic about one account if anything is — and nothing goes
+red: the partition still partitions, the account block still keeps every flag in published order,
+the source guard still reads *a subset of what the pipeline raises*, and no comparison at any scale
+can see it because **the split publishes no byte at this stage**. Seven of the fifteen flags the
+pipeline raises could be added that way undetected.
+
+It is harmless today for exactly the reason it is invisible, and it stops being harmless at S3,
+where readers begin consuming `document_scope_flags()`: from then on a flag in that set promotes
+ONE account's ledger failure to a fact about the whole file, on a document where *which account
+failed* is the question. The set is now pinned by equality, with a message stating what a member
+has to be — the same treatment the document object's field list already had, for the same reason,
+and the reviewer was right that this card owns the set. The reviewer's mutant is **M11** in the
+table, carried through the cohort-scale comparison with the other two: **it moves 0 of 232**, so
+the class this record described as two rows is now stated as three.
+
+**MAJOR-2 — the prompt-surface hazard was guarded by a comment.** This card's own finding was that
+prose on `Statement` is not documentation but text sent to the extraction model, and its remedy was
+a comment explaining why. A comment is not a guard: the next reader can write a docstring without
+ever seeing it, and the effect is invisible to every payload, replay and byte comparison in the
+repository, because it changes what a MODEL is told and nothing about what a parser computes. The
+reviewer also noted the hazard is wider than the comment: `Transaction` and `StatementDailyBalance`
+are reachable from the same schema and publish their docstrings under `$defs` in the same way.
+
+`tests/test_extraction_schema_prompt_surface.py` now pins the surface: all three models carry no
+prose of their own; the published schema carries no class-level `description` anywhere (asserted
+from the OUTPUT as well as from the classes, so a future pydantic that sourced one elsewhere still
+fails); the set of models the schema reaches is pinned, so a fourth is named rather than hidden in
+a hash; the call is read from `analysis/extract.py`'s source, so switching the extraction to
+another model fails here instead of leaving the guard aimed at nothing; and the whole schema is
+pinned by DIGEST, because a reworded field description changes what the extractor is told just as
+surely. The failure message asks the only question that matters when it fires — prose, or a real
+schema change — and says what to do in each case. Two mutants join the table: **M12** a docstring
+on `Statement`, **M13** the same on a model the schema reaches only by nesting; each is killed by
+three of the seven new tests.
+
+**And the composed design is corrected where it still instructed the harmful edit.** §1.1, §5's
+`analysis/schema.py` row and §7's S1 row said *docstring*; all three now say COMMENT, never the
+docstring, with the reason and the test named. A later cell reads that document as its card, and it
+was telling that cell to do the thing this one refused to do — which is how the defect would have
+arrived anyway, one stage later, with this card's comment still sitting beside it.
+
+**MINOR-1 — the W3 record was an H2** and therefore a subsection of the design cell's section, so
+anything splitting the log by top-level heading filed this work under `§L1DESIGN`. Promoted to a
+top-level `# §L1S1`: exactly one new top-level heading in the log, no earlier line touched.
+
+**MINOR-2 — the leftover worktree directory is cleared.** The reviewer reproduced the failure with
+its own review worktree and confirmed it is the host rather than the cell: `git worktree remove`
+hits a OneDrive handle, deregisters the worktree and leaves the tree on disk. The reviewer's own
+cleared on one retry. This card's had already been deregistered, so a retry could no longer act on
+it and the directory was removed directly; `git worktree list` carries only `mt9-l1s1` and the main
+repo's status is clean.
+
+**MINOR-3 — `corpus_gate.py` is outside this card's stated ownership**, disclosed at closure and
+recorded by the reviewer as a departure rather than a defect: declarations only, three of the four
+entries repairing an inherited red rather than serving this card. For compose: Ocean's `473be2c`
+already carries those three on `train9`, so the merge adds ONE entry — the document entry point's
+declared call site — and re-states three.
+
+### The closure's proof floor
+
+| proof | result | exit |
+|---|---|---:|
+| the S1 fixtures + the new prompt-surface tests | **33 passed** (26 + 7) | **0** |
+| canonical guards (5 files) | **255 passed** | **0** |
+| `tests/test_corpus_gate_outcomes.py` | **24 passed** | **0** |
+| full default suite | **7,481 passed**, 43 skipped, 34 deselected | **0** |
+| mutation table, at the closure tip | **13 mutants, 13 killed, 0 survived**; cohort byte comparison M1 232 / M2 0 / M3 3 / M4 0 / **M11 0** | **0** |
+| RULE S at the pipeline seam, base -> closure tip | **232/232 byte-identical**; flag list and ORDER 232/232; outcome 232/232; one account 232; 3 carrying a document-scope flag; MOVED_TOTAL 0 | **0** |
+| branch privacy scan, added lines vs the whole archive | **hit_count 0**; MONEY / DIGITS / DATES / WORDS all 0 | **0** |
+| commit-message scan | **hit_count 0**, all classes 0 | **0** |
+| W3 | one top-level `# §L1S1`; the base blob is a byte-exact prefix, verified blob-to-blob | — |
+
+Nothing in this closure touches a payload: the two MAJORs add tests, one line of set equality and
+three corrections to a design document. The seam proof and the mutation table were re-run at the
+closure tip rather than carried over, and the zero-movement measurements of the record above stand
+unchanged at it.
