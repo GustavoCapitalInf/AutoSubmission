@@ -60849,8 +60849,8 @@ ruling is made against a number rather than an impression.
 | canonical conformance (7 files) | **1,270 passed, 40 skipped** — **EXIT=0** |
 | `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, 109 pinned PDFs, 0 exclusions, verdicts 1 refused / 3 review / 102 validated / 3 withheld — **EXIT=0** |
 | corpus-marked slice (`pytest -m corpus`, from this worktree beneath the repository) | **30 passed** — **EXIT=0** |
-| `tools/privacy_scan_branch.py`, population = the 20 flag-carrying documents | 615 added lines against 5,012 MONEY / 729 DIGITS / 318 DATES / 8,022 WORDS printed tokens — **hits 0, raw hits 0** |
-| commit-message scan, same population, every commit on the branch | **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0** |
+| `tools/privacy_scan_branch.py`, population = the 20 flag-carrying documents | **1,021 added lines, hits 0, raw hits 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) against 5,012 MONEY / 729 DIGITS / 318 DATES / 8,022 WORDS printed tokens, measured at `6fde58f`; the only change after it is this row itself, which adds lines and moves no hit count |
+| commit-message scan, same population, every commit on the branch | 5 commits at `6fde58f` — **MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0**; the WORDS class is 0 outright, so the co-authorship-trailer attribution the rule allows for is not needed here |
 
 **128 validated documents across the six readers this check touches, all
 preserved, every payload identical.**  The 26 assertions that pin
