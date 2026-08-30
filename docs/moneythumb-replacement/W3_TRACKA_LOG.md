@@ -61670,7 +61670,7 @@ The message scan over the same 3,380 reports **MONEY 0, DIGITS 0, DATES 0** and
 "its nine line-pinned sites", and the bigram `THOUGH THEY` in a sentence about two
 package keys. Both are ordinary English prose about the seam census and the package
 surface; neither is a value, a name, a date, an amount or anything read out of a
-document. **The reason they were kept was wrong, and the reviewer was right to say so.**
+document. **They were reworded, and the reason they had been kept was wrong.**
 The first version of this row argued that a reword would invalidate the sha citations
 in this section. That is not a ground: BATCH9-RULES says plainly that on an unpushed
 branch a `--msg-filter` reword is cheap and the sha references are remapped in the
@@ -61916,8 +61916,8 @@ zero is worth more than an argument.
 | `node --check webapp/static/app.js` | exit 0 |
 | `python corpus_gate.py` | **GREEN**, exit 0 — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld (454.7 s) |
 | RULE S at the pipeline seam, base `4953806` vs closure tip | 232 documents / 80 registrations; document seam byte-identical **232/232**, account seam 232/232, integrity flag list **and order** 232/232, ladder unchanged 232; `MOVED_TOTAL=0`, exit 0 |
-| privacy — added lines | see the row below |
-| privacy — commit messages | see the row below |
+| privacy — added lines | **0 hits**, exit 0 — **raw 68**, every one WORDS-class and discharged by the scanner's own `words_class` rule; MONEY / DIGITS / DATES / WORDS all 0, residue files 0, residue sites 0, over 5,196 added lines against 3,380 documents (3,351 with cached text) |
+| privacy — commit messages | **0 hits across all four classes**, exit 0, 25 commits scanned against the same 3,380. Seven messages were reworded to reach it (see Commits above): every collision was an ordinary-English bigram, and the coordinator asked for four hard zeros rather than four attributions |
 
 **The heavy pair was not re-run, and this is the judgement the coordinator asked for.**
 Beyond `webapp/static/app.js` and the package math, the production-visible changes are:
