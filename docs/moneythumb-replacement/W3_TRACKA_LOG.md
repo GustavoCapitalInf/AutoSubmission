@@ -61209,12 +61209,15 @@ Three of the "did not fire" cells are findings rather than gaps and each is name
 
 ### The design's own probe, at this tip
 
-`tools/l1_design_skip_probe.py` **REFUSES** at this tree (exit 3), naming all three watched lines:
-`analysis.symitar:420` no longer contains `continue`, `analysis.community_section:622` no longer
-contains `return None`, `analysis.community_section:984` no longer contains `stmt.transactions`.
-That is the instrument's own anti-vacuity check firing on the very lines this card rewrote, and it
-is recorded as evidence that the sites moved rather than as a result. Its successor for the
-question that remains — what admitted every section a reader does not publish — is
+**As first written this card left it REFUSING** (exit 3), naming all three watched lines —
+`analysis.symitar:420` no longer containing `continue`, and so on. That was the instrument's own
+anti-vacuity check firing on the very lines this card rewrote, and it was recorded as evidence
+that the sites had moved. It is not a durable answer for the train, which is the review's MINOR-1:
+a committed instrument that produces the design's §2.7 table would have been unrunnable on every
+tree carrying S2. **It is re-anchored at closure and runs green** — see the MINOR-1 entry below
+for the anchors, why they are the both-outcomes lines rather than the admitted-only branch beside
+them, and its output at the closure tree. Its successor for the different question this card
+raises — what ADMITTED every section a reader does not publish — is
 `tools/l1s2_admission_probe.py`, registered in `corpus_gate`'s caller list with its reason.
 
 ### One gap in the caller sweep, found the ordinary way
@@ -61319,45 +61322,240 @@ archive is served from.
   232 at the account seam — so a bump here would key a cache change to no change. The bump belongs
   to whichever stage first moves a byte production serves, and Ocean's at the train either way.
 
-## Proof floor, at the tip
+## Proof floor, at the closure tree `67f4b8d`
+
+Every row below is one run at `67f4b8d` on a clean checkout, in one sequential log, after the host
+was checked free of the other cell's harness (one heavy harness per host). The only commit after it
+is this section itself, and a W3 commit changes no code and no test: `git diff --stat 67f4b8d..HEAD`
+is one Markdown file, the gate reads nothing under `docs/`, and `-m corpus` collects no test from it.
 
 | proof | result | exit |
 |---|---|---:|
 | canonical guards (5 files) | **255 passed** | **0** |
-| `tests/test_corpus_gate_outcomes.py` + currency + document-object + prompt-surface + this card's fixtures | **131 passed**, 10 deselected (measured mid-branch; the fixtures are 38 at the tip and run inside the suite above) | **0** |
 | canonical conformance (7 files) | **1,270 passed**, 40 skipped | **0** |
-| full default suite | **7,527 passed**, 43 skipped, 34 deselected | **0** |
+| `tests/test_corpus_gate_outcomes.py` (the caller register) | **24 passed**, 10 deselected | **0** |
+| `tests/test_document_report.py` (`DocumentReport`'s pinned field set) | **26 passed** | **0** |
+| `tests/test_sibling_omission.py` + `tests/test_l1s2_omission_ruling.py` | **58 passed** (38 + 20) | **0** |
+| full default suite | **7,547 passed**, 43 skipped, 35 deselected | **0** |
 | `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; 109 pinned PDFs, 0 exclusions | **0** |
-| corpus-marked slice | **30 passed**, 7,573 deselected | **0** |
+| corpus-marked slice | **31 passed**, 7,594 deselected — **30 + 1**, the one being `tests/test_l1s2_protected_carriers.py` | **0** |
+| `l1_design_skip_probe`, RE-ANCHORED, at this tree | 117 read / **12** documents / **16** sections; sites 7 / 8 / 0 / 1; **8** + **8** + **0** by class; seven clauses 8 of 8 | **0** |
+| `l1_design_skip_probe` at a pristine base worktree (`fea0bd2`) | 117 / **12** / **16** / **0** | **0** |
 | `cohort_replay` at the base, `--expect-identical` | 120 population, 117/117 preserved, 117 identical, 0 regressions | **0** |
 | `cohort_replay` at the tip | 120 population, **117/117 preserved, 117 payload IDENTICAL, 0 changed, 0 regressions, 0 newly validated** | **0** |
-| `l1_design_skip_probe` at the base | 117 read / **12** documents / **16** sections / **0** `no_printed_evidence` | **0** |
-| `l1_design_skip_probe` at the tip | **REFUSES** — all three watched lines are the lines this card rewrote | **3** (by design) |
-| `l1s2_admission_probe` at the tip | 117 read / **15** carriers / **19** sections / **0 REFUSED**; 8 + 8 + 3 by class; account block byte-identical **15 of 15**; document facts beyond the record **0** | **0** |
-| `l1s1_seam_probe`, base -> tip, 232 documents / 80 registrations | ACCOUNT seam **232/232 byte-identical**; flags and ORDER 232/232; outcome 232/232; DOCUMENT seam 226 identical / **6 moved, all inside the named 15** | **2** (the 6, explained) |
+| `l1s2_admission_probe` | 117 read / **15** carriers / **19** sections / **0 REFUSED**; 8 + 8 + 3 by class; account block byte-identical **15 of 15**; document facts beyond the record **0** | **0** |
+| `l1s1_seam_probe`, pristine base -> tip, 232 documents / 80 registrations | ACCOUNT seam **232/232 byte-identical**; flags and ORDER 232/232; outcome 232/232; DOCUMENT seam 226 identical / **6 moved, all inside the named 15** | **2** (the 6, explained) |
 | `l1s2_mutation_table` | **6 mutants, 6 killed, 0 survived**; tree verified clean after each | **0** |
 | archive sweep, whole archive (3,380), base tree AND tip differenced | aggregates identical; **70 findings, all inherited from `train9`; 0 movers at the tip; 0 removed** | **0** |
-| branch privacy scan, added lines vs the five registrations' whole printed universe | **hit_count 0** over **2,191 added lines**, 120 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 3, all discarded by the standing rules (1 `round_money`, 2 `words_class`) | **0** |
-| commit-message scan | **hit_count 0** over **12** commits; every class 0 | **0** |
-| W3 | one top-level `# §L1S2`, appended | — |
+| branch privacy scan, added lines vs the five registrations' whole printed universe | **hit_count 0** over **3,221 added lines**, 120 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 4, all discarded by the standing rules (1 `round_money`, 3 `words_class`) | **0** |
+| commit-message scan, `--shas` the **15 carriers** | **hit_count 0** over **19** commits, 15 documents (3,549 printed MONEY / 5,136 WORDS / 694 DIGITS / 299 DATES); every class 0 | **0** |
+| W3 | one top-level `# §L1S2`, appended; the base blob is a byte-exact prefix | — |
 
 The commits on `wave9-l1s2`, base `fea0bd2`, in order: the readers and the record; the fixtures,
 the omission probe and the mutation table; the RULE S fixture reading substance rather than a
 field name; the caller sweep watching the document entry point; the probe's per-document class
-table; this section; two comment corrections in the readers' own prose; the pattern-identity
-fixture; the sweep differencer; and four appends and corrections to this section itself. The
-commit-message scan's `commits_scanned` is the authoritative count at the moment it ran, and it
-read every one of them.
+table; the first W3 section and its appends; two comment corrections in the readers' own prose;
+the pattern-identity fixture; the sweep differencer; then the review's own commit; then the
+closure — the two instrument defects, the design's skip probe re-anchored, the design amendment,
+the expected-movement correction, Gustavo's Q10 ruling pinned by two test files, and this section.
+The commit-message scan's `commits_scanned` is the authoritative count at the moment it ran, and
+it read every one of them.
 
 ### Which tree each proof ran at
 
-The suite, the guards, the conformance set, both privacy scans, `corpus_gate.py` and the
-corpus-marked slice were all re-run at the FINAL tip `2440e65` on a clean tree. The measurements
-that take twenty minutes to an hour each — the two cohort replays, the seam probe, the admission
-probe, the mutation table and the two archive sweeps — ran at earlier tips of this same branch
-(`5a36ed7` and `ce67cdd`), and the reason that is sound is checkable rather than asserted:
-`git diff 5a36ed7..HEAD -- analysis/ corpus_gate.py` changes exactly three things, and none of
-them is executable — two paragraphs of module prose in `analysis/symitar.py` and
-`analysis/zions.py`, and one data entry in `corpus_gate.py`'s caller register. The analysis this
-branch performs is byte-for-byte the same code at every tip a number above was taken at.
+Corrected, because the first version of this paragraph was wrong three ways and the review caught
+all three (MINOR-2): it named `2440e65` as "the FINAL tip" when that was commit 11 of 13; it
+attributed the guards, the conformance set, the suite and both privacy scans to that tree when they
+had run at `4b0a4c2`; and its prose said the message scan read 12 commits, a number no tree on this
+branch measures.
+
+* **Everything in the table above ran at `67f4b8d`**, in one sequential log, on a clean checkout.
+* **The long measurements ran at earlier tips of this same branch** — the two cohort replays, the
+  seam probe, the admission probe and the mutation table at `5a36ed7` / `ce67cdd`, and the two
+  whole-archive sweeps at `ce67cdd` (tip) and `fea0bd2` (base). The reason that is sound is
+  checkable rather than asserted, and the review checked it independently: the five production
+  modules this card touches are **AST-identical between `5a36ed7` and the tip once docstrings are
+  stripped**, the only later production commit being two paragraphs of module prose. Everything
+  after that is tests, tools and documents.
+* **The one exception is the re-anchored skip probe**, which is a tool this closure changed: it ran
+  at `67f4b8d`, in the table above, and its earlier run at the working tree carrying the same edit
+  is superseded by it.
+
+
+## Review closure — `reviews/BATCH9_L1S2_REVIEW.md` (APPROVE WITH FINDINGS, 0 BLOCK / 1 MAJOR / 5 MINOR)
+
+The reviewer re-measured every claim above at the tip and nothing failed to reproduce. What
+follows is what each finding cost and what closed it.
+
+### MAJOR-1 — the population is 15 / 19, not 12 / 16
+
+Accepted by Ocean on the review's own measurement: `symitar._yield_only` is a ratified L1-C17
+member (design §9 F1 and the design review both say so), the three sections print a dated dividend
+row with a printed opening and a running balance closing on the ending balance the DOCUMENT states
+for that account, and leaving one absence-shaped skip in a file this card rewrote to be
+evidence-based would leave exactly the quiet failure S2 exists to remove. Cost: **0 movement**.
+
+Closed in three places. The design is amended — **`L1_INDEPENDENT_ACCOUNT_DESIGN.md` §6.2** gains
+the delivered-population block under its measured table (which is untouched), and **§7** gains a
+dated note recording that the widening was proposed by this cell, measured at 0 movement,
+adjudicated by the independent review and **accepted by Ocean, not by the design cell**. The diff
+is **32 insertions and 0 deletions**: no measured line of the design moved. And the Movement
+section above now states 15 / 19 as this card's expected movement.
+
+The consequence the review sized — §1.5's omission override folding **15** protected shas to
+`review` at S3 rather than 12 — went to Gustavo and **has been RULED**: Q10, below. It does not
+happen. The 15 stay `validated` and the omission is surfaced beside them, which is why the number
+mattered and why it is pinned by a test rather than by a sentence. **No fold and no integrity note
+are implemented here.**
+
+### MINOR-1 — the design's skip probe, RE-ANCHORED rather than retired
+
+`tools/l1_design_skip_probe.py` verifies three watched lines against the source text they must sit
+on and refuses (exit 3) when one has moved. This card moved all three, so the instrument that
+produces the design's §2.7 headline table would have been unrunnable on every tree carrying S2.
+Retiring it was the offered alternative. **Re-anchoring is what was done, and the reason is that at
+this tree the probe still measures something true and measures it NON-VACUOUSLY.**
+
+The anchors are the lines that execute on BOTH outcomes — the `omitted.record(...)` test in
+`symitar` (`:453`) and the `return None` that follows `ledger.record(...)` in `community_section`
+(`:655`), plus the call-site clause at `:1043` and the unchanged `zions._inert` function watch.
+Anchoring instead on the admitted-only branch beside them (`symitar:457`'s `continue`) would make
+the `no_printed_evidence` column zero BY CONSTRUCTION, because production would already have
+refused anything else — and counting that column honestly is what this instrument is for. The
+docstring now says what "a skip fires" means at an admission site: the absence-shaped SITE was
+reached and the section was not published, which is what it always counted. The classification
+stays the probe's own second opinion computed from each module's committed pattern, so it can still
+disagree with the reader.
+
+Run at the closure tree `67f4b8d` on a clean checkout — `python -m tools.l1_design_skip_probe --run RUN --data-dir DATA`, **exit 0**:
+
+| registration | `validated` read | documents where the site fires | sections |
+|---|---:|---:|---:|
+| `symitar` | 7 | **4** | 7 |
+| `community_section` | 59 | **5** | 6 |
+| `dakota_west` | 3 | **2** | 2 |
+| `mission_valley` | 36 | 0 | 0 |
+| `zions` | 12 | **1** | 1 |
+| **total** | **117** | **12** | **16** |
+
+Sites 7 / 8 / **0** / 1; classes **8** `printed_dormancy_declaration` + **8**
+`printed_zero_activity_summary` + **0** `no_printed_evidence`; every one of the seven summary
+clauses 8 of 8. The design's §2.7 table, row for row, on a tree that carries S2. **The composed
+tree carries no tool that exits 3 by construction.**
+
+### MINOR-2 — the record, corrected, and the floor re-run
+
+Three inaccuracies, all of them the record describing itself, all corrected in "Which tree each
+proof ran at" and in the proof-floor table below: the tip sha (`2440e65` was commit 11 of 13, not
+the tip), which proofs actually ran at which tree, and the commit-message count (the prose said 12;
+no tree on the branch measures 12). The whole floor is re-run at the closure tree and every number
+in the table below is that run's.
+
+### MINOR-3 — the shared callee's other exits, CARRIED to S3 / S4
+
+`analysis/community_section.py::_parse_sectioned_statement` returns `None` five ways and this card
+taught **one** of them to record: `if not block`, `if not summary`, `if start_year != end_year` and
+`if _section_oracle_disagrees(...)` all bypass the ledger. So "admitted on printed evidence or the
+document is refused" is a property of the `not txns` SITE and not of the function, and the review's
+constructed bare-heading fixture — a printed account heading whose block has no summary grid at all
+— publishes through `dakota_west` with that heading dropped and nothing recorded.
+
+**The reviewer measured the archive population and it is 0**, with a probe that wraps the callee
+and watches the ledger across every call:
+
+| registration | validated documents | callee calls | `None` + recorded | `None` + SILENT | documents publishing with a silent drop |
+|---|---:|---:|---:|---:|---:|
+| `community_section` | 59 | 65 | 6 | **0** | **0** |
+| `dakota_west` | 3 | 6 | 2 | **0** | **0** |
+| `mission_valley` | 36 | 36 | 0 | **0** | **0** |
+| **total** | **98** | **107** | **8** | **0** | **0** |
+
+Every one of the eight `None` returns on this archive is the recorded site.
+
+**No code change, and the reason is a measurement rather than a preference.** Routing those four
+exits through the same ledger would not be a one-line refactor with a test: it would make the
+document REFUSE wherever a printed heading's block has no readable summary, no readable period or a
+disagreeing section oracle. That class of paper is the design's already-measured *"no sibling
+section LOCATED at all"* — **16 documents** (§2.3) — and it is S4's boundary-mechanism work, priced
+there with the roll-up oracle that decides what a printed heading establishes. Making the change
+here would move documents this card has not measured, on a rung the design has not built, to close
+a gap whose population on this paper is zero. **Carried to S3 / S4 with the numbers above.**
+
+### MINOR-4 — the mutation table's concurrency refusal, implemented
+
+The docstring promised a refusal `main()` did not have, which is worse than not promising it.
+`_other_python_processes()` asks the host's own tool (`tasklist`, `ps` elsewhere), excludes this
+process, and refuses with **exit 5** before the dirty-tree check; a probe that cannot see returns
+nothing rather than refusing, because a failed probe is not evidence that the host is busy.
+`--allow-concurrent` overrides it deliberately. Verified both ways against a sleeping python:
+refusal exit 5 naming the pids, and with the override the run proceeds to the dirty-tree refusal as
+designed.
+
+### MINOR-5 — the sweep differencer's repeated flags
+
+`--base` / `--tip` were a plain `nargs="+"` store, so argparse ACCEPTED a repeated flag and
+silently kept only the last occurrence — the tool then printed a complete-looking table over one
+chunk with nothing saying so, which is how the reviewer's first run reported 830 documents and 14
+inherited. `action="extend"` makes every spelling mean the same thing. Both spellings re-run over
+the same stored sweeps report **3,380 documents, aggregates identical at both trees, 70 inherited /
+0 movers / 0 removed, exit 0**.
+
+### The composition note the review raised, for Ocean
+
+L1-S3 makes the identical `WATCHED` change in `tests/test_corpus_gate_outcomes.py` with different
+prose. Both produce the same code line. Nothing is done about it here; Ocean keeps the line once at
+composition.
+
+
+### Gustavo's ruling Q10 (`BATCH9_TRANSITION.md` §8.7) — SURFACE THE OMISSION, DO NOT DEMOTE
+
+Ruled while this closure was in flight, and it settles the consequence the review sized. **An
+explicit sibling omission beside an independently valid account keeps THAT ACCOUNT `validated`**;
+the omission is surfaced separately at the document / package layer rather than paid for by
+demoting the account that was read correctly. The account must still, on its own, have unambiguous
+boundaries, reconstruct correctly, pass the UNCHANGED validator, prove period / currency /
+opening-closing / transactions / ledger identity / ADB, and carry nothing misattributed from the
+sibling — and **if the omission makes the boundaries ambiguous or prevents independent validation,
+fail closed**.
+
+So the 15 carriers do NOT fold to `review` when S3 lands the document outcome. The coverage is
+pinned here so that wiring cannot demote them silently — each of the 15 would still LOOK read.
+
+**`tests/test_l1s2_omission_ruling.py`** — synthetic fixtures only, the committed layout suites'
+shapes with invented figures, through the DOCUMENT seam, one case per member of the closed
+vocabulary (`printed_dormancy_declaration`, `printed_zero_activity_summary` at two entry points,
+`yield_only_arithmetic_with_summary_equality`). Four assertions per case:
+
+* the omission is RECORDED on `DocumentReport.omissions` with its class named;
+* the account outcome through the unchanged `classify_outcome` is `validated`;
+* that outcome is IDENTICAL to the same account read with the sibling not on the page at all —
+  the ruling stated as the difference it forbids, which is stronger than a literal class;
+* the account block is byte-identical between those two readings, which is independence condition
+  5 (nothing misattributed from the sibling) asserted rather than argued.
+
+Then the fail-closed half, because a rule that only ever admits is not a rule: an absence-only page
+at two sites and an AMBIGUOUS-BOUNDARY page (a second sibling that POSTED — not an idle sibling at
+all) are refused with nothing published; and one further case proves the refusal fixtures differ
+from the admitted ones only in the evidence, so the refusals are refusals of the thing under test.
+The file states the ruling's five independence conditions and where each is enforced, and records
+that none of them is new machinery — they are the unchanged validator, which is the point: the
+ruling does not buy the account's outcome, it declines to take it away.
+
+**There is no document classifier at this tree.** `classify_outcome` classifies ONE ACCOUNT's
+payload; §1.5's fold is S3's, and Q10 is what it must implement. The file says so and names Q10 for
+S3 to extend when `classify_document` lands, keeping the account assertions.
+
+**`tests/test_l1s2_protected_carriers.py`** (marked `corpus`) — the same property on the real 15,
+replayed from the run of record's own cached text through `analyze_document`: each publishes, each
+carries an omission whose reason is a ratified class, each account outcome is `validated`, and each
+published account block is byte-identical to the payload the run stored. Fail closed rather than
+vacuous — the population is asserted to resolve to exactly 15 and to contain the pinned corpus
+document, a carrier with no cached text is a FAILURE rather than a skip, and the module skips with
+a stated reason only when the cold cache or the run of record cannot be found in this checkout or
+any ancestor (a worktree carries neither, so it walks upwards, the idiom
+`tests/test_rbc_variants.py` already uses for the OCR store).
+
+Neither file registers a tool — they add none, and the caller sweep is out of scope for `tests/` by
+its own directory rule; the register test passes with both present.
+
 
