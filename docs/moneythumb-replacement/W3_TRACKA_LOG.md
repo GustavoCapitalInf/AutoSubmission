@@ -61329,14 +61329,16 @@ archive is served from.
 | `l1s2_mutation_table` | **6 mutants, 6 killed, 0 survived**; tree verified clean after each | **0** |
 | archive sweep, whole archive (3,380), base tree AND tip differenced | aggregates identical; **70 findings, all inherited from `train9`; 0 movers at the tip; 0 removed** | **0** |
 | branch privacy scan, added lines vs the five registrations' whole printed universe | **hit_count 0** over **2,191 added lines**, 120 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 3, all discarded by the standing rules (1 `round_money`, 2 `words_class`) | **0** |
-| commit-message scan | **hit_count 0** over **10** commits; every class 0 | **0** |
+| commit-message scan | **hit_count 0** over **12** commits; every class 0 | **0** |
 | W3 | one top-level `# §L1S2`, appended | — |
 
-Ten commits on `wave9-l1s2`, base `fea0bd2`: the readers and the record; the fixtures, the
-omission probe and the mutation table; the RULE S fixture reading substance rather than a field
-name; the caller sweep watching the document entry point; the probe's per-document class table;
-this section; two comment corrections in the readers' own prose; the pattern-identity fixture; the
-sweep differencer; and the sweep subsection above.
+The commits on `wave9-l1s2`, base `fea0bd2`, in order: the readers and the record; the fixtures,
+the omission probe and the mutation table; the RULE S fixture reading substance rather than a
+field name; the caller sweep watching the document entry point; the probe's per-document class
+table; this section; two comment corrections in the readers' own prose; the pattern-identity
+fixture; the sweep differencer; and four appends and corrections to this section itself. The
+commit-message scan's `commits_scanned` is the authoritative count at the moment it ran, and it
+read every one of them.
 
 ### Which tree each proof ran at
 
