@@ -142,6 +142,13 @@ amount). Truth-set / pinned-surface movement outside an approved ceremony = STOP
 - **Heredocs.** A shell heredoc turned `\b` into 0x08 (twice) and `\n` escapes into real
   newlines inside a mutation table (CP-DECLINES). Instruments, mutant tables and regexes are
   written and edited with a FILE tool only, then byte-checked; never through a heredoc.
+- **Where the corpus-marked slice runs.** Its RBC archive-currency proof walks the checkout's
+  ANCESTORS for the OCR store and fails closed when none is found — run `pytest -m corpus` from
+  the repo tree or a worktree beneath `.claude/worktrees/`; a temp worktree elsewhere reads
+  "1 failed" by design (WH-ROW-CAPTURE's reviewer, 2026-08-30).
+- **Your W3 section starts with its own `# §<CARD> — …` heading** on the first appended line
+  (a section committed without it reads as a continuation of the previous section and the
+  train helper's one-appended-section check is what catches it).
 - **Report files.** This harness refuses agent-written `.md` files in the scratch directory;
   your report is your final message plus your W3 section — put every number there.
 
