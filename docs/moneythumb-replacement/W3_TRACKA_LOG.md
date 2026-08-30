@@ -60939,3 +60939,359 @@ Nothing in this closure touches a payload: the two MAJORs add tests, one line of
 three corrections to a design document. The seam proof and the mutation table were re-run at the
 closure tip rather than carried over, and the zero-movement measurements of the record above stand
 unchanged at it.
+
+# §L1S2 — SIBLING-OMISSION-SURFACE: three skips founded on absence, re-founded on printed evidence
+
+Batch 9, L-1 stage 2, branch `wave9-l1s2`, base `train9` `fea0bd2` (the tree where L1-S1 is
+composed). Ocean reviews and composes; this cell never merged, pushed or rebased.
+
+## Population
+
+The skips three readers perform on a member statement's OTHER accounts, and the documents they
+fire on, measured on the production dispatch path with the design's own instrument
+(`tools/l1_design_skip_probe.py`, re-run at this base):
+
+| registration | `validated` documents read | documents where a skip FIRES | sections skipped |
+|---|---:|---:|---:|
+| `symitar` | 7 | **4** | 7 |
+| `community_section` | 59 | **5** | 6 |
+| `dakota_west` | 3 | **2** | 2 |
+| `mission_valley` | 36 | 0 | 0 |
+| `zions` | 12 | **1** | 1 |
+| **total** | **117** | **12** | **16** |
+
+| skip site | sections | what the paper printed |
+|---|---:|---|
+| `symitar.py` `if not rows: continue` | 7 | a printed dormancy declaration, 7 of 7 |
+| `community_section.py` `if not txns: return None`, INSIDE `_parse_sectioned_statement` | 8 | a printed zero-activity summary, 8 of 8 on every one of its clauses |
+| `community_section.py`, the `stmt.transactions` clause at the CALL SITE | **0** | — |
+| `zions.py` `_inert` | 1 | a printed dormancy declaration in the other ratified wording |
+
+`no_printed_evidence` — the class the checkpoint condition refuses — is **0 of 16**. That
+reproduces the design's §2.7 row for row and the independent re-review's re-measurement of it, and
+it is the reason this card removes nothing: 12 documents' skips are RE-FOUNDED on evidence the
+paper already prints.
+
+## Root cause
+
+The three readers decided the same question the same wrong way: **absence**. A printed account
+section that parsed no dated row was dropped *because* it parsed no dated row, and nothing in any
+payload said a section had been read and left out. That is the L-1 defect stated exactly — never
+publish one account and silently drop another — and it is what Gustavo's checkpoint condition
+refuses: *an idle sibling is admitted ONLY when explicit statement structure establishes the
+sibling AND its empty / silent state; absence of parsed activity alone is insufficient.*
+
+Two of the three were not as bad as the third and the difference matters, because it decides what
+each site needed. `zions._inert` already required every printed summary amount to be zero — a
+printed ground — so it needed a NAME rather than a new gate. `symitar._yield_only` already rested
+on the platform's own arithmetic — also a printed ground — and needed only a record. Only the
+`not rows` / `not txns` pair decided on absence alone, and only they can now refuse.
+
+## Solution
+
+`analysis/sibling_omission.py`, a new leaf module that imports nothing of ours so the readers can
+import it, carries L1-C17 as code:
+
+* the CLOSED VOCABULARY, checked where the record is CONSTRUCTED — so a reason a call site
+  invented cannot reach a payload. `absence_of_parsed_rows` is not a member and cannot become one;
+  the vocabulary is closed against ABSENCE and open to EVIDENCE;
+* `printed_dormancy_declaration`, **wording-independent by construction**. The two ratified
+  patterns now live in ONE tuple here; `symitar._DORMANT_RE` and `zions._NO_ACTIVITY_RE` still
+  exist under their own names and both names resolve to it, byte for byte, so two readers cannot
+  drift into two opinions about what a declaration is and a newly met wording is admitted by
+  APPENDING a pattern rather than by relaxing the class;
+* `printed_zero_activity_summary`, six clauses and all six required, read fail-closed — an absent
+  column refuses the class rather than defaulting into it;
+* `yield_only_arithmetic_with_summary_equality`, the ratified `symitar._yield_only` predicate;
+* `SectionLedger`, what ONE parse attempt learned about the sections it did not publish, and
+  `collecting` / `publish_omissions`, the context-scoped seam onto the document object.
+
+At each site the section is either ADMITTED on printed evidence and recorded, or the DOCUMENT is
+REFUSED. Each reader supplies what IT read off its own paper and nothing else, so a layout that
+prints no instance counts can only ever reach the declaration class and never falls through into a
+partial one — which is exactly what keeps `symitar`'s silent sibling refused rather than admitted
+by arithmetic it never printed.
+
+**Where the record goes: onto the DOCUMENT object, never onto `Statement` (RULE S).** A parse
+attempt collects locally and hands over only on the path that publishes a statement, so a losing
+candidate's drops are never the claiming document's omissions. `analyze_document` opens the
+collector because it owns the object the record belongs on; the ACCOUNT entry point opens none,
+which is the shape of RULE S rather than an oversight — a single-account payload has nowhere to put
+a document-level fact, and the stage that teaches the payload readers the document shape is the
+stage that moves the seams onto it.
+
+**The ledger is a REQUIRED argument of `_parse_sectioned_statement`, with no default.** That callee
+is where the distinction between an admitted omission and an absence-drop lives, and a caller
+allowed to omit the argument would be allowed to lose it silently. All three entry points pass one
+and refuse the document when it records a refusal; `tools/l1_census.py` follows the signature
+through in the same commit and discards the ledger it passes, because it asks a different question.
+
+## Movement
+
+| measure | count |
+|---|---:|
+| newly validated | **0** |
+| other ladder movement | **0** |
+| previously validated preserved | **117 of 117**, payload IDENTICAL on all 117 |
+| validated regressions | **0** |
+| validated documents this tree no longer publishes | **0** |
+| documents whose DOCUMENT-seam payload gained the omission record | 15 |
+| sections surfaced | 19 |
+
+`cohort_replay` over every registration of every module touched — `symitar`, `community_section`,
+`dakota_west`, `mission_valley`, `zions` — at the base with `--expect-identical` and at the tip:
+
+| tree | population | preserved | payload identical | payload changed | validated regressions | exit |
+|---|---:|---:|---:|---:|---:|---:|
+| base `fea0bd2` (fidelity control) | 120 | 117 of 117 | 117 | 0 | 0 | **0** |
+| tip `wave9-l1s2` | 120 | 117 of 117 | **117** | **0** | **0** | **0** |
+
+Three of the 120 are non-validated at baseline; they are unchanged at the tip and their payload did
+not move either.
+
+**The account payload does not move, and that is the design rather than a shortfall.** Production
+reaches `analyze_markdown` -> `report_to_dict`; the omission is a DOCUMENT-level fact and lands on
+the document object, which no production seam reads yet (S3 teaches the readers, S4 moves the
+seams). So the surface the archive is measured on is byte-identical everywhere, and the record is
+visible at the document seam, where RULE S's second clause fires on purpose.
+
+## Correctness evidence
+
+### The admission, per registration, at the tip
+
+`tools/l1s2_admission_probe.py`, over the same 117 documents through
+`analyze_document(parse_mode="deterministic")`, reading the omissions the readers themselves
+recorded:
+
+| registration | documents read | carrying an omission | sections omitted | REFUSED |
+|---|---:|---:|---:|---:|
+| `symitar` | 7 | **7** | 10 | **0** |
+| `community_section` | 59 | **5** | 6 | **0** |
+| `dakota_west` | 3 | **2** | 2 | **0** |
+| `mission_valley` | 36 | 0 | 0 | **0** |
+| `zions` | 12 | **1** | 1 | **0** |
+| **total** | **117** | **15** | **19** | **0** |
+
+| registration | `printed_dormancy_declaration` | `printed_zero_activity_summary` | `yield_only_arithmetic_with_summary_equality` |
+|---|---:|---:|---:|
+| `symitar` | 7 | 0 | 3 |
+| `community_section` | 0 | 6 | 0 |
+| `dakota_west` | 0 | 2 | 0 |
+| `zions` | 1 | 0 | 0 |
+| **total** | **8** | **8** | **3** |
+
+Every one of the 19 is admitted by a NAMED class, and every class is a member of the closed
+vocabulary by construction — `SiblingOmission` refuses any other where the record is built, so a
+section admitted by something the design did not ratify cannot reach this table; it raises where it
+is made. **Sections admitted with no printed evidence: 0. Validated documents refused: 0.**
+
+### Why 15 / 19 and not 12 / 16 — the scope note, stated first because it is the difference
+
+The card names the three skip SITES. Three of the 19 sections are the OTHER skip in
+`analysis/symitar.py` — `_yield_only`, on three symitar documents the card did not enumerate. It is
+included, and the authority is that file's own docstring at this base: *"Both idle-declarations are
+published SILENTLY today... That visible surface is SIBLING-OMISSION-SURFACE (batch 8), which owns
+both together."* This card IS that surface. L1-C17's vocabulary already carries the class, the skip
+was already founded on printed arithmetic rather than on absence, and surfacing it costs **0**
+movement: the three documents are `validated` before and after with a byte-identical payload. What
+it buys is that `analysis/symitar.py` has no silent sibling drop left in it, rather than one.
+
+The three are `3600FE7830C4A484`, `9C5B7D628D7511EE` and `C067BE96F6B0BE0F`, one omitted section
+each, and they are DISJOINT from the four documents whose declared dormant siblings the design
+counted (`0A14AC169DEA62D4` x1, `21643A62A463EA39` x2, `A4D0F58E054F8CFA` x2, `E07F381DC420725A`
+x2 = the design's 7 sections on 4 documents). 4 + 3 documents and 7 + 3 sections is the whole of
+the difference between the design's 12 / 16 and this cell's 15 / 19. These three are also the three
+archive documents W3 §DECLINESG named when it wrote `_yield_only`: four consecutive statements of
+one member differing only in whether a share account earned a cent.
+
+### The 15 documents, by content sha16
+
+| registration | documents carrying an omission |
+|---|---|
+| `symitar` | `0A14AC169DEA62D4`, `21643A62A463EA39`, `3600FE7830C4A484`, `9C5B7D628D7511EE`, `A4D0F58E054F8CFA`, `C067BE96F6B0BE0F`, `E07F381DC420725A` |
+| `community_section` | `31F347BE1494314F`, `59DA140E7579A851`, `5F1CC8C0198DB4EB`, `C6E5B0D3EA9F857B`, `F627D7A6A057EF35` |
+| `dakota_west` | `037774298FE1CD66`, `F748A799FDC7F25E` |
+| `zions` | `1019F3C638AB1C81` |
+
+### The pinned exposure, named as §6.3 required
+
+`dakota_west` claims **3** documents in the run and holds **1** pinned one, and the design would
+not accept "no pinned movement" until this card said which. Resolved by hashing the pinned manifest
+(`tools/l1_census.py::pinned_paths`, 109 of 109 files present) against the run's `rows.csv`:
+
+* the pinned `dakota_west` document is **`F748A799FDC7F25E`**. It is one of the TWO that carry this
+  card's skip; its omitted sibling is admitted by `printed_zero_activity_summary`; its published
+  account payload is byte-identical to the run of record's; and its ladder outcome is `validated`
+  before and after;
+* it is the ONLY pinned document among all five registrations present in the run of record — so the
+  pinned exposure of this card is exactly that one document, and it does not move;
+* `dakota_west`'s third document is the one F4's derived selection acts on. That defect is L1-C18
+  and is NOT touched here: the selection line is unchanged and is S4/S5's under a ceremony.
+
+### The payload claim, measured rather than asserted
+
+For each of the 15 carriers the probe compares the ACCOUNT block this tree publishes against the
+run of record's own stored payload for that document, through `cohort_replay`'s own leaf projection
+and its canonical-JSON normalisation:
+
+| property | documents |
+|---|---:|
+| account block byte-identical to the run of record's payload | **15 of 15** |
+| account block moved | **0** |
+| document block carrying a fact beyond the omission and the account count | **0** |
+
+So on a carrier the document seam publishes today's account payload verbatim, and the ONLY thing it
+adds is the gap.
+
+### RULE S at the pipeline seam, base tree -> tip tree
+
+`tools/l1s1_seam_probe.py` with `PYTHONHASHSEED=0`, base capture taken at `fea0bd2` in a detached
+worktree, over **232 documents spanning 80 registrations**:
+
+| property | documents |
+|---|---:|
+| the ACCOUNT seam — payload byte-identical | **232 of 232** |
+| ... moved | **0** |
+| integrity flags, published list and ORDER, identical | **232** |
+| ladder outcome unchanged | **232** |
+| documents publishing exactly one account | 232 |
+| RULE S at the DOCUMENT seam — byte-identical | 226 |
+| ... moved | **6** |
+
+`MOVED_TOTAL=6`, exit 2, and both numbers are the design working. The six are
+`037774298FE1CD66`, `0A14AC169DEA62D4`, `1019F3C638AB1C81`, `21643A62A463EA39`,
+`3600FE7830C4A484` and `F748A799FDC7F25E` — six of the 15 named carriers, every one inside the
+population, and they are exactly the carriers this cohort happens to contain. They move because
+RULE S's SECOND clause ("it omitted nothing") is now false for them, so they publish the document
+shape rather than today's payload; the account block inside that shape is the byte-identical one
+measured above. No document outside the 15 moves at either seam.
+
+### The mutation table
+
+`tools/l1s2_mutation_table.py`, every mutant applied exactly as documented, killers run WITHOUT
+`-x`, tree verified clean after each:
+
+| mutant | what it removes | killers that FIRED | did not fire |
+|---|---|---|---|
+| `drop_the_dormancy_declaration_class` | the class stops admitting; a sibling whose only evidence is the declaration is refused with its document | constructed fixtures (exit 1); symitar layout suite (1); **the archive, omission probe over `symitar,zions` (2)** | zions layout suite |
+| `drop_the_zero_activity_summary_class` | a block stating its own opening, coinciding closing, zero totals and zero counts no longer admits | constructed fixtures (1); core-processor layout suite (1); **the archive, omission probe over `community_section,dakota_west` (2)** | — |
+| `drop_the_yield_only_class` | the yield-only sibling refuses instead of being admitted | constructed fixtures (1); symitar layout suite (1); **the archive, omission probe over `symitar` (2)** | — |
+| `restore_the_absence_skip` | the refusal itself: a section with NO evidence is admitted anyway, wearing a ratified label | **constructed fixtures (1)** | the archive (exit 0) |
+| `open_the_closed_vocabulary` | L1-C17's membership check where the record is BUILT | **constructed fixtures (1)** | — |
+| `write_the_omission_onto_the_statement` | RULE S's boundary: the record goes onto `Statement`, so every single-account payload gains a key | constructed fixtures (1); **RULE S's byte comparison against the run of record, `cohort_replay --parser symitar --expect-identical` (3)** | document-object suite |
+
+**6 mutants, 6 killed, 0 survived.**
+
+Three of the "did not fire" cells are findings rather than gaps and each is named:
+
+* the ZIONS layout suite survives the declaration mutant because that fixture's inert block also
+  prints zero amounts and zero counts, so it falls through to the zero-summary class and is still
+  admitted. Correct behaviour, and it is why the archive killer is the one that matters there;
+* **`restore_the_absence_skip` is invisible to the archive BY CONSTRUCTION** — every section the
+  readers omit today prints evidence, so a tree that admitted an omission without evidence moves
+  nothing in the run of record. That is precisely why the card required constructed absence-only
+  fixtures, and it is the mutant they exist for. Three of them kill it, one per site: the dormant
+  sibling with its declaration removed and nothing put in its place; the account block whose summary
+  states activity it printed no row for; and the inert block stating instances beside its zero
+  amounts;
+* the document-object suite survives the `Statement` mutant because the added field defaults empty
+  and moves both sides of that suite's comparison together. The byte comparison against the RUN OF
+  RECORD does not, and it is the killer the card named.
+
+### The design's own probe, at this tip
+
+`tools/l1_design_skip_probe.py` **REFUSES** at this tree (exit 3), naming all three watched lines:
+`analysis.symitar:420` no longer contains `continue`, `analysis.community_section:622` no longer
+contains `return None`, `analysis.community_section:984` no longer contains `stmt.transactions`.
+That is the instrument's own anti-vacuity check firing on the very lines this card rewrote, and it
+is recorded as evidence that the sites moved rather than as a result. Its successor for the
+question that remains — what admitted every section a reader does not publish — is
+`tools/l1s2_admission_probe.py`, registered in `corpus_gate`'s caller list with its reason.
+
+### One gap in the caller sweep, found the ordinary way
+
+`tests/test_corpus_gate_outcomes.py` swept for callers of `analyze_markdown` and `cached_analysis`.
+`analyze_document` is the L-1 DOCUMENT entry point, is already a declared call site in
+`corpus_gate.ANALYSIS_CALL_SITES`, and is where the seams move at S3/S4 — so the sweep would have
+gone blind to every production caller at exactly the moment they moved. The new probe reaches the
+analysis through that seam, was registered as the rules require, and the guard reported the entry as
+STALE because it could not see the call. `WATCHED` now carries `analyze_document`. It costs nothing
+today: `analysis/pipeline.py` is already swept through the `analyze_markdown` call inside
+`analyze_document`, the only other callers are two read-only probes that were already excused, and
+tests are out of scope by the sweep's own directory rule.
+
+## Generalization evidence
+
+Nothing here is keyed to an issuer, a product, a phrase or a document.
+
+* **The declaration class is a TUPLE of ratified wordings, not a reader's pattern.** Both live in
+  one place and both readers' names resolve to it; an unseen bank's dormant sibling is admitted by
+  APPENDING its printed wording to that tuple, which is a one-line, reviewable, evidence-bearing
+  change — and never by relaxing the class. The zions section in this population is admitted by the
+  symitar-side predicate's sibling and vice versa: the classifier asks the class, not the module.
+* **The zero-activity class is arithmetic over figures a reader has already read**, not a grammar.
+  It takes an opening, a closing, two totals and two counts and reports how they compare with each
+  other and with zero. Any reader on any platform that can read those six cells can reach it; a
+  reader that can read only some of them cannot, and refuses — which is the fail-closed direction.
+* **What an unseen bank's dormant sibling would have to print** to be admitted: either a sentence
+  this list already carries (or one appended to it), or all six of — its own opening balance, its
+  own closing balance equal to it to the cent, a zero credit total, a zero debit total, a zero
+  credit count and a zero debit count. A heading with nothing under it is admitted by neither, and
+  the document is refused. That is the whole rule, and it is the same rule for every issuer.
+* **The refusal generalises further than the admission.** Three readers gained a fail-closed branch
+  that did not exist: a printed account this reader cannot account for now stops the document
+  instead of disappearing from it. On this archive it fires zero times, which is what makes the
+  change safe; the point is that on the next archive it will fire rather than shrink a statement
+  quietly.
+
+## What this card did NOT do, stated so the next stage does not have to find it
+
+* **`assess_document_integrity` adds no note.** The design's §2.3 says an omission is surfaced by
+  the record, the payload key AND an integrity note. The first two land here. The note does not,
+  and the reason is the scope split S1 established: `DocumentIntegrity` at this tree is ONE
+  ACCOUNT's block, so writing a document-level fact into it would move the published payload of 15
+  protected documents to say something the document object already says, in the wrong scope. It
+  belongs with §1.5's document-outcome fold, which is S3's. **Carried to S3.**
+* **The document outcome does not fold.** §1.5 makes a document carrying an omission `review`
+  rather than `validated`. That is the fold `telemetry.record.classify_outcome` performs over the
+  accounts, it moves 15 protected documents down the ladder the moment it lands, and it is not this
+  card's. Until it lands the 15 stay `validated` on the account seam, which is what every
+  measurement above reports. **Carried to S3 / S4**, and it is the reason this card's number is 0
+  and not +15.
+* **`community_section.py`'s `stmt.transactions` clause at the CALL SITE is untouched.** The design
+  measured its own contribution as 0 and this base reproduces that: the callee returns `None`
+  whenever it has no transaction, so the clause's second operand is unreachable. Removing it would
+  be a tidy-up with no measurement behind it.
+* **`dakota_west`'s derived selection is untouched.** "The section with the most transactions" is
+  L1-C18 and a different defect; the pinned document it acts on is named above and the line is
+  unchanged.
+* **No version constant is bumped.** `ANALYSIS_STAGE_VERSION` stays 16 and
+  `TELEMETRY_VERSION` stays 1. The design's S2 row says S2 bumps the analysis stage because payload
+  bytes move; on the seam production actually reads they do not — 117 of 117 byte-identical, 232 of
+  232 at the account seam — so a bump here would key a cache change to no change. The bump belongs
+  to whichever stage first moves a byte production serves, and Ocean's at the train either way.
+
+## Proof floor, at the tip
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files) | **255 passed** | **0** |
+| `tests/test_corpus_gate_outcomes.py` + currency + document-object + prompt-surface + this card's fixtures | **131 passed**, 10 deselected | **0** |
+| canonical conformance (7 files) | **1,270 passed**, 40 skipped | **0** |
+| full default suite | **7,526 passed**, 43 skipped, 34 deselected | **0** |
+| `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; 109 pinned PDFs, 0 exclusions | **0** |
+| corpus-marked slice | **30 passed**, 7,573 deselected | **0** |
+| `cohort_replay` at the base, `--expect-identical` | 120 population, 117/117 preserved, 117 identical, 0 regressions | **0** |
+| `cohort_replay` at the tip | 120 population, **117/117 preserved, 117 payload IDENTICAL, 0 changed, 0 regressions, 0 newly validated** | **0** |
+| `l1_design_skip_probe` at the base | 117 read / **12** documents / **16** sections / **0** `no_printed_evidence` | **0** |
+| `l1_design_skip_probe` at the tip | **REFUSES** — all three watched lines are the lines this card rewrote | **3** (by design) |
+| `l1s2_admission_probe` at the tip | 117 read / **15** carriers / **19** sections / **0 REFUSED**; 8 + 8 + 3 by class; account block byte-identical **15 of 15**; document facts beyond the record **0** | **0** |
+| `l1s1_seam_probe`, base -> tip, 232 documents / 80 registrations | ACCOUNT seam **232/232 byte-identical**; flags and ORDER 232/232; outcome 232/232; DOCUMENT seam 226 identical / **6 moved, all inside the named 15** | **2** (the 6, explained) |
+| `l1s2_mutation_table` | **6 mutants, 6 killed, 0 survived**; tree verified clean after each | **0** |
+| branch privacy scan, added lines vs the five registrations' whole printed universe | **hit_count 0** over **1,636 added lines**, 120 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 3, all discarded by the standing rules (1 `round_money`, 2 `words_class`) | **0** |
+| commit-message scan | **hit_count 0** over **5** commits; every class 0 | **0** |
+| W3 | one top-level `# §L1S2`, appended | — |
+
+Five commits on `wave9-l1s2`, base `fea0bd2`: the readers and the record; the fixtures, the
+omission probe and the mutation table; the RULE S fixture reading substance rather than a field
+name; the caller sweep watching the document entry point; the probe's per-document class table.
