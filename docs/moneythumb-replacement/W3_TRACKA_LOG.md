@@ -61348,7 +61348,7 @@ is one Markdown file, the gate reads nothing under `docs/`, and `-m corpus` coll
 | `l1s2_mutation_table` | **6 mutants, 6 killed, 0 survived**; tree verified clean after each | **0** |
 | archive sweep, whole archive (3,380), base tree AND tip differenced | aggregates identical; **70 findings, all inherited from `train9`; 0 movers at the tip; 0 removed** | **0** |
 | branch privacy scan, added lines vs the five registrations' whole printed universe | **hit_count 0** over **3,221 added lines**, 120 documents read; MONEY / DIGITS / DATES / WORDS all 0; raw 4, all discarded by the standing rules (1 `round_money`, 3 `words_class`) | **0** |
-| commit-message scan, `--shas` the **15 carriers** | **hit_count 0** over **19** commits, 15 documents (3,549 printed MONEY / 5,136 WORDS / 694 DIGITS / 299 DATES); every class 0 | **0** |
+| commit-message scan, `--shas` the **15 carriers** | **hit_count 0**, every class 0, against 15 documents (3,549 printed MONEY / 5,136 WORDS / 694 DIGITS / 299 DATES) — **19** commits at the floor tree `67f4b8d` and **20** re-run over this section's own commit; the count is named per tree because a number restated in prose is what went wrong last time | **0** |
 | W3 | one top-level `# §L1S2`, appended; the base blob is a byte-exact prefix | — |
 
 The commits on `wave9-l1s2`, base `fea0bd2`, in order: the readers and the record; the fixtures,
