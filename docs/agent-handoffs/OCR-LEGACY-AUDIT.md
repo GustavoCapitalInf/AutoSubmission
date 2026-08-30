@@ -60,6 +60,13 @@ residue, per Gustavo's cost-first doctrine), what provenance the payload carries
 produced which field), and how the batch-8/9 non-regression regime (`tools/cohort_replay.py`, the
 cold run, `--fail-on-regression`) extends to an OCR-fed document.
 
+# One measurement the audit inherits (Q3 probe review MINOR-1)
+The batch-9 Q3 omission class (`printed_pair_coincides_and_no_row_printed`, roll-up witness included) passed
+6 / 6 on six `guardian_cu` documents that are ALL `native-pdf-text` — the witness has never been exercised
+against OCR'd input, which is the failure mode it exists for. Your architecture proposal must say how the class
+is re-measured on OCR'd documents (those six as the seed; the probe `tools/q3_corroboration_probe.py` is the
+oracle) before any OCR-fed document may rely on it. Read-only here; the re-measurement is a later card.
+
 # Deliverable
 `docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md` — the classification table (component · path ·
 label · evidence), the reuse plan, the architecture proposal, the open questions for Gustavo. Plus

@@ -39,6 +39,14 @@ Q1 / Q5 (partial-closing documents and package membership — the design's answe
 member is an account whose own outcome is `validated`), Q2, Q4, Q6, Q7 (see the design §8); the
 PAGECOV-IMAGE-SHEET ceremony; RAISE-PRIVACY-6. S4 proceeds on Q3 (corroborated), Q9 (B) and Q10.
 
+## Standing risk carried into Phase 2 (Q3 probe review MINOR-1, 2026-08-30)
+The corroborated Q3 class (`printed_pair_coincides_and_no_row_printed`, seven conditions) was measured 6 / 6 on the
+`guardian_cu` population — but all six documents carry extractor model `native-pdf-text`; none was OCR'd. The
+roll-up witness was ruled in to bound OCR row-loss and has therefore been measured exactly as ordered but NOT
+exercised against the failure mode it guards. **Phase 2 / `OCR-LEGACY-AUDIT` must re-measure the class on OCR'd
+input — these six as the seed population — before relying on it there.** Also unmitigable at this base: one
+`ocr`-stage artifact per document and no PDFs in the cold cache, so the six cannot be cross-read.
+
 ## Phase 2 (after the freeze)
 `OCR-LEGACY-AUDIT` first (read-only), then the extraction architecture — Unlimited OCR + PaddleOCR as
 extractors only into the SAME deterministic validator. Everything in this backlog that OCR could
