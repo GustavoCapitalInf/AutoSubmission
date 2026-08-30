@@ -832,6 +832,17 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only sibling-skip probe on the dispatch path; publishes no "
         "verdict, and already supplies the reconstructed page partition"
     ),
+    # Stage 2's successor to the probe above, excused on the same two grounds.
+    # It publishes no verdict — evidence-class names from a closed vocabulary,
+    # counts, exception CLASS names, content sha16s and payload leaf PATHS,
+    # never a figure, a name, a date or an omitted section's printed label — and
+    # it supplies the reconstructed page partition, because a probe that fed the
+    # analysis a different partition from the one the run fed it would measure a
+    # difference it had itself created.
+    "tools/l1s2_admission_probe.py": (
+        "read-only omission probe at the document seam; publishes no verdict, "
+        "and already supplies the reconstructed page partition"
+    ),
     # W3 §EXTRACTPRIV. Calls the analysis to prove the LLM branch is NOT
     # reachable in deterministic mode: `extract_statement` is replaced by a
     # recording sentinel and the assertion is that it records nothing. It
