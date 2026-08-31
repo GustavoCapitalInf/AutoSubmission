@@ -134,7 +134,10 @@ output in the run of record. `reusable` = correct, tested, wired, but not exerci
 | 26 | discovery CLI + preflight refusal | `discovery/cli.py:31,107-138`; modes `discovery/runner.py:87-91` | reusable | `--scanned-visual` is the only mode that enables the rung; it probes the endpoint up front and refuses to start (`ocr/availability.py:8-12`). Never run. |
 | 27 | telemetry provenance | `telemetry/record.py:66` (`SOURCE_PATHS`), `:119-134` (`source_path_for`), `:196-197`, `:318-337` (`model_calls_for`) | active | `SOURCE_PATHS = ("native", "local_tesseract", "visual", "none")` is a CLOSED vocabulary and `source_path_for`'s final branch is `return "visual"` (`:133`) — i.e. **any unrecognised model string is reported as the visual rung**. A Phase-2 PaddleOCR rung that does not add its own branch would be mis-attributed. See F-7. |
 | 28 | deferral taxonomy | `telemetry/record.py:65` (`DEFERRED_REASONS`), `discovery/runner.py:435,596-604` | active | `deferred_scanned` / `deferred_visual_ocr` / `profile_only`. `deferred_visual_ocr` is the existing, recorded, deterministic name for "the offline rungs produced nothing" — **13 documents carry it in the run of record**. This is the insufficiency trigger the card asks for, already implemented. |
-| 29 | non-regression replay | `tools/cohort_replay.py:109-150` (`ColdCache`), `:119-129` (`_payload`), `:295-299` (miss handling) | **unsafe** | `_payload` runs `SELECT artifact_path ... WHERE stage=? AND input_sha256=?` and takes **`rows[0]` with no `ORDER BY` and no settings-key filter**. Correct today because every input holds exactly one OCR artifact (measured: 0 inputs with more than one). The moment an OCR-fed document has both an offline and an OCR partition, the replay's source becomes arbitrary. See F-9. |
+| 29 | non-regression replay | `tools/cohort_replay.py:109-150` (`ColdCache`), `:119-129` (`_payload`), `:295-299` (miss handling) | **unsafe** | `_payload` runs `SELECT artifact_path ... WHERE stage=? AND input_sha256=?` and takes **`rows[0]` with no `ORDER BY` and no settings-key filter**. Correct today because every input holds exactly one OCR artifact (measured: 0 inputs with more than one). The moment an OCR-fed document has both an offline and an OCR partition, the replay's source becomes arbitrary — on the **analysis** stage sooner than on the OCR stage (MINOR-4, folded into F-9). The remedy is not new design: row #46 already implements it. See F-9. |
+
+| 46 | the SECOND artifact-cache reader | `telemetry/stated_counts.py::CachedArtifacts` `:840-920`; `_ocr_keys` `:864-868`, index build `:871-875`, `mode=ro` open `:880-890`, ordered lookup `:913-914` | reusable | **Found by the adversarial review; absent from the earlier draft entirely.** Opens the same `webapp.db` `artifact_cache` index `mode=ro` (with a stated reason for not using `webapp.storage.Storage`: `_ensure_schema` writes, and an observer that can write to what it observes is not an observer), indexes `input_sha → {settings_key: path}`, filters the analysis stage by `settings_key == self._analysis_key` (`:874`) and selects the OCR artifact from a **declared, ordered `_ocr_keys` list** (`:913-914`). Census: 1,049 LOC, 15 commits, last 2026-08-30, 0 production importers, reach = NO. **This is F-9's fix, already written, twenty lines long.** See F-9 and Risk 7. |
+| 47 | the webapp process | `webapp/app.py`; OCR imports `:17-19`, `pdf_page_count` `:1876`, `render_boxed` + page images `:1996-2000`, single-page render `:2234` | active | **Found by the adversarial review; previously present only inside other rows' evidence cells.** 2,304 LOC, 36 commits, last 2026-08-30, reach = yes — one of the eight declared production entry points. It **rasterizes archive document pages and serves the images over HTTP** (`:1996` at dpi 200, `:2234` at dpi 100): the largest document-pixel surface in the OCR path and the mirror image of F-2 — pixels *out* rather than pixels *in*. It is also where `render_boxed` re-enters `ocr_client.postprocess` (`ocr/render.py:179,192`), so **both value rewrites (F-1, F-11) reach what an operator reads on screen**, not only what the validator reads. Labelled `active` rather than `unsafe` deliberately: it serves the operator the document the operator supplied, and it publishes no verdict. It is classified here because Phase 2 increases what flows through it, not because it is defective today. |
 
 ### 2.4 Legacy scripts from before the deterministic shift
 
@@ -164,10 +167,14 @@ output in the run of record. `reusable` = correct, tested, wired, but not exerci
 
 ### 2.6 Totals
 
+*Rows #46 and #47 were added after adversarial review; the table held 45 rows in the first draft and
+holds 47 now. Both additions were found by the reviewer building an independent inventory rather than
+checking this one, which is the correct way to find an omission and is recorded as such.*
+
 | label | count | components |
 |---|---|---|
-| **active** | 26 | 1, 3, 4, 5, 6, 7, 8, 9, 12, 13, 17, 18, 19, 20, 21, 22, 23, 24, 27, 28, 35, 36, 37, 40, 41, 43 |
-| **reusable** | 9 | 11, 14, 15, 16, 25, 26, 38, 42, 44 |
+| **active** | 27 | 1, 3, 4, 5, 6, 7, 8, 9, 12, 13, 17, 18, 19, 20, 21, 22, 23, 24, 27, 28, 35, 36, 37, 40, 41, 43, **47** |
+| **reusable** | 10 | 11, 14, 15, 16, 25, 26, 38, 42, 44, **46** |
 | **obsolete** | 4 | 31, 32, 33, 39 |
 | **duplicate** | 1 | 34 |
 | **unsafe** | 4 | 2 (`ocr/config.py`), 10 (`ocr/ocr_client.py`), 29 (`tools/cohort_replay.py::ColdCache._payload`), 30 (`parse.py`) |
@@ -369,14 +376,34 @@ six `guardian_cu` sections that passed 6/6 carry extractor model `native-pdf-tex
 witness was ruled in to bound OCR row-loss and has been measured only where OCR row-loss cannot
 occur. The re-measurement plan is §5.8.
 
-**F-9 — the non-regression replay picks an arbitrary OCR artifact once there is more than one.
-`tools/cohort_replay.py:119-129`.**
+**F-9 — the non-regression replay picks an arbitrary artifact once there is more than one, and the
+fix is already written elsewhere in this tree. `tools/cohort_replay.py:119-129`; the existing fix at
+`telemetry/stated_counts.py:864-868,874,913-914`.**
 Measured at the cold cache: `ocr` stage — 3,364 rows, 3,364 distinct inputs, **1** distinct settings
-key, **0** inputs holding more than one artifact. `_payload` is therefore correct today by accident
-of the population, not by construction. Phase 2's OCR-fed document necessarily holds two OCR
-partitions of the same `input_sha256` (the offline read that came back empty or unclaimed, and the
-OCR read), and SQLite's row order without `ORDER BY` is unspecified. `--fail-on-regression` would
-then compare a tree against a baseline read it did not choose.
+key, **0** inputs holding more than one artifact; `analysis` stage — 2,630 / 2,630 / 1 / **0**.
+`_payload` is therefore correct today by accident of the population, not by construction. SQLite's
+row order without `ORDER BY` is unspecified.
+
+**Both stages are exposed, and the analysis stage is the nearer hazard** (adversarial review
+MINOR-4, upheld). `_payload` serves `text()` → `_payload("ocr", …)` *and* `baseline_payload()` →
+`_payload("analysis", …)`. The analysis settings key includes the parser-registry fingerprint
+(`webapp/artifact_cache.analysis_settings_key`), which changes at essentially every wave — so a data
+directory reused across two registry versions holds two analysis partitions per input long before it
+holds two OCR partitions. The earlier draft discussed only the OCR stage.
+
+**The remedy is adoption, not design.** `telemetry/stated_counts.py::CachedArtifacts` (#46) already
+does exactly what §5.6 called the blocking prerequisite: it filters the analysis stage by
+`settings_key == self._analysis_key` (`:874`) and selects the OCR artifact by walking a **declared,
+ordered `_ocr_keys` list** (`:864-868`, consumed at `:913-914`). `cohort_replay` should adopt that
+selection rather than reinvent it.
+
+**One policy consequence, which needs Gustavo's ratification rather than a code change.**
+`_ocr_keys` orders the two offline partitions FIRST and the visual partition
+`(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True)` **LAST** (`:867`). In-tree code
+already anticipates the multi-partition world this audit says does not exist yet — and the day a
+document holds both, that observer silently keeps reading the OFFLINE read. That is a defensible
+default and it is also an **unratified ranking of extractors**, sitting in a module nothing in
+production imports, which Phase 2 would inherit by omission. See Open Question 10.
 
 **F-10 — one shipped guard has a declared hole a Phase-2 extractor could walk through.
 `tests/test_native_rung_parity.py:217-233`, pin at `:230`.**
@@ -392,8 +419,11 @@ once drifted in two places at once.
 Keep and enable, do not rebuild: `discovery/runner.py`'s recovery/upgrade block (#25), the
 `--scanned-visual` mode and its refuse-to-start probe (#11, #26), `local_ocr_server.py` (#15) and the
 whole cache/stage-version/provenance apparatus (#18–#21, #27–#28), because they already implement the
-card's flow diagram, already partition the cache correctly and already fail closed. Quarantine before
-reuse: `ocr/ocr_client.py`'s cleanup chain — the whole chain should be quarantined for Phase 2 and
+card's flow diagram, already partition the cache correctly and already fail closed. ADOPT rather
+than build: `telemetry/stated_counts.py::CachedArtifacts` (#46) is the prior art for F-9 — ordered,
+settings-key-filtered artifact selection over both cache stages, already written and already
+enumerating the visual partition, so the replay fix is an adoption rather than a design. Quarantine
+before reuse: `ocr/ocr_client.py`'s cleanup chain — the whole chain should be quarantined for Phase 2 and
 re-admitted function by function on the evidence of §5.7's rewrite census, because F-1 and F-11 write
 values in complementary scopes and a table-only confinement moves one into the other; and F-2 must
 become a reference rather than an inlined blob — and `tools/cohort_replay.py::ColdCache._payload` must select its artifact deterministically
@@ -546,10 +576,15 @@ Proposal, in ascending cost — the first is required, the rest are Phase-2-late
 
 ### 5.6 How the non-regression regime extends to an OCR-fed document
 
-* **`tools/cohort_replay.py` must first be made deterministic (F-9).** `ColdCache._payload` needs a
-  settings-key argument and a total order; the caller must ask for the partition the run of record
-  actually used. Without this, `--expect-identical` and `--fail-on-regression` become
-  non-deterministic the day a second OCR partition exists. This is the single blocking prerequisite.
+* **`tools/cohort_replay.py` must first be made deterministic (F-9) — by ADOPTING an existing
+  implementation, not by designing one.** `ColdCache._payload` needs a settings-key predicate and a
+  total order over partitions, on BOTH stages it serves; `telemetry/stated_counts.py::CachedArtifacts`
+  (#46) already has both (`:864-868`, `:874`, `:913-914`) and its ordered `_ocr_keys` list already
+  enumerates the visual partition. Without this, `--expect-identical` and `--fail-on-regression`
+  become non-deterministic — on the analysis stage as soon as a data directory spans two registry
+  fingerprints, and on the OCR stage the day a second OCR partition exists. This remains the single
+  blocking prerequisite; it is now a twenty-line adoption rather than new work, and the ordering it
+  adopts must be ratified (Open Question 10) rather than inherited.
 * **Baselines are per-extractor, and a document may hold several.** An OCR-fed document has an
   offline partition (its historical, empty or unclaimed read) and an OCR partition. The
   non-regression question is asked **per partition**: the offline baseline must stay byte-identical
