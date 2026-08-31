@@ -394,10 +394,25 @@ def test_a_document_naming_two_denominations_is_refused_until_q4_is_ruled():
     answers — publish two accounts, or refuse the document — so a reader that
     chose one would be settling Q4 by implementation. The measured class is 4
     documents / 12 sections in one census group and none of them is this
-    template's, so the refusal costs this population nothing."""
-    text = document([idle_account(), posting_account()])
-    two = text.replace("SAMPLE SHARE (Suffix #00)", "SAMPLE SHARE USD (Suffix #00)")
-    two = two.replace("SAMPLE CHECKING (Suffix #71)", "SAMPLE CHECKING CAD (Suffix #71)")
+    template's, so the refusal costs this population nothing.
+
+    The two pages below differ by ONE printed line, which is what makes the
+    refusal attributable to the second denomination and to nothing else.
+    Naming the codes inside the POSTING section's ledger region rather than in
+    a roll-up row is load-bearing: a roll-up row carries a section's printed
+    LABEL, so editing the idle section's row would destroy that section's Q3
+    witness (`row_located_by_label`) and refuse the document under L1-C17 no
+    matter what this guard did. That is precisely how the earlier form of this
+    test passed while proving nothing, and why C13 was the mutation table's
+    one hole: a test whose fixture is refused for a second reason cannot
+    measure the first."""
+    one = document([idle_account(), posting_account()],
+                   extra_lines={"71": ["Amounts shown in USD"]})
+    assert parse_member_statement(one) is not None
+
+    two = document([idle_account(), posting_account()],
+                   extra_lines={"71": ["Amounts shown in USD",
+                                       "Amounts shown in CAD"]})
     assert parse_member_statement(two) is None
 
 
@@ -405,9 +420,11 @@ def test_a_document_naming_one_denomination_publishes_the_class_it_earned():
     """One code named is not a contradiction, and it is also not evidence this
     reader read: it publishes the schema default, because this registration
     names no institution and `institution_default` would be a claim it has not
-    earned (CURRENCY_DOCTRINE §B)."""
-    text = document([idle_account(), posting_account()])
-    one = text.replace("SAMPLE CHECKING (Suffix #71)", "SAMPLE CHECKING USD (Suffix #71)")
+    earned (CURRENCY_DOCTRINE §B). The code is printed in the section's ledger
+    region for the same reason as the test above: so that what is measured is
+    the denomination count and not a label binding broken in passing."""
+    one = document([idle_account(), posting_account()],
+                   extra_lines={"71": ["Amounts shown in USD"]})
     published = parse_member_statement(one)
     assert published is not None
     assert published.currency_source == "schema_default"
