@@ -518,3 +518,152 @@ python tools/huntington_msg_privacy_scan.py --data-dir .claude/recovery/webapp_d
 The settings-key identification, the F-1 five-token collapse, the BLOCK-1 amount-bleed rewrite and
 the MAJOR-2 model-string injection were each reproduced with a few lines of synthetic input against
 the tree's own functions; no document was opened at any point in this review.
+
+---
+
+## Re-review (closure 9b7efb6)
+
+**Verdict: CONFIRMED — READY FOR GUSTAVO.** One MINOR recorded below; it does not stop the ruling.
+
+Bounded to the eleven closures. Closure tip `9b7efb6`, nine commits over my `15e9535`, scope held to
+the audit's three files — I confirmed by diff that nothing outside `OCR_LEGACY_AUDIT.md`,
+`W3_TRACKA_LOG.md` and `tools/ocr_legacy_census.py` moved, and that my review file is
+**byte-identical** at `HEAD` (`git diff 15e9535 HEAD -- <review>` is empty).
+
+### Integrity of the history rewrite — VERIFIED
+
+Two `git filter-branch --msg-filter` passes ran over `15e9535..HEAD`. I compared the **tree objects**
+commit-by-commit across all three generations (`a3f747b` → `206f2af` → `754e39c`, the pre-rewrite tip
+and both rewrites; `refs/original` is still present):
+
+* all eight commits appear in all three generations, **in the same order, carrying the same eight
+  tree object ids in the same positions** — the rewrite touched messages and nothing else;
+* `15e9535` is the rewrite's base, lies outside the range, and **still carries its original sha**;
+* every sha after it moved, as the coordinator said.
+
+The reword count is recorded honestly in W3 (four in total: two in the original round by amend, two
+by `--msg-filter`), and that matches the reflog exactly.
+
+### Per-finding verdicts
+
+| finding | verdict | what I checked |
+|---|---|---|
+| **BLOCK-1** | **CLOSED** | §5.7 now carries a two-row PROVEN table (F-1 outside cells / F-11 inside cells) with the complementary-scope argument stated as the reason cells are not a safe harbour; two further chain members are declared **explicitly unproven**, with "neither claims one exists"; the per-function census is an owed Phase-2 deliverable and the whole chain is to be treated as value-writing until it lands. F-11 is a finding in its own right with the review credited, and its fused-cell reproduction is the one I ran. F-1 carries the `[a,a,a,b,c]` → `[a]` strengthening with "deleted, not deduplicated". OQ1 adjudicated separately below. |
+| **MAJOR-1** | **CLOSED** | Every table now names its run. Spot-checked against the batch-9 run of record myself: **U = 123** by both derivations independently (`local_tesseract` and `dispatch_outcome != claimed`; `local_tesseract` and `outcome_class = failed`) — they agree exactly; **R = 13**; **R ∪ U = 136 with overlap 0**; **validated ∩ (R ∪ U) = 0**; #8's Tesseract split now reads **36 validated / 15 withheld / 5 review / 123 failed**, with the batch-8 split (36 / 16 / 5 / 122) kept beside it. The bound is stated as a fraction of 3,506 rather than as a decimal percentage, which also keeps it out of the MONEY grammar. |
+| **MAJOR-2** | **CLOSED** | The seam is restated as three values and the "no third channel" claim is explicitly retracted; the guard is named (`admissible_text` / `SOURCE_COMMENT_RE`, `analysis/parser_registry.py:194,197-215`, pinned by `tests/test_filename_boundary.py`); the newline escape is recorded as F-4(b) **together with the `-->` non-escape** and the `MULTILINE`-not-`DOTALL` reason, which is the honest pair; the closed-character-class requirement is stated as owed in the commit that introduces any new extractor's model token. The distinction that mattered — a guard can be escaped where a missing channel cannot — is made in the text. |
+| **MAJOR-3** | **CLOSED** | Rows **#46** (`telemetry/stated_counts.py::CachedArtifacts`) and **#47** (`webapp/app.py`) added. Census figures verified by re-running `--tree`: #46 **1,049 LOC, 15 commits, last 2026-08-30, 0 production importers, reach = NO** — exact; #47 **2,304 LOC, 36 commits, last 2026-08-30, reach = yes** — exact. F-9's remedy is reframed as **adoption** of #46's ordered selection rather than new design, and OQ8 says so. The visual-last ordering is correctly raised rather than settled — **Risk 7 + OQ10** — which is the right disposition for a policy that was never ratified. |
+| **MAJOR-4** | **CLOSED** | §2.7 now reads "**0 hits in `*.py`** and **14 hits overall**", with the earlier draft's silent language-scoping confessed. The fabricated `"OCR confidence"` is described accurately (hard-coded 98 / 94 / 80 / 72 selected from the validator's `quality` verdict, rendered at `:1139` and `:1159`, with `packageConfidence` named as the second one) and carried as **Risk 8 + OQ9**. The architectural conclusion is retained and is still correct. |
+| **MAJOR-5** | **CLOSED** | Row #45 corrected to **"obsolete (as a design), absent (as code)"** — a label that says exactly the right two things. Both specs are cited with line counts and the PaddleOCR one's "Approved" status; the three consequences are drawn (its bbox reconstruction is the `document_geometry` filling; its front door is `unsafe` #30; an Approved design must be superseded on the record). Folded into the reuse plan and §5.5, carried as **Risk 9 + OQ11**. The §0 search-scope confession ("my own §0 grep excluded `docs/`") is recorded — that is the right sentence to have written. |
+| **MINOR-1** | **CLOSED** | The census docstring now states that it **does** import and call `subprocess`, names the two read-only git commands, states there is no subprocess write path, and flags that the earlier "no `subprocess`" wording was false and was the one sentence the audit cited as its authority. |
+| **MINOR-2** | **CLOSED** | The overstatement is retracted with the real figure (27 paths against 45 rows; roughly sixteen labels resolved by reading, `tools/cohort_replay.py` named as one of them). `COMPONENTS` is extended to **every row that is a Python module (44 of 47)**, and the four non-module rows are declared in the tool as `NON_CODE_ROWS` and **printed by `--tree`** — I ran it and saw #16, #22, #43 and #45 emitted with their reasons. The coverage claim is now checkable rather than assumed. |
+| **MINOR-3** | **CLOSED** | `sweep_ocr.py:52` named in F-4 as the fourth default-flag caller, with the observation that it is also the script that writes OCR'd statement text to disk. |
+| **MINOR-4** | **CLOSED** | Folded into F-9 and into #29's evidence cell — the analysis stage is named as reaching the hazard *sooner* than the OCR stage, which is the point. |
+| **MINOR-5** | **CLOSED** | F-2 now carries the concrete case: a committed OCR fixture would carry inlined imagery into the repository, and `tools/privacy_scan_branch.py:467` (`_corpus_cache`) excludes everything under `tests/corpus_cache/` wholesale. The 29 `no_cached_text` shas are recorded as the scan population shortfall. |
+
+### Totals — reconciled against my own count
+
+I parsed the table rather than reading its summary: **47 component rows, numbered 1–47, no gaps and
+no duplicates**. Label counts from the parsed rows: **active 27 · reusable 10** (nine plain, plus
+#25's "reusable — the Phase-2 architecture, already written") **· obsolete 4 · duplicate 1 · unsafe 4
+· unknown 0 · PaddleOCR 1** = 47. Matches the audit's stated totals exactly.
+
+### Floor — reproduced
+
+| item | claimed | measured |
+|---|---|---|
+| canonical guards | 316 | **316 passed, 10 deselected**, exit 0 |
+| branch privacy scan | 0, raw 48 all `words_class` | **hit_count 0**, all four classes 0, **raw 48**, `words_class` 48 with every other rule 0, added_lines 2,260, population 3,380, read 3,351, exit 0 |
+| commit-message scan | 0 over 13 commits | **hit_count 0** across all four classes, **13 commits**, exit 0 (`git rev-list --count main..HEAD` = 13) |
+| W3 append-only | byte-verified, 104 sections | **verified against the base**: the tip's W3 blob starts with `c90154a`'s byte-for-byte, so every section predating this branch is intact; `# §` sections **103 → 104** |
+
+A precision worth stating, because it is the sort of thing that reads as a discrepancy later: the W3
+is append-only **against the base**, not against the branch's own previous tip. Commit `754e39c`
+edited §OCRAUDIT **in place** to correct the false claims, which is what its message says it did and
+is the right call — leaving a known-false sentence standing in the ledger would be worse than
+rewriting it. The property that matters holds: nothing written before this branch's own section was
+touched.
+
+**The 48 discards, judged.** `_words_class` (`tools/privacy_scan_branch.py:543`) is a blanket rule —
+`return cls == "WORDS"` — so the WORDS class is discarded unconditionally by standing scanner policy,
+not by anything this branch chose; the same rule absorbed 26 discards on the original audit and 39 on
+my own review. I re-ran with `--no-exclusions` and read all 48: every one is an ordinary English word
+caught by `WORD_RE`'s `[A-Z]{4,}` inside emphasised prose (ENABLES, SALVAGE, HARBOUR, TRAFFIC,
+REASONABLY, RELIANCE, ARBITRATION and the like; DONUT is a member of row #45's own OCR-alternatives
+grep list, not a merchant). **Not one is an institution, a customer, or anything document-shaped.**
+The discards are legitimate, and the growth 26 → 39 → 48 tracks prose volume, which is what a blanket
+WORDS rule does.
+
+### The OQ1 adjudication
+
+**Is OQ1 now fit for Gustavo to rule on? YES.** It states both proven sites with anchors and exact
+behaviour; it says in its own opening line that the question was re-posed and why the old
+recommendation was unsafe; the three options are genuinely distinct and exhaustive over the decision
+space (remove / admit-with-evidence / quarantine-and-re-admit); each option's cost is stated honestly,
+including the one that cannot be quantified — option (a) "costs whatever recall the two repairs would
+genuinely have won — an amount nobody has measured, because the rung has never run", which is the crux
+and is not hidden; the gate is explicit ("no OCR-fed document may be validated until this pair is
+ruled"); and the ruling is tied to a deliverable that makes it actionable rather than to a promise. A
+reader who has never seen this branch can rule on it from the question alone.
+
+**Is (c) the fail-closed-consistent recommendation? YES**, and it is the only one of the three that
+is. The test is what each option's *default state* does about the part of the chain nobody has
+characterised:
+
+* **(a)** is fail-closed on values, but it forecloses a decision evidence could later inform and never
+  measures what it gave up.
+* **(b)** scopes the two *proven* rewrites behind a flag and leaves the two declared-unknown members
+  running by default. A gate that covers the known sites but not the unknown ones is not fail-closed;
+  it is closed against what has already been found, which is the weaker property and the one that
+  lets the next F-11 through.
+* **(c)** quarantines everything and re-admits per function on that function's own evidence. Its
+  default state covers the declared unknown, it makes the census's *completion* the gate rather than
+  its promise, and every re-admission is a separate evidenced decision that is monotone and
+  reversible. That is the same shape as this program's other conservative gates — §5.8's own "until
+  that table exists, an OCR-fed section falls outside the class and fail-closes", and Q10's
+  fail-close on ambiguity.
+
+Recommending **(c) as the default with (b) as the exit path** is therefore right, and the sequencing
+matters: (b) is what (c) converges to once each function has its fixture, so the pair is a trajectory
+rather than a fork. I would not change the recommendation.
+
+One consequence belongs in the Phase-2 card rather than in the ruling: quarantining the chain also
+suspends the strip-only members, and suspending those *adds* content to the analysis input — raw
+`<|det|>` region tags, the model's refusal prose, `[Non-Text]` placeholder lines, and the second
+oversize-image net. The per-region base64 bound survives regardless, because `embed_image_regions`
+enforces its own cap at `ocr/ocr_client.py:371`, outside `postprocess`. This is small and it points
+the opposite way from the rewrites, and option (c)'s own wording already accommodates it: the
+strip-only members are the ones the census will clear first.
+
+### MINOR-6 (new, does not block) — the owed census is scoped to six members; the chain has nine
+
+§5.7's deliverable and F-11's third consequence both say `postprocess` is "six functions deep" and
+scope the census to "all six members". Parsed from the source, `ocr/ocr_client.py:409-416` calls
+**nine** distinct functions: `strip_det_tags`, `strip_refusal_commentary`,
+`strip_placeholder_markers`, `strip_oversized_embedded_images`, `collapse_repeated_amounts`,
+`collapse_repeated_page_numbers`, `split_fused_header_row`, `repair_fused_amount_table`,
+`fix_amount_column_bleed`. The three missed are the three nested on the first line, and all three
+**delete text**: `strip_placeholder_markers` drops whole lines, `strip_det_tags` removes a tag plus a
+following token in its orphan form, and `strip_refusal_commentary` removes model prose.
+
+Since the census is the gate for OQ1's option (c), a census scoped to six of nine members is a gate
+with three holes. I probed all three and none is a value rewrite on any input I could construct
+(`_REFUSAL_RE` at `:18-23` is a tightly anchored three-sentence template and leaves an adjacent money
+token alone; the placeholder regex matches only the placeholder), so this is a **scoping defect, not a
+demonstrated hazard** — which is precisely why it belongs inside the census rather than outside it.
+The fix is to say nine and name the three. It does not stop Gustavo ruling: option (c) already reads
+"re-admitted function by function only as the rewrite census in §5.7 clears each one", and "each one"
+is recoverable from three lines of code.
+
+### Verdict
+
+**CONFIRMED — READY FOR GUSTAVO.** Eleven findings closed, each verified by re-measurement rather than
+by reading the closure's claim: the trigger counts re-derived two ways, the census figures for both
+new rows re-run, the table re-parsed to 47, the guards and both scans re-executed, the 48 discards
+individually read, the W3 append-only property re-verified against the base, and the `filter-branch`
+rewrite proven message-only by tree-object comparison across all three generations.
+
+The closure is honest about what it got wrong, credits the review where a finding came from the
+review, and — in the three places where the correct answer was "raise it, do not settle it" (the
+`_ocr_keys` ordering, the fabricated confidence label, the Approved spec) — raises it as a risk and an
+open question instead of quietly resolving it. That instinct is what makes the document safe to hand
+over. MINOR-6 is a one-word correction to an owed deliverable's scope and belongs in the Phase-2 card.
