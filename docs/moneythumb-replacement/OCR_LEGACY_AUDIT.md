@@ -163,7 +163,7 @@ output in the run of record. `reusable` = correct, tested, wired, but not exerci
 | 42 | live tests | `tests/test_live_smoke.py:9,17`; `tests/test_new_statement_corpus.py:263` | reusable | The only three tests that can leave the process, each double-guarded (`pytestmark = pytest.mark.live` + `skipif` on `OCR_BASE_URL` / `shutil.which("tesseract")`), and `pytest.ini:2` deselects `live` and `corpus` by default. This is the correct shape for Phase 2's live proofs. |
 | 43 | OCR fixtures | `tests/corpus_cache/ocr/<SHA>.md` (6), `tests/corpus_cache/pages/<SHA>.json` (6), `manifest.json` | active | The committed Tesseract reads of the 6 image-only corpus statements. Format: markdown page dump + `{"pages": [...]}`, filename = uppercase SHA-256 of the source PDF. |
 | 44 | Q3 corroboration probe | `tools/q3_corroboration_probe.py:1-908` | reusable | The oracle for F-8. Its own docstring (`:70-77`) states the gap: all six `guardian_cu` sections carry `native-pdf-text`, "so on this population that hazard cannot arise", and "anyone re-running this probe against OCR'd input … is asking the question for the first time". |
-| 45 | PaddleOCR | — | **absent** | `grep -riE "paddle\|easyocr\|textract\|donut\|trocr\|surya"` over the tree returns **zero** hits. PaddleOCR is entirely net-new; there is no legacy to reuse and no adapter interface to fit it into except a new rung in `ocr/pipeline.py`. |
+| 45 | PaddleOCR — no CODE, but real DESIGN prior art | `docs/superpowers/specs/2026-07-21-paddleocr-bank-statement-parser-design.md` (192 lines); sibling `docs/superpowers/specs/2026-07-22-nanonets-vlm-bank-statement-parser-design.md` (184 lines) | **obsolete (as a design), absent (as code)** | **CORRECTED after adversarial review.** The earlier draft claimed the grep returned zero hits; it returns ten files, and two are substantive prior art — both tracked, both from the pre-deterministic era. The PaddleOCR spec is dated 2026-07-21, marked **"Status: Approved (pending written-spec review)"**, and designs PP-OCR text + bounding boxes with **custom bbox-based row/column reconstruction**, per-bank profiles with a generic fallback, `python parse.py <statement.pdf>` as its front door, structured JSON out. The *code* claim stands — there is no PaddleOCR implementation anywhere — but "no legacy to reuse" was wrong for the DESIGN layer. Three consequences: its bbox row/column reconstruction is exactly the OCR word-box geometry §5.5 item 3 wants for `document_geometry` (#38); its front door is `parse.py`, this audit's `unsafe` #30; and an "Approved" design for the extractor Phase 2 is about to build must be **superseded on the record**, not discovered later. See Open Question 11. My own §0 grep excluded `docs/` and so could not have found it — the omission was in the search, not in the tree. |
 
 ### 2.6 Totals
 
@@ -179,23 +179,46 @@ checking this one, which is the correct way to find an omission and is recorded 
 | **duplicate** | 1 | 34 |
 | **unsafe** | 4 | 2 (`ocr/config.py`), 10 (`ocr/ocr_client.py`), 29 (`tools/cohort_replay.py::ColdCache._payload`), 30 (`parse.py`) |
 | **unknown** | 0 | — |
-| absent (net-new) | 1 | 45 (PaddleOCR) |
+| **obsolete (design) / absent (code)** | 1 | 45 (PaddleOCR: no implementation anywhere, but two tracked pre-deterministic design specs) |
 
-`unknown` is empty because every component's reachability was **computed** (transitive first-party
-import walk from eight declared production entry points, `tools/ocr_legacy_census.py`) rather than
-guessed, and every "does it run" question was answered from the run of record's own columns. If a
-component could not be resolved either way it would be labelled `unknown` here; none was.
+`unknown` is empty because every component's reachability was resolved rather than guessed, and every
+"does it run" question was answered from the run of record's own columns. If a component could not be
+resolved either way it would be labelled `unknown` here; none was.
+
+**How much of that was the instrument, stated honestly** (adversarial review MINOR-2, upheld). The
+first draft attributed the empty `unknown` bucket to a computed transitive walk over all rows. It was
+not: `tools/ocr_legacy_census.py`'s `COMPONENTS` tuple then held **27 paths** against 45 rows, so
+roughly sixteen labels — including `tools/cohort_replay.py` (#29), one of this audit's own five most
+consequential rows — were resolved by READING rather than by the walk. The instrument has since been
+extended to **every row that is a Python module** (44 of 47), and the four rows that are not modules
+are declared in the tool itself (`NON_CODE_ROWS`) and printed by `--tree`, so the coverage claim is
+now checkable instead of assumed: #16 (the operator-surface documents), #22 (a data directory), #43
+(the fixture files) and #45 (a design document, not code).
 
 ### 2.7 Evidence / confidence plumbing — the card item whose answer is "none"
 
 Audited explicitly because its absence is load-bearing rather than an oversight.
 
-* **There is no confidence plumbing anywhere in the OCR path.** A case-insensitive search for
-  `confidence` / `conf_score` / `ocr_score` across `ocr/`, `webapp/`, `telemetry/`,
-  `analysis/schema.py`, `analysis/pipeline.py` and `analysis/serialization.py` returns **0 hits**.
-  No extractor emits a score, no record carries one, and the validator has no parameter that could
-  read one. This is the strongest single property in §5.7: an extractor literally has no channel
-  through which to argue for its own output.
+* **There is no confidence plumbing in the PYTHON of the OCR path — and the scope of that claim
+  matters.** A case-insensitive search for `confidence` / `conf_score` / `ocr_score` across `ocr/`,
+  `webapp/`, `telemetry/`, `analysis/schema.py`, `analysis/pipeline.py` and
+  `analysis/serialization.py` returns **0 hits in `*.py`** and **14 hits overall**, every one of them
+  under `webapp/` in non-Python files. An earlier draft reported the 0 without the qualifier; the
+  search had been silently restricted to Python while the sentence said "across `webapp/`". The
+  *substance* survives — no extractor emits a score, no record carries one, and the validator has no
+  parameter that could read one — but the qualifier is the difference between a measured property
+  and an overstated one.
+* **The 14 hits are not noise: the UI shows a fabricated "OCR confidence".** Found by the adversarial
+  review, confirmed here. `webapp/static/app.js:594-601` `confidenceFrom(report)` returns a
+  **hard-coded 98 / 94 / 80 / 72** selected from the validator's own `quality` verdict, and `:1139`
+  / `:1159` render it to the operator as `"OCR confidence"` and a percentage in the completion banner
+  and the results table (banner slot `webapp/templates/index.html:1010`; the placeholder `"--"` at
+  `:680`, `:1247`, `:1372`). `packageConfidence` (`:604-609`) is a second one, for packages. **It is
+  not an OCR measurement at all** — it is a re-encoding of a deterministic verdict wearing an OCR
+  label. Harmless today, because there is no OCR read for it to be confused with; the moment a second
+  extractor exists, an operator reading "OCR confidence 94%" beside an OCR-fed document will
+  reasonably believe the number describes the OCR read, and it describes the validator. See Open
+  Question 9.
 * **What exists instead is EVIDENCE, and it is boolean and structural.** `PageIntegrity`
   (`ocr/truncation.py:98-109`) carries `truncated`, a list of named `signals` from a closed set
   (`:65-77`) and the endpoint's own `finish_reason` — advisory, flag-only, and explicitly never
@@ -305,6 +328,15 @@ analysis input; (b) the branch privacy scanners match printed TOKENS and cannot 
 content is invisible to them; (c) parser detection and every text metric run over a page containing
 a multi-kilobyte opaque blob. Not a leak today (0 visual reads), but it is a leak SHAPE that the
 existing scanners are structurally unable to catch.
+
+**The concrete case that makes this bite** (adversarial review MINOR-5, upheld). As written above the
+claim is about a scanner that would never have looked: `tools/privacy_scan_branch.py` reads DIFFS,
+and OCR artifacts are never committed. The case where it does bite is the **committed** OCR fixtures
+(#43, `tests/corpus_cache/ocr/<SHA>.md`). An Unlimited-OCR read committed there would carry inlined
+document imagery into the repository — and `tools/privacy_scan_branch.py:467` (`_corpus_cache`)
+excludes everything under `tests/corpus_cache/` **wholesale**. A committed fixture, content invisible
+to the scanner's grammar, and an exclusion rule that already blankets the directory: that is the
+shape, and it is reachable the first time a visual read is promoted into the pinned corpus.
 
 **F-3 — issuer-specific behaviour inside the intake layer. `ocr/ocr_client.py:215-263`
 (`_TD_MARKERS_RE`, `is_td_statement`, `looks_truncated_td`, `_mask_qr`, `_TD_RECOVERY_VARIANTS`),
@@ -569,10 +601,17 @@ Proposal, in ascending cost — the first is required, the rest are Phase-2-late
 2. **Required now: the vocabulary entries** (F-7): a `SOURCE_PATHS` member per extractor, a
    `source_path_for` branch per model prefix, a `FREE_MODELS` entry, and a model-string prefix
    convention (`unlimited-ocr+…`, `paddle+…`) mirroring `native-pdf-text+<layout>`.
-3. **Later: field-level attribution.** Only reachable through the structurer seam — `document_geometry`
-   (#38) is the existing parameter, and OCR word boxes are the natural filling for it. A field that
-   can name the page and the word boxes it came from is field-level provenance; anything short of
-   that is a guess, and the audit will not propose a guess.
+3. **Later: field-level attribution — and there is already a design for it.** Only reachable through
+   the structurer seam: `document_geometry` (#38) is the existing, unwired parameter, and OCR word
+   boxes are the natural filling for it. A field that can name the page and the word boxes it came
+   from is field-level provenance; anything short of that is a guess, and the audit will not propose
+   a guess. **What changed after adversarial review:** this is no longer purely future work. The
+   tracked spec `docs/superpowers/specs/2026-07-21-paddleocr-bank-statement-parser-design.md` (#45)
+   designs exactly this — PP-OCR text plus bounding boxes with custom bbox-based row/column
+   reconstruction — from the pre-deterministic era. Its reconstruction is the candidate filling for
+   `document_geometry`; its architecture (a standalone parser that also decides structure and emits
+   its own JSON) is the opposite of Phase 2's extractors-only ruling. Inheriting the geometry while
+   superseding the architecture is the shape to aim for, and OQ11 asks Gustavo to settle it.
 
 ### 5.6 How the non-regression regime extends to an OCR-fed document
 
@@ -749,7 +788,24 @@ been measured only on six `native-pdf-text` documents. The re-measurement, as a 
    deterministic shift, and two of them can reach the OCR endpoint with default flags.
 8. **F-9's fix is a prerequisite, not a nice-to-have** — confirm that `tools/cohort_replay.py` may be
    modified in Phase 2 despite being a batch-9 instrument, since the frozen baseline's replays would
-   be unaffected (one artifact per input today) but every future one depends on it.
+   be unaffected (one artifact per input today) but every future one depends on it. The fix is now an
+   *adoption* of `CachedArtifacts`'s existing ordered selection (#46), not new design.
+9. **The webapp's fabricated `"OCR confidence"`** (`webapp/static/app.js:594-601`, rendered at
+   `:1159`) is a hard-coded re-encoding of the validator's `quality` verdict under an OCR label.
+   Rename it (it is a *validation* confidence), derive it from something real, or remove it — but
+   before a second extractor lands behind the label, because at that point the number starts telling
+   the operator something false about which read they are looking at.
+10. **Ratify (or replace) `_ocr_keys`'s ordering.** `telemetry/stated_counts.py:864-868` already
+    ranks the cache partitions — two offline first, the visual partition last — so an observer facing
+    a document with both silently prefers the OFFLINE read. Phase 2 would inherit that ranking by
+    omission, and `cohort_replay` is about to adopt the same list. Is "prefer the offline read" the
+    policy, or should the preference be the read the run of record actually used, recorded per run?
+11. **The "Approved" PaddleOCR design spec** (`docs/superpowers/specs/2026-07-21-…`) predates the
+    deterministic shift and designs a standalone parser that does its own row/column reconstruction
+    and its own JSON — i.e. an extractor that is also a validator. Phase 2's ruling is the opposite
+    (extractors only, into the unchanged deterministic validator). Should that spec be marked
+    superseded, or does its bbox reconstruction get inherited as the filling for `document_geometry`
+    (#38)? The same question applies to the Nanonets VLM spec beside it.
 
 ---
 
