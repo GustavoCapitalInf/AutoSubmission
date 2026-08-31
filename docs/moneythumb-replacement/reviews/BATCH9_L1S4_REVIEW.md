@@ -447,3 +447,176 @@ not drift is the one the floor actually claims: **the hit count is 0, and 0 does
 `rev_gate_bite.py`, `rev_measure.sh`, `rev_measure2.sh`, `rev_merged_floor.sh` and their logs); the
 throwaway merged worktree was removed after the run. No document text, figure, date, description or
 name appears in this file.*
+
+---
+
+## Closure confirmation (02a41f3)
+
+# VERDICT: CONFIRMED — COMPOSE
+
+Bounded to the nine MINORs of §7. Closure tip `02a41f3` on `wave9-l1s4`, 28 commits from
+`eeaf566`, clean tree, six closure commits (`21ad973` `7669adb` `d23bcf1` `a585008` `28868af`
+`02a41f3`). **All nine closed.** One new MINOR-grade observation arises from the C12 argument
+itself and is carried, not blocking; one stated figure I could not reproduce as written and name
+below.
+
+### The closure cannot have moved anything — proved, not argued
+
+`git diff --stat e851129..02a41f3` is six files: two production modules, one test module, two
+instruments and the W3 log. For the first three I compared the parsed trees:
+
+| file | AST identical to `e851129` | module bytecode identical |
+|---|---|---|
+| `analysis/member_statement.py` | **True** | True |
+| `analysis/pipeline.py` | **True** | True |
+| `tests/test_parser_parity.py` | **True** | True |
+| `tools/l1s4_marker_sweep.py` | False — the module DOCSTRING, which is the edit | True |
+| `tools/l1s4_transfer_killers.py` | False — the module DOCSTRING, which is the edit | True |
+
+Every closure edit is a comment or a docstring. (The C9 note in `_prints_daily_table` is written
+*above* the docstring; comments are not statements, so the string literal is still the first
+statement in the body and still the docstring — the AST identity is the proof.) **`webapp/app.py`
+is not in the diff**, so MINOR-7 touched no code, as they say.
+
+**The mutation table is provably unaffected without a re-run.** I checked the anchors myself with
+the harness's own `MUTANTS` list: **32 / 32 anchors match EXACTLY ONCE** in their files at
+`02a41f3`, none of them zero or twice. Only two of the six anchor-bearing files were touched
+(`analysis/member_statement.py`, `analysis/pipeline.py`) and both are bytecode-identical, so each
+mutant applies to the same executable text and produces the same mutant module as in my own
+32 / 32 run. No re-run needed, and I did not do one.
+
+### Per-MINOR verdicts
+
+| # | disposition | what I measured | verdict |
+|---|---|---|---|
+| **1** | docstrings now record the ABSENCE of a register entry with the reason | Reproduced their measurement with the guard's own machinery (`tests/test_corpus_gate_outcomes.py::_callers`, `WATCHED = {_analyse, analyze_document, analyze_markdown, cached_analysis}`): of the five `l1s4_*` instruments **only `l1s4_document_replay.py` calls a watched name — 1 call** (`analyze_document`); the other four are **0**. And I ran the counterfactual: adding `tools/l1s4_marker_sweep.py` to `EXCLUDED_ANALYSIS_CALLERS` makes the guard's `stale` set `['tools/l1s4_marker_sweep.py']`, so registering a non-caller **does** turn it red — their reasoning is exactly right. At the closure tip `unclassified = []` and `stale = []`; the register guard passes **24** at the closure tip and **24** again at the merged tree | **CLOSED** (one arithmetic note below) |
+| **2** | the pipeline comment credits `collecting()`'s own re-entrancy and names `6f031d4` | Read it. It now says there is one collection per document *because `collecting()` is re-entrant by its own construction — a block opened inside another yields the OUTER collector — and NOT because a caller wraps this one*, and names the commit that removed the wrapper. That is the mechanism, correctly attributed | **CLOSED** |
+| **3a** | C9 recorded vacuous at **0 of 18 LOCATED sections** | Verified independently: across the eight documents `_locate_sections` returns **18** sections, and `_prints_daily_table` is False on **18 of 18**. Stronger than my own 0 / 12 published, as they say, and the note also draws the right distinction — `_prints_daily_table` is a Q3 *refusal*, not the C9 oracle | **CLOSED** |
+| **3b** | **C12 CARRIED WITH NO MUTANT** | **ACCEPTED — see the adjudication below** | **CLOSED, with one mutant named** |
+| **4** | three path sets, two cardinalities | Verified exactly from my own leaf data: **three** distinct path sets with cardinalities **10 / 13 / 13**; **B ∩ C = 9**; **A ∪ B ∪ C = 18**; **A ⊄ B and A ⊄ C**, and `A \ (B ∪ C) = {rollup}` — the bare null a carrier publishes where both others publish the roll-up's four facts. The index-collapse caveat is stated correctly | **CLOSED** |
+| **5** | the parity note now cites evidence that exists | Read it: it cites **this test, run at the new size** (it times the sweep through the production seam, best of `SWEEP_SAMPLES`, and asserts the projection against the ceiling) and the green marked slice, and says plainly that there is no separate timing figure and that the earlier note pointed at a reading never recorded. I ran the corpus-marked members of that file at the merged tree: **12 passed**, so the projection is asserted green at 84 | **CLOSED** |
+| **6** | privacy figures named BY THE COMMIT they were taken at (`28868af`: 27 commits / 5,930 lines / 0) | The method is the right fix: a figure bound to a fixed commit cannot go stale as the tip moves, whereas a tip figure is invalidated by the act of writing it down. Both cited counts verify exactly — `git rev-list --count eeaf566..28868af` = **27**, `git diff --numstat eeaf566..28868af` added = **5,930**. And the entry keeps the right emphasis: the hit count, not the line count, is the claim | **CLOSED** |
+| **7** | one W3 disclosure line, code untouched, pointed at the backlog | `webapp/app.py` is absent from the closure diff; `webapp/app.py:767` is byte-identical to `eeaf566`. The W3 now records it as MINOR-7, confirms the line is unchanged from the base, and sends the ruling question to `BATCH9_BACKLOG.md` — where train9 `9bc7939` has already filed it | **CLOSED** |
+| **8** | `_ADB_WORDS` limits recorded beside the assertion | The recorded bound matches what I measured: four stems, substring-matched against **top-level key names only**; the two named passes (`combined_balance_mean`, `rollup.average_daily_balance`) are exactly the two my doctored payloads found; the sufficiency argument (one writer, `_document_block`) is true at this tree; and the ending condition — *"a card that lets another writer near that block inherits the obligation to widen this sweep"* — is the right trigger | **CLOSED** |
+| **9** | heading-position note; byte-prefix rebuild still exact | Re-verified against the **current** train9 (`9d3736a`, which moved while I was reviewing): `theirs.startswith(base)` **True**; train9's copy of the log **byte-identical** to the base's; appended region 50,926 B / 840 lines; and I simulated the helper — `ours + section` reconstructs the branch's log **byte-exact**. I also simulated the `--section-only` fallback: it cuts at byte 3,878,080, the real heading, not the quoted one | **CLOSED**, with one sub-observation below |
+
+### The C12 adjudication
+
+**Accepted.** Their three-part argument holds, and I tested each part rather than reading it:
+
+* **there is no gate to remove.** The reader has no facility vocabulary — I grepped for one and
+  there is none — so a C12 mutant would have to *invent* a condition in order to kill it. That is
+  not a mutant; a mutation table measures gates that exist, and lengthening it with an invented one
+  would be the "green for another reason" defect this branch spent its C13 repair on;
+* **implementing C12 here would break the card's own doctrine.** Nothing this population prints
+  distinguishes a facility row from a deposit row. A rule inferred from no printed evidence is the
+  repair-doctrine violation the batch-9 rulings forbid outright, and the SCOPE FREEZE forbids the
+  widening independently;
+* **the measurement is real.** I reproduced it: **18 enumerated rows, 18 located sections, identity
+  sets equal on 8 of 8 documents** — so the configuration in which C12 could be observed does not
+  occur on this population. The design's own 19 facility-enumerating documents are another family's.
+
+The tripwire is well chosen. Its four weakenings — a heading without the printed opening, a section
+located by identity alone, a continuation admitted without its closing, a roll-up row published with
+no matching section — are exactly the ways the conjunction can break, and putting the words beside
+the L1-C1 line in `analysis/member_statement.py` puts them in front of the person who would break it.
+
+**The mutant they missed — named, as asked, and it is not a C12 mutant.** Their argument rests on a
+CONJUNCTION of two limbs. I checked how much of that conjunction is under mutation:
+
+| limb of the conjunction | source | mutant |
+|---|---|---|
+| L1-C1's `set(identities) == set(row_identities)` | `analysis/member_statement.py:685` | **C1**, killed |
+| a section exists only where the paper prints a heading **with an opening** | `analysis/member_statement.py:441` (`if opening is None: return None`) | **none** |
+| … **and its own closing** | `analysis/member_statement.py:469` (`if end_match is None: return None`) | **none** |
+
+Limb 1 is mutated and killed. **Limb 2 is tested but never mutated** —
+`test_a_section_printing_no_closing_caption_refuses_the_document`
+(`tests/test_l1s4_publisher.py:354`) is its named killer and has never been shown to fail without
+it. By this branch's own standard — *a test named after a gate is not a test of that gate*, and
+*only removing the code a test claims to exercise and watching it stay green can find a hole* —
+the limb the C12 carry leans on is the one limb of it that is unproven. The faithful mutant is
+therefore **not** "remove C12" but **"`_locate_sections` admits a section whose closing the paper
+does not print"** (`if end_match is None: return None` → `continue`), expected killer
+`test_a_section_printing_no_closing_caption_refuses_the_document`; and optionally its sibling on
+the opening at `:441`.
+
+This is a **MINOR**, carried, not a blocker: the limb is covered by a real test and by the whole
+suite, the C12 carry is correct on its merits, and the two mutants can land with any later card
+that opens `analysis/member_statement.py`. It is recorded here because the closure asked me to
+accept or to name what was missed, and this is what was missed.
+
+**Sub-observation on MINOR-9.** The disclosure's own prose quotes the append, which puts a second
+line beginning `# §L1S4` at column 0 in the log (line 63,956, inside the L1-S4 section). Both
+`train_merge_one.py` paths are safe and I ran both: the byte-prefix path never looks at headings,
+and the `--section-only` fallback uses `find`, which returns the real heading at line 63,197 first.
+A future helper using `rfind`, or counting headings to check "one appended section", would trip on
+it. Carried, harmless today.
+
+**The one figure I could not reproduce as stated.** The closure reports its affected-files floor as
+**1,232 / 41**. At `02a41f3` the canonical conformance seven give **1,282 passed / 41 skipped**, and
+the affected-file batch I ran gives **278 passed / 12 deselected**. I could not construct a set that
+reads 1,232 / 41; most likely a transposition of 1,282. Every other closure-floor figure reproduces
+(guards **255**, register **24**, privacy **0** over 5,930 lines at `28868af` and **0** over 27
+commits). Not a defect in the work — a digit in a report.
+
+### The floor, re-measured by me
+
+At the closure tip `02a41f3` (branch worktree):
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards (5 files) — they read SOURCE TEXT, so a comment edit can move them | **255 passed** | 0 |
+| the caller register's own guard | **24 passed**, 10 deselected | 0 |
+| canonical conformance (7 files) | **1,282 passed**, 41 skipped | 0 |
+| `tools/l1s3_surface_census.py` | **CENSUS HOLDS** | 0 |
+| `tools/l1_design_reader_probe --census` — it pins LINE NUMBERS, which a 40-line comment moves | **CENSUS HOLDS** | 0 |
+| the affected test files + the rewritten parity file | **278 passed**, 12 deselected | 0 |
+| the FULL default suite | **7,815 passed, 44 skipped, 35 deselected** — identical to the pre-closure figure | 0 |
+| the 32 mutation anchors | **32 / 32 match exactly once** | — |
+
+At the **closure merged tree** — `train9` `9d3736a` (it advanced by two docs commits while I was
+reviewing) + `wave9-l1s4` `02a41f3` = **`8cbf0cb`, merged with 0 conflicts and 0 conflict markers in
+the committed blobs**:
+
+| proof | result | exit |
+|---|---|---:|
+| canonical guards | **255 passed** | 0 |
+| the caller register's guard | **24 passed** | 0 |
+| both censuses | **HOLD**, both ways | 0 |
+| the corpus-marked members of `tests/test_parser_parity.py` (the affordability projection at 84) | **12 passed** | 0 |
+| **`python corpus_gate.py`** | **GREEN** — 109 pinned (103 native, 6 committed OCR), 0 exclusions · **105 PASS / 3 WITHHELD / 1 REFUSED** · verdicts **1 refused / 3 review / 102 validated / 3 withheld** · ADB **108/108** · currency **108/108** · provenance **108/108** · runtime 523.1 s | 0 |
+
+Identical to the pre-closure merged-tree gate in every figure. I did **not** re-run the whole-archive
+replay, the sweep, the corpus slice or the mutation table: the production bytecode is identical, the
+anchors all still apply, and re-running them could only reproduce numbers whose inputs did not move.
+That is stated so a reader who disagrees can re-run them.
+
+### What the composing commit must carry
+
+Nothing beyond the §8 checklist, which stands unchanged: **`ANALYSIS_STAGE_VERSION` 16 → 17**,
+`TELEMETRY_VERSION` stays 1, the three registration pins together (conformance 84, registry entries
+84, `PLANNED_REGISTRATIONS` 84 — the third behind `-m corpus`), and the W3 append. Two updates to it:
+
+* **the merge base has moved.** My clean-merge proof is now against `train9` `9d3736a`, not
+  `f068b35`; train9's movement since was two docs files the branch does not touch
+  (`BATCH9_TRANSITION.md`, `BATCH9_BACKLOG.md`), and the merge is still clean;
+* **two MINOR-grade items are CARRIED, neither blocking**: the unmutated second limb of the C12
+  conjunction (two mutants named above, for any later card that opens
+  `analysis/member_statement.py`), and the column-0 `# §L1S4` line inside the W3 section.
+
+Expected cold run unchanged: **2,596 → 2,604**, eight documents, twelve accounts, zero regressions.
+
+### The scans over this confirmation's own lines
+
+Taken the way the closure taught: **named by the commit they were measured at**, so they cannot go
+stale as the tip moves. At **`4f43a50`** — this confirmation committed, before this table was added
+to it — over the branch's full 28-document universe rather than the 23 the W3 entry names:
+
+| scan | measured | exit |
+|---|---|---:|
+| `privacy_scan_branch.py --shas … --base eeaf566 --ref HEAD` | **hit_count 0** — MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0, over **6,101 added lines** against 28 documents; raw 15, all discharged by standing rules (14 `words_class`, 1 `round_money`); residue files 0, sites 0 | 0 |
+| `huntington_msg_privacy_scan.py --shas … --base eeaf566 --ref HEAD` | **hit_count 0** across all four classes, over **29 commits** | 0 |
+
+Both were run again after this table was added, and both are **0** — which is the quantity that
+does not drift.
