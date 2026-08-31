@@ -13,6 +13,7 @@ moves out only when Gustavo rules it an exception or Phase 2 absorbs it.
 | `analysis/consumers.py:90` correctness hardcode | `CONS-HARDCODE` | fixing it moves **2 validated → failed**, 1 pinned (ceremony) | ruled a CORRECTNESS hardcode (§8.3); removing it demotes documents validated on it — exception (b) if those two validations are wrong today. Not required for S4. |
 | the design's §9 four production defects (incl. `dakota_west`'s derived section selection, F4 — touches pinned `F748A799FDC7F25E`) | L1 design §9; S4/S5 territory | 0 movement measured for S2; F4 unmeasured | exception (b) only if a validated payload is wrong because of one; otherwise backlog with L-1 expansion |
 | three other `None` exits of `_parse_sectioned_statement` bypassing the omission ledger | S2 review MINOR-3 | archive population **0** (107 callee calls / 98 validated / 8 `None`, all 8 recorded) | exception (c) only if S4's publisher reaches them; the S4 card carries it |
+| the SINGLE-account package path admits a member on job status alone (`webapp/app.py:767`); Q1's account-based gating exists on the document path (`:814`) only | S4 review MINOR-7 (2026-08-31) | pre-existing; every current production member is a single-account job | needs Gustavo's ruling: extending Q1's gate to the whole existing population is a package-behavior change for already-served documents — exception (b) only if a non-validated account is being aggregated today |
 
 ## Deterministic coverage — backlog (no new cells after S4)
 | item | card | measured at freeze |
