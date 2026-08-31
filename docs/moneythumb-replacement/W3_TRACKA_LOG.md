@@ -63192,3 +63192,729 @@ end; `git worktree list` carries neither it nor its metadata.
 | RULE S at the pipeline seam, base `4953806` vs branch tip | **232 / 232 byte-identical**, `MOVED_TOTAL=0` |
 | privacy — added lines | **0 hits**, exit 0 — raw 81, every one WORDS-class and discharged by the scanner's `words_class` rule; MONEY / DIGITS / DATES / WORDS all 0; residue 0 / 0; 5,615 added lines |
 | privacy — commit messages | **0 hits across all four classes**, exit 0, 29 commits |
+
+
+# §L1S4 — the first multi-account publisher: eight documents, twelve accounts, and the reversal the columns netted
+
+**Card** `L1-S4-FIRST-PUBLISHER` (batch 9, L-1 stage 4; the LAST coverage cell of
+batch 9). Branch `wave9-l1s4`, base `train9` `eeaf566` — the tree where L1-S1,
+L1-S2 and L1-S3 are all composed and the serialized shape is decided by ACCOUNT
+COUNT alone. Ocean reviews and composes; nothing here is merged, pushed or
+rebased.
+
+## Population, and the three figures Q9 requires every time
+
+| figure | value |
+|---|---:|
+| strict after-chain diagnostic (diagnostic only, never a refusal rule) | **0** |
+| production-check population — documents closing on every located section | **2** |
+| Q3-eligible population — sections passing all seven corroboration conditions | **6** |
+| demonstrated target (2 + 6), the maximum, never forced | **8** |
+| **NEWLY VALIDATED, counted by the deterministic validator at this tree** | **8** |
+
+The eight are the whole of census group `FAM:guardian_cu_statement_summary`, and
+they are the whole of what this registration claims: measured over every
+document in the run of record that resolves to cached text, the markers claim
+**8 of 3,351**, the reader publishes **8 of 8**, and every one of them was
+`failed / no_parser_matched` at baseline. **0** documents claimed by this
+registration were anything other than `failed`, so there is no document it could
+have taken from another reader.
+
+Beyond that family: nothing. The scope freeze forbids widening and the design
+declines to number what lies past it.
+
+## Root cause
+
+`Statement` is one ACCOUNT's and always was, so a member statement — one PDF
+printing several of one member's accounts under one enumerating table — had no
+reader at all. The three stages before this one built the model (S1), founded
+every silent sibling drop on printed evidence (S2) and taught every payload
+reader and every production seam the document shape (S3), and all three moved
+zero documents by construction: nothing published two accounts, so nothing
+exercised any of it. This is the stage where a document does.
+
+## Solution
+
+**`analysis/member_statement.py`**, a shared credit-union MEMBER-statement
+template module registered as `member_statement_rollup`, and the platform's
+first registration that publishes more than one account from one PDF. It is
+keyed on the template's own furniture and on nothing that names an issuer:
+
+* the enumerating table's COLUMN CAPTION — L1-C5's strongest vocabulary member,
+  which states in print which figure is the previous balance, which the
+  deposits, which the withdrawals and which the closing;
+* two or more printed account sections, each carrying its own identity suffix
+  beside its own opening caption.
+
+`Statement.bank` is `None`, which is the honest answer rather than a gap: this
+template prints no institution NAME in its text layer at all — a masthead
+welding a street address, a phone number and a contact domain — so the
+honest-unknown-issuer ruling applies and the registry label names the TEMPLATE.
+Naming the first domain on the page would publish a contact host as a bank.
+`currency_source` is `schema_default` for the same reason: with no institution
+identified, `institution_default` is a class this reader has not earned.
+
+The boundary mechanism is `rollup-oracle`: the document enumerates its accounts
+and each enumerated identity REAPPEARS as a section heading, and that
+reappearance is the boundary — a printed partition, never an inferred one.
+A section runs from its own heading to its own printed closing caption, which is
+also its printed END; everything after it is trailing furniture, and reading a
+section to the next heading instead would sweep in the check recapitulation and
+the year-to-date block that follow the last one. That is the ambiguity the
+design's strict after-chain bound could not resolve (§2.6), and a printed
+terminator resolves it.
+
+**The Q3 class as code.** `printed_pair_coincides_and_no_row_printed` joins
+L1-C17's closed vocabulary in `analysis/sibling_omission.py` with ALL SEVEN
+conditions, every one read fail-closed and in the direction that costs the class
+rather than the one that grants it: a figure the reader could not establish, a
+count it did not take and an absent witness each REFUSE. Condition 7's
+conditional wording is applied exactly as the bounded probe applied and reported
+it — a document printing no roll-up FAILS it rather than passing vacuously.
+
+The witness is bound by BOTH printed handles: the roll-up row found by the
+section's own printed LABEL and the row found by its own IDENTITY TOKEN, and the
+class refuses when the two find different rows. That is the Q3PROBE review's
+MINOR-3 and MINOR-4 answered in code rather than in prose — the probe cannot see
+a mis-binding, because it inherits the row from the boundary layer that located
+the section from that row, and on this family neither handle is reliably the
+discriminating one (on one document the label matches eleven lines including the
+sibling's reprinted headings and only the token is unique; on two others it is
+the other way round).
+
+**Internal transfers (R-d, all four clauses)** land in `analysis/pipeline.py`,
+which is the only place in this platform that can see two of one document's
+ledgers at once. The arithmetic (same posting date, same magnitude to the cent,
+opposite sign, in a SIBLING account of the SAME document); uniqueness
+DOCUMENT-WIDE, decided on the arithmetic rather than after the designation has
+thinned the field, because a designation saying "this came from one of my own
+accounts" does not say WHICH ROW; one-to-one, which follows from uniqueness and
+is asserted at the gate; and the printed designation on at least one leg, read
+by `analysis/transaction_classifier.py`'s `_INTERNAL_TRANSFER_CREDIT_PATTERNS`
+alone. Both printed legs stay in their ledgers and in their ADB histories; the
+flag reaches package analytics and nothing else.
+
+**The package layer.** Membership was already account-based at S3; what this
+card adds is the exclusion of an evidenced internal movement from every
+cross-account total, the refusal to aggregate a document whose pairing is
+ambiguous, and the honest statement-period count beside the member count.
+
+## The document surface, lit — and the payload-shape change it needs
+
+L1-S3's closure-2 named a gap and gave it an owner: *"S4 owns closing it."* A
+SINGLE-account document that established a document-level fact — a surfaced
+sibling omission, a roll-up read as an oracle, a boundary mechanism — published
+today's payload and kept that fact on the OBJECT, where no payload reader and no
+package could ever see it. Q10 rules that such an omission is SURFACED beside the
+account rather than demoting it, and a fact that reaches no payload is not
+surfaced.
+
+**The change is one added top-level key, and it is the `document` BLOCK and NOT
+the `accounts` list.** That distinction is the whole reason this is safe where
+the S2 / S3 composition defect was not: `analysis/payload_shape.py::is_document_payload`
+keys on `accounts` alone, so such a payload is still the ACCOUNT shape, every
+account-scope reader answers it exactly as before, `statement` stays where it has
+always been, and L1-C16 is untouched (the assertion forbids `accounts` BESIDE
+`statement`, and there is no account list here). The serialized SHAPE is still
+decided by account count alone, exactly as closure-2 ruled.
+
+**Named per SHA, with every leaf classified.** The documents whose payload gains
+the key are exactly the documents that have something to put in it:
+
+| population | documents | what the added `document` block carries |
+|---|---:|---|
+| L1-S2's protected carriers (W3 §L1S2's fifteen) | 15 | one `omitted_sections` entry each, `account_count` 1, every other field empty |
+| this card's Q3 documents | 6 | the same, plus the roll-up, the boundary mechanism and the document period |
+| this card's multi-account documents | 2 | the `document` + `accounts` shape, which they take by account count |
+| every other document in the run of record | 3,357 | **no added key** — today's payload, byte for byte |
+
+No existing leaf moves on any of them: the block is added beside today's payload
+and nothing inside it is filled from an account.
+
+That is measured rather than asserted, twice and from two directions.
+
+`tools/l1s1_seam_probe.py` compares the base tree against this one over 232
+documents covering 80 registrations. Six documents move; all six are protected
+carriers; the ONLY top-level key that moves on any of them is `document`, with
+**0 leaves removed and 0 retyped**. On all 232 the account seam stays
+byte-identical, the integrity flags keep their published list AND ORDER, and
+the ladder outcome does not move. The other nine carriers are simply not in
+that cohort, so the probe had no opportunity to move them and does not claim
+to have.
+
+`tools/l1s4_document_replay.py --leaves` then enumerates the block itself, per
+sha, over all 23 documents that gain it — paths and type tokens only, so no
+figure from any document reaches the log. The result is exactly two shapes:
+
+| population | documents | leaves in the added block |
+|---|---:|---:|
+| L1-S2's protected carriers | 15 | **10** each |
+| this card's published documents | 8 | **13** each |
+| **distinct leaf paths across all 23** | | **18** |
+
+The three extra leaves on this card's documents are the roll-up's printed
+facts — its caption class, whether the column roles were printed, whether a
+cross-account total was printed, and its row count — which the carriers'
+documents do not print and therefore publish as `rollup -> null`. Every
+`internal_transfers` and `integrity_notes` list on a carrier is an empty list,
+not an absent key: the block has one shape, and a document that has nothing to
+put in a field publishes the field empty rather than publishing a different
+block.
+
+The same run replays all 23 and reports **8 newly validated, 0 other movement
+and 0 regressions**, which is the protected carriers stating for themselves
+that lighting the surface did not move them.
+
+**`ANALYSIS_STAGE_VERSION` MUST BE BUMPED IN THE COMMIT THAT COMPOSES THIS
+CARD.** The requirement is named here and the bump is Ocean's at the train, per
+the card. A warm analysis cache keyed on the current version would otherwise
+serve the old-shape payload for those 21 documents to a new-shape build.
+
+## Movement
+
+| measure | count |
+|---|---:|
+| newly validated | **8** |
+| accounts published across them | **12** |
+| other ladder movement | **0** |
+| previously validated preserved | **ALL** |
+| unexpected validated regressions | **0** |
+| Q4 / Q6 refusals in this population | **0** |
+
+### The eight, per SHA, with the validator's own evidence
+
+`tools/l1s4_document_replay.py` at this tip, replaying from the run of record's
+own cached text through the seam PRODUCTION publishes from — the runner's exact
+call, `document_report_to_dict(analyze_document(..., parse_mode="deterministic",
+sheets=...))` — and classifying with `telemetry.record.classify_document`.
+
+| document | ladder | published accounts | omitted sections (class) | internal transfers | document notes |
+|---|---|---:|---|---:|---|
+| `333E226A75FE5441` | failed -> validated (approved) | 1 | `printed_pair_coincides_and_no_row_printed` | 0 | — |
+| `472A0966A5204513` | failed -> validated (approved) | 1 | `printed_pair_coincides_and_no_row_printed` | 0 | — |
+| `596804AA1ACD01EB` | failed -> validated (approved) | 1 | `printed_pair_coincides_and_no_row_printed` | 0 | — |
+| `7C7956EB5E93DB1D` | failed -> validated (approved) | **3** | — | **27** | — |
+| `C3D3E48F1E14AE2A` | failed -> validated (approved) | 1 | `printed_pair_coincides_and_no_row_printed` | 0 | — |
+| `E38FA786106F752E` | failed -> validated (approved) | **3** | — | **7** | — |
+| `F5BC9FB6D084559E` | failed -> validated (approved) | 1 | `printed_pair_coincides_and_no_row_printed` | 0 | — |
+| `FFAC0A88768A8A59` | failed -> validated (approved) | 1 | `printed_pair_coincides_and_no_row_printed` | 0 | — |
+
+Every one of the **12** published accounts, without exception:
+`validated / approved` · `reconcile.ok=True` · `adb.ok=True` ·
+basis `calendar_day_printed_period` · policy `canonical_v1` ·
+`posting_dates_cover_source=True` · **no failed ADB check of any kind**.
+
+`posting_dates_cover_source=True` on all twelve is the row worth pressing on. It
+is the check that proves a parser did not fold several printed posting days into
+one, and it is applied against the SOURCE the analysis is handed — so an account
+of a member statement handed the whole PDF would be judged against its siblings'
+posting days and refused for a reason that is not true of it. The source scope is
+therefore the SECTION's own text, established from the paper's own printed
+boundaries, and this is the measurement that says so.
+
+`596804AA1ACD01EB` prints no cross-account total; the oracle is applied where the
+paper prints one and is not required, because refusing a document for a claim it
+never made would be refusing it for our convenience.
+
+## Correctness evidence
+
+### The registration's blast radius, measured rather than bounded
+
+`tools/l1s4_marker_sweep.py`, over the whole run of record:
+
+| measure | value |
+|---|---:|
+| documents in the run | 3,380 |
+| ... resolving to cached text and swept | 3,351 |
+| ... CLAIMED by these markers | **8** |
+| ... PUBLISHED by the reader | **8** |
+| ... refused after claiming | 0 |
+| ... claimed and NOT `failed` at baseline | **0** |
+
+### The Q3 class against the probe that measured it
+
+`tools/l1s4_q3_oracle.py`. The composed `Q3-CORROBORATION-PROBE` is the oracle
+the ruling named, so the implementation is COMPARED with it rather than
+described as agreeing with it: over the same six sections, from the production
+reader's own readings of the same paper, and then under each of the probe's five
+mutants translated into the arguments a reader supplies.
+
+| measure | value |
+|---|---:|
+| sections / documents | 6 / 6 |
+| the probe passes all seven conditions | **6** |
+| the production class ADMITS | **6** |
+| mutant applications | **30** |
+| ... where BOTH refuse | **30** |
+| **disagreements** | **0** |
+
+The first run of that instrument disagreed on all six, and the reason is worth
+the record rather than a silent fix: it computed the roll-up binding over the
+design census's span, which begins AFTER the section's own printed label and
+ends INSIDE the sibling's heading. The production reader's span begins at its own
+heading and stops at its own closing, so its two handles find one row where the
+census's span finds two. The instrument now asks the reader its own question
+instead of reconstructing one.
+
+### R-d's killer set, against the production rule
+
+`tools/l1s4_transfer_killers.py`, over the design's own measured population,
+from the design prototype's own reconstruction, decided by
+`analysis.pipeline.identify_internal_transfers`:
+
+| measure | design | this rule |
+|---|---:|---:|
+| documents carrying candidate pairs | 7 | **7** |
+| candidate pairs | 47 | **47** |
+| FLAGGED internal (a printed designation on a leg) | 43 | **43** |
+| REFUSED — nothing printed, or a peer-to-peer rail only | 4 | **4** |
+| postings whose printed text could not be recovered | — | **0** |
+
+Two of those seven documents are this card's own — `7C7956EB5E93DB1D` with 27
+pairs and `E38FA786106F752E` with 7 — so 34 of the 43 are pairs this platform
+now actually publishes both legs of.
+
+**The ambiguity branch has no archive instance** (0 postings with two or more
+admissible counterparts), so its killer is a CONSTRUCTED fixture and is named as
+one, in the instrument and in `tests/test_l1s4_transfers.py`. Both of its legs
+carry an internal designation on purpose: the refusal is about the PAIRING and
+not about the evidence, so a fixture whose legs printed nothing would prove the
+wrong thing.
+
+### The paper's own arithmetic, and the near-miss it would have been
+
+Building the killers found a property of this template that no instrument had
+measured. It prints a REVERSAL — `Withdrawal Adjustment`, a returned debit —
+inside the column it adjusts, so the enumerating table's WITHDRAWALS figure is
+that column NETTED rather than the sum of everything that reduced the balance.
+A reader that summed the ledger by SIGN disagrees with the table by twice each
+reversal:
+
+| document | reversal rows printed |
+|---|---:|
+| `333E226A75FE5441` | 1 |
+| `596804AA1ACD01EB` | 2 |
+| `7C7956EB5E93DB1D` | 1 |
+| `FFAC0A88768A8A59` | 2 |
+
+Six reversal rows on four documents, and **every one of those disagreements sits
+inside `reconcile`'s two-per-cent coverage tolerance** — so a sign-keyed reader
+would have passed all four by luck. The oracle therefore compares COLUMN BY
+COLUMN and to the cent, and a disagreement refuses the document. The reversal
+word itself is read as a printed direction reverser and is CHECKED by the row's
+own running balance, so a reversal that did not reverse refuses rather than
+being mis-signed.
+
+The type column's whole vocabulary was measured over the family rather than
+guessed at: `Withdrawal` 809 rows, `Deposit` 343, `Draft` 46, `Recurring` as a
+qualifier on 8, `Adjustment` as a reverser on 6, and nothing else.
+
+### No figure from the enumerating table reaches a payload
+
+For the `rollup-oracle` mechanism the design's ladder feeds the SECTION's own
+printed counts and totals, and these sections print none — so
+`stated_total_credits`, `stated_total_debits` and both instance counts are
+`None`, and what the table prints stays an ORACLE. L1-C8's substance is
+strengthened rather than skipped: feeding those two figures would have bought
+`reconcile`'s coverage check, which passes anything within two per cent, and
+the oracle above compares the same figures to the CENT and refuses.
+
+The bank's own printed `Average Daily Balance` is not published either. The line
+that carries it prints the DIVIDEND period it belongs to, which is not the
+statement period, so publishing it would file a figure about one span under
+another.
+
+### The mutation table
+
+`tools/l1s4_mutation_table.py` — every gate this card wrote, removed one at a
+time, tests run WITHOUT `-x`, the tree verified clean after each mutant, and a
+restore that writes the original bytes back rather than going through git.
+
+| family | mutants | killed |
+|---|---:|---:|
+| the publisher's printed partition (L1-C1, C2, C3, C5, C6, C7, C8, C10, C13, C17) | 14 | 14 |
+| the seven Q3 conditions | 9 | 9 |
+| R-d's four clauses and the vocabulary that decides the fourth | 6 | 6 |
+| the package's three rules | 3 | 3 |
+| **total** | **32** | **32** |
+
+**HOLES = 0**, and that is the THIRD run. The first found four. The second is
+the one worth reading, because it ran at the tip against the run of record
+AFTER everything else on this branch was green, and it found a fifth hole that
+was not missing code at all — it was a test that had been passing for the wrong
+reason since the day it was written.
+
+The first four were each a different kind of finding rather than one:
+
+* the running-balance walk was guarded twice over — the fixture that broke it
+  also broke the column totals, so the oracle refused first. The fixture now
+  moves ONE printed balance on one row and nothing else, and a second fixture
+  changes the type WORD instead;
+* the absence refusal was likewise shadowed: the silent-section page disagreed
+  with its own table as well, so an agreement condition refused it before the
+  evidence one could. The page now prints the same closing in both places and
+  refuses for exactly one reason, with the coinciding page beside it as the
+  positive control;
+* the Q3 pair-coincidence clause was shadowed by condition 7, because moving the
+  section's closing left the witness behind. The witness moves with it;
+* and R-d's mutual-pairing check could not be killed BECAUSE IT CANNOT FIRE:
+  one-to-one follows from the uniqueness clause. A branch no table can show
+  doing anything is dead code, so it is gone, and the property is asserted where
+  a payload can actually violate it — at the gate, on a payload written before
+  the rule existed.
+
+The fifth — C13, the two-denomination refusal Q4 is not ruled on — is the one
+this entry would rather not have to report, and the one most worth reporting.
+The test named the guard, asserted the document was refused, and passed. It
+passed with the guard REMOVED as well, which is the only reason anyone found
+out.
+
+The fixture built its two-denomination page by editing printed text, and the
+text it happened to edit was an ENUMERATING ROW rather than a section heading:
+the two are rendered differently, and a row carries the printed LABEL its
+section is bound by. One of the two rows it edited belonged to the IDLE
+section — the omitted one. Breaking that label destroyed the very witness the
+Q3 class requires that section's omission to be admitted on, so the document
+was refused for an unadmitted omission, under a different condition entirely,
+before the denomination guard was ever consulted. The assertion was true. What
+it measured was not what it named.
+
+**A test whose fixture is refused for a second reason cannot measure the
+first**, and no amount of reading it would have shown that: the page it builds
+is correct-looking, the assertion is correct, and the test is green. Only
+removing the code it claims to exercise and watching it stay green can find
+it. That is the whole argument for a mutation table over a test count, and it
+is why the table is run at the tip and not only at the desk.
+
+It now builds a differential pair instead: two pages differing by exactly ONE
+printed line that the reader ignores, placed in the POSTING section so that no
+label binding moves, with the single-code page asserted publishable as the
+control. The refusal is attributable to the second denomination and to nothing
+else, and removing the guard now fails the test by name.
+
+One production simplification came out of the first pass: the omission refusal
+was made twice, at the point of decision and again at the end of the loop. A
+condition guarded twice is a condition neither guard can be shown to be doing.
+
+### The pin a green suite cannot see
+
+The other thing the closure run caught was a pin this card moved two thirds of.
+Registering a reader moves three numbers that all mean "how many registrations
+exist": the conformance count, the registry-entry count, and the affordability
+constant that the full-registry detect sweep projects its cost against. This
+card moved the first two and missed the third.
+
+The reason it survived every earlier check is the part worth recording. The
+first two pins live in the default suite. The third lives behind the corpus
+mark, which the default suite DESELECTS — 35 tests, on this tree. So a branch
+that registers a reader and moves two of the three sees a fully green suite of
+7,815 tests and learns nothing, and then fails the marked slice twenty minutes
+later, at the end of a run, where a tired reader is most likely to wave it
+through as flakiness. It is not flakiness. The constant pins itself at or above
+the registry's actual size precisely so that the projection can never scale the
+cost DOWN, and a registration that pushes past it inverts the guard.
+
+It is reconciled here the way its own note requires — a recorded re-measurement
+at the new size through the same seam, not an edit — and the note now says
+plainly that the three move together or none of them does.
+
+Both of this run's findings have the same shape, which is why they are recorded
+side by side: **a proof that is green for a reason other than the one it
+claims.** One was a test passing because its fixture was refused twice over;
+the other was a pin passing because nothing in the default suite ever read it.
+Neither is caught by reading the code, and neither is caught by counting tests.
+
+### The gate's per-account assertions (design §6.5)
+
+The L1-S3 review recorded four as owed. Three are built here and the fourth is
+named as a ceremony:
+
+* **the ADB stamps on EVERY account, and no document-level average under ANY
+  name.** The corpus-wide stamp check is path-keyed and therefore blind to a
+  second account; this is the per-account half. The document half is asserted on
+  the block's KEY NAMES rather than on one field, because the package's own
+  days-weighted mean already showed that the same arithmetic can arrive under a
+  different name;
+* **every omitted section's reason in L1-C17's vocabulary, at the gate** — which
+  is a different statement from the fold failing such a document: a document the
+  corpus publishes carries no unratified omission at all;
+* **`document.internal_transfers` resolves and is one-to-one** — every leg names
+  an account this payload publishes and a posting that account's own ledger
+  holds, and no posting is a leg of two transfers;
+* **`PINNED_CURRENCY` / `PINNED_CURRENCY_SOURCE` totality per `(path, account)`
+  is NOT built**, and the reason is the one the review gave: both audit CSVs are
+  path-keyed with no account column, so it needs a truth-set ceremony rather than
+  a gate change. No pinned document publishes more than one account at this tree
+  — this registration claims none of the 109 — so nothing is unguarded today.
+  Carried, with that measurement.
+
+## Generalization evidence
+
+Nothing here is keyed to an issuer, a product, a phrase or a document.
+
+* **The registration reads a TEMPLATE.** Its two required markers are the
+  enumerating table's column caption and two printed sections each carrying
+  their own identity; neither names a bank, a domain, a product or a customer.
+  An issuer nobody has met yet, printing this core's paper, is read by the same
+  registration and published with `bank=None` rather than with a guess.
+* **The direction of a row is READ and then CHECKED.** The type column's own
+  word decides it — `Deposit`, `Withdrawal`, `Draft`, with `Recurring` as a
+  qualifier and `Adjustment` as a reverser, a vocabulary measured over the
+  family (809 / 343 / 46 / 8 / 6 rows and nothing else) rather than guessed —
+  and the row's own printed running balance must agree. A word mapped to the
+  wrong sign cannot go unnoticed, which is what lets this reader read a
+  direction at all instead of solving for one.
+* **Every refusal generalises further than every admission.** The reader
+  publishes a document only when its printed partition is COMPLETE — every
+  enumerated account either published or omitted on evidence a ratified class
+  can name — and refuses on: an enumerated account with no section, a section
+  the table never enumerated, two sections resolving to one identity, a section
+  printed twice, a row narrower than the caption's own columns, an opening or a
+  closing the section and the table disagree about, a cross-account total the
+  enumerated closings do not sum to, a printed dated row the ledger does not
+  carry, a running balance that does not follow, a section whose closing the
+  paper does not print, a document naming two denominations, and a section
+  dropped with nothing printed about its empty state. On this archive most of
+  those fire zero times; the point is that on the next archive they fire rather
+  than shrink a statement quietly.
+* **The Q3 class is unreachable for every reader written before it.** All four
+  of its new arguments default to absent and every one of them refuses, so no
+  section any existing reader omits can change class. That is not a courtesy:
+  the fifteen protected carriers are admitted by the three older classes and
+  their payloads are pinned.
+
+## What this card did NOT do, so the next reader is not surprised
+
+* **Package membership for a SINGLE-account job is unchanged.** Q1 is
+  account-based, and L1-S3 made it so for the document shape while deliberately
+  leaving a job publishing today's payload admitted exactly as it always was.
+  Reading the ruling literally onto the single-account path would exclude every
+  non-validated single-account job from every package this platform produces —
+  a large behaviour change on a surface the run of record does not cover, so
+  there is no archive measurement that could price it. Named, not widened.
+* **Q4 (two denominations) and Q6 (a per-account activity range) are REFUSED
+  until ruled**, which is what the card asks for. A document naming two currency
+  codes is refused outright rather than published two ways or one; **the
+  refusal count in this population is 0**, because none of the eight prints a
+  currency code at all and the measured two-denomination class (4 documents / 12
+  sections) is another census group's. Q6 likewise: all eight print one document
+  cycle, resolved once and handed to every section.
+* **`dakota_west`'s derived section selection is untouched.** It is L1-C18 and
+  S5's, under a ceremony, and this card does not need it.
+* **The three other `None` exits of `community_section::_parse_sectioned_statement`
+  are untouched** (S2 review MINOR-3, carried to S4). The archive population is
+  0 — the reviewer measured every callee call and found every `None` return is
+  the recorded site — and this card's publisher never reaches that function.
+  Routing them through the ledger would make the document REFUSE wherever a
+  printed heading's block has no readable summary, which is the "no sibling
+  section LOCATED" class of 16 documents and a rung nobody has built. Carried,
+  with the measurement.
+* **No version constant is bumped.** `ANALYSIS_STAGE_VERSION` stays 16 and
+  `TELEMETRY_VERSION` stays 1 on this branch. The bump is REQUIRED — see the
+  payload-shape section above — and it is Ocean's at the train.
+
+## What the branch touches, and the three files it owns outside its card
+
+`git diff --stat eeaf566..HEAD` is 29 files. The card's own ownership covers
+the template module and its registration, `analysis/sibling_omission.py`'s Q3
+class, `analysis/pipeline.py`'s transfer identification, `webapp/app.py`'s
+package layer, their tests, `tools/l1s4_*.py` and this section. Three
+departures, each disclosed rather than discovered in a diff:
+
+* **`analysis/serialization.py` and `analysis/payload_shape.py`** — L1-S1's and
+  L1-S3's. The `document` block on a single-account payload is the gap L1-S3's
+  closure-2 named and assigned to this card by name, and it cannot be made
+  anywhere else. Nothing else of theirs moves: `report_to_dict`,
+  `document_report_to_dict`'s multi-account branch, RULE S's account-count
+  clause, the two wrapper refusals and `is_document_payload` are unchanged.
+* **`telemetry/record.py`** — L1-S3's. `classify_document` asks L1-C17's
+  override of BOTH shapes rather than only the multi-account one, because a
+  single-account document can now carry a surfaced omission and an unratified
+  one is a publisher defect on one account exactly as on three. The fold, the
+  ladder, the `TypeError` door and the two wired overrides are untouched, and
+  the S2 pins and the inverted tripwire stay green.
+* **`corpus_gate.py`, `tools/l1s3_surface_census.py`,
+  `tools/l1_design_reader_probe.py`, `tests/test_corpus_gate_outcomes.py`,
+  `tests/test_document_report.py`, `tests/test_sibling_omission.py`,
+  `tests/test_parser_*`** — the shared surfaces every card moves with its own
+  edit: the gate's per-account assertions and the caller register, the two
+  censuses' declarations, the registry pins, the conformance fixture, the affordability
+  constant reconciled to the registry's new size, and the pins that had to
+  move with the vocabulary and the document field set. The
+  register is a SHARED APPEND SURFACE and the composition lesson was followed:
+  `git show train9:corpus_gate.py | grep -c 'tools/l1s4'` is **0**, so this
+  card re-declares nothing and lifts nothing from another branch.
+
+`webapp/static/app.js` carries MINOR-10's label and nothing else; `node --check`
+is its only proof, which is the same honest limit L1-S3 recorded for it.
+
+## The privacy scans, and the six tokens this cell's own added lines carried
+
+The branch scan's first run was **not** zero, and what it found is worth the
+record because two of the six were in PRODUCTION SOURCE:
+
+* two printed amounts had reached a COMMENT in `analysis/member_statement.py`,
+  where a comment explaining the reversal measurement quoted the measurement.
+  A comment is as permanent as any line and travels as far;
+* four were the constructed fixtures — a period whose plausible two-digit year
+  is a date some statement in the archive really prints, and three cent-bearing
+  amounts a real statement happens to print too.
+
+Every one is now impossible rather than absent, which is the difference between
+a fix and a substitution:
+
+* the comment says what it measured in COUNTS;
+* the generator's public formatter is what a test calls to build the exact
+  printed line it is about to break, so no money-shaped literal is written on an
+  added line at all;
+* every figure the generator takes ends in `.00`, so every running balance,
+  column total and cross-account total it computes falls under the program's
+  standing `round_money` exclusion;
+* the two pair-and-a-cent values are arithmetic over a one-decimal base;
+* the constructed period uses a distant year, the discipline
+  `tests/data/parser_conformance_fixtures.py` already used for `bank_ozk`.
+
+The COMMIT-MESSAGE scan was not zero either: one WORDS bigram, ordinary English
+prose about a printed column. It was reworded with `--msg-filter` over the whole
+branch, the tree verified BYTE-IDENTICAL across the rewrite,
+`refs/original` removed, and the scan re-run. The coordinator asks for four hard
+zeros, and a zero is worth more than an attribution.
+
+Both scans were run again at the closure tip and both are zero: the branch
+scan over 4,592 added lines against 13,637 distinctive tokens from all 23
+documents, and the message scan over all 18 commits. The branch scan reports
+12 RAW matches there, every one of them the program's standing `words_class`
+exclusion — ordinary English words that a statement also happens to print.
+That number is not the six above and does not contradict it: the six were
+real hits that were fixed, and these twelve are matches the rule was written
+to discount. Residue files and residue sites are 0.
+
+## Proof floor
+
+Every row below is one run, with its exit code verbatim, on a durable log.
+
+Two trees are named because two were measured. The BASE is `eeaf566` in its own
+detached worktree; the archive-scale proofs at the tip are `b91f348`; the three
+CLOSURE commits that follow it (`6fbf772`, `9d5052a`, `c4b451c`) touch only two
+test files and one instrument, so they cannot move a payload, and the suite,
+the marked slice, the mutation table, the leaf enumeration and both privacy
+scans were re-run at `c4b451c` while the archive proofs were not. That is
+stated rather than glossed: a reader who disagrees can re-run them, and the
+attribution instruments would show it.
+
+A non-zero exit is not a failure everywhere. Two of these instruments report
+FINDINGS with a non-zero code by design, and both are noted inline.
+
+### At the base tree `eeaf566`
+
+| proof | result | exit |
+|---|---|---:|
+| `l1s1_seam_probe` capture | 232 documents, 80 registrations, seam `document` | 0 |
+| `cohort_replay --group --expect-identical` | the census group reproduces the run of record EXACTLY, before any of this code existed | 0 |
+| `cohort_replay` whole archive, 4 chunks | 3,380 population · 3,351 replayed · **2,596 / 2,596 previously validated preserved** · **0 BLOCKING regressions** | 0 ×4 |
+| `regfp_zero_movement_sweep` whole archive, 4 chunks | 3,380 · 2,669 compared · 2,620 identical · 46 moved · 21 now-publishes · 3 now-raises | 1 ×4 — *findings present, `return 1 if findings else 0`* |
+
+### At the tip
+
+| proof | result | exit |
+|---|---|---:|
+| `l1s4_marker_sweep` | 3,351 read · **8 claimed · 8 published · 0 refused after claiming · 0 claimed that were not `failed` at baseline** | 0 |
+| `l1s4_document_replay` | 8 cohort · 8 replayed · **8 newly validated · 12 accounts · 0 regressions**; every account `reconcile.ok`, `adb.ok`, basis `calendar_day_printed_period`, policy `canonical_v1`, `posting_dates_cover_source` | 0 |
+| `l1s4_document_replay --leaves` | **23 documents carry the block · 18 distinct leaf paths · 15 × 10 leaves (carriers) · 8 × 13 (this card's)**; 8 newly validated, 0 regressions | 0 |
+| `l1s4_q3_oracle` | 6 sections · probe passes 6 · production admits 6 · **30 / 30 mutants refused by both · 0 disagreements** | 0 |
+| `l1s4_transfer_killers` | 7 documents · **47 pairs · 43 flagged · 4 refused** · constructed ambiguous pair refused · agrees with the design | 0 |
+| `l1s2_admission_probe` | the 15 protected carriers still publish their omissions, unchanged classes; **0 documents this tree no longer publishes** | 0 |
+| `q3_corroboration_probe` (composed, unchanged) | **N = 6** · its own 5 mutants killed 6/6 · demonstrated target 2 + 6 = 8 | 0 |
+| `l1s1_seam_probe` vs the base capture | 232 compared · **226 byte-identical · 6 moved, and the ONLY key that moves is `document`** · all six are protected carriers · account seam 232 identical · integrity flags and ORDER 232 identical · ladder 232 unchanged | 2 — *movers present, `return 0 if moved == 0 else 2`* |
+| `cohort_replay --group` | 8 · 8 replayed · **8 newly validated · 0 regressions** | 0 |
+| `l1s4_mutation_table` | **32 mutants · 32 killed · HOLES = 0** | 0 |
+| canonical guards (5 files) | 255 passed | 0 |
+| canonical conformance (7 files) | 1,282 passed, 41 skipped | 0 |
+| the L1 test files (11) | 302 passed, 10 deselected | 0 |
+| `l1s3_surface_census` | no unexcused surface | 0 |
+| `l1_design_reader_probe --census` | the seam census, pin re-measured in the same commit as each edit above it | 0 |
+| `node --check webapp/static/app.js` | parses | 0 |
+| the FULL default suite | **7,815 passed, 44 skipped, 35 deselected** | 0 |
+| `corpus_gate.py` | **GREEN** — 109 pinned PDFs (103 native, 6 committed OCR), 0 exclusions · 105 PASS / 3 WITHHELD / 1 REFUSED · ADB 108/108 canonical · currency and provenance 108/108 pinned · oracle independence held | 0 |
+| the corpus-marked slice | **31 passed, 7,863 deselected** | 0 |
+| `cohort_replay` whole archive, 4 chunks | 3,380 · 3,351 replayed · **2,596 / 2,596 preserved · 0 BLOCKING** · newly validated 29 against the base's 21 | 0 ×4 |
+| `regfp_zero_movement_sweep` whole archive, 4 chunks | every field equal to the base except `no_payload_now_publishes` 21 → 29 and `no_payload_raises_again` 661 → 653 | 1 ×4 — *findings present* |
+| `l1s3_sweep_attribution` (sweep) | **70 findings at BOTH trees identical · 0 different at both · 8 at the TIP only · 0 at the BASE only** | 0 |
+| `l1s3_sweep_attribution --replay-*` | 3,380 replayed at both trees · **exactly 8 rows differ**, ignoring `ms` | 0 |
+| `privacy_scan_branch` | 4,592 added lines · 23 documents · 13,637 distinctive tokens · **0 hits** (12 raw, all the standing `words_class` exclusion) · 0 residue files | 0 |
+| `huntington_msg_privacy_scan` | **18 commits · 0 hits** | 0 |
+
+The two attribution rows are the ones that carry the claim. Everything else
+measures a tree; those two measure the DIFFERENCE between two trees over one
+population, and they name eight documents, the same eight, twice.
+
+## The commits
+
+Nine numbered steps and six corrections, in order: the account-publication seam
+with the per-account report builder and R-d's transfer identification; the first
+publisher and the `document` block a single-account carrier can finally publish;
+the package layer's exclusion, refusal and period count; the Q3 class judged
+against the probe that measured it; the constructed pages, their refusals and
+the mutation table; the movement columns as an exact oracle and the reversal
+convention they uncovered; the four mutants nothing had failed on; the
+two-denomination refusal; and the six tokens the branch scan found in this
+cell's own added lines. The corrections are the replay tool's ADB keys, the
+statement builder's unused argument, the module docstring that described the
+stated totals it had stopped publishing, an account collector opened and never
+read, a malformed transfer record that raised the wrong kind of error at the
+gate, and two re-pins of the design census's line number in the same commit as
+the edit that moved it.
+
+One message was reworded by `--msg-filter` for a WORDS bigram, the tree verified
+byte-identical across the rewrite and `refs/original` removed; the shas cited in
+this section are the post-rewrite ones.
+
+Then three CLOSURE commits, which exist because the closure run found two
+things the desk had not. `6fbf772` rebuilds the two-denomination fixture as a
+differential pair, because the mutation table at the tip proved the old one was
+passing for a second reason; `9d5052a` reconciles the affordability constant to
+the registry's actual size, the pin this card had moved two thirds of; and
+`c4b451c` teaches the document instrument to enumerate the added block's leaves
+per sha, which is what the card asked for and what the seam capture — storing
+digests — could not supply.
+
+All three touch only test files and one instrument. None can move a payload,
+which is why the archive-scale proofs stand at `b91f348` while the suite, the
+marked slice, the mutation table, the leaf enumeration and both privacy scans
+were re-run at `c4b451c`.
+
+## Why the replay and the sweep are each run TWICE
+
+`tools/regfp_zero_movement_sweep.py` and `tools/cohort_replay.py` both compare a
+tree against the payload the RUN OF RECORD cached, and the run of record is
+batch 8's. `train9` has composed movement cells since, so a measurement at ANY
+train9 descendant reports THEIR distance as well as this branch's — and a card
+that read only its own would either claim someone else's movement or explain
+away its own inside the same number. Both were therefore run at the BASE tree
+(`eeaf566`, a detached worktree) and at this tip over the identical population,
+and `tools/l1s3_sweep_attribution.py` differences the two finding sets by
+content sha, so a document whose verdict or moved-field set CHANGED shows up as
+one finding removed and one added rather than as a silent match.
+
+## Risks, last
+
+1. **The Q3 class has still never been exercised against OCR'd input.** All six
+   documents are `native-pdf-text`; none was OCR'd. The class exists to bound
+   the hazard where an extractor loses a section's ledger rows while its two
+   captions survive and happen to net to zero, and that hazard cannot arise on
+   this population. `Q3-CORROBORATION-PROBE`'s review carried this as MINOR-1
+   and Phase 2 / `OCR-LEGACY-AUDIT` must re-measure before relying on the class
+   there. This card inherits the risk unchanged and adds nothing to it: the two
+   printed handles it binds by are a second reading of the same artifact, not a
+   second artifact.
+2. **One census group, one core processor.** 8 / 8 is a strong result about this
+   template and no result at all about any other. The transfer rule and the Q3
+   class are general; the reader's row grammar is this template's.
+3. **The payload-shape change reaches 21 documents, 15 of them protected.** It
+   is additive — one top-level key, no existing leaf moved — and it is measured
+   per SHA below. It is nonetheless the one thing in this card that touches a
+   document batch 8 validated, and the version bump it requires is the thing a
+   composer must not forget.
+4. **The registration publishes `bank=None`.** Every consumer already renders
+   the absence, and the alternative was publishing a contact domain as a bank.
+   Named because it is a choice rather than an accident.
