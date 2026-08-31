@@ -15,7 +15,22 @@ document store was touched at all is the `artifact_cache` **index table** of the
 (`.claude/recovery/webapp_data_train8_cold/webapp.db`), opened `mode=ro`: that table carries stage
 names, cache keys, hashes, byte sizes and timestamps and no document text. The run of record's own
 `rows.csv` was read for provenance columns (`source_path`, `source_model`, `visual_rung`,
-`outcome_class`) — the run's own record of itself, not the documents.
+`cache_visual`, `dispatch_outcome`, `outcome_class`) — the run's own record of itself, not the
+documents.
+
+**Which run each number came from — corrected after adversarial review.** The frozen
+deterministic-v1 / multi-account-v1 baseline was measured as
+`discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a` (the **batch-9 run of
+record**). An earlier draft of this document cited
+`discovery_reports/TRAIN8-7185633/2026-08-28T224640.553059-0000-cda8882d` (the batch-8 run)
+throughout while naming the batch-9 baseline in its header. **Every row-derived number below has
+been re-measured on the batch-9 run of record and each table names the run it came from.** The
+entire intake-provenance surface is byte-for-byte identical between the two runs — `visual_rung`,
+`cache_visual`, `source_path`, `source_model`, 3,506 rows, 3,380 distinct shas — because nothing in
+batch 9 touched the intake ladder, so the governing finding is unaffected. Three numbers did change
+and are corrected in place: the U trigger (122 → **123**), the residue bound (135 → **136**), and
+the local-Tesseract outcome split. The cold cache is shared by both runs and its numbers are
+unchanged.
 
 Two instruments produced the numbers below and both are committed:
 
@@ -43,11 +58,12 @@ subsystem**, which is a different and more dangerous thing.
 
 | measurement | value | evidence |
 |---|---|---|
-| `visual_rung` column, run of record | `not_attempted` on **3,506 / 3,506** rows | `rows.csv` of `discovery_reports/TRAIN8-7185633/2026-08-28T224640.553059-0000-cda8882d` |
+| `visual_rung` column | `not_attempted` on **3,506 / 3,506** rows | `rows.csv`, batch-9 run of record `TRAIN9-7b25d70/…-91f5179a` (identical on the batch-8 run) |
+| `cache_visual` column | `bypass` on **3,506 / 3,506** rows | same; a fifth independent witness, contributed by the adversarial review and confirmed here |
 | distinct OCR settings keys in the cold cache | **1** | `tools/ocr_legacy_census.py --cache-index` |
 | which key | `ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)` | recomputed at this tree against the index's single distinct `settings_key` |
-| `source_path` distribution | native **3,297** · local_tesseract **179** · none **30** · **visual 0** | `rows.csv` |
-| `source_model` distribution | `native-pdf-text` 2,871 · `+wells` 234 · `+printed-rows` 83 · `+navy-federal-layout` 48 · `+first-citizens-layout` 36 · `+woodforest-columns` 19 · `+desjardins-layout` 6 · `local-tesseract-ocr` 179 · empty 30 | `rows.csv` |
+| `source_path` distribution | native **3,297** · local_tesseract **179** · none **30** · **visual 0** | `rows.csv`, batch-9 run of record (identical on the batch-8 run) |
+| `source_model` distribution | `native-pdf-text` 2,871 · `+wells` 234 · `+printed-rows` 83 · `+navy-federal-layout` 48 · `+first-citizens-layout` 36 · `+woodforest-columns` 19 · `+desjardins-layout` 6 · `local-tesseract-ocr` 179 · empty 30 | `rows.csv`, batch-9 run of record (all nine values identical on the batch-8 run) |
 | OCR artifacts per input sha (cold cache) | `1x: 3,364`; inputs with **more than one: 0** | `--cache-index` |
 | analysis artifacts per input sha | `1x: 2,630`; more than one: **0** | `--cache-index` |
 
@@ -87,7 +103,7 @@ output in the run of record. `reusable` = correct, tested, wired, but not exerci
 | 5 | the intake ladder | `ocr/pipeline.py:22-151` (`parse_statement`) | active | The single routing authority (O-1). Called by `webapp/worker.py:6`, `discovery/runner.py:399,455`, `corpus_gate.py:1715`, `parse.py:5`, `batch.py:70`, `coverage_audit.py:19`. 15/15 dedicated tests. |
 | 6 | native-text rungs | `ocr/native_text.py:1521-1561` (`native_statement`) + 8 rungs at `:288, :500, :576, :801, :852, :884, :905, :1453` | active | Produced 3,297 / 3,506 reads. 18 commits, last 2026-08-26. Ladder identity pinned by `tests/test_native_rung_parity.py:134,184,250,271`. |
 | 7 | printed column grid | `ocr/column_grid.py:1-404`; entry `page_words`, `find_columns`, `read_rows` | active | Sole consumer `ocr/native_text.py:10` (Woodforest — 19 documents in the run of record). 18 tests in `tests/test_column_grid.py`. Named at `tests/test_no_parser_helper_clones.py:215,248` as an architecture exclusion. |
-| 8 | local Tesseract rung | `ocr/local_tesseract.py:12-44` | active | Produced 179 reads (36 validated, 16 withheld, 5 review, 122 failed). **But: zero default-suite coverage** — its only real call site (`tests/test_new_statement_corpus.py:218`) is reachable only from the `live`+`skipif(tesseract missing)` test at `:263`; everywhere else it is monkeypatched (`tests/test_pipeline.py:222` replaces it with `pytest.fail`). 1 commit, 2026-07-28. See F-5. |
+| 8 | local Tesseract rung | `ocr/local_tesseract.py:12-44` | active | Produced 179 reads — on the batch-9 run of record: **36 validated, 15 withheld, 5 review, 123 failed** (the batch-8 run split them 36 / 16 / 5 / 122). **But: zero default-suite coverage** — its only real call site (`tests/test_new_statement_corpus.py:218`) is reachable only from the `live`+`skipif(tesseract missing)` test at `:263`; everywhere else it is monkeypatched (`tests/test_pipeline.py:222` replaces it with `pytest.fail`). 1 commit, 2026-07-28. See F-5. |
 | 9 | rasterization | `ocr/rasterize.py:12-27` | active | `pdf_page_count` used by `webapp/app.py:1876`, `balance_forensic_audit.py:34`; `rasterize_page` by `webapp/app.py:1996,2234`. `rasterize_pdf` itself is reachable only from the visual rung and `ocr/local_tesseract.py:22`. **One offline assertion in the whole suite** (`tests/test_new_statement_corpus.py:242`, `pdf_page_count` only); `rasterize_pdf` / `rasterize_page` have no real-invocation offline test. Hard-codes a Windows Poppler path at `:7-10`. |
 | 10 | Unlimited-OCR client | `ocr/ocr_client.py:1-485`; request `:419-485`, cleanup chain `:409-416` | **unsafe** | Zero documents in the baseline. `collapse_repeated_amounts` (`:63-82`) and `fix_amount_column_bleed` (`:129-171`) both **rewrite ledger values**, in complementary scopes — demonstrated, F-1 and F-11. `embed_image_regions` (`:344-374`) injects document PIXELS into the canonical text — F-2. `_mask_qr` (`:235-242`) and `_TD_MARKERS_RE` (`:219`) are issuer-specific behaviour inside the intake layer — F-3. Builds the client from the unbounded env settings (`:385-387`) — F-4. 38/38 tests in `tests/test_ocr_client.py`, all against `_FakeClient` (`:331-371`). |
 | 11 | endpoint liveness probe | `ocr/availability.py:140-178` (`probe_visual_ocr`), `:87-127` (`_unreachable`) | reusable | Correct, well-argued, injection-seamed (`list_models`), and never fired: its only caller is `discovery/cli.py:31`, reached only in `--scanned-visual`, which was never run. `detail=str(exc)[:200]` (`:125`) is console-only and that is asserted as an AST fact by `tests/test_privacy3_boundaries.py:1770,1783`. Keep it — Phase 2's refuse-to-start needs exactly this. |
@@ -111,7 +127,7 @@ output in the run of record. `reusable` = correct, tested, wired, but not exerci
 | 19 | `OCR_STAGE_VERSION` | `webapp/artifact_cache.py:297` (= **4**); read at `:594`; recorded at `tools/train/provenance.py:51,236` | active | Pinned by `tests/test_artifact_cache.py:854` (`assert OCR_STAGE_VERSION == 4`); `:861,866` prove a bump invalidates rather than corrupts. Bump history at `:275-296` (page_integrity → Woodforest columns → printed-row extraction). |
 | 20 | OCR cache key inputs | `webapp/artifact_cache.py:592-604` | active | `stage_version, force_ocr, allow_local_ocr, allow_visual_ocr, dpi, fallback_dpi, ocr_model, ocr_base_url, ngram_size, window_size`. Excluded by design (`:121-141`): filename, `max_workers`, `timeout`, `retries`, `api_key`, callbacks, the preflight profile. Every knob's partitioning is pinned by `tests/test_artifact_cache.py:143` and `tests/test_visual_rung.py:492-501`. **Not keyed:** the Tesseract binary version, the Poppler version, the PyMuPDF version — see F-6. |
 | 21 | committed corpus artifacts | `corpus_artifacts.py:42,72-132`; generator `build_corpus_cache.py:26-111`; store `tests/corpus_cache/{manifest.json, ocr/<SHA>.md, pages/<SHA>.json}` (6 documents, 14 files) | active | Read by `discovery/runner.py:431-433` and `corpus_gate.py:1730-1731`, both hash-verified (`artifact_sha256`, `pages_sha256`). Manifest carries `ocr_model` per entry (`build_corpus_cache.py:87`). Exists precisely to keep Tesseract version drift out of the pinned corpus (`tests/corpus_cache/README.md`). The generator itself is `reusable` (reach = NO, 5 commits). |
-| 22 | cold cache (batch-8 run of record) | `.claude/recovery/webapp_data_train8_cold/` | active | 5,997 files: `artifacts/ocr` 3,364 JSON + `artifacts/analysis` 2,630 JSON + `webapp.db`. **PDF count: 0** — the source documents are not in it, which is why F-8 (Q3 re-measurement) needs the archive and not just the cache. |
+| 22 | cold cache (shared by both runs) | `.claude/recovery/webapp_data_train8_cold/` | active | 5,997 files: `artifacts/ocr` 3,364 JSON + `artifacts/analysis` 2,630 JSON + `webapp.db`. **PDF count: 0** — the source documents are not in it, which is why F-8 (Q3 re-measurement) needs the archive and not just the cache. |
 | 23 | the seam OCR → `Statement` / `DocumentReport` | `webapp/worker.py:318-343` → `:408` → `analysis/pipeline.py:1119-1123`; `discovery/runner.py:399-437` → `:511-517`; `tools/cohort_replay.py:129-141` | active | The seam is exactly **two values**: `markdown = StatementMarkdown.to_markdown()` and `sheets = list(StatementMarkdown.pages)`. There is no third channel and no per-field provenance — see §5.5. `corpus_gate.py:725-772` (`ANALYSIS_CALL_SITES` / `PRODUCTION_SUPPLIES_SHEETS`) is a standing guard that every production analysis caller passes `sheets=`. |
 | 24 | webapp job worker | `webapp/worker.py:293-342` (`_read_document`), `:346-470` (`run_job`), `_STAGE_NAMES` `:45-49` | active | Owns MODE policy only, never routing (`:39-44`). `deterministic` mode: offline rungs, then an operator-forced visual escalation at `:444`. `auto` mode: full ladder at `:454`, `allow_visual_ocr=True`. |
 | 25 | discovery visual rung | `discovery/runner.py:438-500` (`_read_visual`), `:521-541` (`_needs_visual_upgrade`), `:606-670` (recovery + upgrade), `:100-101` (`VISUAL_*` vocabulary), `:181` (row field) | **reusable — the Phase-2 architecture, already written** | Recovery (offline rungs produced nothing) and Upgrade (Tesseract read that no parser claimed) both call `parse_statement(force_ocr=True, allow_visual_ocr=True)` into a disjoint cache partition, then the SAME `_analyse`. Fail-closed on an endpoint death (`:620-621`, `ocr_failed`). `_needs_visual_upgrade` is narrow by construction (`:524-533`). **Exercised on 0 documents.** |
@@ -417,10 +433,10 @@ changes F-1/F-11 (the rewrite pair), F-2, F-6 and F-9.
 Never "try OCR and see". Exactly two triggers, both already implemented and both already recorded on
 the discovery row:
 
-| trigger | decided by | recorded as | population in the run of record |
+| trigger | decided by | recorded as | population on the **batch-9 run of record** (batch-8 in brackets) |
 |---|---|---|---|
 | **R — recovery.** The offline rungs produced *no text at all*. | `discovery/runner.py:606` (`markdown is None`); upstream `ocr/pipeline.py:57-89`, and the profile-driven skip at `:63-67` (`valid_pdf and page_count > 0 and native_text_total_chars == 0`) | `outcome_reason = deferred_visual_ocr` (`discovery/runner.py:599`; vocabulary `telemetry/record.py:65`), then `visual_rung = recovered \| failed` | **13 documents** |
-| **U — upgrade.** A **local-Tesseract** read that no parser claimed, with a live dispatch. | `discovery/runner.py:521-541` (`_needs_visual_upgrade`): requires `source_path_for(model) == "local_tesseract"`, requires `collector.seen` and `dispatch.outcome != "claimed"`, refuses on a cached payload and on parser crashes | `visual_rung = upgraded \| no_upgrade \| failed` (`:100-101,181`) | **≤ 122** (Tesseract reads with `outcome_class = failed`) |
+| **U — upgrade.** A **local-Tesseract** read that no parser claimed, with a live dispatch. | `discovery/runner.py:521-541` (`_needs_visual_upgrade`): requires `source_path_for(model) == "local_tesseract"`, requires `collector.seen` and `dispatch.outcome != "claimed"`, refuses on a cached payload and on parser crashes | `visual_rung = upgraded \| no_upgrade \| failed` (`:100-101,181`) | **123** (was ≤122 on the batch-8 run). Derived two ways that agree exactly: `source_path = local_tesseract AND dispatch_outcome != claimed` = 123, and `source_path = local_tesseract AND outcome_class = failed` = 123 |
 
 Both are properties of a completed offline attempt, computed before any OCR call, and written to the
 row whether or not the rung then runs. A native-text document that goes unclaimed is **never**
@@ -464,8 +480,11 @@ automatically lands in its own analysis partition too.
   tests assert the module is absent from `sys.modules` after importing the discovery CLI
   (`tests/test_discovery.py:310-322`, `tests/test_visual_rung.py:252-265`). Keep that property for
   PaddleOCR: a lazy import inside the rung, plus its own absence assertion.
-* **The residue is bounded by the triggers, and the bound is measurable in advance.** 13 (R) + ≤122
-  (U) = **≤ 135 of 3,506 documents, 3.8%**, on the frozen population. A run whose escalation count
+* **The residue is bounded by the triggers, and the bound is measurable in advance.** On the
+  **batch-9 run of record**: 13 (R) + 123 (U) = **136 of 3,506 documents, just under 4%**, with the
+  two trigger sets DISJOINT (measured overlap 0). The batch-8 run gave 135; a runner built to the
+  stale figure would refuse the 123rd document, which is why the provenance correction matters more
+  than the arithmetic. A run whose escalation count
   exceeds its own pre-computed trigger population is a defect, not a cost overrun — so the runner
   should refuse to escalate more documents than the triggers named, and report the count.
 * **The default extractor for the residue is free.** PaddleOCR is local and CPU-capable;
@@ -475,8 +494,8 @@ automatically lands in its own analysis partition too.
   `FREE_MODELS` as the *reporting* half of the same policy. A paid endpoint should require an
   explicit, recorded opt-in, not an env var nobody audits.
 * **Paid OCR / VLM remains out of scope** for the first Phase-2 wave, per the cost-first doctrine —
-  and the audit's own numbers argue it: the residue is 3.8%, and none of it has been tried with the
-  free extractors yet.
+  and the audit's own numbers argue it: the residue is just under 4%, and none of it has been tried
+  with the free extractors yet.
 
 ### 5.5 The provenance the payload carries
 
@@ -517,8 +536,11 @@ Proposal, in ascending cost — the first is required, the rest are Phase-2-late
   validated document was validated from a native or Tesseract read; the R trigger only fires where
   no text was produced (outcome `deferred`), and the U trigger only fires where the dispatch did not
   claim — and a validated document is by definition claimed. **No previously validated document can
-  reach either trigger.** That is not a policy, it is a property of `discovery/runner.py:521-541,606`,
-  and it should be asserted as a test before the rung is enabled.
+  reach either trigger.** That is not a policy, it is a property of `discovery/runner.py:521-541,606`
+  — and it is now also a MEASUREMENT: on the batch-9 run of record the intersection of the 2,625
+  validated shas with the 136-document trigger set R ∪ U is **0** (independently derived by the
+  adversarial review and confirmed here). True by construction AND true by measurement; it should
+  still be asserted as a test before the rung is enabled.
 * **The adoption test stays "the deterministic validator claimed it".** `discovery/runner.py:655-660`
   adopts the visual read only if `visual_payload is not None`. Keep it; do NOT relax it to "the OCR
   read looks better".
@@ -649,7 +671,7 @@ been measured only on six `native-pdf-text` documents. The re-measurement, as a 
    paid experiment require an explicit, recorded opt-in. Ruling wanted before the rung is enabled.
 4. **Trigger T (truncation-flagged Tesseract reads):** admit it as a third escalation trigger, or
    keep truncation surface-only? It is the only trigger that would grow the residue beyond the
-   measured ≤135.
+   measured 136.
 5. **PaddleOCR's role:** first-choice free extractor for the residue (before Unlimited-OCR, since it
    needs no GPU), or a second opinion only where Unlimited-OCR's read goes unclaimed? The two orders
    have very different cost and very different provenance shapes.
@@ -679,6 +701,7 @@ Headline numbers and where each comes from:
 | ocr stage: 3,364 rows, 3,364 distinct inputs, 1 distinct settings key, 0 multi-artifact inputs | `--cache-index` |
 | analysis stage: 2,630 rows, 2,630 distinct inputs, 0 multi-artifact inputs | `--cache-index` |
 | the single settings key = `(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)` | `ocr_settings_key()` recomputed at this tree and compared to the index's distinct key |
-| `visual_rung = not_attempted` on 3,506/3,506; `source_path` and `source_model` distributions; outcome-class splits; 13 `deferred_visual_ocr`; 122 failed Tesseract reads | `rows.csv` of the run of record |
+| `visual_rung = not_attempted` and `cache_visual = bypass`, both 3,506/3,506; `source_path` and `source_model` distributions; outcome-class splits; R = 13 `deferred_visual_ocr`; U = 123; R ∪ U = 136, overlap 0; validated ∩ (R ∪ U) = 0; 2,625 distinct validated shas of 3,380 | `rows.csv` of the **batch-9 run of record**, `discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a` |
+| the same intake-provenance columns on the batch-8 run, for the equivalence claim | `rows.csv` of `discovery_reports/TRAIN8-7185633/2026-08-28T224640.553059-0000-cda8882d` |
 | F-1 demonstrated | three money tokens on three consecutive lines → one token; the same three inside `<td>` cells → unchanged; three DISTINCT amounts → unchanged; and `[a,a,a,b,c]` on five consecutive lines → `[a]`, i.e. two distinct amounts DELETED (`ocr.ocr_client.collapse_repeated_amounts` and `postprocess`, synthetic input, no document) |
 | F-11 demonstrated | an Amount cell holding two fused money values → leading value moved into the description, trailing value promoted to the row's amount (`ocr.ocr_client.fix_amount_column_bleed`, synthetic input, no document) |
