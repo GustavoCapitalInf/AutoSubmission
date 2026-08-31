@@ -658,6 +658,30 @@ def parse_member_statement(markdown: str) -> Statement | None:
     # L1-C1: the reappearance itself, in both directions. An enumerated account
     # with no section is an account this reader cannot account for; a section
     # the table does not enumerate is a boundary the table did not establish.
+    #
+    # L1-C12 IS CARRIED HERE, AND IS NOT IMPLEMENTED. The design asks that a
+    # FACILITY enumerated on the table never be published as a deposit section.
+    # This module has no facility vocabulary at all, deliberately: this
+    # population prints no marker distinguishing one, and a rule invented from
+    # no printed evidence is the defect the whole card is built against.
+    #
+    # What holds C12 closed today is the conjunction of this line and the
+    # furniture `_locate_sections` demands. Set equality means every enumerated
+    # row HAS a section; a section exists only where the paper prints this
+    # template's own heading WITH an opening balance and its own closing. So a
+    # facility can reach publication only by also printing a full deposit-shaped
+    # posting section — at which point nothing printed distinguishes it, and no
+    # reader could.
+    #
+    # THE TRIPWIRE, named so a later change is not silent: C12 reopens the
+    # moment a section can be admitted on WEAKER furniture than that — a
+    # heading without the printed opening, a section located by identity alone,
+    # a continuation admitted without its closing, or a roll-up row published
+    # with no matching section. Any of those breaks the conjunction above, and
+    # C12 then needs its own printed evidence, its own condition and its own
+    # mutant. Measured on this card's population: 18 enumerated rows, 18 located
+    # sections, identity sets equal on 8 of 8 documents, so the configuration in
+    # which C12 could be observed does not occur here.
     if set(identities) != set(row_identities):
         return None
 
@@ -757,6 +781,22 @@ def parse_member_statement(markdown: str) -> Statement | None:
 
 
 def _prints_daily_table(section_text: str) -> bool:
+    # L1-C9 IS VACUOUS ON THIS POPULATION, AND THAT IS MEASURED RATHER THAN
+    # ASSUMED. The design asks that a printed daily-balance table be read as an
+    # oracle over the ledger. No section this reader publishes prints one:
+    # measured across all 8 documents, 0 of 18 LOCATED sections (not merely 0
+    # of the 12 published) print a daily table. There is therefore no C9
+    # condition in this module and no C9 mutant in the table — a mutant must
+    # remove a gate that exists, and inventing one to be able to kill it would
+    # make the table longer and prove nothing.
+    #
+    # This function is NOT that oracle. It answers one of the seven Q3
+    # conditions — "does this omitted section print a daily-balance table" —
+    # which is a REFUSAL: a section printing one is not idle, so its omission
+    # is not admitted. It is written to read a table this population does not
+    # print precisely so the class is decided by measurement rather than by an
+    # assumption that none exists.
+
     """A daily-balance CAPTION with two or more of its rows under it.
 
     A caption alone is not a table, and this template prints the words `Average
