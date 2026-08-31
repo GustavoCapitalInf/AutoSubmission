@@ -64063,7 +64063,8 @@ The repository's Unlimited-OCR past is not a remnant. It is a **complete, wired,
 currently unexercised subsystem**, and the governing measurement is that it has
 never run:
 
-* `visual_rung = not_attempted` on **3,506 / 3,506** rows of the run of record.
+* `visual_rung = not_attempted` AND `cache_visual = bypass`, each on **3,506 / 3,506**
+  rows of the run of record. (The second witness came from the adversarial review.)
 * The cold cache's `ocr` stage holds **3,364 rows, 3,364 distinct inputs and
   exactly ONE distinct settings key**, recomputed at this tree as
   `ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)`
@@ -64092,9 +64093,11 @@ rewrite nothing was ever in a position to catch.
 ## Solution — the classification, the reuse plan, the proposal
 
 **Classification totals (45 components, exactly one label each):**
-`active` **26** · `reusable` **9** · `obsolete` **4** · `duplicate` **1** ·
-`unsafe` **4** · `unknown` **0** · absent/net-new **1** (PaddleOCR: zero hits
-anywhere in the tree).
+`active` **27** · `reusable` **10** · `obsolete` **4** · `duplicate` **1** ·
+`unsafe` **4** · `unknown` **0** · PaddleOCR **1** (no code anywhere, but two tracked
+pre-deterministic DESIGN specs — the first draft said "zero hits", which was false;
+my own search had excluded the docs tree). Two components were added after review:
+`telemetry/stated_counts.py::CachedArtifacts` and `webapp/app.py`.
 
 `unknown` is empty because reachability was COMPUTED (a transitive first-party
 import walk from eight production entry points, `tools/ocr_legacy_census.py`)
@@ -64141,7 +64144,8 @@ rented-remote-GPU half.
   and see". R (recovery): the offline rungs produced no text at all →
   `outcome_reason = deferred_visual_ocr`, **13 documents**. U (upgrade): a
   local-Tesseract read that no parser claimed, with a live dispatch →
-  `visual_rung = upgraded | no_upgrade | failed`, **≤ 122 documents**. A
+  `visual_rung = upgraded | no_upgrade | failed`, **123 documents** on the batch-9
+  run of record (an earlier draft read the batch-8 run and said ≤122). A
   native-text document that goes unclaimed is never escalated. A validator
   VERDICT is explicitly not a trigger — that is how "OCR until it reconciles"
   gets built by accident.
@@ -64155,11 +64159,12 @@ rented-remote-GPU half.
 * **Cost bound** — zero recurring paid inference stays the default and stays
   structural (the lazy import of `ocr.ocr_client` inside the rung, asserted by
   `tests/test_discovery.py:310-322`; keep the property for PaddleOCR). The
-  residue is bounded IN ADVANCE by the triggers: 13 + ≤122 = **≤ 135 of 3,506 =
-  3.8%**, and a run that escalates more documents than its triggers named is a
+  residue is bounded IN ADVANCE by the triggers: 13 + 123 = **136 of 3,506, just
+  under 4%**, the two trigger sets measured disjoint, and a run that escalates
+  more documents than its triggers named is a
   defect, not an overrun. Both proposed extractors are local and unmetered; paid
   OCR/VLM stays out of the first wave, and the audit's own numbers argue for that
-  — none of the 3.8% has been tried with the free extractors yet.
+  — none of that just-under-4% has been tried with the free extractors yet.
 * **Provenance shape** — today it is ONE token for the whole document
   (`StatementMarkdown.model`), and the seam into the validator is exactly two
   values (`to_markdown()` and `pages`), so there is no per-field provenance and
@@ -64182,7 +64187,15 @@ failure direction is safe); page completeness is STRICTLY STRONGER on an OCR
 read because rasterization yields the PDF's true page count. All ten share
 exactly ONE exposure, and it is the money collapse: the only place in the OCR
 path where a value is rewritten rather than read. That is the whole safety
-delta, and it is one function.
+delta — and that sentence was FALSE, corrected after adversarial review. There are
+at least TWO value-rewriting sites, in complementary scopes:
+`collapse_repeated_amounts` outside table cells, and `fix_amount_column_bleed`
+(`ocr/ocr_client.py:129-171`) INSIDE them — the latter moves the leading money
+value of a two-money Amount cell into the description and promotes the trailing
+one. So the safety delta is a PAIR, and the audit's original remedy (confine the
+collapse to table cells) would have moved one rewrite into the other's territory.
+Open Question 1 is re-posed on the pair, and a per-function rewrite census of all
+six members of `postprocess` is now an owed Phase-2 deliverable.
 
 **Non-regression**: no previously validated document can reach either trigger —
 R fires only where no text was produced (outcome `deferred`) and U only where the
@@ -64333,3 +64346,141 @@ Eight open questions for Gustavo are listed in §6 of the audit document; the
 first three (the money collapse, whether the no-hardcodes guard extends to
 `ocr/`, and whether the `$0` policy becomes code) gate any Phase-2
 implementation card.
+
+## Closure against the adversarial review (2026-08-31)
+
+`docs/moneythumb-replacement/reviews/PHASE2_OCRAUDIT_REVIEW.md` (`15e9535`):
+**CONFIRMED WITH FINDINGS — 1 BLOCK · 5 MAJOR · 5 MINOR.** The governing finding
+reproduced on all four numbers plus a fifth witness the review contributed
+(`cache_visual = bypass`, 3,506 / 3,506); the census reproduced exactly (447
+modules, 142 reachable); the whole proof floor reproduced, both scans to the
+digit. This is an AUDIT, so closure means correcting the document until it is fit
+for Gustavo's ruling. **Every finding was reproduced independently at this tree
+before it was accepted; none was taken on the reviewer's word, and none was
+rejected.**
+
+**BLOCK-1 — the safety delta is a PAIR, not one function.**
+`fix_amount_column_bleed` (`ocr/ocr_client.py:129-171`, `_AMOUNT_BLEED_RE` at
+`:126`) is a second value-rewriting site, and its `(.+?)` prefix group admits a
+money token, so an Amount cell holding two fused money values has its leading
+value moved into the description and its trailing value promoted to the row's
+amount. Reproduced on synthetic input. That falsified §5.7's summary sentence,
+and it made the original Open Question 1 unsafe — its recommended remedy
+(confine the collapse to `<td>` cells) would have moved one rewrite into the
+other's territory, because this one lives only inside `<td>` cells. §5.7 now
+carries a two-row table of the proven sites plus a declared unknown; F-11 is a
+finding in its own right; a per-function rewrite census of all six members of
+`postprocess` is an owed Phase-2 deliverable; and OQ1 is re-posed on the pair
+with three options — remove both, scope both behind a per-extractor flag with a
+fixture per transformation, or quarantine the whole chain and re-admit function
+by function on the census. The audit now recommends quarantine with the
+flagged-and-fixtured path as the exit. F-1 also gained the review's
+strengthening: `[a, a, a, b, c]` on five consecutive lines returns `[a]`, so
+distinct adjacent amounts are DELETED, not deduplicated.
+
+**MAJOR-1 — wrong run of record.** The document named the batch-9 frozen
+baseline in its header and read the batch-8 run's rows. Re-measured on
+`discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a`:
+U = **123** (derived two independent ways that agree exactly), the residue bound
+= **136 / 3,506, just under 4%** with the trigger sets disjoint, and the
+local-Tesseract split = **36 validated / 15 withheld / 5 review / 123 failed**.
+The whole intake-provenance surface is byte-for-byte identical across the two
+runs, so the governing finding is unaffected. Every table now names the run its
+numbers came from. The non-escalation property is upgraded from an argument to a
+measurement: validated ∩ (R ∪ U) = **0**.
+
+**MAJOR-2 — the seam is THREE values.** `to_markdown()` writes the extractor's
+`model` string into the first line of the analysis input, and `ocr/pipeline.py:149`
+stamps that from `OCR_MODEL`. The channel is closed by a GUARD, not by the seam's
+shape — `admissible_text` / `SOURCE_COMMENT_RE` (`analysis/parser_registry.py:194,197-215`),
+pinned by `tests/test_filename_boundary.py` — and the guard is escapable:
+reproduced end-to-end here, a newline in the model string carries its second
+line, money token included, straight through into the admissible text (`-->`
+does not escape; the pattern is MULTILINE and not DOTALL). F-4 is widened from
+egress-only to **egress AND content injection**, and any Phase-2 extractor's
+model token must be constrained to a closed character class in the commit that
+adds it.
+
+**MAJOR-3 — two components were missing, and F-9's fix already exists.**
+`telemetry/stated_counts.py::CachedArtifacts` (now row #46) already implements
+what §5.6 called the single blocking prerequisite: settings-key filtering on the
+analysis stage and an ordered `_ocr_keys` walk for the OCR stage. F-9's remedy is
+rewritten from design to **adoption**. Its ordering ranks the visual partition
+LAST, which is an unratified extractor preference Phase 2 would inherit by
+omission — raised as Risk 7 and Open Question 10 rather than settled here.
+`webapp/app.py` is now row #47: a declared production entry point that rasterizes
+document pages and serves them over HTTP, and the surface through which both
+value rewrites reach an operator's screen. Also folded in MINOR-4: the replay
+defect covers BOTH cache stages, and the analysis stage is the nearer hazard
+because its settings key carries the registry fingerprint.
+
+**MAJOR-4 — §2.7's headline number was false as written.** The search returns
+**0 hits in Python** and **14 overall**, all under `webapp/` in non-Python files;
+it had been silently Python-only while the sentence said "across `webapp/`". The
+substance survives. What it missed is on the card's own list: `app.js:594-601`
+renders an operator-facing `"OCR confidence"` percentage that is a **hard-coded
+re-encoding of the validator's `quality` verdict** (98 / 94 / 80 / 72), with a
+second one for packages — not an OCR measurement at all. Risk 8, Open Question 9.
+
+**MAJOR-5 — "PaddleOCR: zero hits" was false.** The grep returns ten files, two
+of them substantive prior art: a 192-line design spec marked **"Status:
+Approved"** dated 2026-07-21 (PP-OCR text + bounding boxes with custom bbox-based
+row/column reconstruction, `parse.py` as its front door) and a Nanonets VLM spec
+beside it. The CODE claim stands; "no legacy to reuse" was wrong for the DESIGN
+layer. My own §0 grep excluded the docs tree and so could not have found it — the
+omission was in the search, not the tree. The spec's bbox reconstruction is the
+candidate filling for `document_geometry` (#38), which moves §5.5 item 3 from
+"later" to "there is already a design"; its architecture (an extractor that is
+also its own validator) is the opposite of the Phase-2 ruling and must be
+superseded on the record. Risk 9, Open Question 11.
+
+**MINOR-1** the census tool's docstring claimed "no `subprocess`" while importing
+it — corrected to what is true and what this section already said (read-only git
+interrogations, no subprocess write path). **MINOR-2** the empty `unknown` bucket
+was attributed to a computed walk over all rows; the instrument held 27 paths
+against 45 rows, so about sixteen labels were resolved by reading. `COMPONENTS`
+now covers every row that is a Python module and the four non-module rows are
+declared in the tool and printed by `--tree`. **MINOR-3** F-4 named three
+default-visual entry points; there are four — `sweep_ocr.py:52` is the fourth,
+and it is also the script that writes OCR'd statement text to disk. **MINOR-4**
+folded into F-9 above. **MINOR-5** F-2's scanner argument gained its concrete
+case: the committed fixtures under `tests/corpus_cache/`, which
+`tools/privacy_scan_branch.py:467` excludes wholesale.
+
+Also recorded: the 29 shas that hold no cached text in the cold cache, which is
+why both privacy scans read 3,351 of the 3,380-sha population.
+
+## Risks (revised at closure)
+
+1. **The value-rewriting PAIR (F-1, F-11) is the one thing that must be ruled**
+   before any OCR-fed document is validated. It is the only route by which an
+   extractor can make a lost or altered row look consistent instead of failing.
+2. **`cohort_replay`'s artifact selection is a prerequisite, not a follow-up** —
+   and it is now a twenty-line adoption of `CachedArtifacts` rather than new
+   design. The hazard is nearer on the analysis stage than on the OCR stage.
+3. **Two extractors in the baseline have almost no offline test coverage** —
+   `ocr/local_tesseract.py` (179 reads, 36 of them validated) has none in the
+   default suite, and `ocr/rasterize.py` has one assertion. Phase 2 doubles the
+   traffic through both.
+4. **The `$0` guarantee is asserted in a docstring and enforced by nothing** —
+   and the same unvalidated variable is a content-INJECTION path into the
+   analysis input, not merely an egress path.
+5. **The ladder-identity guard has a declared hole** (`getattr` dispatch,
+   `tests/test_native_rung_parity.py:230`) that a dynamically registered Phase-2
+   rung would walk straight through.
+6. **`OCR_STAGE_VERSION` 5 invalidates the whole OCR partition**, so the first
+   OCR-fed cold run is a cold run in the literal sense — budget for it.
+7. **An unratified extractor preference already sits in the tree.** `_ocr_keys`
+   (`telemetry/stated_counts.py:864-868`) ranks the visual partition last, so a
+   multi-partition document is silently read from its offline artifact, and
+   `cohort_replay` is about to adopt that same list.
+8. **The operator-facing `"OCR confidence"` is fabricated** and starts telling
+   the operator something false about WHICH read the moment a second extractor
+   lands behind the label.
+9. **An approved pre-deterministic design spec exists for the extractor Phase 2
+   is about to build**, and it designs an extractor that is also its own
+   validator — the opposite of the ruling.
+
+Eleven open questions now stand in §6 of the audit document. The first three
+still gate any Phase-2 implementation card: the rewrite pair, whether the
+no-hardcodes guard extends to `ocr/`, and whether the `$0` policy becomes code.
