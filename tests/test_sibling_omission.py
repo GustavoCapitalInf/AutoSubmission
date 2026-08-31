@@ -39,6 +39,7 @@ from analysis.sibling_omission import (
     DORMANCY_DECLARATIONS,
     EVIDENCE_CLASSES,
     PRINTED_DORMANCY_DECLARATION,
+    PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED,
     PRINTED_ZERO_ACTIVITY_SUMMARY,
     YIELD_ONLY_ARITHMETIC,
     SectionLedger,
@@ -153,12 +154,33 @@ def test_a_declaration_outranks_a_summary_it_disagrees_with():
 # ===========================================================================
 
 
-def test_the_vocabulary_is_exactly_the_designs_three_reachable_members():
+def test_the_vocabulary_is_exactly_the_designs_four_ratified_members():
+    """L1-C17's vocabulary, pinned by EQUALITY so a member is added by a card
+    that argues for it rather than by a call site that wanted one.
+
+    Three at L1-S2, and a FOURTH at L1-S4: `printed_pair_coincides_and_no_row_printed`,
+    granted with corroboration by Gustavo on 2026-08-30 (BATCH9_TRANSITION §8.8)
+    and measured section by section by `tools/q3_corroboration_probe.py` before
+    S4 relied on it. `telemetry/record.py::RATIFIED_OMISSION_REASONS` declares
+    the same four for the outcome fold, and the test below holds the two equal.
+    """
     assert EVIDENCE_CLASSES == {
         PRINTED_DORMANCY_DECLARATION,
         PRINTED_ZERO_ACTIVITY_SUMMARY,
         YIELD_ONLY_ARITHMETIC,
+        PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED,
     }
+
+
+def test_the_outcome_folds_vocabulary_is_the_same_vocabulary():
+    """One closed list, declared in two modules because neither may import the
+    other, and held equal here rather than by a comment. A class this module
+    admits that the fold does not ratify would publish an omission the document
+    outcome then reads as a publisher defect and fails the document for."""
+    from telemetry.record import RATIFIED_OMISSION_REASONS
+
+    assert set(RATIFIED_OMISSION_REASONS) == EVIDENCE_CLASSES
+    assert len(RATIFIED_OMISSION_REASONS) == len(EVIDENCE_CLASSES)
 
 
 def test_absence_of_parsed_rows_is_not_a_reason_and_cannot_be_recorded():

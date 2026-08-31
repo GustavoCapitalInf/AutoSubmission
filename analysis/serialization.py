@@ -322,6 +322,28 @@ def document_report_to_dict(document: DocumentReport) -> dict:
                 }
                 for omission in document.omissions
             ],
+            # R-d (L1-S4). Money this document prints in TWO of its own
+            # accounts' ledgers, as INDEX PAIRS into `accounts` and into each
+            # account's own published transaction list — never an amount, never
+            # a date, never a description. Both legs stay in their ledgers; the
+            # package layer is the only consumer, and it excludes an indexed
+            # posting from every cross-account total so one movement is not
+            # counted as two deposits.
+            "internal_transfers": [
+                {
+                    "a": list(transfer.a),
+                    "b": list(transfer.b),
+                    "basis": transfer.basis,
+                }
+                for transfer in document.internal_transfers
+            ],
+            # The DOCUMENT-scope integrity notes. `integrity` inside each
+            # account block is that ACCOUNT's and keeps every note it publishes
+            # today; this is the scope that block has no room for, and today it
+            # carries exactly one member — `ambiguous_internal_transfer`, which
+            # refuses the package's aggregation of this document and nothing
+            # else (design §3.3, Q2).
+            "integrity_notes": list(document.integrity_notes),
         },
         "accounts": accounts,
     }

@@ -545,6 +545,47 @@ def _matches_any(text: str, patterns: Sequence[re.Pattern[str]]) -> bool:
     return any(pattern.search(text) is not None for pattern in patterns)
 
 
+def prints_internal_transfer_designation(description: str) -> bool:
+    """Does this printed row DESIGNATE a movement between the member's own accounts?
+
+    R-d's fourth clause, and the only place it is decided. A movement is
+    INTERNAL only when the paper prints such a designation on at least one of
+    the two legs; an arithmetic coincidence — same day, same cent, opposite
+    sign — never sets it, because a member who deposits a sum into checking on
+    the day they withdraw the same sum from savings for an unrelated purpose
+    produces exactly that signature, and flagging it removes a printed deposit
+    from a funder's view of the business by an inference (design §3.2).
+
+    **Decided by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` ALONE.** Every member of
+    that tuple names one member's OWN accounts as the source or the
+    destination — `TRANSFER FROM SAVINGS`, `SH TO SH`, `ACCOUNT TO ACCOUNT`,
+    `TRANSFER FROM <masked> TO <masked>`.
+
+    **`_TRANSFER_PATTERNS` is REFUSED as evidence for this question, and the
+    refusal is a ruling rather than a preference** (Gustavo, 2026-08-30,
+    BATCH9_TRANSITION §8.14). That tuple carries `ZELLE`, `VENMO`, `CASH APP`,
+    `E TRANSFER`, `ETRANSFER` and `XFER`, and its one production use builds a
+    `strong_non_lender_exclusion` whose own reason string says the descriptor
+    identifies "an account, online, or person-to-person transfer" — so it
+    answers *this row is not a lender debit*, never *this row is an internal
+    movement*. A payment to or from another PERSON is not evidence that money
+    moved inside one member's ledger set, and admitting it would flag the pair
+    and then delete the matching printed deposit from package gross deposits,
+    deposit counts, revenue and the withholding denominator. Measured over the
+    archive's 47 candidate pairs: 43 carry an internal designation, 3 are
+    admitted only by the peer-to-peer vocabulary and 1 prints nothing at all,
+    and all 4 stay refused.
+
+    The description is normalised by this module's own normaliser first, so the
+    question is asked of exactly the text every other classification in this
+    module is decided on.
+    """
+    return _matches_any(
+        normalize_transaction_description(description),
+        _INTERNAL_TRANSFER_CREDIT_PATTERNS,
+    )
+
+
 def _classify_credit_revenue(
     text: str,
     amount: float,

@@ -17,6 +17,7 @@ from .detect import detect, DetectionResult
 from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
+    prints_internal_transfer_designation,
 )
 from .bofa import repair_bofa_summary
 from .regions import repair_regions_summary
@@ -27,6 +28,14 @@ from .regions import repair_regions_summary
 # ours; the name stays published here because `DocumentReport` is what carries
 # the record and this is where a reader of the document model looks for it.
 from .sibling_omission import SiblingOmission, collecting as _collecting_omissions
+# The other half of the same seam, and here for the same reason: a reader that
+# establishes a document's SEVERAL accounts cannot import this module, so the
+# object it hands them over in lives in a leaf that imports only the schema.
+from .multi_account import (
+    DocumentPartition as MultiAccountPartition,
+    PublishedAccount,
+    collecting as _collecting_accounts,
+)
 from .first_community import repair_first_community_posted_activity
 from .parser_registry import (
     AmbiguousParserError,
@@ -230,6 +239,49 @@ class RollupOracle:
     cross_account_total_printed: bool
 
 
+@dataclass(frozen=True)
+class InternalTransfer:
+    """One movement of money between two accounts of the SAME document (R-d).
+
+    `a` and `b` are `(account_index, posting_index)` into `DocumentReport.accounts`
+    and each account's own published ledger — indices, never amounts, never
+    descriptions, never dates. `basis` names WHICH leg carried the printed
+    designation that admitted the pair, so a reader can tell the 42 pairs that
+    rest on one printed row from the one that has two.
+
+    **A document-level fact, and stored as one.** Not a field on `Transaction`
+    and not one on `TransactionClassification`: either would add a key to every
+    transaction dict of every payload in the archive to record something that
+    cannot exist on a single-account document.
+
+    **Both legs stay in their ledgers.** Removing either would break that
+    account's own reconciliation and its ADB — the money really was in that
+    account on that day — and it is also the only way `reconcile` stays
+    untouched. The flag reaches package ANALYTICS and nothing else.
+    """
+
+    a: tuple[int, int]
+    b: tuple[int, int]
+    basis: str
+
+
+#: `assess_document_integrity` produces ONE ACCOUNT's block, so a note about the
+#: DOCUMENT has nowhere to go inside it (W3 §L1S2 carried this forward). These
+#: are the document-scope notes, and the vocabulary is closed for the same
+#: reason L1-C17's is: a note that decides whether a package aggregates is a
+#: token, not prose.
+#:
+#: `ambiguous_internal_transfer` — a posting has TWO OR MORE admissible
+#: counterparts, so which sibling row it moved to is not established. No pairing
+#: is recorded, both printed legs stay in their ledgers untouched, and the
+#: PACKAGE refuses to aggregate this document rather than aggregating it wrongly
+#: (design §3.3; Gustavo's Q2 ruling, BATCH9_TRANSITION §8.14). The account's own
+#: validation, its ledger and its ADB history are not affected.
+AMBIGUOUS_INTERNAL_TRANSFER = "ambiguous_internal_transfer"
+
+DOCUMENT_INTEGRITY_NOTES: frozenset[str] = frozenset({AMBIGUOUS_INTERNAL_TRANSFER})
+
+
 @dataclass
 class DocumentReport:
     """One DOCUMENT: N account `Report`s plus the document's own printed facts.
@@ -255,6 +307,14 @@ class DocumentReport:
     rollup: RollupOracle | None = None
     omissions: list[SiblingOmission] = field(default_factory=list)
     boundary_mechanism: str | None = None
+    #: Movements this document prints in TWO of its own accounts' ledgers (R-d).
+    #: Empty on every single-account document by construction: a document with
+    #: one ledger has no sibling for a movement to have a counterpart in.
+    internal_transfers: list[InternalTransfer] = field(default_factory=list)
+    #: Document-scope integrity notes, from `DOCUMENT_INTEGRITY_NOTES`. The
+    #: account blocks keep their own notes exactly as they publish them today;
+    #: this is the scope those blocks have no room for.
+    integrity_notes: list[str] = field(default_factory=list)
 
     def document_scope_flags(self) -> list[str]:
         """The document-scope integrity flags its accounts carry.
@@ -619,11 +679,55 @@ def assess_document_integrity(
     )
 
 
+@dataclass
+class _Analysed:
+    """What ONE analysis of one document produced, before it is published.
+
+    `accounts` is in PRINTED ORDER and its FIRST member is the account the
+    claiming registration returned — the one `analyze_markdown` has always
+    answered about. `partition` is what that reader established about the
+    document, or `None` where it established nothing, which is every document
+    no multi-account reader claims.
+    """
+
+    accounts: list[Report]
+    partition: MultiAccountPartition | None = None
+
+
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
                      parse_mode: str = "auto",
                      document_geometry: object | None = None,
                      sheets: Sequence[str] | None = None,
                      on_dispatch: Callable[[Dispatch], None] | None = None) -> Report:
+    """ONE ACCOUNT's analysis — unchanged, and still the answer for one account.
+
+    A thin call onto `_analyse`, which is the body this function had until the
+    first multi-account publisher landed. Splitting it is what lets the DOCUMENT
+    entry point reach every account a reader established without this one
+    changing what it answers: on a document whose reader publishes one account
+    `_analyse` returns one report and this returns it, exactly as before.
+
+    On a document whose reader publishes SEVERAL, this still answers about the
+    first — the account the registration returned — and the others are reached
+    only through `analyze_document`. That is not a fallback: `Statement` is one
+    account, this function's contract is one account, and a caller asking for
+    one account gets the one the paper printed first rather than a fold.
+    """
+    return _analyse(
+        markdown,
+        settings=settings,
+        parse_mode=parse_mode,
+        document_geometry=document_geometry,
+        sheets=sheets,
+        on_dispatch=on_dispatch,
+    ).accounts[0]
+
+
+def _analyse(markdown: str, *, settings: Settings | None = None,
+             parse_mode: str = "auto",
+             document_geometry: object | None = None,
+             sheets: Sequence[str] | None = None,
+             on_dispatch: Callable[[Dispatch], None] | None = None) -> _Analysed:
     # `sheets` is `StatementMarkdown.pages` from the caller that ran the intake
     # ladder — the authentic per-sheet structure of the PDF, which this string
     # cannot be trusted to reproduce (see `assess_document_integrity`). Optional
@@ -669,7 +773,15 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
     markdown = prepared.admissible
 
     model_used = settings.model
-    dispatch = resolve(prepared)
+    # THE ACCOUNT-PUBLICATION SEAM (L1-S4). A reader that establishes a
+    # document's several accounts from its printed partition publishes them
+    # here while it parses; `resolve` runs every candidate's `parse`, so several
+    # attempts may publish and only the one whose statement the dispatch
+    # returned is the document's — settled below by IDENTITY rather than by
+    # arrival order. Re-entrant: `analyze_document` opens the same collection
+    # around this call, so there is one collection per document.
+    with _collecting_accounts() as _published_accounts:
+        dispatch = resolve(prepared)
     if on_dispatch is not None:
         # H-3 telemetry seam: write-only side-band, nothing here is read back.
         # The callback's contract is "must not raise, must not mutate", and it
@@ -686,6 +798,13 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         # nothing else. Do not "simplify" this into a Report field.
         on_dispatch(dispatch)
     deterministic_stmt = dispatch.statement
+    # Which published partition the dispatch CLAIMED, by identity of the
+    # statement it returned. A losing candidate's partition is discarded here
+    # rather than downstream, which is the same rule
+    # `sibling_omission.publish_omissions` applies to a losing candidate's
+    # omissions and for the same reason: an attempt that publishes nothing has
+    # established nothing about this document.
+    partition = _published_accounts.resolve_claim(deterministic_stmt)
     # W3-3c: the generic structurer is a fallback on the UNCLAIMED branch. It
     # never competes with a claiming parser, and it is deliberately not reached
     # for `ambiguous` or `parser_exception`, which have their own fail-closed
@@ -848,6 +967,93 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
                 f"escalation extraction failed ({type(e).__name__}); using primary extraction with review guards"
             )
 
+    published = list(partition.accounts) if partition is not None else []
+    source_scope = published[0].section_text if published else markdown
+    primary = _account_report(
+        stmt, recon,
+        dispatch=dispatch, settings=settings,
+        markdown=markdown,
+        # THE SOURCE SCOPE, and the one argument of this call that is not the
+        # whole document (design §2.5). `posting_dates_cover_source` proves a
+        # parser did not fold several printed posting days into one, and it
+        # proves it by comparing the parsed dates with the dates printed in the
+        # SOURCE it is handed. For an account of a member statement that source
+        # is that account's own section: handed the whole PDF it counts a
+        # sibling's posting days against this ledger and refuses a document
+        # that is in fact complete. `source_scope` is the section the claiming
+        # reader established from PRINTED boundaries, and it is the whole
+        # document for every reader that establishes none — which is every
+        # document in the archive but the ones a multi-account reader claims.
+        source_markdown=source_scope,
+        sheets=sheets, repair_failure=repair_failure,
+        model_used=model_used, escalated=escalated,
+    )
+
+    # THE OTHER ACCOUNTS. Each is reconstructed by the reader from the
+    # document's own printed partition and is validated INDEPENDENTLY here, by
+    # the same unchanged validator, against its OWN section's text (R-b, and
+    # design §2.5's source scope). Nothing about a sibling reaches this
+    # account's report and nothing about this account reaches a sibling's: they
+    # share the document's markdown for the page and integrity-check facts that
+    # are the PDF's, and nothing else.
+    #
+    # `normalize_statement` and `apply_statement_repairs` are applied exactly as
+    # they were to the claimed statement, so the accounts of one document are
+    # treated alike. The repairs are keyed on the CLAIMING registration or on
+    # each repair's own printed guard, so none of them can reach a document this
+    # reader did not claim.
+    accounts = [primary]
+    for account in published[1:]:
+        sibling = apply_statement_repairs(
+            markdown, normalize_statement(account.statement), dispatch=dispatch,
+        )
+        accounts.append(_account_report(
+            sibling, reconcile(sibling, parser_id=claiming),
+            dispatch=dispatch, settings=settings,
+            markdown=markdown, source_markdown=account.section_text,
+            sheets=sheets, repair_failure=repair_failure,
+            model_used=model_used, escalated=False,
+        ))
+    return _Analysed(accounts=accounts, partition=partition)
+
+
+def _account_report(
+    stmt: Statement,
+    recon: ReconResult,
+    *,
+    dispatch: Dispatch | None,
+    settings: Settings,
+    markdown: str,
+    source_markdown: str,
+    sheets: Sequence[str] | None,
+    repair_failure: str | None,
+    model_used: str,
+    escalated: bool,
+) -> Report:
+    """ONE ACCOUNT's report, from its statement and its own reconciliation.
+
+    Everything `analyze_markdown` did after reconciliation and escalation,
+    unchanged and in the same order, extracted so that the SECOND account of a
+    member statement is analysed by the same code as the first. That is R-b
+    made mechanical: `reconcile`, `compute_metrics`, `assess_quality`,
+    `assess_document_integrity` and `detect` are not touched, and what changed
+    is only that they can now be called on each account of a document instead
+    of once per PDF.
+
+    Two of the arguments are document facts and stay document facts for every
+    account, and the distinction is the whole point of this signature:
+
+    * `markdown` is the DOCUMENT's text. `assess_document_integrity` reads it
+      for the page-declaration check and for the claiming registration's own
+      integrity checks, and both are statements about the PDF — a document
+      declaring four pages declares them once, not once per account;
+    * `source_markdown` is the scope the ADB's source-coverage check is applied
+      against, which is the ACCOUNT's own section wherever a reader established
+      one.
+
+    On a single-account document the two are the same string and this function
+    computes exactly what the body it was lifted from computed.
+    """
     classifications = classify_statement_transactions(stmt)
     metrics = compute_metrics(
         stmt,
@@ -855,7 +1061,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         trust_running_balances=recon.ok and not any("UNCAPTURED" in t.description.upper() for t in stmt.transactions),
         # the source text lets the ADB engine prove the parser did not fold
         # several posting dates into one
-        source_markdown=markdown,
+        source_markdown=source_markdown,
         classifications=classifications,
         withholding_denominator_mode=settings.withholding_denominator_mode,
     )
@@ -913,46 +1119,41 @@ def analyze_document(markdown: str, *, settings: Settings | None = None,
                      on_dispatch: Callable[[Dispatch], None] | None = None) -> DocumentReport:
     """The DOCUMENT entry point: one PDF's text in, one `DocumentReport` out.
 
-    `analyze_markdown` answers "what does this account's statement say" and
-    keeps answering exactly that — it is unchanged, every existing caller still
-    reaches it, and this function is built ON it rather than around it. What is
-    new is only that the answer is now handed back inside the object that can
-    hold more than one of them.
+    `analyze_markdown` answers "what does this ACCOUNT's statement say" and
+    keeps answering exactly that. This answers "what does this DOCUMENT say",
+    which on most of the archive is the same answer wearing the object that can
+    hold more than one of them, and on a member statement is several accounts,
+    each reconstructed from the paper's own printed partition and each validated
+    INDEPENDENTLY by the unchanged validator (R-b).
 
-    WHAT THIS STAGE DOES NOT DO, stated because the omissions are the design
-    and not an unfinished edge:
+    What it fills, and what it deliberately does not:
 
-    * it publishes exactly ONE account, always. Establishing a second one from
-      a document's printed partition is a later stage's work, and until that
-      evidence is read, claiming a document has one account is what the paper
-      supported all along;
-    * it fills NO document-level field EXCEPT the omission record. Read the
-      exception exactly: `document_period` stays empty even though the single
-      account carries a period, because a per-document fact taken from an
-      account is a fact this stage did not read. `omissions` is different in
-      kind — it is not derived from the published account at all, it is what
-      the READER established about a section it declined to publish, and the
-      L-1 rule is that such a gap is surfaced or the document is refused. It
-      arrives from the skip sites through
-      `analysis/sibling_omission.py::collecting`, which is opened HERE because
-      this is the seam that owns the object the record belongs on;
-    * it therefore satisfies RULE S on every document that omitted nothing, so
-      the payload `analysis/serialization.py::document_report_to_dict`
-      publishes for one is today's payload, byte for byte — which is a
-      measurement, not a hope. A document that DID omit a sibling fails RULE
-      S's second clause on purpose: the account block it publishes is
-      unchanged, and what is added is exactly the gap.
+    * `accounts` in PRINTED ORDER, never sorted, and never one chosen to stand
+      for the document (L1-C18);
+    * `document_period`, `rollup` and `boundary_mechanism` only where a reader
+      ESTABLISHED them — the period the document printed once for every section,
+      the enumerating table it read as an ORACLE, the mechanism the accounts
+      were partitioned by. A single-account document establishes none of them,
+      so all three stay empty: a per-document fact taken from an account is a
+      fact nobody read (L1-C18 again, and it is the rule that bites hardest
+      exactly where it is most tempting to break);
+    * `omissions`, which is not derived from any published account: it is what
+      the READER established about a section it declined to publish, and the L-1
+      rule is that such a gap is surfaced or the document is refused. It arrives
+      from the skip sites through `analysis/sibling_omission.py::collecting`,
+      opened here because this is the seam that owns the object it belongs on;
+    * `internal_transfers` and `integrity_notes`, computed HERE and nowhere
+      else, because a movement between two accounts is a fact about a DOCUMENT
+      and there is no other place in this platform that can see two of one
+      document's ledgers at once.
 
-    Nothing in production calls this yet. The seams that reach
-    `analyze_markdown` -> `report_to_dict` move to it in the stage that teaches
-    the payload readers the document shape; moving one before they are taught
-    would publish a shape that nine of them answer WRONGLY rather than refuse.
-    That staging is also why the ACCOUNT entry point opens no collector: a
-    single-account payload has nowhere to put a document-level fact, so a
-    reader's omission is recorded where it can be published and nowhere else.
+    RULE S is unchanged and is decided by ACCOUNT COUNT alone
+    (`analysis/serialization.py::_publishes_todays_payload`): a document
+    carrying one account publishes today's payload byte for byte whatever
+    document-level fact it also carries.
     """
-    with _collecting_omissions() as omitted:
-        report = analyze_markdown(
+    with _collecting_omissions() as omitted, _collecting_accounts():
+        analysed = _analyse(
             markdown,
             settings=settings,
             parse_mode=parse_mode,
@@ -960,4 +1161,137 @@ def analyze_document(markdown: str, *, settings: Settings | None = None,
             sheets=sheets,
             on_dispatch=on_dispatch,
         )
-    return DocumentReport(accounts=[report], omissions=list(omitted))
+    partition = analysed.partition
+    transfers, notes = identify_internal_transfers(analysed.accounts)
+    return DocumentReport(
+        accounts=analysed.accounts,
+        omissions=list(omitted),
+        document_period=partition.document_period if partition is not None else None,
+        boundary_mechanism=partition.boundary_mechanism if partition is not None else None,
+        rollup=(
+            RollupOracle(
+                caption_class=partition.rollup.caption_class,
+                column_roles_printed=partition.rollup.column_roles_printed,
+                rows=partition.rollup.rows,
+                cross_account_total_printed=partition.rollup.cross_account_total_printed,
+            )
+            if partition is not None and partition.rollup is not None
+            else None
+        ),
+        internal_transfers=transfers,
+        integrity_notes=notes,
+    )
+
+
+def identify_internal_transfers(
+    accounts: Sequence[Report],
+) -> tuple[list[InternalTransfer], list[str]]:
+    """R-d: which of this document's postings moved money between its OWN accounts.
+
+    `(transfers, document_scope_notes)`. Four clauses, ALL of them required, and
+    the order they are applied in is itself the fail-closed decision:
+
+    1. **the arithmetic** — a posting in a SIBLING account of the SAME document
+       with the same posting date, the same magnitude to the cent and the
+       opposite sign. Same document only: a counterpart in another statement of
+       the same package is not printed evidence of an internal movement, it is a
+       coincidence of date and amount, and pairing across documents would let two
+       unrelated statements cancel each other's deposits (Q2, §8.14);
+    2. **uniqueness, DOCUMENT-WIDE** — a posting with TWO OR MORE arithmetic
+       counterparts pairs with NONE. Uniqueness is decided on the arithmetic
+       rather than after clause 4 has thinned the field, which is the stricter
+       reading: if a printed credit could have come from either of two sibling
+       debits, which one it came from is not established, and a designation
+       saying "this came from one of my own accounts" does not say WHICH ROW.
+       Every posting on both sides of such a collision is refused, the note
+       `ambiguous_internal_transfer` is attached to the DOCUMENT, and the package
+       refuses to aggregate it (§3.3). Never guess: a wrong pairing silently
+       removes a real deposit from a funder's total, which is worse than
+       refusing;
+    3. **mutual** — the pairing is one-to-one, so each leg's unique counterpart
+       must be the other. Asserted rather than assumed;
+    4. **the printed designation** — at least one of the two legs prints an
+       INTERNAL-MOVEMENT designation, read by
+       `analysis/transaction_classifier.py::prints_internal_transfer_designation`
+       and therefore by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` alone. A pair that
+       fails this clause is simply NOT FLAGGED — it is not ambiguous, it is an
+       arithmetic coincidence, and both postings keep every effect they have
+       today. That is the clause the whole rule turns on: without it a member
+       who deposits a sum into checking on the day they withdraw the same sum
+       from savings for an unrelated purpose has that printed deposit deleted
+       from a funder's view of the business by an inference.
+
+    Both legs stay in their ledgers whatever this returns. Nothing here touches
+    a `Statement`, a `Report`, a reconciliation or an ADB; the result is a
+    document-level index pair that only package ANALYTICS read.
+
+    Trivially empty for one account: with a single ledger there is no sibling
+    for a counterpart to be in, so this returns `([], [])` without looking at a
+    posting — which is why it costs the archive nothing.
+    """
+    if len(accounts) < 2:
+        return [], []
+
+    postings: list[tuple[int, int, str, float, str]] = [
+        (account_index, posting_index, txn.date, round(txn.amount, 2), txn.description)
+        for account_index, report in enumerate(accounts)
+        for posting_index, txn in enumerate(report.statement.transactions)
+    ]
+
+    def admissible(left, right) -> bool:
+        """Clause 1, and only clause 1."""
+        return (
+            left[0] != right[0]
+            and left[2] == right[2]
+            and abs(abs(left[3]) - abs(right[3])) < 0.005
+            and left[3] * right[3] < 0
+        )
+
+    counterparts: dict[int, list[int]] = {
+        index: [other for other, right in enumerate(postings)
+                if other != index and admissible(left, right)]
+        for index, left in enumerate(postings)
+    }
+    ambiguous = any(len(found) > 1 for found in counterparts.values())
+    notes = [AMBIGUOUS_INTERNAL_TRANSFER] if ambiguous else []
+    if ambiguous:
+        # Clause 2, fail-closed for the WHOLE document rather than for the
+        # colliding posting alone. A document that cannot say which sibling row
+        # a movement landed in cannot have its accounts aggregated, and pairing
+        # the unambiguous pairs beside an unresolved one would publish a partial
+        # exclusion that reads as a complete one.
+        return [], notes
+
+    transfers: list[InternalTransfer] = []
+    paired: set[int] = set()
+    for index, found in counterparts.items():
+        if len(found) != 1 or index in paired:
+            continue
+        other = found[0]
+        if counterparts.get(other) != [index]:
+            # Clause 3. Not reachable while clause 2 holds — a one-way
+            # counterpart means the other side saw two — and asserted anyway,
+            # because a one-to-one claim that is never checked is a comment.
+            continue
+        left, right = postings[index], postings[other]
+        designations = (
+            prints_internal_transfer_designation(left[4]),
+            prints_internal_transfer_designation(right[4]),
+        )
+        if not any(designations):
+            continue  # clause 4: an arithmetic coincidence is not a transfer
+        credit, debit = (left, right) if left[3] > 0 else (right, left)
+        credit_designated = prints_internal_transfer_designation(credit[4])
+        debit_designated = prints_internal_transfer_designation(debit[4])
+        basis = (
+            "printed_internal_transfer_designation_on_both_legs"
+            if credit_designated and debit_designated
+            else "printed_internal_transfer_designation_on_the_credit_leg"
+            if credit_designated
+            else "printed_internal_transfer_designation_on_the_debit_leg"
+        )
+        paired.update({index, other})
+        transfers.append(InternalTransfer(
+            a=(left[0], left[1]), b=(right[0], right[1]), basis=basis,
+        ))
+    return transfers, notes

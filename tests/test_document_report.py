@@ -191,7 +191,14 @@ DOCUMENT_LEVEL_FIELDS = {
     "rollup": "on the object; the boundary layer that reads a roll-up is S4's",
     "omissions": "on the object, where L1-S2's protected-carrier pins read it; the "
                  "package surface publishes it for a MULTI-account payload only (Q10, dark)",
-    "boundary_mechanism": "on the object; set by the boundary layer, which is S4's",
+    "boundary_mechanism": "on the object; set by the boundary layer (L1-S4), and "
+                          "left unset by every reader that establishes no printed partition",
+    "internal_transfers": "on the object, and EMPTY on a single-account document by "
+                          "construction — one ledger has no sibling for a counterpart "
+                          "to be in, so there is nothing for RULE S to hide (L1-S4, R-d)",
+    "integrity_notes": "on the object; today's only member is "
+                       "`ambiguous_internal_transfer`, which needs two ledgers to be "
+                       "reachable at all, so a single-account document carries none (L1-S4)",
 }
 
 
@@ -419,7 +426,7 @@ def test_the_document_block_carries_exactly_the_documents_own_facts(monkeypatch)
         accounts=[_first_account(monkeypatch), _second_account(monkeypatch)]))
     assert set(published["document"]) == {
         "period_start", "period_end", "boundary_mechanism", "account_count",
-        "rollup", "omitted_sections",
+        "rollup", "omitted_sections", "internal_transfers", "integrity_notes",
     }
 
 

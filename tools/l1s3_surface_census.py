@@ -192,6 +192,26 @@ EXCUSED: dict[str, str] = {
     # JSON, whose own schema has an `accounts` key; it never sees a payload
     # this platform publishes. Measured by the reviewer and re-measured here.
     "benchmark/normalize.py::lenders": "reads MoneyThumb's scorecard JSON, whose schema has its own `accounts` key",
+    # --- L1-S4: the publisher's own objects, which are not payloads ---------
+    # `DocumentPartition.accounts` is a tuple of `PublishedAccount` OBJECTS
+    # holding `Statement` instances, read INSIDE the module that defines them
+    # and before anything is serialised. There is no payload here to answer
+    # about one account of: the hazard this census exists for is a reader
+    # handed a published dict, and this is a reader handed its own dataclass.
+    "analysis/multi_account.py::published_statement": "the partition object reading its own account list; no payload exists yet",
+    # The DOCUMENT entry point building one report per account of the partition
+    # a reader established. Same fact as `document_scope_flags` above: the
+    # object that HOLDS several accounts iterating them is what it is for.
+    "analysis/pipeline.py::analyze_document": "the document entry point iterating the partition it is building the document from",
+    "analysis/pipeline.py::_analyse": "the analysis reading the partition a reader published; `Report` objects, not a payload",
+    # The ACCOUNT entry point taking the FIRST report out of the internal
+    # `_Analysed` object. This is the one excusal a reviewer should press on,
+    # so it says exactly what it is: `analyze_markdown`'s contract is ONE
+    # ACCOUNT and has been since the schema existed, and the object it reads is
+    # this module's own dataclass of `Report`s — never a published payload, and
+    # never something it mistook for one account. A caller that wants the
+    # document asks `analyze_document`, which is why every production seam does.
+    "analysis/pipeline.py::analyze_markdown": "the ACCOUNT entry point returning the first Report of the internal _Analysed object",
 }
 
 
