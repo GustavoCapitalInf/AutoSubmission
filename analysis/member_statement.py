@@ -40,17 +40,25 @@ the document, publishing nothing, when:
 * a printed dated row inside a section's own ledger region is not accounted for
   by the ledger this reader publishes (L1-C7) — including a row whose running
   balance does not follow from the one before it;
+* a section's ledger does not sum, COLUMN BY COLUMN, to the deposits and
+  withdrawals the table states for that account (L1-C10 over the columns the
+  caption names). A ledger that walks to the right closing while summing to
+  something else has two errors that cancel, which is what a truncated ledger
+  looks like from the balance walk alone;
+* the document names TWO currency codes (L1-C13). R-f permits two answers —
+  publish two accounts, or refuse — and Q4 is not ruled, so a reader that chose
+  would be settling a ruling by implementation;
 * a section publishes NOTHING and prints no evidence of its own empty state that
   L1-C17's closed vocabulary can name (R-a, L1-C4). Absence is never a ground.
 
 WHAT IT PUBLISHES
 ------------------
 One `Statement` per account that posts, in PRINTED ORDER, each with its own
-period, opening, closing, ledger and stated totals, each handed to the UNCHANGED
-validator (R-b). The first is returned through the registration; the whole
-partition goes to `analysis/multi_account.py` for the document entry point,
-carrying each section's OWN TEXT so the ADB's source-coverage check is applied
-against that account's paper and not against its siblings'.
+period, opening, closing and ledger, each handed to the UNCHANGED validator
+(R-b). The first is returned through the registration; the whole partition goes
+to `analysis/multi_account.py` for the document entry point, carrying each
+section's OWN TEXT so the ADB's source-coverage check is applied against that
+account's paper and not against its siblings'.
 
 A section that posts nothing and prints evidence of its empty state is OMITTED —
 recorded with the class that admitted it, published as a gap, never dropped
@@ -59,12 +67,15 @@ recorded with the class that admitted it, published as a gap, never dropped
 enumerating table reproducing the section's closing — measured section by
 section by `tools/q3_corroboration_probe.py` before this reader was written.
 
-NO FIGURE IS INVENTED. Every amount published here is a token the paper printed:
-the section's own opening and closing captions, its own ledger rows, and the
-DEPOSITS / WITHDRAWALS columns of the row the enumerating table prints for that
-account under a caption that names them. The roll-up is also an ORACLE — every
-figure it supplies is cross-checked against the section's own arithmetic, and a
-disagreement refuses rather than choosing a winner.
+**NO FIGURE FROM THE ENUMERATING TABLE IS PUBLISHED, AND NO FIGURE ANYWHERE IS
+INVENTED.** Every amount in a payload this reader produces is a token the
+SECTION printed: its own opening caption, its own closing caption, and its own
+ledger rows. The table is an ORACLE and only an oracle — its opening, its
+closing, its two movement columns and its cross-account total are each compared
+with what the section's own paper says, to the cent, and a disagreement refuses
+the document rather than choosing a winner. The stated counts and totals a
+`Statement` can carry are `None` here because these sections print none, which
+is the design's ladder for this mechanism read exactly (see `_statement`).
 """
 from __future__ import annotations
 
