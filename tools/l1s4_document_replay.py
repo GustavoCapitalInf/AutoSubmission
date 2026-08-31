@@ -107,6 +107,27 @@ def _evidence(account: dict) -> str:
     )
 
 
+def _leaf_paths(node, prefix: str = ""):
+    """(path, type-token) for every leaf, list indices collapsed to [*].
+
+    PRIVACY: the TYPE of a leaf, never its value. `str` is printed for a
+    printed reason token exactly as it is for anything else, so no document's
+    own words can reach this output.
+    """
+    if isinstance(node, dict):
+        for key in sorted(node):
+            child = f"{prefix}.{key}" if prefix else str(key)
+            yield from _leaf_paths(node[key], child)
+    elif isinstance(node, list):
+        if not node:
+            yield (f"{prefix}[]", "empty-list")
+        else:
+            for item in node:
+                yield from _leaf_paths(item, f"{prefix}[*]")
+    else:
+        yield (prefix, "null" if node is None else type(node).__name__)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run")
@@ -118,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--parser", action="append", default=[])
     parser.add_argument("--folder", action="append", default=[])
     parser.add_argument("--shas")
+    parser.add_argument("--leaves", action="store_true",
+                        help="enumerate every leaf of the added `document` "
+                             "block, per SHA (paths and type tokens only)")
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--end", type=int, default=None)
     args = parser.parse_args(argv)
@@ -133,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     cohort = select_cohort(args, rows, census)
     cache = ColdCache(Path(args.data_dir))
 
+    leaves: dict[str, dict[str, str]] = {}
     newly_validated: list[tuple[str, list[str]]] = []
     regressions: list[str] = []
     other_movement: list[str] = []
@@ -152,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
         transfers = len(block.get("internal_transfers") or [])
         notes = block.get("integrity_notes") or []
         per_account = [_evidence(account) for account in accounts]
+        if block:
+            leaves[sha[:16]] = dict(_leaf_paths(block))
         table.append(
             f"| `{sha[:16]}` | {before} -> {after} ({reason}) | {len(accounts)} | "
             f"{', '.join(omitted) or '—'} | {transfers} | "
@@ -183,6 +210,23 @@ def main(argv: list[str] | None = None) -> int:
     print(f"* **validated regressions (BLOCKING): {len(regressions)}**")
     for line in regressions:
         print(f"  * {line}")
+    if args.leaves:
+        print("\n## Every leaf of the added `document` block, per SHA")
+        print("\nPaths and type tokens only; no value from any document "
+              "appears here.\n")
+        union: dict[str, str] = {}
+        for sha16 in sorted(leaves):
+            paths = leaves[sha16]
+            union.update(paths)
+            print(f"* `{sha16}` — {len(paths)} leaf/leaves")
+            for path in sorted(paths):
+                print(f"  - `{path}` -> {paths[path]}")
+        print(f"\n* documents carrying the block: {len(leaves)}")
+        print(f"* DISTINCT leaf paths across all of them: {len(union)}")
+        for path in sorted(union):
+            print(f"  - `{path}` -> {union[path]}")
+        print(f"\nBLOCK_DOCUMENTS={len(leaves)} DISTINCT_LEAVES={len(union)}")
+
     print(f"\nCOHORT={len(cohort)} REPLAYED={replayed} "
           f"NEWLY_VALIDATED={len(newly_validated)} "
           f"OTHER_MOVEMENT={len(other_movement)} REGRESSIONS={len(regressions)}")
