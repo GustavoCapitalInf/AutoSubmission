@@ -64032,3 +64032,304 @@ one finding removed and one added rather than as a silent match.
 4. **The registration publishes `bank=None`.** Every consumer already renders
    the absence, and the alternative was publishing a contact domain as a bank.
    Named because it is a choice rather than an accident.
+# §OCRAUDIT — the legacy OCR audit (Phase 2, task 1; READ-ONLY, nothing implemented)
+
+Card `docs/agent-handoffs/OCR-LEGACY-AUDIT.md`. Base `main` at the frozen
+deterministic-v1 / multi-account-v1 baseline (tag `batch9-final`, `819d97d`);
+branch `wave10-ocraudit`, worktree `.claude/worktrees/mt10-ocraudit`, audit tree
+`c90154a`. Registry 84 · `ANALYSIS_STAGE_VERSION` 17 · `OCR_STAGE_VERSION` 4.
+**No code change. No OCR call. No paid call. Nothing under `analysis/`, `ocr/`
+or `webapp/` was touched.** The full detail is
+`docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md`; this section is the ledger.
+
+## Population
+
+The CODE, TESTS and artifact FORMATS of the OCR intake layer, not documents: 45
+classified components across `ocr/` (13 modules, 3,898 lines), the vendor side
+(`local_ocr_server.py`, the operator surface, `telemetry/prices.py`), the
+caching and seam layer (`webapp/artifact_cache.py`, `discovery/runner.py`,
+`corpus_artifacts.py`, `tools/cohort_replay.py`), six legacy scripts from before
+the deterministic shift, and the OCR test surface. Measured over 447 first-party
+modules, of which 142 are reachable from eight declared production entry points.
+
+No archive document was read. The only store touched is the batch-8 cold cache's
+`artifact_cache` INDEX TABLE (`mode=ro`), which carries stage names, keys, hashes
+and sizes and no document text, plus the run of record's own `rows.csv`
+provenance columns.
+
+## Root cause — what the audit actually found
+
+The repository's Unlimited-OCR past is not a remnant. It is a **complete, wired,
+currently unexercised subsystem**, and the governing measurement is that it has
+never run:
+
+* `visual_rung = not_attempted` on **3,506 / 3,506** rows of the run of record.
+* The cold cache's `ocr` stage holds **3,364 rows, 3,364 distinct inputs and
+  exactly ONE distinct settings key**, recomputed at this tree as
+  `ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)`
+  — the offline rungs, and only the offline rungs.
+* `source_path`: native **3,297** · local_tesseract **179** · none **30** ·
+  **visual 0**. `source_model`: `native-pdf-text` 2,871, `+wells` 234,
+  `+printed-rows` 83, `+navy-federal-layout` 48, `+first-citizens-layout` 36,
+  `+woodforest-columns` 19, `+desjardins-layout` 6, `local-tesseract-ocr` 179.
+* Inputs holding more than one artifact: **0** in the `ocr` stage, **0** in the
+  `analysis` stage (2,630 rows).
+
+So 2,625 validated documents rest on 3,297 native reads and 179 Tesseract reads.
+The 485-line Unlimited-OCR client, the 259-line local server, the DPI fallback,
+the page-1 recovery ladder and the whole `--scanned-visual` discovery mode
+contributed nothing to the frozen baseline.
+
+Two consequences. **(1)** The card's flow diagram is already implemented —
+`discovery/runner.py:438-500` (`_read_visual`), `:521-541`
+(`_needs_visual_upgrade`), `:606-670` (recovery + upgrade) route insufficient
+extraction into the visual rung, in its own cache partition, back into the SAME
+deterministic `_analyse`, fail-closed on an endpoint death. Phase 2 is an
+audit-and-enable problem, not a build problem. **(2)** Everything on that side is
+unproven at archive scale, and the postprocess chain contains a value-destroying
+rewrite nothing was ever in a position to catch.
+
+## Solution — the classification, the reuse plan, the proposal
+
+**Classification totals (45 components, exactly one label each):**
+`active` **26** · `reusable` **9** · `obsolete` **4** · `duplicate` **1** ·
+`unsafe` **4** · `unknown` **0** · absent/net-new **1** (PaddleOCR: zero hits
+anywhere in the tree).
+
+`unknown` is empty because reachability was COMPUTED (a transitive first-party
+import walk from eight production entry points, `tools/ocr_legacy_census.py`)
+rather than asserted, and every "does it run" question was answered from the run
+of record's own columns.
+
+The four `unsafe`:
+
+1. `ocr/ocr_client.py` — `collapse_repeated_amounts` (`:63-82`, in `postprocess`
+   at `:413`) rewrites money. `_MONEY_RUN_RE`'s separator is `\s+`, which matches
+   NEWLINES, so three or more money tokens on consecutive lines with one value
+   repeated three or more times collapse to a single token. Demonstrated at this
+   tree on synthetic input: three identical money tokens on three lines return as
+   one; the same three inside `<td>` cells are untouched. Also
+   `embed_image_regions` (`:344-374`) inlines cropped document PIXELS as base64
+   into the canonical text (capped at 25,000 chars), where the branch privacy
+   scanners — which match printed tokens — structurally cannot see them.
+2. `ocr/config.py:26-42` — `OCR_BASE_URL` / `OCR_MODEL` / `OCR_API_KEY` are plain
+   env reads with no allowlist. `ocr/availability.py:5-6` asserts "no paid vendor
+   is involved and none may be"; nothing enforces it, and three entry points
+   default `allow_visual_ocr=True`.
+3. `tools/cohort_replay.py:119-129` — `ColdCache._payload` selects `rows[0]` with
+   no `ORDER BY` and no settings-key filter. Correct today only because the
+   measured multiplicity is 1; ambiguous the moment an OCR-fed document holds two
+   OCR partitions.
+4. `parse.py:30` — the repository's original front door ("PDF → Markdown via
+   Unlimited-OCR") calls the ladder with defaults, so any document without native
+   text goes straight to the env-configured endpoint. Severity LOW-MEDIUM: it
+   publishes no verdict, so the exposure is egress, not validation.
+
+**Reuse plan.** Keep and enable, do not rebuild: the discovery recovery/upgrade
+block, `--scanned-visual` and its refuse-to-start probe (`ocr/availability.py`),
+`local_ocr_server.py`, and the cache / stage-version / provenance apparatus.
+Quarantine before reuse: the `ocr_client` cleanup chain (the money collapse must
+be removed or restricted to `<td>` scope; the embedded pixels must become a
+reference) and `cohort_replay`'s artifact selection. Delete or salvage:
+`sweep_ocr.py`, `triage_scan.py` (salvage its defect-signature dict into a real
+test), `coverage_audit.py`, `deterministic_coverage_audit.py`, and the README's
+rented-remote-GPU half.
+
+**The architecture proposal's four decisions** (§5 of the audit document):
+
+* **Insufficiency trigger** — deterministic and already recorded, never "try OCR
+  and see". R (recovery): the offline rungs produced no text at all →
+  `outcome_reason = deferred_visual_ocr`, **13 documents**. U (upgrade): a
+  local-Tesseract read that no parser claimed, with a live dispatch →
+  `visual_rung = upgraded | no_upgrade | failed`, **≤ 122 documents**. A
+  native-text document that goes unclaimed is never escalated. A validator
+  VERDICT is explicitly not a trigger — that is how "OCR until it reconciles"
+  gets built by accident.
+* **Cache / version** — `OCR_STAGE_VERSION` 4 → 5 with the pin at
+  `tests/test_artifact_cache.py:854` updated in the same commit; add an
+  `extractor` field to the OCR settings key (the three capability booleans stop
+  being an unambiguous encoding at three extractors); add the Tesseract, Poppler
+  and PaddleOCR-revision versions, which are currently outside the key
+  (`webapp/artifact_cache.py:592-604`) and become load-bearing with a second
+  binary extractor.
+* **Cost bound** — zero recurring paid inference stays the default and stays
+  structural (the lazy import of `ocr.ocr_client` inside the rung, asserted by
+  `tests/test_discovery.py:310-322`; keep the property for PaddleOCR). The
+  residue is bounded IN ADVANCE by the triggers: 13 + ≤122 = **≤ 135 of 3,506 =
+  3.8%**, and a run that escalates more documents than its triggers named is a
+  defect, not an overrun. Both proposed extractors are local and unmetered; paid
+  OCR/VLM stays out of the first wave, and the audit's own numbers argue for that
+  — none of the 3.8% has been tried with the free extractors yet.
+* **Provenance shape** — today it is ONE token for the whole document
+  (`StatementMarkdown.model`), and the seam into the validator is exactly two
+  values (`to_markdown()` and `pages`), so there is no per-field provenance and
+  no channel for one. Required now: per-PAGE provenance (`page_extractor` beside
+  the existing per-page `page_integrity`, which the cache already round-trips),
+  and the closed-vocabulary entries — `SOURCE_PATHS` (`telemetry/record.py:66`)
+  and `source_path_for`'s branches (`:119-133`), whose fallthrough is `"visual"`,
+  so an extractor that forgets its branch is silently mis-attributed; plus a
+  `FREE_MODELS` entry (`telemetry/prices.py:29-38`), which fails closed on
+  "unknown cost" rather than zero. Field-level attribution is later and only
+  through the structurer's `document_geometry` seam.
+
+**Check by check**, the ten protections: the extractors produce
+`StatementMarkdown` and nothing else, and the validator's entry point takes a
+markdown string plus a page list — no third channel, no confidence score, no
+bypass flag, and `corpus_gate.py:725-772` already polices the `sheets` half.
+Nine of the ten are structurally out of reach (a lossy read lowers coverage,
+fails identity, withholds ADB, refuses currency, refuses boundaries — every
+failure direction is safe); page completeness is STRICTLY STRONGER on an OCR
+read because rasterization yields the PDF's true page count. All ten share
+exactly ONE exposure, and it is the money collapse: the only place in the OCR
+path where a value is rewritten rather than read. That is the whole safety
+delta, and it is one function.
+
+**Non-regression**: no previously validated document can reach either trigger —
+R fires only where no text was produced (outcome `deferred`) and U only where the
+dispatch did not claim, while a validated document is by definition claimed. That
+is a property of `discovery/runner.py:521-541,606`, not a policy, and it should be
+asserted as a test before the rung is enabled. The blocking prerequisite is the
+`cohort_replay` fix; baselines are then per-partition (the offline partition stays
+byte-identical, the OCR partition is new coverage with no baseline and can only be
+`newly validated` in its first run).
+
+**Q3 re-measurement (the inherited MINOR-1)**: the class
+`printed_pair_coincides_and_no_row_printed` passed 6/6 on six `guardian_cu`
+sections that are ALL `native-pdf-text`, i.e. it has never met OCR row loss —
+the failure mode it was ruled in to bound. Plan: the same six as the seed
+(emitted by the design's own instrument, `--expect-sections 6` already STOPs on a
+different count); produce a second, OCR'd read of each at `OCR_STAGE_VERSION` 5
+in its own partition; run `tools/q3_corroboration_probe.py` UNCHANGED as the
+oracle, self-attack suite included, and treat a mutant that stops killing on
+OCR'd input as itself the finding; report the OCR'd 6 × 7 table beside the native
+one. Measured obstacle: the cold cache holds **0 PDF files** among its 5,997, so
+the re-measurement needs the archive present and is not a cache-replay card.
+Until that table exists, an OCR-fed section falls OUTSIDE the class and
+fail-closes — a one-predicate gate, wired in the card that enables the rung, not
+the one that measures it.
+
+## Newly validated
+
+**0 — by construction.** This is a read-only audit; no parser, gate, registry
+entry or version changed, so no document can move.
+
+## Other ladder movement
+
+**0.** Nothing was executed that could move a document.
+
+## Previously validated preserved
+
+**All 2,625, payload identical — by construction, and provable by inspection
+rather than by replay.** The branch's entire diff is two new files
+(`docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md`,
+`tools/ocr_legacy_census.py`) plus this appended W3 section. Nothing under
+`analysis/`, `ocr/`, `webapp/`, `discovery/`, `telemetry/` or `tests/` was
+touched, the registry fingerprint is unchanged, and `ANALYSIS_STAGE_VERSION`
+stays 17 — so the analysis settings key is unchanged and every cached payload
+resolves exactly as it did at the base. `cohort_replay` was deliberately NOT run:
+a replay over an unchanged analysis surface measures the instrument, not the
+branch, and the one-heavy-harness-per-host rule makes it a cost with no evidence
+in it.
+
+## Regressions
+
+**0 unexpected validated regressions.** Zero movement is the whole population.
+
+## Correctness evidence
+
+Every headline number reproduces from a committed instrument:
+
+* `python tools/ocr_legacy_census.py --tree` → 447 first-party modules, 142
+  reachable from 8 production entry points, and the per-component LOC / last
+  commit / commit count / importer split / reachability table.
+* `python tools/ocr_legacy_census.py --cache-index .claude/recovery/webapp_data_train8_cold`
+  → `ocr` 3,364 rows / 3,364 distinct inputs / 1 distinct settings key / 0
+  multi-artifact inputs; `analysis` 2,630 / 2,630 / 1 / 0.
+* The single settings key was identified by recomputing
+  `webapp.artifact_cache.ocr_settings_key` at this tree for four candidate flag
+  combinations and comparing against the index's one distinct key: only
+  `(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)` matches.
+* `visual_rung`, `source_path`, `source_model` and outcome-class splits come from
+  the run of record's own `rows.csv`.
+* The money-collapse finding was demonstrated on SYNTHETIC input at this tree
+  (three money tokens on three consecutive lines collapse to one; the same three
+  inside table cells do not), never on a document.
+
+The census tool states its own read-only-ness structurally in its docstring: it
+has no write mode, no `subprocess` write path, opens the cache index with a
+`file:...?mode=ro` URI and reads only the index table, and parses `*.py` source
+with `ast` without importing it.
+
+## Generalization evidence
+
+The audit is a census, not a sample: every module of `ocr/`, every first-party
+importer of every one of them, and every production entry point were enumerated
+by the instrument rather than chosen. Reachability is transitive and computed, so
+"can it reach a production path today" is answered the same way for all 45 rows.
+The one place the audit deliberately declines to generalize is the visual rung's
+behaviour on real pages: it has processed zero documents, and the audit says so
+rather than reasoning from its docstrings.
+
+## Commits
+
+* `<c1>` docs: OCR_LEGACY_AUDIT — the classification table, the findings, the
+  Phase-2 architecture proposal, the open questions.
+* `<c2>` tools: ocr_legacy_census.py — the read-only census instrument behind the
+  audit's numbers.
+* `<c3>` docs: W3 §OCRAUDIT — this section.
+
+(The sha list is in the final report to Ocean; a doc section that names its own
+commit cannot.)
+
+## Proof floor
+
+* canonical guards (`tests/test_no_statement_hardcodes.py
+  tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py
+  tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py
+  tests/test_corpus_gate_outcomes.py tests/test_currency_source.py`) — GREEN,
+  exit 0.
+* Privacy scans, both over a NAMED and MAXIMAL population — every content sha
+  of the run of record (`--rows <run>/rows.csv`), population 3,380, documents
+  read 3,351, against the cold cache. The audit names no document sha of its
+  own, so the population that a `--shas` file would have held is EMPTY; rather
+  than record a vacuous zero, both scans were pointed at the whole archive
+  instead, which is the strictly stronger statement.
+  * `python tools/privacy_scan_branch.py --data-dir .claude/recovery/webapp_data_train8_cold
+    --base main --ref HEAD --rows <run>/rows.csv` — **hit_count 0**
+    (MONEY 0 · DIGITS 0 · DATES 0 · WORDS 0; raw 26, every one of them
+    attributed to the scanner's own `words_class` exclusion), exit 0.
+  * `python tools/huntington_msg_privacy_scan.py --data-dir .claude/recovery/webapp_data_train8_cold
+    --base main --rows <run>/rows.csv` — **hit_count 0** across all four
+    classes, 3 commits scanned, exit 0. It took two rewordings to get there and
+    both are recorded honestly: the first run flagged one WORDS token inside a
+    coined compound of mine, the second flagged an ordinary two-word English
+    phrase; neither was document content, and the branch is unpushed, so the
+    messages were rewritten with the trees byte-identical (verified: an empty
+    `git diff` between the pre- and post-reword tips).
+* No mutation table is owed: no gate and no grammar was added or touched.
+* No archive sweep is owed: no reader changed.
+* `cohort_replay` not run — see *Previously validated preserved* for why.
+
+## Risks
+
+1. **The money collapse is the one thing that must be ruled before any OCR-fed
+   document is validated.** It is the sole path by which an extractor can make a
+   lost row look consistent instead of making it fail.
+2. **`cohort_replay`'s artifact selection is a prerequisite, not a follow-up.**
+   The regime that proves non-regression stops being deterministic the first time
+   a document has two OCR partitions, and the first OCR-fed document creates one.
+3. **Two extractors in the baseline have almost no offline test coverage** —
+   `ocr/local_tesseract.py` (179 reads, 36 of them validated) has zero
+   default-suite coverage, and `ocr/rasterize.py` has one assertion. Phase 2
+   doubles the traffic through both.
+4. **The `$0` guarantee is asserted in a docstring and enforced by nothing.**
+5. **The ladder-identity guard has a declared hole** (`getattr` dispatch,
+   `tests/test_native_rung_parity.py:230`) that a dynamically registered Phase-2
+   rung would walk straight through.
+6. **`OCR_STAGE_VERSION` 5 invalidates the whole OCR partition**, so the first
+   OCR-fed cold run is a cold run in the literal sense — budget for it.
+
+Eight open questions for Gustavo are listed in §6 of the audit document; the
+first three (the money collapse, whether the no-hardcodes guard extends to
+`ocr/`, and whether the `$0` policy becomes code) gate any Phase-2
+implementation card.
