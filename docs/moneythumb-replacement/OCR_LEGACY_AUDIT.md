@@ -128,7 +128,7 @@ output in the run of record. `reusable` = correct, tested, wired, but not exerci
 | 20 | OCR cache key inputs | `webapp/artifact_cache.py:592-604` | active | `stage_version, force_ocr, allow_local_ocr, allow_visual_ocr, dpi, fallback_dpi, ocr_model, ocr_base_url, ngram_size, window_size`. Excluded by design (`:121-141`): filename, `max_workers`, `timeout`, `retries`, `api_key`, callbacks, the preflight profile. Every knob's partitioning is pinned by `tests/test_artifact_cache.py:143` and `tests/test_visual_rung.py:492-501`. **Not keyed:** the Tesseract binary version, the Poppler version, the PyMuPDF version — see F-6. |
 | 21 | committed corpus artifacts | `corpus_artifacts.py:42,72-132`; generator `build_corpus_cache.py:26-111`; store `tests/corpus_cache/{manifest.json, ocr/<SHA>.md, pages/<SHA>.json}` (6 documents, 14 files) | active | Read by `discovery/runner.py:431-433` and `corpus_gate.py:1730-1731`, both hash-verified (`artifact_sha256`, `pages_sha256`). Manifest carries `ocr_model` per entry (`build_corpus_cache.py:87`). Exists precisely to keep Tesseract version drift out of the pinned corpus (`tests/corpus_cache/README.md`). The generator itself is `reusable` (reach = NO, 5 commits). |
 | 22 | cold cache (shared by both runs) | `.claude/recovery/webapp_data_train8_cold/` | active | 5,997 files: `artifacts/ocr` 3,364 JSON + `artifacts/analysis` 2,630 JSON + `webapp.db`. **PDF count: 0** — the source documents are not in it, which is why F-8 (Q3 re-measurement) needs the archive and not just the cache. |
-| 23 | the seam OCR → `Statement` / `DocumentReport` | `webapp/worker.py:318-343` → `:408` → `analysis/pipeline.py:1119-1123`; `discovery/runner.py:399-437` → `:511-517`; `tools/cohort_replay.py:129-141` | active | The seam is exactly **two values**: `markdown = StatementMarkdown.to_markdown()` and `sheets = list(StatementMarkdown.pages)`. There is no third channel and no per-field provenance — see §5.5. `corpus_gate.py:725-772` (`ANALYSIS_CALL_SITES` / `PRODUCTION_SUPPLIES_SHEETS`) is a standing guard that every production analysis caller passes `sheets=`. |
+| 23 | the seam OCR → `Statement` / `DocumentReport` | `webapp/worker.py:318-343` → `:408` → `analysis/pipeline.py:1119-1123`; `discovery/runner.py:399-437` → `:511-517`; `tools/cohort_replay.py:129-141` | active | The seam is **three values, not two** (corrected after adversarial review): `markdown = StatementMarkdown.to_markdown()`, `sheets = list(StatementMarkdown.pages)`, and — inside the markdown's own first line — the extractor's `model` string, which `to_markdown()` (`ocr/document.py:38-41`) writes and the extractor controls. The third channel is closed not by the seam's shape but by a GUARD: `admissible_text` (`analysis/parser_registry.py:197-215`) strips that comment via `SOURCE_COMMENT_RE` (`:194`) at `analyze_markdown`'s single parse seam, pinned by `tests/test_filename_boundary.py`. The guard is escapable by a newline in the model string — see F-4(b). There is no per-field provenance — see §5.5. `corpus_gate.py:725-772` (`ANALYSIS_CALL_SITES` / `PRODUCTION_SUPPLIES_SHEETS`) is a standing guard that every production analysis caller passes `sheets=`. |
 | 24 | webapp job worker | `webapp/worker.py:293-342` (`_read_document`), `:346-470` (`run_job`), `_STAGE_NAMES` `:45-49` | active | Owns MODE policy only, never routing (`:39-44`). `deterministic` mode: offline rungs, then an operator-forced visual escalation at `:444`. `auto` mode: full ladder at `:454`, `allow_visual_ocr=True`. |
 | 25 | discovery visual rung | `discovery/runner.py:438-500` (`_read_visual`), `:521-541` (`_needs_visual_upgrade`), `:606-670` (recovery + upgrade), `:100-101` (`VISUAL_*` vocabulary), `:181` (row field) | **reusable — the Phase-2 architecture, already written** | Recovery (offline rungs produced nothing) and Upgrade (Tesseract read that no parser claimed) both call `parse_statement(force_ocr=True, allow_visual_ocr=True)` into a disjoint cache partition, then the SAME `_analyse`. Fail-closed on an endpoint death (`:620-621`, `ocr_failed`). `_needs_visual_upgrade` is narrow by construction (`:524-533`). **Exercised on 0 documents.** |
 | 26 | discovery CLI + preflight refusal | `discovery/cli.py:31,107-138`; modes `discovery/runner.py:87-91` | reusable | `--scanned-visual` is the only mode that enables the rung; it probes the endpoint up front and refuses to start (`ocr/availability.py:8-12`). Never run. |
@@ -309,13 +309,36 @@ exactly the statement-specific-hardcode class that `tests/test_no_statement_hard
 defensible as intake (it changes which pixels are read, not what a value means) but it should be
 declared, not discovered, and Phase 2 must decide whether the guard scope extends to `ocr/`.
 
-**F-4 — the `$0` guarantee is a convention, not an enforcement. `ocr/config.py:26-42`,
-`ocr/ocr_client.py:385-387`.**
-`OCR_BASE_URL`, `OCR_MODEL` and `OCR_API_KEY` are plain env reads with no allowlist. Any of the
-three entry points that default `allow_visual_ocr=True` (`parse.py:30`, `batch.py:73`,
-`coverage_audit.py:178`) will post page images to whatever host that variable names. `telemetry/prices.py`
-fails closed on the *reporting* side (an unknown model prices to `None`, not `0.0`) but nothing fails
-closed on the *calling* side. `ocr/availability.py:5-6` states the invariant that no code enforces.
+**F-4 — the unvalidated OCR environment is BOTH an egress path and a content-INJECTION path.
+`ocr/config.py:26-42`, `ocr/ocr_client.py:385-387`, `ocr/pipeline.py:149`, `ocr/document.py:33-49`.**
+*Widened after adversarial review; the earlier version of this finding was egress-only.*
+
+**(a) Egress.** `OCR_BASE_URL`, `OCR_MODEL` and `OCR_API_KEY` are plain env reads with no allowlist.
+**Four** entry points default `allow_visual_ocr=True` and will therefore post page images to whatever
+host that variable names: `parse.py:30`, `batch.py:73`, `coverage_audit.py:178` and — the one an
+earlier draft missed — **`sweep_ocr.py:52`**, which is also the script that writes full OCR'd
+statement text to `output/`. Every other `parse_statement` call site in the tree passes
+`allow_visual_ocr=False` explicitly, except `discovery/runner.py:458`, which is the deliberate visual
+rung. `telemetry/prices.py` fails closed on the *reporting* side (an unknown model prices to `None`,
+not `0.0`); nothing fails closed on the *calling* side, and `ocr/availability.py:5-6` states an
+invariant that no code enforces.
+
+**(b) Injection — the more serious half.** `OCR_MODEL` is not only "which host gets the pixels"; it
+is **arbitrary text in the analysis input of every document the visual rung reads**.
+`ocr/pipeline.py:149` stamps `model=settings.model` onto the visual rung's `StatementMarkdown`, and
+`to_markdown()` (`ocr/document.py:33-49`) writes that string into the first line of the analysis
+input: `<!-- source: … | model: {self.model} | empty: N -->`. Reproduced end-to-end at this tree:
+with `OCR_MODEL` set to a value containing a **newline**, the second line — including an injected
+money-shaped token — survives `admissible_text()` and reaches the text every parser's detection
+markers scan and every text metric runs over. A model string containing `-->` does **not** escape
+(backtracking consumes to the last `-->` on the line); a newline does, because `SOURCE_COMMENT_RE`
+(`analysis/parser_registry.py:194`) is `MULTILINE` and **not** `DOTALL`.
+
+Unreachable today — zero visual reads — and reachable the day Phase 2 enables the rung. It is made
+sharper, not safer, by §5.5 item 2, which proposes *new* extractor-authored model-string conventions
+(`unlimited-ocr+…`, `paddle+…`) that go straight into that header. **Required in the same commit that
+adds any extractor: a closed character class on its model token** (no newline, no `<`, no `-->`),
+validated where the token is set rather than where it is printed.
 
 **F-5 — the second-largest extractor in the baseline has no default-suite test.
 `ocr/local_tesseract.py:12-44`.**
@@ -552,11 +575,21 @@ Proposal, in ascending cost — the first is required, the rest are Phase-2-late
 
 ### 5.7 Check by check: why the extractors cannot bypass or weaken any protection
 
-The structural argument is one sentence: **the extractors produce `StatementMarkdown` and nothing
+The structural argument, stated accurately: **the extractors produce `StatementMarkdown` and nothing
 else, and the validator's entry point takes a markdown string and a page list**
-(`analysis/pipeline.py:1119-1123`). There is no third channel, no confidence score, no
-extractor-supplied hint and no bypass flag anywhere on the seam (§2.3 #23) — a fact that
-`corpus_gate.py:725-772` already polices for the `sheets` half. Check by check:
+(`analysis/pipeline.py:1119-1123`). There is no confidence score, no extractor-supplied hint and no
+bypass flag anywhere on the seam — and `corpus_gate.py:725-772` already polices that production
+callers supply the `sheets` half.
+
+**One correction to the earlier draft, which claimed a two-value seam with "no third channel".**
+There IS a third channel: the extractor writes its `model` string into the first line of the
+markdown (`ocr/document.py:38-41`). What closes it is not the seam's shape but a named guard —
+`admissible_text` / `SOURCE_COMMENT_RE` (`analysis/parser_registry.py:194,197-215`), applied
+centrally at `analyze_markdown`'s single parse seam since W3 FILENAME-BOUNDARY and pinned by
+`tests/test_filename_boundary.py`. The safety conclusion survives; the reason had to be named,
+because a guard can be escaped (a newline in the model string does escape it — F-4(b)) where a
+missing channel cannot. Any Phase-2 extractor's model token must therefore be constrained to a
+closed character class in the commit that introduces it. Check by check:
 
 | protection | where it lives | why an extractor cannot weaken it |
 |---|---|---|
