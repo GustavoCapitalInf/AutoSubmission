@@ -27,10 +27,13 @@ CONSTRUCTED fixture and is named as one. It is built here as well as in
 cannot exercise a branch the archive does not print.
 
 Read-only over the run of record and the cold cache. Prints shas, counts and
-class names; never a description, an amount or a date. Registered in
-`corpus_gate.py`'s caller register: it calls no analysis path at all — it
-reconstructs its ledgers with the design's own prototype and hands them to one
-production function.
+class names; never a description, an amount or a date.
+
+NOT in `corpus_gate.py`'s caller register, deliberately: it calls no analysis
+path at all — it reconstructs its ledgers with the design's own prototype and
+hands them to one production function. The register is for modules that call
+the analysis, and its guard refuses a stale declaration as firmly as a missing
+one, so registering this file would turn that guard red.
 """
 from __future__ import annotations
 

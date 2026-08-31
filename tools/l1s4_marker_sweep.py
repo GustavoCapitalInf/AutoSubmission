@@ -14,9 +14,16 @@ document in the run of record that resolves to cached text, and reports:
   to be zero.
 
 Read-only over the archive and the cold cache. Prints shas, counts and
-outcomes; never a printed value, a name or an amount. Registered in
-`corpus_gate.py`'s caller register with its reason: it reaches the analysis
-through the DOCUMENT entry point.
+outcomes; never a printed value, a name or an amount.
+
+NOT in `corpus_gate.py`'s caller register, and that is the correct state rather
+than an omission. It calls `analysis.member_statement.parse_member_statement`
+DIRECTLY (`_claimed`, `_published` below); it reaches no analysis entry point,
+so it calls none of the names the register's guard watches
+(`tests/test_corpus_gate_outcomes.py::WATCHED`). Declaring it there would not
+merely be redundant — that test also refuses a STALE declaration, a registered
+module that no longer calls the analysis, so a register entry for this file
+would turn the guard red.
 """
 from __future__ import annotations
 
