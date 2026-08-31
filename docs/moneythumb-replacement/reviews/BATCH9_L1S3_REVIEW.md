@@ -787,3 +787,196 @@ files 0, residue sites 0, exit 0 — every raw hit WORDS-class and discharged by
 My first draft of that commit message contributed one WORDS hit, an ordinary English noun I had chosen
 freely; I reworded rather than attribute it, because §2 is the standard I held the cell to and nothing
 cites an unpushed tip.
+
+---
+
+# Re-review (closure-2 `5bc8f37`)
+
+**Reviewer:** the same independent cell. **Branch** `wave9-l1s3`, closure-2 tip `5bc8f37`, 30 commits
+from `4953806`. **Composition target** `train9` `14f10a1` (`47d2f87` is an ancestor; I merged the
+current tip, which is strictly the more faithful test).
+
+## VERDICT
+
+# CONFIRMED — COMPOSE
+
+with the composition checklist in §7, and one condition on COMP-5 stated in §5.
+
+## 0. First, what I got wrong
+
+My CONFIRMED at closure-1 was reached with the S2 pins run at a merged tree and **the corpus gate not
+run there**. The pins were the thing I had argued was decisive, and they were green; the gate was the
+thing that was actually broken, and I never asked it. A merged tree is a tree, and the proof floor
+that applies to a tree applies to it — I applied a subset of my own choosing and called the result
+confirmed. That is the defect in my method, not in theirs, and this section exists so it is on the
+record rather than absorbed. **This time the gate at my own merged tree is the first measurement in
+this document, and `pytest -m corpus` is the second.**
+
+## 1. THE DECISIVE MEASUREMENT — the gate, at my own merged tree
+
+Throwaway worktree beneath `.claude/worktrees/` (the slice's archive-currency proof walks ancestors
+for the OCR store and fails closed elsewhere), `train9 14f10a1` merged with `wave9-l1s3`, two
+conflicts resolved per the map, then COMP-3, COMP-4 and COMP-5 applied — COMP-5 in my own words, not
+copied from the cell (§5).
+
+| measurement at the merged tree | result |
+|---|---|
+| **`python corpus_gate.py`** | **GREEN, exit 0** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; 565.2 s |
+| **`pytest -q -m corpus`** | **31 passed, exit 0**, 1,266 s — and I confirmed by collection that both previously-red tests are in that 31: `tests/test_corpus_gate.py::test_corpus_gate_is_green` and `tests/test_discovery.py::test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered` |
+| full default suite | **7,715 passed / 43 skipped**, exit 0, 213 s |
+| S2 pins — `test_sibling_omission.py`, `test_l1s2_document_outcome.py`, `test_l1s2_omission_ruling.py`, `test_l1s2_protected_carriers.py` | **72 passed, 0 failed** |
+| `tools.l1_design_reader_probe --census` after COMP-3 | **exit 0** |
+
+The `PayloadShapeError` from `balance_forensic_audit.py::audit_source` on a pinned document is gone,
+and the two red slice tests are green. **The defect that discarded the last merge is closed.**
+
+## 2. The clause — verified to be exactly what was claimed
+
+`git diff 5ba2a38..HEAD` over production names **one file**: `analysis/serialization.py`, **one hunk**,
+`_publishes_todays_payload`. The body goes from the four-way conjunction to
+`return len(document.accounts) == 1`. I checked the neighbourhood explicitly: `report_to_dict`,
+`document_report_to_dict`, `_account_content_digest` and both wrapper refusals
+(`document_publishes_no_account`, the duplicate-content refusal) are **untouched** — no hunk reaches
+them. The ownership exception is on the record in W3 under its own heading: `analysis/serialization.py`
+and S1's RULE S tests are outside this card's declared ownership and Ocean directed the edit.
+
+**The 0-to-6 flip, reproduced — and it is the fix's proof.** The flip is only observable at a tree
+that carries S2's omissions, so I measured it at the merged tree against base `4953806`:
+
+| merged tree, document seam vs base `4953806` | byte-identical | moved | `MOVED_TOTAL` | exit |
+|---|---:|---:|---:|---:|
+| **with the fix** (account count alone) | **232 / 232** | 0 | **0** | 0 |
+| **with the PRE-FIX four-way clause restored** | **226 / 232** | **6** | **6** | 2 |
+
+The **account seam is 232 / 232 in BOTH runs**. That is the part that makes this evidence rather than
+a number: the six documents did not change what they say, only which *shape* the wrapper chose to say
+it in. Six of the 232-document cohort are among L1-S2's fifteen carriers, and under the old clause
+each flipped to `document` + `accounts` — which is precisely the payload the account-scope readers
+refuse, and precisely why the gate died.
+
+## 3. The field-set tripwire — a real one, in both directions
+
+`test_every_document_level_field_is_declared_against_rule_s` asserts
+`{f.name for f in fields(DocumentReport)} == set(DOCUMENT_LEVEL_FIELDS)`, and `DOCUMENT_LEVEL_FIELDS`
+carries a sentence per field saying where a single-account document keeps that fact. Judged against
+the two failures it is supposed to prevent:
+
+* **a new undeclared document-level field** — red, on the set equality. A stage adding one must write
+  down where it lives, which is the decision the conjunction used to force;
+* **a silent payload lighting** — red twice over, and not by that test:
+  `test_rule_s_adds_no_key_of_any_kind` asserts the published key set equals `report_to_dict`'s and
+  that neither `document` nor `accounts` appears, and
+  `test_a_single_account_document_publishes_todays_payload_whatever_it_carries` asserts full payload
+  equality across three parametrisations (omission, roll-up, boundary mechanism). A single-account
+  payload that quietly gained a document block fails both.
+
+One gap I looked for and found covered: the field-set test compares NAMES, so *repurposing* an
+existing field rather than adding one would slip past it — but
+`test_analyze_document_fills_no_document_level_field` catches exactly that. **It is a real tripwire.**
+
+## 4. The named cost — accepted, and it is a CARRY Ocean should not lose
+
+Stated plainly, because the docstring states it a little generously. Under closure-2 a single-account
+document that omitted a sibling publishes today's payload, so **the omission is on the object and in
+no published payload at all** — not in a document block, and not in the package surface, which is
+reached only by a multi-account payload. For the fifteen protected carriers that means Q10's
+"surface the omission" is, today, satisfied on the object (where L1-S2's own pins read it) and **not
+in anything a consumer is served**.
+
+I accept this as the right trade for this stage, on the stage's own contract: lighting a single-account
+payload's document block is a payload-shape change, it needs `ANALYSIS_STAGE_VERSION` bumped in the
+same commit and a ceremony, and it would move all fifteen — which a ZERO-MOVEMENT stage may not do.
+The alternative measured itself: it turns the gate red on a pinned document.
+
+**But it is a carry, not a closure.** Q10's payload-level surfacing is now owed by S4, and the S4 card
+should say so in those words. It is named in `DOCUMENT_LEVEL_FIELDS` and in the clause docstring, so
+it is a named gap rather than a silent one — which is the standard this program holds; I am recording
+it here so the obligation travels with the composition rather than living only in a docstring.
+
+## 5. COMP-5 — ADJUDICATED: the direction is right, with one condition
+
+I compared both replacements against S2's originals line by line, and I wrote my own replacement text
+rather than take the cell's, because the cell's exact text is in its report and not on the branch.
+
+**`test_the_document_carrying_an_omission_publishes_the_same_account_block`.** S2 asserted
+`canonical(published["accounts"][0]) == canonical(report_to_dict(analyze_markdown(text)))` — the
+NESTED account block is byte-identical to the account seam's. Under the ruled shape there is no nested
+block to read. Asserting the WHOLE payload against the same right-hand side is **strictly stronger**:
+S2's version permitted document-level keys to sit beside an identical account block, and this one
+forbids any added key at all. Adding "`document` and `accounts` absent" pins the ruled shape too.
+**No S2 assertion is weakened; one is strengthened.**
+
+**`test_the_omission_is_the_only_document_level_fact_the_stage_fills`.** S2 asserted, on the payload's
+`document` block: the omission's exact `label`, `reason` and `posting_count`; `account_count == 1`;
+and `period_start`, `period_end`, `boundary_mechanism`, `rollup` all `None`. The replacement must read
+those off the object — and **it must keep the content assertion.** A version that merely reads
+`document.omissions` and checks that a list is there would drop S2's strongest clause, which is that
+the omission is recorded with its printed label and its ratified reason. The text I applied keeps
+every one:
+
+    assert [(o.label, o.reason, o.posting_count) for o in document.omissions] == [
+        ("Money Market", PRINTED_DORMANCY_DECLARATION, 0)]
+    assert len(document.accounts) == 1
+    assert document.document_period is None
+    assert document.boundary_mechanism is None
+    assert document.rollup is None
+    assert "document" not in document_report_to_dict(document)
+
+`document_period is None` is the object field that serialises into S2's `period_start` and
+`period_end`, and `len(document.accounts) == 1` is what `account_count` was computed from, so the two
+translations are exact rather than approximate. The final line is new and pins the ruled shape.
+
+**Adjudication: COMP-5 preserves S2's intent and pins the ruled shape more strongly — CONDITIONAL on
+the second test keeping the label / reason / posting-count assertion.** Ocean should apply the text
+above (or the cell's, if it carries that assertion); a version without it is a weakening and I do not
+confirm it. Measured with the text above in place: the four S2 pin files are **72 passed, 0 failed**.
+
+## 6. The branch floor at `5bc8f37`
+
+| proof | result |
+|---|---|
+| full default suite | **7,615 passed / 43 skipped**, exit 0, 201 s |
+| canonical guards (5) | **255 passed**, exit 0 |
+| canonical conformance (7) | **1,270 passed / 40 skipped**, exit 0 |
+| the six L1-S3 files | **152 passed**, exit 0 |
+| AST surface census | **exit 0** — 46 key-reads swept, 8 seams, publisher **2 of 2** |
+| the design's seam census | **exit 0** |
+| mutation table | **12 / 12 killed**, exit 0. **M11** — RULE S regains the omission clause, the composition defect itself — killed by `test_a_single_account_document_publishes_todays_payload_whatever_it_carries[omission]`. **M12** — RULE S loses the account count, so a two-account document publishes its first account as the whole document — killed by 10 named tests **and** a red census. Both are one-line exact edits to the real clause; both are faithful. Tree clean after every mutant |
+| document seam vs base `4953806` | **232 / 232 byte-identical, `MOVED_TOTAL=0`** (measured at the merged tree, which subsumes the branch-alone run: the branch alone carries no document-level fact for the clause to decide on) |
+| privacy — added lines | `hit_count 0`; MONEY / DIGITS / DATES / WORDS **0**; residue 0; exit 0. **raw 82**, all WORDS-class — the cell's row says 81; raw drifts with the tip and both are all-WORDS, so this is a figure to update rather than a finding |
+| privacy — messages | **30 commits, `hit_count 0`, all four classes 0**, exit 0 |
+
+## 7. The composition checklist for Ocean — exact edits
+
+Everything below was applied in my throwaway and measured green together.
+
+1. **Merge conflicts, two, both as before.**
+   * `docs/moneythumb-replacement/W3_TRACKA_LOG.md` — CONTENT, one hunk, append-only concatenation.
+   * `tests/test_corpus_gate_outcomes.py` — CONTENT, comment only; the `WATCHED` line is
+     character-identical on both sides. Keep train9's comment.
+   * `corpus_gate.py` **auto-merges**; `EXCLUDED_ANALYSIS_CALLERS` is untouched on the branch.
+2. **COMP-3** — in `tools/l1_design_reader_probe.py::SEAMS`, `("corpus_gate.py", 1597, …)` becomes
+   `("corpus_gate.py", 1608, …)`. Measured, not assumed: before the edit the probe is exit 1 naming
+   1597 missing and 1608 undeclared; after it, exit 0.
+3. **COMP-4** — `tests/test_l1s2_document_outcome.py`: invert the tripwire, do not delete it.
+   `test_this_tree_declares_no_document_fold_yet` becomes
+   `test_this_tree_declares_exactly_one_document_fold`, asserting
+   `declared_document_folds() == ["telemetry/record.py::classify_document"]`. Pinning it by NAME keeps
+   the guard live in both directions — a second fold, a rename, or a silent removal all stay red.
+4. **COMP-5** — `tests/test_sibling_omission.py`, the two tests, per §5. **The condition in §5 binds.**
+5. **Carried to S4** — Q10's payload-level surfacing for a single-account carrier (§4), and the four
+   §6.5 assertions plus MAJOR-3's gate condition and MINOR-10 already carried from the earlier
+   reviews.
+
+## 8. What this re-review is not
+
+I did not re-run the 80-registration replay pair, the full 3,380-document sweep, or the wide
+677-document probe; §4 of the previous re-review states the reachability argument I accept for them,
+and closure-2 narrows rather than widens it — one production hunk, in the wrapper, whose effect on the
+232-document cohort I measured directly both ways. Everything else above was measured on this host.
+Both throwaway worktrees were created beneath `.claude/worktrees/` and removed; `git worktree list`
+carries neither; `mt9-l1s3` was modified by nothing but this file.
+
+**This re-review's own scans**: with this section committed, the branch scan is `hit_count 0` — all
+four classes 0, residue 0, exit 0, every raw hit WORDS-class — and the message scan over the branch is
+`hit_count 0`, all four classes 0, exit 0.
