@@ -61932,3 +61932,110 @@ over 109 pinned documents, and the seam probe `MOVED_TOTAL=0` over 232 documents
 registrations, base against tip. The 3,380-document sweep pair, the 80-registration
 replay pair and the 677-document wide probe stand on the earlier tip.
 
+---
+
+## Closure-2 — the composed tree found what neither branch could see alone
+
+Composition of L1-S2 + L1-S3 was **BLOCKED** at the composed tree, on a defect
+neither branch's own proofs could reach and which the merged-tree pin check missed
+because it never ran the gate. Measured there before the fix:
+
+```
+python corpus_gate.py
+  -> analysis.payload_shape.PayloadShapeError:
+     balance_forensic_audit.py::audit_source answers about one ACCOUNT and was
+     handed a document carrying 1 of them (reader_is_account_scope)
+
+pytest -m corpus  -> 2 failed / 29 passed
+     tests/test_corpus_gate.py::test_corpus_gate_is_green
+     tests/test_discovery.py::test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered
+```
+
+**The mechanism, in one line each.** L1-S2 records `DocumentReport.omissions` on the
+15 protected carriers — every one a SINGLE-account document batch 8 validated. RULE S
+(`analysis/serialization.py::_publishes_todays_payload`) was a four-way conjunction, so
+a non-empty omission list flipped those documents to the `document` + `accounts` shape.
+This card had moved the nine production seams onto that publisher. The account-scope
+readers this card taught then refused them — **correctly, and on a pinned validated
+corpus document**. So the composed tree moved 15 protected payloads at the production
+seams, against this card's zero-movement contract and the batch-9 non-regression
+doctrine.
+
+**The fix is one clause**: the serialized shape is decided by ACCOUNT COUNT alone —
+`return len(document.accounts) == 1`. A single-account document publishes today's dict
+byte-identically whatever document-level fact it carries; the `document` + `accounts`
+shape requires more than one account.
+
+Why that is the right direction rather than teaching the readers to unwrap a
+one-account document shape: `accounts` is a list because one dict cannot hold two
+statements, and a reader's refusal means *this holds several accounts and I can answer
+about only one*. A one-account document gives that refusal nothing to refuse. Unwrapping
+instead would have put "read one account and call it the document" back into every
+reader AND still changed the published bytes for the 15.
+
+**What it costs, named rather than hidden.** A single-account document carrying a
+document-level fact publishes today's payload, so that fact is on the OBJECT and not in
+the payload. That is exactly the failure S1's conjunction was written to prevent, and it
+is now an accepted gap with an owner:
+
+* the fact stays on `DocumentReport`, which is where L1-S2's Q10 and protected-carrier
+  pins read it — through `analyze_document`, never through the payload;
+* the document and package surfaces this card built still publish it, and still only
+  when served a MULTI-account payload — dark until S4, exactly as Q10 rules;
+* **S4 owns closing it.** Giving a single-account payload a `document` block is a
+  payload-shape change: `ANALYSIS_STAGE_VERSION` bumped in the same commit, and a
+  ceremony. A stage whose whole contract is zero movement may not make it, and making
+  it here would have moved all 15.
+
+`tests/test_document_report.py::test_every_document_level_field_is_declared_against_rule_s`
+pins the `DocumentReport` field set against that gap with a declaration of where each
+fact lives, so a document-level field added later is a red test rather than a silent
+invisibility.
+
+### Ownership exception
+
+`analysis/serialization.py` is L1-S1's file and outside this card's declared ownership,
+as are S1's two RULE S tests in `tests/test_document_report.py`. Ocean directed this
+branch to take the clause, because it is the composition fix this card's own contract
+requires. Recorded here so the exception is on the record rather than discovered in a
+diff. Nothing else of S1's is touched: `report_to_dict`, `document_report_to_dict`'s
+body, the two wrapper refusals and RULE S's byte-identical return are unchanged.
+
+### Measured at a THROWAWAY merged tree
+
+`train9` **`47d2f87`** (the current tip — a superset of the `fe52365` the brief names,
+by three docs-only commits) merged with this branch's closure-2 tip, resolved per the
+known map, with Ocean's composition edits replicated. The worktree was removed at the
+end; `git worktree list` carries neither it nor its metadata.
+
+| check | result |
+|---|---|
+| conflicts | exactly the two the review predicted — `W3_TRACKA_LOG.md` (append-only concatenation: train9's `§L1S2` + `§Q3PROBE`, then `§L1S3`) and `tests/test_corpus_gate_outcomes.py` (both sides make the IDENTICAL `WATCHED` edit; train9's comment kept). `corpus_gate.py` auto-merged |
+| `python corpus_gate.py` | **GREEN**, exit 0 — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / **102 validated** / 3 withheld; 109 resolved offline (536.2 s). Every pinned verdict unchanged |
+| `pytest -m corpus` | **31 passed**, exit 0 (1,247.9 s) — including `test_corpus_gate_is_green` and `test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered`, the two that failed before the fix |
+| the S2 pin files | `test_l1s2_document_outcome.py` + `test_l1s2_omission_ruling.py` + `test_l1s2_protected_carriers.py` + `test_sibling_omission.py` → **72 passed**, exit 0 |
+| full suite at the merged tree | **7,715 passed / 43 skipped**, exit 0 |
+| **the document seam, base `4953806` vs the merged tree** | **232 / 232 byte-identical, `MOVED_TOTAL=0`**; integrity flag list and ORDER identical 232; ladder unchanged 232; documents publishing exactly one account **232** |
+| **the same probe with the PRE-FIX clause restored** | **226 / 232 byte-identical, `MOVED_TOTAL=6`** — the six are measured rather than inferred, and they are the carriers in this 232-document cohort. The clause is what turns 6 into 0 |
+
+**Two composition edits were replicated, and a THIRD was found.**
+
+* **COMP-3** — `tools/l1_design_reader_probe.py::SEAMS`, `corpus_gate.py` **1597 → 1608**
+  at the merged tree (S2 adds eleven lines above it). Not taken on the branch: it can
+  only be right at the merged tree, and taking it here turns this branch's own census red.
+* **COMP-4** — `tests/test_l1s2_document_outcome.py::test_this_tree_declares_no_document_fold_yet`,
+  whose docstring says S3 landing the fold turns it red on purpose. **Inverted** rather
+  than deleted (a deleted tripwire stops watching; an inverted one goes red if the fold
+  ever disappears), and it passes inverted.
+* **COMP-5, new and owed to Ocean** — two tests in L1-S2's `tests/test_sibling_omission.py`
+  pin the SERIALIZED SHAPE the ruling reverses, and they fail at the merged tree until
+  they are corrected:
+  `test_the_document_carrying_an_omission_publishes_the_same_account_block` reads the
+  account block out of a document shape, and
+  `test_the_omission_is_the_only_document_level_fact_the_stage_fills` asserts a
+  `document` block with `account_count` 1. S2's INTENT is unchanged and both are
+  re-pinned more strongly: the first asserts the WHOLE payload is byte-identical to the
+  account seam's (nothing nested), and the second reads the omission off the OBJECT,
+  which is where the Q10 pins already read it. Replicated in the throwaway only — it is
+  S2's file, so the edit is Ocean's; the replacement text is in this cell's report.
+
