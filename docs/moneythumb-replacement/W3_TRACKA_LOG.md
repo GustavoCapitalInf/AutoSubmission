@@ -63780,10 +63780,11 @@ branch, the tree verified BYTE-IDENTICAL across the rewrite,
 `refs/original` removed, and the scan re-run. The coordinator asks for four hard
 zeros, and a zero is worth more than an attribution.
 
-Both scans were run again at the closure tip and both are zero: the branch
-scan over 4,592 added lines against 13,637 distinctive tokens from all 23
-documents, and the message scan over all 18 commits. The branch scan reports
-12 RAW matches there, every one of them the program's standing `words_class`
+Both scans were run again after THIS ENTRY WAS COMMITTED, so that they cover
+their own 725 added lines rather than stopping short of them, and both are
+zero: the branch scan over 5,318 added lines against 13,637 distinctive tokens
+from all 23 documents, and the message scan over all 19 commits. The branch
+scan reports 13 RAW matches there, every one of them the program's standing `words_class`
 exclusion — ordinary English words that a statement also happens to print.
 That number is not the six above and does not contradict it: the six were
 real hits that were fixed, and these twelve are matches the rule was written
@@ -63841,8 +63842,8 @@ FINDINGS with a non-zero code by design, and both are noted inline.
 | `regfp_zero_movement_sweep` whole archive, 4 chunks | every field equal to the base except `no_payload_now_publishes` 21 → 29 and `no_payload_raises_again` 661 → 653 | 1 ×4 — *findings present* |
 | `l1s3_sweep_attribution` (sweep) | **70 findings at BOTH trees identical · 0 different at both · 8 at the TIP only · 0 at the BASE only** | 0 |
 | `l1s3_sweep_attribution --replay-*` | 3,380 replayed at both trees · **exactly 8 rows differ**, ignoring `ms` | 0 |
-| `privacy_scan_branch` | 4,592 added lines · 23 documents · 13,637 distinctive tokens · **0 hits** (12 raw, all the standing `words_class` exclusion) · 0 residue files | 0 |
-| `huntington_msg_privacy_scan` | **18 commits · 0 hits** | 0 |
+| `privacy_scan_branch` | **5,318 added lines** · 23 documents · 13,637 distinctive tokens · **0 hits** (13 raw, all the standing `words_class` exclusion) · 0 residue files | 0 |
+| `huntington_msg_privacy_scan` | **19 commits · 0 hits** | 0 |
 
 The two attribution rows are the ones that carry the claim. Everything else
 measures a tree; those two measure the DIFFERENCE between two trees over one
