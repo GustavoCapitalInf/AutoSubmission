@@ -244,12 +244,18 @@ Audited explicitly because its absence is load-bearing rather than an oversight.
    that rewrites money in two complementary scopes (F-1, F-11) and embeds document pixels into the
    text the validator reads (F-2).
 3. **#29 `tools/cohort_replay.py::ColdCache._payload` — `unsafe`.** The whole non-regression regime
-   silently loses determinism the first time a document has two OCR partitions (F-9).
+   silently loses determinism the first time a document has two partitions — sooner on the analysis
+   stage than on the OCR stage (F-9). Its fix is not new work: **#46
+   `telemetry/stated_counts.py::CachedArtifacts` already implements ordered, settings-key-filtered
+   selection**, and its ordering already ranks the visual partition last, which is an unratified
+   extractor preference Phase 2 would inherit by omission (OQ10).
 4. **#2 `ocr/config.py` — `unsafe`.** The `$0`/no-paid-vendor guarantee is documented as an invariant
-   and enforced by nothing (F-4).
+   and enforced by nothing — and the same unvalidated variable is a **content-injection** path into
+   the analysis input, not merely an egress path (F-4).
 5. **#38 `analysis/structurer/geometry.py` — `reusable`, unwired.** `document_geometry` is a live
    parameter that no production caller fills; it is the pre-built socket for OCR word boxes and the
-   cheapest structural win available in Phase 2.
+   cheapest structural win available in Phase 2 — and #45's tracked PaddleOCR spec already designs
+   the bbox reconstruction that would fill it.
 
 ---
 
@@ -827,5 +833,7 @@ Headline numbers and where each comes from:
 | the single settings key = `(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)` | `ocr_settings_key()` recomputed at this tree and compared to the index's distinct key |
 | `visual_rung = not_attempted` and `cache_visual = bypass`, both 3,506/3,506; `source_path` and `source_model` distributions; outcome-class splits; R = 13 `deferred_visual_ocr`; U = 123; R ∪ U = 136, overlap 0; validated ∩ (R ∪ U) = 0; 2,625 distinct validated shas of 3,380 | `rows.csv` of the **batch-9 run of record**, `discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a` |
 | the same intake-provenance columns on the batch-8 run, for the equivalence claim | `rows.csv` of `discovery_reports/TRAIN8-7185633/2026-08-28T224640.553059-0000-cda8882d` |
+| the OCR / analysis cache-index census | `tools/ocr_legacy_census.py --cache-index` |
+| **29 shas have no cached text in the cold cache** (`no_cached_text` in both scans' JSON) — so both privacy scans read 3,351 of the 3,380-sha population. Those 29 hold no `ocr`-stage artifact to scan, which is why they are absent rather than skipped; a floor that reports "3,351 of 3,380" should say so, because a silent shortfall and an unreachable document look identical in the JSON | both scans' own output, recorded here after the adversarial review noted the omission |
 | F-1 demonstrated | three money tokens on three consecutive lines → one token; the same three inside `<td>` cells → unchanged; three DISTINCT amounts → unchanged; and `[a,a,a,b,c]` on five consecutive lines → `[a]`, i.e. two distinct amounts DELETED (`ocr.ocr_client.collapse_repeated_amounts` and `postprocess`, synthetic input, no document) |
 | F-11 demonstrated | an Amount cell holding two fused money values → leading value moved into the description, trailing value promoted to the row's amount (`ocr.ocr_client.fix_amount_column_bleed`, synthetic input, no document) |
