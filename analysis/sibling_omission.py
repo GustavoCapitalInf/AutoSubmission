@@ -87,6 +87,20 @@ PRINTED_ZERO_ACTIVITY_SUMMARY = "printed_zero_activity_summary"
 #: column at zero).
 YIELD_ONLY_ARITHMETIC = "yield_only_arithmetic_with_summary_equality"
 
+#: The section printed its OWN opening caption and figure and its OWN closing
+#: caption and figure, the two coincide to the cent, and it printed no dated
+#: ledger row, no counts or totals and no daily-balance table — AND the
+#: document's own enumerating table independently reproduces that closing.
+#:
+#: GRANTED WITH CORROBORATION (Gustavo, 2026-08-30, BATCH9_TRANSITION §8.8).
+#: Six printed conditions and a seventh that the section does not control: the
+#: roll-up witness. The class exists to bound the hazard where an extractor
+#: loses a section's ledger rows while its two captions survive and happen to
+#: net to zero; the six conditions are all read INSIDE the section, so the only
+#: thing that can contradict a lost ledger is a second printing of the closing
+#: somewhere the section does not govern.
+PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED = "printed_pair_coincides_and_no_row_printed"
+
 #: The closed vocabulary. Membership is checked at CONSTRUCTION, so a reason a
 #: site invented cannot reach a payload: L1-C17 says an omission whose reason is
 #: not a ratified evidence class should never have been published.
@@ -94,6 +108,7 @@ EVIDENCE_CLASSES: frozenset[str] = frozenset({
     PRINTED_DORMANCY_DECLARATION,
     PRINTED_ZERO_ACTIVITY_SUMMARY,
     YIELD_ONLY_ARITHMETIC,
+    PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED,
 })
 
 #: The ratified printings of ONE fact. `DORMANT_RE` is the wording
@@ -169,6 +184,116 @@ def prints_zero_activity_summary(
     )
 
 
+#: A cent, the way every printed-figure comparison in the L-1 design expresses
+#: it. Two figures the paper prints to the cent COINCIDE when they differ by
+#: less than half of one.
+CENT = 0.005
+
+
+@dataclass(frozen=True)
+class RollupWitness:
+    """Condition 7's facts, as the READER read them off the enumerating table.
+
+    This record holds no grammar and reads no document: each field is something
+    the calling reader established from the document's own printed table, and a
+    reader that could not establish one supplies the fail-closed value.
+
+    `row_located_by_label` and `row_located_by_identity` are two different
+    printed handles on the same row — the product caption the table printed, and
+    the identity token beside it — and `locators_agree` says whether they found
+    the SAME row. Both halves are required and their agreement is required with
+    them, because on this family neither half is reliably the discriminating one
+    (`W3 §Q3PROBE` Q3PROBE8, review MINOR-3 and MINOR-4: on one document the
+    label matches eleven lines including the sibling's reprinted headings and
+    only the identity token is unique; on two others the reverse). A witness
+    bound by one handle where the other disagrees is a MIS-BINDING, and a
+    mis-binding is invisible to a probe that inherits the link from the boundary.
+    """
+
+    #: The document printed a roll-up / enumerating table WITH rows.
+    printed: bool = False
+    #: L1-C5: the table printed a COLUMN CAPTION from the closed vocabulary, so
+    #: the roles of its columns are established by the paper rather than by a
+    #: position. False refuses the witness outright — a figure coinciding under
+    #: a column nobody named is a coincidence and not a corroboration.
+    column_roles_printed: bool = False
+    #: A row of that table located by the section's OWN PRINTED LABEL.
+    row_located_by_label: bool = False
+    #: A row of that table located by the section's OWN IDENTITY TOKEN.
+    row_located_by_identity: bool = False
+    #: ... and the two handles found the same row.
+    locators_agree: bool = False
+    #: The figure that row prints under the `close` ROLE — never under a
+    #: position. `None` where the row's figures do not fit the printed roles.
+    closing: float | None = None
+
+
+def prints_pair_coinciding_with_no_row_printed(
+    *,
+    opening: float | None,
+    closing: float | None,
+    dated_row_count: int | None,
+    prints_counts_or_totals: bool | None,
+    prints_daily_balance_table: bool | None,
+    rollup: RollupWitness | None,
+) -> bool:
+    """The SEVEN conditions of `printed_pair_coincides_and_no_row_printed`.
+
+    All seven, in the ruling's own order:
+
+    1. the section prints its own opening caption AND figure;
+    2. the section prints its own closing caption AND figure;
+    3. the two coincide to the cent;
+    4. no dated ledger row is printed in the section;
+    5. no counts / totals are printed for the section;
+    6. no daily-balance table is printed for the section;
+    7. the document's enumerating table independently reproduces the section's
+       closing, read from the `close` ROLE of a column caption in L1-C5's closed
+       vocabulary, on a row bound to this section by BOTH its printed label and
+       its identity token.
+
+    **Read fail-closed on every one of them**, and read that way in the
+    direction that costs the class rather than the direction that grants it: a
+    figure the reader could not establish is `None` and refuses, a count it did
+    not take is `None` and refuses, and an absent witness refuses. Condition 7's
+    conditional wording in the ruling — *where the document prints a roll-up
+    with identifiable column roles* — is applied the way the bounded probe
+    applied it and reported it: a document that prints no such table FAILS
+    condition 7 rather than passing it vacuously
+    (`tools/q3_corroboration_probe.py::_decide_witness`, refusal classes
+    `no_rollup_or_enumerating_table_printed_by_the_document` and
+    `rollup_prints_the_closing_under_a_column_whose_role_is_not_identifiable`).
+    That is the reading S4 must implement, because it is the one the six
+    measured sections were measured under.
+
+    Condition 4 asks about what the PAPER printed and not about what the caller
+    parsed. A reader that hands its own parsed-row count here would be asking
+    "did I read a row" where the ruling asks "did the paper print one", and the
+    two differ on exactly the documents this class exists to refuse.
+    """
+    if opening is None or closing is None:
+        return False
+    if abs(opening - closing) > CENT:
+        return False
+    if dated_row_count is None or dated_row_count != 0:
+        return False
+    if prints_counts_or_totals is None or prints_counts_or_totals:
+        return False
+    if prints_daily_balance_table is None or prints_daily_balance_table:
+        return False
+    if rollup is None or not rollup.printed:
+        return False
+    if not rollup.column_roles_printed:
+        return False
+    if not (rollup.row_located_by_label and rollup.row_located_by_identity):
+        return False
+    if not rollup.locators_agree:
+        return False
+    if rollup.closing is None:
+        return False
+    return abs(rollup.closing - closing) <= CENT
+
+
 def evidence_class(
     *,
     text: str | None = None,
@@ -178,6 +303,10 @@ def evidence_class(
     debit_total: float | None = None,
     credit_count: object = None,
     debit_count: object = None,
+    dated_row_count: int | None = None,
+    prints_counts_or_totals: bool | None = None,
+    prints_daily_balance_table: bool | None = None,
+    rollup: RollupWitness | None = None,
 ) -> str | None:
     """Which class of PRINTED evidence admits this section's omission, or None.
 
@@ -198,6 +327,21 @@ def evidence_class(
         credit_count=credit_count, debit_count=debit_count,
     ):
         return PRINTED_ZERO_ACTIVITY_SUMMARY
+    # LAST, and reachable only by a caller that supplies its four arguments.
+    # Every reader written before this class supplies none of them, so each is
+    # `None`, every one of them refuses, and no section any existing reader
+    # omits can change class. That is not a courtesy: the fifteen protected
+    # carriers of W3 §L1S2 are admitted by the three classes above and their
+    # payloads are pinned, so a new class that could reach them silently would
+    # be a movement this cell is not entitled to make.
+    if prints_pair_coinciding_with_no_row_printed(
+        opening=opening, closing=closing,
+        dated_row_count=dated_row_count,
+        prints_counts_or_totals=prints_counts_or_totals,
+        prints_daily_balance_table=prints_daily_balance_table,
+        rollup=rollup,
+    ):
+        return PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED
     return None
 
 

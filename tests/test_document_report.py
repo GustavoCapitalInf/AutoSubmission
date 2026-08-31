@@ -137,24 +137,29 @@ def test_rule_s_adds_no_key_of_any_kind(monkeypatch):
     "rollup",
     "boundary_mechanism",
 ])
-def test_a_single_account_document_publishes_todays_payload_whatever_it_carries(
+def test_a_single_account_document_keeps_todays_payload_and_adds_only_the_block(
     monkeypatch, carries
 ):
     """RULE S is the ACCOUNT COUNT, and this is the case that decided it.
 
     L1-S2 records `omissions` on the 15 protected carriers — every one a
-    single-account document batch 8 validated. Under the four-way conjunction
+    single-account document batch 8 validated. Under S1's four-way conjunction
     those 15 took the `document` + `accounts` shape at the production seams,
     and at the composed tree `python corpus_gate.py` died with
     `balance_forensic_audit.py::audit_source answers about one ACCOUNT and was
-    handed a document carrying 1 of them`. The readers were right; the shape
-    was wrong.
+    handed a document carrying 1 of them`. The readers were right; the SHAPE
+    was wrong, and L1-S3's closure-2 made the shape the account count alone.
 
-    The cost is named in `_publishes_todays_payload` and pinned by
-    `test_every_document_level_field_is_declared_against_rule_s` below: the
-    fact is on the object and not in this payload until S4 gives a
-    single-account payload a document block, which is a shape change with a
-    version bump and a ceremony.
+    **L1-S4 closes the gap that left**, and this test is where the two halves
+    are held apart. The shape is still the account count: no `accounts` list,
+    `statement` still at the top level, so `is_document_payload` still answers
+    False and every account-scope reader still answers this payload. What is
+    added is the `document` BLOCK, and only for a document that established a
+    document-level fact — because Q10 rules that a surfaced omission is
+    surfaced, and a fact that reaches no payload reaches no package and no
+    person.
+
+    So: every key today's payload has, byte-identical, plus exactly one.
     """
     account = _first_account(monkeypatch)
     document = DocumentReport(accounts=[account])
@@ -167,10 +172,27 @@ def test_a_single_account_document_publishes_todays_payload_whatever_it_carries(
             cross_account_total_printed=False)
     else:
         document.boundary_mechanism = "rollup-oracle"
+    today = report_to_dict(account)
     published = document_report_to_dict(document)
+    assert set(published) == set(today) | {"document"}
+    assert "accounts" not in published
+    assert "statement" in published
+    # Every existing key is the one today's payload publishes, unchanged.
+    for key, value in today.items():
+        assert canonical(published[key]) == canonical(value), key
+    assert published["document"]["account_count"] == 1
+
+
+def test_a_single_account_document_that_established_nothing_publishes_todays_payload(
+    monkeypatch,
+):
+    """The other side of the same clause, and the one that keeps the archive
+    still: a document with no document-level fact to publish adds NO key. That
+    is every document in the run of record but twenty-one."""
+    account = _first_account(monkeypatch)
+    published = document_report_to_dict(DocumentReport(accounts=[account]))
     assert published == report_to_dict(account)
     assert "document" not in published and "accounts" not in published
-    assert "statement" in published
 
 
 def test_the_document_shape_needs_more_than_one_account(monkeypatch):
@@ -191,7 +213,14 @@ DOCUMENT_LEVEL_FIELDS = {
     "rollup": "on the object; the boundary layer that reads a roll-up is S4's",
     "omissions": "on the object, where L1-S2's protected-carrier pins read it; the "
                  "package surface publishes it for a MULTI-account payload only (Q10, dark)",
-    "boundary_mechanism": "on the object; set by the boundary layer, which is S4's",
+    "boundary_mechanism": "on the object; set by the boundary layer (L1-S4), and "
+                          "left unset by every reader that establishes no printed partition",
+    "internal_transfers": "on the object, and EMPTY on a single-account document by "
+                          "construction — one ledger has no sibling for a counterpart "
+                          "to be in, so there is nothing for RULE S to hide (L1-S4, R-d)",
+    "integrity_notes": "on the object; today's only member is "
+                       "`ambiguous_internal_transfer`, which needs two ledgers to be "
+                       "reachable at all, so a single-account document carries none (L1-S4)",
 }
 
 
@@ -419,7 +448,7 @@ def test_the_document_block_carries_exactly_the_documents_own_facts(monkeypatch)
         accounts=[_first_account(monkeypatch), _second_account(monkeypatch)]))
     assert set(published["document"]) == {
         "period_start", "period_end", "boundary_mechanism", "account_count",
-        "rollup", "omitted_sections",
+        "rollup", "omitted_sections", "internal_transfers", "integrity_notes",
     }
 
 

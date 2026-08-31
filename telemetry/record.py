@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from analysis.payload_shape import (
+    DOCUMENT_KEY,
     is_document_payload,
     payload_accounts,
     payload_document_block,
@@ -476,12 +477,23 @@ def classify_document(
             f"A `DocumentReport` is the OBJECT; its payload is what "
             f"`analysis.serialization.document_report_to_dict` returns for it"
         )
+    surface = "telemetry/record.py::classify_document"
+    # L1-C17's override, asked of BOTH shapes. A single-account document can
+    # carry a surfaced omission too (L1-S4 gives it a `document` block beside
+    # today's payload), and an omission whose reason is not a ratified evidence
+    # class is a publisher defect on ONE account exactly as it is on three. The
+    # check runs before the shape branch so neither shape can walk past it.
+    if deferred is None and isinstance(payload, Mapping) and DOCUMENT_KEY in payload:
+        for omission in payload_document_block(
+            payload, surface=surface).get("omitted_sections") or []:
+            reason = omission.get("reason") if isinstance(omission, Mapping) else None
+            if reason not in RATIFIED_OMISSION_REASONS:
+                return "failed", "document_omission_unratified"
     if deferred is not None or not is_document_payload(payload):
         return classify_outcome(
             payload, error_type=error_type, error_reason=error_reason,
             deferred=deferred,
         )
-    surface = "telemetry/record.py::classify_document"
     accounts = (payload.get("accounts") or []) if isinstance(payload, dict) else []
     if not accounts:
         # Refusing here rather than letting `payload_accounts` raise: an

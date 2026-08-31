@@ -39,6 +39,7 @@ from analysis.sibling_omission import (
     DORMANCY_DECLARATIONS,
     EVIDENCE_CLASSES,
     PRINTED_DORMANCY_DECLARATION,
+    PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED,
     PRINTED_ZERO_ACTIVITY_SUMMARY,
     YIELD_ONLY_ARITHMETIC,
     SectionLedger,
@@ -153,12 +154,33 @@ def test_a_declaration_outranks_a_summary_it_disagrees_with():
 # ===========================================================================
 
 
-def test_the_vocabulary_is_exactly_the_designs_three_reachable_members():
+def test_the_vocabulary_is_exactly_the_designs_four_ratified_members():
+    """L1-C17's vocabulary, pinned by EQUALITY so a member is added by a card
+    that argues for it rather than by a call site that wanted one.
+
+    Three at L1-S2, and a FOURTH at L1-S4: `printed_pair_coincides_and_no_row_printed`,
+    granted with corroboration by Gustavo on 2026-08-30 (BATCH9_TRANSITION §8.8)
+    and measured section by section by `tools/q3_corroboration_probe.py` before
+    S4 relied on it. `telemetry/record.py::RATIFIED_OMISSION_REASONS` declares
+    the same four for the outcome fold, and the test below holds the two equal.
+    """
     assert EVIDENCE_CLASSES == {
         PRINTED_DORMANCY_DECLARATION,
         PRINTED_ZERO_ACTIVITY_SUMMARY,
         YIELD_ONLY_ARITHMETIC,
+        PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED,
     }
+
+
+def test_the_outcome_folds_vocabulary_is_the_same_vocabulary():
+    """One closed list, declared in two modules because neither may import the
+    other, and held equal here rather than by a comment. A class this module
+    admits that the fold does not ratify would publish an omission the document
+    outcome then reads as a publisher defect and fails the document for."""
+    from telemetry.record import RATIFIED_OMISSION_REASONS
+
+    assert set(RATIFIED_OMISSION_REASONS) == EVIDENCE_CLASSES
+    assert len(RATIFIED_OMISSION_REASONS) == len(EVIDENCE_CLASSES)
 
 
 def test_absence_of_parsed_rows_is_not_a_reason_and_cannot_be_recorded():
@@ -442,25 +464,35 @@ def test_an_inert_block_stating_instances_it_printed_no_row_for_refuses():
 
 
 def test_the_document_carrying_an_omission_publishes_the_same_account_block():
-    """COMP-5 (the ruled shape, L1-S3 closure-2): a single-account document
-    publishes today's payload byte-identically WHATEVER document-level fact it
-    carries — the WHOLE payload equals the account seam's, strictly stronger
-    than the nested-block assertion (no added key of any kind), and the
-    document shape's keys are absent."""
+    """COMP-5, re-pinned at L1-S4: the ACCOUNT block is byte-identical to the
+    account seam's, and the ONLY thing the document seam adds is the gap.
+
+    L1-S3's closure-2 pinned this as "the whole payload equals the account
+    seam's, no added key of any kind", because at that tree a document-level
+    fact had nowhere to go that did not switch the payload SHAPE and make every
+    account-scope reader refuse fifteen protected documents. L1-S4 gives it
+    somewhere: a `document` BLOCK beside today's payload, with no `accounts`
+    list, so the shape is unchanged and the readers still answer.
+
+    The assertion is therefore stated where it still holds and is strictly
+    stronger there: every key the account seam publishes is byte-identical, one
+    key is added, and it is the document's own block."""
     text = SYM_HEAD + SYM_ACTIVE + SYM_DORMANT
     document = analyze_document(text, parse_mode="deterministic")
     published = document_report_to_dict(document)
-    assert canonical(published) == canonical(
-        report_to_dict(analyze_markdown(text, parse_mode="deterministic")))
-    assert "document" not in published
+    account = report_to_dict(analyze_markdown(text, parse_mode="deterministic"))
+    assert set(published) == set(account) | {"document"}
+    for key, value in account.items():
+        assert canonical(published[key]) == canonical(value), key
     assert "accounts" not in published
+    assert "statement" in published
 
 
 def test_the_omission_is_the_only_document_level_fact_the_stage_fills():
-    """COMP-5: the facts move off the payload onto the OBJECT (where the Q10
-    pins read them) — with the content assertion kept in full: the omission's
-    printed label, ratified reason and posting count, one account, every other
-    document fact None, and no `document` key in the serialized payload."""
+    """COMP-5: the omission's printed label, ratified reason and posting count,
+    one account, and every OTHER document fact still empty — read off the
+    OBJECT, which is where the Q10 pins read it, and then off the published
+    block, which is where a package reads it since L1-S4."""
     text = SYM_HEAD + SYM_ACTIVE + SYM_DORMANT
     document = analyze_document(text, parse_mode="deterministic")
     assert [(o.label, o.reason, o.posting_count) for o in document.omissions] == [
@@ -469,7 +501,17 @@ def test_the_omission_is_the_only_document_level_fact_the_stage_fills():
     assert document.document_period is None
     assert document.boundary_mechanism is None
     assert document.rollup is None
-    assert "document" not in document_report_to_dict(document)
+    assert document.internal_transfers == []
+    assert document.integrity_notes == []
+    block = document_report_to_dict(document)["document"]
+    assert block["omitted_sections"] == [
+        {"label": "Money Market", "reason": PRINTED_DORMANCY_DECLARATION,
+         "posting_count": 0}]
+    assert block["account_count"] == 1
+    assert block["rollup"] is None
+    assert block["boundary_mechanism"] is None
+    assert block["period_start"] is None and block["period_end"] is None
+    assert block["internal_transfers"] == [] and block["integrity_notes"] == []
 
 
 def test_the_record_never_reaches_the_statement():

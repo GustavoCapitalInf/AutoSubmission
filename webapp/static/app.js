@@ -1455,7 +1455,13 @@ function renderPackageAnalysis(pkg) {
   renderMetricSections([
     {
       title: "Package Revenue",
-      sub: `${formatNumber(totals.months)} statement periods`,
+      // MINOR-10 (the L1-S3 review): `months` counts MEMBERS and this label
+      // says PERIODS. They are the same number until a document publishes two
+      // accounts, and two accounts of one document are one statement period.
+      // The server publishes `statement_periods` only when the two differ, so
+      // this reads the honest count where there is one and the old one where
+      // nothing changed.
+      sub: `${formatNumber(totals.statement_periods ?? totals.months)} statement periods`,
       items: [
         ["Total Credits", formatMoney(totals.total_credits, currency), moneyNote(REVENUE_METRIC_COPY.totalCredits), "CR", "green"],
         ["Verified Revenue", formatMoney(totals.verified_revenue_total, currency), moneyNote(REVENUE_METRIC_COPY.verifiedRevenue), "REV", "green", { revenueFilter: "verified_revenue" }],

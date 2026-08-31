@@ -53,7 +53,13 @@ ROOT = Path(corpus_gate.__file__).resolve().parent
 #: `analysis/pipeline.py` is already swept through the `analyze_markdown` call
 #: inside `analyze_document`, and the only other callers are two read-only
 #: probes that were already excused.
-WATCHED = {"analyze_markdown", "analyze_document", "cached_analysis"}
+#: `_analyse` joined it at L-1 stage 4, and for the same reason one layer down.
+#: Both entry points now go through one internal analysis — the account seam
+#: cannot be allowed to answer something different from the document seam about
+#: the same document — so `_analyse` is what actually forwards `sheets` into
+#: the pipeline, and a sweep that watched only its two callers would be blind to
+#: the function whose signature the page-declaration check hangs off.
+WATCHED = {"analyze_markdown", "analyze_document", "cached_analysis", "_analyse"}
 
 #: Directories that are not production code, so their callers are out of scope.
 NON_PRODUCTION_DIRS = ("tests", "docs", ".claude", ".git", "build")

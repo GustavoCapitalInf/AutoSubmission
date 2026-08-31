@@ -433,7 +433,14 @@ OCR_STAGE_VERSION = 4
 # CORE-ISSUES-2 / WELCH / LILI / FROST-OZK claim only documents no reader
 # claimed before. Batch total claimed, uncomposed: +129 validated. One
 # composed bump before the round's measurement.
-ANALYSIS_STAGE_VERSION = 16
+# Batch 9 (composed 2026-08-31, the L-1 multi-account train): DocumentReport /
+# analyze_document at the pipeline seam; evidence-based sibling admission with the
+# omission on the document object; every reader and seam taught the document shape;
+# the guardian_cu first publisher (+8 validated / 12 accounts, rulings 8.8-8.16);
+# the serialized shape decided by account count alone, and the document surface lit
+# for 23 documents (15 protected carriers + the 8 published) per Q10 — a payload-
+# shape change, so a warm cache keyed on 16 would serve old-shape payloads.
+ANALYSIS_STAGE_VERSION = 17
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 

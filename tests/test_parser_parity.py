@@ -206,7 +206,25 @@ def test_expectations_cover_the_pinned_manifest(documents):
 #: measurement itself until batch 9 plans beyond 83, and the test pins
 #: `PLANNED_REGISTRATIONS >= len(registrations)` so it cannot invert silently
 #: again. Raising it is a re-measurement (DT9's point), not an edit.
-PLANNED_REGISTRATIONS = 83
+#:
+#: Batch-9 wave (L1-S4): the registry reached 84 when this batch's first
+#: multi-account publisher registered, so the same inversion was one
+#: registration away again and the constant is reconciled to the actual size
+#: by the same rule — the projection is the measurement itself until a batch
+#: plans beyond it. Two things are worth leaving for the next reader. This
+#: pin sits behind `-m corpus`, which the default suite DESELECTS, so a
+#: registration that moves `tests/test_parser_conformance.py` and
+#: `tests/test_parser_registry_entries.py` off 83 will look fully pinned to a
+#: green suite and still fail the slice twenty minutes later; the three move
+#: together or none of them does. And what licenses the raise is THIS TEST,
+#: run at the new size: it times the sweep through the production seam, takes
+#: the best of `SWEEP_SAMPLES`, and asserts the projection against the ceiling.
+#: The marked slice is green at 84, which is the re-measurement — there is no
+#: separate timing figure to cite, and an earlier version of this note pointed
+#: at a "reading recorded in W3's proof floor" that was never recorded. A note
+#: citing absent evidence is the defect this branch spent two sections hunting,
+#: so it is corrected here rather than satisfied by writing a number down.
+PLANNED_REGISTRATIONS = 84
 
 #: The absolute ceiling, unchanged since R-3 risk 7: no document may cost the
 #: discovery run a quarter-second of routing before a single parse has run.

@@ -108,6 +108,7 @@ EXPECTED_ORDER = [
     "huntington",
     "ibc",
     "lili",
+    "member_statement_rollup",
     "mercury",
     "navigant",
     "navy_federal",
@@ -207,8 +208,13 @@ def test_registration_count_matches_the_documented_decision_points():
     extensions of `fiserv_premier` - the signed-counts issue, whose summary
     states each direction's count in parentheses with a signed total over two
     DATED balances, and the `Activity Summary` issue, whose box prints `Days
-    in Cycle` over a running-balance ledger (W3 §COREISS2)."""
-    assert len(pr.registrations()) == 83
+    in Cycle` over a running-balance ledger (W3 §COREISS2); and the batch-9
+    L-1 stage 4 card: the credit-union core's MEMBER-statement template, the
+    platform's first registration that publishes more than one account from one
+    PDF, keyed on an enumerating table whose column caption states which figure
+    is which and on two or more printed account sections each carrying its own
+    identity (W3 §L1S4)."""
+    assert len(pr.registrations()) == 84
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

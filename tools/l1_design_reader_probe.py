@@ -232,7 +232,12 @@ READERS = (
 #: this census is here to make checkable.
 SEAMS: tuple[tuple[str, int, str], ...] = (
     ("discovery/runner.py", 503, "the discovery run"),
-    ("corpus_gate.py", 1608, "production_verdict — the pinned corpus"),
+    # 1608 -> 1737 at L1-S4: the gate's own per-account assertions (design
+    # §6.5's third, sixth and seventh bullets, which the L1-S3 review recorded
+    # as owed) are declared above this seam. Re-pinned in the SAME commit as
+    # the edit that moved it, which is the only way a line-number pin stays a
+    # measurement rather than a nuisance.
+    ("corpus_gate.py", 1737, "production_verdict — the pinned corpus"),
     ("benchmark/ourside.py", 117, "the benchmark's production side"),
     ("batch.py", 185, "the batch CLI"),
     ("balance_forensic_audit.py", 515, "the balance forensic audit"),
