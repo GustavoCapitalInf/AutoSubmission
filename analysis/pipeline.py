@@ -1208,8 +1208,13 @@ def identify_internal_transfers(
        refuses to aggregate it (§3.3). Never guess: a wrong pairing silently
        removes a real deposit from a funder's total, which is worse than
        refusing;
-    3. **mutual** — the pairing is one-to-one, so each leg's unique counterpart
-       must be the other. Asserted rather than assumed;
+    3. **one-to-one** — and it FOLLOWS from clause 2 rather than being checked
+       here a second time. If a posting's only counterpart did not name it back,
+       that counterpart saw two, and clause 2 has already refused the whole
+       document. A branch that cannot fire is a branch no mutation table can
+       show is doing anything, so the property is asserted where it can be:
+       `corpus_gate.py::_assert_document_facts` refuses a published payload in
+       which one posting is a leg of two transfers;
     4. **the printed designation** — at least one of the two legs prints an
        INTERNAL-MOVEMENT designation, read by
        `analysis/transaction_classifier.py::prints_internal_transfer_designation`
@@ -1268,11 +1273,6 @@ def identify_internal_transfers(
         if len(found) != 1 or index in paired:
             continue
         other = found[0]
-        if counterparts.get(other) != [index]:
-            # Clause 3. Not reachable while clause 2 holds — a one-way
-            # counterpart means the other side saw two — and asserted anyway,
-            # because a one-to-one claim that is never checked is a comment.
-            continue
         left, right = postings[index], postings[other]
         designations = (
             prints_internal_transfer_designation(left[4]),

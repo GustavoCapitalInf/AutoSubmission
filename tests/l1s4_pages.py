@@ -61,6 +61,12 @@ class Account:
     #: heading, no closing caption, whatever the table enumerates.
     prints_section: bool = True
     prints_closing: bool = True
+    #: The closing this account PRINTS, where the paper states one its own
+    #: postings do not produce. Both the section's caption and the table's row
+    #: carry it, so the two still agree — which is what makes it a fixture for
+    #: a section that publishes nothing and is not idle, rather than one that
+    #: simply disagrees with its table.
+    printed_closing: float | None = None
 
     def column(self, posting: Posting) -> int:
         """Which printed COLUMN the row is in: the type word decides it."""
@@ -86,6 +92,8 @@ class Account:
 
     @property
     def closing(self) -> float:
+        if self.printed_closing is not None:
+            return self.printed_closing
         return round(self.opening + self.credits - self.debits, 2)
 
 

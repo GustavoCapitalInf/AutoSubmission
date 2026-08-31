@@ -337,6 +337,96 @@ def test_an_ambiguous_document_has_its_accounts_excluded_from_the_package():
     assert len(package["excluded_accounts"]) == 2
 
 
+# ===========================================================================
+# the gate's per-account assertions (design §6.5, the four the L1-S3 review
+# recorded as owed)
+# ===========================================================================
+
+
+def test_the_gate_refuses_a_posting_that_is_a_leg_of_two_transfers():
+    """R-d's one-to-one, asserted where it CAN be. It follows from clause 2 in
+    the publisher — a one-way counterpart means the other side saw two, and
+    that whole document is refused — so a second check there could never fire
+    and no mutation table could show it doing anything. Here it can: a payload
+    reaching the gate from a store written before the rule existed is exactly
+    the case, and counting one posting twice would remove one movement's worth
+    of money twice from every package total."""
+    from corpus_gate import document_verdicts
+
+    payload = _payload_with_a_transfer()
+    transfer = dict(payload["document"]["internal_transfers"][0])
+    payload["document"]["internal_transfers"].append(transfer)
+    with pytest.raises(ValueError, match="internal_transfer_pairing_not_one_to_one"):
+        document_verdicts(payload)
+
+
+@pytest.mark.parametrize("leg,message", [
+    ([9, 0], "internal_transfer_account_out_of_range"),
+    ([0, 99], "internal_transfer_posting_out_of_range"),
+    ([0], "internal_transfer_leg_malformed"),
+])
+def test_the_gate_refuses_a_transfer_leg_that_does_not_resolve(leg, message):
+    """Every leg must name an account this payload publishes and a posting that
+    account's own ledger holds. An index that resolves to nothing is a record
+    about a document this is not."""
+    from corpus_gate import document_verdicts
+
+    payload = _payload_with_a_transfer()
+    payload["document"]["internal_transfers"][0]["a"] = leg
+    with pytest.raises(ValueError, match=message):
+        document_verdicts(payload)
+
+
+def test_the_gate_refuses_a_document_level_average_under_any_name():
+    """R-c made mechanical, and asserted on the KEY NAMES rather than on one
+    field: the ADB doctrine's unit is the ACCOUNT, so a document yields one
+    figure per account and none of its own — and the package's own
+    days-weighted mean already showed that the same arithmetic can arrive under
+    a different name."""
+    from corpus_gate import document_verdicts
+
+    payload = _payload_with_a_transfer()
+    payload["document"]["average_daily_balance"] = 1234.56
+    with pytest.raises(ValueError, match="no_document_level_adb"):
+        document_verdicts(payload)
+
+
+def test_the_gate_asserts_the_canonical_stamps_on_every_account():
+    """The corpus-wide stamp check is path-keyed and therefore blind to a
+    second account. This is the per-account half."""
+    from corpus_gate import document_verdicts
+
+    payload = _payload_with_a_transfer()
+    payload["accounts"][1]["metrics"]["adb"]["underwriting_adb_basis"] = "banking_day"
+    with pytest.raises(ValueError, match="adb_stamps_missing_on_an_account"):
+        document_verdicts(payload)
+
+
+def test_the_gate_refuses_an_omission_the_vocabulary_cannot_name():
+    """L1-C17 asserted AT THE GATE, which is a different statement from the
+    fold failing such a document: a document the corpus publishes carries no
+    unratified omission at all."""
+    from corpus_gate import document_verdicts
+
+    payload = _payload_with_a_transfer()
+    payload["document"]["omitted_sections"] = [
+        {"label": "SAMPLE", "reason": "absence_of_parsed_rows", "posting_count": 0}]
+    with pytest.raises(ValueError, match="omission_reason_not_ratified"):
+        document_verdicts(payload)
+
+
+def test_the_gate_answers_a_single_account_payload_exactly_as_it_always_did():
+    """Every document in the pinned corpus is this shape, and the assertions
+    above must cost it nothing."""
+    from corpus_gate import document_verdicts
+
+    payload = document_report_to_dict(analyze_document(
+        document([idle_account(), posting_account()]), parse_mode="deterministic"))
+    verdict, per_account = document_verdicts(payload)
+    assert verdict.outcome == "validated"
+    assert len(per_account) == 1 and per_account[0] is verdict
+
+
 def test_the_package_reads_the_note_this_pipeline_writes():
     """One refusal, one spelling. The package's constant and the pipeline's are
     held equal here rather than by a comment."""

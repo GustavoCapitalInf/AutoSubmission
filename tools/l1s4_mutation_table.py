@@ -200,10 +200,10 @@ MUTANTS: list[Mutant] = [
            "refused", "analysis/pipeline.py",
            "    ambiguous = any(len(found) > 1 for found in counterparts.values())",
            "    ambiguous = False"),
-    Mutant("Rd3", "R-d clause 3", "the pairing need not be mutual",
-           "analysis/pipeline.py",
-           "        if counterparts.get(other) != [index]:",
-           "        if False:"),
+    Mutant("Rd3", "R-d clause 3", "one posting may be a leg of two transfers "
+           "(the gate is where one-to-one is asserted)", "corpus_gate.py",
+           "            if key in seen:",
+           "            if False:"),
     Mutant("Rd4", "R-d clause 4", "an arithmetic coincidence sets INTERNAL with "
            "nothing printed", "analysis/pipeline.py",
            "        if not any(designations):",

@@ -302,7 +302,22 @@ def test_a_running_balance_that_does_not_follow_refuses_the_section():
     """The direction is read from the row's own printed type WORD and CHECKED
     against the balance the paper printed after it. A word mapped to the wrong
     sign cannot go unnoticed, which is what lets the reader read a direction at
-    all instead of solving for one."""
+    all instead of solving for one.
+
+    Only ONE printed figure is moved, and only on one row: the type words are
+    untouched, so the table's column totals still agree with the ledger and the
+    last printed balance is still the closing. The single thing that can refuse
+    this page is the step-by-step walk."""
+    text = document([idle_account(), posting_account()])
+    broken = text.replace("Apr 7 Withdrawal Debit Card SAMPLE MERCHANT 45.50 1,054.50",
+                          "Apr 7 Withdrawal Debit Card SAMPLE MERCHANT 45.50 1,053.50")
+    assert parse_member_statement(broken) is None
+
+
+def test_a_direction_word_that_contradicts_the_balance_refuses_the_section():
+    """The same check from the other side: the amount and the balance are
+    untouched and the printed TYPE WORD is changed, so the row now claims to
+    have moved the balance the other way."""
     text = document([idle_account(), posting_account()])
     broken = text.replace("Apr 7 Withdrawal Debit Card SAMPLE MERCHANT 45.50 1,054.50",
                           "Apr 7 Deposit Debit Card SAMPLE MERCHANT 45.50 1,054.50")
@@ -337,14 +352,27 @@ def test_a_section_printing_no_closing_caption_refuses_the_document():
 
 def test_a_silent_section_with_no_printed_evidence_refuses_the_document():
     """The refusal the whole omission machinery exists for. This section posts
-    nothing AND its printed pair does not coincide, so no ratified class can
-    name it — and a reader that dropped it would be publishing one account of a
-    member with two."""
-    silent = Account(label="SAMPLE SAVINGS", suffix="01", opening=60.0, postings=[])
-    text = document([silent, posting_account()],
-                    closing_override={"01": 61.0, "71": posting_account().closing},
-                    total_override=round(61.0 + posting_account().closing, 2))
-    assert parse_member_statement(text) is None
+    nothing and the two figures it prints about itself do NOT coincide, so no
+    ratified class can name it — and a reader that dropped it would be
+    publishing one account of a member with two.
+
+    The section's caption and the table's row carry the SAME closing, so every
+    agreement condition is satisfied and this fixture refuses for exactly one
+    reason: absence is not a ground."""
+    silent = Account(label="SAMPLE SAVINGS", suffix="01", opening=60.0,
+                     postings=[], printed_closing=61.0)
+    assert parse_member_statement(document([silent, posting_account()])) is None
+
+
+def test_the_same_page_with_the_pair_coinciding_is_admitted():
+    """The positive control beside it, so a reader that refused every silent
+    section could not pass. One figure differs — the closing the section prints
+    about itself — and that is the whole difference between a refusal and a
+    ratified omission."""
+    idle = Account(label="SAMPLE SAVINGS", suffix="01", opening=60.0,
+                   postings=[], printed_closing=60.0)
+    published = parse_member_statement(document([idle, posting_account()]))
+    assert published is not None
 
 
 def test_a_document_whose_every_section_is_idle_publishes_nothing():
@@ -382,7 +410,10 @@ def test_the_q3_class_admits_the_shape_the_ruling_describes():
 @pytest.mark.parametrize("name,overrides", [
     ("C1 the section prints no opening", {"opening": None}),
     ("C2 the section prints no closing", {"closing": None}),
-    ("C3 the pair does not coincide", {"closing": 25.01}),
+    # The witness moves WITH the closing, so condition 7 still reproduces it
+    # and the only condition left to refuse is the pair's own coincidence.
+    ("C3 the pair does not coincide",
+     {"closing": 25.01, "rollup": _witness(closing=25.01)}),
     ("C4 a dated row is printed", {"dated_row_count": 1}),
     ("C4 the count was never taken", {"dated_row_count": None}),
     ("C5 counts or totals are printed", {"prints_counts_or_totals": True}),
