@@ -65,7 +65,7 @@ That has two consequences the proposal in §5 is built around:
    mostly an *audit-and-enable* problem, not a build problem.
 2. **Everything on the visual side is unproven at archive scale.** Code that has processed zero
    documents cannot be labelled `active`, and the postprocess chain in particular contains a
-   value-destroying rewrite (F-1) that nothing has ever been in a position to catch.
+   value-destroying rewrite PAIR (F-1, F-11) that nothing has ever been in a position to catch.
 
 ---
 
@@ -89,11 +89,11 @@ output in the run of record. `reusable` = correct, tested, wired, but not exerci
 | 7 | printed column grid | `ocr/column_grid.py:1-404`; entry `page_words`, `find_columns`, `read_rows` | active | Sole consumer `ocr/native_text.py:10` (Woodforest — 19 documents in the run of record). 18 tests in `tests/test_column_grid.py`. Named at `tests/test_no_parser_helper_clones.py:215,248` as an architecture exclusion. |
 | 8 | local Tesseract rung | `ocr/local_tesseract.py:12-44` | active | Produced 179 reads (36 validated, 16 withheld, 5 review, 122 failed). **But: zero default-suite coverage** — its only real call site (`tests/test_new_statement_corpus.py:218`) is reachable only from the `live`+`skipif(tesseract missing)` test at `:263`; everywhere else it is monkeypatched (`tests/test_pipeline.py:222` replaces it with `pytest.fail`). 1 commit, 2026-07-28. See F-5. |
 | 9 | rasterization | `ocr/rasterize.py:12-27` | active | `pdf_page_count` used by `webapp/app.py:1876`, `balance_forensic_audit.py:34`; `rasterize_page` by `webapp/app.py:1996,2234`. `rasterize_pdf` itself is reachable only from the visual rung and `ocr/local_tesseract.py:22`. **One offline assertion in the whole suite** (`tests/test_new_statement_corpus.py:242`, `pdf_page_count` only); `rasterize_pdf` / `rasterize_page` have no real-invocation offline test. Hard-codes a Windows Poppler path at `:7-10`. |
-| 10 | Unlimited-OCR client | `ocr/ocr_client.py:1-485`; request `:419-485`, cleanup chain `:409-416` | **unsafe** | Zero documents in the baseline. `collapse_repeated_amounts` (`:63-82`) **destroys ledger values** — demonstrated, F-1. `embed_image_regions` (`:344-374`) injects document PIXELS into the canonical text — F-2. `_mask_qr` (`:235-242`) and `_TD_MARKERS_RE` (`:219`) are issuer-specific behaviour inside the intake layer — F-3. Builds the client from the unbounded env settings (`:385-387`) — F-4. 38/38 tests in `tests/test_ocr_client.py`, all against `_FakeClient` (`:331-371`). |
+| 10 | Unlimited-OCR client | `ocr/ocr_client.py:1-485`; request `:419-485`, cleanup chain `:409-416` | **unsafe** | Zero documents in the baseline. `collapse_repeated_amounts` (`:63-82`) and `fix_amount_column_bleed` (`:129-171`) both **rewrite ledger values**, in complementary scopes — demonstrated, F-1 and F-11. `embed_image_regions` (`:344-374`) injects document PIXELS into the canonical text — F-2. `_mask_qr` (`:235-242`) and `_TD_MARKERS_RE` (`:219`) are issuer-specific behaviour inside the intake layer — F-3. Builds the client from the unbounded env settings (`:385-387`) — F-4. 38/38 tests in `tests/test_ocr_client.py`, all against `_FakeClient` (`:331-371`). |
 | 11 | endpoint liveness probe | `ocr/availability.py:140-178` (`probe_visual_ocr`), `:87-127` (`_unreachable`) | reusable | Correct, well-argued, injection-seamed (`list_models`), and never fired: its only caller is `discovery/cli.py:31`, reached only in `--scanned-visual`, which was never run. `detail=str(exc)[:200]` (`:125`) is console-only and that is asserted as an AST fact by `tests/test_privacy3_boundaries.py:1770,1783`. Keep it — Phase 2's refuse-to-start needs exactly this. |
 | 12 | page-integrity assessment | `ocr/truncation.py:135-196`; `PageText` `:112-132` | active | `assess_pages` runs on EVERY rung, offline ones included (`ocr/pipeline.py:82,148`), so it ran on all 3,476 reads. Flag-only by construction (`:46-51`). 28/33 tests in `tests/test_truncation.py`; `:194-207` proves the cleanup chain cannot manufacture a signal. |
 | 13 | markdown → HTML | `ocr/render.py:60-146` (`promote_headers`, `markdown_to_html`, `render_fragment`) | active | `webapp/worker.py:7`, `parse.py:6`. 14/14 tests. |
-| 14 | boxed region viewer | `ocr/render.py:148-215` (`render_boxed`, `_render_boxed_page`, `REGION_COLORS`) | reusable | Live at `webapp/app.py:19,2000` but only meaningful for `<|det|>`-tagged visual output; on native/Tesseract pages `_render_boxed_page` (`:186-196`) falls through to plain text. Re-enters `ocr_client.postprocess` at `:179,:192`, so F-1 reaches the viewer too. |
+| 14 | boxed region viewer | `ocr/render.py:148-215` (`render_boxed`, `_render_boxed_page`, `REGION_COLORS`) | reusable | Live at `webapp/app.py:19,2000` but only meaningful for `<|det|>`-tagged visual output; on native/Tesseract pages `_render_boxed_page` (`:186-196`) falls through to plain text. Re-enters `ocr_client.postprocess` at `:179,:192`, so BOTH rewrites (F-1, F-11) reach what an operator reads on screen, not only what the validator reads. |
 
 ### 2.2 The vendor side
 
@@ -195,7 +195,8 @@ Audited explicitly because its absence is load-bearing rather than an oversight.
    cache-partitioned and fail-closed, and has processed zero documents. Phase 2 starts by enabling
    and measuring this, not by designing it.
 2. **#10 `ocr/ocr_client.py` — `unsafe`.** The only OCR extractor that has never run is also the one
-   that rewrites money (F-1) and embeds document pixels into the text the validator reads (F-2).
+   that rewrites money in two complementary scopes (F-1, F-11) and embeds document pixels into the
+   text the validator reads (F-2).
 3. **#29 `tools/cohort_replay.py::ColdCache._payload` — `unsafe`.** The whole non-regression regime
    silently loses determinism the first time a document has two OCR partitions (F-9).
 4. **#2 `ocr/config.py` — `unsafe`.** The `$0`/no-paid-vendor guarantee is documented as an invariant
@@ -215,14 +216,60 @@ So a page region rendered as one bare amount per line — the shape a scanned am
 the model does not emit table markup — collapses to a single token whenever one value repeats three
 or more times. Demonstrated at this tree on a synthetic input: three identical money tokens on three
 consecutive lines return as **one** token; the same three values inside `<td>` cells are correctly
-left untouched. Three identical fees become one fee, before the validator ever sees the page. The
-docstring's safety argument ("legitimate amounts live in table cells … or on lines with
+left untouched; three *distinct* amounts on consecutive lines are left untouched.
+
+**The blast radius is larger than "three identical fees become one fee"** — found by the adversarial
+review, reproduced independently here at this tree. A bare amount column of `[a, a, a, b, c]` on five
+consecutive lines — three identical fees followed by two unrelated amounts — returns **`[a]`**.
+`_MONEY_RUN_RE` consumes the entire whitespace-separated run and `repl` replaces the *whole match*
+with the dominant value, so every distinct amount that merely sits adjacent in the same run is
+**deleted**, not deduplicated. The function can destroy amounts it never saw repeat, and the effect
+survives the full chain: `postprocess()` on the same input returns the single token.
+
+The docstring's safety argument ("legitimate amounts live in table cells … or on lines with
 dates/descriptions") is a claim about the model's output shape, not a property of the code, and it
-has never been tested against a real page because the rung has never run. **This is the single
-change Phase 2 must resolve before any OCR-fed document is validated**: under the batch-9
-non-regression rules, an extractor that rewrites a source value to a different value is not a
-repair, it is the thing the repair doctrine forbids ("parsers never write an amount") arriving one
-layer upstream of the parser.
+has never been tested against a real page because the rung has never run. Under the batch-9
+non-regression rules, an extractor that rewrites a source value to a different value is not a repair,
+it is the thing the repair doctrine forbids ("parsers never write an amount") arriving one layer
+upstream of the parser. **It is not, however, the only such site — see F-11, and see §5.7: the PAIR
+is what Phase 2 must resolve before any OCR-fed document is validated.**
+
+**F-11 — `fix_amount_column_bleed` is a SECOND value rewrite, and it lives inside `<td>` cells.
+`ocr/ocr_client.py:129-171`, `_AMOUNT_BLEED_RE` at `:126`, in `postprocess` at `:416`.**
+Raised by the adversarial review as its BLOCK; reproduced independently here at this tree. The
+pattern is `^(.+?)\s+(-?\$?[\d,]+\.\d{2})$` and the "description tail" group is `(.+?)` —
+**anything, a money token included**. In any table carrying an `Amount` header, an Amount cell that
+the model rendered as two fused money values has its **leading amount moved into the description
+column and its trailing amount promoted to the row's amount**:
+
+```
+in : <tr><td>01/02</td><td>ACH DEBIT</td><td>1,000.00 234.56</td></tr>
+out: <tr><td>01/02</td><td>ACH DEBIT 1,000.00</td><td>234.56</td></tr>
+```
+
+The parser then reads the smaller figure where the page printed the larger one. Two fused money
+values in one cell is precisely the fusion class the three sibling repair functions exist to handle,
+so this is not an exotic input — it is the function's own domain. By this audit's own standard it is
+the same defect class as F-1, and it reaches reconciliation, ledger identity, transaction coverage
+and ADB by exactly the same route.
+
+Three consequences, each of which changed earlier text in this document:
+
+1. **§5.7's original summary was false** ("the whole safety delta … is one function") and has been
+   rewritten. The same sentence was in W3 §OCRAUDIT and has been corrected there too.
+2. **The original Open Question 1 recommended confining F-1's collapse to `<td>` cells.** That is
+   unsafe: `fix_amount_column_bleed` operates *only* inside `<td>` cells. Table cells are not a safe
+   harbour — they are where the second rewrite already lives. OQ1 has been re-posed with that
+   premise removed.
+3. **The chain needs a per-function rewrite census, not a spot fix.** `postprocess`
+   (`ocr/ocr_client.py:409-416`) is six functions deep; two of them provably write values.
+   `split_fused_header_row` (`:174`) and `repair_fused_amount_table` (`:273`) restructure rows and
+   re-emit cells. Neither the review nor this audit could construct a value-losing input for the
+   latter — its `_FUSED_HEADER_CELL_RE` guard at `:269` is tight — and **neither claims one
+   exists**; but its per-row loop folds every `len(cells) >= 3` row whose last cell is money into
+   three columns by joining `cells[1:-1]` into the description, a shape that on a
+   debit/credit/balance table would fold two money columns into the description. That is
+   **explicitly UNPROVEN** and is exactly what the census in §5.7 must settle.
 
 **F-2 — the OCR path puts document PIXELS into the canonical text. `ocr/ocr_client.py:344-374`
 (`embed_image_regions`), bounded at `:367-371` and `:377-382`.**
@@ -307,9 +354,10 @@ Keep and enable, do not rebuild: `discovery/runner.py`'s recovery/upgrade block 
 `--scanned-visual` mode and its refuse-to-start probe (#11, #26), `local_ocr_server.py` (#15) and the
 whole cache/stage-version/provenance apparatus (#18–#21, #27–#28), because they already implement the
 card's flow diagram, already partition the cache correctly and already fail closed. Quarantine before
-reuse: `ocr/ocr_client.py`'s cleanup chain — F-1 must be removed or gated behind an
-extractor-declared, table-only scope, and F-2 must be turned into a reference rather than an inlined
-blob — and `tools/cohort_replay.py::ColdCache._payload` must select its artifact deterministically
+reuse: `ocr/ocr_client.py`'s cleanup chain — the whole chain should be quarantined for Phase 2 and
+re-admitted function by function on the evidence of §5.7's rewrite census, because F-1 and F-11 write
+values in complementary scopes and a table-only confinement moves one into the other; and F-2 must
+become a reference rather than an inlined blob — and `tools/cohort_replay.py::ColdCache._payload` must select its artifact deterministically
 (F-9) before a single OCR-fed document is admitted to a cold run. Delete or salvage: `sweep_ocr.py`,
 `triage_scan.py` (salvaging its `CHECKS` dict into a real test), `coverage_audit.py` and
 `deterministic_coverage_audit.py`, and decide whether the README's rented-RunPod half still describes
@@ -362,7 +410,7 @@ validated                claimed = false     |
 Everything above the "Unlimited OCR / PaddleOCR" box exists and runs. The right-hand branch exists
 and runs (`discovery/runner.py:606-670`) but has processed zero documents. The only net-new
 components are: a PaddleOCR rung, the provenance vocabulary entries it needs, and the four safety
-changes F-1, F-2, F-6, F-9.
+changes F-1/F-11 (the rewrite pair), F-2, F-6 and F-9.
 
 ### 5.2 What decides "insufficient extraction" — a deterministic, recorded reason
 
@@ -395,7 +443,7 @@ The existing key is already correct for two extractors and needs three additions
 
 1. `OCR_STAGE_VERSION` **4 → 5** at `webapp/artifact_cache.py:297`, with the pin at
    `tests/test_artifact_cache.py:854` updated in the SAME commit (the bump-history comment at
-   `:275-296` is the required record). Every change to any extractor's output — including the F-1
+   `:275-296` is the required record). Every change to any extractor's output — including the F-1/F-11
    removal — is a bump; that is what makes an OCR-fed cold run reproducible.
 2. Add an `extractor` field to the OCR settings key (`webapp/artifact_cache.py:592-604`) naming
    which extractor stack was asked for (`offline` / `unlimited_ocr` / `paddle`). Today the three
@@ -490,21 +538,42 @@ extractor-supplied hint and no bypass flag anywhere on the seam (§2.3 #23) — 
 
 | protection | where it lives | why an extractor cannot weaken it |
 |---|---|---|
-| **reconciliation** | `analysis/reconcile.py` via `analysis/pipeline.py` | Computed from the parsed `Statement`, which is produced by a registered parser from the markdown. An extractor can only change what is printed on the page it reports; it has no channel to the reconciliation result. **The one real exposure is F-1** — an extractor that rewrites an amount changes the input to reconciliation. Removing F-1 closes it; nothing else in the OCR path writes a value. |
-| **ledger identity** | `analysis/reconcile.py`, `analysis/balance_by_date.py` | Same seam. Identity is recomputed from the rows the parser read; a lost row makes identity FAIL, not pass. The failure direction is safe; the F-1 rewrite is the only way to make a lost row look consistent, because it removes the row *and* nothing else. |
+| **reconciliation** | `analysis/reconcile.py` via `analysis/pipeline.py` | Computed from the parsed `Statement`, which is produced by a registered parser from the markdown. An extractor can only change what is printed on the page it reports; it has no channel to the reconciliation result. **The real exposure is the value-rewriting PAIR, F-1 and F-11** — an extractor that rewrites an amount changes the input to reconciliation, and F-11 does it inside the very transaction cell reconciliation sums. Resolving the pair (OQ1) closes it; two further chain members are unproven either way and are covered by §5.7's census. |
+| **ledger identity** | `analysis/reconcile.py`, `analysis/balance_by_date.py` | Same seam. Identity is recomputed from the rows the parser read; a lost row makes identity FAIL, not pass. The failure direction is safe. What is NOT safe is a rewrite: F-1 removes a row *and* nothing else, so the remainder can still look consistent; F-11 leaves the row count intact while changing which figure the row carries, which is the harder of the two to detect downstream. |
 | **transaction coverage** | `analysis/metrics.py`, coverage ratios | Coverage is a ratio of parsed rows to the statement's own printed counts/totals. An OCR read that loses rows lowers coverage and fails; it cannot raise it, because the denominator is read from the same page. |
 | **account boundaries** | `analysis/multi_account.py`, the L-1 rule | Boundaries come from the document's own printed partition. An extractor that merges or splits sections produces ambiguous boundaries, and Q10's ruling fail-closes on ambiguity. Adopting an OCR read that changes the account count on a document that previously published accounts must be a STOP, not a substitution — the U trigger cannot reach such a document (it was claimed), so this is a guard against a future third trigger. |
 | **page completeness** | `analysis/pipeline.py:427` (`assess_document_integrity`), sheet reconciliation `:640-651`, flag `:205` | **Strictly stronger on an OCR read.** The OCR rung rasterizes every page (`ocr/rasterize.py:12`, `ocr/pipeline.py:131`), so `len(pages)` is the PDF's true page count, whereas a native read's page list is whatever MuPDF produced. The check fail-closes when `sheets` is absent (`:623-628`), and `corpus_gate.py:725-772` asserts every production caller supplies it. `discovery/runner.py:613,653` already pass the visual read's own `sheets`. |
 | **statement period** | the parsers' period readers; ADB doctrine | Read from printed captions. A degraded read either finds the caption or does not; not finding it refuses. There is no path by which an extractor supplies a period. |
 | **explicit currency evidence** | `analysis/schema.py:94-100,159-166` (`CurrencySource`), `CURRENCY_DOCTRINE.md` | `currency_source` is a closed provenance vocabulary and none of its members is an extractor. An OCR read can only make printed currency evidence *harder* to find, which lands on `schema_default` / a refusal, never on a stronger claim. |
-| **ADB** | `analysis/adb.py`; one calendar-day ADB over the printed period | Requires daily evidence covering the printed period; missing days withhold. A lossy read withholds. Again, only F-1 could forge coverage, and only by collapsing repeated daily balances — which is precisely the shape F-1 collapses. |
+| **ADB** | `analysis/adb.py`; one calendar-day ADB over the printed period | Requires daily evidence covering the printed period; missing days withhold. A lossy read withholds. Again only a rewrite could forge coverage: F-1 by collapsing a run of repeated daily balances — precisely the shape it collapses — and F-11 by substituting a cell's second money value for its first in a daily table that prints two. |
 | **integrity checks** | `assess_document_integrity`, `analysis/pipeline.py` flags/notes | Flags are raised from the text and the sheet list. An extractor cannot suppress a flag; it can only produce text that does not trigger one, which is indistinguishable from a document that does not have the defect — except for `missing_declared_statement_page`, which the OCR read strengthens (above). |
 | **multi-account independent validation** | `analyze_document` → per-account validation (`analysis/pipeline.py:1119+`), Q1/Q5/Q10 | Unchanged: each account is validated on its own by the same validator over the same markdown. The extractor is upstream of the partition, so it cannot make one account borrow another's evidence — it can only fail to produce a section, which surfaces as `sibling_account_omission_detected` / `completeness: partial` under Q10, never as a silent promotion. |
 
-**Summary of the exposure:** of the ten protections, nine are structurally out of the extractors'
-reach; all ten share exactly one exposure, which is F-1 (`collapse_repeated_amounts`), because it is
-the only place in the OCR path where a value is rewritten rather than read. That is the whole safety
-delta, and it is one function.
+**Summary of the exposure — CORRECTED after adversarial review.** Of the ten protections, nine are
+structurally out of the extractors' reach, and page completeness is strictly stronger on a rasterised
+read. All ten share the same exposure, and it is **the value-rewriting sites inside
+`ocr_client.postprocess`** — the places where the OCR path writes a value rather than reading one.
+There are **at least two**. An earlier draft of this section claimed there was exactly one, and that
+claim was false:
+
+| site | what it rewrites | scope |
+|---|---|---|
+| **F-1** `collapse_repeated_amounts` (`:63-82`, called at `:413`) | deletes every amount in a whitespace-separated run of 3+ money tokens in which one value repeats 3+ times — including distinct amounts that merely sit adjacent | bare text, **outside** table cells |
+| **F-11** `fix_amount_column_bleed` (`:129-171`, called at `:416`) | moves the leading money value of a two-money Amount cell into the description and promotes the trailing one | **inside** `<td>` cells |
+
+The two are complementary in scope, which is exactly why "confine the collapse to table cells" is not
+a fix: it moves one rewrite into the other's territory. Two further members of the same chain
+(`split_fused_header_row` `:174`, `repair_fused_amount_table` `:273`) restructure rows and re-emit
+cells; neither the review nor this audit could construct a value-losing input for them, and neither
+claims one exists.
+
+**Phase-2 deliverable, owed before any OCR-fed document is validated:** a per-function rewrite census
+of all six members of `postprocess` (`ocr/ocr_client.py:409-416`), each characterised as
+*reads-only*, *restructures-without-writing*, or *writes a value*, with a synthetic fixture
+demonstrating the answer for each. Until that census exists the whole chain must be treated as
+value-writing. This audit's position — that no OCR-fed document may be validated until the rewrites
+are ruled — was reached correctly, but on an incomplete inventory of the reason; the inventory is now
+two proven sites plus a declared unknown, rather than one function.
 
 ### 5.8 Re-measuring the Q3 class on OCR'd input (F-8)
 
@@ -540,12 +609,37 @@ been measured only on six `native-pdf-text` documents. The re-measurement, as a 
 
 ## 6. Open questions for Gustavo
 
-1. **F-1 — remove or gate?** `collapse_repeated_amounts` was written for a real model degeneracy
-   (repetition bursts in footers). Options: (a) delete it and accept the degenerate pages as
-   truncation-flagged failures; (b) restrict it to run only *inside* `<td>` cells, where the
-   docstring's safety argument is actually true; (c) keep it and require the collapsed page to be
-   flagged, never silently adopted. The audit recommends (b) with (c)'s flag. **No OCR-fed document
-   should be validated until this is ruled.**
+1. **THE VALUE-REWRITING PAIR (F-1 and F-11) — how should the OCR cleanup chain be resolved?**
+   *Re-posed after adversarial review; the earlier version of this question asked only about F-1 and
+   recommended confining it to `<td>` cells, which is unsafe because F-11 already lives there.*
+
+   Two functions in `ocr_client.postprocess` provably write values rather than reading them:
+   `collapse_repeated_amounts` (`:63-82`), which deletes every amount in an adjacent run of bare
+   money tokens where one value repeats three or more times — including distinct amounts it never
+   saw repeat; and `fix_amount_column_bleed` (`:129-171`), which moves the leading money value of a
+   two-money Amount **cell** into the description and promotes the trailing one. Their scopes are
+   complementary — one outside table cells, one inside — so neither can be made safe by relocating
+   it into the other's territory. Both were written for real Unlimited-OCR degeneracies; neither has
+   ever run on a real page. The options:
+
+   * **(a) Remove both.** Degenerate pages then fail or land as truncation-flagged failures, which
+     is the fail-closed direction. Costs whatever recall the two repairs would genuinely have won —
+     an amount nobody has measured, because the rung has never run.
+   * **(b) Scope both behind a per-extractor flag**, off by default, with a committed fixture per
+     transformation proving on SYNTHETIC input exactly what each function does and does not change,
+     and a page that either function touched carrying an explicit flag so it can never be silently
+     adopted. This is the option that keeps the repairs available without letting them act
+     unmeasured.
+   * **(c) Quarantine the whole `postprocess` chain for Phase 2** — the visual rung emits raw model
+     output, no cleanup runs, and the chain is re-admitted function by function only as the rewrite
+     census in §5.7 clears each one. The most conservative option, and the one that makes the
+     census's completion the gate rather than a promise.
+
+   The audit recommends **(c) as the Phase-2 default with (b) as the exit path**: quarantine now,
+   re-admit each function on the evidence of its own fixture. It no longer recommends any option
+   that treats `<td>` cells as a safe harbour. **No OCR-fed document may be validated until this
+   pair is ruled**, and the per-function rewrite census of all six chain members (§5.7) is the
+   deliverable that makes the ruling actionable.
 2. **Does the no-statement-hardcodes guard extend to `ocr/`?** F-3 is issuer-specific behaviour
    (a named issuer, a masked rectangle, five tuned render variants) in the intake layer, where
    `tests/test_no_statement_hardcodes.py` does not reach. Declare it as permitted intake furniture,
@@ -586,4 +680,5 @@ Headline numbers and where each comes from:
 | analysis stage: 2,630 rows, 2,630 distinct inputs, 0 multi-artifact inputs | `--cache-index` |
 | the single settings key = `(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)` | `ocr_settings_key()` recomputed at this tree and compared to the index's distinct key |
 | `visual_rung = not_attempted` on 3,506/3,506; `source_path` and `source_model` distributions; outcome-class splits; 13 `deferred_visual_ocr`; 122 failed Tesseract reads | `rows.csv` of the run of record |
-| F-1 demonstrated | three money tokens on three consecutive lines → one token; the same three inside `<td>` cells → unchanged (`ocr.ocr_client.collapse_repeated_amounts`, synthetic input, no document) |
+| F-1 demonstrated | three money tokens on three consecutive lines → one token; the same three inside `<td>` cells → unchanged; three DISTINCT amounts → unchanged; and `[a,a,a,b,c]` on five consecutive lines → `[a]`, i.e. two distinct amounts DELETED (`ocr.ocr_client.collapse_repeated_amounts` and `postprocess`, synthetic input, no document) |
+| F-11 demonstrated | an Amount cell holding two fused money values → leading value moved into the description, trailing value promoted to the row's amount (`ocr.ocr_client.fix_amount_column_bleed`, synthetic input, no document) |
