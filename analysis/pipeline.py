@@ -1152,7 +1152,12 @@ def analyze_document(markdown: str, *, settings: Settings | None = None,
     carrying one account publishes today's payload byte for byte whatever
     document-level fact it also carries.
     """
-    with _collecting_omissions() as omitted, _collecting_accounts():
+    # The omission collector is opened HERE because the omissions are read
+    # here, off the scope; the ACCOUNT collector is not, because `_analyse`
+    # opens its own and hands the partition back in its return value. The
+    # asymmetry is deliberate: a scope opened and never read is a question a
+    # reader has to answer for themselves.
+    with _collecting_omissions() as omitted:
         analysed = _analyse(
             markdown,
             settings=settings,
