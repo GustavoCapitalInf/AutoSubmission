@@ -63864,22 +63864,32 @@ branch, the tree verified BYTE-IDENTICAL across the rewrite,
 `refs/original` removed, and the scan re-run. The coordinator asks for four hard
 zeros, and a zero is worth more than an attribution.
 
-Both scans were run again after THIS ENTRY WAS COMMITTED, so that they cover
-their own 725 added lines rather than stopping short of them, and both are
-zero: the branch scan over 5,318 added lines against 13,637 distinctive tokens
-from all 23 documents, and the message scan over all 19 commits. The branch
-scan reports 13 RAW matches there, every one of them the program's standing `words_class`
+Both scans are re-run after each batch of commits, so that they cover their own
+prose rather than stopping short of it. An earlier version of this paragraph
+quoted a scan taken two commits before the branch tip, which the adversarial
+review caught (MINOR-6): figures that trail their own branch are not the
+branch's figures.
+
+The last full measurement, named by the commit it was taken at so that it
+cannot silently go stale again — **at `28868af`: 5,930 added lines against
+13,637 distinctive tokens from all 23 documents, 0 hits; and the message scan
+over all 27 commits, 0 hits.** The branch scan reports 14 RAW matches there, every one of them the program's standing `words_class`
 exclusion — ordinary English words that a statement also happens to print.
 That number is not the six above and does not contradict it: the six were
 real hits that were fixed, and these thirteen are matches the rule was
 written to discount. Residue files and residue sites are 0.
 
-One caveat on the added-line COUNT specifically, because it is a fixed point
-and not a measurement that can settle: writing the count down adds a line, so
-the next scan reports one more than the entry says. The figure above is the
-scan that covers this entry's prose; the tip after recording it reads 5,319.
-The quantity that is stable, and the one the floor actually claims, is the
-HIT COUNT: it is 0 at every tip that has been measured, and 0 does not drift.
+One caveat on the COUNTS specifically, because they are a fixed point and not a
+measurement that can settle: writing a count down adds lines and a commit, so
+the next scan necessarily reads higher than the entry says. Chasing that never
+terminates. It is resolved here by naming the COMMIT each figure was taken at,
+which is a fact that cannot drift, rather than by claiming a tip figure that
+the act of claiming it invalidates.
+
+The quantity the floor actually rests on is not a count at all. It is the HIT
+COUNT, and that one is stable: **0 at every tip that has been measured, on both
+scans, throughout.** A count of added lines is context; a count of leaked
+tokens is the claim, and zero does not drift.
 
 ## Proof floor
 
@@ -63933,8 +63943,8 @@ FINDINGS with a non-zero code by design, and both are noted inline.
 | `regfp_zero_movement_sweep` whole archive, 4 chunks | every field equal to the base except `no_payload_now_publishes` 21 → 29 and `no_payload_raises_again` 661 → 653 | 1 ×4 — *findings present* |
 | `l1s3_sweep_attribution` (sweep) | **70 findings at BOTH trees identical · 0 different at both · 8 at the TIP only · 0 at the BASE only** | 0 |
 | `l1s3_sweep_attribution --replay-*` | 3,380 replayed at both trees · **exactly 8 rows differ**, ignoring `ms` | 0 |
-| `privacy_scan_branch` | **5,318 added lines** · 23 documents · 13,637 distinctive tokens · **0 hits** (13 raw, all the standing `words_class` exclusion) · 0 residue files | 0 |
-| `huntington_msg_privacy_scan` | **19 commits · 0 hits** | 0 |
+| `privacy_scan_branch` | at `28868af`: **5,930 added lines** · 23 documents · 13,637 distinctive tokens · **0 hits** (14 raw, all the standing `words_class` exclusion) · 0 residue files · 0 residue sites | 0 |
+| `huntington_msg_privacy_scan` | at `28868af`: **27 commits · 0 hits** | 0 |
 
 The two attribution rows are the ones that carry the claim. Everything else
 measures a tree; those two measure the DIFFERENCE between two trees over one
