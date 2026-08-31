@@ -216,9 +216,14 @@ def test_expectations_cover_the_pinned_manifest(documents):
 #: registration that moves `tests/test_parser_conformance.py` and
 #: `tests/test_parser_registry_entries.py` off 83 will look fully pinned to a
 #: green suite and still fail the slice twenty minutes later; the three move
-#: together or none of them does. And the re-measurement is what licenses the
-#: raise: the sweep was re-timed at this size through the same seam, best of
-#: `SWEEP_SAMPLES`, and the reading is recorded in W3 §L1S4's proof floor.
+#: together or none of them does. And what licenses the raise is THIS TEST,
+#: run at the new size: it times the sweep through the production seam, takes
+#: the best of `SWEEP_SAMPLES`, and asserts the projection against the ceiling.
+#: The marked slice is green at 84, which is the re-measurement — there is no
+#: separate timing figure to cite, and an earlier version of this note pointed
+#: at a "reading recorded in W3's proof floor" that was never recorded. A note
+#: citing absent evidence is the defect this branch spent two sections hunting,
+#: so it is corrected here rather than satisfied by writing a number down.
 PLANNED_REGISTRATIONS = 84
 
 #: The absolute ceiling, unchanged since R-3 risk 7: no document may cost the
