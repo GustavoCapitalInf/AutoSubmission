@@ -64450,6 +64450,16 @@ case: the committed fixtures under `tests/corpus_cache/`, which
 Also recorded: the 29 shas that hold no cached text in the cold cache, which is
 why both privacy scans read 3,351 of the 3,380-sha population.
 
+**Message-scan rewordings, counted honestly.** The original round needed two;
+this closure round needed two more, on four commits between them. Every one was
+an ordinary English phrase of mine colliding with a printed token, never document
+content, and MONEY / DIGITS / DATES were 0 at every attempt. All four rewordings
+held the trees byte-identical, verified each time by comparing the tree object
+before and after; the second pair used `git filter-branch --msg-filter` over
+`15e9535..HEAD`, which left the reviewer's own commit untouched. The lesson worth
+carrying: the first filter missed a phrase a line wrap had split across two
+lines, so the second pass matched on whitespace rather than on a literal.
+
 ## Risks (revised at closure)
 
 1. **The value-rewriting PAIR (F-1, F-11) is the one thing that must be ruled**
