@@ -382,7 +382,9 @@ def main(argv: list[str] | None = None) -> int:
 
     status = 0
     for path in args.paths:
-        original = path.read_text(encoding="utf-8", newline="")
+        # Path.read_text() gained `newline` only in Python 3.13; CI pins 3.12.
+        with path.open(encoding="utf-8", newline="") as fh:
+            original = fh.read()
         shifted, counts = shift_text(original, args.years, args.bare_years)
         skipped = counts.pop("out_of_range")
         on_paths = counts.pop("on_a_path_line")
