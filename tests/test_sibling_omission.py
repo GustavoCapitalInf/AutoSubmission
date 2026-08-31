@@ -442,29 +442,34 @@ def test_an_inert_block_stating_instances_it_printed_no_row_for_refuses():
 
 
 def test_the_document_carrying_an_omission_publishes_the_same_account_block():
-    """The second clause of RULE S, made visible. A document that omitted a
-    sibling no longer publishes today's payload — it publishes the document
-    shape — and what it adds is EXACTLY the gap: the account block inside it is
-    byte-identical to the one the account seam publishes for the same text."""
+    """COMP-5 (the ruled shape, L1-S3 closure-2): a single-account document
+    publishes today's payload byte-identically WHATEVER document-level fact it
+    carries — the WHOLE payload equals the account seam's, strictly stronger
+    than the nested-block assertion (no added key of any kind), and the
+    document shape's keys are absent."""
     text = SYM_HEAD + SYM_ACTIVE + SYM_DORMANT
     document = analyze_document(text, parse_mode="deterministic")
     published = document_report_to_dict(document)
-    assert canonical(published["accounts"][0]) == canonical(
+    assert canonical(published) == canonical(
         report_to_dict(analyze_markdown(text, parse_mode="deterministic")))
+    assert "document" not in published
+    assert "accounts" not in published
 
 
 def test_the_omission_is_the_only_document_level_fact_the_stage_fills():
+    """COMP-5: the facts move off the payload onto the OBJECT (where the Q10
+    pins read them) — with the content assertion kept in full: the omission's
+    printed label, ratified reason and posting count, one account, every other
+    document fact None, and no `document` key in the serialized payload."""
     text = SYM_HEAD + SYM_ACTIVE + SYM_DORMANT
-    block = document_report_to_dict(
-        analyze_document(text, parse_mode="deterministic"))["document"]
-    assert block["omitted_sections"] == [
-        {"label": "Money Market", "reason": PRINTED_DORMANCY_DECLARATION,
-         "posting_count": 0}]
-    assert block["account_count"] == 1
-    assert block["period_start"] is None
-    assert block["period_end"] is None
-    assert block["boundary_mechanism"] is None
-    assert block["rollup"] is None
+    document = analyze_document(text, parse_mode="deterministic")
+    assert [(o.label, o.reason, o.posting_count) for o in document.omissions] == [
+        ("Money Market", PRINTED_DORMANCY_DECLARATION, 0)]
+    assert len(document.accounts) == 1
+    assert document.document_period is None
+    assert document.boundary_mechanism is None
+    assert document.rollup is None
+    assert "document" not in document_report_to_dict(document)
 
 
 def test_the_record_never_reaches_the_statement():

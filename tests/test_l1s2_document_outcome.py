@@ -215,11 +215,15 @@ def test_production_does_not_produce_the_superseded_omission_reason():
     )
 
 
-def test_this_tree_declares_no_document_fold_yet():
-    """Today's answer, pinned so that tomorrow's is visible. S3 landing the fold
-    turns this red, which is the whole point: it is the reminder the previous
-    version of these pins left to a docstring."""
-    assert declared_document_folds() == []
+def test_this_tree_declares_exactly_one_document_fold():
+    """S3 landed the fold. The previous version pinned its ABSENCE so the landing
+    would be visible; inverted at composition (COMP-4, the L1-S3 review's map) to
+    pin presence and wiring BY NAME — a second fold, a rename, or a silent
+    removal all stay red."""
+    assert declared_document_folds() == ["telemetry/record.py::classify_document"]
+    entry, fold = document_fold()
+    assert entry == "telemetry/record.py::classify_document"
+    assert callable(fold)
 
 
 # ---------------------------------------------------------------------------
