@@ -1501,6 +1501,103 @@ def _assert_document_verdict_follows(
             f"(document_verdict_softens_an_account)")
 
 
+#: Every key an ADB could hide behind at DOCUMENT level. R-c is "no
+#: document-level combined ADB", and a gate that forbade one field name would
+#: be satisfied by the same figure under another.
+_ADB_WORDS = ("average_daily_balance", "adb", "daily_balance", "average_balance")
+
+
+def _assert_document_facts(payload: dict, accounts: tuple[dict, ...]) -> None:
+    """Design §6.5's third, sixth and seventh bullets, at the gate.
+
+    Three properties of a PUBLISHED document, each of which the L1-S3 review
+    recorded as owed and none of which any other check makes:
+
+    * **the ADB stamps on EVERY account, and no document-level ADB anywhere.**
+      The doctrine's unit is the ACCOUNT — one account, one calendar-day ADB
+      over the printed period — so a three-account document yields three
+      figures and no fourth. Asserted as a property of the document BLOCK's
+      key names rather than of one field, because "no document ADB" is the
+      rule and `package_average_daily_balance` already showed that the same
+      arithmetic can arrive under a different name;
+    * **every omitted section's reason is in L1-C17's closed vocabulary**, read
+      HERE and not only inside `classify_document`. The fold refuses such a
+      document by failing it, which is the right outcome and is not the same
+      statement: the gate asserts that a document the corpus publishes carries
+      no unratified omission at all;
+    * **`document.internal_transfers` resolves, and is one-to-one.** Every leg
+      names an account this payload publishes and a posting that account's own
+      ledger holds, and no posting is a leg of two transfers — a pairing that
+      counted one posting twice would remove one movement's worth of money
+      twice from the package totals `balance_forensic_audit` asserts.
+    """
+    block = payload.get("document") or {}
+    for key in block:
+        if any(word in key for word in _ADB_WORDS):
+            raise ValueError(
+                f"the document block publishes {key!r}: the ADB doctrine's unit "
+                f"is the ACCOUNT, so a document yields one figure per account "
+                f"and none of its own (no_document_level_adb)"
+            )
+    for index, account in enumerate(accounts, start=1):
+        adb = ((account.get("metrics") or {}).get("adb")) or {}
+        basis = adb.get("underwriting_adb_basis")
+        policy = adb.get("underwriting_adb_policy")
+        if basis != EXPECTED_ADB_BASIS or policy != EXPECTED_ADB_POLICY:
+            raise ValueError(
+                f"account {index} publishes underwriting_adb_basis {basis!r} / "
+                f"underwriting_adb_policy {policy!r}; every account of every "
+                f"document carries the canonical stamps, and the check that "
+                f"holds the whole corpus to them is path-keyed and therefore "
+                f"blind to a second account (adb_stamps_missing_on_an_account)"
+            )
+
+    from telemetry.record import RATIFIED_OMISSION_REASONS
+
+    for omission in block.get("omitted_sections") or []:
+        reason = omission.get("reason") if isinstance(omission, dict) else None
+        if reason not in RATIFIED_OMISSION_REASONS:
+            raise ValueError(
+                f"an omitted section names {reason!r}, which is not one of "
+                f"L1-C17's ratified evidence classes; a published document may "
+                f"carry no omission the vocabulary cannot name "
+                f"(omission_reason_not_ratified)"
+            )
+
+    seen: set[tuple[int, int]] = set()
+    for transfer in block.get("internal_transfers") or []:
+        legs = (transfer.get("a"), transfer.get("b"))
+        for leg in legs:
+            if not (isinstance(leg, (list, tuple)) and len(leg) == 2):
+                raise ValueError(
+                    "an internal transfer leg is not an (account, posting) pair "
+                    "(internal_transfer_leg_malformed)"
+                )
+            account_index, posting_index = leg
+            if not 0 <= account_index < len(accounts):
+                raise ValueError(
+                    f"an internal transfer names account index {account_index!r} "
+                    f"on a document publishing {len(accounts)} "
+                    f"(internal_transfer_account_out_of_range)"
+                )
+            ledger = ((accounts[account_index].get("statement") or {})
+                      .get("transactions") or [])
+            if not 0 <= posting_index < len(ledger):
+                raise ValueError(
+                    f"an internal transfer names posting {posting_index!r} of an "
+                    f"account holding {len(ledger)} "
+                    f"(internal_transfer_posting_out_of_range)"
+                )
+            key = (account_index, posting_index)
+            if key in seen:
+                raise ValueError(
+                    "one posting is a leg of two internal transfers; the pairing "
+                    "is one-to-one document-wide "
+                    "(internal_transfer_pairing_not_one_to_one)"
+                )
+            seen.add(key)
+
+
 def document_verdicts(payload: dict) -> tuple[_Verdict, tuple[_Verdict, ...]]:
     """`(document verdict, per-account verdicts)` for one published payload.
 
@@ -1535,12 +1632,20 @@ def document_verdicts(payload: dict) -> tuple[_Verdict, tuple[_Verdict, ...]]:
     from analysis.pipeline import split_integrity_flags
     from telemetry.record import classify_document
 
+    surface = "corpus_gate.py::document_verdicts"
     if not is_document_payload(payload):
         verdict = _account_verdict(payload, None)
+        # A single-account payload that carries a `document` block — one that
+        # surfaced an omission, read a roll-up or recorded a boundary — gets
+        # the same document assertions as a multi-account one. It is the same
+        # block and the same rules; only the account list is absent, and there
+        # is exactly one account to check the ADB stamps of.
+        if "document" in payload:
+            _assert_document_facts(payload, (payload,))
         return verdict, (verdict,)
 
-    surface = "corpus_gate.py::document_verdicts"
     accounts = payload_accounts(payload, surface=surface)
+    _assert_document_facts(payload, tuple(accounts))
     per = tuple(
         _account_verdict(account, index)
         for index, account in enumerate(accounts, start=1)

@@ -686,6 +686,52 @@ def _unratified_omissions(analysis: object) -> list[dict]:
     ]
 
 
+#: The document-scope note that refuses a document's PACKAGE AGGREGATION.
+#: Declared in `analysis/pipeline.py`; named here as the string the package
+#: reads, and held to that module's constant by `tests/test_l1s4_transfers.py`
+#: so the two cannot drift into two spellings of one refusal.
+_AMBIGUOUS_TRANSFER_NOTE = "ambiguous_internal_transfer"
+
+
+def _document_notes(analysis: object) -> list[str]:
+    """The DOCUMENT-scope integrity notes this payload carries, either shape."""
+    if not isinstance(analysis, dict):
+        return []
+    block = analysis.get(_DOCUMENT_KEY) or {}
+    notes = block.get("integrity_notes") or []
+    return [note for note in notes if isinstance(note, str)]
+
+
+def _internal_transfer_positions(analysis: object, account_index: int | None) -> set[int]:
+    """Which of THIS member's postings the document paired as internal (R-d).
+
+    `account_index` is the member's 1-based position in the document's printed
+    account order, and `None` for a job publishing today's payload — which has
+    one ledger and therefore no sibling for a counterpart to be in, so the
+    answer for it is always empty and this costs a single-account package
+    nothing.
+
+    The indices come from the document's own `internal_transfers`, which the
+    publisher wrote and nothing here recomputes: a package that decided for
+    itself which postings were transfers would be applying a transfer grammar
+    at the aggregation layer, and there would then be two answers to one
+    question.
+    """
+    if account_index is None or not isinstance(analysis, dict):
+        return set()
+    block = analysis.get(_DOCUMENT_KEY) or {}
+    positions: set[int] = set()
+    for transfer in block.get("internal_transfers") or []:
+        if not isinstance(transfer, dict):
+            continue
+        for leg in (transfer.get("a"), transfer.get("b")):
+            if (isinstance(leg, (list, tuple)) and len(leg) == 2
+                    and leg[0] == account_index - 1
+                    and isinstance(leg[1], int) and not isinstance(leg[1], bool)):
+                positions.add(leg[1])
+    return positions
+
+
 def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
 
@@ -732,8 +778,28 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
                 "cross-account total in this package "
                 "(document_publishes_duplicate_account)"
             )
+        ambiguous = _AMBIGUOUS_TRANSFER_NOTE in _document_notes(analysis)
         for index, account in enumerate(accounts, start=1):
             outcome, reason = classify_outcome(account)
+            if ambiguous:
+                # §3.3 / Q2. A posting with two or more admissible counterparts
+                # leaves it unestablished WHICH sibling row the money moved to,
+                # so this document's accounts cannot be aggregated without
+                # either double-counting a movement or deleting a printed
+                # deposit. The package refuses to aggregate it and says so.
+                #
+                # It refuses the AGGREGATION and nothing else: each account
+                # keeps its own outcome, its own ledger and its own ADB, both
+                # printed legs stay where the paper printed them, and the
+                # excluded set below is published rather than dropped.
+                excluded.append({
+                    "job_id": job.id,
+                    "account_index": index,
+                    "account_count": count,
+                    "outcome": outcome,
+                    "reason": "document_transfer_pairing_ambiguous",
+                })
+                continue
             if unratified:
                 # The DOCUMENT failed (L1-C17). Its accounts may not carry
                 # money into a package on their own validation.
@@ -772,6 +838,10 @@ def _package_analysis(jobs) -> dict:
     ]
     documents = []
     monthly = []
+    #: `(job, period start, period end)` for every member that contributed —
+    #: the honest count of statement PERIODS, beside `months`'s count of
+    #: members. See the note at `statement_periods` below (MINOR-10).
+    period_keys: set[tuple] = set()
     adb_weighted_sum = Decimal("0")
     adb_weight = 0
     totals = {
@@ -889,11 +959,53 @@ def _package_analysis(jobs) -> dict:
         credits = _num(metrics.get("effective_total_deposits"))
         debits = _num(metrics.get("effective_total_withdrawals"))
         cash_flow = _num(metrics.get("cash_flow"))
+        # R-d, at the one layer that can see two of a document's ledgers at
+        # once. A movement between two accounts of ONE document is one
+        # movement; a package that sums both accounts counts the same money as
+        # a deposit AND as a withdrawal, and every derivation built on those —
+        # gross deposits, deposit counts, revenue, the withholding denominator,
+        # the flattened ledger — carries the double.
+        #
+        # Excluded by INDEX, from the document's own `internal_transfers`, and
+        # only where the paper printed an internal designation on a leg: the
+        # rule that produced these indices refused four of the archive's
+        # forty-seven candidate pairs for want of one.
+        #
+        # BOTH LEGS STAY IN THEIR LEDGERS. Nothing here touches `statement`,
+        # the account's reconciliation or its ADB — the money really was in
+        # that account on that day, and removing it would break the account's
+        # own arithmetic. What is excluded is this member's CONTRIBUTION to a
+        # cross-account total.
+        raw_transactions = statement.get("transactions") or []
+        excluded_positions = _internal_transfer_positions(analysis, account_index)
         statement_transactions = [
             transaction
-            for transaction in (statement.get("transactions") or [])
-            if isinstance(transaction, dict)
+            for position, transaction in enumerate(raw_transactions)
+            if isinstance(transaction, dict) and position not in excluded_positions
         ]
+        excluded_credits = excluded_debits = 0.0
+        if excluded_positions:
+            excluded_rows = [
+                raw_transactions[position] for position in sorted(excluded_positions)
+                if position < len(raw_transactions)
+                and isinstance(raw_transactions[position], dict)
+            ]
+            excluded_credits = round(
+                sum(_num(row.get("amount")) for row in excluded_rows
+                    if _num(row.get("amount")) > 0), 2)
+            excluded_debits = round(
+                sum(abs(_num(row.get("amount"))) for row in excluded_rows
+                    if _num(row.get("amount")) < 0), 2)
+            # The account's own `effective_total_*` are the figures the BANK
+            # stated for that account, and the bank counted the transfer. The
+            # deduction is arithmetic over rows this package already holds, and
+            # `cash_flow` is recomputed from the two adjusted sides rather than
+            # adjusted twice: a pair removes a credit from one member and the
+            # matching debit from another, so a package's cash flow is
+            # unchanged by construction, which is the point.
+            credits = round(credits - excluded_credits, 2)
+            debits = round(debits - excluded_debits, 2)
+            cash_flow = round(credits - debits, 2)
         authoritative_rows = [
             transaction
             for transaction in statement_transactions
@@ -1050,6 +1162,18 @@ def _package_analysis(jobs) -> dict:
         denominator_mode = normalize_withholding_denominator_mode(
             metrics.get("withholding_denominator_mode")
         )
+        if excluded_credits and denominator_mode == "legacy_eligible_deposits":
+            # The legacy denominator is `effective_total_deposits` less the
+            # LENDER credits, so an internal transfer is still inside it and has
+            # to come out — a withholding rate whose denominator counts the
+            # member's own money twice under-states the exposure.
+            #
+            # The verified-revenue mode needs no deduction and must not get
+            # one: an internal-transfer credit is already `non_revenue` by
+            # `analysis/transaction_classifier.py`'s own vocabulary, so
+            # `verified_revenue_total` never carried it and subtracting again
+            # would remove money the denominator never held.
+            eligible_deposits = round(max(eligible_deposits - excluded_credits, 0.0), 2)
         denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         adb_calendar_days = metrics.get("calendar_day_count")
@@ -1355,6 +1479,12 @@ def _package_analysis(jobs) -> dict:
         documents.append(doc_row)
         if ready:
             monthly.append(doc_row)
+            # MINOR-10: the same rows counted as PERIODS rather than as
+            # members. Two accounts of one document share a job id and the
+            # document's one printed cycle, so they collapse to one; two
+            # documents never do, whatever period they print.
+            period_keys.add((job.id, statement.get("period_start"),
+                             statement.get("period_end")))
             if adb_validated:
                 adb_value = Decimal(str(average_daily_balance_num))
                 adb_weighted_sum += adb_value * adb_calendar_days
@@ -1392,6 +1522,21 @@ def _package_analysis(jobs) -> dict:
     refuse_cross_account_averages = bool(documents_with_several_members)
 
     months = max(1, len(monthly))
+    # MINOR-10 (the L1-S3 review). `months` counts MEMBERS — it always has, and
+    # it is the divisor every per-period average below is taken over — and
+    # `webapp/static/app.js` labels it "statement periods". Identical numbers
+    # until a document publishes two accounts, and two accounts of one document
+    # are ONE statement period, so from that document on the dashboard was
+    # printing a count of accounts under the name of a count of periods.
+    #
+    # The COUNT is not changed, deliberately: it is the denominator of a
+    # published average, choosing a denominator is the policy L1-S3 refused to
+    # choose on its own, and Q5 rules the arithmetic forbidden rather than
+    # re-divided. What is published is the honest period count BESIDE it, and
+    # only when the two differ — so a package of today's payloads carries
+    # neither key and is byte-identical. The dashboard prefers it when it is
+    # there and falls back to `months` when it is not.
+    statement_periods = len(period_keys) or months
     # Days-weighted mean of the per-statement daily-balance averages: summing
     # every statement's daily balances and dividing by every calendar day.
     package_average_daily_balance = None
@@ -1557,6 +1702,10 @@ def _package_analysis(jobs) -> dict:
             "completeness": "partial",
             "omitted_section_count": len(omitted_sections),
         } if omitted_sections else {}),
+        # MINOR-10, published only when it differs from `months` — so a package
+        # of today's payloads carries no new key and is byte-identical.
+        **({"statement_periods": statement_periods}
+           if statement_periods != months else {}),
         "months": months,
         "avg_monthly_credits": round(totals["total_credits"] / months, 2),
         "avg_monthly_debits": round(totals["total_debits"] / months, 2),
