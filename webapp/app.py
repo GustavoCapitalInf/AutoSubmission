@@ -645,7 +645,12 @@ def _ratified_omissions(analysis: object) -> list[dict]:
     """
     from telemetry.record import RATIFIED_OMISSION_REASONS
 
-    if not is_document_payload(analysis):
+    # BOTH shapes. Since L1-S4 a SINGLE-account document that surfaced an
+    # omission publishes a `document` block beside today's payload, and the
+    # fifteen protected carriers of W3 §L1S2 are exactly that shape — so
+    # gating this on `accounts` would have kept Q10's surface dark on every
+    # document the ruling was made about.
+    if not isinstance(analysis, dict):
         return []
     block = analysis.get(_DOCUMENT_KEY)
     omissions = (block or {}).get("omitted_sections") or []
@@ -665,7 +670,12 @@ def _unratified_omissions(analysis: object) -> list[dict]:
     """
     from telemetry.record import RATIFIED_OMISSION_REASONS
 
-    if not is_document_payload(analysis):
+    # BOTH shapes. Since L1-S4 a SINGLE-account document that surfaced an
+    # omission publishes a `document` block beside today's payload, and the
+    # fifteen protected carriers of W3 §L1S2 are exactly that shape — so
+    # gating this on `accounts` would have kept Q10's surface dark on every
+    # document the ruling was made about.
+    if not isinstance(analysis, dict):
         return []
     block = analysis.get(_DOCUMENT_KEY)
     omissions = (block or {}).get("omitted_sections") or []

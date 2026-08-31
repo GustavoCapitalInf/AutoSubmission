@@ -206,19 +206,37 @@ def payload_accounts(payload: object, *, surface: str) -> list[Mapping]:
 
 
 def payload_document_block(payload: object, *, surface: str) -> Mapping:
-    """The document block — empty for the account shape, which has no document facts.
+    """The document block, whichever shape carries it.
 
-    An account payload does not carry document facts and never gains them: the
-    empty mapping is the truthful answer, not a placeholder.
+    Two shapes, one block, and the asymmetry between them is a fact about what
+    each shape MEANS rather than a special case:
+
+    * the DOCUMENT shape must carry one. The block declares the account count
+      that shape exists to publish, so a document shape without it is a
+      publisher defect and raises;
+    * the ACCOUNT shape carries one only when the document ESTABLISHED a
+      document-level fact — a surfaced sibling omission, a roll-up read as an
+      oracle, a boundary mechanism, an internal transfer, a document-scope
+      note. `{}` is the truthful answer for the rest, which is every document
+      in the archive but twenty-one, and is why a taught reader costs them
+      nothing.
+
+    **The account shape's block was `{}` unconditionally until L1-S4**, and the
+    reason it is read now is Q10: an omission surfaced beside an independently
+    validated account is a fact about the document's COMPLETENESS, the account
+    it sits beside is single, and a fact no payload carries reaches no package
+    and no surface. It is the `document` block and never an `accounts` list, so
+    `is_document_payload` still answers False and every account-scope reader
+    still answers the payload as it always did.
     """
     shape = assert_payload_shape(payload, surface=surface)
-    if shape == ACCOUNT_SHAPE:
-        return {}
     block = payload.get(DOCUMENT_KEY)
+    if shape == ACCOUNT_SHAPE and block is None:
+        return {}
     if not isinstance(block, Mapping):
         raise PayloadShapeError(
-            f"{surface}: the document shape must carry a {DOCUMENT_KEY!r} block "
-            f"(document_block_absent)"
+            f"{surface}: a {DOCUMENT_KEY!r} block must be a mapping of the "
+            f"document's own facts (document_block_absent)"
         )
     return block
 

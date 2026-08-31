@@ -1044,6 +1044,30 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "reconstructed page partition on its control arm, and deliberately "
         "substitutes one on its counterfactual arm"
     ),
+    # W3 §L1S4's three instruments, all read-only over the run of record and its
+    # cold cache, all excused on the same first ground as the replays above:
+    # each publishes shas, counts, outcome CLASSES and condition verdicts, and
+    # never an amount, a date, a description or a name.
+    #
+    # The marker sweep and the document replay reach the analysis through the
+    # DOCUMENT entry point (`analyze_document`), which forwards the page
+    # partition it is handed; the sweep hands it none because it asks a question
+    # about DETECTION rather than about a verdict, and the replay supplies the
+    # run's own reconstructed partition exactly as `cohort_replay` does. The Q3
+    # oracle calls no analysis path at all — it compares the composed probe's
+    # verdicts with the production omission class over the same six sections.
+    "tools/l1s4_marker_sweep.py": (
+        "read-only detection sweep; publishes no verdict, and asks about "
+        "markers rather than about an analysis"
+    ),
+    "tools/l1s4_document_replay.py": (
+        "read-only document-seam replay; publishes no verdict, and already "
+        "supplies the run's reconstructed page partition"
+    ),
+    "tools/l1s4_transfer_killers.py": (
+        "read-only transfer killer set; publishes no verdict, and reconstructs "
+        "its ledgers from the design's own prototype rather than from a run"
+    ),
 }
 
 # Audited columns whose value is a path, compared without regard to separator.

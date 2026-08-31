@@ -10,7 +10,7 @@ from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
 )
-from .payload_shape import account_content_digest
+from .payload_shape import DOCUMENT_KEY, account_content_digest
 from .revenue import rebuild_serialized_revenue_views
 
 if TYPE_CHECKING:
@@ -275,11 +275,34 @@ def document_report_to_dict(document: DocumentReport) -> dict:
             "(document_publishes_no_account)"
         )
     if _publishes_todays_payload(document):
-        # Verbatim, and deliberately not "today's payload plus nothing": the
-        # single-account path returns the very object today's seam returns, so
-        # there is no assembly here that could reorder a flag, drop a key or
-        # add one.
-        return report_to_dict(document.accounts[0])
+        published = report_to_dict(document.accounts[0])
+        block = _document_block(document)
+        if block is None:
+            # Verbatim, and deliberately not "today's payload plus nothing":
+            # the single-account path returns the very object today's seam
+            # returns, so there is no assembly here that could reorder a flag,
+            # drop a key or add one. This is the branch every document in the
+            # archive but twenty-one takes.
+            return published
+        # THE GAP THE L1-S2 / L1-S3 COMPOSITION LEFT WITH AN OWNER, CLOSED HERE
+        # (W3 §L1S3 closure-2: *"S4 owns closing it"*). A single-account
+        # document that ESTABLISHED a document-level fact — a surfaced sibling
+        # omission, a roll-up read as an oracle, a boundary mechanism — used to
+        # publish today's payload and keep that fact on the object, where no
+        # payload reader and no package could ever see it. Q10 rules that such
+        # an omission is SURFACED beside the account rather than demoting it,
+        # and a fact that reaches no surface is not surfaced.
+        #
+        # It is the `document` BLOCK and NOT the `accounts` list, and the
+        # difference is the whole reason this is safe where the composition
+        # defect was not. `analysis/payload_shape.py::is_document_payload` keys
+        # on `accounts` alone, so this payload is still the ACCOUNT shape: every
+        # account-scope reader answers it exactly as before, `statement` stays
+        # at the top level where it has always been, and L1-C16 is untouched
+        # (the assertion forbids `accounts` BESIDE `statement`, and there is no
+        # account list here). What changes is one added top-level key on the
+        # documents that have something to put in it.
+        return {**published, DOCUMENT_KEY: block}
 
     accounts = [report_to_dict(account) for account in document.accounts]
     digests = [account_content_digest(account) for account in accounts]
@@ -294,56 +317,80 @@ def document_report_to_dict(document: DocumentReport) -> dict:
     # calls it the document — which is the defect this model exists to remove,
     # moved out of the parser and into the payload. Its absence is what makes
     # such a consumer stop.
-    #
-    # Every field of the document block is a fact about the DOCUMENT. None is
-    # filled from an account: a surface that needs one value per document is
-    # given `account_count` and an empty field, never a chosen account's value.
+    return {DOCUMENT_KEY: _document_block(document, always=True), "accounts": accounts}
+
+
+def _document_block(document: DocumentReport, *, always: bool = False) -> dict | None:
+    """The DOCUMENT's own printed facts, or `None` when it established none.
+
+    Every field here is a fact about the DOCUMENT. None is filled from an
+    account: a surface that needs one value per document is given
+    `account_count` and an empty field, never a chosen account's value
+    (L1-C18).
+
+    `None` is the answer for a document that read no roll-up, recorded no
+    boundary mechanism, resolved no document period, omitted nothing, paired no
+    internal transfer and raised no document-scope note — which is every
+    document in the archive but twenty-one, and is what keeps RULE S's
+    byte-identical return the branch almost everything takes. `always` is the
+    multi-account path, where the block is published even when empty because
+    the shape itself declares the account count.
+
+    The four clauses S1 wrote RULE S as a conjunction of are exactly the
+    emptiness test here. What moved between S1 and L1-S4 is what a non-empty
+    answer DOES: it used to switch the whole payload shape (and the L1-S2 /
+    L1-S3 composition measured what that cost — fifteen protected payloads
+    refused by the account-scope readers at the production seams), and now it
+    adds one key beside today's payload.
+    """
+    facts = (
+        document.document_period, document.rollup, document.omissions,
+        document.boundary_mechanism, document.internal_transfers,
+        document.integrity_notes,
+    )
+    if not always and not any(facts):
+        return None
     return {
-        "document": {
-            "period_start": document.document_period[0] if document.document_period else None,
-            "period_end": document.document_period[1] if document.document_period else None,
-            "boundary_mechanism": document.boundary_mechanism,
-            "account_count": len(document.accounts),
-            "rollup": (
-                {
-                    "caption_class": document.rollup.caption_class,
-                    "column_roles_printed": document.rollup.column_roles_printed,
-                    "rows": document.rollup.rows,
-                    "cross_account_total_printed": document.rollup.cross_account_total_printed,
-                }
-                if document.rollup is not None
-                else None
-            ),
-            "omitted_sections": [
-                {
-                    "label": omission.label,
-                    "reason": omission.reason,
-                    "posting_count": omission.posting_count,
-                }
-                for omission in document.omissions
-            ],
-            # R-d (L1-S4). Money this document prints in TWO of its own
-            # accounts' ledgers, as INDEX PAIRS into `accounts` and into each
-            # account's own published transaction list — never an amount, never
-            # a date, never a description. Both legs stay in their ledgers; the
-            # package layer is the only consumer, and it excludes an indexed
-            # posting from every cross-account total so one movement is not
-            # counted as two deposits.
-            "internal_transfers": [
-                {
-                    "a": list(transfer.a),
-                    "b": list(transfer.b),
-                    "basis": transfer.basis,
-                }
-                for transfer in document.internal_transfers
-            ],
-            # The DOCUMENT-scope integrity notes. `integrity` inside each
-            # account block is that ACCOUNT's and keeps every note it publishes
-            # today; this is the scope that block has no room for, and today it
-            # carries exactly one member — `ambiguous_internal_transfer`, which
-            # refuses the package's aggregation of this document and nothing
-            # else (design §3.3, Q2).
-            "integrity_notes": list(document.integrity_notes),
-        },
-        "accounts": accounts,
+        "period_start": document.document_period[0] if document.document_period else None,
+        "period_end": document.document_period[1] if document.document_period else None,
+        "boundary_mechanism": document.boundary_mechanism,
+        "account_count": len(document.accounts),
+        "rollup": (
+            {
+                "caption_class": document.rollup.caption_class,
+                "column_roles_printed": document.rollup.column_roles_printed,
+                "rows": document.rollup.rows,
+                "cross_account_total_printed": document.rollup.cross_account_total_printed,
+            }
+            if document.rollup is not None
+            else None
+        ),
+        "omitted_sections": [
+            {
+                "label": omission.label,
+                "reason": omission.reason,
+                "posting_count": omission.posting_count,
+            }
+            for omission in document.omissions
+        ],
+        # R-d (L1-S4). Money this document prints in TWO of its own accounts'
+        # ledgers, as INDEX PAIRS into `accounts` and into each account's own
+        # published transaction list — never an amount, never a date, never a
+        # description. Both legs stay in their ledgers; the package layer is
+        # the only consumer, and it excludes an indexed posting from every
+        # cross-account total so one movement is not counted as two deposits.
+        "internal_transfers": [
+            {
+                "a": list(transfer.a),
+                "b": list(transfer.b),
+                "basis": transfer.basis,
+            }
+            for transfer in document.internal_transfers
+        ],
+        # The DOCUMENT-scope integrity notes. `integrity` inside each account
+        # block is that ACCOUNT's and keeps every note it publishes today; this
+        # is the scope that block has no room for, and today it carries exactly
+        # one member — `ambiguous_internal_transfer`, which refuses the
+        # package's aggregation of this document and nothing else (§3.3, Q2).
+        "integrity_notes": list(document.integrity_notes),
     }

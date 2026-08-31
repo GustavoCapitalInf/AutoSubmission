@@ -181,6 +181,7 @@ EXCUSED: dict[str, str] = {
     # it mistook for one account, which is the hazard this census exists for.
     "analysis/pipeline.py::document_scope_flags": "the document OBJECT's view over its own accounts",
     "analysis/serialization.py::document_report_to_dict": "the PUBLISHER assembling the account list it publishes",
+    "analysis/serialization.py::_document_block": "the PUBLISHER assembling the document's own block from the document OBJECT",
     "analysis/serialization.py::_publishes_todays_payload": "RULE S counting the document object's own accounts",
     "analyze.py::main": "the CLI iterating the document object to render EVERY account",
     "batch.py::main": "the batch CLI iterating the document object to emit one row per account",

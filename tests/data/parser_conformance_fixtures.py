@@ -329,6 +329,24 @@ FIXTURES: dict[str, str] = {
         "Withdrawals and other debits\n"
     ),
     "linkbank": "LINKBANK.COM\nActivity in Date Order\n",
+    # A credit-union core's MEMBER statement, and the template's own furniture
+    # with no issuer in it: the enumerating table's COLUMN CAPTION (L1-C5's
+    # strongest vocabulary member, which states in print which figure is the
+    # closing) and TWO printed account sections, each carrying its own identity
+    # suffix and its own opening caption. No bank, no domain, no customer, and
+    # every figure invented — the sections carry no ledger, which is what makes
+    # this fixture self-invalidating: the reader declines because the document
+    # prints no period and no section closing.
+    "member_statement_rollup": (
+        "Statement Summary Deposit Accounts Total  Balance: 493.68\n"
+        "ACCOUNT TYPE PREVIOUS BALANCE DEPOSITS WITHDRAWALS ENDING BALANCE\n"
+        "SAMPLE SHARE (Suffix #40) 246.84 0.00 0.00 246.84\n"
+        "SAMPLE DRAFT (Suffix #41) 246.84 0.00 0.00 246.84\n"
+        "SAMPLE SHARE  Suffix #40 Previous Balance: 246.84\n"
+        "TRAN DATE POST DATE DESCRIPTION WITHDRAWALS DEPOSITS BALANCE\n"
+        "SAMPLE DRAFT  Suffix #41 Previous Balance: 246.84\n"
+        "TRAN DATE POST DATE DESCRIPTION WITHDRAWALS DEPOSITS BALANCE\n"
+    ),
     "mercury": (
         "Mercury | help@mercury.com\n"
         "Account details\nAccount activity\n"

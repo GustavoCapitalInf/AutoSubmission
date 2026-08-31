@@ -66,6 +66,7 @@ from . import (
     ibc,
     lili,
     linkbank,
+    member_statement,
     mercury,
     midflorida,
     navigant,
@@ -274,6 +275,22 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # unclaimed (W3 §LILI).
     ("lili", "Lili", lili, "DETECTION_MARKERS", None, "parse_lili_statement"),
     ("linkbank", "LINKBANK", linkbank, "DETECTION_MARKERS", None, "parse_linkbank_statement"),
+    # Not a bank: a credit-union core's MEMBER-statement template, and the
+    # platform's first registration that publishes MORE THAN ONE account from
+    # one PDF (W3 §L1S4). It is keyed on the template's own furniture — an
+    # enumerating table whose COLUMN CAPTION states which figure is which
+    # (L1-C5's strongest vocabulary member), and two or more printed account
+    # sections each carrying its own identity — and on nothing that names an
+    # issuer. The label therefore names the TEMPLATE and `Statement.bank` stays
+    # None under the honest-unknown-issuer ruling: this paper prints no
+    # institution NAME in its text layer at all, only a masthead welding a
+    # street address, a phone number and a contact domain, and publishing the
+    # domain would name a contact host as the bank.
+    #
+    # Disjoint from every other registration by its two required markers, so no
+    # band and no `supersedes` edge: measured over the archive, the documents it
+    # claims are claimed by nobody today.
+    ("member_statement_rollup", "Member Statement Rollup Platform", member_statement, "DETECTION_MARKERS", None, "parse_member_statement"),
     ("mercury", "Mercury", mercury, "DETECTION_MARKERS", "detection_text", "parse_mercury_statement"),
     ("midflorida", "MIDFLORIDA Credit Union", midflorida, "DETECTION_MARKERS", None, "parse_midflorida_statement"),
     ("mission_valley", "Mission Valley Bank", community_section, "MISSION_VALLEY_DETECTION_MARKERS", None, "parse_mission_valley_statement"),
