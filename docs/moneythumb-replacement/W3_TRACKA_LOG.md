@@ -62039,3 +62039,17 @@ end; `git worktree list` carries neither it nor its metadata.
   which is where the Q10 pins already read it. Replicated in the throwaway only — it is
   S2's file, so the edit is Ocean's; the replacement text is in this cell's report.
 
+### The closure-2 floor, at the branch tip
+
+| proof | result |
+|---|---|
+| full default suite | **7,615 passed / 43 skipped**, exit 0 |
+| the six L1-S3 / L1-S1 files | **152 passed**, exit 0 |
+| canonical guards (the five) | **255 passed**, exit 0 |
+| canonical conformance (7) | **1,270 passed / 40 skipped**, exit 0 |
+| `tools/l1s3_surface_census.py` | **exit 0**, both ways |
+| `tools.l1_design_reader_probe --census` | **exit 0** (the branch pin; the merged-tree pin is COMP-3, above) |
+| the mutation table | **12 / 12 killed**, exit 0 — M11 is the composition defect itself, killed by the omission-carrying single-account fixture; M12 is the other direction of the clause |
+| RULE S at the pipeline seam, base `4953806` vs branch tip | **232 / 232 byte-identical**, `MOVED_TOTAL=0` |
+| privacy — added lines | **0 hits**, exit 0 — raw 81, every one WORDS-class and discharged by the scanner's `words_class` rule; MONEY / DIGITS / DATES / WORDS all 0; residue 0 / 0; 5,615 added lines |
+| privacy — commit messages | **0 hits across all four classes**, exit 0, 29 commits |
