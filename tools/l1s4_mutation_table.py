@@ -133,11 +133,12 @@ MUTANTS: list[Mutant] = [
            _lines('        if (abs(credits - row.figures["credit_total"]) > _CENT',
                   '                or abs(debits - row.figures["debit_total"]) > _CENT):'),
            "        if False:"),
-    Mutant("C8b", "L1-C5", "a figure IS taken from the enumerating table into "
-           "the published payload", "analysis/member_statement.py",
+    Mutant("C8b", "L1-C5", "a stated total IS published, so a figure the "
+           "section never printed reaches the payload",
+           "analysis/member_statement.py",
            "        ending_balance=section.closing,",
            _lines("        ending_balance=section.closing,",
-                  '        stated_total_credits=row.figures["credit_total"],')),
+                  "        stated_total_credits=section.closing,")),
     Mutant("C13", "L1-C13 / Q4", "a document naming two denominations is "
            "published instead of refused", "analysis/member_statement.py",
            "    if len(set(_CURRENCY_CODES.findall(markdown))) > 1:",

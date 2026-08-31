@@ -698,7 +698,7 @@ def parse_member_statement(markdown: str) -> Statement | None:
         rows_read = [posting for posting, _column in rows_read]
         if rows_read:
             published.append(PublishedAccount(
-                statement=_statement(section, row, period, rows_read),
+                statement=_statement(section, period, rows_read),
                 section_text=section.text,
                 label=section.label,
             ))
@@ -759,8 +759,8 @@ def _prints_daily_table(section_text: str) -> bool:
     return False
 
 
-def _statement(section: _Section, row: _RollupRow,
-               period: tuple[str, str], rows: list[Transaction]) -> Statement:
+def _statement(section: _Section, period: tuple[str, str],
+               rows: list[Transaction]) -> Statement:
     """One account's `Statement`, from the section's own paper.
 
     **The stated totals and counts are `None`, and that is the design's ladder
