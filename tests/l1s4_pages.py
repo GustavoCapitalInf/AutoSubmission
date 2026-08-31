@@ -62,17 +62,27 @@ class Account:
     prints_section: bool = True
     prints_closing: bool = True
 
+    def column(self, posting: Posting) -> int:
+        """Which printed COLUMN the row is in: the type word decides it."""
+        return -1 if posting.kind.lower() in ("withdrawal", "draft") else 1
+
     def sign(self, posting: Posting) -> int:
-        direction = -1 if posting.kind.lower() in ("withdrawal", "draft") else 1
-        return -direction if posting.reversal else direction
+        """What the row does to the BALANCE. A reversal is a negative entry in
+        the column it adjusts, so the two differ on exactly those rows."""
+        column = self.column(posting)
+        return -column if posting.reversal else column
 
     @property
     def credits(self) -> float:
-        return round(sum(p.amount for p in self.postings if self.sign(p) > 0), 2)
+        """The DEPOSITS column total, NETTED — the paper's own convention."""
+        return round(sum(self.sign(p) * p.amount
+                         for p in self.postings if self.column(p) > 0), 2)
 
     @property
     def debits(self) -> float:
-        return round(sum(p.amount for p in self.postings if self.sign(p) < 0), 2)
+        """The WITHDRAWALS column total, netted the same way."""
+        return round(sum(-self.sign(p) * p.amount
+                         for p in self.postings if self.column(p) < 0), 2)
 
     @property
     def closing(self) -> float:
@@ -115,18 +125,35 @@ def document(
     total_override: float | None = None,
     enumerate_accounts: list[Account] | None = None,
     repeat_section: str | None = None,
+    repeat_section_at_end: str | None = None,
     closing_override: dict[str, float] | None = None,
+    opening_override: dict[str, float] | None = None,
+    movement_override: dict[str, tuple[float, float]] | None = None,
+    drop_row_figure: str | None = None,
+    extra_lines: dict[str, list[str]] | None = None,
 ) -> str:
     """A whole constructed member statement.
 
-    `enumerate_accounts` lets the enumerating table disagree with the printed
-    sections — the L1-C1 refusal; `repeat_section` prints one identity's
-    section twice — the L1-C2 refusal the design assigns to this card;
-    `closing_override` breaks the roll-up's agreement with a section's own
-    printed closing by a named amount — L1-C6 / L1-C10.
+    Every keyword breaks the page in ONE named way, which is what lets a test
+    name the condition it is about:
+
+    * `enumerate_accounts` — the table and the printed sections disagree
+      (L1-C1);
+    * `repeat_section` / `repeat_section_at_end` — one identity's section
+      printed twice, adjacently and away from itself (L1-C2, L1-C3);
+    * `opening_override` / `closing_override` — the table and the section
+      disagree about a figure by a named amount (L1-C6, L1-C10);
+    * `movement_override` — the table's DEPOSITS / WITHDRAWALS columns state
+      totals the ledger does not sum to, while the closing still follows
+      (L1-C8's oracle: two errors that cancel);
+    * `drop_row_figure` — one enumerated row printed with fewer figures than
+      the caption names columns (L1-C5's row width);
+    * `extra_lines` — lines printed inside a section's ledger region (L1-C7).
     """
     enumerated = enumerate_accounts if enumerate_accounts is not None else accounts
     closings = closing_override or {}
+    openings = opening_override or {}
+    movements = movement_override or {}
     lines = [f"Statement Dates: {period}"]
     total = (total_override if total_override is not None
              else round(sum(account.closing for account in enumerated), 2))
@@ -135,27 +162,35 @@ def document(
     lines.append(column_caption)
     for account in enumerated:
         closing = closings.get(account.suffix, account.closing)
+        opening = openings.get(account.suffix, account.opening)
+        credits, debits = movements.get(
+            account.suffix, (account.credits, account.debits))
+        figures = [_money(opening), _money(credits), _money(debits), _money(closing)]
+        if drop_row_figure == account.suffix:
+            figures = figures[:-1]
         lines.append(
-            f"{account.label} (Suffix #{account.suffix}) "
-            f"{_money(account.opening)} {_money(account.credits)} "
-            f"{_money(account.debits)} {_money(closing)}"
+            f"{account.label} (Suffix #{account.suffix}) " + " ".join(figures)
         )
     for account in accounts:
         if not account.prints_section:
             continue
-        lines.extend(_section(account))
+        lines.extend(_section(account, (extra_lines or {}).get(account.suffix)))
         if repeat_section == account.suffix:
             lines.extend(_section(account))
+    if repeat_section_at_end is not None:
+        repeated = next(a for a in accounts if a.suffix == repeat_section_at_end)
+        lines.extend(_section(repeated))
     return "\n".join(lines) + "\n"
 
 
-def _section(account: Account) -> list[str]:
+def _section(account: Account, extra: list[str] | None = None) -> list[str]:
     lines = [
         f"{account.label}  Suffix #{account.suffix} "
         f"Previous Balance: {_money(account.opening)}",
         GRID_CAPTION,
     ]
     lines.extend(_rows(account))
+    lines.extend(extra or [])
     if account.prints_closing:
         lines.append(
             f"Dividend Year to Date   0.00 Ending Balance: "

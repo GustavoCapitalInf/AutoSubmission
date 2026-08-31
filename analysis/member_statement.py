@@ -473,8 +473,16 @@ def _locate_sections(markdown: str) -> list[_Section] | None:
 # ---------------------------------------------------------------------------
 
 
-def _read_rows(section: _Section, start: date, end: date) -> list[Transaction] | None:
+def _read_rows(
+    section: _Section, start: date, end: date
+) -> list[tuple[Transaction, int]] | None:
     """The section's postings, or `None` where the paper contradicts the reader.
+
+    Each posting is returned with the COLUMN the paper printed it in — `+1` for
+    the deposits column, `-1` for the withdrawals column — which is not the same
+    as the sign of its amount: a printed reversal is a NEGATIVE entry in the
+    column it adjusts. The caller needs both, because the ledger is built from
+    the signed amount and the table's own totals are per column.
 
     Three refusals, and each one is a printed disagreement rather than a
     tolerance:
@@ -488,7 +496,7 @@ def _read_rows(section: _Section, start: date, end: date) -> list[Transaction] |
       read from the row's own type WORD, and the balance is what CHECKS it — so
       a word this reader mapped to the wrong sign cannot go unnoticed.
     """
-    rows: list[Transaction] = []
+    rows: list[tuple[Transaction, int]] = []
     balance = section.opening
     for match in _ROW_RE.finditer(section.ledger):
         month = match.group("post_month") or match.group("month")
@@ -503,14 +511,13 @@ def _read_rows(section: _Section, start: date, end: date) -> list[Transaction] |
         printed_balance = parse_money(match.group("balance"))
         if amount is None or printed_balance is None:
             return None
-        sign = _DIRECTIONS[match.group("direction").lower()]
-        if match.group("reversal"):
-            sign = -sign
+        column = _DIRECTIONS[match.group("direction").lower()]
+        sign = -column if match.group("reversal") else column
         signed = round(sign * abs(amount), 2)
         if abs(round(balance + signed, 2) - printed_balance) > _CENT:
             return None
         balance = printed_balance
-        rows.append(Transaction(
+        rows.append((Transaction(
             date=iso,
             description=" ".join(part for part in (
                 (match.group("qualifier") or "").strip(),
@@ -521,7 +528,7 @@ def _read_rows(section: _Section, start: date, end: date) -> list[Transaction] |
             amount=signed,
             direction="credit" if signed > 0 else "debit",
             running_balance=printed_balance,
-        ))
+        ), column))
     if len(_DATED_LINE_RE.findall(section.ledger)) != len(rows):
         return None
     if rows and abs(balance - section.closing) > _CENT:
@@ -645,6 +652,28 @@ def parse_member_statement(markdown: str) -> Statement | None:
         rows_read = _read_rows(section, start, end)
         if rows_read is None:
             return None
+        # THE MOVEMENT ORACLE (L1-C10, applied to the columns the caption names
+        # rather than only to the closing). The table's DEPOSITS and
+        # WITHDRAWALS figures are the bank's own totals for this account, so a
+        # ledger that walks to the right closing while summing to something
+        # else is a ledger with two errors that cancel — which is exactly what
+        # a truncated ledger looks like from the balance walk alone.
+        #
+        # Compared COLUMN BY COLUMN, which is the paper's own arithmetic and
+        # was measured rather than assumed: this template prints a reversal
+        # (`Withdrawal Adjustment`) inside the column it adjusts, so the
+        # WITHDRAWALS total is the withdrawal column NETTED, not the sum of
+        # everything that reduced the balance. Summing by SIGN instead
+        # disagrees with the table by twice each reversal — 225.24 on one
+        # archive document, 32.09 on another, 0.33 on two more — and every one
+        # of those four sits inside `reconcile`'s two-per-cent coverage
+        # tolerance, so a sign-keyed reader would have passed them by luck.
+        credits = round(sum(row.amount for row, printed in rows_read if printed > 0), 2)
+        debits = round(sum(-row.amount for row, printed in rows_read if printed < 0), 2)
+        if (abs(credits - row.figures["credit_total"]) > _CENT
+                or abs(debits - row.figures["debit_total"]) > _CENT):
+            return None
+        rows_read = [row for row, _printed in rows_read]
         if rows_read:
             published.append(PublishedAccount(
                 statement=_statement(section, row, period, rows_read),
@@ -668,8 +697,15 @@ def parse_member_statement(markdown: str) -> Statement | None:
             posting_count=0,
         )
         if not admitted:
+            # ONE refusal, made where the evidence is read. A second net at the
+            # end of the loop (`ledger.refused`) would say the same thing twice
+            # and make either one impossible to remove in a mutation table —
+            # a condition guarded twice is a condition neither guard can be
+            # shown to be doing.
             return None
-    if not published or ledger.refused:
+    if not published:
+        # Every section omitted is no account published, which is a publisher
+        # defect rather than a document about nothing.
         return None
 
     publish_omissions(ledger.omissions)
@@ -705,18 +741,28 @@ def _statement(section: _Section, row: _RollupRow,
                period: tuple[str, str], rows: list[Transaction]) -> Statement:
     """One account's `Statement`, from the section's own paper.
 
-    The stated totals are the DEPOSITS and WITHDRAWALS columns of the row the
-    enumerating table prints for THIS account, read from the caption's own named
-    columns. They are fed rather than left `None` on purpose (L1-C8): they are
-    the only figures on this paper capable of telling `reconcile` that a ledger
-    is truncated, and passing `None` there disables the check. The instance
-    COUNTS are not printed anywhere on this template and stay `None`, which is
-    the fail-closed direction — a count nobody printed is not a count.
+    **The stated totals and counts are `None`, and that is the design's ladder
+    read exactly rather than a gap.** For the `rollup-oracle` mechanism the
+    opening and the closing may come from the enumerating table where its
+    column roles are printed, and the stated counts and totals are *"the
+    SECTION's own printed counts and totals where it prints them"* — and this
+    template's sections print none. What the table prints is an ORACLE, checked
+    against the ledger COLUMN BY COLUMN in the caller and never published, so no
+    figure is taken from the roll-up into a payload.
+
+    L1-C8's substance is kept and is strengthened rather than skipped. Feeding
+    those two figures would buy `reconcile`'s coverage check, which passes
+    anything within two per cent; the caller's oracle compares the same figures
+    to the cent and REFUSES the document on a disagreement. Passing them would
+    also compare unlike things: this template nets a printed reversal inside the
+    column it adjusts, so the bank's WITHDRAWALS total and a sign-keyed sum of
+    the ledger differ by twice each reversal on four of the eight archive
+    documents — every one of them inside that two-per-cent tolerance.
 
     The printed `Average Daily Balance` this template shows beside a dividend is
-    deliberately NOT published as the bank's stated average: the same line
-    prints the DIVIDEND period it belongs to, which is not the statement period,
-    so publishing it would file a figure about one span under another.
+    deliberately NOT published as the bank's stated average either: the same
+    line prints the DIVIDEND period it belongs to, which is not the statement
+    period, so publishing it would file a figure about one span under another.
     """
     return Statement(
         bank=None,
@@ -726,7 +772,5 @@ def _statement(section: _Section, row: _RollupRow,
         period_end=period[1],
         beginning_balance=section.opening,
         ending_balance=section.closing,
-        stated_total_credits=row.figures["credit_total"],
-        stated_total_debits=row.figures["debit_total"],
         transactions=rows,
     )

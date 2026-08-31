@@ -161,6 +161,86 @@ def test_two_sections_of_the_same_identity_are_a_duplicate_and_not_a_continuatio
 # ===========================================================================
 
 
+def test_the_same_identity_printed_as_two_separate_sections_refuses():
+    """L1-C3. Two sections resolving to one identity is not a continuation and
+    is not a duplicate block beside itself: it is a document that says the same
+    account twice in two places, and neither reading of it is the document."""
+    text = document([idle_account(), posting_account()], repeat_section_at_end="00")
+    assert parse_member_statement(text) is None
+
+
+def test_an_enumerated_row_narrower_than_the_printed_caption_refuses():
+    """L1-C5's other half. The caption names four columns; a row printing three
+    is a row this reader did not read, and deciding WHICH figure went missing
+    is the guess by position that L1-C5 exists to forbid."""
+    text = document([idle_account(), posting_account()], drop_row_figure="71")
+    assert parse_member_statement(text) is None
+
+
+@pytest.mark.parametrize("suffix,delta", [("00", 0.01), ("71", -0.01)])
+def test_a_rollup_opening_that_disagrees_with_the_section_refuses(suffix, delta):
+    """L1-C6, on the OPENING. The opening seeds every later day of the ADB, so
+    a document whose own two printings of it differ is one this reader may not
+    resolve by choosing."""
+    idle, posting = idle_account(), posting_account()
+    openings = {"00": idle.opening, "71": posting.opening}
+    openings[suffix] = round(openings[suffix] + delta, 2)
+    assert parse_member_statement(
+        document([idle, posting], opening_override=openings)) is None
+
+
+def test_a_table_whose_movement_totals_the_ledger_does_not_sum_to_refuses():
+    """L1-C8's oracle, and the shape it exists for: the closing still follows
+    from the opening, so the balance walk is happy — and the bank's own stated
+    deposit and withdrawal totals say the ledger is not what it claims. Two
+    errors that cancel is what a truncated ledger looks like from the walk
+    alone."""
+    idle, posting = idle_account(), posting_account()
+    text = document([idle, posting], movement_override={
+        "00": (idle.credits, idle.debits),
+        "71": (round(posting.credits + 100.0, 2), round(posting.debits + 100.0, 2)),
+    })
+    assert parse_member_statement(text) is None
+
+
+def test_no_figure_from_the_enumerating_table_reaches_the_published_payload():
+    """L1-C5's standing rule, and the design's ladder read exactly: for this
+    mechanism the section's own stated counts and totals are what may be fed,
+    and these sections print none — so they are `None`, and what the table
+    prints stays an ORACLE the reader checks and never publishes.
+
+    L1-C8's substance is not skipped, it is strengthened. Feeding those two
+    figures would buy `reconcile`'s coverage check, which passes anything
+    within two per cent; the oracle above compares the same figures to the CENT
+    and refuses the document on a disagreement."""
+    posting = posting_account()
+    published = parse_member_statement(document([idle_account(), posting]))
+    assert published.stated_total_credits is None
+    assert published.stated_total_debits is None
+    assert published.stated_credit_count is None
+    assert published.stated_debit_count is None
+    # And the bank's own printed average is not published either: the line that
+    # carries it prints the DIVIDEND period it belongs to, not this one.
+    assert published.bank_reported_average_balance is None
+
+
+def test_a_printed_reversal_nets_the_column_it_adjusts_rather_than_the_other_one():
+    """The paper's own arithmetic, measured rather than assumed. A
+    `Withdrawal Adjustment` raises the balance, so the LEDGER carries it as a
+    credit — and the table nets it inside the WITHDRAWALS column, which is why
+    the oracle compares column by column. Summing by sign instead disagrees
+    with the table by twice the reversal on four archive documents, every one
+    of them inside `reconcile`'s two-per-cent tolerance."""
+    account = posting_account()
+    account.postings.append(Posting(28, "Withdrawal", "Debit Card Credit Voucher",
+                                    12.34, reversal=True))
+    # `Account.debits` nets the reversal, which is the table's convention; the
+    # fixture generator and the reader therefore agree, and a fixture built the
+    # other way would refuse.
+    assert account.debits == pytest.approx(254.25 - 12.34)
+    assert parse_member_statement(document([idle_account(), account])) is not None
+
+
 @pytest.mark.parametrize("suffix,delta", [("00", 0.01), ("71", -0.01)])
 def test_a_rollup_closing_that_disagrees_with_the_section_refuses(suffix, delta):
     """L1-C6 and L1-C10's section half. A cent is the smallest disagreement the
@@ -206,6 +286,16 @@ def test_a_printed_dated_row_the_reader_did_not_read_refuses_the_section():
         "Apr 11 Draft 1001 120.00 934.50",
         "Apr 11 Unknown 1001 120.00 934.50")
     assert parse_member_statement(broken) is None
+
+
+def test_a_dated_line_the_chain_does_not_need_still_refuses_the_section():
+    """The same condition where the balance walk CANNOT catch it. This line
+    opens with a printed date and carries money, its type word is not one this
+    template prints, and dropping it leaves the running balances following each
+    other perfectly — so the only thing that can refuse it is the count."""
+    text = document([idle_account(), posting_account()], extra_lines={
+        "71": ["Apr 15 Memo Returned item notice 88.27"]})
+    assert parse_member_statement(text) is None
 
 
 def test_a_running_balance_that_does_not_follow_refuses_the_section():

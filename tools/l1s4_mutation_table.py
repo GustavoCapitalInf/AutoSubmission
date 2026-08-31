@@ -62,6 +62,18 @@ TESTS = [
 ]
 
 
+def _lines(*parts: str) -> str:
+    """A multi-line anchor, joined at runtime.
+
+    Never an escape inside one literal: a shell heredoc turned a newline escape
+    into a real newline in a mutant table once already — and once more while
+    this very function was being added, which is why the join is written with
+    `chr(10)` rather than with the escape a heredoc can eat. An anchor that
+    cannot be applied exactly as documented is not a mutant (BATCH9-RULES).
+    """
+    return chr(10).join(parts)
+
+
 @dataclass(frozen=True)
 class Mutant:
     id: str
@@ -87,12 +99,11 @@ MUTANTS: list[Mutant] = [
            "analysis/member_statement.py",
            "    if len(set(identities)) != len(identities):",
            "    if False:"),
-    Mutant("C5", "L1-C5", "the roll-up's columns are read by POSITION when the "
-           "paper prints no caption naming them",
+    Mutant("C5", "L1-C5", "an enumerated row narrower than the caption's own "
+           "columns is read positionally instead of refused",
            "analysis/member_statement.py",
-           "    roles = _ROLLUP_COLUMN_ROLES[caption]",
-           '    roles = _ROLLUP_COLUMN_ROLES.get(caption) or '
-           '("open", "credit_total", "debit_total", "close")'),
+           "        if len(values) != len(roles):",
+           "        if False:"),
     Mutant("C6", "L1-C6", "the section's own OPENING no longer has to agree with "
            "the table's", "analysis/member_statement.py",
            '        if abs(row.figures["open"] - section.opening) > _CENT:',
@@ -115,22 +126,32 @@ MUTANTS: list[Mutant] = [
            "        if False:"),
     Mutant("C7c", "L1-C7", "the printed reversal word is ignored, so a returned "
            "debit is published as a debit", "analysis/member_statement.py",
-           '        if match.group("reversal"):',
+           '        sign = -column if match.group("reversal") else column',
+           "        sign = column"),
+    Mutant("C8", "L1-C10 / L1-C8", "the table's own movement totals stop being "
+           "an oracle over the ledger", "analysis/member_statement.py",
+           _lines('        if (abs(credits - row.figures["credit_total"]) > _CENT',
+                  '                or abs(debits - row.figures["debit_total"]) > _CENT):'),
            "        if False:"),
-    Mutant("C8", "L1-C8", "the section's stated totals are not fed to the "
-           "validator", "analysis/member_statement.py",
-           '        stated_total_credits=row.figures["credit_total"],',
-           "        stated_total_credits=None,"),
+    Mutant("C8b", "L1-C5", "a figure IS taken from the enumerating table into "
+           "the published payload", "analysis/member_statement.py",
+           "        ending_balance=section.closing,",
+           _lines("        ending_balance=section.closing,",
+                  '        stated_total_credits=row.figures["credit_total"],')),
     Mutant("C17", "R-a / L1-C17", "a section dropped with NO printed evidence "
            "no longer refuses the document", "analysis/member_statement.py",
            "        if not admitted:",
            "        if False:"),
 
     # --- the seven Q3 conditions ------------------------------------------
-    Mutant("Q3C1", "Q3 condition 1", "the section need not print its own opening",
-           "analysis/sibling_omission.py",
-           "    if opening is None or closing is None:",
-           "    if closing is None:"),
+    Mutant("Q3C1", "Q3 conditions 1 and 2", "the section need not print its own "
+           "opening and closing", "analysis/sibling_omission.py",
+           _lines("    if opening is None or closing is None:",
+                  "        return False",
+                  "    if abs(opening - closing) > CENT:"),
+           _lines("    if opening is None or closing is None:",
+                  "        return True",
+                  "    if abs(opening - closing) > CENT:")),
     Mutant("Q3C3", "Q3 condition 3", "the printed pair need not coincide",
            "analysis/sibling_omission.py",
            "    if abs(opening - closing) > CENT:",
