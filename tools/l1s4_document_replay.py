@@ -92,16 +92,18 @@ def _evidence(account: dict) -> str:
     adb = metrics.get("adb")
     if not isinstance(adb, dict):
         adb = {}
-    checks = adb.get("checks") or {}
+    checks = adb.get("validations") or {}
     failed = sorted(name for name, ok in checks.items() if ok is False)
     return (
         f"{klass}/{reason}"
         f" · reconcile.ok={bool(recon.get('ok'))}"
         f" · adb.ok={bool(adb.get('ok'))}"
-        f" · adb.basis={adb.get('basis')!r}"
-        f" · adb.policy={adb.get('policy')!r}"
-        f" · adb.checks_failed={failed or 'none'}"
+        f" · basis={adb.get('underwriting_adb_basis')!r}"
+        f" · policy={adb.get('underwriting_adb_policy')!r}"
         f" · posting_dates_cover_source={checks.get('posting_dates_cover_source')}"
+        f" · calendar_days={metrics.get('calendar_day_count')}"
+        f" · postings={len((account.get('statement') or {}).get('transactions') or [])}"
+        f" · adb_checks_failed={failed or 'none'}"
     )
 
 
