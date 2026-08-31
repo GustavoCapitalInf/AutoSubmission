@@ -59,8 +59,13 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from analysis.pipeline import analyze_markdown
-from analysis.serialization import report_to_dict
+from analysis.payload_shape import (
+    is_document_payload,
+    payload_account_count,
+    payload_accounts,
+)
+from analysis.pipeline import analyze_document
+from analysis.serialization import document_report_to_dict
 from corpus_artifacts import cached_markdown, cached_pages
 from ocr.inspect import inspect_pdf
 from telemetry import (
@@ -161,6 +166,15 @@ class DocumentRow:
     error_type: str | None = None
     statement_bank: str | None = None
     account_last4: str | None = None
+    #: How many accounts the ANALYSIS published for this document — not
+    #: `likely_account_count`, which is the OCR inspector's advisory count of
+    #: number-shaped tokens and is consumed by nothing. L1-C18: on a document
+    #: publishing several accounts `account_last4` is EMPTY and this column
+    #: carries the fact, because a per-document field that can hold one
+    #: account's value is left empty rather than filled from a chosen account.
+    #: 0 when no payload was published at all, so "no analysis" and "one
+    #: account" stay different facts.
+    account_count: int = 0
     cache_ocr: str = "bypass"
     cache_analysis: str = "bypass"
     cache_visual: str = "bypass"
@@ -186,6 +200,43 @@ def _mask_last4(value: str | None) -> str | None:
 
 def _fmt(pairs) -> list[str]:
     return [f"{identifier}:{score:g}" for identifier, score in pairs]
+
+
+def _project_accounts(row: "DocumentRow", payload: dict) -> None:
+    """The row's two Statement-derived columns, plus how many accounts published.
+
+    L1-C18. `account_last4` is the column by which a person identifies a
+    document, and on a document publishing several accounts there is no value
+    that column can honestly hold: filling it from the FIRST account is the
+    forbidden selection wearing printed order as a disguise, and it would put
+    the L-1 defect back into the discovery row after the payload had it
+    removed. So it is left EMPTY and `account_count` carries the fact.
+
+    `statement_bank` is the DOCUMENT's issuer, which every published section of
+    one member statement shares. A document whose accounts disagree about it is
+    not one statement, and the row refuses rather than picking one. The refusal
+    propagates out of `process`, which is the right loudness for a payload no
+    publisher in this tree can build: a run that met one would stop rather than
+    file a row naming an issuer it chose.
+    """
+    if not is_document_payload(payload):
+        statement = payload.get("statement") or {}
+        row.statement_bank = statement.get("bank")
+        row.account_last4 = _mask_last4(statement.get("account_number"))
+        row.account_count = 1
+        return
+    surface = "discovery/runner.py::_project_accounts"
+    accounts = payload_accounts(payload, surface=surface)
+    row.account_count = payload_account_count(payload, surface=surface)
+    row.account_last4 = None
+    banks = {(account.get("statement") or {}).get("bank") for account in accounts}
+    if len(banks) != 1:
+        raise ValueError(
+            "the accounts of one document name different issuers; a member "
+            "statement's sections share an issuer, so this is not one "
+            "document (document_accounts_disagree_on_issuer)"
+        )
+    row.statement_bank = banks.pop()
 
 
 def _project_identity(row: "DocumentRow", scores, payload: dict) -> str:
@@ -449,7 +500,7 @@ class DiscoveryRunner:
         page-declaration check was activated.
         """
         def analyse():
-            return report_to_dict(analyze_markdown(
+            return document_report_to_dict(analyze_document(
                 markdown, parse_mode="deterministic", on_dispatch=collector,
                 sheets=sheets,
             ))
@@ -652,13 +703,14 @@ class DiscoveryRunner:
         row.near_miss = _fmt([(i, s) for i, s in scores if s < 0.5][:5])
 
         if payload is not None:
-            statement = payload.get("statement") or {}
-            row.statement_bank = statement.get("bank")
-            row.account_last4 = _mask_last4(statement.get("account_number"))
+            _project_accounts(row, payload)
 
-        from telemetry.record import classify_outcome
+        from telemetry.record import classify_document
 
-        row.outcome_class, row.outcome_reason = classify_outcome(
+        # The DOCUMENT's outcome. One row per document, one outcome per row:
+        # `discovery/compare.py` ranks on `content_sha256` alone, and that
+        # ladder is what the non-regression regime is measured on.
+        row.outcome_class, row.outcome_reason = classify_document(
             payload,
             error_type=error_type,
             error_reason=_failure_reason(error_type, dispatch),

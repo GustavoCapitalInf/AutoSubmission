@@ -587,6 +587,17 @@ PROVENANCE_MODULES = {
     # (the provenance value a reader already published, copied into
     # census_batch9/per_sha.csv). It reads no document and publishes nothing.
     "tools/batch9_census.py",
+    # Not a reader: L1-S3's surface census names `corpus_gate.check_currency_source`
+    # as one of the payload readers it holds to a disposition. Naming a reader is
+    # not consulting the label — the census runs `ast.parse` over this
+    # repository's own source and never opens a document, a cache or a payload.
+    "tools/l1s3_surface_census.py",
+    # Not a reader, and the same class as `tools/frostozk_mutation_table.py`
+    # above: L1-S3's mutation table quotes the gate's own refusal line —
+    # `surface="corpus_gate.py::check_currency_source"` — verbatim as a mutant
+    # anchor, so the token appears in its source. It reads no document and
+    # publishes nothing.
+    "tools/l1s3_mutation_table.py",
     "analysis/bank_ozk.py",
     "analysis/bmo.py",
     "analysis/bmo_ca_business.py",

@@ -62568,3 +62568,627 @@ carried balance rather than a zero matching a zero, the printed year-to-date
 dividend figure is zero, and the account is named on exactly two lines of the
 whole document. They are the review's measurements and are cited to it, not
 restated as this cell's own.
+# §L1S3 — every payload reader taught the document shape, and the four the card's own list had missed
+
+**Card** `L1-S3-SURFACES-DARK` (batch 9, L-1 stage 3). Branch `wave9-l1s3`, base
+`train9` `4953806` (L1-S1 composed). Ocean reviews and composes; nothing here is merged
+or pushed.
+
+**Disjoint from L1-S2.** `L1-S2-SIBLING-OMISSION` ran concurrently in
+`.claude/worktrees/mt9-l1s2` and owns `analysis/symitar.py`,
+`analysis/community_section.py`, `analysis/zions.py`, their tests and `tools/l1s2_*`.
+This branch touches none of those five files and registers no `tools/l1s2_*` name;
+`git diff --stat 4953806..HEAD` names every file it does touch, and the three
+production modules are not among them. The one shared surface either cell could have
+collided on — `corpus_gate.py`'s `EXCLUDED_ANALYSIS_CALLERS` register — is
+**unchanged on this branch**: neither instrument this card adds calls the analysis, so
+neither needed excusing, and nothing train9 already carries was lifted.
+
+## Population — the 11 readers and the 9 seams, file by file
+
+The design's §1.4 census names ELEVEN reader rows (ten in the tree plus the design's
+own contrast function) and NINE `analyze_markdown` → `report_to_dict` seams. Both are
+below, with what each does now.
+
+### The seams — all nine take the document entry point
+
+| seam (at this tip) | what it feeds | moved to |
+|---|---|---|
+| `discovery/runner.py`:503 | the discovery run | `document_report_to_dict(analyze_document(...))` |
+| `corpus_gate.py`:1553 | `production_verdict` — the pinned corpus | same |
+| `benchmark/ourside.py`:117 | the benchmark's production side | same |
+| `batch.py`:185 | the batch CLI | `document_report_to_dict(document)`, `analyze_document` in `main` |
+| `balance_forensic_audit.py`:515 | the balance forensic audit | same |
+| `webapp/artifact_cache.py`:215 | the analysis cache | **a docstring example** — corrected to the document entry point (see the finding below) |
+| `analyze.py`:176 | the CLI | `analyze_document`, one rendering per account, document JSON |
+| `webapp/worker.py`:36 | the web worker | `document_to_json(analyze_document(...))` inside the cache's `compute=` |
+| `adb_forensic_audit.py`:492 | the ADB forensic audit | same |
+
+**A finding about the seam census itself.** The design counts NINE seams; counted by
+AST there are EIGHT calls, because `webapp/artifact_cache.py`:215 is an example inside
+that module's docstring rather than a call site. The cache seam every web upload really
+passes through is `webapp/worker.py`'s `compute=` lambda, which is one of the eight.
+The docstring was corrected to the document entry point so the two censuses agree about
+what the tree says, and `tools/l1s3_surface_census.py` prints the discrepancy rather
+than hiding it.
+
+### The readers — 20 taught functions across the 11 rows
+
+| reader | disposition | what it did before being taught |
+|---|---|---|
+| `telemetry/record.py::classify_outcome` | refuses | answered `withheld/withheld_adb` — a refusal naming a check nobody ran |
+| `telemetry/record.py::classify_document` | per account | *(new)* the weakest account, with three overrides |
+| `telemetry/diagnostics.py::diagnose` | refuses | an EMPTY diagnosis marked `evaluated=True`, riding in every telemetry record |
+| `telemetry/diagnostics.py::diagnose_document` | per account | *(new)* the union of its accounts' codes |
+| `telemetry/stated_counts.py::evaluate` | refuses | `check_unavailable/statement_absent` |
+| `telemetry/stated_counts.py::evaluate_accounts` | per account | *(new)* one observation per account |
+| `analysis/revenue.py::rebuild_serialized_revenue_views` | per account | rebuilt every revenue view over an inserted EMPTY ledger |
+| `analysis/revenue.py::apply_serialized_revenue_review` | per account | searched only the first account's postings |
+| `webapp/app.py::_analysis_rows` | per account | **zero export rows** for a document that reconciled |
+| `webapp/app.py::_adb_rows` | agnostic | reads a metrics block; never the account key |
+| `webapp/app.py::_masked` | agnostic | key-name based, already account-count agnostic |
+| `webapp/app.py::_package_members` | per account | *(new)* membership, and the duplicate-digest refusal |
+| `webapp/jobs.py::_classification_for` | per account | found nothing for every posting in a second account |
+| `benchmark/ourside.py::OurFileResult._account` | refuses | 0 / 0 / 0 keys — read as "our side produced nothing" |
+| `balance_forensic_audit.py::audit_source` | refuses | a bare `KeyError` — the only loud one, loud by punctuation |
+| `adb_forensic_audit.py::audit_one` | refuses | would have audited one account under the document's name |
+| `corpus_gate.py::document_verdicts` | per account | `_Verdict('withheld', …)` — mismatching `PUBLISHED_OUTCOME`, gate red |
+| `corpus_gate.py::check_currency` | refuses | would pin one account's denomination as the document's |
+| `corpus_gate.py::check_currency_source` | refuses | the same, for the evidence class |
+| `discovery/runner.py::_project_accounts` | per account | would have filled `account_last4` from a chosen account |
+
+`webapp/static/app.js` is the twelfth surface and the one with no test harness here: it
+refuses in the UI, naming the account count and any omitted sections, rather than
+drawing one account as the document. `analysis/count_semantics.py` is in the card's
+list of eleven and is **not a payload reader** — measured, not assumed: it contains no
+read of the payload's account key at all (the census sweeps for exactly that), and the
+mapping table it owns is applied by `telemetry/stated_counts.py::evaluate`, which is
+taught.
+
+## Root cause — the untaught failure is quiet
+
+Measured before any of this (design §1.4, `tools/l1_design_reader_probe.py`): of the
+ten payload readers in the tree, **nine ANSWERED** a document-shaped payload and one
+raised — and the one that raised did so only because it indexed `payload["statement"]`
+where the others `.get()` it. The loudness was an accident of punctuation, not a guard.
+Nine wrong answers of nine different kinds, every one of them silent.
+
+That is why this stage exists and why it comes before any document publishes two
+accounts. A shape a reader has never seen must produce a refusal it cannot forget to
+write, and the refusal has to be somewhere a census can check for it.
+
+## Solution
+
+`analysis/payload_shape.py` — a leaf that publishes nothing, computes nothing about a
+statement and reads no printed value. It answers which of the two published shapes a
+payload is, and whether the reader asking may answer about it:
+
+* `assert_payload_shape` is **L1-C16**: `accounts` beside `statement` is the Option-D
+  shim the design refuses on evidence, and a payload carrying NEITHER is a publisher
+  defect rather than a document with nothing to say. Both raise `PayloadShapeError`,
+  which IS a `ValueError` — the design's word — with a type of its own so a shape
+  refusal can be told from a value refusal without matching message text.
+* `refuse_document_payload` is the loud refusal for a reader whose answer is about ONE
+  account. **It fires on the presence of `accounts` and on nothing else**, which is the
+  property that makes this whole stage provably dark: a reader that gains the line
+  answers every payload this tree can publish exactly as it did before.
+* `payload_accounts` yields `[payload]` for today's shape — so a taught reader runs one
+  iteration over the same mapping it read before.
+
+On top of it: the document outcome (`classify_document`, §1.5's fold — the weakest
+account, printed order breaking ties, with TWO of the design's three overrides; see
+Q10 below), the document diagnosis (a UNION, never a selection), one observation per
+account for the count check, per-account revenue, per-account exports under their own
+section prefix, package membership on each account's OWN validation with the
+no-average-over-one-content-digest refusal standing where the cross-account arithmetic
+happens, one verdict per account plus the document's fold in the gate, and a discovery
+row that carries the DOCUMENT outcome, an EMPTY `account_last4` and a new
+`account_count` (L1-C18).
+
+**L1-C17's vocabulary is declared** in `telemetry/record.py` as
+`RATIFIED_OMISSION_REASONS`, beside `DEFERRED_REASONS` and for the same reason: this is
+the module where a token from a closed vocabulary decides an outcome, and a caller that
+invents one is refused rather than believed. `absence_of_parsed_rows` is not a member
+and the census's own test says so.
+
+## The override this stage did NOT wire — Q10
+
+The design's §1.5 gives the document fold three overrides. Two are wired. The third —
+*an omission on ratified evidence stops a document being `validated` and files it
+`review/sibling_section_omitted`* — is **deliberately not wired**, on Ocean's binding
+note from the L1-S2 review: L1-S2 records exactly such omissions on **15 documents
+batch 8 validated**, every one admitted on printed evidence, so wiring the override
+would fold 15 protected documents from `validated` to `review`. That is a regression
+under the batch-9 doctrine whatever its merits as a policy, and it is not a thing a
+stage whose whole claim is ZERO MOVEMENT may decide by itself. The ruling is with
+Gustavo as Q10.
+
+What stands instead: no account → `failed`; an omission whose `reason` is not a
+ratified class → `failed` (that one is a defect, not a policy); a ratified omission
+leaves the fold alone. Two tests pin it, both naming Q10, and the second states the
+protected shape on its own — one validated account plus a ratified-class omission
+classifies `validated`.
+
+Also carried from that review and NOT touched here: three other `None` exits of
+`analysis/community_section.py::_parse_sectioned_statement` bypass the omission
+ledger. That path is L1-S2's file and this branch does not touch it; the finding stays
+carded for S4.
+
+## The four the card's own list had missed
+
+The census is not decoration. Running it the first time found four production sites
+reading the payload's account key that this card's scope list did not name:
+
+1. `analysis/revenue.py::apply_serialized_revenue_review` — a reviewer's confirm/reject
+   searched only the first account's postings, and would have answered "transaction
+   source location was not found" for every posting in a second one;
+2. `benchmark/ourside.py::statement` (and its three sibling views) — reached through
+   `_account`, now the refusal;
+3. `corpus_gate.py::check_currency` and
+4. `corpus_gate.py::check_currency_source` — both TOTAL assertions against path-keyed
+   pins with no account column, which would have pinned one account's denomination as
+   the document's.
+
+All four are now taught or excused BY NAME. That is what the reverse direction of a
+census is for.
+
+## Results
+
+* **newly validated 0** — this card publishes nothing new and moves no document. Every
+  branch it adds is unreachable in production at this tree: `analyze_document`
+  publishes exactly one account on every document, so `document_report_to_dict` takes
+  its RULE S branch every time and no published payload carries an `accounts` key.
+* **other ladder movement 0.**
+* **previously validated preserved: ALL, payload byte-identical.**
+* **unexpected validated regressions 0.**
+
+## Proof
+
+| proof | command | result |
+|---|---|---|
+| the S3 surface census, both ways | `python tools/l1s3_surface_census.py` | **exit 0** — 20 declared readers, 13 excused sites, 31 payload-key reads swept, 8 document-entry seams |
+| the design's seam census, both ways | `python -m tools.l1_design_reader_probe --census` | **exit 0** — 9 found, 0 undeclared, 0 missing |
+| a doctored surface FAILS the census | `tests/test_l1s3_census.py` | `tests/test_l1s3_census.py` 13 passed — the census fails FORWARD (a taught reader whose branch is gone; a declared reader the tree lost; an `agnostic` one that starts reading the key), REVERSE (a reader the list does not know about) and on the SEAM half (a module publishing through the single-account serialiser, doctored in a temp tree) |
+| the mutation table | `python -m tools.l1s3_mutation_table` | **6 / 6 killed**, exit 0; M4 killed by the census as well as by a test. Tree verified clean after every mutant |
+| full default suite | `python -m pytest tests/ -q -p no:randomly` | **7,578 passed / 43 skipped**, exit 0 (277.7 s) |
+| canonical guards | BATCH9-RULES' canonical **five** | **255 passed**, exit 0 — the base floor exactly |
+| the card's nine-file superset | the nine named in the card | **349 passed**, exit 0 |
+| canonical conformance (7 files) | the seven named in the card | **1,270 passed / 40 skipped**, exit 0 |
+| the corpus gate | `python corpus_gate.py` | **GREEN**, exit 0 — 105 PASS / 3 WITHHELD / 1 REFUSED, verdicts 1 refused / 3 review / 102 validated / 3 withheld, 108/108 ADB basis, 108/108 currency, 108/108 currency provenance, 109 resolved offline (567.4 s) |
+| the corpus-marked slice | `python -m pytest -q -m corpus` | 30 passed, exit 0 (1782 s), run from a worktree beneath the repo |
+| RULE S at the pipeline seam | `tools/l1s1_seam_probe.py`, base `4953806` vs tip, `--per-parser 3` | 232 documents / 80 registrations; **RULE S payload byte-identical 232/232**, moved 0; the account seam 232/232, moved 0; the published integrity flag list AND ORDER identical 232/232; ladder outcome unchanged 232; `MOVED_TOTAL=0`, exit 0 |
+| the same, WIDE | the same probe, `--per-parser 12`, both trees | **677 documents / 80 registrations**; document seam byte-identical **677/677**, account seam 677/677, integrity flag list AND ORDER 677/677, ladder outcome unchanged 677, documents publishing exactly one account 677 (18 carry an integrity flag, 4 of them document-scope); `MOVED_TOTAL=0`, exit 0 |
+| zero movement, every registration | `tools.cohort_replay --parser … --expect-identical`, all 80 registrations the run of record claimed, four chunks, at BOTH trees | 2,743 claimed documents, 2,669 replayed. Identical totals at base and tip: **previously validated payload identical 2,555**, payload changed 41, newly validated 3, other ladder regressions (down, from a non-validated class) 3, **validated regressions — BLOCKING 0**; chunk exits `[0, 0, 3, 3]` at BOTH trees. Per document: **0 of 2,669 replay rows differ** between the trees (`--replay-base/--replay-tip`, ignoring only the per-document `ms` timing) — same before and after outcome, reason, registration, payload identity and changed leaf paths |
+| the archive sweep, all 3,380 | `tools.regfp_zero_movement_sweep`, four chunks, at BOTH trees | 3,380 documents each; 2,669 compared, **2,620 identical**, 46 moved, 21 no-payload-now-publishes, 3 payload-now-raises, 0 multi-artifact — **the same nine numbers at the base tree and at the tip**. Four chunk exits 1 at each tree (the tool exits non-zero on any finding) |
+| attribution of every sweep finding | `python -m tools.l1s3_sweep_attribution --base … --tip …` | **exit 0** — 70 findings at BOTH trees identically (same document, same verdict, same changed field names); **0 differing, 0 tip-only, 0 base-only**. Every one of the 70 is train9's composed movement against the batch-8 run of record, and none is this branch's |
+| privacy — added lines | `tools/privacy_scan_branch.py` | **0 hits**, exit 0 — added lines against the printed tokens of 3,380 documents (3,351 with cached text): MONEY 0, DIGITS 0, DATES 0, WORDS 0, residue files 0, residue sites 0. **raw** is NOT 0 and the first version of this row said it was: see the closure table below for the figure at the closure tip, and the reason every raw hit is discharged |
+| privacy — commit messages | `tools/huntington_msg_privacy_scan.py` | the branch's commit messages against the same 3,380: **MONEY 0, DIGITS 0, DATES 0**; WORDS 2 (exit 1) — both named and attributed below. 13 messages at the tree that produced this section; re-running the command after this section is committed scans the W3 commits too |
+
+### Why the sweep AND the replay are each run TWICE
+
+`tools/regfp_zero_movement_sweep.py` compares a tree's recomputed payload against the
+payload the RUN OF RECORD cached — and the run of record is **batch 8's**. train9 has
+composed movement cells since, so a sweep at ANY train9 tree reports THEIR movement
+beside the branch's, and a cell that read only its own sweep would either claim
+someone else's movement or explain away its own inside the same number. The first
+chunk of the tip sweep reported 8 moved, 6 now-publishing and 1 now-raising, which is
+exactly the shape of a finding that has to be attributed before it can be dismissed.
+
+So the identical sweep was run at the BASE tree over the identical population and the
+two finding sets diffed by content sha (`tools/l1s3_sweep_attribution.py`, committed).
+Every one of the nine aggregate counts is the same at both trees, and all **70**
+per-document findings are present at both, identically. Nothing appears at the tip that
+is not at the base; nothing disappears either.
+
+`tools/cohort_replay.py` has the same baseline and therefore the same problem, and
+it was run the same way. At the BASE tree two of its four chunks already exit 3 — 3
+newly validated, 3 ladder regressions down from a non-validated class, 41 previously
+validated documents with a changed payload — and the tip reproduces every one of those
+numbers exactly. Per document, **0 of 2,669 replay rows differ** between the two trees
+once the per-document elapsed-time field is set aside (which the instrument names
+rather than drops quietly). `validated regressions — BLOCKING` is **0 at both**.
+
+One consequence worth stating plainly: **the sweep replays the ACCOUNT seam**
+(`analyze_markdown` → `report_to_dict`), which this card did not change. What
+production now publishes is the DOCUMENT seam, and that is the seam probe's object —
+which is why it was re-run wide (677 documents, 80 registrations, base against tip)
+rather than left at the closure run's 232.
+
+### The privacy scans, and the two WORDS hits
+
+The branch scan is **0**, and it is not a vacuous zero: 3,133 added lines were compared
+against the printed tokens of all 3,380 documents in the run of record (3,351 with
+cached text). It reached 0 by a correction rather than by luck — the first run found
+the constructed fixture's invented credit amount printed by a real statement, in four
+places. It was invented, not copied, and the scanner cannot tell the difference, which
+is the point: the figure is now a named constant (`SYNTHETIC_CREDIT`) and no
+money-shaped literal is written out on any line this branch adds.
+
+The message scan over the same 3,380 reports **MONEY 0, DIGITS 0, DATES 0** and
+**WORDS 2** across the branch's messages, and the two are named here rather than counted: the bigram `NINE LINE` in
+"its nine line-pinned sites", and the bigram `THOUGH THEY` in a sentence about two
+package keys. Both are ordinary English prose about the seam census and the package
+surface; neither is a value, a name, a date, an amount or anything read out of a
+document. **They were reworded, and the reason they had been kept was wrong.**
+The first version of this row argued that a reword would invalidate the sha citations
+in this section. That is not a ground: BATCH9-RULES says plainly that on an unpushed
+branch a `--msg-filter` reword is cheap and the sha references are remapped in the
+records, and the reviewer reworded its own first draft for exactly two such bigrams.
+The only ground that matters is that **the hits are not tokens** — had they been, the
+cost of the reword would have been irrelevant. See the closure table for what the two
+messages say now.
+
+## Generalization
+
+Every surface, and every seam — not a list of the ones that came up. The census checks
+BOTH directions over the source alone, so the claim is falsifiable at the tree rather
+than trusted from a card:
+
+* **forward**: every declared reader exists and carries the branch its disposition
+  claims — `per_account` must reach the shape module, `refuses` must call the refusal,
+  and `agnostic` must not read the account key at all;
+* **reverse**: every production site that reads the account key is declared, as a
+  taught reader or as an excused site with its reason.
+
+**What a new reader must do to pass it.** Read the account key and you are in the
+census: declare yourself `per_account` and iterate `payload_accounts` (which is one
+iteration over today's payload, so you cost nothing), or declare yourself `refuses` and
+call `refuse_document_payload` with your surface name — or prove you never touch the
+key and declare yourself `agnostic`. A reader that does none of these fails the census,
+and the census is a test.
+
+The mutation table proves the tests are the killers rather than the labels: six
+mutants, each one exact edit, run without `-x` against the four L1-S3 test files AND
+the census, every one killed, and M4 killed by the census as well as by a test — which
+is the case that shows the census is a gate and not a report.
+
+## Risks, and what a reviewer should attack first
+
+* **The census's reverse direction is a heuristic about ONE key.** It sweeps for reads
+  of `statement` — subscript, `.get`, `.setdefault`, `.pop` — and a reader that reached
+  an account some other way (walking `payload.values()`, say) would not be swept.
+  Nothing in the tree does that today, and the forward direction plus the seam census
+  cover the publishers, but the reverse half is only as wide as that pattern.
+* **The design's seam census pins LINE NUMBERS.** It went stale the moment L1-S1
+  composed (it failed at this card's base, exit 1, before a line of this work) and it
+  will go stale again on the next edit above any of its nine sites. It is green at this
+  tip because its declared numbers were corrected to the tree; `tools/l1s3_surface_census.py`
+  pins the same claim by AST, which is why both are run.
+* **`webapp/static/app.js` has no test.** Its two branches were read and the file
+  parses (`node --check`), and both are guarded on `Array.isArray(report.accounts)` so
+  neither can fire on a payload this tree publishes — but that is inspection, not a
+  test, and it is the one surface here without one.
+* **The document verdict's fold in the gate invents a risk-level order.**
+  `_RISK_ORDER` ranks `clear < review < high` with an unknown token ranking WORST. It
+  is reached only on a document payload, and the pinned corpus contains none, but it is
+  a policy this card wrote rather than one it found.
+* **`totals["completed"]` and its siblings now count MEMBERS where
+  `totals["documents"]` counts JOBS.** Identical until a document publishes two
+  accounts, and different on purpose after that. A consumer comparing the two would see
+  the difference before anything explains it to them.
+
+## Commits
+
+Seven messages were REWORDED after the review, by `git filter-branch --msg-filter`,
+and the trees are byte-identical across the rewrite (`HEAD^{tree}`
+`be54bebb6f222a3d45fc5076292184d98163f3f8` before and after). The shas below are the
+post-rewrite ones and are what every measurement in this section was taken at or
+before; the reviewer's own commit is in the range and its message was passed through
+untouched.
+
+**The stage:** `868ec64` the shape discipline and the constructed fixtures · `f852584`
+the telemetry and revenue readers · `2446dde` the nine seams and the readers behind
+them · `27a51cd` the surface census and the four readers it names · `e77285b` the
+per-reader tests, the census tests and the mutation table · `b5b1250` jobs vs members ·
+`d60f598` one definition of the account digest · `da35d0b` the constructed credit as a
+named constant · `38cb951` the third override not wired (Q10) · `8582fd1` Q10 at the
+package layer · `a23ecb8` the sweep attribution instrument · `a5f707d` / `92f691d` /
+`acfb529` this section.
+
+**Answering the review:** `bbe338a` BLOCK-1 and MINOR-6 · `da891be` MAJOR-4 and MINOR-4
+· `ba926e1` MAJOR-2 · `c3c26e1` MAJOR-3 · `b70bac4` MAJOR-1, MINOR-3 and MINOR-9 ·
+`c07d9a5` MINOR-2 and MINOR-7 · `1231347` MINOR-1 · `1fb32a8` the two censuses re-pinned
+· `df6d42b` this closure.
+
+
+---
+
+## Closure — the independent review's findings, one by one
+
+`reviews/BATCH9_L1S3_REVIEW.md` (`272b095`): **APPROVE WITH FINDINGS — 1 BLOCK · 4
+MAJOR · 9 MINOR**. The review reproduced the zero-movement claim independently and
+found one composition BLOCK and thirteen further findings. Every one is closed below,
+on this branch, with the measurement that closes it. Nothing was argued away.
+
+### BLOCK-1 — the fold failed deep instead of refusing at its door
+
+`classify_document` gated on `is_document_payload`, which is `False` for a non-Mapping,
+and therefore handed a `DocumentReport` **object** to `classify_outcome`, which died
+`AttributeError: 'DocumentReport' object has no attribute 'get'`. L1-S2's resolver
+discovers this fold by AST and probes it with two call shapes — the object first —
+narrowing on `TypeError` to mean *not this call shape, try the other*. An
+`AttributeError` is not that, so the resolver never reached the payload leg and
+**eleven of S2's Q10 pins went red at the merged tree**.
+
+Closed at the door, and one layer below it: `classify_document` raises `TypeError` for
+anything that is not a mapping or `None`, naming the function that turns the object
+into a payload; and `refuse_document_payload` — the guard every taught reader shares —
+does the same, because returning silently for a non-Mapping was the same defect
+wherever it was reached from. `is_document_payload` stays total on purpose: a QUESTION
+that raises cannot be asked, and the L1-C16 clause that must be loud belongs to the
+guards. Six new tests, two of them parametrised over four non-payload types.
+
+**The S2 resolver contract is now part of this classifier's contract**: `TypeError`
+means *this is not a published payload at all*, `PayloadShapeError` means *this is the
+wrong one of the two published shapes*, and a caller probing which call shape a
+function wants may rely on the difference.
+
+### MAJOR-1 — the reverse census was blind to the key this stage introduced
+
+The reviewer wrote seven readers that each reach ONE account, put all seven in the
+tree, and measured the census **exit 0**. Six are caught now and the seventh is out of
+scope for a reason pinned as a test:
+
+| the reviewer's reader | now |
+|---|---|
+| `payload["accounts"][0]["metrics"]` | caught — the document shape's own key |
+| `next(iter(payload.get("accounts") or []), {})` | caught |
+| `(payload.get("accounts") or [{}])[0].get(…)` | caught |
+| `_KEY = "statement"` … `payload[_KEY]` | caught — a subscript whose key is a NAME bound to a payload key |
+| `for key, value in payload.items(): if key == "statement"` | caught — a comparison against a payload key |
+| `report.statement` | **out of scope, by decision**: a `Report` IS one account, so there is no second account there to drop. The hazard is reaching one account out of something holding SEVERAL, and `document.accounts` IS swept — pinned as a test, both halves |
+| `report_to_dict as _publish_one_account` | caught — the seam half resolves import ALIASES of both publishers |
+
+Cost, measured: eight excusals, each named and truthful — seven for the document
+OBJECT reading its own account list (`DocumentReport` is the object that holds several;
+iterating it is what it is for) and one for `benchmark/normalize.py::lenders`, which
+reads MoneyThumb's scorecard JSON, whose own schema has an `accounts` key and which
+never sees a payload this platform publishes. Payload-key reads swept rose **31 → 46**.
+
+### MAJOR-2 — the dashboard refused in two places and answered in three
+
+`currentAnalysis` and `modalAnalysis` were assigned BEFORE their refusals, and three
+consumers read the account block off those globals with no gate of their own — the
+summary button (bound unconditionally, and the artefact an analyst pastes into a credit
+memo) and the two transaction renderers reached by every filter and sort control.
+
+Both globals are now cleared ON the refusal path, at all three assignment sites
+(`renderAnalysis`, the modal's open path and its refresh path). Traced over the source
+rather than in a browser, which is the honest limit of what this branch can prove:
+
+* `generateSummary()` opens `if (!currentAnalysis) return;` → it now writes nothing at
+  all, and the summary box keeps the refusal;
+* `mainTransactionContext()` reads `currentAnalysis?.package` / `?.statement` → an
+  empty null-safe read;
+* `renderModalTransactions()` reads `modalAnalysis?.statement` → the same.
+
+The transaction card, which the error path does not hide and the upload path has
+already shown, is hidden in the refusal branch ALONE — not inside `renderError`, which
+would change what every other error does on a single-account document. `node --check`
+exit 0.
+
+### MAJOR-3 — the package's per-period averages were halved
+
+Design §6.5's fourth bullet, which this card had not built. One job publishing two
+different validated accounts over ONE statement period published every per-month
+average divided by two, because the denominator counts MEMBERS and each account is a
+member. The duplicate-content-digest refusal cannot catch it and never could: it fires
+only on IDENTICAL content, and two different accounts pass it.
+
+The member-set check is keyed on the DOCUMENT identity two members share, and it
+**refuses rather than re-divides** — choosing a denominator is a policy about what a
+package average means, and a stage whose claim is zero movement may not choose one.
+`avg_monthly_credits`, `avg_monthly_debits`, `avg_monthly_cash_flow`,
+`monthly_lender_debits` and `average_daily_balance` publish `None` beside
+`cross_account_averages_refused` and its reason; the ADB is refused for the doctrine's
+own reason (no document-level combined ADB) rather than for this one. Sums and counts
+are untouched — two accounts of one document really did move that money, and adding
+them counts each posting once. Four tests, and mutant **M7**.
+
+### MAJOR-4 — three refusals had no test
+
+`adb_forensic_audit::audit_one`, `balance_forensic_audit::audit_source` and
+`corpus_gate::check_currency_source` could each be neutralised with the whole default
+suite and both censuses green — one of them the legacy indexing path this card's own
+Proof section promised to pin. Three tests, each driving the real function with the
+payload constructed and the guard's own surface string asserted; and the reviewer's
+mutant (the refusal left in place but moved into a dead branch) is now **M8, M9 and
+M10**, each killed twice — by its test AND by the census.
+
+### The nine MINOR findings
+
+| finding | closed by |
+|---|---|
+| **MINOR-1** — five of §6.5's seven per-account gate assertions absent | the first is built: `_assert_document_verdict_follows` refuses a document outcome no account holds, a flag the fold invented, and a risk milder than the strongest an account published — a named function so each clause can be doctored, and four doctorings test it. The fourth bullet is **MAJOR-3**, now built. The remaining four are named below as owed |
+| **MINOR-2** — `evaluate_accounts` unreachable | wired into `observe_run`, the observer's only entry point, which called the REFUSING `evaluate` and would have raised on the first multi-account document. Held there by a reachability check that skips dead branches |
+| **MINOR-3** — the forward check is a NAME check | `_called_names` no longer walks into a constant-false branch. The reviewer's M7 satisfied the census at all eight refusal sites; it now fails it. Reachability in general is undecidable — a CONSTANT-false branch is not, and it is the mutation an implementer actually writes |
+| **MINOR-4** — two refusal messages named the wrong surface | both corrected, and a test holds every `surface=` string in the four modules to its own function name |
+| **MINOR-5** — "raw 0" was wrong | corrected above and in the closure scans below. Every raw hit is WORDS-class and discharged by the scanner's own documented `words_class` rule |
+| **MINOR-6** — the shape helpers were silent on a non-Mapping | closed with **BLOCK-1**; the predicate stays total for the reason stated there |
+| **MINOR-7** — the mutation table counted a non-run as a kill | a kill is exit 1 WITH at least one named failing test, or a red census. Exits 2-5 are `DID_NOT_RUN`, scored for nothing, and the table returns 2 |
+| **MINOR-8** — the guard count was over nine files | the canonical **five** are stated first (255, the base floor exactly); the nine-file superset is kept as a second row |
+| **MINOR-9** — both censuses were blind inside the publisher | the exclusion is right and is now narrow: the publisher module's internal account-publisher calls are pinned at 2 (RULE S's verbatim return and the per-account list) and may come only from `document_report_to_dict`. A third one fails the census |
+
+### The WORDS-2 correction
+
+The reviewer discharged both bigrams and **rejected the reason this section gave**. It
+was right to: BATCH9-RULES says a reword on an unpushed branch is cheap and the sha
+references are remapped, so "it would invalidate the citations" was never a ground. The
+record now says what the ground actually is — the hits are not tokens — and the
+messages were reworded anyway, because the coordinator asks for four hard zeros and a
+zero is worth more than an argument.
+
+### What is OWED, and by which stage
+
+* **§6.5's remaining four assertions** — the pinned-currency totality per `(path,
+  account)`, the ADB basis/policy stamps on every account plus *no document-level ADB
+  field*, the omission reasons asserted **at the gate** against L1-C17's vocabulary
+  (they are asserted in `classify_document` instead), and `document.internal_transfers`
+  resolving one-to-one. The first needs a truth-set ceremony (both audit CSVs are
+  path-keyed with no account column) and the last needs a field no stage has published
+  yet. **S4, or a ruling from Ocean on which stage owns them.**
+* **COMP-3 and COMP-4 are Ocean's**, and deliberately not taken here: re-pinning
+  `corpus_gate.py` for S2's eleven added lines can only be done at the merged tree, and
+  doing it here would turn this branch's own census red; and
+  `test_this_tree_declares_no_document_fold_yet` is L1-S2's file, whose docstring says
+  S3 landing the fold turns it red on purpose. The `WATCHED` keep-once is a text
+  conflict Ocean resolves. What this branch DID take is the line the review found moved
+  by its own edit: the gate's self-check pushed the pinned-corpus seam from 1553 to
+  1597, and that re-pin is here because this branch moved it.
+* **MAJOR-3 remains S4's gate condition**: the publisher may not light until the
+  package refuses — or correctly divides for — two members of one document. It refuses
+  now; deciding what such a package SHOULD publish is the ruling that outlives this
+  stage.
+
+### The closure floor, re-measured at the closure tip
+
+| proof | result |
+|---|---|
+| full default suite | **7,614 passed / 43 skipped**, exit 0 (185 s) — 7,578 at the reviewed tip plus 36 new tests |
+| canonical guards (the five) | **255 passed**, exit 0 |
+| the card's nine-file superset | **349 passed**, exit 0 |
+| canonical conformance (7) | **1,270 passed / 40 skipped**, exit 0 |
+| the six L1-S3 / L1-S1 test files | **151 passed**, exit 0 (115 at the reviewed tip) |
+| `tools/l1s3_surface_census.py` | **exit 0** — 20 readers, 20 excused sites, **46** payload-key reads swept, 8 seams, publisher-internal calls 2/2 |
+| `tools.l1_design_reader_probe --census` | **exit 0** — re-pinned for the line this branch's own edit moved |
+| the mutation table | **10 / 10 killed**, exit 0, every killer NAMED; M8/M9/M10 killed by a test AND a red census |
+| `node --check webapp/static/app.js` | exit 0 |
+| `python corpus_gate.py` | **GREEN**, exit 0 — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld (454.7 s) |
+| RULE S at the pipeline seam, base `4953806` vs closure tip | 232 documents / 80 registrations; document seam byte-identical **232/232**, account seam 232/232, integrity flag list **and order** 232/232, ladder unchanged 232; `MOVED_TOTAL=0`, exit 0 |
+| privacy — added lines | **0 hits**, exit 0 — **raw 68**, every one WORDS-class and discharged by the scanner's own `words_class` rule; MONEY / DIGITS / DATES / WORDS all 0, residue files 0, residue sites 0, over 5,196 added lines against 3,380 documents (3,351 with cached text) |
+| privacy — commit messages | **0 hits across all four classes**, exit 0, 25 commits scanned against the same 3,380. Seven messages were reworded to reach it (see Commits above): every collision was an ordinary-English bigram, and the coordinator asked for four hard zeros rather than four attributions |
+
+**The heavy pair was not re-run, and this is the judgement the coordinator asked for.**
+Beyond `webapp/static/app.js` and the package math, the production-visible changes are:
+two doors made loud on a NON-MAPPING (`classify_document`, `refuse_document_payload`),
+a gate self-check that runs only inside the document branch, two corrected surface
+STRINGS, and the observer CLI. None can alter a published payload for any single-account
+document: every one is reached only by a payload that is not a mapping, or by a payload
+carrying `accounts`, and no publisher in this tree builds either. The two that touch a
+function the archive proofs exercise — `classify_outcome` through its guard, and the
+gate's verdict — are covered by the two proofs that were re-run: the corpus gate GREEN
+over 109 pinned documents, and the seam probe `MOVED_TOTAL=0` over 232 documents and 80
+registrations, base against tip. The 3,380-document sweep pair, the 80-registration
+replay pair and the 677-document wide probe stand on the earlier tip.
+
+---
+
+## Closure-2 — the composed tree found what neither branch could see alone
+
+Composition of L1-S2 + L1-S3 was **BLOCKED** at the composed tree, on a defect
+neither branch's own proofs could reach and which the merged-tree pin check missed
+because it never ran the gate. Measured there before the fix:
+
+```
+python corpus_gate.py
+  -> analysis.payload_shape.PayloadShapeError:
+     balance_forensic_audit.py::audit_source answers about one ACCOUNT and was
+     handed a document carrying 1 of them (reader_is_account_scope)
+
+pytest -m corpus  -> 2 failed / 29 passed
+     tests/test_corpus_gate.py::test_corpus_gate_is_green
+     tests/test_discovery.py::test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered
+```
+
+**The mechanism, in one line each.** L1-S2 records `DocumentReport.omissions` on the
+15 protected carriers — every one a SINGLE-account document batch 8 validated. RULE S
+(`analysis/serialization.py::_publishes_todays_payload`) was a four-way conjunction, so
+a non-empty omission list flipped those documents to the `document` + `accounts` shape.
+This card had moved the nine production seams onto that publisher. The account-scope
+readers this card taught then refused them — **correctly, and on a pinned validated
+corpus document**. So the composed tree moved 15 protected payloads at the production
+seams, against this card's zero-movement contract and the batch-9 non-regression
+doctrine.
+
+**The fix is one clause**: the serialized shape is decided by ACCOUNT COUNT alone —
+`return len(document.accounts) == 1`. A single-account document publishes today's dict
+byte-identically whatever document-level fact it carries; the `document` + `accounts`
+shape requires more than one account.
+
+Why that is the right direction rather than teaching the readers to unwrap a
+one-account document shape: `accounts` is a list because one dict cannot hold two
+statements, and a reader's refusal means *this holds several accounts and I can answer
+about only one*. A one-account document gives that refusal nothing to refuse. Unwrapping
+instead would have put "read one account and call it the document" back into every
+reader AND still changed the published bytes for the 15.
+
+**What it costs, named rather than hidden.** A single-account document carrying a
+document-level fact publishes today's payload, so that fact is on the OBJECT and not in
+the payload. That is exactly the failure S1's conjunction was written to prevent, and it
+is now an accepted gap with an owner:
+
+* the fact stays on `DocumentReport`, which is where L1-S2's Q10 and protected-carrier
+  pins read it — through `analyze_document`, never through the payload;
+* the document and package surfaces this card built still publish it, and still only
+  when served a MULTI-account payload — dark until S4, exactly as Q10 rules;
+* **S4 owns closing it.** Giving a single-account payload a `document` block is a
+  payload-shape change: `ANALYSIS_STAGE_VERSION` bumped in the same commit, and a
+  ceremony. A stage whose whole contract is zero movement may not make it, and making
+  it here would have moved all 15.
+
+`tests/test_document_report.py::test_every_document_level_field_is_declared_against_rule_s`
+pins the `DocumentReport` field set against that gap with a declaration of where each
+fact lives, so a document-level field added later is a red test rather than a silent
+invisibility.
+
+### Ownership exception
+
+`analysis/serialization.py` is L1-S1's file and outside this card's declared ownership,
+as are S1's two RULE S tests in `tests/test_document_report.py`. Ocean directed this
+branch to take the clause, because it is the composition fix this card's own contract
+requires. Recorded here so the exception is on the record rather than discovered in a
+diff. Nothing else of S1's is touched: `report_to_dict`, `document_report_to_dict`'s
+body, the two wrapper refusals and RULE S's byte-identical return are unchanged.
+
+### Measured at a THROWAWAY merged tree
+
+`train9` **`47d2f87`** (the current tip — a superset of the `fe52365` the brief names,
+by three docs-only commits) merged with this branch's closure-2 tip, resolved per the
+known map, with Ocean's composition edits replicated. The worktree was removed at the
+end; `git worktree list` carries neither it nor its metadata.
+
+| check | result |
+|---|---|
+| conflicts | exactly the two the review predicted — `W3_TRACKA_LOG.md` (append-only concatenation: train9's `§L1S2` + `§Q3PROBE`, then `§L1S3`) and `tests/test_corpus_gate_outcomes.py` (both sides make the IDENTICAL `WATCHED` edit; train9's comment kept). `corpus_gate.py` auto-merged |
+| `python corpus_gate.py` | **GREEN**, exit 0 — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / **102 validated** / 3 withheld; 109 resolved offline (536.2 s). Every pinned verdict unchanged |
+| `pytest -m corpus` | **31 passed**, exit 0 (1,247.9 s) — including `test_corpus_gate_is_green` and `test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered`, the two that failed before the fix |
+| the S2 pin files | `test_l1s2_document_outcome.py` + `test_l1s2_omission_ruling.py` + `test_l1s2_protected_carriers.py` + `test_sibling_omission.py` → **72 passed**, exit 0 |
+| full suite at the merged tree | **7,715 passed / 43 skipped**, exit 0 |
+| **the document seam, base `4953806` vs the merged tree** | **232 / 232 byte-identical, `MOVED_TOTAL=0`**; integrity flag list and ORDER identical 232; ladder unchanged 232; documents publishing exactly one account **232** |
+| **the same probe with the PRE-FIX clause restored** | **226 / 232 byte-identical, `MOVED_TOTAL=6`** — the six are measured rather than inferred, and they are the carriers in this 232-document cohort. The clause is what turns 6 into 0 |
+
+**Two composition edits were replicated, and a THIRD was found.**
+
+* **COMP-3** — `tools/l1_design_reader_probe.py::SEAMS`, `corpus_gate.py` **1597 → 1608**
+  at the merged tree (S2 adds eleven lines above it). Not taken on the branch: it can
+  only be right at the merged tree, and taking it here turns this branch's own census red.
+* **COMP-4** — `tests/test_l1s2_document_outcome.py::test_this_tree_declares_no_document_fold_yet`,
+  whose docstring says S3 landing the fold turns it red on purpose. **Inverted** rather
+  than deleted (a deleted tripwire stops watching; an inverted one goes red if the fold
+  ever disappears), and it passes inverted.
+* **COMP-5, new and owed to Ocean** — two tests in L1-S2's `tests/test_sibling_omission.py`
+  pin the SERIALIZED SHAPE the ruling reverses, and they fail at the merged tree until
+  they are corrected:
+  `test_the_document_carrying_an_omission_publishes_the_same_account_block` reads the
+  account block out of a document shape, and
+  `test_the_omission_is_the_only_document_level_fact_the_stage_fills` asserts a
+  `document` block with `account_count` 1. S2's INTENT is unchanged and both are
+  re-pinned more strongly: the first asserts the WHOLE payload is byte-identical to the
+  account seam's (nothing nested), and the second reads the omission off the OBJECT,
+  which is where the Q10 pins already read it. Replicated in the throwaway only — it is
+  S2's file, so the edit is Ocean's; the replacement text is in this cell's report.
+
+### The closure-2 floor, at the branch tip
+
+| proof | result |
+|---|---|
+| full default suite | **7,615 passed / 43 skipped**, exit 0 |
+| the six L1-S3 / L1-S1 files | **152 passed**, exit 0 |
+| canonical guards (the five) | **255 passed**, exit 0 |
+| canonical conformance (7) | **1,270 passed / 40 skipped**, exit 0 |
+| `tools/l1s3_surface_census.py` | **exit 0**, both ways |
+| `tools.l1_design_reader_probe --census` | **exit 0** (the branch pin; the merged-tree pin is COMP-3, above) |
+| the mutation table | **12 / 12 killed**, exit 0 — M11 is the composition defect itself, killed by the omission-carrying single-account fixture; M12 is the other direction of the clause |
+| RULE S at the pipeline seam, base `4953806` vs branch tip | **232 / 232 byte-identical**, `MOVED_TOTAL=0` |
+| privacy — added lines | **0 hits**, exit 0 — raw 81, every one WORDS-class and discharged by the scanner's `words_class` rule; MONEY / DIGITS / DATES / WORDS all 0; residue 0 / 0; 5,615 added lines |
+| privacy — commit messages | **0 hits across all four classes**, exit 0, 29 commits |

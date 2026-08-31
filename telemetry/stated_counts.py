@@ -104,6 +104,7 @@ from typing import Any, Iterable, Mapping, Sequence
 # Re-exported deliberately: this module's public surface is unchanged, so a
 # caller that imported `SEMANTICS` or `semantics_for` from here still gets
 # them — now resolved to the one table that decides the shipped flag.
+from analysis.payload_shape import payload_accounts, refuse_document_payload
 from analysis.count_semantics import (  # noqa: F401
     DIRECTIONS,
     SECTION_LEVEL_ORACLES,
@@ -432,6 +433,13 @@ def evaluate(
     """
     if not isinstance(payload, Mapping):
         return _unavailable(parser_id, REASON_PAYLOAD_ABSENT)
+    # A bank prints its counts per SECTION, so a count check answers about one
+    # account. Measured (design §1.4), a document payload came back here as
+    # `check_unavailable/statement_absent` — "this document printed no counts"
+    # about a document whose every account printed them. `check_unavailable`
+    # is for evidence that is genuinely unknowable, and a shape this function
+    # was not taught is not that.
+    refuse_document_payload(payload, surface="telemetry/stated_counts.py::evaluate")
     statement = payload.get("statement")
     if not isinstance(statement, Mapping):
         return _unavailable(parser_id, REASON_STATEMENT_ABSENT)
@@ -535,6 +543,31 @@ def evaluate(
         direction_sign_disagreements=disagreements,
         advisory=_advisory(payload, statement, parser_id, captured, rows),
     )
+
+
+def evaluate_accounts(
+    payload: Mapping[str, Any] | None,
+    *,
+    parser_id: str | None = None,
+    formal_statement: bool = True,
+) -> list[Observation]:
+    """One :class:`Observation` per ACCOUNT, in printed order.
+
+    A list rather than a fold, because a count check has no document-level
+    meaning: two sections print two count pairs, and adding them would compare
+    a sum the bank never printed against a total it never stated. A document
+    payload therefore yields several observations and an account payload
+    yields exactly one — the same one :func:`evaluate` returns for it, from the
+    same call.
+    """
+    if payload is None or "accounts" not in payload:
+        return [evaluate(payload, parser_id=parser_id,
+                         formal_statement=formal_statement)]
+    return [
+        evaluate(account, parser_id=parser_id, formal_statement=formal_statement)
+        for account in payload_accounts(
+            payload, surface="telemetry/stated_counts.py::evaluate_accounts")
+    ]
 
 
 def _advisory(
@@ -971,7 +1004,15 @@ def observe_run(
         if payload is None:
             out.append((context, unavailable(parser_id, REASON_PAYLOAD_ABSENT)))
             continue
-        out.append((context, evaluate(payload, parser_id=parser_id)))
+        # ONE observation per ACCOUNT, in printed order. `evaluate_accounts`
+        # returns exactly `[evaluate(payload)]` for every payload this tree
+        # publishes, so this loop is unchanged today — and it is the only entry
+        # point the observer has, so wiring it here is what keeps the
+        # renders-per-account reader reachable rather than written and unused
+        # (L1-S3 review, MINOR-2). Left on `evaluate`, this CLI would RAISE on
+        # the first multi-account document instead of observing its accounts.
+        for observation in evaluate_accounts(payload, parser_id=parser_id):
+            out.append((context, observation))
     return out
 
 

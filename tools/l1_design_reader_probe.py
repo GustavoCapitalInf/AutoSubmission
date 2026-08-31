@@ -227,17 +227,25 @@ READERS = (
 # multi-account document publishes ONE account through the old seam. The list
 # is checked against the tree, so it cannot quietly go stale.
 
+#: Line numbers are at the tree that declares them and are re-read at every
+#: closure: L1-S3 moved all nine to `document_report_to_dict`, which is what
+#: this census is here to make checkable.
 SEAMS: tuple[tuple[str, int, str], ...] = (
-    ("discovery/runner.py", 452, "the discovery run"),
-    ("corpus_gate.py", 1355, "production_verdict — the pinned corpus"),
-    ("benchmark/ourside.py", 99, "the benchmark's production side"),
-    ("batch.py", 181, "the batch CLI"),
-    ("balance_forensic_audit.py", 516, "the balance forensic audit"),
+    ("discovery/runner.py", 503, "the discovery run"),
+    ("corpus_gate.py", 1597, "production_verdict — the pinned corpus"),
+    ("benchmark/ourside.py", 117, "the benchmark's production side"),
+    ("batch.py", 185, "the batch CLI"),
+    ("balance_forensic_audit.py", 515, "the balance forensic audit"),
     ("webapp/artifact_cache.py", 215, "the analysis cache — every web upload"),
-    ("analyze.py", 175, "the CLI"),
-    ("webapp/worker.py", 29, "the web worker"),
-    ("adb_forensic_audit.py", 493, "the ADB forensic audit"),
+    ("analyze.py", 176, "the CLI"),
+    ("webapp/worker.py", 36, "the web worker"),
+    ("adb_forensic_audit.py", 492, "the ADB forensic audit"),
 )
+
+#: The module that DEFINES the publisher is not one of its call sites. Its
+#: three matches are `def document_report_to_dict`, RULE S's verbatim return
+#: and the per-account list comprehension — the implementation, not a seam.
+PUBLISHER_MODULE = "analysis/serialization.py"
 
 _SEAM_RE = re.compile(r"report_to_dict\(")
 
@@ -253,7 +261,7 @@ def census_seams() -> tuple[list[tuple[str, int]], list[tuple[str, int]], list[s
         if len(parts) < 3:
             continue
         path, lineno, text = parts[0], int(parts[1]), parts[2]
-        if path.startswith(("tools/", "tests/")):
+        if path.startswith(("tools/", "tests/")) or path == PUBLISHER_MODULE:
             continue
         if "def report_to_dict" in text or "import" in text:
             continue

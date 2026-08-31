@@ -227,7 +227,7 @@ def test_profile_only_never_parses(tree: Path, monkeypatch):
     import discovery.runner as runner_module
 
     monkeypatch.setattr(
-        runner_module, "analyze_markdown",
+        runner_module, "analyze_document",
         lambda *a, **k: pytest.fail("profile-only must not analyse"),
     )
     row = _runner(tree, MODE_PROFILE_ONLY).process("BankX/statement.pdf", "BankX")

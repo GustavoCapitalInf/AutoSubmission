@@ -13,7 +13,7 @@ Stages (each cached INDEPENDENTLY)
 ----------------------------------
 ``ocr``       raw PDF bytes  -> ``StatementMarkdown`` (pages + model +
               O-3 ``page_integrity``)
-``analysis``  statement markdown -> the ``report_to_dict`` payload
+``analysis``  statement markdown -> the ``document_report_to_dict`` payload
 ``report``    statement markdown -> the rendered HTML artifact
 
 Chaining is by content, not by job: the analysis stage is keyed on the hash of
@@ -212,8 +212,8 @@ Module-level API for CLI consumers (discovery runner / batch.py)
 
     result = cached_analysis(
         doc.to_markdown(),
-        compute=lambda: report_to_dict(
-            analyze_markdown(md, parse_mode="auto", sheets=doc.pages)
+        compute=lambda: document_report_to_dict(
+            analyze_document(md, parse_mode="auto", sheets=doc.pages)
         ),
         cache=cache, parse_mode="auto", sheets=doc.pages,
     )

@@ -405,13 +405,13 @@ def test_a_claimed_document_whose_parser_crashed_is_not_escalated(
     _tesseract(monkeypatch, _claimable())
     _forbid_visual(monkeypatch)
 
-    real = runner_module.analyze_markdown
+    real = runner_module.analyze_document
 
     def crashing(markdown, **kwargs):
         real(markdown, **kwargs)          # dispatches for real -> claimed
         raise AttributeError("simulated parser defect")
 
-    monkeypatch.setattr(runner_module, "analyze_markdown", crashing)
+    monkeypatch.setattr(runner_module, "analyze_document", crashing)
     row = _runner(scan_tree).process("BankZ/scan.pdf", "BankZ")
     assert row.dispatch_outcome == "claimed"
     assert row.error_type == "AttributeError"

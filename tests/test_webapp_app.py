@@ -33,8 +33,8 @@ def _mock_processing(monkeypatch, page_count=2):
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {
         "statement": {"bank": "Test Bank"},
         "metrics": {"average_daily_balance": 123.45},
         "quality": {"level": "transaction_level", "corporate_use": "approved"},
@@ -215,8 +215,8 @@ def test_upload_can_force_visual_ocr(monkeypatch):
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
     client = app.test_client()
     resp = client.post(
@@ -242,8 +242,8 @@ def test_upload_can_request_deterministic_parse_mode(monkeypatch):
         seen["parse_mode"] = parse_mode
         return object()
 
-    monkeypatch.setattr("webapp.worker.analyze_markdown", fake_analyze)
-    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.worker.analyze_document", fake_analyze)
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
     client = app.test_client()
     resp = client.post(

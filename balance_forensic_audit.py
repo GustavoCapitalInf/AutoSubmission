@@ -22,8 +22,9 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from analysis.pipeline import analyze_markdown
-from analysis.serialization import report_to_dict
+from analysis.payload_shape import refuse_document_payload
+from analysis.pipeline import analyze_document
+from analysis.serialization import document_report_to_dict
 from corpus_artifacts import ArtifactError, cached_markdown
 from ocr.local_tesseract import parse_local_tesseract
 # The production native-text ladder itself — see
@@ -502,7 +503,7 @@ def audit_source(
 ) -> tuple[dict[str, Any], Job, dict[str, Any]]:
     markdown, source_type, pdf_bytes = source_markdown(path, ocr_cache=ocr_cache)
     try:
-        report = analyze_markdown(markdown, parse_mode="deterministic")
+        analysed = analyze_document(markdown, parse_mode="deterministic")
     except Exception as exc:
         # The same rule as the ADB oracle's and as
         # `corpus_gate.check_outcome_classes`: exact type, exact message. Three
@@ -511,9 +512,19 @@ def audit_source(
         if type(exc) is not RuntimeError or str(exc) != DECLARED_REFUSAL:
             raise
         return refusal_row(path, root, source_type, pdf_bytes, str(exc))
+    payload = document_report_to_dict(analysed)
+    # This audit compares ONE opening, ONE ending, ONE highest and ONE lowest
+    # against `docs/balance-metrics-audit-results.csv`, which is path-keyed and
+    # has no account column. A document publishing several accounts has nowhere
+    # here to be compared, so it refuses. It used to INDEX `payload["statement"]`
+    # and raise a bare `KeyError` at that same shape — the only one of the ten
+    # payload readers that was loud, and loud by accident of punctuation rather
+    # than by a guard (design §1.4). This is the guard.
+    refuse_document_payload(
+        payload, surface="balance_forensic_audit.py::audit_source")
+    report = analysed.accounts[0]
     statement = report.statement
     oracle = independent_balances(statement, markdown)
-    payload = report_to_dict(report)
     metrics = payload["metrics"]
     expected_opening = oracle.opening
     expected_ending = (

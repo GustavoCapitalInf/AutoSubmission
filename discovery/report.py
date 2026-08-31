@@ -448,7 +448,10 @@ ROW_FIELDS = [
     "parser_id_source",
     "candidates", "attempted", "near_miss", "parser_exceptions",
     "outcome_class", "outcome_reason", "error_type",
-    "statement_bank", "account_last4", "cache_ocr", "cache_analysis",
+    # `account_count` is the ANALYSIS's published count and sits beside
+    # `account_last4` because it is the column that carries the fact when
+    # `account_last4` must be empty (L1-C18).
+    "statement_bank", "account_last4", "account_count", "cache_ocr", "cache_analysis",
     "cache_visual", "visual_rung", "elapsed_ms",
 ]
 

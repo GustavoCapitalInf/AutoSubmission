@@ -24,6 +24,8 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
 
+from analysis.payload_shape import is_document_payload, payload_accounts
+
 from .artifact_cache import ArtifactCache
 from .storage import Storage, content_sha256
 
@@ -60,21 +62,33 @@ class Job:
 
 def _classification_for(analysis: dict | None, source_location: str) -> dict | None:
     """The classification record currently stored for a transaction, located
-    by its ``source_location`` — captured as the prior state of a review."""
+    by its ``source_location`` — captured as the prior state of a review.
+
+    Every account is searched, in printed order. A reviewer acts on a posting,
+    and a posting belongs to one account of the document — so reading only the
+    first would silently find nothing for every posting in the second, and
+    "nothing" here reads as "this transaction was never classified".
+    """
     if not isinstance(analysis, dict):
         return None
-    statement = analysis.get("statement")
-    if not isinstance(statement, dict):
-        return None
-    for transaction in statement.get("transactions") or []:
-        if not isinstance(transaction, dict):
+    if is_document_payload(analysis):
+        accounts = payload_accounts(
+            analysis, surface="webapp/jobs.py::_classification_for")
+    else:
+        accounts = [analysis]
+    for account in accounts:
+        statement = account.get("statement")
+        if not isinstance(statement, dict):
             continue
-        classification = transaction.get("classification")
-        if (
-            isinstance(classification, dict)
-            and classification.get("source_location") == source_location
-        ):
-            return deepcopy(classification)
+        for transaction in statement.get("transactions") or []:
+            if not isinstance(transaction, dict):
+                continue
+            classification = transaction.get("classification")
+            if (
+                isinstance(classification, dict)
+                and classification.get("source_location") == source_location
+            ):
+                return deepcopy(classification)
     return None
 
 

@@ -10,6 +10,7 @@ from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
 )
+from .payload_shape import account_content_digest
 from .revenue import rebuild_serialized_revenue_views
 
 if TYPE_CHECKING:
@@ -200,38 +201,51 @@ def _publishes_todays_payload(document: DocumentReport) -> bool:
     """RULE S — the exact condition under which the payload is today's payload.
 
     > A `DocumentReport` publishes exactly today's payload, with NO added key
-    > of any kind, when all four clauses hold: it carries exactly one account;
-    > it omitted nothing; it read no roll-up; and it recorded no boundary
-    > mechanism.
+    > of any kind, when it carries exactly ONE account. The `document` +
+    > `accounts` shape requires MORE THAN ONE.
 
-    All four, because each one is a way the document could carry a fact the
-    single-account payload has nowhere to put: a second account needs a list; an
-    omission is a published gap and must be visible; a roll-up that was READ is
-    document-level evidence about the partition; and so is a recorded boundary
-    mechanism. A document meeting all four is one about which the document model
-    learned nothing the old payload could not say — so it says it the old way.
+    **This clause was a four-way conjunction until the L1-S3 / L1-S2
+    composition (closure-2), and the composed tree is what corrected it.** S1
+    reasoned that each document-level fact is something the single-account
+    payload has nowhere to put, so a document carrying one should take the
+    document shape even with a single account. L1-S2 then began recording
+    `omissions` on the 15 protected carriers — every one a SINGLE-ACCOUNT
+    document that batch 8 validated — and at the composed tree those 15 flipped
+    to the `document` + `accounts` shape at the production seams. Measured
+    there: `python corpus_gate.py` died with
+    `balance_forensic_audit.py::audit_source answers about one ACCOUNT and was
+    handed a document carrying 1 of them`, and `pytest -m corpus` failed the
+    gate-green and warm-rerun pins. The account-scope readers were behaving
+    exactly as L1-S3 taught them; what was wrong was asking them to refuse a
+    document they could answer.
 
-    The clause set is a CONJUNCTION over document facts, never over a count of
-    accounts alone: "one account" is necessary and, on its own, not sufficient.
-    A document-level field added later needs a clause here, or a document
-    carrying that fact publishes as though nothing had been learned and the
-    fact lives in the object and in no payload. `tests/test_document_report.py
-    ::test_every_document_level_field_is_a_clause_of_rule_s` pins the field set
-    so that omission is a red test rather than a silent one.
+    So the shape is decided by ACCOUNT COUNT alone, and the reason is what the
+    shape is FOR: `accounts` is a list because one dict cannot hold two
+    statements. A document with one account needs no list, and a reader whose
+    refusal means *this holds several accounts and I can answer about only one*
+    has nothing to refuse.
+
+    **What this costs, stated rather than hidden.** A single-account document
+    carrying a document-level fact — an omission, a roll-up, a boundary
+    mechanism — publishes today's payload, and that fact is therefore in the
+    OBJECT and not in the payload. That is the failure S1's conjunction was
+    written to prevent, and it is now an accepted, NAMED gap rather than a
+    silent one:
+
+    * the fact remains on `DocumentReport`, which is where L1-S2's protected-carrier
+      pins read it (through `analyze_document`, not through the payload);
+    * the document/package surfaces L1-S3 built still publish it, and still only
+      when served a multi-account payload — dark until S4, exactly as Q10 says;
+    * **S4 owns closing it**: giving a single-account payload a `document` block
+      is a payload-shape change, which needs `ANALYSIS_STAGE_VERSION` bumped in
+      the same commit and a ceremony. A stage whose whole contract is ZERO
+      MOVEMENT may not make that change, and making it here would move all 15.
+
+    `tests/test_document_report.py::test_every_document_level_field_is_declared_against_rule_s`
+    pins the field set against that gap, so a document-level field added later
+    is a red test rather than a silent invisibility.
     """
-    return (
-        len(document.accounts) == 1
-        and not document.omissions
-        and document.rollup is None
-        and document.boundary_mechanism is None
-    )
-
-
-def _account_content_digest(account_payload: dict) -> str:
-    """A digest of ONE account's published content, for the identity check."""
-    canonical = json.dumps(account_payload, sort_keys=True, default=str,
-                           ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return len(document.accounts) == 1
 
 
 def document_report_to_dict(document: DocumentReport) -> dict:
@@ -268,7 +282,7 @@ def document_report_to_dict(document: DocumentReport) -> dict:
         return report_to_dict(document.accounts[0])
 
     accounts = [report_to_dict(account) for account in document.accounts]
-    digests = [_account_content_digest(account) for account in accounts]
+    digests = [account_content_digest(account) for account in accounts]
     if len(set(digests)) != len(digests):
         raise ValueError(
             "two accounts of one document publish identical content; a "

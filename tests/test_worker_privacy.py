@@ -91,7 +91,7 @@ def _analysis_raises(monkeypatch, exc: BaseException) -> None:
     def boom(markdown, parse_mode="auto", **kwargs):
         raise exc
 
-    monkeypatch.setattr("webapp.worker.analyze_markdown", boom)
+    monkeypatch.setattr("webapp.worker.analyze_document", boom)
 
 
 def _run(store, filename: str = "s.pdf", *, parse_mode: str = "auto"):
@@ -162,10 +162,10 @@ def test_the_analysis_boundary_reduces_every_exception_class(monkeypatch, store,
 def test_a_successful_job_publishes_no_error_at_all(monkeypatch, store):
     """The control half: this cell cannot invent an error on a healthy job."""
     _read_ok(monkeypatch)
-    monkeypatch.setattr("webapp.worker.analyze_markdown",
+    monkeypatch.setattr("webapp.worker.analyze_document",
                         lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.report_to_json",
-                        lambda report: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.worker.document_to_json",
+                        lambda document: {"quality": {"level": "transaction_level"}})
 
     fetched = _run(store)
 

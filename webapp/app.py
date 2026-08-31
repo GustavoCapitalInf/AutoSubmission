@@ -17,6 +17,14 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
+from analysis.payload_shape import (
+    DOCUMENT_KEY as _DOCUMENT_KEY,
+    account_content_digest,
+    is_document_payload,
+    payload_account_count,
+    payload_accounts,
+    payload_document_block,
+)
 from analysis.revenue import (
     apply_serialized_revenue_review,
     normalize_withholding_denominator_mode,
@@ -283,6 +291,38 @@ _EXPORT_SUPPRESSED_KEYS = {("statement", "stated_average_balance")}
 
 
 def _analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
+    """The flat export sheet for one published payload.
+
+    A document carrying several accounts renders EVERY account, each under its
+    own section prefix in printed order, with the document's own facts in a
+    `document` section of their own. Measured before this teaching, the same
+    call returned ZERO rows for a document payload: an underwriter would have
+    downloaded an empty sheet for a statement that reconciled.
+
+    The section prefix is what keeps two accounts apart. The flat sheet is
+    keyed on `(section, field)`, so two accounts writing `("statement",
+    "ending_balance")` would collide and one would silently win.
+    """
+    if is_document_payload(analysis):
+        surface = "webapp/app.py::_analysis_rows"
+        rows: list[tuple[str, str, object]] = []
+        for key, item in payload_document_block(analysis, surface=surface).items():
+            if isinstance(item, (dict, list)):
+                item = json.dumps(item)
+            rows.append(("document", key, "" if item is None else item))
+        for index, account in enumerate(
+            payload_accounts(analysis, surface=surface), start=1
+        ):
+            rows.extend(
+                (f"account_{index}.{section}", field, value)
+                for section, field, value in _account_analysis_rows(account)
+            )
+        return rows
+    return _account_analysis_rows(analysis)
+
+
+def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
+    """One ACCOUNT's rows — today's sheet, unchanged."""
     rows: list[tuple[str, str, object]] = []
     for section in ("statement", "metrics", "quality", "integrity", "reconciliation"):
         value = analysis.get(section)
@@ -462,6 +502,18 @@ def _contributes_to_potential_totals(classification: dict) -> bool:
 #: `formatMoney` already renders it "N/A". A silent zero would read as "the
 #: package moved no money" and a converted figure would be fabricated evidence;
 #: the doctrine forbids both, so refusal is the only honest shape.
+#: The published figures whose denominator is a count of MEMBERS. Two accounts
+#: of one document are one period of banking and two members, so every one of
+#: these is wrong by exactly that factor unless the package refuses it
+#: (design §6.5's fourth bullet; the L1-S3 review measured the halving).
+_PER_PERIOD_AVERAGE_KEYS = frozenset({
+    "average_daily_balance",
+    "avg_monthly_cash_flow",
+    "avg_monthly_credits",
+    "avg_monthly_debits",
+    "monthly_lender_debits",
+})
+
 _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "average_daily_balance",
     "avg_monthly_cash_flow",
@@ -576,8 +628,138 @@ def _package_duplicates(jobs) -> tuple[dict[str, str], list[dict]]:
     return duplicate_of, [groups[key] for key in sorted(groups)]
 
 
+def _ratified_omissions(analysis: object) -> list[dict]:
+    """The RATIFIED sibling omissions this document published, if it is one.
+
+    Q10 (Gustavo, 2026-08-30 — BATCH9_TRANSITION §8.7): *surface the omission,
+    do not demote.* A section admitted as omitted on PRINTED evidence beside an
+    account that validated independently leaves the document `validated`; what
+    it must never do is disappear. So the package — which is where a person
+    reads a member's figures as though they were the member's whole banking —
+    says that a section of one of its documents was established and not
+    published.
+
+    An omission whose reason is NOT a ratified class is not surfaced here: it
+    is a publisher defect, `classify_document` already fails the document for
+    it, and reporting a defect as "partial" would dress it as a policy.
+    """
+    from telemetry.record import RATIFIED_OMISSION_REASONS
+
+    if not is_document_payload(analysis):
+        return []
+    block = analysis.get(_DOCUMENT_KEY)
+    omissions = (block or {}).get("omitted_sections") or []
+    return [
+        omission for omission in omissions
+        if isinstance(omission, dict)
+        and omission.get("reason") in RATIFIED_OMISSION_REASONS
+    ]
+
+
+def _unratified_omissions(analysis: object) -> list[dict]:
+    """The omissions whose reason is not a ratified class — a publisher defect.
+
+    A document carrying one is `failed` at `classify_document`, so none of its
+    accounts may enter a package: a member contributing money out of a document
+    the platform failed would be a total nobody could defend.
+    """
+    from telemetry.record import RATIFIED_OMISSION_REASONS
+
+    if not is_document_payload(analysis):
+        return []
+    block = analysis.get(_DOCUMENT_KEY)
+    omissions = (block or {}).get("omitted_sections") or []
+    return [
+        omission for omission in omissions
+        if not isinstance(omission, dict)
+        or omission.get("reason") not in RATIFIED_OMISSION_REASONS
+    ]
+
+
+def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
+    """`(members, excluded)` — what enters the package math, and what does not.
+
+    A member is ONE ACCOUNT. A job publishing today's payload is one member and
+    is admitted exactly as it always was — this function cannot change what a
+    single-account package computes, because for such a job it yields the same
+    one `(job, job.analysis)` pair the loop used to read straight off the job.
+
+    Two rules apply to a job that publishes several accounts, and both are the
+    package's own arithmetic protecting itself:
+
+    * **membership requires the account's OWN `validated`.** A package sums,
+      counts and days-weights its members. An account the platform did not
+      validate has no authoritative figure to contribute, and admitting it
+      because a SIBLING validated would let one account's proof carry
+      another's numbers. Excluded accounts are RETURNED, never dropped: the
+      package publishes what it left out.
+    * **no average over one content digest twice.** Two accounts of one
+      document publishing identical content are one account published twice,
+      and every cross-account total here — a sum, a count, the days-weighted
+      ADB — would count that money twice. `document_report_to_dict` refuses to
+      publish such a document; this is the same refusal standing where the
+      arithmetic happens, because a payload can reach a package from a store
+      that was written before the publisher learned to refuse it.
+    """
+    from telemetry.record import classify_outcome
+
+    members: list[tuple] = []
+    excluded: list[dict] = []
+    for job in jobs:
+        analysis = job.analysis or {}
+        if not is_document_payload(analysis):
+            members.append((job, analysis, None, 1))
+            continue
+        surface = "webapp/app.py::_package_members"
+        accounts = payload_accounts(analysis, surface=surface)
+        count = payload_account_count(analysis, surface=surface)
+        unratified = _unratified_omissions(analysis)
+        digests = [account_content_digest(account) for account in accounts]
+        if len(set(digests)) != len(digests):
+            raise ValueError(
+                "two accounts of one document publish identical content; a "
+                "duplicate section would be double-counted by every "
+                "cross-account total in this package "
+                "(document_publishes_duplicate_account)"
+            )
+        for index, account in enumerate(accounts, start=1):
+            outcome, reason = classify_outcome(account)
+            if unratified:
+                # The DOCUMENT failed (L1-C17). Its accounts may not carry
+                # money into a package on their own validation.
+                excluded.append({
+                    "job_id": job.id,
+                    "account_index": index,
+                    "account_count": count,
+                    "outcome": "failed",
+                    "reason": "document_omission_unratified",
+                })
+                continue
+            if outcome != "validated":
+                excluded.append({
+                    "job_id": job.id,
+                    "account_index": index,
+                    "account_count": count,
+                    "outcome": outcome,
+                    "reason": reason,
+                })
+                continue
+            members.append((job, account, index, count))
+    return members, excluded
+
+
 def _package_analysis(jobs) -> dict:
     duplicate_of, duplicate_groups = _package_duplicates(jobs)
+    members, excluded_accounts = _package_members(jobs)
+    #: Q10. Every ratified sibling omission any member document published. The
+    #: package says so rather than demoting anything: an omission admitted on
+    #: printed evidence beside an independently validated account is a
+    #: COMPLETENESS fact about the paper, not a fault in the account's figures.
+    omitted_sections = [
+        omission
+        for job in jobs
+        for omission in _ratified_omissions(job.analysis or {})
+    ]
     documents = []
     monthly = []
     adb_weighted_sum = Decimal("0")
@@ -649,8 +831,7 @@ def _package_analysis(jobs) -> dict:
     #: each declared currency has, and how many declared none at all.
     currency_documents: dict[str, int] = {}
     undeclared_currency_documents = 0
-    for job in jobs:
-        analysis = job.analysis or {}
+    for job, analysis, account_index, account_count in members:
         statement = analysis.get("statement") or {}
         metrics = analysis.get("metrics") or {}
         quality = analysis.get("quality") or {}
@@ -658,6 +839,11 @@ def _package_analysis(jobs) -> dict:
         detection = analysis.get("detection") or {}
         corporate_use = quality.get("corporate_use") or ""
         integrity_risk = integrity.get("risk_level") or ""
+        # `totals["documents"]` counts JOBS and the counters below count
+        # MEMBERS, which are the same number until a document publishes two
+        # accounts and different on purpose after that: a package sums, counts
+        # and days-weights ACCOUNTS, and one document contributing two of them
+        # is two contributions.
         ready = job.status == "done" and job.analysis is not None
 
         # CURRENCY DOCTRINE §F. A member with no analysis at all contributes
@@ -1070,7 +1256,12 @@ def _package_analysis(jobs) -> dict:
                 package_revenue_evidence[revenue_state].append(evidence)
 
         doc_row = {
-            "id": job.id,
+            # One row per MEMBER. An account of a multi-account document is
+            # named by the document it came from plus its printed position —
+            # never by the document alone, which would give two members one id
+            # and let the second overwrite the first everywhere a package row
+            # is looked up by id.
+            "id": job.id if account_index is None else f"{job.id}#account_{account_index}",
             "filename": job.filename,
             "status": job.status,
             # D-3: the content identity of this member, and the earlier member
@@ -1146,6 +1337,11 @@ def _package_analysis(jobs) -> dict:
                 or potential_lender_debit_count > 0
             ),
         }
+        if account_index is not None:
+            # Only a multi-account document has these to say, so a package of
+            # today's payloads carries neither key and is byte-identical.
+            doc_row["account_index"] = account_index
+            doc_row["account_count"] = account_count
         documents.append(doc_row)
         if ready:
             monthly.append(doc_row)
@@ -1153,6 +1349,37 @@ def _package_analysis(jobs) -> dict:
                 adb_value = Decimal(str(average_daily_balance_num))
                 adb_weighted_sum += adb_value * adb_calendar_days
                 adb_weight += adb_calendar_days
+
+    # Design §6.5's fourth bullet, and Q5's direction: **no published average is
+    # computed over two accounts of one document.** The L1-S3 review measured
+    # what its absence does — a package holding one job that publishes two
+    # different validated accounts over ONE statement period published every
+    # per-month average HALVED, because `months` counts MEMBERS and each
+    # account is a member. Two accounts of one document are one period of
+    # banking, not two.
+    #
+    # The duplicate-content-digest refusal in `_package_members` does not catch
+    # this and cannot: it fires only when two accounts publish IDENTICAL
+    # content, and two different accounts of one document pass it. This is the
+    # member-set check §6.5 actually asked for, and it is keyed on the document
+    # identity two members share.
+    #
+    # It REFUSES rather than re-divides. Choosing a denominator — periods,
+    # documents, distinct months — is a policy about what a package average
+    # means, and a stage whose whole claim is zero movement may not choose one.
+    # A refused average is published as `None` beside the reason, the way
+    # CURRENCY DOCTRINE §F refuses a cross-currency total, so no consumer has
+    # to read a null as missing data.
+    members_by_document: dict[str, int] = {}
+    for member_job, _member_analysis, member_index, _member_count in members:
+        if member_index is None:
+            continue  # a single-account job is one member and one document
+        identity = getattr(member_job, "content_sha256", None) or member_job.id
+        members_by_document[identity] = members_by_document.get(identity, 0) + 1
+    documents_with_several_members = sorted(
+        identity for identity, count in members_by_document.items() if count > 1
+    )
+    refuse_cross_account_averages = bool(documents_with_several_members)
 
     months = max(1, len(monthly))
     # Days-weighted mean of the per-statement daily-balance averages: summing
@@ -1162,6 +1389,11 @@ def _package_analysis(jobs) -> dict:
         package_average_daily_balance = float(
             (adb_weighted_sum / adb_weight).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         )
+    if refuse_cross_account_averages:
+        # The ADB doctrine forbids a document-level combined ADB outright, so a
+        # days-weighted mean over two accounts of one document is the forbidden
+        # figure arrived at by a different route.
+        package_average_daily_balance = None
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
     totals["maximum_revenue"] = round(
@@ -1294,6 +1526,27 @@ def _package_analysis(jobs) -> dict:
 
     published_totals = {
         **totals,
+        # §6.5 / Q5. Published only when the refusal fires, so a package of
+        # today's payloads carries neither key and is byte-identical.
+        **({
+            "cross_account_averages_refused": True,
+            "cross_account_average_refusal_reason": (
+                "two or more members are accounts of ONE document, so a "
+                "per-period average over them would divide one period of "
+                "banking by a count of accounts (no_average_over_one_document)"
+            ),
+            "documents_with_several_members": len(documents_with_several_members),
+        } if refuse_cross_account_averages else {}),
+        # Q10 (BATCH9_TRANSITION §8.7): surfaced, never demoted, and published
+        # ONLY when there is something to surface. A `False` / `"complete"`
+        # default would put two new fields on every package this platform has
+        # ever produced, which is movement — and this stage moves nothing. Their
+        # ABSENCE is today's package, unchanged; their presence is the fact.
+        **({
+            "sibling_account_omission_detected": True,
+            "completeness": "partial",
+            "omitted_section_count": len(omitted_sections),
+        } if omitted_sections else {}),
         "months": months,
         "avg_monthly_credits": round(totals["total_credits"] / months, 2),
         "avg_monthly_debits": round(totals["total_debits"] / months, 2),
@@ -1326,6 +1579,15 @@ def _package_analysis(jobs) -> dict:
         "cross_currency_totals_refused": refuse_cross_currency,
         "currency_refusal_reason": currency_refusal_reason,
     }
+
+    if refuse_cross_account_averages:
+        # Only the PER-PERIOD figures. The sums and counts are unaffected: two
+        # accounts of one document really did move that money, and adding them
+        # counts each posting once. What cannot be divided by a member count is
+        # a per-period average, and the ADB is refused for the doctrine's own
+        # reason rather than for this one.
+        for key in _PER_PERIOD_AVERAGE_KEYS:
+            published_totals[key] = None
 
     if refuse_cross_currency:
         for key in _CROSS_CURRENCY_TOTAL_KEYS:
@@ -1394,6 +1656,20 @@ def _package_analysis(jobs) -> dict:
             "potential_revenue_evidence": package_revenue_evidence["unverified_deposit"],
             "non_revenue_evidence": package_revenue_evidence["non_revenue"],
         },
+        # An account of a multi-account document that the platform did not
+        # validate is not a package member — a package sums, counts and
+        # days-weights its members, and an unvalidated account has no
+        # authoritative figure to contribute. It is PUBLISHED as excluded
+        # rather than dropped: a member that vanished quietly is the L-1
+        # defect wearing a package's clothes.
+        #
+        # The key exists only when there is something to say, so a package of
+        # today's single-account payloads is byte-identical to what it was.
+        **({"excluded_accounts": excluded_accounts} if excluded_accounts else {}),
+        # Q10: the omissions themselves, so a reader of the package can see
+        # WHICH sections were established and not published rather than only
+        # that some were. Conditional for the same reason as the totals above.
+        **({"omitted_sections": omitted_sections} if omitted_sections else {}),
     }
 
 
