@@ -206,3 +206,10 @@ rule was not honoured (a second cell's `pytest -m corpus`, full suite, `corpus_g
 sweeps overlapped a reviewer's corpus slice, which took 1,973 s) — heavy proofs run ONE at a time
 on this host; check `tasklist | findstr python` before launching one and wait if another cell's
 harness is running.
+
+**Lost-wake lesson (Ocean, 2026-08-31, from L1-S4):** even an armed Monitor's terminal event can
+fail to wake a stopped cell (the L1-S4 base run completed at 00:49; the monitor emitted its final
+events and exited; the cell stayed un-woken for ~7 h). After arming a monitor, verify it is alive;
+a monitor that exited with no transcript activity after it is the lost-wake signature — the
+recovery is ONE resume message pointing at the preserved artifacts, never a rerun of completed
+proofs.
