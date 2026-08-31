@@ -63787,8 +63787,15 @@ from all 23 documents, and the message scan over all 19 commits. The branch
 scan reports 13 RAW matches there, every one of them the program's standing `words_class`
 exclusion — ordinary English words that a statement also happens to print.
 That number is not the six above and does not contradict it: the six were
-real hits that were fixed, and these twelve are matches the rule was written
-to discount. Residue files and residue sites are 0.
+real hits that were fixed, and these thirteen are matches the rule was
+written to discount. Residue files and residue sites are 0.
+
+One caveat on the added-line COUNT specifically, because it is a fixed point
+and not a measurement that can settle: writing the count down adds a line, so
+the next scan reports one more than the entry says. The figure above is the
+scan that covers this entry's prose; the tip after recording it reads 5,319.
+The quantity that is stable, and the one the floor actually claims, is the
+HIT COUNT: it is 0 at every tip that has been measured, and 0 does not drift.
 
 ## Proof floor
 
