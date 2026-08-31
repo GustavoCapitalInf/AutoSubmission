@@ -138,6 +138,10 @@ MUTANTS: list[Mutant] = [
            "        ending_balance=section.closing,",
            _lines("        ending_balance=section.closing,",
                   '        stated_total_credits=row.figures["credit_total"],')),
+    Mutant("C13", "L1-C13 / Q4", "a document naming two denominations is "
+           "published instead of refused", "analysis/member_statement.py",
+           "    if len(set(_CURRENCY_CODES.findall(markdown))) > 1:",
+           "    if False:"),
     Mutant("C17", "R-a / L1-C17", "a section dropped with NO printed evidence "
            "no longer refuses the document", "analysis/member_statement.py",
            "        if not admitted:",

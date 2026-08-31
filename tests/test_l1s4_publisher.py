@@ -375,6 +375,30 @@ def test_the_same_page_with_the_pair_coinciding_is_admitted():
     assert published is not None
 
 
+def test_a_document_naming_two_denominations_is_refused_until_q4_is_ruled():
+    """L1-C13, and the refusal an UNRULED question gets. R-f permits two
+    answers — publish two accounts, or refuse the document — so a reader that
+    chose one would be settling Q4 by implementation. The measured class is 4
+    documents / 12 sections in one census group and none of them is this
+    template's, so the refusal costs this population nothing."""
+    text = document([idle_account(), posting_account()])
+    two = text.replace("SAMPLE SHARE (Suffix #00)", "SAMPLE SHARE USD (Suffix #00)")
+    two = two.replace("SAMPLE CHECKING (Suffix #71)", "SAMPLE CHECKING CAD (Suffix #71)")
+    assert parse_member_statement(two) is None
+
+
+def test_a_document_naming_one_denomination_publishes_the_class_it_earned():
+    """One code named is not a contradiction, and it is also not evidence this
+    reader read: it publishes the schema default, because this registration
+    names no institution and `institution_default` would be a claim it has not
+    earned (CURRENCY_DOCTRINE §B)."""
+    text = document([idle_account(), posting_account()])
+    one = text.replace("SAMPLE CHECKING (Suffix #71)", "SAMPLE CHECKING USD (Suffix #71)")
+    published = parse_member_statement(one)
+    assert published is not None
+    assert published.currency_source == "schema_default"
+
+
 def test_a_document_whose_every_section_is_idle_publishes_nothing():
     """Every account omitted is no account published, which is a publisher
     defect rather than a document about nothing."""

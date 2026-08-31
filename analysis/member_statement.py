@@ -262,6 +262,20 @@ _DATED_LINE_RE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+#: The currency CODES this reader can recognise, and the only thing it does
+#: with them (L1-C13, serving R-f). A document naming MORE THAN ONE is refused
+#: outright: R-f allows two answers — publish two accounts, or refuse the
+#: document — and choosing between them is Q4, which is NOT RULED. The measured
+#: class is 4 documents / 12 sections in one census group, none of them this
+#: template's, so the refusal costs this population nothing and is what an
+#: unruled question gets.
+#:
+#: A document naming ONE, or none, publishes `schema_default`: this template
+#: prints no denomination anywhere, and the registration names no institution
+#: either, so `institution_default` is not earned and asserting it would be the
+#: reader claiming evidence it does not have (CURRENCY_DOCTRINE §B).
+_CURRENCY_CODES = re.compile(r"\b(?:CAD|CDN|USD)\b")
+
 #: A stated counts / totals row printed FOR a section, and a daily-balance
 #: table printed BY one. Neither exists on this template, and both are read
 #: rather than assumed away: they are two of the seven conditions of the Q3
@@ -609,6 +623,12 @@ def parse_member_statement(markdown: str) -> Statement | None:
     if period is None:
         return None
     start, end = date.fromisoformat(period[0]), date.fromisoformat(period[1])
+
+    if len(set(_CURRENCY_CODES.findall(markdown))) > 1:
+        # L1-C13, and Q4 is not ruled. A document naming two denominations may
+        # publish two accounts or refuse the document — R-f permits both — and
+        # a reader that chose would be settling a ruling by implementation.
+        return None
 
     caption, rollup_rows, cross_total = _read_rollup(markdown)
     if caption is None or not rollup_rows:
