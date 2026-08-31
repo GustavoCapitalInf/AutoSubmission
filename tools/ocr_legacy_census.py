@@ -10,8 +10,14 @@ number reproduces from committed evidence. These are those numbers.
 READ-ONLY BY CONSTRUCTION
 -------------------------
 This module opens NOTHING for writing. It has no `open(..., "w")`, no
-`Path.write_*`, no `os.replace`, no `shutil`, no `subprocess`, no network
-client and no `sys.stdout` sink other than `print`. It:
+`Path.write_*`, no `os.replace`, no `shutil`, no network client and no
+`sys.stdout` sink other than `print`. It DOES import `subprocess` and call
+`subprocess.run` (`_git`), and that is stated rather than glossed: the only
+commands it runs are `git log --follow` and `git rev-parse`, both read-only
+interrogations of history, with `check=False` and a timeout, and there is no
+subprocess WRITE path anywhere in the module. (The earlier wording of this
+paragraph claimed "no `subprocess`" outright, which was false and was the one
+sentence the audit cited as the authority for this guarantee.) It:
 
 * reads first-party `*.py` SOURCE TEXT and parses it with `ast` (never
   executing it, never importing it) — the tree census;
@@ -111,6 +117,40 @@ COMPONENTS: tuple[str, ...] = (
     "batch.py",
     # geometry: the unwired OCR-word-box seam
     "analysis/structurer/geometry.py",
+    # provenance and price vocabularies (audit rows 17, 27, 28)
+    "telemetry/prices.py",
+    "telemetry/record.py",
+    # the second artifact-cache reader, and the non-regression replay
+    "telemetry/stated_counts.py",
+    "tools/cohort_replay.py",
+    # the webapp process itself: a production entry point that rasterizes
+    # archive pages and serves them over HTTP
+    "webapp/app.py",
+    # the markdown-only CLI and the three forensic oracles
+    "analyze.py",
+    "adb_debug.py",
+    "adb_forensic_audit.py",
+    "balance_forensic_audit.py",
+    # the measurement spike, guarded out of every production path
+    "experiments/w3_3a/evaluate.py",
+    # the OCR test surface and the Q3 oracle
+    "tests/test_native_rung_parity.py",
+    "tests/test_ocr_client.py",
+    "tests/test_pipeline.py",
+    "tests/test_truncation.py",
+    "tests/test_visual_rung.py",
+    "tests/test_live_smoke.py",
+    "tools/q3_corroboration_probe.py",
+)
+
+#: Audit rows that are NOT a Python module and therefore cannot go through the
+#: instrument. Declared here so the audit can say exactly which labels were
+#: resolved by reading rather than by the walk, instead of implying all were.
+NON_CODE_ROWS: tuple[tuple[str, str], ...] = (
+    ("#16 operator surface", "README.md / requirements-local.txt / serve_local.sh / run.ps1"),
+    ("#22 cold cache", ".claude/recovery/webapp_data_train8_cold/ (a data directory)"),
+    ("#43 OCR fixtures", "tests/corpus_cache/{manifest.json,ocr/*.md,pages/*.json}"),
+    ("#45 PaddleOCR", "absent as code; prior art is a design document, not a module"),
 )
 
 #: What "can reach a production path today" is measured FROM. These are the
@@ -320,6 +360,10 @@ def census_tree() -> int:
         print(f"{rel:38} {loc:5d} {date:>10} {sha:>9} {count:5d} "
               f"{prod:5d} {kinds['tests']:5d} {kinds['tools']:5d} "
               f"{('yes' if name in reachable else 'NO'):>6}")
+    print("")
+    print("NOT INSTRUMENTED (not a Python module; label resolved by reading)")
+    for row, what in NON_CODE_ROWS:
+        print(f"  {row:24} {what}")
     print("")
     print("IMPORTERS, per component (first-party only; '-' = none)")
     for rel in COMPONENTS:
