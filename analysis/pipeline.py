@@ -778,8 +778,12 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     # here while it parses; `resolve` runs every candidate's `parse`, so several
     # attempts may publish and only the one whose statement the dispatch
     # returned is the document's — settled below by IDENTITY rather than by
-    # arrival order. Re-entrant: `analyze_document` opens the same collection
-    # around this call, so there is one collection per document.
+    # arrival order. There is exactly one collection per document because
+    # `collecting()` is RE-ENTRANT BY ITS OWN CONSTRUCTION — a block opened
+    # inside another yields the OUTER collector rather than shadowing it — and
+    # NOT because a caller wraps this one: `analyze_document` opened its own
+    # collection around this call until 6f031d4 removed it, and this comment
+    # outlived that seam by one commit.
     with _collecting_accounts() as _published_accounts:
         dispatch = resolve(prepared)
     if on_dispatch is not None:
