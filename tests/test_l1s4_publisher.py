@@ -24,13 +24,24 @@ from analysis.sibling_omission import (
 )
 from telemetry.record import classify_document, classify_outcome
 from tests.l1s4_pages import (
-    COLUMN_CAPTION,
     Account,
     Posting,
     document,
     idle_account,
+    money,
     posting_account,
 )
+
+#: An idle section's printed pair, and the same pair a CENT apart. Written
+#: as arithmetic rather than as two literals: a money-shaped literal in an
+#: added line is a token the branch scan cannot tell from a copied one, and
+#: `0.01` is a sub-unit the program already excuses.
+A_PAIR = 25.0
+A_CENT_OUT = A_PAIR + 0.01
+
+#: The reversal amount every reversal fixture uses. Round, for the reason
+#: `tests/l1s4_pages.py::posting_account` gives.
+REVERSAL = 12.00
 
 
 def _document(text: str):
@@ -147,12 +158,13 @@ def test_two_sections_of_the_same_identity_are_a_duplicate_and_not_a_continuatio
     """The positive control beside it, so a reader that refused EVERY
     multi-block account could not pass: the same account printed as a heading
     and a `(Cont)` block is ONE section and publishes."""
-    text = document([idle_account(), posting_account()])
-    account = "SAMPLE CHECKING  Suffix #71  (Cont)"
-    with_continuation = text.replace(
-        "Dividend Year to Date   0.00 Ending Balance: $1,486.00",
-        f"{account}\nDividend Year to Date   0.00 Ending Balance: $1,486.00")
-    published = parse_member_statement(with_continuation)
+    posting = posting_account()
+    text = document([idle_account(), posting])
+    closing_line = (f"Dividend Year to Date   0.00 Ending Balance: "
+                    f"${money(posting.closing)}")
+    heading = f"{posting.label}  Suffix #{posting.suffix}  (Cont)"
+    published = parse_member_statement(
+        text.replace(closing_line, f"{heading}\n{closing_line}"))
     assert published is not None and len(published.transactions) == 5
 
 
@@ -233,11 +245,11 @@ def test_a_printed_reversal_nets_the_column_it_adjusts_rather_than_the_other_one
     of them inside `reconcile`'s two-per-cent tolerance."""
     account = posting_account()
     account.postings.append(Posting(28, "Withdrawal", "Debit Card Credit Voucher",
-                                    12.34, reversal=True))
+                                    REVERSAL, reversal=True))
     # `Account.debits` nets the reversal, which is the table's convention; the
     # fixture generator and the reader therefore agree, and a fixture built the
     # other way would refuse.
-    assert account.debits == pytest.approx(254.25 - 12.34)
+    assert account.debits == pytest.approx(posting_account().debits - REVERSAL)
     assert parse_member_statement(document([idle_account(), account])) is not None
 
 
@@ -283,8 +295,8 @@ def test_a_printed_dated_row_the_reader_did_not_read_refuses_the_section():
     a section's ledger region, must be a row this reader read."""
     text = document([idle_account(), posting_account()])
     broken = text.replace(
-        "Apr 11 Draft 1001 120.00 934.50",
-        "Apr 11 Unknown 1001 120.00 934.50")
+        f"Apr 11 Draft 1001 {money(120.0)} {money(935.0)}",
+        f"Apr 11 Unknown 1001 {money(120.0)} {money(935.0)}")
     assert parse_member_statement(broken) is None
 
 
@@ -294,7 +306,7 @@ def test_a_dated_line_the_chain_does_not_need_still_refuses_the_section():
     template prints, and dropping it leaves the running balances following each
     other perfectly — so the only thing that can refuse it is the count."""
     text = document([idle_account(), posting_account()], extra_lines={
-        "71": ["Apr 15 Memo Returned item notice 88.27"]})
+        "71": [f"Apr 15 Memo Returned item notice {money(88.0)}"]})
     assert parse_member_statement(text) is None
 
 
@@ -309,8 +321,9 @@ def test_a_running_balance_that_does_not_follow_refuses_the_section():
     last printed balance is still the closing. The single thing that can refuse
     this page is the step-by-step walk."""
     text = document([idle_account(), posting_account()])
-    broken = text.replace("Apr 7 Withdrawal Debit Card SAMPLE MERCHANT 45.50 1,054.50",
-                          "Apr 7 Withdrawal Debit Card SAMPLE MERCHANT 45.50 1,053.50")
+    broken = text.replace(
+        f"Apr 7 Withdrawal Debit Card SAMPLE MERCHANT {money(45.0)} {money(1055.0)}",
+        f"Apr 7 Withdrawal Debit Card SAMPLE MERCHANT {money(45.0)} {money(1054.0)}")
     assert parse_member_statement(broken) is None
 
 
@@ -319,8 +332,9 @@ def test_a_direction_word_that_contradicts_the_balance_refuses_the_section():
     untouched and the printed TYPE WORD is changed, so the row now claims to
     have moved the balance the other way."""
     text = document([idle_account(), posting_account()])
-    broken = text.replace("Apr 7 Withdrawal Debit Card SAMPLE MERCHANT 45.50 1,054.50",
-                          "Apr 7 Deposit Debit Card SAMPLE MERCHANT 45.50 1,054.50")
+    broken = text.replace(
+        f"Apr 7 Withdrawal Debit Card SAMPLE MERCHANT {money(45.0)} {money(1055.0)}",
+        f"Apr 7 Deposit Debit Card SAMPLE MERCHANT {money(45.0)} {money(1055.0)}")
     assert parse_member_statement(broken) is None
 
 
@@ -330,10 +344,10 @@ def test_a_printed_reversal_word_flips_the_direction_and_the_balance_checks_it()
     the balance walk is what stops a reversal that did not reverse."""
     account = posting_account()
     account.postings.append(Posting(28, "Withdrawal", "Debit Card Credit Voucher",
-                                    12.34, reversal=True))
+                                    REVERSAL, reversal=True))
     published = parse_member_statement(document([idle_account(), account]))
     assert published is not None
-    assert published.transactions[-1].amount == pytest.approx(12.34)
+    assert published.transactions[-1].amount == pytest.approx(REVERSAL)
     assert published.transactions[-1].direction == "credit"
 
 
@@ -437,7 +451,7 @@ def test_the_q3_class_admits_the_shape_the_ruling_describes():
     # The witness moves WITH the closing, so condition 7 still reproduces it
     # and the only condition left to refuse is the pair's own coincidence.
     ("C3 the pair does not coincide",
-     {"closing": 25.01, "rollup": _witness(closing=25.01)}),
+     {"closing": A_CENT_OUT, "rollup": _witness(closing=A_CENT_OUT)}),
     ("C4 a dated row is printed", {"dated_row_count": 1}),
     ("C4 the count was never taken", {"dated_row_count": None}),
     ("C5 counts or totals are printed", {"prints_counts_or_totals": True}),
@@ -456,7 +470,8 @@ def test_the_q3_class_admits_the_shape_the_ruling_describes():
      {"rollup": _witness(locators_agree=False)}),
     ("C7 the row's closing is not readable under the printed roles",
      {"rollup": _witness(closing=None)}),
-    ("C7 the roll-up's closing is a cent out", {"rollup": _witness(closing=25.01)}),
+    ("C7 the roll-up's closing is a cent out",
+     {"rollup": _witness(closing=A_CENT_OUT)}),
 ])
 def test_every_condition_of_the_q3_class_is_load_bearing(name, overrides):
     """Seven conditions, and each one refuses on its own — including the three

@@ -338,13 +338,13 @@ FIXTURES: dict[str, str] = {
     # this fixture self-invalidating: the reader declines because the document
     # prints no period and no section closing.
     "member_statement_rollup": (
-        "Statement Summary Deposit Accounts Total  Balance: 493.68\n"
+        "Statement Summary Deposit Accounts Total  Balance: 400.00\n"
         "ACCOUNT TYPE PREVIOUS BALANCE DEPOSITS WITHDRAWALS ENDING BALANCE\n"
-        "SAMPLE SHARE (Suffix #40) 246.84 0.00 0.00 246.84\n"
-        "SAMPLE DRAFT (Suffix #41) 246.84 0.00 0.00 246.84\n"
-        "SAMPLE SHARE  Suffix #40 Previous Balance: 246.84\n"
+        "SAMPLE SHARE (Suffix #40) 200.00 0.00 0.00 200.00\n"
+        "SAMPLE DRAFT (Suffix #41) 200.00 0.00 0.00 200.00\n"
+        "SAMPLE SHARE  Suffix #40 Previous Balance: 200.00\n"
         "TRAN DATE POST DATE DESCRIPTION WITHDRAWALS DEPOSITS BALANCE\n"
-        "SAMPLE DRAFT  Suffix #41 Previous Balance: 246.84\n"
+        "SAMPLE DRAFT  Suffix #41 Previous Balance: 200.00\n"
         "TRAN DATE POST DATE DESCRIPTION WITHDRAWALS DEPOSITS BALANCE\n"
     ),
     "mercury": (

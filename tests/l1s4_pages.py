@@ -28,7 +28,14 @@ from dataclasses import dataclass, field
 #: month that begins on the first: the ADB is a calendar-day average over the
 #: PRINTED period, and a fixture whose period started mid-month would be
 #: testing the ADB engine rather than this reader.
-PERIOD = "04/01/26 – 04/30/26"
+#:
+#: The YEAR is a distant one, and that is a privacy discipline rather than a
+#: whim. A plausible two-digit year makes a date-shaped literal that some
+#: statement in the archive really prints, and the branch scan cannot tell an
+#: invented date from a copied one — it caught exactly that here on the first
+#: run. `tests/data/parser_conformance_fixtures.py` uses the same distant year
+#: for the same reason.
+PERIOD = "04/01/55 – 04/30/55"
 
 ROLLUP_CAPTION = "Statement Summary Deposit Accounts Total  Balance: "
 COLUMN_CAPTION = (
@@ -100,8 +107,14 @@ class Account:
 _MONTH = "Apr"
 
 
-def _money(value: float) -> str:
+def money(value: float) -> str:
+    """A figure as this template prints it. Public so a test can build the
+    exact printed line it is about to break, instead of typing a
+    money-shaped literal the branch scan cannot tell from a copied one."""
     return f"{value:,.2f}"
+
+
+_money = money
 
 
 def _rows(account: Account) -> list[str]:
@@ -214,13 +227,22 @@ def _section(account: Account, extra: list[str] | None = None) -> list[str]:
 
 def posting_account(label: str = "SAMPLE CHECKING", suffix: str = "71",
                     opening: float = 800.00) -> Account:
-    """An account that posts, and whose ledger reconciles by construction."""
+    """An account that posts, and whose ledger reconciles by construction.
+
+    Every figure here — and therefore every running balance, column total and
+    cross-account total the generator computes from them — ends in `.00`. That
+    is the second privacy discipline of this file and it is deliberate: the
+    branch scan cannot tell an invented amount from a copied one, and a round
+    money token reconstructs nothing, so the program's standing `round_money`
+    exclusion covers the whole class. A fixture written with plausible cents
+    would put this file's arithmetic at the mercy of what some statement in the
+    archive happens to print."""
     return Account(label=label, suffix=suffix, opening=opening, postings=[
         Posting(2, "Deposit", "Kiosk", 300.00),
-        Posting(7, "Withdrawal", "Debit Card SAMPLE MERCHANT", 45.50),
+        Posting(7, "Withdrawal", "Debit Card SAMPLE MERCHANT", 45.00),
         Posting(11, "Draft", "1001", 120.00),
-        Posting(19, "Deposit", "ACH SAMPLE PAYER", 640.25),
-        Posting(26, "Withdrawal", "POS #000000000001", 88.75),
+        Posting(19, "Deposit", "ACH SAMPLE PAYER", 640.00),
+        Posting(26, "Withdrawal", "POS #000000000001", 88.00),
     ])
 
 

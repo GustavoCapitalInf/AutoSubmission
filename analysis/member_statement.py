@@ -684,16 +684,18 @@ def parse_member_statement(markdown: str) -> Statement | None:
         # (`Withdrawal Adjustment`) inside the column it adjusts, so the
         # WITHDRAWALS total is the withdrawal column NETTED, not the sum of
         # everything that reduced the balance. Summing by SIGN instead
-        # disagrees with the table by twice each reversal — 225.24 on one
-        # archive document, 32.09 on another, 0.33 on two more — and every one
-        # of those four sits inside `reconcile`'s two-per-cent coverage
+        # disagrees with the table by twice each reversal — six such rows on
+        # four of the eight archive documents — and every one of those four
+        # disagreements sits inside `reconcile`'s two-per-cent coverage
         # tolerance, so a sign-keyed reader would have passed them by luck.
-        credits = round(sum(row.amount for row, printed in rows_read if printed > 0), 2)
-        debits = round(sum(-row.amount for row, printed in rows_read if printed < 0), 2)
+        credits = round(sum(posting.amount for posting, column in rows_read
+                            if column > 0), 2)
+        debits = round(sum(-posting.amount for posting, column in rows_read
+                           if column < 0), 2)
         if (abs(credits - row.figures["credit_total"]) > _CENT
                 or abs(debits - row.figures["debit_total"]) > _CENT):
             return None
-        rows_read = [row for row, _printed in rows_read]
+        rows_read = [posting for posting, _column in rows_read]
         if rows_read:
             published.append(PublishedAccount(
                 statement=_statement(section, row, period, rows_read),
