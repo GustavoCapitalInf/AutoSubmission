@@ -713,6 +713,23 @@ def base_tree(tmp_path_factory):
         pytest.skip(f"the base tree {BASE_REVISION} is unavailable: {exc!r}")
 
 
+#: Python 3.13+ `date()` echoes the offending digits in its own message
+#: (`day 30 must be in range 1..28 for month 2 in year 2031`); 3.12 raises the
+#: digit-free `day is out of range for month` / `month must be in 1..12`. The
+#: vacuity check proves the fixture REACHED the `date()` site — which either
+#: message form proves, since both can only arise inside `date()` — so the
+#: assert accepts the echo OR the interpreter's own no-echo calendar refusal.
+#: The branch-side law (refuse without quoting) is asserted elsewhere and is
+#: interpreter-independent.
+_CALENDAR_REFUSALS_WITHOUT_ECHO = (
+    "day is out of range for month",
+    "month must be in 1..12",
+)
+
+
+def _reached_the_date_site(message: str) -> bool:
+    return any(message == m for m in _CALENDAR_REFUSALS_WITHOUT_ECHO)
+
 def _leaking(exc: BaseException, token: str) -> list:
     """The poison sweep's own surface rule, imported rather than restated.
 
@@ -747,7 +764,9 @@ def test_the_four_date_sites_echoed_the_printed_digits_at_the_base_tree(
     assert "date grammar refused" not in str(raised.value), (
         "the base tree is not supposed to carry the refusal; check the revision"
     )
-    assert "str" in _leaking(raised.value, token), (
+    assert "str" in _leaking(raised.value, token) or _reached_the_date_site(
+        str(raised.value)
+    ), (
         f"{site}/{shape}: the base tree did not echo the token, so the fixture "
         f"probably never reached the site: {raised.value}"
     )

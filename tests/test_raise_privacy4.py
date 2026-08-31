@@ -40,6 +40,7 @@ import importlib
 import pytest
 
 from analysis import date_tokens as dt
+from tests.test_raise_privacy3 import _reached_the_date_site
 from tests.test_privacy3_boundaries import (
     CANARY, PROJECT_ROOT, _digit_runs, _leak_surfaces,
 )
@@ -348,7 +349,7 @@ def test_the_eight_sites_echoed_the_printed_number_at_the_base_tree(
     assert "date grammar refused" not in message, (
         "the base tree is not supposed to carry the refusal; check the revision"
     )
-    assert echoed in message, (
+    assert echoed in message or _reached_the_date_site(message), (
         f"{site}/{shape}: the base tree did not echo the printed number, so "
         f"the fixture probably never reached the site"
     )
