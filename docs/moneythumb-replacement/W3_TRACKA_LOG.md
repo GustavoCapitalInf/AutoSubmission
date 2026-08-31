@@ -63344,13 +63344,31 @@ to have.
 
 `tools/l1s4_document_replay.py --leaves` then enumerates the block itself, per
 sha, over all 23 documents that gain it — paths and type tokens only, so no
-figure from any document reaches the log. The result is exactly two shapes:
+figure from any document reaches the log. The result is THREE distinct
+leaf-path sets, which fall into two cardinalities — and the difference matters,
+because an earlier draft of this entry said "exactly two shapes" and was
+over-reading its own instrument:
 
-| population | documents | leaves in the added block |
-|---|---:|---:|
-| L1-S2's protected carriers | 15 | **10** each |
-| this card's published documents | 8 | **13** each |
-| **distinct leaf paths across all 23** | | **18** |
+| population | documents | leaves | distinct path SET |
+|---|---:|---:|---|
+| L1-S2's protected carriers | 15 | **10** each | set A |
+| this card's Q3 documents | 6 | **13** each | set B |
+| this card's multi-account documents | 2 | **13** each | set C |
+| **distinct leaf paths across all 23** | | **18** | A ∪ B ∪ C |
+
+Sets B and C are both 13 and are NOT the same 13: they share only **9**
+members. B spends its other four on an omitted section; C spends them on
+internal transfers, and publishes `omitted_sections` empty because it omits
+nothing. Set A is not a subset of either — a carrier publishes `rollup -> null`
+where both of the others publish the roll-up's four printed facts. Two equal
+counts are not one shape, and the instrument never said they were.
+
+The counts above are also of INDEX-COLLAPSED paths: `omitted_sections[*].reason`
+is one path however many omissions a document carries. Read with indices, the
+four carriers that omit TWO sections carry 13 leaves rather than 10, which is
+the same 13 as B and C by coincidence of arithmetic and by nothing else. The
+collapsed reading is the one the instrument prints and the one used here; it is
+named so that a reader who counts differently is not counting a defect.
 
 The three extra leaves on this card's documents are the roll-up's printed
 facts — its caption class, whether the column roles were printed, whether a
@@ -63596,6 +63614,56 @@ One production simplification came out of the first pass: the omission refusal
 was made twice, at the point of decision and again at the end of the loop. A
 condition guarded twice is a condition neither guard can be shown to be doing.
 
+### The two design conditions with no mutant, and why each has none
+
+The design's S4 plan asks for mutation tables over L1-C1…C13. The delivered
+table covers C1, C2, C3, C5, C6, C7, C8, C10 and C13, plus C17, R-d's clauses
+and the package's rules — 32 mutants, all killed. **C9 and C12 are absent, and
+an absence with no reason beside it is indistinguishable from an oversight.**
+They are absent for different reasons.
+
+**L1-C9 — a printed daily-balance table read as an oracle — is VACUOUS on this
+population, and that is measured.** Across all eight documents, **0 of 18
+LOCATED sections print a daily-balance table** — not merely 0 of the 12
+published, which is the weaker statement. There is no C9 condition in the
+reader and no C9 mutant, because a mutant must remove a gate that exists;
+writing one in order to kill it would lengthen the table and prove nothing. The
+module's `_prints_daily_table` is NOT that oracle: it answers one of the seven
+Q3 conditions, where a printed daily table REFUSES an omission, and it is
+written to read a table this population does not print precisely so the class
+is decided by measurement rather than by assuming none exists.
+
+**L1-C12 — a facility enumerated on the table is never published as a deposit
+section — is NOT IMPLEMENTED, and is CARRIED.** The reader has no facility
+vocabulary of any kind, deliberately: nothing this population prints
+distinguishes a facility from a deposit account, and a rule invented from no
+printed evidence is the defect this whole card is built against. Inventing one
+so that the mutation table could kill it would be worse than the gap.
+
+What holds C12 closed today is a CONJUNCTION, not a check:
+
+* L1-C1's `set(identities) == set(row_identities)` means every enumerated row
+  has a section and every section is enumerated; and
+* a section exists at all only where the paper prints this template's own
+  heading WITH an opening balance, and its own closing.
+
+So a facility can reach publication only by also printing a full deposit-shaped
+posting section — at which point nothing printed distinguishes it and no reader
+could. Measured on this population: **18 enumerated rows, 18 located sections,
+identity sets equal on 8 of 8 documents**, so the configuration in which C12
+could be observed does not occur here. The design measures 19 documents
+enumerating a facility, 4 of them multi-posting, all one family; none is this
+template's.
+
+**The tripwire, named so that a later change is not silent.** C12 reopens the
+moment a section can be admitted on WEAKER furniture than the above — a heading
+without the printed opening, a section located by identity alone, a
+continuation admitted without its closing, or a roll-up row published with no
+matching section. Any of those breaks the conjunction, and C12 then needs its
+own printed evidence, its own condition and its own mutant. The same words sit
+beside the L1-C1 check in `analysis/member_statement.py`, because a reader
+changing that line is the person who needs them.
+
 ### The pin a green suite cannot see
 
 The other thing the closure run caught was a pin this card moved two thirds of.
@@ -63634,7 +63702,17 @@ named as a ceremony:
   second account; this is the per-account half. The document half is asserted on
   the block's KEY NAMES rather than on one field, because the package's own
   days-weighted mean already showed that the same arithmetic can arrive under a
-  different name;
+  different name. **Its reach is bounded and the bound is worth stating**: the
+  sweep is four stems — `average_daily_balance`, `adb`, `daily_balance`,
+  `average_balance` — matched as substrings against the block's TOP-LEVEL key
+  names only. Two things therefore pass it: a figure named without any of those
+  stems (`combined_balance_mean`), and one nested below the top level
+  (`rollup.average_daily_balance`). Neither can arrive today, because the
+  block's shape is written by a single function
+  (`analysis/serialization.py::_document_block`) and nothing else may add a key
+  to it — which is what makes the narrow check sufficient rather than lucky. A
+  card that lets another writer near that block inherits the obligation to
+  widen this sweep;
 * **every omitted section's reason in L1-C17's vocabulary, at the gate** — which
   is a different statement from the fold failing such a document: a document the
   corpus publishes carries no unratified omission at all;
@@ -63692,6 +63770,12 @@ Nothing here is keyed to an issuer, a product, a phrase or a document.
   non-validated single-account job from every package this platform produces —
   a large behaviour change on a surface the run of record does not cover, so
   there is no archive measurement that could price it. Named, not widened.
+  **DISCLOSED AND OUT OF SCOPE**: the adversarial review records this as
+  MINOR-7 and confirms the line is UNCHANGED from the base, so it is
+  pre-existing production behaviour rather than anything this cell introduced.
+  It leaves W3 as a ruling question for `BATCH9_BACKLOG.md` — Q1 as ruled
+  carries no shape qualifier, and a paragraph in a card's log is the wrong
+  place for a platform-wide behaviour question to live.
 * **Q4 (two denominations) and Q6 (a per-account activity range) are REFUSED
   until ruled**, which is what the card asks for. A document naming two currency
   codes is refused outright rather than published two ways or one; **the
@@ -63855,6 +63939,18 @@ FINDINGS with a non-zero code by design, and both are noted inline.
 The two attribution rows are the ones that carry the claim. Everything else
 measures a tree; those two measure the DIFFERENCE between two trees over one
 population, and they name eight documents, the same eight, twice.
+
+**One fact about this section's own placement**, recorded because the reviewer
+measured it and a later reader may too: the appended bytes begin `
+
+# §L1S4`,
+so the heading is the THIRD appended line rather than the first that
+BATCH9-RULES asks for. Nothing downstream depends on it —
+`tools/train_merge_one.py` checks a byte PREFIX (`theirs.startswith(base)`),
+which holds, and train9's copy of this log is byte-identical to the base's, so
+the rebuild is byte-exact. It is left as it is rather than restructured, since
+moving it would rewrite the appended region to fix an appearance, and the
+append-only property is the thing actually worth protecting.
 
 ## The commits
 
