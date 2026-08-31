@@ -212,4 +212,7 @@ fail to wake a stopped cell (the L1-S4 base run completed at 00:49; the monitor 
 events and exited; the cell stayed un-woken for ~7 h). After arming a monitor, verify it is alive;
 a monitor that exited with no transcript activity after it is the lost-wake signature — the
 recovery is ONE resume message pointing at the preserved artifacts, never a rerun of completed
-proofs.
+proofs. It happened TWICE in L1-S4 (00:49 and 09:42): a PERSISTENT monitor still ends at its
+own terminal break, and that ending does not wake the cell either — treat every monitor as unable
+to deliver its final event; the last stage of a long run is confirmed by a foreground check or a
+direct log read, never by the monitor that watched it.
