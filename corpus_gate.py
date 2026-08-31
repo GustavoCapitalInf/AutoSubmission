@@ -1561,6 +1561,11 @@ def _assert_document_facts(payload: dict, accounts: tuple[dict, ...]) -> None:
 
     seen: set[tuple[int, int]] = set()
     for transfer in block.get("internal_transfers") or []:
+        if not isinstance(transfer, dict):
+            raise ValueError(
+                "an internal transfer record is not a mapping of two legs and "
+                "a basis (internal_transfer_record_malformed)"
+            )
         legs = (transfer.get("a"), transfer.get("b"))
         for leg in legs:
             if not (isinstance(leg, (list, tuple)) and len(leg) == 2):
