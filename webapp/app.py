@@ -977,7 +977,12 @@ def _package_analysis(jobs) -> dict:
         # own arithmetic. What is excluded is this member's CONTRIBUTION to a
         # cross-account total.
         raw_transactions = statement.get("transactions") or []
-        excluded_positions = _internal_transfer_positions(analysis, account_index)
+        # `analysis` here is this MEMBER's account payload — `_package_members`
+        # hands one account at a time — and the transfer record is a DOCUMENT
+        # fact, so it is read off the job's own payload. Getting this wrong is
+        # silent: the account payload carries no `document` block, the position
+        # set comes back empty, and the exclusion never fires.
+        excluded_positions = _internal_transfer_positions(job.analysis, account_index)
         statement_transactions = [
             transaction
             for position, transaction in enumerate(raw_transactions)

@@ -447,6 +447,18 @@ def _locate_sections(markdown: str) -> list[_Section] | None:
         if closing is None:
             return None
         text = region[: end_match.end()]
+        # L1-C2 / L1-C7's other half: the sections are DISJOINT and cover the
+        # ledger region completely. Everything the paper prints between this
+        # section's own closing and the next account's heading is trailing
+        # furniture — a check recapitulation, a fee block, a year-to-date
+        # summary, a page masthead — and none of it opens with a posting date.
+        # A dated line there is a posting this reader did not read: a section
+        # printed TWICE (a page-break reprint that lost its continuation word),
+        # or a ledger that runs on past the closing it claims to have reached.
+        # Refused, because the alternative is publishing an account whose rows
+        # the document also prints somewhere this reader is not looking.
+        if _DATED_LINE_RE.search(region[end_match.end():]):
+            return None
         grid = _GRID_HEADER_RE.search(text)
         sections.append(_Section(
             label=label, identity=identity, opening=opening, closing=closing,
