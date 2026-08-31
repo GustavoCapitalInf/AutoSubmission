@@ -182,6 +182,10 @@ EXCUSED: dict[str, str] = {
     "analysis/pipeline.py::document_scope_flags": "the document OBJECT's view over its own accounts",
     "analysis/serialization.py::document_report_to_dict": "the PUBLISHER assembling the account list it publishes",
     "analysis/serialization.py::_document_block": "the PUBLISHER assembling the document's own block from the document OBJECT",
+    # The gate's own per-account assertions, which are HANDED the account list
+    # by `document_verdicts` — the taught reader above them — and walk it to
+    # check every account rather than to answer about one.
+    "corpus_gate.py::_assert_document_facts": "the gate walking EVERY account it was handed, to assert a property of each",
     "analysis/serialization.py::_publishes_todays_payload": "RULE S counting the document object's own accounts",
     "analyze.py::main": "the CLI iterating the document object to render EVERY account",
     "batch.py::main": "the batch CLI iterating the document object to emit one row per account",

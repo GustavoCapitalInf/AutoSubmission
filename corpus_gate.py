@@ -1044,29 +1044,24 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "reconstructed page partition on its control arm, and deliberately "
         "substitutes one on its counterfactual arm"
     ),
-    # W3 §L1S4's three instruments, all read-only over the run of record and its
-    # cold cache, all excused on the same first ground as the replays above:
-    # each publishes shas, counts, outcome CLASSES and condition verdicts, and
-    # never an amount, a date, a description or a name.
+    # W3 §L1S4's document-seam replay, read-only over the run of record and its
+    # cold cache, and excused on the same two grounds as the replays above: it
+    # publishes shas, counts, outcome CLASSES, check NAMES and booleans — never
+    # an amount, a date, a description or a name — and it already supplies the
+    # run's own reconstructed page partition, because a replay that fed the
+    # analysis a different partition from the one the run fed it would report a
+    # disagreement it had itself created.
     #
-    # The marker sweep and the document replay reach the analysis through the
-    # DOCUMENT entry point (`analyze_document`), which forwards the page
-    # partition it is handed; the sweep hands it none because it asks a question
-    # about DETECTION rather than about a verdict, and the replay supplies the
-    # run's own reconstructed partition exactly as `cohort_replay` does. The Q3
-    # oracle calls no analysis path at all — it compares the composed probe's
-    # verdicts with the production omission class over the same six sections.
-    "tools/l1s4_marker_sweep.py": (
-        "read-only detection sweep; publishes no verdict, and asks about "
-        "markers rather than about an analysis"
-    ),
+    # This card's other two instruments are deliberately ABSENT from both
+    # lists, because neither calls the analysis at all: the marker sweep asks
+    # about DETECTION and calls a registration's `parse` directly, and the
+    # transfer killer set reconstructs its ledgers with the design's own
+    # prototype and hands them to one production function. A register entry for
+    # a tool that does not call the analysis is exactly the stale declaration
+    # `tests/test_corpus_gate_outcomes.py` refuses.
     "tools/l1s4_document_replay.py": (
         "read-only document-seam replay; publishes no verdict, and already "
         "supplies the run's reconstructed page partition"
-    ),
-    "tools/l1s4_transfer_killers.py": (
-        "read-only transfer killer set; publishes no verdict, and reconstructs "
-        "its ledgers from the design's own prototype rather than from a run"
     ),
 }
 
