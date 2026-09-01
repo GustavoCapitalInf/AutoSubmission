@@ -34,17 +34,27 @@ accounting** (money-shaped / date-shaped / bare digit-run tokens, before vs. aft
 **transaction semantics** (which column is the amount, which row a value belongs to, its sign)
 can change. Fixtures live at `tests/fixtures/ocr_postprocess/<function>/<case>/`.
 
+**Corrected after adversarial review** (`docs/moneythumb-replacement/reviews/
+PHASE2_P20POSTPROC_REVIEW.md`, MAJOR-1, MINOR-2, MINOR-3): rows 1, 4, 6, 7, 8 and 9 below carried
+an absolute "cannot touch a financial/distinct value" claim the reviewer falsified by
+construction. The labels for rows 1 and 4 changed (they no longer qualify for
+`METADATA_ONLY_LABEL` — see `tools/ocr_postprocess_census.py`); rows 6, 7, 8 and 9 keep their
+coarse label with the reason corrected. `tests/test_ocr_postprocess_census.py::
+test_metadata_only_classification_never_deletes_a_financial_token` makes the label enforceable:
+a function may claim it only if EVERY one of its fixtures shows no money/date token
+disappearing.
+
 | # | function | classification | worst input (fixture) | harmless input (fixture) | numeric tokens | semantics can change |
 |---|---|---|---|---|---|---|
-| 1 | `strip_det_tags` | reads/removes metadata-only content | a `<\|det\|>` region tag glued directly onto a money token, no separator (`tag_and_money_adjacent`) | any well-formed tag around plain text | bounding-box coordinate digits (bare integers) disappear; money and date tokens never sit inside the tag grammar, so neither can ever be touched | **no** |
-| 2 | `strip_refusal_commentary` | reads/removes metadata-only content | the refusal template immediately followed by a money token, no separator (`refusal_adjacent_to_money`) | ordinary statement text (no refusal template present) | none — the anchored three-sentence template carries no digits and cannot over-consume | **no** |
-| 3 | `strip_placeholder_markers` | reads/removes metadata-only content | `[Non-Text]` inline beside a money token on the same line (`line_and_inline_with_money`) | a bracketed token that is not the placeholder shape (e.g. `[Continued]`) | none — a line carrying any content besides the placeholder fails the line-drop `fullmatch` guard, so a numeric token is never dropped | **no** |
-| 4 | `strip_oversized_embedded_images` | reads/removes metadata-only content | an over-threshold base64 `<img>` beside a money token and a small (kept) image (`oversized_dropped`) | any image under the length threshold | none in the financial sense — the regex only ever matches `<img src="data:image/...">` markup | **no** |
-| 5 | `collapse_repeated_amounts` (**F-1**) | **writes/deletes financial-value meaning: deletes distinct adjacent amounts** | `[a,a,a,b,c]` on one whitespace-separated run → `[a]` — two DISTINCT amounts ($75.00, $60.00) destroyed even though neither ever repeated (`distinct_adjacent_deleted`) | the same values inside `<td>` cells (`table_cells_untouched`); a run with no value repeating 3+ times | money tokens genuinely **disappear** (not merely deduplicated) — mechanically confirmed by the census test's independent Counter-diff | **yes** — a legitimate, distinct transaction amount can be erased entirely |
-| 6 | `collapse_repeated_page_numbers` | restructures without inventing financial values | an exact triple-repeated `Page 4 of 10` footer (`exact_duplicate_collapsed`) | two distinct page footers (`distinct_pages_untouched`) | digit-run tokens (page/count numbers, never a financial value) DO disappear in count, but every disappearing copy is an EXACT duplicate of a token that survives — no distinct information lost | **no** |
-| 7 | `split_fused_header_row` | restructures without inventing/replacing financial values | every first-row cell fused header+value (`all_cells_fused_split`) | an already-clean header row (`clean_header_untouched`) | none invented/deleted/moved to a different column; a date/digit-run reclassification appears in this census's own token extractor purely from a word-boundary shift (see note below) — not new data | **no** |
-| 8 | `repair_fused_amount_table` | **writes/reassigns financial-value meaning, CONDITIONALLY — SETTLED BY CONSTRUCTION** (see below) | a fused DATE...AMOUNT header (with an unrecognized middle cell, so `split_fused_header_row` does not intercept first) above a genuine 5-cell debit/credit/balance row → the debit AND credit values are folded into free-text description, and the running balance is relabeled as the row's "amount" (`debit_credit_balance_folded`) | a fused header whose last cell honestly reads `BALANCE` (not `AMOUNT`) — the gate never opens, whole table untouched (`balance_labeled_header_untouched`); a genuine single-money-column table with a spilled description column reconstructs safely (`partial_fusion_reconstructed`) | no digit is deleted or invented — token-preserving in the strict digit sense | **yes** — which column is "the amount" changes, and an independent financial column (debit/credit) becomes unparseable free text |
-| 9 | `fix_amount_column_bleed` (**F-11**) | **writes/reassigns financial-value meaning** | a two-money `Amount` cell: the leading value is moved into the description, the trailing value promoted to the row's amount (`bleed_reassigned`) | a money-only `Amount` cell (`clean_cell_untouched`); a table with no `Amount` header at all (`no_amount_header_untouched`) | no digit deleted — both values survive, one relocated | **yes** — the function decides purely from cell SHAPE (a trailing money-shaped value), never from which figure the page actually printed as the amount |
+| 1 | `strip_det_tags` | **removes a markup span whose content is UNCONSTRAINED by the pattern** (no longer metadata-only-unconditional) | a well-formed tag glued to money (`tag_and_money_adjacent`); an orphan tag whose OWN bracket holds a money token, deleted with it (`orphan_bracket_contains_money`); the well-formed-pair pattern spanning from an orphan opening tag to the NEXT region's close, deleting printed money between them (`pair_spans_to_next_close`) | two orphan-shaped tags around a real degenerate footer, with the money and page number outside every bracket (`orphan_and_bare_tags_preserve_adjacent_text`) | bounding-box coordinate digits disappear in the safe shapes; in the two worst-case fixtures a money token is genuinely destroyed | **yes** — a money token written inside an orphan's brackets, or between an orphan open and the next tag's close, is deleted |
+| 2 | `strip_refusal_commentary` | reads/removes metadata-only content | the refusal template immediately followed by a money token, no separator (`refusal_adjacent_to_money`) | ordinary statement text with no refusal template (`leaves_normal_text_alone`) | none — the anchored three-sentence template carries no digits and cannot over-consume | **no** |
+| 3 | `strip_placeholder_markers` | reads/removes metadata-only content re: money/date; MINOR-3: an unconditional non-financial byte rewrite | `[Non-Text]` inline beside a money token on the same line (`line_and_inline_with_money`) | a bracketed token that is not the placeholder shape (`preserves_bracketed_content`); a placeholder-free page, which still gets CRLF/trailing-newline normalized away (`placeholder_free_normalizes_ws`) | none financial — a line carrying any content besides the placeholder fails the line-drop `fullmatch` guard; but every page's line endings are rejoined with a bare `\n` regardless of whether a placeholder was present | **no** (money/date only — the function is NOT byte-identity-preserving in general) |
+| 4 | `strip_oversized_embedded_images` | **removes a markup span whose content is UNCONSTRAINED by the pattern** (no longer metadata-only-unconditional) | an over-threshold base64 `<img>` beside a money token and a small (kept) image (`oversized_dropped`, isolated-call demo); a money token inside the removed image's OWN `alt` attribute, at the PRODUCTION default threshold (`alt_attribute_money_dropped`) | any image under the length threshold | none in the isolated-demo fixture; in the worst-case fixture the `alt` text's money token is genuinely destroyed | **yes** — `_DATA_IMG_RE`'s trailing `[^>]*` covers `alt`, not only `src` |
+| 5 | `collapse_repeated_amounts` (**F-1**) | **writes/deletes financial-value meaning: deletes distinct adjacent amounts** | `[a,a,a,b,c]` on one whitespace-separated run → `[a]` — two DISTINCT amounts ($75.00, $60.00) destroyed even though neither ever repeated (`distinct_adjacent_deleted`) | the same values inside `<td>` cells (`table_cells_untouched`); a value repeating only TWICE beside a distinct amount, below the destruction threshold (`two_repeats_untouched`) | money tokens genuinely **disappear** (not merely deduplicated) — mechanically confirmed by the census test's independent Counter-diff | **yes** — a legitimate, distinct transaction amount can be erased entirely |
+| 6 | `collapse_repeated_page_numbers` | restructures without inventing a FINANCIAL value; MINOR-2: not every disappearance is an exact-duplicate loss | an exact triple-repeated `Page 4 of 10` footer (`exact_duplicate_collapsed`); a shorter footer that is a textual PREFIX of a longer one sharing the same page number, partially and destructively collapsed (`prefix_footer_collapsed`) | two wholly distinct page footers (`distinct_pages_untouched`) | never money/date-shaped; digit-run page furniture can be a genuine, non-duplicate loss (the prefix case) as well as a harmless duplicate loss (the exact-repeat case) | **no** (never a financial value — the function is exempt from `METADATA_ONLY_LABEL`'s money/date invariant only because it was never claimed to carry that label) |
+| 7 | `split_fused_header_row` | restructures without inventing/replacing financial values WITHIN `<td>` cells, but NOT metadata-only at the row level | every first-row cell fused header+value (`all_cells_fused_split`); text sitting in the fused `<tr>` OUTSIDE any `<td>`, discarded with its money token when the row is rebuilt (`stray_text_between_cells_deleted`) | an already-clean header row (`clean_header_untouched`); a label/value summary row with no fused cell (`leaves_label_value_summary_untouched`) | values inside `<td>` cells: none invented/deleted/moved to a different column (plus the date/digit-run word-boundary reclassification artifact, see note below); stray text outside every `<td>`: genuinely deleted | **yes** — money-shaped text sitting outside every `<td>` in the fused row is discarded, not merely relocated |
+| 8 | `repair_fused_amount_table` | **writes/reassigns financial-value meaning, CONDITIONALLY — SETTLED BY CONSTRUCTION** (see below); also drops non-row table content when it fires | a fused DATE...AMOUNT header (with an unrecognized middle cell, so `split_fused_header_row` does not intercept first) above a genuine 5-cell debit/credit/balance row → the debit AND credit values are folded into free-text description, and the running balance is relabeled as the row's "amount" (`debit_credit_balance_folded`); a `<caption>` outside every `<tr>`, discarded with its money token whenever the table is rewritten at all (`caption_dropped_when_fires`) | a fused header whose last cell honestly reads `BALANCE` (not `AMOUNT`) — the gate never opens, whole table untouched (`balance_labeled_header_untouched`); a genuine single-money-column table with a spilled description column reconstructs safely (`partial_fusion_reconstructed`) | no digit inside a `<tr>` row is deleted or invented — token-preserving in that strict sense; a caption's money token IS deleted (not merely relocated) whenever the table is rewritten | **yes** — which column is "the amount" changes; an independent financial column (debit/credit) becomes unparseable free text; a caption's money value is destroyed outright |
+| 9 | `fix_amount_column_bleed` (**F-11**) | **writes/reassigns financial-value meaning**; also drops non-row table content when it fires | a two-money `Amount` cell: the leading value is moved into the description, the trailing value promoted to the row's amount (`bleed_reassigned`); a `<caption>` outside every `<tr>`, discarded with its money token whenever any row in the table bleeds (`caption_dropped_when_fires`) | a money-only `Amount` cell (`clean_cell_untouched`); a table with no `Amount` header at all (`no_amount_header_untouched`) | inside `<tr>` rows: no digit deleted — both values survive, one relocated; a caption's money token IS deleted outright whenever the table is rewritten | **yes** — the function decides purely from cell SHAPE (a trailing money-shaped value), never from which figure the page actually printed as the amount; a caption's money value can be destroyed outright, not merely relocated |
 
 ## The two proven value-rewrite sites (F-1, F-11) — reconfirmed at this tree
 
@@ -112,21 +122,39 @@ and glossing over a measurement artifact would itself be a misleading label.
   exported from `ocr/ocr_client.py` under exactly those names (cell C keys the cache on them).
   `apply_admitted(text)` applies exactly the members named in `ADMITTED_POSTPROCESS`, in the
   order they appear there; with the tuple empty, it is a no-op. Nothing is re-admitted in
-  Phase 2.0 — the mechanism exists so a later phase can re-admit the metadata-only members
-  (rows 1-4 above) on this census's own evidence, after independent review, without reviving
-  rows 5, 7, 8 or 9.
+  Phase 2.0 — the mechanism exists so a later phase can re-admit a member on this census's own
+  evidence, after independent review. After the review's MAJOR-1 correction, only rows 2
+  (`strip_refusal_commentary`) and 3 (`strip_placeholder_markers`) carry the unconditional
+  `METADATA_ONLY_LABEL` — the label `tests/test_ocr_postprocess_census.py::
+  test_metadata_only_classification_never_deletes_a_financial_token` enforces mechanically.
+  Rows 1 and 4 no longer make that claim (their own worst-case fixtures show a money token
+  disappearing); rows 5, 7, 8 and 9 never made it.
 - `embed_image_regions` (F-2: document pixels into the canonical text) is likewise not called
   from `ocr_page`. It stays importable, unwired, for a possible future display-only use.
 - `ocr/render.py`'s `_region_html` / `_render_boxed_page` render raw content directly; neither
   calls `postprocess` or `apply_admitted`. The display path never re-enters the chain.
+- **The quarantine changes WHEN the DPI fallback fires** (`PHASE2_P20POSTPROC_REVIEW.md`
+  MINOR-4). `ocr/pipeline.py`'s mis-segmentation fallback now
+  calls `looks_missegmented` on the RAW completion instead of the postprocessed text —
+  `_ORPHAN_AMOUNT_TABLE_RE` tolerates only `\s*` between `<table>` and its first `<tr>`, so a raw
+  page still carrying a stripped-metadata construct there (a `[Non-Text]` placeholder, a
+  `<|det|>` tag) defeats the match where postprocessed text would have matched. The fallback
+  re-OCR therefore fires **strictly less often** on this constructible shape under the
+  quarantine — never more often. Zero production impact (`visual_rung = not_attempted`
+  3,506/3,506), pinned by `tests/test_ocr_client.py::
+  test_looks_missegmented_fires_strictly_less_often_on_raw_text`. `looks_truncated_td` is
+  unaffected: its two substrings ("statement of account", "account summary") are never removed
+  by any postprocess member.
 
 ## OQ2: the no-statement-hardcodes guard extended into `ocr/`
 
-`tests/test_no_statement_hardcodes.py` gained an `OCR_DIR` scan reusing the SAME pattern
+`tests/test_no_statement_hardcodes.py` gained an `OCR_DIR` scan reusing the SAME six pattern
 classes already enforced over `analysis/` (removed literals, literal years, account-number
 digit runs, exact-cent amounts, calendar literals pinned into patterns, raw mojibake), plus a
-register-driven guard specific to `ocr/`: every issuer-named regex in `ocr/ocr_client.py`,
-`ocr/pipeline.py` and `ocr/render.py` must be named in `ocr.ocr_client.INTAKE_FURNITURE`.
+register-driven guard specific to `ocr/`: every issuer-named string in `ocr/` (widened past
+`re.compile` assignments to every `str` `ast.Constant`, review MAJOR-2) must be named in
+`ocr.ocr_client.INTAKE_FURNITURE`, layer-wide over all 13 files (not scoped to the 3 this card
+owns — the original narrowing bought nothing, see below).
 
 **Blast radius, measured before any test was written:**
 - `REMOVED_LITERALS`, `YEAR_RE`, `ACCOUNT_RE`, `MOJIBAKE_RE`, `CALENDAR_RE`: **0 hits** across
@@ -136,28 +164,64 @@ register-driven guard specific to `ocr/`: every issuer-named regex in `ocr/ocr_c
   values inside `ocr/render.py`'s page-rendering stylesheet constant. Ratcheted as
   `OCR_AMOUNT_BASELINE = {"column_grid.py", "render.py"}` (shrink-only, pinned by
   `test_ocr_amount_baseline_still_describes_real_offenders`).
-- Issuer-named regex: **exactly one**, `ocr_client._TD_MARKERS_RE`, already registered in
-  `INTAKE_FURNITURE`.
+- Issuer-named string, layer-wide: **exactly one** outside the two ratcheted files —
+  `ocr_client._TD_MARKERS_RE`, already registered in `INTAKE_FURNITURE`.
 
-**`ocr/native_text.py` is out of scope for this card.** It is a much larger, pre-existing
-module (not owned by P20-POSTPROCESS) carrying its own per-issuer structural PDF-column
-constants (Woodforest, Navy Federal, Wells Fargo, Desjardins, First Citizens layout markers).
-The issuer-marker guard is deliberately scoped to the three files this card owns — the register
-it enforces (`INTAKE_FURNITURE`) lives in, and only governs, `ocr/ocr_client.py`,
-`ocr/pipeline.py` and `ocr/render.py`. `native_text.py`'s issuer-specific constants are a
-measured fact for whichever future card owns that module's hygiene, recorded here rather than
-silently absorbed into this card's blast-radius numbers.
+**`ocr/native_text.py` and `ocr/column_grid.py` carry a NAMED, COUNTED, shrink-only ratchet —
+not a scope exclusion** (corrected after adversarial review, MAJOR-2: the original "out of
+scope" framing left 10 of 13 files unguarded for no measured benefit, and a per-file skip would
+have let a NEW issuer marker added to either file pass silently — the review's mutant J). Both
+are pre-existing, not owned by this card, and hold genuine per-issuer structural PDF-parsing
+constants — `native_text.py`'s own native-text column/layout readers for five issuers
+(`parse_native_woodforest`, `parse_native_navy_federal`, `parse_native_desjardins`, the First
+Citizens description-column reader, the Wells Fargo summary reader) and `column_grid.py`'s
+Woodforest-specific geometry helpers — structurally analogous to `analysis/`'s per-bank parsers,
+not the postprocess/intake-furniture surface OQ1/OQ2 govern. `OCR_ISSUER_STRING_BASELINE`
+records the exact measured count for each (summed over every marker occurrence inside every
+`str` `ast.Constant` in the module — module/function docstrings included, bare identifiers like
+the function name `parse_native_woodforest` excluded, since a name is not a string value):
+
+| file | issuers | occurrences | ratchet |
+|---|---|---|---|
+| `ocr/native_text.py` | 5 (woodforest, navy federal, first citizens, desjardins, wells fargo) | 25 | `OCR_ISSUER_STRING_BASELINE["native_text.py"] = 25` |
+| `ocr/column_grid.py` | 1 (woodforest) | 3 | `OCR_ISSUER_STRING_BASELINE["column_grid.py"] = 3` |
+
+`test_ocr_issuer_string_baseline_is_not_exceeded` fails if either count grows OR shrinks without
+the baseline being retightened — the same shrink-only property as `CALENDAR_BASELINE` and
+`OCR_AMOUNT_BASELINE`, but count-based rather than file-skip-based so growth inside a ratcheted
+file is still caught.
 
 ### `INTAKE_FURNITURE` — the declared register
 
-Four entries, three tied to TD (the QR-derailment recovery: `_TD_MARKERS_RE` detection,
-`_TD_RECOVERY_VARIANTS` render-variant list, `_mask_qr` pixel masking) and one structural
-(`looks_missegmented`, tied to no issuer). Each names its issuer (or `None`), behavior,
-structural justification, scope, and the test that pins it
+**Seven entries** (corrected after review, MAJOR-4: the original four omitted the two TD
+functions that actually SELECT among candidate reads by document content —
+`is_td_statement` / `looks_truncated_td` are the text-side detection pair, and
+`recover_truncated_td_page` is what `_TD_RECOVERY_VARIANTS` feeds). Six tied to TD (the
+QR-derailment recovery: `_TD_MARKERS_RE` and `is_td_statement` detection, `looks_truncated_td`
+the truncation signature, `_TD_RECOVERY_VARIANTS` the render-variant list,
+`recover_truncated_td_page` the candidate-read selector, `_mask_qr` pixel masking) and one
+structural (`looks_missegmented`, tied to no issuer). Each names its issuer (or `None`),
+behavior, structural justification, scope, and the test that pins it
 (`tests/test_ocr_intake_furniture.py`): the masked rectangle is a fixed 60-100% width x 0-12%
 height fraction regardless of page content; `_mask_qr` takes only an image (no text channel
 through which a printed figure could reach a masking decision, proven by signature inspection);
 the render variants are `(dpi: int, mask: bool)` pairs. None reads or writes a money token.
+
+**`_TD_RECOVERY_VARIANTS` and `looks_missegmented`'s `scope` strings now say plainly** (review
+MAJOR-4) that they also select which of several candidate OCR reads survives — keyed on a
+printed structural section caption (`recover_truncated_td_page`'s "ACCOUNT SUMMARY" test) or a
+table-shape signature (`looks_missegmented`'s orphan-amount-table test), never on a printed
+figure. Proven directly: `test_recover_truncated_td_page_selects_by_caption_not_by_figure`
+constructs candidate reads where the WRONG (still-truncated) variants print an implausibly
+large balance and the recovered variant prints a much smaller one — selection follows the
+caption regardless.
+
+**A registered name is not a blanket licence for every issuer (review MAJOR-3).** For every
+register entry whose subject is a compiled regex with a non-`None` issuer,
+`test_registered_regex_pattern_matches_its_declared_issuer_and_no_other` asserts the pattern
+text contains that issuer's own marker AND no marker belonging to a different institution —
+proven against the real `_TD_MARKERS_RE` object and against a constructed widening
+(`test_registered_regex_check_actually_catches_a_second_issuer`).
 
 ## Truncation stays flag-only
 
