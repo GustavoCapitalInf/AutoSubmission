@@ -444,6 +444,34 @@ INTAKE_FURNITURE = {
                  "never reads or writes a money token",
         "pinned_by": "tests/test_ocr_intake_furniture.py",
     },
+    "is_td_statement": {
+        "issuer": "TD",
+        "behavior": "the printed-banner test itself: True iff `_TD_MARKERS_RE` "
+                     "matches the page text",
+        "justification": (
+            "a thin, named wrapper around the same detection `_TD_MARKERS_RE` "
+            "performs; declared separately (review MAJOR-4) because it is the "
+            "function other intake code actually calls"
+        ),
+        "scope": "detection only; never reads or writes a money token",
+        "pinned_by": "tests/test_ocr_intake_furniture.py, tests/test_ocr_client.py",
+    },
+    "looks_truncated_td": {
+        "issuer": "TD",
+        "behavior": "True iff the page is a TD page-1 whose 'STATEMENT OF "
+                     "ACCOUNT' banner printed but whose 'ACCOUNT SUMMARY' "
+                     "caption did not — the QR-derailment signature",
+        "justification": (
+            "detects a printed STRUCTURAL SECTION CAPTION's absence, never a "
+            "figure; the two substrings it tests for are never removed by "
+            "any postprocess member, so this reads exactly the same "
+            "on raw text as it would on cleaned text"
+        ),
+        "scope": "detection only (feeds recover_truncated_td_page's "
+                 "candidate-read selection, below); never reads or writes a "
+                 "money token",
+        "pinned_by": "tests/test_ocr_intake_furniture.py, tests/test_ocr_client.py",
+    },
     "_TD_RECOVERY_VARIANTS": {
         "issuer": "TD",
         "behavior": "a fixed, declared list of (dpi, mask_qr) render variants "
@@ -453,8 +481,30 @@ INTAKE_FURNITURE = {
             "statement; trying a fixed, declared list is page-selection, not "
             "value invention — no variant is chosen from the page's content"
         ),
-        "scope": "render variant (dpi, mask flag) selection only",
+        "scope": "render variant (dpi, mask flag) selection only, AND (review "
+                 "MAJOR-4) selects which of up to five candidate re-OCR reads "
+                 "is kept via `recover_truncated_td_page` (below), keyed on a "
+                 "printed structural section caption ('ACCOUNT SUMMARY'), "
+                 "never on a printed figure",
         "pinned_by": "tests/test_ocr_intake_furniture.py",
+    },
+    "recover_truncated_td_page": {
+        "issuer": "TD",
+        "behavior": "re-OCRs a truncated TD page-1 across `_TD_RECOVERY_"
+                     "VARIANTS` in order and keeps the first read whose "
+                     "'ACCOUNT SUMMARY' caption is present and no longer "
+                     "flagged truncated",
+        "justification": (
+            "chooses among candidate reads on a printed structural section "
+            "caption alone; no arithmetic, no value comparison, no candidate "
+            "selected because it 'balances' anything — the same fail-closed "
+            "shape as `_mask_qr` and `_TD_MARKERS_RE`, applied across reads "
+            "instead of within one"
+        ),
+        "scope": "selects which of up to five candidate re-OCR reads is kept, "
+                 "keyed on a printed structural section caption, never on a "
+                 "printed figure",
+        "pinned_by": "tests/test_ocr_intake_furniture.py, tests/test_ocr_client.py",
     },
     "_mask_qr": {
         "issuer": "TD",
@@ -481,7 +531,10 @@ INTAKE_FURNITURE = {
             "issuer-specific rule — no issuer name or printed figure "
             "participates in the signature"
         ),
-        "scope": "render DPI selection only",
+        "scope": "render DPI selection only, AND (review MAJOR-4) selects "
+                 "which of two candidate re-OCR reads (`ocr/pipeline.py`'s "
+                 "fallback-DPI branch) is kept, keyed on a table-shape "
+                 "signature, never on a printed figure",
         "pinned_by": "tests/test_ocr_client.py",
     },
 }

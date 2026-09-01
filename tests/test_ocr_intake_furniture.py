@@ -21,11 +21,20 @@ from ocr.ocr_client import (
     _TD_RECOVERY_VARIANTS,
     _mask_qr,
     is_td_statement,
+    looks_truncated_td,
+    recover_truncated_td_page,
 )
+from tests.test_no_statement_hardcodes import ISSUER_NAME_LEXICON
 
 
 def test_intake_furniture_covers_every_declared_behavior():
-    expected = {"_TD_MARKERS_RE", "_TD_RECOVERY_VARIANTS", "_mask_qr", "looks_missegmented"}
+    # Review MAJOR-4: the register omitted the two behaviors that select
+    # among candidate reads by document content; now seven entries.
+    expected = {
+        "_TD_MARKERS_RE", "is_td_statement", "looks_truncated_td",
+        "_TD_RECOVERY_VARIANTS", "recover_truncated_td_page",
+        "_mask_qr", "looks_missegmented",
+    }
     assert set(INTAKE_FURNITURE) == expected
 
 
@@ -44,9 +53,73 @@ def test_only_td_entries_name_an_issuer():
     # looks_missegmented is structural (a mis-segmentation SHAPE), not tied to
     # any named issuer -- its entry must say so explicitly.
     assert INTAKE_FURNITURE["_TD_MARKERS_RE"]["issuer"] == "TD"
+    assert INTAKE_FURNITURE["is_td_statement"]["issuer"] == "TD"
+    assert INTAKE_FURNITURE["looks_truncated_td"]["issuer"] == "TD"
     assert INTAKE_FURNITURE["_TD_RECOVERY_VARIANTS"]["issuer"] == "TD"
+    assert INTAKE_FURNITURE["recover_truncated_td_page"]["issuer"] == "TD"
     assert INTAKE_FURNITURE["_mask_qr"]["issuer"] == "TD"
     assert INTAKE_FURNITURE["looks_missegmented"]["issuer"] is None
+
+
+def test_two_entries_declare_they_select_among_candidate_reads():
+    """Review MAJOR-4: `_TD_RECOVERY_VARIANTS` and `looks_missegmented` do not
+    only pick a render parameter -- they select which of several candidate
+    OCR reads survives. The register must say so, accurately: keyed on a
+    printed structural caption / a table-shape signature, never a figure."""
+    for name in ("_TD_RECOVERY_VARIANTS", "looks_missegmented"):
+        scope = INTAKE_FURNITURE[name]["scope"]
+        assert "candidate" in scope.lower(), f"{name}: scope does not declare candidate-read selection"
+        assert "never on a printed figure" in scope, f"{name}: scope does not disclaim figure-dependence"
+
+
+def test_registered_regex_pattern_matches_its_declared_issuer_and_no_other():
+    """Review MAJOR-3: a registered NAME is not a blanket licence for every
+    other issuer. For every register entry whose subject is a compiled regex
+    with a non-None issuer, the pattern text must contain THAT issuer's own
+    marker and no marker belonging to a different institution.
+
+    Mutant K, applied directly (not only via the mutation campaign against
+    the real file): widening `_TD_MARKERS_RE` to a second issuer must fail
+    this exact check."""
+    regex_subjects = {"_TD_MARKERS_RE": _TD_MARKERS_RE}
+    td_markers = {"td bank", "td business", "most convenient bank", "td canada trust"}
+    for name, compiled in regex_subjects.items():
+        entry = INTAKE_FURNITURE[name]
+        if entry["issuer"] is None:
+            continue
+        pattern_low = compiled.pattern.lower()
+        own_markers_present = [m for m in td_markers if m in pattern_low]
+        assert own_markers_present, f"{name}: pattern carries none of its declared issuer's own markers"
+        other_markers_present = [
+            m for m in ISSUER_NAME_LEXICON
+            if m not in td_markers and m in pattern_low
+        ]
+        assert not other_markers_present, (
+            f"{name}: registered issuer is {entry['issuer']!r} but the pattern "
+            f"also matches other institutions: {other_markers_present}"
+        )
+
+
+def test_registered_regex_check_actually_catches_a_second_issuer(monkeypatch):
+    """Mutant K, applied to the real compiled pattern object (not a copy):
+    widen `_TD_MARKERS_RE` with a second issuer and confirm the check above
+    would fail."""
+    import re
+    import ocr.ocr_client as ocr_client_module
+
+    widened = re.compile(
+        r"most convenient bank|td business|\btd bank\b|wells fargo",
+        re.IGNORECASE,
+    )
+    monkeypatch.setattr(ocr_client_module, "_TD_MARKERS_RE", widened)
+    td_markers = {"td bank", "td business", "most convenient bank", "td canada trust"}
+    pattern_low = ocr_client_module._TD_MARKERS_RE.pattern.lower()
+    other_markers_present = [
+        m for m in ISSUER_NAME_LEXICON if m not in td_markers and m in pattern_low
+    ]
+    assert other_markers_present == ["wells fargo"], (
+        "the widened pattern must be caught as carrying a second issuer's marker"
+    )
 
 
 def test_td_recovery_variants_are_dpi_mask_pairs():
@@ -117,3 +190,60 @@ def test_td_markers_detect_only_named_printed_furniture():
     # stated for the text-side half of the TD furniture).
     sig = inspect.signature(is_td_statement)
     assert list(sig.parameters) == ["text"]
+
+
+def test_looks_truncated_td_keyed_on_a_structural_caption_only():
+    """`looks_truncated_td` (now registered, review MAJOR-4) is the
+    text-side half of the QR-derailment detector: present banner, absent
+    caption. No numeric comparison of any kind participates."""
+    truncated = "TD Bank STATEMENT OF ACCOUNT\nCust Ref #: 826-713"
+    full = "TD Bank STATEMENT OF ACCOUNT\nACCOUNT SUMMARY\nBeginning Balance $999,999.00"
+    assert looks_truncated_td(truncated)
+    assert not looks_truncated_td(full)
+    sig = inspect.signature(looks_truncated_td)
+    assert list(sig.parameters) == ["text"]
+
+
+def test_recover_truncated_td_page_selects_by_caption_not_by_figure(monkeypatch):
+    """Review MAJOR-4's own characterization, proven: `recover_truncated_td_page`
+    selects which of several candidate re-OCR reads survives on a printed
+    structural section caption alone -- never on which read prints a
+    'larger', 'smaller', or otherwise more plausible figure. Here the FIRST
+    four candidate variants print an implausibly large balance and are still
+    truncated (no ACCOUNT SUMMARY); the LAST variant tried recovers the
+    caption with a much smaller balance, and it is the one kept."""
+    import ocr.ocr_client as ocr_client_module
+
+    def fake_rasterize_page(pdf_bytes, page_index, dpi):
+        return f"img@{dpi}"
+
+    def fake_ocr_page(image, *, settings, client, on_delta=None):
+        if image == "img@150":  # the last variant in _TD_RECOVERY_VARIANTS
+            return ("TD Bank STATEMENT OF ACCOUNT\nACCOUNT SUMMARY\n"
+                     "Beginning Balance $1.00")
+        return "TD Bank STATEMENT OF ACCOUNT\nBeginning Balance $999,999.00"
+
+    monkeypatch.setattr("ocr.rasterize.rasterize_page", fake_rasterize_page)
+    monkeypatch.setattr(ocr_client_module, "ocr_page", fake_ocr_page)
+    monkeypatch.setattr(ocr_client_module, "_mask_qr", lambda img: img)
+
+    out = ocr_client_module.recover_truncated_td_page(
+        b"%PDF-fake", 0, settings=object(), client=object()
+    )
+    assert out is not None
+    assert "$1.00" in out
+    assert "999,999" not in out
+
+
+def test_recover_truncated_td_page_returns_none_when_nothing_recovers(monkeypatch):
+    import ocr.ocr_client as ocr_client_module
+
+    monkeypatch.setattr("ocr.rasterize.rasterize_page", lambda pdf, i, dpi: "img")
+    monkeypatch.setattr(ocr_client_module, "ocr_page",
+                        lambda image, *, settings, client, on_delta=None:
+                        "TD Bank STATEMENT OF ACCOUNT\nCust Ref #: 826-713")
+    monkeypatch.setattr(ocr_client_module, "_mask_qr", lambda img: img)
+    out = ocr_client_module.recover_truncated_td_page(
+        b"%PDF-fake", 0, settings=object(), client=object()
+    )
+    assert out is None
