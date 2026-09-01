@@ -1,0 +1,386 @@
+"""telemetry/run_of_record.py — ONE artifact-selection policy for a discovery
+run, shared by ``tools/cohort_replay.py`` and
+``telemetry/stated_counts.py::_ArtifactJoin`` (P20-ARTIFACTS, Phase 2.0;
+OQ8 = adopt the existing selection machinery, OQ10 = follow the run of record).
+
+Why this exists (F-9 / MAJOR-3 / MINOR-4, ``OCR_LEGACY_AUDIT.md``)
+--------------------------------------------------------------------
+Two readers walk the same D-3 artifact-cache index and both used to guess:
+``cohort_replay.ColdCache._payload`` took ``rows[0]`` with no ``ORDER BY`` and
+no settings-key filter on EITHER stage, and ``stated_counts._ArtifactJoin``
+(there called ``CachedArtifacts`` in the audit and its review) walked a
+declared, ordered ``_ocr_keys`` preference list that put the visual partition
+LAST — an unratified extractor ranking. Both were correct only because every
+input in the archive has ever held exactly one artifact per stage. Gustavo
+ruled OQ10: **historical truth follows the artifact the official run actually
+consumed**, never ``rows[0]``, never a preference order, never DB incidental
+order. This module is that one policy.
+
+The three primitives
+---------------------
+:func:`partitions_for_run`
+    ``run_dir -> RunPartitions``: what a run of record actually consumed,
+    either RECORDED (a run written after this cell composes — see item 3 of
+    the card, ``tools/train/provenance.py``) or deterministically
+    RECONSTRUCTED from what an older run recorded about itself
+    (``OCR_STAGE_VERSION``, ``ANALYSIS_STAGE_VERSION``,
+    ``analysis_settings_key_deterministic``, its env, and its ``mode`` from
+    ``summary.json``). A reconstruction is VERIFIED against the cache it was
+    built to describe (:func:`verify_reconstruction`) — a key it names must
+    actually be in the index, or the reconstruction is a wrong guess, never
+    served. See :class:`RunOfRecordError`.
+:func:`ocr_partition_for_row` / :func:`analysis_partition`
+    ``(row, partitions) -> settings_key | None``: which of a run's partitions
+    ONE document's row actually named. Never a preference walk — the row
+    itself says (``source_path`` / ``visual_rung`` for OCR; the run's one
+    recorded analysis key for analysis).
+:func:`select_artifact`
+    ``(conn, stage, input_sha256, settings_key) -> artifact_path | None``: the
+    exact, single row the composed key names. The table's primary key is
+    ``(stage, cache_key)`` and ``cache_key`` is a pure function of
+    ``(stage, input, settings)``, so an honest index can never hold two rows
+    for one ``(stage, input_sha256, settings_key)`` triple — seeing two is a
+    corrupt index, a finding rather than a choice, and this raises rather
+    than picking one.
+
+A row naming a partition the cache does not hold (an OCR-stage miss because
+no artifact was ever written under a key nothing else in the run used, or a
+row from a fingerprint the cache never saw) resolves to ``None`` — never to
+another partition. That is the whole point: NEVER a fallback, NEVER a guess.
+
+Kept out of this module by design (see ``docs/agent-handoffs/P20-ARTIFACTS.md``)
+-----------------------------------------------------------------------------
+No page-level partitions, no ``page_extractor`` (Phase 2.1). No writes: every
+function here is a pure read over an already-written index. No import of
+``webapp``, ``ocr``, ``analysis`` or ``discovery`` at MODULE level — every one
+of those is imported LAZILY, inside a function, the same discipline
+``telemetry/stated_counts.py::_ArtifactJoin`` already keeps, so that a plain
+``import telemetry.run_of_record`` (and therefore
+``import telemetry.stated_counts``) never drags in the webapp/ocr/analysis
+stack and never risks a circular import through ``discovery.runner`` (which
+itself imports ``telemetry`` at module level).
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping
+
+__all__ = [
+    "ORIGIN_RECORDED",
+    "ORIGIN_RECONSTRUCTED",
+    "RunOfRecordError",
+    "RunPartitions",
+    "partitions_for_run",
+    "verify_reconstruction",
+    "ocr_partition_for_row",
+    "analysis_partition",
+    "select_artifact",
+]
+
+#: A run whose ``provenance.json`` carries its own ``run_of_record.partitions``
+#: block (written by ``tools/train/provenance.py`` from THIS cell forward).
+ORIGIN_RECORDED = "recorded"
+#: A run predating that record (batch 8, batch 9): partitions are
+#: deterministically derived from what it DID record and then verified
+#: against its own cache index.
+ORIGIN_RECONSTRUCTED = "reconstructed"
+
+#: Row-level vocabulary values that mean "the visual rung produced this
+#: document's text" (``discovery/runner.py``: ``VISUAL_RECOVERED`` /
+#: ``VISUAL_UPGRADED``). Duplicated here as literals rather than imported —
+#: unlike the ladder-mode constants below, these two are `telemetry`'s own
+#: read of a CSV column already published as a stable row vocabulary
+#: (``discovery/report.py``), not a computation this module must never
+#: re-derive; importing ``discovery.runner`` at all is done lazily and only
+#: where its actual policy constant (``LOCAL_OCR_MODES``) is load-bearing.
+_VISUAL_ROW_OUTCOMES = frozenset({"recovered", "upgraded"})
+
+
+class RunOfRecordError(RuntimeError):
+    """Fail-closed. Raised when:
+
+    * a run's ``provenance.json`` / ``summary.json`` is missing a field a
+      reconstruction needs;
+    * a run's ``provenance.json`` carries a ``run_of_record`` block that is
+      present but malformed (never silently falls back to reconstruction —
+      a half-written record is a defect to surface, not paper over);
+    * a RECONSTRUCTED key does not appear in the cache it was built to
+      describe (:func:`verify_reconstruction`);
+    * :func:`select_artifact` finds more than one row for one
+      ``(stage, input_sha256, settings_key)`` triple (a corrupt index).
+
+    CLI callers (``tools.cohort_replay``) turn this into exit 5. Never a
+    guess, never a silent fallback.
+    """
+
+
+@dataclass(frozen=True)
+class RunPartitions:
+    """What a run of record actually consumed.
+
+    ``ocr_keys_by_source`` maps a row's OCR provenance label to the settings
+    key that produced it: ``"native"`` and ``"local_tesseract"`` share ONE
+    value (the offline ladder's settings key does not distinguish which rung
+    inside it actually claimed — ``allow_local_ocr`` is a per-RUN constant,
+    not a per-document one), and ``"visual"`` is a second, independent value.
+    A source absent from this mapping (there is never a ``"none"`` entry —
+    ``source_path=none`` means the run produced no OCR text for that document
+    at all) resolves to ``None`` via :func:`ocr_partition_for_row`.
+    """
+
+    ocr_keys_by_source: Mapping[str, str]
+    analysis_key: str
+    ocr_stage_version: int
+    analysis_stage_version: int
+    mode: str
+    origin: str
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise RunOfRecordError(f"cannot read {path}: {type(exc).__name__}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RunOfRecordError(f"{path} does not hold a JSON object")
+    return data
+
+
+def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartitions | None:
+    """``None`` when the run predates recording; raises when the record is
+    PRESENT but malformed (a half-written block is a defect, never a silent
+    invitation to reconstruct instead)."""
+    block = provenance.get("run_of_record")
+    if block is None:
+        return None
+    partitions = block.get("partitions") if isinstance(block, dict) else None
+    if not isinstance(partitions, dict):
+        raise RunOfRecordError(
+            f"{run_dir}/provenance.json: 'run_of_record' present but its "
+            "'partitions' block is missing or not an object"
+        )
+    offline_key = partitions.get("offline_ocr_key")
+    analysis_key = partitions.get("analysis_key")
+    mode = partitions.get("mode")
+    visual_key = partitions.get("visual_ocr_key")
+    for name, value in (("offline_ocr_key", offline_key), ("analysis_key", analysis_key), ("mode", mode)):
+        if not isinstance(value, str) or not value:
+            raise RunOfRecordError(
+                f"{run_dir}/provenance.json: run_of_record.partitions.{name} "
+                "missing or empty"
+            )
+    ocr_keys_by_source = {"native": offline_key, "local_tesseract": offline_key}
+    if isinstance(visual_key, str) and visual_key:
+        ocr_keys_by_source["visual"] = visual_key
+    tree = provenance.get("tree") if isinstance(provenance.get("tree"), dict) else {}
+    return RunPartitions(
+        ocr_keys_by_source=ocr_keys_by_source,
+        analysis_key=analysis_key,
+        ocr_stage_version=int(tree.get("OCR_STAGE_VERSION", -1)),
+        analysis_stage_version=int(tree.get("ANALYSIS_STAGE_VERSION", -1)),
+        mode=mode,
+        origin=ORIGIN_RECORDED,
+    )
+
+
+def _env_str(env: Mapping[str, Any], key: str, default: str) -> str:
+    value = env.get(key)
+    return default if value in (None, "") else str(value)
+
+
+#: ``ocr.config.load_settings``'s own literal fallbacks, duplicated
+#: deliberately rather than called: ``load_settings()`` reads the CALLING
+#: process's CURRENT environment, and this function reconstructs a
+#: HISTORICAL run's settings from that run's RECORDED environment
+#: (``tools/train/provenance.py``'s ``ENV_KNOBS``) — calling it here would let
+#: whatever happens to be set in the environment doing the reconstruction
+#: (a developer's shell, a CI job) silently override the run's own recorded
+#: absence of the knob. A knob change in ``ocr/config.py`` (not owned here)
+#: would only matter to a NEW run recording its OWN partitions (item 3 of the
+#: card) — reconstruction only ever serves batch-8/9-era runs frozen before
+#: this cell existed, so this literal pair can never drift out from under a
+#: run this module will actually reconstruct.
+_OCR_MODEL_DEFAULT = "baidu/Unlimited-OCR"
+_OCR_BASE_URL_DEFAULT = "http://localhost:8000/v1"
+_OCR_NGRAM_SIZE_DEFAULT = "35"
+_OCR_WINDOW_SIZE_DEFAULT = "128"
+
+
+def _reconstructed_ocr_settings(env: Mapping[str, Any]):
+    """A duck-typed stand-in for ``ocr.config.Settings`` built from a run's
+    RECORDED environment, falling back to ``load_settings()``'s own literal
+    defaults (see above) for a knob the record shows unset."""
+    return type(
+        "ReconstructedOcrSettings",
+        (),
+        {
+            "model": _env_str(env, "OCR_MODEL", _OCR_MODEL_DEFAULT),
+            "base_url": _env_str(env, "OCR_BASE_URL", _OCR_BASE_URL_DEFAULT),
+            "ngram_size": int(_env_str(env, "OCR_NGRAM_SIZE", _OCR_NGRAM_SIZE_DEFAULT)),
+            "window_size": int(_env_str(env, "OCR_WINDOW_SIZE", _OCR_WINDOW_SIZE_DEFAULT)),
+        },
+    )()
+
+
+def _reconstruct_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartitions:
+    from discovery.runner import LOCAL_OCR_MODES  # lazy: see module docstring
+    from webapp.artifact_cache import ocr_settings_key
+
+    tree = provenance.get("tree")
+    if not isinstance(tree, dict):
+        raise RunOfRecordError(f"{run_dir}/provenance.json has no 'tree' block")
+    ocr_stage_version = tree.get("OCR_STAGE_VERSION")
+    analysis_stage_version = tree.get("ANALYSIS_STAGE_VERSION")
+    analysis_key = tree.get("analysis_settings_key_deterministic")
+    if not isinstance(ocr_stage_version, int):
+        raise RunOfRecordError(
+            f"{run_dir}/provenance.json: tree.OCR_STAGE_VERSION missing or not an int"
+        )
+    if not isinstance(analysis_stage_version, int):
+        raise RunOfRecordError(
+            f"{run_dir}/provenance.json: tree.ANALYSIS_STAGE_VERSION missing or not an int"
+        )
+    if not isinstance(analysis_key, str) or not analysis_key:
+        raise RunOfRecordError(
+            f"{run_dir}/provenance.json: tree.analysis_settings_key_deterministic missing"
+        )
+
+    summary = _load_json(run_dir / "summary.json")
+    mode = summary.get("mode")
+    if not isinstance(mode, str) or not mode:
+        raise RunOfRecordError(f"{run_dir}/summary.json: 'mode' missing or empty")
+
+    env = provenance.get("env")
+    env = env if isinstance(env, dict) else {}
+    ocr_settings = _reconstructed_ocr_settings(env)
+    allow_local_ocr = mode in LOCAL_OCR_MODES
+
+    offline_key = ocr_settings_key(
+        force_ocr=False,
+        allow_local_ocr=allow_local_ocr,
+        allow_visual_ocr=False,
+        stage_version=ocr_stage_version,
+        ocr_settings=ocr_settings,
+    )
+    visual_key = ocr_settings_key(
+        force_ocr=True,
+        allow_local_ocr=False,
+        allow_visual_ocr=True,
+        stage_version=ocr_stage_version,
+        ocr_settings=ocr_settings,
+    )
+    return RunPartitions(
+        ocr_keys_by_source={"native": offline_key, "local_tesseract": offline_key, "visual": visual_key},
+        analysis_key=analysis_key,
+        ocr_stage_version=ocr_stage_version,
+        analysis_stage_version=analysis_stage_version,
+        mode=mode,
+        origin=ORIGIN_RECONSTRUCTED,
+    )
+
+
+def partitions_for_run(run_dir: str | Path, *, conn: Any | None = None) -> RunPartitions:
+    """The run of record's partitions: RECORDED if its ``provenance.json``
+    says so, else deterministically RECONSTRUCTED and, when ``conn`` is given
+    (an open connection to the cache the run's artifacts live in), VERIFIED
+    against it — see :func:`verify_reconstruction`. Pass ``conn`` at every
+    real call site; it is optional only so a caller that has not opened the
+    cache yet can still inspect a run's declared mode/versions.
+    """
+    run_dir = Path(run_dir)
+    provenance = _load_json(run_dir / "provenance.json")
+    partitions = _recorded_partitions(run_dir, provenance)
+    if partitions is None:
+        partitions = _reconstruct_partitions(run_dir, provenance)
+    if conn is not None:
+        verify_reconstruction(partitions, conn)
+    return partitions
+
+
+def verify_reconstruction(partitions: RunPartitions, conn: Any) -> None:
+    """A RECONSTRUCTED run's offline OCR key and analysis key MUST already
+    exist in the cache they were reconstructed to describe — both are
+    load-bearing for essentially the whole run. A reconstruction naming a key
+    the cache never wrote is a wrong guess and must never be served.
+
+    The VISUAL key is exempt: a run whose visual rung never fired (batch 8,
+    batch 9 — ``visual_rung = not_attempted`` on every row) legitimately has
+    ZERO rows under it, and that absence is the documented, expected state,
+    not a defect (a row that names the visual partition still resolves
+    correctly to ``None`` via :func:`select_artifact` on such a cache — a
+    miss, never a guess at another partition).
+
+    A RECORDED run's own keys are, by construction, exactly what its own run
+    wrote — nothing to verify."""
+    if partitions.origin != ORIGIN_RECONSTRUCTED:
+        return
+    offline_key = partitions.ocr_keys_by_source.get("native") or partitions.ocr_keys_by_source.get(
+        "local_tesseract"
+    )
+    _require_key_in_cache(conn, "ocr", offline_key)
+    _require_key_in_cache(conn, "analysis", partitions.analysis_key)
+
+
+def _require_key_in_cache(conn: Any, stage: str, key: str | None) -> None:
+    if not key:
+        return
+    row = conn.execute(
+        "SELECT 1 FROM artifact_cache WHERE stage = ? AND settings_key = ? LIMIT 1",
+        (stage, key),
+    ).fetchone()
+    if row is None:
+        raise RunOfRecordError(
+            f"reconstructed {stage} settings key not found in the cache index it "
+            f"was reconstructed to describe: {key} — a reconstruction that names "
+            "a key absent from the cache is a wrong guess, never served"
+        )
+
+
+def ocr_partition_for_row(row: Mapping[str, Any], partitions: RunPartitions) -> str | None:
+    """The OCR settings key ONE row's own provenance names, or ``None`` when
+    the row names a partition ``partitions`` does not have (e.g. a
+    ``source_path`` of ``"none"`` — no OCR text at all — or a
+    ``visual_rung`` of ``"recovered"``/``"upgraded"`` on a run whose
+    partitions carry no visual key). Never a fallback to another partition."""
+    visual_rung = str(row.get("visual_rung") or "").strip()
+    if visual_rung in _VISUAL_ROW_OUTCOMES:
+        return partitions.ocr_keys_by_source.get("visual")
+    source_path = str(row.get("source_path") or "").strip()
+    return partitions.ocr_keys_by_source.get(source_path)
+
+
+def analysis_partition(partitions: RunPartitions) -> str:
+    """The run's one analysis settings key. A thin named accessor — callers
+    should reach the field through this function rather than the dataclass
+    directly, so a future per-document analysis partition (there is none
+    today; see the module docstring on the analysis settings key being a
+    per-RUN constant, not per-document) has one call site to change."""
+    return partitions.analysis_key
+
+
+def select_artifact(conn: Any, stage: str, input_sha256: str, settings_key: str | None) -> str | None:
+    """The artifact path at exactly ``(stage, input_sha256, settings_key)``,
+    or ``None`` on a miss. The table's primary key is ``(stage, cache_key)``
+    and ``cache_key`` is a pure function of this triple, so an honest index
+    holds AT MOST ONE row here; seeing more is a corrupt index, and this
+    raises rather than picking one (the ``rows[0]`` bug this module replaces).
+    """
+    if not settings_key:
+        return None
+    rows = conn.execute(
+        "SELECT artifact_path FROM artifact_cache "
+        "WHERE stage = ? AND input_sha256 = ? AND settings_key = ?",
+        (stage, input_sha256, settings_key),
+    ).fetchall()
+    if not rows:
+        return None
+    if len(rows) > 1:
+        raise RunOfRecordError(
+            f"{len(rows)} rows share stage={stage!r} input_sha256={input_sha256!r} "
+            f"settings_key={settings_key!r}; the primary key (stage, cache_key) "
+            "should make this impossible — a corrupt index is a finding, never a choice"
+        )
+    return str(rows[0][0])
