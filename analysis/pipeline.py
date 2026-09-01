@@ -27,7 +27,11 @@ from .regions import repair_regions_summary
 # the leaf module `analysis/sibling_omission.py`, which imports nothing of
 # ours; the name stays published here because `DocumentReport` is what carries
 # the record and this is where a reader of the document model looks for it.
-from .sibling_omission import SiblingOmission, collecting as _collecting_omissions
+from .sibling_omission import (
+    Q3ProvenanceRefused,
+    SiblingOmission,
+    collecting as _collecting_omissions,
+)
 # The other half of the same seam, and here for the same reason: a reader that
 # establishes a document's SEVERAL accounts cannot import this module, so the
 # object it hands them over in lives in a leaf that imports only the schema.
@@ -910,6 +914,32 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     else:
         if dispatch.outcome == "ambiguous" and parse_mode == "deterministic":
             raise AmbiguousParserError(dispatch.candidates)
+        # BLOCK-2 (`PHASE2_P20SURFACES_REVIEW.md`), unconditional in every
+        # `parse_mode`. Below, the `parser_exception` -> `ParserCrashError`
+        # refusal fired only `and parse_mode == "deterministic"` — every other
+        # mode fell through to `extract_statement`, so Q3's native-only gate
+        # (`sibling_omission.publish_omissions`, raises `Q3ProvenanceRefused`)
+        # was fail-CLOSED in deterministic mode and fail-OPEN in the webapp's
+        # default `parse_mode="auto"`: a document refused for OCR provenance
+        # was routed to a HOSTED MODEL CALL, and on success published one
+        # account with the omitted sibling silently dropped (`omissions ==
+        # []`, no `sibling_account_omission_detected`) — the exact L-1 defect
+        # `analysis/sibling_omission.py`'s own module docstring exists to
+        # prevent, reached through the gate whose whole purpose is to prevent
+        # it. A policy refusal must never start an extractor escalation
+        # (`PHASE2-0-SAFETY.md` §Objective), so this checks the recorded
+        # exception's CLASS NAME ONLY — never a message, exactly as
+        # `analysis.parser_registry.ParserFailure` already stores it — and
+        # refuses in EVERY mode. This does not widen the pre-existing
+        # `unclaimed` asymmetry (BLOCK-2's own finding: an `unclaimed`
+        # dispatch still falls through to `extract_statement` outside
+        # deterministic mode exactly as it always did; that is a separate,
+        # pre-existing edge this fix does not touch).
+        if dispatch.outcome == "parser_exception" and any(
+            failure.exception == Q3ProvenanceRefused.__name__
+            for failure in dispatch.exceptions
+        ):
+            raise ParserCrashError(dispatch.exceptions)
         if dispatch.outcome == "parser_exception" and parse_mode == "deterministic":
             # Not "no parser matched": that would file our own defect as a gap
             # in our layout knowledge, in the one report a human reads.

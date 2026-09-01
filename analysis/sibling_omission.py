@@ -132,10 +132,16 @@ EVIDENCE_CLASSES: frozenset[str] = frozenset({
 #: never ruled OCR-sensitive.
 Q3_CLASS_REQUIRES_NATIVE_PROVENANCE = "q3_class_requires_native_provenance"
 
-#: The provenance prefix Q3 requires. `startswith`, not equality: a native read
-#: may carry a layout suffix of its own (`native-pdf-text+guardian`) and stays
-#: admitted — the ruling's own wording is "the document's extractor model is
-#: `native-pdf-text*`" (`OCR_LEGACY_AUDIT.md` §5.8 step 6).
+#: The provenance token Q3 requires — checked at `publish_omissions` as
+#: `model == _Q3_REQUIRED_MODEL_PREFIX or model.startswith(_Q3_REQUIRED_MODEL_
+#: PREFIX + "+")`, NOT a bare `startswith` (MINOR-1,
+#: `PHASE2_P20SURFACES_REVIEW.md`: `startswith("native-pdf-text")` alone also
+#: admits `native-pdf-textXYZ`, a shape no writer in this tree produces).
+#: A native read may carry a layout suffix of its own
+#: (`native-pdf-text+guardian`) and stays admitted — the ruling's own wording
+#: is "the document's extractor model is `native-pdf-text*`"
+#: (`OCR_LEGACY_AUDIT.md` §5.8 step 6), and `ocr/native_text.py` writes only
+#: the bare token or a `+suffix` form, never a bare concatenation.
 _Q3_REQUIRED_MODEL_PREFIX = "native-pdf-text"
 
 #: The ratified printings of ONE fact. `DORMANT_RE` is the wording
@@ -499,6 +505,26 @@ def collecting(markdown: str | None = None) -> Iterator[list[SiblingOmission]]:
         _COLLECTING.reset(token)
 
 
+class Q3ProvenanceRefused(ValueError):
+    """Q3's native-only gate refused an omission — a POLICY decision, never a crash.
+
+    Raised where the record is about to be published (`publish_omissions`,
+    below) and — like every exception a registration's `parse` can raise —
+    caught by `analysis.parser_registry._guarded`, which stores only its
+    CLASS NAME (`ParserFailure.exception`), never this message
+    (`analysis/parser_registry.py:822-836`'s own privacy discipline). A
+    dedicated subclass exists so a class name alone can tell "our own code
+    broke" (`ParserCrashError`'s own docstring reserves that meaning) apart
+    from "the provenance policy refused this document" — MAJOR-2,
+    `PHASE2_P20SURFACES_REVIEW.md`: a bare `ValueError` left the refusal
+    recorded nowhere a reader could distinguish it from an actual crash.
+    `analysis/pipeline.py` reads this class's `__name__` off
+    `dispatch.exceptions` to refuse the document in every `parse_mode`
+    (BLOCK-2, same review) rather than treating it as an ordinary parser
+    exception that a non-deterministic mode may fall through past.
+    """
+
+
 def publish_omissions(omissions: Sequence[SiblingOmission]) -> None:
     """Hand a parse attempt's admitted omissions to the document collecting them.
 
@@ -510,16 +536,24 @@ def publish_omissions(omissions: Sequence[SiblingOmission]) -> None:
     above). An omission whose `reason` is
     `printed_pair_coincides_and_no_row_printed` is admitted only when the
     document's extractor-model token (`analysis.provenance.extractor_model`,
-    read off `_MARKDOWN`) starts with `native-pdf-text`; any other token, `""`,
-    or no header at all RAISES — the same `ValueError` shape
-    `SiblingOmission.__post_init__` already uses for an unratified reason, and
-    for the same reason: this call happens inside a registration's `parse`,
-    which `analysis.parser_registry._guarded` wraps in a bare `except
-    Exception`, so raising here is caught exactly as a declining parser is
-    (`_guarded` returns `None`, the next claimant is tried, and if none
-    succeeds the document fails closed as `parser_exception` /
-    `ParserCrashError` in deterministic mode — never a silent admission). The
-    other three ratified classes are not checked at all.
+    read off `_MARKDOWN`) is EXACTLY `native-pdf-text` or starts with
+    `native-pdf-text+` (MINOR-1, `PHASE2_P20SURFACES_REVIEW.md`: a bare
+    `startswith("native-pdf-text")` also admits `native-pdf-textXYZ`, a token
+    no writer in this tree ever produces — `ocr/native_text.py` writes only
+    the bare token or a `+suffix` form); any other token, `""`, or no header
+    at all RAISES `Q3ProvenanceRefused` — the same fail-closed SHAPE
+    `SiblingOmission.__post_init__` already uses for an unratified reason
+    (a `ValueError` subclass), and for the same reason: this call happens
+    inside a registration's `parse`, which `analysis.parser_registry._guarded`
+    wraps in a bare `except Exception`, so raising here is caught exactly as a
+    declining parser is (`_guarded` returns `None`, the next claimant is
+    tried, and if none succeeds the document fails closed as
+    `parser_exception` / `ParserCrashError`). `Q3ProvenanceRefused` rather than
+    a bare `ValueError` (MAJOR-2, same review) so the refusal survives
+    `_guarded`'s message-discarding boundary AS A CLASS NAME
+    `analysis/pipeline.py` can check for and refuse in every `parse_mode`
+    (BLOCK-2) — a bare `ValueError` is indistinguishable there from any other
+    parser crash. The other three ratified classes are not checked at all.
 
     The gate runs only while something is COLLECTING (`sink is not None`) —
     the same condition that already decides whether this call does anything.
@@ -535,9 +569,12 @@ def publish_omissions(omissions: Sequence[SiblingOmission]) -> None:
     for omission in omissions:
         if omission.reason != PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED:
             continue
-        model = extractor_model(_MARKDOWN.get())
-        if not (model or "").startswith(_Q3_REQUIRED_MODEL_PREFIX):
-            raise ValueError(
+        model = extractor_model(_MARKDOWN.get()) or ""
+        admitted = model == _Q3_REQUIRED_MODEL_PREFIX or model.startswith(
+            _Q3_REQUIRED_MODEL_PREFIX + "+"
+        )
+        if not admitted:
+            raise Q3ProvenanceRefused(
                 "an omission of reason 'printed_pair_coincides_and_no_row_printed' "
                 "is admitted only on native-pdf-text* extractor provenance; this "
                 f"document's provenance does not qualify ({Q3_CLASS_REQUIRES_NATIVE_PROVENANCE})"

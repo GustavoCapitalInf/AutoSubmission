@@ -38,6 +38,7 @@ from analysis.sibling_omission import (
     PRINTED_DORMANCY_DECLARATION,
     PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED,
     Q3_CLASS_REQUIRES_NATIVE_PROVENANCE,
+    Q3ProvenanceRefused,
     SiblingOmission,
     collecting,
     publish_omissions,
@@ -64,7 +65,7 @@ def test_extractor_model_reads_the_first_line_header():
 def test_extractor_model_admits_a_layout_suffix_as_the_whole_token():
     """The ruling reads `native-pdf-text*`; the reader hands back the FULL
     token and leaves the prefix decision to its caller."""
-    markdown = "<!-- source: a.pdf | pages: 1 | model: native-pdf-text+guardian | empty: 0 -->\n"
+    markdown = "<!-- source: a.pdf | pages: 1 | model: native-pdf-text+guardian | empty: 0 -->\n\n"
     assert extractor_model(markdown) == "native-pdf-text+guardian"
 
 
@@ -91,7 +92,72 @@ def test_extractor_model_never_reads_past_the_first_line():
 
 def test_extractor_model_returns_none_for_an_empty_model_field():
     """The `\"\"` mutant's positive control on the reader itself."""
-    assert extractor_model("<!-- source: a.pdf | pages: 1 | model:  | empty: 0 -->\n") is None
+    assert extractor_model("<!-- source: a.pdf | pages: 1 | model:  | empty: 0 -->\n\n") is None
+
+
+# ---------------------------------------------------------------------------
+# BLOCK-1 (`PHASE2_P20SURFACES_REVIEW.md`): `source_file` cannot supply the
+# model. `source_file` is the uploaded filename -- attacker-supplied,
+# unsanitised (`webapp/app.py` -> `webapp/worker.py` -> `ocr/document.py`) --
+# so a header reader that stops at the FIRST `-->` on the line can be handed a
+# fake, complete header by the filename alone, before the genuine trailing
+# fields the trusted code always appends. Every case here builds the SAME
+# real document (real model `local-tesseract-ocr`, non-native) behind a
+# hostile `source_file`, and requires BOTH that `extractor_model` never
+# reports `native-pdf-text*` for it AND that the Q3 class fails closed
+# end-to-end through `analyze_document`.
+# ---------------------------------------------------------------------------
+
+
+def _hostile_document(source_file: str, *, model: str = "local-tesseract-ocr") -> str:
+    """The L1-S4 Q3 fixture, wrapped in a REAL `StatementMarkdown.to_markdown()`
+    call so `source_file` is interpolated exactly as `ocr/document.py` does
+    it -- not a hand-typed approximation of the header."""
+    from ocr.document import StatementMarkdown
+
+    body = document([idle_account(), posting_account()]).split("\n\n", 1)[1]
+    return StatementMarkdown(source_file=source_file, model=model, pages=[body]).to_markdown()
+
+
+_BLOCK1_HOSTILE_SOURCE_FILES = (
+    ("the exact fake header from the review",
+     "statement.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"),
+    ("a bare closing marker", "evil--> statement.pdf"),
+    ("a literal <", "evil<statement.pdf"),
+    ("a literal >", "evil>statement.pdf"),
+    ("an embedded newline", "evil\nstatement.pdf"),
+    ("a second, nested header",
+     "<!-- source: fake | pages: 1 | model: native-pdf-text | empty: 0 -->"),
+)
+_BLOCK1_IDS = [label for label, _ in _BLOCK1_HOSTILE_SOURCE_FILES]
+
+
+@pytest.mark.parametrize("_label,source_file", _BLOCK1_HOSTILE_SOURCE_FILES, ids=_BLOCK1_IDS)
+def test_a_hostile_source_file_never_yields_a_native_token(_label, source_file):
+    markdown = _hostile_document(source_file)
+    model = extractor_model(markdown)
+    assert model != "native-pdf-text"
+    assert not (model or "").startswith("native-pdf-text")
+
+
+@pytest.mark.parametrize("_label,source_file", _BLOCK1_HOSTILE_SOURCE_FILES, ids=_BLOCK1_IDS)
+def test_a_hostile_source_file_fails_closed_end_to_end(_label, source_file):
+    markdown = _hostile_document(source_file)
+    with pytest.raises(ParserCrashError):
+        analyze_document(markdown, parse_mode="deterministic")
+
+
+def test_a_hostile_source_file_still_reports_the_true_model_when_it_is_native():
+    """The corroborating positive control: the fix must not make an honest
+    native read collateral damage. A `source_file` carrying the exact same
+    injection, on a document whose REAL model is native, still admits."""
+    markdown = _hostile_document(
+        "statement.pdf | pages: 1 | model: local-tesseract-ocr | empty: 0 -->",
+        model="native-pdf-text",
+    )
+    assert extractor_model(markdown) == "native-pdf-text"
+    report = analyze_document(markdown, parse_mode="deterministic")
+    assert [o.reason for o in report.omissions] == [PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED]
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +201,16 @@ def test_a_native_layout_suffix_is_still_admitted():
     ]
 
 
+def test_a_bare_concatenation_with_no_plus_is_refused():
+    """MINOR-1 (`PHASE2_P20SURFACES_REVIEW.md`): `native-pdf-textXYZ` is a
+    shape no writer in this tree produces (`ocr/native_text.py` writes only
+    the bare token or a `+suffix` form). A bare `startswith("native-pdf-
+    text")` would have admitted this; the equality-or-`+`-prefix check must
+    refuse it, fail closed."""
+    with pytest.raises(ParserCrashError):
+        _analyze(_q3_document("native-pdf-textXYZ"))
+
+
 def test_local_tesseract_ocr_refuses_and_fails_closed():
     """CASE 10: the SAME text, OCR-attributed, is refused -- fail closed, not
     a silent admission and not a partial document."""
@@ -149,10 +225,97 @@ def test_header_removed_refuses_and_fails_closed():
         _analyze(_q3_document(None))
 
 
+def test_the_headerless_case_above_is_a_live_production_path_not_only_a_fixture_shape():
+    """MAJOR-4 (`PHASE2_P20SURFACES_REVIEW.md`): `analyze.py:186-188`
+    (`open(args.markdown).read() -> analyze_document(markdown)`, the CLI's own
+    help calling its argument "Path to the OCR markdown file") and
+    `batch.py:59-75,245-262` (`_read_source` returns `path.read_text()`
+    verbatim for a non-`.pdf` input; the call site's own comment: "this CLI ...
+    is a production caller (W3 §WIRING W4)") both hand `analyze_document` text
+    that may carry NO header at all -- a hand-saved or post-stripped `.md`
+    file, or any text file a user points either CLI at. On both, a Q3-class
+    document that previously validated NOW fails closed, exactly as the
+    `_q3_document(None)` fixture above does; this is that same shape, restated
+    without a card fixture in between, so it stands as the disclosure the
+    review asked for rather than only a positive-control shape. Both CLIs
+    default `parse_mode="auto"` (neither passes `parse_mode` explicitly), so
+    this also proves the direction is unchanged there."""
+    headerless_markdown = document([idle_account(), posting_account()]).split("\n\n", 1)[1]
+    assert not headerless_markdown.startswith("<!--")
+    with pytest.raises(ParserCrashError):
+        analyze_document(headerless_markdown, parse_mode="auto")
+
+
 def test_empty_model_token_refuses_and_fails_closed():
     """Mutation-table entry: 'Q3 admitted on model \"\"' is killed here."""
     with pytest.raises(ParserCrashError):
         _analyze(_q3_document(""))
+
+
+# ---------------------------------------------------------------------------
+# BLOCK-2 (`PHASE2_P20SURFACES_REVIEW.md`): the refusal must be unconditional
+# in EVERY `parse_mode`, not only `"deterministic"`. `extract_statement` is
+# replaced by a sentinel that FAILS THE TEST if it is ever called -- the
+# webapp's default `parse_mode="auto"` must never reach a hosted-model
+# extraction call for a document Q3's gate has already refused.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _extract_statement_must_not_be_called(monkeypatch):
+    def _sentinel(markdown, *, settings=None, model=None):
+        raise AssertionError(
+            "extract_statement reached: a Q3 provenance refusal fell through "
+            "to hosted extraction in a non-deterministic parse_mode (BLOCK-2)"
+        )
+    monkeypatch.setattr("analysis.pipeline.extract_statement", _sentinel)
+
+
+@pytest.mark.parametrize("model", ["local-tesseract-ocr", "", None], ids=[
+    "local-tesseract-ocr", "empty", "headerless",
+])
+def test_q3_refusal_is_fail_closed_in_auto_mode_too(
+    model, _extract_statement_must_not_be_called
+):
+    """The three CASE-10 refusal shapes, replayed in `parse_mode="auto"` --
+    the webapp's default (`webapp/app.py`) -- with `extract_statement` wired
+    to fail the test if the refusal ever falls through to it. Each must raise
+    `ParserCrashError` (fail closed) exactly as `parse_mode="deterministic"`
+    already does, and never construct a Statement with the sibling silently
+    dropped."""
+    with pytest.raises(ParserCrashError):
+        analyze_document(_q3_document(model), parse_mode="auto")
+
+
+def test_the_preexisting_unclaimed_to_auto_fallthrough_is_unchanged():
+    """BLOCK-2's own finding, pinned so this closure does not silently widen
+    its own fix: a document NOTHING claims (`dispatch.outcome == "unclaimed"`,
+    unrelated to Q3) still falls through to `extract_statement` in
+    `parse_mode="auto"` exactly as it did before this card -- a separate,
+    pre-existing edge Ocean is reporting to Gustavo, which this fix must not
+    touch. `extract_statement` is stubbed to return a value rather than to
+    fail the test, because reaching it here is the CORRECT, unchanged
+    behaviour being pinned, not a defect."""
+    import analysis.pipeline as pipeline
+    from analysis.schema import Statement
+
+    reached = []
+
+    def _stub(markdown, *, settings=None, model=None):
+        reached.append(True)
+        return Statement()
+
+    unclaimed_markdown = (
+        "<!-- source: s.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"
+        "\n\n--- Page 1 ---\ncompletely unrecognisable text, no template furniture\n"
+    )
+    original = pipeline.extract_statement
+    pipeline.extract_statement = _stub
+    try:
+        pipeline.analyze_document(unclaimed_markdown, parse_mode="auto")
+    finally:
+        pipeline.extract_statement = original
+    assert reached, "the pre-existing unclaimed->auto fallthrough moved -- report, do not fix here"
 
 
 def test_the_refusal_is_the_same_shape_l1_c17_uses_for_an_unratified_reason():
@@ -164,31 +327,64 @@ def test_the_refusal_is_the_same_shape_l1_c17_uses_for_an_unratified_reason():
     `EVIDENCE_CLASSES` takes today. `ParserCrashError` subclasses
     `RuntimeError` (`analysis/parser_registry.py:127`), the same base class
     `tests/test_l1s2_omission_ruling.py::test_the_document_is_refused_rather_
-    than_published_short` asserts for the sibling-boundary refusal. Only the
-    exception CLASS crosses `_guarded`'s boundary (`ParserFailure` stores no
-    message, by the same privacy discipline the sibling omission machinery
-    already applies elsewhere), so this asserts the shape rather than the
-    withheld text."""
+    than_published_short` asserts for the sibling-boundary refusal.
+
+    MAJOR-2 (`PHASE2_P20SURFACES_REVIEW.md`): the CLASS that crosses
+    `_guarded`'s boundary (`ParserFailure` stores no message, by the same
+    privacy discipline the sibling omission machinery already applies
+    elsewhere) is now `Q3ProvenanceRefused`, not the generic `ValueError` a
+    genuine crash would also produce -- so a reader of `dispatch.exceptions`
+    (or `rows.csv`'s `parser_exceptions` column, which formats this tuple
+    verbatim) can tell a POLICY refusal apart from our own code breaking,
+    which a bare `ValueError` could never do."""
     from analysis.parser_registry import ParserFailure
 
     with pytest.raises(ParserCrashError) as excinfo:
         _analyze(_q3_document("local-tesseract-ocr"))
     assert all(isinstance(f, ParserFailure) for f in excinfo.value.failures)
-    assert all(f.exception == "ValueError" for f in excinfo.value.failures)
+    assert all(f.exception == "Q3ProvenanceRefused" for f in excinfo.value.failures)
+
+
+def test_dispatch_records_the_refusal_class_name_not_a_generic_parser_crash():
+    """MAJOR-2's own required proof, through `DispatchCollector` -- the same
+    seam `discovery/runner.py` observes a live dispatch through -- rather than
+    below `_guarded`'s boundary. `dispatch.exceptions` carries
+    `ParserFailure(parser_id, stage, exception)` and `discovery/runner.py`
+    formats each one as `f"{parser_id}:{stage}:{exception}"` into the
+    `parser_exceptions` row column (cited, not touched -- `discovery/runner.py`
+    belongs to cell A; the `_failure_reason` -> `rows.csv` reason-token mapping
+    that would let a report DISTINGUISH this from an ordinary crash is Ocean's
+    to add at composition, not this card's)."""
+    from telemetry.collect import DispatchCollector
+
+    collector = DispatchCollector()
+    with pytest.raises(ParserCrashError):
+        analyze_document(
+            _q3_document("local-tesseract-ocr"),
+            parse_mode="deterministic",
+            on_dispatch=collector,
+        )
+    assert collector.dispatch.outcome == "parser_exception"
+    formatted = [
+        f"{failure.parser_id}:{failure.stage}:{failure.exception}"
+        for failure in collector.dispatch.exceptions
+    ]
+    assert any(entry.endswith(":parse:Q3ProvenanceRefused") for entry in formatted), formatted
 
 
 def test_the_refusal_token_is_named_in_the_raised_message():
     """`publish_omissions`, exercised directly (below `_guarded`'s message-
     swallowing boundary): the refusal names
-    `q3_class_requires_native_provenance`, satisfying the card's requirement
-    to record the token somewhere on the refusal -- here, as the message
-    `SiblingOmission`'s own construction-time refusal (`__post_init__`) uses
-    the same way, since this closed vocabulary has no separate refusal-reason
-    enum of its own to extend."""
+    `q3_class_requires_native_provenance` in its message, satisfying the
+    card's original requirement to record the token somewhere on the refusal.
+    MAJOR-2 is what a PRODUCTION reader can actually observe (the class name,
+    proven above) -- this message is real but reaches no consumer beyond a
+    test or a debugger attached at the raise site, and the docstring says so
+    rather than calling this proof of anything a reader downstream can see."""
     omission = SiblingOmission("SAMPLE SHARE", PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED, 0)
-    header = "<!-- source: a.pdf | pages: 1 | model: local-tesseract-ocr | empty: 0 -->\n"
+    header = "<!-- source: a.pdf | pages: 1 | model: local-tesseract-ocr | empty: 0 -->\n\n"
     with collecting(header):
-        with pytest.raises(ValueError, match=Q3_CLASS_REQUIRES_NATIVE_PROVENANCE):
+        with pytest.raises(Q3ProvenanceRefused, match=Q3_CLASS_REQUIRES_NATIVE_PROVENANCE):
             publish_omissions([omission])
 
 
