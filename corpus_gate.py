@@ -787,8 +787,12 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # Operate on already-extracted markdown; no intake object exists.
     "analyze.py": "single-file CLI over an OCR'd .md; no intake object",
     "adb_debug.py": "developer debug utility; prints, publishes nothing",
-    "coverage_audit.py": "measurement script over markdown",
-    "deterministic_coverage_audit.py": "measurement script over markdown",
+    # coverage_audit.py and deterministic_coverage_audit.py were retired
+    # (P20-SEAM / OQ7): both were pre-deterministic-shift dev CLIs that called
+    # `parse_statement` with the default `allow_visual_ocr=True` (an unbounded
+    # egress path, OCR_LEGACY_AUDIT.md F-4(a)), and `deterministic_coverage_
+    # audit.py` measured the same question `discovery/runner.py` already
+    # measures (audit #34, "duplicate"). `git rm`, this commit.
     # This gate's own harness, governed by PRODUCTION_SUPPLIES_SHEETS above.
     "corpus_gate.py": "the harness itself; tracks the call sites by declaration",
     # W3 §REGFP's differential (read-only, offline). Excused on the question

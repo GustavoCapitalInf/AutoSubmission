@@ -274,41 +274,20 @@ def test_a_readable_document_has_no_refusal_reason(monkeypatch):
     assert text_layer_refusal(raw) is None
 
 
-def test_the_coverage_oracle_publishes_the_reason(monkeypatch, tmp_path):
-    """The row a triage actually reads. RS6.2 / Ocean closure 2.
-
-    Without this the oracle books `error=native PDF text unavailable or too
-    sparse` for a document MuPDF refused outright — the same row an image-only
-    scan gets.
-    """
-    import deterministic_coverage_audit as audit
-
-    pdf = tmp_path / "corrupt.pdf"
-    pdf.write_bytes(b"%PDF-1.4 corrupt")
-    _install(monkeypatch, _Doc([_Page(readable=False) for _ in range(2)]))
-
-    row = audit.audit_file(pdf, tmp_path)
-    assert row["native_status"] == "no_native_text"
-    assert row["deterministic_status"] == "not_attempted"
-    assert row["integrity_flags"] == "text_unavailable"
-    assert "cycle in resources" in row["error"], row["error"]
-    assert "text layer unreadable" in row["integrity_notes"], row["integrity_notes"]
-
-
-def test_the_coverage_oracle_row_is_unchanged_for_an_ordinary_scan(monkeypatch, tmp_path):
-    """Nothing else moves: a document with no text layer reads as it always did."""
-    import deterministic_coverage_audit as audit
-
-    pdf = tmp_path / "scan.pdf"
-    pdf.write_bytes(b"%PDF-1.4 scan")
-    _install(monkeypatch, _Doc([_Page(readable=True, blank=True) for _ in range(2)]))
-
-    row = audit.audit_file(pdf, tmp_path)
-    assert row["native_status"] == "no_native_text"
-    assert row["error"] == "native PDF text unavailable or too sparse"
-    assert row["integrity_notes"] == (
-        "native text unavailable and local OCR did not produce usable statement text"
-    )
+# `test_the_coverage_oracle_publishes_the_reason` and
+# `test_the_coverage_oracle_row_is_unchanged_for_an_ordinary_scan` used to live
+# here, exercising `deterministic_coverage_audit.audit_file` directly (RS6.2 /
+# Ocean closure 2) to prove the refusal REASON reached "the row a triage
+# actually reads." `deterministic_coverage_audit.py` was retired with this
+# commit (P20-SEAM / OQ7, `git rm`) — it was a pre-deterministic-shift dev CLI,
+# a duplicate of what `discovery/runner.py` already measures
+# (OCR_LEGACY_AUDIT.md #34), and never the sole production reader of
+# `text_layer_refusal`'s reason (`discovery/runner.py` does not call it; no
+# production caller does). Removed with the script rather than repointed:
+# `text_layer_refusal` itself stays fully covered directly, above
+# (`test_the_refusal_reason_survives_the_ladder` and
+# `test_a_readable_document_has_no_refusal_reason`), and nothing in the
+# current production runtime path consumed the deleted script's CSV row.
 
 
 def test_a_rung_defect_is_not_swallowed(monkeypatch):
