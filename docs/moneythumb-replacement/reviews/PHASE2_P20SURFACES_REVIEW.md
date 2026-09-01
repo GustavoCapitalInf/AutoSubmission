@@ -482,3 +482,224 @@ gate it cannot execute, the refusal reason must be recorded somewhere a reader c
 wearing the parser-crash label unqualified), the 23-delta characterisation and the exit code must be
 corrected in `§P20SURFACES`, and the headerless production callers must be named and pinned. The
 MINORs are cheap and I would accept them in the same pass.
+
+---
+
+## Re-review (closure 2cb4c0e)
+
+```
+RE-REVIEWED   wave20-surfaces @ 2cb4c0e   (5 commits on ed269f4: 76b6ee9, 63cb8b6, c88090b, 0300a06, 2cb4c0e)
+DIFF          git diff ed269f4..2cb4c0e   (10 files, +1217 / -96)
+METHOD        every finding re-measured, never read off the closure's claims
+VERDICT       BLOCK  (one finding re-opened by the fix that closed it; everything else closed)
+```
+
+Nine of the eleven findings are genuinely closed, several of them better than I asked for. The
+closure is honest about what it did not do and volunteers two defects of its own. **BLOCK-1 is not
+closed.** Its fix replaced an attacker-controlled *filename* vector with an attacker-controlled
+*page-text* vector, which I reproduced end-to-end through the real
+`StatementMarkdown.to_markdown()` writer, and the new module docstring asserts in so many words the
+property the new code does not have.
+
+### Per-finding verdicts
+
+| finding | closure's claim | my re-measurement | verdict |
+|---|---|---|---|
+| **BLOCK-1** `source_file` supplies the model | CLOSED; parse from the RIGHT; "backtracking … always finds the LAST, trusted, code-appended run, never an earlier attacker-supplied one" | the *filename* vector is closed (A1/B1/B2 below all return `local-tesseract-ocr` and fail closed). But "the last run in the document" is not "the last run in the header": the pattern is unbounded on the right, so a run printed in the **page body** — which comes *after* the genuine fields — wins. Reproduced 4 ways, `validated`. | **RE-OPENED — BLOCK-1R** |
+| **BLOCK-2** fail-open in `parse_mode="auto"` | CLOSED; unconditional refusal in every mode | reproduced with the sentinel: `local-tesseract-ocr`, `""` and headerless all raise `ParserCrashError` in **both** `deterministic` and `auto`; `extract_statement` reached **0** times across all 8 combinations | **CLOSED** |
+| — the pre-existing `unclaimed → auto` edge | "explicitly left untouched and pinned" | measured unchanged: `deterministic` → `RuntimeError("no deterministic parser matched…")`, `auto` → `extract_statement` reached (1 call, `gemini-3.5-flash-lite`), identical to `ed269f4` | **CONFIRMED UNCHANGED** |
+| **MAJOR-1** replay evidence cannot observe the gate | DISCLOSED, plus `tools/l1s4_document_replay.py` over the 8 `guardian_cu` shas at base and tip | re-ran it myself at `bea06bc` (throwaway worktree `.claude/worktrees/rev20-base`, removed after) and at `2cb4c0e`: `COHORT=8 REPLAYED=8 NEWLY_VALIDATED=0 OTHER_MOVEMENT=0 REGRESSIONS=0`, exit 0 both trees; `diff` of the two outputs = **0 lines**. All 8 `validated → validated (approved)`; 6 publish 1 account with `printed_pair_coincides_and_no_row_printed`; `7C7956EB5E93DB1D` and `E38FA786106F752E` publish 3 accounts each (27 and 7 internal transfers) and carry no omission | **CLOSED** (disclosure + the right instrument) |
+| **MAJOR-2** refusal recorded nowhere a reader can see | CLOSED to the class-name level; `_failure_reason` split left to Ocean | measured through `DispatchCollector`: `dispatch.exceptions = [('member_statement_rollup','parse','Q3ProvenanceRefused')]` in both modes; `discovery/runner.py:693` formats that into `parser_exceptions` as `member_statement_rollup:parse:Q3ProvenanceRefused`, and `discovery/report.py:190` clusters on it — a reader of `rows.csv` **can** now tell the policy refusal from a crash. `_failure_reason` still returns `parser_exception` (measured), exactly as the closure states | **CLOSED** (residual noted below) |
+| **MAJOR-3** 23-delta characterisation + missing exit code | CORRECTED to 21/23 `document.*`-only + 2 whole-payload; `EXIT=3` at both trees | matches my own measurement exactly (21 at 10-or-13 leaves; `7C7956EB5E93DB1D` 1,332 and `E38FA786106F752E` 1,334 leaves outside `document.*`; base exit 3 / tip exit 3, same 23 shas, 0 row-record differences). The root cause the closure gives (both publish 3 accounts, replayed at the ACCOUNT seam) is now independently corroborated by the document-seam replay above | **CLOSED** |
+| **MAJOR-4** headerless production callers | DISCLOSED and pinned | `analyze.py` and `batch.py` named in the W3 with the fail-closed consequence stated; `test_the_headerless_case_above_is_a_live_production_path_not_only_a_fixture_shape` exists and is killed by the BLOCK-2 mutant (measured) | **CLOSED** |
+| **M-1** `native-pdf-textXYZ` | CLOSED (`== token or startswith(token + "+")`) | measured: `native-pdf-textXYZ` → `ParserCrashError`; `native-pdf-text` and `native-pdf-text+guardian` still admitted; mutant R4 (revert to bare `startswith`) killed by `test_a_bare_concatenation_with_no_plus_is_refused` | **CLOSED** |
+| **M-2** guard scoped to `app.js` only | CLOSED (parametrized over `STATIC_JS_FILES`) | confirmed in the diff; mutants R10-R12 fire on the parametrized id `[app.js]` | **CLOSED** |
+| **M-3** text-shaped guard misses float / fraction / assignment | CLOSED for those three; arithmetic honestly documented as uncaught statically | mutants R11 (`return 0.94`) and R12 (`const S = 94; return S;`) both **killed**; the residual (`return 100 - 6`) is named in the source rather than glossed | **CLOSED** |
+| **M-4** "Validated" promoted over the payload's own word | CLOSED (`labelize(q.corporate_use \|\| q.level \|\| "review")`) | one vocabulary across `validationLabel`, `packageValidationLabel` and `decisionPill`; Node tests updated to the payload's own tokens | **CLOSED** |
+| **M-5** dead `.validation-value` rule | CLOSED (class applied to `#validationValue`) | confirmed in the diff | **CLOSED** |
+| **M-6** ambiguous "the PaddleOCR design below" | CLOSED (names the file) | confirmed | **CLOSED** |
+| **M-7** `--folder guardian_cu` selects 0 rows | CLOSED (recorded, correct selector named) | my own re-run: exit **4**, "empty cohort" | **CLOSED** |
+
+### BLOCK-1R (re-opened) — a field run printed in the PAGE BODY supplies the model
+
+**Where:** `analysis/provenance.py:97-103` (`_HEADER_RE`) and `:117-119` (`extractor_model`).
+
+```
+\A<!--\s*source:(?P<source>.*)\|\s*pages:\s*([0-9]+)\s*\|\s*model:\s*([A-Za-z0-9._/+-]*)\s*\|\s*empty:\s*([0-9]+)\s*-->\n\n     (re.DOTALL)
+```
+
+The closure's argument is that a greedy `source` backtracking from the end of the string always lands
+on "the LAST, trusted, code-appended run". That is true of runs that occur **before** the genuine
+fields — which is every run a hostile `source_file` can produce, and why the original payload is now
+correctly refused. It is false of runs that occur **after** them, because the pattern has no right
+bound other than `-->\n\n` and `re.DOTALL` lets `source` swallow the entire document. The page body
+is, by construction, after the genuine fields. The attacker's win condition simply moved from
+"before" to "after", and "after" is the easier half: the body needs no filename control at all, and
+for `analyze.py` / `batch.py` `.md` inputs it needs no OCR fidelity either.
+
+**Reproduction** (all four built through the real `ocr/document.py::StatementMarkdown.to_markdown()`;
+`FAKE = "| pages: 1 | model: native-pdf-text | empty: 0 -->"`; the genuine header says
+`model: local-tesseract-ocr` in every case):
+
+```
+C2 forged run mid-page, blank line inside the same page
+     StatementMarkdown(source_file="a.pdf", model="local-tesseract-ocr",
+                       pages=[BODY + "\n" + FAKE + "\n\nACCOUNT SUMMARY CONTINUED"])
+     line-1 model: local-tesseract-ocr
+     extractor_model -> 'native-pdf-text'
+     analyze_document -> ADMITTED ['printed_pair_coincides_and_no_row_printed'] / validated
+
+C3 forged run as page 1's LAST line; to_markdown's own "\n\n".join supplies the blank line
+     pages=[BODY + "\n" + FAKE, "PAGE TWO"]
+     extractor_model -> 'native-pdf-text'
+     analyze_document -> ADMITTED ['printed_pair_coincides_and_no_row_printed'] / validated
+
+D1 hand-laid equivalent (header + body + forged run + blank line)
+     extractor_model -> 'native-pdf-text'  ->  ADMITTED / validated
+
+G2 the same, on a document whose GENUINE model field is EMPTY
+     extractor_model -> 'native-pdf-text'  ->  ADMITTED / validated
+```
+
+C3 is the one to look at hardest: the trailing blank line the exploit needs is not something the
+attacker has to supply at all — `to_markdown()` inserts it between every pair of page blocks.
+
+**The closure's own docstring asserts the opposite property**
+(`analysis/provenance.py:52-58`): *"a claim that starts anywhere else — including a real header two
+physical lines down, or a header a PAGE printed as ordinary text — is not found."* Measured: a header
+a page printed as ordinary text **is** found, and it wins. Code that claims a security property it
+does not have is worse than code that claims nothing.
+
+**No test covers it.** All six `_BLOCK1_HOSTILE_SOURCE_FILES` cases
+(`tests/test_q3_native_only.py:139-149`) inject into `source_file`, i.e. before the genuine fields.
+I wrote the four missing tests in the closure's own idiom and ran them against `2cb4c0e`:
+
+```
+FAILED test_a_body_printed_field_run_never_yields_a_native_token[forged run mid-page, blank line inside the same page]
+FAILED test_a_body_printed_field_run_never_yields_a_native_token[forged run as page 1's last line, page 2 supplies the blank line]
+FAILED test_a_body_printed_field_run_fails_closed_end_to_end[forged run mid-page, blank line inside the same page]
+FAILED test_a_body_printed_field_run_fails_closed_end_to_end[forged run as page 1's last line, page 2 supplies the blank line]
+4 failed
+```
+
+**The fix I would accept — and the one I would NOT.** I prototyped both.
+
+*Rejected: bound the header region on the left instead of the right* (`markdown.partition("\n\n")[0]`,
+`\Z`-anchored). Measured: it closes the body vector (C2/C3/D1/G2 all refuse) but **re-opens** the
+`source_file`-with-embedded-`\n\n` vector (B1/B2 return `native-pdf-text` and are admitted
+`validated`). The two vectors are genuinely in tension: once `source_file` may contain a newline, a
+forged run plus `\n\n` makes physical line one a complete, well-formed header that no reader can
+distinguish from the real one. **There is no "pick the right run" rule that is safe in both
+directions.**
+
+*Accepted: ambiguity refuses.* Do not pick a winner — require the document to contain **exactly one**
+well-formed `| pages: N | model: T | empty: N -->` run, and require that run to terminate physical
+line one. Zero runs = no header. More than one = ambiguous. Both answer `None`, and `None` already
+refuses. This is the platform's own direction (`analysis/sibling_omission.py`'s "absence refuses";
+S4's "ambiguity refuses the aggregation"). Prototyped and measured over 16 cases — every hostile case
+in this review and in the closure's own table, plus honest single-page, multi-page, empty-page,
+layout-suffix and tesseract controls: **16/16 correct, 0 failures.** Applied in-tree it also passes
+my 4 new tests and every L1-S2/L1-S4 pin: **151 passed, 1 failed.**
+
+The one failure is instructive and must be part of the fix:
+`tests/test_q3_native_only.py::test_a_hostile_source_file_still_reports_the_true_model_when_it_is_native`
+asserts that an ambiguous document whose real model happens to be native is still **admitted**. That
+test encodes a preference for admitting in the ambiguous case, which is the wrong direction for a
+fail-closed provenance gate — the honest native document with a hostile filename should be refused,
+not rescued. Re-point it to assert refusal.
+
+Sketch (the whole change is in `analysis/provenance.py`):
+
+```python
+_FIELD_RUN_RE = re.compile(
+    r"\|\s*pages:\s*[0-9]+\s*"
+    r"\|\s*model:\s*(?P<model>" + _MODEL_CHARSET + r"*)\s*"
+    r"\|\s*empty:\s*[0-9]+\s*-->"
+)
+
+def extractor_model(markdown: str | None) -> str | None:
+    if not markdown or not markdown.startswith("<!-- source:"):
+        return None
+    first_line, newline, rest = markdown.partition("\n")
+    if not newline or not rest.startswith("\n"):   # the mandatory blank line
+        return None
+    runs = list(_FIELD_RUN_RE.finditer(markdown))
+    if len(runs) != 1 or runs[0].end() != len(first_line):
+        return None                                 # zero, or ambiguous -> refuse
+    return runs[0].group("model").strip() or None
+```
+
+If Ocean would rather not carry this in cell D at all, the alternative is to make the ambiguity
+impossible at the writer — cell **P20-SEAM**'s declared scope is exactly "`source_file` provenance-token
+injection closed (closed charset …)", and with a `source_file` that cannot contain `|`, `<`, `>`,
+`-->` or a newline the original `ed269f4` first-line reader was already correct. That is a legitimate
+resolution, but then D must say so, must not ship a docstring claiming a property it is borrowing,
+and should carry a reader-side assertion that fails loudly if a header ever contains a second run.
+
+### New findings introduced by the closure
+
+* **MINOR-8 (new).** The `-->\n\n` right anchor is byte-exact, so a **CRLF** document no longer
+  parses. Measured: header + `\r\n\r\n` → new reader `None`, `ed269f4` reader `'native-pdf-text'`.
+  Direction is fail-closed and the affected callers are the same `.md` inputs MAJOR-4 already names
+  (`analyze.py`, `batch.py`), but it is a new, undisclosed behaviour change. Fix: accept `\r?\n\r?\n`
+  (my accepted fix above inherits the same nit — use `rest.startswith(("\n", "\r\n"))`).
+* **MINOR-9 (new).** `analysis/provenance.py:52-58` states a security property the code does not have
+  (see BLOCK-1R). Whatever fix lands, that paragraph must be rewritten to describe what the reader
+  actually guarantees.
+* **Residual on MAJOR-2 (not a new finding, correctly deferred).** `discovery/runner.py::_failure_reason`
+  still maps the refusal to the reason token `parser_exception`, so `rows.csv`'s `outcome_reason`
+  cannot separate policy refusal from crash; only `parser_exceptions` can. Measured; the closure
+  states it plainly and assigns it to Ocean/cell A. I agree with that disposition.
+
+### Proof floor I re-ran at 2cb4c0e
+
+| proof | result |
+|---|---|
+| `tests/test_q3_native_only.py` | **35 passed** |
+| `tests/test_webapp_confidence_label.py` | **16 passed** (51 together — matches the closure's claim) |
+| `test_q3_native_only + test_webapp_confidence_label + test_l1s2_* + test_l1s3* + test_l1s4* + test_pipeline + test_sibling_omission` | **294 passed, 1 deselected, EXIT=0** |
+| `tests/test_webapp*.py` | **163 passed** |
+| 5 canonical guards | **255 passed** |
+| `tools/l1s4_document_replay.py`, 8 `guardian_cu` shas, base `bea06bc` vs tip `2cb4c0e` | exit 0 both; output diff **0 lines**; `NEWLY_VALIDATED=0 OTHER_MOVEMENT=0 REGRESSIONS=0` |
+| `cohort_replay --expect-identical`, six registrations | base **EXIT=3**, tip **EXIT=3**, same 23 shas (from my first-round runs; unchanged by this closure, which touches no seam the account replay reaches) |
+| regex performance (greedy + DOTALL) | 4.3 MB document 0.027 s; 720 KB decoy-pipe document 0.011 s — no catastrophic backtracking |
+| ownership footprint `bea06bc..2cb4c0e` | 12 files, all on the card's list except `tests/l1s4_pages.py` (disclosed in round 1, unchanged this round) and the review file itself |
+| worktree after every experiment | `git status --porcelain` clean; throwaway base worktree removed |
+
+### Mutation table (13 mutants, all re-applied by me, tree restored clean after each)
+
+| mutant | killer(s) | result |
+|---|---|---|
+| R1 admit on model `""` | CASE-10 empty/headerless | killed |
+| R2 admit on `local-tesseract-ocr` | 12 tests | killed |
+| R3 gate removed entirely | 17 tests | killed |
+| R4 MINOR-1 reverted to bare `startswith` | `test_a_bare_concatenation_with_no_plus_is_refused` | killed |
+| R5 gate extended to `printed_dormancy_declaration` | both dormancy-ungated tests | killed |
+| R6 BLOCK-1 regex reverted to the `ed269f4` pattern | 5 tests | killed |
+| R7 `extractor_model` reads line 2 | 5 tests | killed |
+| R8 BLOCK-2 mode-independent check removed | 4 tests (3 × "extract_statement reached", 1 production-path) | killed |
+| R9 `Q3ProvenanceRefused` downgraded to bare `ValueError` | 7 tests incl. `test_dispatch_records_the_refusal_class_name_not_a_generic_parser_crash` | killed |
+| R10 `return 94` under a renamed function | numeric-literal + proximity guards | killed |
+| R11 `return 0.94` under a renamed function | same | killed |
+| R12 `const S = 94; return S;` | `test_no_score_shaped_literal_assigned_anywhere_in_a_static_js_file` | killed |
+| R13 `"OCR confidence"` restored in the template | string guard `[index.html]` | killed |
+| **R14 (the mutant that cannot be written)** — a field run in the PAGE BODY | **nothing kills it; there is no such test, and the live code admits it** | **SURVIVES** |
+
+### Re-review verdict
+
+**BLOCK.**
+
+The closure is, on every other axis, the best kind: each finding reproduced as a failing case before
+any fix, each fix mutation-tested by reverting it, two self-found defects volunteered, the wrong
+sentence in the record corrected rather than argued with, the instrument I asked for actually built
+and run at both trees, and the one thing outside the cell's ownership left alone and named. BLOCK-2,
+MAJOR-1 through MAJOR-4 and all seven MINORs are closed and re-measured closed by me.
+
+It blocks on one thing only, and it is the same thing it blocked on before: **an OCR-fed document can
+still reach the Q3 admission and classify `validated`.** The fix moved the vector from the uploaded
+filename to the page text, which is a weaker position than before — the body needs no filename
+control, and `to_markdown()` supplies the blank line the exploit needs between page blocks. The
+accepted fix is small, prototyped, and measured green over 16 hostile and honest cases plus the
+closure's own suite; it needs one existing test re-pointed from "admit" to "refuse", which is the
+right direction for this gate anyway. With BLOCK-1R closed and MINOR-8/MINOR-9 folded in, I would
+sign this off.
