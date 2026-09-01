@@ -17,6 +17,7 @@ Proves, independently of either reader that adopts it
 """
 from __future__ import annotations
 
+import csv
 import json
 import sqlite3
 from pathlib import Path
@@ -115,6 +116,42 @@ def test_a_recorded_run_with_no_visual_key_has_no_visual_partition(tmp_path):
     )
     partitions = partitions_for_run(run_dir)
     assert "visual" not in partitions.ocr_keys_by_source
+
+
+def test_a_recorded_mode_disagreeing_with_summary_json_is_refused(tmp_path):
+    """Review MAJOR-1/MAJOR-4 hardening: `--mode` is an operator-supplied
+    argument to `tools/train/provenance.py`, not derived from the run
+    itself — a typo (`--mode digital` on a `scanned` run) must not silently
+    stand as the recorded truth when the run's own `summary.json` disagrees."""
+    run_dir = tmp_path / "run"
+    _write_recorded_run(
+        run_dir, offline_key="OFFLINE1", visual_key=None, analysis_key="ANALYSIS1", mode="digital"
+    )
+    (run_dir / "summary.json").write_text(json.dumps({"mode": "scanned"}), encoding="utf-8")
+    with pytest.raises(RunOfRecordError):
+        partitions_for_run(run_dir)
+
+
+def test_a_recorded_mode_agreeing_with_summary_json_is_accepted(tmp_path):
+    run_dir = tmp_path / "run"
+    _write_recorded_run(
+        run_dir, offline_key="OFFLINE1", visual_key=None, analysis_key="ANALYSIS1", mode="scanned"
+    )
+    (run_dir / "summary.json").write_text(json.dumps({"mode": "scanned"}), encoding="utf-8")
+    partitions = partitions_for_run(run_dir)
+    assert partitions.mode == "scanned"
+
+
+def test_a_recorded_run_with_no_summary_json_is_not_cross_checked(tmp_path):
+    """No `summary.json` at all (a synthetic RECORDED run directory, or a
+    pre-run provenance call) means nothing to cross-check against — the
+    recorded mode stands as given."""
+    run_dir = tmp_path / "run"
+    _write_recorded_run(
+        run_dir, offline_key="OFFLINE1", visual_key=None, analysis_key="ANALYSIS1", mode="digital"
+    )
+    partitions = partitions_for_run(run_dir)
+    assert partitions.mode == "digital"
 
 
 @pytest.mark.parametrize(
@@ -258,6 +295,15 @@ def test_reconstruction_requires_the_mode_from_summary_json(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def _write_rows_csv(run_dir, rows: list[dict[str, str]]) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    fieldnames = sorted({key for row in rows for key in row})
+    with (run_dir / "rows.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def test_verify_reconstruction_raises_when_the_offline_key_is_absent(tmp_path):
     db_path = _make_cache_db(tmp_path, [
         ("ocr", "SHA1", "REAL-OFFLINE-KEY", "artifacts/ocr/aa/REAL-OFFLINE-KEY.json"),
@@ -272,7 +318,7 @@ def test_verify_reconstruction_raises_when_the_offline_key_is_absent(tmp_path):
     conn = _conn(db_path)
     try:
         with pytest.raises(RunOfRecordError):
-            verify_reconstruction(bad, conn)
+            verify_reconstruction(bad, conn, tmp_path)
     finally:
         conn.close()
 
@@ -291,7 +337,7 @@ def test_verify_reconstruction_raises_when_the_analysis_key_is_absent(tmp_path):
     conn = _conn(db_path)
     try:
         with pytest.raises(RunOfRecordError):
-            verify_reconstruction(bad, conn)
+            verify_reconstruction(bad, conn, tmp_path)
     finally:
         conn.close()
 
@@ -314,16 +360,21 @@ def test_verify_reconstruction_does_not_require_the_visual_key_to_exist(tmp_path
     )
     conn = _conn(db_path)
     try:
-        verify_reconstruction(partitions, conn)  # must not raise
+        verify_reconstruction(partitions, conn, tmp_path)  # must not raise
     finally:
         conn.close()
 
 
-def test_verify_reconstruction_is_a_noop_for_a_recorded_run(tmp_path):
-    """A RECORDED run's keys are, by construction, exactly what it wrote —
-    verify_reconstruction has nothing to check and must not raise even
-    against an empty cache."""
-    db_path = _make_cache_db(tmp_path, [])
+def test_a_recorded_run_whose_keys_are_absent_from_its_cache_is_refused(tmp_path):
+    """Review MAJOR-1(a): retargets the old
+    `test_verify_reconstruction_is_a_noop_for_a_recorded_run`, whose premise
+    ("a RECORDED run's own keys are, by construction, exactly what it wrote")
+    is false the moment an operator's `--mode` disagrees with what the run
+    actually consumed, or the recorded key is simply wrong.
+    `verify_reconstruction` now checks BOTH origins: a RECORDED run whose
+    declared keys the cache does not hold is refused exactly like a bad
+    reconstruction, never served as a silent 100% miss."""
+    db_path = _make_cache_db(tmp_path, [])  # empty cache: nothing this run could have written
     partitions = RunPartitions(
         ocr_keys_by_source={"native": "ANYTHING", "local_tesseract": "ANYTHING"},
         analysis_key="ANYTHING-ELSE",
@@ -332,7 +383,107 @@ def test_verify_reconstruction_is_a_noop_for_a_recorded_run(tmp_path):
     )
     conn = _conn(db_path)
     try:
-        verify_reconstruction(partitions, conn)  # must not raise
+        with pytest.raises(RunOfRecordError):
+            verify_reconstruction(partitions, conn, tmp_path)
+    finally:
+        conn.close()
+
+
+def test_a_recorded_run_whose_keys_exist_verifies_clean(tmp_path):
+    """The positive case beside the refusal above: a RECORDED run whose
+    declared keys the cache DOES hold verifies without raising."""
+    db_path = _make_cache_db(tmp_path, [
+        ("ocr", "SHA1", "REAL-OFFLINE-KEY", "artifacts/ocr/aa/x.json"),
+        ("analysis", "SHA1", "REAL-ANALYSIS-KEY", "artifacts/analysis/aa/y.json"),
+    ])
+    partitions = RunPartitions(
+        ocr_keys_by_source={"native": "REAL-OFFLINE-KEY", "local_tesseract": "REAL-OFFLINE-KEY"},
+        analysis_key="REAL-ANALYSIS-KEY",
+        ocr_stage_version=5, analysis_stage_version=17, mode="scanned",
+        origin=ORIGIN_RECORDED,
+    )
+    conn = _conn(db_path)
+    try:
+        verify_reconstruction(partitions, conn, tmp_path)  # must not raise
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# verify_reconstruction — CORRESPONDENCE, not just existence (review MAJOR-1(b))
+# ---------------------------------------------------------------------------
+
+
+def test_correspondence_raises_when_the_offline_key_resolves_none_of_the_runs_own_rows(tmp_path):
+    """The exact vacuous-green reproduction from the review: the offline key
+    exists in the cache's index (for a DIFFERENT input) but resolves NONE of
+    THIS run's own native/local_tesseract rows — a wrong-partition record
+    that existence-only verification let through with `--expect-identical`
+    silently reporting a 100% miss as a pass."""
+    db_path = _make_cache_db(tmp_path, [
+        # The key exists in the index, but only for a sha this run never read.
+        ("ocr", "SOME-OTHER-SHA-NOT-IN-THIS-RUN", "REAL-OFFLINE-KEY", "artifacts/ocr/aa/x.json"),
+        ("analysis", "SOME-OTHER-SHA-NOT-IN-THIS-RUN", "REAL-ANALYSIS-KEY", "artifacts/analysis/aa/y.json"),
+    ])
+    _write_rows_csv(tmp_path, [
+        {"content_sha256": "ROW-SHA-1", "source_path": "native"},
+        {"content_sha256": "ROW-SHA-2", "source_path": "local_tesseract"},
+        {"content_sha256": "ROW-SHA-3", "source_path": "none"},  # excluded from the sample
+    ])
+    partitions = RunPartitions(
+        ocr_keys_by_source={"native": "REAL-OFFLINE-KEY", "local_tesseract": "REAL-OFFLINE-KEY"},
+        analysis_key="REAL-ANALYSIS-KEY",
+        ocr_stage_version=5, analysis_stage_version=17, mode="scanned",
+        origin=ORIGIN_RECONSTRUCTED,
+    )
+    conn = _conn(db_path)
+    try:
+        with pytest.raises(RunOfRecordError):
+            verify_reconstruction(partitions, conn, tmp_path)
+    finally:
+        conn.close()
+
+
+def test_correspondence_passes_when_at_least_one_sampled_row_resolves(tmp_path):
+    db_path = _make_cache_db(tmp_path, [
+        ("ocr", "ROW-SHA-1", "REAL-OFFLINE-KEY", "artifacts/ocr/aa/x.json"),
+        ("analysis", "ROW-SHA-1", "REAL-ANALYSIS-KEY", "artifacts/analysis/aa/y.json"),
+    ])
+    _write_rows_csv(tmp_path, [
+        {"content_sha256": "ROW-SHA-1", "source_path": "native"},
+        {"content_sha256": "ROW-SHA-2", "source_path": "local_tesseract"},  # never cached; harmless
+    ])
+    partitions = RunPartitions(
+        ocr_keys_by_source={"native": "REAL-OFFLINE-KEY", "local_tesseract": "REAL-OFFLINE-KEY"},
+        analysis_key="REAL-ANALYSIS-KEY",
+        ocr_stage_version=5, analysis_stage_version=17, mode="scanned",
+        origin=ORIGIN_RECONSTRUCTED,
+    )
+    conn = _conn(db_path)
+    try:
+        verify_reconstruction(partitions, conn, tmp_path)  # must not raise
+    finally:
+        conn.close()
+
+
+def test_correspondence_is_a_noop_when_the_run_has_no_rows_csv(tmp_path):
+    """No rows.csv (a synthetic run directory, or a call site that has not
+    written one yet) means nothing to sample against — the existence checks
+    are still the operative ones, and correspondence must not manufacture a
+    failure out of an absent file."""
+    db_path = _make_cache_db(tmp_path, [
+        ("ocr", "SHA1", "REAL-OFFLINE-KEY", "artifacts/ocr/aa/x.json"),
+        ("analysis", "SHA1", "REAL-ANALYSIS-KEY", "artifacts/analysis/aa/y.json"),
+    ])
+    partitions = RunPartitions(
+        ocr_keys_by_source={"native": "REAL-OFFLINE-KEY", "local_tesseract": "REAL-OFFLINE-KEY"},
+        analysis_key="REAL-ANALYSIS-KEY",
+        ocr_stage_version=5, analysis_stage_version=17, mode="scanned",
+        origin=ORIGIN_RECONSTRUCTED,
+    )
+    conn = _conn(db_path)
+    try:
+        verify_reconstruction(partitions, conn, tmp_path)  # no rows.csv: must not raise
     finally:
         conn.close()
 

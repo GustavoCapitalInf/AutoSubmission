@@ -153,10 +153,29 @@ class ColdCache:
         from webapp.artifact_cache import analysis_input_sha
         self._markdown = StatementMarkdown
         self._input_sha = analysis_input_sha
-        # Raises `telemetry.run_of_record.RunOfRecordError` on a malformed
-        # record or a reconstruction the cache does not corroborate — caught
-        # at `main()` and reported as exit 5, never silently guessed past.
-        self.partitions = partitions_for_run(run_dir, conn=self.conn)
+        try:
+            # Raises `telemetry.run_of_record.RunOfRecordError` on a malformed
+            # record or a reconstruction the cache does not corroborate —
+            # caught at `main()` and reported as exit 5, never silently
+            # guessed past. Closed here too on that path (review MINOR-3,
+            # applied consistently with `telemetry.stated_counts._ArtifactJoin`):
+            # a `with ColdCache(...)` never reaches `__exit__` if the
+            # constructor itself raises.
+            self.partitions = partitions_for_run(run_dir, conn=self.conn)
+        except BaseException:
+            self.conn.close()
+            raise
+
+    def close(self) -> None:
+        """Idempotent; see `telemetry.stated_counts._ArtifactJoin.close`'s
+        twin docstring for why this exists (review MINOR-3)."""
+        self.conn.close()
+
+    def __enter__(self) -> "ColdCache":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     def _payload(self, stage: str, input_sha: str, settings_key: str | None):
         from telemetry.run_of_record import select_artifact
@@ -453,6 +472,17 @@ def main(argv: list[str] | None = None) -> int:
     if val_regressions:
         return 2
     if args.expect_identical:
+        # Review MAJOR-1(a): a run whose partitions do not describe this data
+        # directory at all (a wrong --mode reconstruction, a corrupted
+        # RECORDED block that `partitions_for_run` failed to catch, a
+        # data-dir/run-of-record mismatch) used to resolve `no_text` on every
+        # row and pass silently — the drift check below only compares rows
+        # that DID resolve, so 0 of N resolving is 0 drift. Refuse that
+        # vacuous green explicitly, before the drift check ever runs.
+        if len(table) and len(no_text) == len(table):
+            print(f"BASELINE FIDELITY FAILED: 0 of {len(table)} shas resolved any cached "
+                  "text — the run's partitions do not describe this data directory")
+            return 3
         drift = [e for e in table if e["after"] not in ("no_text", "absent")
                  and (e["direction"] != "unchanged" or e["payload"] not in ("identical", "none-both")
                       or e["after_reason"] != e["before_reason"])]

@@ -152,7 +152,16 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartitions | None:
     """``None`` when the run predates recording; raises when the record is
     PRESENT but malformed (a half-written block is a defect, never a silent
-    invitation to reconstruct instead)."""
+    invitation to reconstruct instead).
+
+    Review MAJOR-1/MAJOR-4: the recorded ``mode`` is cross-checked against
+    the run's OWN ``summary.json:mode`` when the latter exists (it always
+    does for a real run of record — ``tools/train/provenance.py`` is invoked
+    a second time, into the run directory, only after the run itself
+    completed and wrote ``summary.json``). A disagreement means the
+    ``--mode`` an operator passed to ``provenance.py`` does not match what
+    the run actually did — a typo, most likely — and the record is refused
+    rather than silently trusted."""
     block = provenance.get("run_of_record")
     if block is None:
         return None
@@ -171,6 +180,15 @@ def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartit
             raise RunOfRecordError(
                 f"{run_dir}/provenance.json: run_of_record.partitions.{name} "
                 "missing or empty"
+            )
+    summary_path = run_dir / "summary.json"
+    if summary_path.is_file():
+        summary_mode = _load_json(summary_path).get("mode")
+        if isinstance(summary_mode, str) and summary_mode and summary_mode != mode:
+            raise RunOfRecordError(
+                f"{run_dir}/provenance.json: run_of_record.partitions.mode "
+                f"({mode!r}) disagrees with {run_dir}/summary.json:mode "
+                f"({summary_mode!r}) — refused rather than silently trusted"
             )
     ocr_keys_by_source = {"native": offline_key, "local_tesseract": offline_key}
     if isinstance(visual_key, str) and visual_key:
@@ -296,32 +314,56 @@ def partitions_for_run(run_dir: str | Path, *, conn: Any | None = None) -> RunPa
     if partitions is None:
         partitions = _reconstruct_partitions(run_dir, provenance)
     if conn is not None:
-        verify_reconstruction(partitions, conn)
+        verify_reconstruction(partitions, conn, run_dir)
     return partitions
 
 
-def verify_reconstruction(partitions: RunPartitions, conn: Any) -> None:
-    """A RECONSTRUCTED run's offline OCR key and analysis key MUST already
-    exist in the cache they were reconstructed to describe — both are
-    load-bearing for essentially the whole run. A reconstruction naming a key
-    the cache never wrote is a wrong guess and must never be served.
+def verify_reconstruction(partitions: RunPartitions, conn: Any, run_dir: str | Path) -> None:
+    """Review MAJOR-1: verified for EVERY origin, RECORDED included.
 
-    The VISUAL key is exempt: a run whose visual rung never fired (batch 8,
-    batch 9 — ``visual_rung = not_attempted`` on every row) legitimately has
-    ZERO rows under it, and that absence is the documented, expected state,
-    not a defect (a row that names the visual partition still resolves
-    correctly to ``None`` via :func:`select_artifact` on such a cache — a
-    miss, never a guess at another partition).
+    A RECORDED run's keys come from an operator-supplied ``--mode`` on
+    ``tools/train/provenance.py`` and are not otherwise cross-checked (the
+    ``mode``-vs-``summary.json`` disagreement check lives in
+    :func:`_recorded_partitions`, which runs unconditionally for a RECORDED
+    block; this function is the SECOND, cache-facing half of that same
+    "recording is not proof" principle) — the premise *"a RECORDED run's own
+    keys are, by construction, exactly what it wrote"* is false the moment a
+    human fat-fingers ``--mode``, and this cell's own proof floor never
+    exercised that path because every run it measured predates recording.
 
-    A RECORDED run's own keys are, by construction, exactly what its own run
-    wrote — nothing to verify."""
-    if partitions.origin != ORIGIN_RECONSTRUCTED:
-        return
+    Two checks, for BOTH origins:
+
+    1. **EXISTENCE.** The offline OCR key and the analysis key must each
+       appear SOMEWHERE in the cache's index for their stage — cheap, and it
+       catches a typo'd or wholly stale key.
+    2. **CORRESPONDENCE.** Existence alone is not enough on a multi-partition
+       archive: a key can exist in the index and still be the WRONG
+       partition for THIS run (measured: a run whose declared/reconstructed
+       offline key exists in the cache under a DIFFERENT tranche's artifacts
+       resolves that other tranche's text silently). A bounded sample — the
+       first 50 of the run's own rows whose ``source_path`` is ``native`` or
+       ``local_tesseract`` (their own provenance already says text was
+       read) — must resolve AT LEAST ONE artifact under the offline key for
+       its own ``content_sha256``; a sample that resolves ZERO of a
+       non-empty population is refused. (A partial cold cache can legitimately
+       miss individual documents — see F-9's own measurement, 3,364/3,380 on
+       the train9 archive — so this is "resolves none", not "resolves all";
+       the stronger, whole-cohort version of this check belongs to
+       ``tools/cohort_replay.py``'s own ``--expect-identical`` gate.)
+
+    The VISUAL key is exempt from both: a run whose visual rung never fired
+    (batch 8, batch 9 — ``visual_rung = not_attempted`` on every row)
+    legitimately has ZERO rows under it, and that absence is the documented,
+    expected state, not a defect (a row that names the visual partition
+    still resolves correctly to ``None`` via :func:`select_artifact` on such
+    a cache — a miss, never a guess at another partition)."""
+    run_dir = Path(run_dir)
     offline_key = partitions.ocr_keys_by_source.get("native") or partitions.ocr_keys_by_source.get(
         "local_tesseract"
     )
     _require_key_in_cache(conn, "ocr", offline_key)
     _require_key_in_cache(conn, "analysis", partitions.analysis_key)
+    _require_offline_key_resolves_a_sample(conn, run_dir, offline_key)
 
 
 def _require_key_in_cache(conn: Any, stage: str, key: str | None) -> None:
@@ -333,10 +375,60 @@ def _require_key_in_cache(conn: Any, stage: str, key: str | None) -> None:
     ).fetchone()
     if row is None:
         raise RunOfRecordError(
-            f"reconstructed {stage} settings key not found in the cache index it "
-            f"was reconstructed to describe: {key} — a reconstruction that names "
+            f"{stage} settings key not found in the cache index it was "
+            f"recorded/reconstructed to describe: {key} — a record that names "
             "a key absent from the cache is a wrong guess, never served"
         )
+
+
+#: How many of a run's own rows :func:`_require_offline_key_resolves_a_sample`
+#: samples — the first N whose own provenance says text was read. Bounded so
+#: the check costs one indexed lookup each, not a full-archive scan.
+_CORRESPONDENCE_SAMPLE_SIZE = 50
+
+
+def _sample_offline_rows(run_dir: Path, limit: int) -> list[dict[str, Any]]:
+    """The first ``limit`` rows of ``run_dir/rows.csv`` whose own provenance
+    says offline text was read (``source_path`` ``native``/``local_tesseract``).
+    ``rows.csv`` is read directly (not via ``tools.cohort_replay`` or
+    ``telemetry.stated_counts.load_run_rows``) to keep this module's only
+    dependency on the run directory's on-disk shape, with no import of
+    either reader it serves."""
+    import csv
+
+    path = run_dir / "rows.csv"
+    if not path.is_file():
+        return []
+    sampled: list[dict[str, Any]] = []
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if (row.get("source_path") or "").strip() in ("native", "local_tesseract"):
+                sampled.append(row)
+                if len(sampled) >= limit:
+                    break
+    return sampled
+
+
+def _require_offline_key_resolves_a_sample(
+    conn: Any, run_dir: Path, offline_key: str | None, *, sample_size: int = _CORRESPONDENCE_SAMPLE_SIZE
+) -> None:
+    if not offline_key:
+        return
+    sample = _sample_offline_rows(run_dir, sample_size)
+    if not sample:
+        # Nothing to check against — a run with no offline reads at all
+        # (unusual, but not this function's call to refuse).
+        return
+    for row in sample:
+        sha = (row.get("content_sha256") or "").strip().upper()
+        if sha and select_artifact(conn, "ocr", sha, offline_key) is not None:
+            return  # at least one of the sample resolves: correspondence holds
+    raise RunOfRecordError(
+        f"the offline OCR key {offline_key!r} resolves NONE of the first "
+        f"{len(sample)} rows this run recorded as read (source_path native/"
+        "local_tesseract) — the record names the wrong partition for this "
+        "cache and must not be served"
+    )
 
 
 def ocr_partition_for_row(row: Mapping[str, Any], partitions: RunPartitions) -> str | None:

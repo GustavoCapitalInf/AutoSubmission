@@ -199,28 +199,43 @@ def test_case9_the_decoy_partitions_are_never_returned_for_any_row(tmp_path):
 
 
 def test_case9_mutant_rows0_disagrees_with_the_correct_resolution(tmp_path):
-    """The mutant this whole module replaces: `SELECT ... WHERE stage=? AND
-    input_sha256=?` with no settings-key filter, taking `rows[0]`. Applied
-    directly against the CASE 9 cache to show it can return ANY of the three
-    OCR partitions — never reliably the run's own offline-nolocal one."""
+    """Review MINOR-4: the PRIMARY killer of the `rows[0]` mutant is
+    `test_case9_both_readers_resolve_deterministically_regardless_of_insertion_order`
+    (20 shuffled insertion orders, both readers, asserted correct every
+    time) — this test's job is narrower and additional: show the mutant
+    ITSELF actually resolving the WRONG artifact under at least one
+    insertion order, not merely that three rows exist for one input (the
+    old, vacuous version of this test asserted only `len(rows) == 3`, which
+    is true regardless of whether `rows[0]` ever picks correctly — it never
+    even applied the mutant's own `SELECT`, let alone compared its result
+    against the correct partition's pages)."""
     import sqlite3
 
-    data_dir = tmp_path / "data"
-    _write_artifacts(data_dir, _ALL_ARTIFACT_NAMES)
-    conn = sqlite3.connect(f"file:{(data_dir / 'webapp.db').as_posix()}?mode=ro", uri=True)
-    try:
-        rows = conn.execute(
-            "SELECT artifact_path FROM artifact_cache WHERE stage = 'ocr' AND input_sha256 = ?",
-            (SHA_X,),
-        ).fetchall()
-    finally:
-        conn.close()
-    # Three artifacts exist for this one input; `rows[0]` picks ONE of them
-    # with no guarantee it is the run's own offline-nolocal partition — the
-    # defect this module exists to remove. (SQLite's actual order here is a
-    # property of its storage engine, not a contract; the point is that
-    # `rows[0]` never CONSULTS the run's declared key at all.)
-    assert len(rows) == 3
+    def mutant_rows0(data_dir: Path) -> list[str]:
+        conn = sqlite3.connect(f"file:{(data_dir / 'webapp.db').as_posix()}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT artifact_path FROM artifact_cache WHERE stage = 'ocr' AND input_sha256 = ?",
+                (SHA_X,),
+            ).fetchall()
+            assert len(rows) == 3, "fixture bug: expected all three OCR partitions present"
+            payload = json.loads((data_dir / "artifacts" / rows[0][0]).read_text(encoding="utf-8"))
+            return payload["artifact"]["document"]["pages"]
+        finally:
+            conn.close()
+
+    disagreed_at_least_once = False
+    for order in _TWENTY_ORDERS:
+        data_dir = tmp_path / f"data_{'_'.join(order)}"
+        _write_artifacts(data_dir, list(order))
+        if mutant_rows0(data_dir) != ["OFFLINE-NOLOCAL PAGE"]:
+            disagreed_at_least_once = True
+    assert disagreed_at_least_once, (
+        "the rows[0] mutant agreed with the correct resolution on every one of "
+        "20 insertion orders — SQLite's row order is unspecified without ORDER "
+        "BY, so this would mean the test host's b-tree happened to always "
+        "return the same physical order across writes, not that the mutant is safe"
+    )
 
 
 def test_case9_mutant_ocr_keys_preference_picks_the_wrong_partition(tmp_path):
@@ -315,3 +330,96 @@ def test_case9_mutant_visual_first_picks_the_visual_decoy(tmp_path):
     finally:
         conn2.close()
     assert ocr_partition_for_row(ROW_OFFLINE, partitions) == KEY_OFFLINE_NOLOCAL
+
+
+# ---------------------------------------------------------------------------
+# review MAJOR-1(c) — --expect-identical refuses a vacuous zero-resolution
+# on the CALLER's selected cohort, distinct from verify_reconstruction's own
+# bounded correspondence sample (which only ever samples the run's FIRST
+# rows, never a caller's --shas/--folder/--group selection)
+# ---------------------------------------------------------------------------
+
+
+def test_expect_identical_refuses_a_vacuous_zero_resolution_on_the_selected_cohort(tmp_path, capsys):
+    """The run's declared offline key can pass BOTH verify_reconstruction's
+    existence check and its bounded-sample correspondence check (an early
+    row in rows.csv resolves) while the SPECIFIC cohort a caller selects via
+    --shas resolves NONE of it. That is a distinct failure mode from the
+    review's original MAJOR-1(a) reproduction (a run whose partitions
+    describe NOTHING in the data directory) and from MAJOR-1(b)
+    (correspondence) — this is the guard `tools/cohort_replay.py::main`
+    itself must carry, because no bounded sample inside
+    `telemetry/run_of_record.py` can see a caller's selection in advance."""
+    import subprocess
+    import sys
+
+    from webapp.artifact_cache import ArtifactCache, cached_analysis
+    from webapp.storage import Storage
+
+    data_dir = tmp_path / "data"
+    run_dir = tmp_path / "run"
+
+    offline_key = KEY_OFFLINE_NOLOCAL
+    cache = ArtifactCache(Storage(data_dir))
+
+    # The correspondence-sample document: cached under the offline key, and
+    # named FIRST in rows.csv so verify_reconstruction's bounded sample sees
+    # it and the run's declared offline key passes existence+correspondence.
+    corr_pdf = b"%PDF-1.7\ncorrespondence-sample document, never selected for replay"
+    corr_sha = content_sha256(corr_pdf)
+    corr_doc = StatementMarkdown(source_file="corr.pdf", model="native-pdf-text", pages=["CORR PAGE"])
+    cache.put_ocr(corr_sha, offline_key, corr_doc)
+    result = cached_analysis(
+        corr_doc.to_markdown(), compute=lambda: {"marker": "CORR"}, cache=cache,
+        parse_mode="deterministic", sheets=corr_doc.pages,
+    )
+    assert not result.cached
+
+    # The document the caller actually asks to replay: never cached at all.
+    target_pdf = b"%PDF-1.7\nthe replay target, no cached artifact anywhere"
+    target_sha = content_sha256(target_pdf)
+
+    from webapp.artifact_cache import analysis_settings_key
+
+    _write_run_dir_with_partitions(
+        run_dir, offline_key=offline_key, analysis_key=analysis_settings_key(parse_mode="deterministic"),
+        mode="digital",
+    )
+    (run_dir / "rows.csv").write_text(
+        "content_sha256,folder_label,outcome_class,outcome_reason,parser_id,source_path,visual_rung\n"
+        f"{corr_sha},Correspondence,validated,,some_parser,native,not_attempted\n"
+        f"{target_sha},Target,failed,no_parser_matched,,native,not_attempted\n",
+        encoding="utf-8",
+    )
+    shas_file = tmp_path / "shas.txt"
+    shas_file.write_text(target_sha + "\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "tools.cohort_replay",
+            "--run", str(run_dir), "--data-dir", str(data_dir),
+            "--shas", str(shas_file), "--expect-identical",
+        ],
+        capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]),
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "0 of 1 shas resolved any cached text" in result.stdout
+
+
+def _write_run_dir_with_partitions(run_dir: Path, *, offline_key: str, analysis_key: str, mode: str) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir.joinpath("provenance.json").write_text(
+        json.dumps(
+            {
+                "tree": {},
+                "run_of_record": {
+                    "partitions": {
+                        "offline_ocr_key": offline_key,
+                        "analysis_key": analysis_key,
+                        "mode": mode,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
