@@ -64746,10 +64746,20 @@ tests/test_parser_detection_markers.py tests/test_parser_registry.py
 tests/test_parser_crash_shapes.py tests/test_parser_exception_boundary.py
 tests/test_count_semantics.py` — 1,282 passed / 41 skipped, exit 0.
 `python -m pytest tests/test_escalation_router.py -m corpus` — 1 passed, exit 0.
-`python corpus_gate.py` — GREEN, exit 0.
-Full default suite (`python -m pytest -q`) — running at report time; result
-appended below when it completes, or reported separately if this section
-composes before it finishes.
+`python corpus_gate.py` — GREEN, exit 0 (807.2 s).
+Full default suite (`python -m pytest -q`) — **7,863 passed, 44 skipped, 36
+deselected**, exit 0 (318.06 s; 0 failures, 0 errors — grepped the log
+directly). This cell's own test files collect 45 items at default-run scope
+(44 in `tests/test_escalation_router.py` + 6 in
+`tests/test_escalation_tripwires.py` — collected via `--collect-only`; one
+`test_escalation_router.py` test is `@pytest.mark.corpus` and deselected by
+default) plus 3 new items in `tests/test_discovery.py` and 1 in
+`tests/test_telemetry.py`. The composed batch-9 tree `7b25d70` (a different,
+earlier commit than this card's base `bea06bc`) recorded 7,815 passed / 44
+skipped / 35 deselected; the two counts are not a clean before/after pair for
+this cell specifically (intervening commits between `7b25d70` and `bea06bc`
+are outside this branch's diff) — the number that matters is measured here:
+0 failures at closure.
 
 **Privacy and message-scan counts.** Population: 193 content-sha256 documents
 (the 179 Tesseract reads + the 13 R shas + `Chase/Chase Mar.pdf`, the digital
