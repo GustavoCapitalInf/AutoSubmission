@@ -64494,3 +64494,328 @@ lines, so the second pass matched on whitespace rather than on a literal.
 Eleven open questions now stand in §6 of the audit document. The first three
 still gate any Phase-2 implementation card: the rewrite pair, whether the
 no-hardcodes guard extends to `ocr/`, and whether the `$0` policy becomes code.
+
+# §P20SEAM — the provenance-injection path closed, the $0 endpoint allowlist enforced in code, four legacy OCR scripts retired
+
+Card `docs/agent-handoffs/P20-SEAM.md` (Phase 2.0 cell B2). Base `train10` at
+`bea06bc`; branch `wave20-seam`, worktree `.claude/worktrees/mt20-seam`; closure
+tree `28f75d7` (+ this section's own commit). Hygiene card: `newly validated =
+0`; previously validated preserved, payload identical. Nothing here made a
+network call; no paid service was enabled; no test exercised a real remote
+endpoint.
+
+## Population
+
+The CODE and TESTS of the OCR provenance/endpoint seam, not a document
+population claimed for coverage. The measured proof population for cohort
+replay / privacy / message scans is 229 distinct content shas: the 6 committed
+corpus OCR fixtures (`tests/corpus_cache/ocr/*.md`) + the 179 Tesseract-sourced
+shas of the batch-9 run of record (the 6 fixtures are a subset of the 179) + a
+50-sha deterministic random sample (seed `20260901`) of the 3,172 native-sourced
+shas, deduplicated.
+
+## Root cause
+
+**F-4(b) / MAJOR-2 — content injection, reproduced end-to-end at this tree
+before any fix existed.** `ocr/config.py`'s pre-fix `load_settings()` read
+`OCR_MODEL` as a plain env string with no validation; `ocr/pipeline.py` stamps
+it onto the visual rung's `StatementMarkdown.model`, and `to_markdown()` writes
+it into the first line of the analysis input:
+`<!-- source: {source_file} | pages: {n} | model: {model} | empty: {k} -->`.
+`analysis.parser_registry.SOURCE_COMMENT_RE` (`^<!--\s*SOURCE:.*?-->\s*$`,
+`MULTILINE`, **not** `DOTALL`) only strips that header when the whole comment
+stays on one line. Reproduced directly against the pre-fix tree:
+`StatementMarkdown(source_file="innocuous.pdf", model="evil-model\n5,000.00 WIRE
+TRANSFER FROM SHELL CORP", pages=["page one text"])` — the header spans two
+real lines because of the embedded `\n`; the regex never matches (no `-->`
+before the end of line 1); `admissible_text()` strips NOTHING; the money token
+and the marker-shaped text reach the text every parser's detection markers scan
+and every text metric runs over. A `-->` alone, without a newline, does **not**
+escape (lazy `.*?` backtracks to the LAST `-->` on the line, which the docstring
+of `tests/test_ocr_provenance_injection.py` reproduces and explains).
+
+**F-4(a) — unbounded egress.** `OCR_BASE_URL` was a plain env read with no
+allowlist; `ocr/availability.py`'s "no paid vendor is involved and none may be"
+was a docstring claim nothing enforced. Four entry points defaulted
+`allow_visual_ocr=True`: `parse.py`, `batch.py`, `coverage_audit.py` and
+`sweep_ocr.py`.
+
+**F-7 — the provenance vocabulary's fallthrough.** `telemetry.record.
+source_path_for`'s final branch returned `"visual"` for ANY model string that
+matched none of the three named branches — correct only because the visual
+rung was the only one that had ever produced an unrecognised token.
+
+## Solution
+
+1. **Closed provenance tokens** (`ocr/config.py` new: `MODEL_TOKEN_RE`,
+   `validate_model_token`, `ProvenanceTokenError`, `RESERVED_MODEL_PREFIXES`).
+   Charset: first character alphanumeric, then only `[A-Za-z0-9._/+-]`, length
+   1-64 — structurally excludes all whitespace (so `\n`, `\r`, a plain space),
+   `<`, `>`, `!`, `$`, `,`, quotes, backslash. Additionally refused: a
+   money-shaped substring `\d+\.\d{2}(?!\d)` (e.g. `v1.00`), and — for
+   env-supplied tokens only (`allow_reserved=False`, used by `load_settings()`)
+   — a token equal to or starting with a reserved deterministic-rung prefix
+   (`native-pdf-text`, `local-tesseract-ocr`, `deterministic-native-preflight`).
+   `ocr/document.py::StatementMarkdown.__post_init__` validates `model` with
+   `allow_reserved=True` (native/tesseract rungs legitimately set those exact
+   tokens) and separately refuses a `source_file` containing `\r`/`\n`; every
+   other hostile shape in `source_file` (a money literal, `-->`, `<`, `>`, a
+   marker string) is ACCEPTED but proven to leave no trace in `admissible_text`
+   because the whole header line still strips out as long as it stays on one
+   line. `to_markdown()` itself is untouched — validation happens at
+   construction, so every valid token stays byte-identical in the header.
+2. **`ocr/endpoint_policy.py` (new)** — OQ3 = ALLOWLIST in code.
+   `classify_endpoint(base_url)` → `loopback` / `private` / `remote` /
+   `invalid` (scheme + host only, no network call). `check_endpoint(base_url,
+   *, opt_in)`: loopback/private allowed by default; remote allowed ONLY when
+   `opt_in` is True; invalid never. `remote_opt_in_from_env()` reads ONE env
+   var, `OCR_REMOTE_OPT_IN`, against the ONE exact literal
+   `I_ACCEPT_REMOTE_PAID_OCR` — not a truthy check. `ocr/ocr_client.py
+   ::_build_client` (the ONLY hunk of that file this card touches) calls
+   `check_endpoint(settings.base_url, opt_in=settings.remote_opt_in)` BEFORE
+   importing `openai` or constructing anything, and raises `EndpointRefused`
+   on refusal; `ocr.availability.probe_visual_ocr`'s default path reaches this
+   through `_build_client`, so the probe inherits the same refusal. `Settings`
+   gains `endpoint_class` / `remote_opt_in` as DESCRIPTIVE fields
+   (auto-derived from `base_url` in `__post_init__` when not given) — the
+   enforcement re-derives the class fresh from `base_url` rather than trusting
+   the field, so a hand-built `Settings` cannot spoof its way past the check.
+   There is exactly one endpoint per process: `_build_client` builds one
+   client for one `base_url`, no fallback list, no retry against a second
+   host. `telemetry/prices.py` unchanged: `price_for` on an unpriced/remote
+   model still returns `None`, never a guessed price.
+3. **`source_path_for` fallthrough closed** (`telemetry/record.py`, touching
+   ONLY that function and its new helper, per ownership). New closed
+   `VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})`; the final
+   branch returns `"visual"` only for a token in that set, `"none"`
+   otherwise. New `source_path_unrecognized_model(model)` predicate a caller
+   can use to surface the mis-attribution as an explicit diagnostic (the
+   literal wiring of that flag into a persisted record's `diagnostics` block
+   is outside this cell's file ownership — see Risks). `SOURCE_PATHS` itself
+   is unchanged; no PaddleOCR token added.
+4. **Legacy entry points retired (OQ7).** `triage_scan.py`'s `CHECKS` dict
+   salvaged into `tests/test_ocr_defect_signatures.py` (9 tests): 5 of 7
+   signatures proven closed by the postprocess function that replaces them
+   (`strip_det_tags`, `strip_placeholder_markers`, `split_fused_header_row`,
+   `collapse_repeated_amounts`, `fix_amount_column_bleed`); 2 with no detector
+   (bare `[image]`-style bracket placeholders, a fully empty
+   `<table></table>`) recorded honestly as known, undetected defects rather
+   than silently dropped. `sweep_ocr.py`, `triage_scan.py`,
+   `coverage_audit.py`, `deterministic_coverage_audit.py` deleted (`git rm`).
+   `parse.py` and `batch.py` now default `allow_visual_ocr=False` and gain an
+   explicit `--visual` flag that probes (`ocr.availability.probe_visual_ocr`,
+   which runs the OQ3 check via `_build_client`) before ever passing
+   `allow_visual_ocr=True`; a refusal prints one console line to stderr and
+   exits non-zero (parse.py: 3; batch.py: 1) with nothing sent.
+   `local_ocr_server.py`, `serve_local.sh`, `run.ps1`,
+   `requirements-local.txt` stay (the $0 vendor).
+5. **README (OQ6).** The RunPod section is retitled "Optional PAID remote
+   escape hatch — never automatic", states the exact opt-in literal, and notes
+   the run records `endpoint_class=remote` / `remote_opt_in=true` whenever
+   that path is used; the local $0 server section is now presented first, as
+   the documented default.
+
+## Newly validated
+
+**0.**
+
+## Other ladder movement
+
+**0** (up or down, outside the named population).
+
+## Previously validated preserved
+
+**75 of 75**, payload identical, at BOTH base (`bea06bc`) and closure
+(`28f75d7`) — the two cohort-replay sha lists (previously-validated and
+unchanged-non-validated) are IDENTICAL between the two runs, member for
+member.
+
+## Regressions
+
+**0** validated regressions. **0** other ladder regressions.
+
+## Correctness evidence
+
+The base-tree reproduction above (the money-shaped literal survived
+`admissible_text` completely, unstripped, with the pre-fix tree) is now closed
+at construction: `StatementMarkdown(model="evil-model\n5,000.00 WIRE TRANSFER
+FROM SHELL CORP", ...)` raises `ocr.config.ProvenanceTokenError` before
+`to_markdown()` is ever called — pinned as
+`test_the_base_tree_reproduction_is_now_refused_at_construction`. Cohort
+replay at base and at closure over the 229-sha population: exit 0 both times,
+`newly validated 0`, `previously validated preserved 75/75 payload identical`,
+`validated regressions 0` — identical between the two trees.
+
+## Generalization evidence
+
+The closure is a closed CHARSET plus two named additional refusals (money
+shape, reserved-prefix impersonation), not a blocklist of the audit's specific
+reproduction string — it refuses every hostile SHAPE the card names (a
+newline, CRLF, `-->`, `<`, `>`, a money literal, a bank/parser-marker string, a
+`<|det|>` tag, a `<!-- source:` fragment, whitespace, an over-length token) for
+BOTH `OCR_MODEL` and `source_file`, including inputs never seen in the audit.
+The endpoint policy is equally general: it classifies by URL structure
+(scheme + host), not by a list of known-bad hosts, so it refuses `*.runpod.net`
+and every other public name or IP the same way without naming any of them.
+
+## Hostile inputs tested
+
+For both `OCR_MODEL` (via `load_settings`, both `--model` override and the env
+var) and `source_file` (via `StatementMarkdown` construction): `\n`, `\r\n`,
+`-->`, `<`, `>`, a money literal (`v1.00`), a bank/parser-marker string
+(`analysis.chase.DETECTION_MARKERS`'s own "bank_name" marker text, mirrored),
+a `<|det|>` tag, a `<!-- source: ...` fragment, whitespace, an over-length
+token (65 chars against the 64-char limit). Plus six single-property ISOLATED
+variants (`ISOLATED_HOSTILE_MODEL_INPUTS`) so a mutant reopening exactly one
+hole is killed for that reason and not by an unrelated forbidden character
+riding along in the same fixture. Plus four reserved-prefix impersonation
+attempts (`native-pdf-text`, `native-pdf-text+fake-layout`,
+`local-tesseract-ocr`, `deterministic-native-preflight`) via env override.
+
+## Endpoint classes tested
+
+`loopback` (`localhost`, `127.0.0.1`, `127.255.255.255`, `[::1]`), `private`
+(`192.168.x.x`, `10.x.x.x`, `172.16.x.x`, `169.254.x.x` link-local, `[fe80::1]`
+link-local, `[fc00::1]` ULA, `*.local` names), `remote` (`*.runpod.net`, a
+public IP, a public domain), `invalid` (unparseable, non-http(s) scheme, empty,
+no host). All four decision paths of `check_endpoint` exercised (loopback/
+private allowed without opt-in; remote refused without opt-in and allowed
+with it; invalid never allowed, opt-in or not).
+
+## Mutation table (10/10 killed, applied one at a time on the committed tree, reverted with `git checkout HEAD -- <file>`, `git status --porcelain` clean before and after each)
+
+| mutant | how introduced | killer | result |
+|---|---|---|---|
+| charset allows `\n` | `MODEL_TOKEN_RE` widened to `[A-Za-z0-9._/+\-\n]` with `DOTALL` | `test_isolated_hostile_property_alone_is_refused[newline]` | DID NOT RAISE → red; killed |
+| charset allows `>` | `MODEL_TOKEN_RE` widened by adding `>` (dash kept literal-last) | `test_isolated_hostile_property_alone_is_refused[angle_close]` (+`comment_close`) | DID NOT RAISE → red; killed |
+| reserved prefix accepted from env | `load_settings()`'s `validate_model_token(raw_model, allow_reserved=False)` flipped to `True` | `test_env_value_impersonating_a_native_rung_is_refused` | DID NOT RAISE → red; killed |
+| `source_file` with `\n` accepted | the line-break `if` in `StatementMarkdown.__post_init__` short-circuited to `if False:` | `test_hostile_source_file_line_break_refused[newline]`/`[crlf]` | DID NOT RAISE → red; killed |
+| `check_endpoint` returns allowed for `remote` without opt-in | the `if opt_in:` guard replaced with `if True:` | `test_remote_without_opt_in_is_refused` (CASE 8) | `allowed=True` → red; killed |
+| `OCR_REMOTE_OPT_IN=1` accepted | `remote_opt_in_from_env` changed to `bool(source.get(...))` | `test_remote_opt_in_requires_the_exact_literal` (7 of 9 parametrizations) | truthy strings accepted → red; killed |
+| `_build_client` constructed before `check_endpoint` | `OpenAI(...)` moved before the `check_endpoint` call | `test_build_client_refuses_remote_before_importing_openai` | `openai` imported despite refusal → red; killed |
+| loopback failure retried against a second URL | `_build_client` builds a second, hardcoded-URL client unconditionally | `test_probe_never_retries_against_a_second_host` (+`test_build_client_allows_loopback_and_constructs_a_client`) | a second `base_url` appears in the recorded calls → red; killed |
+| `source_path_for` returns `"visual"` for `paddle+x` | the fallthrough's `return "none"` changed to `return "visual"` | `test_source_path_fallthrough_is_closed_not_a_guess` | `qwen2.5-vl-7b` classified `"visual"` → red; killed |
+| `parse.py` defaults `allow_visual_ocr=True` | the CLI's `allow_visual_ocr = False` initializer flipped to `True` | `test_main_default_is_offline_only` | `seen["allow_visual_ocr"] is True` → red; killed |
+
+## Deleted scripts and every reference removed
+
+`git rm`: `sweep_ocr.py`, `triage_scan.py`, `coverage_audit.py`,
+`deterministic_coverage_audit.py`, `tests/test_deterministic_coverage_audit.py`.
+`git grep -n "import sweep_ocr\|import triage_scan\|import coverage_audit\|
+import deterministic_coverage_audit\|from sweep_ocr\|from triage_scan\|from
+coverage_audit\|from deterministic_coverage_audit" -- '*.py'` → 0 hits (after
+also fixing `tests/test_revenue_classification.py`'s
+`from coverage_audit import _status as coverage_status`, inlined
+byte-identical, and the two tests in `tests/test_native_text_unreadable.py`
+that called `deterministic_coverage_audit.audit_file` directly, removed —
+`text_layer_refusal` itself stays fully covered by the tests immediately above
+them; nothing in the current production runtime path consumed the deleted
+script's CSV row). `corpus_gate.EXCLUDED_ANALYSIS_CALLERS` entries for both
+scripts removed (their absence would otherwise fail
+`test_every_production_caller_of_the_analysis_is_classified`'s `stale` check).
+`tests/test_native_rung_parity.py::LADDER_BINDINGS` drops
+`deterministic_coverage_audit` (the AST scan derives the binding list from the
+repository, so a deleted consumer left in the dict fails the pin). Remaining
+mentions of the four filenames anywhere in the tree are historical prose in
+docstrings/comments of OTHER cards' committed records (`analysis/chase.py`,
+`analysis/extract.py`, `tests/test_extraction_refusal_is_private.py`,
+`tests/test_raise_privacy3.py`, `tests/test_raise_privacy4.py`) — none are
+imports, none are executable, left untouched as another card's frozen record.
+Known follow-on, not fixed here (outside this cell's file ownership):
+`tools/ocr_legacy_census.py`'s `COMPONENTS` tuple still names the four retired
+paths, so `python tools/ocr_legacy_census.py --tree` now exits 2 ("a declared
+component path does not exist in this tree") — that tool is unowned by any
+Phase-2.0 cell and unwired into any test.
+
+## Tests added
+
+117 new tests across three new files: `tests/test_ocr_provenance_injection.py`
+(62), `tests/test_ocr_endpoint_policy.py` (46), `tests/test_ocr_defect_
+signatures.py` (9). Plus 4 new tests in `tests/test_cli.py` (default
+offline-only, `--visual` refused, `--visual` allowed, `None`-document fail
+closed) and 1 new test in `tests/test_telemetry.py`
+(`test_source_path_fallthrough_is_closed_not_a_guess`). Minus 2 removed from
+`tests/test_native_text_unreadable.py` and 4 removed with
+`tests/test_deterministic_coverage_audit.py`. Net **+116**, matching the full
+suite's measured delta exactly (7,931 − 7,815 = 116).
+
+## Exit codes (verbatim, this tree, `28f75d7`)
+
+- Targeted files (`test_ocr_provenance_injection.py`,
+  `test_ocr_endpoint_policy.py`, `test_ocr_defect_signatures.py`,
+  `test_telemetry.py`, `test_native_rung_parity.py`,
+  `test_native_text_unreadable.py`, `test_cli.py`, `test_ocr_client.py`,
+  `test_pipeline.py`, `test_discovery.py`, `test_visual_rung.py`,
+  `test_filename_boundary.py`, `test_privacy3_boundaries.py`,
+  `test_document.py`, `test_truncation.py`, `test_corpus_gate_outcomes.py`,
+  `test_revenue_classification.py`): **820 passed, 13 deselected — exit 0**.
+- The 5 canonical guards + 7 canonical conformance files: **1,537 passed, 41
+  skipped — exit 0**.
+- Full default suite: **7,931 passed, 44 skipped, 35 deselected, 1 warning in
+  290.77s — exit 0** (base floor at `bea06bc`/`7b25d70`: 7,815 passed / 44
+  skipped / 35 deselected; net +116, all new, 0 lost).
+- `python corpus_gate.py`: **GREEN — exit 0**. 109 pinned PDFs (103 native
+  text, 6 committed OCR, 0 live OCR, 0 model calls); outcomes 105 PASS / 3
+  WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3
+  withheld — identical to the batch-9 floor. Runtime 959.9s (host shared with
+  several concurrent cells this session).
+- `pytest -m corpus`: **31 passed, 7,979 deselected — exit 0** (1,939.18s,
+  host contention).
+- `tools.cohort_replay` at base (`bea06bc`) and at closure (`28f75d7`), same
+  229-sha population, `--expect-identical` at base: **exit 0 both times**,
+  identical results (`newly validated 0`, `previously validated preserved
+  75/75 payload identical`, `validated regressions 0`).
+
+## Privacy / message scan
+
+`tools.privacy_scan_branch --base bea06bc --ref HEAD --shas <229-sha
+population>`: `hit_count: 0` (raw hits 3, all WORDS-class generic-vocabulary
+coincidences — "a two-word phrase from a docstring/comment", not a document
+value — excluded by the tool's own `words_class` rule; MONEY/DIGITS/DATES all
+0).
+`tools.huntington_msg_privacy_scan --base bea06bc --ref HEAD --shas <same
+229-sha population>`: `hit_count: 1`, class WORDS only — a conventional-commit
+TYPE PREFIX word (the `chore(...)` subject-line convention) coincidentally
+matching common printed vocabulary somewhere in the 229-document population;
+MONEY / DIGITS / DATES all **0**. No commit message quotes a document value,
+an amount, a date or a digit run from the archive.
+
+## Commits
+
+`e61f928` fix(ocr): close the OCR_MODEL/source_file provenance-injection path
+and enforce the $0 endpoint allowlist (F-4, OQ3) · `b8e7da5` fix(telemetry):
+close source_path_for's visual fallthrough (F-7) · `615a617` chore(ocr):
+finish retiring coverage_audit.py / deterministic_coverage_audit.py (OQ7) ·
+`4a74d14` fix(cli): parse.py / batch.py default offline-only; --visual is the
+explicit probed opt-in (F-4a, OQ7) · `2785fd7` test(ocr): hostile-input
+regression suite for the provenance closure and endpoint policy (P20-SEAM) ·
+`d7659dd` docs(readme): relabel RunPod as the optional PAID escape hatch,
+never automatic (OQ6) · `28f75d7` test(ocr): isolate one hostile property per
+fixture for honest mutation-table kills · plus this section's own commit.
+
+## Risks
+
+1. **`VISUAL_MODEL_TOKENS` is deliberately narrow** (only the configured
+   default, `baidu/Unlimited-OCR`). Any OTHER legitimately-configured visual
+   model name (a real vLLM server serving a different HF model id via
+   `OCR_MODEL`) is now classified `source_path="none"` with
+   `source_path_unrecognized_model=True` rather than `"visual"`, until
+   explicitly added to the set — stricter than today's de facto behaviour for
+   any non-default `OCR_MODEL`. This is the ruled, fail-closed design (F-7);
+   flagged because it is a real behaviour change for a hypothetical
+   non-default deployment, even though it touches ZERO documents in the
+   run of record (0 visual reads exist).
+2. **`source_path_unrecognized_model`'s wiring into a persisted record's
+   `diagnostics` block is exposed, not consumed.** This cell owns ONLY
+   `source_path_for` and its helpers in `telemetry/record.py`; the literal
+   `source_path_unrecognized_model: true` diagnostic field the card describes
+   requires wiring into `source_section`/`build_record`/`diagnose_document` —
+   outside this cell's file ownership (likely cell A's, which owns
+   `FAILURE_CLASSES`/`EXTRACTION_TRIGGERS` and the diagnostics vocabulary in
+   the same module). Flagged for Ocean to route.
+3. **`tools/ocr_legacy_census.py` now exits 2 if run** (its `COMPONENTS`
+   tuple still names the four retired scripts). Unowned by any Phase-2.0 cell,
+   unwired into any test — a documented follow-on, not a regression.
+4. **No concern about a ruled decision.** Every design point in
+   `docs/agent-handoffs/P20-SEAM.md` was implementable as specified; nothing
+   here reads as incorrect for a correctness reason.
