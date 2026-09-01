@@ -64494,3 +64494,213 @@ lines, so the second pass matched on whitespace rather than on a literal.
 Eleven open questions now stand in §6 of the audit document. The first three
 still gate any Phase-2 implementation card: the rewrite pair, whether the
 no-hardcodes guard extends to `ocr/`, and whether the `$0` policy becomes code.
+
+# §P20SURFACES — the fabricated "OCR confidence" removed, Q3 gated native-only, the two 2026-07 specs superseded
+
+**Hygiene card (Phase 2.0 cell D).** Base `train10` `bea06bc`. Branch `wave20-surfaces`, worktree
+`.claude/worktrees/mt20-surfaces`. Three commits: `033af7f` (OQ9), `08b07f3` (Q3 native-only gate),
+`2396e80` (OQ11).
+
+## Population
+Every `confidence` occurrence in `webapp/static/*.js` / `webapp/templates/*.html` (14, matching
+`OCR_LEGACY_AUDIT.md` §2.7's own count exactly) for OQ9. For the Q3 gate: the six registrations that
+call `sibling_omission.publish_omissions` — `community_section`, `dakota_west`, `mission_valley`,
+`member_statement_rollup`, `symitar`, `zions` — 128 shas of the train9 run of record, including all
+8 `guardian_cu` documents / 12 accounts of L1-S4 (`333E226A75FE5441`, `472A0966A5204513`,
+`596804AA1ACD01EB`, `7C7956EB5E93DB1D`, `C3D3E48F1E14AE2A`, `E38FA786106F752E`, `F5BC9FB6D084559E`,
+`FFAC0A88768A8A59`). For OQ11: the two 2026-07 spec files.
+
+## Root cause
+OQ9: `confidenceFrom`/`packageConfidence` (`webapp/static/app.js:594-609` at base) returned a
+hard-coded 98/94/80/72 (98/86/72 for packages) selected from the validator's own `quality` verdict and
+rendered it to the operator as `"OCR confidence"` — not an OCR measurement, a validator verdict wearing
+an extractor's label, misleading the day a second extractor exists.
+
+Q3: `printed_pair_coincides_and_no_row_printed` was corroborated 6/6 on `native-pdf-text` `guardian_cu`
+sections only (`tools/q3_corroboration_probe.py`), to bound an OCR row-loss hazard that has never been
+measured on OCR'd input (F-8/§5.8). Nothing in the reader enforced that the corroboration and the
+admission shared the same provenance.
+
+OQ11: two 2026-07 "Approved" design specs describe a standalone parser with its own JSON and its own
+validator — the architecture `PHASE2_ARCHITECTURE_PLAN.md` explicitly supersedes.
+
+## Solution
+**OQ9.** Deleted `confidenceFrom` / `packageConfidence`. New `validationLabel(report)` /
+`packageValidationLabel(pkg)` return WORDS ONLY from the closed vocabulary already in the payload
+(`quality.corporate_use`, `quality.level`, `pkg.totals.decision` / `.completeness` /
+`.cross_account_averages_refused`) — never a percentage, never a number of any kind, under the label
+"Validation". `confidenceValue` renamed `validationValue`; every `"OCR confidence"` status row and the
+completion-banner meta now read "Validation" / the verdict word.
+
+**Q3.** New `analysis/provenance.py::extractor_model(markdown) -> str | None` reads ONLY the first line
+of `markdown`; a first line that is not the `<!-- source: … | model: <token> | … -->` header
+(`ocr/document.py::StatementMarkdown.to_markdown()`) or that has no header at all answers `None`. It
+never reads a second line looking for one.
+
+**The seam chosen is `analysis/sibling_omission.py::publish_omissions`, not `analysis/pipeline.py`.**
+Reasons: (1) `publish_omissions` is the ONE function every omission-publishing parser module
+(`community_section.py`, `member_statement.py`, `symitar.py`, `zions.py`) already calls, so the gate
+lives once instead of at four call sites across three files this card does not own; (2) raising there
+happens INSIDE the registration's `parse()` call, which `analysis.parser_registry._guarded`
+(`:839-855`) already wraps in a bare `except Exception` — so the raise is caught exactly as a
+declining parser is, and the document fails closed as `parser_exception` / `ParserCrashError`
+(`analysis/parser_registry.py:127`) in deterministic mode, the identical fail-closed shape
+`SiblingOmission.__post_init__`'s `ValueError` already takes for an unratified reason. Raising instead
+from `analyze_document` after `_analyse` returns would escape `_guarded`'s boundary and propagate
+uncaught to `webapp/worker.py` / `discovery/runner.py` — files this card does not own and whose
+handling of an uncaught exception here is unproven.
+
+The document's raw markdown reaches `publish_omissions` via a SECOND `ContextVar`
+(`_MARKDOWN`), set by `sibling_omission.collecting(markdown)` — extended with one optional parameter,
+its only caller (`analysis/pipeline.py::analyze_document`) updated to pass its own `markdown` argument.
+No parser module's signature or call site changes.
+
+An omission whose `reason == printed_pair_coincides_and_no_row_printed` is admitted only when
+`extractor_model(...)` starts with `native-pdf-text`; anything else (`""`, `local-tesseract-ocr`, no
+header) raises `ValueError`, naming the closed-vocabulary refusal token
+`q3_class_requires_native_provenance` in its message (no separate refusal-reason enum exists to extend).
+The other three ratified classes (`printed_dormancy_declaration`, `printed_zero_activity_summary`,
+`yield_only_arithmetic_with_summary_equality`) are not checked at all.
+
+`tests/l1s4_pages.py::document()` now stamps its fixtures with the same `native-pdf-text` header
+`to_markdown()` writes — required because two of its existing tests
+(`test_an_idle_sibling_is_omitted_on_printed_evidence_and_the_account_still_validates`,
+`test_the_omitted_sections_label_is_the_printed_role_and_never_a_number`) and two in
+`tests/test_l1s4_transfers.py` exercise the Q3 admission through `analyze_document` on headerless text,
+which the new gate would otherwise fail-close as a regression in an unrelated test file. Transparent to
+every existing assertion: `admissible_text` already strips this exact comment before any marker or
+parser sees the page, so no parsed content changes. Flagged here because `tests/l1s4_pages.py` is not
+on this card's file list, but the alternative (a special-cased header only at the two Q3 call sites)
+would have been a worse, scattered edit for the same one-line cause.
+
+**Note on the spoof hole.** An `OCR_MODEL=native-pdf-text` env value would pass this gate as written —
+closed by cell **P20-SEAM**'s reserved-prefix refusal: `load_settings()` REFUSES an env-set token equal
+to or starting with `native-pdf-text` / `local-tesseract-ocr` / `deterministic-native-preflight`
+(`docs/agent-handoffs/P20-SEAM.md` design item 1, its own text naming "cell D's Q3 native-only gate" as
+the reason). This card gates on the token the tree hands it; P20-SEAM is what keeps that token honest.
+
+**OQ11.** Prepended a `STATUS: SUPERSEDED (2026-09-01, PHASE2_RULINGS.md OQ11)` block to both
+`docs/superpowers/specs/2026-07-21-paddleocr-bank-statement-parser-design.md` and
+`…2026-07-22-nanonets-vlm-bank-statement-parser-design.md`, naming `PHASE2_ARCHITECTURE_PLAN.md` as the
+accepted architecture, preserving the bbox/row/column/geometry ideas for `document_geometry`
+(`analysis/structurer/geometry.py`) in Phase 2.1, and noting `parse.py` is no longer a front door
+(cell P20-SEAM). Neither body edited or deleted.
+
+## Newly validated
+**0.**
+
+## Other ladder movement
+**0.** `cohort_replay` over the six omission-publishing registrations (128 replayed): `newly validated
+0`, `other ladder movement (up, not validated) 0` at base and at closure, identically.
+
+## Previously validated preserved
+**125 of 125**, at base and at closure identically (102 payload-identical, 23 payload-changed — the
+SAME 23 shas, the SAME `changed_paths` sets, at both trees). The 23 predate this card: every changed
+path is under `document.*` (RULE S's document-block addition composed by L1-S4/S3, already present at
+`train10`'s base before any Phase-2.0 cell touched anything), confirmed by running the identical
+`cohort_replay` command with my changes stashed out and restored — the population, movement and
+preserved counts, and the full sha lists, are byte-identical in both runs. All 8 `guardian_cu` shas
+individually verified: `before`/`after` both `validated`/`approved`, `direction: unchanged`, identical
+`changed_paths` at base and closure.
+
+## Regressions
+**0.**
+
+## Correctness evidence
+* `cohort_replay --expect-identical --parser community_section --parser dakota_west --parser
+  mission_valley --parser member_statement_rollup --parser symitar --parser zions` against
+  `.claude/recovery/webapp_data_train9_cold` from the train9 run of record: 128/128 replayed, `newly
+  validated 0`, `previously validated preserved 125/125`, `validated regressions (BLOCKING) 0` — run
+  once at base (`bea06bc`, changes stashed) and once at closure (`2396e80`), numbers and sha lists
+  identical.
+* `tests/test_q3_native_only.py` (15 tests, new): `extractor_model` proven first-line-only and
+  no-header-safe in isolation; the full pipeline admits `native-pdf-text` and
+  `native-pdf-text+guardian`, refuses `local-tesseract-ocr`, an absent header and an empty model field
+  (each `ParserCrashError`, a `RuntimeError` subclass); the refusal names
+  `q3_class_requires_native_provenance` (asserted directly on `publish_omissions`, below `_guarded`'s
+  message-swallowing boundary); the other three classes proven admitted with no header and under a
+  hostile non-native header.
+* `tests/test_webapp_confidence_label.py` (15 tests, new): no `"OCR confidence"` string, no
+  `confidenceFrom`/`packageConfidence` identifier, no bare 60-99 `return` literal anywhere in
+  `app.js`, no 60-99 literal near the word "confidence" in either guarded file; a Node-executed
+  rendering check (skipped if Node absent — this host has Node v24) proves `validationLabel` /
+  `packageValidationLabel`, run against a validated and three non-validated fixture shapes, return
+  words containing no digit.
+* Hand-verified against three mutants before writing this record (each restored, diffed back to
+  byte-identical, re-tested green): a renamed function still returning a bare `94` (killed by the
+  numeric-literal guard AND the proximity guard), the `"OCR confidence"` string restored under the
+  renamed status row (killed by the string guard).
+* `tests/test_l1s2_omission_ruling.py tests/test_l1s2_protected_carriers.py
+  tests/test_l1s2_document_outcome.py tests/test_l1s3*.py tests/test_l1s4_publisher.py
+  tests/test_l1s4_transfers.py tests/test_pipeline.py tests/test_sibling_omission.py
+  tests/test_community_section*.py tests/test_symitar.py tests/test_zions*.py`: 341 passed, 1
+  deselected, 0 failed.
+* `tests/test_webapp_app.py tests/test_webapp_security.py tests/test_webapp_jobs.py
+  tests/test_webapp_storage.py tests/test_webapp_worker.py`: 147 passed.
+* 5 canonical guards: 255 passed. 7 canonical conformance files: 1,282 passed / 41 skipped.
+* Full default suite: **7,845 passed, 44 skipped, 35 deselected, EXIT=0** — exactly the train9-composed
+  baseline of 7,815 plus this card's 30 new tests (15 + 15); no other count moved.
+* `python corpus_gate.py`: **RESULT GREEN, EXIT=0** — 109 pinned PDFs (103 native text, 6 committed
+  OCR), 0 exclusions; outcomes 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102
+  validated / 3 withheld; every named check `[PASS]`; runtime 789.2s. Identical to the base facts'
+  expected 105/3/1.
+
+## Generalization evidence
+The Q3 gate lives in the ONE shared function every current admission of the class already calls
+through, so it protects the class for every registration that reaches it — proven by the same
+`cohort_replay` command covering all SIX registrations across all THREE modules
+(`community_section.py` via `community_section`/`dakota_west`/`mission_valley`, `member_statement.py`
+via `member_statement_rollup`, `symitar.py`, `zions.py`) with identical 0-movement results, not just
+the `member_statement_rollup` registration the synthetic fixtures happen to exercise directly. The
+ungated proof (`test_the_dormancy_class_is_admitted_with_no_header_at_all`,
+`test_the_dormancy_class_is_admitted_under_a_non_native_header_too`) uses a DIFFERENT module
+(`symitar.py`) from the one the gated-class tests use (`member_statement.py`), so the "other three
+classes stay ungated" claim is not an artifact of one reader's fixtures.
+
+## Every `confidence` occurrence, before → after
+Base (`bea06bc`, 14 total — 12 in `app.js`, 2 in `index.html`, matching `OCR_LEGACY_AUDIT.md` §2.7's
+own count):
+`app.js:13,594,604,657,680,1139,1146,1159,1247,1372,1430,1439`; `index.html:460,1010`.
+Closure (HEAD, 2 total, both non-executable comments naming the removed feature and the new test file;
+no string, no identifier, no numeral survives):
+`app.js:595,602` ("...confidence" that was in fact four hard-coded percentage tiers...";
+"`tests/test_webapp_confidence_label.py` is the...").
+
+## CASE 10
+| input | result |
+|---|---|
+| native-pdf-text header | admitted, `validated` |
+| native-pdf-text+guardian (layout suffix) | admitted, `validated` |
+| local-tesseract-ocr header | refused, `ParserCrashError` (fail closed) |
+| header removed | refused, `ParserCrashError` (fail closed) |
+| empty model field | refused, `ParserCrashError` (fail closed) |
+
+## Mutation table
+| mutant | killer | verified |
+|---|---|---|
+| `return 94` under a renamed function | numeric-literal guard | hand-applied, killed |
+| "OCR confidence" string restored in a template | string guard | hand-applied, killed |
+| Q3 admitted on model `""` | CASE 10 (`test_empty_model_token_refuses_and_fails_closed`) | pytest green |
+| Q3 admitted on `local-tesseract-ocr` | CASE 10 (`test_local_tesseract_ocr_refuses_and_fails_closed`) | pytest green |
+| `extractor_model` reads line 2 | first-line-only test (`test_extractor_model_never_reads_past_the_first_line`) | pytest green |
+| `extractor_model` returns a token without the header | no-header test (`test_extractor_model_returns_none_without_a_header`) | pytest green |
+| gate applied to `printed_dormancy_declaration` | other-classes-ungated test (`test_the_dormancy_class_is_admitted_with_no_header_at_all` + hostile-header variant) | pytest green |
+
+## Tests added
+30: `tests/test_q3_native_only.py` (15), `tests/test_webapp_confidence_label.py` (15).
+
+## Privacy / message scan
+`tools/privacy_scan_branch.py --rows <train9 run>/rows.csv --where parser_id=community_section,
+dakota_west,mission_valley,member_statement_rollup,symitar,zions --data-dir
+.claude/recovery/webapp_data_train9_cold --base bea06bc --ref HEAD`: 647 added lines, 128 documents
+read, **hit_count 0** across DATES/DIGITS/MONEY/WORDS.
+`tools/huntington_msg_privacy_scan.py` same population: 3 commits scanned, **hit_count 0**.
+
+## Commits
+`033af7f` (OQ9), `08b07f3` (Q3 gate), `2396e80` (OQ11) — all on `wave20-surfaces` off `bea06bc`.
+
+## Risks / concerns
+* `tests/l1s4_pages.py` is not on this card's file list; touched anyway (one line — a header prepend)
+  because leaving it alone would have made two existing L1-S4 tests and two L1-S4-transfer tests
+  regress under the new gate. Flagged for Ocean rather than silently absorbed.
+* No concern about a ruled decision: OQ9, Q3-native-only and OQ11 are implemented exactly as ruled.
