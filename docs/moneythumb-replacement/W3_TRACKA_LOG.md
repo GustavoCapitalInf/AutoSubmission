@@ -64814,3 +64814,34 @@ end-to-end `discovery.cli.run()` escalation-budget test).
    the actual B2 module's contract (parameter names, return shape) is
    guessed at (`extractor_allowed(extractor) -> (bool, str)`) and must be
    reconciled at composition if B2's real signature differs.
+
+**Addendum — the corpus-marked slice (the last outstanding proof-floor item;
+the lost-wake lesson applied: the background monitor armed for it timed out
+with no event delivered, and the result below was read from its durable log
+in the foreground, per the standing recovery — a resume, never a rerun).**
+
+`python -m pytest -m corpus -q` — **32 passed, 7,911 deselected, 1 warning**,
+`2441.94 s` (0:40:41), 0 failures and 0 errors in the log. This is every
+`@pytest.mark.corpus` test in the tree (`--collect-only` confirms 32/7,943
+collected, 7,911 deselected — the same population the default suite excludes
+via `addopts = -m "not live and not corpus"`), including this cell's own new
+`test_escalation_router.py::test_validated_tesseract_reads_are_never_classified_class_a`.
+Combined with the earlier default-suite and guard/conformance runs, every
+test in the tree that this branch could run has now been run at closure tree
+`a39c32d`, green.
+
+**Full proof-floor exit-code ledger, complete.**
+| proof | result | exit |
+|---|---|---|
+| `tests/test_escalation_router.py` + `tests/test_escalation_tripwires.py` + `tests/test_visual_rung.py` + `tests/test_discovery.py` + `tests/test_telemetry.py` + `tests/test_pipeline.py` + `tests/test_webapp_worker.py` + `tests/test_worker_privacy.py` | 252 passed, 3 deselected | 0 |
+| 5 canonical guards | 255 passed | 0 |
+| 7 canonical conformance files | 1,282 passed / 41 skipped | 0 |
+| `python -m pytest tests/test_escalation_router.py -m corpus` | 1 passed | 0 |
+| `python corpus_gate.py` | GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED (807.2 s) | 0 |
+| full default suite (`python -m pytest -q`) | 7,863 passed / 44 skipped / 36 deselected (318.06 s) | 0 |
+| `python -m pytest -m corpus -q` (the corpus-marked slice) | 32 passed / 7,911 deselected (2,441.94 s) | 0 |
+| `tools.cohort_replay --expect-identical` (193-sha population) | newly validated 0, preserved 37/37 payload-identical, regressions 0 | 0 |
+| `tools/privacy_scan_branch.py` (193-sha population, `--base bea06bc --ref HEAD`) | 0 hits (MONEY/DIGITS/DATES/WORDS) | 0 |
+| `tools/huntington_msg_privacy_scan.py` (same population, 4 commits) | 0 hits every class | 0 |
+
+Nothing in this branch's ownership remains unproved.
