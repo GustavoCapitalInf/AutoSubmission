@@ -457,7 +457,7 @@
   .status-row:last-child { border-bottom: 0; }
   .status-key { color: var(--muted); font-size: 13px; }
   .status-value { color: var(--ink); font-weight: 720; font-size: 13px; text-align: right; }
-  .confidence-value { font-weight: 760; }
+  .validation-value { font-weight: 760; }
   .preview-card { min-height: 100%; }
   .account-summary {
     margin-top: 14px; display: grid; gap: 10px;
@@ -1007,7 +1007,7 @@
           <div class="status-check" id="statusMark">·</div>
           <div>
             <div class="status-banner-title" id="statusCopy">Ready for extraction</div>
-            <div class="status-banner-meta"><span id="confidenceValue">--</span> confidence</div>
+            <div class="status-banner-meta">Validation: <span id="validationValue">--</span></div>
           </div>
         </div>
         <div class="status-list" id="statusList"></div>
