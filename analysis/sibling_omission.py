@@ -66,6 +66,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Iterator, Sequence
 
+from .provenance import extractor_model
+
 # ---------------------------------------------------------------------------
 # L1-C17's closed vocabulary
 # ---------------------------------------------------------------------------
@@ -110,6 +112,31 @@ EVIDENCE_CLASSES: frozenset[str] = frozenset({
     YIELD_ONLY_ARITHMETIC,
     PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED,
 })
+
+#: Q3's native-only gate (Gustavo, BATCH9_TRANSITION §8.8/§8.13; carried
+#: forward at Phase 2.0 opening, `PHASE2_ARCHITECTURE_PLAN.md` §6 last
+#: paragraph: "Q3 idle-sibling class stays native-only until
+#: tools/q3_corroboration_probe.py is re-run on OCR'd guardian_cu";
+#: `OCR_LEGACY_AUDIT.md` §5.8 step 6). `PRINTED_PAIR_COINCIDES_AND_NO_ROW_
+#: PRINTED` was corroborated 6/6 on `native-pdf-text` documents only, to bound
+#: an OCR row-loss hazard that has never been measured on OCR'd input. Until
+#: the re-measurement in §5.8 exists, the class is admitted only on
+#: `native-pdf-text*` provenance; every other token, `""`, or the absence of a
+#: header refuses it, fail-closed, exactly as L1-C17 refuses an unratified
+#: reason (`SiblingOmission.__post_init__` below) — both are raised where the
+#: record is about to be published and both are caught by
+#: `analysis.parser_registry._guarded` the same way a declining parser is,
+#: which is why this is gated at PUBLISH rather than at construction: the
+#: `reason` itself is ratified, only its provenance is not yet proven for
+#: OCR'd input. The other three ratified classes are NOT gated — they were
+#: never ruled OCR-sensitive.
+Q3_CLASS_REQUIRES_NATIVE_PROVENANCE = "q3_class_requires_native_provenance"
+
+#: The provenance prefix Q3 requires. `startswith`, not equality: a native read
+#: may carry a layout suffix of its own (`native-pdf-text+guardian`) and stays
+#: admitted — the ruling's own wording is "the document's extractor model is
+#: `native-pdf-text*`" (`OCR_LEGACY_AUDIT.md` §5.8 step 6).
+_Q3_REQUIRED_MODEL_PREFIX = "native-pdf-text"
 
 #: The ratified printings of ONE fact. `DORMANT_RE` is the wording
 #: `analysis/symitar.py` ratified and `NO_ACTIVITY_RE` the one
@@ -430,9 +457,23 @@ _COLLECTING: ContextVar[list[SiblingOmission] | None] = ContextVar(
     "sibling_omissions", default=None,
 )
 
+#: The RAW markdown `analyze_document` was called with, for exactly as long as
+#: `_COLLECTING` is open on the same document. A second `ContextVar` rather
+#: than a parameter threaded through `publish_omissions` deliberately: five
+#: parser modules across four files call `publish_omissions(ledger.omissions)`
+#: today and none of them is this card's to touch (P20-SURFACES owns only
+#: `analysis/pipeline.py` and this module), so the markdown a Q3 admission must
+#: be checked against travels the same scoped-and-reset path `_COLLECTING`
+#: already does, set by the one caller that has it
+#: (`analysis.pipeline.analyze_document`) and read by the one function that
+#: needs it, with no change to any parser's call site or signature.
+_MARKDOWN: ContextVar[str | None] = ContextVar(
+    "sibling_omission_markdown", default=None,
+)
+
 
 @contextmanager
-def collecting() -> Iterator[list[SiblingOmission]]:
+def collecting(markdown: str | None = None) -> Iterator[list[SiblingOmission]]:
     """Collect the omissions recorded by whatever parses inside this block.
 
     Opened by `analysis.pipeline.analyze_document`, which is the seam that owns
@@ -441,12 +482,20 @@ def collecting() -> Iterator[list[SiblingOmission]]:
     single-account payload has nowhere to put a document-level fact, so the
     stage that teaches the payload readers the document shape is the stage that
     moves the seams onto it.
+
+    `markdown` is the document's own raw text, unstripped — the same string
+    `analyze_document` received, before `admissible_text` removes the source
+    comment for parsing. Recorded so `publish_omissions` can read the
+    document's extractor-model provenance (Q3's native-only gate) without any
+    parser module passing it through.
     """
     sink: list[SiblingOmission] = []
     token = _COLLECTING.set(sink)
+    markdown_token = _MARKDOWN.set(markdown)
     try:
         yield sink
     finally:
+        _MARKDOWN.reset(markdown_token)
         _COLLECTING.reset(token)
 
 
@@ -456,8 +505,41 @@ def publish_omissions(omissions: Sequence[SiblingOmission]) -> None:
     Called only by a reader that IS publishing a statement. A reader that
     returns `None` publishes nothing, so nothing it learned about a section it
     dropped is attributed to the document another reader went on to claim.
+
+    **Q3's native-only gate lives here** (`Q3_CLASS_REQUIRES_NATIVE_PROVENANCE`,
+    above). An omission whose `reason` is
+    `printed_pair_coincides_and_no_row_printed` is admitted only when the
+    document's extractor-model token (`analysis.provenance.extractor_model`,
+    read off `_MARKDOWN`) starts with `native-pdf-text`; any other token, `""`,
+    or no header at all RAISES — the same `ValueError` shape
+    `SiblingOmission.__post_init__` already uses for an unratified reason, and
+    for the same reason: this call happens inside a registration's `parse`,
+    which `analysis.parser_registry._guarded` wraps in a bare `except
+    Exception`, so raising here is caught exactly as a declining parser is
+    (`_guarded` returns `None`, the next claimant is tried, and if none
+    succeeds the document fails closed as `parser_exception` /
+    `ParserCrashError` in deterministic mode — never a silent admission). The
+    other three ratified classes are not checked at all.
+
+    The gate runs only while something is COLLECTING (`sink is not None`) —
+    the same condition that already decides whether this call does anything.
+    A reader exercised directly in a unit test, outside
+    `analysis.pipeline.analyze_document`'s scope, publishes nothing to
+    anything and never reaches production this way; gating it too would
+    require every such test to fabricate provenance for a call whose result
+    nothing reads.
     """
     sink = _COLLECTING.get()
     if sink is None or not omissions:
         return
+    for omission in omissions:
+        if omission.reason != PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED:
+            continue
+        model = extractor_model(_MARKDOWN.get())
+        if not (model or "").startswith(_Q3_REQUIRED_MODEL_PREFIX):
+            raise ValueError(
+                "an omission of reason 'printed_pair_coincides_and_no_row_printed' "
+                "is admitted only on native-pdf-text* extractor provenance; this "
+                f"document's provenance does not qualify ({Q3_CLASS_REQUIRES_NATIVE_PROVENANCE})"
+            )
     sink.extend(omissions)

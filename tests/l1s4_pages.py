@@ -137,6 +137,17 @@ def _rows(account: Account) -> list[str]:
     return lines
 
 
+#: The provenance header every constructed document carries, in the exact
+#: shape `ocr/document.py::StatementMarkdown.to_markdown()` writes it. These
+#: fixtures stand for hand-typed native PDF text, never an OCR read, so the
+#: header names the same token a native-text extraction stamps
+#: (`analysis/provenance.py::extractor_model`, P20-SURFACES's Q3 native-only
+#: gate). `admissible_text()` strips it before any marker or parser sees the
+#: page, so adding it changes no fixture's parsed content — it exists only so
+#: the Q3 class's provenance check has something true to read.
+_NATIVE_HEADER = "<!-- source: l1s4-fixture.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"
+
+
 def document(
     accounts: list[Account],
     *,
@@ -201,7 +212,7 @@ def document(
     if repeat_section_at_end is not None:
         repeated = next(a for a in accounts if a.suffix == repeat_section_at_end)
         lines.extend(_section(repeated))
-    return "\n".join(lines) + "\n"
+    return _NATIVE_HEADER + "\n\n" + "\n".join(lines) + "\n"
 
 
 def _section(account: Account, extra: list[str] | None = None) -> list[str]:
