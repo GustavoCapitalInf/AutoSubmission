@@ -63,7 +63,7 @@ export WEBAPP_DATA_DIR="$(cd "$COLD" && pwd -W)"
 echo "WEBAPP_DATA_DIR=$WEBAPP_DATA_DIR" >> "$LOG"
 
 python tools/train/provenance.py --checkout . --root "$ROOT" --data-dir "$COLD" \
-  --label "train8-coldrun-pre $TREE" --out "$LOG.provenance-pre.json" >> "$LOG" 2>&1
+  --mode scanned --label "train8-coldrun-pre $TREE" --out "$LOG.provenance-pre.json" >> "$LOG" 2>&1
 echo "PROVENANCE_PRE_EXIT=$?" >> "$LOG"
 
 before=$(ls -1d "$OUT"/*/ 2>/dev/null | sort)
@@ -87,7 +87,7 @@ echo \"NEW_RUN_DIR=$NEW\" >> "$LOG"
 
 if [ -n "$NEW" ]; then
   python tools/train/provenance.py --checkout . --root "$ROOT" --data-dir "$COLD" \
-    --label "train8-coldrun-post $TREE" --out "$NEW/provenance.json" >> "$LOG" 2>&1
+    --mode scanned --label "train8-coldrun-post $TREE" --out "$NEW/provenance.json" >> "$LOG" 2>&1
   echo "PROVENANCE_POST_EXIT=$?" >> "$LOG"
   echo "=== train8_compare (Option-B accounting quarantine) base=$BASE candidate=$NEW ===" >> "$LOG"
   python -m tools.train8_compare --base "$BASE" --candidate "$NEW" --quarantine "$QUARANTINE" \
