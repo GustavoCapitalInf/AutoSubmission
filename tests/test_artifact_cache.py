@@ -88,6 +88,22 @@ class _AnalysisSettings:
     api_key: str = ""
 
 
+@pytest.fixture(autouse=True)
+def _restore_toolchain_versions_cache():
+    """Review MINOR-6: several tests below force
+    `webapp.artifact_cache._toolchain_versions_cache` to a known value (or to
+    `None`, to force a fresh probe) and used to reset it to `None` by hand on
+    the happy path only — a failure between the force and the manual reset
+    leaked the forced state into every later test in the session (and a
+    forced `None` then triggers a REAL subprocess probe in whatever ran
+    next). Autouse so no test can forget it."""
+    import webapp.artifact_cache as module
+
+    original = module._toolchain_versions_cache
+    yield
+    module._toolchain_versions_cache = original
+
+
 @pytest.fixture
 def data_dir(tmp_path):
     return tmp_path / "data"
@@ -195,29 +211,29 @@ def test_extractor_is_visual_only_for_the_forced_escalation_shape():
     assert _ocr_extractor(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False) == "offline"
 
 
-def test_extractor_partitions_the_key_independently_of_the_raw_booleans():
-    """Two different boolean triples that both label "offline" must still
-    share a key when nothing else differs — the label, not the raw flags in
-    isolation, is what a reconstruction (`telemetry/run_of_record.py`) needs
-    to reproduce; this just pins that the label computation is wired in."""
-    offline_native_mode = ocr_settings_key(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False)
-    offline_scanned_mode = ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)
-    visual = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True)
-    # allow_local_ocr itself still partitions (unchanged pre-existing knob).
-    assert offline_native_mode != offline_scanned_mode
-    assert offline_native_mode != visual and offline_scanned_mode != visual
-
-
 def test_postprocess_state_partitions_the_key_and_pins_the_quarantined_default():
     """`postprocess_state` / `postprocess_admitted` come from `ocr.ocr_client`
-    via getattr with the pinned quarantined defaults (until B1 composes)."""
-    import ocr.ocr_client as ocr_client_module
+    via getattr with the pinned quarantined defaults (until B1 composes).
 
-    # Pinned defaults, exercised without any monkeypatching: B1 has not
-    # composed on this tree, so the getattr fallback is what actually runs
-    # for a visual-labelled call today.
-    assert not hasattr(ocr_client_module, "POSTPROCESS_STATE")
-    assert not hasattr(ocr_client_module, "ADMITTED_POSTPROCESS")
+    Review BLOCK-2: composition order lands B1 BEFORE this cell
+    (`PHASE2-0-SAFETY.md`: B2 -> B1 -> A -> C -> D), and B1 is chartered to
+    add exactly `POSTPROCESS_STATE = "quarantined"` /
+    `ADMITTED_POSTPROCESS = ()` to `ocr.ocr_client` — the SAME values this
+    module's own defaults pin. Asserting `not hasattr(...)` is a fact about
+    today's tree, not a contract, and fails the moment B1 composes even
+    though nothing this cell depends on changed. Assert the VALUE instead,
+    which is correct whether B1 has landed or not."""
+    import ocr.ocr_client as ocr_client_module
+    from webapp.artifact_cache import (
+        ADMITTED_POSTPROCESS_DEFAULT,
+        POSTPROCESS_STATE_DEFAULT,
+        _ocr_postprocess_readout,
+    )
+
+    assert getattr(ocr_client_module, "POSTPROCESS_STATE", POSTPROCESS_STATE_DEFAULT) == "quarantined"
+    assert tuple(getattr(ocr_client_module, "ADMITTED_POSTPROCESS", ADMITTED_POSTPROCESS_DEFAULT)) == ()
+    assert _ocr_postprocess_readout("visual") == ("quarantined", ())
+    assert _ocr_postprocess_readout("offline") == ("quarantined", ())
 
     class _Settings(_OcrSettings):
         pass
@@ -228,6 +244,26 @@ def test_postprocess_state_partitions_the_key_and_pins_the_quarantined_default()
         changed_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
                                        ocr_settings=_Settings())
     assert visual_key != changed_key
+
+
+def test_postprocess_admitted_partitions_the_visual_key():
+    """The other new BLOCK-1 gap: `postprocess_admitted` must partition the
+    key on its own — a visual-labelled key computed with one admitted
+    function must differ from the pinned empty-tuple default. Patches
+    `ADMITTED_POSTPROCESS` to a one-member tuple (`create=True`, since B1 has
+    not composed on this tree)."""
+    import ocr.ocr_client as ocr_client_module
+
+    class _Settings(_OcrSettings):
+        pass
+
+    with unittest.mock.patch.object(ocr_client_module, "ADMITTED_POSTPROCESS", (), create=True):
+        base = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
+                                ocr_settings=_Settings())
+    with unittest.mock.patch.object(ocr_client_module, "ADMITTED_POSTPROCESS", ("strip_det_tags",), create=True):
+        changed = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
+                                   ocr_settings=_Settings())
+    assert base != changed
 
 
 def test_postprocess_never_imports_ocr_client_for_an_offline_labelled_call():
@@ -256,6 +292,36 @@ def test_raster_version_partitions_the_key():
     assert base != changed
 
 
+def test_raster_version_fallback_matches_the_source_module():
+    """Review MINOR-1: `ocr_settings_key` falls back to a pinned duplicate
+    (`_RASTER_VERSION_FALLBACK`) when `ocr.rasterize` cannot be imported
+    (that module imports `pdf2image` + PIL at module level, and the offline
+    key must never raise for one integer). Pins that the duplicate and the
+    real constant have not drifted apart."""
+    from ocr.rasterize import RASTER_VERSION
+    from webapp.artifact_cache import _RASTER_VERSION_FALLBACK
+
+    assert _RASTER_VERSION_FALLBACK == RASTER_VERSION
+
+
+def test_ocr_settings_key_never_raises_when_rasterize_cannot_be_imported():
+    """The actual fault this review finding names, reproduced and closed:
+    `ocr.rasterize` unimportable must not raise out of `ocr_settings_key`."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def blocking_import(name, *args, **kwargs):
+        if name == "ocr.rasterize" or name.startswith("ocr.rasterize."):
+            raise ModuleNotFoundError(f"No module named {name!r} (test-forced)")
+        return real_import(name, *args, **kwargs)
+
+    with unittest.mock.patch.object(builtins, "__import__", blocking_import):
+        key = ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False,
+                               ocr_settings=_OcrSettings())
+    assert isinstance(key, str) and len(key) == 64
+
+
 def test_extraction_schema_version_partitions_the_key():
     import webapp.artifact_cache as module
 
@@ -265,10 +331,9 @@ def test_extraction_schema_version_partitions_the_key():
     assert base != changed
 
 
-def test_toolchain_versions_never_raise_and_partition_on_unknown():
-    """An unobtainable binary version is the sentinel "unknown", which still
-    partitions the key (a fresh key, a re-read — never a silent stale reuse
-    across a binary upgrade)."""
+def test_toolchain_versions_never_raise_when_every_probe_fails():
+    """An unobtainable binary version is the sentinel "unknown" on every
+    field — never an exception out of the settings-key computation."""
     import webapp.artifact_cache as module
 
     module._toolchain_versions_cache = None
@@ -281,15 +346,37 @@ def test_toolchain_versions_never_raise_and_partition_on_unknown():
         "poppler_version": "unknown",
         "pymupdf_version": "unknown",
     }
-    module._toolchain_versions_cache = None  # do not leak the forced-unknown cache to later tests
 
-    base = ocr_settings_key(ocr_settings=_OcrSettings())
-    with unittest.mock.patch.object(module, "_toolchain_versions_cache",
-                                    {"tesseract_version": "known 5.0", "poppler_version": "unknown",
-                                     "pymupdf_version": "unknown"}):
+
+@pytest.mark.parametrize(
+    "field,patched",
+    [
+        ("tesseract_version", {"tesseract_version": "tesseract 9.9.9", "poppler_version": "unknown",
+                               "pymupdf_version": "unknown"}),
+        ("poppler_version", {"tesseract_version": "unknown", "poppler_version": "pdftoppm version 9.9",
+                             "pymupdf_version": "unknown"}),
+        ("pymupdf_version", {"tesseract_version": "unknown", "poppler_version": "unknown",
+                             "pymupdf_version": "9.9.9"}),
+    ],
+)
+def test_each_toolchain_member_partitions_the_key_on_its_own(field, patched):
+    """Review BLOCK-1: the field-drop mutation table's named killer
+    (`test_toolchain_versions_never_raise_and_partition_on_unknown`, as it
+    read before this fix) patched all three fields from "unknown" to
+    non-"unknown" at once, so dropping any ONE of the three from the key
+    dict still left two others differing and the assertion passed — a
+    mutant that survives is a killer that does not kill. This test patches
+    exactly ONE field per case, holding the other two at "unknown", so
+    dropping THAT field from `webapp/artifact_cache.py`'s settings dict is
+    what actually fails this parametrization."""
+    import webapp.artifact_cache as module
+
+    baseline = {"tesseract_version": "unknown", "poppler_version": "unknown", "pymupdf_version": "unknown"}
+    with unittest.mock.patch.object(module, "_toolchain_versions_cache", baseline):
+        base = ocr_settings_key(ocr_settings=_OcrSettings())
+    with unittest.mock.patch.object(module, "_toolchain_versions_cache", patched):
         changed = ocr_settings_key(ocr_settings=_OcrSettings())
-    module._toolchain_versions_cache = None
-    assert base != changed
+    assert base != changed, f"{field} does not partition the OCR settings key"
 
 
 def test_toolchain_versions_are_cached_once_per_process(monkeypatch):
@@ -306,7 +393,6 @@ def test_toolchain_versions_are_cached_once_per_process(monkeypatch):
     monkeypatch.setattr("shutil.which", counting_which)
     module.ocr_toolchain_versions()
     module.ocr_toolchain_versions()
-    module._toolchain_versions_cache = None
     # Two probes each call `which` twice (tesseract, pdftoppm); a cache that
     # actually cached would see exactly one round of calls, not two.
     assert len(calls) == 2
@@ -333,6 +419,19 @@ def test_stage_version_parameter_reconstructs_the_pre_v5_key_byte_for_byte():
         force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False,
         stage_version=4, ocr_settings=_OcrSettings(),
     )
+    # Review MINOR-2: pin the two literals themselves, host-independently, in
+    # this UNSKIPPABLE test (the only prior pin,
+    # `tests/test_run_of_record.py`'s batch-9-cache comparison, is
+    # `skipif`-gated on the cold cache being present and is SKIPPED in CI).
+    # `_OcrSettings()`'s defaults reproduce the batch-8/9 archive's actual
+    # keys exactly — measured directly against the cold cache's sole
+    # distinct settings_key per (`allow_local_ocr` = True / False) mode.
+    assert reconstructed_v4 == "0F25500A3CADF72305575A198086A30A0C348656976954489591A58C9E303BE7"
+    reconstructed_v4_digital_mode = ocr_settings_key(
+        force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False,
+        stage_version=4, ocr_settings=_OcrSettings(),
+    )
+    assert reconstructed_v4_digital_mode == "91937F817835CDAFFC67D66658625D874C58C697A16050EAAA4DBB58771BC671"
 
 
 @pytest.mark.parametrize(

@@ -641,6 +641,17 @@ def cache_key(stage: str, input_sha256: str, settings_key: str) -> str:
 POSTPROCESS_STATE_DEFAULT = "quarantined"
 ADMITTED_POSTPROCESS_DEFAULT: tuple[str, ...] = ()
 
+#: A pinned duplicate of ``ocr.rasterize.RASTER_VERSION`` (review MINOR-1).
+#: ``ocr/rasterize.py`` imports ``pdf2image`` + ``PIL`` at module level, so an
+#: unguarded ``from ocr.rasterize import RASTER_VERSION`` would let a missing
+#: rasterization backend raise ``ModuleNotFoundError`` out of every OCR cache
+#: lookup — for the sake of one integer, and in violation of the same
+#: "never raises" discipline :func:`ocr_toolchain_versions` already keeps.
+#: :func:`ocr_settings_key` tries the real import first and falls back to
+#: this duplicate only on ``ImportError``; ``test_raster_version_fallback_matches_the_source_module``
+#: pins that the two never drift apart.
+_RASTER_VERSION_FALLBACK = 1
+
 _toolchain_versions_cache: dict[str, str] | None = None
 
 
@@ -658,7 +669,18 @@ def _ocr_extractor(
     ``"offline"`` — the offline ladder is what CAN run, whatever eventually
     does. ``allow_local_ocr`` does not enter the decision: it already
     partitions the key on its own (native vs local-Tesseract share one
-    "offline" label and one settings key, exactly as they always have)."""
+    "offline" label and one settings key, exactly as they always have).
+
+    **This field cannot partition the key on its own, and no test should
+    claim it does (review BLOCK-1).** It is a TOTAL function of ``force_ocr``
+    and ``allow_visual_ocr``, both of which are ALREADY key material -- any
+    input that changes ``extractor`` necessarily changes one of those two
+    fields too, so ``extractor`` is a LEGIBILITY / extensibility slot (a
+    human- and log-readable label, and the seat a third extractor id would
+    take in a later phase), not additional partitioning power. What IS
+    pinned, and is the honest proof for this function, is the truth table
+    ``test_extractor_is_visual_only_for_the_forced_escalation_shape``
+    exercises directly."""
     return "visual" if (force_ocr and allow_visual_ocr) else "offline"
 
 
@@ -798,7 +820,10 @@ def ocr_settings_key(
             force_ocr=force_ocr, allow_local_ocr=allow_local_ocr, allow_visual_ocr=allow_visual_ocr
         )
         postprocess_state, postprocess_admitted = _ocr_postprocess_readout(extractor)
-        from ocr.rasterize import RASTER_VERSION
+        try:
+            from ocr.rasterize import RASTER_VERSION as _raster_version
+        except ImportError:  # pdf2image/PIL missing (MINOR-1): never raise for one integer
+            _raster_version = _RASTER_VERSION_FALLBACK
 
         toolchain = ocr_toolchain_versions()
         settings.update(
@@ -806,7 +831,7 @@ def ocr_settings_key(
                 "extractor": extractor,
                 "postprocess_state": postprocess_state,
                 "postprocess_admitted": list(postprocess_admitted),
-                "raster_version": int(RASTER_VERSION),
+                "raster_version": int(_raster_version),
                 "extraction_schema_version": int(EXTRACTION_SCHEMA_VERSION),
                 "endpoint_class": str(getattr(ocr_settings, "endpoint_class", "loopback")),
                 "tesseract_version": toolchain["tesseract_version"],
