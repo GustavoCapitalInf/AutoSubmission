@@ -64494,3 +64494,172 @@ lines, so the second pass matched on whitespace rather than on a literal.
 Eleven open questions now stand in §6 of the audit document. The first three
 still gate any Phase-2 implementation card: the rewrite pair, whether the
 no-hardcodes guard extends to `ocr/`, and whether the `$0` policy becomes code.
+
+# §P20POSTPROC — the nine-function census, the whole-chain quarantine, and the OQ2 guard into `ocr/`
+
+**Card:** P20-POSTPROCESS (Phase 2.0 cell B1). **Ruling executed:** OQ1 = C — quarantine the
+entire postprocess chain; re-admit per function on that function's own census + fixtures, after
+independent review; nothing re-admitted in Phase 2.0. OQ2 = YES — the no-statement-hardcodes
+guard extends into `ocr/`. **Hygiene card:** newly validated = 0 (required); previously
+validated preserved, payload identical.
+
+**Population.** The 179 `source_path = local_tesseract` shas in the run-of-record `rows.csv`,
+which already contain all 6 committed corpus artifacts' shas (measured: union of the two sets
+is 179, not 185 — full overlap). This is the only population the quarantine can touch:
+the visual rung has never run in production (0 documents), so the offline (native + Tesseract)
+partition is the seam the cohort replay proves, not the chain itself.
+
+**Root cause.** `ocr_client.postprocess` ran nine functions on every visual read before the
+validator saw it, unconditionally. Two (`collapse_repeated_amounts`, F-1;
+`fix_amount_column_bleed`, F-11) provably rewrite ledger values in complementary scopes. A
+third (`repair_fused_amount_table`) was carried in the audit as "explicitly UNPROVEN" for a
+debit/credit/balance fold. Three more delete text (metadata-only, by construction). None had
+ever run on a real page, so none of this was measured — only argued.
+
+**Solution.** (1) A read-only executable census (`tools/ocr_postprocess_census.py`) imports all
+nine functions and runs 17 committed synthetic fixtures (`tests/fixtures/ocr_postprocess/`)
+through each, classifying every function as precisely as the evidence supports and recording a
+mechanically-verified numeric-token delta for every fixture — not prose. (2) The chain is
+quarantined on both paths that could reach it: `ocr_page` returns the model's raw completion
+string through a new `apply_admitted()` no-op gate instead of calling `postprocess`, and
+`embed_image_regions` is no longer called there either (F-2 closed); `ocr/render.py`'s two
+region-rendering functions render raw content and never call `postprocess`. `POSTPROCESS_STATE
+= "quarantined"` and `ADMITTED_POSTPROCESS: tuple[str, ...] = ()` are exported from
+`ocr/ocr_client.py` under those exact names for cell C's cache key. (3) A declared
+`INTAKE_FURNITURE` register names the TD QR-derailment recovery (three entries) and the generic
+mis-segmentation detector (one entry) as page-selection behavior, each with issuer, scope,
+justification and its pinning test. (4) `tests/test_no_statement_hardcodes.py` gained an
+`OCR_DIR` scan reusing the same five pattern classes already enforced over `analysis/`, plus a
+register-driven guard: every issuer-named regex in the three files this card owns
+(`ocr_client.py`, `pipeline.py`, `render.py`) must be named in `INTAKE_FURNITURE`.
+
+**Settled by construction (the census's central finding).** `repair_fused_amount_table`'s
+debit/credit/balance fold — left "explicitly UNPROVEN" by the audit and the adversarial review
+— IS constructible: the function's gate inspects only the FIRST and LAST cell of a fused header
+row (`DATE` ... `AMOUNT`), never any middle cell, so a genuine 5-cell debit/credit/balance data
+row beneath such a header gets folded to 3 columns, burying the debit AND credit values in free
+text and relabeling the table's true final column (a running balance) as the row's "amount". No
+digit is deleted, but which column is the transaction amount changes. Reproduced at
+`tests/fixtures/ocr_postprocess/repair_fused_amount_table/debit_credit_balance_folded/` and
+pinned by `tests/test_ocr_postprocess_census.py::
+test_repair_fused_amount_table_fold_is_settled_by_construction`.
+
+**MINOR-6 closed.** The chain is nine functions, not six (`strip_det_tags`,
+`strip_refusal_commentary`, `strip_placeholder_markers` were the three missed, all metadata-only
+strippers). All nine are classified, fixtured and tested.
+
+**Newly validated:** 0 (not run; hygiene card, not a coverage card). **Other ladder movement:**
+0. **Previously validated preserved:** 36 of 36 in the target cohort, payload identical, at both
+base (`bea06bc`) and closure (`a68e4be`). **Regressions:** 0.
+
+**Correctness evidence.** `tools/ocr_postprocess_census.py` + 17 fixtures (input/expected/
+case.json triples) under `tests/fixtures/ocr_postprocess/`; `tests/test_ocr_postprocess_census.py`
+(72 cases: function-output pins, full-chain cross-checks, independently recomputed
+numeric-token-delta cross-checks — a case.json record is never merely trusted). F-1's
+`[a,a,a,b,c] -> [a]` and F-11's cell-reassignment both reproduced exactly. `docs/
+moneythumb-replacement/OCR_POSTPROCESS_CENSUS.md` is the durable nine-row record.
+
+**Generalization evidence.** The quarantine is structural, not a policy note: `postprocess` is
+called by nothing reachable from `ocr_page` or `ocr/render.py` (proven by 8 applied-and-reverted
+mutants below, each on the real file, not a copy). `apply_admitted` reads
+`ADMITTED_POSTPROCESS` fresh on every call, so a future re-admission is a one-line, reviewed
+change, never a silent revival of the whole chain.
+
+**OQ2 blast radius (measured before any test was written).** `REMOVED_LITERALS` / `YEAR_RE` /
+`ACCOUNT_RE` / `MOJIBAKE_RE` / `CALENDAR_RE`: 0 hits across every file in `ocr/`. `AMOUNT_RE`: 6
+hits across 2 files, both furniture (a geometry ratio constant in `column_grid.py`; five CSS
+sizing values in `render.py`'s stylesheet constant) — ratcheted as `OCR_AMOUNT_BASELINE`
+(shrink-only). Issuer-named regex: exactly one (`_TD_MARKERS_RE`), already registered.
+`ocr/native_text.py` (issuer-tagged geometry constants for several banks) is measured and named
+as out of scope for this card — not owned by it, not the postprocess/intake-furniture surface
+OQ1/OQ2 govern — rather than silently absorbed into this card's own zero.
+
+**Mutation table — every mutant applied to the real committed file and reverted (`git checkout
+--`), not merely described:**
+
+| mutant | killer | result |
+|---|---|---|
+| `ocr_page` calls `postprocess` again | `test_ocr_page_returns_raw_det_tags_unremoved` + 3 more raw-return tests | killed (4 tests failed) |
+| `render_boxed` re-enters `postprocess` | `test_render_boxed_never_calls_the_quarantined_postprocess_chain` | killed |
+| `ADMITTED_POSTPROCESS = ("strip_det_tags",)` | `test_admitted_postprocess_is_empty_in_phase_2_0` | killed |
+| `apply_admitted` applies a non-admitted member | `test_apply_admitted_never_applies_an_unlisted_member` + the no-op test | killed (2 tests failed) |
+| `embed_image_regions` wired back into `ocr_page` | `test_ocr_page_does_not_embed_image_regions` | killed |
+| an unregistered issuer marker added to `ocr/pipeline.py` (real file) | `test_every_issuer_named_regex_in_ocr_is_registered` | killed |
+| `_mask_qr` gains a text parameter (a channel to a printed figure) | `test_mask_qr_cannot_depend_on_a_printed_figure_by_signature` | killed |
+| F-1 fixture's `numeric_tokens_delta.money.disappeared` recorded `false` | `test_recorded_token_delta_matches_mechanical_diff` + `test_f1_distinct_adjacent_amounts_are_recorded_as_disappeared` | killed (2 tests failed) |
+
+**Cohort replay.** `tools/cohort_replay.py --shas <179-sha population> --expect-identical`
+(private list; the 179 Tesseract shas from the run-of-record `rows.csv` union the 6 committed
+corpus artifacts' shas — full overlap, union is 179). Base (`bea06bc`, working tree stashed to
+reach it): 179/179 replayed, 36/36 previously validated preserved (payload identical), 0 newly
+validated, 0 regressions, exit 0. Closure (`a68e4be`): identical — 179/179, 36/36 preserved
+(payload identical), 0/0/0, exit 0. No `--parser` cohort applies: this cell touches no
+registered parser module.
+
+**Proof floor.** Full default suite at closure: 7,892 passed / 45 skipped / 35 deselected, exit
+0 (up from the composed batch-9 floor of 7,815/44/35 — net +77 passed, +1 skipped, matching the
+new census/intake-furniture tests and one declared-isolated fixture skip). The 5 canonical
+guards: 264 passed (includes the extended `test_no_statement_hardcodes.py`, now 60 tests, up
+from its prior count). `python corpus_gate.py`: GREEN, 105 PASS / 3 WITHHELD / 1 REFUSED,
+unchanged from baseline. Corpus-marked slice (`pytest -m corpus`): 31 passed, 7,941 deselected,
+exit 0 (baseline recorded 30 — the +1 is not from this cell; no test added here carries
+`@pytest.mark.corpus`). Targeted files
+(`test_ocr_client.py`, `test_render.py`, `test_ocr_postprocess_census.py`,
+`test_ocr_intake_furniture.py`, `test_pipeline.py`, `test_truncation.py`, `test_visual_rung.py`,
+the 4 remaining canonical guards): 466 passed / 1 skipped / 1 deselected.
+
+**Privacy scan.** `tools/privacy_scan_branch.py --base bea06bc --ref HEAD --shas <179-sha
+population>`: population 179, documents_read 179, added_lines 1,552, **hit_count 0** across
+MONEY/DIGITS/DATES/WORDS. 2 raw WORDS hits were excluded by the words_class rule (`AMOUNTS`
+`RECORDED`, consecutive ALL-CAPS tokens from this cell's own test-function name and prose,
+never a document token — the same false-positive shape the standing lesson already names).
+
+**Message scan.** `tools.huntington_msg_privacy_scan --base bea06bc --ref HEAD --shas <179-sha
+population>`: 4 commits scanned, **hit_count 0** across all four classes.
+
+**Tests added.** `tests/test_ocr_postprocess_census.py` (new, 72 cases across 8 test functions);
+`tests/test_ocr_intake_furniture.py` (new, 8 tests); `tests/test_no_statement_hardcodes.py`
+extended (+9 tests, the OQ2 scans and the issuer-marker guard + its own mutation test);
+`tests/test_ocr_client.py` rewritten (38 -> 26 tests: 22 per-function behavior tests moved to
+the executable census; 10 new tests pin the quarantine wiring — raw pass-through, the no-op
+admission gate, its ordering and selectivity); `tests/test_render.py` +1 (the display-path
+quarantine pin). 17 synthetic fixture cases (51 files) under `tests/fixtures/ocr_postprocess/`.
+
+**Ownership discipline.** Only files this card owns were edited:
+`ocr/ocr_client.py`, `ocr/render.py`, `tools/ocr_postprocess_census.py` (new),
+`docs/moneythumb-replacement/OCR_POSTPROCESS_CENSUS.md` (new), `tests/fixtures/ocr_postprocess/`
+(new), `tests/test_ocr_postprocess_census.py` (new), `tests/test_ocr_intake_furniture.py` (new),
+`tests/test_ocr_client.py`, `tests/test_render.py`, `tests/test_no_statement_hardcodes.py`.
+`ocr/pipeline.py` was read and scanned (OQ2) but not edited — no change was needed on the
+raw/`apply_admitted` return path, since `ocr_page`'s change already covers it.
+`_build_client` in `ocr/ocr_client.py` (B2's function) is untouched, byte-identical.
+`ocr/config.py`, `ocr/document.py`, `ocr/availability.py`, `analysis/*` untouched.
+
+**Commits (`bea06bc..HEAD`, wave20-postprocess):** `37673e8` (the executable census, fixtures,
+doc), `0a72454` (the quarantine wiring itself), `2664259` (the analysis/display-path test
+rewrite), `a68e4be` (the OQ2 guard extension + intake-furniture pins).
+
+**Host notes.** A committed fixture path (`strip_oversized_embedded_images/
+oversized_dropped_small_and_money_kept/`) exceeded the Windows path-length budget under this
+worktree's long OneDrive prefix (`git stash` failed with "Filename too long"); renamed the case
+directory to `oversized_dropped` before any commit — no fixture content changed, only the
+directory name and its two internal references (case.json's `case` field, the census doc).
+Recorded here so a future cell measures this worktree's ~150-character root prefix before
+naming a deeply nested fixture directory. `pytest -m corpus` took ~2,576s (0:42:56) on this
+host — slower than the ~1,973s a prior reviewer measured; both single-harness, no concurrent
+proof was launched deliberately, though two long-lived `pytest -m corpus` worker processes
+(command line confirmed via `Get-CimInstance Win32_Process`) were observed still resident on
+this host during this cell's own cohort-replay and privacy-scan steps — read-only operations
+proceeded regardless since neither touches the sqlite caches' `mode=ro` files or this cell's own
+working tree.
+
+**Risks and a concern about the ruled scope.** (1) `ocr/native_text.py`'s own issuer-tagged
+geometry constants are a real, measured OQ2-shaped blast radius sitting entirely outside this
+card's ownership; whichever cell inherits that module's hygiene should not have to rediscover
+it. (2) The debit/credit/balance fold this census settled by construction is narrower than it
+first appears — it requires the table's OWN fused header to literally read `AMOUNT` (not
+`BALANCE`) as its last word — but it is real, and OQ1's whole-chain quarantine is the only ruled
+disposition that actually closes it (option (b), scoping only the two PROVEN rewrites behind a
+flag, would have left this exact hazard running by default, as the review's own OQ1 adjudication
+already anticipated). No disagreement with the ruling — this finding is offered as the sharpest
+evidence yet that (c) was the correct call, not as a reason to reconsider it.
