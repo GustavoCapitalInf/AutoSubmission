@@ -5,13 +5,20 @@
 that has never been measured on OCR'd input (`OCR_LEGACY_AUDIT.md` F-8/§5.8;
 `PHASE2_ARCHITECTURE_PLAN.md` §6 last paragraph; `PHASE2_RULINGS.md` §Q3). Until
 `tools/q3_corroboration_probe.py` is re-run on OCR'd `guardian_cu`, the class is
-admitted only when the document's own first-line provenance header names an
-extractor model starting with `native-pdf-text`; anything else fails closed.
+admitted only when the document's own header names an extractor model that IS
+`native-pdf-text` or starts with `native-pdf-text+` (equality-or-plus-prefix,
+not a bare `startswith` — MINOR-1, `PHASE2_P20SURFACES_REVIEW.md`: a bare
+`startswith` also admits `native-pdf-textXYZ`, a shape no writer produces);
+anything else fails closed.
 
-Two layers are tested here:
+Layers tested here, expanded after the independent adversarial review
+(`docs/moneythumb-replacement/reviews/PHASE2_P20SURFACES_REVIEW.md`, VERDICT
+BLOCK, closed in full):
 
 * `analysis.provenance.extractor_model` — the provenance READER, in isolation,
-  proven to read the first line and only the first line.
+  proven to find only the trusted, code-appended trailing header fields, never
+  a value a hostile `source_file` (the unsanitised uploaded filename) can
+  supply instead (BLOCK-1).
 * `analysis.sibling_omission.publish_omissions` — the GATE, exercised through
   the full `analyze_document` pipeline on the L1-S4 synthetic fixtures
   (`tests/l1s4_pages.py`), which already carry the native header
@@ -19,12 +26,22 @@ Two layers are tested here:
   themselves independently of this gate). Every fixture here is the same
   synthetic, invented-figure furniture L1-S4 already uses — nothing is copied
   from any real document.
+* The refusal's UNCONDITIONALITY across `parse_mode` (BLOCK-2) and its
+  RECORDING as a distinguishable class name through `DispatchCollector`
+  (MAJOR-2), not only through `analyze_document`'s raised exception.
 
 The real `guardian_cu` archive documents are not re-run here (Phase 2.0
 excludes any Q3 remeasurement on OCR input, and no PDFs live in the cache —
-see `OCR_LEGACY_AUDIT.md` §5.8 clause 2); `tools/cohort_replay.py --folder
-guardian_cu` at base and at closure is what proves those specific documents are
-untouched.
+see `OCR_LEGACY_AUDIT.md` §5.8 clause 2). What proves those 8 specific
+documents untouched: `cohort_replay --parser community_section --parser
+dakota_west --parser mission_valley --parser member_statement_rollup --parser
+symitar --parser zions` (NOT `--folder guardian_cu`, which selects 0 rows on
+this run of record and exits 4 — MINOR-7, corrected in W3 after MAJOR-3 found
+it) for the account-seam no-movement proof, and
+`tools/l1s4_document_replay.py` over the 8 named shas for the DOCUMENT-seam
+proof that actually exercises the seam production reads
+(`analyze_document`) — MAJOR-1: `cohort_replay` never opens the omission
+collector at all, so it cannot observe this gate either way.
 """
 from __future__ import annotations
 
