@@ -835,14 +835,32 @@ class _ArtifactJoin:
     seed their own fixture through `cached_analysis`, so they stay green
     throughout the blindness and cannot warn about it; only an empty rollup over
     the real archive shows it.
+
+    **Artifact selection (P20-ARTIFACTS, Phase 2.0; OQ8/OQ10; F-9/MAJOR-3).**
+    This class is what the OCR-legacy audit named `CachedArtifacts` and cites
+    as F-9's prior art — but its own OCR-side selection was a declared,
+    ORDERED `_ocr_keys` preference list that put the visual partition LAST, an
+    unratified extractor ranking (Risk 7 / OQ10). It now resolves through
+    `telemetry/run_of_record.py`'s ONE selection policy, the same one
+    `tools/cohort_replay.py` adopts: the `run_dir` this instance is built
+    against supplies `RunPartitions` (recorded, or reconstructed and verified
+    against THIS `data_dir`'s own cache index), `payload_for` resolves each
+    document's OCR partition from ITS OWN row (`source_path` / `visual_rung`
+    — never a preference walk), and the analysis filter uses the RUN's
+    recorded analysis key rather than recomputing one from the current tree
+    (a historical run's analysis key can differ from what this tree would
+    compute today — the registry fingerprint alone rotates at nearly every
+    wave).
     """
 
-    def __init__(self, data_dir: str | Path):
-        from webapp.artifact_cache import (  # imported lazily: telemetry must
-            analysis_input_sha,               # not drag in webapp plumbing on
-            analysis_settings_key,            # `import telemetry` (T12).
-            ocr_settings_key,
-        )
+    def __init__(self, data_dir: str | Path, run_dir: str | Path):
+        # Both imports are lazy: `telemetry` must not drag in webapp/discovery
+        # plumbing on plain `import telemetry` (T12) — `run_of_record.py`
+        # carries the same discipline for its own `discovery.runner` import.
+        import sqlite3
+
+        from telemetry.run_of_record import analysis_partition, partitions_for_run
+        from webapp.artifact_cache import analysis_input_sha
 
         # THE analysis input hash, imported rather than recomposed. This class
         # used to hold its own copy of the derivation (`text_sha256` of
@@ -856,40 +874,16 @@ class _ArtifactJoin:
         # sqlite3 direct, `mode=ro`, rather than `webapp.storage.Storage`:
         # constructing a Storage runs `_ensure_schema`, which WRITES (a
         # forward-only migration) to the store it opens. An observer that can
-        # write to the thing it observes is not an observer.
-        self._db = Path(data_dir) / "webapp.db"
-        self._analysis_key = analysis_settings_key(parse_mode="deterministic")
-        # Both offline partitions: `allow_local_ocr` is cache-key material and
-        # the archive was read across tranches with it both on and off.
-        self._ocr_keys = [
-            ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False),
-            ocr_settings_key(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False),
-            ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
-        ]
-        self._ocr_index: dict[str, dict[str, str]] = {}
-        self._analysis_index: dict[str, str] = {}
-        for settings_key, input_sha, path in self._rows("ocr"):
-            self._ocr_index.setdefault(input_sha, {})[settings_key] = path
-        for settings_key, input_sha, path in self._rows("analysis"):
-            if settings_key == self._analysis_key:
-                self._analysis_index[input_sha] = path
-
-    def _rows(self, stage: str) -> list[tuple[str, str, str]]:
-        import sqlite3
-
-        uri = f"file:{self._db.as_posix()}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True)
-        try:
-            return [
-                (str(a), str(b), str(c))
-                for a, b, c in conn.execute(
-                    "SELECT settings_key, input_sha256, artifact_path "
-                    "FROM artifact_cache WHERE stage = ?",
-                    (stage,),
-                )
-            ]
-        finally:
-            conn.close()
+        # write to the thing it observes is not an observer. Kept open for
+        # this instance's lifetime — `select_artifact` is now a per-document
+        # indexed lookup (`idx_artifact_cache_input`), not a one-time full
+        # scan, so there is no upfront index to build.
+        self._conn = sqlite3.connect(f"file:{Path(data_dir).as_posix()}/webapp.db?mode=ro", uri=True)
+        # Raises `telemetry.run_of_record.RunOfRecordError` on a malformed
+        # record or an unverifiable reconstruction — propagated to the CLI
+        # boundary (`main`), never guessed past.
+        self.partitions = partitions_for_run(run_dir, conn=self._conn)
+        self._analysis_key = analysis_partition(self.partitions)
 
     @property
     def analysis_settings_key(self) -> str:
@@ -906,41 +900,52 @@ class _ArtifactJoin:
             # `check_unavailable`, never to a wrong answer.
             return None
 
-    def payload_for(self, content_sha256: str, source_file: str) -> dict[str, Any] | None:
-        """The cached analysis payload for one archive document, or None."""
-        from ocr.document import StatementMarkdown
+    def payload_for(
+        self, content_sha256: str, source_file: str, row: Mapping[str, Any]
+    ) -> dict[str, Any] | None:
+        """The cached analysis payload for one archive document, or None.
 
-        for settings_key in self._ocr_keys:
-            path = self._ocr_index.get(content_sha256, {}).get(settings_key)
-            if not path:
-                continue
-            payload = self._read(path)
-            if payload is None:
-                continue
-            document = (payload.get("artifact") or {}).get("document")
-            if not isinstance(document, Mapping):
-                continue
-            pages = list(document.get("pages") or [])
-            markdown = StatementMarkdown(
-                source_file=source_file,
-                model=str(document.get("model") or ""),
-                pages=pages,
-            ).to_markdown()
-            # The stage's own input hash, over BOTH halves of what the analysis
-            # read: the filename-free text and the page partition. The
-            # reconstruction supplies the same page list a wired production
-            # caller supplied, which is why the join still resolves.
-            analysis_path = self._analysis_index.get(
-                self._analysis_input_sha(markdown, pages)
-            )
-            if not analysis_path:
-                continue
-            analysis = self._read(analysis_path)
-            if analysis is None:
-                continue
-            result = (analysis.get("artifact") or {}).get("analysis")
-            return result if isinstance(result, dict) else None
-        return None
+        ``row`` is the document's OWN discovery-run row (at minimum
+        ``source_path`` / ``visual_rung``) — REQUIRED, because the OCR
+        partition it resolves to is a property of that row, never of a
+        preference order this class declares. A row naming a partition this
+        run's `RunPartitions` does not carry (e.g. `visual_rung="recovered"`
+        on a run with no visual partition) resolves to ``None``, never to the
+        offline partition or any other fallback.
+        """
+        from ocr.document import StatementMarkdown
+        from telemetry.run_of_record import ocr_partition_for_row, select_artifact
+
+        ocr_key = ocr_partition_for_row(row, self.partitions)
+        ocr_path = select_artifact(self._conn, "ocr", content_sha256, ocr_key)
+        if not ocr_path:
+            return None
+        payload = self._read(ocr_path)
+        if payload is None:
+            return None
+        document = (payload.get("artifact") or {}).get("document")
+        if not isinstance(document, Mapping):
+            return None
+        pages = list(document.get("pages") or [])
+        markdown = StatementMarkdown(
+            source_file=source_file,
+            model=str(document.get("model") or ""),
+            pages=pages,
+        ).to_markdown()
+        # The stage's own input hash, over BOTH halves of what the analysis
+        # read: the filename-free text and the page partition. The
+        # reconstruction supplies the same page list a wired production
+        # caller supplied, which is why the join still resolves.
+        analysis_path = select_artifact(
+            self._conn, "analysis", self._analysis_input_sha(markdown, pages), self._analysis_key
+        )
+        if not analysis_path:
+            return None
+        analysis = self._read(analysis_path)
+        if analysis is None:
+            return None
+        result = (analysis.get("artifact") or {}).get("analysis")
+        return result if isinstance(result, dict) else None
 
 
 def load_run_rows(run_dir: str | Path) -> list[dict[str, str]]:
@@ -983,8 +988,13 @@ def observe_run(
     `distinct=True` collapses the run's rows to DISTINCT documents by
     `content_sha256` — the archive contains the same bytes under several paths
     and counting one document twice would inflate every rate in the rollup.
+
+    Raises `telemetry.run_of_record.RunOfRecordError` (P20-ARTIFACTS) if
+    `run_dir`'s partitions cannot be determined or a reconstruction does not
+    verify against `data_dir`'s own cache index — never a guess; `main()`
+    reports this as exit 5.
     """
-    join = _ArtifactJoin(data_dir)
+    join = _ArtifactJoin(data_dir, run_dir)
     corpus_status = corpus_status or {}
     seen: set[str] = set()
     out: list[tuple[dict[str, Any], Observation]] = []
@@ -1000,7 +1010,7 @@ def observe_run(
             "outcome_class": row.get("outcome_class") or "",
             "corpus_status": corpus_status.get(content_sha256),
         }
-        payload = join.payload_for(content_sha256, Path(row.get("relative_path") or "").name)
+        payload = join.payload_for(content_sha256, Path(row.get("relative_path") or "").name, row)
         if payload is None:
             out.append((context, unavailable(parser_id, REASON_PAYLOAD_ABSENT)))
             continue
@@ -1031,9 +1041,15 @@ def main(argv: list[str] | None = None) -> int:
     corpus_status = (
         load_corpus_status(args.corpus_audit, args.corpus_root) if args.corpus_audit else None
     )
-    observations = observe_run(
-        args.run, args.data_dir, corpus_status=corpus_status, distinct=not args.all_rows
-    )
+    from telemetry.run_of_record import RunOfRecordError
+
+    try:
+        observations = observe_run(
+            args.run, args.data_dir, corpus_status=corpus_status, distinct=not args.all_rows
+        )
+    except RunOfRecordError as exc:
+        print(f"artifact-selection policy failed: {exc}", file=sys.stderr)
+        return 5
     if not observations:
         print("no documents found in the run", file=sys.stderr)
         return 1
