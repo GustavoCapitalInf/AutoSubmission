@@ -1,8 +1,10 @@
 > **STATUS: SUPERSEDED (2026-09-01, `docs/moneythumb-replacement/PHASE2_RULINGS.md` OQ11)**
 >
 > Gustavo's OQ11 ruling marks this design's ARCHITECTURE superseded, on the same
-> grounds it superseded the PaddleOCR design below. The standalone parser / own-JSON /
-> own-validator architecture is not the plan: `docs/moneythumb-replacement/
+> grounds it superseded the PaddleOCR design this file's own "Supersedes:" line
+> names (`2026-07-21-paddleocr-bank-statement-parser-design.md`, also banner-marked
+> SUPERSEDED). The standalone parser / own-JSON / own-validator architecture is not
+> the plan: `docs/moneythumb-replacement/
 > PHASE2_ARCHITECTURE_PLAN.md` is the accepted architecture, and under it a vision
 > extractor supplies EVIDENCE only, feeding the SAME deterministic validator every
 > other reader in this platform already goes through — it must not become its own

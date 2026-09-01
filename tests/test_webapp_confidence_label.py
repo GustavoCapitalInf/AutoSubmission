@@ -43,11 +43,37 @@ assert STATIC_JS_FILES and TEMPLATE_HTML_FILES, "the glob found nothing to guard
 # the guard: no fabricated confidence survives under any name
 # ---------------------------------------------------------------------------
 
-#: A bare two-digit return in the 60-99 range, wherever a function body puts
-#: it -- the shape every one of `confidenceFrom` / `packageConfidence`'s six
-#: branches took. Not scoped to a function name: the mutation this must kill
-#: is exactly a RENAMED function that still does this.
-_BARE_SCORE_RETURN_RE = re.compile(r"return\s+(?:6[0-9]|7[0-9]|8[0-9]|9[0-9])\s*;")
+#: A 60-99-shaped literal, in every spelling this guard recognises: the bare
+#: two-digit integer every one of `confidenceFrom` / `packageConfidence`'s six
+#: branches used (`94`), its float form (`94.0`), and the 0-1 fraction form a
+#: percentage is sometimes carried in (`0.94`). MINOR-3
+#: (`PHASE2_P20SURFACES_REVIEW.md`) widened this from integers only.
+_SCORE_LITERAL = r"(?:6[0-9]|7[0-9]|8[0-9]|9[0-9])(?:\.[0-9]+)?|0\.(?:6[0-9]|7[0-9]|8[0-9]|9[0-9])\b"
+
+#: `return <literal>;`, wherever a function body puts it. Not scoped to a
+#: function name: the mutation this must kill is exactly a RENAMED function
+#: that still does this.
+_BARE_SCORE_RETURN_RE = re.compile(r"return\s+(?:" + _SCORE_LITERAL + r")\s*;")
+
+#: `NAME = <literal>;` anywhere in the file -- catches `const S = 94; return
+#: S;` (MINOR-3's named example) without needing to trace which variable a
+#: later `return` reads, by treating ASSIGNING a score-shaped literal to
+#: anything as suspicious as returning one directly.
+_SCORE_LITERAL_ASSIGNED_RE = re.compile(r"[A-Za-z_$][\w$]*\s*=\s*(?:" + _SCORE_LITERAL + r")\s*;")
+
+#: What this STATIC pair does not and cannot kill, honestly: a value computed
+#: by ARBITRARY ARITHMETIC (`return 100 - 6;`, `return 47 * 2;`, ...) never
+#: appears in the source as a 60-99-shaped literal at all, and defending
+#: against every such expression textually is not tractable. The residual
+#: catch for that class is DYNAMIC, not static: `test_validation_label_
+#: renders_the_verdict_words_and_never_a_number` below executes
+#: `validationLabel` via Node against every one of its branches and asserts
+#: the OUTPUT contains no digit -- an arithmetic mutant that changed a branch
+#: to `return 100 - 6` would return the number `94`, not a word, and that
+#: test would fail. That dynamic check is skipped when Node is absent (this
+#: host has Node v24; CI does not), which is the one gap this file does not
+#: close: a purely static CI run has no defence against a numeric result
+#: reached by arithmetic rather than by a literal.
 
 #: Defence in depth beside the blanket ban above: no 60-99 literal sitting
 #: within shouting distance of the word "confidence" anywhere in a guarded
@@ -73,13 +99,31 @@ def test_no_confidence_scoring_function_survives_under_its_old_name(path: Path):
     assert "packageConfidence" not in text, path
 
 
-def test_no_bare_60_99_return_literal_anywhere_in_app_js():
-    """The numeric-literal guard. Kills `return 94` even under a renamed
-    function -- the mutation table's own example -- because it is not scoped
-    to a function name at all: nothing in this file may ever `return` a bare
-    score in this range, named `confidenceFrom` or otherwise."""
-    match = _BARE_SCORE_RETURN_RE.search(APP_JS)
-    assert match is None, f"a bare 60-99 score return survives: {match.group(0)!r}"
+@pytest.mark.parametrize("path", STATIC_JS_FILES, ids=lambda p: p.name)
+def test_no_bare_60_99_return_literal_anywhere_in_a_static_js_file(path: Path):
+    """The numeric-literal guard. Kills `return 94`, `return 94.0` and
+    `return 0.94` even under a renamed function -- the mutation table's own
+    example -- because it is not scoped to a function name at all: nothing in
+    a guarded file may ever `return` a score-shaped literal, named
+    `confidenceFrom` or otherwise. MINOR-2 (`PHASE2_P20SURFACES_REVIEW.md`):
+    parametrized over every file the card's own words promised
+    (`webapp/static/*.js`), not just the module-level `app.js` global -- one
+    file today, so no behaviour changes, but a second static file would have
+    been silently unguarded before this."""
+    text = path.read_text(encoding="utf-8")
+    match = _BARE_SCORE_RETURN_RE.search(text)
+    assert match is None, f"{path}: a score-shaped return survives: {match.group(0)!r}"
+
+
+@pytest.mark.parametrize("path", STATIC_JS_FILES, ids=lambda p: p.name)
+def test_no_score_shaped_literal_assigned_anywhere_in_a_static_js_file(path: Path):
+    """MINOR-3's named example, `const S = 94; return S;`: the literal never
+    appears after `return` at all, so the return-scoped guard above cannot see
+    it. This one is not scoped to `return` either -- assigning a score-shaped
+    literal to anything is the suspicious act, wherever it is later read."""
+    text = path.read_text(encoding="utf-8")
+    match = _SCORE_LITERAL_ASSIGNED_RE.search(text)
+    assert match is None, f"{path}: a score-shaped assignment survives: {match.group(0)!r}"
 
 
 @pytest.mark.parametrize("path", STATIC_JS_FILES + TEMPLATE_HTML_FILES, ids=lambda p: p.name)
@@ -136,15 +180,20 @@ _LABELIZE_JS = 'function labelize(value) { return String(value || "N/A").replace
 @pytest.mark.skipif(NODE is None, reason="node is not installed on this host")
 @pytest.mark.parametrize("report,expected", [
     ({"quality": {"corporate_use": "approved", "transaction_detail_reliable": True,
-                  "level": "transaction_level"}}, "Validated"),
-    ({"quality": {"corporate_use": "review", "level": "needs_review"}}, "Needs review"),
+                  "level": "transaction_level"}}, "approved"),
+    ({"quality": {"corporate_use": "review", "level": "needs_review"}}, "review"),
     ({"quality": {"corporate_use": "manual_review_required", "level": "needs_review"}},
-     "Manual review required"),
+     "manual review required"),
     ({"quality": {"corporate_use": "summary_only", "level": "summary_aggregate"}},
-     "Summary only"),
-], ids=["validated", "needs-review", "manual-review", "summary-only"])
+     "summary only"),
+], ids=["approved", "review", "manual-review", "summary-only"])
 def test_validation_label_renders_the_verdict_words_and_never_a_number(report, expected):
-    source = _extract_function("validationLabel") + (
+    """MINOR-4 (`PHASE2_P20SURFACES_REVIEW.md`): the word rendered is the
+    PAYLOAD's own `quality.corporate_use` token, `labelize`d exactly like
+    every other status label in this file (`decisionPill`,
+    `packageValidationLabel`) -- never promoted to a stronger invented word
+    ("Validated" for "approved")."""
+    source = _LABELIZE_JS + "\n" + _extract_function("validationLabel") + (
         f"\nconsole.log(JSON.stringify(validationLabel({json.dumps(report)})));\n"
     )
     output = json.loads(_run_node(source))

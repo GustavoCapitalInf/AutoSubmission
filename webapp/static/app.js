@@ -602,11 +602,17 @@ function setTransactionFilterButtons(selector, activeValue) {
 // never a number of any kind. `tests/test_webapp_confidence_label.py` is the
 // guard that keeps it that way.
 function validationLabel(report = {}) {
+  // MINOR-4 (PHASE2_P20SURFACES_REVIEW.md): render the payload's OWN word
+  // through the same `labelize` every other status label in this file already
+  // uses (decisionPill, packageValidationLabel below) rather than promoting
+  // `corporate_use === "approved"` to the stronger, invented word "Validated"
+  // -- one vocabulary across both labels, and never a word `quality` did not
+  // itself carry. `assess_quality` (analysis/pipeline.py) always sets
+  // `corporate_use` to one of "approved" / "summary_only" / "manual_review_
+  // required" on every real payload; `level` and the literal fallback exist
+  // only for a malformed or missing `quality` object.
   const q = report.quality || {};
-  if (q.corporate_use === "approved") return "Validated";
-  if (q.corporate_use === "manual_review_required") return "Manual review required";
-  if (q.corporate_use === "summary_only" || q.level === "summary_only") return "Summary only";
-  return "Needs review";
+  return labelize(q.corporate_use || q.level || "review");
 }
 
 function packageValidationLabel(pkg = {}) {
