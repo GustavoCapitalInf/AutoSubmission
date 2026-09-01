@@ -36,8 +36,9 @@ authoritative.
 | OCR-LEGACY-AUDIT | **COMPLETE + adversarially reviewed twice.** Review `CONFIRMED WITH FINDINGS` (1 BLOCK / 5 MAJOR / 5 MINOR) → all eleven closed by the cell (each independently reproduced before acceptance) → re-review **`CONFIRMED — READY FOR GUSTAVO`** with one new non-blocking MINOR-6. |
 | Branch | `wave10-ocraudit`, tip `4af079a`, **merged to `main`** at `09e6b75` (docs + W3 `§OCRAUDIT` + the read-only `tools/ocr_legacy_census.py`; no production change anywhere in Phase 2 task 1). |
 | Deliverables | `docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md` (the audit; §6 = the open questions), `docs/moneythumb-replacement/reviews/PHASE2_OCRAUDIT_REVIEW.md` (review + closure re-review), W3 `§OCRAUDIT` in `docs/moneythumb-replacement/W3_TRACKA_LOG.md`. |
-| Accepted architecture plan | **`docs/moneythumb-replacement/PHASE2_ARCHITECTURE_PLAN.md`** — **STATUS: ACCEPTED ARCHITECTURE PLAN**. Read this before any Phase 2 implementation. **IMPLEMENTATION: NOT STARTED.** Does **not** resolve OQ1–OQ11. |
-| Phase 2 implementation | **NOT STARTED. Nothing is carded. Nothing may be carded until Gustavo rules (see "Exact next action").** |
+| Accepted architecture plan | **`docs/moneythumb-replacement/PHASE2_ARCHITECTURE_PLAN.md`** — **STATUS: ACCEPTED ARCHITECTURE PLAN**. Read this before any Phase 2 implementation. |
+| OQ1–OQ11 | **RULED by Gustavo 2026-09-01** — `docs/moneythumb-replacement/PHASE2_RULINGS.md` (binding). The verbatim questions below are history. |
+| Phase 2 implementation | **PHASE 2.0 (SAFETY FOUNDATIONS) IN PROGRESS since 2026-09-01** on train branch `train10` (from `origin/main` `746e1e9`). Umbrella card `docs/agent-handoffs/PHASE2-0-SAFETY.md`; rules delta `docs/agent-handoffs/PHASE2-RULES.md`; cells `P20-ROUTER`, `P20-POSTPROCESS`, `P20-SEAM`, `P20-ARTIFACTS`, `P20-SURFACES` (`docs/agent-handoffs/P20-*.md`). Expected coverage movement **+0**; OCR-fed validated **0**. **Phase 2.1 (PaddleOCR) is NOT authorized** until Gustavo approves the Phase 2.0 closure report. |
 
 # Governing OCR audit findings (summary — the verbatim findings are embedded below)
 
@@ -77,15 +78,21 @@ authoritative.
 
 # Exact next action
 
-**STOP. Do not implement Phase 2 yet.**
+**SUPERSEDED 2026-09-01.** Gustavo returned, ruled OQ1–OQ11 (`docs/moneythumb-replacement/PHASE2_RULINGS.md`)
+and authorized **Phase 2.0 — SAFETY FOUNDATIONS only**. The live state is in
+`docs/moneythumb-replacement/PHASE2_STATE.md` and `PROJECT_STATUS.md`; the work is carded in
+`docs/agent-handoffs/PHASE2-0-SAFETY.md` (umbrella) and `docs/agent-handoffs/P20-*.md` (five cells) on
+train branch `train10`. When Phase 2.0's completion gate is met the train composes to `main`, the
+closure report goes to Gustavo, and the program **STOPS** — Phase 2.1 (PaddleOCR) waits for his
+explicit approval.
 
-Gustavo is intentionally testing genuinely unseen statements against `batch9-final` before allowing
-any code changes.
-
-When Gustavo returns: **first** review the unseen-statement holdout results; **then** resolve
-OQ1–OQ11 (below — OQ1 gates any OCR-fed validation; OQ2 and OQ3 gate any Phase-2 implementation
-card); **then** cut the first Phase-2 implementation card (it must carry the nine-member rewrite
-census, MINOR-6's scope fix, and the Q3 re-measurement plan).
+*(The paragraph that stood here before 2026-09-01: "STOP. Do not implement Phase 2 yet. Gustavo is
+intentionally testing genuinely unseen statements against `batch9-final` before allowing any code
+changes. When Gustavo returns: first review the unseen-statement holdout results; then resolve
+OQ1–OQ11; then cut the first Phase-2 implementation card (it must carry the nine-member rewrite
+census, MINOR-6's scope fix, and the Q3 re-measurement plan).")* — the nine-member census is
+`P20-POSTPROCESS`; the Q3 re-measurement plan stays §5.8 of the audit, gated native-only by
+`P20-SURFACES` until the archive-present remeasurement card (Phase 2.4).
 
 Also open for Gustavo, independent of Phase 2 (verbatim backlog below): CONS-HARDCODE, MINOR-7
 (single-account package path), PAGECOV-IMAGE-SHEET's pinned-surface ceremony, RAISE-PRIVACY-6.
@@ -97,7 +104,7 @@ Also open for Gustavo, independent of Phase 2 (verbatim backlog below): CONS-HAR
 3. Read `docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md` (the audit; §6 = the open questions).
 4. Read `docs/moneythumb-replacement/PROJECT_STATUS.md` and `docs/moneythumb-replacement/PHASE2_STATE.md` (the session-memory snapshot committed at handoff).
 5. Verify the baseline: `git rev-parse batch9-final` → `819d97d…`; `git log --oneline -1 origin/main`; `python corpus_gate.py` GREEN (105 PASS / 3 WITHHELD / 1 REFUSED); the guards (`tests/test_no_statement_hardcodes.py` + the canonical set) green.
-6. **Do not modify code until Gustavo explicitly authorizes Phase 2 implementation.** The operating rules live in `docs/agent-handoffs/BATCH9-RULES.md` (choreography, proof floors, lessons — they carry forward to Phase 2).
+6. **Phase 2.0 is authorized (2026-09-01) and nothing beyond it.** Read `docs/moneythumb-replacement/PHASE2_RULINGS.md`, then `docs/agent-handoffs/PHASE2-RULES.md` (the Phase-2 delta over `BATCH9-RULES.md`, which carries forward in full), then `docs/agent-handoffs/PHASE2-0-SAFETY.md`. The train is `train10`; `main` moves only when Ocean composes the finished Phase 2.0 train.
 
 Key SHAs a fresh session may need: freeze commit `819d97d` (= tag `batch9-final`); composed batch-9 code tree `7b25d70`; cold-run tree `ff35b3d`; audit branch tip `4af079a`; audit merge into main `09e6b75`; batch-8 baseline run `cda8882d`; L-1 compositions `fea0bd2` / `e5b0342` / `eeaf566` / `a46603f`.
 

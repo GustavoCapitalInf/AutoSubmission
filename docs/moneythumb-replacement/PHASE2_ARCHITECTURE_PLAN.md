@@ -2,20 +2,21 @@
 
 ```
 STATUS: ACCEPTED ARCHITECTURE PLAN
-IMPLEMENTATION: NOT STARTED
+IMPLEMENTATION: PHASE 2.0 (SAFETY FOUNDATIONS) IN PROGRESS since 2026-09-01 — see docs/agent-handoffs/PHASE2-0-SAFETY.md
+OQ1–OQ11: RULED 2026-09-01 — see PHASE2_RULINGS.md (binding; this plan's "architecture intent" yields to the rulings)
 FROZEN REGRESSION FLOOR: 2,625
 ```
 
 | | |
 |---|---|
 | **STATUS** | **ACCEPTED ARCHITECTURE PLAN** |
-| **IMPLEMENTATION** | **NOT STARTED** |
+| **IMPLEMENTATION** | **PHASE 2.0 IN PROGRESS** (2026-09-01; umbrella card `docs/agent-handoffs/PHASE2-0-SAFETY.md`; cells P20-ROUTER / P20-POSTPROCESS / P20-SEAM / P20-ARTIFACTS / P20-SURFACES). Phase 2.1+ NOT authorized. |
 | **FROZEN REGRESSION FLOOR** | **2,625** |
 | Date | 2026-09-01 |
 | Freeze | `batch9-final` (commit `819d97d`) |
-| Authority | Architecture only. Does not authorize implementation. Does not resolve OQ1–OQ11. |
+| Authority | Architecture. OQ1–OQ11 are ruled in [PHASE2_RULINGS.md](PHASE2_RULINGS.md); where this plan's intent and a ruling differ, the ruling wins. |
 
-This is the accepted Phase 2 architecture plan. Read it before any Phase 2 implementation. Implementation remains stopped while unseen-statement holdout testing continues against `batch9-final`. OQ1–OQ11 remain open in [OCR_LEGACY_AUDIT.md](OCR_LEGACY_AUDIT.md) §6 and [PHASE2_HANDOFF.md](../../PHASE2_HANDOFF.md).
+This is the accepted Phase 2 architecture plan. Read it before any Phase 2 implementation. **Gustavo ruled OQ1–OQ11 on 2026-09-01** ([PHASE2_RULINGS.md](PHASE2_RULINGS.md)) and authorized Phase 2.0 only; the verbatim questions stay in [OCR_LEGACY_AUDIT.md](OCR_LEGACY_AUDIT.md) §6 and [PHASE2_HANDOFF.md](../../PHASE2_HANDOFF.md) as history.
 
 It follows [PHASE2_HANDOFF.md](../../PHASE2_HANDOFF.md), [OCR_LEGACY_AUDIT.md](OCR_LEGACY_AUDIT.md), and Batch 9 freeze `batch9-final` (2,625 / 3,380 validated).
 
@@ -439,7 +440,9 @@ Do **not** introduce OCR worker queues yet. 136 class-A docs and a serial worker
 
 ## 16. Open questions OQ1–OQ11 — not resolved by this plan
 
-This architecture document does **not** close OQ1–OQ11. Those questions remain Gustavo's to rule. The verbatim questions live in [OCR_LEGACY_AUDIT.md](OCR_LEGACY_AUDIT.md) §6 and are extracted in [PHASE2_HANDOFF.md](../../PHASE2_HANDOFF.md).
+**RULED 2026-09-01 — see [PHASE2_RULINGS.md](PHASE2_RULINGS.md)** (OQ1 = C quarantine; OQ2 = YES; OQ3 = ALLOWLIST; OQ4 = T later; OQ5 = Paddle primary new visual, Tesseract stays first, Unlimited bounded fallback; OQ6 = RunPod labeled escape hatch; OQ7 = quarantine/retire legacy scripts; OQ8 = YES CachedArtifacts; OQ9 = rename/remove fake confidence; OQ10 = run-of-record partition; OQ11 = supersede the standalone Paddle spec). The paragraphs below are kept as the plan's history; they no longer describe open questions.
+
+This architecture document did **not** close OQ1–OQ11 when it was accepted. The verbatim questions live in [OCR_LEGACY_AUDIT.md](OCR_LEGACY_AUDIT.md) §6 and are extracted in [PHASE2_HANDOFF.md](../../PHASE2_HANDOFF.md).
 
 - **OQ1** still gates any OCR-fed validation.
 - **OQ2 and OQ3** still gate any Phase-2 implementation card.
