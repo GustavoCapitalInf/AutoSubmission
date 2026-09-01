@@ -289,12 +289,16 @@ def test_profile_only_rows_are_deferred_not_failed(tree: Path):
 
 
 def test_a_claimed_digital_document_carries_no_failure_class(tree: Path):
-    """P20-ROUTER item 2e. A native-text document that claims and analyses
-    without an integrity flag is `validated`, so `failure_class` folds to
-    `""` (`ocr.escalation.NO_FAILURE`) and `evidence_quality` is `usable`."""
+    """P20-ROUTER item 2e (post BLOCK-1). A native-text document that claims
+    and analyses without an integrity flag is `validated`, so `failure_class`
+    folds to `""` (`ocr.escalation.NO_FAILURE`). `evidence_quality` is
+    `"none"` for a NATIVE read — the gate assesses only OCR-sourced evidence
+    (`local_tesseract`/`visual`); a native document is usable by
+    construction and is never handed to `ExtractionQualityGate` at all."""
     row = _runner(tree).process("BankX/statement.pdf", "BankX")
     assert row.parser_id == "chase"
-    assert row.evidence_quality == "usable"
+    assert row.source_path == "native"
+    assert row.evidence_quality == "none"
     assert row.failure_class in ("", "C")  # "" if validated, "C" if a check withholds it
     if row.outcome_class == "validated":
         assert row.failure_class == ""
@@ -314,13 +318,33 @@ def test_profile_only_and_invalid_pdf_rows_carry_no_evidence_verdict(tree: Path)
 
 def test_estimate_class_a_population_counts_scanned_and_mixed_profiles_only(tmp_path: Path):
     """The cheap pre-run ceiling: `digital` never reaches the router, so it
-    must never be counted."""
+    must never be counted. P20-ROUTER review, MINOR-7: the predicate is
+    LITERALLY the router's own admission test
+    (`_profile_triggers(profile) & ADMITTED_TRIGGERS`), so an unreadable file
+    — whose profile trivially has `native_text_total_chars == 0` — is a
+    sound OVER-count too: an invalid/unparseable PDF never reaches the
+    router in production (`process()` returns `failed` before any evidence
+    logic runs), but counting it toward a safety CEILING is the safe
+    direction, never the dangerous one."""
     (tmp_path / "F").mkdir()
     (tmp_path / "F" / "digital.pdf").write_bytes((CORPUS / DIGITAL).read_bytes())
     (tmp_path / "F" / "scanned.pdf").write_bytes((CORPUS / SCANNED).read_bytes())
     (tmp_path / "F" / "missing.pdf").write_bytes(b"not even a pdf")
 
     count = estimate_class_a_population(tmp_path, ["F/digital.pdf", "F/scanned.pdf", "F/missing.pdf"])
+    assert count == 2  # scanned.pdf + the unreadable missing.pdf; digital.pdf never counts
+
+
+def test_estimate_class_a_population_counts_an_unreadable_file_toward_the_ceiling(tmp_path: Path):
+    """MINOR-7's own reproduction: a document the runner literally cannot
+    read must never SILENTLY LOWER the ceiling — the safe failure direction
+    for a budget guard is to over-count, never to under-count."""
+    (tmp_path / "F").mkdir()
+    (tmp_path / "F" / "digital.pdf").write_bytes((CORPUS / DIGITAL).read_bytes())
+
+    count = estimate_class_a_population(tmp_path, ["F/digital.pdf", "F/does-not-exist.pdf"])
+    # "does-not-exist.pdf" cannot even be opened (FileNotFoundError, an
+    # OSError) -> counted toward the ceiling, never silently skipped.
     assert count == 1
 
 

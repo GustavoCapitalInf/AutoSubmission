@@ -68,6 +68,7 @@ from analysis.pipeline import analyze_document
 from analysis.serialization import document_report_to_dict
 from corpus_artifacts import cached_markdown, cached_pages
 from ocr.escalation import (
+    ADMITTED_TRIGGERS,
     A_EXTRACTION,
     B_STRUCTURE,
     C_VALIDATION,
@@ -86,6 +87,8 @@ from ocr.escalation import (
 from ocr.inspect import inspect_pdf
 from telemetry import (
     DispatchCollector,
+    EXTRACTION_TRIGGERS,
+    FAILURE_CLASSES,
     StageTimer,
     build_record,
     dispatch_section,
@@ -214,6 +217,23 @@ class DocumentRow:
     escalation_refused: str = ""
 
     def as_dict(self) -> dict:
+        # P20-ROUTER review, MAJOR-3. The closed vocabularies are enforced
+        # HERE, at the row projection — the same pattern `classify_outcome`
+        # uses for `DEFERRED_REASONS` (`telemetry/record.py`) — rather than
+        # merely documented: a token from outside either tuple raises before
+        # it ever reaches `rows.csv`. `escalation_trigger` additionally
+        # allows `""`, its own default meaning "no router decision named a
+        # trigger for this row".
+        if self.failure_class not in FAILURE_CLASSES:
+            raise ValueError(
+                f"failure_class {self.failure_class!r} is not in the closed "
+                f"vocabulary {FAILURE_CLASSES}"
+            )
+        if self.escalation_trigger and self.escalation_trigger not in EXTRACTION_TRIGGERS:
+            raise ValueError(
+                f"escalation_trigger {self.escalation_trigger!r} is not in the "
+                f"closed vocabulary {EXTRACTION_TRIGGERS} (or '')"
+            )
         row = asdict(self)
         row["candidates"] = "; ".join(self.candidates)
         row["attempted"] = "; ".join(self.attempted)
@@ -233,18 +253,65 @@ def classify_failure(
     fold over three already-computed facts: it does not call the router, does
     not look at a `Dispatch`, and cannot itself start an extractor.
 
-    Order matters: unusable evidence is `A` regardless of what happened
-    downstream (a parser that manages to claim garbage is still graded on the
-    evidence that produced it); usable-but-unclaimed is `B`; claimed-but-not-
-    validated is `C`; validated is `""` (no failure).
+    **Order (P20-ROUTER review, BLOCK-1 — `validated` is checked FIRST).** A
+    document the deterministic validator proved `validated` is `NO_FAILURE`
+    REGARDLESS of what an extraction-quality heuristic would otherwise have
+    said about the text that produced it: the validator's verdict is
+    authoritative over a structural evidence-quality signal, never the other
+    way round. Only once a document is NOT validated does the evidence
+    question even arise: unusable evidence is `A`; usable-but-unclaimed is
+    `B`; usable, claimed, and still not validated is `C`.
+
+    One deliberately UNCHANGED nuance, worth a note rather than a fix
+    (P20-ROUTER review, MINOR-9): `claimed` here is `payload is not None`,
+    and a parser that claims and then crashes downstream (`dispatch.outcome
+    == "claimed"` but no payload survives) is therefore graded `B`
+    (structure) rather than `C` (a claimed-but-invalid reconstruction). That
+    is a parser DEFECT (W3-1), not a financial-validation failure, and the
+    run of record's population for this shape is 0 — not worth widening the
+    function's inputs for a case that has never occurred.
     """
+    if validated:
+        return NO_FAILURE
     if not evidence.usable:
         return A_EXTRACTION
     if not claimed:
         return B_STRUCTURE
-    if not validated:
-        return C_VALIDATION
-    return NO_FAILURE
+    return C_VALIDATION
+
+
+#: P20-ROUTER review, BLOCK-1. `ExtractionQualityGate` may assess ONLY
+#: evidence an EXTRACTOR produced — a local-Tesseract or visual-OCR read.
+#: A native PDF-text read is not an "extraction" in this taxonomy (an
+#: unclaimed native document is Class B, a layout problem, never Class A —
+#: the architecture's own words: "re-reading perfect text with a GPU cannot
+#: invent a parser"), and a committed-artifact rung's cached markdown has no
+#: `StatementMarkdown` object behind it at all (`document is None` there,
+#: which the gate would otherwise — wrongly — read as "no text produced").
+#: `_evidence_for_row` is the one function allowed to decide which source
+#: gets a real assessment; every other source's row records
+#: `evidence_quality="none"` and treats the evidence as usable BY
+#: CONSTRUCTION for `classify_failure`'s purposes (a native/committed-
+#: artifact document is never graded `A` — only `B`, `C`, or `""`).
+GATE_ASSESSED_SOURCES: frozenset[str] = frozenset({"local_tesseract", "visual"})
+
+
+def _evidence_for_row(document, profile, source_path: str) -> EvidenceQuality:
+    """The row's `EvidenceQuality`, scoped to `GATE_ASSESSED_SOURCES`.
+
+    `document` is whichever `StatementMarkdown` is currently of record (or
+    `None` for the committed-artifact rung, which never has one). Only a
+    genuinely OCR-sourced read is handed to the real gate; every other
+    source is reported "usable by construction" — never assessed, never
+    graded Class A — which is what keeps a validated native document, and
+    every committed-artifact row, out of the extraction-failure vocabulary
+    entirely.
+    """
+    if source_path in GATE_ASSESSED_SOURCES:
+        return ExtractionQualityGate.assess(document, profile)
+    return EvidenceQuality(
+        usable=True, reasons=(), signals=(), chars_total=0, pages_empty=0, pages_total=0,
+    )
 
 
 def _profile_triggers(profile) -> frozenset[str]:
@@ -272,15 +339,21 @@ def estimate_class_a_population(root: Path, relative_paths, disk_spelling=None) 
     """A cheap, PRE-RUN upper bound on how many documents this run could ever
     legally escalate — read-only preflight profiling, no OCR, no analysis.
 
-    Only a `scanned` or `mixed` profile can ever produce
-    `offline_rungs_produced_no_text` (R) or reach the Tesseract rung at all
-    (and therefore `extractor_output_unusable`, U-extract); a `digital`
-    profile's native rung always succeeds, so it never reaches the router.
-    This is therefore a sound OVER-count of the run's true Class-A population
-    (it also counts every Class-B Tesseract read), which is exactly what a
-    budget guard needs: `DiscoveryRunner.escalation_budget` refuses to
-    escalate more documents than this count, never fewer than are legally
-    admissible.
+    The predicate is LITERALLY the router's own admission test —
+    `_profile_triggers(profile) & ADMITTED_TRIGGERS` — not a hand-written
+    approximation of it (P20-ROUTER review, MINOR-7: a duplicated predicate
+    is how the two silently drifted apart; a zero-page, valid, unencrypted
+    PDF profiles `classification="unknown"` with `native_text_total_chars ==
+    0`, which `_profile_triggers` already admits via `IMAGE_ONLY_DOCUMENT`
+    but the old hand-written `classification in ("scanned", "mixed")` check
+    missed entirely). A `digital` profile's native rung always succeeds, so
+    it never reaches the router and is correctly never counted.
+
+    An unreadable file counts TOWARD the ceiling rather than being skipped —
+    a transient read error (this host's OneDrive `PermissionError`s are a
+    documented recurring case) must never SILENTLY LOWER a safety ceiling;
+    the safe failure direction for an estimate that exists to bound GPU
+    spend is to over-count, never to under-count.
     """
     count = 0
     for relative_path in relative_paths:
@@ -288,9 +361,10 @@ def estimate_class_a_population(root: Path, relative_paths, disk_spelling=None) 
         try:
             raw = path.read_bytes()
         except OSError:
+            count += 1
             continue
         profile = inspect_pdf(raw)
-        if profile.classification in ("scanned", "mixed"):
+        if _profile_triggers(profile) & ADMITTED_TRIGGERS:
             count += 1
     return count
 
@@ -761,6 +835,14 @@ class DiscoveryRunner:
                 frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT, OPERATOR_FORCED_VISUAL})
                 | _profile_triggers(profile)
             )
+            # `attempted=()` when `allow_local_ocr` is False would let `decide`
+            # name `local_tesseract` here — unreachable today, because every
+            # mode `visual_escalation` can be true in also has
+            # `allow_local_ocr=True` (`MODE_SCANNED_VISUAL in LOCAL_OCR_MODES`)
+            # — but worth naming: that shape would still fail CLOSED (the
+            # `!= "visual"` check below writes a terminal `escalation_refused`
+            # row rather than reading Tesseract pixels it was never asked to
+            # read), never open (P20-ROUTER review, MINOR-9).
             recovery_decision = self._apply_budget(EscalationRouter.decide(router_inputs(
                 profile=profile, evidence=recovery_evidence, triggers=recovery_triggers,
                 attempted=("local_tesseract",) if self.allow_local_ocr else (),
@@ -816,8 +898,17 @@ class DiscoveryRunner:
         # answered after `_analyse` by `_upgrade_eligible` (the historical
         # cache-hit / parser-crash exclusions) — never by asking the router to
         # reconsider once analysis has run.
-        evidence = ExtractionQualityGate.assess(document, profile)
-        row.evidence_quality = "usable" if evidence.usable else "unusable"
+        #
+        # `_evidence_for_row` scopes the gate to `GATE_ASSESSED_SOURCES`
+        # (P20-ROUTER review, BLOCK-1): a native or committed-artifact read
+        # is reported `evidence_quality="none"` and is usable BY
+        # CONSTRUCTION for `classify_failure` — never assessed, never graded
+        # Class A.
+        evidence = _evidence_for_row(document, profile, row.source_path)
+        row.evidence_quality = (
+            ("usable" if evidence.usable else "unusable")
+            if row.source_path in GATE_ASSESSED_SOURCES else "none"
+        )
         upgrade_candidate = None
         if row.visual_rung == VISUAL_NOT_ATTEMPTED and self.visual_escalation and (
             source_path_for(document.model) == "local_tesseract"
@@ -833,6 +924,16 @@ class DiscoveryRunner:
         with timer.time("analysis"):
             payload, error_type, analysis_cached = self._analyse(markdown, collector, sheets)
 
+        if upgrade_candidate is not None:
+            # P20-ROUTER review, MINOR-9. The candidate's own verdict is
+            # recorded UNCONDITIONALLY — before the eligibility gate runs —
+            # so a Class-B document that happened to be claimed (excluded by
+            # `_upgrade_eligible` below) reports the same `no_admitted_
+            # trigger` refusal as one that was not: the column is comparable
+            # across every row a candidate was ever built for, not only the
+            # ones the historical exclusions let through.
+            row.escalation_trigger = upgrade_candidate.trigger or ""
+            row.escalation_refused = "; ".join(upgrade_candidate.refused)
         if upgrade_candidate is not None and self._upgrade_eligible(collector, payload):
             # UPGRADE (discovery class 5): Tesseract produced text and no parser
             # could claim it. Read the pixels again with the visual rung and keep
@@ -867,8 +968,10 @@ class DiscoveryRunner:
                         row.source_path = source["path"]
                         row.source_model = source["model"]
                         row.truncated_pages = source["truncation"]["truncated_page_count"]
-                        evidence = ExtractionQualityGate.assess(document, profile)
-                        row.evidence_quality = "usable" if evidence.usable else "unusable"
+                        evidence = _evidence_for_row(document, profile, row.source_path)
+                        row.evidence_quality = (
+                            "usable" if evidence.usable else "unusable"
+                        ) if row.source_path in GATE_ASSESSED_SOURCES else "none"
 
         # One detection sweep, read twice: for the near-miss vector (H-3) and,
         # on a cache-served row, for the parser identity the absent `Dispatch`

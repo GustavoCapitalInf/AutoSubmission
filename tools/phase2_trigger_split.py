@@ -24,6 +24,30 @@ overlap = 0, validated intersect (R union U) = 0, Tesseract split 36 validated /
 The U-extract / U-structure split and the alphanumeric-density floor's
 provenance are THIS tool's own measurement — the card says explicitly not to
 assume it, and this file is where it is produced and can be reproduced.
+
+**Post-review (P20-ROUTER, MAJOR-2, 2026-09-01): the alphanumeric-density
+criterion is SURFACE-ONLY.** `U-extract` under the gate's ADMITTED
+(parameter-free) criteria alone — no text produced, below the character
+floor, every page empty — is measured here directly and is expected to be
+**0** on the run of record (every one of the 179 Tesseract reads already
+clears all three; `ocr/local_tesseract.py`'s own floor already filters
+anything that would not). The density SIGNAL — advisory only, never a
+trigger — is reported separately as `u_density_surfaced` (expected 23): a
+CANDIDATE population Phase 2.1 may examine, never one Phase 2.0 routes on.
+
+**Post-review (P20-ROUTER, BLOCK-1, 2026-09-01): the row-level Class-A
+population.** `measure_row_level_class_a` computes `failure_class` for
+EVERY row of the run of record — not only Tesseract reads — using the exact
+same `discovery.runner.classify_failure` and `discovery.runner._evidence_for_row`
+production code (imported, never re-implemented, so this instrument cannot
+silently drift from what the runner actually publishes). Expected on the run
+of record: 0 `validated` documents ever classify `A` (BLOCK-1's pin).
+
+`--densities` (MINOR-1) prints the distribution this module's
+`ALNUM_DENSITY_FLOOR` was measured from: the minimum density among the 56
+CLAIMED Tesseract reads and among the 36 VALIDATED ones, plus the admitted-
+vs-surfaced split, so the floor's provenance is reproducible by the exact
+command that documents it.
 """
 from __future__ import annotations
 
@@ -34,7 +58,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from ocr.escalation import ALNUM_DENSITY_FLOOR, CHAR_FLOOR, ExtractionQualityGate
+from ocr.escalation import (
+    ALNUM_DENSITY_FLOOR,
+    BELOW_ALNUM_DENSITY_FLOOR,
+    CHAR_FLOOR,
+    ExtractionQualityGate,
+)
 
 DEFAULT_RUN_POINTER_RELATIVE = ("discovery_reports", "train9-logs", "train9_run_dir.txt")
 DEFAULT_DATA_DIR_RELATIVE = (".claude", "recovery", "webapp_data_train9_cold")
@@ -145,10 +174,17 @@ def measure(rows: dict[str, dict], reader: ColdOcrReader) -> dict:
         sha for sha in tesseract_shas if int(rows[sha].get("truncated_pages") or 0) > 0
     }
 
+    # `u_extract` / `u_structure` are now driven ENTIRELY by
+    # `EvidenceQuality.usable` — which, post-MAJOR-2, is decided by the
+    # gate's admitted (parameter-free) triad alone. `u_density_surfaced` is
+    # the SEPARATE, advisory-only population the density SIGNAL identifies —
+    # measured and published, never folded into `u_extract`.
     u_extract: set[str] = set()
     u_structure: set[str] = set()
+    u_density_surfaced: set[str] = set()
     missing_artifact: set[str] = set()
     validated_unusable: set[str] = set()
+    densities: dict[str, float] = {}
     for sha in u_shas:
         pages = reader.pages(sha)
         if pages is None:
@@ -156,10 +192,15 @@ def measure(rows: dict[str, dict], reader: ColdOcrReader) -> dict:
             continue
         evidence = ExtractionQualityGate.assess(_Document(pages), None)
         (u_extract if not evidence.usable else u_structure).add(sha)
-    for sha in validated_shas & tesseract_shas:
+        if BELOW_ALNUM_DENSITY_FLOOR in evidence.signals:
+            u_density_surfaced.add(sha)
+        densities[sha] = _density(pages)
+    claimed_densities: dict[str, float] = {}
+    for sha in claimed_tesseract_shas:
         pages = reader.pages(sha)
         if pages is None:
             continue
+        claimed_densities[sha] = _density(pages)
         evidence = ExtractionQualityGate.assess(_Document(pages), None)
         if not evidence.usable:
             validated_unusable.add(sha)
@@ -171,6 +212,9 @@ def measure(rows: dict[str, dict], reader: ColdOcrReader) -> dict:
     by_profile = {
         "scanned": sum(1 for sha in u_shas if rows[sha].get("classification") == "scanned"),
         "mixed": sum(1 for sha in u_shas if rows[sha].get("classification") == "mixed"),
+    }
+    validated_tesseract_densities = {
+        sha: d for sha, d in claimed_densities.items() if sha in validated_shas
     }
 
     return {
@@ -185,12 +229,70 @@ def measure(rows: dict[str, dict], reader: ColdOcrReader) -> dict:
         "u_by_profile": by_profile,
         "u_extract": u_extract,
         "u_structure": u_structure,
+        "u_density_surfaced": u_density_surfaced,
         "u_missing_artifact": missing_artifact,
         "validated_unusable": validated_unusable,
         "claimed_tesseract_shas": claimed_tesseract_shas,
         "truncated_tesseract": truncated_tesseract_shas,
         "truncated_in_u": truncated_tesseract_shas & u_shas,
         "legal_escalation_population": r_shas | u_extract,
+        "u_densities": densities,
+        "claimed_densities": claimed_densities,
+        "validated_tesseract_densities": validated_tesseract_densities,
+    }
+
+
+def _density(pages: list[str]) -> float:
+    text = "".join(pages)
+    chars = len("".join(page.strip() for page in pages))
+    if chars == 0:
+        return 0.0
+    alnum = sum(1 for ch in text if ch.isalnum())
+    return alnum / chars
+
+
+def measure_row_level_class_a(rows: dict[str, dict], reader: ColdOcrReader) -> dict:
+    """Every row of the run of record, `failure_class` computed with the
+    PRODUCTION functions (`discovery.runner.classify_failure`,
+    `discovery.runner._evidence_for_row`, `discovery.runner.GATE_ASSESSED_SOURCES`)
+    — imported, never re-implemented, so this instrument cannot silently
+    diverge from what the runner actually publishes. P20-ROUTER review,
+    BLOCK-1: the pin this produces is over EVERY source path, not only
+    Tesseract reads.
+    """
+    from discovery.runner import GATE_ASSESSED_SOURCES, _evidence_for_row, classify_failure
+
+    validated_class_a: set[str] = set()
+    total_class_a: set[str] = set()
+    by_source: dict[str, set[str]] = {}
+    missing: set[str] = set()
+    for sha, row in rows.items():
+        source_path = row.get("source_path") or "none"
+        claimed = row.get("dispatch_outcome") == "claimed"
+        validated = row.get("outcome_class") == "validated"
+        if source_path in GATE_ASSESSED_SOURCES:
+            pages = reader.pages(sha)
+            if pages is None:
+                missing.add(sha)
+                continue
+            evidence = _evidence_for_row(_Document(pages), None, source_path)
+        else:
+            # Never fetches cached text for a source the gate must not
+            # assess (BLOCK-1) — `_evidence_for_row` ignores `document` and
+            # `profile` entirely for these sources and reports usable by
+            # construction, exactly as the production runner does.
+            evidence = _evidence_for_row(None, None, source_path)
+        failure_class = classify_failure(evidence, claimed=claimed, validated=validated)
+        by_source.setdefault(f"{source_path}:{failure_class}", set()).add(sha)
+        if failure_class == "A":
+            total_class_a.add(sha)
+            if validated:
+                validated_class_a.add(sha)
+    return {
+        "validated_class_a": validated_class_a,
+        "total_class_a": total_class_a,
+        "by_source_and_class": by_source,
+        "missing_artifact": missing,
     }
 
 
@@ -207,6 +309,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run", type=Path, default=None)
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=None, help="PRIVATE sha16 lists; never printed")
+    parser.add_argument("--densities", action="store_true",
+                        help="print the alphanumeric-density distribution ALNUM_DENSITY_FLOOR "
+                             "was measured from (MINOR-1): min among the 56 claimed Tesseract "
+                             "reads and among the 36 validated ones, plus the admitted-vs-"
+                             "surfaced U split")
+    parser.add_argument("--row-level", action="store_true",
+                        help="also run measure_row_level_class_a over EVERY row (all source "
+                             "paths, not only Tesseract) — BLOCK-1's widened pin, published")
     args = parser.parse_args(argv)
 
     run = args.run or _default_run()
@@ -225,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     result = measure(rows, reader)
 
     print(f"phase2_trigger_split — {run}")
-    print(f"  CHAR_FLOOR={CHAR_FLOOR}  ALNUM_DENSITY_FLOOR={ALNUM_DENSITY_FLOOR}")
+    print(f"  CHAR_FLOOR={CHAR_FLOOR}  ALNUM_DENSITY_FLOOR={ALNUM_DENSITY_FLOOR} (surface-only, MAJOR-2)")
     print(_fmt("R (deferred_visual_ocr)", result["R"]))
     print(_fmt("U (local_tesseract, not claimed)", result["U"]))
     print(_fmt("R union U", result["R_or_U"]))
@@ -235,8 +345,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  U by profile: {sorted(result['u_by_profile'].items())}")
     for klass, shas in sorted(result["tesseract_by_outcome"].items()):
         print(_fmt(f"tesseract, outcome={klass}", shas))
-    print(_fmt("U-extract (Class A: evidence unusable)", result["u_extract"]))
-    print(_fmt("U-structure (Class B: evidence usable)", result["u_structure"]))
+    print(_fmt("U-extract (Class A: ADMITTED triad only)", result["u_extract"]))
+    print(_fmt("U-structure (Class B: usable under the triad)", result["u_structure"]))
+    print(_fmt("  ...of which, density-SURFACED (advisory, never routed)",
+                result["u_density_surfaced"]))
     if result["u_missing_artifact"]:
         print(_fmt("U with no cached OCR artifact (excluded above)", result["u_missing_artifact"]))
     print(_fmt("validated Tesseract reads the gate calls unusable (must be 0)",
@@ -246,22 +358,57 @@ def main(argv: list[str] | None = None) -> int:
     print(_fmt("legal escalation population (R + U-extract)",
                 result["legal_escalation_population"]))
 
+    if args.densities:
+        claimed_d = result["claimed_densities"].values()
+        validated_d = result["validated_tesseract_densities"].values()
+        print("\n  --densities (MINOR-1 provenance)")
+        print(f"    min density among {len(result['claimed_densities'])} CLAIMED tesseract reads: "
+              f"{min(claimed_d):.4f}" if claimed_d else "    no claimed tesseract densities")
+        print(f"    min density among {len(result['validated_tesseract_densities'])} VALIDATED "
+              f"tesseract reads: {min(validated_d):.4f}" if validated_d else "    no validated densities")
+        below = sorted(d for d in result["u_densities"].values() if d < ALNUM_DENSITY_FLOOR)
+        at_or_above = sorted(d for d in result["u_densities"].values() if d >= ALNUM_DENSITY_FLOOR)
+        print(f"    U population below {ALNUM_DENSITY_FLOOR}: {len(below)} "
+              f"(range {min(below):.4f}-{max(below):.4f})" if below else
+              f"    U population below {ALNUM_DENSITY_FLOOR}: 0")
+        print(f"    U population at/above {ALNUM_DENSITY_FLOOR}: {len(at_or_above)}")
+
+    row_level = measure_row_level_class_a(rows, reader) if args.row_level else None
+    if row_level is not None:
+        print("\n  --row-level (BLOCK-1, every source path)")
+        print(_fmt("  validated documents with failure_class=A (must be 0)",
+                    row_level["validated_class_a"]))
+        print(_fmt("  total documents with failure_class=A", row_level["total_class_a"]))
+        print(_fmt("  missing cached OCR/native artifact", row_level["missing_artifact"]))
+        for key, shas in sorted(row_level["by_source_and_class"].items()):
+            print(_fmt(f"    {key}", shas))
+
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         with args.out.open("w", encoding="utf-8") as handle:
             handle.write(f"# phase2_trigger_split — {run}\n\n")
             for key in (
                 "R", "U", "R_or_U", "overlap", "validated_intersect_R_or_U",
-                "u_extract", "u_structure", "u_missing_artifact", "validated_unusable",
-                "truncated_tesseract", "truncated_in_u", "legal_escalation_population",
+                "u_extract", "u_structure", "u_density_surfaced", "u_missing_artifact",
+                "validated_unusable", "truncated_tesseract", "truncated_in_u",
+                "legal_escalation_population",
             ):
                 handle.write(f"## {key} ({len(result[key])})\n")
                 for sha in sorted(result[key]):
                     handle.write(f"{sha[:16]}\n")
                 handle.write("\n")
+            if row_level is not None:
+                for key in ("validated_class_a", "total_class_a", "missing_artifact"):
+                    handle.write(f"## row_level:{key} ({len(row_level[key])})\n")
+                    for sha in sorted(row_level[key]):
+                        handle.write(f"{sha[:16]}\n")
+                    handle.write("\n")
         print(f"\nsha16 lists written to {args.out} (private)")
 
-    return 0 if result["validated_unusable"] == set() and result["overlap"] == set() else 1
+    ok = result["validated_unusable"] == set() and result["overlap"] == set()
+    if row_level is not None:
+        ok = ok and row_level["validated_class_a"] == set()
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

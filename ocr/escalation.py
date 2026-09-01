@@ -19,13 +19,34 @@ dataclass whose five fields are exactly `profile`, `evidence`, `triggers`,
 `attempted` and `stop` — there is no field for a payload, a report, a
 dispatch outcome, a reason, a parser id or any financial fact, so a caller
 cannot smuggle a validator's verdict into the router even by accident: the
-type has nowhere to put it.
+type has nowhere to put it. `RouterInputs.__subclasses__() == []` is pinned
+by test — a subclass that ADDS a field would still satisfy the field-name
+check on the base class alone, which is why the pin also refuses subclassing.
 
 `classify_failure` (A/B/C/"" from evidence + claimed + validated) lives in
 `discovery/runner.py`, deliberately NOT here — it is the one function in this
 story that is allowed to know what "claimed" and "validated" mean, and moving
 it into this module would give the router a way to see the fact the whole
 design keeps it blind to.
+
+**Endpoint policy is enforced in exactly ONE place, and it is not here**
+(P20-ROUTER review, MAJOR-1, ruled 2026-09-01). `ocr_client._build_client`
+(cell B2) fails closed before any client object exists, so a refused or
+unreachable endpoint surfaces as the visual rung's own transport failure
+(`extractor_failed` at the vocabulary level; `ocr_failed`/`VISUAL_FAILED` on
+the row) — never as a router refusal. `EscalationRouter.decide` picks an
+extractor among the ones this module's OWN closed order already permits; it
+does not itself judge whether a network endpoint is reachable, local, or
+opted-in, because doing so would require it to know about `Settings`,
+`base_url`s and `$0` policy — none of which belong in a module whose entire
+job is staying blind to everything but a profile, a trigger set and an
+evidence verdict. A prior revision of this module DID consult a guessed
+`ocr.endpoint_policy` API here; it was fail-open on any contract mismatch
+(an `ImportError` from importing the wrong name silently returned "allowed"),
+and it was provably inert against cell B2's REAL, documented contract
+(`docs/agent-handoffs/P20-SEAM.md`'s `check_endpoint`/`classify_endpoint`).
+Removed rather than patched: the router has no way to know which contract B2
+will ship, and a seam that can silently do nothing is worse than no seam.
 
 Phase 2.0 exclusions (do not implement here): no PaddleOCR id in
 `EXTRACTOR_ORDER` (see the SLOT comment), no page-level routing, no Trigger T
@@ -43,7 +64,8 @@ from dataclasses import dataclass
 #: Extraction failure: the produced evidence itself is unusable (empty, below
 #: the character floor, or every page empty). Assigned by
 #: `ExtractionQualityGate`, BEFORE reconstruction or financial validation ever
-#: runs.
+#: runs. Never assigned to a `validated` document — see
+#: `discovery.runner.classify_failure`, which checks `validated` FIRST.
 A_EXTRACTION = "A"
 #: Structural / layout failure: the evidence is usable, but no registered
 #: parser claimed it (or the structurer could not resolve it). Its only
@@ -56,7 +78,10 @@ B_STRUCTURE = "B"
 C_VALIDATION = "C"
 #: No failure: the document is `validated`, or no analysis stage has run for
 #: it at all (deferred, invalid PDF, OCR failure) — there is nothing to
-#: classify.
+#: classify. A `validated` document is ALWAYS `NO_FAILURE`, regardless of
+#: what the evidence gate would otherwise have said about the text that
+#: produced it (P20-ROUTER review, BLOCK-1): the deterministic validator's
+#: verdict is authoritative over a structural extraction-quality heuristic.
 NO_FAILURE = ""
 
 #: The complete FailureClass vocabulary, mirrored (and held equal by test) in
@@ -85,17 +110,20 @@ MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT = "mixed_document_pages_without_native_
 #: all for this document. The recovery path's trigger.
 OFFLINE_RUNGS_PRODUCED_NO_TEXT = "offline_rungs_produced_no_text"
 #: U-extract: an extractor DID produce a read, but `ExtractionQualityGate`
-#: refused it as unusable (empty, below the character floor, or every page
-#: empty, or below the measured alphanumeric-density floor). The upgrade
-#: path's ONLY trigger — deliberately never `dispatch.outcome != "claimed"`,
-#: which is Class B wearing Class A's clothes (the defect this card exists to
-#: close).
+#: refused it as unusable under one of its ADMITTED (parameter-free)
+#: criteria: no text at all, below the character floor, or every page empty.
+#: The upgrade path's ONLY trigger — deliberately never
+#: `dispatch.outcome != "claimed"`, which is Class B wearing Class A's
+#: clothes (the defect this card exists to close), and never the
+#: alphanumeric-density SIGNAL (P20-ROUTER review, MAJOR-2 — see
+#: `ALNUM_DENSITY_FLOOR` below; that signal is surfaced, never admitted).
 EXTRACTOR_OUTPUT_UNUSABLE = "extractor_output_unusable"
 #: An extractor raised or otherwise failed transport (endpoint down, raster
 #: failure) while the page remains unread. Defined for the closed vocabulary;
-#: no Phase-2.0 call site names it yet (there is only one OCR extractor rung
-#: after Tesseract today, and a raised exception there already fails the
-#: document closed without a second rung to fall back to).
+#: no Phase-2.0 call site names it as a TRIGGER — a transport failure is
+#: reported as the rung's own terminal failure (`VISUAL_FAILED`/`ocr_failed`),
+#: not as a reason to try a different extractor, because there is only one
+#: OCR extractor rung after Tesseract today.
 EXTRACTOR_FAILED = "extractor_failed"
 #: An explicit, deliberate, per-document operator instruction (the webapp's
 #: `force_ocr` flag) that predates and is independent of any specific
@@ -114,7 +142,8 @@ EXTRACTOR_FAILED = "extractor_failed"
 #: — admitting a profile- or mode-level trigger on the upgrade path would
 #: re-open exactly the edge this card closes. See the module docstring's
 #: import-boundary note and the P20-ROUTER report for this reading of the
-#: card.
+#: card (the independent review's own reproduction, N1, confirms it: CASE 1
+#: still kills the literal reading).
 OPERATOR_FORCED_VISUAL = "operator_forced_visual"
 #: T: a known-truncated page. DEFINED here and REFUSED by the router
 #: (`ADMITTED_TRIGGERS` excludes it) — its population is measured
@@ -123,7 +152,13 @@ OPERATOR_FORCED_VISUAL = "operator_forced_visual"
 TRUNCATION_FLAGGED = "truncation_flagged"
 
 #: The complete ExtractionTrigger vocabulary, mirrored (and held equal by
-#: test) in `telemetry.record.EXTRACTION_TRIGGERS`.
+#: test) in `telemetry.record.EXTRACTION_TRIGGERS`. This is the vocabulary's
+#: DECLARATION order — stable, documentation-facing — and is deliberately NOT
+#: the order `EscalationRouter.decide` uses to pick which admitted trigger to
+#: REPORT (see `TRIGGER_REPORT_PRIORITY`): a vocabulary's canonical order and
+#: a reporting preference are different questions, and conflating them is
+#: what made a recovery escalation report `image_only_document` instead of
+#: `offline_rungs_produced_no_text` (P20-ROUTER review, MINOR-8).
 ALL_TRIGGERS: tuple[str, ...] = (
     IMAGE_ONLY_DOCUMENT,
     MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
@@ -139,6 +174,24 @@ ALL_TRIGGERS: tuple[str, ...] = (
 #: member so its population can be measured and recorded, but it is never a
 #: legal START signal in Phase 2.0.
 ADMITTED_TRIGGERS: frozenset[str] = frozenset(ALL_TRIGGERS) - {TRUNCATION_FLAGGED}
+
+#: When more than one admitted trigger is present, which one `decide` REPORTS
+#: on the row (never which one is ADMITTED — that already happened). Ordered
+#: most-specific-evidence first: a fact an EXTRACTOR observed about ITS OWN
+#: output outranks a fact the PROFILE observed before any extractor ran,
+#: which outranks the operator's blanket mode/flag permission. This is what
+#: makes a recovery (evidence: nothing was produced at all) report
+#: `offline_rungs_produced_no_text` rather than the co-occurring
+#: `image_only_document` (P20-ROUTER review, MINOR-8).
+TRIGGER_REPORT_PRIORITY: tuple[str, ...] = (
+    OFFLINE_RUNGS_PRODUCED_NO_TEXT,
+    EXTRACTOR_OUTPUT_UNUSABLE,
+    EXTRACTOR_FAILED,
+    IMAGE_ONLY_DOCUMENT,
+    MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
+    OPERATOR_FORCED_VISUAL,
+    TRUNCATION_FLAGGED,
+)
 
 #: The fixed preference order among ALLOWED extractors — never a retry loop
 #: driven by validation, a preference among extractors the router has
@@ -158,19 +211,45 @@ EXTRACTOR_ORDER: tuple[str, ...] = ("local_tesseract", "visual")
 #: this one changes with it.
 CHAR_FLOOR = 200
 
-#: Measured 2026-09-01 over the batch-9 run of record's 56 CLAIMED Tesseract
-#: reads (36 validated + 15 withheld + 5 review — every Tesseract read a
-#: parser ever recognised, regardless of financial outcome):
-#: `tools/phase2_trigger_split.py --densities` reports the minimum
-#: alphanumeric-character density among them as 0.7075. This floor is a
-#: ROUND NUMBER measured to sit strictly beneath that minimum, never tuned to
-#: a target split size: a Tesseract read whose alphanumeric density falls
-#: below what any statement a parser has ever claimed has measured is
-#: presumptively OCR noise, not merely an unrecognised layout. It classifies
-#: all 36 validated Tesseract reads as usable (min validated density 0.7433)
-#: — the pin `tests/test_escalation_router.py` checks directly against the
-#: cold cache.
+#: **Advisory only — never admits a trigger** (P20-ROUTER review, MAJOR-2,
+#: ruled 2026-09-01: "the alphanumeric-density criterion becomes
+#: SURFACE-ONLY, exactly like Trigger T"). Measured 2026-09-01 over the
+#: batch-9 run of record's 56 CLAIMED Tesseract reads (36 validated + 15
+#: withheld + 5 review): `tools/phase2_trigger_split.py --densities` reports
+#: the minimum alphanumeric-character density among them as 0.7075
+#: (min among the 36 validated alone: 0.7433).
+#:
+#: **Honest characterisation, not "never tuned."** This is a CORPUS-FITTED
+#: threshold — a round number chosen 0.0075 below the observed minimum among
+#: documents a parser happened to claim, not a property of unreadable text
+#: independent of the sample. Composition analysis (the review's own
+#: measurement) shows it keys on WHITESPACE SHARE, not noise: the 79
+#: `validated`, `claimed` native documents whose density falls below this
+#: floor have a median whitespace share of 0.321 against 0.157 for the
+#: `validated` population above it, while punctuation/other share barely
+#: moves (0.079 vs 0.061) — this is a wide-column / padded-tabular-layout
+#: detector, not an extraction-failure detector. Reproduced fragility: moving
+#: the floor anywhere in [0.20, 0.74] leaves the ENTIRE test suite, including
+#: the corpus-marked slice, green (the escalation population moves from 13 to
+#: 48 with every test passing); only above 0.7433 does the corpus pin fire,
+#: and that pin runs only under `@pytest.mark.corpus`, deselected by default.
+#:
+#: For exactly these reasons it is now SURFACE-ONLY: `ExtractionQualityGate`
+#: records whether a read falls below it in `EvidenceQuality.signals`
+#: (never `.reasons`, never `.usable`), so the value and the population it
+#: identifies (23 of the 123 U documents on the run of record) are visible
+#: and measured, but nothing routes on it. Admitting it as a real trigger is
+#: Phase 2.1's decision to make, and only with labelled evidence: a sample of
+#: Tesseract reads a HUMAN has confirmed unreadable vs confirmed
+#: readable-but-unparsed, with the criterion's error rate measured in BOTH
+#: directions on that sample — not a threshold derived from the very
+#: population it will be used to split.
 ALNUM_DENSITY_FLOOR = 0.70
+
+#: The advisory signal name `EvidenceQuality.signals` carries when a read's
+#: alphanumeric density falls below `ALNUM_DENSITY_FLOOR`. Never a member of
+#: `.reasons`, never a cause of `usable=False`.
+BELOW_ALNUM_DENSITY_FLOOR = "below_alnum_density_floor"
 
 
 @dataclass(frozen=True)
@@ -180,10 +259,18 @@ class EvidenceQuality:
     Never constructed from a `Dispatch`, a payload, or a validator verdict —
     only `ExtractionQualityGate.assess` builds one, and it never sees any of
     those.
+
+    `usable` is decided EXCLUSIVELY by the three ADMITTED, parameter-free
+    criteria named in `reasons` (no text produced, below the character
+    floor, every page empty). `signals` carries advisory-only observations —
+    today, only `BELOW_ALNUM_DENSITY_FLOOR` — that are measured and recorded
+    but never move `usable` and never admit a router trigger (P20-ROUTER
+    review, MAJOR-2).
     """
 
     usable: bool
     reasons: tuple[str, ...]
+    signals: tuple[str, ...]
     chars_total: int
     pages_empty: int
     pages_total: int
@@ -192,23 +279,42 @@ class EvidenceQuality:
 class ExtractionQualityGate:
     """Class A, decided BEFORE any parser or validator runs.
 
-    Deterministic and structural: every criterion is named in `reasons`, and
-    the function of (document, profile) is pure — the same input always
-    produces the same `EvidenceQuality`, and nothing here is randomised or
-    time-dependent.
+    Deterministic and structural: every criterion is named in `reasons` or
+    `signals`, and the function of (document, profile) is pure — the same
+    input always produces the same `EvidenceQuality`, and nothing here is
+    randomised or time-dependent.
+
+    **Scope (P20-ROUTER review, BLOCK-1).** This gate assesses ONLY evidence
+    an EXTRACTOR produced (today: a local-Tesseract or visual-OCR read). A
+    native PDF-text read, or a committed-artifact rung's cached markdown, is
+    NOT extraction in this taxonomy's sense — it is either text the document
+    already carried (usable by construction; an unclaimed native document is
+    a layout problem, Class B, never a Class-A extraction failure) or a
+    committed, already-claimed fixture. Callers (`discovery/runner.py`) must
+    not call `assess` on those sources at all; `discovery.runner.GATE_ASSESSED_SOURCES`
+    is the pinned list of source paths this gate may ever see, and
+    `discovery.runner._evidence_for_row` is the one function allowed to
+    decide which source gets a real assessment versus the "not assessed"
+    default. `document is None` here means the RECOVERY shape specifically —
+    the offline ladder, as a whole, produced no `StatementMarkdown` object at
+    all — never "a read happened but wasn't kept" (a committed-artifact row
+    has a markdown string with no `StatementMarkdown` object behind it, which
+    is exactly why the caller must route it around this gate rather than
+    calling `assess(None, ...)` on it).
     """
 
     @staticmethod
     def assess(document, profile) -> EvidenceQuality:
         """`document` is the produced read (an object with a `.pages` list of
         page strings — a `StatementMarkdown` in production) or `None` when
-        nothing was produced at all. `profile` is accepted for interface
-        symmetry with the router's other inputs; today's criteria read only
-        the produced text, so it is otherwise unused here."""
+        the offline ladder produced nothing at all (the recovery shape).
+        `profile` is accepted for interface symmetry with the router's other
+        inputs; today's criteria read only the produced text, so it is
+        otherwise unused here."""
         del profile  # unused today; kept for interface symmetry / future criteria
         if document is None:
             return EvidenceQuality(
-                usable=False, reasons=("no_text_produced",),
+                usable=False, reasons=("no_text_produced",), signals=(),
                 chars_total=0, pages_empty=0, pages_total=0,
             )
         pages = [str(page) for page in (getattr(document, "pages", None) or [])]
@@ -222,13 +328,15 @@ class ExtractionQualityGate:
             reasons.append("below_char_floor")
         if pages_total > 0 and pages_empty == pages_total:
             reasons.append("all_pages_empty")
+
+        signals: list[str] = []
         if chars_total > 0:
             alnum_total = sum(1 for page in pages for ch in page if ch.isalnum())
             if (alnum_total / chars_total) < ALNUM_DENSITY_FLOOR:
-                reasons.append("below_alnum_density_floor")
+                signals.append(BELOW_ALNUM_DENSITY_FLOOR)
 
         return EvidenceQuality(
-            usable=not reasons, reasons=tuple(reasons),
+            usable=not reasons, reasons=tuple(reasons), signals=tuple(signals),
             chars_total=chars_total, pages_empty=pages_empty, pages_total=pages_total,
         )
 
@@ -245,7 +353,12 @@ class RouterInputs:
     a new field (a `payload`, a `dispatch_outcome`, a `validated` bool) fails
     that pin. This is the type that makes "the validator whispers to the
     router" a compile-shape impossible, not merely a discipline nobody
-    breaks.
+    breaks. `RouterInputs.__subclasses__() == []` is pinned alongside the
+    field set (P20-ROUTER review, MINOR-6): a subclass that ADDS a field and
+    is accepted by `EscalationRouter.decide` (which only reads the five base
+    attributes) would defeat the field pin without ever tripping it, since
+    `__dataclass_fields__` on the SUBCLASS would include the base's five
+    names plus its own — the base-class pin alone cannot see that shape.
     """
 
     profile: object
@@ -262,11 +375,15 @@ def router_inputs(
     """The ONE constructor every `decide()` call site must use.
 
     `tests/test_escalation_tripwires.py` finds every `decide(` call site in
-    `discovery/` and `webapp/` by AST and asserts each one's `RouterInputs`
-    argument was built by a call to this function — so a call site cannot
-    hand-roll a `RouterInputs(...)` with a smuggled sixth positional value
-    (the dataclass has none, but a hand-rolled call is also not the one
-    reviewed, pinned constructor). Keyword-only, names pinned by this
+    the ENTIRE repository (excluding this module and `tests/`) by AST and
+    asserts each one's `RouterInputs` argument was built by a call to this
+    function, that the set of call sites is exactly the three known ones, and
+    that no `RouterInputs(` construction exists anywhere outside this module
+    and the test tree — so a call site cannot hand-roll a `RouterInputs(...)`
+    with a smuggled sixth positional value (the dataclass has none, but a
+    hand-rolled call is also not the one reviewed, pinned constructor), and a
+    new escalation call site anywhere in the codebase cannot go unnoticed
+    (P20-ROUTER review, MINOR-6). Keyword-only, names pinned by this
     signature.
     """
     return RouterInputs(
@@ -285,7 +402,16 @@ class Escalation:
 
 
 class EscalationRouter:
-    """The one authority that may name an extractor. Never a retry loop."""
+    """The one authority that may name an extractor. Never a retry loop.
+
+    Chooses AMONG extractors this module's own closed `EXTRACTOR_ORDER`
+    already permits; it does not judge network endpoints, opt-in policy, or
+    $0 status — that enforcement lives entirely in `ocr_client._build_client`
+    (cell B2), which fails closed before any client object is constructed
+    (see the module docstring's "Endpoint policy" section). A refused or
+    unreachable endpoint therefore never reaches this class at all; it
+    surfaces as the visual rung's own transport failure on the row.
+    """
 
     @staticmethod
     def decide(inputs: RouterInputs) -> Escalation:
@@ -303,31 +429,12 @@ class EscalationRouter:
             )
 
         extractor = remaining[0]
-        allowed, endpoint_refusal = _endpoint_policy_allows(extractor)
-        if not allowed:
-            return Escalation(extractor=None, trigger=None, refused=(endpoint_refusal,))
 
-        # Deterministic trigger selection when more than one is admitted: the
-        # first member of ALL_TRIGGERS' declared order that is present. This
-        # is a REPORTING choice (which named cause goes on the row), not an
-        # admission decision — admission already happened above.
-        trigger = next((t for t in ALL_TRIGGERS if t in admitted), None)
+        # Deterministic trigger selection when more than one is admitted:
+        # the most SPECIFIC one, per `TRIGGER_REPORT_PRIORITY` (evidence the
+        # extractor itself produced, before a profile-level fact, before the
+        # operator's blanket permission). A REPORTING choice (which named
+        # cause goes on the row), not an admission decision — admission
+        # already happened above.
+        trigger = next((t for t in TRIGGER_REPORT_PRIORITY if t in admitted), None)
         return Escalation(extractor=extractor, trigger=trigger, refused=())
-
-
-def _endpoint_policy_allows(extractor: str) -> tuple[bool, str]:
-    """Consult cell B2's endpoint allowlist, if it has composed yet.
-
-    Import-guarded: `ocr/endpoint_policy.py` is cell B2's file and has not
-    composed onto this branch's base. Until it exists, every allowed
-    extractor passes through unchanged (Phase 2.0's baseline — the visual
-    rung is local/$0 already, per the existing `ocr/config.py` /
-    `ocr/ocr_client.py` seam). Once B2 composes, this becomes a real
-    consultation of its policy.
-    """
-    try:
-        from ocr.endpoint_policy import extractor_allowed  # type: ignore[import-not-found]
-    except ImportError:
-        return True, ""
-    allowed, reason = extractor_allowed(extractor)
-    return bool(allowed), (reason or "endpoint_policy_refused")
