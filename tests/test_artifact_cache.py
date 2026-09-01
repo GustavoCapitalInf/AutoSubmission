@@ -17,8 +17,13 @@ output must partition it, and nothing that leaves output unchanged may.
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
+import subprocess
+import sys
+import unittest.mock
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -49,13 +54,20 @@ from webapp.jobs import JobStore
 from webapp.storage import Storage
 from webapp.worker import run_job
 
+ROOT = Path(__file__).resolve().parents[1]
+
 PDF = b"%PDF-1.7\nartifact cache fixture body"
 OTHER_PDF = b"%PDF-1.7\nartifact cache fixture body (different)"
 
 
 @dataclass
 class _OcrSettings:
-    """Stand-in for ocr.config.Settings — only the keyed attributes matter."""
+    """Stand-in for ocr.config.Settings — only the keyed attributes matter.
+
+    ``endpoint_class`` is not yet a real field of ``ocr.config.Settings``
+    (cell B2 adds it); it is here because ``ocr_settings_key`` already reads
+    it through ``getattr`` with a ``"loopback"`` default, and this fixture is
+    "anything with the same attributes" per that function's own docstring."""
 
     model: str = "baidu/Unlimited-OCR"
     base_url: str = "http://localhost:8000/v1"
@@ -65,6 +77,7 @@ class _OcrSettings:
     timeout: float = 120.0
     retries: int = 3
     api_key: str = "EMPTY"
+    endpoint_class: str = "loopback"
 
 
 @dataclass
@@ -129,6 +142,7 @@ def test_cache_key_joins_stage_input_and_settings():
         {"ocr_settings": _OcrSettings(base_url="http://elsewhere/v1")},
         {"ocr_settings": _OcrSettings(ngram_size=40)},
         {"ocr_settings": _OcrSettings(window_size=256)},
+        {"ocr_settings": _OcrSettings(endpoint_class="private")},
     ],
 )
 def test_every_ocr_knob_partitions_the_key(changed):
@@ -156,6 +170,169 @@ def test_ocr_key_ignores_knobs_that_cannot_change_output():
         _OcrSettings(api_key="a-real-secret"),
     ):
         assert ocr_settings_key(ocr_settings=irrelevant) == base
+
+
+# ---------------------------------------------------------------------------
+# P20-ARTIFACTS (Phase 2.0, OQ8/OQ10/F-6) — the v5 key material
+# ---------------------------------------------------------------------------
+
+
+def test_extractor_is_visual_only_for_the_forced_escalation_shape():
+    """The one function, pinned (`_ocr_extractor`): visual only for
+    force_ocr=True AND allow_visual_ocr=True — the runner's escalation call
+    shape (`discovery/runner.py::_read_visual`). Every other shape, including
+    the ambiguous auto call, is "offline"."""
+    from webapp.artifact_cache import _ocr_extractor
+
+    assert _ocr_extractor(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True) == "visual"
+    assert _ocr_extractor(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False) == "offline"
+    assert _ocr_extractor(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False) == "offline"
+    # The ambiguous "auto" shape: offline gets first refusal inside one
+    # `parse_statement` call, so it is labelled offline whatever eventually
+    # produces the text.
+    assert _ocr_extractor(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=True) == "offline"
+    # force_ocr alone, without allow_visual_ocr, cannot reach the visual rung.
+    assert _ocr_extractor(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False) == "offline"
+
+
+def test_extractor_partitions_the_key_independently_of_the_raw_booleans():
+    """Two different boolean triples that both label "offline" must still
+    share a key when nothing else differs — the label, not the raw flags in
+    isolation, is what a reconstruction (`telemetry/run_of_record.py`) needs
+    to reproduce; this just pins that the label computation is wired in."""
+    offline_native_mode = ocr_settings_key(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False)
+    offline_scanned_mode = ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)
+    visual = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True)
+    # allow_local_ocr itself still partitions (unchanged pre-existing knob).
+    assert offline_native_mode != offline_scanned_mode
+    assert offline_native_mode != visual and offline_scanned_mode != visual
+
+
+def test_postprocess_state_partitions_the_key_and_pins_the_quarantined_default():
+    """`postprocess_state` / `postprocess_admitted` come from `ocr.ocr_client`
+    via getattr with the pinned quarantined defaults (until B1 composes)."""
+    import ocr.ocr_client as ocr_client_module
+
+    # Pinned defaults, exercised without any monkeypatching: B1 has not
+    # composed on this tree, so the getattr fallback is what actually runs
+    # for a visual-labelled call today.
+    assert not hasattr(ocr_client_module, "POSTPROCESS_STATE")
+    assert not hasattr(ocr_client_module, "ADMITTED_POSTPROCESS")
+
+    class _Settings(_OcrSettings):
+        pass
+
+    visual_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
+                                  ocr_settings=_Settings())
+    with unittest.mock.patch.object(ocr_client_module, "POSTPROCESS_STATE", "some-other-state", create=True):
+        changed_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
+                                       ocr_settings=_Settings())
+    assert visual_key != changed_key
+
+
+def test_postprocess_never_imports_ocr_client_for_an_offline_labelled_call():
+    """The architectural property two other test files already assert for the
+    whole process (`tests/test_discovery.py`, `tests/test_visual_rung.py`):
+    computing an OFFLINE key must not import the model client module. Proven
+    in a subprocess so a prior import elsewhere in the test session cannot
+    hide a regression."""
+    code = (
+        "import sys;"
+        "from webapp.artifact_cache import ocr_settings_key;"
+        "ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False);"
+        "print('ocr.ocr_client' in sys.modules)"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "False", result.stdout
+
+
+def test_raster_version_partitions_the_key():
+    import ocr.rasterize as rasterize_module
+
+    base = ocr_settings_key(ocr_settings=_OcrSettings())
+    with unittest.mock.patch.object(rasterize_module, "RASTER_VERSION", 2):
+        changed = ocr_settings_key(ocr_settings=_OcrSettings())
+    assert base != changed
+
+
+def test_extraction_schema_version_partitions_the_key():
+    import webapp.artifact_cache as module
+
+    base = ocr_settings_key(ocr_settings=_OcrSettings())
+    with unittest.mock.patch.object(module, "EXTRACTION_SCHEMA_VERSION", 2):
+        changed = ocr_settings_key(ocr_settings=_OcrSettings())
+    assert base != changed
+
+
+def test_toolchain_versions_never_raise_and_partition_on_unknown():
+    """An unobtainable binary version is the sentinel "unknown", which still
+    partitions the key (a fresh key, a re-read — never a silent stale reuse
+    across a binary upgrade)."""
+    import webapp.artifact_cache as module
+
+    module._toolchain_versions_cache = None
+    with unittest.mock.patch("shutil.which", return_value=None), \
+         unittest.mock.patch("fitz.VersionBind", None, create=True), \
+         unittest.mock.patch("fitz.version", None, create=True):
+        versions = module.ocr_toolchain_versions()
+    assert versions == {
+        "tesseract_version": "unknown",
+        "poppler_version": "unknown",
+        "pymupdf_version": "unknown",
+    }
+    module._toolchain_versions_cache = None  # do not leak the forced-unknown cache to later tests
+
+    base = ocr_settings_key(ocr_settings=_OcrSettings())
+    with unittest.mock.patch.object(module, "_toolchain_versions_cache",
+                                    {"tesseract_version": "known 5.0", "poppler_version": "unknown",
+                                     "pymupdf_version": "unknown"}):
+        changed = ocr_settings_key(ocr_settings=_OcrSettings())
+    module._toolchain_versions_cache = None
+    assert base != changed
+
+
+def test_toolchain_versions_are_cached_once_per_process(monkeypatch):
+    import webapp.artifact_cache as module
+
+    module._toolchain_versions_cache = None
+    calls = []
+    real_which = shutil.which
+
+    def counting_which(name):
+        calls.append(name)
+        return real_which(name)
+
+    monkeypatch.setattr("shutil.which", counting_which)
+    module.ocr_toolchain_versions()
+    module.ocr_toolchain_versions()
+    module._toolchain_versions_cache = None
+    # Two probes each call `which` twice (tesseract, pdftoppm); a cache that
+    # actually cached would see exactly one round of calls, not two.
+    assert len(calls) == 2
+
+
+def test_stage_version_parameter_reconstructs_the_pre_v5_key_byte_for_byte():
+    """`telemetry/run_of_record.py` reconstructs a batch-8/9 run's OCR key by
+    calling this function with the run's OWN historical stage version — this
+    pins that doing so reproduces the pre-P20-ARTIFACTS 9-field shape exactly,
+    with none of the v5 fields, rather than today's shape stamped with
+    yesterday's version number."""
+    reconstructed_v4 = ocr_settings_key(
+        force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False,
+        stage_version=4, ocr_settings=_OcrSettings(),
+    )
+    live_v5 = ocr_settings_key(
+        force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False,
+        ocr_settings=_OcrSettings(),
+    )
+    assert OCR_STAGE_VERSION == 5
+    assert reconstructed_v4 != live_v5
+    # And it is stable / order-independent — recomputing it twice agrees.
+    assert reconstructed_v4 == ocr_settings_key(
+        force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False,
+        stage_version=4, ocr_settings=_OcrSettings(),
+    )
 
 
 @pytest.mark.parametrize(
@@ -851,7 +1028,14 @@ def test_the_ocr_stage_version_bump_invalidates_pre_o3_entries(cache, monkeypatc
     # extraction behind the fail-closed furniture gate rotates the analysis
     # input of the core-processor complex; a v3 entry would keep serving the
     # pre-rung markdown. Global, like v3; the cold run re-reads the archive.
-    assert OCR_STAGE_VERSION == 4
+    # 4 -> 5: P20-ARTIFACTS (Phase 2.0 — OQ8/OQ10/F-6): the key gains
+    # `extractor`, `postprocess_state` + `postprocess_admitted`,
+    # `raster_version`, `extraction_schema_version`, `endpoint_class` and the
+    # Tesseract/Poppler/PyMuPDF binary versions. No extractor's OUTPUT
+    # changed and the artifact shape did not change either
+    # (`CACHE_FORMAT_VERSION` stays 1); GLOBAL by construction, as v2-v4
+    # were — the Phase 2.0 cold run re-reads the archive; vendor cost $0.00.
+    assert OCR_STAGE_VERSION == 5
     calls = []
 
     def compute():
