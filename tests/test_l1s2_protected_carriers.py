@@ -127,7 +127,14 @@ def test_the_fifteen_carriers_surface_their_omission_and_stay_validated():
 
     cache_dir, run = _archive()
     rows = load_baseline_rows(run)
-    cache = ColdCache(cache_dir)
+    # P20-ARTIFACTS (Phase 2.0): `ColdCache` now resolves through
+    # `telemetry.run_of_record`'s one selection policy and needs the run
+    # directory its partitions come from, and `text()` needs each document's
+    # own row (`source_path` / `visual_rung`) rather than an internal
+    # preference order — the batch-8 archive has one OCR partition regardless,
+    # so this is a mechanical adoption of the new signature, not a behavior
+    # change for this population.
+    cache = ColdCache(cache_dir, run)
 
     wanted = {prefix.upper() for prefix in CARRIERS}
     resolved = {sha[:16].upper(): sha for sha in rows if sha[:16].upper() in wanted}
@@ -141,7 +148,7 @@ def test_the_fifteen_carriers_surface_their_omission_and_stay_validated():
     failures: list[str] = []
     for prefix in sorted(resolved):
         sha = resolved[prefix]
-        markdown, pages = cache.text(sha)
+        markdown, pages = cache.text(sha, rows[sha])
         if markdown is None:
             failures.append(f"{prefix}: no cached text — this proof may not skip a document")
             continue

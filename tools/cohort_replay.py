@@ -38,6 +38,33 @@ Baseline fidelity: at an unchanged tree every sha must reproduce its baseline
 outcome and an identical payload; run it once at the base commit before any
 change (`--expect-identical` exits 3 otherwise) so a proof is measured against
 an instrument that is known to reproduce the run.
+
+Artifact selection (P20-ARTIFACTS, Phase 2.0; OQ8/OQ10; F-9)
+--------------------------------------------------------------
+`ColdCache` used to take `rows[0]` of whatever the cache held for a stage and
+an input hash, with no `ORDER BY` and no settings-key filter on EITHER stage
+(SQLite's row order without `ORDER BY` is unspecified). That was correct only
+because every input in the batch-8/9 archive has ever held exactly one
+artifact per stage. It now resolves through `telemetry/run_of_record.py`'s ONE
+selection policy, shared with `telemetry/stated_counts.py::_ArtifactJoin`: the
+`--run` directory's partitions (recorded, or deterministically reconstructed
+and verified against `--data-dir`'s own cache index — a mismatch is exit 5,
+never a guess), and each row's OWN partition on both stages
+(`ocr_partition_for_row`, `analysis_partition`) rather than a preference order
+or an incidental one.
+
+`--run` is REQUIRED and has no pointer-file default: a hidden default is
+exactly the class of staleness this fix exists to close (the tool's OLD
+default silently pointed at the train-8 pointer file long after the batch-9
+run of record became current — every other Phase-2.0 cell had to remember to
+override it by hand). The batch-9 run of record is recorded, for convenience,
+at `discovery_reports/train9-logs/train9_run_dir.txt` (gitignored, like the
+train-8 pointer it succeeds) — read that file's content and pass it to
+`--run` explicitly; this tool does not read it for you.
+
+Exit codes: 0 clean, 2 a validated regression, 3 `--expect-identical` drift,
+4 an empty cohort, 5 the artifact-selection policy could not resolve a run's
+partitions or found a corrupt cache index (`telemetry.run_of_record.RunOfRecordError`).
 """
 from __future__ import annotations
 
@@ -50,7 +77,10 @@ import sys
 import time
 from pathlib import Path
 
-DEFAULT_RUN_POINTER = Path("discovery_reports/train8-logs/train8_run_dir.txt")
+#: No longer read automatically (`--run` is REQUIRED — see the module
+#: docstring's "Artifact selection" note): this is the batch-9 run-of-record
+#: pointer file this cell writes, for a caller to `cat` and pass explicitly.
+BATCH9_RUN_POINTER = Path("discovery_reports/train9-logs/train9_run_dir.txt")
 DEFAULT_DATA_DIR = Path(".claude/recovery/webapp_data_train8_cold")
 DEFAULT_CENSUS = Path("docs/moneythumb-replacement/census_batch9/per_sha.csv")
 LADDER = ("failed", "withheld", "review", "validated")
@@ -109,27 +139,41 @@ def select_cohort(args, rows: dict[str, dict], census: dict[str, dict]) -> list[
 # ----------------------------------------------------------------------------
 
 class ColdCache:
-    def __init__(self, data_dir: Path):
+    """A read-only view of one data directory's D-3 artifact cache, resolving
+    strictly through `telemetry/run_of_record.py`'s ONE selection policy — no
+    `rows[0]`, no preference order, no incidental DB order. `run_dir` is the
+    discovery run whose partitions govern every lookup this instance makes."""
+
+    def __init__(self, data_dir: Path, run_dir: Path):
+        from telemetry.run_of_record import partitions_for_run
+
         self.root = data_dir / "artifacts"
         self.conn = sqlite3.connect(f"file:{(data_dir / 'webapp.db').as_posix()}?mode=ro", uri=True)
         from ocr.document import StatementMarkdown
         from webapp.artifact_cache import analysis_input_sha
         self._markdown = StatementMarkdown
         self._input_sha = analysis_input_sha
+        # Raises `telemetry.run_of_record.RunOfRecordError` on a malformed
+        # record or a reconstruction the cache does not corroborate — caught
+        # at `main()` and reported as exit 5, never silently guessed past.
+        self.partitions = partitions_for_run(run_dir, conn=self.conn)
 
-    def _payload(self, stage: str, input_sha: str):
-        rows = self.conn.execute(
-            "SELECT artifact_path FROM artifact_cache WHERE stage = ? AND input_sha256 = ?",
-            (stage, input_sha)).fetchall()
-        if not rows:
+    def _payload(self, stage: str, input_sha: str, settings_key: str | None):
+        from telemetry.run_of_record import select_artifact
+
+        path = select_artifact(self.conn, stage, input_sha, settings_key)
+        if path is None:
             return None
         try:
-            return json.loads((self.root / rows[0][0]).read_text(encoding="utf-8"))
+            return json.loads((self.root / path).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
 
-    def text(self, sha: str) -> tuple[str | None, list[str]]:
-        payload = self._payload("ocr", sha)
+    def text(self, sha: str, row: dict) -> tuple[str | None, list[str]]:
+        from telemetry.run_of_record import ocr_partition_for_row
+
+        settings_key = ocr_partition_for_row(row, self.partitions)
+        payload = self._payload("ocr", sha, settings_key)
         if payload is None:
             return None, []
         document = (payload.get("artifact") or {}).get("document")
@@ -141,7 +185,10 @@ class ColdCache:
         return markdown, pages
 
     def baseline_payload(self, markdown: str, pages: list[str]) -> dict | None:
-        payload = self._payload("analysis", self._input_sha(markdown, pages))
+        from telemetry.run_of_record import analysis_partition
+
+        settings_key = analysis_partition(self.partitions)
+        payload = self._payload("analysis", self._input_sha(markdown, pages), settings_key)
         if payload is None:
             return None
         try:
@@ -250,7 +297,10 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, ValueError):
         pass
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--run", type=Path, default=None)
+    parser.add_argument("--run", type=Path, required=True,
+                        help="the discovery run of record (REQUIRED — no pointer-file default; "
+                             "see the module docstring's 'Artifact selection' note). The batch-9 "
+                             "run is recorded at discovery_reports/train9-logs/train9_run_dir.txt")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--census", type=Path, default=DEFAULT_CENSUS)
     parser.add_argument("--shas", type=Path, default=None)
@@ -266,8 +316,6 @@ def main(argv: list[str] | None = None) -> int:
                         help="baseline-fidelity mode: exit 3 unless every sha reproduces its outcome and payload")
     parser.add_argument("--label", default="", help="free text for the report header (tree, card)")
     args = parser.parse_args(argv)
-    if args.run is None:
-        args.run = Path(DEFAULT_RUN_POINTER.read_text(encoding="utf-8").strip())
 
     rows = load_baseline_rows(args.run)
     census = load_census(args.census)
@@ -275,7 +323,13 @@ def main(argv: list[str] | None = None) -> int:
     if not cohort:
         print("empty cohort")
         return 4
-    cache = ColdCache(args.data_dir)
+    from telemetry.run_of_record import RunOfRecordError
+
+    try:
+        cache = ColdCache(args.data_dir, args.run)
+    except RunOfRecordError as exc:
+        print(f"artifact-selection policy failed: {exc}")
+        return 5
 
     import subprocess
     tree = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -292,12 +346,20 @@ def main(argv: list[str] | None = None) -> int:
             entry.update(after="absent", direction="unranked", payload="absent")
             table.append(entry)
             continue
-        markdown, pages = cache.text(sha)
+        try:
+            markdown, pages = cache.text(sha, base)
+        except RunOfRecordError as exc:
+            print(f"artifact-selection policy failed on {sha[:16]}: {exc}")
+            return 5
         if markdown is None:
             entry.update(after="no_text", direction="unranked", payload="no_text")
             table.append(entry)
             continue
-        baseline_payload = cache.baseline_payload(markdown, pages)
+        try:
+            baseline_payload = cache.baseline_payload(markdown, pages)
+        except RunOfRecordError as exc:
+            print(f"artifact-selection policy failed on {sha[:16]}: {exc}")
+            return 5
         t0 = time.perf_counter()
         payload, klass, reason, claimed = replay_one(markdown, pages)
         entry["ms"] = round((time.perf_counter() - t0) * 1000)
