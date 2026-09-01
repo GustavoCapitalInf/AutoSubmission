@@ -207,6 +207,12 @@ def test_postprocess_of_a_full_read_never_manufactures_a_signal():
     cleaned = postprocess(raw)
     assert "<table>" in cleaned  # the chain really did run over a table
     assert structural_tail_signals(cleaned) == []
+    # Review MINOR-5: OQ1 = C means NOTHING calls `postprocess` on the
+    # analysis path any more -- `assess_pages` sees the RAW completion, not
+    # `cleaned`. The property this test exists to prove ("a complete read
+    # never flags") must hold on the text the detector actually sees now,
+    # not only on a text no production path produces any more.
+    assert structural_tail_signals(raw) == []
 
 
 # ---------------------------------------------------------------------------

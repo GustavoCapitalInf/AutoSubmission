@@ -58,6 +58,22 @@ def test_looks_missegmented_ignores_normal_tables():
     assert not looks_missegmented("<table><tr><td>AMOUNT($)</td></tr><tr><td>5.00</td></tr></table>")
 
 
+def test_looks_missegmented_fires_strictly_less_often_on_raw_text():
+    """Review MINOR-4: the DPI-fallback check in `ocr/pipeline.py` now runs
+    `looks_missegmented` on the RAW completion instead of the postprocessed
+    text (the quarantine removed an input to it, never added one).
+    `_ORPHAN_AMOUNT_TABLE_RE` tolerates only `\\s*` between `<table>` and the
+    first `<tr>`, so a raw page carrying a stripped-metadata construct
+    (a `[Non-Text]` placeholder, a `<|det|>` tag) between them defeats the
+    match on raw text where it would have matched on postprocess()'d text.
+    Zero production impact (visual_rung has never run), but a real,
+    declared intake-behavior delta — see OCR_POSTPROCESS_CENSUS.md."""
+    raw = ("<table>\n[Non-Text]\n<tr><td>AMOUNT($)</td></tr><tr><td>1.00</td></tr>"
+           "<tr><td>2.00</td></tr></table>")
+    assert not looks_missegmented(raw)
+    assert looks_missegmented(postprocess(raw))
+
+
 def _img():
     return Image.new("RGB", (12, 8), (255, 255, 255))
 
@@ -149,6 +165,28 @@ def test_apply_admitted_applies_named_members_in_the_given_order(monkeypatch):
     out = apply_admitted(raw)
     assert "<|det|>" not in out          # strip_det_tags ran
     assert out == "$50.00"               # collapse_repeated_amounts then ran
+
+
+def test_apply_admitted_order_is_the_tuples_own_order_not_declaration_order(monkeypatch):
+    """Review MINOR-1 / mutant P: the previous order test used an input and a
+    tuple whose relative order matched `_POSTPROCESS_MEMBERS`' OWN
+    declaration order, so a mutant that ignores the tuple and iterates
+    `_POSTPROCESS_MEMBERS` (filtered by membership) survived. This input is
+    order-SENSITIVE: a det tag sits BETWEEN two money tokens that would
+    otherwise form a 3-token run. Running strip_det_tags first joins the run
+    (collapse fires); running collapse_repeated_amounts first leaves the tag
+    splitting two separate runs (neither reaches count 3, nothing collapses)
+    — then strip_det_tags only removes the tag."""
+    import ocr.ocr_client as ocr_client_module
+    raw = "$50.00 <|det|>x [1,2,3,4]<|/det|> $50.00 $50.00"
+
+    monkeypatch.setattr(ocr_client_module, "ADMITTED_POSTPROCESS",
+                        ("strip_det_tags", "collapse_repeated_amounts"))
+    assert apply_admitted(raw) == "$50.00"
+
+    monkeypatch.setattr(ocr_client_module, "ADMITTED_POSTPROCESS",
+                        ("collapse_repeated_amounts", "strip_det_tags"))
+    assert apply_admitted(raw) == "$50.00  $50.00 $50.00"
 
 
 def test_apply_admitted_never_applies_an_unlisted_member(monkeypatch):
