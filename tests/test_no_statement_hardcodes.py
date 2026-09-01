@@ -868,25 +868,25 @@ def test_no_raw_mojibake_sequences_in_ocr():
 
 
 # ---------------------------------------------------------------------------
-# The issuer-named-regex register guard. F-3 / OQ2 (P20-POSTPROCESS item 4-5):
-# the TD markers are admitted ONLY through `ocr.ocr_client.INTAKE_FURNITURE`.
-# Scoped to the three files that CAN carry the register's subjects --
-# `ocr/ocr_client.py` (the register's own home), `ocr/pipeline.py` and
-# `ocr/render.py` (the other two files this card owns). `ocr/native_text.py`
-# is a much larger, PRE-EXISTING module with its own per-issuer structural
-# PDF-column-geometry constants (Woodforest, Navy Federal, Wells Fargo,
-# Desjardins, First Citizens layout markers) -- measured, out of scope for
-# this card (not owned by it), and not the postprocess/intake-furniture
-# surface OQ1/OQ2 govern; a future cell that owns `native_text.py` inherits
-# that measurement as its own blast radius, not a debt this guard silently
-# closes by narrowing its own scope without saying so.
+# The issuer-named-string register guard. F-3 / OQ2 (P20-POSTPROCESS item
+# 4-5): the TD markers are admitted ONLY through `ocr.ocr_client.
+# INTAKE_FURNITURE`. Layer-wide over every file in `ocr/` (review MAJOR-2:
+# the original scope was 3 files "because ocr/native_text.py carries
+# pre-existing constants" -- measured to cost 0 offenders today when widened,
+# so the narrowing bought nothing while leaving 10 of 13 files unguarded).
+# `native_text.py` and `column_grid.py` keep their pre-existing per-issuer
+# structural PDF-parsing constants under a NAMED, COUNTED, shrink-only
+# ratchet (`OCR_ISSUER_STRING_BASELINE`) rather than a blanket file skip --
+# a per-file skip would leave a FUTURE addition to those two files
+# uncaught (review's mutant J), which the count-based ratchet below does not.
 # ---------------------------------------------------------------------------
 
 #: A representative set of real institution names/marketing phrases (public
 #: information, the same class already used openly in
 #: `tests/test_parser_detection_markers.py`). Broad enough to catch a
-#: realistic future addition; narrow enough that it currently matches
-#: nothing in the three scanned files except the declared TD markers.
+#: realistic future addition; narrow enough that, outside the two ratcheted
+#: files, it currently matches nothing in `ocr/` except the declared TD
+#: markers.
 ISSUER_NAME_LEXICON = (
     "td bank", "td business", "most convenient bank", "td canada trust",
     "wells fargo", "bank of america", "jpmorgan chase", "chase bank",
@@ -898,76 +898,156 @@ ISSUER_NAME_LEXICON = (
     "guardian credit union", "linkbank",
 )
 
-#: The three ocr/ files this card owns and where INTAKE_FURNITURE applies.
-ISSUER_MARKER_SCAN_FILES = ("ocr_client.py", "pipeline.py", "render.py")
+#: Pre-existing per-issuer structural PDF-parsing constants outside this
+#: card's ownership -- a NAMED ratchet, not a scope exclusion (review
+#: MAJOR-2). Measured by summing, over every `str` `ast.Constant` in the
+#: module, the count of each `ISSUER_NAME_LEXICON` marker found in it
+#: (`_issuer_string_hit_count`, below) -- module/function docstrings included
+#: (they are `ast.Constant` nodes), bare identifiers (function/variable
+#: NAMES, e.g. `parse_native_woodforest`) excluded (a name is not a string
+#: value this scan reads). The count may only shrink: a module growing a NEW
+#: occurrence -- an issuer string added to an already-ratcheted file, exactly
+#: the shape review mutant J tests -- fails
+#: `test_ocr_issuer_string_baseline_is_not_exceeded`.
+#:   * `native_text.py`: 5 issuers (woodforest, navy federal, first citizens,
+#:     desjardins, wells fargo), 25 occurrences -- `ocr/native_text.py`'s own
+#:     per-issuer native-PDF-text column/layout readers (`parse_native_
+#:     woodforest`, `parse_native_navy_federal`, `parse_native_desjardins`,
+#:     the First Citizens description-column reader, the Wells Fargo summary
+#:     reader), structurally analogous to `analysis/`'s per-bank parsers --
+#:     not owned by this card, not the postprocess/intake-furniture surface
+#:     OQ1/OQ2 govern.
+#:   * `column_grid.py`: 1 issuer (woodforest), 3 occurrences -- geometry
+#:     helpers reused by the Woodforest column reader above.
+OCR_ISSUER_STRING_BASELINE = {
+    "native_text.py": 25,
+    "column_grid.py": 3,
+}
 
 
-def _compiled_regex_assignments(path: Path):
-    """(assigned_name, lineno, pattern_text) for every module-level
-    `NAME = re.compile(<string literal>)` in `path`. Only the simple-name
-    assignment form is matched (every regex in the three scanned files uses
-    it); an assignment whose value is a call to `re.compile` on something
-    other than a literal string (e.g. an f-string built from constants) is
-    intentionally not matched here -- none of the three files' issuer-marker
-    candidates are built that way, and a pattern this scan cannot read is not
-    a pattern it can silently clear either."""
+def _issuer_owning_name(node: ast.AST, parents: dict) -> str:
+    """The nearest enclosing assignment target, function, or class name for
+    `node` -- so an issuer marker written as a bare `re.search(...)` literal
+    argument (review mutant I) is attributed to its containing function, not
+    only a `NAME = re.compile(...)` assignment."""
+    cur = node
+    while cur in parents:
+        cur = parents[cur]
+        if (isinstance(cur, ast.Assign) and len(cur.targets) == 1
+                and isinstance(cur.targets[0], ast.Name)):
+            return cur.targets[0].id
+        if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return cur.name
+    return f"<module line {node.lineno}>"
+
+
+def _issuer_string_hits(path: Path):
+    """(owning_name, lineno, marker) for every occurrence of an
+    `ISSUER_NAME_LEXICON` marker inside any `str` `ast.Constant` in `path` --
+    a `re.compile(...)` pattern, a bare `re.search(...)` literal, a tuple of
+    marker strings, or any other string value the language can compile.
+    Widened past `re.compile` assignments alone (review MAJOR-2 fix #2)."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    out = []
+    parents: dict = {}
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)):
-            continue
-        call = node.value
-        if not (isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr == "compile"
-                and isinstance(call.func.value, ast.Name)
-                and call.func.value.id == "re"):
-            continue
-        if call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str):
-            out.append((node.targets[0].id, node.lineno, call.args[0].value))
-    return out
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    hits = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            low = node.value.lower()
+            for marker in ISSUER_NAME_LEXICON:
+                count = low.count(marker)
+                if count:
+                    owner = _issuer_owning_name(node, parents)
+                    hits.extend([(owner, node.lineno, marker)] * count)
+    return hits
+
+
+def _issuer_string_hit_count(path: Path) -> int:
+    return len(_issuer_string_hits(path))
 
 
 def _unregistered_issuer_markers(path: Path, registered: set[str]) -> list[str]:
-    """Every regex assignment in `path` whose pattern text contains a known
-    issuer marker and whose NAME is not in `registered` (INTAKE_FURNITURE)."""
-    offenders = []
-    for name, lineno, text in _compiled_regex_assignments(path):
-        if name in registered:
-            continue
-        low = text.lower()
-        hit = next((m for m in ISSUER_NAME_LEXICON if m in low), None)
-        if hit is not None:
-            offenders.append(f"{path.name}:{lineno}: {name!r} matches issuer marker {hit!r}")
-    return offenders
+    """Every issuer-string hit in `path` whose owning name is not in
+    `registered` (INTAKE_FURNITURE)."""
+    return [
+        f"{path.name}:{lineno}: {owner!r} matches issuer marker {marker!r}"
+        for owner, lineno, marker in _issuer_string_hits(path)
+        if owner not in registered
+    ]
 
 
 def test_every_issuer_named_regex_in_ocr_is_registered():
+    """Layer-wide (review MAJOR-2 fix #1). Every file OUTSIDE
+    `OCR_ISSUER_STRING_BASELINE` must carry zero issuer-string hits whose
+    owning name is not registered in `INTAKE_FURNITURE`."""
     from ocr.ocr_client import INTAKE_FURNITURE
 
     registered = set(INTAKE_FURNITURE)
     offenders = []
-    for filename in ISSUER_MARKER_SCAN_FILES:
-        offenders.extend(_unregistered_issuer_markers(OCR_DIR / filename, registered))
+    for path in _ocr_modules():
+        if path.name in OCR_ISSUER_STRING_BASELINE:
+            continue
+        offenders.extend(_unregistered_issuer_markers(path, registered))
     assert not offenders, (
-        f"issuer-named regex(es) outside INTAKE_FURNITURE: {offenders}"
+        f"issuer-named string(s) outside INTAKE_FURNITURE: {offenders}"
     )
-    # And the scan is not vacuous: the one issuer marker that DOES exist in
-    # these three files is found and IS registered (so the empty result above
-    # is "found and cleared", not "never looked").
+    # And the scan is not vacuous: the one issuer marker that DOES exist
+    # outside the ratcheted files is found and IS registered (so the empty
+    # result above is "found and cleared", not "never looked").
     found_td = any(
-        text.lower().find("td bank") != -1 or text.lower().find("most convenient bank") != -1
-        for _, _, text in _compiled_regex_assignments(OCR_DIR / "ocr_client.py")
+        marker in ("td bank", "most convenient bank")
+        for _, _, marker in _issuer_string_hits(OCR_DIR / "ocr_client.py")
     )
     assert found_td, "the scan no longer sees the real TD marker; it would pass vacuously"
+
+
+def test_ocr_issuer_string_baseline_is_not_exceeded():
+    """The ratchet may only ever shrink (same property as
+    `test_calendar_baseline_still_describes_real_offenders` /
+    `test_ocr_amount_baseline_still_describes_real_offenders`), and growth
+    must be caught even inside an already-ratcheted file -- review mutant J:
+    a NEW issuer regex added to `native_text.py` must not hide behind the
+    baseline's existing count."""
+    grown = []
+    for name, ceiling in OCR_ISSUER_STRING_BASELINE.items():
+        actual = _issuer_string_hit_count(OCR_DIR / name)
+        if actual > ceiling:
+            grown.append(f"{name}: {actual} > baselined {ceiling}")
+        elif actual < ceiling:
+            grown.append(f"{name}: {actual} < baselined {ceiling} (baseline is stale, tighten it)")
+    assert not grown, f"OCR_ISSUER_STRING_BASELINE no longer matches measurement: {grown}"
 
 
 def test_the_issuer_marker_guard_can_actually_see_an_unregistered_marker(tmp_path):
     """The mutant, named in the P20-POSTPROCESS mutation table: 'an issuer
     marker added outside INTAKE_FURNITURE' must be killed. A synthetic module
     mimicking `ocr/pipeline.py` with a brand-new, unregistered issuer marker
-    must be caught by the same scanning function the real guard uses."""
+    must be caught by the same scanning function the real guard uses --
+    review mutant I: as an inline `re.search(...)` literal, not only a
+    `NAME = re.compile(...)` assignment."""
+    mutant = tmp_path / "pipeline.py"
+    mutant.write_text(
+        "import re\n"
+        "def _is_wf_statement(text):\n"
+        '    return bool(re.search(r"wells fargo", text, re.IGNORECASE))\n',
+        encoding="utf-8",
+    )
+    offenders = _unregistered_issuer_markers(mutant, registered=set())
+    assert offenders, "the guard did not catch an unregistered inline issuer marker"
+    assert "_is_wf_statement" in offenders[0]
+
+    # And registering the containing function's name clears it -- proving
+    # the guard checks the register, not just the presence of a marker.
+    cleared = _unregistered_issuer_markers(mutant, registered={"_is_wf_statement"})
+    assert cleared == []
+
+
+def test_the_issuer_marker_guard_catches_a_new_compile_assignment_too(tmp_path):
+    """The card's own mutant (F) restated over the widened detector: a
+    `NAME = re.compile(...)` assignment is still caught."""
     mutant = tmp_path / "pipeline.py"
     mutant.write_text(
         "import re\n"
@@ -975,10 +1055,24 @@ def test_the_issuer_marker_guard_can_actually_see_an_unregistered_marker(tmp_pat
         encoding="utf-8",
     )
     offenders = _unregistered_issuer_markers(mutant, registered=set())
-    assert offenders, "the guard did not catch an unregistered issuer marker"
-    assert "_WF_STATEMENT_RE" in offenders[0]
+    assert offenders and "_WF_STATEMENT_RE" in offenders[0]
+    assert _unregistered_issuer_markers(mutant, registered={"_WF_STATEMENT_RE"}) == []
 
-    # And registering the SAME name clears it -- proving the guard checks the
-    # register, not just the presence of a marker.
-    cleared = _unregistered_issuer_markers(mutant, registered={"_WF_STATEMENT_RE"})
-    assert cleared == []
+
+def test_the_issuer_marker_guard_catches_growth_inside_a_ratcheted_file(tmp_path):
+    """Review mutant J, reproduced directly against the ratchet mechanism (not
+    only against the real `native_text.py`, which the mutation campaign also
+    exercises): a synthetic module shaped like a baselined file, with one
+    more issuer occurrence than its ceiling, must be flagged as grown."""
+    mutant = tmp_path / "native_text.py"
+    mutant.write_text(
+        "import re\n"
+        '_EXISTING = "woodforest"\n'
+        '_NEW_ISSUER_RE = re.compile(r"wells fargo", re.IGNORECASE)\n',
+        encoding="utf-8",
+    )
+    baseline = {"native_text.py": 1}  # only _EXISTING's one "woodforest" hit allowed
+    actual = _issuer_string_hit_count(mutant)
+    assert actual > baseline["native_text.py"], (
+        "the ratchet mechanism did not see the added issuer marker as growth"
+    )
