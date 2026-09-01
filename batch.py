@@ -52,17 +52,26 @@ FIELDS = [
 ]
 
 
-def _markdown_for(path: Path) -> str:
-    return _read_source(path)[0]
+def _markdown_for(path: Path, *, allow_visual_ocr: bool = False) -> str:
+    return _read_source(path, allow_visual_ocr=allow_visual_ocr)[0]
 
 
-def _read_source(path: Path):
+def _read_source(path: Path, *, allow_visual_ocr: bool = False):
     """(markdown, StatementMarkdown | None, DocumentProfile | None, byte_size).
 
     The document object used to be discarded here; telemetry needs it for the
     OCR path taken and the O-3 truncation flags, and the preflight profile for
     the document facts. Neither changes what is analysed — `markdown` is
     produced exactly as before.
+
+    OQ7 / F-4(a): `allow_visual_ocr` defaults to False — this CLI used to call
+    `parse_statement` with the defaults (`allow_visual_ocr=True`), the same
+    unbounded egress path `parse.py` had. The caller (`main`) probes and
+    endpoint-checks before ever passing True (`--visual`). When the offline
+    ladder cannot read a document and the visual rung is not allowed,
+    `parse_statement` returns `None`: raised here as a clear, specific error
+    so the per-file row records "no native/local text" rather than falling
+    through into an unrelated downstream failure.
     """
     raw = path.read_bytes()
     if path.suffix.lower() == ".pdf":
@@ -70,7 +79,12 @@ def _read_source(path: Path):
         from ocr.pipeline import parse_statement
 
         profile = inspect_pdf(raw)
-        doc = parse_statement(raw, source_file=path.name)
+        doc = parse_statement(raw, source_file=path.name, allow_visual_ocr=allow_visual_ocr)
+        if doc is None:
+            raise RuntimeError(
+                "no native or local text could be extracted; rerun with "
+                "--visual to allow the local $0 OCR rung"
+            )
         return doc.to_markdown(), doc, profile, len(raw)
     return path.read_text(encoding="utf-8"), None, None, len(raw)
 
@@ -222,6 +236,14 @@ def main() -> None:
         help="H-3 telemetry JSONL (default telemetry_runs/<run_id>.jsonl; "
              "set TELEMETRY_DISABLED=1 to turn it off).",
     )
+    ap.add_argument(
+        "--visual", action="store_true",
+        help="Allow the visual-OCR rung (local $0 server only, by default) "
+             "for PDFs the offline ladder cannot read. Probed and "
+             "endpoint-checked ONCE before the batch starts; a remote/paid "
+             "endpoint additionally requires OCR_REMOTE_OPT_IN "
+             "(see README.md).",
+    )
     args = ap.parse_args()
 
     root = Path(args.path)
@@ -232,6 +254,21 @@ def main() -> None:
     if not files:
         print(f"no .md/.pdf statements found under {root}", file=sys.stderr)
         sys.exit(1)
+
+    # OQ7 / F-4(a): this CLI used to call `parse_statement` with the defaults
+    # (`allow_visual_ocr=True`) — every PDF without native text went straight
+    # to the env-configured endpoint with its pixels. Offline-only is now the
+    # default; `--visual` probes ONCE up front (as `ocr.availability`'s own
+    # docstring requires for a long batch) rather than per file.
+    allow_visual_ocr = False
+    if args.visual:
+        from ocr.availability import probe_visual_ocr
+
+        status = probe_visual_ocr()
+        if not status.usable:
+            print(f"error: {status.message()}", file=sys.stderr)
+            sys.exit(1)
+        allow_visual_ocr = True
 
     run_id = new_run_id()
     sink = open_jsonl_sink(args.telemetry, run_id)
@@ -248,7 +285,9 @@ def main() -> None:
         byte_size = 0
         try:
             with timer.time("read"):
-                markdown, doc, profile, byte_size = _read_source(path)
+                markdown, doc, profile, byte_size = _read_source(
+                    path, allow_visual_ocr=allow_visual_ocr
+                )
             with timer.time("analysis"):
                 # The intake object's page list when this input was a PDF, and
                 # nothing when it was already-extracted markdown — a .md file
