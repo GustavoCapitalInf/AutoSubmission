@@ -65,6 +65,25 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred")
 DEFERRED_REASONS = ("deferred_scanned", "deferred_visual_ocr", "profile_only")
 SOURCE_PATHS = ("native", "local_tesseract", "visual", "none")
 
+#: P20-ROUTER (Phase 2.0). Mirrored, by value, from `ocr.escalation` — held
+#: equal to it by `tests/test_escalation_tripwires.py` so the two never drift.
+#: Not imported from there directly: `ocr/escalation.py` must import nothing
+#: from `telemetry` (see its module docstring), and a one-way mirror the
+#: OTHER direction (this module importing `ocr.escalation`) would put a
+#: telemetry-layer dependency on the OCR router for two string tuples. A row
+#: or record token from outside either vocabulary is refused by the
+#: `discovery.runner` row projection.
+FAILURE_CLASSES = ("A", "B", "C", "")
+EXTRACTION_TRIGGERS = (
+    "image_only_document",
+    "mixed_document_pages_without_native_text",
+    "offline_rungs_produced_no_text",
+    "extractor_output_unusable",
+    "extractor_failed",
+    "operator_forced_visual",
+    "truncation_flagged",
+)
+
 #: The outcome ladder, ranked worst to best. `discovery/compare.py::LADDER` is
 #: the same tuple and is the one the whole non-regression regime is measured
 #: on; it is not imported because `discovery` imports THIS module and a cycle

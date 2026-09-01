@@ -2,6 +2,14 @@ from __future__ import annotations
 from analysis.pipeline import DocumentReport, analyze_document
 from analysis.serialization import document_report_to_dict
 from ocr.document import StatementMarkdown
+from ocr.escalation import (
+    OFFLINE_RUNGS_PRODUCED_NO_TEXT,
+    OPERATOR_FORCED_VISUAL,
+    Escalation,
+    EscalationRouter,
+    ExtractionQualityGate,
+    router_inputs,
+)
 from ocr.inspect import DocumentProfile, inspect_pdf
 from ocr.pipeline import parse_statement
 from ocr.render import markdown_to_html
@@ -98,6 +106,43 @@ _STUCK_JOB_FAILURE = (
 _DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
     "no deterministic parser matched this statement",
 )
+
+
+def _force_ocr_decision(doc, profile: DocumentProfile | None, analysis: dict | None) -> Escalation:
+    """P20-ROUTER item 3: the deterministic `force_ocr` fallback's ONE router
+    call — the only legal path from "the offline ladder did not produce a
+    claim" to the visual rung in this module.
+
+    START = the operator's explicit flag, `OPERATOR_FORCED_VISUAL`. It is the
+    SOLE trigger here (unlike `discovery/runner.py`'s automatic, unattended
+    UPGRADE path, which never admits it — see that trigger's docstring in
+    `ocr/escalation.py`): `force_ocr` is set by a human or API caller BEFORE
+    any stage runs, for exactly this one document, which is a different
+    epistemic situation from a bulk pipeline reaching for a second engine
+    because the first one did not balance.
+
+    STOP = `analysis is not None`. This is legal ONLY because in deterministic
+    mode a payload exists IFF a parser claimed: `analysis/pipeline.py:917-918`
+    raises `RuntimeError("no deterministic parser matched this statement")`
+    (and `AmbiguousParserError` / `ParserCrashError` before it) on every other
+    `resolve` outcome — `tests/test_escalation_router.py` pins that exact
+    string. `EscalationRouter.decide` checks `stop` FIRST, before any trigger,
+    so a document that already claimed — even one that will go on to fail
+    financial validation (Class C) — can never reach `OPERATOR_FORCED_VISUAL`,
+    regardless of the flag. That is what makes "no C -> OCR edge" hold at this
+    call site too, and it is a STRICTER reading than the literal ruling this
+    card implements it against (which names `stop` for "validated" specifically
+    on the discovery runner's own upgrade path) — flagged in the P20-ROUTER
+    report rather than silently narrowed.
+    """
+    evidence = ExtractionQualityGate.assess(doc, profile)
+    triggers = frozenset({OPERATOR_FORCED_VISUAL})
+    if doc is None:
+        triggers = triggers | frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT})
+    return EscalationRouter.decide(router_inputs(
+        profile=profile, evidence=evidence, triggers=triggers,
+        attempted=("local_tesseract",), stop=analysis is not None,
+    ))
 
 
 def _stage_failure(stage: str, exc: BaseException) -> str:
@@ -415,13 +460,15 @@ def run_job(
             if doc is not None:
                 store.set_stage(job_id, "analyzing", doc.model)
                 markdown, html, analysis, analysis_error = analyze(doc)
-                if analysis is not None or not force_ocr:
+                decision = _force_ocr_decision(doc, profile, analysis) if force_ocr else None
+                if analysis is not None or not force_ocr or decision.extractor != "visual":
                     store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
                     _emit(store, job_id, profile, len(pdf_bytes), doc, markdown,
                           analysis, analysis_error, collector, timer)
                     return
-                # Analysis failed and the operator forced OCR: escalate to the
-                # visual rung below (mode policy, not ladder routing).
+                # Analysis failed and the router admitted the operator's
+                # force_ocr flag (P20-ROUTER item 3): escalate to the visual
+                # rung below (mode policy, not ladder routing).
             elif not force_ocr:
                 markdown = (
                     f"<!-- source: {filename} | model: deterministic-native-preflight -->\n\n"
@@ -434,6 +481,31 @@ def run_job(
                     html,
                     None,
                     "native PDF text unavailable or too sparse, and local Tesseract OCR did not produce usable statement text; turn on Force visual OCR to use the OCR service, or use Auto mode",
+                    "deterministic-native-preflight",
+                )
+                _emit(store, job_id, profile, len(pdf_bytes), None, None, None,
+                      "native text unavailable", collector, timer,
+                      error_type="NoUsableNativeText")
+                return
+            elif _force_ocr_decision(None, profile, None).extractor != "visual":
+                # Refused (structurally unreachable today: the offline ladder
+                # produced nothing, which always admits
+                # `offline_rungs_produced_no_text`, and nothing has claimed,
+                # so `stop` is always False here — kept explicit so a future
+                # refactor of the branches above cannot silently drop the
+                # router call). Same response as the `not force_ocr` arm:
+                # force_ocr never widens what a document can legally read.
+                markdown = (
+                    f"<!-- source: {filename} | model: deterministic-native-preflight -->\n\n"
+                    "No usable native PDF text was found."
+                )
+                html = markdown_to_html(markdown, title=filename)
+                store.set_result(
+                    job_id,
+                    markdown,
+                    html,
+                    None,
+                    "native PDF text unavailable, and the visual OCR escalation was refused",
                     "deterministic-native-preflight",
                 )
                 _emit(store, job_id, profile, len(pdf_bytes), None, None, None,

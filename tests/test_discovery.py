@@ -47,6 +47,7 @@ from discovery.runner import (
     PARSER_ID_UNAVAILABLE,
     DiscoveryRunner,
     DocumentRow,
+    estimate_class_a_population,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -282,6 +283,45 @@ def test_profile_only_rows_are_deferred_not_failed(tree: Path):
     """Tranche 0 asked no question, so nothing there failed."""
     row = _runner(tree, MODE_PROFILE_ONLY).process("BankX/statement.pdf", "BankX")
     assert (row.outcome_class, row.outcome_reason) == ("deferred", "profile_only")
+
+
+# --- P20-ROUTER: evidence quality / failure class / escalation budget ------
+
+
+def test_a_claimed_digital_document_carries_no_failure_class(tree: Path):
+    """P20-ROUTER item 2e. A native-text document that claims and analyses
+    without an integrity flag is `validated`, so `failure_class` folds to
+    `""` (`ocr.escalation.NO_FAILURE`) and `evidence_quality` is `usable`."""
+    row = _runner(tree).process("BankX/statement.pdf", "BankX")
+    assert row.parser_id == "chase"
+    assert row.evidence_quality == "usable"
+    assert row.failure_class in ("", "C")  # "" if validated, "C" if a check withholds it
+    if row.outcome_class == "validated":
+        assert row.failure_class == ""
+
+
+def test_profile_only_and_invalid_pdf_rows_carry_no_evidence_verdict(tree: Path):
+    """Nothing was ever read for these rows, so there is nothing to assess —
+    `evidence_quality` stays at its `"none"` default, never a guess."""
+    profile_only = _runner(tree, MODE_PROFILE_ONLY).process("BankX/statement.pdf", "BankX")
+    assert profile_only.evidence_quality == "none"
+    assert profile_only.failure_class == ""
+
+    invalid = _runner(tree).process("BankY/broken.pdf", "BankY")
+    assert invalid.evidence_quality == "none"
+    assert invalid.failure_class == ""
+
+
+def test_estimate_class_a_population_counts_scanned_and_mixed_profiles_only(tmp_path: Path):
+    """The cheap pre-run ceiling: `digital` never reaches the router, so it
+    must never be counted."""
+    (tmp_path / "F").mkdir()
+    (tmp_path / "F" / "digital.pdf").write_bytes((CORPUS / DIGITAL).read_bytes())
+    (tmp_path / "F" / "scanned.pdf").write_bytes((CORPUS / SCANNED).read_bytes())
+    (tmp_path / "F" / "missing.pdf").write_bytes(b"not even a pdf")
+
+    count = estimate_class_a_population(tmp_path, ["F/digital.pdf", "F/scanned.pdf", "F/missing.pdf"])
+    assert count == 1
 
 
 def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path: Path):

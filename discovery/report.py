@@ -115,7 +115,9 @@ class Rollups:
 
 
 def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
-              cache_stats: dict | None = None) -> dict:
+              cache_stats: dict | None = None,
+              escalation_budget: int | None = None,
+              escalations_used: int = 0) -> dict:
     # Imported here, not at module scope: the runner owns the row vocabulary
     # (as it owns `visual_rung`'s), and pulling `analysis.pipeline` in behind
     # every `import discovery.report` to read one string constant is a cost the
@@ -278,6 +280,23 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
             Counter(
                 r.visual_rung for r in rows
                 if getattr(r, "visual_rung", "not_attempted") != "not_attempted"
+            ).most_common()
+        ),
+        # P20-ROUTER (Phase 2.0). `escalation_budget` is `None` (unbounded)
+        # unless the caller set one (`discovery/cli.py::run()`, `--scanned-
+        # visual` only); `failure_class`/`escalation_trigger` are measurement
+        # rollups over EVERY enumerated row, empty in every offline mode
+        # exactly like `visual_rung` above.
+        "escalation_budget": escalation_budget,
+        "escalations_used": escalations_used,
+        "failure_class": dict(
+            Counter(
+                r.failure_class for r in rows if getattr(r, "failure_class", "")
+            ).most_common()
+        ),
+        "escalation_trigger": dict(
+            Counter(
+                r.escalation_trigger for r in rows if getattr(r, "escalation_trigger", "")
             ).most_common()
         ),
         "cache": cache_stats or {},
@@ -453,6 +472,10 @@ ROW_FIELDS = [
     # `account_last4` must be empty (L1-C18).
     "statement_bank", "account_last4", "account_count", "cache_ocr", "cache_analysis",
     "cache_visual", "visual_rung", "elapsed_ms",
+    # P20-ROUTER (Phase 2.0). Appended at the END so an existing reader that
+    # selects columns by name is unaffected; see `discovery/runner.py`'s
+    # `DocumentRow` docstring for what each carries.
+    "failure_class", "escalation_trigger", "evidence_quality", "escalation_refused",
 ]
 
 

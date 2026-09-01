@@ -694,6 +694,11 @@ def test_the_report_ranks_what_the_visual_rung_bought():
     assert "visual OCR rung" in report
     assert report.isascii()
     assert {"visual_rung", "cache_visual"} <= set(ROW_FIELDS)
+    # P20-ROUTER (Phase 2.0): appended at the END, so an existing reader by
+    # name is unaffected — see `discovery/report.py`'s `ROW_FIELDS` comment.
+    assert ROW_FIELDS[-4:] == [
+        "failure_class", "escalation_trigger", "evidence_quality", "escalation_refused",
+    ]
 
 
 def test_offline_modes_report_no_visual_activity():

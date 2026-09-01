@@ -46,6 +46,7 @@ from .runner import (
     MODE_SCANNED,
     MODE_SCANNED_VISUAL,
     DiscoveryRunner,
+    estimate_class_a_population,
 )
 
 DEFAULT_ROOT = Path("Bank Statements")
@@ -108,15 +109,28 @@ def run(
 
         cache = open_cache()
 
+    selected = _select(inventory, mode)
+    if limit is not None:
+        selected = selected[:limit]
+
+    # P20-ROUTER item 2f. A cheap, read-only preflight upper bound on how many
+    # documents THIS run could ever legally escalate — computed before a
+    # single extractor runs, over exactly the documents this run will visit.
+    # `None` (unbounded) everywhere else: the ceiling exists to bound a
+    # `--scanned-visual` run's own GPU spend against a population it measured
+    # itself, not to change any other mode's behaviour.
+    escalation_budget = None
+    if mode == MODE_SCANNED_VISUAL and visual_escalation:
+        escalation_budget = estimate_class_a_population(
+            root, selected, disk_spelling=inventory.disk_spelling,
+        )
+
     runner = DiscoveryRunner(
         root, mode=mode, run_id=run_id, sink=sink, cache=cache,
         dedup=DedupIndex.with_pinned_corpus(),
         visual_escalation=visual_escalation,
+        escalation_budget=escalation_budget,
     )
-
-    selected = _select(inventory, mode)
-    if limit is not None:
-        selected = selected[:limit]
 
     rows = []
     for index, relative_path in enumerate(selected, 1):
@@ -135,7 +149,8 @@ def run(
             cache_stats = {}
 
     summary = summarize(
-        rows, mode=mode, run_id=run_id, inventory=inventory, cache_stats=cache_stats
+        rows, mode=mode, run_id=run_id, inventory=inventory, cache_stats=cache_stats,
+        escalation_budget=runner.escalation_budget, escalations_used=runner.escalations_used,
     )
     write_rows(run_dir / "rows.csv", rows)
     write_hash_map(run_dir / "hash_map.csv", rows)
