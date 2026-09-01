@@ -36,6 +36,7 @@ authoritative.
 | OCR-LEGACY-AUDIT | **COMPLETE + adversarially reviewed twice.** Review `CONFIRMED WITH FINDINGS` (1 BLOCK / 5 MAJOR / 5 MINOR) → all eleven closed by the cell (each independently reproduced before acceptance) → re-review **`CONFIRMED — READY FOR GUSTAVO`** with one new non-blocking MINOR-6. |
 | Branch | `wave10-ocraudit`, tip `4af079a`, **merged to `main`** at `09e6b75` (docs + W3 `§OCRAUDIT` + the read-only `tools/ocr_legacy_census.py`; no production change anywhere in Phase 2 task 1). |
 | Deliverables | `docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md` (the audit; §6 = the open questions), `docs/moneythumb-replacement/reviews/PHASE2_OCRAUDIT_REVIEW.md` (review + closure re-review), W3 `§OCRAUDIT` in `docs/moneythumb-replacement/W3_TRACKA_LOG.md`. |
+| Accepted architecture plan | **`docs/moneythumb-replacement/PHASE2_ARCHITECTURE_PLAN.md`** — **STATUS: ACCEPTED ARCHITECTURE PLAN**. Read this before any Phase 2 implementation. **IMPLEMENTATION: NOT STARTED.** Does **not** resolve OQ1–OQ11. |
 | Phase 2 implementation | **NOT STARTED. Nothing is carded. Nothing may be carded until Gustavo rules (see "Exact next action").** |
 
 # Governing OCR audit findings (summary — the verbatim findings are embedded below)
@@ -70,6 +71,8 @@ authoritative.
 
 **AUDITED (measured facts, reviewed twice):** the enable-path already exists (`discovery/runner.py:438-670`); the insufficiency triggers R and U are already implemented and recorded in the run (13 + 123 = 136/3,506, <4%, both extractors local and unmetered); the cache/stage-version/provenance apparatus exists (one OCR settings key today; disjoint cache partitions); a validator verdict is not a trigger anywhere.
 
+**ACCEPTED ARCHITECTURE (docs only, 2026-09-01; implementation NOT STARTED):** `docs/moneythumb-replacement/PHASE2_ARCHITECTURE_PLAN.md`. Read that file before any Phase 2 implementation. It does **not** resolve OQ1–OQ11.
+
 **PROPOSED (in the audit §5 — NOT ruled, NOT implemented; awaits OQ1–OQ11):** `OCR_STAGE_VERSION` 4→5 with the pinned test (`tests/test_artifact_cache.py:854`) in the same commit; an `extractor` field plus tool/model versions in the settings key; per-page `page_extractor` provenance beside `page_integrity`; the closed vocabularies (`SOURCE_PATHS`, `FREE_MODELS`) extended — noting `source_path_for`'s fallthrough is `"visual"`, so a forgotten branch silently mis-attributes; quarantining the `postprocess` chain (OQ1 option (c)) with per-function re-admission as the nine-member rewrite census clears each; the endpoint allowlist for the $0 policy (OQ3); the Q3-class re-measurement plan (§5.8).
 
 # Exact next action
@@ -90,10 +93,11 @@ Also open for Gustavo, independent of Phase 2 (verbatim backlog below): CONS-HAR
 # Resume instructions for a fresh agent
 
 1. Read `PHASE2_HANDOFF.md` (this file).
-2. Read `docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md` (the audit; §6 = the open questions).
-3. Read `docs/moneythumb-replacement/PROJECT_STATUS.md` and `docs/moneythumb-replacement/PHASE2_STATE.md` (the session-memory snapshot committed at handoff).
-4. Verify the baseline: `git rev-parse batch9-final` → `819d97d…`; `git log --oneline -1 origin/main`; `python corpus_gate.py` GREEN (105 PASS / 3 WITHHELD / 1 REFUSED); the guards (`tests/test_no_statement_hardcodes.py` + the canonical set) green.
-5. **Do not modify code until Gustavo explicitly authorizes Phase 2 implementation.** The operating rules live in `docs/agent-handoffs/BATCH9-RULES.md` (choreography, proof floors, lessons — they carry forward to Phase 2).
+2. Read `docs/moneythumb-replacement/PHASE2_ARCHITECTURE_PLAN.md` — the **accepted architecture plan** to read before any Phase 2 implementation (`STATUS: ACCEPTED ARCHITECTURE PLAN`; `IMPLEMENTATION: NOT STARTED`; does not resolve OQ1–OQ11).
+3. Read `docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md` (the audit; §6 = the open questions).
+4. Read `docs/moneythumb-replacement/PROJECT_STATUS.md` and `docs/moneythumb-replacement/PHASE2_STATE.md` (the session-memory snapshot committed at handoff).
+5. Verify the baseline: `git rev-parse batch9-final` → `819d97d…`; `git log --oneline -1 origin/main`; `python corpus_gate.py` GREEN (105 PASS / 3 WITHHELD / 1 REFUSED); the guards (`tests/test_no_statement_hardcodes.py` + the canonical set) green.
+6. **Do not modify code until Gustavo explicitly authorizes Phase 2 implementation.** The operating rules live in `docs/agent-handoffs/BATCH9-RULES.md` (choreography, proof floors, lessons — they carry forward to Phase 2).
 
 Key SHAs a fresh session may need: freeze commit `819d97d` (= tag `batch9-final`); composed batch-9 code tree `7b25d70`; cold-run tree `ff35b3d`; audit branch tip `4af079a`; audit merge into main `09e6b75`; batch-8 baseline run `cda8882d`; L-1 compositions `fea0bd2` / `e5b0342` / `eeaf566` / `a46603f`.
 
