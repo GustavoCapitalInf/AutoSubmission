@@ -525,6 +525,40 @@ def test_force_ocr_decision_stops_the_moment_analysis_exists():
     assert decision.refused == ("stopped_by_validated",)
 
 
+def test_cli_run_computes_and_publishes_the_escalation_budget(tmp_path, monkeypatch):
+    """P20-ROUTER item 2f, end to end through `discovery.cli.run()`: the
+    budget is computed once, before any document is processed, threaded into
+    the runner, and reported in `summary.json` — and it is `None` (unbounded)
+    for every mode other than `--scanned-visual`."""
+    import discovery.cli as cli
+
+    (tmp_path / "BankZ").mkdir()
+    (tmp_path / "BankZ" / "scan.pdf").write_bytes(SCAN_BYTES)
+    _tesseract(monkeypatch, None)  # RECOVERY for the one scanned document
+    from ocr.config import load_settings
+    from corpus_artifacts import cached_markdown
+
+    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
+    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
+    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
+    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
+    monkeypatch.setattr("ocr.ocr_client.ocr_page",
+                        lambda image, *, settings, client, on_delta=None: claimable)
+
+    summary = cli.run(
+        tmp_path, MODE_SCANNED_VISUAL, tmp_path / "out",
+        skip_baseline=True, use_cache=False, visual_escalation=True,
+    )
+    assert summary["escalation_budget"] == 1  # one scanned-profile document
+    assert summary["escalations_used"] == 1
+
+    digital_summary = cli.run(
+        tmp_path, "digital", tmp_path / "out2", skip_baseline=True, use_cache=False,
+    )
+    assert digital_summary["escalation_budget"] is None
+    assert digital_summary["escalations_used"] == 0
+
+
 # ---------------------------------------------------------------------------
 # Corpus pin: `validated ∩ class-A = 0`, measured against the batch-9 run of
 # record's own cold cache. `tools/phase2_trigger_split.py` is the instrument
