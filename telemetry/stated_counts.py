@@ -879,11 +879,32 @@ class _ArtifactJoin:
         # indexed lookup (`idx_artifact_cache_input`), not a one-time full
         # scan, so there is no upfront index to build.
         self._conn = sqlite3.connect(f"file:{Path(data_dir).as_posix()}/webapp.db?mode=ro", uri=True)
-        # Raises `telemetry.run_of_record.RunOfRecordError` on a malformed
-        # record or an unverifiable reconstruction — propagated to the CLI
-        # boundary (`main`), never guessed past.
-        self.partitions = partitions_for_run(run_dir, conn=self._conn)
+        try:
+            # Raises `telemetry.run_of_record.RunOfRecordError` on a malformed
+            # record or an unverifiable reconstruction — propagated to the CLI
+            # boundary (`main`), never guessed past. Closed here on that path
+            # too (review MINOR-3): a `with _ArtifactJoin(...)` never reaches
+            # `__enter__`/`__exit__` if the constructor itself raises.
+            self.partitions = partitions_for_run(run_dir, conn=self._conn)
+        except BaseException:
+            self._conn.close()
+            raise
         self._analysis_key = analysis_partition(self.partitions)
+
+    def close(self) -> None:
+        """Review MINOR-3: the old `_rows()` opened and closed a connection
+        PER CALL, in a `finally`; the per-document `select_artifact` design
+        keeps ONE connection open for the instance's lifetime instead, and
+        nothing released it. On Windows an unclosed `mode=ro` handle cannot
+        corrupt the (read-only) cold caches, but it can hold a file handle
+        open past a `tmp_path` fixture's teardown. Idempotent."""
+        self._conn.close()
+
+    def __enter__(self) -> "_ArtifactJoin":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     @property
     def analysis_settings_key(self) -> str:
@@ -994,35 +1015,35 @@ def observe_run(
     verify against `data_dir`'s own cache index — never a guess; `main()`
     reports this as exit 5.
     """
-    join = _ArtifactJoin(data_dir, run_dir)
     corpus_status = corpus_status or {}
     seen: set[str] = set()
     out: list[tuple[dict[str, Any], Observation]] = []
-    for row in load_run_rows(run_dir):
-        content_sha256 = row.get("content_sha256") or ""
-        if distinct:
-            if content_sha256 in seen:
+    with _ArtifactJoin(data_dir, run_dir) as join:  # review MINOR-3: closed on every exit
+        for row in load_run_rows(run_dir):
+            content_sha256 = row.get("content_sha256") or ""
+            if distinct:
+                if content_sha256 in seen:
+                    continue
+                seen.add(content_sha256)
+            parser_id = row.get("parser_id") or None
+            context = {
+                "content_sha256": content_sha256,
+                "outcome_class": row.get("outcome_class") or "",
+                "corpus_status": corpus_status.get(content_sha256),
+            }
+            payload = join.payload_for(content_sha256, Path(row.get("relative_path") or "").name, row)
+            if payload is None:
+                out.append((context, unavailable(parser_id, REASON_PAYLOAD_ABSENT)))
                 continue
-            seen.add(content_sha256)
-        parser_id = row.get("parser_id") or None
-        context = {
-            "content_sha256": content_sha256,
-            "outcome_class": row.get("outcome_class") or "",
-            "corpus_status": corpus_status.get(content_sha256),
-        }
-        payload = join.payload_for(content_sha256, Path(row.get("relative_path") or "").name, row)
-        if payload is None:
-            out.append((context, unavailable(parser_id, REASON_PAYLOAD_ABSENT)))
-            continue
-        # ONE observation per ACCOUNT, in printed order. `evaluate_accounts`
-        # returns exactly `[evaluate(payload)]` for every payload this tree
-        # publishes, so this loop is unchanged today — and it is the only entry
-        # point the observer has, so wiring it here is what keeps the
-        # renders-per-account reader reachable rather than written and unused
-        # (L1-S3 review, MINOR-2). Left on `evaluate`, this CLI would RAISE on
-        # the first multi-account document instead of observing its accounts.
-        for observation in evaluate_accounts(payload, parser_id=parser_id):
-            out.append((context, observation))
+            # ONE observation per ACCOUNT, in printed order. `evaluate_accounts`
+            # returns exactly `[evaluate(payload)]` for every payload this tree
+            # publishes, so this loop is unchanged today — and it is the only entry
+            # point the observer has, so wiring it here is what keeps the
+            # renders-per-account reader reachable rather than written and unused
+            # (L1-S3 review, MINOR-2). Left on `evaluate`, this CLI would RAISE on
+            # the first multi-account document instead of observing its accounts.
+            for observation in evaluate_accounts(payload, parser_id=parser_id):
+                out.append((context, observation))
     return out
 
 
