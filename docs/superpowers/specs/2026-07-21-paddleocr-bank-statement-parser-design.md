@@ -1,3 +1,26 @@
+> **STATUS: SUPERSEDED (2026-09-01, `docs/moneythumb-replacement/PHASE2_RULINGS.md` OQ11)**
+>
+> Gustavo's OQ11 ruling marks this design's ARCHITECTURE superseded. The standalone
+> CLI parser with its own JSON output and its own validator, described below, is not
+> the plan: `docs/moneythumb-replacement/PHASE2_ARCHITECTURE_PLAN.md` is the accepted
+> architecture, and under it PaddleOCR (and every OCR/vision extractor) supplies
+> EVIDENCE only, feeding the SAME deterministic validator every other reader in this
+> platform already goes through. PaddleOCR must not become its own independent
+> financial parser or validator.
+>
+> The bbox / row / column / geometry reconstruction ideas this design works out below
+> are PRESERVED — they are the intended filling of `document_geometry`
+> (`analysis/structurer/geometry.py`) in Phase 2.1, re-homed rather than discarded.
+>
+> `parse.py` as a standalone entry point is no longer a front door (closed under
+> Phase 2.0 cell P20-SEAM's endpoint/entry-point work).
+>
+> The document body below is kept verbatim as a historical record of the design
+> reasoning and is not edited by this notice. Do not read any of it as current
+> architecture.
+>
+> ---
+
 # PaddleOCR Bank Statement Parser — Design
 
 **Date:** 2026-07-21
