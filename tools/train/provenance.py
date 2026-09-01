@@ -2,7 +2,8 @@
 toolchain, tree, settings keys, corpus inventory, cache posture, environment.
 
     python tools/train/provenance.py --checkout <tree> --root "<corpus root>" \
-        --data-dir <cache dir> --out <run dir>/provenance.json [--label X] [--hash-corpus]
+        --data-dir <cache dir> --out <run dir>/provenance.json \
+        [--label X] [--hash-corpus] [--mode digital|scanned|scanned-visual|profile-only|dry-run]
 
 Written before a run (the cold-cache proof: the cache's entry counts are 0)
 and again after it (into the run directory). Every field is measured on this
@@ -12,6 +13,29 @@ introspected in a SUBPROCESS with cwd=<checkout> so that a batch-7 worktree
 
 Secrets are never written: API-key environment variables are recorded as
 set/unset only. The JSON is the record; a Markdown twin is written beside it.
+
+``run_of_record.partitions`` (P20-ARTIFACTS, Phase 2.0, OQ10)
+---------------------------------------------------------------
+``ocr_settings_key_default`` / ``ocr_settings_key_local`` (the ``tree`` block)
+have always been computed from :func:`webapp.artifact_cache.ocr_settings_key`'s
+OWN default arguments — ``force_ocr=False, allow_local_ocr=False,
+allow_visual_ocr=True`` and ``allow_local_ocr=True, allow_visual_ocr=True``
+respectively. **Neither is a key the runner ever actually uses**:
+``discovery/runner.py`` calls the offline read with ``allow_visual_ocr=False``
+and the escalation read with ``force_ocr=True, allow_visual_ocr=True`` — two
+call shapes distinguished by ``force_ocr``, which the two fields above never
+vary. Both are kept, unchanged, for continuity with every provenance.json
+this cell predates (including the batch-8 and batch-9 records
+``telemetry/run_of_record.py`` reconstructs from). Pass ``--mode`` (the run's
+actual mode — the caller, e.g. ``tools/train/coldrun.sh``, already knows it;
+it is not discoverable from a pre-run provenance call) to additionally record
+the CORRECT pair under the top-level ``run_of_record.partitions`` key
+(``offline_ocr_key``, ``visual_ocr_key``, ``analysis_key``, ``mode``),
+computed from the run's actual flags via the same ``mode in LOCAL_OCR_MODES``
+test ``DiscoveryRunner.__init__`` uses. A run recorded with ``--mode`` is read
+by ``telemetry/run_of_record.py`` as ``origin="recorded"``; a run recorded
+without it (or written before this cell) is deterministically RECONSTRUCTED
+and verified against its own cache index instead.
 """
 from __future__ import annotations
 
@@ -53,6 +77,34 @@ attempt("CACHE_FORMAT_VERSION", lambda: getattr(ac, "CACHE_FORMAT_VERSION", None
 attempt("analysis_settings_key_deterministic", lambda: ac.analysis_settings_key(parse_mode="deterministic"))
 attempt("ocr_settings_key_default", lambda: ac.ocr_settings_key())
 attempt("ocr_settings_key_local", lambda: ac.ocr_settings_key(allow_local_ocr=True))
+def run_of_record_partitions():
+    # P20-ARTIFACTS (Phase 2.0, OQ10, §10 of PROVENANCE-RECORDS-ACTUAL-PARTITIONS):
+    # `ocr_settings_key_default` / `_local` above call `ocr_settings_key()`
+    # with ITS OWN defaults (`force_ocr=False, allow_local_ocr=False,
+    # allow_visual_ocr=True` / `allow_local_ocr=True, allow_visual_ocr=True`)
+    # — neither is the call shape `discovery/runner.py` actually makes
+    # (`allow_visual_ocr=False` on the offline read, `force_ocr=True,
+    # allow_visual_ocr=True` on the escalation read). They are kept, unchanged,
+    # for continuity with every provenance record before this cell; this block
+    # is the CORRECT one, computed from `--mode` (the run's actual flag,
+    # passed by the caller) via the same `mode in LOCAL_OCR_MODES` test
+    # `DiscoveryRunner.__init__` uses. `telemetry/run_of_record.py` reads this
+    # block directly for a run written by this cell forward, and
+    # deterministically RECONSTRUCTS the equivalent for a run that predates it.
+    mode = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
+    if not mode:
+        return {"note": "no --mode given to this provenance call; a run's "
+                        "actual partitions were not recorded"}
+    from discovery.runner import LOCAL_OCR_MODES
+    allow_local_ocr = mode in LOCAL_OCR_MODES
+    return {
+        "offline_ocr_key": ac.ocr_settings_key(force_ocr=False, allow_local_ocr=allow_local_ocr,
+                                               allow_visual_ocr=False),
+        "visual_ocr_key": ac.ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
+        "analysis_key": ac.analysis_settings_key(parse_mode="deterministic"),
+        "mode": mode,
+    }
+attempt("run_of_record_partitions", run_of_record_partitions)
 def registry():
     import analysis.parser_registry as pr
     regs = pr.registrations()
@@ -152,7 +204,8 @@ def _corpus_hashes(root: Path) -> dict:
     return {"pdf_files_hashed": count, "distinct_pdf_sha256": len(digests)}
 
 
-def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corpus: bool) -> dict:
+def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corpus: bool,
+           mode: str | None = None) -> dict:
     python = sys.executable
     tesseract = shutil.which("tesseract")
     pdftoppm = shutil.which("pdftoppm")
@@ -163,7 +216,7 @@ def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corp
     with tempfile.TemporaryDirectory(prefix="provenance-probe-") as throwaway:
         probe_env = {**os.environ, "WEBAPP_DATA_DIR": throwaway}
         try:
-            completed = subprocess.run([python, "-c", _TREE_PROBE, str(root)], cwd=checkout,
+            completed = subprocess.run([python, "-c", _TREE_PROBE, str(root), mode or ""], cwd=checkout,
                                        capture_output=True, text=True, timeout=900, env=probe_env)
             tree_probe = {"exit": completed.returncode, "stdout": completed.stdout.strip(),
                           "stderr": completed.stderr.strip()[-2000:]}
@@ -173,6 +226,16 @@ def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corp
         tree = json.loads(tree_probe["stdout"]) if tree_probe.get("exit") == 0 else {"error": tree_probe}
     except json.JSONDecodeError:
         tree = {"error": tree_probe}
+    # P20-ARTIFACTS: lift the probe's flat `run_of_record_partitions` into the
+    # top-level shape `telemetry/run_of_record.py` reads
+    # (`provenance["run_of_record"]["partitions"]`), beside `tree`/`env`/etc.
+    # rather than nested inside `tree` — a RECORDED run and a RECONSTRUCTED
+    # one read the SAME provenance.json shape either way.
+    run_of_record_block = None
+    if isinstance(tree, dict):
+        partitions = tree.pop("run_of_record_partitions", None)
+        if isinstance(partitions, dict) and "offline_ocr_key" in partitions:
+            run_of_record_block = {"partitions": partitions}
     record = {
         "label": label,
         "recorded_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -215,6 +278,8 @@ def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corp
             **{k: ("set" if os.environ.get(k) else "unset") for k in SECRET_KNOBS},
         },
     }
+    if run_of_record_block is not None:
+        record["run_of_record"] = run_of_record_block
     if hash_corpus:
         record["corpus"].update(_corpus_hashes(root))
     return record
@@ -237,6 +302,8 @@ def render(record: dict) -> str:
         ("registry", json.dumps(tree.get("registry"))), ("OBSERVER_VERSION", tree.get("OBSERVER_VERSION")),
         ("analysis key (deterministic)", tree.get("analysis_settings_key_deterministic")),
         ("ocr key (default)", tree.get("ocr_settings_key_default")), ("ocr key (local)", tree.get("ocr_settings_key_local")),
+        ("run_of_record.partitions", json.dumps(record.get("run_of_record", {}).get("partitions"))
+         if record.get("run_of_record") else "not recorded (--mode not given)"),
         ("corpus root", record["corpus"]["root"]),
         ("inventory", json.dumps({k: v for k, v in inv.items() if k not in ("frozen",)}) if isinstance(inv, dict) else inv),
         ("frozen constants", json.dumps(inv.get("frozen")) if isinstance(inv, dict) else None),
@@ -259,13 +326,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--label", default="")
     parser.add_argument("--hash-corpus", action="store_true",
                         help="also hash every PDF under --root (distinct sha count; ~1 GB read)")
+    parser.add_argument("--mode", default=None,
+                        help="the discovery run's actual mode (digital/scanned/scanned-visual/"
+                             "profile-only/dry-run) — records run_of_record.partitions computed "
+                             "from THIS run's flags (P20-ARTIFACTS). Omit to leave partitions "
+                             "unrecorded, as every provenance.json before this cell does.")
     args = parser.parse_args(argv)
     try:  # the Windows console is cp1252; the files are UTF-8 regardless
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
     record = collect(args.checkout.resolve(), args.root.resolve(), args.data_dir.resolve(),
-                     label=args.label, hash_corpus=args.hash_corpus)
+                     label=args.label, hash_corpus=args.hash_corpus, mode=args.mode)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(record, indent=2, sort_keys=True, default=str), encoding="utf-8")
     args.out.with_suffix(".md").write_text(render(record), encoding="utf-8")
