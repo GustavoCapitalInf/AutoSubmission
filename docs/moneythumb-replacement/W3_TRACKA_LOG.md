@@ -64945,3 +64945,127 @@ proven to move nothing on the real population that exists; it has not been, and 
 exercised on a real OCR-fed `guardian_cu`-shaped document, because none exists in this tree. That
 remains Phase 2.0's own stated boundary (Q3 remeasurement on OCR input is explicitly excluded from
 this phase), not a gap this closure could or should have closed.
+
+## §P20SURFACES closure 2 — BLOCK-1R closed: ambiguity refuses the provenance read (2026-09-01)
+
+**Re-review addressed:** `docs/moneythumb-replacement/reviews/PHASE2_P20SURFACES_REVIEW.md`,
+"## Re-review (closure 2cb4c0e)" section (train `d2d1137`; reviewed `wave20-surfaces` @ `2cb4c0e`).
+Verdict BLOCK on ONE re-opened finding; nine of eleven round-1 findings independently
+re-measured CLOSED by the reviewer. Commits: `9a558dc` (fetch the re-review), `912026f`
+(BLOCK-1R/MINOR-8/MINOR-9, `analysis/provenance.py` + `tests/test_q3_native_only.py`).
+
+### BLOCK-1R — a field run printed in the PAGE BODY supplies the model (CLOSED)
+
+**Root cause of the re-open.** BLOCK-1's fix (`analysis/provenance.py` at `2cb4c0e`) anchored the
+header match at `\A` on the left and at `-->\n\n` on the right, with `re.DOTALL` letting the
+`source` group span the ENTIRE document. That closes every vector where the forged run sits
+BEFORE the genuine fields (a hostile `source_file`) — greedy backtracking from the end always
+prefers the LAST such run. It does nothing to bound how far RIGHT the match may look, so a forged
+run printed in the PAGE BODY, AFTER the genuine fields, is now the LAST run in the document and
+wins instead. `StatementMarkdown.to_markdown()` supplies the blank line the exploit needs between
+page blocks for free (`"\n\n".join` between pages) — the C3 case needs no attacker control over
+line endings at all, only over one page's trailing text. The removed docstring paragraph asserted
+the opposite property in so many words; the re-review measured the property directly and found it
+false.
+
+**Reproduced first, all four of the reviewer's cases**, via the real
+`StatementMarkdown.to_markdown()` writer (real model `local-tesseract-ocr` in every case):
+a forged run mid-page with its own blank line; a forged run as page 1's last line with page 2
+supplying the blank line; the hand-laid raw-string equivalent; the same with the GENUINE model
+field empty. All four: `extractor_model` returned `native-pdf-text`, `analyze_document` admitted
+`printed_pair_coincides_and_no_row_printed` and classified `validated`.
+
+**Fixed with the reviewer's own accepted, prototyped-16/16 design: AMBIGUITY REFUSES.**
+`analysis/provenance.py::extractor_model` no longer picks a "winning" run at all. It now requires:
+(a) the document starts with `<!-- source:`; (b) there is a blank line immediately after physical
+line one (`\n\n` or `\r\n\r\n` — MINOR-8); (c) there is EXACTLY ONE well-formed
+`| pages: N | model: TOKEN | empty: N -->` run ANYWHERE in the whole document, found by scanning
+unanchored rather than backtracking from an edge; and (d) that one run's `-->` is the thing that
+terminates physical line one. Zero runs or more than one — wherever the extra one sits, before the
+genuine fields or after them — both answer `None`. This is not a new invention: it is the same
+direction `analysis/sibling_omission.py` already reads "absence" in and S4's Q2 already reads
+ambiguity in ("ambiguity refuses the aggregation, never the account").
+
+**The rejected alternative, and why.** The reviewer's own review names it: bind the header region
+on the LEFT instead of the right (`markdown.partition("\n\n")[0]`, right-anchored). Prototyped and
+measured: it closes the body-run vector, but RE-OPENS the `source_file`-embedded-blank-line
+vector BLOCK-1 closed, because a `source_file` containing an embedded `\n\n` then makes physical
+line one itself a complete, attacker-chosen header no reader can tell from the genuine one. There
+is no "pick the correct run" rule safe in both directions at once, which is exactly why the
+accepted fix does not try to pick one.
+
+**The direction this costs, stated plainly.** `tests/test_q3_native_only.py::
+test_a_hostile_source_file_on_an_honest_native_document_is_refused_not_rescued` (re-pointed from
+`..._still_reports_the_true_model_when_it_is_native`, which asserted the OPPOSITE): an honestly
+native document behind a hostile filename is now REFUSED, not rescued, because the hostile
+filename plants a second run this reader cannot distinguish from the genuine one. That is the
+correct direction for a fail-closed provenance gate — rescuing it would require picking a winner
+between two indistinguishable runs, which the rejected alternative shows is unsafe in the other
+direction.
+
+**Tests added** (`tests/test_q3_native_only.py`, 35 → 43): the reviewer's four body-run
+reproductions, at the reader level (parametrized: mid-page, page-1-last-line) AND end-to-end
+through `analyze_document` (parametrized, each checked through `DispatchCollector` for the
+`Q3ProvenanceRefused` class name specifically — not merely any `ParserCrashError`, which an
+unrelated parse failure on the injected text could also produce) plus the two standalone cases
+(hand-laid raw string; genuine-model-empty). Two new tests for MINOR-8 (CRLF accepted; a CRLF
+document with a body-injected run still refused). Every existing hostile-`source_file` test from
+round 1 re-verified green with no changes needed.
+
+### MINOR-8 — CRLF documents silently refused (NEW, CLOSED)
+
+The `-->\n\n` right anchor was byte-exact for LF only; a CRLF document (`\r\n\r\n` after the
+header) no longer parsed under the round-1 fix. Direction was fail-closed and harmless on the
+archive (all measured rows are LF), but undisclosed, and the affected shape is exactly the `.md`
+inputs MAJOR-4 already names (`analyze.py`, `batch.py` — plausible on Windows-authored files).
+Fixed: the blank-line check accepts `rest.startswith(("\n", "\r\n"))`; the position comparison
+accounts for the trailing `\r` a `\n`-partition leaves on `first_line` for a CRLF document.
+Two new tests; the CRLF-check-removed mutant killed by `test_extractor_model_accepts_a_crlf_document`.
+
+### MINOR-9 — the docstring claimed an unproven property (NEW, CLOSED)
+
+`analysis/provenance.py`'s module docstring is rewritten under "THE PROPERTY, EXACTLY" to state
+only the measured, currently-true guarantee (exactly-one-run, line-one-terminating, ambiguity
+refuses) and to explain, citing the rejected alternative by name, why ambiguity is refused rather
+than resolved. The test module's own top docstring corrected to match (it previously restated the
+same overclaim in its own words).
+
+### Mutation table — R14 and the two new mutants
+
+| mutant | killer(s) | result |
+|---|---|---|
+| R14 — `extractor_model` reverted to the `2cb4c0e` right-anchored-only implementation (the mutant round 1's table had no test to write) | 7 tests: the re-pointed refusal test, both parametrized body-run reader/end-to-end tests (4), the hand-laid test, the empty-genuine-model test | **killed** |
+| MINOR-8 mutant — blank-line check reverted to `"\n"`-only | `test_extractor_model_accepts_a_crlf_document` | **killed** |
+
+All 13 mutants from round 1's table (R1–R13) re-verified still green against the new
+implementation (unaffected: none of them touch the ambiguity-detection logic; R6, "BLOCK-1 regex
+reverted to the `ed269f4` pattern", is now subsumed by R14 against the newer baseline). Tree
+restored byte-identical after each mutant, re-tested green.
+
+### Proof floor at this closure
+
+* `tests/test_q3_native_only.py`: **43 passed** (was 35; +8 net this round).
+* Full targeted suite (`test_q3_native_only + test_webapp_confidence_label + test_l1s2_* +
+  test_l1s3* + test_l1s4* + test_pipeline + test_sibling_omission + test_community_section* +
+  test_symitar + test_zions* + test_webapp_app/security/jobs/storage/worker + the 5 canonical
+  guards`): **802 passed, 1 deselected, EXIT=0** (was 794; +8, matching the new test count exactly
+  — no other count moved). 5 canonical guards alone: **255 passed**, unchanged.
+* `tools/l1s4_document_replay.py`, 8 named `guardian_cu` shas: output **byte-identical** to every
+  prior run in this card's history (`diff` against the round-1 closure's own output = 0 lines) —
+  expected, since all 8 carry exactly one field run each and ambiguity never fires on them.
+  `COHORT=8 REPLAYED=8 NEWLY_VALIDATED=0 OTHER_MOVEMENT=0 REGRESSIONS=0`.
+* `cohort_replay --expect-identical`, six registrations, re-run at this closure's tip `912026f`:
+  **population 128, newly validated 0, previously validated preserved 125/125, validated
+  regressions (BLOCKING) 0, EXIT=3** — identical in every number and every sha to both prior
+  runs in this card's history (base `bea06bc` and closure-1 tip `2cb4c0e`).
+* Privacy scan (`tools/privacy_scan_branch.py`, same population, `--base bea06bc --ref HEAD`):
+  **2,343 added lines, 128 documents read, hit_count 0** (4 raw WORDS-class hits, excluded by the
+  standing exclusion rule — the same pattern as every prior scan this card has run).
+* Message scan (`tools/huntington_msg_privacy_scan.py`, same population/base/ref): **11 commits
+  scanned, hit_count 0** across every class.
+
+### Commits
+
+`9a558dc` (fetch the re-review verbatim), `912026f` (BLOCK-1R, MINOR-8, MINOR-9 —
+`analysis/provenance.py`, `tests/test_q3_native_only.py`) — on top of the five commits closure 1
+made. Final tip: `912026f`. Working tree clean throughout; no throwaway worktree left behind.
