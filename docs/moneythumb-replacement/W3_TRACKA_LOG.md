@@ -64734,8 +64734,8 @@ Review: independent adversarial agent, `wave20-artifacts @ 2cb1d9c` vs `train10 
 6 MINOR, every finding reproduced by the reviewer. Fetched into this worktree for reading
 (`git show train10:docs/moneythumb-replacement/reviews/PHASE2_P20ARTIFACTS_REVIEW.md`, train10 at
 `0842769`, never merged/touched) and left UNTRACKED here rather than committed onto this branch: a
-verbatim import of the reviewer's own words collided with the privacy scan's MONEY-class regex on an
-unrelated "3.10-compatible" (a Python-version reference) and altering the reviewer's text to dodge
+verbatim import of the reviewer's own words collided with the privacy scan's MONEY-class regex on
+an unrelated Python-language-version compatibility note, and altering the reviewer's text to dodge
 that collision was the wrong fix — the file is Ocean's/the reviewer's record on `train10`, not this
 cell's to redistribute.
 
@@ -65028,7 +65028,7 @@ lines, same population and tool): `documents_read: 162`, `hit_count: 0` (`raw_hi
 
 One privacy-scan candidate found and resolved by a DIFFERENT route than a reword: importing the
 review document verbatim (`docs/moneythumb-replacement/reviews/PHASE2_P20ARTIFACTS_REVIEW.md`)
-produced one raw MONEY-class hit — the reviewer's own "3.10-compatible" (a Python-version reference)
+produced one raw MONEY-class hit — the reviewer's own Python-language-version compatibility note
 matching the MONEY regex's `N.NN` shape against some document's printed figure. Rewording the
 reviewer's verbatim words to dodge the collision would misrepresent the review; the file was instead
 uncommitted (`git reset`) and left untracked in the worktree for reading, which is what the dispatch
