@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+from .config import ProvenanceTokenError, validate_model_token
 from .truncation import PageIntegrity
 
 
@@ -20,6 +21,27 @@ class StatementMarkdown:
     # PDF, and DocumentProfile is built without ever calling OCR, so it cannot
     # hold this. This is the OCR result object, so this is where the flag lives.
     page_integrity: list[PageIntegrity] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Close F-4(b) / MAJOR-2 at the point both fields are SET.
+
+        `model` and `source_file` both become text in `to_markdown()`'s single
+        header line, stripped whole by `admissible_text` only when the
+        comment stays on one line (`SOURCE_COMMENT_RE` is MULTILINE, not
+        DOTALL). Validating here means a hostile value never becomes a
+        `StatementMarkdown` at all, so `to_markdown()` never needs to defend
+        itself — the ONE existing guard downstream keeps doing its one job.
+        """
+        if self.model:
+            # Reserved deterministic-rung prefixes ARE allowed here: the
+            # native and local-tesseract rungs set these tokens directly on
+            # this class, never through the env-facing `load_settings`
+            # validator that refuses impersonation.
+            validate_model_token(self.model, allow_reserved=True)
+        if "\n" in self.source_file or "\r" in self.source_file:
+            raise ProvenanceTokenError(
+                f"source_file rejected: contains a line break: {self.source_file!r}"
+            )
 
     @property
     def truncated_pages(self) -> list[int]:

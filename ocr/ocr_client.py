@@ -383,6 +383,23 @@ def strip_oversized_embedded_images(text: str, *, max_len: int = 25_000) -> str:
 
 
 def _build_client(settings: Settings):
+    """Build the OpenAI-compatible client for the visual rung — OQ3's gate.
+
+    `check_endpoint` runs BEFORE the `openai` import and BEFORE any client is
+    constructed: a refused endpoint raises `EndpointRefused` and nothing is
+    built, nothing is sent. The decision is re-derived from `settings.base_url`
+    here rather than trusted from `settings.endpoint_class` (a descriptive
+    field), so a hand-built `Settings` cannot spoof its way past the policy.
+    There is exactly one endpoint per process: this function builds one client
+    for one `base_url` and has no fallback list or second host to hop to — a
+    refusal or a failure here ends the rung.
+    """
+    from .endpoint_policy import EndpointRefused, check_endpoint
+
+    decision = check_endpoint(settings.base_url, opt_in=settings.remote_opt_in)
+    if not decision.allowed:
+        raise EndpointRefused(decision, settings.base_url)
+
     from openai import OpenAI
     return OpenAI(base_url=settings.base_url, api_key=settings.api_key, timeout=settings.timeout)
 
