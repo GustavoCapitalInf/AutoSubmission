@@ -37,6 +37,10 @@ from pathlib import Path
 import pytest
 
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent / "analysis"
+#: OQ2 = YES (docs/moneythumb-replacement/PHASE2_RULINGS.md): the
+#: no-statement-hardcodes / value-meaning-hardcodes protection extends into
+#: `ocr/`. See the `# --- OQ2 extension ---` section at the end of this file.
+OCR_DIR = Path(__file__).resolve().parent.parent / "ocr"
 
 GUARDED_FILES = (
     "scanned_small_bank.py",
@@ -741,3 +745,240 @@ def test_closing_the_docstring_hole_flags_no_module():
                     break
     assert offenders <= PATTERN_SCAN_EXEMPT
     assert "extract.py" not in offenders
+
+
+# ---------------------------------------------------------------------------
+# OQ2 extension (docs/moneythumb-replacement/PHASE2_RULINGS.md, ruled
+# 2026-09-01): the no-statement-hardcodes / value-meaning-hardcodes
+# protection extends into `ocr/`. F-3 (OCR_LEGACY_AUDIT.md) found issuer-
+# specific behaviour (TD page-1 recovery) inside the intake layer, where this
+# guard's scans never reached. Everything below reuses the SAME pattern
+# classes and helper functions already defined above, parameterized over
+# `ocr/*.py` instead of `analysis/*.py` -- no new detection logic, only a new
+# scope. Blast radius measured before any test was written (P20-POSTPROCESS,
+# 2026-09-01): REMOVED_LITERALS / YEAR_RE / ACCOUNT_RE / MOJIBAKE_RE /
+# CALENDAR_RE are all clean (0 hits) across every file in `ocr/`; AMOUNT_RE
+# hits exactly two files, both non-statement furniture (see
+# OCR_AMOUNT_BASELINE below).
+# ---------------------------------------------------------------------------
+
+#: Modules in `ocr/` that carry an AMOUNT_RE-shaped literal that is NOT a
+#: statement value -- a ratchet baseline in the same spirit as
+#: CALENDAR_BASELINE, ONLY for the exact lines measured when this scan was
+#: written. Both are read-only/render furniture, never data read off a
+#: statement:
+#:   * `column_grid.py:207` -- `reach = pitch * 1.25`, a geometry ratio
+#:     constant used to size a column-detection search window.
+#:   * `render.py:83,85,87,89,114` -- CSS `line-height`/`font-size` values
+#:     (1.55em, 1.25em, 1.05rem twice, 1.05rem) inside the page-rendering
+#:     stylesheet constant.
+#: A module outside this set may carry no AMOUNT_RE-shaped literal >= 1.0.
+OCR_AMOUNT_BASELINE = {"column_grid.py", "render.py"}
+
+
+def _ocr_modules() -> list[Path]:
+    """Every module the OQ2 scans apply to: all of `ocr/*.py`."""
+    return sorted(OCR_DIR.glob("*.py"))
+
+
+def test_no_removed_literals_in_ocr():
+    offenders = []
+    for path in _ocr_modules():
+        source = path.read_text(encoding="utf-8").upper()
+        for literal in REMOVED_LITERALS:
+            if literal.upper() in source:
+                offenders.append(f"{path.name}: {literal}")
+    assert not offenders, f"statement-specific literals in ocr/: {offenders}"
+
+
+def test_no_literal_years_in_ocr():
+    offenders = []
+    for path in _ocr_modules():
+        for number, line in _code_lines(path):
+            if not YEAR_RE.search(line):
+                continue
+            if "2000 +" in line or "+= 2000" in line or "+ 2000" in line:
+                continue
+            offenders.append(f"{path.name}:{number}: {line.strip()}")
+    assert not offenders, f"literal year constants in ocr/: {offenders}"
+
+
+def test_no_literal_account_numbers_in_ocr():
+    offenders = []
+    for path in _ocr_modules():
+        for number, line in _code_lines(path):
+            if ACCOUNT_RE.search(line):
+                offenders.append(f"{path.name}:{number}: {line.strip()}")
+    assert not offenders, f"literal account-number digit runs in ocr/: {offenders}"
+
+
+def test_no_exact_amount_constants_in_ocr():
+    offenders = []
+    for path in _ocr_modules():
+        if path.name in OCR_AMOUNT_BASELINE:
+            continue
+        for number, line in _code_lines(path):
+            for match in AMOUNT_RE.finditer(line):
+                if float(match.group(0)) >= 1.0:
+                    offenders.append(f"{path.name}:{number}: {line.strip()}")
+                    break
+    assert not offenders, f"exact-cent amount constants in ocr/: {offenders}"
+
+
+def test_ocr_amount_baseline_still_describes_real_offenders():
+    """The ratchet may only ever shrink (same property as
+    `test_calendar_baseline_still_describes_real_offenders`)."""
+    stale = []
+    for name in sorted(OCR_AMOUNT_BASELINE):
+        path = OCR_DIR / name
+        if not path.exists():
+            stale.append(f"{name}: no longer exists")
+            continue
+        hits = [
+            match.group(0)
+            for _, line in _code_lines(path)
+            for match in AMOUNT_RE.finditer(line)
+            if float(match.group(0)) >= 1.0
+        ]
+        if not hits:
+            stale.append(f"{name}: clean now, remove it from OCR_AMOUNT_BASELINE")
+    assert not stale, f"stale OCR_AMOUNT_BASELINE entries: {stale}"
+
+
+def test_no_literal_calendar_fields_in_ocr_patterns():
+    offenders = []
+    for path in _ocr_modules():
+        for number, text in _pattern_strings(path):
+            if "\\d" not in text and "\\s" not in text:
+                continue
+            for match in CALENDAR_RE.finditer(text):
+                offenders.append(
+                    f"{path.name}:{number}: literal {match.group(1)!r} in {text[:70]!r}"
+                )
+    assert not offenders, f"literal calendar fields pinned into ocr/ patterns: {offenders}"
+
+
+def test_no_raw_mojibake_sequences_in_ocr():
+    offenders = []
+    for path in _ocr_modules():
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if MOJIBAKE_RE.search(line):
+                offenders.append(f"{path.name}:{number}")
+    assert not offenders, f"raw mojibake byte sequences in ocr/: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# The issuer-named-regex register guard. F-3 / OQ2 (P20-POSTPROCESS item 4-5):
+# the TD markers are admitted ONLY through `ocr.ocr_client.INTAKE_FURNITURE`.
+# Scoped to the three files that CAN carry the register's subjects --
+# `ocr/ocr_client.py` (the register's own home), `ocr/pipeline.py` and
+# `ocr/render.py` (the other two files this card owns). `ocr/native_text.py`
+# is a much larger, PRE-EXISTING module with its own per-issuer structural
+# PDF-column-geometry constants (Woodforest, Navy Federal, Wells Fargo,
+# Desjardins, First Citizens layout markers) -- measured, out of scope for
+# this card (not owned by it), and not the postprocess/intake-furniture
+# surface OQ1/OQ2 govern; a future cell that owns `native_text.py` inherits
+# that measurement as its own blast radius, not a debt this guard silently
+# closes by narrowing its own scope without saying so.
+# ---------------------------------------------------------------------------
+
+#: A representative set of real institution names/marketing phrases (public
+#: information, the same class already used openly in
+#: `tests/test_parser_detection_markers.py`). Broad enough to catch a
+#: realistic future addition; narrow enough that it currently matches
+#: nothing in the three scanned files except the declared TD markers.
+ISSUER_NAME_LEXICON = (
+    "td bank", "td business", "most convenient bank", "td canada trust",
+    "wells fargo", "bank of america", "jpmorgan chase", "chase bank",
+    "citibank", "pnc bank", "truist", "huntington bank", "regions bank",
+    "capital one", "u.s. bank", "us bank", "fifth third", "bank of montreal",
+    "cibc", "royal bank of canada", "scotiabank", "desjardins", "woodforest",
+    "navy federal", "first citizens", "zions bank", "santander", "bmo harris",
+    "wilson muir", "farmers and merchants", "columbia bank", "first community",
+    "guardian credit union", "linkbank",
+)
+
+#: The three ocr/ files this card owns and where INTAKE_FURNITURE applies.
+ISSUER_MARKER_SCAN_FILES = ("ocr_client.py", "pipeline.py", "render.py")
+
+
+def _compiled_regex_assignments(path: Path):
+    """(assigned_name, lineno, pattern_text) for every module-level
+    `NAME = re.compile(<string literal>)` in `path`. Only the simple-name
+    assignment form is matched (every regex in the three scanned files uses
+    it); an assignment whose value is a call to `re.compile` on something
+    other than a literal string (e.g. an f-string built from constants) is
+    intentionally not matched here -- none of the three files' issuer-marker
+    candidates are built that way, and a pattern this scan cannot read is not
+    a pattern it can silently clear either."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    out = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            continue
+        call = node.value
+        if not (isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "compile"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "re"):
+            continue
+        if call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str):
+            out.append((node.targets[0].id, node.lineno, call.args[0].value))
+    return out
+
+
+def _unregistered_issuer_markers(path: Path, registered: set[str]) -> list[str]:
+    """Every regex assignment in `path` whose pattern text contains a known
+    issuer marker and whose NAME is not in `registered` (INTAKE_FURNITURE)."""
+    offenders = []
+    for name, lineno, text in _compiled_regex_assignments(path):
+        if name in registered:
+            continue
+        low = text.lower()
+        hit = next((m for m in ISSUER_NAME_LEXICON if m in low), None)
+        if hit is not None:
+            offenders.append(f"{path.name}:{lineno}: {name!r} matches issuer marker {hit!r}")
+    return offenders
+
+
+def test_every_issuer_named_regex_in_ocr_is_registered():
+    from ocr.ocr_client import INTAKE_FURNITURE
+
+    registered = set(INTAKE_FURNITURE)
+    offenders = []
+    for filename in ISSUER_MARKER_SCAN_FILES:
+        offenders.extend(_unregistered_issuer_markers(OCR_DIR / filename, registered))
+    assert not offenders, (
+        f"issuer-named regex(es) outside INTAKE_FURNITURE: {offenders}"
+    )
+    # And the scan is not vacuous: the one issuer marker that DOES exist in
+    # these three files is found and IS registered (so the empty result above
+    # is "found and cleared", not "never looked").
+    found_td = any(
+        text.lower().find("td bank") != -1 or text.lower().find("most convenient bank") != -1
+        for _, _, text in _compiled_regex_assignments(OCR_DIR / "ocr_client.py")
+    )
+    assert found_td, "the scan no longer sees the real TD marker; it would pass vacuously"
+
+
+def test_the_issuer_marker_guard_can_actually_see_an_unregistered_marker(tmp_path):
+    """The mutant, named in the P20-POSTPROCESS mutation table: 'an issuer
+    marker added outside INTAKE_FURNITURE' must be killed. A synthetic module
+    mimicking `ocr/pipeline.py` with a brand-new, unregistered issuer marker
+    must be caught by the same scanning function the real guard uses."""
+    mutant = tmp_path / "pipeline.py"
+    mutant.write_text(
+        "import re\n"
+        '_WF_STATEMENT_RE = re.compile(r"wells fargo", re.IGNORECASE)\n',
+        encoding="utf-8",
+    )
+    offenders = _unregistered_issuer_markers(mutant, registered=set())
+    assert offenders, "the guard did not catch an unregistered issuer marker"
+    assert "_WF_STATEMENT_RE" in offenders[0]
+
+    # And registering the SAME name clears it -- proving the guard checks the
+    # register, not just the presence of a marker.
+    cleared = _unregistered_issuer_markers(mutant, registered={"_WF_STATEMENT_RE"})
+    assert cleared == []
