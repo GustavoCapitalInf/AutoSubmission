@@ -21,6 +21,7 @@ import pytest
 from tools.ocr_postprocess_census import (
     CHAIN_ORDER,
     CLASSIFICATION,
+    METADATA_ONLY_LABEL,
     FUNCTIONS,
     extract_tokens,
     load_fixture_cases,
@@ -171,11 +172,69 @@ def test_classification_never_uses_a_bare_misleading_label():
     """The card: 'never forced into a label the evidence contradicts.' A
     function whose worst input destroys a value may not be classified as
     merely 'restructures'; a function that never touches a financial value
-    may not be classified as 'writes'. Spot-check the two ends."""
+    may not be classified as 'writes'. Spot-check several ends.
+
+    Review MAJOR-1: `strip_det_tags` and `strip_oversized_embedded_images`
+    were falsified by construction and no longer carry the unconditional
+    metadata-only label (see `orphan_bracket_contains_money`,
+    `pair_spans_to_next_close`, `alt_attribute_money_dropped`); they now use
+    the honest 'markup span whose content is UNCONSTRAINED' wording instead.
+    `strip_refusal_commentary` and `strip_placeholder_markers` keep the
+    label — every one of their fixtures proves it (the invariant below)."""
     assert "deletes" in CLASSIFICATION["collapse_repeated_amounts"]
     assert "writes" in CLASSIFICATION["collapse_repeated_amounts"]
-    assert "reads/removes metadata-only" in CLASSIFICATION["strip_det_tags"]
-    assert "reads/removes metadata-only" in CLASSIFICATION["strip_refusal_commentary"]
-    assert "reads/removes metadata-only" in CLASSIFICATION["strip_placeholder_markers"]
-    assert "reads/removes metadata-only" in CLASSIFICATION["strip_oversized_embedded_images"]
+    assert "UNCONSTRAINED" in CLASSIFICATION["strip_det_tags"]
+    assert not CLASSIFICATION["strip_det_tags"].startswith(METADATA_ONLY_LABEL)
+    assert CLASSIFICATION["strip_refusal_commentary"].startswith(METADATA_ONLY_LABEL)
+    assert CLASSIFICATION["strip_placeholder_markers"].startswith(METADATA_ONLY_LABEL)
+    assert "UNCONSTRAINED" in CLASSIFICATION["strip_oversized_embedded_images"]
+    assert not CLASSIFICATION["strip_oversized_embedded_images"].startswith(METADATA_ONLY_LABEL)
     assert "CONDITIONALLY" in CLASSIFICATION["repair_fused_amount_table"]
+
+
+def test_metadata_only_classification_never_deletes_a_financial_token():
+    """Review MAJOR-1's fix #3: the enforceable invariant that makes the
+    METADATA_ONLY_LABEL label mean something, instead of a claim in prose. A
+    function may use it ONLY if `money.disappeared is False` and
+    `date.disappeared is False` hold on EVERY one of its committed fixtures.
+
+    This is what a mutant that relabels or weakens a value-deleter into this
+    bucket would have to defeat: `strip_det_tags` and
+    `strip_oversized_embedded_images` are correctly EXCLUDED (their own
+    worst-case fixtures show money.disappeared is True); the two functions
+    still carrying the label (`strip_refusal_commentary`,
+    `strip_placeholder_markers`) are checked against every one of their
+    fixtures, including any added later."""
+    covered = set()
+    for case in ALL_CASES:
+        classification = CLASSIFICATION[case.function]
+        if not classification.startswith(METADATA_ONLY_LABEL):
+            continue
+        covered.add(case.function)
+        delta = case.meta["numeric_tokens_delta"]
+        assert delta["money"]["disappeared"] is False, (
+            f"{case.function}/{case.case}: classified {METADATA_ONLY_LABEL!r} "
+            f"but a fixture shows a money token disappearing"
+        )
+        assert delta["date"]["disappeared"] is False, (
+            f"{case.function}/{case.case}: classified {METADATA_ONLY_LABEL!r} "
+            f"but a fixture shows a date token disappearing"
+        )
+    # The invariant must not be vacuous: at least one function actually
+    # carries the label and was checked.
+    assert covered == {"strip_refusal_commentary", "strip_placeholder_markers"}
+
+
+def test_metadata_only_invariant_actually_catches_a_mislabeled_deleter():
+    """The mutant this invariant exists to kill, applied directly (not to a
+    live file): if `strip_det_tags` were (wrongly) relabeled back to
+    METADATA_ONLY_LABEL while keeping its own `orphan_bracket_contains_money`
+    fixture (money.disappeared = True), the invariant must fail."""
+    fake_classification = {**CLASSIFICATION, "strip_det_tags": METADATA_ONLY_LABEL}
+    offenders = []
+    for case in ALL_CASES:
+        if not fake_classification[case.function].startswith(METADATA_ONLY_LABEL):
+            continue
+        if case.meta["numeric_tokens_delta"]["money"]["disappeared"] is True:
+            offenders.append(f"{case.function}/{case.case}")
+    assert "strip_det_tags/orphan_bracket_contains_money" in offenders

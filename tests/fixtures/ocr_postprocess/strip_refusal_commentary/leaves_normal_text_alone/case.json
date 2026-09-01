@@ -1,0 +1,17 @@
+{
+  "function": "strip_refusal_commentary",
+  "case": "leaves_normal_text_alone",
+  "classification": "reads/removes metadata-only content (harmless on this input)",
+  "restores": "bea06bc:tests/test_ocr_client.py::test_strip_refusal_commentary_leaves_normal_text_alone (deleted; the row's own named harmless input, MAJOR-5)",
+  "what_changes": "nothing",
+  "what_does_not_change": "ordinary statement text carrying no refusal template is left byte-for-byte untouched",
+  "numeric_tokens_before": {"money": ["$100.00"], "date": [], "digit_run": ["123"]},
+  "numeric_tokens_after": {"money": ["$100.00"], "date": [], "digit_run": ["123"]},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": false, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "this function keeps METADATA_ONLY_LABEL: every fixture, including this one, shows money.disappeared and date.disappeared both False"
+}

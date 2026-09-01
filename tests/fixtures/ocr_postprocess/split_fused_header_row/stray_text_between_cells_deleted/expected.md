@@ -1,0 +1,1 @@
+<table><tr><td>DATE</td><td>AMOUNT</td></tr><tr><td>01/05</td><td>$1,200.00</td></tr><tr><td>01/09</td><td>2.00</td></tr></table>

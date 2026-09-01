@@ -1,0 +1,1 @@
+<table><caption>Carried forward $7,777.00</caption><tr><td>DATE04/06</td><td>DESCRIPTIONx</td><td>REF123456</td><td>AMOUNT260.00</td></tr><tr><td>04/07</td><td>y</td><td>235.17</td></tr></table>

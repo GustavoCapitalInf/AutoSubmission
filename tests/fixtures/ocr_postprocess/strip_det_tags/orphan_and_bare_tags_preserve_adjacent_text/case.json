@@ -1,0 +1,17 @@
+{
+  "function": "strip_det_tags",
+  "case": "orphan_and_bare_tags_preserve_adjacent_text",
+  "classification": "removes a markup span whose content is UNCONSTRAINED by the pattern (harmless direction: this shape survives)",
+  "restores": "bea06bc:tests/test_ocr_client.py::test_strip_det_tags_removes_orphan_footer_tags (deleted without a census-fixture replacement; MAJOR-5, mutants L and M)",
+  "what_changes": "two orphan-shaped det-tag constructs (a bracket-closed orphan, and a doubled-bracket orphan) are removed",
+  "what_does_not_change": "the two adjacent money tokens and the trailing page-number footer, all of which sit OUTSIDE any tag's bracket content in this real degenerate-footer shape",
+  "numeric_tokens_before": {"money": ["-$200.27", "-$200.27"], "date": [], "digit_run": ["819", "811", "942", "825", "819", "811", "942", "825", "4", "10"]},
+  "numeric_tokens_after": {"money": ["-$200.27", "-$200.27"], "date": [], "digit_run": ["4", "10"]},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": true, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "the digit_run tokens that disappear are the two orphan tags' own bounding-box coordinates (geometry, not printed financial figures); both money tokens and the page footer survive. MAJOR-5: restoring this exact fixture is what kills mutant L (dropping `_DET_ORPHAN_RE.sub`) and mutant M (dropping `_DET_BARE_RE.sub`) -- without it, both branches of strip_det_tags were unpinned"
+}

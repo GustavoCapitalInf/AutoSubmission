@@ -1,0 +1,17 @@
+{
+  "function": "collapse_repeated_page_numbers",
+  "case": "prefix_footer_collapsed",
+  "classification": "restructures without inventing a FINANCIAL value (MINOR-2: the 'always an exact copy' claim does not hold universally)",
+  "reviewer_finding": "PHASE2_P20POSTPROC_REVIEW.md MINOR-2",
+  "what_changes": "the backreference `\\1` is not end-anchored: when the first footer ('Page 12 of 34') is a textual PREFIX of the second, longer footer ('Page 12 of 345'), the match consumes only the prefix of the second occurrence, and the substitution reassembles a DIFFERENT page number than either footer printed",
+  "what_does_not_change": "no money- or date-shaped token is ever involved -- this class of function never touches a financial value",
+  "numeric_tokens_before": {"money": [], "date": [], "digit_run": ["12", "34", "12", "345"]},
+  "numeric_tokens_after": {"money": [], "date": [], "digit_run": ["12", "345"]},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": true, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "one instance of '12' disappears as a harmless exact-duplicate loss, but '34' disappears with NO surviving copy -- genuinely distinct page-furniture information is lost, contradicting the original 'always an exact copy of a surviving token' claim. Page/count furniture only, never a financial value, so this stays outside METADATA_ONLY_LABEL's scope entirely (the function was never claimed to be metadata-only in that sense) but the classification text is corrected per MINOR-2"
+}

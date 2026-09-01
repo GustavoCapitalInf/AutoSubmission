@@ -1,0 +1,1 @@
+Total withdrawals and other debits -$200.27 <|det|>footer [819, 811, 942, 825] -$200.27 <|det|>footer [819, 811, 942, 825]] Page 4 of 10

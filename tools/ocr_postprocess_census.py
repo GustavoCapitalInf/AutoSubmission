@@ -69,15 +69,52 @@ FUNCTIONS = {
     "fix_amount_column_bleed": fix_amount_column_bleed,
 }
 
+#: The exact prefix a classification must start with for
+#: `test_metadata_only_classification_never_deletes_a_financial_token` (the
+#: MAJOR-1 enforceable invariant) to apply to it. A function may use this
+#: label ONLY if every one of its committed fixtures shows
+#: `numeric_tokens_delta.money.disappeared is False` and
+#: `...date.disappeared is False` — the review's fix for MAJOR-1: the label
+#: is enforced, not asserted in prose.
+METADATA_ONLY_LABEL = "reads/removes metadata-only content"
+
 #: The precise classification for each function (never forced into a coarser
 #: label than the evidence supports). See OCR_POSTPROCESS_CENSUS.md for the
 #: full narrative, worst-input and harmless-input for each.
+#:
+#: Adversarial review (docs/moneythumb-replacement/reviews/
+#: PHASE2_P20POSTPROC_REVIEW.md), MAJOR-1: four rows carried an ABSOLUTE
+#: "cannot touch a financial value" claim, falsified by construction on
+#: `strip_det_tags` (an orphan bracket's content, and the span between an
+#: orphan opening tag and the NEXT region's close, are both unconstrained),
+#: `strip_oversized_embedded_images` (the `alt` attribute's tokens go with an
+#: oversized image at the production threshold), `split_fused_header_row`
+#: (text sitting in the rebuilt `<tr>` outside any `<td>` is discarded), and
+#: `fix_amount_column_bleed` / `repair_fused_amount_table` (any content
+#: outside `<tr>` rows, e.g. a `<caption>`, is discarded whenever either
+#: function actually rewrites the table). The coarse label survives for the
+#: two functions that restructure/rewrite ANYWAY; `strip_det_tags` and
+#: `strip_oversized_embedded_images` no longer carry `METADATA_ONLY_LABEL`,
+#: because they can no longer make that promise — reproduced by
+#: `tests/fixtures/ocr_postprocess/strip_det_tags/orphan_bracket_contains_money/`,
+#: `.../pair_spans_to_next_close/`,
+#: `tests/fixtures/ocr_postprocess/strip_oversized_embedded_images/alt_attribute_money_dropped/`,
+#: `tests/fixtures/ocr_postprocess/split_fused_header_row/stray_text_between_cells_deleted/`,
+#: `tests/fixtures/ocr_postprocess/fix_amount_column_bleed/caption_dropped_when_fires/` and
+#: `tests/fixtures/ocr_postprocess/repair_fused_amount_table/caption_dropped_when_fires/`.
 CLASSIFICATION = {
     "strip_det_tags": (
-        "reads/removes metadata-only content: removes region-annotation tags "
-        "and their bounding-box coordinate digits; a money-shaped or "
-        "date-shaped token can never sit inside the removed span (the tag "
-        "grammar only holds a label word and four bare integers)"
+        "removes a markup span whose content is UNCONSTRAINED by the "
+        "pattern: the orphan form's bracket content is `[^\\]\\n]*` — "
+        "anything at all — so a money-shaped token written INSIDE an orphan "
+        "tag's brackets is deleted with it; and the well-formed-pair "
+        "pattern's `.*?` can span from an orphan OPENING tag all the way to "
+        "the NEXT region's closing tag, deleting everything printed between "
+        "them, including a money token. A well-formed pair around a label "
+        "with no money inside its own span, and a well-formed orphan whose "
+        "bracket holds only geometry digits, are both untouched — but "
+        "neither absolute claim this row previously made survives "
+        "construction"
     ),
     "strip_refusal_commentary": (
         "reads/removes metadata-only content: removes a tightly anchored "
@@ -89,35 +126,60 @@ CLASSIFICATION = {
         "reads/removes metadata-only content: drops '[Non-Text]'-shaped "
         "placeholder lines/spans; a line carrying any other content "
         "(a numeric token included) fails the drop guard's `fullmatch` and "
-        "is left in place, with only the placeholder substring removed"
+        "is left in place, with only the placeholder substring removed. "
+        "Unconditional side effect, never financial (MINOR-3): every line is "
+        "rejoined with a bare `\\n`, so CRLF line endings, a form-feed, and a "
+        "trailing newline are all normalized away even on a placeholder-free "
+        "page — a byte-level rewrite of every page this function ever sees, "
+        "proven harmless to money/date tokens but not a no-op on bytes"
     ),
     "strip_oversized_embedded_images": (
-        "reads/removes metadata-only content: drops an embedded base64 "
-        "<img> data URI once its total markup length exceeds the threshold; "
-        "operates on image markup only, never on printed text"
+        "removes a markup span whose content is UNCONSTRAINED by the "
+        "pattern: `_DATA_IMG_RE`'s trailing `[^>]*` covers the `alt` "
+        "attribute along with the `src`, so a money-shaped token written "
+        "into an image's `alt` text (e.g. `alt=\"check total $5,000.00\"`) is "
+        "deleted along with the image at the PRODUCTION default threshold "
+        "(max_len=25,000) — not only in a lowered-threshold demonstration. A "
+        "small (under-threshold) image and any money token outside an `alt` "
+        "attribute survive"
     ),
     "collapse_repeated_amounts": (
         "writes/deletes financial-value meaning: deletes every amount in a "
         "bare, whitespace-separated run of 3+ money tokens where one value "
         "repeats 3+ times — including DISTINCT amounts that merely sit "
         "adjacent to the repeated run (F-1; proven: [a,a,a,b,c] -> [a], two "
-        "distinct amounts destroyed, not deduplicated)"
+        "distinct amounts destroyed, not deduplicated). The >=3 threshold is "
+        "a real, pinned boundary: a value repeating only TWICE beside a "
+        "distinct amount is untouched (a run where the dominant value's "
+        "count is 2 leaves every token exactly as printed)"
     ),
     "collapse_repeated_page_numbers": (
-        "restructures without inventing financial values: collapses an "
-        "EXACT consecutive duplicate 'Page N of M' footer to one occurrence "
-        "via backreference; the digit-run tokens N and M that disappear are "
-        "always exact copies of a token that survives elsewhere in the same "
-        "match, so no distinct information is lost, but the multiset count "
-        "for N and M does shrink and is reported honestly below"
+        "restructures without inventing a FINANCIAL value (the pattern never "
+        "matches a money- or date-shaped token — only 'Page N of M' page "
+        "furniture); in the exact-repeat case, the digit-run tokens N and M "
+        "that disappear are exact copies of a token that survives elsewhere "
+        "in the same match, so no distinct information is lost. That is NOT "
+        "a universal property, though (MINOR-2): the backreference `\\1` is "
+        "not end-anchored, so when a shorter first footer is a textual "
+        "PREFIX of a longer second footer sharing the same page number "
+        "('Page 12 of 34 Page 12 of 345'), the match consumes only the "
+        "prefix of the second occurrence and the substitution reassembles a "
+        "different page number than either footer printed — a genuinely "
+        "DISTINCT digit-run value ('34') is lost with no surviving copy. "
+        "Page/count furniture only, never a financial value, but the "
+        "'always an exact copy' claim does not hold universally"
     ),
     "split_fused_header_row": (
-        "restructures without inventing/replacing financial values: when "
-        "EVERY first-row cell is a recognized-header-word glued to a value, "
-        "splits that row into a clean header row + a first data row; every "
-        "value is relocated into the data row at the SAME column index it "
-        "already occupied — no digit is invented, deleted, or moved to a "
-        "different column"
+        "restructures without inventing/replacing financial values WITHIN "
+        "`<td>` cells, but is NOT metadata-only at the row level: the "
+        "rebuilt row is assembled from `_CELL_RE.findall` alone (`ocr/"
+        "ocr_client.py:189-192`), so any text in the fused `<tr>` sitting "
+        "OUTSIDE a `<td>` (stray text between cells) is discarded when the "
+        "row is rebuilt — and that stray text can carry a money-shaped "
+        "token away with it. Every value that DOES live inside a `<td>` is "
+        "relocated to the data row at the SAME column index it already "
+        "occupied — no digit inside a cell is invented, deleted, or moved "
+        "to a different column"
     ),
     "repair_fused_amount_table": (
         "writes/reassigns financial-value meaning, CONDITIONALLY: when the "
@@ -132,7 +194,11 @@ CLASSIFICATION = {
         "previously 'explicitly UNPROVEN' per OCR_LEGACY_AUDIT.md F-11 item "
         "3): no digit is deleted, but transaction semantics (which column is "
         "the amount) DO change. This is why OQ1's quarantine covers this "
-        "function even though it 'restructures' rather than deleting."
+        "function even though it 'restructures' rather than deleting. "
+        "Additionally: whenever the gate passes and the table is rewritten, "
+        "the whole table is re-emitted from its `<tr>` rows alone — any "
+        "non-row content (a `<caption>`, for example) is discarded, and a "
+        "money-shaped token printed there is discarded with it"
     ),
     "fix_amount_column_bleed": (
         "writes/reassigns financial-value meaning: in any table with an "
@@ -141,7 +207,10 @@ CLASSIFICATION = {
         "to the row's amount (F-11); if the page actually printed the "
         "larger/true amount first, the parser reads the smaller trailing "
         "figure instead — no digit is deleted, but which figure is 'the "
-        "amount' changes"
+        "amount' changes. Additionally: whenever any row in the table "
+        "actually bleeds and the table is rewritten, it too is re-emitted "
+        "from its `<tr>` rows alone — a `<caption>` or other non-row content "
+        "is discarded, taking any money-shaped token it holds with it"
     ),
 }
 
