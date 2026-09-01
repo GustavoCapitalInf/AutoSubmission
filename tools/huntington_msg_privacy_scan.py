@@ -27,7 +27,6 @@ Exit 1 on any hit, 0 on none. READ-ONLY, $0.
 """
 from __future__ import annotations
 
-import itertools
 import json
 import subprocess
 import sys
@@ -40,6 +39,7 @@ from tools.privacy_scan_branch import (  # noqa: E402  (path set above)
     cached_text,
     parse_args,
     population,
+    rows_by_sha,
     self_check,
     tokens_of,
     tracked_text,
@@ -65,25 +65,43 @@ def messages(base: str, ref: str) -> list[tuple[str, str, str]]:
 def main(argv: list[str] | None = None) -> int:
     self_check()
     args = parse_args(argv)
-    from webapp.artifact_cache import ocr_settings_key
+    import sqlite3
+
+    from telemetry.run_of_record import RunOfRecordError, partitions_for_run
 
     root = args.data_dir / "artifacts"
-    ocr_keys = [
-        ocr_settings_key(force_ocr=force, allow_local_ocr=local, allow_visual_ocr=visual)
-        for force, local, visual in itertools.product((False, True), repeat=3)
-    ]
-    shas = population(args)
-    printed: dict[str, set[str]] = {"MONEY": set(), "DIGITS": set(), "DATES": set(), "WORDS": set()}
-    documents_read = 0
-    missing: list[str] = []
-    for sha in shas:
-        text = cached_text(root, sha, ocr_keys)
-        if text is None:
-            missing.append(sha[:8])
-            continue
-        documents_read += 1
-        for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
-            printed[cls].update(values)
+    conn = sqlite3.connect(f"file:{(args.data_dir / 'webapp.db').as_posix()}?mode=ro", uri=True)
+    try:
+        try:
+            partitions = partitions_for_run(args.run, conn=conn)
+        except RunOfRecordError as exc:
+            print(f"artifact-selection policy failed: {exc}", file=sys.stderr)
+            return 5
+        rows = rows_by_sha(args.run)
+        shas = population(args)
+        printed: dict[str, set[str]] = {"MONEY": set(), "DIGITS": set(), "DATES": set(), "WORDS": set()}
+        documents_read = 0
+        missing: list[str] = []
+        for sha in shas:
+            text = cached_text(conn, root, sha, rows.get(sha), partitions)
+            if text is None:
+                missing.append(sha[:8])
+                continue
+            documents_read += 1
+            for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
+                printed[cls].update(values)
+        # Same refusal as the file-line scan (P20-ARTIFACTS closure MAJOR-2):
+        # a non-empty population that resolves NO cached text is a wrong
+        # record, not a clean scan.
+        if shas and documents_read == 0:
+            print(
+                f"REFUSED: 0 of {len(shas)} population shas resolved any cached text — "
+                "the run's partitions do not describe this data directory",
+                file=sys.stderr,
+            )
+            return 5
+    finally:
+        conn.close()
 
     # Same exclusion as the file-line scan, for the same reason: a token that
     # already sits in the tracked tree at `--base` is not one these messages

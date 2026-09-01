@@ -196,7 +196,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import itertools
 import json
 import re
 import subprocess
@@ -658,6 +657,29 @@ def self_check() -> None:
                 raise SystemExit(f"named residue class {name!r} names {path!r}, which is never scanned")
 
 
+#: Read by :func:`resolve_run` when ``--run`` is not given. P20-ARTIFACTS
+#: (Phase 2.0) closure MAJOR-2: this scanner used to enumerate the eight
+#: OCR-key capability combinations against the LIVE `ocr_settings_key()` and
+#: pick whichever reconstruction produced the LONGEST text — an unratified
+#: selection heuristic OQ10 forbids, and one the `OCR_STAGE_VERSION` 4->5
+#: bump made permanently vacuous against the frozen batch-8/9 cold caches
+#: (their artifacts are v4-keyed; the live enumeration is v5). It now
+#: resolves through `telemetry.run_of_record`, the same policy
+#: `tools/cohort_replay.py` and `telemetry/stated_counts.py::_ArtifactJoin`
+#: adopted, keyed on each sha's OWN row in `--run`'s `rows.csv`.
+DEFAULT_RUN_POINTER = Path("discovery_reports/train9-logs/train9_run_dir.txt")
+
+
+def resolve_run(run: Path | None) -> Path:
+    if run is not None:
+        return run
+    if not DEFAULT_RUN_POINTER.is_file():
+        raise SystemExit(
+            f"--run not given and the default pointer {DEFAULT_RUN_POINTER} is missing"
+        )
+    return Path(DEFAULT_RUN_POINTER.read_text(encoding="utf-8").strip())
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--shas", action="append", default=[], type=Path,
@@ -666,6 +688,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--rows", type=Path, default=None, help="a run's rows.csv")
     parser.add_argument("--where", action="append", default=[],
                         help="rows.csv filter key=v1,v2 (repeatable; all must hold)")
+    parser.add_argument("--run", type=Path, default=None,
+                        help="the discovery run of record whose rows.csv names each sha's own "
+                             "OCR provenance (default: the pointer file at "
+                             f"{DEFAULT_RUN_POINTER})")
     parser.add_argument("--data-dir", required=True, type=Path)
     parser.add_argument("--base", required=True)
     parser.add_argument("--ref", default="HEAD")
@@ -675,7 +701,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--no-exclusions", action="store_true",
                         help="report the RAW scan: attribute nothing to the exclusion table")
     parser.add_argument("--out", type=Path, default=None)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args.run = resolve_run(args.run)
+    return args
 
 
 def population(args: argparse.Namespace) -> list[str]:
@@ -701,30 +729,48 @@ def population(args: argparse.Namespace) -> list[str]:
     return sorted(shas)
 
 
-def cached_text(root: Path, sha: str, ocr_keys: list[str]) -> str | None:
+def cached_text(conn, root: Path, sha: str, row: dict | None, partitions) -> str | None:
+    """The OCR text for ONE sha, resolved through its OWN run-of-record
+    partition (P20-ARTIFACTS closure MAJOR-2) — never the "try every
+    capability combination and keep whichever reconstruction is longest"
+    heuristic this replaced. ``row`` is the sha's own record in ``--run``'s
+    ``rows.csv`` (``None`` when the sha is not part of that run, which
+    resolves to no text rather than a guess); ``partitions`` is the run's
+    ``telemetry.run_of_record.RunPartitions``."""
     from ocr.document import StatementMarkdown
-    from webapp.artifact_cache import STAGE_OCR, cache_key
+    from telemetry.run_of_record import ocr_partition_for_row, select_artifact
 
-    best = None
-    for key in ocr_keys:
-        composed = cache_key(STAGE_OCR, sha, key)
-        path = root / STAGE_OCR / composed[:2] / f"{composed}.json"
-        if not path.exists():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        document = (payload.get("artifact") or {}).get("document")
-        if not isinstance(document, dict):
-            continue
-        pages = [str(page) for page in (document.get("pages") or [])]
-        text = StatementMarkdown(
-            source_file="scan.pdf", model=str(document.get("model") or ""), pages=pages
-        ).to_markdown()
-        if best is None or len(text) > len(best):
-            best = text
-    return best
+    if row is None:
+        return None
+    key = ocr_partition_for_row(row, partitions)
+    path = select_artifact(conn, "ocr", sha, key)
+    if path is None:
+        return None
+    try:
+        payload = json.loads((root / path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    document = (payload.get("artifact") or {}).get("document")
+    if not isinstance(document, dict):
+        return None
+    pages = [str(page) for page in (document.get("pages") or [])]
+    return StatementMarkdown(
+        source_file="scan.pdf", model=str(document.get("model") or ""), pages=pages
+    ).to_markdown()
+
+
+def rows_by_sha(run_dir: Path) -> dict[str, dict]:
+    """``content_sha256 -> its own row`` for ``run_dir``'s ``rows.csv``,
+    first-row-wins on a duplicate (the archive holds the same bytes under
+    several paths; every duplicate names the same OCR provenance)."""
+    from telemetry.stated_counts import load_run_rows  # lazy: keeps this tool's
+
+    out: dict[str, dict] = {}                          # import surface small
+    for row in load_run_rows(run_dir):
+        sha = (row.get("content_sha256") or "").strip().upper()
+        if sha and sha not in out:
+            out[sha] = row
+    return out
 
 
 def tokens_of(text: str, digit_min: int, word_min: int) -> dict[str, set[str]]:
@@ -829,25 +875,47 @@ def main(argv: list[str] | None = None) -> int:
     self_check()
     args = parse_args(argv)
     sys.path.insert(0, str(ROOT))
-    from webapp.artifact_cache import ocr_settings_key
+    import sqlite3
+
+    from telemetry.run_of_record import RunOfRecordError, partitions_for_run
 
     root = args.data_dir / "artifacts"
-    ocr_keys = [
-        ocr_settings_key(force_ocr=force, allow_local_ocr=local, allow_visual_ocr=visual)
-        for force, local, visual in itertools.product((False, True), repeat=3)
-    ]
-    shas = population(args)
-    printed: dict[str, set[str]] = {"MONEY": set(), "DIGITS": set(), "DATES": set(), "WORDS": set()}
-    documents_read = 0
-    missing: list[str] = []
-    for sha in shas:
-        text = cached_text(root, sha, ocr_keys)
-        if text is None:
-            missing.append(sha[:8])
-            continue
-        documents_read += 1
-        for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
-            printed[cls].update(values)
+    conn = sqlite3.connect(f"file:{(args.data_dir / 'webapp.db').as_posix()}?mode=ro", uri=True)
+    try:
+        try:
+            partitions = partitions_for_run(args.run, conn=conn)
+        except RunOfRecordError as exc:
+            print(f"artifact-selection policy failed: {exc}", file=sys.stderr)
+            return 5
+        rows = rows_by_sha(args.run)
+        shas = population(args)
+        printed: dict[str, set[str]] = {"MONEY": set(), "DIGITS": set(), "DATES": set(), "WORDS": set()}
+        documents_read = 0
+        missing: list[str] = []
+        for sha in shas:
+            text = cached_text(conn, root, sha, rows.get(sha), partitions)
+            if text is None:
+                missing.append(sha[:8])
+                continue
+            documents_read += 1
+            for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
+                printed[cls].update(values)
+        # A non-empty population that reads NO cached text is not a clean
+        # scan — it is the run's partitions failing to describe this data
+        # directory at all (P20-ARTIFACTS closure MAJOR-2's exact
+        # reproduction: the `OCR_STAGE_VERSION` bump left the OLD live-key
+        # enumeration reading zero documents from the v4-keyed frozen cold
+        # caches and reporting a clean `hit_count: 0`). Refuse it explicitly
+        # rather than let a vacuous scan stand as a pass.
+        if shas and documents_read == 0:
+            print(
+                f"REFUSED: 0 of {len(shas)} population shas resolved any cached text — "
+                "the run's partitions do not describe this data directory",
+                file=sys.stderr,
+            )
+            return 5
+    finally:
+        conn.close()
 
     # The base-tree exclusion is a SET membership, not a substring search: the
     # tracked text tree is tens of megabytes and a large population prints

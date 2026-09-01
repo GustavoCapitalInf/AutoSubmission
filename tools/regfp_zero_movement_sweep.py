@@ -9,34 +9,34 @@ analysis differ from what the run of record stored for it?**
         --rows <reports>/<run-id>/rows.csv \
         --data-dir <checkout>/webapp_data \
         --baseline-settings-key <64 hex> \
-        [--start 0 --end 3380] [--out sweep.json]
+        [--run <run dir>] [--start 0 --end 3380] [--out sweep.json]
 
-READ-ONLY, and deliberately so in two ways. Nothing is written to the archive or
-the artifact store; and the `webapp_data` sqlite index is never opened — OCR and
-analysis payloads are reached by DIRECT file path, recomposing the run's own
-cache keys, which is the wave rule for archive artifacts. It makes no model call
-and costs $0.00: `parse_mode="deterministic"` cannot reach the extraction
-branch.
+READ-ONLY. Nothing is written to the archive or the artifact store; the
+`webapp_data` sqlite index is opened `mode=ro` ONLY to resolve and verify each
+document's own run-of-record OCR partition (below) — never to write. It makes
+no model call and costs $0.00: `parse_mode="deterministic"` cannot reach the
+extraction branch.
 
-WHICH OCR ARTIFACT A DOCUMENT IS READ FROM, and why it is not a guess. A
-document can hold more than one cached OCR artifact — one per capability
-partition of `ocr_settings_key` — and picking the wrong one hands the analysis
-text the run never analysed. WORKER-PRIVACY's sweep measured that trap on this
-archive: 55 of the 3,380 were read under a partition holding a re-read text
-preparation, and feeding those the plain native text manufactured two false
-movers.
-
-This tool does not choose by an ordering. It enumerates **every** capability
-partition, and selects the artifact whose reconstruction resolves the run's own
-stored analysis payload — `cache_key(STAGE_ANALYSIS, analysis_input_sha(text,
-pages), baseline)` — which is per-document PROOF that this is the text the run
-analysed, not an assumption about which rung it used. Two consequences worth
-stating: a wrong reconstruction can never produce a false MOVER (it misses the
-payload and the document lands in the no-payload bucket instead of being
-compared against a payload built from other text), and where several artifacts
-reconstruct to the same input hash the choice is immaterial by definition.
-`multi_artifact_documents` in the output counts the documents where more than
-one partition held a document, i.e. where the selection had a choice to make.
+WHICH OCR ARTIFACT A DOCUMENT IS READ FROM, and why it is not a guess
+(P20-ARTIFACTS closure MAJOR-2). A document can hold more than one cached OCR
+artifact — one per capability partition of `ocr_settings_key` — and picking
+the wrong one hands the analysis text the run never analysed. WORKER-PRIVACY's
+sweep measured that trap on this archive: 55 of the 3,380 were read under a
+partition holding a re-read text preparation, and feeding those the plain
+native text manufactured two false movers. This tool used to "fix" that by
+enumerating every one of the eight live capability-boolean combinations and
+keeping whichever reconstruction resolved the run's own stored payload — a
+correspondence proof, not an ordering, but still keyed on `ocr_settings_key()`
+at the LIVE `OCR_STAGE_VERSION`, which the v4->v5 bump made permanently unable
+to match the frozen batch-8/9 archives' v4-keyed artifacts (every document
+would silently fall into `no_ocr_artifact`). It now resolves through
+`telemetry.run_of_record` — the SAME policy `tools/cohort_replay.py` and
+`telemetry/stated_counts.py::_ArtifactJoin` adopted — keyed on each sha's OWN
+row in `--run`'s `rows.csv` (`source_path` / `visual_rung`), never an
+enumeration: one deterministic partition per document, with no choice left to
+make. `--baseline-settings-key` is unchanged by this: it names the ANALYSIS
+side's explicit historical key (see below), which was never enumerated or
+guessed.
 
 **`--baseline-settings-key` is the analysis settings key the run wrote under**,
 and it is an argument rather than a computation because the whole point of a
@@ -73,15 +73,28 @@ from __future__ import annotations
 
 import argparse
 import csv
-import itertools
 import json
 import sys
 import time
 from pathlib import Path
 
+#: Read by :func:`_resolve_run` when ``--run`` is not given (P20-ARTIFACTS
+#: closure MAJOR-2 — the same default the two privacy scanners use).
+DEFAULT_RUN_POINTER = Path("discovery_reports/train9-logs/train9_run_dir.txt")
+
 
 def canonical(obj: object) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+
+def _resolve_run(run: Path | None) -> Path:
+    if run is not None:
+        return run
+    if not DEFAULT_RUN_POINTER.is_file():
+        raise SystemExit(
+            f"--run not given and the default pointer {DEFAULT_RUN_POINTER} is missing"
+        )
+    return Path(DEFAULT_RUN_POINTER.read_text(encoding="utf-8").strip())
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -93,158 +106,155 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="the analysis settings key the run's payloads were written under",
     )
+    parser.add_argument("--run", type=Path, default=None,
+                        help="the discovery run of record whose rows.csv names each sha's own "
+                             f"OCR provenance (default: the pointer file at {DEFAULT_RUN_POINTER})")
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--end", type=int, default=None)
     parser.add_argument("--out", type=Path, default=None, help="write the full report here")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args.run = _resolve_run(args.run)
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
+    import sqlite3
+
     from analysis.pipeline import analyze_markdown
     from analysis.serialization import report_to_dict
     from ocr.document import StatementMarkdown
-    from webapp.artifact_cache import (
-        STAGE_ANALYSIS,
-        STAGE_OCR,
-        analysis_input_sha,
-        cache_key,
-        ocr_settings_key,
+    from telemetry.run_of_record import (
+        RunOfRecordError,
+        ocr_partition_for_row,
+        partitions_for_run,
+        select_artifact,
     )
+    from webapp.artifact_cache import STAGE_ANALYSIS, analysis_input_sha, cache_key
 
     baseline = args.baseline_settings_key.strip().upper()
     root = args.data_dir / "artifacts"
-    # EVERY capability partition, not the three the offline tranches usually
-    # produce: a partition this list omitted would be a document silently read
-    # from the wrong rung's text. Eight keys is the whole space of the three
-    # boolean flags, and existence checks against the missing ones are free.
-    ocr_keys = [
-        ocr_settings_key(force_ocr=force, allow_local_ocr=local, allow_visual_ocr=visual)
-        for force, local, visual in itertools.product((False, True), repeat=3)
-    ]
 
     outcome_by_sha: dict[str, str] = {}
+    row_by_sha: dict[str, dict] = {}
     with args.rows.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             sha = row["content_sha256"]
             if sha:
                 outcome_by_sha.setdefault(sha, row["outcome_class"])
+                row_by_sha.setdefault(sha, row)
     shas = sorted(outcome_by_sha)[args.start : args.end]
 
-    counts = {
-        "compared_payload": 0,
-        "identical": 0,
-        "moved": 0,
-        "no_ocr_artifact": 0,
-        "multi_artifact_documents": 0,
-        "no_payload_raises_again": 0,
-        "no_payload_now_publishes": 0,
-        "payload_now_raises": 0,
-    }
-    findings: list[dict[str, object]] = []
-    started = time.perf_counter()
-
-    for sha in shas:
-        # Every partition that holds a document, then the one whose
-        # reconstruction resolves the run's payload. See the module docstring:
-        # this is proof of which text the run analysed, not an ordering.
-        candidates: list[tuple[str, list[str]]] = []
-        for key in ocr_keys:
-            composed = cache_key(STAGE_OCR, sha, key)
-            path = root / STAGE_OCR / composed[:2] / f"{composed}.json"
-            if not path.exists():
-                continue
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            document = (payload.get("artifact") or {}).get("document")
-            if not isinstance(document, dict):
-                # A cached NEGATIVE OCR result: a real cached fact (the
-                # deferred scans), not a miss, and no text to analyse.
-                continue
-            pages = [str(page) for page in (document.get("pages") or [])]
-            markdown = StatementMarkdown(
-                source_file="sweep.pdf", model=str(document.get("model") or ""), pages=pages
-            ).to_markdown()
-            candidates.append((markdown, pages))
-        if not candidates:
-            counts["no_ocr_artifact"] += 1
-            continue
-        if len(candidates) > 1:
-            counts["multi_artifact_documents"] += 1
-
-        before = None
-        markdown, pages = candidates[0]
-        for candidate_markdown, candidate_pages in candidates:
-            composed = cache_key(
-                STAGE_ANALYSIS,
-                analysis_input_sha(candidate_markdown, candidate_pages),
-                baseline,
-            )
-            stored = root / STAGE_ANALYSIS / composed[:2] / f"{composed}.json"
-            if not stored.exists():
-                continue
-            try:
-                before = json.loads(stored.read_text(encoding="utf-8"))["artifact"]["analysis"]
-            except (OSError, ValueError, KeyError):
-                continue
-            # THE artifact the run analysed, proven by its own key.
-            markdown, pages = candidate_markdown, candidate_pages
-            break
-
+    conn = sqlite3.connect(f"file:{(args.data_dir / 'webapp.db').as_posix()}?mode=ro", uri=True)
+    try:
         try:
-            after = report_to_dict(
-                analyze_markdown(markdown, parse_mode="deterministic", sheets=pages)
-            )
-            raised = None
-        except Exception as exc:
-            after, raised = None, type(exc).__name__
+            partitions = partitions_for_run(args.run, conn=conn)
+        except RunOfRecordError as exc:
+            print(f"artifact-selection policy failed: {exc}", file=sys.stderr)
+            return 5
 
-        if before is None:
+        counts = {
+            "compared_payload": 0,
+            "identical": 0,
+            "moved": 0,
+            "no_ocr_artifact": 0,
+            "no_payload_raises_again": 0,
+            "no_payload_now_publishes": 0,
+            "payload_now_raises": 0,
+        }
+        findings: list[dict[str, object]] = []
+        started = time.perf_counter()
+
+        for sha in shas:
+            # ONE partition, named by THIS sha's own row (P20-ARTIFACTS
+            # closure MAJOR-2) — never an enumeration, never a choice. See
+            # the module docstring.
+            row = row_by_sha.get(sha)
+            key = ocr_partition_for_row(row, partitions) if row is not None else None
+            path = select_artifact(conn, "ocr", sha, key) if key else None
+            markdown = pages = None
+            if path is not None:
+                try:
+                    payload = json.loads((root / path).read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    payload = None
+                document = (payload.get("artifact") or {}).get("document") if payload else None
+                if isinstance(document, dict):
+                    pages = [str(page) for page in (document.get("pages") or [])]
+                    markdown = StatementMarkdown(
+                        source_file="sweep.pdf", model=str(document.get("model") or ""), pages=pages
+                    ).to_markdown()
+            if markdown is None:
+                # No resolvable artifact under this row's own partition: a
+                # cached NEGATIVE OCR result (the deferred scans — a real
+                # cached fact, not a miss, and no text to analyse) or no
+                # cached artifact at all.
+                counts["no_ocr_artifact"] += 1
+                continue
+
+            composed = cache_key(STAGE_ANALYSIS, analysis_input_sha(markdown, pages), baseline)
+            stored = root / STAGE_ANALYSIS / composed[:2] / f"{composed}.json"
+            before = None
+            if stored.exists():
+                try:
+                    before = json.loads(stored.read_text(encoding="utf-8"))["artifact"]["analysis"]
+                except (OSError, ValueError, KeyError):
+                    before = None
+
+            try:
+                after = report_to_dict(
+                    analyze_markdown(markdown, parse_mode="deterministic", sheets=pages)
+                )
+                raised = None
+            except Exception as exc:
+                after, raised = None, type(exc).__name__
+
+            if before is None:
+                if raised is not None:
+                    counts["no_payload_raises_again"] += 1
+                else:
+                    counts["no_payload_now_publishes"] += 1
+                    findings.append(
+                        {
+                            "content_sha256": sha,
+                            "verdict": "no_payload_now_publishes",
+                            "outcome_class": outcome_by_sha[sha],
+                        }
+                    )
+                continue
+
+            counts["compared_payload"] += 1
             if raised is not None:
-                counts["no_payload_raises_again"] += 1
-            else:
-                counts["no_payload_now_publishes"] += 1
+                counts["payload_now_raises"] += 1
                 findings.append(
                     {
                         "content_sha256": sha,
-                        "verdict": "no_payload_now_publishes",
+                        "verdict": "payload_now_raises",
+                        "exception": raised,
                         "outcome_class": outcome_by_sha[sha],
                     }
                 )
-            continue
-
-        counts["compared_payload"] += 1
-        if raised is not None:
-            counts["payload_now_raises"] += 1
-            findings.append(
-                {
-                    "content_sha256": sha,
-                    "verdict": "payload_now_raises",
-                    "exception": raised,
-                    "outcome_class": outcome_by_sha[sha],
-                }
-            )
-        elif canonical(before) == canonical(after):
-            counts["identical"] += 1
-        else:
-            counts["moved"] += 1
-            findings.append(
-                {
-                    "content_sha256": sha,
-                    "verdict": "moved",
-                    "outcome_class": outcome_by_sha[sha],
-                    # FIELD NAMES only. A diff of the values would print the
-                    # statement's own figures into a report.
-                    "fields": sorted(
-                        field
-                        for field in set(before) | set(after)
-                        if canonical(before.get(field)) != canonical(after.get(field))
-                    ),
-                }
-            )
+            elif canonical(before) == canonical(after):
+                counts["identical"] += 1
+            else:
+                counts["moved"] += 1
+                findings.append(
+                    {
+                        "content_sha256": sha,
+                        "verdict": "moved",
+                        "outcome_class": outcome_by_sha[sha],
+                        # FIELD NAMES only. A diff of the values would print the
+                        # statement's own figures into a report.
+                        "fields": sorted(
+                            field
+                            for field in set(before) | set(after)
+                            if canonical(before.get(field)) != canonical(after.get(field))
+                        ),
+                    }
+                )
+    finally:
+        conn.close()
 
     report = {
         "range": [args.start, args.end],
