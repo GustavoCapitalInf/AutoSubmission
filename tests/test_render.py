@@ -28,6 +28,23 @@ def test_render_boxed_page_separator_and_plain_start():
     assert "Just some text so far" in out
 
 
+def test_render_boxed_never_calls_the_quarantined_postprocess_chain():
+    # OQ1 = C: the display path (ocr/render.py:179,192) must render raw
+    # content — `postprocess` (and every one of its nine members) stays
+    # unwired here exactly as it is on the analysis path. A degenerate money
+    # run inside a region would be collapsed to one token if `postprocess`
+    # ran; it must survive intact.
+    raw = ("<|det|>text [0,0,50,10]<|/det|>"
+           "$50.00 $50.00 $50.00 $75.00 $60.00")
+    out = render_boxed([raw])
+    assert "$75.00" in out and "$60.00" in out
+    assert out.count("$50.00") == 3
+
+    # Same for the no-complete-region-tag fallback branch.
+    out2 = render_boxed(["$50.00 $50.00 $50.00 $75.00 $60.00"])
+    assert "$75.00" in out2 and "$60.00" in out2
+
+
 def test_render_boxed_embeds_picture_region_when_image_given():
     img = Image.new("RGB", (1000, 1000), (200, 50, 50))
     raw = "<|det|>image [100,100,400,400]<|/det|>"
