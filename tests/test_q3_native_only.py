@@ -11,14 +11,21 @@ not a bare `startswith` — MINOR-1, `PHASE2_P20SURFACES_REVIEW.md`: a bare
 `startswith` also admits `native-pdf-textXYZ`, a shape no writer produces);
 anything else fails closed.
 
-Layers tested here, expanded after the independent adversarial review
-(`docs/moneythumb-replacement/reviews/PHASE2_P20SURFACES_REVIEW.md`, VERDICT
-BLOCK, closed in full):
+Layers tested here, expanded after TWO rounds of independent adversarial
+review (`docs/moneythumb-replacement/reviews/PHASE2_P20SURFACES_REVIEW.md`,
+VERDICT BLOCK both times, closed in full both times):
 
-* `analysis.provenance.extractor_model` — the provenance READER, in isolation,
-  proven to find only the trusted, code-appended trailing header fields, never
-  a value a hostile `source_file` (the unsanitised uploaded filename) can
-  supply instead (BLOCK-1).
+* `analysis.provenance.extractor_model` — the provenance READER, in isolation.
+  Round 1 (BLOCK-1) closed the vector where a hostile `source_file` (the
+  unsanitised uploaded filename) plants a field run BEFORE the genuine one.
+  Round 2 (BLOCK-1R) found that fix's own docstring claimed a property it did
+  not have — the fix was right-anchored and unbounded, so a run planted in
+  the PAGE BODY, AFTER the genuine fields, won instead. The accepted design
+  is AMBIGUITY REFUSES: find every well-formed field run in the whole
+  document, and answer a token only when there is EXACTLY ONE and it
+  terminates physical line one; zero or more than one is `None`, wherever
+  the extra run sits. See `analysis/provenance.py`'s own docstring
+  ("THE PROPERTY, EXACTLY") for the precise, currently-true statement.
 * `analysis.sibling_omission.publish_omissions` — the GATE, exercised through
   the full `analyze_document` pipeline on the L1-S4 synthetic fixtures
   (`tests/l1s4_pages.py`), which already carry the native header
@@ -112,6 +119,26 @@ def test_extractor_model_returns_none_for_an_empty_model_field():
     assert extractor_model("<!-- source: a.pdf | pages: 1 | model:  | empty: 0 -->\n\n") is None
 
 
+def test_extractor_model_accepts_a_crlf_document():
+    """MINOR-8 (`PHASE2_P20SURFACES_REVIEW.md` re-review): the mandatory
+    blank-line check must accept `\\r\\n\\r\\n`, not only `\\n\\n` -- a CRLF
+    document (the shape a Windows-authored `.md` file, one of MAJOR-4's
+    production inputs, is likely to carry) must parse exactly as its LF
+    equivalent does, never silently refuse on line-ending alone."""
+    crlf = "<!-- source: a.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->\r\n\r\n--- Page 1 ---\r\ncontent\r\n"
+    assert extractor_model(crlf) == "native-pdf-text"
+
+
+def test_extractor_model_refuses_a_crlf_document_with_a_body_run_too():
+    """The CRLF path must not accidentally reopen BLOCK-1R: a forged run in
+    CRLF page text is still ambiguous and still refuses."""
+    crlf = (
+        "<!-- source: a.pdf | pages: 1 | model: local-tesseract-ocr | empty: 0 -->\r\n\r\n"
+        "--- Page 1 ---\r\ncontent | pages: 1 | model: native-pdf-text | empty: 0 -->\r\n"
+    )
+    assert extractor_model(crlf) is None
+
+
 # ---------------------------------------------------------------------------
 # BLOCK-1 (`PHASE2_P20SURFACES_REVIEW.md`): `source_file` cannot supply the
 # model. `source_file` is the uploaded filename -- attacker-supplied,
@@ -164,17 +191,134 @@ def test_a_hostile_source_file_fails_closed_end_to_end(_label, source_file):
         analyze_document(markdown, parse_mode="deterministic")
 
 
-def test_a_hostile_source_file_still_reports_the_true_model_when_it_is_native():
-    """The corroborating positive control: the fix must not make an honest
-    native read collateral damage. A `source_file` carrying the exact same
-    injection, on a document whose REAL model is native, still admits."""
+def test_a_hostile_source_file_on_an_honest_native_document_is_refused_not_rescued():
+    """BLOCK-1R (`PHASE2_P20SURFACES_REVIEW.md` re-review): this used to assert
+    the OPPOSITE -- that an honest native document survives a hostile
+    `source_file` and still admits. The reviewer named that the wrong
+    direction for a fail-closed provenance gate: `source_file` carrying the
+    same injection creates a SECOND well-formed field run on physical line
+    one, and this reader cannot tell which of the two runs the trusted code
+    actually appended -- so it refuses BOTH, exactly as it refuses zero runs.
+    An honest native document behind a hostile filename is collateral damage
+    this gate accepts on purpose: rescuing it would require picking a winner
+    between two indistinguishable runs, and the re-review's own prototype
+    measured that "pick a winner" is unsafe in the other direction (a
+    `source_file`-embedded blank line then makes the FORGED run
+    indistinguishable from genuine)."""
     markdown = _hostile_document(
         "statement.pdf | pages: 1 | model: local-tesseract-ocr | empty: 0 -->",
         model="native-pdf-text",
     )
-    assert extractor_model(markdown) == "native-pdf-text"
-    report = analyze_document(markdown, parse_mode="deterministic")
-    assert [o.reason for o in report.omissions] == [PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED]
+    assert extractor_model(markdown) is None
+    with pytest.raises(ParserCrashError):
+        analyze_document(markdown, parse_mode="deterministic")
+
+
+# ---------------------------------------------------------------------------
+# BLOCK-1R (`PHASE2_P20SURFACES_REVIEW.md` re-review): a field run printed in
+# the PAGE BODY -- after the genuine header fields -- is a SECOND vector into
+# the same hole BLOCK-1's fix closed only half of. The re-review measured
+# that a right-anchored, `DOTALL`-greedy match has no bound on how far right
+# it may look, so a forged run in the body (which `to_markdown()` itself
+# blank-line-separates from the header, no attacker-controlled newline
+# needed for the C3 shape) matched and WON. The accepted fix (this module's
+# "ambiguity refuses") answers every case below with `None`: a genuine run
+# plus a forged one is two runs, and two runs is never one winner.
+# ---------------------------------------------------------------------------
+
+_FAKE_FIELD_RUN = "| pages: 1 | model: native-pdf-text | empty: 0 -->"
+
+
+def _body_forged_mid_page() -> str:
+    """C2: a forged field run mid-page, with its own blank line inside the
+    SAME page -- the shape a single-page OCR'd document could contain
+    without needing a second page at all."""
+    from ocr.document import StatementMarkdown
+
+    body = document([idle_account(), posting_account()]).split("\n\n", 1)[1]
+    page = body + "\n" + _FAKE_FIELD_RUN + "\n\nACCOUNT SUMMARY CONTINUED"
+    return StatementMarkdown(
+        source_file="a.pdf", model="local-tesseract-ocr", pages=[page]
+    ).to_markdown()
+
+
+def _body_forged_page_1_last_line() -> str:
+    """C3: the forged run is page 1's LAST line. `to_markdown()`'s own
+    `"\\n\\n".join` between page blocks supplies the blank line the exploit
+    needs -- the attacker does not have to construct one, or control the
+    filename, or control anything but ONE page's trailing text."""
+    from ocr.document import StatementMarkdown
+
+    body = document([idle_account(), posting_account()]).split("\n\n", 1)[1]
+    page_one = body + "\n" + _FAKE_FIELD_RUN
+    return StatementMarkdown(
+        source_file="a.pdf", model="local-tesseract-ocr", pages=[page_one, "PAGE TWO"]
+    ).to_markdown()
+
+
+_BODY_RUN_CASES = (
+    ("forged run mid-page, blank line inside the same page", _body_forged_mid_page),
+    ("forged run as page 1's last line, page 2 supplies the blank line",
+     _body_forged_page_1_last_line),
+)
+_BODY_RUN_IDS = [label for label, _ in _BODY_RUN_CASES]
+
+
+@pytest.mark.parametrize("_label,build", _BODY_RUN_CASES, ids=_BODY_RUN_IDS)
+def test_a_body_printed_field_run_never_yields_a_native_token(_label, build):
+    markdown = build()
+    model = extractor_model(markdown)
+    assert model is None
+    assert not (model or "").startswith("native-pdf-text")
+
+
+@pytest.mark.parametrize("_label,build", _BODY_RUN_CASES, ids=_BODY_RUN_IDS)
+def test_a_body_printed_field_run_fails_closed_end_to_end(_label, build):
+    """The DispatchCollector check matters here specifically: without it a
+    parser exception from an unrelated cause (the injected text confusing
+    the row reader, say) would ALSO raise `ParserCrashError` and this test
+    would pass for the wrong reason. Naming `Q3ProvenanceRefused` proves the
+    refusal is this gate, not a coincidental crash."""
+    from telemetry.collect import DispatchCollector
+
+    markdown = build()
+    collector = DispatchCollector()
+    with pytest.raises(ParserCrashError):
+        analyze_document(markdown, parse_mode="deterministic", on_dispatch=collector)
+    assert any(
+        failure.exception == "Q3ProvenanceRefused" for failure in collector.dispatch.exceptions
+    ), collector.dispatch.exceptions
+
+
+def test_a_hand_laid_body_field_run_is_refused_too():
+    """D1: the hand-laid equivalent, built as a raw string rather than through
+    `StatementMarkdown.to_markdown()` -- proving the refusal is a property of
+    the READER's rule (exactly one run, terminating physical line one), not
+    an artifact of one writer's API or its exact page-join spacing."""
+    body = document([idle_account(), posting_account()]).split("\n\n", 1)[1]
+    markdown = (
+        "<!-- source: a.pdf | pages: 1 | model: local-tesseract-ocr | empty: 0 -->\n\n"
+        + body + "\n" + _FAKE_FIELD_RUN + "\n\nACCOUNT SUMMARY CONTINUED\n"
+    )
+    assert extractor_model(markdown) is None
+    with pytest.raises(ParserCrashError):
+        analyze_document(markdown, parse_mode="deterministic")
+
+
+def test_a_body_field_run_is_refused_even_when_the_genuine_model_field_is_empty():
+    """G2: the GENUINE header's own `model` field is empty (the cache-
+    reconstruction shape, `""`) and a forged native run sits in the body.
+    Ambiguity (two runs) is checked before -- and regardless of -- whatever
+    the empty-field case alone would have answered, so the forged run is
+    never read as a substitute value for a genuinely missing one."""
+    body = document([idle_account(), posting_account()]).split("\n\n", 1)[1]
+    markdown = (
+        "<!-- source: a.pdf | pages: 1 | model:  | empty: 0 -->\n\n"
+        + body + "\n" + _FAKE_FIELD_RUN + "\n\nACCOUNT SUMMARY CONTINUED\n"
+    )
+    assert extractor_model(markdown) is None
+    with pytest.raises(ParserCrashError):
+        analyze_document(markdown, parse_mode="deterministic")
 
 
 # ---------------------------------------------------------------------------
