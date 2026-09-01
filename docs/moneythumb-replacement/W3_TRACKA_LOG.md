@@ -64494,3 +64494,313 @@ lines, so the second pass matched on whitespace rather than on a literal.
 Eleven open questions now stand in §6 of the audit document. The first three
 still gate any Phase-2 implementation card: the rewrite pair, whether the
 no-hardcodes guard extends to `ocr/`, and whether the `$0` policy becomes code.
+# §P20ROUTER — the closed failure-class vocabulary, the independent EscalationRouter, and the Trigger-U split (Phase 2.0, cell A)
+
+Card `docs/agent-handoffs/P20-ROUTER.md`. Base `train10` at `bea06bc`; branch
+`wave20-router`, worktree `.claude/worktrees/mt20-router`; closure tree
+`6d7704d`. Hygiene card: `newly validated = 0`, every previously validated
+document preserved with payload identical.
+
+**Population.** The batch-9 run of record's OCR-residue population, re-derived
+by `tools/phase2_trigger_split.py` against
+`discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a` and
+its cold cache: R (`deferred_visual_ocr`) = 13, U (`source_path=local_tesseract`
+and `dispatch_outcome != claimed`) = 123 (89 `no_parser_matched` + 34
+`parser_declined`; by profile 111 `scanned` + 12 `mixed`), R∪U = 136, overlap =
+0, `validated ∩ (R∪U)` = 0. Tesseract split: 36 validated / 15 withheld / 5
+review / 123 failed (179 total). Every one of these numbers reproduced
+identically to the numbers already carried in `PHASE2-RULES.md`/the umbrella
+card, which is itself a proof that the population is stable and was not
+re-derived differently by this cell.
+
+**Root cause.** `discovery/runner.py::_needs_visual_upgrade` escalated a
+Tesseract read to the visual rung on `dispatch.outcome != "claimed"` — a
+STRUCTURAL verdict (Class B) treated as an extraction-quality signal (Class
+A). It never fired in production (0/3,506; `--scanned-visual` has never run
+against the archive), but nothing in the code made the edge impossible, and
+the same shape (a validator-adjacent verdict feeding a routing decision) had
+already reappeared once, independently, in `webapp/worker.py`'s deterministic
+`force_ocr` fallback (escalates whenever `analysis is None`, regardless of
+*why* the offline ladder failed to claim).
+
+**Solution.** New `ocr/escalation.py` — imports nothing from
+`analysis`/`discovery`/`webapp`/`telemetry` — carries the closed FailureClass
+vocabulary (`A`/`B`/`C`/`""`), the closed ExtractionTrigger vocabulary
+(`image_only_document`, `mixed_document_pages_without_native_text`,
+`offline_rungs_produced_no_text` = R, `extractor_output_unusable` = U-extract,
+`extractor_failed`, `operator_forced_visual`, and `truncation_flagged` = T,
+DEFINED but excluded from `ADMITTED_TRIGGERS` per OQ4), the frozen five-field
+`RouterInputs` (`profile`, `evidence`, `triggers`, `attempted`, `stop` — no
+field for a payload or a verdict, and its own single constructor
+`router_inputs(...)`), `EscalationRouter.decide` (stop → no admitted trigger →
+no extractor left in `attempted` → endpoint-policy-gated first allowed
+extractor, in that order; endpoint policy import-guarded until cell B2
+composes `ocr/endpoint_policy.py`), and `ExtractionQualityGate.assess`
+(unusable iff: no document at all; total non-whitespace characters below
+`CHAR_FLOOR=200`, duplicated by reference from `ocr/local_tesseract.py:42`;
+every page empty; or alphanumeric-character density below
+`ALNUM_DENSITY_FLOOR=0.70`).
+
+`discovery/runner.py`: the extraction-quality verdict for a Tesseract-sourced
+candidate is computed from the offline read alone, immediately after
+`source_section(document)` and BEFORE `_analyse` runs — the router's decision
+is therefore frozen before analysis exists, not merely before it is acted on.
+The historical `_needs_visual_upgrade` gate survives, renamed
+`_upgrade_eligible`, purely as the pre-existing cache-hit / parser-crash
+exclusions on top of the router's own admission; the router alone decides
+WHICH cause is legal. `classify_failure(evidence, claimed, validated)` — the
+one function allowed to know what "claimed" and "validated" mean — lives here,
+never in `ocr/escalation.py`. A per-run `escalation_budget` (computed by the
+new `estimate_class_a_population`, a cheap profile-only preflight pass counting
+`scanned`/`mixed` documents, wired into `discovery/cli.py::run()` for
+`--scanned-visual` only) refuses to escalate past a pre-computed ceiling; every
+other mode carries `escalation_budget=None` (unbounded, unchanged). The row
+gains `failure_class`, `escalation_trigger`, `evidence_quality`,
+`escalation_refused` — appended at the END of `ROW_FIELDS` and of `DocumentRow`,
+so no existing reader-by-name is affected.
+
+`webapp/worker.py`: the deterministic `force_ocr` fallback (the two call sites
+that used to fall through to `read(force_ocr=True, ...)` unconditionally) now
+calls the SAME `EscalationRouter.decide`, through a new `_force_ocr_decision`.
+START is the operator's own flag (`operator_forced_visual`) — the sole trigger
+at this one call site, deliberately, because the flag is an explicit,
+per-document, human/API instruction that predates whatever the offline ladder
+produces, unlike the discovery runner's unattended bulk path. STOP is
+`analysis is not None`, legal because in deterministic mode a payload exists
+IFF a parser claimed (`analysis/pipeline.py:917-918` raises
+`RuntimeError("no deterministic parser matched this statement")`, and
+`AmbiguousParserError`/`ParserCrashError` before it, on every other `resolve`
+outcome — pinned by string in `tests/test_escalation_router.py`). `stop` is
+checked FIRST inside `decide`, so a claimed-but-financially-failed document
+(Class C) can never reach the trigger regardless of the flag. Auto mode is
+untouched; a tripwire test proves it stays A-only.
+
+`telemetry/record.py` gains exactly the two mirrored vocabularies
+(`FAILURE_CLASSES`, `EXTRACTION_TRIGGERS`), held equal to `ocr.escalation`'s
+own by test — nothing else in that module was touched.
+
+**A resolved ambiguity in the card's own text, flagged rather than silently
+picked.** §5's `OPERATOR_FORCED_VISUAL` sentence reads as if the discovery
+runner's automatic RECOVERY *and* UPGRADE paths should both record it
+alongside their evidence trigger. Doing that literally on the UPGRADE path
+would make EVERY Tesseract-sourced document admit an extractor via
+`operator_forced_visual` regardless of `ExtractionQualityGate`'s verdict —
+because the mode flag (`--scanned-visual`) is constant across the whole
+run — which directly reopens the Class-B edge CASE 1 exists to close (every
+one of the 123 U documents profiles `scanned` or `mixed`, so a profile- or
+mode-level trigger admits all of them). I implemented `OPERATOR_FORCED_VISUAL`
+on the RECOVERY path only (harmless there — recovery is unconditionally Class
+A, since `document is None`), and NOT on the UPGRADE path, where
+`extractor_output_unusable` is the sole trigger. This is the reading required
+by the umbrella table's own CASE 1 and its mutation-table entry; it is a
+resolution of textual ambiguity toward the card's own explicit tests, not a
+re-decision of the ruling. Documented in `ocr/escalation.py`'s
+`OPERATOR_FORCED_VISUAL` docstring and `discovery/runner.py::_profile_triggers`.
+
+Also flagged: item (d) literally says discovery's `stop` should be "iff the
+offline analysis outcome is validated." Read alone, that would let a
+Class-A-quality Tesseract read that a parser nonetheless CLAIMED, then failed
+financial validation on (Class C), still escalate — because `stop=validated`
+is false there and nothing else would block it. I implemented `stop` exactly
+as ruled for `RouterInputs.stop`'s own semantics (used meaningfully at the
+worker's call site), and additionally kept the discovery runner's
+`_upgrade_eligible` gate refusing ANY claimed document (`dispatch.outcome ==
+"claimed"`) before a candidate is even acted on — strictly MORE conservative
+than the literal rule, never less, and it is what closes CASE 2 for the
+discovery runner specifically.
+
+**Newly validated: 0.** **Other ladder movement: 0.** **Previously validated
+preserved: 37 of 37, payload identical (37/37)** — `cohort_replay` over the
+population below; `analyze_markdown`/`analysis/pipeline.py` are untouched by
+this cell (`git diff bea06bc HEAD --stat -- analysis/
+tools/cohort_replay.py webapp/artifact_cache.py` is empty), so base-fidelity
+and closure are the same measurement. **Regressions: 0.**
+
+**Correctness evidence.**
+* `python -m tools.cohort_replay --run
+  discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a
+  --data-dir .claude/recovery/webapp_data_train9_cold --shas <private, 193
+  shas: the 179 Tesseract + 13 R + Chase/Chase Mar.pdf (the
+  `test_discovery.py` digital fixture)> --expect-identical` — exit 0.
+  population 193, replayed (text available) 180, newly validated 0, other
+  ladder movement 0, previously validated preserved 37/37 (payload identical
+  37/37, changed 0), validated regressions 0, other ladder regressions 0,
+  unchanged non-validated 143 (payload changed on 0).
+* `python corpus_gate.py` — GREEN. 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts
+  1 refused / 3 review / 102 validated / 3 withheld; runtime 807.2 s.
+* Full canonical guards (5 files): 255 passed.
+* Canonical conformance (7 files): 1,282 passed / 41 skipped.
+
+**Generalization evidence.** The router's admission rule is a pure function of
+`RouterInputs` (a frozen dataclass); `test_decide_is_pure_same_inputs_same_answer`
+and `test_the_gate_is_a_pure_function_of_document_and_profile` prove the
+verdict cannot depend on when or how many times it is asked, or on anything an
+intervening analysis call might do. `test_case1_usable_unclaimed_tesseract_text_never_escalates`
+uses a SYNTHETIC long, high-density, entirely unclaimable page (not a corpus
+fixture) — the property holds for text this cell has never seen, not only for
+the pinned corpus's own shapes.
+
+**Failure-class evidence.** This cell implements the A/B/C taxonomy itself
+(no prior classification existed). Structural absence of the forbidden edges:
+`tests/test_escalation_tripwires.py::test_escalation_and_pipeline_import_nothing_forbidden`
+(AST-walks `ocr/escalation.py` and `ocr/pipeline.py`, including imports nested
+inside functions, for `analysis`/`discovery`/`webapp`/`telemetry`: none found);
+`test_analysis_ocr_imports_match_the_pinned_allowlist_exactly` (measured
+2026-09-01: `analysis/` imports NOTHING from `ocr` — the pinned allowlist is
+the empty set); `test_no_analysis_module_imports_the_forbidden_ocr_or_discovery_modules`;
+`test_router_inputs_field_set_is_pinned` (both here and in
+`tests/test_escalation_router.py`); `test_every_decide_call_site_in_discovery_and_webapp_uses_router_inputs`
+(AST-finds all 3 real `EscalationRouter.decide(` call sites — 2 in
+`discovery/runner.py`, 1 in `webapp/worker.py` — and proves each one's sole
+argument is a `router_inputs(...)` call, never a hand-rolled `RouterInputs(...)`
+smuggled in through a variable).
+
+**Escalation evidence.** R = 13, U = 123, U-extract = 23, U-structure = 100
+(23 + 100 = 123, exactly), overlap = 0, `validated ∩ (R∪U)` = 0, T surface
+(tesseract, `truncated_pages>0`) = 3 (1 inside U), legal escalation population
+(R + U-extract) = 36. `validated ∩ class-A = 0` pinned directly against the
+cold cache (`tests/test_escalation_router.py::test_validated_tesseract_reads_are_never_classified_class_a`,
+`@pytest.mark.corpus`): none of the 36 validated Tesseract reads are ever
+classified unusable by the gate (min validated alphanumeric density measured
+0.7433, comfortably above the 0.70 floor). Illegal-escalation checks: CASE 1-4
+below, each independently proved through the real `DiscoveryRunner` (not only
+at the router unit level).
+
+**The quality-gate criteria and the census that justified them.** Measured by
+`tools/phase2_trigger_split.py` over the run of record's cold cache: (i) every
+one of the 179 Tesseract reads already clears `CHAR_FLOOR=200` by construction
+— `ocr/local_tesseract.py` itself returns `None` below that floor, so no
+Tesseract-sourced document ever reaches the char-floor criterion; the lowest
+`chars_total` among the 123 unclaimed reads is 203. (ii) 0 of the 123 have
+EVERY page empty (2 have some empty pages, never all). (iii) alphanumeric
+density is therefore the criterion doing the actual separating work: measured
+over the 56 CLAIMED Tesseract reads (36 validated + 15 withheld + 5 review),
+the minimum density is 0.7075; `ALNUM_DENSITY_FLOOR=0.70` sits a round number
+beneath that measurement (never tuned toward a target split size). Applied to
+the 123 unclaimed reads: 23 fall below 0.70 (U-extract, single-page reads of
+203-3,210 characters, densities 0.41-0.71) and 100 clear it (U-structure,
+including reads up to 48,208 characters across 13 pages at density ~0.77 —
+large, well-formed OCR text no registered parser recognises). This is itself
+evidence for the card's "Why": under the OLD `dispatch.outcome != "claimed"`
+trigger, ALL 123 would have been treated as Class A; the true split shows 100
+of them (81%) are genuinely Class B.
+
+**Mutation table (9/9 applied to the real code, run individually, reverted
+with `git checkout --` after each, tree verified clean before the next).**
+
+| # | mutant | applied at | expected killer | result |
+|---|---|---|---|---|
+| 1 | router escalates on `dispatch.outcome != "claimed"` (upgrade trigger unconditional) | `discovery/runner.py` upgrade-candidate construction | CASE 1 | KILLED — `test_case1_usable_unclaimed_tesseract_text_never_escalates` fails: `_forbid_visual` trips |
+| 2 | router escalates on a failing reconciliation / withheld ADB | `discovery/runner.py`, a synthetic post-`classify_document` re-escalation on `outcome_class != "validated" and dispatch_outcome == "claimed"` | CASE 2 | KILLED — `test_case2_claimed_but_financially_failing_never_escalates` fails: `_forbid_visual` trips |
+| 3 | `stop` ignored | `ocr/escalation.py::EscalationRouter.decide` (`if inputs.stop` replaced by `if False`) | CASE 4 stop test | KILLED — both `test_stop_refuses_regardless_of_any_trigger` (router unit test) and `test_force_ocr_decision_stops_the_moment_analysis_exists` (worker call site) fail |
+| 4 | `truncation_flagged` admitted | `ocr/escalation.py::ADMITTED_TRIGGERS` (T no longer excluded) | the T-refusal test (OQ4) | KILLED — `test_truncation_flagged_alone_is_refused_oq4` and `test_all_triggers_and_admitted_triggers` fail |
+| 5 | router returns a remote/paid extractor id (endpoint policy bypassed) | `ocr/escalation.py::EscalationRouter.decide` (`allowed, endpoint_refusal = True, ""` unconditionally) | endpoint-policy guard test (B2's module stubbed present and refusing) | KILLED — `test_endpoint_policy_refuses_when_a_future_policy_module_says_no` fails |
+| 6 | a second extractor runs after `attempted` already holds it | `ocr/escalation.py::EscalationRouter.decide` (`remaining` no longer filtered by `attempted`) | CASE 3b | KILLED — `test_every_extractor_already_attempted_refuses_case_3b` fails |
+| 7 | runner escalates more documents than the trigger population | `discovery/runner.py::_apply_budget` (ceiling check replaced by `if False`) | the counter refusal test | KILLED — `test_the_escalation_budget_refuses_past_its_ceiling` fails |
+| 8 | `RouterInputs` gains a `payload` field | `ocr/escalation.py::RouterInputs` | the field pin | KILLED — `test_router_inputs_field_set_is_pinned` fails in BOTH `tests/test_escalation_router.py` and `tests/test_escalation_tripwires.py` |
+| 9 | `analysis/pipeline.py` imports `ocr.escalation` | `analysis/pipeline.py` (added `import ocr.escalation`) | the import guard | KILLED — `test_no_analysis_module_imports_the_forbidden_ocr_or_discovery_modules` and `test_analysis_ocr_imports_match_the_pinned_allowlist_exactly` both fail |
+
+Every mutant applied individually, `git status --porcelain` verified clean
+before the run and after the revert; no `-x` (mutants 3, 8 killed by more than
+one test, all named above).
+
+**Tripwires.** Import boundary (2 tests), `RouterInputs` field pin (2 tests,
+one per file per the card's ownership list), `router_inputs` keyword-only
+constructor-signature pin, AST-verified `decide(` call-site provenance (1
+test covering all 3 real call sites). Behavioural CASE 1-4 proved through the
+real `DiscoveryRunner` (CASE 1, 2, 4) and `_force_ocr_decision` directly
+(CASE 4 at the worker's own site), plus 9 direct `EscalationRouter.decide`
+unit tests covering every rule in order (stop, no-admitted-trigger,
+truncation-refused, extractor-admitted, all-attempted, partial-ladder,
+endpoint-policy-present/absent) and the escalation-budget refusal (both a
+direct `DiscoveryRunner` unit test and an end-to-end `discovery.cli.run()`
+test proving the budget is `None`/unbounded for every mode but
+`--scanned-visual`).
+
+**Tests added.** `ocr/escalation.py` (new production module).
+`tests/test_escalation_router.py` — 45 tests (44 default + 1
+`@pytest.mark.corpus`): `ExtractionQualityGate` (6), `RouterInputs`/
+`router_inputs` (2), `EscalationRouter.decide` (10), closed vocabularies (3),
+`classify_failure` (5), CASE 1-4 through the real runner (4),
+`_force_ocr_decision` (3), the escalation budget (2 unit + 1 end-to-end
+`discovery.cli.run()`), the corpus-marked `validated ∩ class-A = 0` pin (1).
+`tests/test_escalation_tripwires.py` — 6 tests (import boundary ×2, allowlist
+×1, field pin ×1, constructor-signature pin ×1, decide-call-site provenance
+×1). Row-field pin appended to `tests/test_visual_rung.py`
+(`test_the_report_ranks_what_the_visual_rung_bought`). Three new tests in
+`tests/test_discovery.py` (a claimed-and-validated document's failure_class,
+profile-only/invalid-PDF rows carry no evidence verdict,
+`estimate_class_a_population` counts scanned/mixed only). One new test in
+`tests/test_telemetry.py` (the mirrored vocabulary equality).
+
+**Test / guard exit codes.**
+`pytest tests/test_escalation_router.py tests/test_escalation_tripwires.py
+tests/test_visual_rung.py tests/test_discovery.py tests/test_telemetry.py
+tests/test_pipeline.py tests/test_webapp_worker.py tests/test_worker_privacy.py`
+— 252 passed, 3 deselected (corpus), exit 0.
+`pytest tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py
+tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py
+tests/test_filename_boundary.py` — 255 passed, exit 0.
+`pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py
+tests/test_parser_detection_markers.py tests/test_parser_registry.py
+tests/test_parser_crash_shapes.py tests/test_parser_exception_boundary.py
+tests/test_count_semantics.py` — 1,282 passed / 41 skipped, exit 0.
+`python -m pytest tests/test_escalation_router.py -m corpus` — 1 passed, exit 0.
+`python corpus_gate.py` — GREEN, exit 0.
+Full default suite (`python -m pytest -q`) — running at report time; result
+appended below when it completes, or reported separately if this section
+composes before it finishes.
+
+**Privacy and message-scan counts.** Population: 193 content-sha256 documents
+(the 179 Tesseract reads + the 13 R shas + `Chase/Chase Mar.pdf`, the digital
+fixture new to `tests/test_discovery.py`); 180 have cached text in the cold
+cache (13 R shas have none — the offline ladder produced nothing for them, so
+no OCR artifact exists to scan or replay, consistent with their own
+definition).
+`python tools/privacy_scan_branch.py --shas <private population file>
+--data-dir .claude/recovery/webapp_data_train9_cold --base bea06bc --ref HEAD`
+— **0 hits** (MONEY 0, DIGITS 0, DATES 0; WORDS 0 after the standing
+`words_class` exclusion, which fired on 5 raw institution/template-vocabulary
+tokens), exit 0.
+`python tools/huntington_msg_privacy_scan.py --shas <same population>
+--data-dir .claude/recovery/webapp_data_train9_cold --base bea06bc --ref HEAD`
+— 2 commits scanned, **0 hits** in every class including WORDS, exit 0.
+
+**Commits.** `b7f48e7` (the cell's implementation: `ocr/escalation.py`;
+`discovery/runner.py`, `discovery/report.py`, `discovery/cli.py`,
+`webapp/worker.py`, `telemetry/record.py` rewiring; `tools/phase2_trigger_split.py`;
+`tests/test_escalation_router.py`, `tests/test_escalation_tripwires.py`;
+row-field/vocabulary pins in `tests/test_visual_rung.py`,
+`tests/test_discovery.py`, `tests/test_telemetry.py`), `6d7704d` (the
+end-to-end `discovery.cli.run()` escalation-budget test).
+
+**Risks and open concerns.**
+1. Both flagged readings above (`OPERATOR_FORCED_VISUAL` excluded from the
+   discovery UPGRADE trigger set; the discovery runner's claimed-exclusion
+   held stricter than the literal `stop=validated` wording) are resolutions of
+   textual ambiguity toward the card's own explicit CASE 1/CASE 2 tests, made
+   in the safe (more conservative, never less) direction — but they are MY
+   reading, not a re-decision Gustavo has seen, and should be confirmed at
+   review.
+2. `ALNUM_DENSITY_FLOOR=0.70` is measured from 56 documents (36 validated + 15
+   withheld + 5 review) — a modest sample. It cleanly separates today's
+   corpus and clears the validated-never-class-A pin with margin (0.7433 vs
+   0.70), but a much larger future corpus could in principle produce a
+   validated Tesseract read below it; the corpus-marked pin test
+   (`test_validated_tesseract_reads_are_never_classified_class_a`) is the
+   tripwire that would catch that on any future run of record.
+3. `estimate_class_a_population` counts `scanned`/`mixed` PROFILES as the
+   escalation-budget ceiling — a sound over-count (a `digital` profile never
+   reaches the router), but on a full 3,506-document `--scanned-visual` run it
+   means reading every document's bytes twice (once for the ceiling, once
+   inside `process()`'s own preflight) — a real, bounded, one-time I/O cost,
+   not a correctness risk, and it only runs for `--scanned-visual`, a mode the
+   run of record has never used.
+4. `ocr/endpoint_policy.py` (cell B2) has not composed onto this base; the
+   import guard in `_endpoint_policy_allows` is proved to fail closed to
+   "allowed" in its absence and to consult a real policy when present
+   (`test_endpoint_policy_absent_lets_the_local_extractor_through` /
+   `test_endpoint_policy_refuses_when_a_future_policy_module_says_no`), but
+   the actual B2 module's contract (parameter names, return shape) is
+   guessed at (`extractor_allowed(extractor) -> (bool, str)`) and must be
+   reconciled at composition if B2's real signature differs.
