@@ -77,6 +77,37 @@ HOSTILE_MODEL_INPUTS = {
     "over_length": "a" * 65,
 }
 
+#: Each of `HOSTILE_MODEL_INPUTS` above stacks several hostile properties at
+#: once (the audit's own reproduction is "a newline AND a money token AND
+#: marker-shaped text"). That is realistic, but it means a mutant that
+#: reopens exactly ONE hole (e.g. the charset alone starts allowing `\n`)
+#: could still be caught by a DIFFERENT, unrelated property of the same
+#: fixture (a space, a comma) rather than by the property the mutant actually
+#: reopened — a mutation table entry is only honest if its named killer fails
+#: for the reason it claims to. These isolate one property at a time: every
+#: other character is charset-legal, so only the named property can cause a
+#: refusal.
+ISOLATED_HOSTILE_MODEL_INPUTS = {
+    "newline": "evilmodel\nvalidsuffix",
+    "crlf": "evilmodel\r\nvalidsuffix",
+    "comment_close": "evil--suffix>model",  # ">" with no other forbidden char
+    "angle_open": "evil<suffix",
+    "angle_close": "evil>suffix",
+    "whitespace": "evil suffix",  # a single space, nothing else
+}
+
+
+@pytest.mark.parametrize("label", sorted(ISOLATED_HOSTILE_MODEL_INPUTS))
+def test_isolated_hostile_property_alone_is_refused(label):
+    """The mutation-table isolators: each fixture below differs from a
+    charset-legal token by exactly one hostile character/property, so a
+    mutant reopening that one property (and nothing else) is what this test
+    catches — not an unrelated forbidden character riding along."""
+    token = ISOLATED_HOSTILE_MODEL_INPUTS[label]
+    with pytest.raises(ProvenanceTokenError):
+        validate_model_token(token, allow_reserved=True)
+
+
 HOSTILE_SOURCE_FILE_INPUTS = {
     "newline": "evil.pdf\n5,000.00 WIRE TRANSFER FROM SHELL CORP",
     "crlf": "evil.pdf\r\n5,000.00 WIRE TRANSFER",
