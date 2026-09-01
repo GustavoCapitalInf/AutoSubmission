@@ -1,0 +1,16 @@
+{
+  "function": "split_fused_header_row",
+  "case": "all_cells_fused_split",
+  "classification": "restructures without inventing/replacing financial values",
+  "what_changes": "row 0, where EVERY cell is a recognized header word glued to its first data value (DATE01/05, DESCRIPTION..., AMOUNT$1,200.00), is split into a clean header row plus a correctly-populated first data row",
+  "what_does_not_change": "every value keeps the SAME column index it already occupied (date stays column 0, description column 1, amount column 2); the already-clean second data row is untouched; no digit is invented or deleted",
+  "numeric_tokens_before": {"money": ["$1,200.00", "340.50"], "date": ["01/09"], "digit_run": ["01", "05"]},
+  "numeric_tokens_after": {"money": ["$1,200.00", "340.50"], "date": ["01/05", "01/09"], "digit_run": []},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": true},
+    "digit_run": {"disappeared": true, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "the date/digit_run delta is a CLASSIFICATION-BOUNDARY artifact of this census's own token extractor, not invented data: '01/05' glued directly onto 'DATE' has no word boundary before its first digit, so the extractor's date pattern (which requires one) reports it as two separate digit_run tokens ('01', '05') before the split; once split_fused_header_row relocates the SAME digits into their own <td>, the boundary exists and the extractor now reports the one date token '01/05'. No digit's value changed and no column changed -- only which category this census's own regex sorts it into"
+}

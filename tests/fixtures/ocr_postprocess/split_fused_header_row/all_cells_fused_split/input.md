@@ -1,0 +1,1 @@
+<table><tr><td>DATE01/05</td><td>DESCRIPTIONACME SUPPLY CO PYMT</td><td>AMOUNT$1,200.00</td></tr><tr><td>01/09</td><td>WIDGET HOLDINGS LLC PYMT</td><td>340.50</td></tr></table>
