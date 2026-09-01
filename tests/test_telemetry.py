@@ -88,8 +88,32 @@ def test_source_path_is_derived_from_the_document_model():
     assert source_path_for("native-pdf-text+navy-federal-layout") == "native"
     assert source_path_for("local-tesseract-ocr") == "local_tesseract"
     assert source_path_for("deterministic-native-preflight") == "none"
-    assert source_path_for("qwen2.5-vl-7b") == "visual"
+    assert source_path_for("baidu/Unlimited-OCR") == "visual"
     assert source_path_for(None) == "none"
+
+
+def test_source_path_fallthrough_is_closed_not_a_guess():
+    """P20-SEAM / F-7: an unrecognised model token is `"none"`, not `"visual"`.
+
+    Before the closure, ANY model string outside the three named branches fell
+    through to `"visual"` — correct by accident (the only rung that ever
+    produced an unrecognised token was the visual one), and silently wrong the
+    day a future extractor's token (e.g. a `paddle+...` prefix) reached this
+    function without its own branch. `qwen2.5-vl-7b` stands in for exactly
+    that: a plausible-looking model string that is not the registered visual
+    token and must not be assumed to be the visual rung.
+    """
+    from telemetry.record import VISUAL_MODEL_TOKENS, source_path_unrecognized_model
+
+    assert "qwen2.5-vl-7b" not in VISUAL_MODEL_TOKENS
+    assert source_path_for("qwen2.5-vl-7b") == "none"
+    assert source_path_unrecognized_model("qwen2.5-vl-7b") is True
+    assert source_path_unrecognized_model("baidu/Unlimited-OCR") is False
+    for recognized in (
+        "native-pdf-text", "native-pdf-text+navy-federal-layout",
+        "local-tesseract-ocr", "deterministic-native-preflight", None, "",
+    ):
+        assert source_path_unrecognized_model(recognized) is False, recognized
 
 
 def test_truncation_distinguishes_not_assessed_from_clean():

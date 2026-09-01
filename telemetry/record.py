@@ -65,6 +65,18 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred")
 DEFERRED_REASONS = ("deferred_scanned", "deferred_visual_ocr", "profile_only")
 SOURCE_PATHS = ("native", "local_tesseract", "visual", "none")
 
+#: F-7 closure: the closed set of model tokens `source_path_for` will call
+#: "visual". Before this, ANY model string that matched none of the other
+#: branches fell through to `"visual"` — correct only because the only rung
+#: that has ever produced an unrecognised token IS the visual one; a future
+#: extractor's model string (e.g. a `paddle+...` prefix) would have been
+#: silently mis-attributed to the GPU/paid path by the same fallthrough. The
+#: fallthrough now returns `"none"` for anything not explicitly named here,
+#: which is loud (see `source_path_unrecognized_model`) rather than a guess.
+#: PaddleOCR gets its own member in Phase 2.1, not this one (no PaddleOCR
+#: token here in Phase 2.0).
+VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})
+
 #: The outcome ladder, ranked worst to best. `discovery/compare.py::LADDER` is
 #: the same tuple and is the one the whole non-regression regime is measured
 #: on; it is not imported because `discovery` imports THIS module and a cycle
@@ -121,6 +133,13 @@ def source_path_for(model: str | None) -> str:
 
     `model` is the one signal both the webapp and the CLI share — the ladder's
     `on_stage` rung is the same fact but is only wired up in the worker.
+
+    F-7 closure: the fallthrough is CLOSED, not a guess. `"visual"` is
+    returned only for a token in `VISUAL_MODEL_TOKENS`; any other
+    non-empty, unrecognised token returns `"none"` rather than being assumed
+    to be the visual rung — see `source_path_unrecognized_model` for the
+    companion predicate a caller can use to surface that as an explicit
+    diagnostic instead of a silent mis-attribution.
     """
     if not model:
         return "none"
@@ -130,7 +149,29 @@ def source_path_for(model: str | None) -> str:
         return "local_tesseract"
     if model == "deterministic-native-preflight":
         return "none"
-    return "visual"
+    if model in VISUAL_MODEL_TOKENS:
+        return "visual"
+    return "none"
+
+
+def source_path_unrecognized_model(model: str | None) -> bool:
+    """True when `model` is non-empty but matches none of `source_path_for`'s
+    known branches (F-7): a document whose provenance token cannot be
+    attributed to any known rung. A caller building a record's diagnostics
+    can surface `source_path_unrecognized_model: true` from this rather than
+    let the token silently fall through to `"none"` unremarked.
+    """
+    if not model:
+        return False
+    if model.startswith("native-pdf-text"):
+        return False
+    if model == "local-tesseract-ocr":
+        return False
+    if model == "deterministic-native-preflight":
+        return False
+    if model in VISUAL_MODEL_TOKENS:
+        return False
+    return True
 
 
 def document_section(
