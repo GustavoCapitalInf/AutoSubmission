@@ -207,6 +207,50 @@ def test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression()
     assert not offenders, "\n".join(offenders)
 
 
+def test_discovery_runner_enabled_extractors_is_assigned_only_in_init():
+    """P21-ROUTING closure (MINOR-6). `_is_self_attribute` above accepts ANY
+    `self.<attr>` reference regardless of where that attribute was LAST
+    assigned — a per-document reassignment of `self.enabled_extractors`
+    inside `DiscoveryRunner.process()` would still satisfy the `enabled=`
+    tripwire's shape check (reproduced: mutant RX4, `self.enabled_extractors
+    = frozenset({"paddle"})` inserted at the top of `process()`, SURVIVES the
+    test above). This pin closes that independently, by AST, over the
+    DiscoveryRunner class as a whole: `self.enabled_extractors` may be
+    ASSIGNED (`=`, augmented, or annotated) ONLY inside `__init__` — nowhere
+    else in the class body. `enabled` can only ever narrow what `decide`
+    picks (admission already happened before it is consulted), so this is a
+    belt on an already-safe design, not a closure of an exploitable gap —
+    recorded precisely so a later card does not mistake the tripwire for
+    more than that."""
+    import discovery.runner as runner_module
+
+    tree = ast.parse(inspect.getsource(runner_module))
+    class_node = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.ClassDef) and n.name == "DiscoveryRunner"
+    )
+    offenders: list[str] = []
+    for method in class_node.body:
+        if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(method):
+            targets: list[ast.AST] = []
+            if isinstance(node, ast.Assign):
+                targets = list(node.targets)
+            elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                targets = [node.target]
+            for target in targets:
+                if (
+                    isinstance(target, ast.Attribute) and target.attr == "enabled_extractors"
+                    and isinstance(target.value, ast.Name) and target.value.id == "self"
+                    and method.name != "__init__"
+                ):
+                    offenders.append(f"{method.name}:{node.lineno}")
+    assert offenders == [], (
+        f"self.enabled_extractors assigned outside __init__: {offenders}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Every `decide(` call site's argument was built by `router_inputs(...)`.
 # ---------------------------------------------------------------------------
@@ -313,33 +357,94 @@ def _tracked_python_files() -> list[Path]:
     return paths
 
 
+#: P21-ROUTING closure (MAJOR-2). A repo-wide AST scan over `path.read_text()`
+#: alone is blind to executable code living inside a STRING CONSTANT that is
+#: itself later `exec`'d or run in a subprocess — `tools/train/provenance.py`'s
+#: `_TREE_PROBE` is exactly this shape: a triple-quoted string holding a whole
+#: program, passed to `python -c` in a subprocess with the checkout on
+#: `sys.path`. A `decide(` or `allow_paddle_ocr=True` written inside such a
+#: string is invisible to `ast.parse(path.read_text())`'s own tree, even
+#: though the code genuinely runs. This is the counter-example MAJOR-2 found:
+#: `test_case12_allow_paddle_ocr_true_appears_only_at_the_one_reviewed_call_site`
+#: (`tests/test_paddle_routing.py`) asserted a false property because its scan
+#: never looked inside `_TREE_PROBE`.
+#:
+#: The fix generalises rather than special-cases the one known string: ANY
+#: string constant anywhere in a tracked file that (a) is long enough and
+#: multi-line to plausibly be a program, not a one-line docstring fragment,
+#: and (b) `ast.parse`s CLEANLY on its own, is treated as an embedded
+#: program and scanned exactly like the file's own top-level tree. Ordinary
+#: prose essentially never satisfies (b): English sentences are not valid
+#: Python syntax. Measured over the whole tracked tree (2026-09-02): the
+#: ONLY string in the entire repository that satisfies both conditions is
+#: `tools/train/provenance.py::_TREE_PROBE` itself.
+def _embedded_program_asts(source: str) -> list[ast.AST]:
+    embedded: list[ast.AST] = []
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            text = node.value
+            if len(text) < 40 or "\n" not in text:
+                continue  # too short/one-line to plausibly be a program
+            try:
+                embedded.append(ast.parse(text))
+            except SyntaxError:
+                continue
+    return embedded
+
+
+def _all_asts_for_file(path: Path) -> list[ast.AST]:
+    """The file's own AST, plus one AST per embedded program string found
+    inside it (see `_embedded_program_asts`) — what every repo-wide scan in
+    this module now walks, instead of the file's own top-level tree alone."""
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+    return [tree, *_embedded_program_asts(source)]
+
+
+def test_the_tree_probe_is_detected_as_an_embedded_program_string():
+    """Measurement, corrected from an earlier over-strict version of this
+    test: several pre-existing `tools/*mutation*.py` / `tools/*census*.py`
+    instruments ALSO embed source-code snippets as string literals for their
+    OWN mutation-testing purposes (unrelated to this closure, and none of
+    them set `allow_paddle_ocr=True` or call `decide(` — confirmed by the
+    scans below finding no NEW offenders there) — so `_embedded_program_asts`
+    finding many files is expected, not a regression. What matters here is
+    only that `tools/train/provenance.py`'s `_TREE_PROBE` — the ONE embedded
+    program this closure's finding is about — is genuinely detected."""
+    path = ROOT / "tools" / "train" / "provenance.py"
+    count = len(_embedded_program_asts(path.read_text(encoding="utf-8")))
+    assert count >= 1, "the _TREE_PROBE string was not detected as an embedded program"
+
+
 def _decide_call_sites_repo_wide() -> list[tuple[Path, ast.Call]]:
     sites: list[tuple[Path, ast.Call]] = []
     for path in _tracked_python_files():
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        visitor = _DecideCallVisitor()
-        visitor.visit(tree)
-        for call in visitor.calls:
-            sites.append((path, call))
+        for tree in _all_asts_for_file(path):
+            visitor = _DecideCallVisitor()
+            visitor.visit(tree)
+            for call in visitor.calls:
+                sites.append((path, call))
     return sites
 
 
 def _router_inputs_construction_sites_repo_wide() -> list[tuple[Path, int]]:
     """Every `RouterInputs(` CONSTRUCTOR CALL (not the class reference in a
-    type hint) anywhere in the excluded-scope scan — the shape a hand-rolled
-    call site uses instead of `router_inputs(...)`."""
+    type hint) anywhere in the excluded-scope scan (file trees AND embedded
+    program strings) — the shape a hand-rolled call site uses instead of
+    `router_inputs(...)`."""
     sites: list[tuple[Path, int]] = []
     for path in _tracked_python_files():
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            name = func.id if isinstance(func, ast.Name) else (
-                func.attr if isinstance(func, ast.Attribute) else None
-            )
-            if name == "RouterInputs":
-                sites.append((path, node.lineno))
+        for tree in _all_asts_for_file(path):
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.id if isinstance(func, ast.Name) else (
+                    func.attr if isinstance(func, ast.Attribute) else None
+                )
+                if name == "RouterInputs":
+                    sites.append((path, node.lineno))
     return sites
 
 

@@ -28,7 +28,7 @@ from evidence.canonical import ExtractionEvidence, LineBox, PageEvidence, PageFr
 from ocr.document import StatementMarkdown
 from ocr.paddle_rung import PaddleRead
 from tests.paddle_fake_worker import FakeWorker
-from tests.test_escalation_tripwires import _tracked_python_files
+from tests.test_escalation_tripwires import _all_asts_for_file, _tracked_python_files
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "Bank Statements"
@@ -311,8 +311,20 @@ def test_case9_upgrade_adopts_a_paddle_read_no_fusion(scan_tree, monkeypatch):
 def test_case9_a_claimed_offline_read_is_never_escalated_to_paddle(scan_tree, monkeypatch):
     """The other half of "no fusion, no choice by which one reconciles": an
     offline read that ALREADY claimed is never handed to Paddle at all,
-    whatever the Paddle read would have said — `_upgrade_eligible` (unchanged
-    by this cell) refuses on `payload is not None` alone."""
+    whatever the Paddle read would have said.
+
+    P21-ROUTING closure (MAJOR-4): with a genuinely CLAIMED, usable Tesseract
+    read (the shape this test drives), the escalation is refused by the
+    ROUTER, not by `_upgrade_eligible` — `evidence.usable` is True here, so
+    `upgrade_triggers` is empty and `EscalationRouter.decide` refuses with
+    `no_admitted_trigger` before `_upgrade_eligible` is ever consulted
+    (confirmed directly: `test_upgrade_eligible_return_true_survives_a_
+    claimed_usable_read` below reproduces that `_upgrade_eligible() ->
+    return True` does not change this test's outcome at all). The shape
+    `_upgrade_eligible` actually exists to refuse — unusable evidence AND an
+    already-claimed payload, where the router DOES admit a trigger — is
+    `test_upgrade_eligible_refuses_an_unusable_but_already_claimed_read`,
+    immediately below."""
     from corpus_artifacts import cached_markdown
 
     claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
@@ -324,6 +336,57 @@ def test_case9_a_claimed_offline_read_is_never_escalated_to_paddle(scan_tree, mo
     row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
     assert row.dispatch_outcome == "claimed"
     assert row.paddle_rung == "not_attempted"
+    assert row.escalation_refused == "no_admitted_trigger"  # the ROUTER refused it
+
+
+def test_upgrade_eligible_return_true_survives_a_claimed_usable_read(scan_tree, monkeypatch):
+    """Reproduction, kept as a standing negative control: mutating
+    `_upgrade_eligible` to `return True` unconditionally does NOT change the
+    outcome of the test above — the router already refused before eligibility
+    was ever asked. This is the exact shape MAJOR-4 found: the mechanism the
+    card credited for CASE 9 is not the one enforcing it here."""
+    import discovery.runner as runner_module
+    from corpus_artifacts import cached_markdown
+
+    monkeypatch.setattr(runner_module.DiscoveryRunner, "_upgrade_eligible", lambda self, c, p: True)
+    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
+    _tesseract(monkeypatch, claimable)
+    monkeypatch.setattr(
+        "ocr.paddle_rung.read_document",
+        lambda *a, **k: pytest.fail("Paddle must never run: the router refused it first"),
+    )
+    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+    assert row.paddle_rung == "not_attempted"
+
+
+def test_upgrade_eligible_refuses_an_unusable_but_already_claimed_read(scan_tree, monkeypatch):
+    """P21-ROUTING closure (MAJOR-4): the ONE shape `_upgrade_eligible`
+    exists to refuse — evidence BELOW the char floor (so the router DOES
+    admit `extractor_output_unusable`, unlike the test above) whose analysis
+    nonetheless yields a payload (a D-3 analysis-cache-shaped hit: no live
+    `Dispatch` was observed this run, i.e. `collector.seen` is False, but a
+    payload already exists) — must never reach Paddle. `return True` here
+    (RX5) SURVIVES every other test in this module; this is the one that
+    dies for it."""
+    import discovery.runner as runner_module
+
+    _tesseract(monkeypatch, BELOW_FLOOR)  # unusable -> extractor_output_unusable IS admitted
+
+    def _fake_analyse(self, markdown, collector, sheets=None):
+        # No live Dispatch observed (collector.seen stays False) but a
+        # payload exists anyway — the D-3-cache-hit shape `_upgrade_eligible`
+        # docstring's first bullet names.
+        return {"fake": "cached-shaped payload"}, None, True
+
+    monkeypatch.setattr(runner_module.DiscoveryRunner, "_analyse", _fake_analyse)
+    with FakeWorker(identity_overrides={"provider": "local", "execution_class": "local_free"}) as fake:
+        _local_free_env(monkeypatch, fake.url)
+        row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+
+    assert row.escalation_trigger == "extractor_output_unusable"  # the router DID admit it
+    assert row.paddle_rung == "not_attempted"  # but eligibility refused the attempt
+    assert row.escalation_extractor == ""  # never even named for THIS attempt
+    assert fake.requests == []
 
 
 # ---------------------------------------------------------------------------
@@ -404,33 +467,143 @@ def test_case12_webapp_worker_has_no_allow_paddle_ocr_call_site():
     assert offenders == [], f"webapp/worker.py must never pass allow_paddle_ocr: lines {offenders}"
 
 
+#: P21-ROUTING closure (MAJOR-2). The exact, reviewed set of files that may
+#: ever pass `allow_paddle_ocr=True`, each with the reason it is safe — not
+#: merely a set of names, so a third site cannot be added by widening the
+#: assertion without a reviewed reason alongside it:
+#:
+#: * `discovery/runner.py` (`_read_paddle`) — the ONE site that reads a
+#:   document and may reach the Paddle rung's `/ocr` endpoint.
+#: * `tools/train/provenance.py` (inside `_TREE_PROBE`, a subprocess-run
+#:   string program) — KEY COMPUTATION ONLY: `ac.ocr_settings_key(force_ocr=
+#:   True, ..., allow_paddle_ocr=True)` derives a settings-key fingerprint
+#:   for the `paddle_ocr_key` provenance partition. It reads no document,
+#:   opens no socket, and cannot reach the Paddle rung at all — confirmed by
+#:   reading the call site itself (`ocr_settings_key`, not `parse_statement`
+#:   or `read_document`).
+EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES = {
+    "discovery/runner.py": "reads a document (_read_paddle)",
+    "tools/train/provenance.py": "key computation only, no document, no socket (_TREE_PROBE)",
+}
+
+
 def test_case12_allow_paddle_ocr_true_appears_only_at_the_one_reviewed_call_site():
-    """Repo-wide (production code, `tests/` excluded by `_tracked_python_files`):
-    the ONLY file that ever passes `allow_paddle_ocr=True` is
-    `discovery/runner.py` (`_read_paddle`) — never the webapp (Ruling A)."""
+    """Repo-wide (production code, `tests/` excluded by `_tracked_python_files`;
+    embedded program strings — e.g. `tools/train/provenance.py`'s
+    `_TREE_PROBE`, MAJOR-2's own finding — included via `_all_asts_for_file`):
+    `allow_paddle_ocr=True` appears ONLY at the two reviewed sites named in
+    `EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES`, each for the reason given there —
+    never the webapp (Ruling A), and never anywhere that reads a document
+    except `_read_paddle` itself."""
     offending_files: set[str] = set()
     for path in _tracked_python_files():
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.keyword) and node.arg == "allow_paddle_ocr"
-                and isinstance(node.value, ast.Constant) and node.value.value is True
-            ):
-                offending_files.add(str(path.relative_to(ROOT)).replace("\\", "/"))
-    assert offending_files == {"discovery/runner.py"}, offending_files
+        for tree in _all_asts_for_file(path):
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.keyword) and node.arg == "allow_paddle_ocr"
+                    and isinstance(node.value, ast.Constant) and node.value.value is True
+                ):
+                    offending_files.add(str(path.relative_to(ROOT)).replace("\\", "/"))
+    assert offending_files == set(EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES), offending_files
 
 
 def test_case12_scanned_paddle_and_scanned_visual_never_both_enabled():
     """Two-engine escalation is not possible in this phase: a runner's
-    `enabled_extractors` holds at most one member (D4, design item 8)."""
-    for mode_kwargs in (
-        dict(mode="scanned-visual"), dict(mode="scanned-paddle"), dict(mode="scanned"),
-        dict(mode="digital"),
-    ):
+    `enabled_extractors` holds at most one member (D4, design item 8).
+
+    MINOR-7: all SIX modes, not four — `profile-only` and `dry-run` are
+    structurally just as `<=1` as the other four (the `__init__` expression
+    is a single conditional with no mode left unhandled), but a pin that
+    exercises only four of six is completeness debt worth closing rather
+    than leaving implicit."""
+    for mode in ("scanned-visual", "scanned-paddle", "scanned", "digital", "profile-only", "dry-run"):
         runner = DiscoveryRunner(
-            Path("."), run_id="t", sink=None, cache=None, dedup=DedupIndex(), **mode_kwargs,
+            Path("."), run_id="t", sink=None, cache=None, dedup=DedupIndex(), mode=mode,
         )
-        assert len(runner.enabled_extractors) <= 1
+        assert len(runner.enabled_extractors) <= 1, mode
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING closure MINOR-4: the `--scanned-paddle` CLI preflight, tested.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_refuses_to_start_when_the_paddle_worker_is_unusable(monkeypatch, tmp_path):
+    import shutil
+
+    import discovery.cli as cli
+    from ocr.paddle_client import PaddleWorkerStatus
+
+    monkeypatch.setattr(shutil, "which", lambda name: "tesseract")
+    monkeypatch.setattr(
+        cli, "probe_paddle_ocr",
+        lambda **k: PaddleWorkerStatus(available=False, reason="paddle_remote_opt_in_required"),
+    )
+    monkeypatch.setattr(
+        cli, "run",
+        lambda *a, **k: pytest.fail("no document may be enumerated when the Paddle worker is unusable"),
+    )
+
+    assert cli.main(["--scanned-paddle", "--root", str(tmp_path)]) == 2
+
+
+def test_cli_paddle_preflight_prints_only_the_closed_token_never_a_host(monkeypatch, tmp_path, capsys):
+    import shutil
+
+    import discovery.cli as cli
+    from ocr.paddle_client import PaddleWorkerStatus
+
+    monkeypatch.setattr(shutil, "which", lambda name: "tesseract")
+    monkeypatch.setattr(
+        cli, "probe_paddle_ocr",
+        lambda **k: PaddleWorkerStatus(available=False, reason="paddle_config_missing"),
+    )
+    monkeypatch.setattr(cli, "run", lambda *a, **k: pytest.fail("must not enumerate"))
+
+    cli.main(["--scanned-paddle", "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert "paddle_config_missing" in captured.err
+    assert "discovery: --scanned-paddle cannot start." in captured.err
+    # a closed token only — no host/port/user shape anywhere in the message
+    for hostile in ("127.0.0.1", "http://", "ssh", ".invalid", "@"):
+        assert hostile not in captured.err.lower()
+
+
+def test_cli_starts_when_the_paddle_worker_is_usable(monkeypatch, tmp_path):
+    import shutil
+
+    import discovery.cli as cli
+    from ocr.paddle_client import PaddleWorkerStatus
+
+    monkeypatch.setattr(shutil, "which", lambda name: "tesseract")
+    monkeypatch.setattr(
+        cli, "probe_paddle_ocr",
+        lambda **k: PaddleWorkerStatus(available=True, reason="ok", identity={"contract": 1}),
+    )
+
+    seen = {}
+
+    def fake_run(root, mode, out_dir, **kwargs):
+        seen["mode"] = mode
+        return {
+            "run_id": "t", "mode": mode, "documents": 0, "processed": 0, "deferred": 0,
+            "deferred_reasons": {}, "dispatched": 0, "dispatch": {}, "outcome": {},
+            "reasons": {}, "classification": {}, "dedup": {}, "source_path": {},
+            "folder_agreement": {}, "label_unmatched_pairs": [], "parsers": {},
+            "folders": {}, "unknown_layout_clusters": {}, "declined_clusters": {},
+            "crash_clusters": {}, "ambiguity_clusters": {}, "near_miss_parsers": {},
+            "truncated_documents": 0, "visual_rung": {}, "paddle_rung": {},
+            "escalation_trigger": {}, "escalation_extractor": {},
+            "escalation_budget": None, "escalations_used": 0, "cache": {},
+            "output_dir": str(out_dir), "template_claim_pairs": [], "parser_id_source": {},
+            "dispatch_cached": 0, "dispatch_unavailable": 0, "dispatch_inconclusive": 0,
+            "deterministic_coverage": 0.0,
+        }
+
+    monkeypatch.setattr(cli, "run", fake_run)
+    result = cli.main(["--scanned-paddle", "--root", str(tmp_path), "--quiet"])
+    assert result == 0
+    assert seen["mode"] == "scanned-paddle"
 
 
 # ---------------------------------------------------------------------------
@@ -458,6 +631,87 @@ def test_case18_transport_failures_fail_closed_with_no_second_attempt(scan_tree,
     assert row.outcome_reason == "ocr_failed"
     assert row.error_type == "PaddleTransportError"
     assert row.source_path == "none"
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING closure MINOR-2: the refusal REASON survives on the row, not
+# only the exception class name — the silent-PP-OCRv6 hazard D5 exists to
+# catch (`paddle_runtime_mismatch`) is visible per row.
+# ---------------------------------------------------------------------------
+
+
+def test_a_runtime_mismatch_refusal_surfaces_its_reason_on_the_row(scan_tree, monkeypatch):
+    _tesseract(monkeypatch, None)  # RECOVERY
+    # A worker that answers /health and /version but disagrees with the D5
+    # pins on one field (a stand-in for a silently-upgraded PaddleOCR/model):
+    # `verify_identity` refuses with reason "paddle_runtime_mismatch" before
+    # any /ocr request is sent.
+    with FakeWorker(
+        identity_overrides={
+            "provider": "local", "execution_class": "local_free",
+            "paddleocr_version": "9.9.9",
+        },
+    ) as fake:
+        _local_free_env(monkeypatch, fake.url)
+        row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+
+    assert row.paddle_rung == "failed"
+    assert row.outcome_reason == "ocr_failed"
+    assert row.error_type == "PaddleRefused"
+    assert row.paddle_refusal_reason == "paddle_runtime_mismatch"
+    assert fake.requests == []  # refused before any /ocr request
+
+
+def test_a_successful_paddle_read_leaves_paddle_refusal_reason_empty(scan_tree, monkeypatch):
+    _tesseract(monkeypatch, None)
+    with FakeWorker(identity_overrides={"provider": "local", "execution_class": "local_free"}) as fake:
+        _local_free_env(monkeypatch, fake.url)
+        row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+    assert row.paddle_rung == "recovered"
+    assert row.paddle_refusal_reason == ""
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING closure MAJOR-1: a drifted cached OCR entry surfaces on the row
+# as `cache_finding`, through the REAL DiscoveryRunner + a real ArtifactCache.
+# ---------------------------------------------------------------------------
+
+
+def test_a_drifted_cache_entry_surfaces_as_cache_finding_on_the_row(scan_tree, monkeypatch, tmp_path):
+    from webapp.artifact_cache import (
+        CACHE_FINDING_EVIDENCE_DRIFT, cache_key, ocr_settings_key, open_cache,
+    )
+
+    cache = open_cache(tmp_path / "data")
+    _tesseract(monkeypatch, None)  # RECOVERY
+
+    with FakeWorker(identity_overrides={"provider": "local", "execution_class": "local_free"}) as fake:
+        _local_free_env(monkeypatch, fake.url)
+        first = _runner(scan_tree, cache=cache, visual_escalation=True).process(
+            "BankZ/scan.pdf", "BankZ")
+        assert first.paddle_rung == "recovered"
+        assert first.cache_finding == ""
+
+        # Corrupt the just-written Paddle OCR artifact directly: rewrite its
+        # `pages` so it disagrees with its own stored `evidence` — the drift
+        # shape MAJOR-1 exists for.
+        input_sha = first.content_sha256
+        settings_key = ocr_settings_key(
+            force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True,
+        )
+        key = cache_key("ocr", input_sha, settings_key)
+        path = cache._artifact_path("ocr", key)
+        import json as _json
+
+        payload = _json.loads(path.read_text(encoding="utf-8"))
+        payload["artifact"]["document"]["pages"] = ["a completely different page"]
+        path.write_text(_json.dumps(payload), encoding="utf-8")
+
+        second = _runner(scan_tree, cache=cache, visual_escalation=True).process(
+            "BankZ/scan.pdf", "BankZ")
+
+    assert second.paddle_rung == "recovered"  # recomputed successfully, not served drifted
+    assert second.cache_finding == CACHE_FINDING_EVIDENCE_DRIFT
 
 
 # ---------------------------------------------------------------------------

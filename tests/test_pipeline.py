@@ -23,6 +23,9 @@ def test_parse_statement_uses_injected_ocr(monkeypatch):
     assert doc.pages == ["# md for p0", "# md for p1", "# md for p2"]
     assert len(calls) == 3
     assert "--- Page 3 ---" in doc.to_markdown()
+    # MAJOR-3: one token per page, not one token total — a 3-page visual
+    # read gets 3 (identical) entries, matching `doc.pages`' own length.
+    assert doc.page_extractor == ["baidu/Unlimited-OCR"] * 3
 
 
 def test_parse_statement_ocrs_pages_concurrently(monkeypatch):
@@ -230,6 +233,8 @@ def test_ladder_native_rung_wins_and_replays_pages(monkeypatch):
     assert doc.model == "native-pdf-text"
     assert replayed == [(0, "native page one"), (1, "native page two")]
     assert stages == ["native"]
+    # MAJOR-3: the native rung's per-page provenance, design item 3's first arm.
+    assert doc.page_extractor == ["native-pdf-text", "native-pdf-text"]
 
 
 def test_ladder_tesseract_rung_is_capability_gated(monkeypatch):
@@ -250,6 +255,8 @@ def test_ladder_tesseract_rung_is_capability_gated(monkeypatch):
     doc = parse_statement(b"%PDF-fake", allow_local_ocr=True, allow_visual_ocr=False)
     assert doc.model == "local-tesseract-ocr"
     assert tesseract_calls == ["" ]
+    # MAJOR-3: the Tesseract rung's per-page provenance, design item 3's second arm.
+    assert doc.page_extractor == ["local-tesseract-ocr"]
 
 
 def test_ladder_stops_before_visual_when_not_allowed(monkeypatch):
@@ -272,6 +279,10 @@ def test_ladder_force_ocr_skips_offline_rungs(monkeypatch):
                           max_workers=1, on_stage=stages.append)
     assert doc.pages == ["# visual"]
     assert stages == ["visual_ocr"]
+    # MAJOR-3: the visual rung's per-page provenance, design item 3's third
+    # arm — `settings.model`, the same token this call already stamps as
+    # `doc.model` (the fixture's default OCR_MODEL, unless overridden).
+    assert doc.page_extractor == [doc.model] * len(doc.pages)
 
 
 def test_ladder_profile_skips_native_for_textless_pdf(monkeypatch):

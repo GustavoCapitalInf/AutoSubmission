@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame, WordBox
 from ocr.document import StatementMarkdown
 from ocr.truncation import PageIntegrity
 from webapp.artifact_cache import (
@@ -34,6 +35,7 @@ from webapp.artifact_cache import (
     EXTRACTION_SCHEMA_VERSION,
     OCR_STAGE_VERSION,
     ArtifactCache,
+    CACHE_FINDING_EVIDENCE_DRIFT,
     CACHE_FORMAT_VERSION,
     STAGE_ANALYSIS,
     STAGE_OCR,
@@ -123,6 +125,27 @@ def _reopen(data_dir) -> ArtifactCache:
 
 def _doc(pages=("page one",), model="fake-ocr", source_file="s.pdf") -> StatementMarkdown:
     return StatementMarkdown(source_file=source_file, model=model, pages=list(pages))
+
+
+def _doc_with_evidence(
+    text: str = "hello world", model: str = "paddle-ocr+ppocrv5", source_file: str = "s.pdf",
+) -> StatementMarkdown:
+    """P21-ROUTING closure (MAJOR-1): a `StatementMarkdown` carrying real
+    `page_extractor` / `evidence`, for the D6 round-trip tests. One word
+    spanning the whole page text, so `evidence.page_texts() == [text]`
+    exactly — the same trick `tests/test_pipeline.py::_fake_paddle_read` and
+    `tests/test_paddle_routing.py::_claimable_paddle_read` use."""
+    frame = PageFrame.pdf_points(page_index=0, width_pt=600.0, height_pt=800.0)
+    word = WordBox(word_id="p0.l0.w0", page_index=0, text=text, x0=10.0, y0=10.0, x1=200.0, y1=25.0)
+    page = PageEvidence(frame=frame, words=(word,))
+    evidence = ExtractionEvidence(
+        document_sha256="A" * 64, extractor_id="paddle-ocr", model_token=model,
+        pages=(page,), runtime={"provider": "local", "execution_class": "local_free"},
+    )
+    return StatementMarkdown(
+        source_file=source_file, model=model, pages=list(evidence.page_texts()),
+        page_extractor=[model], evidence=evidence,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -780,6 +803,101 @@ def test_cached_ocr_caches_a_negative_result(cache):
     settings_key = ocr_settings_key(allow_visual_ocr=False)
     hit, document = cache.get_ocr(content_sha256(PDF), settings_key)
     assert (hit, document) == (True, None)
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING closure (MAJOR-1): the D6 artifact-record contract, pinned.
+# The three tests the card names — round-trip with sha reproduction; a
+# drifted cached copy is a MISS with a finding, never served, never raised;
+# a schema-1 record (no page_extractor/evidence keys at all) still loads.
+# ---------------------------------------------------------------------------
+
+
+def test_cached_ocr_round_trips_evidence_and_reproduces_its_sha(cache):
+    doc = _doc_with_evidence()
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return doc
+
+    first = cached_ocr(PDF, compute=compute, cache=cache, source_file="s.pdf")
+    assert first.cached is False
+    assert first.finding is None
+
+    second = cached_ocr(PDF, compute=compute, cache=cache, source_file="s.pdf")
+    assert second.cached is True
+    assert second.finding is None
+    assert len(calls) == 1  # never recomputed
+    assert second.value.page_extractor == doc.page_extractor
+    assert second.value.evidence is not None
+    # the sha reproduces byte-for-byte across the JSON round-trip
+    assert second.value.evidence.evidence_sha256 == doc.evidence.evidence_sha256
+    assert second.value.evidence.page_texts() == doc.evidence.page_texts()
+
+
+def test_cached_ocr_treats_a_drifted_evidence_blob_as_a_miss_with_a_finding(cache):
+    """MAJOR-1 / RX1 / RX2. A stored artifact whose `pages` no longer agrees
+    with its own stored `evidence` (corrupted independently of this cell's
+    own write path, e.g. by an out-of-band edit or a future schema mistake)
+    must never be served: `cached_ocr` recomputes, and the recompute is
+    marked with `finding=CACHE_FINDING_EVIDENCE_DRIFT` so the fact that a
+    drift happened is not indistinguishable from an ordinary miss once the
+    recompute overwrites the drifted entry."""
+    doc = _doc_with_evidence(text="hello world")
+    input_sha = content_sha256(PDF)
+    settings_key = ocr_settings_key()
+    cache.put_ocr(input_sha, settings_key, doc)
+
+    # Corrupt the stored artifact directly: rewrite `pages` so it disagrees
+    # with the stored `evidence` — the exact drift shape MAJOR-1 exists for.
+    key = cache_key(STAGE_OCR, input_sha, settings_key)
+    path = cache._artifact_path(STAGE_OCR, key)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["artifact"]["document"]["pages"] = ["a completely different page"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return _doc(pages=["freshly recomputed"])
+
+    result = cached_ocr(PDF, compute=compute, cache=cache, source_file="s.pdf")
+    assert result.cached is False  # never served
+    assert len(calls) == 1  # recomputed exactly once
+    assert result.value.pages == ["freshly recomputed"]
+    assert result.finding == CACHE_FINDING_EVIDENCE_DRIFT
+
+    # And the drifted entry is gone: the cache now holds the fresh compute.
+    hit, document = cache.get_ocr(input_sha, settings_key)
+    assert hit is True
+    assert document["pages"] == ["freshly recomputed"]
+
+
+def test_cached_ocr_loads_a_schema_1_record_as_empty_page_extractor_and_none_evidence(cache):
+    """CASE 19: the replay reads schema-1 records (no `page_extractor` /
+    `evidence` keys at all — every archive entry before D6) and must still
+    load them, restoring `page_extractor=[]` / `evidence=None` rather than
+    raising or treating the absence itself as a drift."""
+    input_sha = content_sha256(PDF)
+    settings_key = ocr_settings_key()
+    cache.put(STAGE_OCR, input_sha, settings_key, {
+        "document": {
+            "model": "local-tesseract-ocr", "pages": ["legacy page"], "page_integrity": [],
+        }
+        # deliberately no "page_extractor" / "evidence" keys: the schema-1 shape
+    })
+
+    def compute():
+        pytest.fail("a schema-1 record is a valid hit; it must never be recomputed")
+
+    result = cached_ocr(PDF, compute=compute, cache=cache, source_file="s.pdf")
+    assert result.cached is True
+    assert result.finding is None
+    assert result.value.pages == ["legacy page"]
+    assert result.value.page_extractor == []
+    assert result.value.evidence is None
 
 
 def test_cached_analysis_computes_once_and_partitions_on_settings(cache):

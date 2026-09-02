@@ -241,6 +241,49 @@ def test_model_calls_for_reports_unrecognized_model_honestly():
     assert "endpoint_class" in visual_calls[0] and "remote_opt_in" in visual_calls[0]
 
 
+def test_model_calls_for_reports_one_call_per_paddle_page():
+    """P21-ROUTING closure (MINOR-3): design item 4's `model_calls_for` arm
+    — one call per Paddle page, `purpose: "paddle_ocr"`, the model named and
+    left unpriced (Paddle pages are plain `str`, not `PageText`, so there is
+    no per-page completion-token signal to sum)."""
+    import types
+
+    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+
+    paddle_doc = types.SimpleNamespace(
+        model=PADDLE_MODEL_TOKEN, pages=["page one", "page two", "page three"], page_integrity=[],
+    )
+    calls = model_calls_for(paddle_doc, None)
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["stage"] == "ocr"
+    assert call["model"] == PADDLE_MODEL_TOKEN
+    assert call["purpose"] == "paddle_ocr"
+    assert call["calls"] == 3  # one per page, not one per document
+    assert call["prompt_tokens"] is None
+    assert call["completion_tokens"] is None
+    assert "endpoint_class" in call and "remote_opt_in" in call
+
+
+def test_model_calls_for_paddle_is_unpriced_not_free():
+    """The other half of MINOR-3's test: `estimate()` must report the
+    Paddle call unpriced (remote_paid is not free — the model is deliberately
+    absent from `telemetry.prices.FREE_MODELS`, pinned elsewhere in
+    `tests/test_artifact_cache.py::test_paddle_model_token_is_not_in_free_
+    models`; this proves the CONSEQUENCE for a real telemetry record)."""
+    import types
+
+    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+
+    paddle_doc = types.SimpleNamespace(model=PADDLE_MODEL_TOKEN, pages=["p1"], page_integrity=[])
+    calls = model_calls_for(paddle_doc, None)
+    cost = estimate(calls)
+    assert cost["complete"] is False
+    assert PADDLE_MODEL_TOKEN in cost["unpriced_models"]
+    assert cost["amount"] is None
+
+
 def test_truncation_distinguishes_not_assessed_from_clean():
     class _Doc:
         model = "native-pdf-text"

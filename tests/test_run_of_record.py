@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -792,3 +793,34 @@ def test_select_artifact_mutant_rows0_would_have_silently_picked_one():
     assert _mutant_rows0(conn, "ocr", "SHA1", "KEYA") in ("path/first.json", "path/second.json")
     with pytest.raises(RunOfRecordError):
         select_artifact(conn, "ocr", "SHA1", "KEYA")
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING closure (MINOR-5): tools/train/provenance.py's `_TREE_PROBE`
+# never writes a raw exception message into the durable run record.
+# ---------------------------------------------------------------------------
+
+
+def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path, monkeypatch):
+    """A missing Paddle configuration raises `PaddleConfigError` — recorded
+    as `paddle_ocr_key_note` inside `run_of_record.partitions`. Before this
+    fix the clause wrote `f"...: {exc}"` verbatim and unbounded for ANY
+    exception; now only the class name (plus a closed-vocabulary `.reason`,
+    when the exception is a `PaddleRefused`) ever reaches the record."""
+    import tools.train.provenance as provenance
+
+    for name in list(os.environ):
+        if name.startswith("PADDLE_"):
+            monkeypatch.delenv(name, raising=False)
+
+    root = tmp_path / "root"
+    root.mkdir()
+    data_dir = tmp_path / "data"
+    record = provenance.collect(
+        Path(__file__).resolve().parents[1], root, data_dir,
+        label="test", hash_corpus=False, mode="digital",
+    )
+    note = record["run_of_record"]["partitions"]["paddle_ocr_key_note"]
+    assert note == "not recorded: PaddleConfigError"
+    assert "PADDLE_PROVIDER" not in note  # the variable NAME never crosses either
+    assert "not set" not in note  # PaddleConfigError's own message text, absent

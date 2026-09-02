@@ -1330,3 +1330,16 @@ def test_the_rename_is_not_movement_between_two_runs(tmp_path: Path):
     assert report["transitions"] == {}
     assert report["failure_class_movement"] == {}
     assert report["regressed_sample"] == []
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING closure (MAJOR-1, MINOR-2): the two literal mirrors this module
+# carries never drift from the values they mirror.
+# ---------------------------------------------------------------------------
+
+
+def test_cache_finding_literal_mirror_matches_the_artifact_cache_constant():
+    from discovery.runner import CACHE_FINDING_EVIDENCE_DRIFT
+    from webapp.artifact_cache import CACHE_FINDING_EVIDENCE_DRIFT as ARTIFACT_CACHE_FINDING
+
+    assert CACHE_FINDING_EVIDENCE_DRIFT == ARTIFACT_CACHE_FINDING
