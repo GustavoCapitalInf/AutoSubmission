@@ -349,18 +349,48 @@ def test_geometry_from_a_pdf_without_native_text_is_still_none():
 # ===========================================================================
 
 def test_group_lines_is_a_thin_wrapper_with_no_second_tolerance_computation():
-    """M4: a mutant that reintroduces `median(...) * 0.5` (or any tolerance
-    arithmetic) directly in `geometry.py` must be caught even if every other
-    test still passes by coincidence. AST, not a string search, so a
-    reformatted call cannot dodge it."""
+    """M4 (+ F-3): a mutant that reintroduces a tolerance/median computation
+    in `geometry.py` -- however spelled -- must be caught even if every
+    other test still passes by coincidence. AST, not a string search, so a
+    reformatted call cannot dodge it. The ORIGINAL guard here caught only a
+    bare `median(...)` call; a hand-rolled median built from `sorted(...)`
+    plus a `* 0.5` literal survived it (F-3, reproduced and closed). Refused
+    now, all by AST at any depth in `geometry.py`:
+      * `median` called (from any import spelling);
+      * `import statistics` / `from statistics import ...`, in any form;
+      * `sorted(` called anywhere (the one grouping rule's own sort lives in
+        `evidence.group_lines`, never here);
+      * the literal `0.6` (the grouping rule's own tolerance constant)
+        appearing anywhere in this module's numbers."""
     source = (ROOT / "analysis" / "structurer" / "geometry.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
-    offenders = [
-        node.func.id for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "median"
+
+    median_calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and ((isinstance(node.func, ast.Name) and node.func.id == "median")
+             or (isinstance(node.func, ast.Attribute) and node.func.attr == "median"))
     ]
-    assert not offenders, "geometry.py must not compute a tolerance itself; delegate to evidence.group_lines"
-    assert "import median" not in source and "from statistics" not in source
+    assert not median_calls, "geometry.py must not compute a tolerance itself; delegate to evidence.group_lines"
+
+    statistics_imports = [
+        node for node in ast.walk(tree)
+        if (isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "statistics" for alias in node.names))
+        or (isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "statistics")
+    ]
+    assert not statistics_imports, "geometry.py must not import statistics in any form"
+
+    sorted_calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "sorted"
+    ]
+    assert not sorted_calls, "geometry.py must not sort words itself; the grouping rule's own sort lives in evidence.group_lines"
+
+    tolerance_literals = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, float) and node.value == 0.6
+    ]
+    assert not tolerance_literals, "geometry.py must not carry the grouping tolerance's own constant"
 
 
 def test_group_lines_wrapper_matches_the_canonical_rule_on_a_larger_document():
