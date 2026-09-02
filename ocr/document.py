@@ -48,6 +48,15 @@ class StatementMarkdown:
         READER bounding its own `model` field, which does not depend on
         every writer everywhere getting this right first — see this
         branch's W3 §Risks for the reader-side dependency, named.
+
+        NEW-5 (re-review, closure 1cc759e): the belt above blocks only the
+        EARLY-CLOSE shape (a `source_file` that ends the comment itself).
+        The field-supplying spoof the paragraph above describes — a
+        `source_file` that supplies its OWN `| model: X` text inside the
+        comment, without ever closing it early — needs no `-->` at all and
+        this belt does not touch it; it is closed entirely by cell D's
+        reader bounding its own `model` field, which must not be assumed to
+        depend on this branch.
         """
         if self.model:
             # Reserved deterministic-rung prefixes ARE allowed here: the
