@@ -140,6 +140,65 @@ def test_extractor_model_refuses_a_crlf_document_with_a_body_run_too():
 
 
 # ---------------------------------------------------------------------------
+# MINOR-10 (`PHASE2_P20SURFACES_REVIEW.md` second re-review): four clauses of
+# "THE PROPERTY, EXACTLY" (the module docstring) were true in the shipped
+# code but unpinned -- mutants S3, S7, S8, S9 each disabled one clause and no
+# existing test noticed, because every shipped test that would notice also
+# trips a DIFFERENT clause first. Four one-line tests, one per clause, each
+# isolating exactly the clause its own mutant disables.
+# ---------------------------------------------------------------------------
+
+
+def test_a_lone_body_run_is_refused_when_the_header_prints_no_fields():
+    """Kills S3 (`if len(runs) != 1 or runs[0].end() != line_end:` weakened to
+    `if len(runs) != 1:`): the header prints NO field run of its own
+    (`deterministic-native-preflight`, a real shape `webapp/worker.py:427`
+    writes), so the single run in the whole document is the body's forged
+    one -- exactly ONE run, but it does not terminate physical line one.
+    Clause (d), line-one termination, is the only clause this can fail."""
+    assert extractor_model(
+        "<!-- source: a.pdf | model: deterministic-native-preflight -->\n\n"
+        "content\n| pages: 1 | model: native-pdf-text | empty: 0 -->\n"
+    ) is None
+
+
+def test_a_document_that_does_not_begin_with_the_source_marker_is_refused():
+    """Kills S7 (drop `markdown.startswith("<!-- source:")`): a well-formed
+    field run exists and terminates physical line one, so every OTHER clause
+    passes -- only clause (a), the `<!-- source:` prefix, can be refusing
+    this."""
+    assert extractor_model(
+        "STATEMENT OF ACCOUNT | pages: 1 | model: native-pdf-text | empty: 0 -->"
+        "\n\ncontent\n"
+    ) is None
+
+
+def test_a_header_without_the_mandatory_blank_line_is_refused():
+    """Kills S8 (drop `rest.startswith(("\\n", "\\r\\n"))`): a single `\\n`
+    only, no blank-line separator, no other clause failing. Only clause (b),
+    the mandatory blank line, refuses this."""
+    assert extractor_model(
+        "<!-- source: a.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"
+        "\ncontent\n"
+    ) is None
+
+
+def test_the_model_charset_excludes_whitespace_and_angle_brackets():
+    """Kills S9 (`_MODEL_CHARSET` widened to `[^|]`): a model token containing
+    a space, or `<script>`, is outside the closed charset, so the field-run
+    pattern itself must not match it as a run at all -- if it did, either the
+    document would still admit a hostile token, or (with a forged run
+    elsewhere) the malformed genuine run would fail to count as the one run
+    that disambiguates, changing the ambiguity verdict."""
+    assert extractor_model(
+        "<!-- source: a.pdf | pages: 1 | model: nat ive | empty: 0 -->\n\nx\n"
+    ) is None
+    assert extractor_model(
+        "<!-- source: a.pdf | pages: 1 | model: <script> | empty: 0 -->\n\nx\n"
+    ) is None
+
+
+# ---------------------------------------------------------------------------
 # BLOCK-1 (`PHASE2_P20SURFACES_REVIEW.md`): `source_file` cannot supply the
 # model. `source_file` is the uploaded filename -- attacker-supplied,
 # unsanitised (`webapp/app.py` -> `webapp/worker.py` -> `ocr/document.py`) --
