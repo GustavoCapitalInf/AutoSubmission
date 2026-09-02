@@ -64663,3 +64663,119 @@ disposition that actually closes it (option (b), scoping only the two PROVEN rew
 flag, would have left this exact hazard running by default, as the review's own OQ1 adjudication
 already anticipated). No disagreement with the ruling — this finding is offered as the sharpest
 evidence yet that (c) was the correct call, not as a reason to reconsider it.
+
+## §P20POSTPROC closure — the independent adversarial review, closed finding by finding
+
+**Verdict:** APPROVE WITH FINDINGS (5 MAJOR, 6 MINOR — none a BLOCK; all additive). Every finding
+reproduced independently before any fix, per the review's own instruction. Committed at
+`docs/moneythumb-replacement/reviews/PHASE2_P20POSTPROC_REVIEW.md`.
+
+**MAJOR-1 — four rows carried an absolute "cannot touch a financial value" claim.**
+Reproduced: constructed an orphan-bracket det tag containing a money token (deleted), a
+well-formed-pair span reaching an orphan opening tag to the NEXT tag's close (deleted the money
+between them), an oversized image whose `alt` attribute carried a money token (deleted at the
+PRODUCTION threshold), a stray text span between `<td>` cells in a fused row (deleted on rebuild),
+and a `<caption>`'s money token in a table that actually fires (deleted by both full-table-rewrite
+functions). **Fixed:** corrected the four `CLASSIFICATION` strings and the census doc's rows 1, 4,
+7, 8, 9; two functions (`strip_det_tags`, `strip_oversized_embedded_images`) lost the unconditional
+metadata-only label; six new fixtures added. **Killer:** `test_metadata_only_classification_never_
+deletes_a_financial_token` (fails if a function relabeled into the metadata-only bucket has any
+fixture showing money/date disappearance) plus the six new fixture assertions themselves.
+
+**MAJOR-2 — the issuer-string guard was scoped to 3 files; layer-wide costs 0 offenders.**
+Reproduced: measured 0 additional offenders scanning all 13 `ocr/*.py` files; confirmed an inline
+`re.search` literal (not a `re.compile` assignment) passed through the old detector undetected.
+**Fixed:** the guard now iterates every file in `ocr/`; the detector inspects every `str`
+`ast.Constant` in a module, attributed to its nearest enclosing assignment or function name; the
+two pre-existing files (`native_text.py`, `column_grid.py`) carry a named, counted, shrink-only
+`OCR_ISSUER_STRING_BASELINE` (25 occurrences / 5 issuers; 3 occurrences / 1 issuer) instead of a
+blanket exclusion. **Killer (mutant I):** an inline `re.search` issuer marker in a synthetic module
+and in the real `ocr/pipeline.py`, both caught by `test_every_issuer_named_regex_in_ocr_is_
+registered`. **Killer (mutant J):** an issuer marker added to the real `ocr/native_text.py` (25 ->
+26 occurrences), caught by `test_ocr_issuer_string_baseline_is_not_exceeded`.
+
+**MAJOR-3 — a registered regex NAME was a blanket licence for its whole pattern.**
+Reproduced: widened `_TD_MARKERS_RE` with a second issuer's marker on the real file; nothing in the
+tree failed. **Fixed:** `test_registered_regex_pattern_matches_its_declared_issuer_and_no_other`
+asserts every registered regex with a non-`None` issuer carries that issuer's marker and no other
+institution's. **Killer (mutant K):** the same widening, re-applied to the real
+`ocr/ocr_client.py`, now fails that exact test.
+
+**MAJOR-4 — the register omitted the two functions that select among candidate reads by content.**
+Reproduced: `is_td_statement`, `looks_truncated_td`, `recover_truncated_td_page` were absent from
+`INTAKE_FURNITURE`, and the two present entries' `scope` strings described only a render parameter.
+**Fixed:** all three registered (register now 7 entries); `_TD_RECOVERY_VARIANTS` and
+`looks_missegmented`'s `scope` strings now state plainly that they select among candidate re-OCR
+reads, keyed on a printed structural caption / table-shape signature, never a figure. New tests
+construct candidate reads where the wrong ones print an implausibly large balance and the
+recovered one a small one, proving selection follows the caption regardless of figure size.
+
+**MAJOR-5 — five behavioral pins were deleted, not moved to the census.**
+Reproduced: dropping `_DET_ORPHAN_RE.sub`, `_DET_BARE_RE.sub`, or widening F-1's `count >= 3` to
+`>= 2` all survived the full targeted suite. **Fixed:** restored the boundary fixture (a value
+repeating exactly twice beside a distinct amount, untouched), the placeholder-bracket-preserved
+fixture, the refusal-leaves-normal-text fixture, the label/value-summary-untouched fixture, and the
+orphan/bare-tag fixture. **Correction found during closure, not by the review:** the restored
+orphan/bare fixture's own single input is fully cleaned by the orphan branch alone —
+`_DET_BARE_RE` never fires on it, so it does not kill a mutant dropping only the bare-tag branch.
+Added a second, minimal fixture (a bare tag with no brackets and no closing pair) that isolates
+`_DET_BARE_RE`'s own contribution. **Killers:** mutant L (drop `_DET_ORPHAN_RE.sub`) killed by the
+restored fixture; mutant M (drop `_DET_BARE_RE.sub`) killed by the new minimal fixture; mutant N
+(`count >= 3` -> `>= 2`) killed by the two-repeats-untouched fixture — all three re-applied to the
+real `ocr/ocr_client.py` and reverted.
+
+**MINOR-1 — `apply_admitted`'s order test could not distinguish tuple order from declaration
+order.** Reproduced: an alternate implementation iterating `_POSTPROCESS_MEMBERS`' own declaration
+order, filtered by membership, passed the existing test. **Fixed:** added an order-sensitive input
+(a det tag sitting between two money tokens that would otherwise form one run) where the two
+orders produce genuinely different output. **Killer (mutant P):** the declaration-order
+implementation, applied to the real file, now fails `test_apply_admitted_order_is_the_tuples_
+own_order_not_declaration_order`.
+
+**MINOR-2 — "always an exact duplicate" was false for the page-footer collapser.** Reproduced: a
+shorter footer that is a textual prefix of a longer one sharing the same page number collapses
+destructively (a genuinely distinct digit-run value is lost with no surviving copy). **Fixed:**
+corrected the classification text; added the `prefix_footer_collapsed` fixture.
+
+**MINOR-3 — the placeholder stripper's unconditional whitespace rewrite was undeclared.**
+Reproduced: CRLF -> LF and a dropped trailing newline occur even with no placeholder present.
+**Fixed:** stated in the classification; added the `placeholder_free_normalizes_ws` fixture.
+
+**MINOR-4 — the DPI-fallback's `looks_missegmented` check now reads raw text, undeclared.**
+Reproduced: a raw page carrying a stripped-metadata construct between `<table>` and its first
+`<tr>` defeats the match where postprocessed text would have matched — strictly less often, never
+more. **Fixed:** one paragraph under "Quarantine mechanics" in the census doc; a fixture-style
+test (`test_looks_missegmented_fires_strictly_less_often_on_raw_text`) pins both sides.
+
+**MINOR-5 — the truncation flag-only test no longer proved the property on raw text.**
+**Fixed:** added `assert structural_tail_signals(raw) == []` beside the existing cleaned-text
+assertion in `tests/test_truncation.py`.
+
+**MINOR-6 — ownership and counting nits.** `tests/test_render.py` is recorded here as an ownership
+EXTENSION beyond the card's original list (not pre-granted) — it is the natural home of the
+display-path mutant killer, and Ocean should record the one-file extension at compose time. The
+OCR_DIR scan reuses SIX pattern classes (not five). Privacy/message figures restated at the tip
+below.
+
+**Full mutation campaign, re-run on the closure tree, every mutant applied to the REAL committed
+file and reverted with `git checkout --`, `git status --porcelain` verified clean before and after
+every mutant:** A, B, C, D, E, F, G, H, L, M, N, O, P, Q — killed. I, J, K — killed (I and K also
+independently on the real files `ocr/pipeline.py` and `ocr/ocr_client.py`; J on the real
+`ocr/native_text.py`). **17/17 mutants killed.**
+
+**Proof floor at closure (`a123f25`):** full suite 7,961 passed / 45 skipped / 35 deselected, exit
+0. 5 canonical guards: green. `python corpus_gate.py`: GREEN, 105 PASS / 3 WITHHELD / 1 REFUSED,
+exit 0 (unchanged). Corpus-marked slice: 31 passed / 8,010 deselected, exit 0. Targeted files: 535
+passed / 1 skipped / 1 deselected.
+
+**Cohort replay at closure (`a123f25`), 179-sha population:** 179/179 replayed, 36/36 previously
+validated preserved payload-identical, 0 newly validated, 0 up, 0 down, exit 0.
+
+**Privacy scan at closure:** hit_count 0 (added_lines 3,101; 4 raw WORDS hits, all excluded as
+`words_class` — the same "AMOUNTS RECORDED" split-caps artifact from this cell's own test-function
+name, now also echoed in the committed review document that quotes it). **Message scan at
+closure:** 11 commits scanned, hit_count 0 across all four classes.
+
+**Commits (review-response, `daa5988..HEAD`):** `58b5d22` (MAJOR-1 + MAJOR-5 + MINOR-2/3),
+`afa0a86` (MAJOR-2), `ea5afae` (MAJOR-3 + MAJOR-4), `f4917c8` (MINOR-1 + MINOR-4/5), `ee58d76`
+(docs), `a123f25` (the MAJOR-5 self-correction found during closure verification). Tree clean.
