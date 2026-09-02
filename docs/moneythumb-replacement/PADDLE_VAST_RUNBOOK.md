@@ -30,6 +30,21 @@ population (§"The 13-document remote-data ruling" below).
   `remote_paid` worker unless `PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` is set to its exact
   literal. **Do not set that variable without Gustavo's separate remote-data / privacy /
   retention ruling.** Phase 2.1 never sets it.
+* **What this boundary guarantees, precisely (`PHASE2_P21PADDLE_REVIEW.md` MAJOR-2).**
+  `check_remote_authorization` and `PaddleClient`'s constructor both RE-DERIVE the two
+  opt-in literals from the process environment at the moment of the check/construction —
+  a `PaddleSettings` object whose OWN flags claim an opt-in, but whose environment does
+  not actually carry the matching literal, is refused just the same as if the flag were
+  false. So: **an honest caller whose settings came from `load_paddle_settings()` cannot
+  send a `customer`-scope document to a `remote_paid` worker without the operator having
+  set the real `PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` literal in the real environment.**
+  What it does NOT guarantee: nothing in this module verifies that a caller's declared
+  `data_scope` truthfully describes the bytes it is sending — `data_scope` is a
+  declaration, not a content check, because this module has no way to inspect where a
+  caller's document came from. The one caller that matters in production —
+  `discovery/runner.py`'s `--scanned-paddle` mode — always declares `data_scope="customer"`
+  (never `"synthetic"`) because it reads the archive; that literal is pinned by cell R's
+  own tests, not enforced by this module.
 
 ## Prerequisites
 
@@ -65,6 +80,15 @@ python -m tools.paddle_vast tunnel-down # closes the local SSH tunnel
 process (which is what actually costs GPU time); `tunnel-down` ends the local SSH
 forward. Run both at the end of any session — **nothing from this pipeline is left
 running unattended.**
+
+**Authentication needs no manual step.** `start` writes a per-session token to
+`<runtime_dir>/worker.token` (gitignored) and exports it to the remote worker; every
+LATER command in this sequence (`status`, the live test, `measure`) calls
+`load_paddle_settings()` fresh, which falls back to reading that same file when
+`PADDLE_WORKER_TOKEN` is not set in the environment — so the sequence above
+authenticates correctly exactly as written, with no `export PADDLE_WORKER_TOKEN=...`
+step of your own (`PHASE2_P21PADDLE_REVIEW.md` MAJOR-4). If `start` is run again after a
+`stop`, it reuses the token already on file rather than minting a new one.
 
 Every subcommand's OWN printed/returned output is masked (`tools.paddle_vast.mask_text`):
 the real host, SSH user and worker token never appear in a log line, a report, or this

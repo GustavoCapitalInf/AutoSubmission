@@ -7,6 +7,48 @@ FIXTURE: tests/paddle_synthetic.py (build_ledger_page / render_image_pdf) — SY
          never a real statement, never Bank Statements/ or tests/corpus_cache/ content
 ```
 
+## ERRATUM (closure pass, `PHASE2_P21PADDLE_REVIEW.md`) — read before the numbers below
+
+The independent review found three defects in how this record was produced, and this closure
+fixed the code but **could not re-run the live measurement to regenerate the numbers**, because
+the Vast.ai development instance became unreachable (TCP connection refused on the configured SSH
+port, confirmed not a local network issue) partway through this closure session and stayed
+unreachable after repeated polling over several minutes. The numbers below are RETAINED from the
+original run rather than fabricated or silently dropped, with the following caveats now attached
+explicitly:
+
+1. **MAJOR-4 (authentication).** The `start` → `tunnel-up` → live-test → `measure` sequence
+   recorded under §Commands run, AS WRITTEN, could not have authenticated: `cmd_start` always
+   minted a fresh token and nothing read it back for the client. The run that actually produced
+   these numbers included an UNDOCUMENTED manual step — exporting `PADDLE_WORKER_TOKEN` from
+   `.paddle_runtime/worker.token` into the shell before the live-test and `measure` commands — that
+   this file's command list omitted. `ocr.paddle_config.load_paddle_settings` now falls back to
+   reading that file automatically when the env var is unset, and `cmd_start` reuses an existing
+   token instead of always minting a new one, so the documented sequence (exactly as written above)
+   is now correct going forward; this is proven offline (`tests/test_paddle_vast_tool.py::
+   test_major4_lifecycle_round_trip_authenticates_without_a_manual_export`, against a real
+   `ocr.paddle_worker` HTTP server, no `paddleocr` required) but NOT re-proven live this pass.
+2. **MINOR-8(a) (byte label).** "bytes sent (PNG, base64-encoded, JSON-wrapped): 253,799 bytes" is
+   WRONG on its face — 253,799 is the raw PNG size; the actual `/ocr` wire body (base64 inflation +
+   JSON overhead) is measurably larger (independently reproduced at 338,480 bytes for the same
+   fixture — see the review). `tools.paddle_vast.cmd_measure` now reports
+   `bytes_sent_raw_png_per_page` and `bytes_sent_wire_per_page` separately and correctly labelled;
+   the number below is kept under its ORIGINAL (misleading) label for the historical record and
+   should not be read as the wire size.
+3. **MINOR-8(b) (GPU/RSS provenance).** The §GPU row and the "~262 s worker wall-clock" figure below
+   were collected BY HAND (an ad hoc `ssh ... nvidia-smi` I ran directly and arithmetic on
+   timestamps I noted), not by any code path `tools.paddle_vast.cmd_measure` executed — the tool had
+   no GPU sampler wired at all when this file was first written. A real `_default_gpu_sampler`
+   (polled `nvidia-smi` over SSH during the warm loop) and `local_peak_rss_mib` are now implemented
+   and unit-tested (`tests/test_paddle_vast_tool.py`, the MINOR-8 section) but have not yet produced
+   a live-measured row of their own.
+
+**A fresh live run is owed** once the Vast instance is reachable again, using the corrected
+lifecycle exactly as documented, to replace every number below with one that reproduces from
+`tools.paddle_vast measure`'s own committed instrument. Until then, treat this file's cold/warm
+latency figures as a directionally-correct but not-fully-reproducible historical measurement, and
+the GPU/wall-clock figures as hand-collected, not instrument-produced.
+
 ## Identity (worker's own `/version`, verified against the D5 pins before any image was sent)
 
 | field | value |
@@ -51,10 +93,10 @@ measurement.)
 
 | metric | value |
 |---|---|
-| bytes sent (PNG, base64-encoded, JSON-wrapped) | 253,799 bytes (~248 KiB) |
+| bytes sent — **mislabelled, see Erratum #2: this is the RAW PNG, not the wire body** | 253,799 bytes (~248 KiB) |
 | bytes received (JSON response incl. word boxes) | 12,263 bytes (~12 KiB) |
 
-## GPU
+## GPU (Erratum #3: hand-collected, not produced by `cmd_measure`'s own instrument)
 
 | metric | value |
 |---|---|
