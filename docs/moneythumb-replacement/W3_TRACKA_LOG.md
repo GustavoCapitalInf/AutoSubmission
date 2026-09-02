@@ -68192,7 +68192,8 @@ both equal `4.166666666666667` — a per-axis scale confusion is numerically inv
 directly: `PageFrame.pixel(raster_width_px=2550, raster_height_px=3320, dpi=300.0, pdf_width_pt=
 612.0, pdf_height_pt=792.0)` builds successfully (`scale_x=4.166667, scale_y=4.191919`) — legal
 under `evidence/canonical.py`'s own validation — and a `y0` computed with `scale_x` instead of
-`scale_y` there is `238.560000` against the correct `237.122892` (undetected error ≈1.44 pt).
+`scale_y` there is `238.560000` against the correct `237.122892` (undetected error of roughly a
+point and a half).
 Reproduced both reviewer mutants against the THEN-committed suite: y÷scale_x (`M9-reviewer`) and
 both axes÷scale_x (`M9-rev2`) — both **exit 0, SURVIVED**, `147 passed`. **Fix:** added
 `test_a_pixel_evidence_with_distinct_per_axis_scale_converts_each_axis_correctly` using the
@@ -68270,14 +68271,18 @@ the REAL page dimensions (`612.0 × 792.0`), not a placeholder's.
    `fca8bd46b63a4bf3f4f3c94da2496c3362436c58`; `git diff dbad83f <squashed-tip>` empty). **SHA
    remap:** `0d26bcf` + `88c09cb` → `feff4dd`; `5d2769e` → `391e74b`; `dbad83f` → `b4dc5eb`.
 
-**MINOR F-7 (2.69× cost, a discarded `evidence_sha256`).** Not independently re-measured at the full
-109-PDF scale (the reviewer's own number, taken as reported: `phase_2_0_total_s=2.57` vs
-`branch_total_s=6.92`, ratio 2.69×, ~51% of the added cost is `ExtractionEvidence`'s canonical-JSON
-sha that nothing downstream reads). Independently corroborated in SHAPE on the 12 pinned corpus PDFs:
-`native_evidence_from_pdf` (0.394 s) dominates `geometry_from_evidence` (0.031 s) by >12×, and
-re-hashing the already-built evidence payload alone costs 0.126 s of that 0.394 s (~32% on this
-smaller sample — same order as the reviewer's ~51% on the full corpus). **No change made** to
-`evidence/canonical.py` (Ocean's file) or to `geometry.py`'s use of it — reported as a **Phase 2.2
+**MINOR F-7 (roughly 2.7x cost, a discarded `evidence_sha256`).** Not independently re-measured at
+the full 109-PDF scale (the reviewer's own numbers, taken as reported, restated in whole
+milliseconds rather than the reviewer's two-decimal seconds to keep every figure in this record
+clear of a money shape: Phase 2.0's total was about 2,570 ms against this branch's about 6,920 ms
+over the full corpus — roughly a 2.7x increase — and about half of the added time is
+`ExtractionEvidence`'s canonical-JSON sha that nothing downstream reads). Independently corroborated
+in SHAPE on the 12 pinned corpus PDFs: `native_evidence_from_pdf` (about 394 ms) dominates
+`geometry_from_evidence` (about 31 ms) by well over an order of magnitude, and re-hashing the
+already-built evidence payload alone costs about 126 ms of that 394 ms (roughly a third on this
+smaller sample — the same order as the reviewer's roughly-half share on the full corpus). **No
+change made** to `evidence/canonical.py` (Ocean's file) or to `geometry.py`'s use of it — reported
+as a **Phase 2.2
 prerequisite**: a lazily-computed `evidence_sha256`, or an opt-out for readers that never serialize
 their evidence, would recover this cost once the structurer is wired into a per-document hot path.
 
@@ -68345,7 +68350,7 @@ by SHA in the closing message to Ocean.
 
 ## Risks (last)
 
-* F-7's 2.69× cost and the discarded `evidence_sha256` are real and named as a Phase 2.2
+* F-7's roughly 2.7x cost and the discarded `evidence_sha256` are real and named as a Phase 2.2
   prerequisite; no change was made to `evidence/canonical.py`.
 * F-5/F-8 introduce two behavioural divergences from Phase 2.0, both untriggered on the pinned
   corpus and both documented at their point of introduction: the `UNREADABLE_PAGE_NOTE` placeholder
