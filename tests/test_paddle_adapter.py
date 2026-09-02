@@ -91,6 +91,30 @@ def test_case5_synthetic_ledger_reading_order():
     assert lines[2] == "2031-01-01 SYNTHETIC ROW 01 10.00 510.00"
 
 
+def test_case5_m6_two_column_page_regroups_by_geometry_not_by_paddle_line_order():
+    """M6: PaddleOCR's own detector frequently splits ONE visual row into
+    SEPARATE `text_word` lines (the demo fixture does this 33 raw lines ->
+    11 canonical visual lines). A two-"line" result whose boxes actually
+    share one visual row must merge into ONE `LineBox`, words ordered by x —
+    even when PaddleOCR's own line order lists the RIGHT-hand word first.
+    An adapter that joined `rec_texts` (or grouped by PaddleOCR's own line
+    index) instead of `evidence.group_lines`'s geometry would keep them as
+    two separate, mis-ordered lines."""
+    frame = PageFrame.pixel(page_index=0, raster_width_px=400, raster_height_px=100, dpi=96,
+                            pdf_width_pt=400 * 72 / 96, pdf_height_pt=100 * 72 / 96, raster_sha256=None)
+    raw = {
+        # PaddleOCR detected the RIGHT-hand word as "line 0" and the
+        # LEFT-hand word as "line 1" — same y-range, so geometrically one row.
+        "text_word": [["RIGHT"], ["LEFT"]],
+        "text_word_boxes": [[[200, 10, 260, 30]], [[10, 10, 60, 30]]],
+        "rec_texts": ["RIGHT", "LEFT"],
+        "rec_scores": [0.9, 0.9],
+    }
+    page = page_evidence_from_result(raw, frame=frame)
+    assert len(page.lines) == 1, "two same-row detections must regroup into one visual line"
+    assert page.lines[0].text == "LEFT RIGHT", "words within a regrouped line are ordered by x, not by Paddle's line order"
+
+
 # ---------------------------------------------------------------------------
 # CASE 8 / M5 — malformed shapes refuse the WHOLE page; nothing is clamped.
 # ---------------------------------------------------------------------------
