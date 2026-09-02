@@ -52,6 +52,8 @@ from .emit import (
 from .record import (
     DEFERRED_REASONS,
     DISPATCH_SOURCES,
+    EXTRACTION_TRIGGERS,
+    FAILURE_CLASSES,
     OUTCOME_CLASSES,
     SCORE_CAP,
     SOURCE_CACHED,
@@ -80,6 +82,8 @@ __all__ = [
     "DISABLE_ENV",
     "DISPATCH_SOURCES",
     "DispatchCollector",
+    "EXTRACTION_TRIGGERS",
+    "FAILURE_CLASSES",
     "JsonlSink",
     "NullSink",
     "OUTCOME_CLASSES",

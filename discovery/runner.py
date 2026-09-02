@@ -67,9 +67,28 @@ from analysis.payload_shape import (
 from analysis.pipeline import analyze_document
 from analysis.serialization import document_report_to_dict
 from corpus_artifacts import cached_markdown, cached_pages
+from ocr.escalation import (
+    ADMITTED_TRIGGERS,
+    A_EXTRACTION,
+    B_STRUCTURE,
+    C_VALIDATION,
+    EXTRACTOR_OUTPUT_UNUSABLE,
+    IMAGE_ONLY_DOCUMENT,
+    MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
+    NO_FAILURE,
+    OFFLINE_RUNGS_PRODUCED_NO_TEXT,
+    OPERATOR_FORCED_VISUAL,
+    Escalation,
+    EscalationRouter,
+    EvidenceQuality,
+    ExtractionQualityGate,
+    router_inputs,
+)
 from ocr.inspect import inspect_pdf
 from telemetry import (
     DispatchCollector,
+    EXTRACTION_TRIGGERS,
+    FAILURE_CLASSES,
     StageTimer,
     build_record,
     dispatch_section,
@@ -180,14 +199,174 @@ class DocumentRow:
     cache_visual: str = "bypass"
     visual_rung: str = "not_attempted"
     elapsed_ms: float = 0.0
+    #: P20-ROUTER (Phase 2.0). Appended at the END so existing readers-by-name
+    #: are unaffected. `failure_class` is `ocr.escalation.FailureClass`
+    #: ("A"/"B"/"C"/""), computed by `classify_failure` below — never guessed,
+    #: never touched by `ocr/escalation.py`, which sees no verdict at all.
+    #: `escalation_trigger` is the `ExtractionTrigger` the router named when it
+    #: admitted an extractor, or `""` when no router decision named one (no
+    #: candidate was ever built, or the decision refused). `evidence_quality`
+    #: is `usable`/`unusable`/`none` from `ExtractionQualityGate` — `none`
+    #: means no read was ever produced to assess (invalid PDF, encrypted,
+    #: deferred, profile-only). `escalation_refused` is the router's own
+    #: refusal reasons, `"; "`-joined, recorded whenever a router decision was
+    #: made and did not name an extractor.
+    failure_class: str = ""
+    escalation_trigger: str = ""
+    evidence_quality: str = "none"
+    escalation_refused: str = ""
 
     def as_dict(self) -> dict:
+        # P20-ROUTER review, MAJOR-3. The closed vocabularies are enforced
+        # HERE, at the row projection — the same pattern `classify_outcome`
+        # uses for `DEFERRED_REASONS` (`telemetry/record.py`) — rather than
+        # merely documented: a token from outside either tuple raises before
+        # it ever reaches `rows.csv`. `escalation_trigger` additionally
+        # allows `""`, its own default meaning "no router decision named a
+        # trigger for this row".
+        if self.failure_class not in FAILURE_CLASSES:
+            raise ValueError(
+                f"failure_class {self.failure_class!r} is not in the closed "
+                f"vocabulary {FAILURE_CLASSES}"
+            )
+        if self.escalation_trigger and self.escalation_trigger not in EXTRACTION_TRIGGERS:
+            raise ValueError(
+                f"escalation_trigger {self.escalation_trigger!r} is not in the "
+                f"closed vocabulary {EXTRACTION_TRIGGERS} (or '')"
+            )
         row = asdict(self)
         row["candidates"] = "; ".join(self.candidates)
         row["attempted"] = "; ".join(self.attempted)
         row["near_miss"] = "; ".join(self.near_miss)
         row["parser_exceptions"] = "; ".join(self.parser_exceptions)
         return row
+
+
+def classify_failure(
+    evidence: EvidenceQuality, claimed: bool | None, validated: bool | None,
+) -> str:
+    """(FailureClass) for one document. Lives HERE, not in `ocr/escalation.py`.
+
+    `ocr/escalation.py` never sees `claimed` or `validated` — that is the
+    entire point of the import boundary its own tests pin. This function is
+    the one place allowed to know what those words mean, and it is a pure
+    fold over three already-computed facts: it does not call the router, does
+    not look at a `Dispatch`, and cannot itself start an extractor.
+
+    **Order (P20-ROUTER review, BLOCK-1 — `validated` is checked FIRST).** A
+    document the deterministic validator proved `validated` is `NO_FAILURE`
+    REGARDLESS of what an extraction-quality heuristic would otherwise have
+    said about the text that produced it: the validator's verdict is
+    authoritative over a structural evidence-quality signal, never the other
+    way round. Only once a document is NOT validated does the evidence
+    question even arise: unusable evidence is `A`; usable-but-unclaimed is
+    `B`; usable, claimed, and still not validated is `C`.
+
+    One deliberately UNCHANGED nuance, worth a note rather than a fix
+    (P20-ROUTER review, MINOR-9): `claimed` here is `payload is not None`,
+    and a parser that claims and then crashes downstream (`dispatch.outcome
+    == "claimed"` but no payload survives) is therefore graded `B`
+    (structure) rather than `C` (a claimed-but-invalid reconstruction). That
+    is a parser DEFECT (W3-1), not a financial-validation failure, and the
+    run of record's population for this shape is 0 — not worth widening the
+    function's inputs for a case that has never occurred.
+    """
+    if validated:
+        return NO_FAILURE
+    if not evidence.usable:
+        return A_EXTRACTION
+    if not claimed:
+        return B_STRUCTURE
+    return C_VALIDATION
+
+
+#: P20-ROUTER review, BLOCK-1. `ExtractionQualityGate` may assess ONLY
+#: evidence an EXTRACTOR produced — a local-Tesseract or visual-OCR read.
+#: A native PDF-text read is not an "extraction" in this taxonomy (an
+#: unclaimed native document is Class B, a layout problem, never Class A —
+#: the architecture's own words: "re-reading perfect text with a GPU cannot
+#: invent a parser"), and a committed-artifact rung's cached markdown has no
+#: `StatementMarkdown` object behind it at all (`document is None` there,
+#: which the gate would otherwise — wrongly — read as "no text produced").
+#: `_evidence_for_row` is the one function allowed to decide which source
+#: gets a real assessment; every other source's row records
+#: `evidence_quality="none"` and treats the evidence as usable BY
+#: CONSTRUCTION for `classify_failure`'s purposes (a native/committed-
+#: artifact document is never graded `A` — only `B`, `C`, or `""`).
+GATE_ASSESSED_SOURCES: frozenset[str] = frozenset({"local_tesseract", "visual"})
+
+
+def _evidence_for_row(document, profile, source_path: str) -> EvidenceQuality:
+    """The row's `EvidenceQuality`, scoped to `GATE_ASSESSED_SOURCES`.
+
+    `document` is whichever `StatementMarkdown` is currently of record (or
+    `None` for the committed-artifact rung, which never has one). Only a
+    genuinely OCR-sourced read is handed to the real gate; every other
+    source is reported "usable by construction" — never assessed, never
+    graded Class A — which is what keeps a validated native document, and
+    every committed-artifact row, out of the extraction-failure vocabulary
+    entirely.
+    """
+    if source_path in GATE_ASSESSED_SOURCES:
+        return ExtractionQualityGate.assess(document, profile)
+    return EvidenceQuality(
+        usable=True, reasons=(), signals=(), chars_total=0, pages_empty=0, pages_total=0,
+    )
+
+
+def _profile_triggers(profile) -> frozenset[str]:
+    """The profile-level triggers RECOVERY may record, from the O-1 preflight
+    profile alone. Recorded ONLY on the recovery path, where the document
+    genuinely produced no text at all (Class A is not in question) — never on
+    the upgrade path, where a Tesseract read already exists: every one of the
+    run of record's 123 unclaimed Tesseract reads profiles `scanned` or
+    `mixed` (`tools/phase2_trigger_split.py`), so admitting a profile-level
+    trigger there would let a Class-B (usable, unclaimed) document escalate
+    on the strength of a fact that is equally true of every Tesseract read,
+    claimed or not — exactly the edge this card closes. See
+    `ocr.escalation.OPERATOR_FORCED_VISUAL`'s docstring for the same reasoning
+    applied to the mode/operator trigger.
+    """
+    triggers: set[str] = set()
+    if profile.classification == "scanned" or profile.native_text_total_chars == 0:
+        triggers.add(IMAGE_ONLY_DOCUMENT)
+    if profile.classification == "mixed":
+        triggers.add(MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT)
+    return frozenset(triggers)
+
+
+def estimate_class_a_population(root: Path, relative_paths, disk_spelling=None) -> int:
+    """A cheap, PRE-RUN upper bound on how many documents this run could ever
+    legally escalate — read-only preflight profiling, no OCR, no analysis.
+
+    The predicate is LITERALLY the router's own admission test —
+    `_profile_triggers(profile) & ADMITTED_TRIGGERS` — not a hand-written
+    approximation of it (P20-ROUTER review, MINOR-7: a duplicated predicate
+    is how the two silently drifted apart; a zero-page, valid, unencrypted
+    PDF profiles `classification="unknown"` with `native_text_total_chars ==
+    0`, which `_profile_triggers` already admits via `IMAGE_ONLY_DOCUMENT`
+    but the old hand-written `classification in ("scanned", "mixed")` check
+    missed entirely). A `digital` profile's native rung always succeeds, so
+    it never reaches the router and is correctly never counted.
+
+    An unreadable file counts TOWARD the ceiling rather than being skipped —
+    a transient read error (this host's OneDrive `PermissionError`s are a
+    documented recurring case) must never SILENTLY LOWER a safety ceiling;
+    the safe failure direction for an estimate that exists to bound GPU
+    spend is to over-count, never to under-count.
+    """
+    count = 0
+    for relative_path in relative_paths:
+        path = root / (disk_spelling(relative_path) if disk_spelling else relative_path)
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            count += 1
+            continue
+        profile = inspect_pdf(raw)
+        if _profile_triggers(profile) & ADMITTED_TRIGGERS:
+            count += 1
+    return count
 
 
 def _mask_last4(value: str | None) -> str | None:
@@ -362,6 +541,7 @@ class DiscoveryRunner:
         cache=None,
         dedup: DedupIndex | None = None,
         visual_escalation: bool = True,
+        escalation_budget: int | None = None,
     ) -> None:
         self.root = root
         self.mode = mode
@@ -376,6 +556,16 @@ class DiscoveryRunner:
         # re-reading Tesseract output.
         self.visual_escalation = bool(visual_escalation) and self.allow_visual_ocr
         self.allow_artifacts = mode == MODE_DRY_RUN
+        #: P20-ROUTER item 2f. `None` (the default) is UNBOUNDED — every
+        #: existing caller that constructs a `DiscoveryRunner` directly
+        #: (every test in this tree, `discovery/cli.py` before it opts in)
+        #: keeps its exact historical behaviour. `discovery/cli.py::run()`
+        #: sets this from `estimate_class_a_population` before processing a
+        #: `--scanned-visual` run, and `process()` REFUSES to escalate past
+        #: it — a safety valve on top of the router, never a substitute for
+        #: it (the router's own admission rules still apply first).
+        self.escalation_budget = escalation_budget
+        self.escalations_used = 0
 
     # -- resolution ---------------------------------------------------------
 
@@ -518,27 +708,50 @@ class DiscoveryRunner:
         except Exception as exc:
             return None, type(exc).__name__, False
 
-    def _needs_visual_upgrade(self, document, collector, payload) -> bool:
-        """Is this the class-5 shape — a Tesseract read nobody could claim?
+    def _upgrade_eligible(self, collector, payload) -> bool:
+        """Is this document even a CANDIDATE for the upgrade path?
 
-        Deliberately narrow, in three ways:
+        This is the historical `_needs_visual_upgrade` gate, narrowed to
+        exactly the exclusions it always encoded (the caller has already
+        confirmed `visual_escalation`, a live document, and a Tesseract
+        source — see `process()`):
 
-        * **Tesseract only.** A native-text document that goes unclaimed is a
-          layout problem (discovery class 1), and re-reading perfect text with a
-          GPU cannot fix a missing parser.
         * **A live dispatch only.** On a D-3 analysis cache hit no dispatch
-          exists this run; guessing "unclaimed" there would escalate the entire
-          archive on every re-run. A cached payload means it analysed fine.
-        * **Not for parser crashes.** A claimed document whose parser then threw
-          is a parser defect (W3-1), not an OCR one, so it is left alone.
+          exists this run; guessing "unclaimed" there would escalate the
+          entire archive on every re-run. A cached payload means it analysed
+          fine.
+        * **Not for parser crashes.** A claimed document whose parser then
+          threw is a parser defect (W3-1), not an OCR one, so it is left
+          alone regardless of what the extraction-quality gate said about its
+          text.
+
+        Being a CANDIDATE is necessary but not sufficient: whether an
+        extractor actually runs is the router's `Escalation`, computed from
+        the offline read alone (`process()`'s `upgrade_candidate`) — a
+        Class-B (usable, unclaimed) candidate reaches this gate and is still
+        refused, because the router never admitted a trigger for it.
         """
-        if not self.visual_escalation or document is None:
-            return False
-        if source_path_for(document.model) != "local_tesseract":
-            return False
         if collector.seen:
             return collector.dispatch.outcome != "claimed"
         return payload is None
+
+    def _apply_budget(self, decision: Escalation) -> Escalation:
+        """The run's own pre-computed Class-A trigger population is a ceiling
+        ON TOP of the router's admission rules, never a substitute for them:
+        this only ever NARROWS a decision that already named an extractor,
+        and it narrows it to `None` rather than silently keeping the original
+        (a refused escalation is a named, recorded finding — see
+        `estimate_class_a_population` and `escalation_budget` above).
+        """
+        if decision.extractor is None:
+            return decision
+        if self.escalation_budget is not None and self.escalations_used >= self.escalation_budget:
+            return Escalation(
+                extractor=None, trigger=decision.trigger,
+                refused=("escalation_budget_exhausted",),
+            )
+        self.escalations_used += 1
+        return decision
 
     # -- one document -------------------------------------------------------
 
@@ -608,6 +821,58 @@ class DiscoveryRunner:
             # RECOVERY: exactly the `deferred_visual_ocr` class of tranche 2.
             # The mode exists to attempt these, so from here on the document can
             # no longer be deferred — it either reads or it fails, explicitly.
+            #
+            # P20-ROUTER. The offline ladder produced NOTHING (`document` is
+            # `None`), which is unambiguously Class A — `EvidenceQuality` for
+            # "no text produced" is unusable by construction, so this is the
+            # one call site that never needs the gate's other criteria. The
+            # router still decides, rather than the runner assuming, because
+            # it is also where the escalation-budget ceiling and the (today
+            # unreachable, structurally guarded) "visual already attempted"
+            # refusal live.
+            recovery_evidence = ExtractionQualityGate.assess(None, profile)
+            recovery_triggers = (
+                frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT, OPERATOR_FORCED_VISUAL})
+                | _profile_triggers(profile)
+            )
+            # `attempted=()` when `allow_local_ocr` is False would let `decide`
+            # name `local_tesseract` here — unreachable today, because every
+            # mode `visual_escalation` can be true in also has
+            # `allow_local_ocr=True` (`MODE_SCANNED_VISUAL in LOCAL_OCR_MODES`)
+            # — but worth naming: that shape would still fail CLOSED (the
+            # `!= "visual"` check below writes a terminal `escalation_refused`
+            # row rather than reading Tesseract pixels it was never asked to
+            # read), never open (P20-ROUTER review, MINOR-9).
+            recovery_decision = self._apply_budget(EscalationRouter.decide(router_inputs(
+                profile=profile, evidence=recovery_evidence, triggers=recovery_triggers,
+                attempted=("local_tesseract",) if self.allow_local_ocr else (),
+                stop=False,
+            )))
+            row.escalation_trigger = recovery_decision.trigger or ""
+            row.escalation_refused = "; ".join(recovery_decision.refused)
+            if recovery_decision.extractor != "visual":
+                # Refused (today only reachable via an exhausted budget): an
+                # explicit terminal failure, never a silent loss, exactly like
+                # a genuine OCR transport failure below.
+                #
+                # P20-ROUTER re-review, closure 49fe3fe, MINOR-11.
+                # `row.source_path` becomes `"none"` two lines below, which is
+                # NOT in `GATE_ASSESSED_SOURCES` — so `evidence_quality` is
+                # `"none"` here too, matching every other `source_path="none"`
+                # row and keeping `GATE_ASSESSED_SOURCES` the honest single
+                # answer to "which rows ever carry usable/unusable" (the
+                # gate's own verdict, `recovery_evidence`, is still the one
+                # `EscalationRouter.decide` acted on above — this only
+                # changes what the ROW reports, not the decision already
+                # made).
+                row.evidence_quality = "none"
+                row.visual_rung = VISUAL_NOT_ATTEMPTED
+                row.outcome_class, row.outcome_reason = "failed", "escalation_refused"
+                row.source_path = "none"
+                self._emit(row, profile, None, None, None, collector, timer,
+                           error_reason="escalation_refused")
+                row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+                return row
             with timer.time("visual_ocr"):
                 document, markdown, visual_error = self._read_visual(raw, name, profile)
             sheets = list(document.pages) if document is not None else None
@@ -634,39 +899,90 @@ class DiscoveryRunner:
         row.source_model = source["model"]
         row.truncated_pages = source["truncation"]["truncated_page_count"]
 
+        # P20-ROUTER item 2c. The extraction-quality verdict — and, for a
+        # Tesseract-sourced candidate, the router's UPGRADE decision — are
+        # computed from the offline read ALONE, right here, BEFORE `_analyse`
+        # runs below. `tests/test_escalation_router.py` proves the decision
+        # this produces is identical whether or not an intervening `_analyse`
+        # call happens at all: nothing about it depends on a dispatch or a
+        # payload. Whether it is ever ACTED on is a separate question,
+        # answered after `_analyse` by `_upgrade_eligible` (the historical
+        # cache-hit / parser-crash exclusions) — never by asking the router to
+        # reconsider once analysis has run.
+        #
+        # `_evidence_for_row` scopes the gate to `GATE_ASSESSED_SOURCES`
+        # (P20-ROUTER review, BLOCK-1): a native or committed-artifact read
+        # is reported `evidence_quality="none"` and is usable BY
+        # CONSTRUCTION for `classify_failure` — never assessed, never graded
+        # Class A.
+        evidence = _evidence_for_row(document, profile, row.source_path)
+        row.evidence_quality = (
+            ("usable" if evidence.usable else "unusable")
+            if row.source_path in GATE_ASSESSED_SOURCES else "none"
+        )
+        upgrade_candidate = None
+        if row.visual_rung == VISUAL_NOT_ATTEMPTED and self.visual_escalation and (
+            source_path_for(document.model) == "local_tesseract"
+        ):
+            upgrade_triggers = (
+                frozenset({EXTRACTOR_OUTPUT_UNUSABLE}) if not evidence.usable else frozenset()
+            )
+            upgrade_candidate = EscalationRouter.decide(router_inputs(
+                profile=profile, evidence=evidence, triggers=upgrade_triggers,
+                attempted=("local_tesseract",), stop=False,
+            ))
+
         with timer.time("analysis"):
             payload, error_type, analysis_cached = self._analyse(markdown, collector, sheets)
 
-        if self._needs_visual_upgrade(document, collector, payload):
+        if upgrade_candidate is not None:
+            # P20-ROUTER review, MINOR-9. The candidate's own verdict is
+            # recorded UNCONDITIONALLY — before the eligibility gate runs —
+            # so a Class-B document that happened to be claimed (excluded by
+            # `_upgrade_eligible` below) reports the same `no_admitted_
+            # trigger` refusal as one that was not: the column is comparable
+            # across every row a candidate was ever built for, not only the
+            # ones the historical exclusions let through.
+            row.escalation_trigger = upgrade_candidate.trigger or ""
+            row.escalation_refused = "; ".join(upgrade_candidate.refused)
+        if upgrade_candidate is not None and self._upgrade_eligible(collector, payload):
             # UPGRADE (discovery class 5): Tesseract produced text and no parser
             # could claim it. Read the pixels again with the visual rung and keep
             # that read ONLY if it analyses — in deterministic mode a payload
             # exists if and only if a parser claimed, so "it analysed" IS the
             # adoption test, and it stays correct on a D-3 cache hit where no
             # dispatch is observable.
-            with timer.time("visual_ocr"):
-                visual_doc, visual_md, visual_error = self._read_visual(raw, name, profile)
-            timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
-            row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
-            row.visual_rung = VISUAL_FAILED if visual_error else VISUAL_NO_UPGRADE
-            if visual_md is not None:
-                visual_collector = DispatchCollector()
-                visual_sheets = list(visual_doc.pages) if visual_doc is not None else None
-                with timer.time("visual_analysis"):
-                    visual_payload, visual_error_type, visual_cached = self._analyse(
-                        visual_md, visual_collector, visual_sheets
-                    )
-                if visual_payload is not None:
-                    row.visual_rung = VISUAL_UPGRADED
-                    document, markdown, collector = visual_doc, visual_md, visual_collector
-                    sheets = visual_sheets
-                    payload, error_type, analysis_cached = (
-                        visual_payload, visual_error_type, visual_cached
-                    )
-                    source = source_section(document)
-                    row.source_path = source["path"]
-                    row.source_model = source["model"]
-                    row.truncated_pages = source["truncation"]["truncated_page_count"]
+            decision = self._apply_budget(upgrade_candidate)
+            row.escalation_trigger = decision.trigger or ""
+            row.escalation_refused = "; ".join(decision.refused)
+            if decision.extractor == "visual":
+                with timer.time("visual_ocr"):
+                    visual_doc, visual_md, visual_error = self._read_visual(raw, name, profile)
+                timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
+                row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
+                row.visual_rung = VISUAL_FAILED if visual_error else VISUAL_NO_UPGRADE
+                if visual_md is not None:
+                    visual_collector = DispatchCollector()
+                    visual_sheets = list(visual_doc.pages) if visual_doc is not None else None
+                    with timer.time("visual_analysis"):
+                        visual_payload, visual_error_type, visual_cached = self._analyse(
+                            visual_md, visual_collector, visual_sheets
+                        )
+                    if visual_payload is not None:
+                        row.visual_rung = VISUAL_UPGRADED
+                        document, markdown, collector = visual_doc, visual_md, visual_collector
+                        sheets = visual_sheets
+                        payload, error_type, analysis_cached = (
+                            visual_payload, visual_error_type, visual_cached
+                        )
+                        source = source_section(document)
+                        row.source_path = source["path"]
+                        row.source_model = source["model"]
+                        row.truncated_pages = source["truncation"]["truncated_page_count"]
+                        evidence = _evidence_for_row(document, profile, row.source_path)
+                        row.evidence_quality = (
+                            "usable" if evidence.usable else "unusable"
+                        ) if row.source_path in GATE_ASSESSED_SOURCES else "none"
 
         # One detection sweep, read twice: for the near-miss vector (H-3) and,
         # on a cache-served row, for the parser identity the absent `Dispatch`
@@ -716,6 +1032,15 @@ class DiscoveryRunner:
             error_reason=_failure_reason(error_type, dispatch),
         )
         row.error_type = error_type
+        # P20-ROUTER. `evidence` above is the FINAL read of record (the
+        # upgrade adoption branch recomputes it); `payload is not None` is
+        # exactly "claimed" in deterministic mode (`analysis/pipeline.py`
+        # raises on every other resolve outcome — see `classify_failure`'s
+        # docstring and `tests/test_escalation_router.py`'s pin of that
+        # claim).
+        row.failure_class = classify_failure(
+            evidence, claimed=payload is not None, validated=row.outcome_class == "validated",
+        )
 
         # Cache disposition comes from CacheResult.cached, the same source
         # H-3 uses, so the CLI reports it identically to the webapp.
