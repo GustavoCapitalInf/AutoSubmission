@@ -203,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
             table.append({"sha16": token, "after": "no_text", "reason": "-"})
             continue
         with relaxed(args.mode, markdown):
-            _payload, klass, reason, claimed = replay_one(markdown, pages)
+            _payload, klass, reason, claimed = replay_one(markdown, pages, account_shape=True)
         table.append({"sha16": token, "before": rows[sha].get("outcome_class", ""),
                       "after": klass, "reason": reason, "claimed": claimed or "-"})
 

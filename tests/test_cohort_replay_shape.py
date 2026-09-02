@@ -161,12 +161,22 @@ def test_a_document_shaped_multi_account_baseline_reproduces_identical(tmp_path)
 
 
 # ---------------------------------------------------------------------------
-# 2. the reversion mutant (--account-shape standing in for the historical
-#    default) is killed: same cache, same cohort, exit 3 instead of 0
+# 2. the reversion mutant is killed at the function level; the CLI-level
+#    demonstration (P20REPLAYSHAPE review MAJOR-1) is now the refusal itself
+#    -- --account-shape can no longer even REACH the drift check under
+#    --expect-identical, because the combination is refused outright before
+#    any replay runs (a report from either shape used to be indistinguishable
+#    on a cohort that never touches a document-block sha)
 # ---------------------------------------------------------------------------
 
 
-def test_the_account_shape_reversion_mutant_is_killed(tmp_path):
+def test_account_shape_combined_with_expect_identical_is_refused(tmp_path):
+    """MAJOR-1 (`PHASE2_P20REPLAYSHAPE_REVIEW.md`): reproduced exactly as the
+    reviewer did -- `--folder "Huntington Bank" --expect-identical
+    --account-shape` used to exit 0 with a report byte-for-byte the shape of
+    a genuine fidelity proof. The combination is now refused before any
+    replay runs (`"BASELINE FIDELITY FAILED"` never appears -- there is
+    nothing to report yet)."""
     data_dir, run_dir, sha, _payload = _seed_multi_account_cache(tmp_path)
     shas_file = tmp_path / "shas.txt"
     shas_file.write_text(sha + "\n", encoding="utf-8")
@@ -176,8 +186,41 @@ def test_the_account_shape_reversion_mutant_is_killed(tmp_path):
         "--shas", str(shas_file), "--expect-identical", "--account-shape",
     )
     assert result.returncode == 3, result.stdout + result.stderr
-    assert "BASELINE FIDELITY FAILED" in result.stdout
-    assert sha[:16] in result.stdout
+    assert "--account-shape" in result.stdout
+    assert "--expect-identical" in result.stdout
+    assert "does not reproduce the run of record" in result.stdout
+    assert "BASELINE FIDELITY FAILED" not in result.stdout
+
+
+def test_the_selectors_line_and_json_stamp_the_replay_shape(tmp_path):
+    """MAJOR-1's second half: the shape that produced a report must be
+    nameable from the header line and the JSON alone -- an exit code or a
+    table shape cannot carry it, since both shapes print the same measures
+    on a cohort that never touches a document-block sha."""
+    data_dir, run_dir, sha, _payload = _seed_multi_account_cache(tmp_path)
+    shas_file = tmp_path / "shas.txt"
+    shas_file.write_text(sha + "\n", encoding="utf-8")
+
+    doc_json = tmp_path / "doc.json"
+    doc_result = _run_cohort_replay(
+        "--run", str(run_dir), "--data-dir", str(data_dir),
+        "--shas", str(shas_file), "--expect-identical", "--json", str(doc_json),
+    )
+    assert doc_result.returncode == 0, doc_result.stdout + doc_result.stderr
+    assert "shape=document" in doc_result.stdout
+    assert json.loads(doc_json.read_text(encoding="utf-8"))["shape"] == "document"
+
+    # `--account-shape` ALONE (no `--expect-identical`) is still legal --
+    # only the COMBINATION is refused (MAJOR-1) -- so this is the shape
+    # stamp's other value, not a second fidelity claim.
+    acct_json = tmp_path / "acct.json"
+    acct_result = _run_cohort_replay(
+        "--run", str(run_dir), "--data-dir", str(data_dir),
+        "--shas", str(shas_file), "--account-shape", "--json", str(acct_json),
+    )
+    assert acct_result.returncode == 0, acct_result.stdout + acct_result.stderr
+    assert "shape=account" in acct_result.stdout
+    assert json.loads(acct_json.read_text(encoding="utf-8"))["shape"] == "account"
 
 
 def test_replay_one_default_and_account_shape_disagree_on_the_multi_account_fixture():
@@ -348,3 +391,154 @@ def test_expect_identical_still_refuses_the_exactly_zero_case_with_its_own_messa
     )
     assert result.returncode == 3, result.stdout + result.stderr
     assert "0 of 1 shas resolved any cached text" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# 5. the runner's exact call: all four elements pinned (P20REPLAYSHAPE review
+#    MAJOR-2) -- parse_mode="deterministic" and sheets=pages were previously
+#    unpinned; both mutants are non-equivalent (M7 changes the answer on real
+#    documents; M11 silently reaches the hosted-model seam)
+# ---------------------------------------------------------------------------
+
+
+def test_replay_one_makes_the_runners_exact_call(monkeypatch):
+    """MAJOR-2: the runner's call
+    (`document_report_to_dict(analyze_document(markdown,
+    parse_mode="deterministic", on_dispatch=collector, sheets=pages))`) has
+    FOUR elements. Before this test only two were behaviourally pinned
+    (`analyze_document`/`document_report_to_dict` themselves, by the shape
+    tests; `on_dispatch` not None, by the Q3 gate tests) -- `parse_mode` and
+    `sheets` were pinned by nothing, and dropping either survives the whole
+    suite while changing the answer: M7 (drop `sheets`) changes the huntington
+    cohort's ladder (41 -> 38 preserved-identical, a BLOCKING regression);
+    M11 (drop `parse_mode`) silently reaches the hosted-model seam on real
+    unclaimed documents while returning an IDENTICAL class/reason, so a
+    full-archive `--expect-identical` would exit 0 while the `$0 vendor ...
+    no hosted model call anywhere` guarantee was gone. A spy on
+    `analysis.pipeline.analyze_document` proves all four in one call."""
+    import analysis.pipeline as pipeline
+    from tools.cohort_replay import replay_one
+
+    seen = {}
+    real = pipeline.analyze_document
+
+    def spy(markdown, **kw):
+        seen.update(kw)
+        return real(markdown, **kw)
+
+    monkeypatch.setattr(pipeline, "analyze_document", spy)
+    markdown, pages = _multi_account_markdown()
+    payload, klass, reason, _claimed = replay_one(markdown, pages)
+    assert payload is not None and klass == "validated"  # the spy did not break the call
+    assert seen["parse_mode"] == "deterministic"  # the offline / $0-vendor guarantee (M11)
+    assert seen["sheets"] == pages  # the analysis input hash's own page partition (M7)
+    assert seen["on_dispatch"] is not None  # the omission collector / _failure_reason source
+
+
+# ---------------------------------------------------------------------------
+# 6. --expect-unresolved N (P20REPLAYSHAPE review MAJOR-3, ruled): a fidelity
+#    proof must name the EXACT unresolved count, not a binary switch -- the
+#    archive names 29 structurally unreadable shas that no tree will ever
+#    resolve, so every full-archive --expect-identical must pass this
+# ---------------------------------------------------------------------------
+
+
+def test_expect_unresolved_pins_the_exact_count_n_minus_1_and_n_plus_1_refuse(tmp_path):
+    """Reproduces the reviewer's own shape (1 resolving sha + N permanently
+    unresolvable ones) with N = 29 -- the archive's own known-gap count --
+    and pins the boundary the ruling asks for: N-1 and N+1 both refuse
+    (exit 3); N passes (exit 0). `--expect-unresolved 29` is therefore the
+    exact form the closure's full-archive proof must use."""
+    data_dir, run_dir, sha, padding_rows, target_row = _build_scaffold(tmp_path)
+
+    n = 29
+    absent_rows = []
+    absent_shas = []
+    for i in range(n):
+        absent_sha = content_sha256(f"%PDF-1.7\nnever cached, expect-unresolved fixture {i}".encode())
+        absent_shas.append(absent_sha)
+        absent_rows.append(
+            f"{absent_sha},Synthetic,validated,approved,member_statement_rollup,native,not_attempted")
+    _write_run_dir(run_dir, rows=[*padding_rows, target_row, *absent_rows])
+
+    shas_file = tmp_path / "shas.txt"
+    shas_file.write_text("\n".join([sha, *absent_shas]) + "\n", encoding="utf-8")
+
+    def run_with(count):
+        return _run_cohort_replay(
+            "--run", str(run_dir), "--data-dir", str(data_dir),
+            "--shas", str(shas_file), "--expect-identical", "--expect-unresolved", str(count),
+        )
+
+    r_minus = run_with(n - 1)
+    assert r_minus.returncode == 3, r_minus.stdout + r_minus.stderr
+    assert "expected exactly 28" in r_minus.stdout
+    assert "got 29" in r_minus.stdout
+
+    r_exact = run_with(n)
+    assert r_exact.returncode == 0, r_exact.stdout + r_exact.stderr
+    assert "BASELINE FIDELITY FAILED" not in r_exact.stdout
+
+    r_plus = run_with(n + 1)
+    assert r_plus.returncode == 3, r_plus.stdout + r_plus.stderr
+    assert "expected exactly 30" in r_plus.stdout
+    assert "got 29" in r_plus.stdout
+
+    # The reviewer's own reproduction: plain --expect-identical (no opt-out
+    # at all) still refuses over the same cohort -- --expect-unresolved is
+    # additive, not a relaxation of the default.
+    plain = _run_cohort_replay(
+        "--run", str(run_dir), "--data-dir", str(data_dir),
+        "--shas", str(shas_file), "--expect-identical",
+    )
+    assert plain.returncode == 3, plain.stdout + plain.stderr
+
+
+def test_expect_unresolved_message_names_absent_and_no_text_separately(tmp_path):
+    """MINOR-3: `absent` (not in the run's own `rows.csv`) and `no_text` (the
+    run names the sha; no cached artifact answers) are different defects --
+    the refusal line must name both counts, not one merged number."""
+    data_dir, run_dir, sha, padding_rows, target_row = _build_scaffold(tmp_path)
+
+    no_text_sha = content_sha256(b"%PDF-1.7\nthe run names this one, nothing is cached for it")
+    no_text_row = f"{no_text_sha},Synthetic,validated,approved,member_statement_rollup,native,not_attempted"
+    absent_sha = content_sha256(b"%PDF-1.7\nthis one is not even in rows.csv")
+    _write_run_dir(run_dir, rows=[*padding_rows, target_row, no_text_row])
+
+    shas_file = tmp_path / "shas.txt"
+    shas_file.write_text("\n".join([sha, no_text_sha, absent_sha]) + "\n", encoding="utf-8")
+
+    result = _run_cohort_replay(
+        "--run", str(run_dir), "--data-dir", str(data_dir),
+        "--shas", str(shas_file), "--expect-identical",
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "1 not in the run" in result.stdout
+    assert "1 with no cached text" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# 7. MINOR-2: the exception path's classification is EQUIVALENT to calling
+#    classify_document(None, error_type=..., error_reason=...) directly --
+#    a structural fidelity improvement over the old hardcoded "failed", not
+#    a behavioural fix, pinned here rather than merely asserted in the W3
+# ---------------------------------------------------------------------------
+
+
+def test_replay_ones_exception_path_equals_classify_document_called_directly(monkeypatch):
+    from discovery.runner import _failure_reason
+    from telemetry.record import classify_document
+    from tools.cohort_replay import replay_one
+    import analysis.pipeline as pipeline
+
+    def boom(markdown, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(pipeline, "analyze_document", boom)
+    markdown, pages = _multi_account_markdown()
+    payload, klass, reason, _claimed = replay_one(markdown, pages)
+    assert payload is None
+
+    expected = classify_document(
+        None, error_type="RuntimeError", error_reason=_failure_reason("RuntimeError", None))
+    assert (klass, reason) == expected

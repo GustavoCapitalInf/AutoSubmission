@@ -104,7 +104,7 @@ def route(markdown: str, pages: list[str]) -> dict:
     # set: `cohort_replay.replay_one` is the same call `discovery.runner`
     # makes, with the same page partition, the same `classify_outcome` and the
     # same `_failure_reason` for the raise an unclaimed document produces.
-    _payload, klass, reason, _claimed = replay_one(markdown, pages)
+    _payload, klass, reason, _claimed = replay_one(markdown, pages, account_shape=True)
     out["outcome"] = f"{klass}/{reason}"
     return out
 
