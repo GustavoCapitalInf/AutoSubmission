@@ -510,6 +510,10 @@ def test_a_record_carries_only_declared_keys():
         "evaluated", "diagnostics_version", "primary_class", "classes", "codes",
         "adb_checks_failed", "integrity_flags", "summary_fields_absent",
         "counts", "unmapped",
+        # MAJOR-3 (PHASE2_P20SEAM_REVIEW.md): added by `build_record`
+        # alongside `diagnose_document`'s own closed taxonomy, not inside it
+        # — see `telemetry/record.py::build_record`'s "diagnostics" comment.
+        "source_path_unrecognized_model",
     }
 
 

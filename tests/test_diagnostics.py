@@ -515,10 +515,21 @@ def _record(payload, parser_id="chase") -> dict:
 
 
 def test_the_record_carries_the_diagnostics_section():
+    """MAJOR-3 (PHASE2_P20SEAM_REVIEW.md): `build_record` adds
+    `source_path_unrecognized_model` ALONGSIDE `diagnose_document`'s own
+    closed taxonomy (never a member OF it — it is read off `source`, not the
+    payload, and carries no `DIAGNOSTICS_VERSION`), so the record's
+    `diagnostics` key holds `DIAGNOSTICS_KEYS` PLUS that one extra key; the
+    inner `diagnose_document`/`empty_diagnostics` shapes stay exactly
+    `DIAGNOSTICS_KEYS` (`test_an_empty_diagnostic_reports_no_counts_rather_
+    than_zeros` above pins that directly)."""
     record = _record(_payload(integrity={"flags": ["summary_math_inconsistent"]}))
     assert record["outcome"]["class"] == "withheld"
-    assert set(record["diagnostics"]) == DIAGNOSTICS_KEYS
+    assert set(record["diagnostics"]) == DIAGNOSTICS_KEYS | {"source_path_unrecognized_model"}
     assert record["diagnostics"]["primary_class"] == "summary_identity"
+    # `_record`'s `source_section(None)` carries no model, so the fixture is
+    # never itself an unrecognised-model document.
+    assert record["diagnostics"]["source_path_unrecognized_model"] is False
 
 
 def test_a_validated_record_carries_an_empty_diagnostics_section():
@@ -528,7 +539,41 @@ def test_a_validated_record_carries_an_empty_diagnostics_section():
     )
     record = _record(payload)
     assert record["outcome"]["class"] == "validated"
-    assert record["diagnostics"] == empty_diagnostics()
+    assert record["diagnostics"] == {
+        **empty_diagnostics(),
+        "source_path_unrecognized_model": False,
+    }
+
+
+def test_an_unrecognized_model_token_surfaces_in_diagnostics():
+    """F-7 / MAJOR-3: the flag is TRUE end to end through `build_record`, not
+    just at the `source_path_unrecognized_model` predicate's own unit tests."""
+    import types
+
+    doc = types.SimpleNamespace(model="qwen2.5-vl-7b", pages=[], page_integrity=[])
+    payload = _payload(
+        metrics={"average_daily_balance": 100.0, "adb": {}},
+        quality={"corporate_use": "approved"},
+    )
+
+    class _Dispatch:
+        outcome = "claimed"
+        parser_id = "chase"
+        detection = None
+        candidates = ()
+        attempted = ()
+
+    record = build_record(
+        run_id="run-1",
+        emitter="batch",
+        document=document_section("A" * 64, 10, None),
+        source=source_section(doc),
+        dispatch=dispatch_section(_Dispatch(), [], 46, payload=payload),
+        stages={},
+        model_calls=[],
+        payload=payload,
+    )
+    assert record["diagnostics"]["source_path_unrecognized_model"] is True
 
 
 def test_the_rollup_is_failure_class_by_parser_by_volume():

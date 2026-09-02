@@ -65,18 +65,6 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred")
 DEFERRED_REASONS = ("deferred_scanned", "deferred_visual_ocr", "profile_only")
 SOURCE_PATHS = ("native", "local_tesseract", "visual", "none")
 
-#: F-7 closure: the closed set of model tokens `source_path_for` will call
-#: "visual". Before this, ANY model string that matched none of the other
-#: branches fell through to `"visual"` — correct only because the only rung
-#: that has ever produced an unrecognised token IS the visual one; a future
-#: extractor's model string (e.g. a `paddle+...` prefix) would have been
-#: silently mis-attributed to the GPU/paid path by the same fallthrough. The
-#: fallthrough now returns `"none"` for anything not explicitly named here,
-#: which is loud (see `source_path_unrecognized_model`) rather than a guess.
-#: PaddleOCR gets its own member in Phase 2.1, not this one (no PaddleOCR
-#: token here in Phase 2.0).
-VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})
-
 #: The outcome ladder, ranked worst to best. `discovery/compare.py::LADDER` is
 #: the same tuple and is the one the whole non-regression regime is measured
 #: on; it is not imported because `discovery` imports THIS module and a cycle
@@ -128,6 +116,34 @@ def new_run_id() -> str:
     return f"{utc_now_iso()}-{uuid.uuid4().hex[:8]}"
 
 
+#: F-7 closure: the closed set of model tokens `source_path_for` will call
+#: "visual". Before this, ANY model string that matched none of the other
+#: branches fell through to `"visual"` — correct only because the only rung
+#: that has ever produced an unrecognised token IS the visual one; a future
+#: extractor's model string (e.g. a `paddle+...` prefix) would have been
+#: silently mis-attributed to the GPU/paid path by the same fallthrough. The
+#: fallthrough now returns `"none"` for anything not explicitly named here,
+#: which is loud (see `source_path_unrecognized_model`) rather than a guess.
+#: PaddleOCR gets its own member in Phase 2.1, not this one (no PaddleOCR
+#: token here in Phase 2.0).
+#:
+#: Case-sensitive BY DESIGN, matching every other branch in
+#: `source_path_for` (`"local-tesseract-ocr"`, `"deterministic-native-
+#: preflight"` are exact, case-sensitive comparisons too — a parser or
+#: extractor never has reason to vary the case of its OWN constant token).
+#: `"baidu/unlimited-ocr"` (lowercase) is therefore an UNRECOGNISED token,
+#: not a case-insensitive match for the real one — the same defensive
+#: default as any other token this module has never seen, surfaced the same
+#: way (`source_path_unrecognized_model`), never silently normalised.
+#:
+#: Placed immediately above `source_path_for`, the function it belongs to
+#: (MINOR-4, PHASE2_P20SEAM_REVIEW.md) — cell A's `FAILURE_CLASSES` /
+#: `EXTRACTION_TRIGGERS` insert immediately after `SOURCE_PATHS` above,
+#: which is a different anchor, so the two cells no longer collide on the
+#: same line range at compose time.
+VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})
+
+
 def source_path_for(model: str | None) -> str:
     """Which intake rung produced the text, derived from StatementMarkdown.model.
 
@@ -135,10 +151,10 @@ def source_path_for(model: str | None) -> str:
     `on_stage` rung is the same fact but is only wired up in the worker.
 
     F-7 closure: the fallthrough is CLOSED, not a guess. `"visual"` is
-    returned only for a token in `VISUAL_MODEL_TOKENS`; any other
-    non-empty, unrecognised token returns `"none"` rather than being assumed
-    to be the visual rung — see `source_path_unrecognized_model` for the
-    companion predicate a caller can use to surface that as an explicit
+    returned only for a token in `VISUAL_MODEL_TOKENS` (case-sensitive); any
+    other non-empty, unrecognised token returns `"none"` rather than being
+    assumed to be the visual rung — see `source_path_unrecognized_model` for
+    the companion predicate a caller can use to surface that as an explicit
     diagnostic instead of a silent mis-attribution.
     """
     if not model:
@@ -354,28 +370,61 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     than a stale number. Prompt tokens are not captured anywhere in the
     platform today; they are `None`, never estimated from character counts
     (H3_SCHEMA §9).
+
+    OQ3 provenance (MAJOR-2, PHASE2_P20SEAM_REVIEW.md): every OCR-stage call
+    entry also carries `endpoint_class` and `remote_opt_in`, read from
+    `ocr.config.load_settings()` AT RECORD TIME — the identical pattern
+    `webapp.artifact_cache.ocr_settings_key` already uses (loaded fresh when
+    not supplied, so a caller that never itself touches the OCR service still
+    records correctly if `OCR_BASE_URL` / `OCR_REMOTE_OPT_IN` changed under
+    it). Deliberately NOT threaded through `StatementMarkdown`:
+    `ocr/document.py`'s object is the OCR RESULT (what text a rung produced),
+    not a place to carry an intake SETTING, and re-reading `load_settings()`
+    here is exactly as cheap as `ocr_settings_key`'s own re-read. The fields
+    describe the run's CURRENT endpoint configuration, not necessarily the
+    one THIS document's rung used (a native/local read touched no endpoint at
+    all) — recorded anyway on every OCR entry because OQ3's "recorded opt-in"
+    is a property of the RUN's audit trail, not only of a live network call.
+
+    F-7 (MAJOR-3): an unrecognised model token (`source_path_unrecognized_
+    model`) is reported the SAME shape as a visual read — one call per page,
+    completion tokens summed where reported — never silently downgraded to
+    `purpose: "none"` / `calls: 1`, which would under-report a real per-page
+    GPU read as a single untimed call. Its `purpose` is `"unrecognized_
+    model"`, distinct from both `"visual_ocr"` and every `source_path_for`
+    value, so a rollup can tell the three apart.
     """
     calls: list[dict] = []
-    if doc is not None and source_path_for(doc.model) == "visual":
-        reported = [getattr(page, "completion_tokens", None) for page in doc.pages]
-        known = [value for value in reported if value is not None]
-        calls.append({
-            "stage": "ocr",
-            "model": doc.model,
-            "purpose": "visual_ocr",
-            "calls": len(doc.pages),
-            "prompt_tokens": None,
-            "completion_tokens": sum(known) if known else None,
-        })
-    elif doc is not None:
-        calls.append({
-            "stage": "ocr",
-            "model": doc.model,
-            "purpose": source_path_for(doc.model),
-            "calls": 1,
-            "prompt_tokens": None,
-            "completion_tokens": None,
-        })
+    if doc is not None:
+        path = source_path_for(doc.model)
+        unrecognized = source_path_unrecognized_model(doc.model)
+        from ocr.config import load_settings as _load_ocr_settings
+
+        ocr_settings = _load_ocr_settings()
+        if path == "visual" or unrecognized:
+            reported = [getattr(page, "completion_tokens", None) for page in doc.pages]
+            known = [value for value in reported if value is not None]
+            calls.append({
+                "stage": "ocr",
+                "model": doc.model,
+                "purpose": "visual_ocr" if path == "visual" else "unrecognized_model",
+                "calls": len(doc.pages),
+                "prompt_tokens": None,
+                "completion_tokens": sum(known) if known else None,
+                "endpoint_class": ocr_settings.endpoint_class,
+                "remote_opt_in": ocr_settings.remote_opt_in,
+            })
+        else:
+            calls.append({
+                "stage": "ocr",
+                "model": doc.model,
+                "purpose": path,
+                "calls": 1,
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "endpoint_class": ocr_settings.endpoint_class,
+                "remote_opt_in": ocr_settings.remote_opt_in,
+            })
 
     model_used = (payload or {}).get("model_used") or ""
     # The same suffix `reconstructed_claim` reads, through the same constant:
@@ -624,5 +673,20 @@ def build_record(
         # `diagnose_document` is `diagnose` verbatim on an account payload and
         # the per-account union on a document one, so a record never carries
         # one account's diagnosis under the document's name.
-        "diagnostics": diagnose_document(payload, outcome_class),
+        #
+        # `source_path_unrecognized_model` (F-7 / MAJOR-3,
+        # PHASE2_P20SEAM_REVIEW.md) is added alongside `diagnose_document`'s
+        # own closed taxonomy, not INTO it: it is read straight off `source`
+        # (the already-built `source_section(doc)` dict this function
+        # receives, `source["model"]` being `doc.model` verbatim) rather than
+        # from the payload, so it is an orthogonal fact about PROVENANCE, not
+        # a member of the payload-derived check taxonomy `telemetry/
+        # diagnostics.py` owns and versions (`DIAGNOSTICS_VERSION`) — adding
+        # it there would mean a new taxonomy member with no check behind it.
+        "diagnostics": {
+            **diagnose_document(payload, outcome_class),
+            "source_path_unrecognized_model": source_path_unrecognized_model(
+                source.get("model")
+            ),
+        },
     }
