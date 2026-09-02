@@ -69242,3 +69242,120 @@ commits scanned (up from 30; this section's own commit added none), **MONEY/DIGI
 WORDS still 11** (this commit's own message introduced no new coincidental bigram). Secrets scan —
 still **0 / 0 / 0**. No gating count moved; only the two raw/volume figures grew, and only because this
 very row exists.
+
+# §P21PADDLE-LIVE — the owed live proof, over the real Vast.ai tunnel, host reachable again
+
+Ocean confirmed `nvidia-smi` reachable over SSH; ran the full documented lifecycle end to end
+against the real remote instance, at this worktree's tip going in (`db2ad95`, Paddle modules
+byte-identical to the composed `train11`). Synthetic fixtures ONLY. `PADDLE_REMOTE_OPT_IN` set
+ONLY in the environment of each command that needed it, never exported for the shell session.
+`PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` never set. Host did not drop mid-run — every step below
+completed on the first attempt, in order, no retries needed.
+
+## Lifecycle, run in order
+
+```
+check       -> versions_match_pins: true (paddleocr 3.7.0 / paddlepaddle 3.3.0), GPU identified
+deploy      -> mkdir_ok / scp_ok / self_check_ok all true; identity matches the D5 pins
+start       -> started: true, worker_port 8765 (token minted, written to <runtime_dir>/worker.token)
+tunnel-up   -> local_port 18765, pid recorded
+status      -> probe.available: true, reason "ok"; tunnel_running: true
+pytest -m live tests/test_paddle_live.py -> 1 passed, EXIT=0
+[a two-run evidence_sha256 stability probe, ad hoc, described below]
+stop + start (fresh restart, for a genuine cold measurement)
+                -> remote_output "stopped"; started: true again (token REUSED from file, no re-mint,
+                   no manual export -- MAJOR-4's no-manual-step lifecycle proven live)
+status      -> probe.available: true again after the restart
+measure --n-rows 8 --warm-requests 20 -> full report, see PADDLE_MEASUREMENTS.md (regenerated)
+stop        -> remote_output "stopped"
+tunnel-down -> stopped: true
+status (final) -> probe.available: false ("paddle_worker_unreachable"/URLError, expected --
+                   the worker process is gone), tunnel_running: false
+```
+
+Final `status` is the proof nothing was left running: the worker process on the remote host is
+confirmed gone (probe fails the way it is SUPPOSED to fail once stopped) and the local tunnel
+process is confirmed gone (`tunnel_running: false`, no `ssh.exe` process found locally afterward).
+
+## (1) MAJOR-4's remote half — the session token authenticates `/health`, `/version`, `/ocr`
+
+Proven, without any manual token step: `start` wrote the token to `<runtime_dir>/worker.token` and
+exported it to the remote worker's own environment; `status` (which calls `probe()`, a `/health`
+check) reported `available: true` / `reason: "ok"` immediately after `tunnel-up`, with no operator
+action between `start` and `status` other than running the next command in sequence. `measure`
+(which begins with `verify_identity` — a `/version` call — then 21 `/ocr` calls, 1 cold + 20 warm)
+completed all 22 authenticated requests with zero 401s. The SECOND `start` (after the mid-session
+`stop`) reused the SAME on-file token rather than minting a new one and authenticated identically —
+the exact "no undocumented manual step" behaviour MAJOR-4's fix promised, now proven against the
+real remote worker rather than only the offline `ocr.paddle_worker` HTTP server test.
+
+## (2) Real PP-OCRv5 inference under the token gate and the IHDR bounds; evidence_sha256 stability
+
+`tests/test_paddle_live.py::test_live_word_boxes_over_the_real_tunnel`: **1 passed**. It sends an
+8-row synthetic ledger page rasterised to PNG at the D5-pinned 300 dpi (the IHDR-bound rasteriser
+path already enforced offline — nothing about this live run bypasses it), reads back non-empty
+pages, a positive `word_count`, and the three pinned identity fields (`provider`,
+`execution_class`, `paddleocr_version`) on the returned evidence.
+
+The committed live test itself only asserts `document_sha256` stability across its two
+`read_document` calls (by design — PaddleOCR is not contractually required to be bit-identical run
+to run). To directly answer the coordinator's `evidence_sha256`-stability question, a separate ad
+hoc probe (not part of the committed suite, described here rather than added as a new file since it
+duplicates the live test's own call shape) called `read_document` twice more on the identical bytes
+and compared `result.evidence.evidence_sha256` directly:
+
+```
+run 1: BB28AD14B38ADDFF795038D0C93B824E80A3CFEE42A00F5CD1A1E674AE85605A
+run 2: BB28AD14B38ADDFF795038D0C93B824E80A3CFEE42A00F5CD1A1E674AE85605A
+stable: True   (word_count 36 / 36 both runs; runtime block identical both runs)
+```
+
+`evidence_sha256` was stable across both real, independent calls to the live worker in this run (the
+underlying PaddleOCR inference happened to be bit-identical on this synthetic fixture; the pipeline's
+own bookkeeping — the whitelist-built `runtime` block, MAJOR-1's fix — is what the hash actually
+depends on for stability, and it is unaffected by any run-to-run OCR variance that did not occur
+here).
+
+## (3) `PADDLE_MEASUREMENTS.md` regenerated entirely from `tools.paddle_vast measure`'s own instruments
+
+`docs/moneythumb-replacement/PADDLE_MEASUREMENTS.md` was rewritten in full — every number now comes
+from this run's own `measure --n-rows 8 --warm-requests 20` output (immediately after a fresh
+`stop`+`start`, so `cold` is a genuine cold model-load, not a re-measurement of an already-warm
+worker) plus the two-run stability probe above:
+
+* Identity: RTX 5090 (32,607 MiB, driver 580.173.02), PaddleOCR 3.7.0 / PaddlePaddle 3.3.0,
+  PP-OCRv5, `PP-OCRv5_server_det` / `en_PP-OCRv5_mobile_rec`, worker contract 1, Python 3.12.14 —
+  matches the D5 pins exactly.
+* Cold: end-to-end **5,208.3 ms**, inference-only **3,844.0 ms**. Warm (n=20): median **1,872.3
+  ms**, p95 **2,152.4 ms**.
+* Bytes: raw PNG **253,799** / actual `/ocr` wire body **338,489** / response **12,264**.
+* GPU (via the committed `_default_gpu_sampler`, polled every 5 requests over SSH — no hand
+  collection this time): memory used 7,692 / 32,607 MiB, utilization 0% at each sample (expected:
+  the pipeline serialises inference, so a between-request sample reads idle).
+* Local peak RSS: `"not measured (psutil not installed)"` — the honest fallback this instrument is
+  designed to report rather than a guess; `psutil` is not installed in this environment.
+* `measure`'s own wall time: **59.0 s**. Cost: **"rate not measured"** (no rate discoverable from
+  the instance and none supplied).
+* The file's ERRATUM section (three defects: an undocumented manual token-export step, a
+  mislabelled byte count, and hand-collected GPU/RSS figures) is GONE, replaced by a one-line
+  "Superseded" note pointing at this run as the reason every historical number is gone.
+
+## Risks and residual gaps (unchanged from the prior sections, restated for this run)
+
+* This is still one synthetic 8-row fixture at one dpi on one idle worker — not a load test, not a
+  measurement across fixture sizes, and still never the 13-document legal-escalation population
+  (D8; unauthorized without Gustavo's separate remote-data ruling, and that literal was never set
+  this run either).
+* `local_peak_rss_mib` remains unmeasured on this machine for lack of `psutil`; installing it was
+  out of this closure's scope (a dependency change, not a fix to Paddle code) and the instrument's
+  own graceful fallback was judged the correct behaviour to record rather than to work around.
+* GPU utilization sampling remains point-in-time between requests (MINOR-8's known limitation,
+  documented already) — it correctly reads near-zero and does not capture the burst during
+  inference itself; a future measurement wanting peak-during-inference utilization needs a
+  sampling loop concurrent with the request, not a poll between requests.
+
+## Commits (this section's own; the lifecycle run itself made no code changes)
+
+Only `docs/moneythumb-replacement/PADDLE_MEASUREMENTS.md` (regenerated) and this W3 section are
+touched by this pass — no `ocr/`, `tools/`, or `tests/` file changed, since the live run reproduced
+the existing, already-closed code exactly as documented; nothing here required a new fix.
