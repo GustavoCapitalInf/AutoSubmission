@@ -114,3 +114,105 @@ architecture. **Paddle must not become its own independent financial parser or v
 * **Completion gate and STOP:** the gate is enumerated in `docs/agent-handoffs/PHASE2-0-SAFETY.md`
   §Completion. When it is met, Phase 2.0 STOPS and the closure report goes to Gustavo; PaddleOCR
   (Phase 2.1) waits for his explicit approval.
+
+---
+
+# Phase 2.1 rulings and authorization (Gustavo, 2026-09-02) — BINDING
+
+```
+STATUS: RULED — recorded by Ocean (Fable 5.1) at the opening of Phase 2.1, before any implementation
+AUTHORITY: Gustavo, 2026-09-02, on approving the Phase 2.0 closure report (phase2.0-final = fc09631)
+FROZEN REGRESSION FLOOR: 2,625 / 3,380 (unchanged; batch9-final = 819d97d; Phase 2.0 cold run 2,625 -> 2,625)
+```
+
+Phase 2.0 is accepted, frozen, pushed, tagged and CI-green. Every Phase 2.0 invariant stays binding
+through Phase 2.1: the A/B/C failure separation; the independent `EscalationRouter`; the
+`ExtractionQualityGate`; the postprocess quarantine; the provenance-token restrictions; the endpoint
+policy; run-of-record artifact selection; the Q3 native-only gate; the no-hardcode protections; the
+SAME deterministic validator; the 2,625 floor. **Validator success may STOP escalation; validator
+failure may NEVER START escalation.**
+
+## RULING A — automatic hosted extraction: REFUSED
+
+Production auto mode may NOT route a Class B document to a hosted or remote extractor merely because
+dispatch was unclaimed, a parser declined, a parser crashed, the layout is unknown, the bank is
+unknown, or deterministic validation failed. This closes the ruling owed from Phase 2.0 on the
+pre-existing webapp auto-mode edge (`dispatch unclaimed / parser_exception -> extract_statement`):
+that edge is a Class B -> hosted-model path and is REFUSED as doctrine. Routing doctrine:
+
+* **Class A** (extraction failure) -> another explicitly allowed extractor may run ONLY because of an
+  independent extraction-quality trigger.
+* **Class B** (usable evidence, structural/layout failure) -> geometry / generalized reconstruction
+  on the SAME evidence. NOT another extractor.
+* **Class C** (financial validator failure) -> review / refuse. NO extractor escalation.
+
+No automatic local -> remote hop. No "parser failure -> hosted model" hop.
+
+## RULING B — the density criterion: SURFACE-ONLY
+
+The 23 density-surfaced documents remain SURFACE-ONLY. `density-surfaced != Class A`; a
+density-surfaced document MUST NOT schedule PaddleOCR. A future density trigger requires labelled
+evidence demonstrating a parameter-independent extraction-quality criterion, followed by independent
+review. (Continues the P20-ROUTER MAJOR-2 ruling of 2026-09-01.)
+
+## Current measurements that bind Phase 2.1 (Phase 2.0 run of record `TRAIN10-941918f/…-ef34ee30`)
+
+R = 13 · U = 123 · U-extract = 0 · U-structure = 123 · density-surfaced = 23 (surface-only, not
+routed) · **currently admitted extraction-escalation population = 13**. All 123 historical U documents
+are Class B under the admitted criteria. **The 123 U documents are NOT sent to Paddle because they are
+unclaimed. Paddle is not a retry mechanism for Class B.**
+
+## Phase 2.1 authorization — PADDLEOCR + CANONICAL WORD BOXES + DOCUMENTGEOMETRY, and nothing else
+
+Authorized: Phase 2.1 only. NOT authorized: Phase 2.2, Phase 2.3, Unlimited OCR, a generic parser
+expansion wave, processing the 123 U-structure population as a coverage wave, Trigger T live, the
+density criterion live, automatic hosted extraction, automatic Vast fallback, other automatic
+paid/cloud extractors, PP-Structure as truth, a silent PP-OCRv6 switch, character-level OCR fusion,
+confidence arbitration, validator-selected candidate values, candidate auto-adoption, new bank-specific
+parsers as the coverage strategy, distributed OCR workers, Kubernetes, unrelated product work.
+
+Objective: PaddleOCR -> immutable OCR evidence -> canonical word geometry -> `DocumentGeometry` ->
+reconstruction where appropriate -> the SAME deterministic validator; and native PDF word geometry ->
+the SAME `DocumentGeometry`. Paddle is an EXTRACTOR ONLY: it never decides transactions, signs,
+debit/credit, balances, ADB, account or statement validity, currency, financial confidence or
+`validated`. OCR confidence is annotation / routing / review highlighting only; it may never grant
+`validated`, override reconciliation, select a value, or choose whichever interpretation balances.
+Raw Paddle evidence is immutable; the postprocess quarantine stays; no candidate auto-adoption; the
+validator is not an optimizer. Q3 remains native-only. Model policy: PaddleOCR 3.7.0, PP-OCRv5, word
+boxes enabled; any v6 evaluation is a separate measurement/ruling.
+
+## The explicit Vast.ai authorization (Phase 2.1 development endpoint)
+
+* Provider **Vast.ai**; execution class **`remote_paid`**; GPU **NVIDIA GeForce RTX 5090 (32 GB)**;
+  PaddleOCR **3.7.0** on the PaddlePaddle GPU runtime; **PP-OCRv5**; `return_word_box=True`
+  PROVEN by a real inference (rec_texts / rec_scores / dt_polys / rec_polys / rec_boxes /
+  text_word_boxes / text_word; warm inference ~0.8 s). Not to be re-proven.
+* **Explicit opt-in only.** REMOTE + PAID + EXPLICITLY OPTED IN. Never automatic fallback: no silent
+  local -> Vast hop; no Class B -> Vast/Paddle routing; no Class C -> Vast/Paddle routing. The prior
+  "$0 paid inference" requirement does NOT apply to this explicitly approved development endpoint;
+  actual paid GPU usage is MEASURED instead.
+* **Connection configuration is runtime configuration, never source.** Host, SSH port and SSH user
+  come from the process environment (`PADDLE_VAST_HOST`, `PADDLE_VAST_SSH_PORT`,
+  `PADDLE_VAST_SSH_USER`, with `PADDLE_PROVIDER=vast.ai` and `PADDLE_EXECUTION_CLASS=remote_paid`);
+  they are never committed, never placed in tracked configuration or examples with real values, and
+  the runtime FAILS CLOSED when a required variable is absent — no guessed or default remote host.
+  SSH authentication uses the developer machine's existing key; no key is copied into the repository.
+* **Localhost does not mean local execution.** Through an SSH tunnel the client sees
+  `http://127.0.0.1:<port>`; the inference is still provider = Vast.ai, execution_class =
+  `remote_paid`. Execution class is never inferred from a URL's hostname; provenance describes where
+  inference physically occurred.
+* **Data privacy boundary.** No production customer bank statements are transmitted to Vast.ai
+  during Phase 2.1 unless Gustavo authorizes it separately. Remote integration and measurement use
+  synthetic fixtures, non-sensitive fixtures, public test images, or specifically approved development
+  data. SSH tunnelling does not change Vast.ai's classification as a third-party remote environment.
+  If real-customer remote processing becomes necessary: STOP and surface the requirement for a
+  separate remote-data / privacy / retention ruling. Authorization is never broadened independently.
+* Provenance / telemetry for every remote Paddle execution records where appropriate: provider,
+  execution class, GPU model, PaddleOCR version, PaddlePaddle version, OCR model / version, settings
+  key, extractor identity, remote execution status, runtime, usage, and cost where measurable.
+
+## Completion gate and STOP
+
+The Phase 2.1 completion gate is enumerated in `docs/agent-handoffs/PHASE2-1-PADDLE.md` §Completion.
+When it is met, Phase 2.1 STOPS and the closure report goes to Gustavo. Phase 2.2 does not begin.
+Unlimited OCR is not enabled.
