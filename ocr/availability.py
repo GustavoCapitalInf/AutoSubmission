@@ -149,11 +149,28 @@ def probe_visual_ocr(
     returning an iterable of model ids stands in for the HTTP round trip, so
     the default suite proves the policy without a server and without importing
     the model client at all.
+
+    MINOR-1 (PHASE2_P20SEAM_REVIEW.md): the OQ3 endpoint check runs explicitly
+    HERE, before ``list_models`` — injected or not — is ever called. Before
+    this, a refused endpoint's default path was gated only incidentally,
+    through ``_build_client`` inside the default ``list_models`` closure; an
+    injected ``list_models=`` (the test seam) bypassed the policy entirely,
+    since it never reaches ``_build_client`` at all. Now the seam is gated
+    the same way production is: refused before anything — real client or
+    injected fake — runs.
     """
     if settings is None:
         from .config import load_settings
 
         settings = load_settings()
+
+    from .endpoint_policy import EndpointRefused, check_endpoint, remote_opt_in_from_env
+
+    # MINOR-2: re-derived from the env literal, never trusted from
+    # `settings.remote_opt_in` — the same discipline `_build_client` uses.
+    decision = check_endpoint(settings.base_url, opt_in=remote_opt_in_from_env())
+    if not decision.allowed:
+        return _unreachable(settings, EndpointRefused(decision, settings.base_url))
 
     if list_models is None:
         # Imported here, not at module scope: modes that never use the visual

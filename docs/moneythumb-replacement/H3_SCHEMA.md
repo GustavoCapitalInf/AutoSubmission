@@ -126,7 +126,16 @@ same fail-closed discipline the financial core already uses.
   "models": {
     "calls": [
       {"stage":"ocr","model":"<ocr model id>","purpose":"visual_ocr",
-       "calls":4,"prompt_tokens":null,"completion_tokens":3871}
+       "calls":4,"prompt_tokens":null,"completion_tokens":3871,
+       "endpoint_class":"loopback","remote_opt_in":false}
+      // purpose is "unrecognized_model" (P20-SEAM MAJOR-3), not "none", for
+      // an OCR-stage call whose model token matches none of source_path_for's
+      // known branches — reported with the SAME per-page call/token shape as
+      // visual_ocr, never silently downgraded to calls:1. endpoint_class /
+      // remote_opt_in (OQ3, MAJOR-2) are on every OCR-stage call entry, read
+      // fresh from ocr.config.load_settings() at record time — the run's
+      // CURRENT endpoint configuration, not necessarily the endpoint THIS
+      // document's rung used (a native/local read touched no endpoint).
     ],
     "cost": {
       "currency":"USD",

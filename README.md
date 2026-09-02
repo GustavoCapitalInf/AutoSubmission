@@ -9,18 +9,26 @@ counts) and MCA/lender findings.
 
 ## How it runs
 
-The model runs on a GPU **elsewhere** — this machine is only the client:
+The model runs on a GPU **elsewhere** — this machine is only the client. The
+endpoint is policy-checked in code (`ocr/endpoint_policy.py`, OQ3 = ALLOWLIST):
+a loopback or private-network endpoint is used by default; a remote endpoint
+is refused unless you explicitly opt in (see below). There is exactly one
+endpoint per process — a failing local server never silently falls back to a
+remote one.
 
-- **Remote:** a rented **RunPod** NVIDIA GPU serving `baidu/Unlimited-OCR` via
-  vLLM's dedicated `vllm/vllm-openai:unlimited-ocr` image (exposes `/v1`).
-- **Local (AMD):** your **RX 7800 XT** box, via transformers + PyTorch-ROCm behind
-  a small OpenAI-compatible shim (`local_ocr_server.py`). vLLM/SGLang are CUDA-only
-  and Ollama/llama.cpp don't support this architecture, so transformers is the
-  route on RDNA3. Same client — only the base URL / key change. See
+- **Local (default, $0):** your own GPU box, via transformers + PyTorch-ROCm
+  behind a small OpenAI-compatible shim (`local_ocr_server.py`). Verified on
+  an AMD **RX 7800 XT** (vLLM/SGLang are CUDA-only and Ollama/llama.cpp don't
+  support this architecture, so transformers is the route on RDNA3). See
   [Serving locally on an AMD GPU](#serving-locally-on-an-amd-gpu-rx-7800-xt--rocm).
+- **Remote (optional, PAID — never automatic):** a rented **RunPod** NVIDIA
+  GPU serving `baidu/Unlimited-OCR` via vLLM's dedicated
+  `vllm/vllm-openai:unlimited-ocr` image (exposes `/v1`). See
+  [Optional PAID remote escape hatch](#optional-paid-remote-escape-hatch--never-automatic-runpod)
+  below — it requires an explicit `OCR_REMOTE_OPT_IN` and is refused without it.
 
-No OpenAI account or cost is involved; the `openai` package just speaks the same
-wire format your server exposes.
+No OpenAI account or metered cost is involved for the local path; the `openai`
+package just speaks the same wire format your server exposes.
 
 ## Setup (Python 3.12)
 
@@ -31,24 +39,11 @@ py -3.12 -m venv .venv
 
 Poppler must be installed (Windows: `C:\poppler-24.08.0\Library\bin`).
 
-## Serving the model (RunPod)
+## Serving locally on an AMD GPU (RX 7800 XT / ROCm) — the default
 
-Requires the dedicated image (the architecture isn't in a stable vLLM pip release):
-
-```
-Container image:        vllm/vllm-openai:unlimited-ocr
-Container start command: baidu/Unlimited-OCR --host 0.0.0.0 --port 8000 --trust-remote-code \
-                          --logits_processors vllm.model_executor.models.unlimited_ocr:NGramPerReqLogitsProcessor \
-                          --no-enable-prefix-caching --mm-processor-cache-gb 0
-Environment variables:  HF_HUB_DISABLE_XET=1
-Container disk:         60GB
-Expose HTTP ports:      8000
-GPU:                    any card with >=8GB VRAM (BF16)
-```
-
-## Serving locally on an AMD GPU (RX 7800 XT / ROCm)
-
-Runs `baidu/Unlimited-OCR` on your own GPU instead of RunPod — no per-hour cost.
+Runs `baidu/Unlimited-OCR` on your own GPU — $0, no per-hour cost, and the
+endpoint this project defaults to (`http://localhost:8000/v1` classifies as
+`loopback`, allowed by the endpoint policy with no opt-in required).
 `local_ocr_server.py` loads the model via its `trust_remote_code` `model.infer(...)`
 and exposes the same `/v1/chat/completions` the client already speaks, so the CLI
 and webapp work unchanged. Verified on an RX 7800 XT (gfx1101), ROCm 6.3/7.x,
@@ -96,14 +91,45 @@ Notes:
   *worse* (oversampling degrades the crop tiling). The prompt stays `Free OCR.` —
   the `<image>\n<|grounding|>…` markdown prompts return empty output on this model.
 
+## Optional PAID remote escape hatch — never automatic (RunPod)
+
+RunPod is documented ONLY as an explicit, deliberate, opt-in fallback for when
+no local GPU is available — never a production default and never something a
+failed local rung falls back to silently (OQ6 / OQ3). `ocr/endpoint_policy.py`
+classifies `*.runpod.net` (and every other public host) as `remote`, which the
+client refuses before building anything or sending a single byte UNLESS
+`OCR_REMOTE_OPT_IN` is set to the exact literal `I_ACCEPT_REMOTE_PAID_OCR`:
+
+```bash
+export OCR_BASE_URL="https://<pod-id>-8000.proxy.runpod.net/v1"
+export OCR_REMOTE_OPT_IN="I_ACCEPT_REMOTE_PAID_OCR"   # required for any remote host; omit it and the client refuses
+```
+
+The run's telemetry records `endpoint_class=remote` and `remote_opt_in=true`
+whenever this path is used, so a remote/paid read is always evidenced, never
+inferred. Requires the dedicated image (the architecture isn't in a stable
+vLLM pip release):
+
+```
+Container image:        vllm/vllm-openai:unlimited-ocr
+Container start command: baidu/Unlimited-OCR --host 0.0.0.0 --port 8000 --trust-remote-code \
+                          --logits_processors vllm.model_executor.models.unlimited_ocr:NGramPerReqLogitsProcessor \
+                          --no-enable-prefix-caching --mm-processor-cache-gb 0
+Environment variables:  HF_HUB_DISABLE_XET=1
+Container disk:         60GB
+Expose HTTP ports:      8000
+GPU:                    any card with >=8GB VRAM (BF16)
+```
+
 ## Configure the endpoint
 
 ```bash
-export OCR_BASE_URL="https://<pod-id>-8000.proxy.runpod.net/v1"   # or http://localhost:8000/v1
+export OCR_BASE_URL="http://localhost:8000/v1"                    # default: the local server, above
 export OCR_MODEL="baidu/Unlimited-OCR"                            # default
 export OCR_API_KEY="EMPTY"                                        # or the token your server expects
 # optional: OCR_TIMEOUT (default 120), OCR_RETRIES (default 3),
 #           OCR_NGRAM_SIZE (default 35), OCR_WINDOW_SIZE (default 128)
+# a remote host (e.g. RunPod, above) additionally requires OCR_REMOTE_OPT_IN
 ```
 
 `OCR_WINDOW_SIZE` should be raised (e.g. 1024) if you send multi-page/whole-document
@@ -114,6 +140,9 @@ requests instead of single pages.
 ```bash
 .venv/Scripts/python.exe parse.py "Bank Statements/Chase/Chase Salomon January.pdf" --out output/chase.md
 # flags: --out FILE (else stdout), --dpi N (default 300), --model NAME (override)
+# offline (native/local text) only by default; add --visual to allow the
+# local $0 OCR rung when the offline ladder cannot read the document —
+# probed and endpoint-checked before anything is sent.
 ```
 
 Output: one `.md` with a provenance comment header and pages separated by
@@ -124,10 +153,18 @@ stripped automatically, leaving clean text and HTML tables.
 
 A dark, 4-panel document viewer (original page images | markdown source |
 rendered markdown | analysis metrics) with a toolbar to upload PDFs, switch between documents, and
-download results. Easiest way to launch (PowerShell) — pass the current RunPod
-pod id and it derives the endpoint + key for you:
+download results. Default (local server, above):
 
 ```powershell
+.venv\Scripts\python.exe -m webapp.app
+```
+
+Using the optional PAID RunPod escape hatch instead — pass the current pod id
+and `run.ps1` derives the endpoint + key for you, but the endpoint policy
+still refuses it without the opt-in below:
+
+```powershell
+$env:OCR_REMOTE_OPT_IN = "I_ACCEPT_REMOTE_PAID_OCR"
 .\run.ps1 -PodId jy39vysntpffa0
 ```
 
@@ -137,6 +174,7 @@ plain `python` is the wrong interpreter — use the venv one so the deps resolve
 ```powershell
 $env:OCR_BASE_URL = "https://<pod-id>-8000.proxy.runpod.net/v1"
 $env:OCR_API_KEY  = "sk-<pod-id>"
+$env:OCR_REMOTE_OPT_IN = "I_ACCEPT_REMOTE_PAID_OCR"
 .venv\Scripts\python.exe -m webapp.app
 ```
 

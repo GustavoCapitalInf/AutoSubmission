@@ -1858,7 +1858,28 @@ def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object
 
     Validation order and error shape are D-2a's; O-1 adds the preflight
     profile and rejects password-protected PDFs before any parsing —
-    processing one could only ever fail later with a worse message."""
+    processing one could only ever fail later with a worse message.
+
+    MINOR-8 (PHASE2_P20SEAM_REVIEW.md): a multipart filename carrying a raw
+    CR/LF is refused HERE, first, with a class-name-only message — never the
+    raw filename echoed back (unlike every other branch below, which is safe
+    to echo because ordinary filenames carry no attack shape). Before this,
+    such a filename reached `ocr.document.StatementMarkdown.__post_init__`
+    deep inside the reading stage, which refuses it too (`ProvenanceTokenError`
+    on a line-break in `source_file`) — but as an opaque per-job failure
+    instead of a clean 400 at upload, and `_stage_failure` (`webapp/
+    worker.py`) already withholds that message from the job record, so the
+    only change here is WHERE the refusal happens, not what it reveals.
+
+    NEW-4 (re-review, closure 1cc759e): the same reasoning extends to `-->`,
+    which `StatementMarkdown.__post_init__` also refuses (the writer-side
+    belt) but this function did not — a filename like `a-->b.pdf` reached
+    the view (a raw `-->` does not corrupt multipart framing the way CR/LF
+    does) and then died as the same opaque per-job failure MINOR-8 fixed for
+    CR/LF. Refused here too, for consistency, with the identical
+    class-name-only shape."""
+    if "\r" in filename or "\n" in filename or "-->" in filename:
+        return None, None, {"error": "ProvenanceTokenError"}
     if len(pdf_bytes) > MAX_UPLOAD_BYTES:
         return None, None, {
             "error": f"file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",

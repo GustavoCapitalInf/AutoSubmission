@@ -88,8 +88,137 @@ def test_source_path_is_derived_from_the_document_model():
     assert source_path_for("native-pdf-text+navy-federal-layout") == "native"
     assert source_path_for("local-tesseract-ocr") == "local_tesseract"
     assert source_path_for("deterministic-native-preflight") == "none"
-    assert source_path_for("qwen2.5-vl-7b") == "visual"
+    assert source_path_for("baidu/Unlimited-OCR") == "visual"
     assert source_path_for(None) == "none"
+
+
+def test_source_path_fallthrough_is_closed_not_a_guess():
+    """P20-SEAM / F-7: an unrecognised model token is `"none"`, not `"visual"`.
+
+    Before the closure, ANY model string outside the three named branches fell
+    through to `"visual"` — correct by accident (the only rung that ever
+    produced an unrecognised token was the visual one), and silently wrong the
+    day a future extractor's token (e.g. a `paddle+...` prefix) reached this
+    function without its own branch. `qwen2.5-vl-7b` stands in for exactly
+    that: a plausible-looking model string that is not the registered visual
+    token and must not be assumed to be the visual rung.
+    """
+    from telemetry.record import VISUAL_MODEL_TOKENS, source_path_unrecognized_model
+
+    assert "qwen2.5-vl-7b" not in VISUAL_MODEL_TOKENS
+    assert source_path_for("qwen2.5-vl-7b") == "none"
+    assert source_path_unrecognized_model("qwen2.5-vl-7b") is True
+    assert source_path_unrecognized_model("baidu/Unlimited-OCR") is False
+    for recognized in (
+        "native-pdf-text", "native-pdf-text+navy-federal-layout",
+        "local-tesseract-ocr", "deterministic-native-preflight", None, "",
+    ):
+        assert source_path_unrecognized_model(recognized) is False, recognized
+
+
+def test_visual_model_tokens_matching_is_case_sensitive_by_design():
+    """MAJOR-3 (PHASE2_P20SEAM_REVIEW.md): a case variant of the registered
+    visual token is an UNRECOGNISED token, not a case-insensitive match for
+    the real one — the same discipline every other branch of
+    `source_path_for` already uses (`"local-tesseract-ocr"`,
+    `"deterministic-native-preflight"` are exact comparisons too)."""
+    from telemetry.record import source_path_unrecognized_model
+
+    for variant in ("baidu/unlimited-ocr", "BAIDU/UNLIMITED-OCR", "Baidu/Unlimited-Ocr"):
+        assert source_path_for(variant) == "none", variant
+        assert source_path_unrecognized_model(variant) is True, variant
+    assert source_path_for("baidu/Unlimited-OCR") == "visual"
+    assert source_path_unrecognized_model("baidu/Unlimited-OCR") is False
+
+
+def test_model_calls_for_records_endpoint_provenance_on_every_ocr_entry(monkeypatch):
+    """MAJOR-2 (PHASE2_P20SEAM_REVIEW.md): `endpoint_class` / `remote_opt_in`
+    are read from `ocr.config.load_settings()` AT RECORD TIME (the same
+    pattern `webapp.artifact_cache.ocr_settings_key` uses) and land on EVERY
+    OCR-stage call entry — native/tesseract/none included, not only visual."""
+    import types
+
+    from ocr.endpoint_policy import OCR_REMOTE_OPT_IN_ENV, OCR_REMOTE_OPT_IN_LITERAL
+
+    monkeypatch.setenv("OCR_BASE_URL", "https://foo.runpod.net/v1")
+    monkeypatch.setenv(OCR_REMOTE_OPT_IN_ENV, OCR_REMOTE_OPT_IN_LITERAL)
+
+    native_doc = types.SimpleNamespace(model="native-pdf-text", pages=["a"], page_integrity=[])
+    calls = model_calls_for(native_doc, None)
+    assert len(calls) == 1
+    assert calls[0]["purpose"] == "native"
+    assert calls[0]["endpoint_class"] == "remote"
+    assert calls[0]["remote_opt_in"] is True
+
+    monkeypatch.delenv(OCR_REMOTE_OPT_IN_ENV, raising=False)
+    monkeypatch.setenv("OCR_BASE_URL", "http://localhost:8000/v1")
+    calls = model_calls_for(native_doc, None)
+    assert calls[0]["endpoint_class"] == "loopback"
+    assert calls[0]["remote_opt_in"] is False
+
+
+def test_model_calls_for_degrades_two_fields_not_the_record_on_a_hostile_ocr_model(monkeypatch):
+    """NEW-6 (re-review, closure 1cc759e): `load_settings()` raises
+    `ProvenanceTokenError` for a hostile `OCR_MODEL` (BLOCK-1's own
+    closure). Every `_emit` call site wraps `build_record(...)` — which
+    calls `model_calls_for` — in `except Exception: pass` (H3_SCHEMA I4,
+    "cannot fail a job"), so an uncaught raise here would silently drop the
+    WHOLE telemetry record for a document that otherwise processed fine.
+    `model_calls_for` must instead degrade only `endpoint_class` /
+    `remote_opt_in` to `None` and still return the rest of the call entry."""
+    import types
+
+    monkeypatch.setenv("OCR_MODEL", "evil-model\n")  # BLOCK-1's own hostile shape
+    native_doc = types.SimpleNamespace(model="native-pdf-text", pages=["a"], page_integrity=[])
+
+    calls = model_calls_for(native_doc, None)  # must not raise
+
+    assert len(calls) == 1
+    assert calls[0]["model"] == "native-pdf-text"
+    assert calls[0]["purpose"] == "native"
+    assert calls[0]["endpoint_class"] is None
+    assert calls[0]["remote_opt_in"] is None
+
+
+def test_model_calls_for_reports_unrecognized_model_honestly():
+    """MAJOR-3: an unrecognised OCR token is reported the SAME shape as a
+    visual read (one call per page, completion tokens summed) under
+    `purpose: "unrecognized_model"` — never `purpose: "none"` / `calls: 1`,
+    which would under-report a real per-page GPU read as one untimed call,
+    and never `purpose: "visual_ocr"` either (it is not the registered
+    token)."""
+    import types
+
+    page_a = types.SimpleNamespace(completion_tokens=100)
+    page_b = types.SimpleNamespace(completion_tokens=150)
+    page_c = types.SimpleNamespace(completion_tokens=150)
+    page_d = types.SimpleNamespace(completion_tokens=100)
+    unrecognized_doc = types.SimpleNamespace(
+        model="qwen2.5-vl-7b", pages=[page_a, page_b, page_c, page_d], page_integrity=[],
+    )
+    visual_doc = types.SimpleNamespace(
+        model="baidu/Unlimited-OCR", pages=[page_a, page_b, page_c, page_d], page_integrity=[],
+    )
+
+    unrecognized_calls = model_calls_for(unrecognized_doc, None)
+    visual_calls = model_calls_for(visual_doc, None)
+
+    assert len(unrecognized_calls) == 1
+    call = unrecognized_calls[0]
+    assert call["purpose"] == "unrecognized_model"
+    assert call["purpose"] not in ("none", "visual_ocr")
+    assert call["calls"] == 4
+    assert call["completion_tokens"] == 500
+
+    # Same shape as the visual read, differing only in `purpose` and `model`.
+    assert visual_calls[0]["purpose"] == "visual_ocr"
+    assert visual_calls[0]["calls"] == call["calls"] == 4
+    assert visual_calls[0]["completion_tokens"] == call["completion_tokens"] == 500
+
+    # MAJOR-2: endpoint provenance is on THIS branch too, not only the
+    # native/tesseract/none branch.
+    assert "endpoint_class" in call and "remote_opt_in" in call
+    assert "endpoint_class" in visual_calls[0] and "remote_opt_in" in visual_calls[0]
 
 
 def test_truncation_distinguishes_not_assessed_from_clean():

@@ -64494,3 +64494,777 @@ lines, so the second pass matched on whitespace rather than on a literal.
 Eleven open questions now stand in §6 of the audit document. The first three
 still gate any Phase-2 implementation card: the rewrite pair, whether the
 no-hardcodes guard extends to `ocr/`, and whether the `$0` policy becomes code.
+
+# §P20SEAM — the provenance-injection path closed, the $0 endpoint allowlist enforced in code, four legacy OCR scripts retired
+
+Card `docs/agent-handoffs/P20-SEAM.md` (Phase 2.0 cell B2). Base `train10` at
+`bea06bc`; branch `wave20-seam`, worktree `.claude/worktrees/mt20-seam`; closure
+tree `28f75d7` (+ this section's own commit). Hygiene card: `newly validated =
+0`; previously validated preserved, payload identical. Nothing here made a
+network call; no paid service was enabled; no test exercised a real remote
+endpoint.
+
+## Population
+
+The CODE and TESTS of the OCR provenance/endpoint seam, not a document
+population claimed for coverage. The measured proof population for cohort
+replay / privacy / message scans is 229 distinct content shas: the 6 committed
+corpus OCR fixtures (`tests/corpus_cache/ocr/*.md`) + the 179 Tesseract-sourced
+shas of the batch-9 run of record (the 6 fixtures are a subset of the 179) + a
+50-sha deterministic random sample (seed `20260901`) of the 3,172 native-sourced
+shas, deduplicated.
+
+## Root cause
+
+**F-4(b) / MAJOR-2 — content injection, reproduced end-to-end at this tree
+before any fix existed.** `ocr/config.py`'s pre-fix `load_settings()` read
+`OCR_MODEL` as a plain env string with no validation; `ocr/pipeline.py` stamps
+it onto the visual rung's `StatementMarkdown.model`, and `to_markdown()` writes
+it into the first line of the analysis input:
+`<!-- source: {source_file} | pages: {n} | model: {model} | empty: {k} -->`.
+`analysis.parser_registry.SOURCE_COMMENT_RE` (`^<!--\s*SOURCE:.*?-->\s*$`,
+`MULTILINE`, **not** `DOTALL`) only strips that header when the whole comment
+stays on one line. Reproduced directly against the pre-fix tree:
+`StatementMarkdown(source_file="innocuous.pdf", model="evil-model\n5,000.00 WIRE
+TRANSFER FROM SHELL CORP", pages=["page one text"])` — the header spans two
+real lines because of the embedded `\n`; the regex never matches (no `-->`
+before the end of line 1); `admissible_text()` strips NOTHING; the money token
+and the marker-shaped text reach the text every parser's detection markers scan
+and every text metric runs over. A `-->` alone, without a newline, does **not**
+escape (lazy `.*?` backtracks to the LAST `-->` on the line, which the docstring
+of `tests/test_ocr_provenance_injection.py` reproduces and explains).
+
+**F-4(a) — unbounded egress.** `OCR_BASE_URL` was a plain env read with no
+allowlist; `ocr/availability.py`'s "no paid vendor is involved and none may be"
+was a docstring claim nothing enforced. Four entry points defaulted
+`allow_visual_ocr=True`: `parse.py`, `batch.py`, `coverage_audit.py` and
+`sweep_ocr.py`.
+
+**F-7 — the provenance vocabulary's fallthrough.** `telemetry.record.
+source_path_for`'s final branch returned `"visual"` for ANY model string that
+matched none of the three named branches — correct only because the visual
+rung was the only one that had ever produced an unrecognised token.
+
+## Solution
+
+1. **Closed provenance tokens** (`ocr/config.py` new: `MODEL_TOKEN_RE`,
+   `validate_model_token`, `ProvenanceTokenError`, `RESERVED_MODEL_PREFIXES`).
+   Charset: first character alphanumeric, then only `[A-Za-z0-9._/+-]`, length
+   1-64 — structurally excludes all whitespace (so `\n`, `\r`, a plain space),
+   `<`, `>`, `!`, `$`, `,`, quotes, backslash. Additionally refused: a
+   money-shaped substring `\d+\.\d{2}(?!\d)` (e.g. `v1.00`), and — for
+   env-supplied tokens only (`allow_reserved=False`, used by `load_settings()`)
+   — a token equal to or starting with a reserved deterministic-rung prefix
+   (`native-pdf-text`, `local-tesseract-ocr`, `deterministic-native-preflight`).
+   `ocr/document.py::StatementMarkdown.__post_init__` validates `model` with
+   `allow_reserved=True` (native/tesseract rungs legitimately set those exact
+   tokens) and separately refuses a `source_file` containing `\r`/`\n`; every
+   other hostile shape in `source_file` (a money literal, `-->`, `<`, `>`, a
+   marker string) is ACCEPTED but proven to leave no trace in `admissible_text`
+   because the whole header line still strips out as long as it stays on one
+   line. `to_markdown()` itself is untouched — validation happens at
+   construction, so every valid token stays byte-identical in the header.
+2. **`ocr/endpoint_policy.py` (new)** — OQ3 = ALLOWLIST in code.
+   `classify_endpoint(base_url)` → `loopback` / `private` / `remote` /
+   `invalid` (scheme + host only, no network call). `check_endpoint(base_url,
+   *, opt_in)`: loopback/private allowed by default; remote allowed ONLY when
+   `opt_in` is True; invalid never. `remote_opt_in_from_env()` reads ONE env
+   var, `OCR_REMOTE_OPT_IN`, against the ONE exact literal
+   `I_ACCEPT_REMOTE_PAID_OCR` — not a truthy check. `ocr/ocr_client.py
+   ::_build_client` (the ONLY hunk of that file this card touches) calls
+   `check_endpoint(settings.base_url, opt_in=settings.remote_opt_in)` BEFORE
+   importing `openai` or constructing anything, and raises `EndpointRefused`
+   on refusal; `ocr.availability.probe_visual_ocr`'s default path reaches this
+   through `_build_client`, so the probe inherits the same refusal. `Settings`
+   gains `endpoint_class` / `remote_opt_in` as DESCRIPTIVE fields
+   (auto-derived from `base_url` in `__post_init__` when not given) — the
+   enforcement re-derives the class fresh from `base_url` rather than trusting
+   the field, so a hand-built `Settings` cannot spoof its way past the check.
+   There is exactly one endpoint per process: `_build_client` builds one
+   client for one `base_url`, no fallback list, no retry against a second
+   host. `telemetry/prices.py` unchanged: `price_for` on an unpriced/remote
+   model still returns `None`, never a guessed price.
+3. **`source_path_for` fallthrough closed** (`telemetry/record.py`, touching
+   ONLY that function and its new helper, per ownership). New closed
+   `VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})`; the final
+   branch returns `"visual"` only for a token in that set, `"none"`
+   otherwise. New `source_path_unrecognized_model(model)` predicate a caller
+   can use to surface the mis-attribution as an explicit diagnostic (the
+   literal wiring of that flag into a persisted record's `diagnostics` block
+   is outside this cell's file ownership — see Risks). `SOURCE_PATHS` itself
+   is unchanged; no PaddleOCR token added.
+4. **Legacy entry points retired (OQ7).** `triage_scan.py`'s `CHECKS` dict
+   salvaged into `tests/test_ocr_defect_signatures.py` (9 tests): 5 of 7
+   signatures proven closed by the postprocess function that replaces them
+   (`strip_det_tags`, `strip_placeholder_markers`, `split_fused_header_row`,
+   `collapse_repeated_amounts`, `fix_amount_column_bleed`); 2 with no detector
+   (bare `[image]`-style bracket placeholders, a fully empty
+   `<table></table>`) recorded honestly as known, undetected defects rather
+   than silently dropped. `sweep_ocr.py`, `triage_scan.py`,
+   `coverage_audit.py`, `deterministic_coverage_audit.py` deleted (`git rm`).
+   `parse.py` and `batch.py` now default `allow_visual_ocr=False` and gain an
+   explicit `--visual` flag that probes (`ocr.availability.probe_visual_ocr`,
+   which runs the OQ3 check via `_build_client`) before ever passing
+   `allow_visual_ocr=True`; a refusal prints one console line to stderr and
+   exits non-zero (parse.py: 3; batch.py: 1) with nothing sent.
+   `local_ocr_server.py`, `serve_local.sh`, `run.ps1`,
+   `requirements-local.txt` stay (the $0 vendor).
+5. **README (OQ6).** The RunPod section is retitled "Optional PAID remote
+   escape hatch — never automatic", states the exact opt-in literal, and notes
+   the run records `endpoint_class=remote` / `remote_opt_in=true` whenever
+   that path is used; the local $0 server section is now presented first, as
+   the documented default.
+
+## Newly validated
+
+**0.**
+
+## Other ladder movement
+
+**0** (up or down, outside the named population).
+
+## Previously validated preserved
+
+**75 of 75**, payload identical, at BOTH base (`bea06bc`) and closure
+(`28f75d7`) — the two cohort-replay sha lists (previously-validated and
+unchanged-non-validated) are IDENTICAL between the two runs, member for
+member.
+
+## Regressions
+
+**0** validated regressions. **0** other ladder regressions.
+
+## Correctness evidence
+
+The base-tree reproduction above (the money-shaped literal survived
+`admissible_text` completely, unstripped, with the pre-fix tree) is now closed
+at construction: `StatementMarkdown(model="evil-model\n5,000.00 WIRE TRANSFER
+FROM SHELL CORP", ...)` raises `ocr.config.ProvenanceTokenError` before
+`to_markdown()` is ever called — pinned as
+`test_the_base_tree_reproduction_is_now_refused_at_construction`. Cohort
+replay at base and at closure over the 229-sha population: exit 0 both times,
+`newly validated 0`, `previously validated preserved 75/75 payload identical`,
+`validated regressions 0` — identical between the two trees.
+
+## Generalization evidence
+
+The closure is a closed CHARSET plus two named additional refusals (money
+shape, reserved-prefix impersonation), not a blocklist of the audit's specific
+reproduction string — it refuses every hostile SHAPE the card names (a
+newline, CRLF, `-->`, `<`, `>`, a money literal, a bank/parser-marker string, a
+`<|det|>` tag, a `<!-- source:` fragment, whitespace, an over-length token) for
+BOTH `OCR_MODEL` and `source_file`, including inputs never seen in the audit.
+The endpoint policy is equally general: it classifies by URL structure
+(scheme + host), not by a list of known-bad hosts, so it refuses `*.runpod.net`
+and every other public name or IP the same way without naming any of them.
+
+## Hostile inputs tested
+
+For both `OCR_MODEL` (via `load_settings`, both `--model` override and the env
+var) and `source_file` (via `StatementMarkdown` construction): `\n`, `\r\n`,
+`-->`, `<`, `>`, a money literal (`v1.00`), a bank/parser-marker string
+(`analysis.chase.DETECTION_MARKERS`'s own "bank_name" marker text, mirrored),
+a `<|det|>` tag, a `<!-- source: ...` fragment, whitespace, an over-length
+token (65 chars against the 64-char limit). Plus six single-property ISOLATED
+variants (`ISOLATED_HOSTILE_MODEL_INPUTS`) so a mutant reopening exactly one
+hole is killed for that reason and not by an unrelated forbidden character
+riding along in the same fixture. Plus four reserved-prefix impersonation
+attempts (`native-pdf-text`, `native-pdf-text+fake-layout`,
+`local-tesseract-ocr`, `deterministic-native-preflight`) via env override.
+
+## Endpoint classes tested
+
+`loopback` (`localhost`, `127.0.0.1`, `127.255.255.255`, `[::1]`), `private`
+(`192.168.x.x`, `10.x.x.x`, `172.16.x.x`, `169.254.x.x` link-local, `[fe80::1]`
+link-local, `[fc00::1]` ULA, `*.local` names), `remote` (`*.runpod.net`, a
+public IP, a public domain), `invalid` (unparseable, non-http(s) scheme, empty,
+no host). All four decision paths of `check_endpoint` exercised (loopback/
+private allowed without opt-in; remote refused without opt-in and allowed
+with it; invalid never allowed, opt-in or not).
+
+## Mutation table (10/10 killed, applied one at a time on the committed tree, reverted with `git checkout HEAD -- <file>`, `git status --porcelain` clean before and after each)
+
+| mutant | how introduced | killer | result |
+|---|---|---|---|
+| charset allows `\n` | `MODEL_TOKEN_RE` widened to `[A-Za-z0-9._/+\-\n]` with `DOTALL` | `test_isolated_hostile_property_alone_is_refused[newline]` | DID NOT RAISE → red; killed |
+| charset allows `>` | `MODEL_TOKEN_RE` widened by adding `>` (dash kept literal-last) | `test_isolated_hostile_property_alone_is_refused[angle_close]` (+`comment_close`) | DID NOT RAISE → red; killed |
+| reserved prefix accepted from env | `load_settings()`'s `validate_model_token(raw_model, allow_reserved=False)` flipped to `True` | `test_env_value_impersonating_a_native_rung_is_refused` | DID NOT RAISE → red; killed |
+| `source_file` with `\n` accepted | the line-break `if` in `StatementMarkdown.__post_init__` short-circuited to `if False:` | `test_hostile_source_file_line_break_refused[newline]`/`[crlf]` | DID NOT RAISE → red; killed |
+| `check_endpoint` returns allowed for `remote` without opt-in | the `if opt_in:` guard replaced with `if True:` | `test_remote_without_opt_in_is_refused` (CASE 8) | `allowed=True` → red; killed |
+| `OCR_REMOTE_OPT_IN=1` accepted | `remote_opt_in_from_env` changed to `bool(source.get(...))` | `test_remote_opt_in_requires_the_exact_literal` (7 of 9 parametrizations) | truthy strings accepted → red; killed |
+| `_build_client` constructed before `check_endpoint` | `OpenAI(...)` moved before the `check_endpoint` call | `test_build_client_refuses_remote_before_importing_openai` | `openai` imported despite refusal → red; killed |
+| loopback failure retried against a second URL | `_build_client` builds a second, hardcoded-URL client unconditionally | `test_probe_never_retries_against_a_second_host` (+`test_build_client_allows_loopback_and_constructs_a_client`) | a second `base_url` appears in the recorded calls → red; killed |
+| `source_path_for` returns `"visual"` for `paddle+x` | the fallthrough's `return "none"` changed to `return "visual"` | `test_source_path_fallthrough_is_closed_not_a_guess` | `qwen2.5-vl-7b` classified `"visual"` → red; killed |
+| `parse.py` defaults `allow_visual_ocr=True` | the CLI's `allow_visual_ocr = False` initializer flipped to `True` | `test_main_default_is_offline_only` | `seen["allow_visual_ocr"] is True` → red; killed |
+
+## Deleted scripts and every reference removed
+
+`git rm`: `sweep_ocr.py`, `triage_scan.py`, `coverage_audit.py`,
+`deterministic_coverage_audit.py`, `tests/test_deterministic_coverage_audit.py`.
+`git grep -n "import sweep_ocr\|import triage_scan\|import coverage_audit\|
+import deterministic_coverage_audit\|from sweep_ocr\|from triage_scan\|from
+coverage_audit\|from deterministic_coverage_audit" -- '*.py'` → 0 hits (after
+also fixing `tests/test_revenue_classification.py`'s
+`from coverage_audit import _status as coverage_status`, inlined
+byte-identical, and the two tests in `tests/test_native_text_unreadable.py`
+that called `deterministic_coverage_audit.audit_file` directly, removed —
+`text_layer_refusal` itself stays fully covered by the tests immediately above
+them; nothing in the current production runtime path consumed the deleted
+script's CSV row). `corpus_gate.EXCLUDED_ANALYSIS_CALLERS` entries for both
+scripts removed (their absence would otherwise fail
+`test_every_production_caller_of_the_analysis_is_classified`'s `stale` check).
+`tests/test_native_rung_parity.py::LADDER_BINDINGS` drops
+`deterministic_coverage_audit` (the AST scan derives the binding list from the
+repository, so a deleted consumer left in the dict fails the pin). Remaining
+mentions of the four filenames anywhere in the tree are historical prose in
+docstrings/comments of OTHER cards' committed records (`analysis/chase.py`,
+`analysis/extract.py`, `tests/test_extraction_refusal_is_private.py`,
+`tests/test_raise_privacy3.py`, `tests/test_raise_privacy4.py`) — none are
+imports, none are executable, left untouched as another card's frozen record.
+Known follow-on, not fixed here (outside this cell's file ownership):
+`tools/ocr_legacy_census.py`'s `COMPONENTS` tuple still names the four retired
+paths, so `python tools/ocr_legacy_census.py --tree` now exits 2 ("a declared
+component path does not exist in this tree") — that tool is unowned by any
+Phase-2.0 cell and unwired into any test.
+
+## Tests added
+
+117 new tests across three new files: `tests/test_ocr_provenance_injection.py`
+(62), `tests/test_ocr_endpoint_policy.py` (46), `tests/test_ocr_defect_
+signatures.py` (9). Plus 4 new tests in `tests/test_cli.py` (default
+offline-only, `--visual` refused, `--visual` allowed, `None`-document fail
+closed) and 1 new test in `tests/test_telemetry.py`
+(`test_source_path_fallthrough_is_closed_not_a_guess`). Minus 2 removed from
+`tests/test_native_text_unreadable.py` and 4 removed with
+`tests/test_deterministic_coverage_audit.py`. Net **+116**, matching the full
+suite's measured delta exactly (7,931 − 7,815 = 116).
+
+## Exit codes (verbatim, this tree, `28f75d7`)
+
+- Targeted files (`test_ocr_provenance_injection.py`,
+  `test_ocr_endpoint_policy.py`, `test_ocr_defect_signatures.py`,
+  `test_telemetry.py`, `test_native_rung_parity.py`,
+  `test_native_text_unreadable.py`, `test_cli.py`, `test_ocr_client.py`,
+  `test_pipeline.py`, `test_discovery.py`, `test_visual_rung.py`,
+  `test_filename_boundary.py`, `test_privacy3_boundaries.py`,
+  `test_document.py`, `test_truncation.py`, `test_corpus_gate_outcomes.py`,
+  `test_revenue_classification.py`): **820 passed, 13 deselected — exit 0**.
+- The 5 canonical guards + 7 canonical conformance files: **1,537 passed, 41
+  skipped — exit 0**.
+- Full default suite: **7,931 passed, 44 skipped, 35 deselected, 1 warning in
+  290.77s — exit 0** (base floor at `bea06bc`/`7b25d70`: 7,815 passed / 44
+  skipped / 35 deselected; net +116, all new, 0 lost).
+- `python corpus_gate.py`: **GREEN — exit 0**. 109 pinned PDFs (103 native
+  text, 6 committed OCR, 0 live OCR, 0 model calls); outcomes 105 PASS / 3
+  WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3
+  withheld — identical to the batch-9 floor. Runtime 959.9s (host shared with
+  several concurrent cells this session).
+- `pytest -m corpus`: **31 passed, 7,979 deselected — exit 0** (1,939.18s,
+  host contention).
+- `tools.cohort_replay` at base (`bea06bc`) and at closure (`28f75d7`), same
+  229-sha population, `--expect-identical` at base: **exit 0 both times**,
+  identical results (`newly validated 0`, `previously validated preserved
+  75/75 payload identical`, `validated regressions 0`).
+
+## Privacy / message scan
+
+`tools.privacy_scan_branch --base bea06bc --ref HEAD --shas <229-sha
+population>`: `hit_count: 0` (raw hits 3, all WORDS-class generic-vocabulary
+coincidences — "a two-word phrase from a docstring/comment", not a document
+value — excluded by the tool's own `words_class` rule; MONEY/DIGITS/DATES all
+0).
+`tools.huntington_msg_privacy_scan --base bea06bc --ref HEAD --shas <same
+229-sha population>`: `hit_count: 1`, class WORDS only — a conventional-commit
+TYPE PREFIX word (the `chore(...)` subject-line convention) coincidentally
+matching common printed vocabulary somewhere in the 229-document population;
+MONEY / DIGITS / DATES all **0**. No commit message quotes a document value,
+an amount, a date or a digit run from the archive.
+
+## Commits
+
+`e61f928` fix(ocr): close the OCR_MODEL/source_file provenance-injection path
+and enforce the $0 endpoint allowlist (F-4, OQ3) · `b8e7da5` fix(telemetry):
+close source_path_for's visual fallthrough (F-7) · `615a617` chore(ocr):
+finish retiring coverage_audit.py / deterministic_coverage_audit.py (OQ7) ·
+`4a74d14` fix(cli): parse.py / batch.py default offline-only; --visual is the
+explicit probed opt-in (F-4a, OQ7) · `2785fd7` test(ocr): hostile-input
+regression suite for the provenance closure and endpoint policy (P20-SEAM) ·
+`d7659dd` docs(readme): relabel RunPod as the optional PAID escape hatch,
+never automatic (OQ6) · `28f75d7` test(ocr): isolate one hostile property per
+fixture for honest mutation-table kills · plus this section's own commit.
+
+## Risks
+
+1. **`VISUAL_MODEL_TOKENS` is deliberately narrow** (only the configured
+   default, `baidu/Unlimited-OCR`). Any OTHER legitimately-configured visual
+   model name (a real vLLM server serving a different HF model id via
+   `OCR_MODEL`) is now classified `source_path="none"` with
+   `source_path_unrecognized_model=True` rather than `"visual"`, until
+   explicitly added to the set — stricter than today's de facto behaviour for
+   any non-default `OCR_MODEL`. This is the ruled, fail-closed design (F-7);
+   flagged because it is a real behaviour change for a hypothetical
+   non-default deployment, even though it touches ZERO documents in the
+   run of record (0 visual reads exist).
+2. **`source_path_unrecognized_model`'s wiring into a persisted record's
+   `diagnostics` block is exposed, not consumed.** This cell owns ONLY
+   `source_path_for` and its helpers in `telemetry/record.py`; the literal
+   `source_path_unrecognized_model: true` diagnostic field the card describes
+   requires wiring into `source_section`/`build_record`/`diagnose_document` —
+   outside this cell's file ownership (likely cell A's, which owns
+   `FAILURE_CLASSES`/`EXTRACTION_TRIGGERS` and the diagnostics vocabulary in
+   the same module). Flagged for Ocean to route.
+3. **`tools/ocr_legacy_census.py` now exits 2 if run** (its `COMPONENTS`
+   tuple still names the four retired scripts). Unowned by any Phase-2.0 cell,
+   unwired into any test — a documented follow-on, not a regression.
+4. **No concern about a ruled decision.** Every design point in
+   `docs/agent-handoffs/P20-SEAM.md` was implementable as specified; nothing
+   here reads as incorrect for a correctness reason.
+
+## Closure — independent adversarial review response (verdict BLOCK, closed)
+
+`docs/moneythumb-replacement/reviews/PHASE2_P20SEAM_REVIEW.md` fetched from
+`train10` at `0c72a48` (`git show`, never merged). Every finding was
+reproduced by the reviewer before this cell touched anything; every finding
+below was re-reproduced on `wave20-seam` before its fix, per Ocean's
+instruction. Closure tree `e60a08d`.
+
+### BLOCK-1 — `MODEL_TOKEN_RE`'s `^...$` anchor accepted a trailing newline
+
+**Reproduced:** `validate_model_token("evilmodel\n", allow_reserved=False)`
+returned the token (no raise); `load_settings(model_override="evilmodel\n")`
+and the `OCR_MODEL` env path both accepted it; `test_block1_trailing_
+newline_reproduction_is_refused_at_construction` and 8 other parametrized
+cases (`ISOLATED_HOSTILE_MODEL_INPUTS`/`HOSTILE_MODEL_INPUTS`
+`"trailing_newline"` / `"trailing_newline_overlength"`) added FIRST and run
+red against the unfixed regex: **9 failed** (`DID NOT RAISE
+ProvenanceTokenError`). **Fixed:** `MODEL_TOKEN_RE` re-anchored `\A...\Z`
+(`ocr/config.py`). **Killer:** the same 9 tests, green after
+(`tests/test_ocr_provenance_injection.py`, 71 passed). Mutation-table row
+added: "anchor relaxed to `^...$`" — reverting the fix on the committed tree
+and re-running reproduces the same 9 failures.
+
+### MAJOR-1 — the endpoint allowlist had no look-alike-hostname test
+
+**Reproduced:** the reviewer's mutants R2 (`"localhost" in host` →
+loopback) and R9 (`".local" in host` → private) survived the whole
+46-test `tests/test_ocr_endpoint_policy.py` file, because no test case
+named a look-alike hostname. **Fixed:** no code change was needed (the
+shipped `host == "localhost"` / `host.endswith(".local")` were already
+exact); five cases added to `test_classify_endpoint`'s table:
+`localhost.evil.com`, `evil.com.localhost`, `x.local.evil.com`,
+`10.0.0.1@evil.com`, `localhost@evil.com` → all `remote`. **Killer,**
+re-verified on the closure tree: R2 mutant → `test_classify_endpoint[http://
+localhost.evil.com/v1-remote]` and `[...evil.com.localhost...]` fail; R9
+mutant → `[...evil.com.localhost...]` and `[...x.local.evil.com...]` fail.
+
+### MAJOR-2 — the OQ3 opt-in was recorded nowhere a reader could see it
+
+**Reproduced:** `grep -rn "endpoint_class\|remote_opt_in" --include=*.py
+telemetry/ discovery/ webapp/ tools/` → 0 hits at `df0e637`; the README
+sentence claiming the run's telemetry records both fields was false.
+**Fixed:** `telemetry.record.model_calls_for` now reads
+`ocr.config.load_settings()` at record time (the identical pattern
+`webapp.artifact_cache.ocr_settings_key` uses) and stamps `endpoint_class` /
+`remote_opt_in` on EVERY OCR-stage call entry — native/tesseract/none
+included, not only visual. **Killer:** `test_model_calls_for_records_
+endpoint_provenance_on_every_ocr_entry` (native branch) and `test_model_
+calls_for_reports_unrecognized_model_honestly`'s added assertion (visual/
+unrecognized branch); re-verified by deleting the `"endpoint_class"` line
+from each branch in turn on the closure tree — 1 test failed per branch,
+each time the one naming that branch, confirming the first attempt (which
+only exercised the native branch) had a real gap, closed in the same round.
+The README sentence is now true rather than retracted.
+
+### MAJOR-3 — F-7's "visible defect" had no reader, and quietly degraded visual-rung telemetry
+
+**Reproduced:** `source_path_unrecognized_model` had zero callers anywhere
+in the tree; `model_calls_for(unrecognized_doc, None)` reported
+`purpose:"none", calls:1, completion_tokens:None` for a real 4-page
+unrecognised-model read, instead of the per-page shape a visual read gets.
+**Fixed:** (a) `build_record`'s `"diagnostics"` value is now
+`{**diagnose_document(payload, outcome_class), "source_path_unrecognized_
+model": source_path_unrecognized_model(source.get("model"))}` — added
+ALONGSIDE `diagnose_document`'s own closed, versioned taxonomy, never a
+member of it; (b) `model_calls_for` reports an unrecognised token the SAME
+shape as visual (one call per page, completion tokens summed) under
+`purpose: "unrecognized_model"` — distinct from both `"none"` and
+`"visual_ocr"`; (c) `VISUAL_MODEL_TOKENS` documented as case-sensitive BY
+DESIGN and moved to immediately above `source_path_for` (MINOR-4, below).
+**Killer:** four closed-key pins moved to admit the new diagnostics key —
+`tests/test_diagnostics.py` (2), `tests/test_telemetry_corpus.py` (1
+default-suite, 1 corpus-marked, found by the full suite and the
+corpus-marked slice respectively, AFTER the first three were already
+green — see "Two more pins the proof floor itself caught" below),
+`tests/test_document_outcome.py` (1); `test_an_unrecognized_model_token_
+surfaces_in_diagnostics` (new) proves `True` end to end through
+`build_record`; `test_model_calls_for_reports_unrecognized_model_honestly`
+proves the per-page shape and the distinct purpose;
+`test_visual_model_tokens_matching_is_case_sensitive_by_design` proves
+`"baidu/unlimited-ocr"` (and two other case variants) stay unrecognised.
+Mutation-verified: reverting (a) → 4 tests fail; reverting the `purpose`
+branch in (b) → 1 test fails with the exact wrong value; making the match
+in (c) case-insensitive → 1 test fails.
+
+### MINOR-1 — `probe_visual_ocr` didn't call `check_endpoint`; the injected `list_models` seam was ungated
+
+**Fixed:** `probe_visual_ocr` now calls `check_endpoint` explicitly at the
+top, before `list_models` — injected or the default `_build_client`
+closure — is ever invoked. **Killer (new test, reproduced first):**
+`test_probe_gates_an_injected_list_models_seam_too` — an injected lister
+that would happily return a model list is never invoked for a refused
+endpoint; reverting the explicit call on the closure tree (`if False: pass`
+in place of the `check_endpoint`/refusal block) makes this the ONE red test
+in the combined 265-test endpoint-policy + visual-rung + privacy3 run.
+
+### MINOR-2 — `remote_opt_in` was trusted from the field, not re-derived
+
+**Fixed:** `_build_client` and `probe_visual_ocr` both call
+`remote_opt_in_from_env()` fresh at the point of enforcement, never
+`settings.remote_opt_in`. **Killer:** `test_remote_opt_in_field_cannot_
+spoof_the_real_check` (new) and `test_build_client_allows_remote_with_
+opt_in` (updated to require the REAL env var, not the field) — re-verified
+by reverting `_build_client`'s `remote_opt_in_from_env()` call to
+`settings.remote_opt_in` on the closure tree: 4 tests fail (refuses-before-
+import, constructs-nothing, endpoint-class-spoof, remote-opt-in-spoof — the
+class re-derivation and opt-in re-derivation share the same call site, so a
+single revert exercises both proofs).
+
+### MINOR-3 — the "before importing openai" order proof was order-dependent
+
+**Fixed:** nothing in production code; `test_build_client_constructs_
+nothing_after_a_refusal` (new) monkeypatches `openai.OpenAI` with a
+construction-counting sentinel and asserts `constructions == []` after a
+refusal — order-independent, unlike the original `had_openai` check (which
+degrades to "an exception was raised" once some earlier test has already
+imported `openai`). Both tests are kept; the new one is the stronger claim.
+
+### MINOR-4 — `VISUAL_MODEL_TOKENS` sat in cell A's insertion zone
+
+**Fixed:** the constant moved from immediately after `SOURCE_PATHS` to
+immediately above `source_path_for`, the function it belongs to. Not
+independently re-verifiable via `git merge-tree` against `wave20-router`
+(that branch is not a local ref in this worktree and this cell does not
+fetch other cells' branches); the fix is mechanical and Ocean's own compose
+step is the authoritative check.
+
+### MINOR-5 — the cloud metadata address (IMDS) classified `private`
+
+**Fixed:** `169.254.169.254` and `fd00:ec2::254` excluded from `private`
+regardless of the general link-local/ULA rule, always classifying `remote`
+(refused without the explicit opt-in). **Killer:** two new
+`test_classify_endpoint` cases; re-verified by removing the `_IMDS_
+ADDRESSES` check on the closure tree — both fail (`private` instead of
+`remote`).
+
+### MINOR-6 — `urlsplit` silently stripped `\t\r\n`, classifying a different string than the client is handed
+
+**Fixed:** `classify_endpoint` refuses (`invalid`) any `base_url` containing
+a raw tab/CR/LF BEFORE calling `urlsplit`. **Killer:** three new
+`test_classify_endpoint` cases; re-verified by removing the control-
+character check on the closure tree — all three fail (the stripped string
+classifies `loopback`/whatever the cleaned host would be, not `invalid`).
+
+### MINOR-7 — `::ffff:`-mapped IPv4 and CGNAT classification were interpreter-dependent
+
+**Fixed:** `ip.ipv4_mapped` normalised explicitly before classification;
+`100.64.0.0/10` (CGNAT, RFC 6598) forced `remote` explicitly regardless of
+`ipaddress.IPv4Address.is_private`. Three new `test_classify_endpoint`
+cases (`::ffff:127.0.0.1` → loopback, `::ffff:10.0.0.1` → private,
+`100.64.0.1` → remote) pass on this tree. **Honestly reported, not a false
+kill:** removing either explicit check on this host (Python 3.14.5) does
+**not** turn any test red — measured directly:
+`ipaddress.ip_address("::ffff:127.0.0.1").is_loopback` is already `True`
+and `ipaddress.ip_address("100.64.0.1").is_private` is already `False` on
+this interpreter, so 3.14's own delegation happens to produce the same
+answer with or without the explicit code. The explicit checks remain
+correct and are exactly the fix the review asked for (the classification is
+this module's decision, not the interpreter's, per the review's own note
+that this delegation changed across 3.12 patch releases and CI pins 3.12) —
+but their ABSENCE is not independently observable in THIS test environment,
+and reporting a kill that did not happen would be worse than reporting the
+gap.
+
+### MINOR-8 — two new message-quoting sinks carried more than the class name
+
+**Fixed:** `batch.py`'s CSV `error` cell changed from `f"{type(e).__name__}:
+{e}"` to `type(e).__name__` (`traceback.print_exc()` still prints full
+detail to the console). `webapp/app.py::_checked_upload` (ownership
+granted, minimal) refuses a filename containing `\r`/`\n` with
+`{"error": "ProvenanceTokenError"}` — no filename echoed — before any other
+check. **Reproduced/killed:** `tests/test_batch.py` (new file) — reverting
+the CSV line back to the old f-string makes `test_error_cell_carries_the_
+class_name_only` fail with the sensitive fixture text visible in the
+assertion diff. `tests/test_webapp_app.py` (2 new tests) — reverting the
+CR/LF check makes `test_checked_upload_refuses_a_filename_with_a_line_
+break` fail (falls through to `"PDF could not be read"` WITH the raw
+filename echoed). Measured and disclosed: a raw CRLF inside a multipart
+`Content-Disposition` filename corrupts the framing itself (the same two
+bytes are the section delimiter), so werkzeug's own test-client encoder
+cannot reliably carry this shape through an HTTP-level test either — tested
+at the `_checked_upload` function level directly instead.
+
+### Writer-side belt (§3) — `source_file` also refuses a comment-close sequence
+
+Not the closure (the closure is the READER bounding its own `model` field —
+cell D's `analysis/provenance.py`, named here as the dependency the
+reviewer asked to have stated): `StatementMarkdown.__post_init__` now also
+refuses `-->` in `source_file`. Zero cost, measured as a standing proof
+rather than a one-off: `test_no_run_of_record_source_file_contains_a_
+comment_close` (new, `@pytest.mark.corpus`) reads the batch-9 run of
+record's `rows.csv` and asserts none of its 3,506 `relative_path` values
+contains `-->` — passed (32 corpus-marked tests total, exit 0). Two hostile
+`source_file` fixtures (`"evil-->.pdf"`, `"<!-- source: injected.pdf
+-->.pdf"`) moved from the ACCEPTED set to the REFUSED set accordingly.
+
+### Two more pins the proof floor itself caught (not in the review, found by re-running the floor)
+
+`build_record`'s new diagnostics key broke two more closed-key comparisons
+the review's file-scoped reproduction could not see: `tests/test_document_
+outcome.py::test_the_record_is_unchanged_for_a_single_account_payload`
+(caught by the FULL default suite: 7,962 passed / 1 failed, then 7,963
+passed / 0 failed) and `tests/test_telemetry_corpus.py::test_withheld_
+diagnostics_reproduce_the_documented_diagnosis` (caught only by
+`pytest -m corpus`: 31 passed / 1 failed across all 109 corpus PDFs, then
+32 passed / 0 failed). Recorded here because the report contract asks for
+what was actually run, not what was planned — the review's own
+reproduction was scoped to files it read; the full proof floor caught what
+that scope could not.
+
+### Full re-run of the mutation table (cell's original 10 + reviewer's R1–R9 + this round's new mutants)
+
+Every mutant below applied alone to the COMMITTED closure tree
+(`e60a08d`), target test file run in full without `-x`, restored with a
+file-level revert (`cp`/`mv` backup or an exact reverting edit), `git
+status --porcelain` verified clean before and after each:
+
+| # | mutant | result on the closure tree |
+|---|---|---|
+| 1 | charset allows a mid-string `\n` | KILLED — `test_isolated_hostile_property_alone_is_refused[newline]` |
+| 2 | charset allows `>` | KILLED — `[angle_close]`/`[comment_close]` |
+| 3 | reserved prefix accepted from env | KILLED — `test_env_value_impersonating_a_native_rung_is_refused` |
+| 4 | `source_file` `\n` accepted | KILLED — `test_hostile_source_file_line_break_or_comment_close_refused[newline]`/`[crlf]` |
+| 5 | `check_endpoint` allows remote without opt-in | KILLED — 5 tests incl. `test_remote_without_opt_in_is_refused` |
+| 6 | `OCR_REMOTE_OPT_IN` truthy | KILLED — 7 parametrizations |
+| 7 | `_build_client` client before `check_endpoint` | KILLED — 2 tests (order-independent now, MINOR-3) |
+| 8 | second hardcoded fallback client | KILLED — 3 tests |
+| 9 | `source_path_for` fallthrough to `"visual"` | KILLED — `test_source_path_fallthrough_is_closed_not_a_guess` |
+| 10 | `parse.py` defaults `allow_visual_ocr=True` | KILLED — `test_main_default_is_offline_only` |
+| BLOCK-1 | anchor relaxed `\A…\Z` → `^…$` | KILLED — 9 tests (see BLOCK-1 above) |
+| R2 (MAJOR-1) | `"localhost" in host` | KILLED — 2 `test_classify_endpoint` cases |
+| R4 | `__post_init__` validates even when `model==""` | KILLED — `test_every_accepted_model_token_header_strips_whole[]` |
+| R5 | `endpoint_class` trusted (nonsense base_url) | KILLED — 4 tests |
+| R9 (MAJOR-1) | `".local" in host` | KILLED — 2 `test_classify_endpoint` cases |
+| MINOR-2 | `remote_opt_in` trusted from field | KILLED — 4 tests (shares R5's call site) |
+| MINOR-5 | IMDS check removed | KILLED — 2 `test_classify_endpoint` cases |
+| MINOR-6 | control-char check removed | KILLED — 3 `test_classify_endpoint` cases |
+| MINOR-7a | `ipv4_mapped` normalisation removed | SURVIVED on this host (Python 3.14.5) — see MINOR-7 above; interpreter already delegates correctly |
+| MINOR-7b | explicit CGNAT check removed | SURVIVED on this host — same reason |
+| MINOR-1 | `probe_visual_ocr`'s explicit check removed | KILLED — `test_probe_gates_an_injected_list_models_seam_too` |
+| MAJOR-2a | `endpoint_class`/`remote_opt_in` dropped from native branch | KILLED — `test_model_calls_for_records_endpoint_provenance_on_every_ocr_entry` |
+| MAJOR-2b | `endpoint_class` dropped from visual/unrecognized branch | KILLED — `test_model_calls_for_reports_unrecognized_model_honestly` (after strengthening; see MAJOR-2 above) |
+| MAJOR-3a | `unrecognized_model` purpose reverted to `"none"`/`calls:1` | KILLED — `test_model_calls_for_reports_unrecognized_model_honestly` |
+| MAJOR-3b | `source_path_unrecognized_model` dropped from `build_record`'s diagnostics | KILLED — 4 tests across 3 files |
+| MAJOR-3c | `VISUAL_MODEL_TOKENS` matched case-insensitively | KILLED — `test_visual_model_tokens_matching_is_case_sensitive_by_design` |
+| MINOR-8a | `batch.py` CSV error reverted to `f"{type(e).__name__}: {e}"` | KILLED — `test_error_cell_carries_the_class_name_only` |
+| MINOR-8b | `_checked_upload`'s CR/LF check removed | KILLED — `test_checked_upload_refuses_a_filename_with_a_line_break` |
+| belt | `-->` refusal removed from `source_file` | KILLED — 2 tests |
+
+**R1, R3, R7, R8** (order-dependent check-before-import, reserved-prefix-
+single-branch, netloc/userinfo, any-scheme-accepted) were re-verified as
+still passing their ORIGINAL killers on the closure tree via the full
+targeted-suite run below (1,090 passed) rather than re-mutated individually
+in this round, since none of the code paths they exercise changed shape in
+this round beyond what mutants 5–8 and MINOR-1/2 already re-confirm at the
+same call sites.
+
+### Targeted suite, guards, full floor (this round, closure tree `e60a08d`)
+
+- Targeted files (provenance injection, endpoint policy, defect signatures,
+  telemetry, diagnostics, telemetry-corpus, native rung parity, native text
+  unreadable, cli, batch, webapp app, ocr client, pipeline, discovery,
+  visual rung, filename boundary, privacy3 boundaries, document, truncation,
+  corpus gate outcomes, revenue classification, model label, + the 5
+  canonical guards): **1,090 passed, 16 deselected — exit 0**.
+- Full default suite: **7,963 passed, 44 skipped, 36 deselected — exit 0**
+  (net +32 over the pre-review-response tree's 7,931, after the two
+  proof-floor-caught pin fixes above).
+- `python corpus_gate.py`: **GREEN — exit 0**, identical to the batch-9
+  floor (105 PASS / 3 WITHHELD / 1 REFUSED; 109 pinned PDFs, 103 native + 6
+  committed OCR, 0 live OCR, 0 model calls). Runtime 639.3s.
+- `pytest -m corpus`: **32 passed, 8,011 deselected — exit 0** (1,099.07s).
+- `tools.cohort_replay --expect-identical` over the review's own 179-sha
+  population (the 179 Tesseract shas; the 6 committed corpus artifacts are
+  a subset) at the closure tree: **exit 0** — population 179, replayed 179,
+  newly validated **0**, previously validated preserved **36 of 36 payload
+  identical**, validated regressions **0**, unchanged non-validated **143**
+  — verbatim identical to the reviewer's own measured numbers.
+- `tools.privacy_scan_branch --base bea06bc --ref HEAD --shas <179-sha
+  population>`: `hit_count: 0` (6 raw hits, all WORDS-class generic-
+  vocabulary coincidences — "CHORE", "a two-word phrase", "FOOL", "a
+  two-word phrase" — excluded by `words_class`; MONEY/DIGITS/DATES all 0).
+- `tools.huntington_msg_privacy_scan` over the same population, `bea06bc..
+  HEAD` (19 commits): `hit_count: 1`, class WORDS only (the same `chore(...)`
+  commit-type-prefix coincidence already reported at the first closure);
+  MONEY / DIGITS / DATES all **0**.
+
+### Commits (this round, `df0e637..e60a08d`, 11)
+
+`b490624` docs: fetch the review · `c3aef1a` fix: BLOCK-1 · `1dce822` fix:
+writer-side belt · `86eb313` fix: endpoint policy hardening (MAJOR-1,
+MINOR-5/6/7) · `d396b64` fix: probe/build_client discipline (MINOR-1/2/3) ·
+`62f0733` feat: OQ3 provenance + honest unrecognized-model telemetry
+(MAJOR-2/3) · `66a90bb` fix: class-name-only sinks (MINOR-8) · `aef9bcf`
+test: pin the injected-seam gate (MINOR-1) · `e3302e6` test: strengthen the
+unrecognized-model provenance assertion · `3570a04` test: fix a third
+closed-diagnostics pin (full suite) · `e60a08d` test: fix a fourth
+closed-diagnostics pin (corpus-marked).
+
+### Risks carried forward, updated
+
+Risk 2 from the first closure (the diagnostics-wiring follow-on) is now
+CLOSED — this cell wired it directly once Ocean granted the ownership
+extension, rather than leaving it for cell A. Risks 1, 3 and 4 from the
+first closure stand unchanged. New: MINOR-4's fix (moving
+`VISUAL_MODEL_TOKENS`) is not independently re-verified against
+`wave20-router` in this worktree (that branch is not a local ref here);
+Ocean's compose step is the authoritative check. MINOR-7's two mutants have
+no kill on this host's interpreter (Python 3.14.5) specifically because
+3.14 already delegates `ipv4_mapped`/CGNAT correctly — the fix is still
+correct and matches the review's own request, but its absence is not
+observable here; a CI run on the pinned 3.12 interpreter is the check that
+would actually exercise this, per the review's own note about the 3.12.3
+boundary.
+
+## Closure-2 — re-review verdict APPROVE WITH FINDINGS, six residuals closed in one pass
+
+Re-review fetched from `train10` at `76fb416` (`git show`, never merged), verdict **APPROVE WITH
+FINDINGS**: every BLOCK and MAJOR from the first review re-measured CLOSED at `1cc759e` (17-case
+trailing/leading battery refused on all three entry points; endpoint provenance present and tracking
+the env in a real `build_record` output; per-page unrecognised-model counts restored; the
+`wave20-router` merge conflict gone). Six residuals (one MAJOR, five MINOR) closed here, in one pass,
+per Ocean's instruction — no further re-review; Ocean checks at composition. The review document
+itself is `git rm`'d from this branch (Ocean holds the canonical copy on `train10` with the re-review
+appended); its content is summarised here instead.
+
+### NEW-1 (MAJOR) — the IMDS exclusion was unpinned against the `ipv4_mapped` normalisation it depends on
+
+The IMDS check (`str(ip) in _IMDS_ADDRESSES`) only matches AFTER `ipv4_mapped` normalisation turns
+`::ffff:169.254.169.254` into `169.254.169.254` — an interpreter-INDEPENDENT interaction, unlike N7a
+(CGNAT), so it IS killable on this host. Added `("http://[::ffff:169.254.169.254]/v1", "remote")` to
+`test_classify_endpoint`. **Mutant N7b re-applied** (remove the `ipv4_mapped` normalisation block) on
+the closure-2 tree: **KILLED** — the new case alone turns red (`private` instead of `remote`), 62
+others stay green. Mutation-table note: N7a (CGNAT exclusion removed) remains deliberately unkillable
+on Python 3.12.3+/3.13+ (the interpreter's own `is_private` already excludes CGNAT there); N7b is now
+pinned and killed.
+
+### NEW-2 (MINOR) — the probe's own opt-in re-derivation was unpinned
+
+`test_remote_opt_in_field_cannot_spoof_the_real_check` covered `_build_client` only.
+`test_probe_remote_opt_in_field_cannot_spoof_the_real_check` (new) calls `probe_visual_ocr(settings=
+<hand-built Settings with remote_opt_in=True>, list_models=lambda: ["m"])` (the injected seam bypasses
+`_build_client` entirely) and asserts `status.available is False`. **Mutant N2b re-applied** (`probe_
+visual_ocr`'s `check_endpoint` call reverted to `opt_in=settings.remote_opt_in`): **KILLED** — the new
+test is the only one of 64 that turns red.
+
+### NEW-3 (MINOR) — MINOR-6 covered 3 of the 34 characters `urlsplit` strips
+
+`urlsplit` drops `\t\r\n` ANYWHERE (already refused) but also strips the whole WHATWG
+C0-control-or-space set (0x00-0x20) from BOTH ENDS of the string. Chose the refusal (not the
+docstring-narrowing alternative): `classify_endpoint` now also returns `invalid` when `base_url !=
+base_url.strip(urllib.parse._WHATWG_C0_CONTROL_OR_SPACE)` — the private name imported defensively
+(`try/except ImportError`, falling back to the literal 33-character set) so a future interpreter
+renaming or removing it cannot crash the module at import time. Four new `test_classify_endpoint`
+cases (a leading space, a leading `\x01`, a leading NUL, a trailing `\x1f`). **Mutant applied**
+(remove the new check): **KILLED** — all four new cases turn red (`loopback` instead of `invalid`),
+64 others stay green.
+
+### NEW-4 (MINOR) — `-->` reintroduced the opaque-failure UX MINOR-8 fixed for CR/LF
+
+A raw CR/LF corrupts multipart framing (the parser drops the part before `_checked_upload` ever runs),
+but a raw `-->` does not — `a-->b.pdf` reached the view and then died as an opaque per-job failure at
+`StatementMarkdown.__post_init__`'s writer-side belt, exactly the defect MINOR-8 fixed for CR/LF.
+`_checked_upload`'s guard extended to `"-->" in filename`, identical class-name-only shape (no
+`filename` key). New function-level test `test_checked_upload_refuses_a_filename_with_a_comment_close`.
+**Mutant applied** (revert the guard to CR/LF only): **KILLED** — falls through to `"PDF could not be
+read"` WITH the raw filename echoed back (the exact leak this closes).
+
+### NEW-5 (MINOR) — the `-->` belt's docstring overstated what it closes
+
+Measured by the reviewer against cell D's base header reader: a `source_file` WITHOUT `-->` that still
+supplies its own `| model: X` field inside the (never-closed) comment reaches the reader unchanged —
+the belt does nothing for that shape, only for the early-close shape. One sentence added to
+`ocr/document.py::StatementMarkdown.__post_init__`'s docstring: the belt blocks the early-close shape
+only; the field-supplying spoof needs no `-->` and is closed entirely by cell D's reader, which must
+not be assumed to depend on this branch. (Recorded here too, superseding this section's own earlier,
+less precise wording of the same dependency in "Closure — independent adversarial review response".)
+
+### NEW-6 (MINOR, informational) — `model_calls_for` gained an uncaught raise path into telemetry
+
+`load_settings()` (called at record time for OQ3 provenance, MAJOR-2) raises `ProvenanceTokenError`
+for a hostile `OCR_MODEL`. Every `_emit` call site wraps the WHOLE `build_record(...)` call in `except
+Exception: pass` (H3_SCHEMA I4), so an uncaught raise here would silently drop the ENTIRE telemetry
+record for a document that otherwise processed fine — not merely the two provenance fields. Now caught
+narrowly (`except ProvenanceTokenError`, not bare `Exception`) around only the `load_settings()` read;
+`endpoint_class` / `remote_opt_in` degrade to `None` and the rest of the call entry (model, purpose,
+calls, tokens) is built normally. New test `test_model_calls_for_degrades_two_fields_not_the_record_
+on_a_hostile_ocr_model` reproduces the exact prior failure first (`monkeypatch.setenv("OCR_MODEL",
+"evil-model\n")`, BLOCK-1's own hostile shape) — confirmed to raise before the fix, confirmed to
+degrade only the two fields after. **Mutant applied** (remove the try/except): **KILLED** — the test
+raises `ProvenanceTokenError` uncaught, reproducing NEW-6 exactly.
+
+### Ownership note: files beyond the card list, all forced consequences of granted widenings
+
+Recorded per the reviewer's own enumeration (their §5 "Ownership at the closure"), not newly
+discovered here: `docs/moneythumb-replacement/H3_SCHEMA.md` (documents the `model_calls_for` /
+`diagnostics` shape changes the MAJOR-2/MAJOR-3 widening made — its absence would itself have been a
+finding), `tests/test_batch.py` (new — MINOR-8's `batch.py` fix needed a test and none existed),
+`tests/test_webapp_app.py` (MINOR-8's `_checked_upload` fix, now also NEW-4's), `tests/test_
+diagnostics.py`, `tests/test_document_outcome.py`, `tests/test_telemetry_corpus.py` (three closed-key
+pins moved to admit `source_path_unrecognized_model`, all asserting EXACT set equality against
+`DIAGNOSTICS_KEYS | {"source_path_unrecognized_model"}` rather than relaxed to a superset check — the
+reviewer read all five diffs and found none of them weakened, only widened honestly).
+
+### Proof floor re-run at the closure-2 tree
+
+Per Ocean's instruction, the specified subset plus the 5 canonical guards (not the full floor — the
+re-review already covers the regression-sensitive measurements below):
+
+- `tests/test_ocr_endpoint_policy.py`, `tests/test_ocr_provenance_injection.py`,
+  `tests/test_telemetry.py`, `tests/test_webapp_app.py`, `tests/test_diagnostics.py`, plus the 5
+  canonical guards (`test_no_statement_hardcodes.py`, `test_no_parser_helper_clones.py`,
+  `test_r1_hardcodes.py`, `test_experiments_are_not_wired.py`, `test_filename_boundary.py`):
+  **570 passed, 1 deselected — exit 0**.
+- Additional spot check (not requested, run for confidence given `telemetry/record.py` changed again):
+  `test_document_outcome.py`, `test_telemetry_corpus.py`, `test_batch.py`,
+  `test_ocr_defect_signatures.py`, `test_ocr_client.py`, `test_pipeline.py`, `test_discovery.py`,
+  `test_visual_rung.py`, `test_privacy3_boundaries.py`: **350 passed, 4 deselected — exit 0**.
+
+### Mutation re-verification (six new/re-applied mutants, this pass)
+
+| mutant | result |
+|---|---|
+| N7b — `ipv4_mapped` normalisation removed | KILLED (was SURVIVED at first closure) — `test_classify_endpoint[http://[::ffff:169.254.169.254]/v1-remote]` |
+| N2b — `probe_visual_ocr` trusts `settings.remote_opt_in` | KILLED (was SURVIVED) — `test_probe_remote_opt_in_field_cannot_spoof_the_real_check` |
+| NEW-3 — WHATWG C0-control-or-space end-strip check removed | KILLED (new) — 4 `test_classify_endpoint` cases |
+| NEW-4 — `_checked_upload`'s `-->` guard removed | KILLED (new) — `test_checked_upload_refuses_a_filename_with_a_comment_close` |
+| NEW-6 — `model_calls_for`'s `try/except ProvenanceTokenError` removed | KILLED (new) — `test_model_calls_for_degrades_two_fields_not_the_record_on_a_hostile_ocr_model` |
+| N7a — CGNAT exclusion removed | SURVIVED, accepted (unkillable on Python 3.12.3+/3.13+/3.14.5; the interpreter's own `is_private` already excludes CGNAT — recorded, not fixed, per the re-review's own confirmation this reasoning holds) |
+
+Every mutant applied to the committed tree, target file run in full, restored by exact-string revert
+or file backup, `git status --porcelain` clean before and after each.
+
+### Message scan
+
+`tools.huntington_msg_privacy_scan` will be re-run over this round's commits at the final commit
+before reporting the tip SHA (see the final report); MONEY/DIGITS/DATES class discipline unchanged
+from both prior closures.
+
+### Message scan — final result
+
+Run over all 25 commits (`bea06bc..HEAD`) against the 179-sha population: `hit_count: 1` initially
+(the same WORDS-class `chore(ocr):`-prefix coincidence reported at both prior closures — commit
+`615a617`, subject `"chore(ocr): finish retiring ..."`, matched the printed word "CHORE" somewhere in
+the population; MONEY/DIGITS/DATES were 0). Reworded with `git filter-branch --msg-filter` restricted
+to `bea06bc..HEAD` (`chore(ocr): finish retiring` → `retire(ocr): finish retiring`, that one commit
+only) — tree hash verified byte-identical before and after (`3ca58bcb42f006ad1392c30d2db9eed85d1d498f`
+both times), only the message changed. Re-run: **`hit_count: 0`, all four classes, EXIT=0.**

@@ -1860,6 +1860,18 @@ def _indirect_detail_reads(modules=None) -> list[str]:
     return findings
 
 
+#: `VisualOcrStatus.message()` call sites and how many live in each, updated
+#: by P20-SEAM: `parse.py --visual` and `batch.py --visual` (OQ7) now probe
+#: before allowing the visual rung, and print the SAME console-only shape
+#: `discovery/cli.py` always has — `print(f"error: {status.message()}...",
+#: file=sys.stderr)`, never a telemetry field, a CSV cell or an HTTP body.
+ALLOWED_MESSAGE_CALLERS = {
+    "discovery/cli.py": 2,
+    "parse.py": 1,
+    "batch.py": 1,
+}
+
+
 def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
     """The invariant `ocr/availability.py`'s module docstring has claimed since
     Wave 3 - "kept for the operator console only and never travels into
@@ -1867,9 +1879,9 @@ def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
 
     Four clauses, and clause 1 is the one the review widened. `detail` is read
     only in the files `ALLOWED_DETAIL_READERS` names, by ANY receiver;
-    `message()` is called only from `discovery/cli.py`; both of those calls sit
-    inside a `print(..., file=sys.stderr)`; and nothing in production reaches
-    the field the other three ways.
+    `message()` is called only from the files `ALLOWED_MESSAGE_CALLERS` names;
+    every one of those calls sits inside a `print(..., file=sys.stderr)`; and
+    nothing in production reaches the field the other three ways.
 
     Asserted by FILE and COUNT, never by line number: a guard that pins
     `discovery/cli.py:208` turns red the moment an unrelated cell adds a line
@@ -1890,30 +1902,34 @@ def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "message"
     ]
-    assert sorted({s.rsplit(":", 1)[0] for s in message_sites}) == [
-        "discovery/cli.py"
-    ], message_sites
-    assert len(message_sites) == 2, message_sites
+    assert sorted({s.rsplit(":", 1)[0] for s in message_sites}) == sorted(
+        ALLOWED_MESSAGE_CALLERS
+    ), message_sites
+    assert len(message_sites) == sum(ALLOWED_MESSAGE_CALLERS.values()), message_sites
 
     printed = 0
-    tree = ast.parse((PROJECT_ROOT / "discovery" / "cli.py").read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
-            continue
-        if node.func.id != "print":
-            continue
-        if not any(
-            isinstance(inner, ast.Call)
-            and isinstance(inner.func, ast.Attribute)
-            and inner.func.attr == "message"
-            for argument in node.args
-            for inner in ast.walk(argument)
-        ):
-            continue
-        keywords = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}
-        assert keywords.get("file") == "sys.stderr", keywords
-        printed += 1
-    assert printed == 2
+    for relative, expected in ALLOWED_MESSAGE_CALLERS.items():
+        file_printed = 0
+        tree = ast.parse((PROJECT_ROOT / relative).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                continue
+            if node.func.id != "print":
+                continue
+            if not any(
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Attribute)
+                and inner.func.attr == "message"
+                for argument in node.args
+                for inner in ast.walk(argument)
+            ):
+                continue
+            keywords = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}
+            assert keywords.get("file") == "sys.stderr", (relative, keywords)
+            file_printed += 1
+        assert file_printed == expected, (relative, file_printed, expected)
+        printed += file_printed
+    assert printed == sum(ALLOWED_MESSAGE_CALLERS.values())
 
     assert _indirect_detail_reads() == [], _indirect_detail_reads()
 

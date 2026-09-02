@@ -7,7 +7,6 @@ import pytest
 
 from analyze import _render
 from batch import _row as batch_row
-from coverage_audit import _status as coverage_status
 from analysis.config import load_settings
 from analysis.metrics import compute_metrics
 from analysis.pipeline import analyze_markdown
@@ -18,6 +17,26 @@ from analysis.transaction_classifier import classify_statement_transactions, cla
 from ocr.native_text import parse_native_navy_federal, parse_native_pdf_text
 from webapp.app import _package_analysis, app, store
 from webapp.jobs import Job
+
+
+def coverage_status(report) -> str:
+    """Inlined from the retired `coverage_audit.py::_status` (P20-SEAM / OQ7,
+    `git rm`, that script was a pre-deterministic-shift dev CLI with the
+    default `allow_visual_ocr=True` egress path — OCR_LEGACY_AUDIT.md F-4(a)).
+    This one classification helper was genuinely reusable test logic, salvaged
+    here byte-identical rather than dropped with the rest of the script."""
+    if report.metrics.revenue_review_required or not report.metrics.revenue_reconciles:
+        return "needs_review"
+    if report.quality.level == "summary_aggregate":
+        return "summary_aggregate"
+    r = report.reconciliation
+    if r.ok:
+        return "clean"
+    if r.summary_ok is True:
+        return "summary_trusted"
+    if r.summary_ok is False:
+        return "needs_review"
+    return "needs_review"
 
 
 def _txn(

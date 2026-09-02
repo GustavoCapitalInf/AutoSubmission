@@ -60,7 +60,9 @@ LADDER_BINDINGS = {
     "adb_forensic_audit": "native_statement",
     "balance_forensic_audit": "native_document",
     "build_corpus_cache": "native_document",
-    "deterministic_coverage_audit": "native_statement",
+    # `deterministic_coverage_audit` was retired (P20-SEAM / OQ7, `git rm`):
+    # a pre-deterministic-shift dev CLI, duplicate of what `discovery/
+    # runner.py` already measures (OCR_LEGACY_AUDIT.md #34).
     # An INSTRUMENT, and it binds the ladder for the same reason the five
     # oracles do: W3 §DESCCOLS measures what the new extraction rung changes,
     # and a measurement taken through a privately composed ladder would be

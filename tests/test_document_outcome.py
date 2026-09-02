@@ -224,7 +224,14 @@ def test_the_record_is_unchanged_for_a_single_account_payload():
     record = _record(payload)
     assert (record["outcome"]["class"], record["outcome"]["reason"]) == (
         "validated", "approved")
-    assert record["diagnostics"] == empty_diagnostics()
+    # MAJOR-3 (PHASE2_P20SEAM_REVIEW.md): build_record adds
+    # source_path_unrecognized_model ALONGSIDE diagnose_document's own
+    # closed taxonomy (never a member of it) — see
+    # telemetry/record.py::build_record's "diagnostics" comment.
+    assert record["diagnostics"] == {
+        **empty_diagnostics(),
+        "source_path_unrecognized_model": False,
+    }
 
 
 # --- diagnostics -------------------------------------------------------------
