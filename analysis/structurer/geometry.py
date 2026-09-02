@@ -72,13 +72,32 @@ __all__ = [
 #: method, same class as `local-tesseract-ocr` / `paddle-ocr+ppocrv5`.
 NATIVE_EXTRACTOR_ID = "native-pdf-words"
 
-#: A `PageEvidence.notes` entry meaning: this page's own word/rect read threw
-#: (a PyMuPDF failure this project has never observed on its corpus), so the
-#: page is kept — for page-number fidelity — with no words and a minimal,
-#: valid placeholder frame. `geometry_from_evidence` recognises the note and
-#: reports the page's width/height as 0.0, exactly as the Phase 2.0 reader
-#: did for this same (untriggered) failure shape.
+#: A `PageEvidence.notes` entry meaning: this page's own `get_text`/`rect`
+#: read threw (a PyMuPDF failure this project has never observed on its
+#: corpus), so the page is kept — for page-number fidelity — with no words
+#: and a minimal, valid placeholder frame. Distinct from `WORD_REFUSED_NOTE`
+#: (P21-GEOMETRY-CLOSURE F-5): here the page itself could not be read at
+#: all; there is never a real `page.rect` to report. `geometry_from_evidence`
+#: does NOT special-case this note (P21-GEOMETRY-CLOSURE F-8: the neutral
+#: consumer must not branch on a source-specific note string) — it reports
+#: the placeholder frame's own declared dimensions like any other page,
+#: which is a documented, untriggered (0/109 corpus PDFs) divergence from
+#: the Phase 2.0 reader's hardcoded `0.0 x 0.0` for this exact case.
 UNREADABLE_PAGE_NOTE = "native_page_unreadable"
+
+#: A `PageEvidence.notes` entry meaning: the page's `get_text`/`rect` read
+#: succeeded (the real frame dimensions are known and reported), but
+#: building at least one `WordBox` from what PyMuPDF returned failed — an
+#: out-of-contract box (P21-GEOMETRY-CLOSURE F-5: `evidence/canonical.py`'s
+#: own strict `x0 < x1 and y0 < y1` validation, which `Word`/legacy
+#: `_group_lines` never enforced). The fail-closed direction is kept
+#: deliberately (one bad word refuses the WHOLE page — no guessed
+#: structure, no silently dropping just the offending word), which is a
+#: documented, latent (0/261,526 words on the pinned corpus) divergence
+#: from Phase 2.0's keep-every-word behaviour. Named separately from
+#: `UNREADABLE_PAGE_NOTE` because the two causes are different: this page
+#: COULD be read; one word in it could not be trusted.
+WORD_REFUSED_NOTE = "native_page_word_refused"
 
 #: A `PageEvidence.notes` entry meaning: PyMuPDF's `get_text("words")` boxes
 #: are in the page's UNROTATED coordinate space while `page.rect` (this
@@ -222,12 +241,20 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
     Returns `None` exactly when there are no words to read at all: unparseable
     bytes, or a document that opens but prints nothing this reader can find
     (the honest answer for a scanned page — there are no words, only pixels).
-    Never raises: a page whose own read throws (a PyMuPDF failure this
-    project's 109-PDF corpus has never produced) is kept as an empty,
-    minimally-framed page (`UNREADABLE_PAGE_NOTE`) rather than aborting the
-    whole document, exactly as the Phase 2.0 reader did; anything else this
-    contract cannot faithfully represent aborts the whole document to `None`
-    rather than guess.
+    Never raises. Two DISTINCT page-level failures are both kept as an empty
+    page (never abort the whole document) but named honestly and separately
+    (P21-GEOMETRY-CLOSURE F-5): a page whose own `get_text`/`rect` read
+    throws (a PyMuPDF failure this project's 109-PDF corpus has never
+    produced) gets `UNREADABLE_PAGE_NOTE` and a minimal placeholder frame,
+    since no real dimensions exist to report; a page that reads fine but
+    whose PyMuPDF word list contains a box `evidence/`'s strict
+    `x0 < x1 and y0 < y1` refuses gets `WORD_REFUSED_NOTE` and its REAL
+    frame — the whole page is refused (no guessed structure, no silently
+    dropping just the bad word), a deliberate, documented, latent
+    (0/261,526 words on the pinned corpus) divergence from Phase 2.0's
+    keep-every-word behaviour. Anything else this contract cannot
+    faithfully represent aborts the whole document to `None` rather than
+    guess.
     """
     try:
         import fitz
@@ -247,6 +274,13 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
     pages: list[PageEvidence] = []
     try:
         for page_index, page in enumerate(document):
+            # Two SEPARATE failure classes (P21-GEOMETRY-CLOSURE F-5): the
+            # page itself may be unreadable (no real dimensions exist), or
+            # the page reads fine but a word PyMuPDF returned cannot be
+            # trusted as a box (`evidence/`'s strict `x0 < x1 and y0 < y1`).
+            # Conflating them under one note mislabelled a readable page
+            # with one bad word as "unreadable"; they now get distinct
+            # notes and, for the second, the page's REAL dimensions.
             try:
                 raw_words = page.get_text("words")
                 rect = page.rect
@@ -257,6 +291,11 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
                     page_index=page_index, width_pt=float(rect.width), height_pt=float(rect.height),
                     rotation_deg=rotation,
                 )
+            except Exception:
+                placeholder = PageFrame.pdf_points(page_index=page_index, width_pt=1.0, height_pt=1.0)
+                pages.append(PageEvidence(frame=placeholder, words=(), notes=(UNREADABLE_PAGE_NOTE,)))
+                continue
+            try:
                 words = tuple(
                     WordBox(word_id=word_id(page_index, None, k), page_index=page_index,
                             text=str(item[4]), x0=float(item[0]), y0=float(item[1]),
@@ -266,8 +305,8 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
                 notes = (UNROTATED_WORDS_NOTE,) if rotation else ()
                 page_evidence = PageEvidence(frame=frame, words=words, notes=notes)
             except Exception:
-                placeholder = PageFrame.pdf_points(page_index=page_index, width_pt=1.0, height_pt=1.0)
-                page_evidence = PageEvidence(frame=placeholder, words=(), notes=(UNREADABLE_PAGE_NOTE,))
+                notes = (WORD_REFUSED_NOTE,) + ((UNROTATED_WORDS_NOTE,) if rotation else ())
+                page_evidence = PageEvidence(frame=frame, words=(), notes=notes)
             pages.append(page_evidence)
     except Exception:
         return None
@@ -299,7 +338,11 @@ def geometry_from_evidence(evidence: ExtractionEvidence | None) -> DocumentGeome
     regrouped — `page.lines` was already built by `evidence.group_lines`,
     the one rule — only rebuilt as `GeoLine`s with the text/span arithmetic
     `_group_lines` has always used, so an offset computed on the resulting
-    text still lands on the right word regardless of the source.
+    text still lands on the right word regardless of the source. A page's
+    reported width/height is always its own frame's declared dimensions —
+    this function never branches on a `notes` string (P21-GEOMETRY-CLOSURE
+    F-8): the ONE source-neutral path does not interpret a source-specific
+    fact, and an empty page is an empty page whatever its notes say.
 
     `None` when there is nothing to read (`evidence` is `None`, or it holds
     no words). Never raises on its own defect: a hostile evidence-shaped
@@ -331,11 +374,16 @@ def geometry_from_evidence(evidence: ExtractionEvidence | None) -> DocumentGeome
                 row = tuple(converted[word_ref] for word_ref in line.word_ids)
                 text, spans = _line_text_and_spans(row)
                 lines.append(GeoLine(page.page_index + 1, row, text, spans))
-            width, height = frame.pdf_width_pt, frame.pdf_height_pt
-            if UNREADABLE_PAGE_NOTE in page.notes:
-                width, height = 0.0, 0.0
+            # F-8: no branch on a note string here. The neutral consumer
+            # reports the frame's own declared dimensions for every page —
+            # a page with zero words is an empty page whatever its notes
+            # say, and a source-specific note interpreted in the ONE
+            # source-neutral path is exactly the leak this cell exists to
+            # prevent. (A future extractor emitting the same note string
+            # for an unrelated reason would otherwise have its page
+            # dimensions silently zeroed here.)
             pages.append(PageGeometry(
-                page.page_index + 1, float(width), float(height), tuple(lines),
+                page.page_index + 1, float(frame.pdf_width_pt), float(frame.pdf_height_pt), tuple(lines),
                 frame=frame, source=evidence.extractor_id,
             ))
     except Exception:

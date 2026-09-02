@@ -41,6 +41,7 @@ from analysis.structurer.geometry import (
     NATIVE_EXTRACTOR_ID,
     UNREADABLE_PAGE_NOTE,
     UNROTATED_WORDS_NOTE,
+    WORD_REFUSED_NOTE,
     DocumentGeometry,
     GeoLine,
     PageGeometry,
@@ -199,6 +200,7 @@ def _assert_geometry_equal(legacy, new) -> None:
         assert (lp.page, lp.width, lp.height) == (np.page, np.width, np.height)
         assert len(lp.lines) == len(np.lines)
         for ll, nl in zip(lp.lines, np.lines):
+            assert ll.page == nl.page  # F-2: the GeoLine site, not just PageGeometry's
             assert ll.text == nl.text
             assert ll.spans == nl.spans
             assert len(ll.words) == len(nl.words)
@@ -451,7 +453,67 @@ def test_a_pixel_evidence_round_trips_through_geometry_within_1e6_points():
 
     assert [line.text for line in page_geometry.lines] == list(page_text(page).split("\n"))
     first_line = page_geometry.lines[0]
-    assert first_line.x_at(0) == pytest.approx(first_line.words[0].x0)
+    # F-4: compared against an INDEPENDENTLY derived point value (the pixel
+    # box divided by the frame's own scale), not the same converted word's
+    # own x0 -- a self-referential comparison holds in any unit and cannot
+    # catch a unit error.
+    first_word_px = original_by_id[page.lines[0].word_ids[0]]
+    expected_x0_pt = first_word_px.x0 / frame.scale_x
+    assert first_line.x_at(0) == pytest.approx(expected_x0_pt, abs=1e-6)
+
+
+def test_a_pixel_evidence_with_distinct_per_axis_scale_converts_each_axis_correctly():
+    """BLOCK-1: a rasteriser that rounds one page dimension to a different
+    pixel count than the other produces DISTINCT `scale_x`/`scale_y` (legal
+    under `evidence/canonical.py`'s own validation -- both scales need only
+    agree with dpi/72 within 1%, independently). Every pixel frame the rest
+    of this file builds (`_pixel_frame`) derives both scales from a single
+    `dpi`, so on those frames alone a bug that uses one axis' scale for the
+    other is numerically invisible. This frame makes the two axes
+    distinguishable, and the assertions compare the converted point values
+    against the AUTHORED point coordinates directly -- not only a round-trip
+    through `to_pixels`, which is included too but composes the SAME wrong
+    scale with itself in the reverse direction and only fails when the two
+    scales genuinely differ (which is exactly why this frame, not
+    `_pixel_frame()`, is required)."""
+    frame = PageFrame.pixel(
+        page_index=0, raster_width_px=2550, raster_height_px=3320,
+        dpi=300.0, pdf_width_pt=612.0, pdf_height_pt=792.0,
+    )
+    assert frame.scale_x != frame.scale_y  # the property this frame exists to provide
+
+    authored = [
+        ("DATE", 40.0, 100.0, 70.0, 110.0),
+        ("AMOUNT", 400.0, 160.0, 450.0, 172.0),
+    ]
+    # Built with the EXACT pixel value (no 3-decimal rounding, unlike
+    # `_pixel_word`) so the 1e-6 bound below measures conversion arithmetic
+    # only, not a deliberately coarsened fixture.
+    words = tuple(
+        WordBox(
+            word_id=word_id(0, 0, index), page_index=0, text=text,
+            x0=x0 * frame.scale_x, y0=y0 * frame.scale_y,
+            x1=x1 * frame.scale_x, y1=y1 * frame.scale_y,
+        )
+        for index, (text, x0, y0, x1, y1) in enumerate(authored)
+    )
+    page = PageEvidence(frame=frame, words=words)
+    evidence = ExtractionEvidence(
+        document_sha256="F" * 64, extractor_id="paddle-ocr", model_token="paddle-ocr+ppocrv5",
+        pages=(page,),
+    )
+    geometry = geometry_from_evidence(evidence)
+    assert geometry is not None
+    converted_words = geometry.pages[0].lines[0].words
+    for (_, x0, y0, x1, y1), word in zip(authored, converted_words):
+        assert word.x0 == pytest.approx(x0, abs=1e-6)
+        assert word.y0 == pytest.approx(y0, abs=1e-6)
+        assert word.x1 == pytest.approx(x1, abs=1e-6)
+        assert word.y1 == pytest.approx(y1, abs=1e-6)
+        # the round-trip too, now meaningful since scale_x != scale_y
+        back_x0, back_y0 = to_pixels(frame, word.x0, word.y0)
+        assert back_x0 == pytest.approx(x0 * frame.scale_x, abs=1e-6)
+        assert back_y0 == pytest.approx(y0 * frame.scale_y, abs=1e-6)
 
 
 # The 1.5 pt bound the card names for comparing a native read and an
@@ -603,13 +665,56 @@ def test_geometry_from_evidence_never_raises_on_a_hostile_duck_typed_object():
     hostile_frame_object = SimpleNamespace(pages=(SimpleNamespace(frame=object(), page_index=0, words=(), lines=(), notes=()),), extractor_id="hostile")
     assert geometry_from_evidence(hostile_frame_object) is None
 
+    # F-1: the two isinstance guards above (`:318`, `:322`) return `None` on
+    # their own path and never touch the broad `except Exception: return
+    # None` — the *untested* guard load-bearing in production. These two
+    # shapes reach it. (1) A REAL `WordBox` + a REAL `LineBox` whose
+    # `word_ids` names a word this page does not have -- the shape the card
+    # itself describes ("whose `lines` reference a word id its page
+    # lacks"); a genuine `PageEvidence` already refuses to hold this
+    # (`tests/test_evidence_canonical.py::
+    # test_lines_supplied_explicitly_must_reference_this_page_words`), so it
+    # is only reachable here via the same SimpleNamespace bypass every other
+    # case in this test uses, and it raises `KeyError` inside
+    # `geometry_from_evidence`'s own line-rebuilding loop, not at any
+    # isinstance check.
+    real_frame = PageFrame.pdf_points(page_index=0, width_pt=612.0, height_pt=792.0)
+    real_word = WordBox(word_id=word_id(0, 0, 0), page_index=0, text="ok", x0=10.0, y0=10.0, x1=30.0, y1=20.0)
+    dangling_line = LineBox(line_id="p0.L0", page_index=0, y_top=10.0, y_bottom=20.0,
+                            word_ids=("p0.l0.w9",), text="ok")
+    dangling_page = SimpleNamespace(frame=real_frame, page_index=0, words=(real_word,),
+                                    lines=(dangling_line,), notes=())
+    assert geometry_from_evidence(SimpleNamespace(pages=(dangling_page,), extractor_id="hostile")) is None
 
-def test_the_unreadable_native_page_placeholder_matches_legacy_dimensions():
+    # (2) The reviewer's other shape ("a page missing `notes`") stopped
+    # reaching the `except` once F-8 removed `geometry_from_evidence`'s only
+    # read of `page.notes` -- a page lacking that attribute now builds
+    # successfully, which is the intended effect of F-8, not a gap. This
+    # substitutes an equally genuine except-reaching shape: a `words`
+    # collection that raises partway through iteration (a hostile object can
+    # make ANY attribute access misbehave, not only a missing one).
+    class _ExplodingWords:
+        def __iter__(self):
+            yield real_word
+            raise RuntimeError("simulated hostile iteration failure")
+
+    exploding_page = SimpleNamespace(frame=real_frame, page_index=0, words=_ExplodingWords(),
+                                     lines=(), notes=())
+    assert geometry_from_evidence(SimpleNamespace(pages=(exploding_page,), extractor_id="hostile")) is None
+
+
+def test_the_unreadable_native_page_placeholder_reports_its_own_frame_dimensions():
     """A page whose own `get_text`/`rect` read throws (a PyMuPDF failure this
     project's corpus has never produced) is kept — for page-number fidelity —
-    with `width == height == 0.0`, exactly as the Phase 2.0 reader's per-page
-    exception handler produced. Simulated by monkeypatching `fitz.Page.rect`
-    to raise for one page of a two-page document."""
+    with `UNREADABLE_PAGE_NOTE` and a minimal placeholder frame. Phase 2.0's
+    reader hardcoded `width == height == 0.0` for this exact case; this cell
+    no longer reproduces that number (P21-GEOMETRY-CLOSURE F-8: the neutral
+    `geometry_from_evidence` must not branch on a note string, so it reports
+    the placeholder frame's OWN declared dimensions like any other page,
+    here `1.0 x 1.0`). A documented, RULED, untriggered (0/109 corpus PDFs)
+    divergence from Phase 2.0 for this specific dead code path. Simulated by
+    monkeypatching `fitz.Page.get_text` to raise for one page of a two-page
+    document."""
     import fitz
 
     pdf_bytes = _render_pdf(_STRUCTURER_FIXTURE_ROWS, extra_pages=1)
@@ -637,7 +742,55 @@ def test_the_unreadable_native_page_placeholder_matches_legacy_dimensions():
     assert UNREADABLE_PAGE_NOTE in evidence.pages[0].notes
     assert evidence.pages[0].words == ()
     assert geometry is not None
-    assert (geometry.pages[0].width, geometry.pages[0].height) == (0.0, 0.0)
+    assert (geometry.pages[0].width, geometry.pages[0].height) == (1.0, 1.0)
+    assert geometry.pages[1].width > 0.0 and geometry.pages[1].lines
+
+
+def test_a_page_with_one_refused_word_reports_its_real_dimensions_not_unreadable():
+    """P21-GEOMETRY-CLOSURE F-5: a page whose `get_text`/`rect` read
+    SUCCEEDS (a real frame exists) but whose PyMuPDF word list contains one
+    box `evidence/`'s strict `x0 < x1 and y0 < y1` refuses gets
+    `WORD_REFUSED_NOTE` — never `UNREADABLE_PAGE_NOTE`, which would mislabel
+    a page that read fine — and reports the REAL page dimensions, not a
+    placeholder's. The whole page is still refused down to zero words (the
+    fail-closed direction is unchanged: no guessed structure, no silently
+    dropping just the bad word); a sibling page is unaffected. This is a
+    deliberate, documented, latent (0/261,526 words on the pinned corpus)
+    divergence from Phase 2.0, which kept every word regardless."""
+    import fitz
+
+    pdf_bytes = _render_pdf(_STRUCTURER_FIXTURE_ROWS, extra_pages=1)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    document[1].insert_text(fitz.Point(40.0, 100.0), "SecondPageWord", fontsize=10.0, fontname="helv")
+    pdf_bytes = document.tobytes()
+    document.close()
+
+    real_get_text = fitz.Page.get_text
+
+    def _corrupting_get_text(self, *args, **kwargs):
+        words = real_get_text(self, *args, **kwargs)
+        if self.number == 0 and words:
+            corrupted = list(words[0])
+            corrupted[3] = corrupted[1]  # y1 = y0: a zero-height, refused box
+            return [tuple(corrupted)] + list(words[1:])
+        return words
+
+    original = fitz.Page.get_text
+    fitz.Page.get_text = _corrupting_get_text
+    try:
+        evidence = native_evidence_from_pdf(pdf_bytes)
+        geometry = geometry_from_pdf(pdf_bytes)
+    finally:
+        fitz.Page.get_text = original
+
+    assert evidence is not None
+    assert WORD_REFUSED_NOTE in evidence.pages[0].notes
+    assert UNREADABLE_PAGE_NOTE not in evidence.pages[0].notes
+    assert evidence.pages[0].words == ()
+    assert geometry is not None
+    # the REAL page dimensions (letter, 612x792), not a 1x1 placeholder
+    assert (geometry.pages[0].width, geometry.pages[0].height) == pytest.approx((612.0, 792.0))
+    assert geometry.pages[0].lines == ()
     assert geometry.pages[1].width > 0.0 and geometry.pages[1].lines
 
 
