@@ -8,13 +8,29 @@
     (selectors combine as a UNION; --json <path> writes the per-sha table)
 
 Replays each sha of the cohort from the RUN OF RECORD's own cached OCR/native
-text (batch 8: `TRAIN8-7185633 / cda8882d`, cold cache
-`.claude/recovery/webapp_data_train8_cold`) through THIS tree's
-`analysis.pipeline.analyze_markdown(parse_mode="deterministic")` — exactly the
-call `discovery.runner._analyse` makes, same page partition — classifies the
-result with `telemetry.record.classify_outcome` and the runner's own
-`_failure_reason`, and compares against the baseline outcome in `rows.csv` and
-the baseline payload stored under the run's own analysis key.
+text through THIS tree's `document_report_to_dict(analyze_document(markdown,
+parse_mode="deterministic", on_dispatch=collector, sheets=pages))` — exactly
+the call `discovery.runner._analyse` + `process()` make, same page partition —
+classifies the result with `telemetry.record.classify_document` (the same
+DOCUMENT fold `discovery/runner.py` folds a document's accounts through) and
+the runner's own `_failure_reason`, and compares against the baseline outcome
+in `rows.csv` and the baseline payload stored under the run's own analysis
+key.
+
+Shape (P20-REPLAY-SHAPE, Phase 2.0 addendum cell E; corrects P20-ARTIFACTS
+review MAJOR-3 / P20-SURFACES review MAJOR-1). `replay_one` used to call
+`report_to_dict(analyze_markdown(...))` — the SINGLE-ACCOUNT projection —
+against a cache that stores the DOCUMENT shape the runner actually publishes
+(`document_report_to_dict(analyze_document(...))`). On the 23 of 2,656
+train9 analysis payloads that carry a top-level `document` block (2 of them
+genuinely multi-account) that mismatch made `--expect-identical` structurally
+unable to reproduce the baseline, and made the replay unable to observe
+anything at the omission-publish seam (the Q3 native-only gate,
+`analysis/sibling_omission.py`) — `analyze_markdown` never opens the
+omission collector `analyze_document` opens. The account-shape path remains
+available ONLY behind `--account-shape` (default OFF) for historical
+instruments that still want the pre-fix seam; it does NOT reproduce the run
+of record and must never be used for a fidelity claim.
 
 It reports movement in the proof shape batch 9 requires:
 
@@ -62,9 +78,18 @@ at `discovery_reports/train9-logs/train9_run_dir.txt` (gitignored, like the
 train-8 pointer it succeeds) — read that file's content and pass it to
 `--run` explicitly; this tool does not read it for you.
 
-Exit codes: 0 clean, 2 a validated regression, 3 `--expect-identical` drift,
-4 an empty cohort, 5 the artifact-selection policy could not resolve a run's
-partitions or found a corrupt cache index (`telemetry.run_of_record.RunOfRecordError`).
+Exit codes: 0 clean, 2 a validated regression, 3 `--expect-identical` drift
+OR (unless `--allow-unresolved` is passed) fewer shas replayed than the
+named cohort's population, 4 an empty cohort, 5 the artifact-selection
+policy could not resolve a run's partitions or found a corrupt cache index
+(`telemetry.run_of_record.RunOfRecordError`).
+
+`--expect-identical` (P20-REPLAY-SHAPE addendum, from the P20-ARTIFACTS
+re-review MINOR-8): "expect identical" over a NAMED cohort means every
+member reproduced — a cohort where some shas resolve and the rest are
+`no_text`/`absent` used to pass silently (reproduced: 2 real shas + 8 absent
+shas -> exit 0, "replayed 2 / population 10"). Now `replayed < population`
+refuses (exit 3) unless the caller passes `--allow-unresolved` explicitly.
 """
 from __future__ import annotations
 
@@ -220,27 +245,69 @@ class ColdCache:
 # replay
 # ----------------------------------------------------------------------------
 
-def replay_one(markdown: str, pages: list[str]) -> tuple[dict | None, str, str, str | None]:
-    """(payload, outcome_class, outcome_reason, claimed_parser)."""
-    from analysis.pipeline import analyze_markdown
-    from analysis.serialization import report_to_dict
+def replay_one(
+    markdown: str, pages: list[str], *, account_shape: bool = False,
+) -> tuple[dict | None, str, str, str | None]:
+    """(payload, outcome_class, outcome_reason, claimed_parser).
+
+    DOCUMENT-shaped by default (P20-REPLAY-SHAPE): the runner's EXACT call,
+    `document_report_to_dict(analyze_document(markdown,
+    parse_mode="deterministic", on_dispatch=collector, sheets=pages))`,
+    classified by `telemetry.record.classify_document` — the same fold
+    `discovery/runner.py::process` folds a document's accounts through
+    (`row.outcome_class, row.outcome_reason = classify_document(payload,
+    error_type=error_type, error_reason=_failure_reason(error_type,
+    dispatch))`, called UNCONDITIONALLY whether `payload` is `None` or not —
+    replicated here the same way, rather than special-casing the exception
+    branch).
+
+    `account_shape=True` replays the historical SINGLE-ACCOUNT projection
+    instead (`report_to_dict(analyze_markdown(...))`, classified by
+    `classify_outcome`). It does NOT reproduce the run of record on any
+    document that publishes a `document` block or more than one account —
+    see `--account-shape`'s help text — and exists only for callers that
+    still want the pre-P20-REPLAY-SHAPE seam.
+    """
     from discovery.runner import DispatchCollector, _failure_reason
-    from telemetry.record import classify_outcome
 
     collector = DispatchCollector()
-    try:
-        payload = report_to_dict(analyze_markdown(
-            markdown, parse_mode="deterministic", on_dispatch=collector, sheets=pages))
-    except Exception as exc:  # the runner's own boundary: never raises
-        error_type = type(exc).__name__
-        dispatch = collector.dispatch if collector.seen else None
-        reason = _failure_reason(error_type, dispatch) or "exception"
-        return None, "failed", reason, _claimed(collector)
-    klass, reason = classify_outcome(payload)
-    # The cache stores canonical JSON; `report_to_dict` returns tuples where the
-    # stored payload holds lists (measured: every huntington document differed
-    # ONLY by that type at an unchanged tree). Compare like with like.
-    payload = json.loads(json.dumps(payload, sort_keys=True))
+    payload: dict | None = None
+    error_type: str | None = None
+    if account_shape:
+        from analysis.pipeline import analyze_markdown
+        from analysis.serialization import report_to_dict
+
+        try:
+            payload = report_to_dict(analyze_markdown(
+                markdown, parse_mode="deterministic", on_dispatch=collector, sheets=pages))
+        except Exception as exc:  # the runner's own boundary: never raises
+            error_type = type(exc).__name__
+    else:
+        from analysis.pipeline import analyze_document
+        from analysis.serialization import document_report_to_dict
+
+        try:
+            payload = document_report_to_dict(analyze_document(
+                markdown, parse_mode="deterministic", on_dispatch=collector, sheets=pages))
+        except Exception as exc:  # the runner's own boundary: never raises
+            error_type = type(exc).__name__
+
+    dispatch = collector.dispatch
+    reason_hint = _failure_reason(error_type, dispatch)
+    if account_shape:
+        from telemetry.record import classify_outcome
+
+        klass, reason = classify_outcome(payload, error_type=error_type, error_reason=reason_hint)
+    else:
+        from telemetry.record import classify_document
+
+        klass, reason = classify_document(payload, error_type=error_type, error_reason=reason_hint)
+    if payload is not None:
+        # The cache stores canonical JSON; `report_to_dict` / `document_report_to_dict`
+        # return tuples where the stored payload holds lists (measured: every
+        # huntington document differed ONLY by that type at an unchanged
+        # tree). Compare like with like.
+        payload = json.loads(json.dumps(payload, sort_keys=True))
     return payload, klass, reason, _claimed(collector)
 
 
@@ -332,7 +399,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None, help="markdown report (private; never commit values)")
     parser.add_argument("--json", type=Path, default=None, help="per-sha table")
     parser.add_argument("--expect-identical", action="store_true",
-                        help="baseline-fidelity mode: exit 3 unless every sha reproduces its outcome and payload")
+                        help="baseline-fidelity mode: exit 3 unless every sha reproduces its outcome and payload, "
+                             "and (unless --allow-unresolved) every sha in the cohort actually replayed")
+    parser.add_argument("--allow-unresolved", action="store_true",
+                        help="under --expect-identical, permit replayed < population (some shas no_text/absent) "
+                             "instead of refusing; does not relax the drift check on shas that DID replay")
+    parser.add_argument("--account-shape", action="store_true",
+                        help="HISTORICAL: replay the single-account projection "
+                             "(report_to_dict(analyze_markdown(...))) instead of the runner's own document call. "
+                             "Does NOT reproduce the run of record for any document publishing a `document` block "
+                             "or more than one account — use only for a historical instrument that needs the "
+                             "pre-P20-REPLAY-SHAPE seam, never as a fidelity gate")
     parser.add_argument("--label", default="", help="free text for the report header (tree, card)")
     args = parser.parse_args(argv)
 
@@ -380,7 +457,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"artifact-selection policy failed on {sha[:16]}: {exc}")
             return 5
         t0 = time.perf_counter()
-        payload, klass, reason, claimed = replay_one(markdown, pages)
+        payload, klass, reason, claimed = replay_one(markdown, pages, account_shape=args.account_shape)
         entry["ms"] = round((time.perf_counter() - t0) * 1000)
         entry.update(after=klass, after_reason=reason, after_parser=claimed or "", direction=direction(entry["before"], klass))
         if payload is None and baseline_payload is None:
@@ -482,6 +559,22 @@ def main(argv: list[str] | None = None) -> int:
         if len(table) and len(no_text) == len(table):
             print(f"BASELINE FIDELITY FAILED: 0 of {len(table)} shas resolved any cached "
                   "text — the run's partitions do not describe this data directory")
+            return 3
+        # P20-REPLAY-SHAPE addendum (P20-ARTIFACTS re-review MINOR-8): "expect
+        # identical" over a NAMED cohort means every member reproduced, not
+        # every member that happened to resolve. A cohort where SOME shas
+        # resolve and the rest are no_text/absent used to pass silently (the
+        # no_text row was the only signal, and it was not in the exit code).
+        # This is a SEPARATE check from the exactly-zero refusal above (which
+        # keeps its own message unchanged): this one fires whenever 0 < len(
+        # no_text) < len(table), and the exactly-zero case above always fires
+        # first, so the two never both print for the same run.
+        if no_text and not args.allow_unresolved:
+            replayed = len(table) - len(no_text)
+            print(f"BASELINE FIDELITY FAILED: replayed {replayed} of population {len(table)} — "
+                  f"{len(no_text)} sha(s) did not resolve any cached text: " +
+                  ", ".join(e["sha16"] for e in no_text[:20]) +
+                  " (pass --allow-unresolved to accept a partial replay)")
             return 3
         drift = [e for e in table if e["after"] not in ("no_text", "absent")
                  and (e["direction"] != "unchanged" or e["payload"] not in ("identical", "none-both")
