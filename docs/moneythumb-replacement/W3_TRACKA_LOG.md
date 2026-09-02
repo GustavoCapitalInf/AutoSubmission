@@ -68466,3 +68466,221 @@ sha in the closing message to Ocean.
   they can be trusted as fully reproducible from the current, fixed instrument set.
 * The Vast.ai instance's reachability is outside this cell's control; whoever runs the next live
   proof should confirm `check`/SSH connectivity BEFORE assuming the fixed lifecycle works end to end.
+
+# §P21PADDLE-CLOSURE-2 — the re-review of `5e41d09` (APPROVE WITH FINDINGS, 5 MINOR + 3 informational) closed offline; the Vast.ai instance remains unreachable
+
+Independent re-review: `## Re-review` in `docs/moneythumb-replacement/reviews/PHASE2_P21PADDLE_REVIEW.md`
+(as read on `train11`), against `wave21-paddle` at `5e41d09`. Ocean's ruling for this pass (R-1
+through R-5, plus three informational items) is followed verbatim below. As instructed, do-not-attempt
+was honored for the Vast.ai host this round too — no SSH/tunnel attempt was made; every fix and every
+killer below is proven entirely against `tests/paddle_fake_worker.py::FakeWorker` and the local
+`ocr.paddle_worker` HTTP server, never the real remote instance.
+
+## R-1 — the three verbatim-copied `/version` fields were not shape-validated before entering `runtime`
+
+**Reproduction.** The reviewer's nested-injection payload — a `gpu` mapping carrying an extra key,
+a `python_version` string that is not a bare `\d+\.\d+\.\d+` token (e.g. a value with a trailing
+clause or nested structure), and/or a non-bool `cuda_compiled` — passed `verify_identity` unchanged
+(which only compared the nine `IDENTITY_CHECK_FIELDS` for equality against the pinned defaults, never
+inspecting their *shape*) and reached `_runtime_block`, which copies these three field NAMES from the
+whitelist without checking what is inside them.
+
+**Fix.** `ocr/paddle_client.py`: a new `_shape_invalid_runtime_fields(remote)` validates, BEFORE
+`verify_identity` can return successfully:
+  - `gpu` — must be a `Mapping` with EXACTLY the three keys `{name, memory_total_mib, driver_version}`
+    (no more, no fewer); `name` must be a `str` matching `\A[A-Za-z0-9()+.\- ]{1,80}\Z` with no
+    doubled internal whitespace (bounded length, closed charset, no `/`, `:`, or whitespace runs);
+    `memory_total_mib` must be a real `int` (bool explicitly excluded, since `bool` is an `int`
+    subclass in Python); `driver_version` must match `\A\d+(\.\d+){1,3}\Z`.
+  - `python_version` — must be a `str` matching `\A\d+\.\d+\.\d+\Z` exactly (a bare three-part
+    version token, nothing appended or nested).
+  - `cuda_compiled` — must be a real `bool` (not `0`/`1`/`"true"`/`None`).
+  `verify_identity` now does `mismatched.extend(_shape_invalid_runtime_fields(remote))` before
+  deciding whether to raise; any shape defect raises `PaddleRefused("paddle_runtime_mismatch", ...)`
+  through the SAME path as a pinned-value mismatch, before rasterisation, before any page is built,
+  before `client.ocr_page` is ever called.
+
+**Killer.** `tests/test_paddle_client.py::test_r1_nested_injection_in_gpu_and_python_version_refuses`
+reproduces the reviewer's exact payload against `FakeWorker` and asserts `PaddleRefused` with
+`fake.requests == []` — zero `/ocr` requests reached the worker. Parametrised killers cover every
+individual shape defect: `test_r1_every_gpu_shape_defect_refuses` (7 cases: extra key, missing key,
+non-mapping, non-string name, name containing `/`, name containing a whitespace run, non-int
+`memory_total_mib`, non-version-shaped `driver_version`), `test_r1_every_python_version_shape_defect_refuses`
+(6 cases: `"3.12"`, `"3.12.14.1"`, `"3.12.14 extra"`, `"3"`, `None`, `""`),
+`test_r1_cuda_compiled_must_be_a_real_bool` (5 cases: `1`, `0`, `"true"`, `None`, and the string
+`"False"`). `test_r1_the_pinned_default_identity_passes_shape_validation` confirms the fix does not
+false-positive on `FakeWorker`'s own `DEFAULT_IDENTITY`, which nearly every other passing test relies
+on. Reverting the fix (removing the `mismatched.extend(...)` line, applied and reverted as a mutant
+this pass) fails 19 of these tests; reapplied and reverted clean (`git status --porcelain` empty
+before and after).
+
+## R-2 — the customer-data re-derivation had no twin of the MAJOR-2 remote-half killer
+
+**Reproduction.** `check_remote_authorization` already re-derives `customer_data_opt_in` from
+`environ` (the first closure's MAJOR-2 fix), but that gate only fires when `data_scope ==
+DATA_SCOPE_CUSTOMER`. A hand-built `PaddleSettings(customer_data_opt_in=True, ...)` constructed with
+ONLY the remote-opt-in literal in the environment (the customer-data literal absent) could still be
+handed to `PaddleClient.__init__` directly — which, before this fix, trusted `settings.customer_data_opt_in`
+at face value and never checked the environment itself — so a caller who skipped
+`check_remote_authorization` (or called it with a non-`"customer"` `data_scope` while still building a
+client that believed it was authorized for customer data) hit no gate at all at the client
+construction site.
+
+**Fix.** `ocr/paddle_client.py`, `PaddleClient.__init__`: alongside the existing `remote_opt_in`
+re-derivation, when `settings.customer_data_opt_in` is `True` the constructor independently checks
+`source.get(PADDLE_CUSTOMER_DATA_OPT_IN_ENV) == PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL` against the same
+`environ` seam, and raises `PaddleRefused("remote_customer_data_refused", ...)` if the environment
+does not agree — unconditionally, regardless of `data_scope`.
+
+**Killer (three sites, per the ruling).**
+  - `check_remote_authorization`: `test_r2_check_remote_authorization_refuses_a_hand_built_customer_opt_in_with_only_the_remote_literal_present`
+    (`tests/test_paddle_client.py`) — pre-existing MAJOR-2 behaviour, re-confirmed under the new test
+    name for this residual's record.
+  - `PaddleClient`: `test_r2_paddle_client_refuses_a_hand_built_customer_opt_in_with_only_the_remote_literal_present`
+    — constructs the client directly (bypassing `check_remote_authorization`) and asserts
+    `PaddleRefused`. The reversal mutant (`customer_opt_in = settings.customer_data_opt_in`, dropping
+    the environment re-derivation) was applied this pass: `DID NOT RAISE PaddleRefused` — killed.
+    `test_r2_paddle_client_permits_customer_opt_in_when_the_environment_actually_agrees` is the
+    positive control (both literals genuinely present → construction succeeds).
+  - `read_document`: `test_r2_read_document_refuses_a_hand_built_customer_opt_in_with_only_the_remote_literal_present`
+    (`tests/test_paddle_rung.py`) — calls `read_document(..., data_scope="customer", settings=<hand-built>,
+    environ=VAST_ENV)` (only the remote literal present) and asserts `PaddleRefused` with reason
+    `remote_customer_data_refused` and `fake.requests == []`.
+  Mutant applied and reverted this pass; `git status --porcelain` clean before and after.
+
+## R-3 — `data_scope` was not recorded in the evidence's provenance
+
+**Reproduction.** `ExtractionEvidence.runtime` (and its whitelist, `RUNTIME_FIELDS`) had no field
+recording what `data_scope` the rung's OWN caller declared when it invoked `read_document` — so an
+artifact produced by this rung carried no auditable record, after the fact, of whether it was declared
+`"customer"`, `"synthetic"`, or otherwise, at the moment it was sent.
+
+**Fix.** `ocr/paddle_rung.py`: `RUNTIME_FIELDS` gained `"data_scope"` (now 14 members, closed).
+`_runtime_block` takes `data_scope` as its own fourth argument (never read from `remote_identity` —
+the worker never supplies it) and sets `block["data_scope"] = data_scope` before the
+`assert set(block) <= RUNTIME_FIELDS` guard. The call site in `read_document` passes its own
+`data_scope` parameter through.
+
+**Killer.** `test_r3_runtime_fields_is_the_exact_whitelist_including_data_scope`
+(`tests/test_paddle_rung.py`) asserts EXACT set equality (not `<=` subset) against the 14 named
+fields, so a future addition that forgets to update this test is caught immediately.
+`test_r3_evidence_runtime_records_the_declared_data_scope` runs a full synthetic `read_document` with
+`data_scope="synthetic"` and asserts `result.evidence.runtime["data_scope"] == "synthetic"`. Mutant
+(removing the `block["data_scope"] = data_scope` line) applied this pass: `KeyError: 'data_scope'`
+on the second test — killed. `evidence_sha256` stability (MINOR-6, prior round) is unaffected: its
+own test never varies `data_scope` between its two compared calls.
+
+## R-4 — ownership ratification and correction of the "APPENDED, never changed" record
+
+Ocean ratified, for this closure: the function-body edits in `ocr/paddle_config.py` — the MAJOR-2
+config-half environment re-derivation and the MAJOR-4 session-token-file fallback, both from commit
+`609f3a2` in the FIRST closure round — and the `tests/test_paddle_config.py` changes threading the
+`environ=` seam that went with them, are accepted as this cell's work, notwithstanding that
+`ocr/paddle_config.py` is otherwise Ocean's file under the P21-PADDLE ownership grant.
+
+**Correction.** The `## \`ocr/paddle_config.py\` (Ocean's; APPENDED, never changed)` note in the
+original `§P21PADDLE` section above (this file, immediately before `§P21PADDLE-CLOSURE`) is accurate
+ONLY for the ONE change it describes — the two new `REFUSAL_REASONS` members added at that point in
+the record. It is not, and was never meant to be read as, a claim that no other part of the file was
+ever touched: the very next round (`609f3a2`) made the two function-body edits this ruling now
+ratifies, and this closure-2 round added two more (informational (b) and (c), below) to the same
+file. Per the append-only doctrine, that earlier section's own text is left exactly as written above
+— this paragraph is the correction, recorded here rather than by editing history.
+
+## R-5 — final-tree privacy and secrets counts
+
+Scanned at the true tip after every commit in this closure (`b07d16d`, before this section's own
+commit):
+* `tools/privacy_scan_branch.py` (added lines, base `888fb1c`, ref `HEAD`, population 3,380 shas /
+  3,351 with cached text): **added_lines 5,714, hit_count 0** (MONEY 0 / DIGITS 0 / DATES 0 /
+  WORDS 0); 94 WORDS-class raw hits, all excluded by the tree's own `words_class` rule (up from the
+  first closure's 66/27 — the residual's own fixes and this section's prose account for the growth).
+* `tools/huntington_msg_privacy_scan.py` (30 commits scanned): **MONEY 0, DIGITS 0, DATES 0**;
+  **WORDS 11** — eleven ordinary two-word coincidences across four commit messages ("CHECK CUSTOMER",
+  "DEFENSE" ×2, "MAKE REQUEST", "WILL MAKE", "USED EVERYWHERE", "FROM HEALTH", "ALREADY FILE",
+  "RECEIVED WIRE", "SENT PAGE", "SENT WIRE"), reported with attribution per the standing doctrine;
+  none carries connection information.
+* Secrets scan (`git diff 888fb1c..HEAD` + `git log 888fb1c..HEAD --format=%B`, compared against
+  `PADDLE_VAST_HOST` / `PADDLE_VAST_SSH_PORT` / `PADDLE_VAST_SSH_USER` from `os.environ` at scan
+  time): **0 / 0 / 0**. Two coincidental collisions were found and fixed DURING this closure before
+  reaching this final count: (a) a test payload reused a real GPU memory-total figure already known
+  from an earlier round to coincidentally match a printed digit run — replaced with a non-colliding
+  value; (b) an ordinary two-word phrase used in comments, a test name, and two commit messages to
+  describe the informational-(b) fix collided on its class only at the WORDS/secrets boundary (the
+  SSH-user environment value equals an ordinary English word that happened to open that phrase) — this
+  is the exact class of coincidence the standing doctrine already tolerates in the WORDS-class message
+  scan above, but the coordinator's numeric target for the SECRETS scan specifically is genuinely
+  0, so the phrase was reworded to a different one not containing that word, throughout, with no
+  behavioural change; both fixes were applied via new commits and, for the message-only instances, a
+  `git filter-branch --msg-filter` reword (trees verified byte-identical via
+  `git diff 888fb1c..HEAD --stat` before and after each pass; `refs/original/refs/heads/wave21-paddle`
+  removed after each pass).
+
+## Informational items closed
+
+* **(a) `assert set(block) <= RUNTIME_FIELDS` is `-O`-strippable.** Acknowledged — this assertion is
+  a development-time guard against the whitelist silently widening, not the enforcement boundary
+  itself (the enforcement boundary is that `_runtime_block` only ever reads the named keys in the
+  first place). No action taken, per the ruling.
+* **(b) `PADDLE_RUNTIME_DIR` now resolves relative to the top-level checkout directory, not the
+  CWD.** `ocr/paddle_config.py`: a module-level `_REPO_ROOT` (`Path(__file__).resolve().parent.parent`,
+  the directory holding `ocr/`) anchors any relative `PADDLE_RUNTIME_DIR`; an absolute value passes
+  through untouched. **Killer:** `test_relative_runtime_dir_resolves_at_the_checkout_base_not_cwd`
+  (`monkeypatch.chdir(tmp_path)` to a directory nowhere near the repository, asserts the resolved path
+  is absolute and anchored at the checkout base regardless) and
+  `test_absolute_runtime_dir_is_left_untouched`. Mutant (dropping the anchoring line) applied this
+  pass: fails both this test and the pre-existing `test_defaults_derive_a_loopback_worker_url_from_the_tunnel_port`
+  (which asserts the DEFAULT runtime dir is likewise absolute and checkout-anchored) — killed, reverted
+  clean.
+* **(c) A non-UTF-8 `worker.token` file now fails closed, naming the file.** `ocr/paddle_config.py`:
+  the token read still treats a MISSING file as silently `None` (`except OSError`), but a file that
+  EXISTS and is not valid UTF-8 text now raises `PaddleConfigError` naming the exact path
+  (`except (UnicodeDecodeError, ValueError)`, distinct from the `OSError` branch). This follows the
+  coordinator's explicit instruction for this item over the review's own suggestion of silently
+  swallowing the decode error the same as a missing file. **Killer:**
+  `test_a_non_utf8_token_file_fails_closed_naming_the_file` (writes invalid UTF-8 bytes, asserts
+  `PaddleConfigError` naming the path) and `test_a_missing_token_file_is_silently_none_not_an_error`
+  (the missing-file case is unaffected). Mutant (folding the new except clause into `token = None`)
+  applied this pass: `DID NOT RAISE PaddleConfigError` — killed, reverted clean.
+
+## Re-run proof floor (this closure)
+
+* All Paddle test files (`test_paddle_adapter`, `test_paddle_client`, `test_paddle_config`,
+  `test_paddle_rung`, `test_paddle_vast_tool`, `test_paddle_worker`, `test_paddle_live` deselected) +
+  the 5 canonical guards (`test_no_statement_hardcodes`, `test_no_parser_helper_clones`,
+  `test_r1_hardcodes`, `test_experiments_are_not_wired`, `test_filename_boundary`) +
+  `tests/test_escalation_tripwires.py` + `tests/test_evidence_boundary.py`: **499 passed, 1
+  deselected**, `EXIT=0`.
+* Mutation table M1–M12 (original card): unaffected by this closure (no production code path they
+  cover changed shape; the two `git filter-branch` passes since the first closure changed only commit
+  MESSAGES, never tree content — `git diff 888fb1c..HEAD --stat` confirmed identical file list/insert
+  counts before and after both passes) — carried forward KILLED 12/12 from `§P21PADDLE-CLOSURE` above.
+* Five NEW mutants for this closure's own fixes, applied and reverted this pass (`git status
+  --porcelain` clean before and after each): R-1 (`mismatched.extend(...)` removed — 19 tests fail),
+  R-2 client-half (`customer_opt_in = settings.customer_data_opt_in` — 1 test fails,
+  `DID NOT RAISE PaddleRefused`), R-3 (`block["data_scope"] = data_scope` removed — `KeyError:
+  'data_scope'`), (b) (anchoring line removed — 2 tests fail), (c) (except clause folded into
+  `token = None` — `DID NOT RAISE PaddleConfigError`). **5/5 KILLED.**
+* File-content privacy scan, message scan, secrets scan: see R-5 above — all counts confirmed at the
+  true tip, after this section's own text was drafted (re-run once more immediately before commit).
+* Live re-run: not attempted, per explicit instruction — the Vast.ai host remains unreachable and
+  this closure was scoped offline-only.
+
+## Commits (branch `wave21-paddle`, base `train11` = `888fb1c`; this closure's own commits, in order)
+```
+455316a fix(ocr): R-1 + R-2 (re-review residuals) — shape-validate gpu/python_version/cuda_compiled; pin the customer-data re-derivation with a test
+a444d5a fix(ocr): R-3 (re-review residual) — record the declared data_scope in the evidence
+d7e7f95 fix(ocr): informational (b) + (c) (re-review) — PADDLE_RUNTIME_DIR resolves at the top-level checkout directory; a non-UTF-8 token file fails closed by name
+e042184 fix(docs): R-5 (re-review residual) — describe the WORDS-class collision by class only, never quote the phrase
+56427e1 fix(paddle): remove yet another coincidental privacy-scan collision (R-1's test payload reused the same GPU figure)
+b07d16d fix(paddle): avoid the SSH-user-value word inside otherwise-unrelated prose in the (b) fix
+```
+sha note: the tip reviewed for this closure was `5e41d09`; this closure's own commits sit on top of
+it unchanged (no rewrite touched anything at or before `5e41d09` — only THIS closure's own six
+commits above were ever subject to `git filter-branch --msg-filter`, and only for message text, never
+tree content). This W3 subsection's own commit is reported by sha in the closing message to Ocean.
+
+## Risks (unchanged from `§P21PADDLE-CLOSURE` above)
+
+* Everything listed there still holds — the live worker path, the measurements file's erratum, and
+  the Vast.ai instance's reachability remain exactly as recorded; this closure changed none of it.
