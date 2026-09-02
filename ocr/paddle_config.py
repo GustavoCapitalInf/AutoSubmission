@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path as _Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -155,6 +156,13 @@ PADDLE_DEFAULT_RUNTIME_DIR = ".paddle_runtime"
 
 #: Closed refusal vocabulary (rows, telemetry and exceptions use these tokens
 #: and nothing else).
+#:
+#: `paddle_frame_mismatch` and `paddle_evidence_malformed` were APPENDED by
+#: cell P (`ocr/paddle_rung.py`, `docs/agent-handoffs/P21-PADDLE.md` §4):
+#: the rung's own two whole-document refusals — a raster/PDF-page geometry
+#: that `evidence.PageFrame` refuses (scale disagreement) and a PaddleOCR
+#: result `ocr.paddle_adapter.PaddleAdapterError` refuses (a shape the
+#: adapter cannot trust) — never a partial page, never a guess.
 REFUSAL_REASONS: tuple[str, ...] = (
     "paddle_config_missing",
     "paddle_remote_opt_in_required",
@@ -163,6 +171,8 @@ REFUSAL_REASONS: tuple[str, ...] = (
     "paddle_runtime_mismatch",
     "paddle_worker_unreachable",
     "paddle_worker_url_not_loopback",
+    "paddle_frame_mismatch",
+    "paddle_evidence_malformed",
 )
 
 _REQUIRED_ALWAYS = ("PADDLE_PROVIDER", "PADDLE_EXECUTION_CLASS")
@@ -283,7 +293,23 @@ def load_paddle_settings(environ: Mapping[str, str] | None = None) -> PaddleSett
         # and this client is not the place to make that work.
         raise PaddleConfigError("PADDLE_WORKER_URL must be a loopback http(s) URL (the SSH tunnel's local end)")
 
+    runtime_dir = (source.get("PADDLE_RUNTIME_DIR") or "").strip() or PADDLE_DEFAULT_RUNTIME_DIR
     token = (source.get("PADDLE_WORKER_TOKEN") or "").strip() or None
+    if token is None:
+        # MAJOR-4 (PHASE2_P21PADDLE_REVIEW.md): `tools.paddle_vast.cmd_start` writes a
+        # freshly-generated per-session token to `<runtime_dir>/worker.token` (gitignored)
+        # and exports it to the REMOTE worker — but nothing read it back into the
+        # LOCAL client's own settings, so a client built exactly as the runbook
+        # documents sent no bearer token and every `/ocr` request 401'd. The fallback
+        # reads that same file when the env var itself is unset; an explicit
+        # `PADDLE_WORKER_TOKEN` always wins over the file. Read failures (missing
+        # file, permissions) are silent — this is a convenience fallback, never a
+        # second required-configuration path (CASE 17 stays about the five
+        # `_REQUIRED_*` variables only).
+        try:
+            token = (_Path(runtime_dir) / "worker.token").read_text(encoding="utf-8").strip() or None
+        except OSError:
+            token = None
     return PaddleSettings(
         provider=provider,
         execution_class=execution_class,
@@ -298,11 +324,13 @@ def load_paddle_settings(environ: Mapping[str, str] | None = None) -> PaddleSett
         worker_port=worker_port,
         tunnel_local_port=tunnel_port,
         worker_token=token,
-        runtime_dir=(source.get("PADDLE_RUNTIME_DIR") or "").strip() or PADDLE_DEFAULT_RUNTIME_DIR,
+        runtime_dir=runtime_dir,
     )
 
 
-def check_remote_authorization(settings: PaddleSettings, data_scope: str) -> None:
+def check_remote_authorization(
+    settings: PaddleSettings, data_scope: str, *, environ: Mapping[str, str] | None = None,
+) -> None:
     """The two opt-in gates, evaluated BEFORE any request (D3, D8).
 
     * `remote_paid` without the exact remote opt-in literal -> refused.
@@ -310,17 +338,40 @@ def check_remote_authorization(settings: PaddleSettings, data_scope: str) -> Non
       exact customer-data literal -> refused (never set in Phase 2.1).
     * an unknown scope -> refused (a caller must declare what it is sending).
     A `local_free` worker needs neither literal.
+
+    MAJOR-2 (PHASE2_P21PADDLE_REVIEW.md): both gates RE-DERIVE their literal from
+    `environ` (default `os.environ`) at check time and require it to agree with
+    `settings`'s own flag — a hand-built `PaddleSettings(remote_opt_in=True, ...)`
+    whose process environment does NOT actually carry the literal is refused just
+    the same as one with the flag `False`. `environ` is the test seam; production
+    callers pass nothing and get the real environment `load_paddle_settings` itself
+    reads, so an honestly-built settings object always agrees with it already.
+
+    This closes what the boundary can promise, precisely: an honest caller whose
+    `PaddleSettings` came from `load_paddle_settings()` cannot reach a `remote_paid`
+    request without the operator having set the real env literal, and cannot send a
+    `customer`-scope document to one without the second real env literal. It does
+    NOT verify that `data_scope` truthfully describes the bytes being sent — that
+    remains a declaration the caller makes (D8); the discovery runner's own
+    `data_scope="customer"` literal is pinned by cell R's tests, not by this
+    function, because this module has no way to inspect a caller's document source.
     """
     if data_scope not in DATA_SCOPES:
         raise PaddleRefused("paddle_data_scope_unknown", f"data_scope={data_scope!r}")
     if not settings.is_remote:
         return
-    if not settings.remote_opt_in:
+    source = os.environ if environ is None else environ
+    remote_opt_in = settings.remote_opt_in and source.get(PADDLE_REMOTE_OPT_IN_ENV) == PADDLE_REMOTE_OPT_IN_LITERAL
+    if not remote_opt_in:
         raise PaddleRefused(
             "paddle_remote_opt_in_required",
             f"set {PADDLE_REMOTE_OPT_IN_ENV}={PADDLE_REMOTE_OPT_IN_LITERAL} to allow remote paid PaddleOCR explicitly",
         )
-    if data_scope == DATA_SCOPE_CUSTOMER and not settings.customer_data_opt_in:
+    customer_data_opt_in = (
+        settings.customer_data_opt_in
+        and source.get(PADDLE_CUSTOMER_DATA_OPT_IN_ENV) == PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL
+    )
+    if data_scope == DATA_SCOPE_CUSTOMER and not customer_data_opt_in:
         raise PaddleRefused(
             "remote_customer_data_refused",
             "customer documents are not sent to a remote worker without Gustavo's separate "

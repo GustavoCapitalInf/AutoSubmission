@@ -68486,3 +68486,528 @@ completion.
   entry.
 * Every other risk named in `§P21GEOMETRY` and `§P21GEOMETRY-CLOSURE` (the rotation prerequisite,
   the ~2.7x cost / discarded `evidence_sha256`) is unchanged by this closure.
+
+# §P21PADDLE — PaddleOCR 3.7 / PP-OCRv5 extractor: the loopback worker, the bounded client, the canonical-evidence adapter, the rung, and the Vast.ai lifecycle tool (Phase 2.1 cell P)
+
+**Population: synthetic fixtures only.** No document from `Bank Statements/`, `tests/corpus_cache/`
+or any real statement was read, sent anywhere, or used as a fixture by any code in this section.
+The only bytes that ever left this machine were (a) `tests/paddle_synthetic.py`-generated pages
+(a header line, a DATE/DESCRIPTION/AMOUNT/BALANCE column-header row, N ledger rows of obviously
+synthetic literals with an arithmetically-chained round-dollar running balance) and (b)
+`ocr/paddle_worker.py` itself, deployed by `tools/paddle_vast.py deploy`. The only network egress
+was SSH/SCP to the `PADDLE_VAST_*` host and HTTP to `127.0.0.1:<tunnel port>`.
+
+## Root cause
+Before this card, the proven fact that PaddleOCR 3.7 with `return_word_box=True` runs on the Vast
+RTX 5090 was not platform evidence: nothing bounded what could be sent to it, nothing verified the
+worker's own identity before trusting it, nothing turned its result shape into the project's
+canonical word/line representation, and nothing measured what a page actually costs.
+
+## Solution
+* `ocr/paddle_worker.py` — a stdlib-only (+ Pillow/numpy) `http.server.ThreadingHTTPServer`,
+  loopback-bind-only, with `/health` `/version` `/ocr`; every bound (body size, JSON nesting depth,
+  base64 validity, PNG magic, pixel count, side length) enforced before the corresponding decode;
+  `paddleocr` imported only inside the inference function, so the whole request-validation pipeline
+  is unit-tested with no `paddleocr` installed.
+* `ocr/paddle_client.py` — stdlib `urllib` only; the constructor re-checks the worker URL is
+  loopback; `verify_identity` refuses on ANY field disagreement between the worker's own `/version`
+  and the pinned identity + the declared provider/class, before an image is sent; redirects refused,
+  never followed; bounded retries, same URL only; every transport failure -> typed
+  `PaddleTransportError` naming the exception class.
+* `ocr/paddle_adapter.py` — `page_evidence_from_result` reads exactly `text_word` /
+  `text_word_boxes` / `rec_texts` / `rec_scores`; stamps each word with its LINE's confidence
+  (Paddle 3.7 scores lines, documented as such); drops blank words with a count; refuses the WHOLE
+  page on any shape mismatch or a box `evidence.WordBox`/`PageEvidence` itself refuses (never
+  clamped). `evidence_from_pages` assembles the document-level `ExtractionEvidence`.
+* `ocr/paddle_rung.py` — `read_document`: settings -> the two opt-in/scope gates -> identity
+  verification -> rasterise + read each page's own PDF geometry -> OCR + adapt -> assemble
+  `PaddleRead`. A frame or evidence failure fails the WHOLE document
+  (`paddle_frame_mismatch` / `paddle_evidence_malformed` — two refusal reasons APPENDED to
+  `ocr/paddle_config.REFUSAL_REASONS`, nothing existing changed). No byte leaves before step 4;
+  `pdf_bytes` and every page PNG live only in memory (no `tempfile`, no `open(` — AST-pinned).
+* `tools/paddle_vast.py` — `check` / `deploy` / `start` / `tunnel-up` / `tunnel-down` / `status` /
+  `stop` / `measure`; every connection value comes from `PaddleSettings`, never a literal; every
+  printed/returned value masked; `measure` refuses any fixture path naming a real-data location and
+  only ever reads `tests/paddle_synthetic.py`'s generated pages.
+* `tests/paddle_fake_worker.py` / `tests/paddle_synthetic.py` — the default suite's only worker
+  (a real loopback HTTP server from a canned result) and the deterministic fixture generator shared
+  by every test and by `measure`.
+
+**Not built here (cell R's ownership, per file-ownership disjointness):** wiring into
+`parse_statement` / `discovery` / the webapp; the router's `enabled` set; `EXTRACTOR_ORDER`.
+Verified: no file outside `tests/`, `tools/`, and `ocr/paddle_*.py` references any of these five
+new modules — `ocr/pipeline.py`, `ocr/escalation.py`, `discovery/`, `webapp/`, `analysis/` are
+untouched. Ruling A (automatic hosted extraction REFUSED) therefore holds vacuously in this tree:
+no path to Paddle exists yet outside an explicit test/tool call.
+
+## Newly validated: 0. Previously validated preserved: all (nothing on the offline/native/tesseract
+path changed; `ocr/paddle_config.py` gained two refusal-reason strings, no existing value changed).
+## Regressions: 0.
+
+## Correctness evidence
+
+### Case table (cell P's cases per the umbrella card)
+| case | property | result |
+|---|---|---|
+| 5 (adapter half) | demo fixture (33 raw lines / 62 raw word slots) -> 51 canonical words (11 dropped blanks) / visual lines; every box reproduces from `raw`; `to_json`/`from_json` sha round-trip stable; synthetic ledger regroups exactly | PASS |
+| 6 | native PDF path — cell G's ownership, not built here | n/a to cell P |
+| 7 | confidence is annotation-only: absent from derived page text; a mutant forcing every score to 1.0 AND to 0.0 leaves `pages` byte-identical | PASS (both extremes) |
+| 8 | every malformed shape (length mismatch, word/box count mismatch, missing key, non-list, inverted box, out-of-raster box, malformed box shape, bad score) refuses the WHOLE page, never a partial one | PASS (8 distinct shapes) |
+| 11 | `paddle-ocr+ppocrv5` obeys `MODEL_TOKEN_RE`, no money shape, reserved so `OCR_MODEL` cannot impersonate it (cell R wires the reservation; documented as passing either way until it composes); `runtime` JSON contains no URL/host/port/token | PASS |
+| 13 | opt-in absent / wrong literal / the VISUAL literal only -> refused before the fake worker sees a connection (`requests == []`); present -> the request is made | PASS |
+| 16 | declaration + worker corroboration; EVERY one of 9 identity fields mutated independently -> `paddle_runtime_mismatch`, zero `/ocr` requests; a loopback tunnel URL classifies correctly regardless of declaration | PASS (9/9 fields) |
+| 17 | proven by cell 0's `tests/test_paddle_config.py` (not owned by cell P; re-verified green in this branch's proof floor, 43/43) | PASS |
+| 18 | connection refused / timeout / 500 / malformed JSON / oversized response / redirect -> `PaddleTransportError` with the class name; exactly one URL ever contacted (a URL-spying opener proves it, including across retries) | PASS |
+| 20 | `data_scope="customer"` on remote without the second literal -> `remote_customer_data_refused`, zero requests; `"synthetic"` proceeds; `local_free` proceeds for both scopes | PASS |
+| worker unit tests | offline, no `paddleocr`; every bound and error token; loopback-only bind refusal (structural, at two points: `resolve_bind_address` AND `build_server`); token required when set; `/version` shape; the request pipeline reaches exactly the model-call boundary with no `paddleocr` import above it | PASS (28 tests) |
+| lifecycle tool tests | subprocess calls mocked; argument construction never leaks the host/user/token in returned/printed output (verified against the SAME placeholder host `tests/test_paddle_config.py` uses); refuses customer-data-shaped fixture paths | PASS (19 tests) |
+| LIVE | the real worker over the real tunnel on a synthetic image-only PDF -> word boxes returned; identity block matches the pins exactly; `PaddleRead.pages` non-empty and the ledger rows regroup correctly | PASS (1/1, see §Remote evidence) |
+
+### Mutation table (every mutant applied to a clean tree, run, confirmed killed, then `git checkout --` reverted; `git status --porcelain` clean before and after each)
+| id | mutant | killer(s) |
+|---|---|---|
+| M1 | `check_remote_authorization` call skipped in the rung | `test_case13_opt_in_checked_before_any_network_call`, `test_case20_customer_scope_refused_before_any_network_call` (both: "DID NOT RAISE PaddleRefused") |
+| M2 | `verify_identity` narrowed to compare only `contract` | `test_case16_m2_every_field_mismatch_refuses_independently` — 8 of 9 parametrized fields fail (`contract` alone still passes, correctly) |
+| M3 | `PaddleClient.__init__`'s loopback re-check removed | `test_m3_constructor_refuses_a_non_loopback_hand_built_settings` |
+| M4 | on a transient failure, retry against a hardcoded second URL (`http://localhost:8000/v1`, the visual endpoint) | `test_m4_no_retry_to_a_different_url_ever` — a URL-spying opener catches the fallback URL in the recorded set (strengthened from an earlier settings-object-only assertion that would have missed this exact mutant) |
+| M5 | adapter clamps an out-of-raster box to the frame bounds instead of letting `evidence` refuse | `test_case8_out_of_raster_box_refuses` |
+| M6 | lines built from PaddleOCR's own per-line text/index instead of `evidence.group_lines`'s geometry | `test_case5_m6_two_column_page_regroups_by_geometry_not_by_paddle_line_order` — a NEW test added specifically because the pre-existing ledger reading-order test drew one PaddleOCR line per visual row, so it could not distinguish geometric regrouping from naive per-line joining; the new case gives PaddleOCR TWO same-row "lines" in reversed x-order and proves they merge into one, x-sorted `LineBox` |
+| M7 | drop words with line confidence < 0.5 | `test_case7_m7_mutant_score_leaves_pages_byte_identical` — both the 1.0 and 0.0 parametrizations fail (0.0 drops every word) |
+| M8 | worker binds `0.0.0.0` (mutated at both `resolve_bind_address` and `build_server` independently) | `test_m8_bind_address_refuses_anything_but_loopback` (+ `test_build_server_refuses_a_non_loopback_host_even_if_asked_directly` for the second mutation site) |
+| M9 | `MAX_BODY_BYTES` widened 32 MiB -> 40 MiB | `test_m9_body_over_the_bound_is_refused` — a real HTTP request against a live `worker.build_server` instance; strengthened to assert the ABSOLUTE bound value (not just relative enforcement), since the first version computed its oversized length relative to the (mutated) constant and would have missed this exact mutant |
+| M10 | `runtime` block gains `worker_url` | `test_end_to_end_synthetic_document` (CASE 11 / D6 secrecy assertion over the rung's actual evidence+telemetry JSON) |
+| M11 | the rung writes `pdf_bytes` to a `tempfile` before rasterising | `test_m11_no_tempfile_or_path_open_anywhere_in_the_rung` (AST scan: `import tempfile` detected) |
+| M12 | `cmd_measure`'s `_refuse_forbidden_fixture` call skipped | `test_m12_measure_refuses_a_real_data_fixture_path` — all 5 parametrized real-data-shaped paths now reach a live connection attempt instead of the expected `PaddleVastError` |
+
+All twelve mutants: **KILLED**, killer named, tree restored clean after every one.
+
+## Remote evidence
+* **Opt-in state.** `PADDLE_REMOTE_OPT_IN=I_ACCEPT_REMOTE_PAID_PADDLE_OCR` was set ONLY in the
+  environment of the specific `status` / live-test / `measure` commands below — never in a tracked
+  file, never exported for a whole shell session. `PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` was NEVER
+  set; every call declared `data_scope="synthetic"`.
+* **Declaration + worker corroboration.** Local declaration `PADDLE_PROVIDER=vast.ai` /
+  `PADDLE_EXECUTION_CLASS=remote_paid`; the worker's own `/version` echoed the SAME provider and
+  execution class (confirmed by `tools.paddle_vast check`, `deploy`'s self-check, and
+  `verify_identity` succeeding before every `/ocr` call) — the URL throughout was
+  `http://127.0.0.1:18765` (the tunnel's local end); execution class was never inferred from it.
+* **Bytes sent.** Only `ocr/paddle_worker.py` itself (`deploy`) and synthetic PNG pages (~248 KiB
+  each at 300 dpi, an 8-row ledger). No production document, no customer data.
+* **Identity block** (worker's own `/version`, matching the D5 pins exactly): `paddleocr_version
+  3.7.0`, `paddlepaddle_version 3.3.0`, `ocr_version PP-OCRv5`,
+  `text_detection_model_name PP-OCRv5_server_det`, `text_recognition_model_name
+  en_PP-OCRv5_mobile_rec`, `pipeline_switches` all five matching, `contract 1`, GPU `NVIDIA GeForce
+  RTX 5090` / 32,607 MiB / driver 580.173.02, remote Python 3.12.14.
+* **Live proof** (`tests/test_paddle_live.py -m live`, run once): **1 passed** — a 5-row synthetic
+  ledger, image-only PDF at 300 dpi, produced 1 page / 36 words / 7 lines; the reconstructed page
+  text reproduced the known synthetic ledger rows exactly; `evidence.runtime["provider"] ==
+  "vast.ai"`, `execution_class == "remote_paid"`, `paddleocr_version == "3.7.0"`.
+* **Measurements** (`tools.paddle_vast measure`, full detail in
+  `docs/moneythumb-replacement/PADDLE_MEASUREMENTS.md`; fresh worker restart for a genuine cold
+  read, 8-row ledger, 300 dpi, 2550x3300 px):
+  cold end-to-end **5,087.5 ms** / cold inference **3,981.0 ms**; warm median end-to-end **1,521.8
+  ms** / p95 **1,590.1 ms** (n=20); bytes sent/received per page **253,799 / 12,263**; GPU memory
+  used with the model loaded, idle between requests, **7,692 / 32,607 MiB**; GPU utilization at that
+  instant **0%** (inference is serialised and bursty); total worker wall-clock across this whole
+  proof **~262 s**; **cost: "rate not measured"** — no hourly rate is published in the instance's
+  own `vast-capabilities` manifest and none was supplied; runtime is reported, never a guessed cost.
+* **Cleanup.** `tools.paddle_vast stop` (remote worker process ended) and `tunnel-down` (local SSH
+  forward ended) were both run at the end; `pgrep -af paddle_worker.py` on the remote host and
+  `tasklist | findstr ssh` locally both confirmed nothing from this pipeline is left running.
+
+## Generalization evidence
+The worker contract (`GET /health`, `GET /version`, `POST /ocr`, the JSON shapes, the bounds) is
+provider-agnostic by construction: `ocr/paddle_worker.py` reads its own identity from
+`PADDLE_PROVIDER` / `PADDLE_EXECUTION_CLASS` and the ONLY legal `local` pairing is
+`local_free` — already in the closed vocabulary `ocr/paddle_config.py` defines and this worker
+copies as literals. A `local_free` deployment would need: (1) a machine with the same
+`/venv`-equivalent (paddleocr 3.7.0, paddlepaddle, Pillow, numpy) and the two cached PP-OCRv5
+models; (2) `PADDLE_PROVIDER=local` / `PADDLE_EXECUTION_CLASS=local_free` in that machine's own
+environment when starting the worker (no code change); (3) `PADDLE_WORKER_URL` pointed at that
+worker directly (still loopback, or a tunnel to it) — no opt-in literal is required for
+`local_free`, by design (D3/D8), and no SSH/lifecycle-tool involvement is required at all if the
+worker is started by hand. Nothing else in `ocr/paddle_client.py`, `ocr/paddle_adapter.py`, or
+`ocr/paddle_rung.py` mentions Vast, SSH, or any provider-specific detail — this was verified by
+inspection during authoring, not merely asserted.
+
+## Commits (branch `wave21-paddle`, base `train11` = `888fb1c`)
+```
+d55a03f feat(ocr): append two new refusal reasons to the Paddle configuration's closed vocabulary
+90c40f9 test(paddle): the synthetic statement-like fixture generator (D8)
+2a4e7f0 feat(ocr): the Paddle remote worker service (D7)
+3ae47fa feat(ocr): the bounded Paddle worker client (D2, D5) with its fake-worker test double
+b4ab14a feat(ocr): PaddleOCR 3.7 result to canonical evidence (D9)
+bf2bef6 feat(ocr): the Paddle rung (settings, opt-in, identity, rasterise, OCR, adapt, assemble)
+7a9f69a feat(tools): the Paddle Vast.ai lifecycle tool
+9335f1d docs(paddle): the Vast.ai runbook, a placeholder-only env example, and the deselected live proof
+c2004a3 fix(paddle): remove coincidental privacy-scan collisions in the synthetic fixtures
+bbf0353 test(paddle): strengthen M4 and M9 into real killers, not gate-named placeholders
+1ae0f75 test(paddle): a real M6 killer — two same-row Paddle detections must regroup by geometry
+392579e test(paddle): pin M9's absolute bound value alongside its enforcement behaviour
+f68d796 docs(paddle): the live runtime/cost measurement over the real Vast.ai tunnel
+```
+This W3 subsection's own commit is reported by SHA in the closing message to Ocean (a commit
+cannot name its own hash inside itself).
+
+## Proof floor (exit codes verbatim)
+* Full default suite: **8,528 passed, 45 skipped, 39 deselected**, 330.46s, `EXIT=0`.
+* 5 canonical guards + 7 canonical conformance files (12 files together): **1,549 passed, 41
+  skipped**, `EXIT=0`.
+* `python corpus_gate.py`: **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, runtime 474.0s, `EXIT=0`.
+* `pytest -m corpus`: **34 passed, 8,578 deselected**, 1,283.67s, `EXIT=0`.
+* This branch's own Paddle test files (107 new + cell 0's 43 = 150): **150 passed**, `EXIT=0`.
+* Live proof (`pytest tests/test_paddle_live.py -m live`): **1 passed**, `EXIT=0`.
+* `tools.paddle_vast stop` + `tunnel-down`: both executed at the end; nothing left running
+  (verified on the remote host and locally).
+
+## Privacy + secrets counts
+* `tools/privacy_scan_branch.py` (added lines, base `888fb1c`, ref `HEAD`, population 3,380 shas,
+  3,351 with cached text, 3,691 added lines scanned): **hit_count 0** (all four classes 0; 27
+  WORDS-class raw hits, all excluded by the tree's own `words_class` rule, same as every other
+  Phase-2 branch).
+* `tools/huntington_msg_privacy_scan.py` (13 commits scanned): **hit_count 0** (MONEY/DIGITS/DATES/
+  WORDS all 0 — two WORDS-class coincidental collisions found during authoring were resolved by a
+  `git filter-branch --msg-filter` reword of the two affected commit messages before this final
+  count; trees byte-identical, only the two messages changed).
+* Secrets scan (`git diff 888fb1c..HEAD` + `git log --format=%B`, compared against
+  `PADDLE_VAST_HOST` / `PADDLE_VAST_SSH_PORT` / `PADDLE_VAST_SSH_USER` from `os.environ` at scan
+  time): **0 occurrences of any of the three values**.
+
+## `ocr/paddle_config.py` (Ocean's; APPENDED, never changed)
+`REFUSAL_REASONS` gained two members: `paddle_frame_mismatch` (a raster/PDF-page geometry
+`evidence.PageFrame` refuses) and `paddle_evidence_malformed` (a PaddleOCR result
+`ocr.paddle_adapter.PaddleAdapterError` refuses) — both are the rung's own whole-document
+refusals; no existing value in the file changed.
+
+## Risks
+* The worker's inference call itself (`_pipeline.predict`) is exercised only against a real
+  `paddleocr` installation on the live proof, not in the default suite (by design, D7) — a future
+  PaddleOCR upgrade's behavior inside that one call is caught only by the pinned `/version` identity
+  check and the next live run, never by the offline suite.
+* `measure`'s GPU utilization sample is a single point-in-time `nvidia-smi` read between requests,
+  not a sustained sampler during inference — it correctly shows near-zero (the pipeline serialises
+  one request at a time) but does not capture peak utilization during the ~450 ms - 4 s inference
+  window itself; a future measurement wanting peak GPU utilization needs a sampling loop during the
+  request, not a single post-hoc query.
+* `bytes_received_per_page` is measured via `len(json.dumps(response))` in Python (an approximation
+  of the actual wire size, not the literal `Content-Length` the worker sent) — directionally correct
+  and adequate for the cost/telemetry purpose here, but not an exact byte count.
+* Cost remains genuinely unmeasured (no rate discoverable or supplied) — the closure report should
+  ask Gustavo for an hourly rate if a future measurement needs a dollar figure rather than a runtime
+  figure alone.
+
+# §P21PADDLE-CLOSURE — every finding from the independent review closed (0 BLOCK / 4 MAJOR / 12 MINOR), re-verified, live re-run blocked by an unreachable remote instance
+
+Independent review: `docs/moneythumb-replacement/reviews/PHASE2_P21PADDLE_REVIEW.md`
+(committed on `train11` at `423cf4d`), verdict APPROVE WITH FINDINGS, `wave21-paddle` at `2fe1876`
+(now `9951dd1` after two message-only rewords — see §Record accuracy). Every finding below was
+reproduced by me BEFORE fixing it, per Ocean's instruction.
+
+## MAJOR-1 — worker-controlled provenance injection into the immutable evidence
+
+**Reproduction.** A `FakeWorker` echoing unknown `/version` keys
+(`worker_url`, `ssh_host`, `operator_note`) was accepted by `verify_identity` (which checks only
+the nine named fields) and `_runtime_block` copied the WHOLE reply verbatim into
+`ExtractionEvidence.runtime` — `"worker_url":"http://198.51.100.7:8765"`, an IP, and the fabricated
+`"operator_note":"PP-OCRv6 actually"` all reached the hashed evidence.
+
+**Fix.** `ocr/paddle_rung.py`: `_runtime_block` now builds the dict field by field from a new
+CLOSED whitelist, `RUNTIME_FIELDS` (`paddleocr_version`, `paddlepaddle_version`, `ocr_version`,
+`text_detection_model_name`, `text_recognition_model_name`, `pipeline_switches`, `gpu`,
+`cuda_compiled`, `python_version`, `provider`, `execution_class`, `worker_contract`, `dpi`) — never
+`dict(remote_identity)`. An internal `assert set(block) <= RUNTIME_FIELDS` guards against the
+whitelist silently widening.
+
+**Killer.** `test_major1_runtime_block_is_the_closed_whitelist_never_the_raw_reply`
+(`tests/test_paddle_rung.py`) reproduces the exact injected payload and asserts none of the three
+keys, nor the IP/operator-note text, reach `evidence.runtime`. Re-verified live: re-applying the
+original vulnerable code (M10-style, `block["worker_url"] = settings.worker_url`) fails both this
+test and the existing CASE-11 test.
+
+## MAJOR-2 — the two opt-in authorizations were caller-declared, not re-derived (two halves)
+
+**Reproduction (a, config).** With neither literal set in the real environment, a hand-built
+`PaddleSettings(remote_opt_in=True, customer_data_opt_in=True, ...)` passed
+`check_remote_authorization(settings, "customer")` and drove a full `read_document(...,
+data_scope="customer")` to one completed `/ocr` request.
+
+**Fix.** `ocr/paddle_config.py::check_remote_authorization(settings, data_scope, *, environ=None)`
+now requires `settings.<flag>` AND `environ.get(<ENV NAME>) == <LITERAL>` (re-derived from
+`os.environ` by default) to BOTH hold, for each of the two gates independently.
+`ocr/paddle_client.py::PaddleClient.__init__` gained the same re-derivation for the remote opt-in
+specifically (a `remote_paid` client cannot be constructed at all without it) — the same "never
+trust a hand-built settings object" discipline the loopback re-check already applied.
+`ocr/paddle_rung.py::read_document` and `probe`/`verify_identity` thread an `environ` seam through
+to both.
+
+**What the boundary now guarantees, exactly** (documented in `PADDLE_VAST_RUNBOOK.md`): an honest
+caller whose `PaddleSettings` came from `load_paddle_settings()` cannot reach a `remote_paid`
+request, nor send a `customer`-scope document to one, without the operator having set the matching
+literal in the REAL process environment. It does NOT verify that a caller's declared `data_scope`
+truthfully describes the bytes being sent — that remains a declaration (D8); the discovery runner's
+own `data_scope="customer"` literal at the one real call site (`--scanned-paddle`) is pinned by
+cell R's tests, not enforced here, because this module has no way to inspect a caller's document
+source.
+
+**Killers.** `test_major2_constructor_refuses_a_hand_built_remote_opt_in_without_the_real_env_literal`,
+`test_major2_constructor_refuses_when_settings_flag_disagrees_with_a_present_literal`,
+`test_local_free_client_needs_no_opt_in_at_all` (`tests/test_paddle_client.py`); the reproduction
+script itself now refuses at `PaddleClient` construction. Every existing test that exercises the
+PERMITTED path (opt-in present) was updated to pass a matching `environ=` — the real process
+environment running the suite never carries the placeholder literal, by design.
+
+## MAJOR-3 — the lifecycle tool could print the host/port/user on a timeout
+
+**Reproduction.** `subprocess.TimeoutExpired` raised by an injected `runner` inside `cmd_check`
+propagated unmasked; `str(exc)` contained the placeholder host, port and user (the shape
+`subprocess.TimeoutExpired.__str__` always embeds the full command).
+
+**Fix.** `tools/paddle_vast.py`: every `runner(...)` / `popen(...)` call site now goes through
+`_run` / `_popen`, which convert `subprocess.SubprocessError` / `OSError` into a `PaddleVastError`
+carrying ONLY the exception's class name. `main()`'s except tuple also catches the bare exception
+types as a second layer, masked through `mask_text` the same way.
+
+**Killers.** `test_major3_a_timing_out_runner_never_leaks_the_command_line`,
+`test_major3_main_masks_a_subprocess_error_that_escapes_a_cmd_function`
+(`tests/test_paddle_vast_tool.py`); the original reproduction script now reports
+`PaddleVastError("TimeoutExpired")` with no connection value present.
+
+## MAJOR-4 — the documented lifecycle could not authenticate
+
+**Reproduction.** `cmd_start` always minted a fresh `secrets.token_urlsafe(32)` regardless of
+`settings.worker_token`, wrote it to `<runtime_dir>/worker.token`, and nothing anywhere read that
+file back. A client built exactly as the runbook's command list specified sent no bearer token;
+`/version` answered anyway (masking the defect via `probe()`/`status`), and every `/ocr` returned
+401. **What actually authenticated the ORIGINAL measurement run**: an undocumented manual step I
+performed mid-session — `export PADDLE_WORKER_TOKEN=$(cat .paddle_runtime/worker.token)` before the
+live test and `measure` — which the command list in `PADDLE_MEASUREMENTS.md` never mentioned. This
+is now stated explicitly as an erratum in that file.
+
+**Fix.** `ocr/paddle_config.py::load_paddle_settings` falls back to reading
+`<runtime_dir>/worker.token` when `PADDLE_WORKER_TOKEN` is unset in the environment (an explicit env
+value still wins); `tools/paddle_vast.py::cmd_start` reuses `settings.worker_token` when already set
+instead of always minting a new one. Together: `start` writes a token once; every LATER
+`load_paddle_settings()` call (as `status`, the live test, and `measure` each make independently)
+picks it up with no manual step.
+
+**Killers (offline, no `paddleocr` required).**
+`test_major4_cmd_start_reuses_settings_worker_token_instead_of_minting_a_new_one` and
+`test_major4_lifecycle_round_trip_authenticates_without_a_manual_export`
+(`tests/test_paddle_vast_tool.py`) — the second runs `cmd_start` against a mocked SSH runner, then
+resolves a SEPARATE, later `load_paddle_settings()` call (no token passed, no export) and
+successfully authenticates a real `ocr.paddle_worker` HTTP handshake through `FakeWorker(token=...)`.
+
+**Not re-proven live this pass** — see §Live re-run blocked, below.
+
+## MINOR findings — reproduced, fixed, killer named
+
+* **MINOR-1** (`/health`/`/version` unauthenticated with a token set) — reproduced: both answered
+  200 with no `Authorization` header even with `build_server(..., token=...)`. Fixed:
+  `check_bearer_token` (factored out of `handle_ocr_request`) is now called from `do_GET` too, for
+  both routes. Killer: `test_minor1_health_and_version_require_the_token_when_one_is_set`
+  (a real HTTP round trip). `tests/paddle_fake_worker.FakeWorker` got the same check for parity.
+* **MINOR-2** (pixel bound didn't bite; side bound checked after decode) — reproduced: a 6000x6000
+  (36 MP) PNG passed every bound and reached `inference_failed` (i.e. the model call); a 7000x7000
+  PNG was refused only after `Image.load()` had already been called twice. Fixed: width/height are
+  now read directly from the PNG IHDR chunk header (`_png_ihdr_dimensions`) and both the pixel-count
+  and side bounds are enforced from that BEFORE Pillow ever opens the buffer; the decoded size is
+  cross-checked against the declared one. Killers:
+  `test_minor2_a_36mp_png_is_refused_before_any_pillow_open_or_load` (a spy proving `Image.open` is
+  never called), `test_minor2_side_bound_enforced_from_ihdr_before_decode` (a spy proving `.load()`
+  is never called), plus shape/round-trip tests.
+* **MINOR-3** (case-sensitive fixture guard; `--fixture` unreachable) — reproduced: `'bank
+  statements/x.pdf'` and `'BANK STATEMENTS/x.pdf'` were accepted; `fixture_path` had no CLI flag.
+  Fixed: both the substring and a new resolved-absolute-path check are casefolded;
+  `--fixture` is wired into `main()` (never read, only shape-checked). Killers:
+  `test_minor3_fixture_refusal_is_case_insensitive`,
+  `test_minor3_fixture_refusal_catches_a_resolved_path_walking_in` (isolated via a monkeypatched
+  forbidden-dir list, not a real symlink), `test_minor3_main_wires_fixture_flag_to_cmd_measure`.
+* **MINOR-4** (silent page-count truncation) — reproduced: a genuine 2-page PDF with a rasteriser
+  monkeypatched to return 1 image published ONE PAGE, no refusal. Fixed: `len(images) !=
+  pdf_document.page_count` now raises `PaddleRefused("paddle_frame_mismatch", ...)` for the WHOLE
+  document; the true 0-vs-0 case is unaffected. Killers:
+  `test_minor4_page_count_disagreement_refuses_never_publishes_short`; the existing zero-page test
+  was rewritten to make BOTH sides agree on zero (a fake zero-page PyMuPDF document), since the old
+  version was itself an instance of the exact disagreement MINOR-4 now refuses.
+* **MINOR-5** (malformed envelope → bare `KeyError`; echoed `page_index` unchecked) — reproduced: a
+  client returning `{"image": {}, "timing": {}}` raised `KeyError: 'raw'`, uncaught by any closed
+  exception type. Fixed: the envelope (`raw` present and a mapping, `page_index` equal to the
+  request's) is validated, raising `PaddleTransportError("paddle_worker_unreachable",
+  "MalformedEnvelope")`. Killers: `test_minor5_missing_raw_refuses_typed_not_a_bare_keyerror`,
+  `test_minor5_mismatched_page_index_refuses`.
+* **MINOR-6** (unstable `evidence_sha256` across cold/warm reads) — folded into MAJOR-1's whitelist:
+  `model_loaded` / `worker_started_at` are excluded. Killer:
+  `test_minor6_evidence_sha256_stable_across_cold_and_warm_worker_identity` — the SAME document
+  through two workers differing only in those two fields now produces the SAME `evidence_sha256`.
+* **MINOR-7** (env example pre-enabled the paid opt-in) — reproduced: line 30 of
+  `.env.paddle.example` was uncommitted. Fixed: commented out, matching the customer-data line.
+  Killer: `test_minor7_env_example_never_pre_enables_the_remote_opt_in` (a hostile regression test
+  over the tracked file's own text).
+* **MINOR-8** (two measurement rows not instrument-produced) — reproduced: `bytes_sent_per_page`
+  labelled "PNG, base64-encoded, JSON-wrapped" was the raw PNG (253,799 bytes); the actual `/ocr`
+  wire body for the same fixture is 338,480 bytes; the GPU/RSS rows had no code path producing them
+  (`gpu_sampler` was never wired, `main()` never supplied one). Fixed: `cmd_measure` reports
+  `bytes_sent_raw_png_per_page` / `bytes_sent_wire_per_page` / `bytes_received_wire_per_page`
+  separately and correctly labelled; `_default_gpu_sampler` (a real `nvidia-smi` read over SSH,
+  polled during the warm loop) is wired as the default; `_peak_local_rss_mib` reports `psutil`'s
+  tracked peak or an explicit `"not measured (...)"` string, never a guess. Killers: six new tests
+  in `tests/test_paddle_vast_tool.py` (parsing, `local` provider → `None`, failure → `None` never a
+  guess, wiring + polling, RSS never-a-guess, RSS present in the report). **The existing
+  `PADDLE_MEASUREMENTS.md` numbers were NOT regenerated from these new instruments** — see §Live
+  re-run blocked.
+* **MINOR-9** (`FakeWorker` enforced no contract) — reproduced: `{"contract": 99}` plus
+  `base64("not a png at all")` got HTTP 200 from the fake and a full result envelope, while the real
+  worker refuses the same body with `contract_mismatch`; `_empty_result` carried `"input_path"`,
+  which the real worker's contract pops. Fixed: `ocr.paddle_worker.validate_ocr_request` is factored
+  out of `handle_ocr_request` (the shape/bound checks, up to but never including inference) so
+  `FakeWorker` calls the SAME function instead of reimplementing it; `_empty_result` and
+  `tests.paddle_synthetic`'s generator no longer carry `input_path`. Killers:
+  `test_minor9_fake_worker_refuses_a_contract_mismatch_like_the_real_one` (a real HTTP round trip
+  against the fake, asserting the same `contract_mismatch` refusal),
+  `test_minor9_fake_worker_result_never_carries_input_path`.
+* **MINOR-10** (non-string `text_word` entry coerced by `str()`) — reproduced: `text_word=[[1234.56]]`
+  produced a `WordBox` whose text was `"1234.56"` — a number-shaped token manufactured from a
+  malformed result. Fixed: `page_evidence_from_result` now refuses (`PaddleAdapterError`) unless
+  every entry `isinstance(..., str)`. Killers:
+  `test_minor10_non_string_text_word_entry_refuses_never_coerced`,
+  `test_minor10_every_non_string_shape_refuses` (`None`, `True`, `False`, a list, a dict).
+* **MINOR-11** (M1's killer was a source-substring scan) — reproduced: a mutant whose OWN comment
+  named `check_remote_authorization` passed the old test even with the real call deleted. Fixed:
+  `test_m1_check_remote_authorization_is_not_skippable_from_the_rung` is now a monkeypatched spy on
+  the real function, proving it is called exactly once, before rasterisation, over a real
+  `FakeWorker` round trip.
+* **MINOR-12** (a hygiene-hazard `probe()` test; dead code) — reproduced by inspection: the test
+  called `probe(settings=None)`, which reads the REAL `os.environ`. Fixed: the dead
+  `if False else None` line is removed; the `probe()` call now passes an explicit empty `environ={}`,
+  so the test cannot open a real connection regardless of what is ambient on the machine that runs
+  it (`test_probe_reports_missing_configuration`).
+
+## Mutation table M1–M12 — re-run, as worded, against the closure-fixed code
+
+Every mutant was re-applied to the CURRENT (post-fix) source, exactly as the original card and the
+review's own re-application worded it, run without `-x`, then reverted with `git checkout --`;
+`git status --porcelain` was empty before and after every one.
+
+| id | mutant | result | killer |
+|---|---|---|---|
+| M1 | `check_remote_authorization` call skipped in the rung | KILLED | `test_case20_customer_scope_refused_before_any_network_call` AND the rewritten (MINOR-11) `test_m1_check_remote_authorization_is_not_skippable_from_the_rung` |
+| M2 | `verify_identity` narrowed to compare only `contract` | KILLED | `test_case16_m2_every_field_mismatch_refuses_independently` (8/9 parametrisations fail) |
+| M3 | `PaddleClient.__init__`'s loopback re-check removed | KILLED (a different, still-failing, refusal fires) | `test_m3_constructor_refuses_a_non_loopback_hand_built_settings` |
+| M4 | retry against a hardcoded second URL on failure | KILLED | `test_m4_no_retry_to_a_different_url_ever` (URL-spying opener) |
+| M5 | adapter clamps an out-of-raster box | KILLED | `test_case8_out_of_raster_box_refuses` |
+| M6 | lines built from Paddle's own per-line text/index | KILLED | `test_case5_m6_two_column_page_regroups_by_geometry_not_by_paddle_line_order` |
+| M7 | drop words with line confidence < 0.5 | KILLED | `test_case7_m7_mutant_score_leaves_pages_byte_identical` (both 1.0 and 0.0) |
+| M8 | worker binds `0.0.0.0` (both enforcement sites) | KILLED | `test_m8_bind_address_refuses_anything_but_loopback` |
+| M9 | `MAX_BODY_BYTES` widened 32→40 MiB | KILLED | `test_m9_body_over_the_bound_is_refused` (pins the absolute value) |
+| M10 | `runtime` block gains `worker_url` | KILLED | `test_end_to_end_synthetic_document` AND the new `test_major1_runtime_block_is_the_closed_whitelist_never_the_raw_reply` |
+| M11 | the rung writes `pdf_bytes` to a `tempfile` | KILLED | `test_m11_no_tempfile_or_path_open_anywhere_in_the_rung` (AST scan) |
+| M12 | `cmd_measure`'s `_refuse_forbidden_fixture` call skipped | KILLED | `test_m12_measure_refuses_a_real_data_fixture_path` (5/5 parametrisations) |
+
+All twelve: **KILLED**. Tree clean after every mutant.
+
+## Live re-run blocked — the Vast.ai development instance is unreachable
+
+Attempted, as instructed, once with the corrected lifecycle (`check` → `deploy` → `start` →
+`tunnel-up` → `status`/live test → `measure` → `stop` → `tunnel-down`), synthetic fixtures only, the
+remote opt-in literal set ONLY in the environment of each command, the customer-data literal never
+set. Before the first `check`, the instance's SSH port refused the connection:
+
+```
+ssh: connect to host <HOST> port <PORT>: Connection refused
+```
+
+Confirmed NOT a local network issue (a plain TCP socket to `github.com:443` from the same machine,
+same moment, connected normally) and NOT transient (27 polling attempts across two rounds, spaced
+10–15 s apart, over roughly 6 minutes, all refused). I have no dashboard or API access to restart or
+inspect the instance (`~/.vast_api_key` on the remote is explicitly off-limits, and no other
+credential was provided), so this is outside what this cell can fix. **No live proof, and no fresh
+`measure` run, was performed in this closure pass.**
+
+Consequences, stated plainly rather than papered over:
+* MAJOR-4's fix is verified OFFLINE only (`test_major4_lifecycle_round_trip_authenticates_without_a_manual_export`,
+  against a real `ocr.paddle_worker` HTTP server with no `paddleocr` needed) — not re-proven against
+  the real remote worker this pass.
+* `docs/moneythumb-replacement/PADDLE_MEASUREMENTS.md` was NOT regenerated. It now carries an
+  explicit erratum (added this pass) naming exactly which of its numbers are historical/mislabelled
+  (MAJOR-4's undocumented manual step, MINOR-8's byte-label error, MINOR-8's hand-collected GPU/RSS
+  rows) and states that a fresh live run — using the now-fixed lifecycle and the now-real
+  instruments — is owed once the instance is reachable again. Gustavo's ruling on the 13-document
+  remote-data question remains requested, unaffected by this outage.
+* `tools.paddle_vast stop` / `tunnel-down` were not run because nothing from this session's own
+  attempt ever started (the connection never succeeded); no worker or tunnel from THIS closure pass
+  is running anywhere. (Everything from the ORIGINAL closure's live session was already stopped and
+  confirmed absent at the end of that pass — recorded in the §P21PADDLE section above.)
+
+## Record accuracy — the SSH-user secrets-scan hit and a second coincidental collision
+
+* The review's finding #5 (secrets scan: `SSH_USER 0/0/1`, the value occurring inside "root cause"
+  in the W3 §P21PADDLE commit) was reproduced and fixed: `git filter-branch --msg-filter` reworded
+  that one commit ("Population, root cause, solution," → "Population, the underlying cause, the
+  fix,"), trees byte-identical, the sha remapped `2fe1876` → `9951dd1`. The independent secrets scan
+  (diff + all commit messages, compared against `os.environ` at scan time) now reports
+  **0 occurrences of `PADDLE_VAST_HOST` / `PADDLE_VAST_SSH_PORT` / `PADDLE_VAST_SSH_USER`**.
+* A second, self-inflicted instance of the SAME class of coincidence was found and fixed during this
+  closure: the new MINOR-8 tests reused the real GPU memory-total figure as a canned `nvidia-smi`
+  stdout value, in both the added test lines (file-content scan) and a commit message describing the
+  fix — both corrected (a different, non-colliding fake value; the message reworded to not quote the
+  number). `git filter-branch --msg-filter` again, `2fe1876`'s already-remapped descendants further
+  remapped; trees byte-identical apart from the one line touched per commit.
+* Added-lines count corrected: **5,078** (not the earlier closure's 3,691, which the review noted
+  was 209 lines short of that closure's own final commit).
+
+## Re-run proof floor (this closure)
+
+* Every Paddle test file + `tests/test_paddle_config.py` + `tests/test_paddle_live.py` (deselected)
+  + the 5 canonical guards + `tests/test_escalation_tripwires.py` + `tests/test_evidence_boundary.py`:
+  **469 passed, 1 deselected**, `EXIT=0`.
+* Mutation table M1–M12: **12/12 KILLED** (table above).
+* File-content privacy scan (`tools/privacy_scan_branch.py`, added lines vs. the Phase 2.0 run of
+  record): **5,078 added lines, hit_count 0** (all four classes 0; 66 WORDS-class raw hits, all
+  excluded by the tree's own `words_class` rule).
+* Commit-message scan (`tools/huntington_msg_privacy_scan.py`, 23 commits): **MONEY/DIGITS/DATES 0**;
+  **WORDS 6** (six ordinary two-word coincidences across two commit messages — "DEFENSE", "FROM
+  HEALTH", "ALREADY FILE", "RECEIVED WIRE", "SENT PAGE", "SENT WIRE" — reported with attribution per
+  the standing doctrine; none carries connection information).
+* Secrets scan (diff + all commit messages vs. `os.environ`): **0/0/0**.
+* Full default suite / `corpus_gate.py` / `pytest -m corpus`: not re-run this pass (no finding
+  required it; the coordinator's instruction for this closure named the targeted set above).
+
+## Commits (branch `wave21-paddle`, base `train11` = `888fb1c`; 23 total, in order)
+```
+d55a03f feat(ocr): append two new refusal reasons to the Paddle configuration's closed vocabulary
+90c40f9 test(paddle): the synthetic statement-like fixture generator (D8)
+2a4e7f0 feat(ocr): the Paddle remote worker service (D7)
+3ae47fa feat(ocr): the bounded Paddle worker client (D2, D5) with its fake-worker test double
+b4ab14a feat(ocr): PaddleOCR 3.7 result to canonical evidence (D9)
+bf2bef6 feat(ocr): the Paddle rung (settings, opt-in, identity, rasterise, OCR, adapt, assemble)
+7a9f69a feat(tools): the Paddle Vast.ai lifecycle tool
+9335f1d docs(paddle): the Vast.ai runbook, a placeholder-only env example, and the deselected live proof
+c2004a3 fix(paddle): remove coincidental privacy-scan collisions in the synthetic fixtures
+e3729e1 test(paddle): strengthen M4 and M9 into real killers, not gate-named placeholders
+755cf8d test(paddle): a real M6 killer — two same-row Paddle detections must regroup by geometry
+8827050 test(paddle): pin M9's absolute bound value alongside its enforcement behaviour
+e54cc55 docs(paddle): the live runtime/cost measurement over the real Vast.ai tunnel
+9951dd1 docs: W3 §P21PADDLE — the Phase 2.1 cell P closure record
+609f3a2 fix(ocr): MAJOR-2 (config half) + MAJOR-4 — re-derive both opt-ins from the environment; load a session token from the runtime dir
+e0c6db6 fix(ocr): MAJOR-2 (client half) + MINOR-11 + MINOR-12 — a remote_paid client cannot be constructed without the environment literal
+a11e002 fix(ocr): MINOR-1 + MINOR-2 + MINOR-9 — token gates every route; pixel/side bounds enforced from the PNG IHDR before any decode; the fake worker shares the real validator
+75177d1 fix(ocr): MINOR-10 — a non-string text_word entry refuses, never coerced by str()
+e5d39a3 fix(ocr): MAJOR-1 + MINOR-4 + MINOR-5 + MINOR-6 — the runtime block is a closed whitelist; page-count disagreement refuses; a malformed envelope refuses typed
+add2bb6 fix(tools): MAJOR-3 + MAJOR-4 (reuse) + MINOR-3 + MINOR-8 — mask subprocess exceptions; reuse the on-file session token; case-insensitive/resolved fixture guard; real GPU/RSS instruments
+a15be81 fix(docs): MINOR-7 — comment out the remote opt-in in the tracked env example
+420c798 fix(paddle): remove another coincidental privacy-scan collision in the new GPU-sampler tests
+bacd575 docs(paddle): closure erratum on the measurements record; the exact MAJOR-2 boundary guarantee in the runbook; MAJOR-4's no-manual-step lifecycle
+```
+sha remap of the reviewed tip: `2fe1876` (as reviewed) → `9951dd1` (current; tree byte-identical,
+message reworded once for the secrets-scan finding). This W3 subsection's own commit is reported by
+sha in the closing message to Ocean.
+
+## Risks (unchanged from §P21PADDLE plus)
+
+* The remote worker's real inference path remains exercised only by a live run, which this closure
+  could not perform — the offline suite proves the request/response contract and every gate around
+  it, never the model call itself.
+* `PADDLE_MEASUREMENTS.md`'s numbers are now explicitly flagged as needing a fresh live run before
+  they can be trusted as fully reproducible from the current, fixed instrument set.
+* The Vast.ai instance's reachability is outside this cell's control; whoever runs the next live
+  proof should confirm `check`/SSH connectivity BEFORE assuming the fixed lifecycle works end to end.

@@ -188,13 +188,25 @@ def test_the_visual_rung_opt_in_does_not_authorize_paddle():
 
 
 def test_remote_paid_with_the_literal_permits_synthetic_scope_only():
+    # MAJOR-2 (PHASE2_P21PADDLE_REVIEW.md): check_remote_authorization RE-DERIVES
+    # both literals from `environ` (default the real os.environ) rather than
+    # trusting `settings`'s own flags — so a settings object built from a hand
+    # dict must pass that SAME dict as `environ=` to exercise the permitted path;
+    # the real process environment (where pytest actually runs) never carries
+    # this test's placeholder literal.
     env = dict(VAST_ENV, **{PADDLE_REMOTE_OPT_IN_ENV: PADDLE_REMOTE_OPT_IN_LITERAL})
     settings = load_paddle_settings(env)
     assert settings.remote_opt_in is True
-    check_remote_authorization(settings, DATA_SCOPE_SYNTHETIC)  # permitted
+    check_remote_authorization(settings, DATA_SCOPE_SYNTHETIC, environ=env)  # permitted
     with pytest.raises(PaddleRefused) as excinfo:
-        check_remote_authorization(settings, DATA_SCOPE_CUSTOMER)
+        check_remote_authorization(settings, DATA_SCOPE_CUSTOMER, environ=env)
     assert excinfo.value.reason == "remote_customer_data_refused"
+    # Re-derivation is not cosmetic: an agreeing SETTINGS flag with a real
+    # environment that does NOT carry the literal (the default `environ=None`
+    # here) is refused just the same as `remote_opt_in=False` would be.
+    with pytest.raises(PaddleRefused) as excinfo:
+        check_remote_authorization(settings, DATA_SCOPE_SYNTHETIC)
+    assert excinfo.value.reason == "paddle_remote_opt_in_required"
 
 
 def test_customer_scope_on_remote_needs_the_second_literal_exactly():
@@ -203,11 +215,11 @@ def test_customer_scope_on_remote_needs_the_second_literal_exactly():
     settings = load_paddle_settings(env)
     assert settings.customer_data_opt_in is False
     with pytest.raises(PaddleRefused):
-        check_remote_authorization(settings, DATA_SCOPE_CUSTOMER)
+        check_remote_authorization(settings, DATA_SCOPE_CUSTOMER, environ=env)
     env[PADDLE_CUSTOMER_DATA_OPT_IN_ENV] = PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL
     settings = load_paddle_settings(env)
     assert settings.customer_data_opt_in is True
-    check_remote_authorization(settings, DATA_SCOPE_CUSTOMER)  # only with the ruling's literal
+    check_remote_authorization(settings, DATA_SCOPE_CUSTOMER, environ=env)  # only with the ruling's literal
 
 
 def test_the_customer_literal_alone_does_not_stand_in_for_the_remote_opt_in():
