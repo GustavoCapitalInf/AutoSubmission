@@ -192,6 +192,11 @@ def test_model_calls_for_reports_unrecognized_model_honestly():
     assert visual_calls[0]["calls"] == call["calls"] == 4
     assert visual_calls[0]["completion_tokens"] == call["completion_tokens"] == 500
 
+    # MAJOR-2: endpoint provenance is on THIS branch too, not only the
+    # native/tesseract/none branch.
+    assert "endpoint_class" in call and "remote_opt_in" in call
+    assert "endpoint_class" in visual_calls[0] and "remote_opt_in" in visual_calls[0]
+
 
 def test_truncation_distinguishes_not_assessed_from_clean():
     class _Doc:
