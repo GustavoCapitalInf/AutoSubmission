@@ -376,3 +376,156 @@ Re-run after the edits: `pytest tests/test_geometry_frames.py tests/test_structu
 tests/test_evidence_canonical.py tests/test_evidence_boundary.py -q` and the mutation table
 with M2 applied at BOTH page-number sites, M6 as `except → raise`, and M9 as "one axis' scale
 used for both axes". Re-review is then a short pass over the four diffs.
+
+---
+
+# Re-review
+
+```
+BRANCH        wave21-geometry @ 1993fda   (reviewed detached in .claude/worktrees/rev21-geometry)
+BASE          888fb1c
+REWRITE       0d26bcf+88c09cb -> feff4dd · 5d2769e -> 391e74b · dbad83f -> b4dc5eb
+CLOSURE       eee66b3 (BLOCK-1, F-1, F-2, F-4, F-5, F-8) · 5f2adce (F-3) · 46256a5 · 1993fda (docs)
+DIFF          git diff 888fb1c..1993fda   (3 files, +1614 / -54)
+VERDICT       APPROVE WITH FINDINGS   (was BLOCK)
+```
+
+Every number below is one I measured at `1993fda` in this worktree, with my own instruments — the
+same verbatim `888fb1c` legacy copy (md5 `1d9c30fd51b737fd85247acc1c49c91f`), my own mutation
+harness, my own probes. `tasklist | findstr python` was clean before every run; one harness at a
+time; the harness refuses a dirty tree, restores in a `finally`, and re-verifies. Nothing was
+merged, rebased, pushed or committed by me. `corpus_gate.py`, `pytest -m corpus`, the full suite and
+the cohort replays were **not** re-run (host-sharing rule; no finding required them).
+
+## RR-1 — the history rewrite
+
+| check | measured |
+|---|---|
+| `git rev-parse 88c09cb^{tree}` vs `feff4dd^{tree}` | both `7e083f33c08bb2e02133429a0c82ff484119ac03` — identical |
+| `git rev-parse dbad83f^{tree}` vs `b4dc5eb^{tree}` | both `fca8bd46b63a4bf3f4f3c94da2496c3362436c58` — identical |
+| `git diff 88c09cb feff4dd` / `git diff dbad83f b4dc5eb` | both empty |
+| `git branch -a --contains 88c09cb` | empty — the pre-rewrite commits are dangling (reflog only), reachable from no ref |
+| the coincidentally-matching literal anywhere in `git log -p 888fb1c..HEAD` | **0 occurrences** (both spellings) |
+
+The squash is exactly what it claims: byte-identical trees, and F-6.3's instance is out of the
+history Ocean will compose. **Closed.**
+
+## RR-2 — claim-by-claim on the closure
+
+| # | closure claim | what I measured | verdict |
+|---|---|---|---|
+| 1 | BLOCK-1 closed; both M9 variants killed | I re-applied **four** distinct per-axis mutants at `geometry.py:367-368`: y÷`scale_x`, both÷`scale_x`, both÷`scale_y`, and x/y scales swapped. **All four exit 1, KILLED**, each by `test_a_pixel_evidence_with_distinct_per_axis_scale_converts_each_axis_correctly`. The two that survived my first review are dead. | **closed, and wider than claimed** |
+| 2 | F-1 closed (dangling-word-id `LineBox` + a mid-iteration raise) | `except Exception: return None` → `raise` at `geometry.py:389`: **exit 1, KILLED** by `test_geometry_from_evidence_never_raises_on_a_hostile_duck_typed_object`. I then invented five further hostile shapes not in the suite — a `pages` iterator that raises, a `page_index` property that raises, a missing `extractor_id`, a `lines` tuple holding a bare `object()`, and a `words` tuple holding a `bool` — **all five return `None`, none raises**. | **closed** |
+| 3 | F-2 `GeoLine.page` compared | `GeoLine(page.page_index, …)` at `geometry.py:376`: **exit 1, KILLED** by the equivalence pin (synthetic fixtures + empty-middle-page + all 12 pinned corpus PDFs). The new `assert ll.page == nl.page` is at `tests/test_geometry_frames.py:203`. | **closed** |
+| 4 | F-3 the AST guard refuses `statistics`, `sorted(`, `0.6` | the `sorted()`-based hand-rolled median (my original M4b): **exit 1, KILLED**. A `list.sort()`-based one: **exit 0, SURVIVED** — see **RR-3 (R-1)**. | **partially closed** |
+| 5 | F-4 independent point value | `tests/test_geometry_frames.py` now compares `x_at(0)` against `first_word_px.x0 / frame.scale_x`, derived from the ORIGINAL pixel box | **closed** |
+| 6 | F-5 split into two notes, page still fail-closed, real dimensions | reproduced both branches on a 2-page synthetic document: page-read throws → `notes=('native_page_unreadable',)`, 0 words, dims `(1.0, 1.0)`; one word box refused → `notes=('native_page_word_refused',)`, 0 words, dims `(612.0, 792.0)` — the REAL page — while legacy kept 6 words. The sibling page is unaffected in both (`612.0×792.0`, 1 line). Three mutants — the two notes swapped, the refused page given a 1×1 placeholder, and "drop only the offending word" — **all exit 1, KILLED** by `test_a_page_with_one_refused_word_reports_its_real_dimensions_not_unreadable`. | **closed** |
+| 7 | F-6 folder count corrected | my recount stands: **10 distinct top-level folders / 11 distinct folder prefixes**, exactly as the closure section now records | **closed** |
+| 8 | F-7 reported, `evidence/canonical.py` untouched | `git diff --name-only 888fb1c..1993fda` = the same 3 files; `evidence/canonical.py` is not among them | **closed** |
+| 9 | F-8 note branch removed; documented 1.0×1.0 consequence | reproduced (row 6 above). Putting the note branch back: **exit 1, KILLED** by `test_the_unreadable_native_page_placeholder_reports_its_own_frame_dimensions` — so the divergence is pinned in BOTH directions. | **closed; see RR-3 (R-2)** |
+| 10 | corrected mutation table 12/12 killed | 11 of my 12 re-review mutants killed; the single survivor is a **13th** variant the table does not claim (RR-3, R-1). The table's own 12 rows are accurate. | **confirmed** |
+| 11 | 0 mismatches re-verified, 109 PDFs / 830 pages | my own harness against the closure tree: `manifest_paths=109 · missing_on_disk=0 · compared=109 · both_none=6 · mismatched_documents=0`, comparing `GeoLine.page` as well; rotation census `pages_total=830 · rotated_pages=0` | **confirmed** |
+| 12 | targeted 157 · guards 267 · tripwires+boundary 11 | `157 passed` (5 files), `149 passed` (the closure's own 4-file set), `test_geometry_frames.py` alone `32 passed`; guards **267 passed**; `test_escalation_tripwires.py + test_evidence_boundary.py` **11 passed** — all exit 0 | **confirmed** |
+| 13 | privacy 0 | `privacy_scan_branch.py --base 888fb1c --ref 1993fda`: **`hit_count 0`** (`raw_hit_count 23`, all attributed to the documented exclusion table: 1 `hex_sha_substring`, 2 `round_money`, 20 `words_class`); `added_lines 1614 · population 3380 · documents_read 3351 · residue_sites 0` | **confirmed** |
+| 14 | ownership; W3 append-only | 3 files only; W3 diff has **0 deleted content lines** and the closure section opens with its own `# §P21GEOMETRY-CLOSURE — …` heading; the prior `§P21GEOMETRY` section is untouched | **confirmed** |
+| 15 | `geometry_from_pdf` byte-identical on every readable page | row 11 plus rotation at 0/90/180/270: `rotation_deg` recorded, `native_words_unrotated_space` emitted for each non-zero rotation and absent at 0, `legacy_equals_new=True` at all four | **confirmed** |
+| 16 | full suite 8,453 / 45 / 38; message scan 0 | **not re-run** (host-sharing rule) | not re-verified |
+
+## RR-3 — residual findings (all MINOR; none blocks composition)
+
+### R-1 (MINOR, residual of F-3) — the widened AST guard still admits one spelling
+
+**File:** `tests/test_geometry_frames.py:351-393`.
+
+The guard now refuses `median` calls (Name and Attribute), any `statistics` import, any `sorted(`
+call and the float literal `0.6`. Its docstring claims a tolerance computation "however spelled" is
+caught. One spelling is not:
+
+```
+mutant R8: _h = [w.height for w in words]; _h.sort()
+           _tol = max(1.0, _h[len(_h)//2] * 0.5)
+           _canonical_group_lines(boxes, tolerance=_tol)
+  -> pytest tests/test_geometry_frames.py tests/test_structurer.py
+            tests/test_evidence_canonical.py tests/test_evidence_boundary.py -q
+  -> exit 0, SURVIVED
+```
+
+`list.sort()` is an `ast.Attribute` call, not the `sorted` `ast.Name` the guard looks for, and `0.5`
+is not `0.6`. Impact today is nil: `_group_lines` has **no production caller** anywhere
+(`grep -rn "_group_lines" analysis/ webapp/ discovery/ ocr/ telemetry/ tools/` returns only
+`geometry.py`'s own definition and docstrings), and `geometry_from_evidence` never regroups.
+
+**Fix suggested (not required to compose):** the mechanism every grouping mutant needs is passing a
+`tolerance=` keyword to `_canonical_group_lines` — both R7 (killed) and R8 (surviving) do it. An AST
+assertion that `geometry.py` passes **no keyword argument** to `_canonical_group_lines` kills the
+whole class independently of how the median is spelled; adding `.sort(` to the banned-call set closes
+the inline-regrouping variant too. Alternatively, soften the docstring to what the guard enforces.
+
+### R-2 (MINOR, registration) — F-8's accepted consequence is a named exception to a ruled card deliverable
+
+**File:** `analysis/structurer/geometry.py:378-387`; pin at
+`tests/test_geometry_frames.py::test_the_unreadable_native_page_placeholder_reports_its_own_frame_dimensions`.
+
+Card item 3 is ruled ("do not re-decide"): `geometry_from_pdf` must be
+`geometry_from_evidence(native_evidence_from_pdf(…))` **with BYTE-IDENTICAL output**. After F-8, an
+`UNREADABLE_PAGE_NOTE` page reports `1.0 × 1.0` where Phase 2.0 reported `0.0 × 0.0`. Reproduced:
+
+```
+page-read throws:  new p0 dims=(1.0, 1.0)   legacy p0 dims=(0.0, 0.0)
+```
+
+I record it as a finding for Ocean's *composition* record, not as a defect, because: the change was
+made on Ocean's ruling, which explicitly overrode my own recommendation to leave it documented; it is
+**forced** — `PageFrame` refuses non-positive dimensions, so a `0.0 × 0.0` frame is unconstructible,
+and "no note branch in the neutral path" and "byte-identical on this page" are mutually exclusive;
+it is **untriggered** (0/109 PDFs, 0/830 pages); it is **inert** — I found **no consumer of
+`PageGeometry.width`/`.height` anywhere** outside `geometry.py` itself; and it is pinned in both
+directions (re-adding the branch is KILLED). The only thing owed is that a ruled deliverable's
+exception belongs in the composition record, not only in the cell's own W3.
+
+### R-3 (MINOR, wording) — one sub-case is filed under a note whose docstring names a narrower cause
+
+**File:** `analysis/structurer/geometry.py:78-88` (the `UNREADABLE_PAGE_NOTE` docstring) and
+`:294-296` (the catch).
+
+The first `try` now spans `get_text` / `page.rect` **and** `PageFrame.pdf_points(...)`. A page whose
+read succeeds but whose *frame* `evidence/` refuses — a zero-area rect being the reachable shape —
+is therefore filed as `native_page_unreadable`, although nothing threw during the read. Reproduced:
+
+```
+zero-area page rect:  notes(p0)=('native_page_unreadable',)  words(p0)=0
+                      new p0 dims=(1.0, 1.0)    legacy p0 dims=(0.0, 0.0), 6 words kept
+```
+
+The classification is defensible — the note's operative meaning ("there is never a real `page.rect`
+to report") does hold, since no representable dimensions exist — but the docstring states the cause
+as "this page's own `get_text`/`rect` read **threw**", which is narrower than what the block catches.
+0/109 incidence. **Fix suggested:** one docstring clause ("…threw, or produced a rect this contract
+cannot represent"), or move the frame construction into the second `try` if the intent is that a
+refused frame be a word-class failure.
+
+## RR-4 — what I attacked in the closure and could not break
+
+* **The per-axis conversion.** Four distinct scale-confusion mutants, all killed. The new test's
+  frame really does have `scale_x != scale_y` and it asserts against authored point values, so it
+  is not symmetric under the bug the way a same-scale round-trip is.
+* **The exception guard.** Killed by the new cases, and five further hostile shapes I invented all
+  return `None` without raising. I could not make `geometry_from_evidence` raise.
+* **The F-5 split.** Three mutants (notes swapped, placeholder frame for the refused page, keep-the-
+  good-words) all killed; the fail-closed direction and the real-dimension reporting are both pinned.
+* **The F-8 removal.** Pinned in both directions; re-adding the note branch is killed.
+* **Equivalence.** 109/109 documents, 0 mismatches, including `GeoLine.page`; 830 pages; 0 rotated;
+  rotation still recorded, noted and byte-identical at all four rotations.
+* **Scope.** Still exactly 3 files; `evidence/canonical.py` untouched as instructed; no `ocr`,
+  network or Paddle import; `rows.py` / `core.py` / `grounding.py` untouched; guards 267 and the
+  boundary/tripwire tests green; the analysis→ocr allowlist still `frozenset()`.
+* **Privacy.** 0 hits over 1,614 added lines against 3,351 cached documents; the reworded W3 figures
+  and the squash both hold up.
+* **The corrected mutation table.** Every one of its 12 rows reproduces; my only survivor is a
+  variant it does not claim.
+
+**Verdict: APPROVE WITH FINDINGS.** Both BLOCKs and all six MINOR/MAJOR findings from the first
+review are closed and independently re-killed. The three residuals above are MINOR, none is a
+correctness defect, and none needs to hold up composition: R-1 is a guard-completeness gap on
+production-dead code, R-2 is a registration item for Ocean's composition record, R-3 is a one-clause
+docstring correction.
