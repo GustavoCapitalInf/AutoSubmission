@@ -21,3 +21,7 @@ benchmark_reports/
 webapp_data/
 telemetry_runs/
 discovery_reports/
+
+# Phase 2.1: the Paddle/Vast lifecycle tool's runtime directory (pidfiles, the per-session
+# worker token, tunnel logs). Never committed.
+.paddle_runtime/
