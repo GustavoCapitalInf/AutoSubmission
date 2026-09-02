@@ -34,6 +34,8 @@ from typing import Any, Callable
 from ocr.paddle_client import MAX_RESPONSE_BYTES
 from ocr.paddle_worker import (
     ERROR_TOKENS,
+    MAX_BODY_BYTES,
+    check_bearer_token,
     PADDLEOCR_VERSION_PIN,
     PADDLEPADDLE_VERSION_PIN,
     OCR_VERSION_PIN,
@@ -41,7 +43,10 @@ from ocr.paddle_worker import (
     TEXT_DETECTION_MODEL_PIN,
     TEXT_RECOGNITION_MODEL_PIN,
     WORKER_CONTRACT,
+    WorkerRefused,
     PNG_MAGIC,
+    parse_bounded_json,
+    validate_ocr_request,
 )
 
 #: The default identity a `FakeWorker` echoes — exactly the pins. Tests that
@@ -147,6 +152,12 @@ class FakeWorker:
                 self.end_headers()
 
             def do_GET(self) -> None:  # noqa: N802
+                if self.path in ("/health", "/version"):
+                    try:
+                        check_bearer_token(token, self.headers.get("Authorization"))
+                    except WorkerRefused as refused:
+                        self._send(refused.status, {"error": refused.token})
+                        return
                 if self.path == "/health":
                     self._send(200, {"ok": True, "contract": WORKER_CONTRACT})
                 elif self.path == "/version":
@@ -167,29 +178,46 @@ class FakeWorker:
                 if fail_mode == "redirect":
                     self._send_redirect()
                     return
-                length = int(self.headers.get("Content-Length", "0"))
-                body = self.rfile.read(length)
-                payload = json.loads(body)
-                if token is not None:
-                    auth = self.headers.get("Authorization") or ""
-                    if auth != f"Bearer {token}":
-                        self._send(401, {"error": "unauthorized"})
-                        return
-                image_bytes = base64.b64decode(payload["image_png_b64"])
+                # MINOR-9 (PHASE2_P21PADDLE_REVIEW.md): the SAME contract the
+                # real worker enforces — body-size bound, the JSON depth
+                # guard, then bearer token / contract / shape / PNG-bound
+                # validation via `ocr.paddle_worker.validate_ocr_request` —
+                # not a re-implementation that could drift from it. A
+                # request that would refuse against the real worker refuses
+                # here identically.
+                try:
+                    length_header = self.headers.get("Content-Length")
+                    if length_header is None:
+                        raise WorkerRefused("bad_json", 400, "missing Content-Length")
+                    length = int(length_header)
+                    if length > MAX_BODY_BYTES or length < 0:
+                        raise WorkerRefused("body_too_large", 413)
+                    raw_body = self.rfile.read(length)
+                    if len(raw_body) != length:
+                        raise WorkerRefused("bad_json", 400, "short read")
+                    payload = parse_bounded_json(raw_body)
+                    request_id, page_index, image, raw_png, decode_ms = validate_ocr_request(
+                        payload, token=token, auth_header=self.headers.get("Authorization"),
+                    )
+                except WorkerRefused as refused:
+                    self._send(refused.status, {"error": refused.token})
+                    return
                 requests_log.append({
-                    "page_index": payload.get("page_index"),
-                    "request_id": payload.get("request_id"),
-                    "bytes": len(image_bytes),
+                    "page_index": page_index,
+                    "request_id": request_id,
+                    "bytes": len(raw_png),
                 })
-                raw = result_for(payload.get("page_index"), image_bytes)
+                raw = result_for(page_index, raw_png)
                 self._send(200, {
                     "raw": raw,
-                    "image": {"width": 1, "height": 1, "sha256": hashlib.sha256(image_bytes).hexdigest()},
-                    "timing": {"decode_ms": 1.0, "inference_ms": 2.0, "total_ms": 3.0, "cold_load": len(requests_log) == 1},
+                    "image": {"width": image.width, "height": image.height,
+                             "sha256": hashlib.sha256(raw_png).hexdigest()},
+                    "timing": {"decode_ms": decode_ms, "inference_ms": 2.0,
+                              "total_ms": decode_ms + 2.0, "cold_load": len(requests_log) == 1},
                     "gpu": {"memory_used_mib": 512},
                     "model": dict(identity),
-                    "request_id": payload.get("request_id"),
-                    "page_index": payload.get("page_index"),
+                    "request_id": request_id,
+                    "page_index": page_index,
                 })
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -215,8 +243,10 @@ class _NullHandler(BaseHTTPRequestHandler):
 
 
 def _empty_result(page_index: int) -> dict:
+    # MINOR-9: no "input_path" — the real worker pops it before returning
+    # (§1's contract: "verbatim, minus input_path"); a fake that left it in
+    # would let evidence built in tests carry a key `raw` never has for real.
     return {
-        "input_path": "fake.png",
         "page_index": page_index,
         "model_settings": dict(PIPELINE_SWITCHES),
         "text_type": "general",

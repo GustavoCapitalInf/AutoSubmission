@@ -6,6 +6,7 @@ to (but never including) the model call.
 from __future__ import annotations
 
 import base64
+import io
 import json
 import threading
 
@@ -233,3 +234,131 @@ def test_module_is_importable_without_paddleocr():
     make the intent explicit: `paddleocr` must not be a name bound at
     `ocr.paddle_worker` module scope."""
     assert "paddleocr" not in worker.__dict__
+
+
+# ---------------------------------------------------------------------------
+# MINOR-1: the token, when configured, gates /health and /version too
+# ---------------------------------------------------------------------------
+
+def test_minor1_health_and_version_require_the_token_when_one_is_set():
+    identity = {"provider": "local", "execution_class": "local_free"}
+    server = worker.build_server("127.0.0.1", 0, identity, "the-session-token")
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import http.client
+
+        for path in ("/health", "/version"):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5.0)
+            try:
+                conn.request("GET", path)
+                response = conn.getresponse()
+                body = json.loads(response.read().decode("utf-8"))
+                assert response.status == 401, f"{path} answered without a token"
+                assert body == {"error": "unauthorized"}
+            finally:
+                conn.close()
+
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5.0)
+            try:
+                conn.putrequest("GET", path)
+                conn.putheader("Authorization", "Bearer the-session-token")
+                conn.endheaders()
+                response = conn.getresponse()
+                response.read()
+                assert response.status == 200, f"{path} refused the correct token"
+            finally:
+                conn.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5.0)
+
+
+def test_check_bearer_token_is_a_noop_with_no_token_configured():
+    worker.check_bearer_token(None, None)  # does not raise
+    worker.check_bearer_token(None, "Bearer anything")  # still a no-op
+
+
+# ---------------------------------------------------------------------------
+# MINOR-2: the pixel-count AND side bound are enforced from the PNG IHDR
+# header, BEFORE Pillow ever opens or decodes anything
+# ---------------------------------------------------------------------------
+
+def test_minor2_a_36mp_png_is_refused_before_any_pillow_open_or_load():
+    """The exact shape the review measured: 6000x6000 = 36 MP is over
+    `MAX_IMAGE_PIXELS` (30_000_000) but under Pillow's OWN 2x-warn-only
+    threshold, so before this fix it reached the model call. A spy on both
+    `PIL.Image.open` and `.load()` proves NEITHER is ever called."""
+    from PIL import Image
+
+    big = Image.new("RGB", (6000, 6000), color="white")
+    buffer = io.BytesIO()
+    big.save(buffer, format="PNG")
+    png_bytes = buffer.getvalue()
+    assert len(png_bytes) < 1_000_000  # a real 36 MP PNG compresses tiny; confirms the shape
+
+    open_calls = []
+    real_open = Image.open
+
+    def spy_open(*args, **kwargs):
+        open_calls.append(True)
+        return real_open(*args, **kwargs)
+
+    original_open = Image.open
+    Image.open = spy_open
+    try:
+        with pytest.raises(worker.WorkerRefused) as excinfo:
+            worker._decode_image_bounded(base64.b64encode(png_bytes).decode("ascii"))
+        assert excinfo.value.token == "image_too_large"
+        assert open_calls == [], "Image.open must never be called once the IHDR bound refuses"
+    finally:
+        Image.open = original_open
+
+
+def test_minor2_side_bound_enforced_from_ihdr_before_decode():
+    from PIL import Image
+
+    big = Image.new("RGB", (7000, 100), color="white")  # one side over MAX_IMAGE_SIDE_PX
+    buffer = io.BytesIO()
+    big.save(buffer, format="PNG")
+    png_bytes = buffer.getvalue()
+
+    load_calls = []
+    real_load = Image.Image.load
+
+    def spy_load(self):
+        load_calls.append(True)
+        return real_load(self)
+
+    Image.Image.load = spy_load
+    try:
+        with pytest.raises(worker.WorkerRefused) as excinfo:
+            worker._decode_image_bounded(base64.b64encode(png_bytes).decode("ascii"))
+        assert excinfo.value.token == "image_too_large"
+        assert load_calls == [], "the side bound must refuse before .load() is ever called"
+    finally:
+        Image.Image.load = real_load
+
+
+def test_minor2_ihdr_dimensions_parsed_directly():
+    from PIL import Image
+
+    image = Image.new("RGB", (123, 45), color="white")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    assert worker._png_ihdr_dimensions(buffer.getvalue()) == (123, 45)
+
+
+def test_minor2_a_valid_small_png_still_decodes_normally():
+    image, raw = worker._decode_image_bounded(base64.b64encode(TINY_PNG_BYTES).decode("ascii"))
+    assert image.size == (1, 1)
+    assert raw == TINY_PNG_BYTES
+
+
+def test_minor2_malformed_ihdr_refused_as_not_png():
+    junk = worker.PNG_MAGIC + b"\x00" * 40
+    with pytest.raises(worker.WorkerRefused) as excinfo:
+        worker._decode_image_bounded(base64.b64encode(junk).decode("ascii"))
+    assert excinfo.value.token == "not_png"

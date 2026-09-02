@@ -216,7 +216,9 @@ def synthetic_paddle_result(page: SyntheticPage, *, dpi: int = 300) -> dict:
         textline_orientation_angles.append(-1)
 
     return {
-        "input_path": "synthetic.png",
+        # No "input_path": the real worker's contract pops it before
+        # returning (§1: "verbatim, minus input_path") — MINOR-9's fix
+        # applies here too, since this generator stands in for a raw result.
         "page_index": 0,
         "model_settings": {"use_doc_preprocessor": False, "use_textline_orientation": False},
         "text_type": "general",

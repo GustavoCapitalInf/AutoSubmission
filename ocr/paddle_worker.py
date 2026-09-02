@@ -51,6 +51,7 @@ import io
 import json
 import os
 import platform
+import struct
 import subprocess
 import sys
 import threading
@@ -365,17 +366,49 @@ def version_payload(identity: dict) -> dict:
     }
 
 
+def _png_ihdr_dimensions(raw: bytes) -> tuple[int, int]:
+    """Width/height read DIRECTLY from the PNG IHDR chunk header — no PIL,
+    no decode, just eight bytes at a fixed offset a well-formed PNG always
+    has right after its signature (MINOR-2). `_decode_image_bounded` checks
+    these against the pixel-count and side bounds BEFORE Pillow ever opens
+    the buffer, closing the gap where Pillow itself only *warns* between
+    `MAX_IMAGE_PIXELS` and 2x it (so a 36 MP PNG reached the model call) and
+    only raises `DecompressionBombError` — after `.load()` has already fully
+    decoded the pixel buffer — above 2x."""
+    if len(raw) < 24 or raw[12:16] != b"IHDR":
+        raise WorkerRefused("not_png", 400, "no IHDR chunk at the expected offset")
+    width, height = struct.unpack(">II", raw[16:24])
+    return width, height
+
+
 def _decode_image_bounded(image_b64: str):
-    """base64 -> PNG magic -> bounded PIL decode. Every bound is checked
-    BEFORE the corresponding step: base64 validity before any byte is
-    inspected, the PNG magic before Pillow ever touches the bytes, the pixel
-    count and side length before `.load()` fully decodes the pixel buffer."""
+    """base64 -> PNG magic -> IHDR bounds -> bounded PIL decode. Every bound
+    is checked BEFORE the corresponding step: base64 validity before any
+    byte is inspected, the PNG magic before Pillow ever touches the bytes,
+    and now the pixel count AND side length BEFORE Pillow opens or decodes
+    anything at all (MINOR-2) — not merely before `.load()`, which was too
+    late for the pixel-count bound specifically."""
     try:
         raw = base64.b64decode(image_b64, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise WorkerRefused("bad_base64", 400, type(exc).__name__) from exc
     if len(raw) < len(PNG_MAGIC) or raw[: len(PNG_MAGIC)] != PNG_MAGIC:
         raise WorkerRefused("not_png", 400, "missing PNG magic bytes")
+
+    declared_width, declared_height = _png_ihdr_dimensions(raw)
+    if declared_width <= 0 or declared_height <= 0:
+        raise WorkerRefused("not_png", 400, f"non-positive IHDR dimensions {declared_width}x{declared_height}")
+    if declared_width > MAX_IMAGE_SIDE_PX or declared_height > MAX_IMAGE_SIDE_PX:
+        raise WorkerRefused(
+            "image_too_large", 400,
+            f"{declared_width}x{declared_height} exceeds {MAX_IMAGE_SIDE_PX}px (IHDR, before decode)",
+        )
+    if declared_width * declared_height > MAX_IMAGE_PIXELS:
+        raise WorkerRefused(
+            "image_too_large", 400,
+            f"{declared_width}x{declared_height} = {declared_width * declared_height} px "
+            f"exceeds {MAX_IMAGE_PIXELS} (IHDR, before decode)",
+        )
 
     from PIL import Image
 
@@ -396,22 +429,45 @@ def _decode_image_bounded(image_b64: str):
     width, height = image.size
     if width > MAX_IMAGE_SIDE_PX or height > MAX_IMAGE_SIDE_PX:
         raise WorkerRefused("image_too_large", 400, f"{width}x{height} exceeds {MAX_IMAGE_SIDE_PX}px")
+    if (width, height) != (declared_width, declared_height):
+        # Defense in depth: a PNG's IHDR can disagree with what the decoder
+        # actually produced (a crafted or corrupt chunk). Trust neither
+        # alone; refuse rather than guess which one is real.
+        raise WorkerRefused("not_png", 400, "decoded size disagrees with the IHDR header")
     return image, raw
 
 
-def handle_ocr_request(payload: dict, *, identity: dict, token: str | None,
-                        auth_header: str | None) -> dict:
-    """The full `/ocr` request pipeline over an already-JSON-decoded body.
-    Every refusal is a `WorkerRefused`; the caller turns it into the HTTP
-    response. No image byte is touched before every bound above it passes."""
-    if token is not None:
-        import hmac
+def check_bearer_token(token: str | None, auth_header: str | None) -> None:
+    """MINOR-1 (`PHASE2_P21PADDLE_REVIEW.md`): when a session token is
+    configured, EVERY route requires it — not only `/ocr`. Before this,
+    `/health` and `/version` answered any caller with loopback access inside
+    the rented container with no `Authorization` header at all, which also
+    masked MAJOR-4 (a client sending no token still saw the worker as
+    healthy). A no-op when `token` is `None` (no token configured)."""
+    if token is None:
+        return
+    import hmac
 
-        supplied = ""
-        if auth_header and auth_header.startswith("Bearer "):
-            supplied = auth_header[len("Bearer "):]
-        if not hmac.compare_digest(supplied, token):
-            raise WorkerRefused("unauthorized", 401)
+    supplied = ""
+    if auth_header and auth_header.startswith("Bearer "):
+        supplied = auth_header[len("Bearer "):]
+    if not hmac.compare_digest(supplied, token):
+        raise WorkerRefused("unauthorized", 401)
+
+
+def validate_ocr_request(payload: dict, *, token: str | None, auth_header: str | None):
+    """The request-shape and image-bound validation `/ocr` requires, up to
+    (never including) inference. Returns
+    `(request_id, page_index, image, raw_png, decode_ms)`.
+
+    MINOR-9 (`PHASE2_P21PADDLE_REVIEW.md`): factored out of
+    `handle_ocr_request` so `tests.paddle_fake_worker.FakeWorker` can import
+    and call the SAME function rather than re-implementing (and drifting
+    from) the bearer-token, contract, shape and PNG-bound checks — the test
+    double enforces the identical refusals the real worker does. No
+    `paddleocr` import here; only `handle_ocr_request` (below) touches the
+    model."""
+    check_bearer_token(token, auth_header)
 
     if payload.get("contract") != WORKER_CONTRACT:
         raise WorkerRefused("contract_mismatch", 400, f"got {payload.get('contract')!r}")
@@ -429,6 +485,17 @@ def handle_ocr_request(payload: dict, *, identity: dict, token: str | None,
     t_decode_start = time.perf_counter()
     image, raw_png = _decode_image_bounded(image_b64)
     decode_ms = (time.perf_counter() - t_decode_start) * 1000.0
+    return request_id, page_index, image, raw_png, decode_ms
+
+
+def handle_ocr_request(payload: dict, *, identity: dict, token: str | None,
+                        auth_header: str | None) -> dict:
+    """The full `/ocr` request pipeline over an already-JSON-decoded body.
+    Every refusal is a `WorkerRefused`; the caller turns it into the HTTP
+    response. No image byte is touched before every bound above it passes."""
+    request_id, page_index, image, raw_png, decode_ms = validate_ocr_request(
+        payload, token=token, auth_header=auth_header
+    )
 
     import numpy as np
 
@@ -482,13 +549,23 @@ def _make_handler(identity: dict, token: str | None):
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib method name
             started = time.perf_counter()
-            if self.path == "/health":
-                self._send_json(200, {"ok": True, "contract": WORKER_CONTRACT})
-            elif self.path == "/version":
-                self._send_json(200, version_payload(identity))
-            else:
-                self._send_error_token("not_found", 404)
-            self._log_line("GET", self.path, 200, (time.perf_counter() - started) * 1000.0)
+            status = 200
+            try:
+                if self.path in ("/health", "/version"):
+                    # MINOR-1: the token, when configured, gates every
+                    # route — not only /ocr.
+                    check_bearer_token(token, self.headers.get("Authorization"))
+                if self.path == "/health":
+                    self._send_json(200, {"ok": True, "contract": WORKER_CONTRACT})
+                elif self.path == "/version":
+                    self._send_json(200, version_payload(identity))
+                else:
+                    status = 404
+                    self._send_error_token("not_found", 404)
+            except WorkerRefused as refused:
+                status = refused.status
+                self._send_error_token(refused.token, refused.status)
+            self._log_line("GET", self.path, status, (time.perf_counter() - started) * 1000.0)
 
         def do_POST(self) -> None:  # noqa: N802 - stdlib method name
             started = time.perf_counter()
