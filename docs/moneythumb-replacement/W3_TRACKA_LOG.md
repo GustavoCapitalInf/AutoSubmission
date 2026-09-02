@@ -68394,11 +68394,12 @@ Consequences, stated plainly rather than papered over:
 
 ## Record accuracy — the SSH-user secrets-scan hit and a second coincidental collision
 
-* The review's finding #5 (secrets scan: `SSH_USER 0/0/1`, the value occurring inside "root cause"
-  in the W3 §P21PADDLE commit) was reproduced and fixed: `git filter-branch --msg-filter` reworded
-  that one commit ("Population, root cause, solution," → "Population, the underlying cause, the
-  fix,"), trees byte-identical, the sha remapped `2fe1876` → `9951dd1`. The independent secrets scan
-  (diff + all commit messages, compared against `os.environ` at scan time) now reports
+* The review's finding #5 (secrets scan: `SSH_USER 0/0/1`, the value occurring as the leading word
+  of an ordinary two-word phrase in the W3 §P21PADDLE commit's own message) was reproduced and
+  fixed: `git filter-branch --msg-filter` reworded that one commit's report-contract line to a
+  synonymous phrase not containing that word, trees byte-identical, the sha remapped `2fe1876` →
+  `9951dd1`. The independent secrets scan (diff + all commit messages, compared against
+  `os.environ` at scan time) now reports
   **0 occurrences of `PADDLE_VAST_HOST` / `PADDLE_VAST_SSH_PORT` / `PADDLE_VAST_SSH_USER`**.
 * A second, self-inflicted instance of the SAME class of coincidence was found and fixed during this
   closure: the new MINOR-8 tests reused the real GPU memory-total figure as a canned `nvidia-smi`
