@@ -67542,3 +67542,134 @@ committing — no production code changed. `tests/test_q3_native_only.py`: 47 pa
 (43 → 47). 5 canonical guards: 255 passed, EXIT=0. Commits: `3cf1e2c` (fetch the second
 re-review), `7eea445` (the four tests). Tip: `7eea445`. Working tree clean. Card complete
 pending composition.
+
+# §P20REPLAYSHAPE — the cohort replay replays through the runner's exact DOCUMENT call (Phase 2.0 addendum cell E)
+
+**Hygiene card.** Base `train10` `51692c3` (the composed Phase 2.0 tree: SEAM/POSTPROCESS/ROUTER/
+ARTIFACTS/SURFACES all in). Branch `wave20-replayshape`, worktree `.claude/worktrees/mt20-replayshape`.
+One commit: `b5c3397`. Own: `tools/cohort_replay.py`, `tests/test_cohort_replay_shape.py` (new).
+
+**Population.** The 23 of 2,656 train9-cold-cache analysis payloads that carry a top-level
+`document` block (2 genuinely multi-account), measured directly by a read-only cache scan (no
+parsing, no `analyze_document` call — the same cost class as `ColdCache.text()`/
+`baseline_payload()`), reproducing the P20-ARTIFACTS review's own count exactly:
+
+`037774298FE1CD66 0A14AC169DEA62D4 1019F3C638AB1C81 21643A62A463EA39 31F347BE1494314F
+333E226A75FE5441 3600FE7830C4A484 472A0966A5204513 596804AA1ACD01EB 59DA140E7579A851
+5F1CC8C0198DB4EB 7C7956EB5E93DB1D 9C5B7D628D7511EE A4D0F58E054F8CFA C067BE96F6B0BE0F
+C3D3E48F1E14AE2A C6E5B0D3EA9F857B E07F381DC420725A E38FA786106F752E F5BC9FB6D084559E
+F627D7A6A057EF35 F748A799FDC7F25E FFAC0A88768A8A59`
+
+— the 15 L1-S2 protected carriers (`tests/test_l1s2_protected_carriers.py::CARRIERS`) plus the 8
+`guardian_cu` documents (`FAM:guardian_cu_statement_summary`), disjoint sets, 15 + 8 = 23; multi-account
+(`accounts` key present): `7C7956EB5E93DB1D`, `E38FA786106F752E` — both inside the guardian_cu 8,
+matching the review's own two named shas.
+
+**Root cause (P20-ARTIFACTS review MAJOR-3, corroborated by P20-SURFACES review MAJOR-1).**
+`tools/cohort_replay.py::replay_one` called `report_to_dict(analyze_markdown(markdown,
+parse_mode="deterministic", on_dispatch=collector, sheets=pages))` — the SINGLE-ACCOUNT
+projection — while the run of record (`discovery/runner.py::_analyse` + `process()`) calls
+`document_report_to_dict(analyze_document(...))` and the cached analysis artifacts hold that
+DOCUMENT shape. On a single-account document establishing no document-level fact the two shapes
+are byte-identical (`analysis/serialization.py::document_report_to_dict` returns `report_to_dict`
+verbatim — "the branch every document in the archive but twenty-one takes"), which is why the
+mismatch was invisible on the whole rest of the archive; on the 23 named above it is not:
+`--expect-identical` was structurally unable to reproduce the baseline (every leaf under
+`document.*` on 21 of them; the whole payload on the 2 multi-account ones, `accounts`/`document`
+vs `statement`/`metrics`/…), and — because `analyze_markdown` never opens the omission collector
+`analyze_document` opens — the replay could not observe anything at the omission-publish seam
+(the Q3 native-only gate, `analysis/sibling_omission.py`) either way.
+
+**Solution.** `replay_one` now defaults to the runner's EXACT call —
+`document_report_to_dict(analyze_document(markdown, parse_mode="deterministic",
+on_dispatch=collector, sheets=pages))` — classified by `telemetry.record.classify_document` (the
+same document FOLD `discovery/runner.py::process` folds a document's accounts through:
+`row.outcome_class, row.outcome_reason = classify_document(payload, error_type=error_type,
+error_reason=_failure_reason(error_type, dispatch))`, called UNCONDITIONALLY whether `payload` is
+`None` or not — `replay_one` now does the same, rather than special-casing the exception branch
+with a hardcoded `"failed"`). The old single-account projection remains available only behind an
+explicit `--account-shape` flag (default OFF), whose help text states it does NOT reproduce the run
+of record — kept for the four existing callers with old-signature `replay_one(markdown, pages)`
+calls (`tools/commsec_identity_ceiling.py`, `tools/cpdecl_rotation_table.py`,
+`tools/huntington_identity_ceiling.py`, `tools/pnc_identity_ceiling.py`, none of which touch
+`guardian_cu` or any other document-block sha, so their behaviour is unchanged by this card's
+default flip) rather than deleted; they are backlog per the card, not touched here.
+
+Also pins the P20-ARTIFACTS re-review's MINOR-8: `--expect-identical` now refuses (exit 3)
+whenever fewer shas replay than the named cohort's population (`replayed < population`), unless
+`--allow-unresolved` is passed explicitly — "expect identical" over a named cohort means every
+member reproduced, not every member that happened to resolve. The pre-existing exactly-zero
+message (`"BASELINE FIDELITY FAILED: 0 of N shas resolved any cached text — the run's partitions
+do not describe this data directory"`) is UNCHANGED and fires first; the new check is a distinct,
+later branch, proven not to collide (`test_expect_identical_still_refuses_the_exactly_zero_case_
+with_its_own_message`).
+
+## Replay-shape evidence — the SMALL cohorts (full-archive replay deferred per host instruction)
+
+| cohort | selector | at BASE `51692c3` (stashed measurement) | at tip `b5c3397` |
+|---|---|---|---|
+| guardian_cu | `--group FAM:guardian_cu_statement_summary` (8 shas) | **exit 3**, 8/8 `changed` (every leaf under `document.*` on the 6 single-account, the whole payload on the 2 multi-account) | **exit 0**, 8/8 `validated/approved → validated/approved`, payload **identical** — including the 2 multi-account shas `7C7956EB5E93DB1D`, `E38FA786106F752E` |
+| huntington | `--folder "Huntington Bank"` (54 shas) | not re-measured (unaffected family; no document-block sha in it) | **exit 0**, population 54, replayed 54, previously validated preserved **41/41 payload identical**, 0 regressions — unchanged from every prior measurement of this cohort in the card history |
+
+Base measurement taken by `git stash -u` inside this same worktree (temporarily reverting to
+`51692c3`, the card's own base commit — no other branch touched), running the identical
+`cohort_replay` invocation, then `git stash pop` to restore; working tree verified clean before and
+after. Both runs against `discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a`
++ `.claude/recovery/webapp_data_train9_cold` (READ-ONLY).
+
+## Tests — `tests/test_cohort_replay_shape.py` (new, 7 tests, all passing)
+
+| # | property (per the card) | test(s) |
+|---|---|---|
+| 1 | a synthetic multi-account document whose cached payload is document-shaped reproduces `identical` | `test_a_document_shaped_multi_account_baseline_reproduces_identical` |
+| 2 | the `analyze_markdown` reversion mutant is killed | `test_the_account_shape_reversion_mutant_is_killed` (subprocess, `--account-shape` standing in for the reverted default: same cache, same cohort, exit 3 not 0) + `test_replay_one_default_and_account_shape_disagree_on_the_multi_account_fixture` (function-level: the two payload shapes are never equal) |
+| 3 | the Q3 gate is OBSERVABLE through the replay | `test_the_q3_gate_is_observable_through_the_default_document_shaped_replay` (a `local-tesseract-ocr` header on the L1-S4 Q3 fixture yields `failed`/`q3_provenance_refused` through `replay_one`) + `test_the_q3_gate_is_not_observable_through_the_account_shape_path` (the same fixture quietly `validated`s through `--account-shape` — the exact MAJOR-1 asymmetry) |
+| 4 | the `replayed < population` refusal pinned | `test_expect_identical_refuses_a_partial_resolution_without_allow_unresolved` (1 resolving + 1 never-cached sha → exit 3 without `--allow-unresolved`, exit 0 with it) + `test_expect_identical_still_refuses_the_exactly_zero_case_with_its_own_message` (the two guards proven not to collide) |
+
+Every fixture is invented furniture from `tests/l1s4_pages.py` (two distinct `posting_account()`s
+for the multi-account case; `idle_account()` + `posting_account()` for the Q3 case) — nothing
+copied from any real document. The correspondence-sample scaffolding (`_seed_correspondence_
+padding`, 50 always-resolving synthetic OCR artifacts placed first in `rows.csv`) isolates
+`telemetry.run_of_record.verify_reconstruction`'s own 90%-supermajority check from the cohort
+actually under test, the same technique the pre-existing
+`tests/test_cohort_replay_selection.py::test_expect_identical_refuses_a_vacuous_zero_resolution_
+on_the_selected_cohort` uses.
+
+## Mutation table
+
+| mutant | killer | result |
+|---|---|---|
+| `replay_one`'s default reverted to `report_to_dict(analyze_markdown(...))` (exactly what `--account-shape` now is) | `test_the_account_shape_reversion_mutant_is_killed`; `test_replay_one_default_and_account_shape_disagree_on_the_multi_account_fixture` | **killed** |
+| the Q3 gate silently unobserved at the replay seam (the pre-fix state) | `test_the_q3_gate_is_observable_through_the_default_document_shaped_replay` (positive: the default path DOES observe it); `test_the_q3_gate_is_not_observable_through_the_account_shape_path` pins the CONTRAST so a future change cannot quietly make both paths agree by weakening the default instead of strengthening the historical one | **killed** |
+| `--expect-identical`'s new partial-resolution guard dropped (reverting to "any resolution rate > 0 passes") | `test_expect_identical_refuses_a_partial_resolution_without_allow_unresolved` | **killed** |
+| the new guard swallowing the pre-existing exactly-zero message/branch | `test_expect_identical_still_refuses_the_exactly_zero_case_with_its_own_message` (asserts the ORIGINAL message text verbatim) | **killed** |
+
+## Proof floor
+
+* `tests/test_cohort_replay_shape.py`: **7 passed**, EXIT=0.
+* `tests/test_cohort_replay_selection.py tests/test_run_of_record.py tests/test_q3_native_only.py`
+  (existing, unowned, must-not-break per the card): **110 passed**, EXIT=0 — unchanged.
+* 5 canonical guards (`test_no_statement_hardcodes test_no_parser_helper_clones test_r1_hardcodes
+  test_experiments_are_not_wired test_filename_boundary`): **267 passed**, EXIT=0.
+* `cohort_replay --expect-identical --group FAM:guardian_cu_statement_summary` (8 shas): base
+  `51692c3` **EXIT=3**; tip `b5c3397` **EXIT=0**, 8/8 preserved identical.
+* `cohort_replay --expect-identical --folder "Huntington Bank"` (54 shas): tip `b5c3397`
+  **EXIT=0**, 41/41 preserved identical, 0 regressions.
+* Privacy scan (`tools/privacy_scan_branch.py --base 51692c3 --ref wave20-replayshape`): 23-sha
+  document-block population — **473 added lines, 23 documents read, hit_count 0**; 54-sha
+  huntington population — **473 added lines, 54 documents read, hit_count 0**.
+* Message scan (`tools/huntington_msg_privacy_scan.py`, same base/ref, 23-sha population):
+  **1 commit scanned, hit_count 0**.
+* Full-archive replay (base `51692c3` naming the 23 shas by outcome; closure `--expect-identical`
+  exit 0 over all 3,380) **DEFERRED per HOST RULE** — only one heavy harness runs on this host at a
+  time (a proof floor was mid-run throughout this card) and the full-archive replay is explicitly
+  gated on Ocean confirming the host is idle. Everything above is the light-work proof the card
+  authorizes now; the full-archive numbers are reported separately once authorized.
+
+## Commit
+
+`b5c3397` — `tools/cohort_replay.py` (the shape fix, `--account-shape`, `--allow-unresolved`) +
+`tests/test_cohort_replay_shape.py` (new). Working tree clean throughout (verified before and
+after the temporary `git stash`/`stash pop` used for the base measurement); no throwaway worktree
+created. Card complete for the light-work floor; the full-archive replay at base and closure is the
+last gate, waiting on Ocean's host-idle signal.
