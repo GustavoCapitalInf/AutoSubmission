@@ -67542,3 +67542,401 @@ committing — no production code changed. `tests/test_q3_native_only.py`: 47 pa
 (43 → 47). 5 canonical guards: 255 passed, EXIT=0. Commits: `3cf1e2c` (fetch the second
 re-review), `7eea445` (the four tests). Tip: `7eea445`. Working tree clean. Card complete
 pending composition.
+
+# §P20REPLAYSHAPE — the cohort replay replays through the runner's exact DOCUMENT call (Phase 2.0 addendum cell E)
+
+**Hygiene card.** Base `train10` `51692c3` (the composed Phase 2.0 tree: SEAM/POSTPROCESS/ROUTER/
+ARTIFACTS/SURFACES all in). Branch `wave20-replayshape`, worktree `.claude/worktrees/mt20-replayshape`.
+One commit: `b5c3397`. Own: `tools/cohort_replay.py`, `tests/test_cohort_replay_shape.py` (new).
+
+**Population.** The 23 of 2,656 train9-cold-cache analysis payloads that carry a top-level
+`document` block (2 genuinely multi-account), measured directly by a read-only cache scan (no
+parsing, no `analyze_document` call — the same cost class as `ColdCache.text()`/
+`baseline_payload()`), reproducing the P20-ARTIFACTS review's own count exactly:
+
+`037774298FE1CD66 0A14AC169DEA62D4 1019F3C638AB1C81 21643A62A463EA39 31F347BE1494314F
+333E226A75FE5441 3600FE7830C4A484 472A0966A5204513 596804AA1ACD01EB 59DA140E7579A851
+5F1CC8C0198DB4EB 7C7956EB5E93DB1D 9C5B7D628D7511EE A4D0F58E054F8CFA C067BE96F6B0BE0F
+C3D3E48F1E14AE2A C6E5B0D3EA9F857B E07F381DC420725A E38FA786106F752E F5BC9FB6D084559E
+F627D7A6A057EF35 F748A799FDC7F25E FFAC0A88768A8A59`
+
+— the 15 L1-S2 protected carriers (`tests/test_l1s2_protected_carriers.py::CARRIERS`) plus the 8
+`guardian_cu` documents (`FAM:guardian_cu_statement_summary`), disjoint sets, 15 + 8 = 23; multi-account
+(`accounts` key present): `7C7956EB5E93DB1D`, `E38FA786106F752E` — both inside the guardian_cu 8,
+matching the review's own two named shas.
+
+**Root cause (P20-ARTIFACTS review MAJOR-3, corroborated by P20-SURFACES review MAJOR-1).**
+`tools/cohort_replay.py::replay_one` called `report_to_dict(analyze_markdown(markdown,
+parse_mode="deterministic", on_dispatch=collector, sheets=pages))` — the SINGLE-ACCOUNT
+projection — while the run of record (`discovery/runner.py::_analyse` + `process()`) calls
+`document_report_to_dict(analyze_document(...))` and the cached analysis artifacts hold that
+DOCUMENT shape. On a single-account document establishing no document-level fact the two shapes
+are byte-identical (`analysis/serialization.py::document_report_to_dict` returns `report_to_dict`
+verbatim — "the branch every document in the archive but twenty-one takes"), which is why the
+mismatch was invisible on the whole rest of the archive; on the 23 named above it is not:
+`--expect-identical` was structurally unable to reproduce the baseline (every leaf under
+`document.*` on 21 of them; the whole payload on the 2 multi-account ones, `accounts`/`document`
+vs `statement`/`metrics`/…), and — because `analyze_markdown` never opens the omission collector
+`analyze_document` opens — the replay could not observe anything at the omission-publish seam
+(the Q3 native-only gate, `analysis/sibling_omission.py`) either way.
+
+**Solution.** `replay_one` now defaults to the runner's EXACT call —
+`document_report_to_dict(analyze_document(markdown, parse_mode="deterministic",
+on_dispatch=collector, sheets=pages))` — classified by `telemetry.record.classify_document` (the
+same document FOLD `discovery/runner.py::process` folds a document's accounts through:
+`row.outcome_class, row.outcome_reason = classify_document(payload, error_type=error_type,
+error_reason=_failure_reason(error_type, dispatch))`, called UNCONDITIONALLY whether `payload` is
+`None` or not — `replay_one` now does the same, rather than special-casing the exception branch
+with a hardcoded `"failed"`). The old single-account projection remains available only behind an
+explicit `--account-shape` flag (default OFF), whose help text states it does NOT reproduce the run
+of record — kept for the four existing callers with old-signature `replay_one(markdown, pages)`
+calls (`tools/commsec_identity_ceiling.py`, `tools/cpdecl_rotation_table.py`,
+`tools/huntington_identity_ceiling.py`, `tools/pnc_identity_ceiling.py`, none of which touch
+`guardian_cu` or any other document-block sha, so their behaviour is unchanged by this card's
+default flip) rather than deleted; they are backlog per the card, not touched here.
+
+Also pins the P20-ARTIFACTS re-review's MINOR-8: `--expect-identical` now refuses (exit 3)
+whenever fewer shas replay than the named cohort's population (`replayed < population`), unless
+`--allow-unresolved` is passed explicitly — "expect identical" over a named cohort means every
+member reproduced, not every member that happened to resolve. The pre-existing exactly-zero
+message (`"BASELINE FIDELITY FAILED: 0 of N shas resolved any cached text — the run's partitions
+do not describe this data directory"`) is UNCHANGED and fires first; the new check is a distinct,
+later branch, proven not to collide (`test_expect_identical_still_refuses_the_exactly_zero_case_
+with_its_own_message`).
+
+## Replay-shape evidence — the SMALL cohorts (full-archive replay deferred per host instruction)
+
+| cohort | selector | at BASE `51692c3` (stashed measurement) | at tip `b5c3397` |
+|---|---|---|---|
+| guardian_cu | `--group FAM:guardian_cu_statement_summary` (8 shas) | **exit 3**, 8/8 `changed` (every leaf under `document.*` on the 6 single-account, the whole payload on the 2 multi-account) | **exit 0**, 8/8 `validated/approved → validated/approved`, payload **identical** — including the 2 multi-account shas `7C7956EB5E93DB1D`, `E38FA786106F752E` |
+| huntington | `--folder "Huntington Bank"` (54 shas) | not re-measured (unaffected family; no document-block sha in it) | **exit 0**, population 54, replayed 54, previously validated preserved **41/41 payload identical**, 0 regressions — unchanged from every prior measurement of this cohort in the card history |
+
+Base measurement taken by `git stash -u` inside this same worktree (temporarily reverting to
+`51692c3`, the card's own base commit — no other branch touched), running the identical
+`cohort_replay` invocation, then `git stash pop` to restore; working tree verified clean before and
+after. Both runs against `discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a`
++ `.claude/recovery/webapp_data_train9_cold` (READ-ONLY).
+
+## Tests — `tests/test_cohort_replay_shape.py` (new, 7 tests, all passing)
+
+| # | property (per the card) | test(s) |
+|---|---|---|
+| 1 | a synthetic multi-account document whose cached payload is document-shaped reproduces `identical` | `test_a_document_shaped_multi_account_baseline_reproduces_identical` |
+| 2 | the `analyze_markdown` reversion mutant is killed | `test_the_account_shape_reversion_mutant_is_killed` (subprocess, `--account-shape` standing in for the reverted default: same cache, same cohort, exit 3 not 0) + `test_replay_one_default_and_account_shape_disagree_on_the_multi_account_fixture` (function-level: the two payload shapes are never equal) |
+| 3 | the Q3 gate is OBSERVABLE through the replay | `test_the_q3_gate_is_observable_through_the_default_document_shaped_replay` (a `local-tesseract-ocr` header on the L1-S4 Q3 fixture yields `failed`/`q3_provenance_refused` through `replay_one`) + `test_the_q3_gate_is_not_observable_through_the_account_shape_path` (the same fixture quietly `validated`s through `--account-shape` — the exact MAJOR-1 asymmetry) |
+| 4 | the `replayed < population` refusal pinned | `test_expect_identical_refuses_a_partial_resolution_without_allow_unresolved` (1 resolving + 1 never-cached sha → exit 3 without `--allow-unresolved`, exit 0 with it) + `test_expect_identical_still_refuses_the_exactly_zero_case_with_its_own_message` (the two guards proven not to collide) |
+
+Every fixture is invented furniture from `tests/l1s4_pages.py` (two distinct `posting_account()`s
+for the multi-account case; `idle_account()` + `posting_account()` for the Q3 case) — nothing
+copied from any real document. The correspondence-sample scaffolding (`_seed_correspondence_
+padding`, 50 always-resolving synthetic OCR artifacts placed first in `rows.csv`) isolates
+`telemetry.run_of_record.verify_reconstruction`'s own 90%-supermajority check from the cohort
+actually under test, the same technique the pre-existing
+`tests/test_cohort_replay_selection.py::test_expect_identical_refuses_a_vacuous_zero_resolution_
+on_the_selected_cohort` uses.
+
+## Mutation table
+
+| mutant | killer | result |
+|---|---|---|
+| `replay_one`'s default reverted to `report_to_dict(analyze_markdown(...))` (exactly what `--account-shape` now is) | `test_the_account_shape_reversion_mutant_is_killed`; `test_replay_one_default_and_account_shape_disagree_on_the_multi_account_fixture` | **killed** |
+| the Q3 gate silently unobserved at the replay seam (the pre-fix state) | `test_the_q3_gate_is_observable_through_the_default_document_shaped_replay` (positive: the default path DOES observe it); `test_the_q3_gate_is_not_observable_through_the_account_shape_path` pins the CONTRAST so a future change cannot quietly make both paths agree by weakening the default instead of strengthening the historical one | **killed** |
+| `--expect-identical`'s new partial-resolution guard dropped (reverting to "any resolution rate > 0 passes") | `test_expect_identical_refuses_a_partial_resolution_without_allow_unresolved` | **killed** |
+| the new guard swallowing the pre-existing exactly-zero message/branch | `test_expect_identical_still_refuses_the_exactly_zero_case_with_its_own_message` (asserts the ORIGINAL message text verbatim) | **killed** |
+
+## Proof floor
+
+* `tests/test_cohort_replay_shape.py`: **7 passed**, EXIT=0.
+* `tests/test_cohort_replay_selection.py tests/test_run_of_record.py tests/test_q3_native_only.py`
+  (existing, unowned, must-not-break per the card): **110 passed**, EXIT=0 — unchanged.
+* 5 canonical guards (`test_no_statement_hardcodes test_no_parser_helper_clones test_r1_hardcodes
+  test_experiments_are_not_wired test_filename_boundary`): **267 passed**, EXIT=0.
+* `cohort_replay --expect-identical --group FAM:guardian_cu_statement_summary` (8 shas): base
+  `51692c3` **EXIT=3**; tip `b5c3397` **EXIT=0**, 8/8 preserved identical.
+* `cohort_replay --expect-identical --folder "Huntington Bank"` (54 shas): tip `b5c3397`
+  **EXIT=0**, 41/41 preserved identical, 0 regressions.
+* Privacy scan (`tools/privacy_scan_branch.py --base 51692c3 --ref wave20-replayshape`): 23-sha
+  document-block population — **473 added lines, 23 documents read, hit_count 0**; 54-sha
+  huntington population — **473 added lines, 54 documents read, hit_count 0**.
+* Message scan (`tools/huntington_msg_privacy_scan.py`, same base/ref, 23-sha population):
+  **1 commit scanned, hit_count 0**.
+* Full-archive replay (base `51692c3` naming the 23 shas by outcome; closure `--expect-identical`
+  exit 0 over all 3,380) **DEFERRED per HOST RULE** — only one heavy harness runs on this host at a
+  time (a proof floor was mid-run throughout this card) and the full-archive replay is explicitly
+  gated on Ocean confirming the host is idle. Everything above is the light-work proof the card
+  authorizes now; the full-archive numbers are reported separately once authorized.
+
+## Commit
+
+`b5c3397` — `tools/cohort_replay.py` (the shape fix, `--account-shape`, `--allow-unresolved`) +
+`tests/test_cohort_replay_shape.py` (new). Working tree clean throughout (verified before and
+after the temporary `git stash`/`stash pop` used for the base measurement); no throwaway worktree
+created. Card complete for the light-work floor; the full-archive replay at base and closure is the
+last gate, waiting on Ocean's host-idle signal.
+
+## §P20REPLAYSHAPE full-archive closure — 3,380 shas at base and tip (2026-09-02)
+
+Ocean confirmed the host idle (floor complete: suite 8,330 / guards 267 / conformance 1,282 /
+gate 105-3-1 / corpus slice 34, all EXIT=0). Ran the full-archive proof over all 3,380 distinct
+`content_sha256` values of the train9 run of record (`discovery_reports/TRAIN9-7b25d70/
+2026-08-31T185527.271012-0000-91f5179a`, deduplicated from `rows.csv`), against
+`.claude/recovery/webapp_data_train9_cold` (READ-ONLY).
+
+**At BASE `51692c3`** (throwaway detached worktree `git worktree add --detach
+.claude/worktrees/rs-base 51692c3`, the OLD instrument — `replay_one`'s pre-fix single-account
+projection, no `--account-shape`/`--allow-unresolved` flags — verified present by grep before
+running; removed after, `git worktree remove --force`):
+
+| measure | count |
+|---|---:|
+| population | 3,380 |
+| replayed (text available) | 3,351 |
+| newly validated | 0 |
+| other ladder movement (up, not validated) | 0 |
+| previously validated preserved | 2,625 of 2,625 |
+| … payload identical | 2,602 |
+| … payload changed | **23** |
+| validated regressions (BLOCKING) | 0 |
+| other ladder regressions | 0 |
+| unchanged non-validated | 726 (payload changed on 0) |
+| no text / absent | 29 |
+
+**EXIT=3.** The 23 `changed` sha16s, extracted from the run's own report table, are BYTE-FOR-BYTE
+the population this card named from the read-only cache scan (§P20REPLAYSHAPE above):
+
+`037774298FE1CD66 0A14AC169DEA62D4 1019F3C638AB1C81 21643A62A463EA39 31F347BE1494314F
+333E226A75FE5441 3600FE7830C4A484 472A0966A5204513 596804AA1ACD01EB 59DA140E7579A851
+5F1CC8C0198DB4EB 7C7956EB5E93DB1D 9C5B7D628D7511EE A4D0F58E054F8CFA C067BE96F6B0BE0F
+C3D3E48F1E14AE2A C6E5B0D3EA9F857B E07F381DC420725A E38FA786106F752E F5BC9FB6D084559E
+F627D7A6A057EF35 F748A799FDC7F25E FFAC0A88768A8A59`
+
+Runtime 2,294s (~38 min).
+
+**At TIP `d8faf68`** (this worktree, same 3,380 shas, `--expect-identical`):
+
+| measure | count |
+|---|---:|
+| population | 3,380 |
+| replayed (text available) | 3,351 |
+| newly validated | 0 |
+| other ladder movement (up, not validated) | 0 |
+| previously validated preserved | **2,625 of 2,625** |
+| … payload identical | **2,625** |
+| … payload changed | **0** |
+| validated regressions (BLOCKING) | 0 |
+| other ladder regressions | 0 |
+| unchanged non-validated | 726 (payload changed on 0) |
+| no text / absent | 29 |
+
+**EXIT=3 without `--allow-unresolved`** — and this is the one finding this closure surfaces
+rather than explains away: the SAME 29 shas that were `no_text`/`absent` at base (verified
+byte-for-byte identical set, both runs' own JSON output compared programmatically: `source_path =
+"none"` throughout, per `telemetry/run_of_record.py`'s own docstring — no OCR was ever attempted
+on them, tree-independent, pre-existing, unrelated to this card) now trip THIS card's own new
+`replayed < population` refusal (the addendum's MINOR-8 fix) when it is exercised against the
+full archive for the first time. **This is not a document changing disposition or class** — 0
+newly validated, 0 other movement, 0 regressions of any kind, 2,625/2,625 preserved identical, all
+23 named shas now `identical` (verified individually against the JSON: every one
+`validated → validated`, `payload: identical`) — it is the new guard doing exactly the job it was
+built for (refusing a partial resolution silently passing as identical) applied, for the first
+time, to a population that legitimately contains 29 permanently-unresolvable members. Re-run
+identically with `--allow-unresolved` (same 3,380 shas, same tree, a second full pass rather than
+a derivation from the first run's data, per the standing evidence discipline):
+
+| measure | count |
+|---|---:|
+| population | 3,380 |
+| replayed (text available) | 3,351 |
+| newly validated | 0 |
+| other ladder movement (up, not validated) | 0 |
+| previously validated preserved | **2,625 of 2,625** |
+| … payload identical | **2,625** |
+| … payload changed | 0 |
+| validated regressions (BLOCKING) | 0 |
+| other ladder regressions | 0 |
+| unchanged non-validated | 726 (payload changed on 0) |
+
+**EXIT=0.** Runtime 2,268s (~38 min). Both TIP runs' `table` data agree exactly (identical
+`before`/`after`/`payload`/`direction`/`after_reason` on all 3,380 rows; `--allow-unresolved` only
+changes the FINAL exit-code branch, never a single row's computation).
+
+**Closure verdict:** 0 newly validated · 0 other ladder movement · 2,625/2,625 previously validated
+preserved, ALL payload identical (up from 2,602/2,625 at base — exactly the 23 named documents
+moved from `changed` to `identical`, nothing else) · 0 validated regressions · 0 other ladder
+regressions · the 23 named shas now identical, individually verified · 0 other movement of any
+kind. The full-archive proof this card owed is complete: `--expect-identical` reproduces the
+baseline exactly on every one of the 3,351 replayable documents, and refuses (correctly, by
+design) on a population that also names 29 documents no tree can ever replay.
+
+### Message scan (full-archive population)
+
+`tools/huntington_msg_privacy_scan.py --base 51692c3 --ref wave20-replayshape`, population = all
+3,380 shas (`--shas` = the same full-archive population file): **2 commits scanned, hit_count 0**
+(0 across DATES/DIGITS/MONEY/WORDS).
+
+### Commits
+
+This section is appended as its own commit on top of `d8faf68` (reported by SHA in the closing
+message to Ocean, since a commit cannot name its own hash inside itself). Working tree clean
+throughout; the throwaway worktree `.claude/worktrees/rs-base` created and removed, verified
+absent from `git worktree list` afterward. Card complete for the full-archive proof; the cold run
+is Ocean's next gate.
+
+## §P20REPLAYSHAPE review closure — MAJOR-1/2/3, MINOR-1/2/3 all closed (2026-09-02)
+
+Independent adversarial review fetched from `train10` `05ec7ee`
+(`docs/moneythumb-replacement/reviews/PHASE2_P20REPLAYSHAPE_REVIEW.md`, not committed on this
+branch per Ocean's instruction). **Verdict: APPROVE WITH FINDINGS.** The reviewer independently
+re-derived the population (23 document-block payloads, byte-for-byte the same 23, same order),
+confirmed every claim in the W3 (21 rows in a claim-by-claim table, all CONFIRMED), found no wrong
+answer anywhere in the instrument, and named three MAJORs (all *absence* findings — the instrument
+does not pin or disclose something) and three MINORs. All six closed below, each reproduced first
+against the reviewer's own numbers before any fix.
+
+### MAJOR-1 — `--account-shape` combined with `--expect-identical` produced a report indistinguishable from a genuine fidelity proof
+
+**Reproduced** exactly as the reviewer measured: `--folder "Huntington Bank" --expect-identical
+--account-shape` exited **0** with `population 54 … payload identical 41` — byte-for-byte the same
+table, header and exit code as the genuine fidelity proof, produced by the seam the branch's own
+docstring calls "HISTORICAL" and "does NOT reproduce the run of record".
+
+**Closed.** The combination now refuses (exit 3) before any replay runs:
+`"--account-shape is the HISTORICAL single-account seam and does not reproduce the run of record;
+it may not be combined with --expect-identical"`. The shape that produced a report is stamped into
+the `selectors:` header line (`shape=account|document`) and the `--json` payload's `"shape"` key,
+both present on every run regardless of `--expect-identical`. Pinned:
+`test_account_shape_combined_with_expect_identical_is_refused`,
+`test_the_selectors_line_and_json_stamp_the_replay_shape`.
+
+### MAJOR-2 — `parse_mode="deterministic"` and `sheets=pages` were pinned by nothing; both mutants non-equivalent
+
+**Reproduced** the reviewer's two mutants by hand (each applied to a saved pristine copy of
+`tools/cohort_replay.py`, run, then restored from that copy — not `git checkout --`, which would
+discard uncommitted work):
+
+* **M7** (drop `sheets=pages`): the new spy test fails with `KeyError: 'sheets'` — the mutant is
+  reachable and would (per the reviewer's own archive measurement) change the huntington cohort's
+  ladder, 41 → 38 preserved-identical, a BLOCKING regression. **KILLED.**
+* **M11** (drop `parse_mode="deterministic"`): the new spy test fails with `KeyError: 'parse_mode'`
+  — the mutant is reachable and would (per the reviewer's own measurement on 6 real unclaimed
+  native shas) silently reach the hosted-model seam while returning an identical class/reason,
+  losing the `$0 vendor … no hosted model call anywhere` guarantee with a full-archive
+  `--expect-identical` still exiting 0. **KILLED.**
+
+**Closed** with exactly the reviewer's suggested test,
+`test_replay_one_makes_the_runners_exact_call`: a spy on `analysis.pipeline.analyze_document`
+pinning all four elements of the runner's call in one assertion block (`parse_mode`, `sheets`,
+`on_dispatch is not None`, plus the shape/classification pins the other tests already carry). File
+restored byte-identical after each mutant (verified by `diff` against the saved pristine copy);
+`git status --porcelain` clean throughout.
+
+### MAJOR-3 (ruled) — `--allow-unresolved` is all-or-nothing and reopens MINOR-8 on the one cohort that needs it most
+
+**Reproduced** the reviewer's own shape: 1 real sha + 29 permanently-unresolvable ones with
+`--allow-unresolved` → exit 0, "replayed 1 / population 30" — the P20-ARTIFACTS re-review's
+MINOR-8 verbatim, restored by the flag this card added to close it, live exactly on the cohort the
+phase's own full-archive proof must use (the archive names 29 structurally unreadable shas,
+`source_path=none` throughout).
+
+**Ruled and closed:** added `--expect-unresolved N` — under `--expect-identical`, refuse (exit 3)
+unless EXACTLY N cohort members failed to resolve. `--allow-unresolved` (any count) is kept, but
+only for exploratory runs, and its help text now says so explicitly; the refusal stays the default
+when neither flag is given; `source_path=none` rows are NOT excluded automatically (that would let
+the run under test decide which of its own members it is excused from reproducing, and the
+population printed would stop being the cohort the caller named). Pinned:
+`test_expect_unresolved_pins_the_exact_count_n_minus_1_and_n_plus_1_refuse` — with N = 29 (the
+archive's own known gap), N−1 = 28 and N+1 = 30 both refuse (`"expected exactly 28 … got 29"` /
+`"expected exactly 30 … got 29"`), N = 29 passes, and plain `--expect-identical` with no opt-out at
+all still refuses over the same cohort.
+
+### MINOR-1 (ruled) — the W3's account of `--account-shape`'s callers did not match the code
+
+**Reproduced:** `grep -rn "replay_one(" tools/` found exactly the reviewer's four call sites, every
+one passing `(markdown, pages)` with no `account_shape=`.
+
+**Closed** by doing what the card literally asked and the W3 already claimed: `account_shape=True`
+now passed at all four (`tools/commsec_identity_ceiling.py:476`,
+`tools/cpdecl_rotation_table.py:107`, `tools/huntington_identity_ceiling.py:206`,
+`tools/pnc_identity_ceiling.py:176`), preserving their historical single-account seam exactly. All
+four smoke-imported clean (`import tools.<module>` — no error). This closure's own commit message
+is the corrected sentence; the earlier W3 sentence ("kept for the four existing callers … rather
+than deleted") is now true of the code as well as the intent.
+
+### MINOR-2 — the exception-path classification's "fidelity improvement" is a structural equivalence, not a behavioural fix
+
+**Reproduced** the reviewer's equivalence mutant (restoring the old hardcoded `"failed"` special
+case) surviving every owned test — confirmed by direct comparison rather than by re-running the
+mutant: `classify_document(None, error_type=…, error_reason=…)` on six `(error_type, error_reason)`
+pairs including `parser_exception`, `q3_provenance_refused`, `no_parser_matched`, always returns
+`("failed", …)`.
+
+**Closed** with `test_replay_ones_exception_path_equals_classify_document_called_directly`: a real
+exception is injected (`analyze_document` monkeypatched to raise `RuntimeError`), and `replay_one`'s
+answer is asserted equal to calling `classify_document(None, error_type="RuntimeError",
+error_reason=_failure_reason("RuntimeError", None))` directly — the equivalence is now a pinned
+property rather than an unpinned claim, and would go red the moment `classify_document` grows an
+`error_type`-driven document override that `replay_one` does not also apply.
+
+### MINOR-3 — the refusal line conflated `absent` (not in the run) with `no_text` (no cached artifact)
+
+**Reproduced:** every refusal message before this closure read `"N sha(s) did not resolve any
+cached text"` for both a sha absent from `rows.csv` entirely and a sha the run names but the cache
+does not answer for — two different defects, indistinguishable in the one line a reader sees under
+`--out`.
+
+**Closed:** every refusal line (the `--expect-unresolved` mismatch message and the
+`--allow-unresolved`-gated partial message) now names both counts separately —
+`"{absent} not in the run, {unresolved} with no cached text"`. Pinned:
+`test_expect_unresolved_message_names_absent_and_no_text_separately` (one of each, both counted
+correctly and distinctly).
+
+### Proof floor (post-closure)
+
+* `tests/test_cohort_replay_shape.py`: **12 passed** (was 7; +5 for MAJOR-1 ×2, MAJOR-2, MAJOR-3
+  ×2, MINOR-2 — MINOR-3 is pinned by the same MAJOR-3 test file's new tests), EXIT=0.
+* `tests/test_cohort_replay_selection.py tests/test_run_of_record.py tests/test_q3_native_only.py`
+  (existing, unowned, must-not-break): unchanged, all pass alongside the above.
+* Full required set (`test_cohort_replay_shape.py test_cohort_replay_selection.py
+  test_run_of_record.py test_q3_native_only.py` + 5 canonical guards): **389 passed**, EXIT=0.
+* Mutation table addendum: M7 (drop `sheets`) **KILLED** — `KeyError: 'sheets'`; M11 (drop
+  `parse_mode`) **KILLED** — `KeyError: 'parse_mode'`; both applied to a saved pristine copy and
+  restored from it, `git status --porcelain` clean before and after.
+* guardian_cu at closure tip `c943a1d`: `--group FAM:guardian_cu_statement_summary
+  --expect-identical` → **EXIT=0**, population 8, replayed 8, preserved 8/8 identical, `shape=document`
+  stamped — unchanged from every prior measurement.
+* huntington at closure tip `c943a1d`: `--folder "Huntington Bank" --expect-identical` →
+  **EXIT=0**, population 54, replayed 54, preserved 41/41 identical, `shape=document` stamped —
+  unchanged.
+* **Full-archive replay at closure tip `c943a1d`**, all 3,380 shas, `--expect-identical
+  --expect-unresolved 29` (detached, `EXIT=` line on a durable log, read in the foreground with an
+  `until`-loop per call — no monitor, per the lost-wake lesson):
+
+| measure | count |
+|---|---:|
+| population | 3,380 |
+| replayed (text available) | 3,351 |
+| newly validated | 0 |
+| other ladder movement (up, not validated) | 0 |
+| previously validated preserved | **2,625 of 2,625** |
+| … payload identical | **2,625** |
+| … payload changed | 0 |
+| validated regressions (BLOCKING) | 0 |
+| other ladder regressions | 0 |
+| unchanged non-validated | 726 (payload changed on 0) |
+| no text / absent | 29 |
+
+  **EXIT=0.** Runtime 2,247s (~37 min). The `"shape"` JSON key reads `"document"`. All 23 named
+  shas individually re-verified from the JSON: every one `validated → validated`,
+  `payload: identical`. `no_text` count is exactly 29, matching `--expect-unresolved 29` with no
+  need for the looser `--allow-unresolved` this time.
+* Message scan (`tools/huntington_msg_privacy_scan.py --base 51692c3 --ref wave20-replayshape`,
+  full 3,380-sha population): **4 commits scanned, hit_count 0**.
+
+### Commits
+
+This closure's code/test commit and this W3 subsection's own commit are both reported by SHA in
+the closing message to Ocean (a commit cannot name its own hash inside itself). Working tree clean
+throughout; no throwaway worktree created for this closure (the mutation checks used a saved
+pristine file copy, restored by direct copy rather than `git checkout --`). Review file fetched
+from `train10` and left uncommitted, per instruction. Card complete; the cold run is Ocean's next
+gate.

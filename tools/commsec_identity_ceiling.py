@@ -473,7 +473,7 @@ def publish(markdown: str, pages: list[str]) -> dict:
     original = M._activity_rows
     M._activity_rows = solved_rows
     try:
-        payload, klass, reason, claimed = replay_one(markdown, pages)
+        payload, klass, reason, claimed = replay_one(markdown, pages, account_shape=True)
     finally:
         M._activity_rows = original
     metrics = (payload or {}).get("metrics") or {}

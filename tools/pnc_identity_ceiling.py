@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "ordered_dates":
             markdown = _repair_detached_dates(markdown)
         with relaxed(args.mode):
-            _payload, klass, reason, _claimed = replay_one(markdown, pages)
+            _payload, klass, reason, _claimed = replay_one(markdown, pages, account_shape=True)
         table.append({"sha16": token, "before": rows[sha].get("outcome_class", ""),
                       "after": klass, "reason": reason})
 
