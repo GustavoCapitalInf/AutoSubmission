@@ -26,10 +26,12 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                     force_ocr: bool = False,
                     allow_local_ocr: bool = False,
                     allow_visual_ocr: bool = True,
+                    allow_paddle_ocr: bool = False,
+                    paddle_data_scope: str | None = None,
                     profile: DocumentProfile | None = None,
                     on_stage=None) -> StatementMarkdown | None:
     """The single intake ladder (O-1): native text -> local Tesseract ->
-    visual OCR, driven by the preflight DocumentProfile.
+    visual OCR / PaddleOCR, driven by the preflight DocumentProfile.
 
     Capability flags preserve each caller's historical behavior exactly:
     `allow_local_ocr` (default False) gates the Tesseract rung, which has only
@@ -38,8 +40,9 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
     the offline rungs and returns None (used by the webapp's deterministic
     mode); with the default True the return value is never None. `force_ocr`
     (or an injected `page_ocr_fn`) skips straight to the visual rung, as
-    before. `on_stage(rung)` reports "native" / "local_ocr" / "visual_ocr" as
-    each rung starts, so callers can surface progress without owning routing.
+    before. `on_stage(rung)` reports "native" / "local_ocr" / "visual_ocr" /
+    "paddle_ocr" as each rung starts, so callers can surface progress without
+    owning routing.
 
     `profile` (computed here when not supplied) drives the ladder: a valid PDF
     with zero native text on every page skips the native rung outright — safe
@@ -53,7 +56,22 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
     re-OCR'd once at the fallback DPI and the cleaner read kept. If
     `on_page_delta` is given, raw model output streams live as
     `on_page_delta(page_index, chunk)`; `page_ocr_fn` is injectable for tests
-    and receives a single page image."""
+    and receives a single page image.
+
+    PaddleOCR (P21-ROUTING, Phase 2.1, cell R; Ruling A): the Paddle rung runs
+    ONLY on the forced path — `force_ocr and allow_paddle_ocr` — never as part
+    of the non-forced ("auto") ladder above, which is UNCHANGED and does not
+    consult `allow_paddle_ocr` at all (CASE 12: the pre-existing auto-mode
+    fallthrough to the visual rung stays exactly as it is; it gains no Paddle
+    arm). `allow_paddle_ocr` and `allow_visual_ocr` together on the forced
+    path is a `ValueError`: the router names exactly one extractor per call,
+    and this ladder never chooses between two OCR extractors on its own.
+    `paddle_data_scope` (`"synthetic"` | `"customer"`) is REQUIRED whenever
+    `force_ocr and allow_paddle_ocr` — the rung's own privacy-boundary
+    declaration (D8); `None` there is a `ValueError`. `ocr.paddle_rung` is
+    imported LAZILY, inside this branch, so an offline-only or visual-only
+    call never even imports it (mirroring the existing lazy `ocr.ocr_client`
+    import for the visual rung)."""
     if page_ocr_fn is None and not force_ocr:
         if profile is None:
             profile = inspect_pdf(pdf_bytes)
@@ -84,6 +102,46 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                 for i, page in enumerate(native.pages):
                     on_page_replace(i, page)
             return native
+
+    # P21-ROUTING: the Paddle rung is reachable ONLY when `force_ocr` is True.
+    # `force_ocr` is still in scope here whatever happened above (the
+    # non-forced block never returns when it falls through), so this is a
+    # precise, structural test of "the forced path", not a guess based on
+    # what the offline ladder just did. When `force_ocr` is False,
+    # `allow_paddle_ocr` is INERT — `ocr.paddle_rung` is never imported and
+    # this whole block never runs, whatever `allow_paddle_ocr` says (CASE 12).
+    if force_ocr and allow_paddle_ocr:
+        if allow_visual_ocr:
+            raise ValueError(
+                "parse_statement: allow_paddle_ocr and allow_visual_ocr "
+                "together is not allowed — one OCR extractor per call; the "
+                "router chooses"
+            )
+        if paddle_data_scope is None:
+            raise ValueError(
+                "parse_statement: paddle_data_scope is required when "
+                "allow_paddle_ocr=True"
+            )
+        _notify_stage(on_stage, "paddle_ocr")
+        from .paddle_config import PADDLE_MODEL_TOKEN
+        from .paddle_rung import read_document as _paddle_read_document
+
+        document_sha256 = (
+            profile.content_sha256 if profile is not None
+            else inspect_pdf(pdf_bytes).content_sha256
+        )
+        read = _paddle_read_document(
+            pdf_bytes, document_sha256=document_sha256,
+            data_scope=paddle_data_scope, dpi=dpi,
+        )
+        return StatementMarkdown(
+            source_file=source_file,
+            model=PADDLE_MODEL_TOKEN,
+            pages=list(read.pages),
+            page_integrity=assess_pages(read.pages),
+            page_extractor=list(read.page_extractor),
+            evidence=read.evidence,
+        )
 
     if not allow_visual_ocr:
         return None

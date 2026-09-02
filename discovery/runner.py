@@ -106,10 +106,14 @@ MODE_PROFILE_ONLY = "profile-only"
 MODE_DIGITAL = "digital"
 MODE_SCANNED = "scanned"
 MODE_SCANNED_VISUAL = "scanned-visual"
+#: P21-ROUTING (Phase 2.1). The Paddle discovery mode: as `--scanned`, plus
+#: the Paddle escalation rung in place of the visual one. Mutually exclusive
+#: with every other mode (the CLI's mode group enforces it).
+MODE_SCANNED_PADDLE = "scanned-paddle"
 MODE_DRY_RUN = "dry-run"
 
 #: Modes that run the local Tesseract rung.
-LOCAL_OCR_MODES = frozenset({MODE_SCANNED, MODE_SCANNED_VISUAL})
+LOCAL_OCR_MODES = frozenset({MODE_SCANNED, MODE_SCANNED_VISUAL, MODE_SCANNED_PADDLE})
 
 #: What the visual rung did for one document. Row-level vocabulary (the
 #: adjudication artifact); it reaches telemetry as `outcome.fallback_reason`
@@ -119,6 +123,17 @@ VISUAL_RECOVERED = "recovered"      # offline rungs served nothing; visual did
 VISUAL_UPGRADED = "upgraded"        # unclaimed Tesseract read replaced by a claim
 VISUAL_NO_UPGRADE = "no_upgrade"    # escalation ran, did not claim; offline kept
 VISUAL_FAILED = "failed"            # the rung raised (endpoint down/transport)
+
+#: P21-ROUTING. The SAME vocabulary shape as the visual rung above, plus
+#: `refused_customer_data` (D8): the rung's own authorization gate refused a
+#: `customer`-scope document before any request left the machine — a named,
+#: counted finding, never a silent hop to another extractor.
+PADDLE_NOT_ATTEMPTED = "not_attempted"
+PADDLE_RECOVERED = "recovered"
+PADDLE_UPGRADED = "upgraded"
+PADDLE_NO_UPGRADE = "no_upgrade"
+PADDLE_FAILED = "failed"
+PADDLE_REFUSED_CUSTOMER_DATA = "refused_customer_data"
 
 #: Committed OCR artifacts exist for the six image-only PINNED statements only.
 #: They are what lets the dry run cover all 109 with zero OCR; no archive
@@ -138,6 +153,14 @@ ARTIFACT_CACHE = Path("tests/corpus_cache")
 PARSER_ID_LIVE_DISPATCH = "live_dispatch"
 PARSER_ID_LIVE_DETECT = "live_detect"
 PARSER_ID_UNAVAILABLE = "unavailable"
+
+#: The closed vocabulary `DocumentRow.paddle_rung` is enforced against at the
+#: row projection (mirrors `PARSER_ID_*`'s pattern above and `visual_rung`'s
+#: own, unenforced-by-name, historical vocabulary).
+_PADDLE_RUNG_VOCABULARY = frozenset({
+    PADDLE_NOT_ATTEMPTED, PADDLE_RECOVERED, PADDLE_UPGRADED,
+    PADDLE_NO_UPGRADE, PADDLE_FAILED, PADDLE_REFUSED_CUSTOMER_DATA,
+})
 
 
 @dataclass
@@ -215,6 +238,27 @@ class DocumentRow:
     escalation_trigger: str = ""
     evidence_quality: str = "none"
     escalation_refused: str = ""
+    # P21-ROUTING (Phase 2.1). Appended at the END, mirroring the P20-ROUTER
+    # block above. `paddle_rung` is the SAME vocabulary shape as `visual_rung`
+    # plus `refused_customer_data` (D8). `cache_paddle` mirrors `cache_visual`.
+    # `escalation_extractor` names which extractor the router actually sent a
+    # candidate to for this row (`""` when none did) — the one field that
+    # tells `visual_rung="upgraded"` and `paddle_rung="upgraded"` apart from a
+    # row where neither ran, without inspecting both columns. `evidence_sha256`
+    # / `paddle_provider` / `paddle_execution_class` are read off
+    # `telemetry.record.source_section`'s new fields (from `document.evidence
+    # .runtime` when present) — empty string when the rung of record carries
+    # no evidence (every non-Paddle read). `offline_source_model` (design item
+    # 8, CASE 9) is the PRE-escalation read's own model token, recorded only
+    # when an escalation ADOPTS a replacement read — so a disagreement between
+    # the offline and the escalated read is never silently lost.
+    paddle_rung: str = "not_attempted"
+    cache_paddle: str = "bypass"
+    escalation_extractor: str = ""
+    evidence_sha256: str = ""
+    paddle_provider: str = ""
+    paddle_execution_class: str = ""
+    offline_source_model: str = ""
 
     def as_dict(self) -> dict:
         # P20-ROUTER review, MAJOR-3. The closed vocabularies are enforced
@@ -233,6 +277,16 @@ class DocumentRow:
             raise ValueError(
                 f"escalation_trigger {self.escalation_trigger!r} is not in the "
                 f"closed vocabulary {EXTRACTION_TRIGGERS} (or '')"
+            )
+        if self.paddle_rung not in _PADDLE_RUNG_VOCABULARY:
+            raise ValueError(
+                f"paddle_rung {self.paddle_rung!r} is not in the closed "
+                f"vocabulary {_PADDLE_RUNG_VOCABULARY}"
+            )
+        if self.escalation_extractor not in ("", "paddle", "visual"):
+            raise ValueError(
+                f"escalation_extractor {self.escalation_extractor!r} is not "
+                f"one of '', 'paddle', 'visual'"
             )
         row = asdict(self)
         row["candidates"] = "; ".join(self.candidates)
@@ -293,7 +347,12 @@ def classify_failure(
 #: `evidence_quality="none"` and treats the evidence as usable BY
 #: CONSTRUCTION for `classify_failure`'s purposes (a native/committed-
 #: artifact document is never graded `A` — only `B`, `C`, or `""`).
-GATE_ASSESSED_SOURCES: frozenset[str] = frozenset({"local_tesseract", "visual"})
+#:
+#: P21-ROUTING (Phase 2.1): `"paddle"` joins the set — a Paddle read is an
+#: EXTRACTOR read in exactly the same sense a Tesseract or visual one is (an
+#: extractor either produced usable evidence or it did not); it is never
+#: usable-by-construction the way a native or committed-artifact read is.
+GATE_ASSESSED_SOURCES: frozenset[str] = frozenset({"local_tesseract", "visual", "paddle"})
 
 
 def _evidence_for_row(document, profile, source_path: str) -> EvidenceQuality:
@@ -530,6 +589,7 @@ class DiscoveryRunner:
 
     _last_ocr_cached = False
     _last_visual_cached = False
+    _last_paddle_cached = False
 
     def __init__(
         self,
@@ -551,10 +611,29 @@ class DiscoveryRunner:
         self.dedup = dedup if dedup is not None else DedupIndex.with_pinned_corpus()
         self.allow_local_ocr = mode in LOCAL_OCR_MODES
         self.allow_visual_ocr = mode == MODE_SCANNED_VISUAL
+        #: P21-ROUTING (Phase 2.1). `allow_paddle_ocr` gates the offline
+        #: read's cache-key shape exactly as `allow_visual_ocr` does for the
+        #: visual mode — always False here (the OFFLINE read never sets it;
+        #: see `_read`) — and is the runner's own per-mode fact for whether
+        #: `--scanned-paddle` is this run's mode at all.
+        self.allow_paddle_ocr = mode == MODE_SCANNED_PADDLE
+        #: D4: the ONE mode constant `router_inputs(enabled=...)` is ever
+        #: built from at this class's two `decide(` call sites — never a
+        #: per-document expression (the AST tripwire in
+        #: `tests/test_escalation_tripwires.py` requires `self.<attribute>`
+        #: at those call sites, and this is the attribute). Exactly one
+        #: member, or none: two-engine escalation is not possible in this
+        #: phase (design item 8).
+        self.enabled_extractors: frozenset[str] = (
+            frozenset({"visual"}) if mode == MODE_SCANNED_VISUAL
+            else frozenset({"paddle"}) if mode == MODE_SCANNED_PADDLE
+            else frozenset()
+        )
         # Escalation is a policy knob ON TOP of the rung: `--no-visual-escalation`
         # recovers the documents nothing could read without spending GPU time
-        # re-reading Tesseract output.
-        self.visual_escalation = bool(visual_escalation) and self.allow_visual_ocr
+        # re-reading Tesseract/visual output. Generalised (Phase 2.1) to gate
+        # whichever single extractor this mode enables, if any.
+        self.visual_escalation = bool(visual_escalation) and bool(self.enabled_extractors)
         self.allow_artifacts = mode == MODE_DRY_RUN
         #: P20-ROUTER item 2f. `None` (the default) is UNBOUNDED — every
         #: existing caller that constructs a `DiscoveryRunner` directly
@@ -675,6 +754,70 @@ class DiscoveryRunner:
             self._last_visual_cached = False
             return None, None, type(exc).__name__
         self._last_visual_cached = cached
+        if document is None:
+            return None, None, None
+        return document, document.to_markdown(), None
+
+    def _read_paddle(self, raw: bytes, source_file: str, profile):
+        """(document, markdown, error). The Paddle rung, cached, fail-closed.
+
+        Mirrors `_read_visual` exactly, swapping the extractor:
+        `force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False,
+        allow_paddle_ocr=True, paddle_data_scope="customer"` — the LITERAL
+        the runner reads the archive under (D8's privacy boundary; pinned by
+        AST in `tests/test_paddle_routing.py`, never `"synthetic"` here).
+        `PaddleRefused` and `PaddleTransportError` are caught HERE, exactly
+        like `_read_visual` catches `Exception`, and returned as an error
+        token rather than propagating: this document fails closed and the
+        run continues.
+
+        `error` is `None` on success, the literal `"refused_customer_data"`
+        when the rung's OWN authorization gate refused a customer-scope
+        document before any request left the machine (D8 — a named, counted
+        finding, never a silent hop to another extractor), or the raised
+        exception's CLASS NAME for every other failure (config error, runtime
+        mismatch, transport failure) — the caller (`process()`) tells the two
+        shapes apart on the row.
+        """
+        from ocr.paddle_config import PaddleRefused
+        from ocr.pipeline import parse_statement
+
+        def compute():
+            return parse_statement(
+                raw,
+                source_file=source_file,
+                profile=profile,
+                force_ocr=True,
+                allow_local_ocr=False,
+                allow_visual_ocr=False,
+                allow_paddle_ocr=True,
+                paddle_data_scope="customer",
+            )
+
+        try:
+            if self.cache is None:
+                document, cached = compute(), False
+            else:
+                from webapp.artifact_cache import cached_ocr
+
+                result = cached_ocr(
+                    raw,
+                    compute=compute,
+                    cache=self.cache,
+                    source_file=source_file,
+                    content_hash=profile.content_sha256,
+                    force_ocr=True,
+                    allow_local_ocr=False,
+                    allow_visual_ocr=False,
+                    allow_paddle_ocr=True,
+                )
+                document, cached = result.value, result.cached
+        except Exception as exc:
+            self._last_paddle_cached = False
+            if isinstance(exc, PaddleRefused) and exc.reason == "remote_customer_data_refused":
+                return None, None, "refused_customer_data"
+            return None, None, type(exc).__name__
+        self._last_paddle_cached = cached
         if document is None:
             return None, None, None
         return document, document.to_markdown(), None
@@ -802,11 +945,17 @@ class DiscoveryRunner:
         with timer.time("ocr"):
             document, markdown, sheets, note = self._read(raw, name, profile)
 
-        if markdown is None and not self.allow_visual_ocr:
+        if markdown is None and not self.enabled_extractors:
             # Recorded, never skipped: real work this tranche deliberately did
             # not do. `deferred` is its own outcome class precisely so that
             # `failed` can keep meaning "attempted and errored" — the two are
             # different findings and DSC-2 acts on them differently.
+            #
+            # P21-ROUTING: generalised from `not self.allow_visual_ocr` — a
+            # mode with NO escalation extractor enabled at all (digital,
+            # scanned, profile-only, dry-run) defers exactly as before;
+            # `--scanned-visual` and `--scanned-paddle` each enable exactly
+            # one and fall through to RECOVERY below instead.
             row.outcome_class = "deferred"
             row.outcome_reason = (
                 "deferred_scanned" if note == "deferred_offline_rungs" else "deferred_visual_ocr"
@@ -846,12 +995,13 @@ class DiscoveryRunner:
             recovery_decision = self._apply_budget(EscalationRouter.decide(router_inputs(
                 profile=profile, evidence=recovery_evidence, triggers=recovery_triggers,
                 attempted=("local_tesseract",) if self.allow_local_ocr else (),
-                stop=False,
+                stop=False, enabled=self.enabled_extractors,
             )))
             row.escalation_trigger = recovery_decision.trigger or ""
             row.escalation_refused = "; ".join(recovery_decision.refused)
-            if recovery_decision.extractor != "visual":
-                # Refused (today only reachable via an exhausted budget): an
+            if recovery_decision.extractor not in ("visual", "paddle"):
+                # Refused (today only reachable via an exhausted budget, or a
+                # mode whose one enabled extractor is not this call's): an
                 # explicit terminal failure, never a silent loss, exactly like
                 # a genuine OCR transport failure below.
                 #
@@ -873,31 +1023,58 @@ class DiscoveryRunner:
                            error_reason="escalation_refused")
                 row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
                 return row
-            with timer.time("visual_ocr"):
-                document, markdown, visual_error = self._read_visual(raw, name, profile)
-            sheets = list(document.pages) if document is not None else None
-            timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
-            row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
-            if markdown is None:
-                # The rung was asked and produced nothing: an exception (server
-                # down) or, only in principle, a cached negative. Either way the
-                # document is terminal, and `error_type` tells the two apart.
-                row.visual_rung = VISUAL_FAILED
-                row.outcome_class, row.outcome_reason = "failed", "ocr_failed"
-                row.error_type = visual_error
-                row.source_path = "none"
-                self._emit(row, profile, None, None, None, collector, timer,
-                           error_type=visual_error, error_reason="ocr_failed",
-                           fallback_reason=_fallback_reason(row.visual_rung))
-                row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-                return row
-            row.visual_rung = VISUAL_RECOVERED
-            note = None
+            row.escalation_extractor = recovery_decision.extractor
+            if recovery_decision.extractor == "visual":
+                with timer.time("visual_ocr"):
+                    document, markdown, visual_error = self._read_visual(raw, name, profile)
+                sheets = list(document.pages) if document is not None else None
+                timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
+                row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
+                if markdown is None:
+                    # The rung was asked and produced nothing: an exception (server
+                    # down) or, only in principle, a cached negative. Either way the
+                    # document is terminal, and `error_type` tells the two apart.
+                    row.visual_rung = VISUAL_FAILED
+                    row.outcome_class, row.outcome_reason = "failed", "ocr_failed"
+                    row.error_type = visual_error
+                    row.source_path = "none"
+                    self._emit(row, profile, None, None, None, collector, timer,
+                               error_type=visual_error, error_reason="ocr_failed",
+                               fallback_reason=_fallback_reason(row.visual_rung))
+                    row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+                    return row
+                row.visual_rung = VISUAL_RECOVERED
+                note = None
+            else:  # "paddle" — P21-ROUTING
+                with timer.time("paddle_ocr"):
+                    document, markdown, paddle_error = self._read_paddle(raw, name, profile)
+                sheets = list(document.pages) if document is not None else None
+                timer.set_cache("paddle_ocr", _disposition(self.cache, self._last_paddle_cached))
+                row.cache_paddle = timer.as_dict()["paddle_ocr"]["cache"]
+                if markdown is None:
+                    # D8: `refused_customer_data` is the rung's OWN
+                    # authorization gate refusing before any request left the
+                    # machine — a distinct, named finding, never folded into
+                    # the generic transport-failure shape below.
+                    if paddle_error == "refused_customer_data":
+                        row.paddle_rung = PADDLE_REFUSED_CUSTOMER_DATA
+                        row.outcome_class, row.outcome_reason = "failed", "paddle_refused"
+                        row.error_type = "PaddleRefused"
+                    else:
+                        row.paddle_rung = PADDLE_FAILED
+                        row.outcome_class, row.outcome_reason = "failed", "ocr_failed"
+                        row.error_type = paddle_error
+                    row.source_path = "none"
+                    self._emit(row, profile, None, None, None, collector, timer,
+                               error_type=row.error_type, error_reason=row.outcome_reason,
+                               fallback_reason=_fallback_reason(row.visual_rung, row.paddle_rung))
+                    row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+                    return row
+                row.paddle_rung = PADDLE_RECOVERED
+                note = None
 
         source = source_section(document)
-        row.source_path = "committed_artifact" if note == "committed_artifact" else source["path"]
-        row.source_model = source["model"]
-        row.truncated_pages = source["truncation"]["truncated_page_count"]
+        _project_source(row, source, committed_artifact=(note == "committed_artifact"))
 
         # P20-ROUTER item 2c. The extraction-quality verdict — and, for a
         # Tesseract-sourced candidate, the router's UPGRADE decision — are
@@ -921,15 +1098,18 @@ class DiscoveryRunner:
             if row.source_path in GATE_ASSESSED_SOURCES else "none"
         )
         upgrade_candidate = None
-        if row.visual_rung == VISUAL_NOT_ATTEMPTED and self.visual_escalation and (
-            source_path_for(document.model) == "local_tesseract"
+        if (
+            row.visual_rung == VISUAL_NOT_ATTEMPTED
+            and row.paddle_rung == PADDLE_NOT_ATTEMPTED
+            and self.visual_escalation
+            and source_path_for(document.model) == "local_tesseract"
         ):
             upgrade_triggers = (
                 frozenset({EXTRACTOR_OUTPUT_UNUSABLE}) if not evidence.usable else frozenset()
             )
             upgrade_candidate = EscalationRouter.decide(router_inputs(
                 profile=profile, evidence=evidence, triggers=upgrade_triggers,
-                attempted=("local_tesseract",), stop=False,
+                attempted=("local_tesseract",), stop=False, enabled=self.enabled_extractors,
             ))
 
         with timer.time("analysis"):
@@ -947,14 +1127,16 @@ class DiscoveryRunner:
             row.escalation_refused = "; ".join(upgrade_candidate.refused)
         if upgrade_candidate is not None and self._upgrade_eligible(collector, payload):
             # UPGRADE (discovery class 5): Tesseract produced text and no parser
-            # could claim it. Read the pixels again with the visual rung and keep
-            # that read ONLY if it analyses — in deterministic mode a payload
-            # exists if and only if a parser claimed, so "it analysed" IS the
-            # adoption test, and it stays correct on a D-3 cache hit where no
-            # dispatch is observable.
+            # could claim it. Read the pixels again with this mode's ONE enabled
+            # extractor and keep that read ONLY if it analyses — in
+            # deterministic mode a payload exists if and only if a parser
+            # claimed, so "it analysed" IS the adoption test, and it stays
+            # correct on a D-3 cache hit where no dispatch is observable.
             decision = self._apply_budget(upgrade_candidate)
             row.escalation_trigger = decision.trigger or ""
             row.escalation_refused = "; ".join(decision.refused)
+            if decision.extractor is not None:
+                row.escalation_extractor = decision.extractor
             if decision.extractor == "visual":
                 with timer.time("visual_ocr"):
                     visual_doc, visual_md, visual_error = self._read_visual(raw, name, profile)
@@ -969,6 +1151,12 @@ class DiscoveryRunner:
                             visual_md, visual_collector, visual_sheets
                         )
                     if visual_payload is not None:
+                        # CASE 9 (design item 8): the offline read's own model
+                        # is preserved before it is replaced, so a
+                        # disagreement between the two reads is never
+                        # silently lost even though only the adopted read's
+                        # payload is published.
+                        row.offline_source_model = document.model
                         row.visual_rung = VISUAL_UPGRADED
                         document, markdown, collector = visual_doc, visual_md, visual_collector
                         sheets = visual_sheets
@@ -976,9 +1164,41 @@ class DiscoveryRunner:
                             visual_payload, visual_error_type, visual_cached
                         )
                         source = source_section(document)
-                        row.source_path = source["path"]
-                        row.source_model = source["model"]
-                        row.truncated_pages = source["truncation"]["truncated_page_count"]
+                        _project_source(row, source)
+                        evidence = _evidence_for_row(document, profile, row.source_path)
+                        row.evidence_quality = (
+                            "usable" if evidence.usable else "unusable"
+                        ) if row.source_path in GATE_ASSESSED_SOURCES else "none"
+            elif decision.extractor == "paddle":  # P21-ROUTING
+                with timer.time("paddle_ocr"):
+                    paddle_doc, paddle_md, paddle_error = self._read_paddle(raw, name, profile)
+                timer.set_cache("paddle_ocr", _disposition(self.cache, self._last_paddle_cached))
+                row.cache_paddle = timer.as_dict()["paddle_ocr"]["cache"]
+                if paddle_error == "refused_customer_data":
+                    row.paddle_rung = PADDLE_REFUSED_CUSTOMER_DATA
+                else:
+                    row.paddle_rung = PADDLE_FAILED if paddle_error else PADDLE_NO_UPGRADE
+                if paddle_md is not None:
+                    paddle_collector = DispatchCollector()
+                    paddle_sheets = list(paddle_doc.pages) if paddle_doc is not None else None
+                    with timer.time("paddle_analysis"):
+                        paddle_payload, paddle_error_type, paddle_cached = self._analyse(
+                            paddle_md, paddle_collector, paddle_sheets
+                        )
+                    if paddle_payload is not None:
+                        # CASE 9: the SAME validator produced a payload from
+                        # the Paddle read — no fusion, no choice by which read
+                        # reconciles: the offline read's model is recorded and
+                        # the Paddle read is the one adopted, full stop.
+                        row.offline_source_model = document.model
+                        row.paddle_rung = PADDLE_UPGRADED
+                        document, markdown, collector = paddle_doc, paddle_md, paddle_collector
+                        sheets = paddle_sheets
+                        payload, error_type, analysis_cached = (
+                            paddle_payload, paddle_error_type, paddle_cached
+                        )
+                        source = source_section(document)
+                        _project_source(row, source)
                         evidence = _evidence_for_row(document, profile, row.source_path)
                         row.evidence_quality = (
                             "usable" if evidence.usable else "unusable"
@@ -1055,7 +1275,7 @@ class DiscoveryRunner:
             error_type=error_type,
             scores=(scores, registration_count),
             escalated=bool(payload.get("escalated")) if payload else False,
-            fallback_reason=_fallback_reason(row.visual_rung),
+            fallback_reason=_fallback_reason(row.visual_rung, row.paddle_rung),
         )
         row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
         return row
@@ -1110,16 +1330,37 @@ def _disposition(cache, cached: bool) -> str:
     return "bypass" if cache is None else ("hit" if cached else "miss")
 
 
-def _fallback_reason(visual_rung: str) -> str | None:
-    """The row's visual disposition as an H-3 enum code.
+def _project_source(row: "DocumentRow", source: dict, *, committed_artifact: bool = False) -> None:
+    """The row's source-provenance columns, from `telemetry.record.source_section`.
+
+    ONE function so every call site (the initial read, the RECOVERY rungs and
+    the UPGRADE adoption branches) projects the SAME fields the same way —
+    `evidence_sha256` / `paddle_provider` / `paddle_execution_class` are new
+    (P21-ROUTING) and empty-string for every read that carries no evidence
+    (every non-Paddle rung, and every pre-Phase-2.1 cached artifact)."""
+    row.source_path = "committed_artifact" if committed_artifact else source["path"]
+    row.source_model = source["model"]
+    row.truncated_pages = source["truncation"]["truncated_page_count"]
+    row.evidence_sha256 = source.get("evidence_sha256") or ""
+    row.paddle_provider = source.get("provider") or ""
+    row.paddle_execution_class = source.get("execution_class") or ""
+
+
+def _fallback_reason(visual_rung: str, paddle_rung: str = PADDLE_NOT_ATTEMPTED) -> str | None:
+    """The row's escalation disposition as an H-3 enum code.
 
     It travels in `outcome.fallback_reason` — an existing, previously unused
     record field whose meaning is exactly this: the ladder did not stop where it
-    normally stops. No telemetry field was added for W3-5.
-    """
-    if visual_rung == VISUAL_NOT_ATTEMPTED:
-        return None
-    return f"visual_ocr_{visual_rung}"
+    normally stops. No telemetry field was added for W3-5; P21-ROUTING adds no
+    new one either — `paddle_rung` gets the SAME `<extractor>_ocr_<state>`
+    shape `visual_rung` always has. The two are mutually exclusive in
+    practice (`enabled_extractors` holds one member per mode), so at most one
+    of the two checks below ever fires for a given row."""
+    if visual_rung != VISUAL_NOT_ATTEMPTED:
+        return f"visual_ocr_{visual_rung}"
+    if paddle_rung != PADDLE_NOT_ATTEMPTED:
+        return f"paddle_ocr_{paddle_rung}"
+    return None
 
 
 def _failure_reason(error_type: str | None, dispatch) -> str | None:

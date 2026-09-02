@@ -63,7 +63,10 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred")
 #: did not try" and "we tried and it broke" is the whole point of the class,
 #: and inferring it would let a real failure hide as a decision.
 DEFERRED_REASONS = ("deferred_scanned", "deferred_visual_ocr", "profile_only")
-SOURCE_PATHS = ("native", "local_tesseract", "visual", "none")
+#: P21-ROUTING (Phase 2.1) adds `"paddle"`, between `"local_tesseract"` and
+#: `"visual"` — the same slot PaddleOCR takes in `ocr.escalation.
+#: EXTRACTOR_ORDER`.
+SOURCE_PATHS = ("native", "local_tesseract", "paddle", "visual", "none")
 
 #: P20-ROUTER (Phase 2.0). Mirrored, by value, from `ocr.escalation` — held
 #: equal to it by `tests/test_escalation_tripwires.py` so the two never drift.
@@ -162,6 +165,14 @@ def new_run_id() -> str:
 #: same line range at compose time.
 VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})
 
+#: P21-ROUTING (Phase 2.1). A LITERAL mirror of `ocr.paddle_config.
+#: PADDLE_MODEL_TOKEN` — not imported, for the same reason `VISUAL_MODEL_TOKENS`
+#: is a literal rather than an import: `telemetry` stays free of a load-bearing
+#: dependency on `ocr` for two string constants. `tests/test_telemetry.py`
+#: holds this literal equal to `ocr.paddle_config.PADDLE_MODEL_TOKEN` by test,
+#: so the two cannot silently drift apart.
+PADDLE_MODEL_TOKENS = frozenset({"paddle-ocr+ppocrv5"})
+
 
 def source_path_for(model: str | None) -> str:
     """Which intake rung produced the text, derived from StatementMarkdown.model.
@@ -170,9 +181,11 @@ def source_path_for(model: str | None) -> str:
     `on_stage` rung is the same fact but is only wired up in the worker.
 
     F-7 closure: the fallthrough is CLOSED, not a guess. `"visual"` is
-    returned only for a token in `VISUAL_MODEL_TOKENS` (case-sensitive); any
-    other non-empty, unrecognised token returns `"none"` rather than being
-    assumed to be the visual rung — see `source_path_unrecognized_model` for
+    returned only for a token in `VISUAL_MODEL_TOKENS` (case-sensitive);
+    `"paddle"` only for the exact `PADDLE_MODEL_TOKENS` member (P21-ROUTING);
+    any other non-empty, unrecognised token — including a `paddle`-LOOKING
+    string that is not the registered token — returns `"none"` rather than
+    being assumed to be either rung. See `source_path_unrecognized_model` for
     the companion predicate a caller can use to surface that as an explicit
     diagnostic instead of a silent mis-attribution.
     """
@@ -184,6 +197,8 @@ def source_path_for(model: str | None) -> str:
         return "local_tesseract"
     if model == "deterministic-native-preflight":
         return "none"
+    if model in PADDLE_MODEL_TOKENS:
+        return "paddle"
     if model in VISUAL_MODEL_TOKENS:
         return "visual"
     return "none"
@@ -203,6 +218,8 @@ def source_path_unrecognized_model(model: str | None) -> bool:
     if model == "local-tesseract-ocr":
         return False
     if model == "deterministic-native-preflight":
+        return False
+    if model in PADDLE_MODEL_TOKENS:
         return False
     if model in VISUAL_MODEL_TOKENS:
         return False
@@ -252,6 +269,11 @@ def source_section(doc: Any | None) -> dict:
     round-trips `page_integrity` through the artifact cache. An empty
     `page_integrity` means NOT ASSESSED, which is distinct from "zero truncated
     pages" and is reported as such (H3_SCHEMA I5).
+
+    P21-ROUTING (design item 4): `evidence_sha256` / `provider` /
+    `execution_class` are read from `doc.evidence.runtime` when present —
+    `None` for every rung that carries no canonical evidence (every read
+    before Phase 2.1, and every non-Paddle read since).
     """
     if doc is None:
         return {
@@ -264,10 +286,15 @@ def source_section(doc: Any | None) -> dict:
                 "truncated_page_indices": [],
                 "signals": [],
             },
+            "evidence_sha256": None,
+            "provider": None,
+            "execution_class": None,
         }
     integrity = list(getattr(doc, "page_integrity", []) or [])
     truncated = [item.page_index for item in integrity if item.truncated]
     signals = sorted({signal for item in integrity for signal in (item.signals or [])})
+    evidence = getattr(doc, "evidence", None)
+    runtime = getattr(evidence, "runtime", None) if evidence is not None else None
     return {
         "path": source_path_for(doc.model),
         "model": doc.model,
@@ -278,6 +305,9 @@ def source_section(doc: Any | None) -> dict:
             "truncated_page_indices": truncated,
             "signals": signals,
         },
+        "evidence_sha256": getattr(evidence, "evidence_sha256", None) if evidence is not None else None,
+        "provider": (runtime or {}).get("provider") if runtime is not None else None,
+        "execution_class": (runtime or {}).get("execution_class") if runtime is not None else None,
     }
 
 
@@ -454,6 +484,24 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
                 "calls": len(doc.pages),
                 "prompt_tokens": None,
                 "completion_tokens": sum(known) if known else None,
+                "endpoint_class": endpoint_class,
+                "remote_opt_in": remote_opt_in,
+            })
+        elif path == "paddle":
+            # P21-ROUTING: one call per Paddle page. Paddle pages are plain
+            # `str` (D9's derived text), not the visual rung's `PageText`, so
+            # there is no completion-token signal to sum here — the model is
+            # named and priced (or not) exactly like any other model; it is
+            # deliberately NOT in `telemetry.prices.FREE_MODELS` (remote_paid
+            # is not free), so `estimate()` reports it `unpriced` and the
+            # actual cost is measured operationally, never invented.
+            calls.append({
+                "stage": "ocr",
+                "model": doc.model,
+                "purpose": "paddle_ocr",
+                "calls": len(doc.pages),
+                "prompt_tokens": None,
+                "completion_tokens": None,
                 "endpoint_class": endpoint_class,
                 "remote_opt_in": remote_opt_in,
             })

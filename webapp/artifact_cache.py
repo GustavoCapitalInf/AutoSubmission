@@ -279,6 +279,8 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from analysis.parser_registry import admissible_text, registry_fingerprint
+from evidence.canonical import EvidenceError, from_json, to_json
+from ocr.config import ProvenanceTokenError
 from ocr.document import StatementMarkdown
 from ocr.inspect import content_sha256
 from ocr.truncation import PageIntegrity
@@ -503,9 +505,18 @@ REPORT_STAGE_VERSION = 1
 #: joins the OCR settings key at :data:`OCR_STAGE_VERSION` 5+ so a change to
 #: what `StatementMarkdown` records (independent of which extractor or binary
 #: produced it — that is `OCR_STAGE_VERSION`'s and `extractor`'s job) gets its
-#: own lever. v1 is the shape at Phase 2.0: `model`, `pages`, `page_integrity`
-#: (unchanged by this cell — see the module docstring's D-3b/O-3 history).
-EXTRACTION_SCHEMA_VERSION = 1
+#: own lever. v1 is the shape at Phase 2.0: `model`, `pages`, `page_integrity`.
+#: v2 (P21-ROUTING, Phase 2.1, D6): the record gains `page_extractor`
+#: (per-page provenance, every rung) and `evidence` (the full canonical
+#: evidence behind a Paddle read — `None` for every other rung), and
+#: `ocr_settings_key` gains the boolean partition field `allow_paddle_ocr` at
+#: the same v5+ material — so the offline partition's key changes too, and
+#: the WHOLE OCR cache goes cold at the train's cold run (required anyway by
+#: the completion gate). A schema-1 cached record (every archive entry before
+#: this cell) restores with `page_extractor=[]` and `evidence=None`, which
+#: `StatementMarkdown.__post_init__` accepts as "not populated" — never a
+#: crash on an old cache entry.
+EXTRACTION_SCHEMA_VERSION = 2
 
 STAGE_OCR = "ocr"
 STAGE_ANALYSIS = "analysis"
@@ -656,14 +667,18 @@ _toolchain_versions_cache: dict[str, str] | None = None
 
 
 def _ocr_extractor(
-    *, force_ocr: bool, allow_local_ocr: bool, allow_visual_ocr: bool
+    *, force_ocr: bool, allow_local_ocr: bool, allow_visual_ocr: bool,
+    allow_paddle_ocr: bool = False,
 ) -> str:
     """The extractor stack a call names — ONE function, pinned (F-6/§10).
 
-    ``"visual"`` only for the forced-escalation call shape
-    (``force_ocr=True`` AND ``allow_visual_ocr=True`` — discovery's visual
-    rung, `discovery/runner.py::_read_visual`). Every other shape, including
-    the ambiguous "auto" call (``force_ocr=False``, ``allow_visual_ocr=True``)
+    ``"paddle"`` for the forced-Paddle call shape (``force_ocr=True`` AND
+    ``allow_paddle_ocr=True`` — discovery's Paddle rung,
+    `discovery/runner.py::_read_paddle`, P21-ROUTING); ``"visual"`` for the
+    forced-escalation call shape (``force_ocr=True`` AND
+    ``allow_visual_ocr=True`` — discovery's visual rung,
+    `discovery/runner.py::_read_visual`). Every other shape, including the
+    ambiguous "auto" call (``force_ocr=False``, ``allow_visual_ocr=True``)
     where a single ``ocr.pipeline.parse_statement`` call lets the offline
     ladder go first and only falls through to the visual rung internally, is
     ``"offline"`` — the offline ladder is what CAN run, whatever eventually
@@ -672,15 +687,21 @@ def _ocr_extractor(
     "offline" label and one settings key, exactly as they always have).
 
     **This field cannot partition the key on its own, and no test should
-    claim it does (review BLOCK-1).** It is a TOTAL function of ``force_ocr``
-    and ``allow_visual_ocr``, both of which are ALREADY key material -- any
-    input that changes ``extractor`` necessarily changes one of those two
-    fields too, so ``extractor`` is a LEGIBILITY / extensibility slot (a
-    human- and log-readable label, and the seat a third extractor id would
-    take in a later phase), not additional partitioning power. What IS
-    pinned, and is the honest proof for this function, is the truth table
-    ``test_extractor_is_visual_only_for_the_forced_escalation_shape``
-    exercises directly."""
+    claim it does (review BLOCK-1).** It is a TOTAL function of ``force_ocr``,
+    ``allow_visual_ocr`` and ``allow_paddle_ocr``, all of which are ALREADY
+    key material -- any input that changes ``extractor`` necessarily changes
+    one of those fields too, so ``extractor`` is a LEGIBILITY / extensibility
+    slot (a human- and log-readable label), not additional partitioning
+    power. What IS pinned, and is the honest proof for this function, is the
+    truth table ``test_extractor_is_visual_only_for_the_forced_escalation_shape``
+    (and its Paddle counterpart) exercise directly. ``parse_statement`` itself
+    refuses ``allow_paddle_ocr and allow_visual_ocr`` together, so the two
+    forced branches here are mutually exclusive in every call this codebase
+    actually makes; ``"paddle"`` is checked first only so a hand-built,
+    contract-violating call resolves to a defined answer rather than an
+    unspecified one."""
+    if force_ocr and allow_paddle_ocr:
+        return "paddle"
     return "visual" if (force_ocr and allow_visual_ocr) else "offline"
 
 
@@ -778,6 +799,7 @@ def ocr_settings_key(
     force_ocr: bool = False,
     allow_local_ocr: bool = False,
     allow_visual_ocr: bool = True,
+    allow_paddle_ocr: bool = False,
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
@@ -817,7 +839,8 @@ def ocr_settings_key(
     }
     if version >= 5:
         extractor = _ocr_extractor(
-            force_ocr=force_ocr, allow_local_ocr=allow_local_ocr, allow_visual_ocr=allow_visual_ocr
+            force_ocr=force_ocr, allow_local_ocr=allow_local_ocr,
+            allow_visual_ocr=allow_visual_ocr, allow_paddle_ocr=allow_paddle_ocr,
         )
         postprocess_state, postprocess_admitted = _ocr_postprocess_readout(extractor)
         try:
@@ -829,6 +852,12 @@ def ocr_settings_key(
         settings.update(
             {
                 "extractor": extractor,
+                # P21-ROUTING: a boolean partition field, like the other
+                # three capability flags above — always present at v5+
+                # (never only under `extractor == "paddle"`), so the offline
+                # and visual partitions partition on it too (accepted; see
+                # EXTRACTION_SCHEMA_VERSION's docstring).
+                "allow_paddle_ocr": bool(allow_paddle_ocr),
                 "postprocess_state": postprocess_state,
                 "postprocess_admitted": list(postprocess_admitted),
                 "raster_version": int(_raster_version),
@@ -839,6 +868,17 @@ def ocr_settings_key(
                 "pymupdf_version": toolchain["pymupdf_version"],
             }
         )
+        if extractor == "paddle":
+            # Lazy import: the offline and visual partitions' keys must
+            # never touch Paddle settings at all (asserted by test) — only a
+            # paddle-labelled call reaches this branch. A Paddle read whose
+            # settings CANNOT be loaded (no env) REFUSES here rather than
+            # falling back to a default block: `PaddleConfigError` propagates
+            # unchanged, exactly as the rung itself refuses before any
+            # request (D5, design item 5).
+            from ocr.paddle_config import load_paddle_settings, paddle_settings_key_material
+
+            settings["paddle"] = paddle_settings_key_material(load_paddle_settings())
     return _fingerprint(settings)
 
 
@@ -1005,16 +1045,20 @@ class ArtifactCache:
         self, content_hash: str, settings_key: str, document: StatementMarkdown | None
     ) -> str:
         """Store an OCR result. Everything a consumer of ``StatementMarkdown``
-        can observe is stored: model, pages, and O-3's per-page integrity
-        records — a cached read is not allowed to be a read with the
-        truncation flags quietly missing. ``pages`` is normalized to plain
-        ``str`` because the visual rung's ``PageText`` carries only the
-        model-side signals already distilled into ``page_integrity``.
+        can observe is stored: model, pages, O-3's per-page integrity
+        records, and (P21-ROUTING, D6) ``page_extractor`` / ``evidence`` — a
+        cached read is not allowed to be a read with any of these quietly
+        missing. ``pages`` is normalized to plain ``str`` because the visual
+        rung's ``PageText`` carries only the model-side signals already
+        distilled into ``page_integrity``.
 
-        ``page_integrity`` is read through ``getattr`` — the same tolerance
-        O-3 built into its own readers — so a document-shaped object that
-        predates the field (a hand-built extractor result, a test double)
-        stores as "not assessed" instead of raising."""
+        ``page_integrity`` / ``page_extractor`` are read through ``getattr``
+        — the same tolerance O-3 built into its own readers — so a
+        document-shaped object that predates a field (a hand-built extractor
+        result, a test double) stores as "not assessed" / "not populated"
+        instead of raising. ``evidence`` serializes via
+        ``evidence.canonical.to_json`` when present, else ``None``."""
+        evidence = getattr(document, "evidence", None) if document is not None else None
         return self.put(
             STAGE_OCR,
             content_hash,
@@ -1029,6 +1073,8 @@ class ArtifactCache:
                         item.to_dict()
                         for item in (getattr(document, "page_integrity", None) or [])
                     ],
+                    "page_extractor": list(getattr(document, "page_extractor", None) or []),
+                    "evidence": to_json(evidence) if evidence is not None else None,
                 }
             },
         )
@@ -1101,6 +1147,7 @@ def cached_ocr(
     force_ocr: bool = False,
     allow_local_ocr: bool = False,
     allow_visual_ocr: bool = True,
+    allow_paddle_ocr: bool = False,
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
@@ -1118,6 +1165,14 @@ def cached_ocr(
 
     ``content_hash`` may be supplied when the caller already computed it (the
     webapp has it from the O-1 preflight profile) to avoid re-hashing.
+
+    P21-ROUTING (D6): a hit also restores ``page_extractor`` and ``evidence``
+    (``evidence.canonical.from_json``). A payload whose stored evidence does
+    not round-trip (its own hash does not reproduce, or the reconstructed
+    ``StatementMarkdown`` refuses the page-count/page-text consistency check)
+    is a DRIFTED cached copy — surfaced as a cache MISS, never served: this
+    function falls through to a fresh ``compute()`` exactly as an actual miss
+    would, and overwrites the drifted entry with the freshly computed one.
     """
     if cache is None:
         return CacheResult(compute(), False, STAGE_OCR, None)
@@ -1126,6 +1181,7 @@ def cached_ocr(
         force_ocr=force_ocr,
         allow_local_ocr=allow_local_ocr,
         allow_visual_ocr=allow_visual_ocr,
+        allow_paddle_ocr=allow_paddle_ocr,
         dpi=dpi,
         fallback_dpi=fallback_dpi,
         ocr_settings=ocr_settings,
@@ -1133,20 +1189,27 @@ def cached_ocr(
     key = cache_key(STAGE_OCR, input_sha, settings_key)
     hit, document = cache.get_ocr(input_sha, settings_key)
     if hit:
-        value = (
-            None
-            if document is None
-            # source_file is re-stamped, never keyed: the markdown header must
-            # name the file being processed now, not the one that filled the
-            # cache.
-            else StatementMarkdown(
-                source_file=source_file,
-                model=document.get("model", ""),
-                pages=list(document.get("pages") or []),
-                page_integrity=_page_integrity(document.get("page_integrity")),
+        try:
+            evidence_payload = document.get("evidence") if document is not None else None
+            value = (
+                None
+                if document is None
+                # source_file is re-stamped, never keyed: the markdown header must
+                # name the file being processed now, not the one that filled the
+                # cache.
+                else StatementMarkdown(
+                    source_file=source_file,
+                    model=document.get("model", ""),
+                    pages=list(document.get("pages") or []),
+                    page_integrity=_page_integrity(document.get("page_integrity")),
+                    page_extractor=list(document.get("page_extractor") or []),
+                    evidence=from_json(evidence_payload) if evidence_payload is not None else None,
+                )
             )
-        )
-        return CacheResult(value, True, STAGE_OCR, key)
+        except (EvidenceError, ProvenanceTokenError, TypeError, KeyError):
+            pass  # a drifted cached copy: fall through to a fresh compute() below
+        else:
+            return CacheResult(value, True, STAGE_OCR, key)
     document_out = compute()
     cache.put_ocr(input_sha, settings_key, document_out)
     return CacheResult(document_out, False, STAGE_OCR, key)

@@ -282,6 +282,20 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
                 if getattr(r, "visual_rung", "not_attempted") != "not_attempted"
             ).most_common()
         ),
+        # P21-ROUTING (Phase 2.1). The SAME shape as `visual_rung` above, for
+        # the Paddle rung — empty in every mode but `--scanned-paddle`.
+        "paddle_rung": dict(
+            Counter(
+                r.paddle_rung for r in rows
+                if getattr(r, "paddle_rung", "not_attempted") != "not_attempted"
+            ).most_common()
+        ),
+        "escalation_extractor": dict(
+            Counter(
+                r.escalation_extractor for r in rows
+                if getattr(r, "escalation_extractor", "")
+            ).most_common()
+        ),
         # P20-ROUTER (Phase 2.0). `escalation_budget` is `None` (unbounded)
         # unless the caller set one (`discovery/cli.py::run()`, `--scanned-
         # visual` only); `failure_class`/`escalation_trigger` are measurement
@@ -390,6 +404,11 @@ def render_report(summary: dict) -> str:
         for key, count in summary["visual_rung"].items():
             lines.append(_bar(key, count, total))
 
+    if summary.get("paddle_rung"):
+        lines.append("Paddle OCR rung (remote_paid, explicit opt-in only)")
+        for key, count in summary["paddle_rung"].items():
+            lines.append(_bar(key, count, total))
+
     if summary.get("parser_id_source"):
         # "routing verdict", not "parser identity": a live `unclaimed` is a
         # verdict too, and it is an observation like any other. The column is
@@ -476,6 +495,9 @@ ROW_FIELDS = [
     # selects columns by name is unaffected; see `discovery/runner.py`'s
     # `DocumentRow` docstring for what each carries.
     "failure_class", "escalation_trigger", "evidence_quality", "escalation_refused",
+    # P21-ROUTING (Phase 2.1). Likewise appended at the END.
+    "paddle_rung", "cache_paddle", "escalation_extractor", "evidence_sha256",
+    "paddle_provider", "paddle_execution_class", "offline_source_model",
 ]
 
 

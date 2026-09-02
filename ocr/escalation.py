@@ -48,10 +48,12 @@ and it was provably inert against cell B2's REAL, documented contract
 Removed rather than patched: the router has no way to know which contract B2
 will ship, and a seam that can silently do nothing is worse than no seam.
 
-Phase 2.0 exclusions (do not implement here): no PaddleOCR id in
-`EXTRACTOR_ORDER` (see the SLOT comment), no page-level routing, no Trigger T
-routing (`TRUNCATION_FLAGGED` is defined and refused — OQ4), no network call,
-no statement-specific hardcode of any kind.
+Phase 2.0 exclusions (still true; do not implement here): no page-level
+routing, no Trigger T routing (`TRUNCATION_FLAGGED` is defined and refused —
+OQ4), no network call, no statement-specific hardcode of any kind. Phase 2.1
+(P21-ROUTING, D4) fills the PaddleOCR slot in `EXTRACTOR_ORDER` and adds
+`RouterInputs.enabled` so a run's MODE — never a per-document fact — decides
+which of the allowed extractors this call site may actually pick from.
 """
 from __future__ import annotations
 
@@ -195,10 +197,12 @@ TRIGGER_REPORT_PRIORITY: tuple[str, ...] = (
 
 #: The fixed preference order among ALLOWED extractors — never a retry loop
 #: driven by validation, a preference among extractors the router has
-#: already admitted. SLOT for Phase 2.1 (OQ5): PaddleOCR joins this tuple
-#: between "local_tesseract" and a future "unlimited_ocr" member; Phase 2.0
-#: does not add it (exclusion).
-EXTRACTOR_ORDER: tuple[str, ...] = ("local_tesseract", "visual")
+#: already admitted. Phase 2.1 (OQ5, D4) fills the PaddleOCR slot between
+#: "local_tesseract" and "visual"; a future "unlimited_ocr" member is still a
+#: slot, not implemented here. Which of these a given run may actually use is
+#: `RouterInputs.enabled` (D4) — a MODE constant, never a per-document fact —
+#: not this tuple, which stays the fixed PREFERENCE among whatever is enabled.
+EXTRACTOR_ORDER: tuple[str, ...] = ("local_tesseract", "paddle", "visual")
 
 
 # ---------------------------------------------------------------------------
@@ -370,10 +374,23 @@ class RouterInputs:
     router" a compile-shape impossible, not merely a discipline nobody
     breaks. `RouterInputs.__subclasses__() == []` is pinned alongside the
     field set (P20-ROUTER review, MINOR-6): a subclass that ADDS a field and
-    is accepted by `EscalationRouter.decide` (which only reads the five base
+    is accepted by `EscalationRouter.decide` (which only reads the six base
     attributes) would defeat the field pin without ever tripping it, since
-    `__dataclass_fields__` on the SUBCLASS would include the base's five
+    `__dataclass_fields__` on the SUBCLASS would include the base's six
     names plus its own — the base-class pin alone cannot see that shape.
+
+    `enabled` (Phase 2.1, D4) is the sixth field: the frozenset of extractor
+    ids THIS RUN may use at all — a MODE constant known before any document
+    is read (`--scanned-visual` -> `{"visual"}`, `--scanned-paddle` ->
+    `{"paddle"}`, the webapp's deterministic force_ocr fallback ->
+    `{"visual"}`, every other mode/call site -> `frozenset()`), never a
+    per-document expression. `tests/test_escalation_tripwires.py` pins, by
+    AST, that every `enabled=` argument at a `decide(` call site is an
+    attribute reference on `self` (an instance field set once from the mode
+    in `__init__`) or a module-level constant — never a call, a
+    comprehension, a subscript or a conditional, which is what would let a
+    per-document fact ride in through a field that is supposed to be a pure
+    run/mode fact.
     """
 
     profile: object
@@ -381,11 +398,12 @@ class RouterInputs:
     triggers: frozenset[str]
     attempted: tuple[str, ...]
     stop: bool
+    enabled: frozenset[str]
 
 
 def router_inputs(
     *, profile, evidence: EvidenceQuality, triggers: frozenset[str],
-    attempted: tuple[str, ...], stop: bool,
+    attempted: tuple[str, ...], stop: bool, enabled: frozenset[str],
 ) -> RouterInputs:
     """The ONE constructor every `decide()` call site must use.
 
@@ -395,7 +413,7 @@ def router_inputs(
     function, that the set of call sites is exactly the three known ones, and
     that no `RouterInputs(` construction exists anywhere outside this module
     and the test tree — so a call site cannot hand-roll a `RouterInputs(...)`
-    with a smuggled sixth positional value (the dataclass has none, but a
+    with a smuggled seventh positional value (the dataclass has none, but a
     hand-rolled call is also not the one reviewed, pinned constructor), and a
     new escalation call site anywhere in the codebase cannot go unnoticed
     (P20-ROUTER review, MINOR-6). Keyword-only, names pinned by this
@@ -403,7 +421,7 @@ def router_inputs(
     """
     return RouterInputs(
         profile=profile, evidence=evidence, triggers=frozenset(triggers),
-        attempted=tuple(attempted), stop=bool(stop),
+        attempted=tuple(attempted), stop=bool(stop), enabled=frozenset(enabled),
     )
 
 
@@ -437,7 +455,14 @@ class EscalationRouter:
         if not admitted:
             return Escalation(extractor=None, trigger=None, refused=("no_admitted_trigger",))
 
-        remaining = [e for e in EXTRACTOR_ORDER if e not in inputs.attempted]
+        # D4: the first extractor in the fixed preference order that this
+        # RUN'S MODE allows at all (`enabled`) and that has not already been
+        # attempted. `enabled` narrows; it never adds an extractor the order
+        # does not already name, and an admission decision above already
+        # happened — this only picks WHICH allowed extractor runs next.
+        remaining = [
+            e for e in EXTRACTOR_ORDER if e in inputs.enabled and e not in inputs.attempted
+        ]
         if not remaining:
             return Escalation(
                 extractor=None, trigger=None, refused=("no_allowed_extractor_remains",),
