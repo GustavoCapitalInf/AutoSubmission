@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ocr.paddle_client import PaddleClient, PaddleTransportError, PaddleWorkerStatus, probe as client_probe, verify_identity
 from ocr.paddle_config import (
@@ -80,8 +80,30 @@ FORBIDDEN_FIXTURE_SUBSTRINGS = ("Bank Statements", "tests/corpus_cache", "tests\
 
 class PaddleVastError(RuntimeError):
     """A lifecycle-tool-level refusal (a forbidden fixture path, a tunnel
-    port already in use, a missing pidfile). Never carries a connection
-    value."""
+    port already in use, a missing pidfile, a failed subprocess). Never
+    carries a connection value — see `_run` / `_popen` (MAJOR-3)."""
+
+
+def _run(runner: Callable[..., Any], args: list[str], **kwargs: Any) -> Any:
+    """Every `runner(...)` call site goes through this. MAJOR-3
+    (`PHASE2_P21PADDLE_REVIEW.md`): `subprocess.TimeoutExpired.__str__` (and
+    other `subprocess.SubprocessError` / `OSError` subclasses) embed the
+    full command line — host, SSH port, user — in their own message. Command
+    construction already keeps those values out of every RETURNED/PRINTED
+    value (`mask_text`); this closes the same hole for an EXCEPTION message,
+    which `mask_text` never gets a chance to touch if the exception reaches
+    `main()` unmasked. Only the exception's CLASS NAME survives."""
+    try:
+        return runner(args, **kwargs)
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise PaddleVastError(type(exc).__name__) from exc
+
+
+def _popen(popen: Callable[..., Any], args: list[str], **kwargs: Any) -> Any:
+    try:
+        return popen(args, **kwargs)
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise PaddleVastError(type(exc).__name__) from exc
 
 
 def mask_text(text: str, settings: PaddleSettings) -> str:
@@ -188,7 +210,8 @@ def cmd_check(settings: PaddleSettings, *, runner: Callable[..., Any] = subproce
     if settings.provider != "vast.ai":
         return result
 
-    gpu_proc = runner(
+    gpu_proc = _run(
+        runner,
         _ssh_command(settings, "nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader"),
         capture_output=True, text=True, timeout=30,
     )
@@ -198,7 +221,7 @@ def cmd_check(settings: PaddleSettings, *, runner: Callable[..., Any] = subproce
         "source /venv/main/bin/activate >/dev/null 2>&1; "
         "python -c \"import paddleocr, paddle; print(paddleocr.__version__); print(paddle.__version__)\""
     )
-    version_proc = runner(_ssh_command(settings, version_cmd), capture_output=True, text=True, timeout=60)
+    version_proc = _run(runner, _ssh_command(settings, version_cmd), capture_output=True, text=True, timeout=60)
     lines = [line for line in version_proc.stdout.strip().splitlines() if line]
     remote_paddleocr = lines[-2] if len(lines) >= 2 else None
     remote_paddlepaddle = lines[-1] if len(lines) >= 1 else None
@@ -224,14 +247,14 @@ def cmd_deploy(settings: PaddleSettings, *, runner: Callable[..., Any] = subproc
     local_path = local_worker_path or str(
         Path(__file__).resolve().parent.parent / "ocr" / "paddle_worker.py"
     )
-    mkdir_proc = runner(_ssh_command(settings, f"mkdir -p {REMOTE_WORKER_DIR}"),
-                         capture_output=True, text=True, timeout=30)
-    scp_proc = runner(_scp_command(settings, local_path, REMOTE_WORKER_PATH),
-                       capture_output=True, text=True, timeout=60)
+    mkdir_proc = _run(runner, _ssh_command(settings, f"mkdir -p {REMOTE_WORKER_DIR}"),
+                      capture_output=True, text=True, timeout=30)
+    scp_proc = _run(runner, _scp_command(settings, local_path, REMOTE_WORKER_PATH),
+                    capture_output=True, text=True, timeout=60)
     self_check_cmd = (
         f"{_env_prefix(settings, token=None)} /venv/main/bin/python {REMOTE_WORKER_PATH} --self-check"
     )
-    check_proc = runner(_ssh_command(settings, self_check_cmd), capture_output=True, text=True, timeout=60)
+    check_proc = _run(runner, _ssh_command(settings, self_check_cmd), capture_output=True, text=True, timeout=60)
     result: dict[str, Any] = {
         "mkdir_ok": mkdir_proc.returncode == 0,
         "scp_ok": scp_proc.returncode == 0,
@@ -251,11 +274,22 @@ def cmd_deploy(settings: PaddleSettings, *, runner: Callable[..., Any] = subproc
 
 def cmd_start(settings: PaddleSettings, *, runner: Callable[..., Any] = subprocess.run,
               token: str | None = None) -> dict:
-    """Launch the worker on the remote host under `nohup`, detached. A
-    session token is generated (`secrets.token_urlsafe`) unless one is
-    supplied, written to the gitignored runtime dir, and exported into the
-    remote command line — never printed."""
-    token = token or secrets.token_urlsafe(32)
+    """Launch the worker on the remote host under `nohup`, detached.
+
+    MAJOR-4 (`PHASE2_P21PADDLE_REVIEW.md`): token precedence is the explicit
+    `token` argument, then `settings.worker_token` (which
+    `ocr.paddle_config.load_paddle_settings` itself now falls back to reading
+    from `<runtime_dir>/worker.token` when `PADDLE_WORKER_TOKEN` is unset —
+    see that module), then a freshly generated `secrets.token_urlsafe(32)`.
+    Reusing `settings.worker_token` when one is already on file means a
+    SECOND `start` (after a `stop`) keeps authenticating with the SAME
+    token a client built from the same runtime dir already has, and the
+    documented lifecycle (`check` → `deploy` → `start` → `tunnel-up` →
+    `status`/live test → `measure` → `stop` → `tunnel-down`) needs no
+    undocumented manual export step to authenticate. The token is written to
+    the gitignored runtime dir and exported into the remote command line —
+    never printed."""
+    token = token or settings.worker_token or secrets.token_urlsafe(32)
     token_path = _runtime_dir(settings) / "worker.token"
     token_path.write_text(token, encoding="utf-8")
     try:
@@ -268,7 +302,7 @@ def cmd_start(settings: PaddleSettings, *, runner: Callable[..., Any] = subproce
         f"nohup env {_env_prefix(settings, token)} /venv/main/bin/python {REMOTE_WORKER_PATH} "
         f"> {REMOTE_LOG_PATH} 2>&1 < /dev/null & echo $! > {REMOTE_PID_PATH}"
     )
-    proc = runner(_ssh_command(settings, remote_cmd), capture_output=True, text=True, timeout=30)
+    proc = _run(runner, _ssh_command(settings, remote_cmd), capture_output=True, text=True, timeout=30)
     return _mask_json({"started": proc.returncode == 0, "worker_port": settings.worker_port}, settings)
 
 
@@ -279,7 +313,7 @@ def cmd_stop(settings: PaddleSettings, *, runner: Callable[..., Any] = subproces
         f"if [ -f {REMOTE_PID_PATH} ]; then kill $(cat {REMOTE_PID_PATH}) 2>/dev/null; "
         f"rm -f {REMOTE_PID_PATH}; echo stopped; else echo not_running; fi"
     )
-    proc = runner(_ssh_command(settings, remote_cmd), capture_output=True, text=True, timeout=30)
+    proc = _run(runner, _ssh_command(settings, remote_cmd), capture_output=True, text=True, timeout=30)
     return _mask_json({"remote_output": proc.stdout.strip()}, settings)
 
 
@@ -295,7 +329,7 @@ def cmd_tunnel_up(settings: PaddleSettings, *, popen: Callable[..., Any] = subpr
         raise PaddleVastError(
             f"local port {settings.tunnel_local_port} is already listening; refusing a second tunnel"
         )
-    process = popen(_tunnel_command(settings), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    process = _popen(popen, _tunnel_command(settings), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     (_runtime_dir(settings) / "tunnel.pid").write_text(str(process.pid), encoding="utf-8")
     return {"pid": process.pid, "local_port": settings.tunnel_local_port}
 
@@ -314,8 +348,9 @@ def cmd_tunnel_down(settings: PaddleSettings) -> dict:
 # status
 # ---------------------------------------------------------------------------
 
-def cmd_status(settings: PaddleSettings, *, client: PaddleClient | None = None) -> dict:
-    status: PaddleWorkerStatus = client_probe(settings, client=client)
+def cmd_status(settings: PaddleSettings, *, client: PaddleClient | None = None,
+               environ: Mapping[str, str] | None = None) -> dict:
+    status: PaddleWorkerStatus = client_probe(settings, client=client, environ=environ)
     tunnel_pid_path = _runtime_dir(settings) / "tunnel.pid"
     tunnel_running = False
     if tunnel_pid_path.exists():
@@ -334,38 +369,132 @@ def cmd_status(settings: PaddleSettings, *, client: PaddleClient | None = None) 
 # measure (D8, §6)
 # ---------------------------------------------------------------------------
 
+#: MINOR-3 (`PHASE2_P21PADDLE_REVIEW.md`): the resolved, casefolded absolute
+#: form of each forbidden directory, computed once. `_refuse_forbidden_fixture`
+#: compares a candidate path's OWN resolved form against these — a symlink or
+#: a `..` that lands inside one of them is caught even when the literal
+#: string given does not obviously say so; casefolding matches Windows'
+#: case-insensitive filesystem (a bare substring check alone let
+#: `'bank statements/x.pdf'` and `'BANK STATEMENTS/x.pdf'` through).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_FORBIDDEN_FIXTURE_DIRS: tuple[str, ...] = tuple(
+    str(_REPO_ROOT / forbidden.replace("\\", "/")).replace("\\", "/").casefold()
+    for forbidden in ("Bank Statements", "tests/corpus_cache", "discovery_reports")
+)
+
+
 def _refuse_forbidden_fixture(path: str | None) -> None:
     if path is None:
         return
-    normalized = path.replace("\\", "/")
+    normalized = path.replace("\\", "/").casefold()
     for forbidden in FORBIDDEN_FIXTURE_SUBSTRINGS:
-        if forbidden.replace("\\", "/") in normalized:
+        if forbidden.replace("\\", "/").casefold() in normalized:
             raise PaddleVastError(f"measure refuses a fixture path under {forbidden!r}: {path!r}")
+    try:
+        resolved = str(Path(path).resolve()).replace("\\", "/").casefold()
+    except OSError:
+        return
+    for forbidden_dir in _FORBIDDEN_FIXTURE_DIRS:
+        if resolved == forbidden_dir or resolved.startswith(forbidden_dir + "/"):
+            raise PaddleVastError(
+                f"measure refuses a fixture path resolving inside a real-data directory: {path!r}"
+            )
+
+
+def _default_gpu_sampler(settings: PaddleSettings, runner: Callable[..., Any]) -> Callable[[], dict | None]:
+    """MINOR-8: a real `nvidia-smi` sample taken over SSH, wired as
+    `cmd_measure`'s default — so a plain CLI `measure` run produces a GPU row
+    that reproduces from this committed instrument instead of `None` (the
+    prior default) or a hand-collected number outside the tool. Returns
+    `None` (never a guess) on a `local` provider or any SSH/parse failure."""
+
+    def sample() -> dict | None:
+        if settings.provider != "vast.ai":
+            return None
+        try:
+            proc = _run(
+                runner,
+                _ssh_command(
+                    settings,
+                    "nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu "
+                    "--format=csv,noheader,nounits",
+                ),
+                capture_output=True, text=True, timeout=15,
+            )
+        except PaddleVastError:
+            return None
+        if proc.returncode != 0:
+            return None
+        lines = proc.stdout.strip().splitlines()
+        if not lines:
+            return None
+        parts = [part.strip() for part in lines[0].split(",")]
+        if len(parts) < 3:
+            return None
+        try:
+            return {
+                "memory_used_mib": int(float(parts[0])),
+                "memory_total_mib": int(float(parts[1])),
+                "utilization_percent": int(float(parts[2])),
+            }
+        except ValueError:
+            return None
+
+    return sample
+
+
+def _peak_local_rss_mib() -> float | str:
+    """MINOR-8: THIS process's peak resident memory, in MiB — `psutil`'s
+    Windows `peak_wset` (an OS-tracked peak, not a single post-hoc sample)
+    when `psutil` is installed; a plain `"not measured (…)"` string
+    otherwise. Never estimated."""
+    try:
+        import psutil
+    except ImportError:
+        return "not measured (psutil not installed)"
+    info = psutil.Process().memory_info()
+    peak = getattr(info, "peak_wset", None)
+    if peak is None:
+        peak = getattr(info, "rss", None)
+    if peak is None:
+        return "not measured (psutil provided no usable memory field)"
+    return round(peak / (1024 * 1024), 1)
 
 
 def cmd_measure(
     settings: PaddleSettings,
     *,
     client: PaddleClient | None = None,
+    runner: Callable[..., Any] = subprocess.run,
     fixture_path: str | None = None,
     n_rows: int = 8,
     warm_requests: int = 20,
     dpi: int = PADDLE_RASTER_DPI,
     hourly_rate: float | None = None,
     gpu_sampler: Callable[[], dict | None] | None = None,
+    gpu_sample_every: int = 5,
+    environ: Mapping[str, str] | None = None,
 ) -> dict:
     """The runtime/cost measurement, on a synthetic fixture ONLY (D8, M12).
-    `fixture_path` — if a caller passes one — must not name a real-data
-    location; the default is `tests.paddle_synthetic.build_ledger_page`,
-    which never touches disk at all.
+    `fixture_path` exists ONLY so an operator can reach the real-data refusal
+    from the CLI (`--fixture`, MINOR-3) — its content is never read; the
+    actual fixture is always `tests.paddle_synthetic.build_ledger_page`,
+    built in memory. `gpu_sampler` defaults to `_default_gpu_sampler` (a real
+    `nvidia-smi` read over SSH), polled every `gpu_sample_every` warm
+    requests; the peak `memory_used_mib` and `utilization_percent` seen are
+    reported alongside the last sample. `environ` is the MAJOR-2 test seam
+    threaded to `check_remote_authorization` and the `PaddleClient` this
+    builds.
     """
     _refuse_forbidden_fixture(fixture_path)
 
     from tests.paddle_synthetic import build_ledger_page, render_image_pdf
 
-    check_remote_authorization(settings, DATA_SCOPE_SYNTHETIC)
-    client = client or PaddleClient(settings)
+    check_remote_authorization(settings, DATA_SCOPE_SYNTHETIC, environ=environ)
+    client = client or PaddleClient(settings, environ=environ)
     identity = verify_identity(settings, client=client)
+    if gpu_sampler is None:
+        gpu_sampler = _default_gpu_sampler(settings, runner)
 
     page = build_ledger_page(n_rows=n_rows)
     pdf_bytes = render_image_pdf(page, dpi=dpi)
@@ -374,21 +503,42 @@ def cmd_measure(
     image.save(buffer, format="PNG")
     png_bytes = buffer.getvalue()
 
+    # MINOR-8(a): the number a page actually costs to SEND is the wire body
+    # (base64-inflated, JSON-wrapped), not the raw PNG — both are reported,
+    # under names that say which is which, so neither can be mistaken for
+    # the other again.
+    import base64
+
+    from ocr.paddle_config import PADDLE_WORKER_CONTRACT
+
+    wire_probe = {
+        "contract": PADDLE_WORKER_CONTRACT,
+        "request_id": "measure-wire-probe",
+        "page_index": 0,
+        "image_png_b64": base64.b64encode(png_bytes).decode("ascii"),
+    }
+    bytes_sent_wire = len(json.dumps(wire_probe).encode("utf-8"))
+    bytes_sent_raw_png = len(png_bytes)
+
     started_at = time.time()
     cold: dict[str, Any] | None = None
     warm_latencies_ms: list[float] = []
-    bytes_sent = len(png_bytes)
-    bytes_received = 0
+    bytes_received_wire = 0
+    gpu_samples: list[dict] = []
     for index in range(warm_requests + 1):
         t0 = time.perf_counter()
         response = client.ocr_page(png_bytes, page_index=0, request_id=f"measure-{index}")
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        bytes_received = max(bytes_received, len(json.dumps(response)))
+        bytes_received_wire = max(bytes_received_wire, len(json.dumps(response).encode("utf-8")))
         timing = response.get("timing") or {}
         if index == 0:
             cold = {"end_to_end_ms": elapsed_ms, "inference_ms": timing.get("inference_ms")}
         else:
             warm_latencies_ms.append(elapsed_ms)
+        if gpu_sample_every > 0 and index % gpu_sample_every == 0:
+            sample = gpu_sampler()
+            if sample:
+                gpu_samples.append(sample)
     finished_at = time.time()
 
     sorted_latencies = sorted(warm_latencies_ms)
@@ -399,7 +549,14 @@ def cmd_measure(
         "n": len(warm_latencies_ms),
     }
 
-    gpu_sample = gpu_sampler() if gpu_sampler else None
+    gpu_report: dict[str, Any] | None = None
+    if gpu_samples:
+        gpu_report = {
+            "last": gpu_samples[-1],
+            "peak_memory_used_mib": max(sample["memory_used_mib"] for sample in gpu_samples),
+            "peak_utilization_percent": max(sample["utilization_percent"] for sample in gpu_samples),
+            "samples_taken": len(gpu_samples),
+        }
     runtime_seconds = finished_at - started_at
     cost = (runtime_seconds / 3600.0) * hourly_rate if hourly_rate else None
 
@@ -408,9 +565,11 @@ def cmd_measure(
         "fixture": {"n_rows": n_rows, "dpi": dpi, "width": image.width, "height": image.height},
         "cold": cold,
         "warm": warm,
-        "bytes_sent_per_page": bytes_sent,
-        "bytes_received_per_page": bytes_received,
-        "gpu": gpu_sample,
+        "bytes_sent_raw_png_per_page": bytes_sent_raw_png,
+        "bytes_sent_wire_per_page": bytes_sent_wire,
+        "bytes_received_wire_per_page": bytes_received_wire,
+        "gpu": gpu_report,
+        "local_peak_rss_mib": _peak_local_rss_mib(),
         "measurement_wall_seconds": runtime_seconds,
         "hourly_rate": hourly_rate,
         "cost": cost if cost is not None else "rate not measured",
@@ -436,6 +595,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hourly-rate", type=float, default=None)
     parser.add_argument("--n-rows", type=int, default=8)
     parser.add_argument("--warm-requests", type=int, default=20)
+    parser.add_argument(
+        "--fixture", type=str, default=None,
+        help="MINOR-3: a path an operator wants to check against the real-data refusal. "
+             "NEVER read — measure always builds its own synthetic fixture in memory.",
+    )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     try:
@@ -462,9 +626,18 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "measure":
             print(json.dumps(cmd_measure(
                 settings, n_rows=args.n_rows, warm_requests=args.warm_requests, hourly_rate=args.hourly_rate,
+                fixture_path=args.fixture,
             ), indent=2))
     except (PaddleVastError, PaddleRefused, PaddleTransportError) as exc:
         print(mask_text(json.dumps({"error": type(exc).__name__, "detail": str(exc)}), settings))
+        return 1
+    except (subprocess.SubprocessError, OSError) as exc:
+        # MAJOR-3 belt-and-suspenders: every subprocess/popen call site
+        # already converts this to a PaddleVastError (`_run` / `_popen`), so
+        # this branch is a safety net for anything outside those call sites
+        # — it must still never let an unmasked exception (which could embed
+        # the full ssh/scp command line) reach the terminal.
+        print(mask_text(json.dumps({"error": type(exc).__name__, "detail": type(exc).__name__}), settings))
         return 1
     return 0
 
