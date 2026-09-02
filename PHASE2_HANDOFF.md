@@ -38,7 +38,8 @@ authoritative.
 | Deliverables | `docs/moneythumb-replacement/OCR_LEGACY_AUDIT.md` (the audit; §6 = the open questions), `docs/moneythumb-replacement/reviews/PHASE2_OCRAUDIT_REVIEW.md` (review + closure re-review), W3 `§OCRAUDIT` in `docs/moneythumb-replacement/W3_TRACKA_LOG.md`. |
 | Accepted architecture plan | **`docs/moneythumb-replacement/PHASE2_ARCHITECTURE_PLAN.md`** — **STATUS: ACCEPTED ARCHITECTURE PLAN**. Read this before any Phase 2 implementation. |
 | OQ1–OQ11 | **RULED by Gustavo 2026-09-01** — `docs/moneythumb-replacement/PHASE2_RULINGS.md` (binding). The verbatim questions below are history. |
-| Phase 2 implementation | **PHASE 2.0 (SAFETY FOUNDATIONS) IN PROGRESS since 2026-09-01** on train branch `train10` (from `origin/main` `746e1e9`). Umbrella card `docs/agent-handoffs/PHASE2-0-SAFETY.md`; rules delta `docs/agent-handoffs/PHASE2-RULES.md`; cells `P20-ROUTER`, `P20-POSTPROCESS`, `P20-SEAM`, `P20-ARTIFACTS`, `P20-SURFACES` (`docs/agent-handoffs/P20-*.md`). Expected coverage movement **+0**; OCR-fed validated **0**. **Phase 2.1 (PaddleOCR) is NOT authorized** until Gustavo approves the Phase 2.0 closure report. |
+| Phase 2.0 result | **COMPLETE 2026-09-02 — gate met; STOPPED pending Gustavo's approval.** Composed code tree `941918f` on `train10`; floor preserved by full-archive replay (2,625/2,625 identical) AND the cold run `TRAIN10-941918f/…-ef34ee30` (2,625 → 2,625, 3,380 unchanged, compare exit 0); suite 8,342; gate 105/3/1; CI 33599700440 green; OCR_STAGE_VERSION 5; OCR-fed validated 0; legal escalation population 13 (R 13 + U-extract 0; density-surfaced candidate 23). Live state: `docs/moneythumb-replacement/PHASE2_STATE.md`. |
+| Phase 2 implementation (opening record) | PHASE 2.0 (SAFETY FOUNDATIONS) opened 2026-09-01 on train branch `train10` (from `origin/main` `746e1e9`). Umbrella card `docs/agent-handoffs/PHASE2-0-SAFETY.md`; rules delta `docs/agent-handoffs/PHASE2-RULES.md`; cells `P20-ROUTER`, `P20-POSTPROCESS`, `P20-SEAM`, `P20-ARTIFACTS`, `P20-SURFACES` (`docs/agent-handoffs/P20-*.md`). Expected coverage movement **+0**; OCR-fed validated **0**. **Phase 2.1 (PaddleOCR) is NOT authorized** until Gustavo approves the Phase 2.0 closure report. |
 
 # Governing OCR audit findings (summary — the verbatim findings are embedded below)
 
@@ -78,7 +79,13 @@ authoritative.
 
 # Exact next action
 
-**SUPERSEDED 2026-09-01.** Gustavo returned, ruled OQ1–OQ11 (`docs/moneythumb-replacement/PHASE2_RULINGS.md`)
+**PHASE 2.0 IS COMPLETE (2026-09-02) AND STOPPED.** Gustavo reviews the closure report (the
+2026-09-02 entries of `docs/moneythumb-replacement/BATCH9_TRANSITION.md` §7 and `PHASE2_STATE.md`).
+**Do not start Phase 2.1 (PaddleOCR) until he approves.** One ruling is owed alongside the approval:
+the pre-existing webapp auto-mode edge `dispatch unclaimed / parser_exception → extract_statement`
+(a Class-B → hosted-model path in the product's default mode), pinned unchanged by Phase 2.0.
+
+*(2026-09-01, superseded by the paragraph above)* Gustavo returned, ruled OQ1–OQ11 (`docs/moneythumb-replacement/PHASE2_RULINGS.md`)
 and authorized **Phase 2.0 — SAFETY FOUNDATIONS only**. The live state is in
 `docs/moneythumb-replacement/PHASE2_STATE.md` and `PROJECT_STATUS.md`; the work is carded in
 `docs/agent-handoffs/PHASE2-0-SAFETY.md` (umbrella) and `docs/agent-handoffs/P20-*.md` (five cells) on

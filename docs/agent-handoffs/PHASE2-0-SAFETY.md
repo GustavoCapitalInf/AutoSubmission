@@ -116,3 +116,12 @@ refusal test · misleading "OCR confidence" gone · 2,625 preserved · 0 blockin
 adversarial reviews completed, findings reproduced and closed, re-reviews green · full suite green ·
 corpus gate / cohort replay / cold-run compare green · CI green · documentation durable · worktree
 clean → **STOP. Return the closure report to Gustavo. Phase 2.1 (PaddleOCR) waits for his approval.**
+
+## Closure (Ocean, 2026-09-02)
+Every completion criterion above is met at composed code tree `941918f` (`train10`): five cells +
+the P20-REPLAY-SHAPE addendum, each reviewed → closed → re-reviewed; floor preserved by the
+full-archive replay (2,625 of 2,625 identical) and the cold run (2,625 → 2,625, 3,380 unchanged,
+compare exit 0); suite 8,342; guards 267; conformance 1,282; gate 105/3/1; corpus slice 34; CI green
+(33599700440); worktree clean. Measurements, the closure record and the residual rulings owed to
+Gustavo are in `docs/moneythumb-replacement/BATCH9_TRANSITION.md` §7 (2026-09-01/02) and
+`PHASE2_STATE.md`. **STOPPED. Phase 2.1 waits for Gustavo's approval.**

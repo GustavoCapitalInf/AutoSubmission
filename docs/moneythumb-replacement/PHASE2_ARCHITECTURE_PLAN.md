@@ -2,7 +2,7 @@
 
 ```
 STATUS: ACCEPTED ARCHITECTURE PLAN
-IMPLEMENTATION: PHASE 2.0 (SAFETY FOUNDATIONS) IN PROGRESS since 2026-09-01 — see docs/agent-handoffs/PHASE2-0-SAFETY.md
+IMPLEMENTATION: PHASE 2.0 (SAFETY FOUNDATIONS) COMPLETE 2026-09-02 at composed tree 941918f (see PHASE2_STATE.md); PHASE 2.1+ NOT AUTHORIZED — awaits Gustavo's approval of the closure report
 OQ1–OQ11: RULED 2026-09-01 — see PHASE2_RULINGS.md (binding; this plan's "architecture intent" yields to the rulings)
 FROZEN REGRESSION FLOOR: 2,625
 ```

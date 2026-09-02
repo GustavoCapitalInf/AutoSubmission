@@ -1,67 +1,78 @@
 ---
 name: phase2-state
-description: "PHASE 2.0 IN PROGRESS (opened 2026-09-01): OQ1-OQ11 RULED by Gustavo (PHASE2_RULINGS.md); Phase 2.0 = SAFETY FOUNDATIONS only (+0 coverage, 0 OCR-fed validated) on train10 from origin/main 746e1e9; five cells P20-ROUTER / P20-POSTPROCESS / P20-SEAM / P20-ARTIFACTS / P20-SURFACES; Sonnet 5 HIGH implementation, Opus adversarial reviews; STOP at the completion gate — Phase 2.1 (PaddleOCR) waits for Gustavo"
+description: "PHASE 2.0 COMPLETE (2026-09-02, gate met, awaiting Gustavo's approval of the closure report): composed train10 941918f (docs tip on train); OQ1-OQ11 RULED (PHASE2_RULINGS.md); five cells + P20-REPLAY-SHAPE reviewed/closed/re-reviewed; floor 2,625 preserved by full-archive replay AND cold run (2,625 -> 2,625, 3,380 unchanged); OCR_STAGE_VERSION 5; OCR-fed validated 0; legal escalation population 13; Phase 2.1 (PaddleOCR) NOT authorized until Gustavo approves"
 metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-01T00:00:00.000Z
+  modified: 2026-09-02T00:00:00.000Z
 ---
 
-**Baseline (unchanged)**: batch 9 FROZEN at `batch9-final` = `819d97d` (2,625 / 3,380 = 77.66%, 0
-validated regressions; ANALYSIS_STAGE_VERSION 17, OCR_STAGE_VERSION 4, registry 84, suite 7,815 at
-`7b25d70`). `origin/main` `746e1e9` = the freeze tree + the read-only `tools/ocr_legacy_census.py` +
-docs (verified `git diff --stat 819d97d origin/main` outside docs = that one file). Run of record
-`discovery_reports/TRAIN9-7b25d70/2026-08-31T185527.271012-0000-91f5179a`; cold cache
-`.claude/recovery/webapp_data_train9_cold` (OCR 3,364 / 1 key / 0 multi; analysis 2,656 / 1 / 0),
-READ-ONLY.
+**Baseline (unchanged)**: batch 9 FROZEN at `batch9-final` = `819d97d` (2,625 / 3,380 = 77.66%).
+Phase 2.0 base `train10` opened from `origin/main` `746e1e9` (the freeze tree + the read-only census
+tool + docs). Gustavo's OQ1–OQ11 rulings: `docs/moneythumb-replacement/PHASE2_RULINGS.md` (binding).
 
-**OCR-LEGACY-AUDIT**: COMPLETE, reviewed twice, merged to main at `09e6b75`; accepted architecture
-`PHASE2_ARCHITECTURE_PLAN.md` at `746e1e9`.
+**PHASE 2.0 — SAFETY FOUNDATIONS — COMPLETE 2026-09-02 (completion gate met; STOPPED pending
+Gustavo's approval of the closure report).** Composed code tree **`941918f`** on `train10` (merges
+`d4bb48c` SEAM → `db63c25` POSTPROCESS → `88e33b8` ROUTER → `422c8c6` ARTIFACTS → `7424e43` SURFACES
+→ Ocean's composition `51692c3` → `941918f` REPLAY-SHAPE); docs tip on the train after it. Every
+cell: implementation (Sonnet 5 HIGH) → independent adversarial review (Opus; four BLOCK, two
+APPROVE WITH FINDINGS) → closure with every finding reproduced first → re-review → APPROVE WITH
+FINDINGS with every residual closed. Reviews under `docs/moneythumb-replacement/reviews/PHASE2_P20*`.
 
-**Gustavo's rulings (2026-09-01, `PHASE2_RULINGS.md`, binding)**: OQ1 = C (quarantine the whole
-postprocess chain; per-function re-admission on census + fixtures + independent review; raw evidence
-is the default) · OQ2 = YES (no-hardcodes guard into `ocr/`; TD masking only as declared intake
-behavior with fixtures) · OQ3 = ALLOWLIST (local/private by default; remote/paid needs explicit
-recorded opt-in; no silent local→remote hop) · OQ4 = Trigger T surface-only, measure, Phase 2.4 ·
-OQ5 = PaddleOCR primary NEW visual extractor, Tesseract stays first image rung, Unlimited bounded
-fallback after Paddle; neither implemented in 2.0 · OQ6 = RunPod stays a labeled paid escape hatch,
-never automatic · OQ7 = salvage then quarantine/retire the legacy OCR scripts · OQ8 = YES adopt
-`CachedArtifacts` · OQ9 = rename/remove the fake "OCR confidence", no substitute score · OQ10 =
-run-of-record partition (never rows[0] / offline-first / visual-first / incidental order) · OQ11 =
-supersede the standalone Paddle parser spec, keep its geometry ideas.
+**What landed** (durable record: `BATCH9_TRANSITION.md` §7, 2026-09-01/02 entries):
+* `ocr/escalation.py` — closed failure classes A/B/C; closed trigger vocabulary (T defined and
+  refused, OQ4); `RouterInputs` with no verdict field and one constructor; `EscalationRouter` where
+  only pre-financial triggers START and only `validated` STOPS; `ExtractionQualityGate` on
+  extractor-produced evidence only with the parameter-free admitted triad; the density criterion
+  SURFACE-ONLY (a candidate for Phase 2.1 with labelled evidence); endpoint policy enforced once at
+  `ocr_client._build_client`; vocabularies enforced at the row projection; import / signature /
+  subclass / repo-wide call-site tripwires; validated∩class-A = 0 pinned row-wide.
+* **Trigger-U split measured** (batch-9 run and the new run of record agree): R 13 · U 123 ·
+  **U-extract (admitted) 0 · U-structure 123 · density-surfaced candidate 23 · legal escalation
+  population 13** · T surface 3 (1 in U) · validated∩(R∪U) 0 · row-level Class-A 0.
+* Nine-function postprocess census (31 synthetic fixtures, mechanical numeric-token accounting; the
+  audit's UNPROVEN debit/credit/balance fold settled as constructible); the whole chain quarantined
+  on analysis AND display paths behind an EMPTY admission tuple; `embed_image_regions` unwired;
+  `INTAKE_FURNITURE` register (7 entries); the no-hardcodes guard layer-wide in `ocr/` with an
+  exact-match issuer-string ratchet (OQ1 = C, OQ2).
+* OCR_MODEL / `source_file` injection closed (`\A…\Z` charset, money-shape and reserved-prefix
+  refusal, line-break and `-->` refusal in `source_file`); `ocr/endpoint_policy.py` loopback /
+  private / remote / invalid with the exact opt-in literal `I_ACCEPT_REMOTE_PAID_OCR`, IMDS and CGNAT
+  forced remote, one endpoint per process, refusal before any client exists; endpoint class and
+  opt-in recorded in telemetry; `source_path_for` fallthrough closed with the unrecognized-model
+  diagnostic; four legacy OCR scripts retired after salvaging their checks; `parse.py`/`batch.py`
+  offline by default; RunPod relabeled the paid escape hatch (OQ3, OQ6, OQ7).
+* `telemetry/run_of_record.py` — the one artifact-selection policy (recorded or verified-
+  reconstructed partitions with a 90 % correspondence check; row-driven; raise on a corrupt index)
+  adopted by `cohort_replay`, `CachedArtifacts`, the three shared scanners and the two fixpriv
+  instruments; runs record their partitions (`coldrun.sh --mode`); the OCR settings key gained
+  extractor / postprocess state / raster + schema versions / endpoint class / toolchain versions;
+  **OCR_STAGE_VERSION 4 → 5** with its pin (OQ8, OQ10).
+* `cohort_replay` replays through the runner's exact document call (P20-REPLAY-SHAPE): full archive
+  3,380 shas at the closure tip — replayed 3,351, newly validated 0, **preserved 2,625 of 2,625
+  identical**, regressions 0, `--expect-unresolved 29`, exit 0.
+* The fabricated "OCR confidence" replaced by validation verdict words (no number; literal guard);
+  the Q3 class admitted only on `native-pdf-text*` provenance through `analysis/provenance.py`'s
+  ambiguity-refuses reader (exactly one well-formed field run terminating line one), raising
+  `Q3ProvenanceRefused` in EVERY parse_mode (`q3_provenance_refused` reason token); the two 2026-07
+  specs SUPERSEDED (OQ9, OQ11).
 
-**Phase 2.0 — SAFETY FOUNDATIONS (authorized scope, nothing else)**: objective = make future OCR-fed
-and geometry-fed validation possible without weakening the frozen model, and make "try extractors
-until something balances" architecturally impossible. Failure classes A extraction / B structure / C
-validation; **validator success may STOP escalation, validator failure may NEVER START it**; no
-B→OCR, no C→OCR edge. Expected coverage **+0**; OCR-fed validated **0**; if coverage moves, STOP and
-explain. Baseline re-derived 2026-09-01 from the run of record: R 13 · U 123 (89 `no_parser_matched`
-+ 34 `parser_declined`; scanned 111 / mixed 12) · R∪U 136 · overlap 0 · validated∩(R∪U) 0 ·
-Tesseract 36/15/5/123 · T surface 3 (1 in U). Baseline proof at `746e1e9`: guards 255 passed; the
-OCR/artifact test slice 486 passed; corpus gate → recorded in BATCH9_TRANSITION §7.
+**Proof at the composed tree** (`941918f`): full suite **8,342 passed / 45 skipped / 38 deselected**;
+guards 267; conformance 1,282; `corpus_gate.py` GREEN 105/3/1; corpus slice 34; remote CI GREEN
+run 33599700440 on `origin/train10`; **cold run** `discovery_reports/TRAIN10-941918f/2026-09-02T063646…-ef34ee30`
+vs the batch-9 run of record with `--fail-on-regression`: **2,625 → 2,625, 3,380 unchanged, 0
+regressed, compare exit 0**, peak 1,242 MB; the run's provenance records its partitions (the first
+`origin = recorded` run); OCR-fed validated 0; ANALYSIS_STAGE_VERSION stays 17 (no payload changed).
 
-**Cells (docs/agent-handoffs/, base `train10`, worktrees `.claude/worktrees/mt20-<card>`, branches
-`wave20-<card>`)**: `P20-ROUTER` (A: `ocr/escalation.py`, EscalationRouter + ExtractionQualityGate +
-failure classes, runner/worker rewired, U-extract/U-structure measured by `tools/phase2_trigger_split.py`,
-tripwires, validated∩class-A = 0 pinned) · `P20-POSTPROCESS` (B1: nine-function census + synthetic
-fixtures, whole-chain quarantine on analysis AND display paths, EMPTY re-admission tuple, OQ2 guard
-into `ocr/` with the TD recovery in a declared `INTAKE_FURNITURE` register) · `P20-SEAM` (B2: closed
-model-token charset + reserved-prefix refusal + `source_file` line-break refusal with hostile tests;
-`ocr/endpoint_policy.py` loopback/private/remote with the exact opt-in literal; single endpoint, no
-hop; `source_path_for` fallthrough closed; legacy scripts salvaged (`triage_scan.CHECKS` → test) then
-retired; README RunPod relabeled) · `P20-ARTIFACTS` (C: `telemetry/run_of_record.py` shared by
-`cohort_replay` and `CachedArtifacts`; runs record their partitions; OCR settings key gains extractor
-/ postprocess state / raster + schema versions / endpoint class / binary versions; OCR_STAGE_VERSION
-4→5 with its pin in the same commit; CASE 9 multi-partition determinism) · `P20-SURFACES` (D: "OCR
-confidence" → validation verdict words, no number; Q3 class native-only via `analysis/provenance.py`
-first-line reader, fail closed on non-native/absent; the two 2026-07 specs SUPERSEDED). Composition
-order B2 → B1 → A → C → D. Models: Sonnet 5 HIGH implementation (explicit `model: sonnet`), Opus
-independent adversarial reviews; Ocean (Fable 5.1) composes.
+**Discovered, NOT in scope, for Gustavo**: the pre-existing webapp auto-mode edge
+`dispatch unclaimed / parser_exception → extract_statement` (`analysis/pipeline.py`, hosted model)
+is a Class-B → hosted-model-call path in the product's default mode, pinned unchanged by Phase 2.0
+and reported for a ruling under OQ3's spirit. Backlog carried: 33 historical `tools/*.py` still use
+the old `ColdCache` signature; `tools/ocr_legacy_census.py` names the four retired scripts.
 
-**Completion gate** (PHASE2-0-SAFETY.md §Completion): all cells reviewed/closed/re-reviewed, composed
-on train10, cohort replay + archive sweep + `floor.sh` + the cold run (required by the v5 bump) vs the
-batch-9 run of record `--fail-on-regression` (2,625 → 2,625), remote CI green, docs durable, worktree
-clean → STOP; closure report to Gustavo; Phase 2.1 waits for his approval.
+**Next**: Gustavo reviews the closure report. Phase 2.1 (PaddleOCR as the primary NEW visual
+extractor, geometry into `document_geometry`, allowed only on R + U-extract, per-page provenance)
+is NOT authorized until he approves.
 
 Related: [[batch9-state]] [[moneythumb-phase1-roadmap]] [[batch8-operating-model]] [[subagent-model-policy]]
