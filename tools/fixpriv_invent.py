@@ -35,9 +35,12 @@ from tools.privacy_scan_branch import (  # noqa: E402
     cached_text,
     excluded_by,
     population,
+    resolve_run,
+    rows_by_sha,
     self_check,
     tokens_of,
 )
+from telemetry.run_of_record import RunOfRecordError, partitions_for_run  # noqa: E402
 
 #: The invented eras. The archive was frozen on 2026-08-06 and its statements
 #: run to 2026; a date in 2031 cannot be a document date, which is why the card
@@ -46,21 +49,32 @@ INVENTED_YEAR = 2031
 
 
 def universe(args: argparse.Namespace) -> tuple[dict[str, set[str]], int]:
-    from webapp.artifact_cache import ocr_settings_key
+    """Review MINOR-9 (P20-ARTIFACTS Phase 2.0 closure): resolves each
+    sha's OWN OCR text through its run-of-record partition (the SAME
+    conversion `tools/privacy_scan_branch.py` / `tools/huntington_msg_privacy_scan.py`
+    / `tools/regfp_zero_movement_sweep.py` already carry), never a live
+    eight-combination `ocr_settings_key()` enumeration -- which the
+    `OCR_STAGE_VERSION` 4->5 bump had already made silently vacuous against
+    the frozen, v4-keyed cold caches this tool actually runs against."""
+    import sqlite3
 
     root = args.data_dir / "artifacts"
-    ocr_keys = [ocr_settings_key(force_ocr=f, allow_local_ocr=l, allow_visual_ocr=v)
-                for f, l, v in itertools.product((False, True), repeat=3)]
-    printed: dict[str, set[str]] = {c: set() for c in ("MONEY", "DIGITS", "DATES", "WORDS")}
-    read = 0
-    for sha in population(args):
-        text = cached_text(root, sha, ocr_keys)
-        if text is None:
-            continue
-        read += 1
-        for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
-            printed[cls].update(values)
-    return printed, read
+    conn = sqlite3.connect(f"file:{(args.data_dir / 'webapp.db').as_posix()}?mode=ro", uri=True)
+    try:
+        partitions = partitions_for_run(args.run, conn=conn)
+        rows = rows_by_sha(args.run)
+        printed: dict[str, set[str]] = {c: set() for c in ("MONEY", "DIGITS", "DATES", "WORDS")}
+        read = 0
+        for sha in population(args):
+            text = cached_text(conn, root, sha, rows.get(sha), partitions)
+            if text is None:
+                continue
+            read += 1
+            for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
+                printed[cls].update(values)
+        return printed, read
+    finally:
+        conn.close()
 
 
 def generated(token: str, digit_min: int, word_min: int) -> dict[str, set[str]]:
@@ -157,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sha", action="append", default=[])
     parser.add_argument("--rows", type=Path, default=None)
     parser.add_argument("--where", action="append", default=[])
+    parser.add_argument("--run", type=Path, default=None,
+                        help="the discovery run of record whose rows.csv names each sha's "
+                             "own OCR provenance (default: the train9 pointer file)")
     parser.add_argument("--data-dir", required=True, type=Path)
     parser.add_argument("--token", action="append", default=[])
     parser.add_argument("--candidates", type=Path, default=None)
@@ -176,7 +193,12 @@ def main(argv: list[str] | None = None) -> int:
         candidates += [line.split("#", 1)[0].strip()
                        for line in args.candidates.read_text(encoding="utf-8").splitlines()
                        if line.split("#", 1)[0].strip()]
-    printed, read = universe(args)
+    args.run = resolve_run(args.run)
+    try:
+        printed, read = universe(args)
+    except RunOfRecordError as exc:
+        print(f"artifact-selection policy failed: {exc}", file=sys.stderr)
+        return 5
     if read == 0:
         print("read 0 documents: the universe is empty and the answer would be vacuous",
               file=sys.stderr)
