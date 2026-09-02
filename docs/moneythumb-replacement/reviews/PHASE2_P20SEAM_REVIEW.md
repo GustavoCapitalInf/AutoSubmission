@@ -612,3 +612,243 @@ completely referenced-out, the salvage is byte-faithful, the endpoint policy is 
 a host blocklist, every conservative misclassification fails closed, the CLI refusals are ordered
 correctly and provably send nothing, the cohort replay reproduces exactly, and all 3,364 cached
 headers are byte-identical. The defect in BLOCK-1 is a single anchor, not a design error.
+
+---
+
+## Re-review (closure 1cc759e)
+
+```
+BRANCH        wave20-seam @ 1cc759e   (12 commits on top of df0e637)
+REVIEWED      detached in .claude/worktrees/rev20-seam
+DIFF          git diff df0e637..1cc759e   (19 files, +1,616 / -64)
+              git diff bea06bc..1cc759e   (33 files; production hunks audited below)
+REVIEWER      same independent agent; every number below re-measured at 1cc759e,
+              never read off the closure's own W3 or its tests
+HOST          Python 3.14.5 (CI pins 3.12)
+VERDICT       APPROVE WITH FINDINGS
+```
+
+Tree was clean before and after every mutant (`git checkout --` in a `finally`, `git status
+--porcelain` asserted empty between each); clean at the end except this file. No network call: the CLI
+reproduction ran again with `socket.socket` / `create_connection` / `getaddrinfo` replaced by a raising
+sentinel; every client is a fake; the cold caches were opened `mode=ro`.
+
+The cell also committed a copy of this review on its own branch. I diffed it against Ocean's copy on
+`train10` — **byte-identical, zero differences**. Ocean removes it at composition as planned.
+
+### 1. Per-finding verdicts
+
+| finding | ruling implemented | re-measured at 1cc759e | verdict |
+|---|---|---|---|
+| **BLOCK-1** anchor | `\A…\Z` | `MODEL_TOKEN_RE` is now `\A[A-Za-z0-9][A-Za-z0-9._/+-]{0,63}\Z`. 17-case trailing/leading battery × 3 entry points (validator both modes · `OCR_MODEL` env · `--model` override · `__post_init__`): **every one refused** — one/two trailing `\n`, trailing `\r`, CRLF, space, tab, `\x0b`, `\x0c`, `\x1c`, `\x85`, U+2028, U+2029, NUL, leading `\n`, `64×a+\n` (the 65-char length bypass), `63×a+\n`, `native-pdf-text\n`. dotenv multi-line vector: parses to `'qwen2.5-vl-7b\n'`, **refused**. End-to-end money-through-filename reproduction: **refused at construction**, never reaches `to_markdown`. The 78-case charset battery's accepted set is otherwise unchanged. | **CLOSED** |
+| **MAJOR-1** look-alike hosts | 5 look-alike cases added | R2 (`"localhost" in host`) → **KILLED**, 2 tests. R9 (`".local" in host`) → **KILLED**, 2 tests. R7 (netloc/userinfo) → **KILLED**, now including `[http://10.0.0.1@evil.com/v1-remote]` on its merits rather than incidentally. | **CLOSED** |
+| **MAJOR-2** recorded opt-in | `model_calls_for` reads `load_settings()` at record time | Measured in a real `build_record` output that round-trips through `json.dumps`: every OCR-stage entry carries `endpoint_class` + `remote_opt_in`. Tracks the env: `localhost`→`loopback/False`, `api.runpod.net`→`remote/False`, same + literal→`remote/True`, `192.168.1.5`→`private/False`, `ftp://localhost`→`invalid/False`. Mutants M2a/M2b (drop the fields from either branch) → **KILLED**. The README sentence is now true of this tree. | **CLOSED** |
+| **MAJOR-3** F-7 half-closed | diagnostics + per-page counts | `build_record(...)["diagnostics"]["source_path_unrecognized_model"]` measured `True` for `qwen2.5-vl-7b` and `paddle+layout`, `False` for `baidu/Unlimited-OCR`, `native-pdf-text`, `local-tesseract-ocr`, `""`. Per-page count restored: unrecognised token → `purpose="unrecognized_model"`, `calls=3` (was 1), `completion_tokens=300` (was `None`). M3a/M3b/M3c → **KILLED** (M3a by 3 tests across two files). | **CLOSED** |
+| **MINOR-1** probe seam | explicit `check_endpoint` in `probe_visual_ocr` | Mutant N1 (remove the gate) → **KILLED** by `test_probe_gates_an_injected_list_models_seam_too`. | **CLOSED** |
+| **MINOR-2** trusted `remote_opt_in` | re-derived from env in both callers | Mutant N2 (`_build_client` trusts the field) → **KILLED**. Mutant N2b (**the probe** trusts the field) → ***SURVIVED*** — see NEW-2. | **CLOSED in `_build_client`, unpinned in the probe** |
+| **MINOR-3** conditional order proof | construction-counting sentinel | `test_build_client_constructs_nothing_after_a_refusal` added; mutant R1 now fails **two** tests, and the new one is order-independent by construction. | **CLOSED** |
+| **MINOR-4** merge conflict | `VISUAL_MODEL_TOKENS` moved beside `source_path_for` | `git merge-tree --write-tree 1cc759e wave20-router` → **only** `W3_TRACKA_LOG.md`. Same for `wave20-postprocess`, `wave20-artifacts`, `wave20-surfaces`. `telemetry/record.py` no longer collides. | **CLOSED** |
+| **MINOR-5** IMDS | forced remote | `169.254.169.254` → `remote`, refused without opt-in (was `private`/allowed). `[fd00:ec2::254]` → `remote`. `[::ffff:169.254.169.254]` → `remote`. Mutant N5 → **KILLED**, 2 tests. | **CLOSED** |
+| **MINOR-6** stripped control chars | `\t\r\n` anywhere → invalid | All 6 control-char URLs now `invalid`/refused. Mutant N6 → **KILLED**, 3 tests. **Partial**: `urlsplit` also strips the other 31 C0-control-or-space characters from the *ends*; see NEW-3. | **CLOSED for the exploitable characters; partial** |
+| **MINOR-7** interpreter-dependent | CGNAT + ipv4_mapped explicit | CGNAT bounds correct (`100.63.255.255`/`100.64.0.1`/`100.127.255.254`/`100.128.0.1` → remote/remote/remote/remote); mapped forms correct (`::ffff:127.0.0.1`→loopback, `::ffff:10.0.0.1`→private, `::ffff:8.8.8.8`→remote). Mutants N7a and N7b → ***SURVIVED*** on this host; see §2. | **CLOSED in behaviour; one killer genuinely missing — NEW-1** |
+| **MINOR-8** message sinks | `batch.py` class-name-only; `_checked_upload` refuses CR/LF | `batch.py:312` now writes `type(e).__name__`; N8b → **KILLED**. `_checked_upload` refuses CR/LF with `{"error": "ProvenanceTokenError"}` and **no `filename` key**; N8a → **KILLED**. | **CLOSED** (one consistency gap, NEW-4) |
+| **MINOR-9** file count | n/a | `git diff --stat df0e637..1cc759e` = 19 files. | n/a |
+| **§3** writer belt | `source_file` refuses `-->` | Implemented, corpus-marked zero-cost proof present and passing. But the belt does **not** close the reader spoof its own docstring describes — see NEW-5. | **implemented; rationale overstated** |
+
+### 2. The two "not killable on this host" mutants — does the reasoning hold on CI's 3.12?
+
+Interpreter behaviour I can verify here (Python 3.14.5):
+
+```
+IPv4Address('100.64.0.1').is_private          -> False        (the 3.12.3+ behaviour)
+IPv6Address('::ffff:127.0.0.1').is_loopback   -> True
+IPv6Address('::ffff:10.0.0.1').is_private     -> True
+IPv6Address('::ffff:169.254.169.254').is_link_local -> True
+is_loopback / is_private / is_link_local all delegate to ipv4_mapped: True / True / True
+```
+
+**N7a (CGNAT exclusion removed) — SURVIVED, and the reasoning HOLDS.** On 3.14.5 `is_private` is
+already `False` for `100.64.0.1`, so deleting `_CGNAT_V4` changes nothing *here*; on a CI 3.12 patch
+release older than 3.12.3 `is_private` is `True` and the table row `("http://100.64.0.1:8000/v1",
+"remote")` fails, killing it there. The explicit check is a genuine cross-version guard, the intended
+answer is pinned, and I could construct no case that kills it on this interpreter. Accepted.
+
+**N7b (ipv4_mapped normalisation removed) — SURVIVED, but the reasoning does NOT hold: it IS killable
+here.** See NEW-1.
+
+### 3. New findings at the closure
+
+#### NEW-1 (MAJOR) — deleting the `ipv4_mapped` normalisation grants the IMDS address the default allowlist, and no test notices
+
+**Where:** `ocr/endpoint_policy.py` (the normalisation block) interacting with `_IMDS_ADDRESSES`;
+`tests/test_ocr_endpoint_policy.py` classify table.
+
+The IMDS exclusion is `str(ip) in _IMDS_ADDRESSES`, which can only match *after* the normalisation has
+turned `::ffff:169.254.169.254` into `169.254.169.254`. That interaction is interpreter-independent —
+it does not rely on any `is_*` delegation — so it is killable on this host. The suite has
+`169.254.169.254` and `[fd00:ec2::254]` but **no mapped-IMDS row**, so nothing fails:
+
+```
+BASELINE (1cc759e, normalisation present):
+  mapped IMDS -> remote   allowed_without_opt_in = False
+UNDER MUTANT N7b (normalisation removed):
+  mapped IMDS -> private  allowed_without_opt_in = True
+tree restored clean
+```
+
+The shipped code is correct; the safety property is unpinned, and the mutant's effect is *an SSRF
+target allowed with no opt-in* — the same species as the original MAJOR-1, and the closure explicitly
+claims MINOR-7 closed by "ipv4_mapped normalized".
+
+**Fix I would accept — one table row**, which I have proven kills it:
+`("http://[::ffff:169.254.169.254]/v1", "remote")` in `test_classify_endpoint`, plus an N7b row in the
+mutation table naming it as the killer (and a note that N7a is deliberately unkillable on 3.13+/3.12.3+
+because the interpreter already agrees).
+
+#### NEW-2 (MINOR) — the probe's opt-in re-derivation is unpinned
+
+Mutant N2b — revert **`probe_visual_ocr`**'s `check_endpoint(..., opt_in=remote_opt_in_from_env())` to
+`opt_in=settings.remote_opt_in` — **SURVIVED** the full 62-test policy file.
+`test_remote_opt_in_field_cannot_spoof_the_real_check` covers `_build_client` only. Reachability is
+test-only today (it needs both a hand-built `Settings(remote_opt_in=True)` *and* an injected
+`list_models`, since the default closure re-derives correctly inside `_build_client`) — which is
+precisely the seam MINOR-1 just gated, so the two fixes should be pinned together.
+**Fix:** extend the existing spoof test to call `probe_visual_ocr(settings=<spoofed>,
+list_models=lambda: ["m"])` and assert `available is False`.
+
+#### NEW-3 (MINOR) — MINOR-6 is closed for 3 of the 34 characters `urlsplit` removes
+
+`urlsplit` removes `\t\r\n` *anywhere* (now refused) **and** strips the whole
+`_WHATWG_C0_CONTROL_OR_SPACE` set (`\x00`–`\x20`) from *both ends*. Measured: `" http://localhost:8000/v1"`,
+`"\x01http://localhost:8000/v1"`, `"\x00http://localhost:8000/v1"`, `"http://localhost:8000/v1\x1f"`
+all classify `loopback` and are **allowed**, while the raw string handed to `OpenAI(base_url=…)` differs
+from the one classified. As before I could not turn this into a bypass — an end-strip cannot change the
+host — so it stays cosmetic, but the docstring's claim ("a raw tab/CR/LF anywhere … classifying the
+STRIPPED string would answer a question about a different string") is now only partly implemented.
+**Fix:** refuse when `base_url != base_url.strip(urllib.parse._WHATWG_C0_CONTROL_OR_SPACE)` as well, or
+narrow the docstring to the three characters actually covered.
+
+#### NEW-4 (MINOR) — the new `-->` refusal reintroduces the opaque-failure UX that MINOR-8 fixed for CR/LF
+
+`_checked_upload` pre-refuses CR/LF but not `-->`, while `StatementMarkdown.__post_init__` now refuses
+both. Measured through the real Flask/werkzeug test client:
+
+```
+CRLF / LF / CR filename   -> the multipart parser delivers []    (part dropped; HTTP 400 "no files uploaded")
+'-->' filename            -> parser delivers 'evil-->name.pdf'   (reaches the view)
+_checked_upload('evil-->name.pdf', <pdf>)  -> no line-break refusal; falls through
+StatementMarkdown(source_file='evil-->name.pdf', ...) -> ProvenanceTokenError
+operator sees: 'reading stage failed: ProvenanceTokenError (message withheld; …)'
+```
+
+No leak (class name only) and no security impact — but a real PDF named `a-->b.pdf` is accepted at
+upload and then dies as an opaque per-job failure, which is exactly the defect MINOR-8 asked to fix.
+**Fix:** one condition — extend the `_checked_upload` guard to `"-->" in filename`, returning the same
+class-name-only error.
+
+*Also verified, in the cell's favour:* the cell's stated reason for testing `_checked_upload` at the
+function level rather than through the test client is **correct and reproduced** — a raw CR/LF inside a
+`Content-Disposition` filename corrupts the multipart framing, and werkzeug delivers zero files, so a
+test-client test would assert `"no files uploaded"` and prove nothing about the refusal. The guard is
+real defence-in-depth for the non-HTTP callers of `_enqueue_job`.
+
+#### NEW-5 (MINOR) — the `-->` writer belt does not close the reader spoof its docstring names
+
+`ocr/document.py`'s new docstring justifies the belt by "an unbounded `source:` field lets `source_file`
+masquerade as a SECOND header (`… | pages: N | model: M | empty: 0 -->`)". The `-->` is doing no work in
+that attack. Measured against cell D's base `_HEADER_RE` (verbatim from `PHASE2_P20SURFACES_REVIEW.md`
+BLOCK-1):
+
+```
+source_file WITH -->     -> writer refuses (ProvenanceTokenError)
+source_file WITHOUT -->  -> accepted; header:
+  <!-- source: statement.pdf | pages: 1 | model: native-pdf-text | empty: 0 | pages: 1 | model: local-tesseract-ocr | empty: 0 -->
+  reader would report model = 'native-pdf-text'    (document's real model: local-tesseract-ocr)
+```
+
+This confirms §3's original ruling — the closure is the **reader** bounding its own `model` field — and
+it means the belt must not be read as covering cell D. The belt is still worth keeping (zero cost,
+independently re-measured: 0 of 3,506 run-of-record paths and basenames contain `-->`, CR or LF; 23
+contain `--`, so it is not vacuous either).
+**Fix:** one sentence in the docstring and in W3 §Risks — the belt blocks the early-close shape only;
+the field-supplying spoof needs no `-->` and is closed by cell D's reader, which must not be assumed to
+depend on this branch.
+
+#### NEW-6 (MINOR, informational) — `model_calls_for` gained a raise path into the telemetry layer
+
+`model_calls_for` now calls `ocr.config.load_settings()` at record time, which **raises**
+`ProvenanceTokenError` for a hostile `OCR_MODEL` (measured: 4/4 of `"evil model"`, `"native-pdf-text"`,
+`"v1.00"`, `"a"*65`). Measured that `batch._emit` never propagates it. Read (not measured — my synthetic
+`_emit` call failed for an unrelated reason and I am not claiming the observation): all three `_emit`
+sites wrap `build_record(… model_calls_for(…) …)` in `try: … except Exception: pass`, so the cost is a
+dropped record, per H3_SCHEMA I4. In practice a hostile `OCR_MODEL` already fails the read path through
+`ocr_settings_key`, so this is downstream of an already-fatal condition — except when the cache is
+bypassed (`cache is None`), where a document that processes fine would silently lose its telemetry row.
+**Fix I would accept:** read the two endpoint fields defensively (`try/except ProvenanceTokenError` →
+`endpoint_class=None`), so a misconfigured env costs two fields rather than the whole record.
+
+*Observation, not a finding:* the record's `diagnostics` object gained a key while carrying
+`diagnostics_version: 4`, and `TELEMETRY_VERSION` stays `1` for two new fields per OCR call entry. Both
+changes are additive and `H3_SCHEMA.md` documents them; the cell's argument (the new key is *alongside*
+the versioned taxonomy, not a member of it) is coherent and the pin updates assert exact set equality
+(`DIAGNOSTICS_KEYS | {one named key}`) rather than being loosened. Flagging it only so Ocean rules
+deliberately rather than by omission.
+
+### 4. Re-measured proof floor and regression evidence
+
+| measurement | result |
+|---|---|
+| cohort replay, 179 shas (6 corpus artifacts ⊂ 179 Tesseract), `--expect-identical` | **EXIT=0**; population 179; newly validated **0**; previously validated preserved **36 of 36**; validated regressions **0**; other ladder regressions **0**; payload changed **0**; runtime 45s |
+| 9 distinct cold-cache `document.model` tokens over 3,364 OCR artifacts (`mode=ro`) | **3,364 accepted, byte-identical header, 0 refused, 0 mismatches**, 0 `source_path` changes |
+| corpus-marked `-->` zero-cost proof | `pytest -m corpus tests/test_ocr_provenance_injection.py` → **1 passed**, and re-measured independently: 0/3,506 paths and basenames contain `-->`, CR or LF (23 contain `--`) |
+| targeted floor (20 files incl. the 5 new/changed test files) | **871 passed, 5 deselected — EXIT=0** |
+| 5 canonical guards | **255 passed — EXIT=0** |
+| CLI refusal paths, network hard-disabled | `parse.py --visual` remote/invalid/empty → **exit 3**, `EndpointRefused`, no transport; with opt-in and loopback → `APIConnectionError` (transport reached — the measured contrast that proves the check precedes the request); `batch.py --visual` remote → **SystemExit 1**; `parse.py` default with a RunPod `OCR_BASE_URL` → offline only, **exit 1**, no socket |
+| `git merge-tree --write-tree 1cc759e <sibling>` | **W3_TRACKA_LOG.md only**, for all four siblings |
+| mutants re-applied | **21 applied, 18 killed, 3 survived** (N7a — accepted, §2; N7b — NEW-1; N2b — NEW-2). Tree verified clean before/after each |
+
+Not run (shared host, per the brief): full default suite, `corpus_gate.py`, `pytest -m corpus` in full,
+privacy/message scans.
+
+### 5. Ownership at the closure
+
+`git diff bea06bc..1cc759e`, hunk-by-hunk on production files: `ocr/ocr_client.py` **1 hunk**
+(`_build_client`); `ocr/availability.py` **1 hunk** (`probe_visual_ocr`); `webapp/app.py` **1 hunk**
+(`_checked_upload`); `batch.py` 6 hunks, all the card's CLI work plus the one MINOR-8 line;
+`telemetry/record.py` 4 hunks (`VISUAL_MODEL_TOKENS` move, `source_path_for` docstring,
+`model_calls_for`, `build_record`) — all inside the granted widening. `ocr/pipeline.py`,
+`ocr/render.py`, `analysis/*`, `discovery/*` and the rest of `webapp/*` **untouched**.
+
+Beyond the card list and the granted widenings, and therefore recorded here: `docs/moneythumb-replacement/H3_SCHEMA.md`
+(documents the record-shape change the widening made — I would have refused its *absence*), and the
+test files `tests/test_batch.py` (new), `tests/test_webapp_app.py`, `tests/test_diagnostics.py`,
+`tests/test_document_outcome.py`, `tests/test_telemetry_corpus.py` (corpus-marked). Every one is a
+forced consequence of a granted widening, and I read all five diffs: the three "closed-diagnostics pin"
+fixes assert **exact** set equality against `DIAGNOSTICS_KEYS | {"source_path_unrecognized_model"}`
+rather than relaxing to a superset test — widened honestly, not weakened. No finding.
+
+### 6. Verdict
+
+**APPROVE WITH FINDINGS.**
+
+Every BLOCK and MAJOR from the first review is closed and independently re-measured, not read off the
+closure: the anchor is `\A…\Z` and the whole trailing-whitespace family plus the dotenv vector and the
+end-to-end money-through-filename reproduction are refused; the look-alike mutants that survived last
+time are killed; the endpoint provenance is present in a real `build_record` output and tracks the env;
+the unrecognised-token diagnostic is `True` end to end and the per-page count is restored; the merge
+conflict is gone; IMDS and CGNAT are forced remote; the probe gates its injected seam; the order proof
+is order-independent; the CSV and upload sinks carry class names only. The regression floor is intact —
+179 shas replayed at exit 0 with 36/36 preserved payload-identical and 0 newly validated, and all 3,364
+cached headers still byte-identical.
+
+Nothing I found at this closure blocks composition. **NEW-1 is the one I would want fixed before the
+train** — it is a single table row I have already proven kills the mutant, and the property it leaves
+unpinned is "the cloud metadata address stays outside the default allowlist". NEW-2 through NEW-6 are
+one- or two-line changes or docstring corrections and can travel with it or be routed by Ocean; none of
+them changes shipped behaviour, and NEW-5 in particular only asks the branch not to let the `-->` belt
+be mistaken for cell D's closure.
+
+The work answered the review rather than deflecting it: three of my findings were closed by making the
+code correct *and* by adding the killer I named, one (MINOR-3) was closed with a strictly stronger test
+than I asked for, and where the cell departed from my brief — testing `_checked_upload` at the function
+level instead of through the HTTP client — it gave a reason that I reproduced and found correct.
