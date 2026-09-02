@@ -132,7 +132,16 @@ def test_defaults_derive_a_loopback_worker_url_from_the_tunnel_port():
     assert settings.worker_url == "http://127.0.0.1:18765"
     assert settings.vast_ssh_port == 22022
     assert settings.worker_token is None
-    assert settings.runtime_dir == ".paddle_runtime"
+    # Informational item (b) (PHASE2_P21PADDLE_REVIEW.md re-review): a
+    # relative PADDLE_RUNTIME_DIR resolves against the REPOSITORY ROOT, not
+    # the caller's CWD, so it is now an absolute path ending in the default
+    # name rather than the literal relative string.
+    from pathlib import Path as _Path
+
+    runtime_path = _Path(settings.runtime_dir)
+    assert runtime_path.is_absolute()
+    assert runtime_path.name == ".paddle_runtime"
+    assert runtime_path.parent == _Path(__file__).resolve().parent.parent
 
 
 @pytest.mark.parametrize("url", [
@@ -318,3 +327,44 @@ def test_local_and_vast_partition_the_key_material():
     local = paddle_settings_key_material(load_paddle_settings(LOCAL_ENV))
     assert remote != local
     assert {k for k in remote if remote[k] != local[k]} == {"provider", "execution_class"}
+
+
+# ---------------------------------------------------------------------------
+# Informational items (b) and (c) (PHASE2_P21PADDLE_REVIEW.md re-review)
+# ---------------------------------------------------------------------------
+
+def test_relative_runtime_dir_resolves_at_the_repository_root_not_cwd(tmp_path, monkeypatch):
+    """(b) A relative PADDLE_RUNTIME_DIR must resolve the SAME way regardless
+    of the process's current working directory — otherwise a `status` /
+    `measure` run from a different directory silently finds no session
+    token and reports `paddle_worker_unreachable` for what is actually a
+    missing-token defect."""
+    monkeypatch.chdir(tmp_path)  # a directory nowhere near the repository
+    settings = load_paddle_settings(dict(VAST_ENV, PADDLE_RUNTIME_DIR="a_relative_dir"))
+    from pathlib import Path as _Path
+
+    assert _Path(settings.runtime_dir).is_absolute()
+    assert _Path(settings.runtime_dir).name == "a_relative_dir"
+    assert not str(settings.runtime_dir).startswith(str(tmp_path))
+
+
+def test_absolute_runtime_dir_is_left_untouched(tmp_path):
+    settings = load_paddle_settings(dict(VAST_ENV, PADDLE_RUNTIME_DIR=str(tmp_path)))
+    assert settings.runtime_dir == str(tmp_path)
+
+
+def test_a_non_utf8_token_file_fails_closed_naming_the_file(tmp_path):
+    """(c) A `worker.token` file that exists but is not valid UTF-8 text is a
+    genuine configuration defect (a truncated write, a binary file dropped
+    in by mistake) — it must fail closed loudly, naming the file, rather
+    than being treated the same as an ordinary missing file."""
+    token_path = tmp_path / "worker.token"
+    token_path.write_bytes(b"\xff\xfe\x00\x01not valid utf-8")
+    with pytest.raises(PaddleConfigError) as excinfo:
+        load_paddle_settings(dict(VAST_ENV, PADDLE_RUNTIME_DIR=str(tmp_path)))
+    assert "worker.token" in str(excinfo.value)
+
+
+def test_a_missing_token_file_is_silently_none_not_an_error(tmp_path):
+    settings = load_paddle_settings(dict(VAST_ENV, PADDLE_RUNTIME_DIR=str(tmp_path)))
+    assert settings.worker_token is None

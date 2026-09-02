@@ -153,6 +153,16 @@ PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL = "I_AUTHORIZE_CUSTOMER_DOCUMENTS_TO_REMOTE_
 PADDLE_DEFAULT_WORKER_PORT = 8765
 PADDLE_DEFAULT_TUNNEL_LOCAL_PORT = 18765
 PADDLE_DEFAULT_RUNTIME_DIR = ".paddle_runtime"
+#: Informational item (b) (`PHASE2_P21PADDLE_REVIEW.md` re-review): the
+#: repository root — the directory holding `ocr/` — used to anchor a
+#: RELATIVE `PADDLE_RUNTIME_DIR` so a `status` / `measure` run from any
+#: other working directory still finds the SAME session token
+#: `tools.paddle_vast.cmd_start` wrote, instead of silently resolving
+#: against whatever the current directory happens to be and reporting
+#: `paddle_worker_unreachable` for what is actually a missing-token defect.
+#: An already-absolute `PADDLE_RUNTIME_DIR` (as every test that uses
+#: `tmp_path` passes) is left untouched.
+_REPO_ROOT = _Path(__file__).resolve().parent.parent
 
 #: Closed refusal vocabulary (rows, telemetry and exceptions use these tokens
 #: and nothing else).
@@ -293,7 +303,13 @@ def load_paddle_settings(environ: Mapping[str, str] | None = None) -> PaddleSett
         # and this client is not the place to make that work.
         raise PaddleConfigError("PADDLE_WORKER_URL must be a loopback http(s) URL (the SSH tunnel's local end)")
 
-    runtime_dir = (source.get("PADDLE_RUNTIME_DIR") or "").strip() or PADDLE_DEFAULT_RUNTIME_DIR
+    runtime_dir_raw = (source.get("PADDLE_RUNTIME_DIR") or "").strip() or PADDLE_DEFAULT_RUNTIME_DIR
+    runtime_dir_path = _Path(runtime_dir_raw)
+    if not runtime_dir_path.is_absolute():
+        # Informational item (b): anchor a relative runtime dir at the
+        # repository root, never the caller's CWD.
+        runtime_dir_path = _REPO_ROOT / runtime_dir_path
+    runtime_dir = str(runtime_dir_path)
     token = (source.get("PADDLE_WORKER_TOKEN") or "").strip() or None
     if token is None:
         # MAJOR-4 (PHASE2_P21PADDLE_REVIEW.md): `tools.paddle_vast.cmd_start` writes a
@@ -302,14 +318,23 @@ def load_paddle_settings(environ: Mapping[str, str] | None = None) -> PaddleSett
         # LOCAL client's own settings, so a client built exactly as the runbook
         # documents sent no bearer token and every `/ocr` request 401'd. The fallback
         # reads that same file when the env var itself is unset; an explicit
-        # `PADDLE_WORKER_TOKEN` always wins over the file. Read failures (missing
-        # file, permissions) are silent — this is a convenience fallback, never a
-        # second required-configuration path (CASE 17 stays about the five
-        # `_REQUIRED_*` variables only).
+        # `PADDLE_WORKER_TOKEN` always wins over the file. A missing file is silent
+        # (no token on file yet is an ordinary, expected state) — this is a
+        # convenience fallback, never a second required-configuration path (CASE 17
+        # stays about the five `_REQUIRED_*` variables only). A file that EXISTS but
+        # is not readable as UTF-8 text (informational item (c)) is a genuine
+        # configuration defect, not an ordinary absence — it fails closed loudly,
+        # naming the exact file, rather than silently proceeding with no token.
+        token_path = runtime_dir_path / "worker.token"
         try:
-            token = (_Path(runtime_dir) / "worker.token").read_text(encoding="utf-8").strip() or None
+            token = token_path.read_text(encoding="utf-8").strip() or None
         except OSError:
             token = None
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise PaddleConfigError(
+                f"the session token file {token_path} could not be read as UTF-8 text "
+                f"({type(exc).__name__}); remove or fix it, or set PADDLE_WORKER_TOKEN directly"
+            ) from exc
     return PaddleSettings(
         provider=provider,
         execution_class=execution_class,
