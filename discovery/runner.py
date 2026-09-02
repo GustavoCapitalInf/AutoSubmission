@@ -85,6 +85,7 @@ from ocr.escalation import (
     router_inputs,
 )
 from ocr.inspect import inspect_pdf
+from ocr.paddle_config import REFUSAL_REASONS as PADDLE_REFUSAL_REASONS
 from telemetry import (
     DispatchCollector,
     EXTRACTION_TRIGGERS,
@@ -153,6 +154,16 @@ ARTIFACT_CACHE = Path("tests/corpus_cache")
 PARSER_ID_LIVE_DISPATCH = "live_dispatch"
 PARSER_ID_LIVE_DETECT = "live_detect"
 PARSER_ID_UNAVAILABLE = "unavailable"
+
+#: P21-ROUTING closure (MAJOR-1). A LITERAL mirror of `webapp.artifact_cache.
+#: CACHE_FINDING_EVIDENCE_DRIFT` — not imported, for the same reason
+#: `telemetry.run_of_record._VISUAL_ROW_OUTCOMES` and `telemetry.record.
+#: VISUAL_MODEL_TOKENS` are literal mirrors rather than imports: this module
+#: already lazily imports `webapp.artifact_cache` inside `_read`/`_read_visual`
+#: /`_read_paddle` specifically so a `cache=None` run never pulls the module
+#: in at all, and a module-level import for one string constant would defeat
+#: that. `tests/test_discovery.py` holds the two equal by test.
+CACHE_FINDING_EVIDENCE_DRIFT = "cached_evidence_drift"
 
 #: The closed vocabulary `DocumentRow.paddle_rung` is enforced against at the
 #: row projection (mirrors `PARSER_ID_*`'s pattern above and `visual_rung`'s
@@ -259,6 +270,21 @@ class DocumentRow:
     paddle_provider: str = ""
     paddle_execution_class: str = ""
     offline_source_model: str = ""
+    # P21-ROUTING closure (MAJOR-1, MINOR-2). `cache_finding` is `""` on every
+    # ordinary read and `webapp.artifact_cache.CACHE_FINDING_EVIDENCE_DRIFT`
+    # when the LAST `cached_ocr` call this row's reads made (offline, or
+    # whichever escalation rung ran) recomputed because its cached copy
+    # failed its own round-trip check — never cleared once set, so an
+    # earlier rung's finding on the same document survives a later rung's
+    # ordinary read. `paddle_refusal_reason` carries the closed
+    # `ocr.paddle_config.REFUSAL_REASONS` token for the LAST `PaddleRefused`
+    # this row's Paddle read raised (e.g. `paddle_runtime_mismatch`, the
+    # silent-PP-OCRv6 hazard D5 exists to catch) — `""` when no Paddle read
+    # ever refused. `outcome_reason` keeps its own, unrelated closed
+    # vocabulary (`ocr_failed`, `paddle_refused`, ...); this column exists
+    # because that vocabulary is deliberately coarser than `REFUSAL_REASONS`.
+    cache_finding: str = ""
+    paddle_refusal_reason: str = ""
 
     def as_dict(self) -> dict:
         # P20-ROUTER review, MAJOR-3. The closed vocabularies are enforced
@@ -287,6 +313,16 @@ class DocumentRow:
             raise ValueError(
                 f"escalation_extractor {self.escalation_extractor!r} is not "
                 f"one of '', 'paddle', 'visual'"
+            )
+        if self.cache_finding and self.cache_finding != CACHE_FINDING_EVIDENCE_DRIFT:
+            raise ValueError(
+                f"cache_finding {self.cache_finding!r} is not '' or "
+                f"{CACHE_FINDING_EVIDENCE_DRIFT!r}"
+            )
+        if self.paddle_refusal_reason and self.paddle_refusal_reason not in PADDLE_REFUSAL_REASONS:
+            raise ValueError(
+                f"paddle_refusal_reason {self.paddle_refusal_reason!r} is not '' or "
+                f"in the closed vocabulary {PADDLE_REFUSAL_REASONS}"
             )
         row = asdict(self)
         row["candidates"] = "; ".join(self.candidates)
@@ -590,6 +626,23 @@ class DiscoveryRunner:
     _last_ocr_cached = False
     _last_visual_cached = False
     _last_paddle_cached = False
+    #: P21-ROUTING closure (MAJOR-1). `None` on every ordinary read; the
+    #: `CacheResult.finding` value (e.g. `CACHE_FINDING_EVIDENCE_DRIFT`) when
+    #: the last `cached_ocr` call for that rung recomputed because its cached
+    #: copy failed its own round-trip check. Read by `process()` right after
+    #: each `_read*` call and projected onto `row.cache_finding` — a
+    #: per-instance attribute, not a per-call return value, for the same
+    #: reason `_last_ocr_cached` etc. already are: `_read`/`_read_visual`/
+    #: `_read_paddle`'s own return tuples are pinned shapes callers and tests
+    #: already destructure, and widening them is a bigger, riskier change
+    #: than one more instance attribute read immediately after the call.
+    _last_ocr_finding: str | None = None
+    _last_visual_finding: str | None = None
+    _last_paddle_finding: str | None = None
+    #: P21-ROUTING closure (MINOR-2). The `.reason` of the last `PaddleRefused`
+    #: `_read_paddle` caught, or `""` when its last call did not refuse.
+    #: Projected onto `row.paddle_refusal_reason` right after each call.
+    _last_paddle_refusal_reason: str = ""
 
     def __init__(
         self,
@@ -611,12 +664,6 @@ class DiscoveryRunner:
         self.dedup = dedup if dedup is not None else DedupIndex.with_pinned_corpus()
         self.allow_local_ocr = mode in LOCAL_OCR_MODES
         self.allow_visual_ocr = mode == MODE_SCANNED_VISUAL
-        #: P21-ROUTING (Phase 2.1). `allow_paddle_ocr` gates the offline
-        #: read's cache-key shape exactly as `allow_visual_ocr` does for the
-        #: visual mode — always False here (the OFFLINE read never sets it;
-        #: see `_read`) — and is the runner's own per-mode fact for whether
-        #: `--scanned-paddle` is this run's mode at all.
-        self.allow_paddle_ocr = mode == MODE_SCANNED_PADDLE
         #: D4: the ONE mode constant `router_inputs(enabled=...)` is ever
         #: built from at this class's two `decide(` call sites — never a
         #: per-document expression (the AST tripwire in
@@ -677,6 +724,7 @@ class DiscoveryRunner:
                 allow_visual_ocr=False,   # never: no model client is constructed
             )
 
+        self._last_ocr_finding = None
         if self.cache is None:
             document, cached = compute(), False
         else:
@@ -693,6 +741,7 @@ class DiscoveryRunner:
                 allow_visual_ocr=False,
             )
             document, cached = result.value, result.cached
+            self._last_ocr_finding = result.finding
         self._last_ocr_cached = cached
         if document is not None:
             return document, document.to_markdown(), list(document.pages), None
@@ -733,6 +782,7 @@ class DiscoveryRunner:
                 allow_visual_ocr=True,
             )
 
+        self._last_visual_finding = None
         try:
             if self.cache is None:
                 document, cached = compute(), False
@@ -750,6 +800,7 @@ class DiscoveryRunner:
                     allow_visual_ocr=True,
                 )
                 document, cached = result.value, result.cached
+                self._last_visual_finding = result.finding
         except Exception as exc:
             self._last_visual_cached = False
             return None, None, type(exc).__name__
@@ -794,6 +845,8 @@ class DiscoveryRunner:
                 paddle_data_scope="customer",
             )
 
+        self._last_paddle_finding = None
+        self._last_paddle_refusal_reason = ""
         try:
             if self.cache is None:
                 document, cached = compute(), False
@@ -812,15 +865,50 @@ class DiscoveryRunner:
                     allow_paddle_ocr=True,
                 )
                 document, cached = result.value, result.cached
+                self._last_paddle_finding = result.finding
         except Exception as exc:
             self._last_paddle_cached = False
-            if isinstance(exc, PaddleRefused) and exc.reason == "remote_customer_data_refused":
-                return None, None, "refused_customer_data"
+            if isinstance(exc, PaddleRefused):
+                # MINOR-2: the reason travels regardless of WHICH refusal it
+                # is — `remote_customer_data_refused` keeps its own row
+                # token too (the row's terminal outcome fields key on it),
+                # but every other reason (`paddle_runtime_mismatch`, the
+                # silent-PP-OCRv6 hazard, included) is no longer lost inside
+                # the generic `PaddleRefused` class name.
+                self._last_paddle_refusal_reason = exc.reason
+                if exc.reason == "remote_customer_data_refused":
+                    return None, None, "refused_customer_data"
             return None, None, type(exc).__name__
         self._last_paddle_cached = cached
         if document is None:
             return None, None, None
         return document, document.to_markdown(), None
+
+    def _project_cache_finding(self, row: "DocumentRow") -> None:
+        """P21-ROUTING closure (MAJOR-1). Called right after every `_read` /
+        `_read_visual` / `_read_paddle` invocation: whichever rung's last
+        `cached_ocr` call observed a drift is projected onto `row.
+        cache_finding`, so the fact that a drift happened survives the
+        recompute that immediately follows it inside `cached_ocr` — a
+        drifted entry is overwritten in the cache itself, but not on this
+        row. Each `_read*` method resets its OWN `_last_*_finding` to `None`
+        at its own call, so at most one of the three is ever truthy for a
+        single call; `row.cache_finding` is set (never cleared) so an
+        earlier rung's finding on the SAME document (offline, then an
+        escalation) is not lost when a later rung's own call finds nothing
+        to report."""
+        finding = self._last_ocr_finding or self._last_visual_finding or self._last_paddle_finding
+        if finding:
+            row.cache_finding = finding
+
+    def _project_paddle_refusal(self, row: "DocumentRow") -> None:
+        """MINOR-2: called right after every `_read_paddle` invocation — the
+        closed `REFUSAL_REASONS` token of the last `PaddleRefused` it caught,
+        or nothing when it did not refuse. `outcome_reason` stays on its own,
+        coarser vocabulary; this is the column a later diagnostic (D5's
+        silent-PP-OCRv6 hazard) actually needs."""
+        if self._last_paddle_refusal_reason:
+            row.paddle_refusal_reason = self._last_paddle_refusal_reason
 
     def _analyse(self, markdown: str, collector, sheets=None):
         """(payload, error_type, cached). Deterministic mode; never raises.
@@ -944,6 +1032,7 @@ class DiscoveryRunner:
         name = Path(relative_path).name
         with timer.time("ocr"):
             document, markdown, sheets, note = self._read(raw, name, profile)
+        self._project_cache_finding(row)
 
         if markdown is None and not self.enabled_extractors:
             # Recorded, never skipped: real work this tranche deliberately did
@@ -1027,6 +1116,7 @@ class DiscoveryRunner:
             if recovery_decision.extractor == "visual":
                 with timer.time("visual_ocr"):
                     document, markdown, visual_error = self._read_visual(raw, name, profile)
+                self._project_cache_finding(row)
                 sheets = list(document.pages) if document is not None else None
                 timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
                 row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
@@ -1048,6 +1138,8 @@ class DiscoveryRunner:
             else:  # "paddle" — P21-ROUTING
                 with timer.time("paddle_ocr"):
                     document, markdown, paddle_error = self._read_paddle(raw, name, profile)
+                self._project_cache_finding(row)
+                self._project_paddle_refusal(row)
                 sheets = list(document.pages) if document is not None else None
                 timer.set_cache("paddle_ocr", _disposition(self.cache, self._last_paddle_cached))
                 row.cache_paddle = timer.as_dict()["paddle_ocr"]["cache"]
@@ -1140,6 +1232,7 @@ class DiscoveryRunner:
             if decision.extractor == "visual":
                 with timer.time("visual_ocr"):
                     visual_doc, visual_md, visual_error = self._read_visual(raw, name, profile)
+                self._project_cache_finding(row)
                 timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
                 row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
                 row.visual_rung = VISUAL_FAILED if visual_error else VISUAL_NO_UPGRADE
@@ -1172,6 +1265,8 @@ class DiscoveryRunner:
             elif decision.extractor == "paddle":  # P21-ROUTING
                 with timer.time("paddle_ocr"):
                     paddle_doc, paddle_md, paddle_error = self._read_paddle(raw, name, profile)
+                self._project_cache_finding(row)
+                self._project_paddle_refusal(row)
                 timer.set_cache("paddle_ocr", _disposition(self.cache, self._last_paddle_cached))
                 row.cache_paddle = timer.as_dict()["paddle_ocr"]["cache"]
                 if paddle_error == "refused_customer_data":

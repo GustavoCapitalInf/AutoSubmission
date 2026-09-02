@@ -498,6 +498,8 @@ ROW_FIELDS = [
     # P21-ROUTING (Phase 2.1). Likewise appended at the END.
     "paddle_rung", "cache_paddle", "escalation_extractor", "evidence_sha256",
     "paddle_provider", "paddle_execution_class", "offline_source_model",
+    # P21-ROUTING closure (MAJOR-1, MINOR-2). Likewise appended at the END.
+    "cache_finding", "paddle_refusal_reason",
 ]
 
 

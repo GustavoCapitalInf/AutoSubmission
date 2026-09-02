@@ -290,6 +290,7 @@ from .storage import Storage
 __all__ = [
     "ArtifactCache",
     "CacheResult",
+    "CACHE_FINDING_EVIDENCE_DRIFT",
     "CACHE_FORMAT_VERSION",
     "OCR_STAGE_VERSION",
     "ANALYSIS_STAGE_VERSION",
@@ -521,6 +522,13 @@ EXTRACTION_SCHEMA_VERSION = 2
 STAGE_OCR = "ocr"
 STAGE_ANALYSIS = "analysis"
 STAGE_REPORT = "report"
+
+#: P21-ROUTING closure (MAJOR-1). The one member of :class:`CacheResult`'s
+#: ``finding`` vocabulary today: a cached OCR entry's ``evidence`` /
+#: ``page_extractor`` failed the round-trip / consistency check
+#: `cached_ocr` itself enforces on every restore, so the entry was treated as
+#: a miss and recomputed rather than served.
+CACHE_FINDING_EVIDENCE_DRIFT = "cached_evidence_drift"
 
 T = TypeVar("T")
 
@@ -940,12 +948,25 @@ class CacheResult:
     """What a memoizing wrapper returns.
 
     ``cached`` is the whole proof surface: ``True`` means ``compute`` was never
-    called, i.e. zero OCR / zero LLM work for this stage."""
+    called, i.e. zero OCR / zero LLM work for this stage.
+
+    ``finding`` (P21-ROUTING closure, MAJOR-1) is ``None`` on every ordinary
+    hit, miss or bypass, and a closed-vocabulary string when the wrapper
+    observed something worth a caller's attention DESPITE resolving the call
+    normally — today the only member is ``"cached_evidence_drift"``
+    (:func:`cached_ocr`'s cached ``evidence``/``page_extractor`` failed its own
+    round-trip check, so the entry was treated as a miss and recomputed). This
+    is what keeps "the artifact was corrupt and we recomputed it" from being
+    indistinguishable from "this was never cached at all" once the recompute
+    overwrites the drifted entry: the finding travels out of the function on
+    the SAME return value the caller already reads, so it cannot be dropped
+    by a caller that only checks ``cached``."""
 
     value: Any
     cached: bool
     stage: str
     cache_key: str | None
+    finding: str | None = None
 
 
 class ArtifactCache:
@@ -1173,6 +1194,14 @@ def cached_ocr(
     is a DRIFTED cached copy — surfaced as a cache MISS, never served: this
     function falls through to a fresh ``compute()`` exactly as an actual miss
     would, and overwrites the drifted entry with the freshly computed one.
+
+    P21-ROUTING closure (MAJOR-1): a drift is also a FINDING, not only a
+    miss. The returned :class:`CacheResult` carries
+    ``finding=CACHE_FINDING_EVIDENCE_DRIFT`` on exactly the recompute this
+    docstring describes — every other path (true hit, true miss, bypass)
+    returns ``finding=None`` — so "we silently repaired a corrupted artifact"
+    is a counted, callable fact rather than indistinguishable from an
+    ordinary miss once the recompute overwrites the drifted entry.
     """
     if cache is None:
         return CacheResult(compute(), False, STAGE_OCR, None)
@@ -1188,6 +1217,7 @@ def cached_ocr(
     )
     key = cache_key(STAGE_OCR, input_sha, settings_key)
     hit, document = cache.get_ocr(input_sha, settings_key)
+    drifted = False
     if hit:
         try:
             evidence_payload = document.get("evidence") if document is not None else None
@@ -1207,12 +1237,15 @@ def cached_ocr(
                 )
             )
         except (EvidenceError, ProvenanceTokenError, TypeError, KeyError):
-            pass  # a drifted cached copy: fall through to a fresh compute() below
+            drifted = True  # a drifted cached copy: fall through to a fresh compute() below
         else:
-            return CacheResult(value, True, STAGE_OCR, key)
+            return CacheResult(value, True, STAGE_OCR, key, finding=None)
     document_out = compute()
     cache.put_ocr(input_sha, settings_key, document_out)
-    return CacheResult(document_out, False, STAGE_OCR, key)
+    return CacheResult(
+        document_out, False, STAGE_OCR, key,
+        finding=CACHE_FINDING_EVIDENCE_DRIFT if drifted else None,
+    )
 
 
 def cached_analysis(

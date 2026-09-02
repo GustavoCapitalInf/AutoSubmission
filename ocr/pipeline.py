@@ -98,6 +98,14 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
             # `page_integrity` unambiguously means "the ladder did not run",
             # never "this rung is exempt".
             native.page_integrity = assess_pages(native.pages)
+            # P21-ROUTING closure (MAJOR-3): design item 3 names a
+            # per-page provenance token for EVERY rung, not only Paddle's.
+            # `native` here is whichever offline rung actually produced the
+            # read (the native extractors or local Tesseract), and its own
+            # `model` is already the exact per-document token that rung
+            # sets — the same one `to_markdown()`'s header already carries —
+            # so every page of THIS read shares it.
+            native.page_extractor = [native.model] * len(native.pages)
             if on_page_replace is not None:
                 for i, page in enumerate(native.pages):
                     on_page_replace(i, page)
@@ -204,6 +212,11 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
     # PageText itself, so a flag can never describe a discarded read. Flag-only:
     # nothing below re-OCRs, drops, or rewrites a page because of a flag.
     integrity = assess_pages(results)
+    pages_out = [str(r) if r else "" for r in results]
     return StatementMarkdown(source_file=source_file, model=settings.model,
-                             pages=[str(r) if r else "" for r in results],
-                             page_integrity=integrity)
+                             pages=pages_out, page_integrity=integrity,
+                             # P21-ROUTING closure (MAJOR-3): design item 3's
+                             # visual arm — `settings.model` per page, the
+                             # same token this call already stamps as the
+                             # document's own `model`.
+                             page_extractor=[settings.model] * len(pages_out))

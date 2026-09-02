@@ -29,6 +29,7 @@ import sys
 from pathlib import Path
 
 from ocr.availability import probe_visual_ocr
+from ocr.paddle_client import probe as probe_paddle_ocr
 from telemetry import JsonlSink, NullSink, new_run_id, telemetry_disabled
 
 from .inventory import (
@@ -244,10 +245,11 @@ def main(argv: list[str] | None = None) -> int:
         # P21-ROUTING: the SAME preflight discipline as --scanned-visual,
         # mirrored onto the Paddle worker (config / opt-in / version / health)
         # rather than the visual endpoint. Never prints a host — `probe()`
-        # names only a closed refusal token.
-        from ocr.paddle_client import probe as _probe_paddle
-
-        paddle_status = _probe_paddle()
+        # names only a closed refusal token. `probe_paddle_ocr` is imported
+        # at MODULE level (mirroring `probe_visual_ocr` above) precisely so
+        # a test can monkeypatch `cli.probe_paddle_ocr` the same way it
+        # already monkeypatches `cli.probe_visual_ocr` (MINOR-4).
+        paddle_status = probe_paddle_ocr()
         if not paddle_status.available:
             print(f"discovery: --scanned-paddle cannot start. {paddle_status.reason}",
                   file=sys.stderr)
