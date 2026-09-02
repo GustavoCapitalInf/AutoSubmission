@@ -387,16 +387,21 @@ def _build_client(settings: Settings):
 
     `check_endpoint` runs BEFORE the `openai` import and BEFORE any client is
     constructed: a refused endpoint raises `EndpointRefused` and nothing is
-    built, nothing is sent. The decision is re-derived from `settings.base_url`
-    here rather than trusted from `settings.endpoint_class` (a descriptive
-    field), so a hand-built `Settings` cannot spoof its way past the policy.
-    There is exactly one endpoint per process: this function builds one client
-    for one `base_url` and has no fallback list or second host to hop to — a
-    refusal or a failure here ends the rung.
+    built, nothing is sent. BOTH the endpoint class AND the opt-in are
+    re-derived fresh here rather than trusted from `settings.endpoint_class`
+    / `settings.remote_opt_in` (descriptive fields) — MINOR-2
+    (PHASE2_P20SEAM_REVIEW.md): a hand-built `Settings(..., remote_opt_in=
+    True)` used to reach a remote endpoint with the env literal never set,
+    because only `endpoint_class` was re-derived. Re-deriving `remote_opt_in`
+    too closes that: the ONLY way to a remote endpoint is the real
+    `OCR_REMOTE_OPT_IN` env var, regardless of how `Settings` was built.
+    There is exactly one endpoint per process: this function builds one
+    client for one `base_url` and has no fallback list or second host to
+    hop to — a refusal or a failure here ends the rung.
     """
-    from .endpoint_policy import EndpointRefused, check_endpoint
+    from .endpoint_policy import EndpointRefused, check_endpoint, remote_opt_in_from_env
 
-    decision = check_endpoint(settings.base_url, opt_in=settings.remote_opt_in)
+    decision = check_endpoint(settings.base_url, opt_in=remote_opt_in_from_env())
     if not decision.allowed:
         raise EndpointRefused(decision, settings.base_url)
 
