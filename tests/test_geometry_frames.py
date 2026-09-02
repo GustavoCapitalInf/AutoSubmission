@@ -349,21 +349,56 @@ def test_geometry_from_a_pdf_without_native_text_is_still_none():
 # ===========================================================================
 
 def test_group_lines_is_a_thin_wrapper_with_no_second_tolerance_computation():
-    """M4 (+ F-3): a mutant that reintroduces a tolerance/median computation
-    in `geometry.py` -- however spelled -- must be caught even if every
-    other test still passes by coincidence. AST, not a string search, so a
-    reformatted call cannot dodge it. The ORIGINAL guard here caught only a
-    bare `median(...)` call; a hand-rolled median built from `sorted(...)`
-    plus a `* 0.5` literal survived it (F-3, reproduced and closed). Refused
-    now, all by AST at any depth in `geometry.py`:
+    """M4 (+ F-3, + P21-GEOMETRY-CLOSURE-2 R-1): a mutant that reintroduces a
+    tolerance/median computation in `geometry.py` -- however spelled -- must
+    be caught even if every other test still passes by coincidence. AST, not
+    a string search, so a reformatted call cannot dodge it.
+
+    The guard's history: it originally caught only a bare `median(...)`
+    call; a hand-rolled median built from `sorted(...)` plus a `* 0.5`
+    literal survived it (F-3). Widened to also refuse `sorted(`, any
+    `statistics` import and the literal `0.6` -- a `list.sort()`-based
+    median (an `ast.Attribute` call, not `sorted`'s `ast.Name`) with a
+    different literal (`0.5`, not `0.6`) still survived that (R-1): the
+    guard was banning SPELLINGS of the computation, and there is always
+    another spelling.
+
+    R-1's fix targets the MECHANISM every variant needs instead of its
+    arithmetic: every one of them must hand its own tolerance to
+    `_canonical_group_lines` (or the module it wraps, `evidence.group_lines`)
+    as a keyword argument, because the delegation is meant to be
+    UNPARAMETERISED. So the guard now refuses, by AST, at any depth in
+    `geometry.py`:
+      * ANY keyword argument at a call to `_canonical_group_lines` or
+        `evidence.group_lines` (spelling-independent -- this is what R-1's
+        `list.sort()` / `0.5` mutant is actually caught by);
       * `median` called (from any import spelling);
       * `import statistics` / `from statistics import ...`, in any form;
-      * `sorted(` called anywhere (the one grouping rule's own sort lives in
-        `evidence.group_lines`, never here);
+      * `sorted(` called, or `.sort(` called as a method, anywhere (the one
+        grouping rule's own sort lives in `evidence.group_lines`, never
+        here);
       * the literal `0.6` (the grouping rule's own tolerance constant)
         appearing anywhere in this module's numbers."""
     source = (ROOT / "analysis" / "structurer" / "geometry.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
+
+    def _is_group_lines_call(node: ast.Call) -> bool:
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "_canonical_group_lines":
+            return True
+        if isinstance(func, ast.Attribute) and func.attr == "group_lines":
+            return True
+        return False
+
+    keyworded_group_lines_calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _is_group_lines_call(node) and node.keywords
+    ]
+    assert not keyworded_group_lines_calls, (
+        "geometry.py must call the ONE grouping rule unparameterised -- "
+        "any keyword argument (in particular tolerance=) smuggles a second "
+        "tolerance computation past a spelling-specific guard (R-1)"
+    )
 
     median_calls = [
         node for node in ast.walk(tree)
@@ -382,9 +417,11 @@ def test_group_lines_is_a_thin_wrapper_with_no_second_tolerance_computation():
 
     sorted_calls = [
         node for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "sorted"
+        if isinstance(node, ast.Call)
+        and ((isinstance(node.func, ast.Name) and node.func.id == "sorted")
+             or (isinstance(node.func, ast.Attribute) and node.func.attr == "sort"))
     ]
-    assert not sorted_calls, "geometry.py must not sort words itself; the grouping rule's own sort lives in evidence.group_lines"
+    assert not sorted_calls, "geometry.py must not sort words itself (sorted() or .sort()); the grouping rule's own sort lives in evidence.group_lines"
 
     tolerance_literals = [
         node for node in ast.walk(tree)
@@ -820,6 +857,53 @@ def test_a_page_with_one_refused_word_reports_its_real_dimensions_not_unreadable
     assert geometry is not None
     # the REAL page dimensions (letter, 612x792), not a 1x1 placeholder
     assert (geometry.pages[0].width, geometry.pages[0].height) == pytest.approx((612.0, 792.0))
+    assert geometry.pages[0].lines == ()
+    assert geometry.pages[1].width > 0.0 and geometry.pages[1].lines
+
+
+def test_a_zero_area_rect_is_filed_as_unreadable_not_word_refused():
+    """P21-GEOMETRY-CLOSURE-2 R-3: the page's `get_text`/`rect` read
+    SUCCEEDS (nothing throws) but the rect it returns is zero-area -- a
+    shape `PageFrame.pdf_points` refuses (its own `_positive(width)`/
+    `_positive(height)` check). `PageFrame.pdf_points(...)` construction
+    stays in the FIRST try alongside `get_text`/`rect` (the choice this
+    closure makes between R-3's two options): there is never a real page
+    size to publish either way, which is the SAME operative fact as a read
+    that throws, so this gets `UNREADABLE_PAGE_NOTE` and the minimal
+    placeholder frame -- never `WORD_REFUSED_NOTE`, which would claim a
+    real frame exists when it does not. A sibling page is unaffected."""
+    import fitz
+
+    pdf_bytes = _render_pdf(_STRUCTURER_FIXTURE_ROWS, extra_pages=1)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    document[1].insert_text(fitz.Point(40.0, 100.0), "SecondPageWord", fontsize=10.0, fontname="helv")
+    pdf_bytes = document.tobytes()
+    document.close()
+
+    class _ZeroRect:
+        width = 0.0
+        height = 0.0
+
+    original_rect = fitz.Page.rect
+
+    def _zero_area_on_page_zero(self):
+        if self.number == 0:
+            return _ZeroRect()
+        return original_rect.fget(self)
+
+    fitz.Page.rect = property(_zero_area_on_page_zero)
+    try:
+        evidence = native_evidence_from_pdf(pdf_bytes)
+        geometry = geometry_from_pdf(pdf_bytes)
+    finally:
+        fitz.Page.rect = original_rect
+
+    assert evidence is not None
+    assert UNREADABLE_PAGE_NOTE in evidence.pages[0].notes
+    assert WORD_REFUSED_NOTE not in evidence.pages[0].notes
+    assert evidence.pages[0].words == ()
+    assert geometry is not None
+    assert (geometry.pages[0].width, geometry.pages[0].height) == pytest.approx((1.0, 1.0))
     assert geometry.pages[0].lines == ()
     assert geometry.pages[1].width > 0.0 and geometry.pages[1].lines
 

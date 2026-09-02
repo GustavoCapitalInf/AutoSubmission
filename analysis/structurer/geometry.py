@@ -74,15 +74,21 @@ NATIVE_EXTRACTOR_ID = "native-pdf-words"
 
 #: A `PageEvidence.notes` entry meaning: this page's own `get_text`/`rect`
 #: read threw (a PyMuPDF failure this project has never observed on its
-#: corpus), so the page is kept — for page-number fidelity — with no words
-#: and a minimal, valid placeholder frame. Distinct from `WORD_REFUSED_NOTE`
-#: (P21-GEOMETRY-CLOSURE F-5): here the page itself could not be read at
-#: all; there is never a real `page.rect` to report. `geometry_from_evidence`
-#: does NOT special-case this note (P21-GEOMETRY-CLOSURE F-8: the neutral
-#: consumer must not branch on a source-specific note string) — it reports
-#: the placeholder frame's own declared dimensions like any other page,
-#: which is a documented, untriggered (0/109 corpus PDFs) divergence from
-#: the Phase 2.0 reader's hardcoded `0.0 x 0.0` for this exact case.
+#: corpus), OR the read succeeded but produced a rect this contract cannot
+#: represent as a `PageFrame` (P21-GEOMETRY-CLOSURE-2 R-3: a zero-area rect
+#: is the reachable shape — `evidence/`'s own frame validation refuses a
+#: non-positive width/height, and there is no salvageable dimension to
+#: report either way). Both are the SAME operative fact: there is never a
+#: real page size to publish, so the page is kept — for page-number
+#: fidelity — with no words and a minimal, valid placeholder frame.
+#: Distinct from `WORD_REFUSED_NOTE` (P21-GEOMETRY-CLOSURE F-5): a word
+#: refusal happens only once a real frame already exists.
+#: `geometry_from_evidence` does NOT special-case this note
+#: (P21-GEOMETRY-CLOSURE F-8: the neutral consumer must not branch on a
+#: source-specific note string) — it reports the placeholder frame's own
+#: declared dimensions like any other page, which is a documented,
+#: untriggered (0/109 corpus PDFs) divergence from the Phase 2.0 reader's
+#: hardcoded `0.0 x 0.0` for this exact case (both sub-cases).
 UNREADABLE_PAGE_NOTE = "native_page_unreadable"
 
 #: A `PageEvidence.notes` entry meaning: the page's `get_text`/`rect` read
@@ -243,14 +249,16 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
     (the honest answer for a scanned page — there are no words, only pixels).
     Never raises. Two DISTINCT page-level failures are both kept as an empty
     page (never abort the whole document) but named honestly and separately
-    (P21-GEOMETRY-CLOSURE F-5): a page whose own `get_text`/`rect` read
+    (P21-GEOMETRY-CLOSURE F-5, R-3): a page whose own `get_text`/`rect` read
     throws (a PyMuPDF failure this project's 109-PDF corpus has never
-    produced) gets `UNREADABLE_PAGE_NOTE` and a minimal placeholder frame,
-    since no real dimensions exist to report; a page that reads fine but
-    whose PyMuPDF word list contains a box `evidence/`'s strict
-    `x0 < x1 and y0 < y1` refuses gets `WORD_REFUSED_NOTE` and its REAL
-    frame — the whole page is refused (no guessed structure, no silently
-    dropping just the bad word), a deliberate, documented, latent
+    produced), OR whose read succeeds but produces a rect `PageFrame` cannot
+    represent (a zero-area rect being the reachable shape — no real
+    dimensions exist to report either way), gets `UNREADABLE_PAGE_NOTE` and a
+    minimal placeholder frame; a page that reads fine, produces a
+    representable frame, but whose PyMuPDF word list contains a box
+    `evidence/`'s strict `x0 < x1 and y0 < y1` refuses gets `WORD_REFUSED_NOTE`
+    and its REAL frame — the whole page is refused (no guessed structure, no
+    silently dropping just the bad word), a deliberate, documented, latent
     (0/261,526 words on the pinned corpus) divergence from Phase 2.0's
     keep-every-word behaviour. Anything else this contract cannot
     faithfully represent aborts the whole document to `None` rather than
@@ -274,13 +282,17 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
     pages: list[PageEvidence] = []
     try:
         for page_index, page in enumerate(document):
-            # Two SEPARATE failure classes (P21-GEOMETRY-CLOSURE F-5): the
-            # page itself may be unreadable (no real dimensions exist), or
-            # the page reads fine but a word PyMuPDF returned cannot be
-            # trusted as a box (`evidence/`'s strict `x0 < x1 and y0 < y1`).
-            # Conflating them under one note mislabelled a readable page
-            # with one bad word as "unreadable"; they now get distinct
-            # notes and, for the second, the page's REAL dimensions.
+            # Two SEPARATE failure classes (P21-GEOMETRY-CLOSURE F-5, R-3):
+            # no real dimensions exist for this page at all (the read threw,
+            # OR it succeeded but the rect cannot become a valid `PageFrame`
+            # -- a zero-area rect is the reachable shape, still caught here
+            # since a frame is required before any word can be placed in it),
+            # or the page reads fine and gets a real frame but a word PyMuPDF
+            # returned cannot be trusted as a box (`evidence/`'s strict
+            # `x0 < x1 and y0 < y1`). Conflating them under one note
+            # mislabelled a readable page with one bad word as "unreadable";
+            # they now get distinct notes and, for the second, the page's
+            # REAL dimensions.
             try:
                 raw_words = page.get_text("words")
                 rect = page.rect
