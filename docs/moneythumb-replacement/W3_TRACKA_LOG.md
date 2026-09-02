@@ -65053,3 +65053,109 @@ verification: mutant re-application 1 failed (killed, `0 == 3`); MAJOR-2 reprodu
 reproduction: n/a (inert deliverable, no exit code) / fix: `bash -n tools/train/coldrun.sh` exit 0;
 targeted suite 0; 5 guards 0; corpus-marked test 0; message scan 0; privacy scan 0 (after the
 untracking); tree `git status --porcelain` empty after every commit and every restored mutant.
+# §P20ARTIFACTS-CLOSURE-2 — re-review APPROVE WITH FINDINGS; the three named conditions closed
+
+Re-review verdict on `wave20-artifacts @ 54b3ec1`: **APPROVE WITH FINDINGS** — both BLOCKs and all
+four MAJORs re-measured closed by the reviewer's own independent re-derivation (not read off the
+closure's numbers); 3 new MINOR + 1 observation, none a correctness regression. Three conditions
+carried into this pass; MINOR-8 (the `replayed < population` refusal) is explicitly carried into
+`P20-REPLAY-SHAPE`, not this cell's.
+
+## MINOR-9 — the closure broke two call sites and did not disclose them (fixed, disclosed)
+
+Reproduced exactly as the reviewer measured: `tools/privacy_scan_branch.py::cached_text`'s signature
+change (`(root, sha, ocr_keys)` → `(conn, root, sha, row, partitions)`) left
+`tools/fixpriv_invent.py:57` and `tools/fixpriv_w3_redact.py:164` calling the old shape — both already
+silently vacuous at this tree's v5 `OCR_STAGE_VERSION` (their own live eight-combination
+`ocr_settings_key()` enumeration could never match the frozen v4-keyed archives), so the signature
+change converted a silent vacuous read into a loud `TypeError`, a fresh break either way.
+
+Fixed: both tools converted to the same run-of-record shape as the three previously-granted tools —
+a `--run` argument (default: the train9 pointer file, via `tools.privacy_scan_branch.resolve_run`),
+`telemetry.run_of_record.partitions_for_run` + `tools.privacy_scan_branch.rows_by_sha` +
+`cached_text(conn, root, sha, row, partitions)`; `RunOfRecordError` maps to exit 5 in both `main()`s,
+matching the other three tools. `tools/fixpriv_invent.py`'s pre-existing `read == 0` vacuous-universe
+refusal (exit 2, unrelated to this cell) is unchanged.
+
+**These two files are additions to the MINOR-5 backlog paragraph's population, named explicitly as
+CONVERTED (fixed), not left broken:** `tools/fixpriv_invent.py` and `tools/fixpriv_w3_redact.py` no
+longer carry the "old ColdCache/live-enumeration signature" defect class MINOR-5 backlogs for the
+other 33 sites; they now resolve through `telemetry.run_of_record` exactly like
+`tools/privacy_scan_branch.py`, `tools/huntington_msg_privacy_scan.py` and
+`tools/regfp_zero_movement_sweep.py`.
+
+Verified: `python -m py_compile` + a smoke `import tools.fixpriv_invent` / `import
+tools.fixpriv_w3_redact` — both clean. The four `tests/test_fixpriv_*.py` files
+(`test_fixpriv_ast_identity.py`, `test_fixpriv_mutation_table.py`, `test_fixpriv_shift_dates.py`,
+`test_fixpriv_w3_redact.py`) — **185 passed**, exit 0, exactly the reviewer's own measured count;
+none of the 185 reaches the converted `cached_text` call path (confirmed by the reviewer and
+unaffected by this fix either way).
+
+## MINOR-7 — the correspondence bound's justification cited the wrong archive figure; two residuals, now proven and one closed
+
+Reproduced the reviewer's own measurement independently against the real train9 archive (pure sqlite
++ csv, nothing imported from the tree): **3,476 of 3,476** `native`/`local_tesseract` rows resolve
+their own sha under the archive's sole OCR settings key (**100%**); **3,351 of 3,351** distinct offline
+shas resolve. The old docstring's citation of "3,364/3,380" as evidence for a weak "resolves at least
+one" bound was wrong on its own terms: 3,380 − 29 shas whose `source_path` is `none` throughout
+(never sampled — the sample already filters on `source_path`) = 3,351 offline shas, every one cached,
+plus 13 cached NEGATIVE/deferred OCR results = 3,364. That arithmetic was never about documents this
+correspondence check looks at.
+
+Fixed: `_require_offline_key_resolves_a_sample` now requires a **supermajority — at least 90% — of
+the sample** to resolve (`_CORRESPONDENCE_MIN_RESOLVED_FRACTION = 0.90`), not "at least one." The
+archive supports "resolves all" outright (100%); 90% is a deliberate safety margin below that
+measured ceiling, for a hypothetical future archive with genuine partial coverage, not evidence one
+exists today. `verify_reconstruction`'s docstring corrected to state the real figure and the real
+derivation of the old 3,364/3,380 citation, in place of citing it as evidence.
+
+Two residual paths, addressed as instructed rather than both "fixed":
+* **A (both tranches hold every sampled document)** — reproduced: the wrong tranche resolves 100% of
+  the sample, indistinguishable by resolution rate alone from the correct tranche. **Proven, not
+  silently accepted**: `test_correspondence_cannot_tell_two_full_tranches_apart` constructs exactly
+  this scenario and asserts `verify_reconstruction` does not raise, with the docstring stating plainly
+  that a resolution-RATE check cannot close this — closing it needs an instrument that can tell two
+  ARTIFACTS apart (content or provenance), which is out of this card's scope and unreachable on either
+  frozen cold cache (re-verified: each still holds exactly one OCR settings key).
+* **B (a one-accidental-hit sample)** — closed by the 90% bound itself:
+  `test_correspondence_refuses_a_one_accidental_hit_sample` (a ten-row sample, one resolves, 10%)
+  proves the new bound refuses what the old "at least one" bound would have accepted.
+
+A companion positive test, `test_correspondence_passes_when_a_supermajority_of_the_sample_resolves`
+(nine of ten rows resolve, one is a genuine gap), proves the bound still accepts the ordinary case
+F-9's doctrine describes ("a partial cold cache can legitimately miss individual documents").
+
+## Observation-10 — the reintroduced `--run` pointer default; population narrowing
+
+`tools/privacy_scan_branch.py`, `tools/huntington_msg_privacy_scan.py`,
+`tools/regfp_zero_movement_sweep.py`, and now `tools/fixpriv_invent.py` / `tools/fixpriv_w3_redact.py`,
+all default `--run` to the train9 pointer file (`discovery_reports/train9-logs/train9_run_dir.txt`) —
+the same class of hidden default this cell refused for `tools/cohort_replay.py` ("a hidden default
+pointing at a possibly-stale run is exactly the defect class this card exists to close"). Recorded for
+consistency, per the reviewer's own disposition (an observation, not a finding): a MISSING pointer
+fails loudly (`SystemExit` → **exit 1**, verified directly in this worktree, where the pointer file is
+genuinely absent); a STALE or mismatched pointer is caught by `verify_reconstruction` (**exit 5**) —
+the safety net a bare hidden default lacks is exactly what distinguishes this from the `cohort_replay`
+case the cell refused to default. One narrowing worth stating plainly: these five tools' POPULATION
+is now effectively intersected with `--run`'s own `rows.csv` — a sha the run's rows do not name
+resolves to no text (`row is None` in `cached_text`) exactly like a sha the run genuinely never read,
+which is the OQ10-correct behaviour (never a guess outside the run's own record) but is a real
+narrowing from the tools' previous archive-wide reach, worth naming rather than assuming.
+
+## Re-verification at this closure-2 tip
+
+`tests/test_run_of_record.py tests/test_cohort_replay_selection.py tests/test_artifact_cache.py`:
+**134 passed**, exit 0. The 5 canonical guards: **255 passed**, exit 0. The four
+`tests/test_fixpriv_*.py` files: **185 passed**, exit 0. Smoke imports of both converted tools: clean.
+
+The three instruments, re-run on the Huntington population (`--where "folder_label=Huntington Bank"`),
+no monkeypatch, at this tree:
+
+| instrument | population | documents_read | result |
+|---|---:|---:|---|
+| `privacy_scan_branch.py` | 54 | **54** | hit_count 0, raw_hit_count 5 (all `words_class`), exit 0 |
+| `huntington_msg_privacy_scan.py` | 54 | **54** | hit_count 0, exit 0, 13 commits scanned |
+| `regfp_zero_movement_sweep.py --start 0 --end 25` | 25 | 22 compared (`no_ocr_artifact` 0) | 22 identical, 0 moved, exit 0 |
+
+`documents_read == population` in both scanners, matching the re-review's own measured shape exactly
+(they measured `raw_hit_count 5` too, and `compared_payload 22` on the same 25-document slice).
