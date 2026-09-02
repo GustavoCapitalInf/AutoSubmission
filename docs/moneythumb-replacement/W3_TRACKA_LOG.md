@@ -67940,3 +67940,232 @@ throughout; no throwaway worktree created for this closure (the mutation checks 
 pristine file copy, restored by direct copy rather than `git checkout --`). Review file fetched
 from `train10` and left uncommitted, per instruction. Card complete; the cold run is Ocean's next
 gate.
+
+# §P21GEOMETRY — one `DocumentGeometry` from canonical evidence, native PyMuPDF words and Paddle-shaped word boxes through the SAME path
+
+**Hygiene card** (Phase 2.1 cell G). Base `train11` at `888fb1c` (Phase 2.1 cell 0: `evidence/` +
+`ocr/paddle_config.py` committed). Branch `wave21-geometry`, worktree
+`.claude/worktrees/mt21-geometry`. Two commits: `0d26bcf` (the implementation) and `88c09cb` (a
+one-line test-data fix: a synthetic dollar amount coincidentally matched a printed archive token —
+see Privacy below). Own: `analysis/structurer/geometry.py`, `tests/test_geometry_frames.py` (new).
+No file outside this list touched; `evidence/canonical.py` needed no change.
+
+## Population
+
+* 3 synthetic PDF fixtures rendered by the test suite (PyMuPDF `insert_text`, invented strings
+  only): the structurer's own multi-column "check number left of date" scenario
+  (`tests/test_structurer.py::test_geometry_finds_rows_whose_date_is_not_at_the_start_of_the_line`,
+  rendered as a real PDF — no such fixture PDF existed in the repo before this cell), and two
+  "structurer-safety"-style fixtures authored for this pin (a 6pt-font ledger, proving the
+  tolerance-scaling property at the PDF-reading layer; a two-column layout) plus a 3-page variant
+  with an empty middle page.
+* 12 pinned corpus PDFs (`corpus_gate.py`'s manifest, read-only; chosen by even index-spacing
+  across 12 different institution folders, not by name): `DF4905B76381B48D`, `3D8D7F8F43ED2A06`,
+  `393547C0407F1A87`, `040261AC8183C1EF`, `CD7E104D7474DD68`, `6EFD091D2A38B437`,
+  `1C1DA63082C5D724`, `A198CD1DEE8C154B`, `A26ECE4F32488CEC`, `58FE8A5C3D8760D6`,
+  `90BA1E7A5D5822A6`, `AF60A6EB9CEBB451` — pinned by content sha16 in the test file itself (a
+  mismatch fails the test, not silently skips).
+* Cohort-replay populations (see below): `--parser first_citizens` (39 documents:
+  `05C6362692047071`, `0B9B1116CD6FEAED`, `11CF08F9F935891A`, `135A84E957ED67E9`,
+  `25C1D4E169DCCFE5`, `33C8E0FDF2540862`, `377EB5B0023697AD`, `445A57F355EDEB5F`,
+  `47FEBD0C20378FC1`, `4A4B397E02167BF0`, `4B63431DA76107E8`, `4CD3C3DE63B98957`,
+  `4D65883BFD29B550`, `57058C69B8711C4A`, `5F58ADF60077E09B`, `5F779C962F5FB70C`,
+  `63639ACF01418B3F`, `6C86D090BE64E53D`, `6E075F96ABB23763`, `7F567A6440636590`,
+  `881EEB9AA64495B0`, `903B94D319E97424`, `9146879D88BF9776`, `9B30C2BE4389A90B`,
+  `A4E1F3B8567F3754`, `A7753ABCC9701B53`, `AAF842B79C8BA41F`, `AD2B678AC4756E07`,
+  `AEFD0161608B45EF`, `B5C3E44F67D536EE`, `B83DD64EAF8E1654`, `B888EE5E289424FE`,
+  `CC1DB089D295AC39`, `D02CEF0B603B1C88`, `D3F034BC45AA720B`, `E32A8C5D6A6683B1`,
+  `E3CBA0EA4F9F204E`, `EB6C700D4089E0FF`, `FD4B797225342B43`) and `--parser rbc` (165 documents,
+  full sha16 list in the private cohort-replay reports, not restated here).
+
+## Root cause
+
+`analysis/structurer/geometry.py` (`geometry_from_pdf`) was Phase 2.0's ONE hand-rolled reader of
+native PDF word geometry: its own PyMuPDF call, its own coordinate convention (implicitly PDF
+points), its own line-grouping function. Phase 2.1 adds a second visual source — PaddleOCR word
+boxes, in raster pixels, via the new extractor-neutral `evidence/` package (Ocean's cell 0). Two
+sources with two ad hoc representations is not "one geometry regardless of extraction source"; the
+card's job was to make the native reader consume the SAME canonical representation Paddle's adapter
+will produce, and make PDF-points-vs-pixels an explicit, tested, never-implicit distinction.
+
+**Finding worth recording plainly:** `analysis/structurer` (this module included) is currently
+DORMANT in production. `analysis/pipeline.py` imports `structure_unclaimed` only for the
+`GENERIC_STRUCTURER_ENABLED` fallback branch on unclaimed documents, and that flag stays unset in
+every environment this cell touched (verified: `structurer_enabled()` is `False` under the default
+environment, pinned by a test in this file). No registered parser module imports
+`analysis.structurer` (`grep -rl "analysis.structurer" analysis/` finds only `pipeline.py`, the
+generic orchestrator, never a per-bank parser). This is WHY the fallback in the card's cohort-replay
+instruction ("if none, replay a representative pair") applied, and why the measured movement below
+is a clean, expected zero rather than a coincidence.
+
+## Solution
+
+* `native_evidence_from_pdf(pdf_bytes) -> ExtractionEvidence | None` — PyMuPDF words read into
+  `WordBox`/`PageFrame.pdf_points` per page, grouped by `evidence.group_lines`; `document_sha256`
+  computed locally (no `ocr` import); never raises (a page whose own `get_text`/`rect` throws is
+  kept as an empty, minimally-framed page carrying `native_page_unreadable`, exactly the Phase 2.0
+  per-page exception behaviour, proven by a monkeypatch test; anything this contract cannot
+  represent aborts the whole document to `None` rather than guess).
+* `geometry_from_evidence(evidence) -> DocumentGeometry | None` — the ONE consumer path for ANY
+  `ExtractionEvidence` (native or future Paddle): every word converted to PDF points through its own
+  page's frame (`evidence.to_pdf_points`), lines rebuilt (never regrouped — `evidence.group_lines`
+  already did that) with the exact span arithmetic `_group_lines` always used. Never raises: a
+  hostile duck-typed stand-in (something no real `PageEvidence` can hold, since its own constructor
+  already refuses malformed shapes) yields `None`.
+* `geometry_from_pdf` is now exactly `geometry_from_evidence(native_evidence_from_pdf(pdf_bytes))`.
+* `_group_lines` is a thin `Word`↔`WordBox` adapter delegating to `evidence.group_lines` — ONE
+  grouping rule, guarded by an AST test against a reintroduced tolerance/median computation.
+* `PageGeometry` gains `frame: PageFrame | None = None` and `source: str = "native"` — both default,
+  so every existing positional constructor call (`tests/test_structurer.py`) stays valid.
+* Rotation: `rotation_deg` is recorded from `page.rotation` and, when non-zero, the page carries
+  `native_words_unrotated_space` (PyMuPDF's word boxes are in the page's unrotated space while
+  `page.rect` is the rotated display rectangle) — PRESERVED byte-identical to Phase 2.0, not fixed;
+  a named Phase 2.2 prerequisite (a rotated page's native and future Paddle geometries would not
+  align until resolved).
+* Own import: `evidence` only. No `ocr`/`discovery`/`webapp`/`telemetry` import anywhere in the
+  diff (the analysis→ocr allowlist stays pinned empty). `GENERIC_STRUCTURER_ENABLED` stays unset
+  (pinned by a test in this file).
+
+## Newly validated: 0. Other ladder movement: 0.
+
+## Previously validated preserved: all, payload identical
+
+Cohort replay (`tools/cohort_replay.py`, `--run` the Phase 2.0 run of record
+`discovery_reports/TRAIN10-941918f/2026-09-02T063646.710847-0000-ef34ee30`, `--data-dir
+.claude/recovery/webapp_data_train10_cold`, `--expect-identical`), at BASE (`888fb1c`, code
+stashed) and again at CLOSURE (`88c09cb`) — IDENTICAL results at both trees:
+
+| cohort | population | replayed | previously validated preserved | payload changed | validated regressions |
+|---|---:|---:|---:|---:|---:|
+| `--parser first_citizens` | 39 | 39 | 39 of 39 | 0 | **0** |
+| `--parser rbc` | 165 | 165 | 159 of 159 | 0 | **0** |
+
+Both commands exit 0 under `--expect-identical` at both trees. `first_citizens` and `rbc` were
+chosen as the representative pair the card's fallback names (`grep -rl "analysis.structurer"
+analysis/` finds no per-bank parser registration — see Root cause): `first_citizens` was named
+explicitly by the card; `guardian_cu`, the card's other named example, does not resolve to any
+folder_label, parser_id, or parser registration in this run of record or in `analysis/` (it appears
+only as an invented institution name in `analysis/sibling_omission.py`'s own test fixtures) — it was
+substituted with `--parser rbc` (a real, sizeable, real-parser cohort) and this substitution is
+recorded here rather than silently made.
+
+## Regressions: 0
+
+## Correctness evidence
+
+* **The equivalence pin** (`tests/test_geometry_frames.py`): a verbatim copy of the Phase 2.0
+  `geometry_from_pdf`/`_group_lines` (`_legacy_geometry_from_pdf`, never called by production code)
+  compared field-for-field (`page`/`width`/`height`, every line's `text`/`spans`, every word's box)
+  against the new `geometry_from_pdf` on: the 3 synthetic fixtures above, the empty-middle-page
+  variant, and the 12 pinned corpus PDFs by sha16 — **0 mismatches**. During development this was
+  additionally measured over the FULL 109-PDF / 830-page corpus (not committed as a test — too slow
+  for the default suite): **0 mismatches, 0 degenerate PyMuPDF word boxes among 261,526 words, 0
+  rotated pages**.
+* **Round-trip deltas**: a synthetic pixel evidence (letter page, 300 dpi, 4 rows / 12 words with
+  `line_ref` and `confidence`) round-trips `to_pdf_points` → `to_pixels` to within **1e-6** on every
+  corner (asserted, not just claimed).
+* **Rotation count**: 0/830 pages carry a non-zero rotation across the full 109-PDF corpus; 0/many
+  pages across the 12 pinned in the committed test. The rotation-handling code path itself is
+  exercised by a dedicated synthetic rotated-PDF test (not corpus-dependent), since the corpus never
+  triggers it.
+* **Mutation table — every mutant killed, tree verified clean after each (harness: apply one
+  mutant → run the named killer test(s) → `git checkout --` in a `finally` → verify `git status
+  --porcelain` empty; never run two harnesses on this host at once — confirmed via `tasklist`
+  before starting):
+
+  | mutant | defect simulated | killer(s) | verdict |
+  |---|---|---|---|
+  | M1 | `to_pdf_points` bypassed (pixel coords used unconverted) | pixel round-trip test; native/pixel agreement test | KILLED |
+  | M2 | `page = page_index` (0-based leak) | the whole equivalence pin + the page-numbering pin (18/30 tests fail) | KILLED |
+  | M3 | empty pages dropped before the `word_count` gate | the empty-middle-page pin; the page-numbering pin | KILLED |
+  | M4 | a second grouping implementation, tolerance 0.5× median, bypassing `evidence.group_lines` | the AST guard (`test_group_lines_is_a_thin_wrapper_with_no_second_tolerance_computation`) | KILLED |
+  | M5 | `source` hardcoded `"native"` regardless of `extractor_id` | the pixel-evidence source assertion; the mixed-space test | KILLED |
+  | M6 | `geometry_from_evidence`'s exception guard removed | the hostile-duck-typed-object never-raises test | KILLED |
+  | M7 | a `GeoLine`'s words re-sorted by text instead of x | the equivalence pin + the pixel round-trip test (17/30 fail) | KILLED |
+  | M8 | `frame` dropped (forced to `None`) on every `PageGeometry` | the pixel-evidence frame assertion; the mixed-space test | KILLED |
+  | M9 | scale applied on the y axis only (x/y asymmetric conversion) | the pixel round-trip test | KILLED |
+
+  Tree confirmed clean (`git status --porcelain` empty) after every mutant and at the end of the
+  run.
+
+## Generalization evidence
+
+* **Mixed coordinate spaces on one document** (page 0 `pixel`, page 1 `pdf_point`) — legal by
+  construction, each page converts by its own frame, neither infects the other (asserted: page 0's
+  `frame.space == "pixel"`, page 1's `frame.space == "pdf_point"`, page 1's word box is untouched —
+  pure identity conversion).
+* **A native read and an independently-authored pixel read of the SAME printed rows agree within
+  the card's 1.5 pt bound.** The pixel evidence's box SHAPE comes from `fitz.Font("helv")`'s own
+  metrics (a distinct code path from `page.get_text("words")`, not a copy of its answer), then
+  perturbed by a small deterministic jitter (±0.6 pt) standing in for two extractors never agreeing
+  to the sub-point level. Measured maximum per-corner delta against the real PyMuPDF glyph boxes:
+  **0.6002 pt** (comfortably inside 1.5 pt; the residual above the 0.6 pt jitter is float noise).
+  Line texts are identical between the two sources.
+* **Malformed geometry cannot reach `geometry_from_evidence` because `evidence/` already refused to
+  build it** (an inverted box, a box outside its raster, a scale disagreeing with dpi, a line
+  referencing an unknown word id — all raise at `evidence/` construction, proven in this file too,
+  not just relied upon); a hostile DUCK-TYPED stand-in (the only way to get a non-`WordBox`/
+  `LineBox`-bearing object past a type hint at runtime) is answered with `None`, never an exception.
+
+## Proof floor (exit codes, this branch's final tree `88c09cb`)
+
+| check | result | exit |
+|---|---|---:|
+| full default suite (`pytest -q -p no:cacheprovider`) | 8,451 passed, 45 skipped, 38 deselected | 0 |
+| 5 canonical guards | 267 passed | 0 |
+| 7 canonical conformance files | 1,282 passed | 0 |
+| `python corpus_gate.py` | GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED, 109/109 pinned | 0 |
+| `pytest -m corpus` | 34 passed, 8,500 deselected | 0 |
+| `cohort_replay --parser first_citizens --expect-identical` (base + closure) | 39/39 preserved, identical, both trees | 0 / 0 |
+| `cohort_replay --parser rbc --expect-identical` (base + closure) | 159/159 preserved, identical, both trees | 0 / 0 |
+| `tests/test_geometry_frames.py` (new, targeted) | 30 passed | 0 |
+| mutation table M1–M9 | 9/9 KILLED, tree clean | — |
+
+Heavy proofs run ONE at a time on this host (`tasklist | findstr python` checked clean before each;
+the full suite, `corpus_gate.py` and `pytest -m corpus` each ran as a single sequential foreground
+command, polled to completion rather than trusted to a background-task or Monitor notification,
+after two notifications on this card did not wake the session — the BATCH9-RULES lost-wake
+signature).
+
+## Privacy
+
+* `tools/privacy_scan_branch.py --base 888fb1c --ref HEAD --run <TRAIN10-941918f run> --rows
+  <that run>/rows.csv --data-dir .claude/recovery/webapp_data_train10_cold`: **hit_count 0** at the
+  final commit (population 3,380; documents_read 3,351; 966 added lines scanned). One transient hit
+  existed between the two commits — a synthetic dollar amount (`9.01`) in the pixel-evidence
+  round-trip fixture coincidentally matched a printed MONEY-shaped token somewhere in the archive by
+  chance (short decimal amounts are low-entropy against 354,835 printed money tokens); replaced with
+  a longer, more distinctive synthetic figure in `88c09cb` before this cell's proof floor was
+  finalized. Zero at the commit reported here.
+* Message scan (`tools/huntington_msg_privacy_scan.py`, population = the 12 pinned corpus sha256s +
+  the `first_citizens`/`rbc` cohort shas, 218 named, 216 resolved): **2 commits scanned, hit_count
+  0**.
+* No statement-specific hardcode: nothing beyond synthetic test strings; `tests/test_no_statement_
+  hardcodes.py` (layer-wide over `analysis/`) passed at 267/267 with the rest of the guards.
+
+## Failure-class / escalation evidence (PHASE2-RULES contract item)
+
+Not applicable to this cell by design: no `ocr/`, `discovery/`, `webapp/`, or `telemetry/` file is
+touched; no escalation, router, or trigger code is touched; no A/B/C failure-class edge is created
+or modified. This cell's only surface is the structurer's own, currently-dormant word-geometry
+reader (see Root cause).
+
+## Risks (last)
+
+* **The rotation prerequisite is real but currently inert.** A rotated native page's word boxes sit
+  in PyMuPDF's unrotated coordinate space while its frame's declared width/height are the rotated
+  display rectangle — Phase 2.0's own behaviour, preserved here byte-identical rather than silently
+  corrected, and now explicitly named (`native_words_unrotated_space`) rather than implicit. It does
+  not affect the current 109-PDF corpus (0 rotated pages measured) but WILL need resolving before a
+  rotated page's native geometry and a future Paddle raster geometry can be expected to align
+  (Phase 2.2, not this cell — no rotation fix was in scope and none was made).
+  `evidence/canonical.py` was not modified; no change was needed or requested there.
+* **The card's named "guardian_cu" cohort does not exist** in the Phase 2.0 run of record, in
+  `analysis/`'s parser registrations, or anywhere but a fixture-only name in
+  `analysis/sibling_omission.py`; `--parser rbc` was substituted as the second representative cohort
+  and the substitution is recorded above rather than silently made.
+* **`analysis/structurer` (this module included) is dormant in production** — `GENERIC_STRUCTURER_
+  ENABLED` stays unset everywhere this cell measured, so today's zero-movement proof is also a
+  statement that this cell's code is not yet on any validated document's critical path; Phase 2.2 is
+  where that changes, and this cell's byte-identical pin is what makes that future wiring safe to
+  attempt without re-litigating Phase 2.0's native-PDF reading behaviour.
