@@ -197,7 +197,7 @@ def test_r1_nested_injection_in_gpu_and_python_version_refuses():
     `python_version` with a URL appended. Refused before any `/ocr` request."""
     injected = {
         "gpu": {
-            "name": "RTX 5090", "memory_total_mib": 32607, "driver_version": "1.0",
+            "name": "RTX 5090", "memory_total_mib": 24576, "driver_version": "1.0",
             "note": "http://198.51.100.7/exfil", "operator": "attacker.example",
         },
         "python_version": "3.12.14 (see http://198.51.100.7)",
@@ -214,12 +214,12 @@ def test_r1_nested_injection_in_gpu_and_python_version_refuses():
 
 
 @pytest.mark.parametrize("bad_gpu", [
-    {"name": "RTX 5090", "memory_total_mib": 32607, "driver_version": "580.173.02", "extra": "x"},
-    {"name": "RTX 5090", "memory_total_mib": "32607", "driver_version": "580.173.02"},  # str, not int
+    {"name": "RTX 5090", "memory_total_mib": 24576, "driver_version": "580.173.02", "extra": "x"},
+    {"name": "RTX 5090", "memory_total_mib": "24576", "driver_version": "580.173.02"},  # str, not int
     {"name": "RTX 5090", "memory_total_mib": True, "driver_version": "580.173.02"},  # bool, not int
-    {"name": "RTX/5090", "memory_total_mib": 32607, "driver_version": "580.173.02"},  # "/" in name
-    {"name": "RTX  5090", "memory_total_mib": 32607, "driver_version": "580.173.02"},  # double space
-    {"name": "RTX 5090", "memory_total_mib": 32607, "driver_version": "not-a-version"},
+    {"name": "RTX/5090", "memory_total_mib": 24576, "driver_version": "580.173.02"},  # "/" in name
+    {"name": "RTX  5090", "memory_total_mib": 24576, "driver_version": "580.173.02"},  # double space
+    {"name": "RTX 5090", "memory_total_mib": 24576, "driver_version": "not-a-version"},
     "not-a-mapping-at-all",
 ])
 def test_r1_every_gpu_shape_defect_refuses(bad_gpu):
