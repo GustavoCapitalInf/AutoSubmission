@@ -82,6 +82,45 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     visual-OCR service knobs from ``ocr.config.Settings``.
     ``stage_version`` = :data:`OCR_STAGE_VERSION`.
 
+    Joining at v5 (P20-ARTIFACTS, Phase 2.0, OQ8/F-6) — present only when
+    ``stage_version >= 5``, so a caller reconstructing a HISTORICAL v4 key (see
+    :func:`ocr_settings_key`'s ``stage_version`` parameter and
+    ``telemetry/run_of_record.py``) reproduces the pre-v5 dict byte-for-byte
+    rather than a v5 shape with v4's version number stamped on it:
+
+    ``extractor`` — ``"offline"`` or ``"visual"``, derived from the three
+    capability flags by :func:`_ocr_extractor` (ONE function, pinned): visual
+    only for the forced-escalation call shape (``force_ocr=True`` AND
+    ``allow_visual_ocr=True``); every other call — including the ambiguous
+    ``allow_visual_ocr=True, force_ocr=False`` "auto" shape, where the offline
+    ladder still gets first refusal inside a single :func:`ocr.pipeline.parse_statement`
+    call — is ``"offline"``. This is a LABEL on the settings partition, not a
+    certified claim about which rung actually produced a given artifact (the
+    artifact's own ``model`` field is that record); a third extractor stack
+    (PaddleOCR) would add a third label here in a later phase — excluded now.
+    ``postprocess_state`` / ``postprocess_admitted`` — the legacy OCR
+    postprocess chain's quarantine state, read from ``ocr.ocr_client`` via
+    ``getattr`` with the pinned defaults ``"quarantined"`` / ``()`` (cell B1
+    owns the module-level constants; until it composes, or for any
+    ``"offline"``-labelled call, the pinned defaults are used directly WITHOUT
+    importing ``ocr.ocr_client`` — that chain is reachable only from the
+    visual rung (``ocr/pipeline.py``), so importing it for an offline read
+    would be a pure regression against the "the model client module is never
+    even imported" property two tests already enforce
+    (``tests/test_discovery.py``, ``tests/test_visual_rung.py``); the value is
+    identical either way because the constants are process-wide, not
+    per-call).
+    ``raster_version`` = ``ocr.rasterize.RASTER_VERSION``.
+    ``extraction_schema_version`` = :data:`EXTRACTION_SCHEMA_VERSION`.
+    ``endpoint_class`` — from ``ocr_settings`` via ``getattr``, default
+    ``"loopback"`` (cell B2 adds the real field to ``ocr.config.Settings``).
+    ``tesseract_version``, ``poppler_version``, ``pymupdf_version`` — the
+    binary/library versions the offline and visual rungs actually depend on
+    (F-6), from :func:`ocr_toolchain_versions` — a never-raising, once-per-
+    process probe; ``"unknown"`` when a version cannot be read, which
+    partitions conservatively (a new key, a re-read) rather than silently
+    reusing an artifact produced by a different binary.
+
 ``analysis`` (:func:`analysis_settings_key`)
     ``parse_mode`` (``auto`` | ``deterministic``), ``model``,
     ``escalation_model``, ``withholding_denominator_mode`` — the whole of
@@ -253,6 +292,7 @@ __all__ = [
     "OCR_STAGE_VERSION",
     "ANALYSIS_STAGE_VERSION",
     "REPORT_STAGE_VERSION",
+    "EXTRACTION_SCHEMA_VERSION",
     "STAGE_OCR",
     "STAGE_ANALYSIS",
     "STAGE_REPORT",
@@ -263,6 +303,7 @@ __all__ = [
     "cached_report",
     "content_sha256",
     "ocr_settings_key",
+    "ocr_toolchain_versions",
     "open_cache",
     "report_settings_key",
     "sheets_sha256",
@@ -294,7 +335,22 @@ CACHE_FORMAT_VERSION = 1
 #: train-8 cold run re-reads the archive (the local Tesseract rung's wall
 #: clock is paid again; vendor cost stays $0.00). One composed bump before the
 #: round's measurement, taken on the same host as the batch-7 control run.
-OCR_STAGE_VERSION = 4
+#: v5 (P20-ARTIFACTS, Phase 2.0 — OQ8/OQ10/F-6): the key gains `extractor`,
+#: `postprocess_state` + `postprocess_admitted`, `raster_version`,
+#: `extraction_schema_version`, `endpoint_class`, and the Tesseract/Poppler/
+#: PyMuPDF binary versions (module docstring's "Joining at v5" note;
+#: `ocr_settings_key`'s `stage_version` parameter keeps a v4 RECONSTRUCTION —
+#: `telemetry/run_of_record.py`, built to verify against a batch-8/9 run's
+#: own cache — byte-identical to the key that run actually wrote). No
+#: extractor's OUTPUT changed and the artifact SHAPE did not change either
+#: (`CACHE_FORMAT_VERSION` stays 1); this bump exists so a future binary,
+#: endpoint or postprocess change has a lever already proven to invalidate
+#: the archive, rather than one added under time pressure the day it is
+#: first needed. GLOBAL by construction, as v2-v4 were: every cached OCR
+#: artifact is invalidated and the Phase 2.0 cold run re-reads the archive.
+#: Vendor cost stays $0.00 (no extractor's model changed, only what the key
+#: records about it).
+OCR_STAGE_VERSION = 5
 #: Bump when the analysis pipeline's output changes for unchanged settings.
 # 1 -> 2: Track A cell 1 (chase variant completeness, merge of b70496c)
 # changed chase extraction output for unchanged settings — cached chase
@@ -443,6 +499,13 @@ OCR_STAGE_VERSION = 4
 ANALYSIS_STAGE_VERSION = 17
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
+#: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
+#: joins the OCR settings key at :data:`OCR_STAGE_VERSION` 5+ so a change to
+#: what `StatementMarkdown` records (independent of which extractor or binary
+#: produced it — that is `OCR_STAGE_VERSION`'s and `extractor`'s job) gets its
+#: own lever. v1 is the shape at Phase 2.0: `model`, `pages`, `page_integrity`
+#: (unchanged by this cell — see the module docstring's D-3b/O-3 history).
+EXTRACTION_SCHEMA_VERSION = 1
 
 STAGE_OCR = "ocr"
 STAGE_ANALYSIS = "analysis"
@@ -570,6 +633,146 @@ def cache_key(stage: str, input_sha256: str, settings_key: str) -> str:
 # ----------------------------------------------------------------------
 
 
+#: Pinned defaults for the legacy OCR postprocess chain's quarantine state
+#: (`ocr.ocr_client`, cell B1) — used directly, with no import, whenever a
+#: call is labelled ``"offline"`` (that chain is unreachable from the offline
+#: rungs; see `ocr_settings_key`'s docstring) and as the getattr fallback once
+#: B1's module-level constants are read for a ``"visual"``-labelled call.
+POSTPROCESS_STATE_DEFAULT = "quarantined"
+ADMITTED_POSTPROCESS_DEFAULT: tuple[str, ...] = ()
+
+#: A pinned duplicate of ``ocr.rasterize.RASTER_VERSION`` (review MINOR-1).
+#: ``ocr/rasterize.py`` imports ``pdf2image`` + ``PIL`` at module level, so an
+#: unguarded ``from ocr.rasterize import RASTER_VERSION`` would let a missing
+#: rasterization backend raise ``ModuleNotFoundError`` out of every OCR cache
+#: lookup — for the sake of one integer, and in violation of the same
+#: "never raises" discipline :func:`ocr_toolchain_versions` already keeps.
+#: :func:`ocr_settings_key` tries the real import first and falls back to
+#: this duplicate only on ``ImportError``; ``test_raster_version_fallback_matches_the_source_module``
+#: pins that the two never drift apart.
+_RASTER_VERSION_FALLBACK = 1
+
+_toolchain_versions_cache: dict[str, str] | None = None
+
+
+def _ocr_extractor(
+    *, force_ocr: bool, allow_local_ocr: bool, allow_visual_ocr: bool
+) -> str:
+    """The extractor stack a call names — ONE function, pinned (F-6/§10).
+
+    ``"visual"`` only for the forced-escalation call shape
+    (``force_ocr=True`` AND ``allow_visual_ocr=True`` — discovery's visual
+    rung, `discovery/runner.py::_read_visual`). Every other shape, including
+    the ambiguous "auto" call (``force_ocr=False``, ``allow_visual_ocr=True``)
+    where a single ``ocr.pipeline.parse_statement`` call lets the offline
+    ladder go first and only falls through to the visual rung internally, is
+    ``"offline"`` — the offline ladder is what CAN run, whatever eventually
+    does. ``allow_local_ocr`` does not enter the decision: it already
+    partitions the key on its own (native vs local-Tesseract share one
+    "offline" label and one settings key, exactly as they always have).
+
+    **This field cannot partition the key on its own, and no test should
+    claim it does (review BLOCK-1).** It is a TOTAL function of ``force_ocr``
+    and ``allow_visual_ocr``, both of which are ALREADY key material -- any
+    input that changes ``extractor`` necessarily changes one of those two
+    fields too, so ``extractor`` is a LEGIBILITY / extensibility slot (a
+    human- and log-readable label, and the seat a third extractor id would
+    take in a later phase), not additional partitioning power. What IS
+    pinned, and is the honest proof for this function, is the truth table
+    ``test_extractor_is_visual_only_for_the_forced_escalation_shape``
+    exercises directly."""
+    return "visual" if (force_ocr and allow_visual_ocr) else "offline"
+
+
+def _ocr_postprocess_readout(extractor: str) -> tuple[str, tuple[str, ...]]:
+    """``(postprocess_state, postprocess_admitted)`` for the OCR settings key.
+
+    The legacy postprocess chain (`ocr.ocr_client`) is imported ONLY for a
+    ``"visual"``-labelled call: ``ocr/pipeline.py`` never even imports that
+    module outside its visual-rung branch, and two tests
+    (`tests/test_discovery.py`, `tests/test_visual_rung.py`) assert the model
+    client module is absent from ``sys.modules`` after an offline-only run.
+    Importing it here unconditionally would silently break that property for
+    every offline document a real cache processes. The value is identical
+    either way — B1's constants are process-wide, not per-call — so skipping
+    the import for ``"offline"`` costs nothing but the import itself."""
+    if extractor != "visual":
+        return POSTPROCESS_STATE_DEFAULT, ADMITTED_POSTPROCESS_DEFAULT
+    from ocr import ocr_client  # lazy: only the visual partition's key needs it
+
+    state = str(getattr(ocr_client, "POSTPROCESS_STATE", POSTPROCESS_STATE_DEFAULT))
+    admitted = tuple(
+        str(item)
+        for item in getattr(ocr_client, "ADMITTED_POSTPROCESS", ADMITTED_POSTPROCESS_DEFAULT)
+    )
+    return state, admitted
+
+
+def ocr_toolchain_versions() -> dict[str, str]:
+    """``{"tesseract_version", "poppler_version", "pymupdf_version"}`` (F-6).
+
+    Never raises; a version that cannot be read is the sentinel
+    ``"unknown"``, which partitions the OCR settings key CONSERVATIVELY (a
+    fresh key, a re-read) rather than silently reusing an artifact a
+    different binary produced. Shells out to the `tesseract` / `pdftoppm`
+    executables and imports PyMuPDF (`fitz`) — already an offline-rung
+    dependency (`ocr/local_tesseract.py`, `ocr/native_text.py`), not the
+    model client this module otherwise keeps out of the offline path.
+    Computed once per process and cached: this is a settings-key input read
+    on every OCR cache lookup, not a per-page cost."""
+    global _toolchain_versions_cache
+    if _toolchain_versions_cache is not None:
+        return dict(_toolchain_versions_cache)
+    versions = {
+        "tesseract_version": "unknown",
+        "poppler_version": "unknown",
+        "pymupdf_version": "unknown",
+    }
+    import shutil
+    import subprocess
+
+    try:
+        tesseract = shutil.which("tesseract")
+        if tesseract:
+            completed = subprocess.run(
+                [tesseract, "--version"], capture_output=True, text=True, timeout=10
+            )
+            first = next(
+                (line.strip() for line in (completed.stdout + "\n" + completed.stderr).splitlines()
+                 if line.strip()),
+                None,
+            )
+            if first:
+                versions["tesseract_version"] = first
+    except Exception:  # never raises: an unreadable version is "unknown"
+        pass
+    try:
+        pdftoppm = shutil.which("pdftoppm")
+        if pdftoppm:
+            completed = subprocess.run(
+                [pdftoppm, "-v"], capture_output=True, text=True, timeout=10
+            )
+            first = next(
+                (line.strip() for line in (completed.stderr + "\n" + completed.stdout).splitlines()
+                 if line.strip()),
+                None,
+            )
+            if first:
+                versions["poppler_version"] = first
+    except Exception:
+        pass
+    try:
+        import fitz  # PyMuPDF
+
+        versions["pymupdf_version"] = str(
+            getattr(fitz, "VersionBind", None) or getattr(fitz, "version", None) or "unknown"
+        )
+    except Exception:
+        pass
+    _toolchain_versions_cache = versions
+    return dict(versions)
+
+
 def ocr_settings_key(
     *,
     force_ocr: bool = False,
@@ -578,31 +781,65 @@ def ocr_settings_key(
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
+    stage_version: int | None = None,
 ) -> str:
     """Fingerprint of every knob that changes OCR output.
 
     ``ocr_settings`` is an ``ocr.config.Settings`` (or anything with the same
     attributes); when omitted it is loaded from the environment, so callers
     that never touch the OCR service still partition correctly if
-    ``OCR_MODEL`` changes under them."""
+    ``OCR_MODEL`` changes under them.
+
+    ``stage_version`` defaults to the live :data:`OCR_STAGE_VERSION` (5+: the
+    v5 key material below is included). Passing an EXPLICIT older version
+    reconstructs the key EXACTLY as that version computed it — in particular,
+    passing ``4`` reproduces the pre-P20-ARTIFACTS 9-field key byte-for-byte,
+    with none of the v5 fields present, because at v4 they did not exist. This
+    is what lets ``telemetry/run_of_record.py`` reconstruct a historical run's
+    own OCR key (batch 8, batch 9) rather than recompute today's shape under
+    yesterday's version number — the two are not the same key."""
     if ocr_settings is None:
         from ocr.config import load_settings as _load_ocr_settings
 
         ocr_settings = _load_ocr_settings()
-    return _fingerprint(
-        {
-            "stage_version": OCR_STAGE_VERSION,
-            "force_ocr": bool(force_ocr),
-            "allow_local_ocr": bool(allow_local_ocr),
-            "allow_visual_ocr": bool(allow_visual_ocr),
-            "dpi": int(dpi),
-            "fallback_dpi": None if fallback_dpi is None else int(fallback_dpi),
-            "ocr_model": str(getattr(ocr_settings, "model", "")),
-            "ocr_base_url": str(getattr(ocr_settings, "base_url", "")),
-            "ngram_size": int(getattr(ocr_settings, "ngram_size", 0)),
-            "window_size": int(getattr(ocr_settings, "window_size", 0)),
-        }
-    )
+    version = OCR_STAGE_VERSION if stage_version is None else int(stage_version)
+    settings: dict[str, Any] = {
+        "stage_version": version,
+        "force_ocr": bool(force_ocr),
+        "allow_local_ocr": bool(allow_local_ocr),
+        "allow_visual_ocr": bool(allow_visual_ocr),
+        "dpi": int(dpi),
+        "fallback_dpi": None if fallback_dpi is None else int(fallback_dpi),
+        "ocr_model": str(getattr(ocr_settings, "model", "")),
+        "ocr_base_url": str(getattr(ocr_settings, "base_url", "")),
+        "ngram_size": int(getattr(ocr_settings, "ngram_size", 0)),
+        "window_size": int(getattr(ocr_settings, "window_size", 0)),
+    }
+    if version >= 5:
+        extractor = _ocr_extractor(
+            force_ocr=force_ocr, allow_local_ocr=allow_local_ocr, allow_visual_ocr=allow_visual_ocr
+        )
+        postprocess_state, postprocess_admitted = _ocr_postprocess_readout(extractor)
+        try:
+            from ocr.rasterize import RASTER_VERSION as _raster_version
+        except ImportError:  # pdf2image/PIL missing (MINOR-1): never raise for one integer
+            _raster_version = _RASTER_VERSION_FALLBACK
+
+        toolchain = ocr_toolchain_versions()
+        settings.update(
+            {
+                "extractor": extractor,
+                "postprocess_state": postprocess_state,
+                "postprocess_admitted": list(postprocess_admitted),
+                "raster_version": int(_raster_version),
+                "extraction_schema_version": int(EXTRACTION_SCHEMA_VERSION),
+                "endpoint_class": str(getattr(ocr_settings, "endpoint_class", "loopback")),
+                "tesseract_version": toolchain["tesseract_version"],
+                "poppler_version": toolchain["poppler_version"],
+                "pymupdf_version": toolchain["pymupdf_version"],
+            }
+        )
+    return _fingerprint(settings)
 
 
 def analysis_settings_key(

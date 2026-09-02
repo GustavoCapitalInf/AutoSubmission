@@ -46,7 +46,6 @@ path; no OCR, no hosted model, $0.
 from __future__ import annotations
 
 import argparse
-import itertools
 import json
 import sys
 from pathlib import Path
@@ -62,10 +61,13 @@ from tools.privacy_scan_branch import (  # noqa: E402
     cached_text,
     excluded_by,
     population,
+    resolve_run,
+    rows_by_sha,
     self_check,
     tokens_of,
     tracked_text,
 )
+from telemetry.run_of_record import RunOfRecordError, partitions_for_run  # noqa: E402
 
 DEFAULT_FILES = ("docs/moneythumb-replacement/W3_TRACKA_LOG.md",)
 
@@ -141,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sha", action="append", default=[])
     parser.add_argument("--rows", type=Path, default=None)
     parser.add_argument("--where", action="append", default=[])
+    parser.add_argument("--run", type=Path, default=None,
+                        help="the discovery run of record whose rows.csv names each sha's "
+                             "own OCR provenance (default: the train9 pointer file)")
     parser.add_argument("--data-dir", required=True, type=Path)
     parser.add_argument("--base", required=True, help="the ROOT commit for a tree audit")
     parser.add_argument("--file", action="append", default=[], dest="files")
@@ -151,22 +156,36 @@ def main(argv: list[str] | None = None) -> int:
                         help="redact twice in memory and prove the second pass is a no-op")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
+    args.run = resolve_run(args.run)
 
-    from webapp.artifact_cache import ocr_settings_key
+    # Review MINOR-9 (P20-ARTIFACTS Phase 2.0 closure): row-driven
+    # run-of-record selection, replacing the live eight-combination
+    # `ocr_settings_key()` enumeration that the `OCR_STAGE_VERSION` 4->5
+    # bump had already made silently vacuous against the frozen, v4-keyed
+    # cold caches this tool actually runs against.
+    import sqlite3
 
     root = args.data_dir / "artifacts"
-    ocr_keys = [ocr_settings_key(force_ocr=f, allow_local_ocr=l, allow_visual_ocr=v)
-                for f, l, v in itertools.product((False, True), repeat=3)]
     shas = population(args)
     printed: dict[str, set[str]] = {c: set() for c in ("MONEY", "DIGITS", "DATES", "WORDS")}
     documents_read = 0
-    for sha in shas:
-        text = cached_text(root, sha, ocr_keys)
-        if text is None:
-            continue
-        documents_read += 1
-        for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
-            printed[cls].update(values)
+    conn = sqlite3.connect(f"file:{(args.data_dir / 'webapp.db').as_posix()}?mode=ro", uri=True)
+    try:
+        try:
+            partitions = partitions_for_run(args.run, conn=conn)
+        except RunOfRecordError as exc:
+            print(f"artifact-selection policy failed: {exc}", file=sys.stderr)
+            return 5
+        rows = rows_by_sha(args.run)
+        for sha in shas:
+            text = cached_text(conn, root, sha, rows.get(sha), partitions)
+            if text is None:
+                continue
+            documents_read += 1
+            for cls, values in tokens_of(text, args.digit_min, args.word_min).items():
+                printed[cls].update(values)
+    finally:
+        conn.close()
     if documents_read == 0:
         print("read 0 documents: the universe is empty and the run would be vacuous",
               file=sys.stderr)

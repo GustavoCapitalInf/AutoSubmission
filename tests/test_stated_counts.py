@@ -528,17 +528,24 @@ def test_an_observation_carries_only_ids_codes_and_integers():
 # and these are the tests that catch that.
 
 
+#: A row that names the offline partition `_seed_one_document` writes under
+#: (`allow_local_ocr=False`) — the shape of a real `native` discovery row.
+_NATIVE_ROW = {"source_path": "native", "visual_rung": "not_attempted"}
+
+
 def _seed_one_document(data_dir, *, cached_under: str, pages=("LEDGER PAGE",)):
     """Write one real OCR + analysis artifact pair, exactly as the worker does.
 
-    Returns `(content_sha, payload)`. Nothing is faked: the analysis entry goes
-    in through `cached_analysis`, so the key under test is the key production
-    writes.
+    Returns `(content_sha, payload, offline_key, analysis_key)`. Nothing is
+    faked: the analysis entry goes in through `cached_analysis`, so the key
+    under test is the key production writes; the two keys are returned so a
+    caller can build a matching RunPartitions record (`_seed_run_dir`).
     """
     from ocr.document import StatementMarkdown
     from ocr.inspect import content_sha256
     from webapp.artifact_cache import (
         ArtifactCache,
+        analysis_settings_key,
         cached_analysis,
         ocr_settings_key,
     )
@@ -549,11 +556,8 @@ def _seed_one_document(data_dir, *, cached_under: str, pages=("LEDGER PAGE",)):
     document = StatementMarkdown(
         source_file=cached_under, model="fake-ocr", pages=list(pages)
     )
-    cache.put_ocr(
-        content_sha256(pdf_bytes),
-        ocr_settings_key(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False),
-        document,
-    )
+    offline_key = ocr_settings_key(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False)
+    cache.put_ocr(content_sha256(pdf_bytes), offline_key, document)
     payload = {"statement": {"bank": "Test Bank"}, "counts": {"credit": 1}}
     result = cached_analysis(
         document.to_markdown(),
@@ -566,7 +570,25 @@ def _seed_one_document(data_dir, *, cached_under: str, pages=("LEDGER PAGE",)):
         sheets=document.pages,
     )
     assert not result.cached, "fixture must have WRITTEN the analysis entry"
-    return content_sha256(pdf_bytes), payload
+    analysis_key = analysis_settings_key(parse_mode="deterministic")
+    return content_sha256(pdf_bytes), payload, offline_key, analysis_key
+
+
+def _seed_run_dir(tmp_path, *, offline_key: str, analysis_key: str, mode: str = "digital",
+                  visual_key: str | None = None) -> Path:
+    """A minimal RECORDED run directory (P20-ARTIFACTS): a `provenance.json`
+    naming exactly the partitions the fixture wrote, so `_ArtifactJoin`
+    resolves through the real `telemetry.run_of_record` policy rather than a
+    test-only shortcut."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(exist_ok=True)
+    partitions = {"offline_ocr_key": offline_key, "analysis_key": analysis_key, "mode": mode}
+    if visual_key is not None:
+        partitions["visual_ocr_key"] = visual_key
+    (run_dir / "provenance.json").write_text(
+        json.dumps({"tree": {}, "run_of_record": {"partitions": partitions}}), encoding="utf-8"
+    )
+    return run_dir
 
 
 def test_the_artifact_join_resolves_a_document_to_its_analysis_payload(tmp_path):
@@ -574,10 +596,13 @@ def test_the_artifact_join_resolves_a_document_to_its_analysis_payload(tmp_path)
     from telemetry.stated_counts import _ArtifactJoin
 
     data_dir = tmp_path / "data"
-    content_sha, payload = _seed_one_document(data_dir, cached_under="statement.pdf")
+    content_sha, payload, offline_key, analysis_key = _seed_one_document(
+        data_dir, cached_under="statement.pdf"
+    )
+    run_dir = _seed_run_dir(tmp_path, offline_key=offline_key, analysis_key=analysis_key)
 
-    join = _ArtifactJoin(data_dir)
-    assert join.payload_for(content_sha, "statement.pdf") == payload
+    join = _ArtifactJoin(data_dir, run_dir)
+    assert join.payload_for(content_sha, "statement.pdf", _NATIVE_ROW) == payload
 
 
 def test_the_artifact_join_survives_a_rename_of_the_document(tmp_path):
@@ -592,10 +617,13 @@ def test_the_artifact_join_survives_a_rename_of_the_document(tmp_path):
     from telemetry.stated_counts import _ArtifactJoin
 
     data_dir = tmp_path / "data"
-    content_sha, payload = _seed_one_document(data_dir, cached_under="original name.pdf")
+    content_sha, payload, offline_key, analysis_key = _seed_one_document(
+        data_dir, cached_under="original name.pdf"
+    )
+    run_dir = _seed_run_dir(tmp_path, offline_key=offline_key, analysis_key=analysis_key)
 
-    join = _ArtifactJoin(data_dir)
-    assert join.payload_for(content_sha, "renamed 2020 copy.pdf") == payload
+    join = _ArtifactJoin(data_dir, run_dir)
+    assert join.payload_for(content_sha, "renamed 2020 copy.pdf", _NATIVE_ROW) == payload
 
 
 def test_the_artifact_join_computes_the_same_key_the_analysis_cache_writes(tmp_path):
@@ -607,15 +635,21 @@ def test_the_artifact_join_computes_the_same_key_the_analysis_cache_writes(tmp_p
     own: it must reconstruct the page list as well as the markdown. Hashing the
     text alone, or the raw reconstruction with its filename header, misses on
     every document.
+
+    The join no longer pre-builds an in-memory index (P20-ARTIFACTS): it
+    resolves through `telemetry.run_of_record.select_artifact` per document,
+    so this pins the SAME property against that primitive directly.
     """
     from analysis.parser_registry import admissible_text
     from ocr.document import StatementMarkdown
+    from telemetry.run_of_record import select_artifact
     from webapp.artifact_cache import analysis_input_sha, text_sha256
     from telemetry.stated_counts import _ArtifactJoin
 
     data_dir = tmp_path / "data"
-    _seed_one_document(data_dir, cached_under="s.pdf")
-    join = _ArtifactJoin(data_dir)
+    _, _, offline_key, analysis_key = _seed_one_document(data_dir, cached_under="s.pdf")
+    run_dir = _seed_run_dir(tmp_path, offline_key=offline_key, analysis_key=analysis_key)
+    join = _ArtifactJoin(data_dir, run_dir)
 
     pages = ["LEDGER PAGE"]
     markdown = StatementMarkdown(
@@ -623,36 +657,37 @@ def test_the_artifact_join_computes_the_same_key_the_analysis_cache_writes(tmp_p
     ).to_markdown()
     assert "<!-- source:" in markdown, "fixture must carry the header"
     # The key the cache wrote is over the admissible text AND the page
-    # partition, and it is the only one the join's index knows.
-    assert analysis_input_sha(markdown, pages) in join._analysis_index
-    assert analysis_input_sha(markdown, None) not in join._analysis_index
-    assert text_sha256(admissible_text(markdown)) not in join._analysis_index
-    assert text_sha256(markdown) not in join._analysis_index
+    # partition, and that is the only shape `select_artifact` resolves.
+    assert select_artifact(join._conn, "analysis", analysis_input_sha(markdown, pages), analysis_key)
+    assert select_artifact(join._conn, "analysis", analysis_input_sha(markdown, None), analysis_key) is None
+    assert select_artifact(
+        join._conn, "analysis", text_sha256(admissible_text(markdown)), analysis_key
+    ) is None
+    assert select_artifact(join._conn, "analysis", text_sha256(markdown), analysis_key) is None
 
 
 def test_the_join_settings_key_is_the_production_analysis_key(tmp_path):
     """The other half of the key: the SETTINGS side.
 
-    The join indexes the whole artifact table on one value of the analysis
-    settings key, so anything the key gains must be something this class can
-    reproduce. W3 §REGFP added the parser registry's fingerprint to it — a
-    per-RUN constant, which is why it belongs in the settings key and not in
-    the input hash — and the join reaches it for free because it imports
-    `analysis_settings_key` rather than assembling the settings dict itself.
-    Pinned here so that a future copy of that dict fails a test instead of
-    silently emptying the index.
+    `_ArtifactJoin` now takes the RUN's own recorded analysis key
+    (`telemetry.run_of_record.analysis_partition`), not the current tree's —
+    a historical run's key can differ from what this tree computes today, and
+    OQ10 rules that historical truth follows what the run actually consumed.
+    This fixture's run happens to record the SAME key
+    `analysis_settings_key(parse_mode="deterministic")` writes today (it seeds
+    its own run), which is what makes the resolution below non-vacuous.
     """
     from telemetry.stated_counts import _ArtifactJoin
-    from webapp.artifact_cache import analysis_settings_key
 
     data_dir = tmp_path / "data"
-    _seed_one_document(data_dir, cached_under="s.pdf")
+    content_sha, payload, offline_key, analysis_key = _seed_one_document(data_dir, cached_under="s.pdf")
+    run_dir = _seed_run_dir(tmp_path, offline_key=offline_key, analysis_key=analysis_key)
 
-    join = _ArtifactJoin(data_dir)
-    assert join.analysis_settings_key == analysis_settings_key(parse_mode="deterministic")
+    join = _ArtifactJoin(data_dir, run_dir)
+    assert join.analysis_settings_key == analysis_key
     # Not vacuous: that key is the one the seeded entry was written under, so
-    # the index the join built from it is non-empty.
-    assert join._analysis_index
+    # a real document resolves through it.
+    assert join.payload_for(content_sha, "s.pdf", _NATIVE_ROW) == payload
 
 
 def test_the_join_resolves_a_payload_from_a_process_that_never_loaded_the_parsers(tmp_path):
@@ -670,15 +705,16 @@ def test_the_join_resolves_a_payload_from_a_process_that_never_loaded_the_parser
     package is unimported at the moment the join is built.
     """
     data_dir = tmp_path / "data"
-    content_sha, payload = _seed_one_document(data_dir, cached_under="s.pdf")
+    content_sha, payload, offline_key, analysis_key = _seed_one_document(data_dir, cached_under="s.pdf")
+    run_dir = _seed_run_dir(tmp_path, offline_key=offline_key, analysis_key=analysis_key)
 
     code = (
         "import sys, json;"
         "from telemetry.stated_counts import _ArtifactJoin;"
         "assert 'analysis.parser_registry_entries' not in sys.modules, "
         "'the parsers were already loaded; this proves nothing';"
-        f"join = _ArtifactJoin({str(data_dir)!r});"
-        f"print(json.dumps(join.payload_for({content_sha!r}, 's.pdf')))"
+        f"join = _ArtifactJoin({str(data_dir)!r}, {str(run_dir)!r});"
+        f"print(json.dumps(join.payload_for({content_sha!r}, 's.pdf', {_NATIVE_ROW!r})))"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT
