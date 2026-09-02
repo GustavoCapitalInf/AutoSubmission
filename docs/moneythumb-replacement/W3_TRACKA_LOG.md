@@ -67673,3 +67673,111 @@ on_the_selected_cohort` uses.
 after the temporary `git stash`/`stash pop` used for the base measurement); no throwaway worktree
 created. Card complete for the light-work floor; the full-archive replay at base and closure is the
 last gate, waiting on Ocean's host-idle signal.
+
+## §P20REPLAYSHAPE full-archive closure — 3,380 shas at base and tip (2026-09-02)
+
+Ocean confirmed the host idle (floor complete: suite 8,330 / guards 267 / conformance 1,282 /
+gate 105-3-1 / corpus slice 34, all EXIT=0). Ran the full-archive proof over all 3,380 distinct
+`content_sha256` values of the train9 run of record (`discovery_reports/TRAIN9-7b25d70/
+2026-08-31T185527.271012-0000-91f5179a`, deduplicated from `rows.csv`), against
+`.claude/recovery/webapp_data_train9_cold` (READ-ONLY).
+
+**At BASE `51692c3`** (throwaway detached worktree `git worktree add --detach
+.claude/worktrees/rs-base 51692c3`, the OLD instrument — `replay_one`'s pre-fix single-account
+projection, no `--account-shape`/`--allow-unresolved` flags — verified present by grep before
+running; removed after, `git worktree remove --force`):
+
+| measure | count |
+|---|---:|
+| population | 3,380 |
+| replayed (text available) | 3,351 |
+| newly validated | 0 |
+| other ladder movement (up, not validated) | 0 |
+| previously validated preserved | 2,625 of 2,625 |
+| … payload identical | 2,602 |
+| … payload changed | **23** |
+| validated regressions (BLOCKING) | 0 |
+| other ladder regressions | 0 |
+| unchanged non-validated | 726 (payload changed on 0) |
+| no text / absent | 29 |
+
+**EXIT=3.** The 23 `changed` sha16s, extracted from the run's own report table, are BYTE-FOR-BYTE
+the population this card named from the read-only cache scan (§P20REPLAYSHAPE above):
+
+`037774298FE1CD66 0A14AC169DEA62D4 1019F3C638AB1C81 21643A62A463EA39 31F347BE1494314F
+333E226A75FE5441 3600FE7830C4A484 472A0966A5204513 596804AA1ACD01EB 59DA140E7579A851
+5F1CC8C0198DB4EB 7C7956EB5E93DB1D 9C5B7D628D7511EE A4D0F58E054F8CFA C067BE96F6B0BE0F
+C3D3E48F1E14AE2A C6E5B0D3EA9F857B E07F381DC420725A E38FA786106F752E F5BC9FB6D084559E
+F627D7A6A057EF35 F748A799FDC7F25E FFAC0A88768A8A59`
+
+Runtime 2,294s (~38 min).
+
+**At TIP `d8faf68`** (this worktree, same 3,380 shas, `--expect-identical`):
+
+| measure | count |
+|---|---:|
+| population | 3,380 |
+| replayed (text available) | 3,351 |
+| newly validated | 0 |
+| other ladder movement (up, not validated) | 0 |
+| previously validated preserved | **2,625 of 2,625** |
+| … payload identical | **2,625** |
+| … payload changed | **0** |
+| validated regressions (BLOCKING) | 0 |
+| other ladder regressions | 0 |
+| unchanged non-validated | 726 (payload changed on 0) |
+| no text / absent | 29 |
+
+**EXIT=3 without `--allow-unresolved`** — and this is the one finding this closure surfaces
+rather than explains away: the SAME 29 shas that were `no_text`/`absent` at base (verified
+byte-for-byte identical set, both runs' own JSON output compared programmatically: `source_path =
+"none"` throughout, per `telemetry/run_of_record.py`'s own docstring — no OCR was ever attempted
+on them, tree-independent, pre-existing, unrelated to this card) now trip THIS card's own new
+`replayed < population` refusal (the addendum's MINOR-8 fix) when it is exercised against the
+full archive for the first time. **This is not a document changing disposition or class** — 0
+newly validated, 0 other movement, 0 regressions of any kind, 2,625/2,625 preserved identical, all
+23 named shas now `identical` (verified individually against the JSON: every one
+`validated → validated`, `payload: identical`) — it is the new guard doing exactly the job it was
+built for (refusing a partial resolution silently passing as identical) applied, for the first
+time, to a population that legitimately contains 29 permanently-unresolvable members. Re-run
+identically with `--allow-unresolved` (same 3,380 shas, same tree, a second full pass rather than
+a derivation from the first run's data, per the standing evidence discipline):
+
+| measure | count |
+|---|---:|
+| population | 3,380 |
+| replayed (text available) | 3,351 |
+| newly validated | 0 |
+| other ladder movement (up, not validated) | 0 |
+| previously validated preserved | **2,625 of 2,625** |
+| … payload identical | **2,625** |
+| … payload changed | 0 |
+| validated regressions (BLOCKING) | 0 |
+| other ladder regressions | 0 |
+| unchanged non-validated | 726 (payload changed on 0) |
+
+**EXIT=0.** Runtime 2,268s (~38 min). Both TIP runs' `table` data agree exactly (identical
+`before`/`after`/`payload`/`direction`/`after_reason` on all 3,380 rows; `--allow-unresolved` only
+changes the FINAL exit-code branch, never a single row's computation).
+
+**Closure verdict:** 0 newly validated · 0 other ladder movement · 2,625/2,625 previously validated
+preserved, ALL payload identical (up from 2,602/2,625 at base — exactly the 23 named documents
+moved from `changed` to `identical`, nothing else) · 0 validated regressions · 0 other ladder
+regressions · the 23 named shas now identical, individually verified · 0 other movement of any
+kind. The full-archive proof this card owed is complete: `--expect-identical` reproduces the
+baseline exactly on every one of the 3,351 replayable documents, and refuses (correctly, by
+design) on a population that also names 29 documents no tree can ever replay.
+
+### Message scan (full-archive population)
+
+`tools/huntington_msg_privacy_scan.py --base 51692c3 --ref wave20-replayshape`, population = all
+3,380 shas (`--shas` = the same full-archive population file): **2 commits scanned, hit_count 0**
+(0 across DATES/DIGITS/MONEY/WORDS).
+
+### Commits
+
+This section is appended as its own commit on top of `d8faf68` (reported by SHA in the closing
+message to Ocean, since a commit cannot name its own hash inside itself). Working tree clean
+throughout; the throwaway worktree `.claude/worktrees/rs-base` created and removed, verified
+absent from `git worktree list` afterward. Card complete for the full-archive proof; the cold run
+is Ocean's next gate.
