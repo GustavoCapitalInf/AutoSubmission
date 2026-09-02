@@ -68173,3 +68173,183 @@ reader (see Root cause).
   statement that this cell's code is not yet on any validated document's critical path; Phase 2.2 is
   where that changes, and this cell's byte-identical pin is what makes that future wiring safe to
   attempt without re-litigating Phase 2.0's native-PDF reading behaviour.
+
+# §P21GEOMETRY-CLOSURE — the independent adversarial review (BLOCK), every finding reproduced, fixed and re-killed
+
+**Independent review verdict: BLOCK** (`docs/moneythumb-replacement/reviews/PHASE2_P21GEOMETRY_REVIEW.md`,
+committed on `train11` at `635f923`). The review's own words: *"The shipped production code is
+correct as far as I could measure it. The block is not a defect in `geometry.py`; it is that two of
+the card's own nine mutants SURVIVE when applied as the card words them, while the W3 records
+'M1–M9 · 9/9 KILLED.'"* Every finding below was reproduced independently in this worktree before any
+fix, per Ocean's instruction. Base for this section's diff: `b4dc5eb` (the prior closure tip).
+Closure tip: `5f2adce`.
+
+## Per-finding: reproduction → fix → killer
+
+**BLOCK-1 (M9 survives).** Reproduced: every pixel frame the committed suite builds
+(`_pixel_frame`) derives `scale_x`/`scale_y` from the same `dpi`, so on a Letter page at 300 dpi
+both equal `4.166666666666667` — a per-axis scale confusion is numerically invisible. Confirmed
+directly: `PageFrame.pixel(raster_width_px=2550, raster_height_px=3320, dpi=300.0, pdf_width_pt=
+612.0, pdf_height_pt=792.0)` builds successfully (`scale_x=4.166667, scale_y=4.191919`) — legal
+under `evidence/canonical.py`'s own validation — and a `y0` computed with `scale_x` instead of
+`scale_y` there is `238.560000` against the correct `237.122892` (undetected error ≈1.44 pt).
+Reproduced both reviewer mutants against the THEN-committed suite: y÷scale_x (`M9-reviewer`) and
+both axes÷scale_x (`M9-rev2`) — both **exit 0, SURVIVED**, `147 passed`. **Fix:** added
+`test_a_pixel_evidence_with_distinct_per_axis_scale_converts_each_axis_correctly` using the
+reviewer's `2550×3320@300dpi` shape, asserting every converted corner against the AUTHORED point
+coordinate (not a same-scale round-trip, which is symmetric under this exact bug). **Killer:** that
+test — re-ran both mutants after the fix: **exit 1, KILLED**, `1 failed, 147 passed` each.
+
+**BLOCK-2 (the W3 mutation table was wrong).** Not a code defect — a record defect. Per Ocean's
+ruling, the prior `§P21GEOMETRY` section is left untouched (append-only) and this section carries
+the corrected table (below).
+
+**MAJOR F-1 (M6 survives).** Reproduced: `except Exception: raise` in place of `except Exception:
+return None` at the end of `geometry_from_evidence` — **exit 0, SURVIVED**, `1 passed` (the existing
+hostile-object test never reached it; both its shapes are stopped by the earlier explicit
+`isinstance` guards). Independently confirmed the two shapes the reviewer named DO reach today's
+`except`: a real `WordBox` + a real `LineBox` naming a word id the page lacks → `None` (a `KeyError`
+at the line-rebuilding loop, caught); a page object missing `.notes` → `None` (was an `AttributeError`
+at the removed note check). **Fix:** extended `test_geometry_from_evidence_never_raises_on_a_
+hostile_duck_typed_object` with the dangling-word-id `LineBox` shape (verbatim as the reviewer
+found it) and, since F-8 (below) removes `geometry_from_evidence`'s only read of `page.notes` —
+making "a page missing notes" stop reaching the `except` at all, as an intended effect of F-8, not a
+gap — substituted an equally genuine except-reaching shape: a `words` collection whose iterator
+raises partway through. Both substitutions are named here, not silently made. **Killer:** the same
+test, re-run against `except → raise`: **exit 1, KILLED**.
+
+**MAJOR F-2 (M2 survives at the `GeoLine` site).** Reproduced: `GeoLine(page.page_index, ...)` in
+place of `GeoLine(page.page_index + 1, ...)` — **exit 0, SURVIVED**, `147 passed` (`_assert_geometry_
+equal` compared `PageGeometry.page` but never `GeoLine.page`). **Fix:** added `assert ll.page ==
+nl.page` to `_assert_geometry_equal`. **Killer:** the equivalence pin, re-run against the same
+mutant: **exit 1, KILLED**. Also re-confirmed the `PageGeometry` site (`M2a`) independently killed
+(`18` equivalence + page-numbering tests fail) — both sites now covered.
+
+**MINOR F-3 (the M4 AST guard was narrower than its docstring).** Reproduced: a hand-rolled median
+(`sorted(...)` + `* 0.5`, passed as `tolerance=` to `evidence.group_lines`) — **exit 0, SURVIVED**,
+`1 passed` (the guard only matched a bare `median(...)` call). **Fix:** the guard now also refuses,
+by AST, anywhere in `geometry.py`: `median` called via any spelling (including `x.median(...)`),
+any `statistics` import, any `sorted(` call, and the literal `0.6`. **Killer:** the strengthened
+guard, re-run against the same mutant: **exit 1, KILLED**.
+
+**MINOR F-4 (the `x_at` assertion was self-referential).** Reproduced by inspection: `assert
+first_line.x_at(0) == pytest.approx(first_line.words[0].x0)` compares a value to itself and holds in
+any unit. **Fix:** compares against an independently derived point value (`first_word_px.x0 /
+frame.scale_x`, computed from the ORIGINAL pixel box, not the function under test's own output).
+
+**MINOR F-5 (RULED — a per-word refusal mislabelled a readable page "unreadable").** Reproduced: a
+monkeypatched `fitz.Page.get_text` that corrupts one word's box (`y1 = y0`) on an otherwise-normal
+page returns `evidence.pages[0]` with `native_page_unreadable` and 0 words — a page that in fact
+read fine. Also reproduced the related divergence: `_group_lines(1, [Word(...inverted...)])` now
+raises `MalformedGeometry` where the Phase 2.0 `_group_lines` returned a line built from the
+`abs()`-height word. Both are latent: 0/261,526 words on the pinned corpus. **Fix (per Ocean's
+ruling — keep fail-closed, name honestly):** the per-page `try` in `native_evidence_from_pdf` is now
+TWO separate `try`/`except` blocks — one around `get_text`/`rect`/frame construction
+(`UNREADABLE_PAGE_NOTE`, a minimal placeholder frame, since no real dimensions exist), one around
+`WordBox`/`PageEvidence` construction (`WORD_REFUSED_NOTE`, the page's REAL frame, since the page did
+read). The whole page is still refused to zero words either way — no guessed structure, no silently
+dropping just the bad word. The `_group_lines` raise-on-inverted-`Word` behaviour is unchanged and
+recorded here as instructed, not "fixed" (there is no caller to fix it for; `_group_lines` has no
+production caller). **Verified:** new test `test_a_page_with_one_refused_word_reports_its_real_
+dimensions_not_unreadable` asserts `WORD_REFUSED_NOTE` present, `UNREADABLE_PAGE_NOTE` absent, and
+the REAL page dimensions (`612.0 × 792.0`), not a placeholder's.
+
+**MINOR F-6 (three record inaccuracies).**
+1. *Folder count.* Recount, independently: the 12 pinned corpus PDFs span **10 distinct top-level
+   folders** (`ATB, BofA, CapitalOne, Chase, Misc, Others, RBC, TD Can, Truist, WellsFargo`) / **11
+   distinct folder prefixes** (`Misc` holds 2 files at its own level; `Others` holds 2 sub-folders),
+   not "12 different institution folders" as the prior section states. The prior section is left
+   uncorrected in place (append-only); this is the correction of record. All 12 paths remain in the
+   manifest and already literal in tracked `corpus_gate.py` — no new exposure.
+2. The M6/M9 rows — corrected in the table below.
+3. *The `-` line.* `88c09cb`'s diff carried the coincidentally-matching literal on a removed line,
+   one `git show` away in an unpushed branch's history. **Fix:** squashed `88c09cb` into the
+   implementation commit before this closure (git rebase within this branch only — never pushed,
+   never merged). Verified BYTE-IDENTICAL tree before/after
+   (`git rev-parse dbad83f^{tree}` = `git rev-parse <squashed-tip>^{tree}` =
+   `fca8bd46b63a4bf3f4f3c94da2496c3362436c58`; `git diff dbad83f <squashed-tip>` empty). **SHA
+   remap:** `0d26bcf` + `88c09cb` → `feff4dd`; `5d2769e` → `391e74b`; `dbad83f` → `b4dc5eb`.
+
+**MINOR F-7 (2.69× cost, a discarded `evidence_sha256`).** Not independently re-measured at the full
+109-PDF scale (the reviewer's own number, taken as reported: `phase_2_0_total_s=2.57` vs
+`branch_total_s=6.92`, ratio 2.69×, ~51% of the added cost is `ExtractionEvidence`'s canonical-JSON
+sha that nothing downstream reads). Independently corroborated in SHAPE on the 12 pinned corpus PDFs:
+`native_evidence_from_pdf` (0.394 s) dominates `geometry_from_evidence` (0.031 s) by >12×, and
+re-hashing the already-built evidence payload alone costs 0.126 s of that 0.394 s (~32% on this
+smaller sample — same order as the reviewer's ~51% on the full corpus). **No change made** to
+`evidence/canonical.py` (Ocean's file) or to `geometry.py`'s use of it — reported as a **Phase 2.2
+prerequisite**: a lazily-computed `evidence_sha256`, or an opt-out for readers that never serialize
+their evidence, would recover this cost once the structurer is wired into a per-document hot path.
+
+**MINOR F-8 (RULED — a source-specific note interpreted in the source-neutral path).** The
+reviewer's own recommendation was to leave it and only document it; Ocean's ruling overrides that and
+requires the change. **Fix:** removed the `if UNREADABLE_PAGE_NOTE in page.notes: width, height =
+0.0, 0.0` branch from `geometry_from_evidence`. It now always reports `frame.pdf_width_pt` /
+`frame.pdf_height_pt` for every page, regardless of source or notes. **Consequence, accepted and
+tested:** the `UNREADABLE_PAGE_NOTE` placeholder page no longer reproduces Phase 2.0's exact
+`0.0 × 0.0` — it reports its own placeholder frame's declared `1.0 × 1.0` instead. This is untriggered
+on the pinned corpus (0/109 PDFs) and is a documented, RULED, deliberate divergence, not a defect;
+`test_the_unreadable_native_page_placeholder_reports_its_own_frame_dimensions` (renamed from
+`_matches_legacy_dimensions`, its old name no longer being true) asserts the new behaviour explicitly
+rather than silently.
+
+## Corrected mutation table (M1–M9; every mutant re-applied against the CLOSURE tree, killer named, tree verified clean after each)
+
+| mutant | defect simulated | killer | verdict |
+|---|---|---|---|
+| M1 | `to_pdf_points` bypassed (pixel coords used unconverted) | the equivalence pin + both pixel-evidence tests | KILLED |
+| M2 (`PageGeometry` site) | `page = page_index` (0-based leak) | the equivalence pin + the page-numbering pin (18 tests) | KILLED |
+| M2 (`GeoLine` site — F-2) | `page = page_index` (0-based leak) | `_assert_geometry_equal`'s new `ll.page == nl.page` assertion | KILLED |
+| M3 | empty pages dropped before the `word_count` gate | the empty-middle-page pin; the page-numbering pin | KILLED |
+| M4 (hand-rolled median, `sorted()`-based — F-3) | a second grouping implementation bypassing `evidence.group_lines` | the strengthened AST guard (`sorted(` / `statistics` / `0.6` refusal) | KILLED |
+| M5 | `source` hardcoded `"native"` regardless of `extractor_id` | the pixel-evidence source assertion; the mixed-space test | KILLED |
+| M6 (`except → raise` — F-1) | the broad exception guard removed | the hostile-object test's dangling-word-id `LineBox` case | KILLED |
+| M7 | a `GeoLine`'s words re-sorted by text instead of x | the equivalence pin + the pixel round-trip test | KILLED |
+| M8 | `frame` dropped (forced to `None`) on every `PageGeometry` | the pixel-evidence frame assertion; the mixed-space test | KILLED |
+| M9 (y÷scale_x — BLOCK-1) | one axis' scale used for the other | the distinct-per-axis-scale test, against the AUTHORED point | KILLED |
+| M9 (both axes÷scale_x — BLOCK-1) | one axis' scale used for both | the distinct-per-axis-scale test, against the AUTHORED point | KILLED |
+| M9 (y unconverted — the prior narrower wording) | x converted, y left in pixels | the pixel round-trip test; the native/pixel agreement test | KILLED |
+
+12/12 mutant variants (the card's 9 gates, M2 and M9 each with the two/three variants the review
+named) KILLED against the closure tree `5f2adce`. Tree verified `git status --porcelain` empty after
+every mutant in this run and at the end.
+
+## Proof floor (closure tip `5f2adce`)
+
+| check | result | exit |
+|---|---|---:|
+| targeted (`test_geometry_frames.py` + `test_structurer.py` + `test_evidence_canonical.py` + `test_evidence_boundary.py`) | 149 passed | 0 |
+| 5 canonical guards | 267 passed | 0 |
+| `test_escalation_tripwires.py` + `test_evidence_boundary.py` | 11 passed | 0 |
+| full default suite | 8,453 passed, 45 skipped, 38 deselected (+2 over the prior closure, the two new tests) | 0 |
+| mutation table M1–M9 (12 variants) | 12/12 KILLED, tree clean | — |
+| `privacy_scan_branch.py` (added lines, base `888fb1c`) | hit_count 0 (population 3,380; 1,429 added lines) | 0 |
+| `huntington_msg_privacy_scan.py` (commit messages, 5 commits) | hit_count 0 (population 216) | 0 |
+
+`corpus_gate.py`, `pytest -m corpus`, and the base/closure `cohort_replay` runs were NOT re-run for
+this closure: the fixed code touches only `analysis/structurer/geometry.py`, which remains dormant
+in production (no parser registration imports `analysis.structurer`; `GENERIC_STRUCTURER_ENABLED`
+stays unset), and the full 109-PDF / 830-page equivalence check (independent of the committed
+12-PDF test) was re-run directly against the closure tree: **0 mismatches**, confirming F-5/F-8's
+production changes do not alter `geometry_from_pdf`'s observable output on any real corpus document
+(both new failure branches remain untriggered, 0/109 PDFs). `tasklist | findstr python` checked
+clean (or holding only small, unrelated idle processes on this shared host) before each proof; every
+heavy or targeted run was a sequential foreground command, polled to completion directly rather than
+via a background-task or Monitor notification, after two more lost-wake events on this card (the
+corpus_gate.py and `pytest -m corpus` background runs during the FIRST closure pass).
+
+## Commits (this closure)
+
+`eee66b3` (BLOCK-1, F-1, F-2, F-4, F-5, F-8) · `5f2adce` (F-3) · this section's own commit, reported
+by SHA in the closing message to Ocean.
+
+## Risks (last)
+
+* F-7's 2.69× cost and the discarded `evidence_sha256` are real and named as a Phase 2.2
+  prerequisite; no change was made to `evidence/canonical.py`.
+* F-5/F-8 introduce two behavioural divergences from Phase 2.0, both untriggered on the pinned
+  corpus and both documented at their point of introduction: the `UNREADABLE_PAGE_NOTE` placeholder
+  no longer reports `0.0 × 0.0` (F-8), and one refused word now refuses its WHOLE page under a
+  distinctly-named note rather than the page silently keeping every other word (F-5, unchanged
+  fail-closed direction, only the naming and dimension-reporting changed).
+* The rotation prerequisite named in the prior section is unchanged and still open for Phase 2.2.
