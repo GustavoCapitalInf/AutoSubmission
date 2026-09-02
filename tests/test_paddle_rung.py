@@ -156,6 +156,28 @@ def test_case20_customer_scope_refused_before_any_network_call(ledger_fixture):
         assert fake.requests == []
 
 
+def test_r2_read_document_refuses_a_hand_built_customer_opt_in_with_only_the_remote_literal_present(ledger_fixture):
+    """R-2 (`PHASE2_P21PADDLE_REVIEW.md` re-review): the customer-side twin
+    of MAJOR-2's remote-half test, at the `read_document` level — a
+    hand-built `PaddleSettings` claiming `customer_data_opt_in=True`, with
+    ONLY the remote literal present in the environment, must be refused
+    before any `/ocr` request. This is the exact case the reversal mutant
+    (`customer_data_opt_in = settings.customer_data_opt_in`, dropping the
+    re-derivation) passed undetected without this test."""
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+        settings = PaddleSettings(
+            provider="vast.ai", execution_class="remote_paid", vast_host="h", vast_ssh_port=1,
+            vast_ssh_user="u", remote_opt_in=True, customer_data_opt_in=True, worker_url=fake.url,
+            worker_port=8765, tunnel_local_port=18765, worker_token=None, runtime_dir=".paddle_runtime",
+        )
+        with pytest.raises(PaddleRefused) as excinfo:
+            read_document(pdf_bytes, document_sha256=document_sha, data_scope="customer",
+                          settings=settings, dpi=dpi, environ=VAST_ENV)  # VAST_ENV carries only the remote literal
+        assert excinfo.value.reason == "remote_customer_data_refused"
+        assert fake.requests == []
+
+
 def test_case16_identity_mismatch_refuses_before_any_ocr_request(ledger_fixture):
     page, pdf_bytes, document_sha, dpi = ledger_fixture
     with FakeWorker(identity_overrides={"provider": "local", "execution_class": "local_free"}) as fake:
@@ -268,6 +290,32 @@ def test_major1_runtime_block_is_the_closed_whitelist_never_the_raw_reply(ledger
     assert "198.51.100.7" not in text
     assert "attacker.example" not in text
     assert "PP-OCRv6 actually" not in text
+
+
+def test_r3_runtime_fields_is_the_exact_whitelist_including_data_scope():
+    """R-3 (`PHASE2_P21PADDLE_REVIEW.md` re-review): `data_scope` joined the
+    closed whitelist — this pins the whole set exactly, not merely a subset
+    check, so a future accidental removal (or an accidental widening) of any
+    member is caught here."""
+    assert rung_module.RUNTIME_FIELDS == frozenset({
+        "paddleocr_version", "paddlepaddle_version", "ocr_version",
+        "text_detection_model_name", "text_recognition_model_name", "pipeline_switches",
+        "gpu", "cuda_compiled", "python_version",
+        "provider", "execution_class", "worker_contract", "dpi", "data_scope",
+    })
+
+
+def test_r3_evidence_runtime_records_the_declared_data_scope(ledger_fixture):
+    """`data_scope` in `evidence.runtime` comes from `read_document`'s OWN
+    argument — never from the worker — so an artifact this rung produces is
+    self-describing about what its producer claimed it was sending."""
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+        settings = _settings(fake.url)
+        client = PaddleClient(settings, environ=VAST_ENV)
+        result = read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
+                               settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
+    assert result.evidence.runtime["data_scope"] == "synthetic"
 
 
 def test_minor6_evidence_sha256_stable_across_cold_and_warm_worker_identity(ledger_fixture):

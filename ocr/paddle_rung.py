@@ -61,11 +61,20 @@ __all__ = ["PaddleRead", "RUNTIME_FIELDS", "read_document"]
 #: NOT here (MINOR-6): both are volatile across requests to the SAME worker
 #: process (a cold vs. warm read of otherwise-identical bytes must produce
 #: the SAME `evidence_sha256`).
+#: R-3 (`PHASE2_P21PADDLE_REVIEW.md` re-review): `data_scope` joined the
+#: whitelist too — set from `read_document`'s OWN argument, never from the
+#: worker — so an artifact this rung produces records what its producer
+#: DECLARED it was sending (D8's "record the declared scope in the evidence
+#: so a mis-declaration is auditable after the fact"). This is a record of
+#: the declaration, not a content check: `check_remote_authorization` /
+#: `PaddleClient` are what refuse a customer-scope call without the second
+#: literal; this field exists so a later read of the artifact can see which
+#: scope was claimed.
 RUNTIME_FIELDS: frozenset[str] = frozenset({
     "paddleocr_version", "paddlepaddle_version", "ocr_version",
     "text_detection_model_name", "text_recognition_model_name", "pipeline_switches",
     "gpu", "cuda_compiled", "python_version",
-    "provider", "execution_class", "worker_contract", "dpi",
+    "provider", "execution_class", "worker_contract", "dpi", "data_scope",
 })
 #: Of `RUNTIME_FIELDS`, the subset copied from the worker's `/version` reply
 #: (already verified by `verify_identity`, for the ones it checks) — never
@@ -92,7 +101,8 @@ class PaddleRead:
     telemetry: dict[str, Any]
 
 
-def _runtime_block(settings: PaddleSettings, remote_identity: Mapping[str, Any], dpi: int) -> dict:
+def _runtime_block(settings: PaddleSettings, remote_identity: Mapping[str, Any], dpi: int,
+                    data_scope: str) -> dict:
     """Provenance for `ExtractionEvidence.runtime`, built field by field from
     `RUNTIME_FIELDS` — NEVER `dict(remote_identity)` (MAJOR-1). A worker
     could echo any key on `/version`; `verify_identity` checks only the nine
@@ -100,8 +110,8 @@ def _runtime_block(settings: PaddleSettings, remote_identity: Mapping[str, Any],
     operator's note, a fabricated `"PP-OCRv6 actually"` — must never reach
     the immutable, hashed evidence. Only the named fields are copied out of
     `remote_identity`; `provider` / `execution_class` / `worker_contract` /
-    `dpi` come from `settings` and this call's own arguments, never from the
-    worker's reply."""
+    `dpi` / `data_scope` (R-3) come from `settings` and this call's own
+    arguments, never from the worker's reply."""
     block: dict[str, Any] = {
         name: remote_identity[name] for name in _RUNTIME_FROM_IDENTITY if name in remote_identity
     }
@@ -109,6 +119,7 @@ def _runtime_block(settings: PaddleSettings, remote_identity: Mapping[str, Any],
     block["execution_class"] = settings.execution_class
     block["worker_contract"] = remote_identity.get("contract")
     block["dpi"] = dpi
+    block["data_scope"] = data_scope
     assert set(block) <= RUNTIME_FIELDS  # a whitelist that cannot silently widen
     return block
 
@@ -226,7 +237,7 @@ def read_document(
 
     evidence = evidence_from_pages(
         pages_evidence, document_sha256=document_sha256,
-        runtime=_runtime_block(settings, remote_identity, dpi),
+        runtime=_runtime_block(settings, remote_identity, dpi, data_scope),
     )
     return PaddleRead(
         pages=evidence.page_texts(),
