@@ -854,7 +854,18 @@ class DiscoveryRunner:
                 # Refused (today only reachable via an exhausted budget): an
                 # explicit terminal failure, never a silent loss, exactly like
                 # a genuine OCR transport failure below.
-                row.evidence_quality = "unusable"
+                #
+                # P20-ROUTER re-review, closure 49fe3fe, MINOR-11.
+                # `row.source_path` becomes `"none"` two lines below, which is
+                # NOT in `GATE_ASSESSED_SOURCES` — so `evidence_quality` is
+                # `"none"` here too, matching every other `source_path="none"`
+                # row and keeping `GATE_ASSESSED_SOURCES` the honest single
+                # answer to "which rows ever carry usable/unusable" (the
+                # gate's own verdict, `recovery_evidence`, is still the one
+                # `EscalationRouter.decide` acted on above — this only
+                # changes what the ROW reports, not the decision already
+                # made).
+                row.evidence_quality = "none"
                 row.visual_rung = VISUAL_NOT_ATTEMPTED
                 row.outcome_class, row.outcome_reason = "failed", "escalation_refused"
                 row.source_path = "none"

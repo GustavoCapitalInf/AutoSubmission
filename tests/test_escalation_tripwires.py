@@ -190,23 +190,56 @@ EXPECTED_DECIDE_CALL_SITES = {"discovery/runner.py": 2, "webapp/worker.py": 1}
 #: measuring this test against the review's own A2 reproduction: an
 #: untracked `tools/_reviewer_attack_callsite.py` was invisible to a
 #: `git ls-files`-based scan).
+#: `.claude` (P20-ROUTER re-review, closure 49fe3fe, MAJOR-5): the main
+#: checkout holds many nested worktree checkouts under `.claude/worktrees/`
+#: (this is exactly where THIS worktree itself lives). Running the suite
+#: from the main checkout — which is what Ocean does at the train, and what
+#: `tools/train/floor.sh` / `corpus_gate.py` do — is this scan's normal
+#: operating environment, not an edge case, so a scan that walks into those
+#: nested checkouts and finds their OWN copies of `discovery/runner.py` /
+#: `ocr/escalation.py` breaks for a reason unrelated to what it guards.
 EXCLUDED_DIR_NAMES = {
     ".git", ".github", ".pytest_cache", "__pycache__", ".mypy_cache", ".ruff_cache",
-    "node_modules", ".venv", "venv",
+    "node_modules", ".venv", "venv", ".claude",
 }
 
 
+def _is_nested_checkout(directory: Path) -> bool:
+    """Belt-and-braces alongside `EXCLUDED_DIR_NAMES` (MAJOR-5): a directory
+    that itself carries a `.git` entry (a full clone's `.git` DIRECTORY, or a
+    worktree's `.git` FILE pointing back at the main repo) is a SEPARATE
+    checkout, under any name, not only the ones the name-based exclusion
+    above happens to list. Never applied to `ROOT` itself, which legitimately
+    carries its own `.git` (this worktree's own gitdir pointer) — only to
+    directories strictly BELOW it, which is what the caller enforces by
+    never checking anything but discovered subdirectories."""
+    return (directory / ".git").exists()
+
+
 def _tracked_python_files() -> list[Path]:
+    import os
+
     paths: list[Path] = []
-    for path in ROOT.rglob("*.py"):
-        if any(part in EXCLUDED_DIR_NAMES for part in path.relative_to(ROOT).parts):
-            continue
-        posix = str(path.relative_to(ROOT)).replace("\\", "/")
-        if posix in EXCLUDED_FROM_REPO_SCAN:
-            continue
-        if any(posix.startswith(tree) for tree in EXCLUDED_TREES_FROM_REPO_SCAN):
-            continue
-        paths.append(path)
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        current = Path(dirpath)
+        kept: list[str] = []
+        for name in dirnames:
+            if name in EXCLUDED_DIR_NAMES:
+                continue
+            if _is_nested_checkout(current / name):
+                continue
+            kept.append(name)
+        dirnames[:] = kept  # os.walk contract: prune in place, top-down
+        for filename in filenames:
+            if not filename.endswith(".py"):
+                continue
+            path = current / filename
+            posix = str(path.relative_to(ROOT)).replace("\\", "/")
+            if posix in EXCLUDED_FROM_REPO_SCAN:
+                continue
+            if any(posix.startswith(tree) for tree in EXCLUDED_TREES_FROM_REPO_SCAN):
+                continue
+            paths.append(path)
     return paths
 
 

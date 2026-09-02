@@ -259,6 +259,17 @@ def measure_row_level_class_a(rows: dict[str, dict], reader: ColdOcrReader) -> d
     diverge from what the runner actually publishes. P20-ROUTER review,
     BLOCK-1: the pin this produces is over EVERY source path, not only
     Tesseract reads.
+
+    **`source_path == "none"` rows are SKIPPED** (P20-ROUTER re-review,
+    closure 49fe3fe, MINOR-10). The production runner returns early for
+    every one of these (invalid PDF, encrypted, a deferred tranche,
+    `ocr_failed`, or an `escalation_refused` terminal row) and never calls
+    `classify_failure` on them at all — `rows.csv` carries `failure_class=""`
+    there, written before any evidence question is even asked. Grading them
+    here anyway (the earlier version of this function graded all 29 of them
+    `B`) publishes a verdict the runner itself never produces, which is
+    worse than an undercount: it is a number about documents this function
+    has no business classifying.
     """
     from discovery.runner import GATE_ASSESSED_SOURCES, _evidence_for_row, classify_failure
 
@@ -266,8 +277,12 @@ def measure_row_level_class_a(rows: dict[str, dict], reader: ColdOcrReader) -> d
     total_class_a: set[str] = set()
     by_source: dict[str, set[str]] = {}
     missing: set[str] = set()
+    skipped_none_source: set[str] = set()
     for sha, row in rows.items():
         source_path = row.get("source_path") or "none"
+        if source_path == "none":
+            skipped_none_source.add(sha)
+            continue
         claimed = row.get("dispatch_outcome") == "claimed"
         validated = row.get("outcome_class") == "validated"
         if source_path in GATE_ASSESSED_SOURCES:
@@ -293,6 +308,7 @@ def measure_row_level_class_a(rows: dict[str, dict], reader: ColdOcrReader) -> d
         "total_class_a": total_class_a,
         "by_source_and_class": by_source,
         "missing_artifact": missing,
+        "skipped_none_source": skipped_none_source,
     }
 
 
@@ -380,6 +396,8 @@ def main(argv: list[str] | None = None) -> int:
                     row_level["validated_class_a"]))
         print(_fmt("  total documents with failure_class=A", row_level["total_class_a"]))
         print(_fmt("  missing cached OCR/native artifact", row_level["missing_artifact"]))
+        print(_fmt("  skipped: source_path=='none' (never classified by the runner)",
+                    row_level["skipped_none_source"]))
         for key, shas in sorted(row_level["by_source_and_class"].items()):
             print(_fmt(f"    {key}", shas))
 

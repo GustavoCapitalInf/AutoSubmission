@@ -244,6 +244,21 @@ CHAR_FLOOR = 200
 #: readable-but-unparsed, with the criterion's error rate measured in BOTH
 #: directions on that sample — not a threshold derived from the very
 #: population it will be used to split.
+#:
+#: **The resulting split (0 admitted / 23 surfaced) is pinned in the
+#: CORPUS-MARKED slice only** (`tests/test_escalation_router.py::
+#: test_validated_tesseract_reads_are_never_classified_class_a`,
+#: `@pytest.mark.corpus`), not in the default suite — stated plainly rather
+#: than left implicit (P20-ROUTER re-review, closure 49fe3fe, MAJOR-4's
+#: secondary point). Moving this floor to 0.20, 0.74 or even 0.75 leaves the
+#: DEFAULT suite green either way: since the signal never sets `usable` or
+#: admits a trigger (enforced independently, at both the gate and the
+#: `discovery.runner` call site — see that module's `upgrade_triggers`), a
+#: floor move can never change what escalates or what validates. It can only
+#: change the SIZE of a measured, reported, non-routing population, which is
+#: why a corpus-only pin — checked whenever the corpus-marked slice runs,
+#: not on every commit — is the level of protection this constant needs: a
+#: floor drift here is a measurement-honesty question, never a safety one.
 ALNUM_DENSITY_FLOOR = 0.70
 
 #: The advisory signal name `EvidenceQuality.signals` carries when a read's

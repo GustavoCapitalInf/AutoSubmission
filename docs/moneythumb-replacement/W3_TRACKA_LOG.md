@@ -65043,3 +65043,118 @@ re-derived and endorsed by the reviewer's own reproduction (N1, and the
 correct one, and I would rule the same way." No further action; still
 recorded as the reviewer confirmed it, not Gustavo directly, per the
 original report's own caveat.
+
+**Addendum 3 — the re-review's verdict (APPROVE WITH FINDINGS) closed on
+`wave20-router`.** Re-review copied read-only from `train10@70a6c82`
+(`## Re-review (closure 49fe3fe)`) — never committed to this branch; deleted
+after reading (MINOR-2 below). BLOCK-1 was independently RE-measured over
+the ENTIRE run of record by the reviewer's own driver (never trusting the
+closure text): **0 documents of ANY source classify Class A, 0 validated
+documents classify Class A** — down from 176 and 79. MAJOR-1 was judged
+"CLOSED — better than the fix I asked for." MAJOR-3 "CLOSED." All nine
+MINORs "CLOSED" or "ACCEPTED as documented." Two new, single-edit MAJORs
+were found and are closed here.
+
+**MAJOR-4 — the surfaced-vs-admitted rule was enforced in the gate, not at
+the runner's call site.** `discovery/runner.py`'s `upgrade_triggers`
+construction could be mutated (`if (not evidence.usable or evidence.signals)
+else frozenset()`, mutant **S3**) and the ENTIRE proof floor — including the
+corpus-marked slice — stayed green, because every existing fixture is either
+high-density prose (no signal to catch the mutant) or a validated document
+(unaffected, since the mutant only widens what MAY escalate, and no
+validated document is ever unclaimed). Closed with the reviewer's own fixture:
+`PADDED_TABULAR` (12 repeated wide-column header lines — `usable=True,
+reasons=(), signals=('below_alnum_density_floor',), chars_total=1043`,
+verified directly) driven through the real `DiscoveryRunner` in
+`--scanned-visual`, escalation on, `load_settings` armed to `pytest.fail`
+(`_forbid_visual`):
+`test_a_density_surfaced_but_usable_tesseract_read_never_escalates` —
+**passes on the clean tree (1 passed) and is the SOLE failure under S3**
+(`1 failed, 51 passed` when run against the rest of the file). S3 is added
+to the mutation table below. The module docstring (`ALNUM_DENSITY_FLOOR`)
+and this section now state plainly: **the resulting split (0 admitted / 23
+surfaced) is pinned in the CORPUS-MARKED slice only**
+(`test_validated_tesseract_reads_are_never_classified_class_a`) — a floor
+drift can only ever change the SIZE of a measured, non-routing population
+(enforced independently at both the gate and this call site), never what
+escalates or validates, so a corpus-only pin is the correct, stated level of
+protection, not an oversight.
+
+**MAJOR-5 — the repo-wide tripwire walked nested worktree checkouts.** The
+main checkout carries roughly 100 worktrees under `.claude/worktrees/`
+(including this one) — exactly Ocean's normal operating environment, not an
+edge case. Reproduced by planting a nested checkout
+(`.claude/worktrees/sibling/{discovery/runner.py,ocr/escalation.py}`, with a
+`.git` file) inside this worktree and confirming the PRE-fix tripwire fails
+identically to the reviewer's own reproduction:
+```
+FAILED tests/test_escalation_tripwires.py::test_every_decide_call_site_in_the_repository_uses_router_inputs
+FAILED tests/test_escalation_tripwires.py::test_no_hand_rolled_router_inputs_construction_anywhere_in_the_repo
+2 failed, 6 passed
+```
+Closed two ways: (1) `.claude` added to `EXCLUDED_DIR_NAMES`; (2) belt-and-
+braces, `_tracked_python_files` now walks with `os.walk` and PRUNES any
+subdirectory that itself carries a `.git` entry (file or directory) —
+catching a nested checkout under ANY name, not only `.claude`. Both
+mechanisms verified independently: the SAME planted `.claude/worktrees/`
+checkout, and a second nested checkout planted OUTSIDE `.claude` entirely
+(`some_other_place/nested_checkout/`, relying on the `.git`-entry prune
+alone), both now leave the suite green (`8 passed` each), and reverting to
+the pre-fix `EXCLUDED_DIR_NAMES` reproduces the exact two-test failure above
+on demand. Additionally verified read-only against the REAL main checkout
+(`ROOT` pointed at it via a scratch script; `sys.path` adjusted so the
+imported production modules are still this worktree's fixed code, no file
+written to the main checkout): of ~100 real nested worktrees there, **0**
+leak into the scan (`files under .claude (should be 0): 0`); the
+decide()-call-site count check itself does not apply against the main
+checkout's own tree (train10 does not carry this card's code yet), which is
+expected, not a finding.
+
+**MINOR-10 — the instrument classified rows the runner never classifies.**
+`measure_row_level_class_a` graded the 29 `source_path="none"` rows `B`; the
+runner returns early for every one of them and never calls
+`classify_failure` at all. Fixed: these rows are now SKIPPED (a new
+`skipped_none_source` return key, printed by `--row-level`), not graded.
+Republished: `by_source_and_class` no longer carries a `none:*` bucket at
+all; the row-level total stays **0 Class-A** either way.
+
+**MINOR-11 — one row shape contradicted the `evidence_quality` invariant.**
+A budget-refused recovery row carried `source_path="none"` (not in
+`GATE_ASSESSED_SOURCES`) yet `evidence_quality="unusable"`. Fixed:
+`evidence_quality="none"` for this row shape (the router's own decision,
+made from the real `recovery_evidence` before the refusal, is unchanged —
+only what the ROW reports about a source outside `GATE_ASSESSED_SOURCES`
+changes), keeping "only `GATE_ASSESSED_SOURCES` sources ever carry
+usable/unusable" a single honest invariant rather than one exception.
+Pinned by two new assertions on
+`test_the_escalation_budget_refuses_past_its_ceiling`.
+
+**MINOR-2 (widened) — ownership and the reviewer's own file.** Ownership
+beyond the card's list is `discovery/cli.py` (item 2f's budget wiring),
+`telemetry/__init__.py` (MAJOR-3's two exports), and — until this commit —
+`docs/moneythumb-replacement/reviews/PHASE2_P20ROUTER_REVIEW.md`, which this
+cell had committed on its own branch. `git rm`'d here: Ocean holds the
+canonical copy on `train10` (byte-identical at the point it was read), and a
+branch-local copy would conflict at composition. All three overlaps
+reported to Ocean, none resolved unilaterally.
+
+**Mutation table, closure-2 additions.**
+| # | mutant | file | expected killer | result |
+|---|---|---|---|---|
+| S3 | runner admits a trigger on `evidence.signals` (not only `not evidence.usable`) | `discovery/runner.py` (`upgrade_triggers`) | `test_a_density_surfaced_but_usable_tesseract_read_never_escalates` | KILLED (1 failed, 51 passed against the rest of the file; the sole killer) |
+
+**Proof floor, closure-2.**
+| proof | result | exit |
+|---|---|---|
+| `tests/test_escalation_router.py` (default) | 52 passed, 2 deselected | 0 |
+| `tests/test_escalation_router.py -m corpus` | 2 passed, 52 deselected | 0 |
+| `tests/test_escalation_tripwires.py` | 8 passed | 0 |
+| 5 canonical guards | 255 passed | 0 |
+| `tests/test_visual_rung.py` + `…discovery` + `…telemetry` + `…pipeline` + `…webapp_worker` + `…worker_privacy` | 210 passed, 2 deselected | 0 |
+| `tools.cohort_replay --expect-identical` (192-sha cohort) | population 192, replayed 179, newly validated 0, preserved 36/36 payload-identical, regressions 0 (72 s) | 0 |
+| `python -m tools.phase2_trigger_split --densities --row-level` | headline numbers reproduced (0 admitted / 23 surfaced / 13 legal escalation population / 0 row-level Class-A); `skipped: source_path=='none'` = 29 | 0 |
+
+Full-suite and privacy/message-scan re-runs, and the closing commit SHA, are
+recorded in the report to the coordinator (final message of this turn) —
+this addendum is committed in the same tree as the code changes it
+describes, so both land together.

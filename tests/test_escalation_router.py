@@ -70,6 +70,23 @@ USABLE_UNCLAIMABLE = (
     "account number block, or a running balance column. " * 6
 )
 
+#: MAJOR-4 (P20-ROUTER re-review, closure 49fe3fe). A Tesseract read that is
+#: USABLE under the admitted triad (well above the char floor, no empty
+#: pages) but falls BELOW `ALNUM_DENSITY_FLOOR` — a wide, padded tabular
+#: layout, not noise. `ExtractionQualityGate.assess` on this text measures
+#: `usable=True, reasons=(), signals=('below_alnum_density_floor',),
+#: chars_total=1043` (verified directly). This is the fixture the surfaced-
+#: vs-admitted rule (MAJOR-2) must be proved against: CASE 1's own
+#: `USABLE_UNCLAIMABLE` carries no density signal at all (dense prose), so it
+#: cannot catch a mutant that re-admits the SIGNAL as a trigger.
+PADDED_TABULAR = (
+    "\n".join(
+        "DATE" + " " * 14 + "DESCRIPTION" + " " * 26 + "AMOUNT" + " " * 18 + "BALANCE"
+        for _ in range(12)
+    )
+    + "\n"
+)
+
 
 def _tesseract(monkeypatch, text: str | None):
     def fake(pdf_bytes, source_file="", **kwargs):
@@ -550,6 +567,27 @@ def test_case1_usable_unclaimed_tesseract_text_never_escalates(scan_tree, monkey
     assert row.escalation_trigger == ""
 
 
+def test_a_density_surfaced_but_usable_tesseract_read_never_escalates(scan_tree, monkeypatch):
+    """MAJOR-4 (P20-ROUTER re-review, closure 49fe3fe). MAJOR-2 ruled that the
+    density SIGNAL never admits a trigger — but nothing before this test
+    proved that at the RUNNER's own call site, only inside the gate: CASE 1's
+    fixture (`USABLE_UNCLAIMABLE`) is dense prose and carries no density
+    signal at all, so a one-line runner mutant that re-admits
+    `evidence.signals` as a trigger source is invisible to it. `PADDED_TABULAR`
+    IS usable under the triad AND carries the density signal
+    (`below_alnum_density_floor`), so this is the one fixture that can catch
+    that specific edge: the visual rung must stay `not_attempted` even though
+    the read is both unclaimed AND density-surfaced."""
+    _tesseract(monkeypatch, PADDED_TABULAR)
+    _forbid_visual(monkeypatch)
+
+    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+
+    assert row.visual_rung == "not_attempted"
+    assert row.evidence_quality == "usable"
+    assert row.escalation_refused == "no_admitted_trigger"
+
+
 def test_usable_evidence_reports_the_same_refusal_whether_or_not_it_was_claimed(
     scan_tree, monkeypatch, tmp_path,
 ):
@@ -721,6 +759,13 @@ def test_the_escalation_budget_refuses_past_its_ceiling(scan_tree, monkeypatch):
     assert row.outcome_reason == "escalation_refused"
     assert row.escalation_refused == "escalation_budget_exhausted"
     assert runner.escalations_used == 0
+    # P20-ROUTER re-review, MINOR-11: source_path is "none" here, and "none"
+    # is not in GATE_ASSESSED_SOURCES, so evidence_quality must be "none"
+    # too — never "unusable" — keeping GATE_ASSESSED_SOURCES the single
+    # honest answer to "which rows ever carry usable/unusable" (see
+    # test_gate_assessed_sources_are_exactly_tesseract_and_visual).
+    assert row.source_path == "none"
+    assert row.evidence_quality == "none"
 
 
 def test_the_escalation_budget_permits_exactly_its_ceiling(scan_tree, monkeypatch):
