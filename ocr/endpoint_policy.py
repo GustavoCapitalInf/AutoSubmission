@@ -41,6 +41,9 @@ OCR_REMOTE_OPT_IN_LITERAL = "I_ACCEPT_REMOTE_PAID_OCR"
 def remote_opt_in_from_env(environ: "os._Environ[str] | dict[str, str] | None" = None) -> bool:
     """True only when `OCR_REMOTE_OPT_IN` is exactly the opt-in literal.
 
+    A plain `==` string comparison, never a regex — there is no anchor here
+    to leak the way `MODEL_TOKEN_RE`'s `$` did (BLOCK-1, `ocr/config.py`).
+
     `environ` is an injection seam for tests; production callers pass nothing
     and get `os.environ`.
     """
@@ -48,19 +51,47 @@ def remote_opt_in_from_env(environ: "os._Environ[str] | dict[str, str] | None" =
     return source.get(OCR_REMOTE_OPT_IN_ENV) == OCR_REMOTE_OPT_IN_LITERAL
 
 
+#: MINOR-5 (PHASE2_P20SEAM_REVIEW.md): the cloud metadata endpoint (IMDS) is
+#: a standing SSRF target — RFC 3927 link-local (v4) / a ULA address some
+#: cloud providers route the same service to (v6). Both would otherwise
+#: classify `private` (link-local / ULA are covered by that ruling) and be
+#: allowed with no opt-in. Excluded here regardless of the general
+#: link-local/ULA rule: an SSRF-relevant well-known address always requires
+#: the explicit remote opt-in, never rides the default allowlist.
+_IMDS_ADDRESSES = frozenset({"169.254.169.254", "fd00:ec2::254"})
+
+#: MINOR-7: CGNAT (RFC 6598, shared address space between an ISP and its
+#: customers) is NOT private — a CGNAT host is routed by the ISP, not
+#: exclusively reachable on the caller's own network. Whether Python's
+#: `ipaddress.IPv4Address.is_private` agrees changed across interpreter
+#: patch releases (`100.64.0.0/10` moved out of `is_private` in 3.12.3+; CI
+#: pins 3.12, this host runs 3.14), so the exclusion is explicit here rather
+#: than delegated — the classification is this module's decision, not the
+#: interpreter's.
+_CGNAT_V4 = ipaddress.ip_network("100.64.0.0/10")
+
+
 def classify_endpoint(base_url: str) -> str:
     """Which class `base_url` falls into: loopback / private / remote / invalid.
 
     Structural only — the URL's scheme and host, nothing else:
 
-    * `loopback` — `localhost`, `127.0.0.0/8`, `::1`.
-    * `private` — RFC 1918 / link-local / IPv6 ULA, or a `.local` name.
+    * `loopback` — `localhost`, `127.0.0.0/8`, `::1` (including an
+      IPv6-mapped IPv4 loopback, `::ffff:127.0.0.1`, normalised explicitly).
+    * `private` — RFC 1918 / link-local / IPv6 ULA, or a `.local` name —
+      EXCEPT the two well-known IMDS addresses (MINOR-5) and CGNAT
+      (MINOR-7), both of which classify `remote` regardless.
     * `remote` — anything else with a valid http(s) host, including every
-      public name (`*.runpod.net` included) and every public IP.
-    * `invalid` — unparseable, no host, or a non-http(s) scheme. Never
-      allowed by `check_endpoint`, opt-in or not.
+      public name (`*.runpod.net` included), every public IP, CGNAT, and
+      the IMDS addresses.
+    * `invalid` — unparseable, no host, a non-http(s) scheme, or a raw
+      tab/CR/LF anywhere in the string (MINOR-6: `urlsplit` silently drops
+      those characters, so classifying the STRIPPED string would answer a
+      question about a different string than the one a client is handed).
     """
     if not isinstance(base_url, str) or not base_url:
+        return "invalid"
+    if any(control in base_url for control in ("\t", "\r", "\n")):
         return "invalid"
     try:
         parsed = urlsplit(base_url)
@@ -84,6 +115,15 @@ def classify_endpoint(base_url: str) -> str:
     except ValueError:
         # An ordinary DNS name that is neither localhost nor .local: a name
         # alone is not evidence of locality, so it is remote.
+        return "remote"
+    # MINOR-7: normalise an IPv6-mapped IPv4 address explicitly rather than
+    # relying on `is_loopback`/`is_private`'s own (interpreter-version-
+    # dependent) delegation to `ipv4_mapped`.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if str(ip) in _IMDS_ADDRESSES:
+        return "remote"
+    if isinstance(ip, ipaddress.IPv4Address) and ip in _CGNAT_V4:
         return "remote"
     if ip.is_loopback:
         return "loopback"

@@ -58,6 +58,37 @@ from ocr.ocr_client import _build_client
         ("", "invalid"),
         ("http://", "invalid"),
         ("http:///v1", "invalid"),
+        # MAJOR-1 (PHASE2_P20SEAM_REVIEW.md): look-alike hostnames that a
+        # substring/prefix/suffix check (rather than exact-match /
+        # true-suffix) would misclassify as local. The real code already
+        # checks `host == "localhost"` and `host.endswith(".local")`, so
+        # these pass today; they exist to KILL mutants R2/R9 below, which
+        # widen those checks to `in`.
+        ("http://localhost.evil.com/v1", "remote"),
+        ("http://evil.com.localhost/v1", "remote"),
+        ("http://x.local.evil.com/v1", "remote"),
+        ("http://10.0.0.1@evil.com/v1", "remote"),
+        ("http://localhost@evil.com/v1", "remote"),
+        # MINOR-5: the cloud metadata endpoint (IMDS) is a standing SSRF
+        # target; excluded from `private` regardless of the general
+        # link-local/ULA rule, so it always needs the explicit opt-in.
+        ("http://169.254.169.254/latest/meta-data/", "remote"),
+        ("http://[fd00:ec2::254]/v1", "remote"),
+        # MINOR-7: CGNAT (RFC 6598) is not private — routed by the ISP, not
+        # exclusive to the caller's network — regardless of what a given
+        # interpreter's `ipaddress.IPv4Address.is_private` says (this moved
+        # across 3.12 patch releases). IPv6-mapped IPv4 is normalised
+        # explicitly rather than left to interpreter-version delegation.
+        ("http://100.64.0.1:8000/v1", "remote"),
+        ("http://[::ffff:127.0.0.1]/v1", "loopback"),
+        ("http://[::ffff:10.0.0.1]/v1", "private"),
+        # MINOR-6: a raw tab/CR/LF anywhere in the URL is refused before
+        # parsing — `urlsplit` silently drops these, so classifying the
+        # stripped string would answer for a different string than the one
+        # a client is actually handed.
+        ("http://loc\talhost/v1", "invalid"),
+        ("http://localhost\r\n/v1", "invalid"),
+        ("http://localhost/v1\t", "invalid"),
     ],
 )
 def test_classify_endpoint(url, expected):
@@ -163,6 +194,27 @@ def test_build_client_refuses_remote_before_importing_openai(monkeypatch):
         assert "openai" not in sys.modules
 
 
+def test_build_client_constructs_nothing_after_a_refusal(monkeypatch):
+    """MINOR-3 (PHASE2_P20SEAM_REVIEW.md): order-independent, unlike the
+    `had_openai` check above (which degrades to "an exception was raised"
+    once some earlier test has already imported `openai`). A construction-
+    counting sentinel proves the stronger, order-independent claim directly:
+    zero `OpenAI(...)` constructions happen after a refusal, regardless of
+    whether the module was already imported."""
+    constructions = []
+
+    class _CountingOpenAI:
+        def __init__(self, **kwargs):
+            constructions.append(kwargs)
+
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", _CountingOpenAI)
+
+    with pytest.raises(EndpointRefused):
+        _build_client(_settings("https://foo.runpod.net/v1"))
+    assert constructions == []
+
+
 def test_build_client_allows_loopback_and_constructs_a_client(monkeypatch):
     calls = []
 
@@ -180,6 +232,9 @@ def test_build_client_allows_loopback_and_constructs_a_client(monkeypatch):
 
 
 def test_build_client_allows_remote_with_opt_in(monkeypatch):
+    """MINOR-2: the opt-in is re-derived from the real env var, not trusted
+    from `settings.remote_opt_in` — so the REAL literal must be set, not
+    merely the field, for this to succeed."""
     calls = []
 
     class _FakeOpenAI:
@@ -188,6 +243,7 @@ def test_build_client_allows_remote_with_opt_in(monkeypatch):
 
     import openai
     monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
+    monkeypatch.setenv(OCR_REMOTE_OPT_IN_ENV, OCR_REMOTE_OPT_IN_LITERAL)
 
     client = _build_client(_settings("https://foo.runpod.net/v1", remote_opt_in=True))
     assert calls == ["https://foo.runpod.net/v1"]
@@ -198,6 +254,7 @@ def test_endpoint_class_field_cannot_spoof_the_real_check(monkeypatch):
     that CLAIMS `endpoint_class="loopback"` for a remote `base_url` must
     still be refused — the enforcement re-derives the class from
     `base_url`, never trusting the field."""
+    monkeypatch.delenv(OCR_REMOTE_OPT_IN_ENV, raising=False)
     settings = Settings(
         base_url="https://foo.runpod.net/v1", model="baidu/Unlimited-OCR",
         api_key="EMPTY", timeout=5, retries=1, ngram_size=35, window_size=128,
@@ -205,6 +262,24 @@ def test_endpoint_class_field_cannot_spoof_the_real_check(monkeypatch):
     )
     with pytest.raises(EndpointRefused):
         _build_client(settings)
+
+
+def test_remote_opt_in_field_cannot_spoof_the_real_check(monkeypatch):
+    """MINOR-2 (PHASE2_P20SEAM_REVIEW.md): `Settings.remote_opt_in` is
+    descriptive only, exactly like `endpoint_class` above. A hand-built
+    `Settings(..., remote_opt_in=True)` for a remote `base_url` must still
+    be refused when the REAL env var is not set — before this fix, only
+    `endpoint_class` was re-derived, so this exact construction reached a
+    remote endpoint with the opt-in literal never having been set anywhere."""
+    monkeypatch.delenv(OCR_REMOTE_OPT_IN_ENV, raising=False)
+    settings = Settings(
+        base_url="https://foo.runpod.net/v1", model="baidu/Unlimited-OCR",
+        api_key="EMPTY", timeout=5, retries=1, ngram_size=35, window_size=128,
+        max_workers=1, remote_opt_in=True,
+    )
+    assert settings.remote_opt_in is True  # the field IS set...
+    with pytest.raises(EndpointRefused):
+        _build_client(settings)  # ...but the enforcement does not trust it
 
 
 # ---------------------------------------------------------------------------
