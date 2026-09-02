@@ -422,10 +422,10 @@ def test_minor7_env_example_never_pre_enables_the_remote_opt_in():
 
 def test_minor8_default_gpu_sampler_parses_a_real_nvidia_smi_shaped_line():
     settings = _settings()
-    runner = _RunnerLog(stdout="7692, 32607, 0\n")
+    runner = _RunnerLog(stdout="7692, 24576, 0\n")
     sampler = vast._default_gpu_sampler(settings, runner)
     sample = sampler()
-    assert sample == {"memory_used_mib": 7692, "memory_total_mib": 32607, "utilization_percent": 0}
+    assert sample == {"memory_used_mib": 7692, "memory_total_mib": 24576, "utilization_percent": 0}
     assert any("nvidia-smi" in " ".join(call) for call in runner.calls)
 
 
@@ -455,13 +455,13 @@ def test_minor8_measure_wires_the_default_gpu_sampler_and_polls_it(tmp_path):
     from tests.paddle_synthetic import build_ledger_page, synthetic_paddle_result
 
     page = build_ledger_page(n_rows=1)
-    runner = _RunnerLog(stdout="1000, 32607, 5\n")
+    runner = _RunnerLog(stdout="1000, 24576, 5\n")
     with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=150)) as fake:
         settings = _settings(PADDLE_RUNTIME_DIR=str(tmp_path), PADDLE_WORKER_URL=fake.url)
         client = PaddleClient(settings, environ=VAST_ENV)
         report = vast.cmd_measure(settings, client=client, runner=runner, n_rows=1, warm_requests=2, dpi=150,
                                   environ=VAST_ENV, gpu_sample_every=1)
-    assert report["gpu"]["last"] == {"memory_used_mib": 1000, "memory_total_mib": 32607, "utilization_percent": 5}
+    assert report["gpu"]["last"] == {"memory_used_mib": 1000, "memory_total_mib": 24576, "utilization_percent": 5}
     assert report["gpu"]["peak_memory_used_mib"] == 1000
     assert report["gpu"]["samples_taken"] >= 1
 
