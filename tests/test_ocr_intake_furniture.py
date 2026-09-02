@@ -24,7 +24,7 @@ from ocr.ocr_client import (
     looks_truncated_td,
     recover_truncated_td_page,
 )
-from tests.test_no_statement_hardcodes import ISSUER_NAME_LEXICON
+from tests.test_no_statement_hardcodes import ISSUER_NAME_LEXICON, ISSUER_MARKERS_BY_ISSUER
 
 
 def test_intake_furniture_covers_every_declared_behavior():
@@ -72,27 +72,47 @@ def test_two_entries_declare_they_select_among_candidate_reads():
         assert "never on a printed figure" in scope, f"{name}: scope does not disclaim figure-dependence"
 
 
+def _resolve_regex_subjects():
+    """Review MINOR-R2: every `INTAKE_FURNITURE` key that resolves, on
+    `ocr.ocr_client`, to an object carrying a `.pattern` (a compiled regex) --
+    not a name hardcoded to `_TD_MARKERS_RE`. A future registered entry whose
+    subject is also a compiled regex is picked up automatically; one whose
+    subject is a function, a list, or anything else without `.pattern` is
+    correctly excluded (it has no "pattern text" for this check to read)."""
+    import ocr.ocr_client as ocr_client_module
+
+    subjects = {}
+    for name in INTAKE_FURNITURE:
+        obj = getattr(ocr_client_module, name, None)
+        if hasattr(obj, "pattern"):
+            subjects[name] = obj
+    return subjects
+
+
 def test_registered_regex_pattern_matches_its_declared_issuer_and_no_other():
-    """Review MAJOR-3: a registered NAME is not a blanket licence for every
-    other issuer. For every register entry whose subject is a compiled regex
-    with a non-None issuer, the pattern text must contain THAT issuer's own
-    marker and no marker belonging to a different institution.
+    """Review MAJOR-3 (+ MINOR-R2): a registered NAME is not a blanket
+    licence for every other issuer. For every register entry whose subject is
+    a compiled regex with a non-None issuer, the pattern text must contain
+    THAT issuer's own markers (looked up from `ISSUER_MARKERS_BY_ISSUER`, not
+    re-hardcoded here) and no marker belonging to a different institution.
 
     Mutant K, applied directly (not only via the mutation campaign against
     the real file): widening `_TD_MARKERS_RE` to a second issuer must fail
     this exact check."""
-    regex_subjects = {"_TD_MARKERS_RE": _TD_MARKERS_RE}
-    td_markers = {"td bank", "td business", "most convenient bank", "td canada trust"}
+    regex_subjects = _resolve_regex_subjects()
+    assert regex_subjects, "no compiled-regex subject resolved from INTAKE_FURNITURE -- vacuous check"
     for name, compiled in regex_subjects.items():
         entry = INTAKE_FURNITURE[name]
         if entry["issuer"] is None:
             continue
+        own_markers = ISSUER_MARKERS_BY_ISSUER.get(entry["issuer"])
+        assert own_markers, f"{entry['issuer']!r} has no entry in ISSUER_MARKERS_BY_ISSUER"
         pattern_low = compiled.pattern.lower()
-        own_markers_present = [m for m in td_markers if m in pattern_low]
+        own_markers_present = [m for m in own_markers if m in pattern_low]
         assert own_markers_present, f"{name}: pattern carries none of its declared issuer's own markers"
         other_markers_present = [
             m for m in ISSUER_NAME_LEXICON
-            if m not in td_markers and m in pattern_low
+            if m not in own_markers and m in pattern_low
         ]
         assert not other_markers_present, (
             f"{name}: registered issuer is {entry['issuer']!r} but the pattern "
@@ -112,7 +132,7 @@ def test_registered_regex_check_actually_catches_a_second_issuer(monkeypatch):
         re.IGNORECASE,
     )
     monkeypatch.setattr(ocr_client_module, "_TD_MARKERS_RE", widened)
-    td_markers = {"td bank", "td business", "most convenient bank", "td canada trust"}
+    td_markers = ISSUER_MARKERS_BY_ISSUER["TD"]
     pattern_low = ocr_client_module._TD_MARKERS_RE.pattern.lower()
     other_markers_present = [
         m for m in ISSUER_NAME_LEXICON if m not in td_markers and m in pattern_low
@@ -120,6 +140,25 @@ def test_registered_regex_check_actually_catches_a_second_issuer(monkeypatch):
     assert other_markers_present == ["wells fargo"], (
         "the widened pattern must be caught as carrying a second issuer's marker"
     )
+
+
+def test_is_td_statement_false_for_every_other_institution_in_the_lexicon():
+    """Review MINOR-R1: the exclusivity check above tests full-marker
+    substring containment; a SHORTER, bare word-boundary prefix of another
+    institution's marker folded into `_TD_MARKERS_RE` would not contain any
+    FULL lexicon marker and would slip past it. The only reliable check is
+    behavioral: sweep every non-TD institution in the lexicon and confirm
+    `is_td_statement` says no for each one's own printed text, rather than
+    relying on whichever banks happen to have an incidental negative test
+    elsewhere (mutant U died only because Chase already had one; mutant W,
+    for an institution with no such test, survived the first pass)."""
+    td_own = ISSUER_MARKERS_BY_ISSUER["TD"]
+    for marker in ISSUER_NAME_LEXICON:
+        if marker in td_own:
+            continue
+        assert not is_td_statement(f"{marker} statement of account"), (
+            f"is_td_statement matched a non-TD institution's own marker: {marker!r}"
+        )
 
 
 def test_td_recovery_variants_are_dpi_mask_pairs():

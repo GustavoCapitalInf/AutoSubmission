@@ -898,6 +898,17 @@ ISSUER_NAME_LEXICON = (
     "guardian credit union", "linkbank",
 )
 
+#: ISSUER_NAME_LEXICON entries grouped by the institution they belong to,
+#: keyed by the same string `INTAKE_FURNITURE` uses for `issuer`. Declared
+#: once, here, so a registered issuer's own markers are looked up rather than
+#: re-hardcoded at each call site (review MINOR-R2) -- `tests/
+#: test_ocr_intake_furniture.py`'s exclusivity check and its non-TD sweep
+#: both read this table instead of carrying their own copy of "the TD
+#: markers".
+ISSUER_MARKERS_BY_ISSUER = {
+    "TD": {"td bank", "td business", "most convenient bank", "td canada trust"},
+}
+
 #: Pre-existing per-issuer structural PDF-parsing constants outside this
 #: card's ownership -- a NAMED ratchet, not a scope exclusion (review
 #: MAJOR-2). Measured by summing, over every `str` `ast.Constant` in the

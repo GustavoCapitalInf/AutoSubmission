@@ -236,9 +236,21 @@ exact input shape truncation detection cares about, both before and after this c
 
 ## Proof
 
-`tests/test_ocr_postprocess_census.py` — 17 fixtures across the 9 functions, each function's
-output pinned exactly, each fixture also run through the full `postprocess()` chain (proving no
-undocumented cross-function interaction), every recorded numeric-token count independently
-re-measured, and every disappeared/appeared claim independently recomputed from a raw
-Counter-diff (not merely trusted from `case.json`). `python -m tools.ocr_postprocess_census`
-reproduces the same 9-row pass/fail table read-only from the command line.
+`tests/test_ocr_postprocess_census.py` — 31 fixtures across the 9 functions (130 collected test
+cases), each function's output pinned exactly, each fixture also run through the full
+`postprocess()` chain (proving no undocumented cross-function interaction), every recorded
+numeric-token count independently re-measured, and every disappeared/appeared claim
+independently recomputed from a raw Counter-diff (not merely trusted from `case.json`).
+`EXPECTED_FIXTURE_COUNT` pins the exact fixture count per function (review MINOR-R3: a bare
+`>= 17` floor stayed satisfied all the way down to 17, so deleting any of the 14 fixtures added
+after the first adversarial review — including the one fixture that is F-1's `count >= 3`
+threshold's only killer — went unnoticed by the suite; an exact per-function count names a
+deletion immediately, by function). `python -m tools.ocr_postprocess_census` reproduces the same
+9-row pass/fail table read-only from the command line.
+
+**A precision note on `strip_placeholder_markers`'s whitespace claims (review MINOR-3
+closure).** The `placeholder_free_normalizes_ws` fixture proves the trailing-newline drop; the
+CRLF-to-LF and form-feed-to-LF claims are true by direct measurement on the function in isolation,
+but are NOT provable through this fixture harness, because `Path.read_text()` (used to load
+`input.md`) universal-newline-translates CRLF and form-feed to LF before the function ever sees
+them — a fixture file cannot carry a raw CRLF byte sequence into the test through this loader.

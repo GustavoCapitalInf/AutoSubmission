@@ -30,10 +30,42 @@ from ocr.ocr_client import postprocess
 
 ALL_CASES = load_fixture_cases()
 
-assert len(ALL_CASES) >= 17, (
-    f"expected at least 17 committed fixture cases across the nine functions, "
-    f"found {len(ALL_CASES)} -- a fixture directory failed to load"
-)
+#: Review MINOR-R3: a floor of `>= 17` stayed satisfied at 31 fixtures, so
+#: deleting any of the 14 fixtures added after the first review re-opened
+#: MAJOR-5's exact regression (the reviewer's Y+N compound: delete
+#: `collapse_repeated_amounts/two_repeats_untouched`, then widen F-1's
+#: `count >= 3` to `>= 2` -- SURVIVED under the old floor) with the suite
+#: green. A per-function EXACT count means any single deletion, from any
+#: function, names itself immediately by function and by how many are
+#: missing, rather than staying silent until the collected total crosses a
+#: threshold nobody is watching.
+EXPECTED_FIXTURE_COUNT = {
+    "strip_det_tags": 5,
+    "strip_refusal_commentary": 2,
+    "strip_placeholder_markers": 3,
+    "strip_oversized_embedded_images": 2,
+    "collapse_repeated_amounts": 4,
+    "collapse_repeated_page_numbers": 3,
+    "split_fused_header_row": 4,
+    "repair_fused_amount_table": 4,
+    "fix_amount_column_bleed": 4,
+}
+assert sum(EXPECTED_FIXTURE_COUNT.values()) == 31, "EXPECTED_FIXTURE_COUNT total drifted from 31"
+
+
+def test_every_function_has_exactly_its_expected_fixture_count():
+    by_function: dict[str, int] = {}
+    for case in ALL_CASES:
+        by_function[case.function] = by_function.get(case.function, 0) + 1
+    mismatches = {
+        name: (by_function.get(name, 0), expected)
+        for name, expected in EXPECTED_FIXTURE_COUNT.items()
+        if by_function.get(name, 0) != expected
+    }
+    assert not mismatches, (
+        f"fixture count drifted from EXPECTED_FIXTURE_COUNT (actual, expected): {mismatches}"
+    )
+    assert len(ALL_CASES) == 31, f"expected 31 total committed fixture cases, found {len(ALL_CASES)}"
 
 
 def _mechanical_delta(before: dict, after: dict) -> dict:

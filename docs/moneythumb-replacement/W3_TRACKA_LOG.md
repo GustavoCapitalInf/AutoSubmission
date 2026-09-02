@@ -64779,3 +64779,68 @@ closure:** 11 commits scanned, hit_count 0 across all four classes.
 **Commits (review-response, `daa5988..HEAD`):** `58b5d22` (MAJOR-1 + MAJOR-5 + MINOR-2/3),
 `afa0a86` (MAJOR-2), `ea5afae` (MAJOR-3 + MAJOR-4), `f4917c8` (MINOR-1 + MINOR-4/5), `ee58d76`
 (docs), `a123f25` (the MAJOR-5 self-correction found during closure verification). Tree clean.
+
+## §P20POSTPROC closure-2 — the re-review's four residuals, closed
+
+**Re-review verdict (closure `5270834`):** APPROVE WITH FINDINGS — all 5 MAJOR and all 6 MINOR from
+the first review RE-CLOSED by independent re-measurement (not read off the closure text); 22/22
+campaign mutants killed (A-V), including the cell's own self-found `a123f25` correction confirmed
+genuine (`bare_tag_no_brackets_removed` is absent from mutant L's killer list — the isolation is
+real). Four new MINOR residuals fell out of the pass (R1-R4), none blocking. All four closed here.
+
+**MINOR-R3 — the fixture floor (`>= 17`) stayed satisfied at 31; deleting one fixture re-opened
+MAJOR-5 with the suite green.** Reproduced the reviewer's Y+N compound exactly: moved
+`collapse_repeated_amounts/two_repeats_untouched` out, widened `collapse_repeated_amounts`'
+`count >= 3` to `>= 2` on the real file — **SURVIVED** under the old floor (confirmed before
+fixing). **Fixed:** `EXPECTED_FIXTURE_COUNT`, a per-function exact-count dict (31 total), and
+`test_every_function_has_exactly_its_expected_fixture_count`. Re-applied the identical Y+N
+compound after the fix: **KILLED** — `{'collapse_repeated_amounts': (3, 4)}` — before the money
+threshold's own mutant N assertion is even reached. Fixture and code restored, tree verified clean.
+
+**MINOR-R4 — the durable census doc still said "17 fixtures".** Fixed: `## Proof` now reads 31
+fixtures / 130 collected cases, matching the tree exactly (130 passed, 1 skipped, confirmed by
+running the file). Added the one sentence the re-review asked for: the CRLF/form-feed whitespace
+claims on `strip_placeholder_markers` are true by direct measurement on the function in isolation
+but not provable through this fixture harness, because `Path.read_text()` (the fixture loader)
+universal-newline-translates CRLF to LF before the function ever sees it — verified by reading the
+fixture's raw bytes (`\r\n` present) against what `Path.read_text()` actually returns (`\n` only).
+
+**MINOR-R1 — the exclusivity check's full-marker substring match misses a shorter, word-boundary
+PREFIX of another institution's marker.** Reproduced mutant W exactly: widened `_TD_MARKERS_RE`
+with `\bguardian\b` (a bare prefix of "guardian credit union", an institution with no existing
+negative test) on the real file — **SURVIVED**, confirmed before fixing. **Fixed:** a new test
+sweeps every non-TD entry in `ISSUER_NAME_LEXICON` and asserts `is_td_statement` says no for each
+institution's own printed text, rather than relying on whichever banks happen to have an
+incidental negative test elsewhere. Re-applied mutant W after the fix: **KILLED** —
+`is_td_statement matched a non-TD institution's own marker: 'guardian credit union'`. Reverted;
+`_TD_MARKERS_RE` confirmed restored to its original three alternatives and the full targeted+guard
+suite re-verified green.
+
+**MINOR-R2 — the exclusivity check's subject list and marker sets were hardcoded literals.**
+Fixed: `_resolve_regex_subjects()` looks up every `INTAKE_FURNITURE` key on `ocr.ocr_client` and
+keeps the ones carrying a `.pattern` (today still exactly `{_TD_MARKERS_RE}`, but now discovered,
+not named); a new shared `ISSUER_MARKERS_BY_ISSUER` table (in `tests/test_no_statement_hardcodes.py`,
+beside `ISSUER_NAME_LEXICON`) maps each registered issuer to its own markers, read by both the
+exclusivity test and its mutant-K counter-test, replacing two separately hardcoded `td_markers`
+copies with one declaration.
+
+**Housekeeping instructed at this step:**
+* `git rm`'d `docs/moneythumb-replacement/reviews/PHASE2_P20POSTPROC_REVIEW.md` — confirmed
+  byte-identical to Ocean's `train10` copy before removal (the re-review's own sha256 check); Ocean
+  holds the canonical copy with the re-review section appended.
+* **Two** one-file ownership extensions beyond the card's original list, both recorded here for
+  Ocean to note at compose (neither was pre-granted): `tests/test_render.py` (the display-path
+  mutant killer, added at first closure) and `tests/test_truncation.py` (the MINOR-5 raw-text
+  assertion, +1 line, added at first closure). The first closure section above named only the
+  first; the re-review's MINOR-6 addendum named the second.
+
+**Proof floor after the four fixes, this tree:** targeted 7 files (`test_ocr_postprocess_census`,
+`test_ocr_intake_furniture`, `test_ocr_client`, `test_pipeline`, `test_render`, `test_truncation`,
+`test_visual_rung`): **270 passed / 1 skipped / 1 deselected, exit 0** (+2 over the re-review's 268:
+one new fixture-count test, one new lexicon-sweep test). 5 canonical guards: **267 passed, exit 0**
+(unchanged — `ISSUER_MARKERS_BY_ISSUER` is a constant, not a new test).
+`python -m tools.ocr_postprocess_census`: 9 rows, all pass, **exit 0**.
+
+Per this step's exact instruction, the full suite / `corpus_gate.py` / cohort replay / privacy scan
+were not re-run this round (already green at `5270834` per the re-review's own independent
+re-measurement, reported above); only the message scan was re-run, over the commits this step adds.
