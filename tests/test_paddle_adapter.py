@@ -88,7 +88,7 @@ def test_case5_synthetic_ledger_reading_order():
     evidence_page = page_evidence_from_result(raw, frame=frame)
     lines = [line.text for line in evidence_page.lines]
     assert lines == [line.text for line in page.lines]
-    assert lines[2] == "2031-01-01 SYNTHETIC ROW 01 1.01 501.01"
+    assert lines[2] == "2031-01-01 SYNTHETIC ROW 01 10.00 510.00"
 
 
 # ---------------------------------------------------------------------------

@@ -66,7 +66,7 @@ def test_mask_text_replaces_host_user_and_token():
 
 def test_cmd_check_masks_gpu_output_and_records_real_args():
     settings = _settings()
-    runner = _RunnerLog(stdout="NVIDIA GeForce RTX 5090, 32607 MiB, 580.173.02\n")
+    runner = _RunnerLog(stdout="NVIDIA GeForce RTX FAKE, 8192 MiB, 000.00.0\n")
     result = vast.cmd_check(settings, runner=runner)
     text = json.dumps(result)
     for forbidden in FORBIDDEN_TOKENS:

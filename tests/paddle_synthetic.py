@@ -111,7 +111,12 @@ def build_ledger_page(n_rows: int = 8) -> SyntheticPage:
 
     balance = STARTING_BALANCE
     for row in range(1, n_rows + 1):
-        amount = row + (row / 100.0)  # e.g. row=7 -> 7.07: obviously synthetic, never a real figure
+        # A round dollar figure: `tools/privacy_scan_branch.py`'s `round_money`
+        # exclusion treats every `.00`-ending MONEY token as template/tolerance
+        # shape, never archive content — the deliberate way to keep an
+        # arithmetically-generated synthetic figure from ever coincidentally
+        # matching a real printed balance somewhere in a 3,000+ document corpus.
+        amount = float(row * 10)
         balance = balance + amount
         add_line([
             (f"{SYNTHETIC_YEAR}-01-{row:02d}", COLUMN_X["date"]),
