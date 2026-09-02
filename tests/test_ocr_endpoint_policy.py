@@ -82,6 +82,14 @@ from ocr.ocr_client import _build_client
         ("http://100.64.0.1:8000/v1", "remote"),
         ("http://[::ffff:127.0.0.1]/v1", "loopback"),
         ("http://[::ffff:10.0.0.1]/v1", "private"),
+        # NEW-1 (re-review, closure 1cc759e): the IMDS exclusion is
+        # `str(ip) in _IMDS_ADDRESSES`, which only matches AFTER the
+        # ipv4_mapped normalisation has turned `::ffff:169.254.169.254`
+        # into `169.254.169.254` — that interaction is interpreter-
+        # independent (it does not rely on any `is_*` delegation), so unlike
+        # N7a (CGNAT, deliberately unkillable on 3.12.3+/3.13+, where
+        # `is_private` already excludes CGNAT) this one IS killable here.
+        ("http://[::ffff:169.254.169.254]/v1", "remote"),
         # MINOR-6: a raw tab/CR/LF anywhere in the URL is refused before
         # parsing — `urlsplit` silently drops these, so classifying the
         # stripped string would answer for a different string than the one
@@ -89,6 +97,16 @@ from ocr.ocr_client import _build_client
         ("http://loc\talhost/v1", "invalid"),
         ("http://localhost\r\n/v1", "invalid"),
         ("http://localhost/v1\t", "invalid"),
+        # NEW-3 (re-review, closure 1cc759e): MINOR-6 closed the tab/CR/LF-
+        # anywhere case but `urlsplit` ALSO strips the whole WHATWG
+        # C0-control-or-space set (0x00-0x20) from the ENDS of the string —
+        # a leading/trailing space, a leading NUL, a leading/trailing other
+        # C0 control character all silently became a different (stripped)
+        # string before classification.
+        (" http://localhost:8000/v1", "invalid"),
+        ("\x01http://localhost:8000/v1", "invalid"),
+        ("\x00http://localhost:8000/v1", "invalid"),
+        ("http://localhost:8000/v1\x1f", "invalid"),
     ],
 )
 def test_classify_endpoint(url, expected):
@@ -280,6 +298,28 @@ def test_remote_opt_in_field_cannot_spoof_the_real_check(monkeypatch):
     assert settings.remote_opt_in is True  # the field IS set...
     with pytest.raises(EndpointRefused):
         _build_client(settings)  # ...but the enforcement does not trust it
+
+
+def test_probe_remote_opt_in_field_cannot_spoof_the_real_check(monkeypatch):
+    """NEW-2 (re-review, closure 1cc759e): the spoof test above covered
+    `_build_client` only. `probe_visual_ocr` has its own
+    `check_endpoint(..., opt_in=remote_opt_in_from_env())` call
+    (MINOR-1/MINOR-2), and it needs the same proof — a hand-built
+    `Settings(remote_opt_in=True)` combined with an injected `list_models`
+    (which bypasses `_build_client` entirely) must still be refused when the
+    REAL env var is not set."""
+    from ocr.availability import probe_visual_ocr
+
+    monkeypatch.delenv(OCR_REMOTE_OPT_IN_ENV, raising=False)
+    settings = Settings(
+        base_url="https://foo.runpod.net/v1", model="baidu/Unlimited-OCR",
+        api_key="EMPTY", timeout=5, retries=1, ngram_size=35, window_size=128,
+        max_workers=1, remote_opt_in=True,
+    )
+    assert settings.remote_opt_in is True  # the field IS set...
+    status = probe_visual_ocr(settings=settings, list_models=lambda: ["m"])
+    assert status.available is False  # ...but the enforcement does not trust it
+    assert status.error_type == "EndpointRefused"
 
 
 # ---------------------------------------------------------------------------

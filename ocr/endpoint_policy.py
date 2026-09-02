@@ -27,6 +27,16 @@ import os
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+try:
+    # NEW-3 (re-review, closure 1cc759e): the WHATWG C0-control-or-space set
+    # (0x00-0x20 inclusive) `urlsplit` strips from BOTH ENDS of a URL before
+    # parsing — a private name (leading underscore), imported defensively:
+    # if a future interpreter renames or removes it, fall back to the
+    # literal 33-character set rather than crash the module at import time.
+    from urllib.parse import _WHATWG_C0_CONTROL_OR_SPACE
+except ImportError:  # pragma: no cover - defensive only
+    _WHATWG_C0_CONTROL_OR_SPACE = "".join(chr(c) for c in range(0x21))
+
 #: Closed vocabulary for `classify_endpoint`'s return value.
 ENDPOINT_CLASSES = ("loopback", "private", "remote", "invalid")
 
@@ -84,14 +94,19 @@ def classify_endpoint(base_url: str) -> str:
     * `remote` — anything else with a valid http(s) host, including every
       public name (`*.runpod.net` included), every public IP, CGNAT, and
       the IMDS addresses.
-    * `invalid` — unparseable, no host, a non-http(s) scheme, or a raw
-      tab/CR/LF anywhere in the string (MINOR-6: `urlsplit` silently drops
-      those characters, so classifying the STRIPPED string would answer a
-      question about a different string than the one a client is handed).
+    * `invalid` — unparseable, no host, a non-http(s) scheme, a raw
+      tab/CR/LF anywhere in the string, OR any WHATWG C0-control-or-space
+      character (0x00-0x20) at either END of the string (MINOR-6 + NEW-3:
+      `urlsplit` silently drops both — a tab/CR/LF anywhere, and the whole
+      C0-control-or-space set from the ends — so classifying the STRIPPED
+      string would answer a question about a different string than the one
+      a client is actually handed).
     """
     if not isinstance(base_url, str) or not base_url:
         return "invalid"
     if any(control in base_url for control in ("\t", "\r", "\n")):
+        return "invalid"
+    if base_url != base_url.strip(_WHATWG_C0_CONTROL_OR_SPACE):
         return "invalid"
     try:
         parsed = urlsplit(base_url)
