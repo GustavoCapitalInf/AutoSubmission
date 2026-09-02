@@ -65069,3 +65069,23 @@ restored byte-identical after each mutant, re-tested green.
 `9a558dc` (fetch the re-review verbatim), `912026f` (BLOCK-1R, MINOR-8, MINOR-9 —
 `analysis/provenance.py`, `tests/test_q3_native_only.py`) — on top of the five commits closure 1
 made. Final tip: `912026f`. Working tree clean throughout; no throwaway worktree left behind.
+
+## §P20SURFACES closure 3 — MINOR-10 pinned (2026-09-01)
+
+Second re-review verdict **APPROVE WITH FINDINGS**: BLOCK-1R closed and independently
+re-verified (38/38 hostile and honest `extractor_model` cases correct; 0 ambiguous documents
+across all 3,351 reconstructible documents in the train9 cold cache; `l1s4_document_replay`
+byte-identical across base/closure-1/closure-2). The one open finding, MINOR-10, was four clauses
+of `analysis/provenance.py`'s "THE PROPERTY, EXACTLY" docstring holding in the shipped code with
+no test isolating any of them (mutants S3 line-one termination, S7 the `<!-- source:` prefix, S8
+the mandatory blank line, S9 the model charset all survived the reviewer's own mutation table).
+Closed with exactly the reviewer's four one-line tests
+(`test_a_lone_body_run_is_refused_when_the_header_prints_no_fields`,
+`test_a_document_that_does_not_begin_with_the_source_marker_is_refused`,
+`test_a_header_without_the_mandatory_blank_line_is_refused`,
+`test_the_model_charset_excludes_whitespace_and_angle_brackets`), each hand-verified against its
+own named mutant (applied one at a time, confirmed failing, restored byte-identical) before
+committing — no production code changed. `tests/test_q3_native_only.py`: 47 passed, EXIT=0
+(43 → 47). 5 canonical guards: 255 passed, EXIT=0. Commits: `3cf1e2c` (fetch the second
+re-review), `7eea445` (the four tests). Tip: `7eea445`. Working tree clean. Card complete
+pending composition.
