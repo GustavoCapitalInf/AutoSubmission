@@ -576,3 +576,202 @@ reconstruction is correct on both archives, both readers resolve row-by-row with
 incidental order left anywhere, the fidelity numbers reproduce on an independently drawn sample,
 the stage bump is invalidation-only and lands with its pin, and no pin outside the card's ownership
 was weakened. Re-review after the six items above; I expect it to be short.
+
+---
+
+## Re-review (closure 54b3ec1)
+
+```
+REVIEWER:      the same independent adversarial agent, re-measuring — no claim read off the closure
+BRANCH:        wave20-artifacts @ 54b3ec1 (7 commits on 2cb1d9c; 13 on the branch)
+DIFF:          git diff 2cb1d9c..54b3ec1  (12 files, +1270 / -322)
+WORKTREE:      .claude/worktrees/rev20-artifacts, detached at 54b3ec1; nothing committed, nothing pushed
+TREE STATE:    `git status --porcelain` = only `?? docs/.../PHASE2_P20ARTIFACTS_REVIEW.md` (this file), before and after every harness
+VERDICT:       APPROVE WITH FINDINGS — 2 BLOCK closed, 4 MAJOR closed, 6 MINOR closed; 3 new MINOR + 1 observation, none a correctness regression
+```
+
+Every number below is my own measurement at 54b3ec1. Where the closure states a figure, I re-derived
+it independently; where it states a bound, I attacked the bound.
+
+### Housekeeping the coordinator asked for
+
+| check | measured |
+|---|---|
+| commit count | 13 on the branch (`5f7bd9f` … `54b3ec1`) |
+| filter-branch reword #1 (closure round) — trees byte-identical | pre-reword tip `db4dcba` recovered from the branch reflog; `git diff db4dcba 54b3ec1 --stat` **empty**, and both commits' tree object is the SAME sha `2560c201f434e02d3c4793df0b73e99068e5b9cf` |
+| filter-branch reword #2 (pre-review round) — trees byte-identical | `git diff be137f3 98265c8 --stat` **empty** |
+| the review file on the branch | **absent** from `git ls-tree -r 54b3ec1` (the reflog shows it was committed at `61644f2` then `reset` away — correct: it is Ocean's record on train10) |
+| ownership footprint | exactly the card's list plus the four granted files: `webapp/artifact_cache.py`, `telemetry/run_of_record.py`, `telemetry/stated_counts.py`, `tools/cohort_replay.py`, `tests/test_artifact_cache.py`, `tests/test_run_of_record.py`, `tests/test_cohort_replay_selection.py`, W3 — plus `tools/privacy_scan_branch.py`, `tools/huntington_msg_privacy_scan.py`, `tools/regfp_zero_movement_sweep.py`, `tools/train/coldrun.sh`. **Nothing outside.** No `corpus_gate.py` change, so no shared-append-surface collision at composition |
+| 3.13+-only APIs in the closure diff | none |
+
+### Per-finding verdicts
+
+| finding | status | my measurement at 54b3ec1 |
+|---|---|---|
+| **BLOCK-1** — mutation table named a killer that did not kill; 5/9 key members unpinned | **CLOSED** | Ran my own nine-member drop-mutant sweep (one field removed at a time from `webapp/artifact_cache.py`'s `settings.update({...})`, killers `tests/test_artifact_cache.py` + `tests/test_visual_rung.py`, restored in a `finally`): `postprocess_state`, `postprocess_admitted`, `raster_version`, `extraction_schema_version`, `endpoint_class`, `tesseract_version`, `poppler_version`, `pymupdf_version` → **all 8 KILLED**, each by a named test, the three toolchain members by the new `test_each_toolchain_member_partitions_the_key_on_its_own[...]`. `extractor` → SURVIVES, as documented. **8/9, exactly as claimed.** Tree clean after the sweep |
+| — the `extractor` documentation | **honest, and the pin holds** | `_ocr_extractor` is a total function of `force_ocr` and `allow_visual_ocr`, both already key material, so no input can move `extractor` without moving one of them — the docstring says exactly that and claims no partition test. I attacked the replacement pin with my own mutant (`_ocr_extractor` → always `"offline"`): **KILLED, 3 failed** (`test_extractor_is_visual_only_for_the_forced_escalation_shape` plus both postprocess tests). Deleting `test_extractor_partitions_the_key_independently_of_the_raw_booleans` lost no coverage: its only real assertion (`allow_local_ocr` partitions) is still carried by `test_every_ocr_knob_partitions_the_key[{"allow_local_ocr": True}]` |
+| **BLOCK-2** — a test pinned the ABSENCE of B1's constants | **CLOSED** | Re-ran my B1 simulation (append `POSTPROCESS_STATE` / `ADMITTED_POSTPROCESS` to `ocr/ocr_client.py`, restore in a `finally`): `tests/test_artifact_cache.py` → **exit 0, 71 passed**, the exact number claimed. The assertions are now value-based (`getattr(..., DEFAULT) == "quarantined"`, `_ocr_postprocess_readout("visual"/"offline") == ("quarantined", ())`) and survive composition in either order. Tree clean after restore |
+| **MAJOR-1(a)** — RECORDED partitions never verified; `--expect-identical` exited 0 on a 100 % miss | **CLOSED** | The original fake-RECORDED run now exits **5** on the new mode cross-check. I built a second one whose mode AGREES with `summary.json`, to isolate the key check: `cohort_replay --folder "Huntington Bank" --expect-identical` → **exit 5**, `ocr settings key not found in the cache index it was recorded/reconstructed to describe: DEADBEEF...`. The `origin != ORIGIN_RECONSTRUCTED` early return is gone; verification runs for both origins |
+| **MAJOR-1(b)** — existence-only verification served the wrong tranche | **CLOSED for the reproduced case; residual below** | The bounded correspondence check is real and refuses `0/50`. See new MINOR-7 for what it still lets through |
+| **MAJOR-1(c)** — cohort-level vacuous green (the cell's own addition) | **CLOSED for exactly-zero** | Genuinely a distinct failure mode, correctly identified by the cell, with a real subprocess test. See new MINOR-8 for the threshold |
+| **MAJOR-2** — three proof-floor instruments read zero documents and reported a clean zero | **CLOSED** | At THIS v5 tree, against the v4-keyed train9 cold cache, **no monkeypatch**: `privacy_scan_branch.py --run ... --where "folder_label=Huntington Bank"` → `population 54, documents_read` **54**`, no_cached_text 0, hit_count 0`, exit 0, and non-vacuous by construction (`distinctive_scanned`: MONEY 6,110 · DIGITS 4,801 · WORDS 5,270 · DATES 90; `raw_hit_count 5`, all 5 attributed to `words_class`, MONEY/DIGITS/DATES 0). `huntington_msg_privacy_scan.py`, same population → `documents_read` **54**, hit_count 0, all four classes 0, exit 0 (this also independently re-clears the branch's commit messages, both rewords included). `regfp_zero_movement_sweep.py --start 0 --end 25` → `documents 25, no_ocr_artifact` **0**`, compared_payload 22, identical 22, moved 0`, exit 0. Both refusal paths exercised: run/data-dir mismatch (batch-9 run vs train8 cache) → **exit 5** at the analysis-key existence check; resolvable run with an unresolvable one-sha population → **exit 5**, `REFUSED: 0 of 1 population shas resolved any cached text` |
+| **MAJOR-3** — `replay_one` shape mismatch | **CLOSED as the documentation finding it was** | The W3 closure carries the root cause (`report_to_dict` + `analyze_markdown` vs the runner's `document_report_to_dict` + `analyze_document`), my measured blast radius verbatim (**23** payloads with a `document` block, **2** multi-account, of **2,656**), the explicit statement that `--expect-identical` is not a valid fidelity gate for those documents, and the follow-up card `P20-REPLAY-SHAPE`. It correctly declines to fix it here. `guardian_cu` still **exit 3**, 8/8 preserved, 0 regressions — unchanged by the closure, as required |
+| **MAJOR-4** — `--mode` inert; v5 reconstruction host-dependent | **CLOSED** | `tools/train/coldrun.sh:66` and `:90` both pass `--mode scanned`, matching `python -m discovery --scanned` at `:72`; `bash -n` exit 0. The hardcoded literal is now self-policing: if the runner's flag ever drifts from the recorded mode, MAJOR-1's new `summary.json` cross-check refuses the record (exit 5) instead of mis-resolving. The W3 records that the Phase 2.0 cold run will be the first `origin="recorded"` run |
+| **MINOR-1** — `ocr_settings_key` raised without `pdf2image` | **CLOSED** | Independently re-probed with `pdf2image` blocked in a subprocess: a clean 64-character key comes back. `_RASTER_VERSION_FALLBACK == ocr.rasterize.RASTER_VERSION == 1`, pinned by `test_raster_version_fallback_matches_the_source_module`, and the fault itself pinned by `test_ocr_settings_key_never_raises_when_rasterize_cannot_be_imported`. The offline path still does not import `ocr.ocr_client` |
+| **MINOR-2** — v4 pin only in a CI-skipped test | **CLOSED** | `test_stage_version_parameter_reconstructs_the_pre_v5_key_byte_for_byte` (unskippable, no fixture) now asserts both literals I measured — `0F25500A...` and `91937F81...` |
+| **MINOR-3** — `_ArtifactJoin` never closed its connection | **CLOSED** | `close()` / `__enter__` / `__exit__` on both `_ArtifactJoin` and `ColdCache`; `observe_run` uses `with`; the constructor closes its own handle when `partitions_for_run` raises — I exercised that path directly (`ColdCache` on a malformed run → `RunOfRecordError`, handle released). `cohort_replay.main()`'s single long-lived instance still relies on process exit; disclosed, and proportionate for a run-once CLI |
+| **MINOR-4** — the `rows[0]` mutant's killer asserted nothing | **CLOSED** | The test now runs the mutant's own `SELECT` across the same 20 shuffled insertion orders, reads each `rows[0]` artifact and asserts at least one order disagrees with `["OFFLINE-NOLOCAL PAGE"]`, with the primary killer named as the shuffle test |
+| **MINOR-5** — 33 old-signature `ColdCache` sites | **CLOSED as backlog** | Recorded as a named backlog item with the reason; still not on the standing proof floor. See new MINOR-9 — the closure added two more sites of the same class |
+| **MINOR-6** — global-state test without a fixture | **CLOSED** | Autouse `_restore_toolchain_versions_cache` saves and restores the module global around every test in the file; the manual happy-path resets are gone |
+
+### Re-measured proof floor at 54b3ec1
+
+| gate | result |
+|---|---|
+| targeted suite (the 7 files) | **347 passed, 2 deselected**, exit 0 (60.8 s) — the claimed number |
+| 5 canonical guards | **255 passed**, exit 0 |
+| `tests/test_l1s2_protected_carriers.py -m corpus` | **1 passed**, exit 0 |
+| `tests/test_privacy_scan_exclusions.py` | **255 passed**, exit 0 (unaffected by the scanner conversion) |
+| the 4 `tests/test_fixpriv_*.py` files | **185 passed**, exit 0 (see MINOR-9 — they do not reach the broken call sites) |
+| huntington `--expect-identical` | **exit 0**, population 54, replayed 54, preserved **41 of 41** payload-identical, unchanged non-validated 13, regressions 0, no-text 0 |
+| `guardian_cu` `--expect-identical` | **exit 3**, population 8, replayed 8, preserved **8 of 8**, regressions 0 — identical to my pre-closure measurement |
+| 100-sha `--expect-identical` (my own seed 31337, not the cell's) | **exit 0**, replayed 100, newly validated 0, preserved **81 of 81** payload-identical, unchanged non-validated 19, regressions 0 |
+
+Every replay number is bit-for-bit what I measured at 2cb1d9c. The closure changed selection plumbing
+and tests; it moved no payload.
+
+### New findings
+
+#### MINOR-7 — the correspondence bound's stated justification is contradicted by the archive it cites, and two residual paths remain (reproduced)
+
+`telemetry/run_of_record.py:396-419` (`_require_offline_key_resolves_a_sample`) requires that **at
+least one** of the first 50 `native`/`local_tesseract` rows resolve. The docstring justifies the weak
+bound as: *"a partial cold cache can legitimately miss individual documents — see F-9's own
+measurement, 3,364/3,380 on the train9 archive — so this is 'resolves none', not 'resolves all'."*
+
+**Measured on that exact archive** (pure sqlite + csv; nothing imported from the tree):
+
+```
+rows with source_path native/local_tesseract : 3,476
+FIRST-50 SAMPLE (what the bound looks at)    : 50/50 resolve
+WHOLE POPULATION                             : 3,476/3,476 resolve  (100.00%)
+DISTINCT offline shas                        : 3,351/3,351 resolve
+offline shas NOT in the cache                : 0
+distinct shas in the run 3,380 ; shas that are source_path=none throughout : 29
+distinct inputs in the ocr cache 3,364 ; cache inputs not among the run's offline shas : 13
+```
+
+The 3,364-vs-3,380 "gap" is not a gap in offline reads at all: 3,380 − 29 all-`none` shas = 3,351
+offline shas, **every one cached**, plus 13 cached negative/deferred results = 3,364. The 29 excluded
+documents are exactly the rows the sample already filters out. On the archive cited, "resolves all"
+would manufacture **zero** false refusals.
+
+Two residual paths, both reproduced at 54b3ec1 against a two-tranche tmp cache (with a real
+`rows.csv`, so the bounded sample genuinely runs):
+
+```
+[A both tranches hold every document]  ACCEPTED. key is the OTHER tranche's: True
+[A] served page labels for the run's 3 documents: ['OTHER-TRANCHE','OTHER-TRANCHE','OTHER-TRANCHE']
+[B other tranche holds only the sampled document]  ACCEPTED. key is the OTHER tranche's: True
+[B] served page labels for the run's 3 documents: ['OTHER-TRANCHE','<miss>','<miss>']
+```
+
+In A the wrong tranche's text is served for every document — MAJOR-1(b)'s outcome, still reachable
+when both partitions hold the same input, because a sample that resolves cannot tell WHICH partition
+it resolved. In B one accidental hit carries the whole check. The mode cross-check does not cover A:
+it compares a RECORDED block against `summary.json`, and a RECONSTRUCTED run takes its mode FROM
+`summary.json`, so there is nothing to cross-check.
+
+**Why MINOR and not MAJOR:** neither path is reachable on any archive that exists (both cold caches
+hold exactly one key per stage — re-verified), the outcome in B is a visible `no_text`, and the check
+is strictly stronger than what it replaced. **Fix I would accept:** raise the bound to a supermajority
+of the sample (`>= 90 %`, which the archive supports at 100 %) and correct the docstring sentence so
+it no longer cites 3,364/3,380 as evidence for "resolves none" — that number is about documents the
+sample excludes by construction.
+
+#### MINOR-8 — the vacuous-cohort guard fires only at EXACTLY zero (reproduced on the real archive)
+
+`tools/cohort_replay.py:475-483` refuses only when `len(no_text) == len(table)`. A cohort where some
+documents resolve and the rest do not still passes:
+
+```
+python -m tools.cohort_replay --run <batch-9 run> --data-dir <train9 cold> \
+    --shas <2 real Huntington shas + 8 shas absent from the run> --expect-identical
+EXIT=0
+| population | 10 |   | replayed (text available) | 2 |   | no text / absent | 8 |
+(no "BASELINE FIDELITY FAILED" line)
+```
+
+Eight of ten selected documents were never replayed and the gate is green. The `no text / absent` row
+is the only signal, and it is not in the exit code. **Fix I would accept:** under `--expect-identical`,
+refuse whenever `replayed < population` unless the caller opts out explicitly — "expect identical"
+over a named cohort should mean every member reproduced, not every member that happened to resolve.
+
+#### MINOR-9 — the closure created two new broken call sites and did not disclose them (reproduced)
+
+`tools/privacy_scan_branch.py::cached_text` changed from `(root, sha, ocr_keys)` to
+`(conn, root, sha, row, partitions)`. Two importers still call the old signature:
+
+* `tools/fixpriv_invent.py:57`
+* `tools/fixpriv_w3_redact.py:164`
+
+```
+python -c "from tools.privacy_scan_branch import cached_text; cached_text('root','SHA',['KEY'])"
+TypeError: cached_text() missing 2 required positional arguments: 'row' and 'partitions'
+```
+
+Both are FIXTURE-PRIVACY instruments and both still build their own live eight-combination
+`ocr_settings_key` enumeration, so they were already silently vacuous at v5 — the change converts a
+silent vacuous read into a loud crash, which is an improvement in failure MODE but is still a fresh
+break. **Not on the standing proof floor**: I ran all four `tests/test_fixpriv_*.py` files (**185
+passed**) and confirmed they import only `redact_line` / `REPLACEMENT` / the mutation harness, never
+this path. **Fix I would accept:** either convert both the same way the three granted tools were
+converted, or add them by name to the MINOR-5 backlog entry with the note that they now raise. What
+is not acceptable is that the W3 closure records the 33-site backlog and is silent about the two
+sites it just added to it.
+
+#### Observation-10 — a `--run` default was reintroduced in the converted tools, contrary to the cell's own risk-3 reasoning
+
+`tools/privacy_scan_branch.py:670-680` and `tools/regfp_zero_movement_sweep.py:82-90` default `--run`
+to `discovery_reports/train9-logs/train9_run_dir.txt` — exactly the hidden-pointer default the cell
+refused for `cohort_replay` ("a hidden default pointing at a possibly-stale run is exactly the defect
+class this card exists to close"). Two mitigations make this acceptable rather than a finding: a
+missing pointer fails loudly (I ran it in this worktree, where the file is absent — `--run not given
+and the default pointer ... is missing`, exit 1), and a STALE pointer is now caught by the new
+verification (batch-9 run against the train8 cache → exit 5). Worth one sentence in the W3 for
+consistency, nothing more. Two smaller notes in the same family: the scanners' population is now
+effectively intersected with `--run`'s `rows.csv` (a sha with no row resolves to no text — the
+OQ10-correct behaviour, but a narrowing worth stating); and the sweep's `multi_artifact_documents`
+diagnostic is gone, correctly, since a row-driven selection has no choice to make.
+
+### What the closure did NOT re-run, and what the train must
+
+The closure records the targeted suite, the guards, the corpus-marked carrier test and
+`test_privacy_scan_exclusions` — but **not** the full default suite and **not** `python corpus_gate.py`,
+after changing a shared module (`telemetry/stated_counts.py`), a shared instrument
+(`tools/privacy_scan_branch.py`, which has five importers) and `webapp/artifact_cache.py`. I did not
+run them either (out of scope per the brief). Ocean: the full suite and the gate at the composed train
+are the checks that would surface anything of MINOR-9's class left behind.
+
+### Final verdict
+
+**APPROVE WITH FINDINGS.**
+
+Both BLOCKs and all four MAJORs are genuinely closed — I re-derived every one of them myself rather
+than reading the closure's numbers, and the two headline claims that mattered most (8/9 drop-mutants
+killed; the three instruments reading `documents_read == population` at v5 against a v4-keyed archive
+with no monkeypatch) reproduce exactly. The replay numbers are unchanged in all three cohorts, so the
+closure moved plumbing and tests and no payload. The six MINORs are closed with real tests, and the
+`extractor` non-partitioning documentation is honest — its truth table is pinned and bites.
+
+Conditions I would attach, none blocking composition:
+
+1. **MINOR-9** — disclose the two new `cached_text` call sites in the W3 (one sentence added to the
+   MINOR-5 backlog paragraph), or convert them. This is the only finding where the record is
+   incomplete rather than merely improvable.
+2. **MINOR-7** — correct the docstring sentence that cites 3,364/3,380 as evidence for the weakest
+   bound (measured: 3,476/3,476 offline rows resolve), and consider raising the bound to a
+   supermajority. Safe to defer to the same card as MINOR-8.
+3. **MINOR-8** — carry the `replayed < population` refusal into `P20-REPLAY-SHAPE`, which is already
+   carded to touch `--expect-identical`'s semantics.
+4. Full suite + `corpus_gate.py` at the composed train, per the note above.

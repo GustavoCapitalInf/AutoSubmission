@@ -57,3 +57,9 @@ message scan 0. Report per the batch-9 contract plus "replay-shape evidence".
 No change to any analysis, serialization, runner or telemetry code. No new selection policy (OQ10's
 is in `telemetry/run_of_record.py`). No re-baselining of any other cell's numbers — you report what
 the corrected instrument says and Ocean re-reads the cells' claims against it.
+
+# Addendum (Ocean, 2026-09-01, from the P20-ARTIFACTS re-review MINOR-8)
+Under `--expect-identical` the tool refuses only when ZERO of the cohort resolved (reproduced: 2 real
+shas + 8 absent shas → exit 0, "replayed 2 / population 10"). This card also makes `--expect-identical`
+refuse (exit 3) whenever `replayed < population` unless the caller passes an explicit
+`--allow-unresolved` — "expect identical" over a named cohort means every member reproduced. Pin it.
