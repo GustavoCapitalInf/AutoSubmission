@@ -157,6 +157,29 @@ def test_model_calls_for_records_endpoint_provenance_on_every_ocr_entry(monkeypa
     assert calls[0]["remote_opt_in"] is False
 
 
+def test_model_calls_for_degrades_two_fields_not_the_record_on_a_hostile_ocr_model(monkeypatch):
+    """NEW-6 (re-review, closure 1cc759e): `load_settings()` raises
+    `ProvenanceTokenError` for a hostile `OCR_MODEL` (BLOCK-1's own
+    closure). Every `_emit` call site wraps `build_record(...)` — which
+    calls `model_calls_for` — in `except Exception: pass` (H3_SCHEMA I4,
+    "cannot fail a job"), so an uncaught raise here would silently drop the
+    WHOLE telemetry record for a document that otherwise processed fine.
+    `model_calls_for` must instead degrade only `endpoint_class` /
+    `remote_opt_in` to `None` and still return the rest of the call entry."""
+    import types
+
+    monkeypatch.setenv("OCR_MODEL", "evil-model\n")  # BLOCK-1's own hostile shape
+    native_doc = types.SimpleNamespace(model="native-pdf-text", pages=["a"], page_integrity=[])
+
+    calls = model_calls_for(native_doc, None)  # must not raise
+
+    assert len(calls) == 1
+    assert calls[0]["model"] == "native-pdf-text"
+    assert calls[0]["purpose"] == "native"
+    assert calls[0]["endpoint_class"] is None
+    assert calls[0]["remote_opt_in"] is None
+
+
 def test_model_calls_for_reports_unrecognized_model_honestly():
     """MAJOR-3: an unrecognised OCR token is reported the SAME shape as a
     visual read (one call per page, completion tokens summed) under

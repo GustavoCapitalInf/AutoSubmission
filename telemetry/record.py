@@ -393,14 +393,38 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     GPU read as a single untimed call. Its `purpose` is `"unrecognized_
     model"`, distinct from both `"visual_ocr"` and every `source_path_for`
     value, so a rollup can tell the three apart.
+
+    NEW-6 (re-review, closure 1cc759e): `load_settings()` raises
+    `ProvenanceTokenError` for a hostile `OCR_MODEL`; caught here so a
+    misconfigured environment costs `endpoint_class` / `remote_opt_in`
+    (both `None`) rather than the whole record — every `_emit` call site
+    wraps this function's caller (`build_record`) in `except Exception:
+    pass`, so an uncaught raise here would silently drop a telemetry record
+    for a document that otherwise processed fine.
     """
     calls: list[dict] = []
     if doc is not None:
         path = source_path_for(doc.model)
         unrecognized = source_path_unrecognized_model(doc.model)
-        from ocr.config import load_settings as _load_ocr_settings
+        # NEW-6 (re-review, closure 1cc759e): load_settings() validates
+        # OCR_MODEL and raises ProvenanceTokenError for a hostile value
+        # (BLOCK-1's own closure). Read defensively — a misconfigured
+        # environment costs these two fields, never the whole record: every
+        # `_emit` call site wraps the WHOLE build_record(...) call
+        # (model_calls_for included) in `except Exception: pass`
+        # (H3_SCHEMA I4, "cannot fail a job"), so an uncaught raise here
+        # would silently drop the entire telemetry record for a document
+        # that otherwise processed fine, rather than degrading two fields
+        # of it.
+        try:
+            from ocr.config import ProvenanceTokenError, load_settings as _load_ocr_settings
 
-        ocr_settings = _load_ocr_settings()
+            ocr_settings = _load_ocr_settings()
+            endpoint_class = ocr_settings.endpoint_class
+            remote_opt_in = ocr_settings.remote_opt_in
+        except ProvenanceTokenError:
+            endpoint_class = None
+            remote_opt_in = None
         if path == "visual" or unrecognized:
             reported = [getattr(page, "completion_tokens", None) for page in doc.pages]
             known = [value for value in reported if value is not None]
@@ -411,8 +435,8 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
                 "calls": len(doc.pages),
                 "prompt_tokens": None,
                 "completion_tokens": sum(known) if known else None,
-                "endpoint_class": ocr_settings.endpoint_class,
-                "remote_opt_in": ocr_settings.remote_opt_in,
+                "endpoint_class": endpoint_class,
+                "remote_opt_in": remote_opt_in,
             })
         else:
             calls.append({
@@ -422,8 +446,8 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
                 "calls": 1,
                 "prompt_tokens": None,
                 "completion_tokens": None,
-                "endpoint_class": ocr_settings.endpoint_class,
-                "remote_opt_in": ocr_settings.remote_opt_in,
+                "endpoint_class": endpoint_class,
+                "remote_opt_in": remote_opt_in,
             })
 
     model_used = (payload or {}).get("model_used") or ""
