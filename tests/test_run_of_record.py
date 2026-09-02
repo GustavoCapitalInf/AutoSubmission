@@ -71,12 +71,15 @@ def _conn(db_path: Path) -> sqlite3.Connection:
 
 
 def _write_recorded_run(
-    run_dir: Path, *, offline_key: str, visual_key: str | None, analysis_key: str, mode: str
+    run_dir: Path, *, offline_key: str, visual_key: str | None, analysis_key: str, mode: str,
+    paddle_key: str | None = None,
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     partitions = {"offline_ocr_key": offline_key, "analysis_key": analysis_key, "mode": mode}
     if visual_key is not None:
         partitions["visual_ocr_key"] = visual_key
+    if paddle_key is not None:
+        partitions["paddle_ocr_key"] = paddle_key
     (run_dir / "provenance.json").write_text(
         json.dumps(
             {
@@ -107,6 +110,30 @@ def test_a_recorded_run_uses_its_own_partitions_verbatim(tmp_path):
     }
     assert partitions.analysis_key == "ANALYSIS1"
     assert partitions.mode == "scanned"
+
+
+def test_a_recorded_run_with_a_paddle_key_carries_it(tmp_path):
+    run_dir = tmp_path / "run"
+    _write_recorded_run(
+        run_dir, offline_key="OFFLINE1", visual_key=None, analysis_key="ANALYSIS1",
+        mode="scanned-paddle", paddle_key="PADDLE1",
+    )
+    partitions = partitions_for_run(run_dir)
+    assert partitions.ocr_keys_by_source == {
+        "native": "OFFLINE1", "local_tesseract": "OFFLINE1", "paddle": "PADDLE1",
+    }
+
+
+def test_a_recorded_run_with_no_paddle_key_has_no_paddle_partition(tmp_path):
+    """Every provenance.json recorded before this cell, and every run whose
+    Paddle settings did not load at record time — the common case."""
+    run_dir = tmp_path / "run"
+    _write_recorded_run(
+        run_dir, offline_key="OFFLINE1", visual_key="VISUAL1", analysis_key="ANALYSIS1",
+        mode="scanned-visual",
+    )
+    partitions = partitions_for_run(run_dir)
+    assert "paddle" not in partitions.ocr_keys_by_source
 
 
 def test_a_recorded_run_with_no_visual_key_has_no_visual_partition(tmp_path):
@@ -607,6 +634,64 @@ def test_ocr_partition_for_row_resolves_to_none_never_another_partition_when_vis
 
 def test_analysis_partition_returns_the_runs_one_analysis_key():
     assert analysis_partition(_PARTITIONS) == "ANALYSIS"
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING: the Paddle partition — optional, row-driven, never confused
+# with the visual one (M11: "ocr_partition_for_row returns the visual key
+# for a paddle row" is the mutant this section exists to kill).
+# ---------------------------------------------------------------------------
+
+_PADDLE_PARTITIONS = RunPartitions(
+    ocr_keys_by_source={
+        "native": "OFFLINE", "local_tesseract": "OFFLINE",
+        "visual": "VISUAL", "paddle": "PADDLE",
+    },
+    analysis_key="ANALYSIS",
+    ocr_stage_version=5, analysis_stage_version=17, mode="scanned-paddle",
+    origin=ORIGIN_RECORDED,
+)
+
+
+@pytest.mark.parametrize(
+    "row,expected",
+    [
+        ({"source_path": "local_tesseract", "paddle_rung": "recovered"}, "PADDLE"),
+        ({"source_path": "local_tesseract", "paddle_rung": "upgraded"}, "PADDLE"),
+        ({"source_path": "local_tesseract", "paddle_rung": "not_attempted"}, "OFFLINE"),
+        ({"source_path": "none", "paddle_rung": "refused_customer_data"}, None),
+        ({"source_path": "none", "paddle_rung": "failed"}, None),
+    ],
+)
+def test_ocr_partition_for_row_paddle(row, expected):
+    assert ocr_partition_for_row(row, _PADDLE_PARTITIONS) == expected
+
+
+def test_a_paddle_row_never_resolves_to_the_visual_key():
+    """M11: even when a run carries BOTH a visual and a paddle key, a row
+    whose OWN provenance names paddle must resolve to the PADDLE key, never
+    the visual one — and vice versa. A row is never both in practice (D4),
+    but the function's own logic must not depend on that being true to
+    answer correctly for the one column a row actually set."""
+    paddle_row = {"source_path": "local_tesseract", "paddle_rung": "upgraded", "visual_rung": "not_attempted"}
+    visual_row = {"source_path": "local_tesseract", "visual_rung": "upgraded", "paddle_rung": "not_attempted"}
+    assert ocr_partition_for_row(paddle_row, _PADDLE_PARTITIONS) == "PADDLE"
+    assert ocr_partition_for_row(visual_row, _PADDLE_PARTITIONS) == "VISUAL"
+
+
+def test_ocr_partition_for_row_resolves_to_none_never_another_partition_when_paddle_is_missing():
+    """The paddle counterpart of the equivalent visual test above: a run with
+    no paddle partition recorded (batch-8/9-era runs; any run predating this
+    cell) whose row somehow claims a paddle outcome resolves to None, never
+    falls back to the offline or visual key."""
+    partitions = RunPartitions(
+        ocr_keys_by_source={"native": "OFFLINE", "local_tesseract": "OFFLINE"},
+        analysis_key="ANALYSIS", ocr_stage_version=4, analysis_stage_version=17,
+        mode="scanned", origin=ORIGIN_RECONSTRUCTED,
+    )
+    assert ocr_partition_for_row(
+        {"source_path": "local_tesseract", "paddle_rung": "upgraded"}, partitions
+    ) is None
 
 
 # ---------------------------------------------------------------------------

@@ -114,6 +114,26 @@ def test_source_path_fallthrough_is_closed_not_a_guess():
         "local-tesseract-ocr", "deterministic-native-preflight", None, "",
     ):
         assert source_path_unrecognized_model(recognized) is False, recognized
+    # P21-ROUTING (Phase 2.1): now that a real "paddle" mapping exists
+    # (`PADDLE_MODEL_TOKENS`), a `paddle+...`-SHAPED string that is NOT the
+    # exact registered token must still fall through to "none", not be
+    # assumed to be the Paddle rung — the same closed-fallthrough discipline
+    # every other branch already keeps.
+    from telemetry.record import PADDLE_MODEL_TOKENS
+
+    assert "paddle+x" not in PADDLE_MODEL_TOKENS
+    assert source_path_for("paddle+x") == "none"
+    assert source_path_unrecognized_model("paddle+x") is True
+    assert source_path_for("paddle-ocr+ppocrv5") == "paddle"
+    assert source_path_unrecognized_model("paddle-ocr+ppocrv5") is False
+
+
+def test_paddle_model_tokens_matches_the_ocr_module_literal():
+    """The literal mirror never drifts from the pin it mirrors."""
+    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+    from telemetry.record import PADDLE_MODEL_TOKENS
+
+    assert PADDLE_MODEL_TOKENS == frozenset({PADDLE_MODEL_TOKEN})
 
 
 def test_visual_model_tokens_matching_is_case_sensitive_by_design():

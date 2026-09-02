@@ -373,7 +373,15 @@ def test_no_model_extraction_can_happen(tree: Path, monkeypatch):
 
 def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
     """`ocr.pipeline` imports `ocr.ocr_client` lazily inside the visual rung,
-    so `allow_visual_ocr=False` means no model client exists in the process."""
+    so `allow_visual_ocr=False` means no model client exists in the process.
+    P21-ROUTING: the SAME property holds for `ocr.paddle_rung` /
+    `ocr.paddle_client` — a `MODE_DIGITAL` run never reaches the forced
+    Paddle branch either, so neither module is ever imported (`ocr.paddle_
+    config` is a separate, deliberately lightweight module `ocr.config`
+    already imports unconditionally for OQ2's `RESERVED_MODEL_PREFIXES`, and
+    is NOT checked here — see `test_artifact_cache.py::test_ocr_settings_
+    key_only_calls_load_paddle_settings_for_the_paddle_branch` for that
+    distinction's own test)."""
     code = (
         "import sys; from pathlib import Path;"
         "from discovery.runner import DiscoveryRunner, MODE_DIGITAL;"
@@ -381,7 +389,8 @@ def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
         f"r = DiscoveryRunner(Path({str(tree)!r}), mode=MODE_DIGITAL, run_id='t',"
         " sink=None, cache=None, dedup=DedupIndex());"
         "r.process('BankX/statement.pdf', 'BankX');"
-        "print('ocr.ocr_client' in sys.modules)"
+        "print('ocr.ocr_client' in sys.modules,"
+        " 'ocr.paddle_rung' in sys.modules, 'ocr.paddle_client' in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True,
                             text=True, cwd=ROOT)
@@ -389,8 +398,8 @@ def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
     # Compare only the LAST stdout line: on the CI runner a library prints a
     # harmless warning line to stdout before our sentinel (observed in run
     # 31137747002), and the sentinel is the verdict, not the noise around it.
-    assert result.stdout.strip().splitlines()[-1] == "False", (
-        "a model client was imported: " + result.stdout.strip()
+    assert result.stdout.strip().splitlines()[-1] == "False False False", (
+        "a model client (or the Paddle rung/client) was imported: " + result.stdout.strip()
     )
 
 

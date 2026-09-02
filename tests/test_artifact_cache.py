@@ -211,6 +211,28 @@ def test_extractor_is_visual_only_for_the_forced_escalation_shape():
     assert _ocr_extractor(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False) == "offline"
 
 
+def test_extractor_is_paddle_only_for_the_forced_paddle_shape():
+    """P21-ROUTING (M9): the Paddle counterpart of the truth table above.
+    `"paddle"` ONLY for `force_ocr=True AND allow_paddle_ocr=True` — never
+    for `allow_paddle_ocr=True` alone, and never mistaken for `"visual"`."""
+    from webapp.artifact_cache import _ocr_extractor
+
+    assert _ocr_extractor(
+        force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True
+    ) == "paddle"
+    assert _ocr_extractor(
+        force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True
+    ) == "offline"
+    assert _ocr_extractor(
+        force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=False
+    ) == "offline"
+    # A hand-built, contract-violating call (both true) still resolves to a
+    # DEFINED answer rather than an unspecified one — never "visual".
+    assert _ocr_extractor(
+        force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True, allow_paddle_ocr=True
+    ) == "paddle"
+
+
 def test_postprocess_state_partitions_the_key_and_pins_the_quarantined_default():
     """`postprocess_state` / `postprocess_admitted` come from `ocr.ocr_client`
     via getattr with the pinned quarantined defaults (until B1 composes).
@@ -326,9 +348,94 @@ def test_extraction_schema_version_partitions_the_key():
     import webapp.artifact_cache as module
 
     base = ocr_settings_key(ocr_settings=_OcrSettings())
-    with unittest.mock.patch.object(module, "EXTRACTION_SCHEMA_VERSION", 2):
+    # P21-ROUTING bumped the live default to 2 (D6); patch to a value that is
+    # never the live default so this proves the field partitions regardless
+    # of what that default currently is.
+    with unittest.mock.patch.object(module, "EXTRACTION_SCHEMA_VERSION", 999):
         changed = ocr_settings_key(ocr_settings=_OcrSettings())
     assert base != changed
+
+
+def test_allow_paddle_ocr_partitions_the_key():
+    base = ocr_settings_key(ocr_settings=_OcrSettings())
+    changed = ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=True)
+    assert base != changed
+
+
+def test_paddle_labelled_key_carries_the_paddle_settings_block(monkeypatch):
+    """D5/design item 5: when the extractor resolves to `"paddle"`, the key
+    material carries `paddle_settings_key_material(load_paddle_settings())`
+    — never the host/port/token, only the pins + provider + execution class."""
+    monkeypatch.setenv("PADDLE_PROVIDER", "local")
+    monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "local_free")
+    monkeypatch.delenv("PADDLE_REMOTE_OPT_IN", raising=False)
+    key_with_paddle = ocr_settings_key(
+        ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
+    )
+    key_without = ocr_settings_key(ocr_settings=_OcrSettings())
+    assert key_with_paddle != key_without
+
+    # Changing the provider/class changes the key: the "paddle" block is real
+    # key material, not a fixed placeholder.
+    monkeypatch.setenv("PADDLE_PROVIDER", "vast.ai")
+    monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "remote_paid")
+    monkeypatch.setenv("PADDLE_VAST_HOST", "test-host")
+    monkeypatch.setenv("PADDLE_VAST_SSH_PORT", "22")
+    monkeypatch.setenv("PADDLE_VAST_SSH_USER", "test-user")
+    key_remote = ocr_settings_key(
+        ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
+    )
+    assert key_remote != key_with_paddle
+
+
+def test_a_paddle_labelled_key_refuses_when_paddle_settings_cannot_load(monkeypatch):
+    """The paddle-labelled key REFUSES (raises) when Paddle settings cannot
+    be loaded — never a default block standing in for a real configuration."""
+    from ocr.paddle_config import PaddleConfigError
+
+    monkeypatch.delenv("PADDLE_PROVIDER", raising=False)
+    monkeypatch.delenv("PADDLE_EXECUTION_CLASS", raising=False)
+    with pytest.raises(PaddleConfigError):
+        ocr_settings_key(
+            ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
+        )
+
+
+def test_ocr_settings_key_only_calls_load_paddle_settings_for_the_paddle_branch():
+    """`ocr_settings_key`'s OWN body lazily imports/calls
+    `load_paddle_settings` / `paddle_settings_key_material` ONLY inside the
+    `extractor == "paddle"` branch — never derived for an offline- or
+    visual-labelled call. (`ocr.paddle_config` itself is unconditionally
+    importABLE process-wide — `ocr/config.py` needs `PADDLE_MODEL_TOKEN` at
+    module scope for OQ2's `RESERVED_MODEL_PREFIXES` — so a process-wide
+    `sys.modules` absence is not the property to check here, unlike
+    `ocr.ocr_client`, which carries no such independent, always-needed
+    reason to load. What matters — and what this proves — is that computing
+    an offline/visual key never CALLS into Paddle settings at all.)"""
+    import inspect
+
+    import webapp.artifact_cache as module
+
+    source = inspect.getsource(module.ocr_settings_key)
+    # The paddle-settings names must appear ONLY in the source text following
+    # the `if extractor == "paddle":` line.
+    marker = 'if extractor == "paddle":'
+    assert marker in source, "the paddle branch guard moved or was renamed"
+    before, after = source.split(marker, 1)
+    for name in ("load_paddle_settings", "paddle_settings_key_material"):
+        assert name not in before, f"{name} referenced before the paddle-only branch"
+        assert name in after, f"{name} missing from the paddle-only branch"
+
+
+def test_paddle_model_token_is_not_in_free_models():
+    """M13: remote_paid is not free — `PADDLE_MODEL_TOKEN` must never be
+    added to `telemetry.prices.FREE_MODELS`; the actual cost is measured,
+    never invented, and `price_for` reports it unpriced."""
+    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+    from telemetry.prices import FREE_MODELS, price_for
+
+    assert PADDLE_MODEL_TOKEN not in FREE_MODELS
+    assert price_for(PADDLE_MODEL_TOKEN) is None
 
 
 def test_toolchain_versions_never_raise_when_every_probe_fails():
@@ -471,8 +578,13 @@ def test_round_trip_for_every_stage(cache):
     hit, document = cache.get_ocr(content_sha256(PDF), ocr_key)
     assert hit is True
     # D-3b: the stored document also carries O-3's per-page integrity records
-    # (empty here — this fixture was never assessed by the ladder).
-    assert document == {"model": "fake-ocr", "pages": ["one", "two"], "page_integrity": []}
+    # (empty here — this fixture was never assessed by the ladder). P21-ROUTING
+    # (D6): `page_extractor` / `evidence` join the record, empty/None for
+    # every non-Paddle rung.
+    assert document == {
+        "model": "fake-ocr", "pages": ["one", "two"], "page_integrity": [],
+        "page_extractor": [], "evidence": None,
+    }
 
     analysis_key = analysis_settings_key(analysis_settings=_AnalysisSettings())
     cache.put_analysis(text_sha256("# md"), analysis_key, {"statement": {"bank": "B"}})

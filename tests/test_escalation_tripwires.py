@@ -69,6 +69,20 @@ def _imported_top_level_names(path: Path) -> set[str]:
     return names
 
 
+def test_ocr_document_imports_only_evidence_config_and_truncation():
+    """P21-ROUTING design item 3: `ocr/document.py` gains an `evidence`
+    import (the ONE cross-package import this module needs — `evidence/` is
+    neutral and stdlib-only, so this widens no pinned boundary; see D1) but
+    nothing else new: it may import `evidence` (canonical), its own
+    `.config` and `.truncation`, `dataclasses`, and `__future__` — never
+    `analysis`, `discovery`, `webapp`, `telemetry`, or any other `ocr.*`
+    module."""
+    imported = _imported_top_level_names(ROOT / "ocr" / "document.py")
+    allowed = {"evidence", "evidence.canonical", "config", "truncation", "dataclasses", "__future__"}
+    offenders = {name for name in imported if name not in allowed}
+    assert not offenders, f"ocr/document.py imports beyond its pinned set: {sorted(offenders)}"
+
+
 def test_escalation_and_pipeline_import_nothing_forbidden():
     for relative in ("ocr/escalation.py", "ocr/pipeline.py"):
         imported = _imported_top_level_names(ROOT / relative)
@@ -113,7 +127,7 @@ def test_no_analysis_module_imports_the_forbidden_ocr_or_discovery_modules():
 
 def test_router_inputs_field_set_is_pinned():
     assert set(RouterInputs.__dataclass_fields__) == {
-        "profile", "evidence", "triggers", "attempted", "stop",
+        "profile", "evidence", "triggers", "attempted", "stop", "enabled",
     }
 
 
@@ -129,12 +143,68 @@ def test_router_inputs_has_no_subclass():
 
 def test_router_inputs_constructor_parameters_are_pinned_by_name():
     params = list(inspect.signature(router_inputs).parameters)
-    assert params == ["profile", "evidence", "triggers", "attempted", "stop"]
+    assert params == ["profile", "evidence", "triggers", "attempted", "stop", "enabled"]
     for name, parameter in inspect.signature(router_inputs).parameters.items():
         assert parameter.kind is inspect.Parameter.KEYWORD_ONLY, (
             f"{name} must be keyword-only so a call site cannot smuggle a "
-            f"sixth positional value past the pinned names"
+            f"seventh positional value past the pinned names"
         )
+
+
+# ---------------------------------------------------------------------------
+# D4: every `enabled=` argument at a `decide(` call site is a MODE fact —
+# `self.<attribute>` or a module-level constant — never a per-document
+# expression (a call, a comprehension, a subscript, a conditional).
+# ---------------------------------------------------------------------------
+
+def _enabled_keyword_value(router_inputs_call: ast.Call) -> ast.AST | None:
+    for kw in router_inputs_call.keywords:
+        if kw.arg == "enabled":
+            return kw.value
+    return None
+
+
+def _is_self_attribute(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+    )
+
+
+def _is_module_level_constant_name(node: ast.AST) -> bool:
+    # Convention, not introspection: a SCREAMING_SNAKE_CASE bare name is the
+    # shape every module-level constant in this tree already uses
+    # (`WORKER_ENABLED_EXTRACTORS`, `ADMITTED_TRIGGERS`, ...). Anything else
+    # (a lowercase local, a parameter) is refused by this predicate, which is
+    # the point: a per-document local variable does not get to masquerade as
+    # a "constant" merely by sitting in a bare Name node.
+    return isinstance(node, ast.Name) and node.id.isupper() and "_" in node.id
+
+
+def test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression():
+    """D4: `enabled=` may be `self.<attribute>` (an instance field the mode
+    set once, in `__init__`) or a module-level SCREAMING_SNAKE_CASE constant
+    — never a call, a comprehension, a subscript, a conditional expression,
+    or any other per-document computation. This is what keeps a per-document
+    fact from being smuggled into the router through a field that is
+    supposed to be a pure run/mode fact known before any document is read."""
+    offenders: list[str] = []
+    for path, call in _decide_call_sites_repo_wide():
+        argument_nodes = list(call.args) + [kw.value for kw in call.keywords]
+        if len(argument_nodes) != 1 or not _is_router_inputs_call(argument_nodes[0]):
+            continue  # the other test already fails this shape
+        enabled_value = _enabled_keyword_value(argument_nodes[0])
+        relative = str(path.relative_to(ROOT)).replace("\\", "/")
+        if enabled_value is None:
+            offenders.append(f"{relative}:{call.lineno} — decide(...) call has no enabled= argument")
+            continue
+        if not (_is_self_attribute(enabled_value) or _is_module_level_constant_name(enabled_value)):
+            offenders.append(
+                f"{relative}:{call.lineno} — enabled= is {ast.dump(enabled_value)}, "
+                f"not a self.<attribute> or a module-level constant"
+            )
+    assert not offenders, "\n".join(offenders)
 
 
 # ---------------------------------------------------------------------------

@@ -239,11 +239,24 @@ def test_env_value_impersonating_a_native_rung_is_refused():
             load_settings(model_override=impostor)
 
 
+def test_env_value_impersonating_the_paddle_rung_is_refused():
+    """P21-ROUTING: `RESERVED_MODEL_PREFIXES` gains `PADDLE_MODEL_TOKEN` — an
+    env-supplied `OCR_MODEL` must not be able to impersonate the Paddle rung
+    either, the same closure the three deterministic tokens already have."""
+    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+
+    with pytest.raises(ProvenanceTokenError):
+        load_settings(model_override=PADDLE_MODEL_TOKEN)
+
+
 def test_reserved_prefixes_remain_legitimate_on_statement_markdown():
-    """The carve-out: native/tesseract rungs set these directly and must not
-    be refused by the same check that refuses an env impostor."""
+    """The carve-out: native/tesseract/Paddle rungs set these directly and
+    must not be refused by the same check that refuses an env impostor."""
+    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+
     for legit in ("native-pdf-text", "native-pdf-text+navy-federal-layout",
-                  "local-tesseract-ocr", "deterministic-native-preflight"):
+                  "local-tesseract-ocr", "deterministic-native-preflight",
+                  PADDLE_MODEL_TOKEN):
         StatementMarkdown(source_file="s.pdf", model=legit, pages=["x"])  # must not raise
 
 
