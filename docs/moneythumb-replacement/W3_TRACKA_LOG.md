@@ -67945,9 +67945,11 @@ gate.
 
 **Hygiene card** (Phase 2.1 cell G). Base `train11` at `888fb1c` (Phase 2.1 cell 0: `evidence/` +
 `ocr/paddle_config.py` committed). Branch `wave21-geometry`, worktree
-`.claude/worktrees/mt21-geometry`. Two commits: `0d26bcf` (the implementation) and `88c09cb` (a
-one-line test-data fix: a synthetic dollar amount coincidentally matched a printed archive token —
-see Privacy below). Own: `analysis/structurer/geometry.py`, `tests/test_geometry_frames.py` (new).
+`.claude/worktrees/mt21-geometry`. Code/test commits: `0d26bcf` (the implementation) and `88c09cb`
+(a one-line test-data fix: a synthetic dollar amount coincidentally matched a printed archive token
+— see Privacy below); code tree at closure is `88c09cb`. This W3 subsection's own commit(s) are
+reported by SHA in the closing message to Ocean (a commit cannot name its own hash inside itself).
+Own: `analysis/structurer/geometry.py`, `tests/test_geometry_frames.py` (new).
 No file outside this list touched; `evidence/canonical.py` needed no change.
 
 ## Population
@@ -68107,7 +68109,7 @@ recorded here rather than silently made.
   not just relied upon); a hostile DUCK-TYPED stand-in (the only way to get a non-`WordBox`/
   `LineBox`-bearing object past a type hint at runtime) is answered with `None`, never an exception.
 
-## Proof floor (exit codes, this branch's final tree `88c09cb`)
+## Proof floor (exit codes, code tree at closure `88c09cb`)
 
 | check | result | exit |
 |---|---|---:|
@@ -68132,13 +68134,15 @@ signature).
 * `tools/privacy_scan_branch.py --base 888fb1c --ref HEAD --run <TRAIN10-941918f run> --rows
   <that run>/rows.csv --data-dir .claude/recovery/webapp_data_train10_cold`: **hit_count 0** at the
   final commit (population 3,380; documents_read 3,351; 966 added lines scanned). One transient hit
-  existed between the two commits — a synthetic dollar amount (`9.01`) in the pixel-evidence
-  round-trip fixture coincidentally matched a printed MONEY-shaped token somewhere in the archive by
-  chance (short decimal amounts are low-entropy against 354,835 printed money tokens); replaced with
-  a longer, more distinctive synthetic figure in `88c09cb` before this cell's proof floor was
-  finalized. Zero at the commit reported here.
+  existed between the two commits — a synthetic dollar amount in the pixel-evidence round-trip
+  fixture coincidentally matched a printed MONEY-shaped token somewhere in the archive by chance
+  (short decimal amounts are low-entropy against 354,835 printed money tokens); replaced with a
+  longer, more distinctive synthetic figure in `88c09cb` before this cell's proof floor was
+  finalized — the earlier figure is deliberately not restated here (a coincidentally-matching
+  instance belongs in neither the fix commit nor this record; only the class does). Zero at the
+  commit reported here.
 * Message scan (`tools/huntington_msg_privacy_scan.py`, population = the 12 pinned corpus sha256s +
-  the `first_citizens`/`rbc` cohort shas, 218 named, 216 resolved): **2 commits scanned, hit_count
+  the `first_citizens`/`rbc` cohort shas, 218 named, 216 resolved): **3 commits scanned, hit_count
   0**.
 * No statement-specific hardcode: nothing beyond synthetic test strings; `tests/test_no_statement_
   hardcodes.py` (layer-wide over `analysis/`) passed at 267/267 with the rest of the guards.
