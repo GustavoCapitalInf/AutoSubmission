@@ -155,6 +155,13 @@ PADDLE_DEFAULT_RUNTIME_DIR = ".paddle_runtime"
 
 #: Closed refusal vocabulary (rows, telemetry and exceptions use these tokens
 #: and nothing else).
+#:
+#: `paddle_frame_mismatch` and `paddle_evidence_malformed` were APPENDED by
+#: cell P (`ocr/paddle_rung.py`, `docs/agent-handoffs/P21-PADDLE.md` §4):
+#: the rung's own two whole-document refusals — a raster/PDF-page geometry
+#: that `evidence.PageFrame` refuses (scale disagreement) and a PaddleOCR
+#: result `ocr.paddle_adapter.PaddleAdapterError` refuses (a shape the
+#: adapter cannot trust) — never a partial page, never a guess.
 REFUSAL_REASONS: tuple[str, ...] = (
     "paddle_config_missing",
     "paddle_remote_opt_in_required",
@@ -163,6 +170,8 @@ REFUSAL_REASONS: tuple[str, ...] = (
     "paddle_runtime_mismatch",
     "paddle_worker_unreachable",
     "paddle_worker_url_not_loopback",
+    "paddle_frame_mismatch",
+    "paddle_evidence_malformed",
 )
 
 _REQUIRED_ALWAYS = ("PADDLE_PROVIDER", "PADDLE_EXECUTION_CLASS")
