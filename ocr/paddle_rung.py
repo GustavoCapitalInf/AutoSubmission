@@ -32,14 +32,14 @@ import hashlib
 import json
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any
+from typing import Any, Mapping
 
 import fitz  # PyMuPDF — already an `ocr/` dependency (see ocr/native_text.py)
 
 from evidence.canonical import ExtractionEvidence, PageFrame
 
 from .paddle_adapter import PaddleAdapterError, evidence_from_pages, page_evidence_from_result
-from .paddle_client import PaddleClient, verify_identity
+from .paddle_client import PaddleClient, PaddleTransportError, verify_identity
 from .paddle_config import (
     PADDLE_MODEL_TOKEN,
     PADDLE_RASTER_DPI,
@@ -50,7 +50,32 @@ from .paddle_config import (
 )
 from .rasterize import rasterize_pdf
 
-__all__ = ["PaddleRead", "read_document"]
+__all__ = ["PaddleRead", "RUNTIME_FIELDS", "read_document"]
+
+#: MAJOR-1 (`PHASE2_P21PADDLE_REVIEW.md`): the CLOSED set of keys
+#: `ExtractionEvidence.runtime` may ever carry. `_runtime_block` builds the
+#: dict field by field from this whitelist — it never copies the worker's
+#: `/version` payload verbatim, so a worker that echoes an extra key (a URL,
+#: a host, an operator note, anything) cannot inject it into the immutable,
+#: hashed evidence. `model_loaded` and `worker_started_at` are deliberately
+#: NOT here (MINOR-6): both are volatile across requests to the SAME worker
+#: process (a cold vs. warm read of otherwise-identical bytes must produce
+#: the SAME `evidence_sha256`).
+RUNTIME_FIELDS: frozenset[str] = frozenset({
+    "paddleocr_version", "paddlepaddle_version", "ocr_version",
+    "text_detection_model_name", "text_recognition_model_name", "pipeline_switches",
+    "gpu", "cuda_compiled", "python_version",
+    "provider", "execution_class", "worker_contract", "dpi",
+})
+#: Of `RUNTIME_FIELDS`, the subset copied from the worker's `/version` reply
+#: (already verified by `verify_identity`, for the ones it checks) — never
+#: the whole payload. `provider` / `execution_class` / `worker_contract` /
+#: `dpi` are set from `settings` / the call arguments instead, below.
+_RUNTIME_FROM_IDENTITY = (
+    "paddleocr_version", "paddlepaddle_version", "ocr_version",
+    "text_detection_model_name", "text_recognition_model_name", "pipeline_switches",
+    "gpu", "cuda_compiled", "python_version",
+)
 
 
 @dataclass(frozen=True)
@@ -67,18 +92,24 @@ class PaddleRead:
     telemetry: dict[str, Any]
 
 
-def _runtime_block(settings: PaddleSettings, remote_identity: dict, dpi: int) -> dict:
-    """Provenance for `ExtractionEvidence.runtime`: the worker's own echoed
-    identity (already verified to match the pins) plus the declared
-    provider/execution_class/dpi. NEVER a URL, host, port, request id or
-    token (CASE 11) — `remote_identity` is `/version`'s payload, which the
-    worker contract (`docs/agent-handoffs/P21-PADDLE.md` §1) defines without
-    any of those fields in the first place."""
-    block = dict(remote_identity)
+def _runtime_block(settings: PaddleSettings, remote_identity: Mapping[str, Any], dpi: int) -> dict:
+    """Provenance for `ExtractionEvidence.runtime`, built field by field from
+    `RUNTIME_FIELDS` — NEVER `dict(remote_identity)` (MAJOR-1). A worker
+    could echo any key on `/version`; `verify_identity` checks only the nine
+    `IDENTITY_CHECK_FIELDS`, so anything else in the reply — a URL, a host, an
+    operator's note, a fabricated `"PP-OCRv6 actually"` — must never reach
+    the immutable, hashed evidence. Only the named fields are copied out of
+    `remote_identity`; `provider` / `execution_class` / `worker_contract` /
+    `dpi` come from `settings` and this call's own arguments, never from the
+    worker's reply."""
+    block: dict[str, Any] = {
+        name: remote_identity[name] for name in _RUNTIME_FROM_IDENTITY if name in remote_identity
+    }
     block["provider"] = settings.provider
     block["execution_class"] = settings.execution_class
     block["worker_contract"] = remote_identity.get("contract")
     block["dpi"] = dpi
+    assert set(block) <= RUNTIME_FIELDS  # a whitelist that cannot silently widen
     return block
 
 
@@ -105,18 +136,36 @@ def read_document(
     settings: PaddleSettings | None = None,
     client: PaddleClient | None = None,
     dpi: int = PADDLE_RASTER_DPI,
+    environ: Mapping[str, str] | None = None,
 ) -> PaddleRead:
     """Read `pdf_bytes` through PaddleOCR on the configured worker. See the
-    module docstring for the exact ordering and failure semantics."""
+    module docstring for the exact ordering and failure semantics. `environ`
+    is the MAJOR-2 re-derivation test seam (default the real `os.environ`),
+    threaded to `check_remote_authorization` and to the `PaddleClient` this
+    builds when `client` is not already supplied."""
     settings = settings or load_paddle_settings()
-    check_remote_authorization(settings, data_scope)
-    client = client or PaddleClient(settings)
+    check_remote_authorization(settings, data_scope, environ=environ)
+    client = client or PaddleClient(settings, environ=environ)
     remote_identity = verify_identity(settings, client=client)
 
     images = rasterize_pdf(pdf_bytes, dpi=dpi)
     pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
     try:
-        page_count = min(len(images), pdf_document.page_count)
+        if len(images) != pdf_document.page_count:
+            # MINOR-4: a rasteriser/PyMuPDF page-count disagreement must
+            # never publish a document one (or more) pages short. Page
+            # completeness is a protected invariant; a mismatch here means
+            # one of the two libraries recovered a damaged PDF differently
+            # (or a future rasteriser silently capped its output) — fail
+            # closed rather than guess which count is right. The 0-vs-0 case
+            # (both agree on zero pages) is unaffected and still publishes
+            # an empty evidence, per the card.
+            raise PaddleRefused(
+                "paddle_frame_mismatch",
+                f"page count disagreement: rasterizer produced {len(images)}, "
+                f"PyMuPDF reports {pdf_document.page_count}",
+            )
+        page_count = pdf_document.page_count
         pages_evidence = []
         per_page_telemetry: list[dict[str, Any]] = []
         for index in range(page_count):
@@ -144,8 +193,18 @@ def read_document(
 
             request_id = f"{document_sha256[:16]}.p{index}"
             response = client.ocr_page(png_bytes, page_index=index, request_id=request_id)
+            # MINOR-5: a 200 that does not carry the contracted envelope (a
+            # mapping under "raw", the SAME page_index it was asked for) is a
+            # transport-level defect, not a KeyError an unrelated caller must
+            # guess the meaning of, and never silently attached to the wrong
+            # page's frame.
+            raw = response.get("raw")
+            if not isinstance(raw, Mapping):
+                raise PaddleTransportError("paddle_worker_unreachable", "MalformedEnvelope")
+            if response.get("page_index") != index:
+                raise PaddleTransportError("paddle_worker_unreachable", "MalformedEnvelope")
             try:
-                page_evidence = page_evidence_from_result(response["raw"], frame=frame)
+                page_evidence = page_evidence_from_result(raw, frame=frame)
             except PaddleAdapterError as exc:
                 raise PaddleRefused("paddle_evidence_malformed", f"page {index}: {exc}") from exc
             pages_evidence.append(page_evidence)

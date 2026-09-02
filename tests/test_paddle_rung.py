@@ -18,6 +18,7 @@ from ocr.paddle_config import (
     PaddleSettings,
     load_paddle_settings,
 )
+import ocr.paddle_rung as rung_module
 from ocr.paddle_rung import read_document
 from tests.paddle_fake_worker import FakeWorker
 from tests.paddle_synthetic import build_ledger_page, render_image_pdf, synthetic_paddle_result
@@ -46,9 +47,9 @@ def test_end_to_end_synthetic_document(ledger_fixture):
     page, pdf_bytes, document_sha, dpi = ledger_fixture
     with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
         settings = _settings(fake.url)
-        client = PaddleClient(settings)
+        client = PaddleClient(settings, environ=VAST_ENV)
         result = read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
-                                settings=settings, client=client, dpi=dpi)
+                                settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
 
     assert len(result.pages) == 1
     assert result.pages[0] == page.text
@@ -67,22 +68,63 @@ def test_end_to_end_synthetic_document(ledger_fixture):
 
 
 def test_zero_page_document_yields_empty_evidence_no_invention(monkeypatch, ledger_fixture):
-    """A document that rasterises to zero images (a defensive path a real
-    PDF should never trigger, but the rung must not invent a page for) ->
-    an evidence of zero pages, no `/ocr` request."""
+    """A document BOTH the rasteriser and PyMuPDF agree has zero pages (a
+    defensive path a real PDF should never trigger, but the rung must not
+    invent a page for) -> an evidence of zero pages, no `/ocr` request.
+
+    MINOR-4 (`PHASE2_P21PADDLE_REVIEW.md`): this used to monkeypatch only
+    `rasterize_pdf` to return `[]` against a PDF PyMuPDF still sees as ONE
+    page — exactly the page-count DISAGREEMENT MINOR-4 requires the rung to
+    refuse (`paddle_frame_mismatch`), not silently publish short. The
+    genuine 0-vs-0 case the card specifies needs BOTH sides to agree on
+    zero, so this fakes PyMuPDF's own page count too."""
     page, pdf_bytes, document_sha, dpi = ledger_fixture
     import ocr.paddle_rung as rung_module
 
+    class _ZeroPageDocument:
+        page_count = 0
+
+        def close(self) -> None:
+            pass
+
+        def __getitem__(self, index):  # pragma: no cover - never reached at 0 pages
+            raise IndexError(index)
+
     monkeypatch.setattr(rung_module, "rasterize_pdf", lambda pdf, dpi: [])
+    monkeypatch.setattr(rung_module.fitz, "open", lambda **kwargs: _ZeroPageDocument())
     with FakeWorker() as fake:
         settings = _settings(fake.url)
-        client = PaddleClient(settings)
+        client = PaddleClient(settings, environ=VAST_ENV)
         result = read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
-                                settings=settings, client=client, dpi=dpi)
+                                settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
     assert result.pages == []
     assert result.page_extractor == []
     assert result.evidence.pages == ()
     assert fake.requests == []  # /version is still called (verify_identity), but no /ocr
+
+
+def test_minor4_page_count_disagreement_refuses_never_publishes_short(ledger_fixture):
+    """The disagreement case itself: the rasteriser under-reports (or
+    PyMuPDF over-reports) relative to the other. Reproduced exactly as the
+    review measured it — a rasteriser returning ONE fewer image than
+    PyMuPDF's real page count on the actual fixture PDF."""
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    import ocr.paddle_rung as rung_module
+
+    real_rasterize = rung_module.rasterize_pdf
+    real_images = real_rasterize(pdf_bytes, dpi=dpi)
+    assert len(real_images) >= 1
+
+    with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+        settings = _settings(fake.url)
+        client = PaddleClient(settings, environ=VAST_ENV)
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(rung_module, "rasterize_pdf", lambda pdf, dpi: [])
+            with pytest.raises(PaddleRefused) as excinfo:
+                read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
+                               settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
+        assert excinfo.value.reason == "paddle_frame_mismatch"
+        assert fake.requests == []  # no /ocr request for a document refused before rung step 5
 
 
 def test_case13_opt_in_checked_before_any_network_call(ledger_fixture):
@@ -90,10 +132,14 @@ def test_case13_opt_in_checked_before_any_network_call(ledger_fixture):
     with FakeWorker() as fake:
         env = {k: v for k, v in VAST_ENV.items() if k != PADDLE_REMOTE_OPT_IN_ENV}
         settings = load_paddle_settings(dict(env, PADDLE_WORKER_URL=fake.url))
-        client = PaddleClient(settings)
+        # No pre-built client: settings.remote_opt_in is already False here, so
+        # read_document's own check_remote_authorization must refuse before
+        # ever constructing one (a pre-built PaddleClient would now refuse at
+        # ITS OWN construction, which is a different, MAJOR-2 assertion made
+        # elsewhere — this test stays about read_document's ordering).
         with pytest.raises(PaddleRefused) as excinfo:
             read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
-                           settings=settings, client=client, dpi=dpi)
+                           settings=settings, dpi=dpi)
         assert excinfo.value.reason == "paddle_remote_opt_in_required"
         assert fake.requests == []
 
@@ -102,10 +148,10 @@ def test_case20_customer_scope_refused_before_any_network_call(ledger_fixture):
     page, pdf_bytes, document_sha, dpi = ledger_fixture
     with FakeWorker() as fake:
         settings = _settings(fake.url)
-        client = PaddleClient(settings)
+        client = PaddleClient(settings, environ=VAST_ENV)
         with pytest.raises(PaddleRefused) as excinfo:
             read_document(pdf_bytes, document_sha256=document_sha, data_scope="customer",
-                           settings=settings, client=client, dpi=dpi)
+                           settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
         assert excinfo.value.reason == "remote_customer_data_refused"
         assert fake.requests == []
 
@@ -114,10 +160,10 @@ def test_case16_identity_mismatch_refuses_before_any_ocr_request(ledger_fixture)
     page, pdf_bytes, document_sha, dpi = ledger_fixture
     with FakeWorker(identity_overrides={"provider": "local", "execution_class": "local_free"}) as fake:
         settings = _settings(fake.url)
-        client = PaddleClient(settings)
+        client = PaddleClient(settings, environ=VAST_ENV)
         with pytest.raises(PaddleRefused) as excinfo:
             read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
-                           settings=settings, client=client, dpi=dpi)
+                           settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
         assert excinfo.value.reason == "paddle_runtime_mismatch"
         assert fake.requests == []
 
@@ -126,10 +172,10 @@ def test_case18_transport_failure_propagates_and_tries_nothing_else(ledger_fixtu
     page, pdf_bytes, document_sha, dpi = ledger_fixture
     with FakeWorker(fail_mode="connection_refused") as fake:
         settings = _settings(fake.url)
-        client = PaddleClient(settings)
+        client = PaddleClient(settings, environ=VAST_ENV)
         with pytest.raises(PaddleTransportError) as excinfo:
             read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
-                           settings=settings, client=client, dpi=dpi)
+                           settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
         assert excinfo.value.reason == "paddle_worker_unreachable"
 
 
@@ -140,10 +186,10 @@ def test_case18_ocr_failure_mid_document_propagates(ledger_fixture):
     page, pdf_bytes, document_sha, dpi = ledger_fixture
     with FakeWorker(fail_mode="http_500") as fake:
         settings = _settings(fake.url)
-        client = PaddleClient(settings)
+        client = PaddleClient(settings, environ=VAST_ENV)
         with pytest.raises(PaddleTransportError):
             read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
-                           settings=settings, client=client, dpi=dpi)
+                           settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
 
 
 def test_paddle_evidence_malformed_fails_the_whole_document(ledger_fixture):
@@ -156,10 +202,10 @@ def test_paddle_evidence_malformed_fails_the_whole_document(ledger_fixture):
 
     with FakeWorker(result_for=broken_result) as fake:
         settings = _settings(fake.url)
-        client = PaddleClient(settings)
+        client = PaddleClient(settings, environ=VAST_ENV)
         with pytest.raises(PaddleRefused) as excinfo:
             read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
-                           settings=settings, client=client, dpi=dpi)
+                           settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
         assert excinfo.value.reason == "paddle_evidence_malformed"
 
 
@@ -188,3 +234,104 @@ def test_default_dpi_matches_the_pinned_raster_dpi():
 
     default_dpi = inspect.signature(fn).parameters["dpi"].default
     assert default_dpi == PADDLE_RASTER_DPI == 300
+
+
+# ---------------------------------------------------------------------------
+# MAJOR-1 / MINOR-6: the runtime block is a closed whitelist, and
+# evidence_sha256 is stable across a cold and a warm read of the SAME bytes
+# ---------------------------------------------------------------------------
+
+def test_major1_runtime_block_is_the_closed_whitelist_never_the_raw_reply(ledger_fixture):
+    """A worker echoing UNKNOWN /version keys (a URL, a host, an operator
+    note) must never see any of them survive into `evidence.runtime` —
+    proven directly (reproducing the review's finding), not merely by
+    asserting the module constant's shape."""
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    injected = {
+        "worker_url": "http://198.51.100.7:8765",
+        "ssh_host": "attacker.example",
+        "operator_note": "PP-OCRv6 actually",
+    }
+    with FakeWorker(identity_overrides=injected,
+                    result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+        settings = _settings(fake.url)
+        client = PaddleClient(settings, environ=VAST_ENV)
+        result = read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
+                               settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
+    assert set(result.evidence.runtime) <= rung_module.RUNTIME_FIELDS
+    assert "worker_url" not in result.evidence.runtime
+    assert "ssh_host" not in result.evidence.runtime
+    assert "operator_note" not in result.evidence.runtime
+    from evidence.canonical import canonical_json
+
+    text = canonical_json(dict(result.evidence.runtime))
+    assert "198.51.100.7" not in text
+    assert "attacker.example" not in text
+    assert "PP-OCRv6 actually" not in text
+
+
+def test_minor6_evidence_sha256_stable_across_cold_and_warm_worker_identity(ledger_fixture):
+    """The SAME document read through two workers that differ ONLY in
+    `model_loaded` / `worker_started_at` (a cold vs. a warm read of the real
+    worker, in practice) must produce the SAME `evidence_sha256` — those two
+    fields are deliberately excluded from `RUNTIME_FIELDS` (MINOR-6)."""
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    shas = []
+    for model_loaded, started_at in ((False, 100.0), (True, 200.0)):
+        overrides = {"model_loaded": model_loaded, "worker_started_at": started_at}
+        with FakeWorker(identity_overrides=overrides,
+                        result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+            settings = _settings(fake.url)
+            client = PaddleClient(settings, environ=VAST_ENV)
+            result = read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
+                                   settings=settings, client=client, dpi=dpi, environ=VAST_ENV)
+            shas.append(result.evidence.evidence_sha256)
+    assert shas[0] == shas[1]
+
+
+# ---------------------------------------------------------------------------
+# MINOR-5: a contract-shaped-but-malformed envelope refuses typed, never a
+# bare KeyError; a mismatched echoed page_index refuses too
+# ---------------------------------------------------------------------------
+
+class _BadEnvelopeClient:
+    """Wraps a real client; `version()` passes through untouched (so
+    identity verification succeeds), `ocr_page` returns whatever the test
+    wants regardless of what was asked."""
+
+    def __init__(self, real, bad_response):
+        self._real = real
+        self._bad_response = bad_response
+
+    def version(self):
+        return self._real.version()
+
+    def ocr_page(self, *args, **kwargs):
+        return self._bad_response
+
+
+def test_minor5_missing_raw_refuses_typed_not_a_bare_keyerror(ledger_fixture):
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+        settings = _settings(fake.url)
+        real_client = PaddleClient(settings, environ=VAST_ENV)
+        bad_client = _BadEnvelopeClient(real_client, {"image": {}, "timing": {}, "page_index": 0})
+        with pytest.raises(PaddleTransportError) as excinfo:
+            read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
+                          settings=settings, client=bad_client, dpi=dpi, environ=VAST_ENV)
+        assert excinfo.value.reason == "paddle_worker_unreachable"
+        assert excinfo.value.error_type == "MalformedEnvelope"
+
+
+def test_minor5_mismatched_page_index_refuses(ledger_fixture):
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+        settings = _settings(fake.url)
+        real_client = PaddleClient(settings, environ=VAST_ENV)
+        bad_client = _BadEnvelopeClient(
+            real_client, {"raw": synthetic_paddle_result(page, dpi=dpi), "image": {}, "timing": {}, "page_index": 7}
+        )
+        with pytest.raises(PaddleTransportError) as excinfo:
+            read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
+                          settings=settings, client=bad_client, dpi=dpi, environ=VAST_ENV)
+        assert excinfo.value.error_type == "MalformedEnvelope"
