@@ -15,13 +15,81 @@ where the decision can be tested against the document's own arithmetic.
 Deliberately separate from `ocr/`: the intake ladder produces the markdown
 every other path consumes, and this is an additional read of the same bytes
 for one consumer. Nothing here changes what any parser sees.
+
+Phase 2.1 (`docs/agent-handoffs/P21-GEOMETRY.md`) adds a second extraction
+source — PaddleOCR word boxes, in raster pixels — through the extractor-
+neutral `evidence/` package (`docs/agent-handoffs/PHASE2-1-PADDLE.md`
+§"Evidence contract", D1). This module is now the ONE consumer of that
+package for the structurer:
+
+* `native_evidence_from_pdf` reads a native PDF into canonical evidence
+  (`ExtractionEvidence`) — the same representation Paddle's adapter produces,
+  in `pdf_point` space. It lives HERE, not in `evidence/`, because `evidence/`
+  is pinned standard-library-only (`tests/test_evidence_boundary.py`) and
+  PyMuPDF is not the standard library; the native PDF reader is a consumer of
+  the contract, like the structurer itself.
+* `geometry_from_evidence` is the one path from ANY `ExtractionEvidence`
+  (native or Paddle) to `DocumentGeometry`, converting every word to PDF
+  points through its own page's frame and rebuilding the already-grouped
+  lines (`evidence.group_lines` is the ONE grouping rule; nothing here
+  regroups).
+* `geometry_from_pdf` is now exactly `geometry_from_evidence(native_evidence_
+  from_pdf(pdf_bytes))` — pinned byte-identical to its Phase 2.0 behaviour on
+  the structurer fixtures and the corpus (`tests/test_geometry_frames.py`).
+
+`PageGeometry.page` stays 1-based; `PageFrame.page_index` (from `evidence/`)
+is 0-based. `geometry_from_evidence` is the one place the two conventions
+meet: `page == frame.page_index + 1`, always.
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
-from statistics import median
 
-__all__ = ["DocumentGeometry", "PageGeometry", "Word", "GeoLine", "geometry_from_pdf"]
+from evidence import (
+    ExtractionEvidence,
+    LineBox,
+    PageEvidence,
+    PageFrame,
+    WordBox,
+    group_lines as _canonical_group_lines,
+    to_pdf_points,
+    word_id,
+)
+
+__all__ = [
+    "DocumentGeometry",
+    "PageGeometry",
+    "Word",
+    "GeoLine",
+    "geometry_from_pdf",
+    "geometry_from_evidence",
+    "native_evidence_from_pdf",
+]
+
+#: `ExtractionEvidence.extractor_id` / `model_token` for the native PDF
+#: reader. Not a bank, not a customer, not a value — the name of a reading
+#: method, same class as `local-tesseract-ocr` / `paddle-ocr+ppocrv5`.
+NATIVE_EXTRACTOR_ID = "native-pdf-words"
+
+#: A `PageEvidence.notes` entry meaning: this page's own word/rect read threw
+#: (a PyMuPDF failure this project has never observed on its corpus), so the
+#: page is kept — for page-number fidelity — with no words and a minimal,
+#: valid placeholder frame. `geometry_from_evidence` recognises the note and
+#: reports the page's width/height as 0.0, exactly as the Phase 2.0 reader
+#: did for this same (untriggered) failure shape.
+UNREADABLE_PAGE_NOTE = "native_page_unreadable"
+
+#: A `PageEvidence.notes` entry meaning: PyMuPDF's `get_text("words")` boxes
+#: are in the page's UNROTATED coordinate space while `page.rect` (this
+#: frame's width/height) is the ROTATED display rectangle. Phase 2.0's
+#: `geometry_from_pdf` already mixed the two on a rotated page; this cell
+#: PRESERVES that behaviour byte-for-byte rather than silently correcting it
+#: (see `docs/agent-handoffs/P21-GEOMETRY.md` item 5 — a documented Phase 2.2
+#: prerequisite, not fixed here). Measured 0/830 pages on the pinned corpus.
+UNROTATED_WORDS_NOTE = "native_words_unrotated_space"
+
+_VALID_ROTATIONS = (0, 90, 180, 270)
 
 
 @dataclass(frozen=True)
@@ -75,6 +143,15 @@ class PageGeometry:
     width: float
     height: float
     lines: tuple[GeoLine, ...] = field(default_factory=tuple)
+    #: The canonical evidence frame this page was converted from (Phase 2.1).
+    #: `None` for geometry built the old way (nothing in this codebase does
+    #: that any more, but the default keeps every positional constructor call
+    #: already in the test suite valid).
+    frame: PageFrame | None = None
+    #: `ExtractionEvidence.extractor_id` this page's words came from
+    #: (`"native-pdf-words"`, `"paddle-ocr+ppocrv5"`, ...). Defaults to
+    #: `"native"` for the same backward-compatibility reason as `frame`.
+    source: str = "native"
 
 
 @dataclass(frozen=True)
@@ -92,53 +169,65 @@ class DocumentGeometry:
         return sum(len(line.words) for page in self.pages for line in page.lines)
 
 
-def _group_lines(page_number: int, words: list[Word]) -> tuple[GeoLine, ...]:
-    """Words -> visual lines, by vertical overlap rather than exact baseline.
+def _line_text_and_spans(words: tuple) -> tuple[str, tuple[tuple[int, int], ...]]:
+    """The `GeoLine.text` / `GeoLine.spans` arithmetic, in one place so both
+    `_group_lines` and `geometry_from_evidence` use it identically."""
+    parts: list[str] = []
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    for index, word in enumerate(words):
+        if index:
+            parts.append(" ")
+            offset += 1
+        spans.append((offset, offset + len(word.text)))
+        parts.append(word.text)
+        offset += len(word.text)
+    return "".join(parts), tuple(spans)
 
-    The tolerance is derived from the page's own type size (median word
-    height), not from a constant: a statement set in 6pt and one set in 11pt
-    are the same document class, and a fixed pixel threshold would silently
-    work on one and merge two rows on the other.
-    """
+
+def _group_lines(page_number: int, words: list[Word]) -> tuple[GeoLine, ...]:
+    """Words -> visual lines. A thin wrapper: the grouping rule itself is
+    `evidence.group_lines` (Phase 2.1, D1/D9/D4-of-the-card-item-4) — this
+    function only adapts `Word` to `WordBox` and back, so Paddle words and
+    native words are grouped by the exact same code. Do not reintroduce a
+    second tolerance/median computation here (`tests/test_geometry_frames.py`
+    has an AST guard against it — M4)."""
     if not words:
         return ()
-    tolerance = max(1.0, median(word.height for word in words) * 0.6)
-    ordered = sorted(words, key=lambda word: (round(word.mid_y, 1), word.x0))
-
-    lines: list[list[Word]] = []
-    current: list[Word] = [ordered[0]]
-    for word in ordered[1:]:
-        if abs(word.mid_y - current[-1].mid_y) <= tolerance:
-            current.append(word)
-        else:
-            lines.append(current)
-            current = [word]
-    lines.append(current)
-
+    boxes = tuple(
+        WordBox(word_id=word_id(0, None, index), page_index=0, text=word.text,
+                x0=word.x0, y0=word.y0, x1=word.x1, y1=word.y1)
+        for index, word in enumerate(words)
+    )
+    by_id = dict(zip((box.word_id for box in boxes), words))
     built: list[GeoLine] = []
-    for row in lines:
-        row.sort(key=lambda word: word.x0)
-        parts: list[str] = []
-        spans: list[tuple[int, int]] = []
-        offset = 0
-        for index, word in enumerate(row):
-            if index:
-                parts.append(" ")
-                offset += 1
-            spans.append((offset, offset + len(word.text)))
-            parts.append(word.text)
-            offset += len(word.text)
-        built.append(GeoLine(page_number, tuple(row), "".join(parts), tuple(spans)))
+    for line in _canonical_group_lines(boxes):
+        row = tuple(by_id[wid] for wid in line.word_ids)
+        text, spans = _line_text_and_spans(row)
+        built.append(GeoLine(page_number, row, text, spans))
     return tuple(built)
 
 
-def geometry_from_pdf(pdf_bytes: bytes) -> DocumentGeometry | None:
-    """Word boxes for a native-text PDF, or None when there are none to read.
+def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
+    """Native PDF word geometry, read through the canonical evidence contract.
 
-    None is the honest answer for a scanned page: there are no words, only
-    pixels, and inventing line boxes from an image is the visual rung's job
-    (W3-5), not this one. Never raises — a structurer input that throws would
-    put the crash class W3-1 just closed back into the platform.
+    One `WordBox` per PyMuPDF word (`page.get_text("words")` items with
+    non-blank text), one `PageFrame.pdf_points` per page (`page.rect` for
+    width/height, `page.rotation` recorded — see `UNROTATED_WORDS_NOTE`),
+    words grouped into lines by the ONE rule. `document_sha256` is computed
+    locally (`hashlib.sha256(pdf_bytes)`), not imported from `ocr.inspect` —
+    this module has no `ocr` import, by design (the analysis -> ocr allowlist
+    stays pinned empty).
+
+    Returns `None` exactly when there are no words to read at all: unparseable
+    bytes, or a document that opens but prints nothing this reader can find
+    (the honest answer for a scanned page — there are no words, only pixels).
+    Never raises: a page whose own read throws (a PyMuPDF failure this
+    project's 109-PDF corpus has never produced) is kept as an empty,
+    minimally-framed page (`UNREADABLE_PAGE_NOTE`) rather than aborting the
+    whole document, exactly as the Phase 2.0 reader did; anything else this
+    contract cannot faithfully represent aborts the whole document to `None`
+    rather than guess.
     """
     try:
         import fitz
@@ -150,23 +239,36 @@ def geometry_from_pdf(pdf_bytes: bytes) -> DocumentGeometry | None:
     except Exception:
         return None
 
-    pages: list[PageGeometry] = []
+    document_sha256 = hashlib.sha256(pdf_bytes).hexdigest().upper()
+    runtime = {
+        "pymupdf_version": str(getattr(fitz, "pymupdf_version", getattr(fitz, "__version__", "unknown"))),
+    }
+
+    pages: list[PageEvidence] = []
     try:
-        for index, page in enumerate(document, start=1):
+        for page_index, page in enumerate(document):
             try:
-                raw = page.get_text("words")
+                raw_words = page.get_text("words")
                 rect = page.rect
+                rotation = int(page.rotation) % 360
+                if rotation not in _VALID_ROTATIONS:
+                    rotation = 0
+                frame = PageFrame.pdf_points(
+                    page_index=page_index, width_pt=float(rect.width), height_pt=float(rect.height),
+                    rotation_deg=rotation,
+                )
+                words = tuple(
+                    WordBox(word_id=word_id(page_index, None, k), page_index=page_index,
+                            text=str(item[4]), x0=float(item[0]), y0=float(item[1]),
+                            x1=float(item[2]), y1=float(item[3]))
+                    for k, item in enumerate(raw_words) if str(item[4]).strip()
+                )
+                notes = (UNROTATED_WORDS_NOTE,) if rotation else ()
+                page_evidence = PageEvidence(frame=frame, words=words, notes=notes)
             except Exception:
-                pages.append(PageGeometry(index, 0.0, 0.0, ()))
-                continue
-            words = [
-                Word(str(item[4]), float(item[0]), float(item[1]), float(item[2]), float(item[3]))
-                for item in raw
-                if str(item[4]).strip()
-            ]
-            pages.append(PageGeometry(
-                index, float(rect.width), float(rect.height), _group_lines(index, words)
-            ))
+                placeholder = PageFrame.pdf_points(page_index=page_index, width_pt=1.0, height_pt=1.0)
+                page_evidence = PageEvidence(frame=placeholder, words=(), notes=(UNREADABLE_PAGE_NOTE,))
+            pages.append(page_evidence)
     except Exception:
         return None
     finally:
@@ -175,5 +277,84 @@ def geometry_from_pdf(pdf_bytes: bytes) -> DocumentGeometry | None:
         except Exception:
             pass
 
+    if not pages:
+        return None
+    try:
+        evidence = ExtractionEvidence(
+            document_sha256=document_sha256, extractor_id=NATIVE_EXTRACTOR_ID,
+            model_token=NATIVE_EXTRACTOR_ID, pages=tuple(pages), runtime=runtime,
+        )
+    except Exception:
+        return None
+    return evidence if evidence.word_count else None
+
+
+def geometry_from_evidence(evidence: ExtractionEvidence | None) -> DocumentGeometry | None:
+    """The ONE consumer path: any `ExtractionEvidence` (native or Paddle) ->
+    `DocumentGeometry`.
+
+    Every word is converted to PDF points through its own page's frame
+    (`evidence.to_pdf_points`: the identity for a `pdf_point` frame, a
+    per-axis division by scale for a `pixel` frame). Lines are NOT
+    regrouped — `page.lines` was already built by `evidence.group_lines`,
+    the one rule — only rebuilt as `GeoLine`s with the text/span arithmetic
+    `_group_lines` has always used, so an offset computed on the resulting
+    text still lands on the right word regardless of the source.
+
+    `None` when there is nothing to read (`evidence` is `None`, or it holds
+    no words). Never raises on its own defect: a hostile evidence-shaped
+    object (one whose `pages`/`words`/`lines` do not hold the types this
+    function expects, or whose `lines` reference a word id its page lacks —
+    something the real `PageEvidence`/`ExtractionEvidence` constructors
+    already refuse to build) is answered with `None`, the same honest
+    refusal a document with nothing to read has always gotten.
+    """
+    if evidence is None:
+        return None
+    try:
+        pages: list[PageGeometry] = []
+        for page in evidence.pages:
+            frame = page.frame
+            if not isinstance(frame, PageFrame):
+                return None
+            converted: dict[str, Word] = {}
+            for source_word in page.words:
+                if not isinstance(source_word, WordBox):
+                    return None
+                x0, y0 = to_pdf_points(frame, source_word.x0, source_word.y0)
+                x1, y1 = to_pdf_points(frame, source_word.x1, source_word.y1)
+                converted[source_word.word_id] = Word(source_word.text, x0, y0, x1, y1)
+            lines: list[GeoLine] = []
+            for line in page.lines:
+                if not isinstance(line, LineBox):
+                    return None
+                row = tuple(converted[word_ref] for word_ref in line.word_ids)
+                text, spans = _line_text_and_spans(row)
+                lines.append(GeoLine(page.page_index + 1, row, text, spans))
+            width, height = frame.pdf_width_pt, frame.pdf_height_pt
+            if UNREADABLE_PAGE_NOTE in page.notes:
+                width, height = 0.0, 0.0
+            pages.append(PageGeometry(
+                page.page_index + 1, float(width), float(height), tuple(lines),
+                frame=frame, source=evidence.extractor_id,
+            ))
+    except Exception:
+        return None
+
     geometry = DocumentGeometry(tuple(pages))
     return geometry if geometry.word_count else None
+
+
+def geometry_from_pdf(pdf_bytes: bytes) -> DocumentGeometry | None:
+    """Word boxes for a native-text PDF, or None when there are none to read.
+
+    None is the honest answer for a scanned page: there are no words, only
+    pixels, and inventing line boxes from an image is the visual rung's job
+    (W3-5), not this one. Never raises — a structurer input that throws would
+    put the crash class W3-1 just closed back into the platform.
+
+    Phase 2.1: exactly `geometry_from_evidence(native_evidence_from_pdf(...))`
+    — pinned byte-identical to the Phase 2.0 implementation on the structurer
+    fixtures and the pinned corpus (`tests/test_geometry_frames.py`).
+    """
+    return geometry_from_evidence(native_evidence_from_pdf(pdf_bytes))
