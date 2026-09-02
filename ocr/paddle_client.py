@@ -21,13 +21,17 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from typing import Mapping
 
 from .endpoint_policy import classify_endpoint
 from .paddle_config import (
     DATA_SCOPE_SYNTHETIC,
+    PADDLE_REMOTE_OPT_IN_ENV,
+    PADDLE_REMOTE_OPT_IN_LITERAL,
     PADDLE_WORKER_CONTRACT,
     PaddleConfigError,
     PaddleRefused,
@@ -111,21 +115,41 @@ def _default_opener() -> urllib.request.OpenerDirector:
 
 
 class PaddleClient:
-    """`PaddleClient(settings, *, timeout=120.0, opener=None)`.
+    """`PaddleClient(settings, *, timeout=120.0, opener=None, environ=None)`.
 
     `opener` is the test seam: any object with an `.open(request, timeout=)`
     context-managed return value stands in for `urllib`'s real network stack
     (`tests/paddle_fake_worker.FakeWorker` uses the real stdlib opener
     against a loopback socket, so the default suite never mocks urllib
     itself — only the worker at the other end is fake).
+
+    MAJOR-2 (`PHASE2_P21PADDLE_REVIEW.md`): a `remote_paid` client cannot even
+    be CONSTRUCTED unless the remote opt-in literal is present in `environ`
+    (default `os.environ`) AND `settings.remote_opt_in` agrees — the same
+    "never trust a hand-built settings object" discipline the loopback
+    re-check already applies, extended to the opt-in flag. `environ` is the
+    test seam; a `PaddleSettings` built by `load_paddle_settings()` already
+    agrees with the real environment it read, so this is a no-op for every
+    honest caller.
     """
 
-    def __init__(self, settings: PaddleSettings, *, timeout: float = DEFAULT_TIMEOUT, opener=None):
+    def __init__(self, settings: PaddleSettings, *, timeout: float = DEFAULT_TIMEOUT, opener=None,
+                 environ: Mapping[str, str] | None = None):
         if classify_endpoint(settings.worker_url) != "loopback":
             raise PaddleConfigError(
                 "PaddleClient requires a loopback worker_url (the SSH tunnel's local end); "
                 "refusing a hand-built settings object that is not"
             )
+        if settings.is_remote:
+            source = os.environ if environ is None else environ
+            remote_opt_in = settings.remote_opt_in and source.get(PADDLE_REMOTE_OPT_IN_ENV) == PADDLE_REMOTE_OPT_IN_LITERAL
+            if not remote_opt_in:
+                raise PaddleRefused(
+                    "paddle_remote_opt_in_required",
+                    f"PaddleClient refuses to construct a remote_paid client without "
+                    f"{PADDLE_REMOTE_OPT_IN_ENV}={PADDLE_REMOTE_OPT_IN_LITERAL} agreeing in both "
+                    "settings and the environment",
+                )
         self.settings = settings
         self.timeout = timeout
         self._opener = opener or _default_opener()
@@ -184,14 +208,17 @@ def _is_transient(exc: Exception) -> bool:
     return isinstance(exc, (TimeoutError, ConnectionError, urllib.error.URLError, OSError))
 
 
-def verify_identity(settings: PaddleSettings, *, client: "PaddleClient | None" = None) -> dict:
+def verify_identity(settings: PaddleSettings, *, client: "PaddleClient | None" = None,
+                     environ: Mapping[str, str] | None = None) -> dict:
     """Fetch `/version` and refuse unless every `IDENTITY_CHECK_FIELDS` entry
     equals the pin (`paddle_runtime_identity()`) or the settings' own
     declaration (provider, execution_class) — D5, CASE 16. Raises
     `PaddleRefused("paddle_runtime_mismatch", …)` naming every mismatched
     field; raises `PaddleTransportError` unchanged on a transport failure.
-    Sends no document — `/version` carries no image."""
-    client = client or PaddleClient(settings)
+    Sends no document — `/version` carries no image. `environ` is forwarded
+    to the `PaddleClient` this builds when `client` is not already supplied
+    (MAJOR-2's re-derivation test seam); ignored when `client` is given."""
+    client = client or PaddleClient(settings, environ=environ)
     remote = client.version()
     expected = paddle_runtime_identity()
     wanted = {
@@ -211,24 +238,26 @@ def verify_identity(settings: PaddleSettings, *, client: "PaddleClient | None" =
     return remote
 
 
-def probe(settings: "PaddleSettings | None" = None, client: "PaddleClient | None" = None) -> PaddleWorkerStatus:
+def probe(settings: "PaddleSettings | None" = None, client: "PaddleClient | None" = None, *,
+          environ: Mapping[str, str] | None = None) -> PaddleWorkerStatus:
     """Never raises. Config error -> `paddle_config_missing`; remote without
     the opt-in literal -> `paddle_remote_opt_in_required` (checked via
-    `check_remote_authorization(settings, "synthetic")` BEFORE any request —
-    the probe sends no document, so the scope gate it exercises is the
-    opt-in one, never the customer-data one); unreachable ->
+    `check_remote_authorization(settings, "synthetic", environ=environ)`
+    BEFORE any request — the probe sends no document, so the scope gate it
+    exercises is the opt-in one, never the customer-data one); unreachable ->
     `paddle_worker_unreachable` + the exception class name; mismatch ->
-    `paddle_runtime_mismatch`."""
+    `paddle_runtime_mismatch`. `environ` is the MAJOR-2 test seam threaded to
+    both the authorization check and the `PaddleClient` this builds."""
     try:
         resolved = settings or load_paddle_settings()
     except PaddleConfigError:
         return PaddleWorkerStatus(False, "paddle_config_missing")
     try:
-        check_remote_authorization(resolved, DATA_SCOPE_SYNTHETIC)
+        check_remote_authorization(resolved, DATA_SCOPE_SYNTHETIC, environ=environ)
     except PaddleRefused as exc:
         return PaddleWorkerStatus(False, exc.reason)
     try:
-        active_client = client or PaddleClient(resolved)
+        active_client = client or PaddleClient(resolved, environ=environ)
         identity = verify_identity(resolved, client=active_client)
     except PaddleConfigError:
         return PaddleWorkerStatus(False, "paddle_config_missing")
