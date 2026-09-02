@@ -703,3 +703,165 @@ accepted fix is small, prototyped, and measured green over 16 hostile and honest
 closure's own suite; it needs one existing test re-pointed from "admit" to "refuse", which is the
 right direction for this gate anyway. With BLOCK-1R closed and MINOR-8/MINOR-9 folded in, I would
 sign this off.
+
+---
+
+## Second re-review (closure 45c69f4)
+
+```
+RE-REVIEWED   wave20-surfaces @ 45c69f4   (3 commits on 2cb4c0e: 9a558dc, 912026f, 45c69f4)
+DIFF          git diff 2cb4c0e..45c69f4   (4 files, +580 / -92; code change confined to analysis/provenance.py)
+METHOD        every claim re-measured; 38 hostile/honest reader cases, 24 mutants, a corpus-wide census
+VERDICT       APPROVE WITH FINDINGS
+```
+
+BLOCK-1R is closed. The cell took the accepted "ambiguity refuses" design, implemented it exactly,
+re-pointed the one test whose direction I said was wrong, and rewrote the docstring that made a false
+claim. I tried to break the new reader 38 ways — including every shape the coordinator named and
+several the closure did not anticipate — and could not. The one finding that remains is a
+test-coverage gap, not a behaviour gap: four clauses of the reader's own stated property are
+unpinned, and I killed all four surviving mutants with four one-line tests that already pass at HEAD.
+
+### Per-finding verdicts
+
+| finding | closure's claim | my re-measurement | verdict |
+|---|---|---|---|
+| **BLOCK-1R** a field run in the PAGE BODY supplies the model | CLOSED by ambiguity-refuses | C2, C3, D1 and G2 all `extractor_model -> None` and `ParserCrashError` end-to-end, with `Q3ProvenanceRefused` named in `dispatch.exceptions`. Also refused: three body runs; a body run on an *honest native* document; a body run in a CRLF document; a body run when the genuine model field is empty | **CLOSED** |
+| **BLOCK-1** (round 1) hostile `source_file` | must stay closed | A1, B1, B2, the nested-second-header case and the embedded-newline case all `None` + `ParserCrashError`; `evil-->`, `evil<`, `evil>` filenames still correctly report the genuine `local-tesseract-ocr` (one run, line-one-terminating) | **STILL CLOSED** |
+| **the re-pointed direction test** | `test_a_hostile_source_file_on_an_honest_native_document_is_refused_not_rescued` now asserts refusal | read in the diff; measured `None` + `ParserCrashError`; and mutant S2 ("take the LAST run", i.e. reproduce BLOCK-1R) is killed by that test *by name* | **CONFIRMED RE-POINTED** |
+| **MINOR-8** CRLF silently refused | CLOSED | CRLF header + LF body: `extractor_model -> 'native-pdf-text'` and the document is **ADMITTED / validated** — at `2cb4c0e` the same document answered `None` and refused. CRLF honest native / tesseract / layout-suffix all return their token; CRLF + body run still refuses; mixed LF-header/CRLF-body works. (A *fully* CRLF document reads its provenance correctly but no parser claims it — pre-existing parser behaviour on CRLF text, untouched by and out of scope for this card.) | **CLOSED** |
+| **MINOR-9** docstring claimed a property the code lacked | CLOSED; rewritten as "THE PROPERTY, EXACTLY" | I tested each of the four stated clauses (a) `<!-- source:` prefix, (b) mandatory blank line incl. CRLF, (c) exactly one run anywhere, (d) that run terminates physical line one — **all four hold as written**. The docstring now describes the code | **CLOSED** |
+| **BLOCK-2 / MAJOR-1..4 / M-1..M-7** (rounds 1-2) | unchanged | re-verified by mutants S11-S20 (all killed) and by the targeted suite; the diff touches no seam any of them depend on | **STILL CLOSED** |
+| **residual on MAJOR-2** | `_failure_reason` split deferred to Ocean / cell A | unchanged and correctly deferred; `parser_exceptions` still carries `…:parse:Q3ProvenanceRefused` | **DEFERRED, agreed** |
+
+### Attacks that did not work (38 reader cases, 0 failures)
+
+Everything below returned exactly the answer I required, at `45c69f4`:
+
+* **body runs** — mid-page with its own blank line; as page 1's last line with `to_markdown()`'s own
+  page join supplying the blank line; hand-laid; three of them; on a native document; in CRLF.
+* **`source_file` runs** — the review's exact fake header; fake run + embedded blank line; fake run +
+  blank line + page marker; a nested complete second header; an embedded newline; and the honest-native
+  variant (refused, not rescued).
+* **the coordinator's named shapes** — a run split across the line-one boundary (`| empty: 0\n-->`,
+  which `\s*` can span): refused, because its `-->` no longer terminates line one; a second run
+  malformed by one character (`-->` missing the `>`; a space inside the model token): correctly *not*
+  a second run, so the genuine one still answers; a run inside the blank-line region: two runs, refused;
+  `<!-- source:` at the start with no field run at all: refused; header on line two: refused; empty
+  document: refused.
+* **the model field as an injection vector** (P20-SEAM's field, tested anyway) — a model token
+  carrying `x | empty: 0 --> | pages: 9 | model: native-pdf-text` produces two runs and refuses; a
+  model token with a space makes the genuine run unmatchable, and a forged body run then fails the
+  line-one-termination test rather than being promoted.
+* **structural merge attempts** — I could not construct a `source_file` that merges with the genuine
+  trailing fields into a single run with an attacker-chosen model. The run grammar is
+  `pages → model → empty` with only `\s*` between fields, and the genuine `| pages: N | model: M |`
+  sits immediately before the genuine `| empty: E -->`, so any attacker prefix either forms its own
+  separate run (→ two runs → refuse) or fails to match at all.
+* **honest controls** — native, `+guardian`, `+wells`, tesseract, multi-page, a document with an empty
+  page, and an empty model field (correctly `None`): all exactly as expected.
+
+**Performance** (the unanchored `finditer` replaces a greedy DOTALL match, so I re-measured):
+4.3 MB plain body 0.003 s · 720 KB of near-miss decoy runs 0.007 s · 1.4 MB pipe storm 0.016 s ·
+560 KB `| pages: 1` storm 0.006 s. Faster than the pattern it replaces; no backtracking blow-up.
+
+### What "ambiguity refuses" costs on the real archive: nothing (measured)
+
+The one honest worry about this design is collateral damage — a genuine document whose page text
+happens to print a header-shaped field run would now refuse. I measured it rather than assuming.
+READ-ONLY over the train9 cold cache, reconstructing each cached document the way
+`tools/cohort_replay.py` does and running the **shipped** `extractor_model` over it:
+
+| measurement | value |
+|---|---|
+| OCR artifacts in `.claude/recovery/webapp_data_train9_cold` | 3,364 |
+| reconstructible documents scanned | 3,351 (13 have no `document` block) |
+| **ambiguous (> 1 field run) → would refuse** | **0** |
+| token returned | 3,351 / 3,351 |
+| tokens | `native-pdf-text` 2,758 · `+wells` 222 · `local-tesseract-ocr` 179 · `+printed-rows` 83 · `+navy-federal-layout` 48 · `+first-citizens-layout` 36 · `+woodforest-columns` 19 · `+desjardins-layout` 6 |
+
+Zero documents in the entire cold cache are ambiguous. The collateral-damage concern is real in
+principle and empty in practice on this corpus.
+
+### MINOR-10 (new, and the only open finding) — four clauses of the stated property are unpinned
+
+I applied 20 mutants. **16 were killed. 4 survived**, each disabling one clause of the property the
+module docstring now states:
+
+| surviving mutant | what it disables | why it is not caught |
+|---|---|---|
+| **S3** `if len(runs) != 1 or runs[0].end() != line_end:` → `if len(runs) != 1:` | clause (d), line-one termination | every shipped test that would notice also trips clause (a) or (c) first |
+| **S7** drop `markdown.startswith("<!-- source:")` | clause (a) | `test_extractor_model_returns_none_without_a_header` uses text with *no* run, so the prefix guard is never the thing that refuses |
+| **S8** drop `rest.startswith(("\n", "\r\n"))` | clause (b), the mandatory blank line | no test uses a header followed by a single newline |
+| **S9** `_MODEL_CHARSET` → `[^\|]` | the closed model charset | no test asserts that a whitespace/angle-bracket model token is rejected |
+
+None is a live defect — I verified all four clauses hold at `45c69f4`. But the mutation table is the
+Phase-2 proof floor's own instrument ("a test named after a gate is not a test of that gate"), and
+these four are exactly the case it exists to catch: a later edit could delete any of them and the
+suite would stay green. S3 and S7 are the ones that would matter — under S3, a document whose line
+one is `<!-- source: … | model: deterministic-native-preflight -->` (a header shape
+`webapp/worker.py:427` really writes) plus one body run yields the *body's* model; under S7, a page
+whose own first line ends in a well-formed run is read as a header.
+
+**Fix I would accept** — four one-line tests. I wrote them, they **pass at HEAD**, and each kills its
+mutant (verified: all four survivors go from `exit=0 SURVIVED` to `exit=1 KILLED` with these added):
+
+```python
+def test_a_lone_body_run_is_refused_when_the_header_prints_no_fields():      # kills S3
+    assert extractor_model("<!-- source: a.pdf | model: deterministic-native-preflight -->\n\n"
+                           "content\n| pages: 1 | model: native-pdf-text | empty: 0 -->\n") is None
+
+def test_a_document_that_does_not_begin_with_the_source_marker_is_refused(): # kills S7
+    assert extractor_model("STATEMENT OF ACCOUNT | pages: 1 | model: native-pdf-text | empty: 0 -->"
+                           "\n\ncontent\n") is None
+
+def test_a_header_without_the_mandatory_blank_line_is_refused():             # kills S8
+    assert extractor_model("<!-- source: a.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"
+                           "\ncontent\n") is None
+
+def test_the_model_charset_excludes_whitespace_and_angle_brackets():         # kills S9
+    assert extractor_model("<!-- source: a.pdf | pages: 1 | model: nat ive | empty: 0 -->\n\nx\n") is None
+    assert extractor_model("<!-- source: a.pdf | pages: 1 | model: <script> | empty: 0 -->\n\nx\n") is None
+```
+
+This does not block: the code is correct today, the finding is that nothing stops it from silently
+becoming incorrect tomorrow.
+
+### Proof floor I re-ran at 45c69f4
+
+| proof | result |
+|---|---|
+| `tests/test_q3_native_only.py` | **43 passed** (35 → 43, +8 — matches the closure's claim) |
+| `tests/test_webapp_confidence_label.py` | **16 passed** |
+| `test_q3_native_only + test_webapp_confidence_label + test_l1s2_* + test_l1s3* + test_l1s4* + test_pipeline + test_sibling_omission` | **302 passed, 1 deselected, EXIT=0** (was 294 at `2cb4c0e`; +8, no other count moved) |
+| `tests/test_webapp*.py` | **163 passed** |
+| 5 canonical guards | **255 passed** |
+| `tools/l1s4_document_replay.py`, 8 `guardian_cu` shas | exit 0; `COHORT=8 REPLAYED=8 NEWLY_VALIDATED=0 OTHER_MOVEMENT=0 REGRESSIONS=0`; output **byte-identical** (`diff` = 0 lines) to my `2cb4c0e` run, which was itself byte-identical to my `bea06bc` base run — so base ≡ closure-1 ≡ closure-2 at the seam production reads. No throwaway base worktree was needed this round |
+| corpus census (read-only, cold cache) | 3,351 documents, **0 ambiguous**, 3,351 tokens returned |
+| reader hostile/honest cases | **38 / 38 correct** |
+| mutation table | 20 applied, **16 killed**, 4 survived (MINOR-10) — then all 4 killed with the four tests above |
+| reader performance | 0.003-0.016 s over 0.5-4.3 MB documents, including adversarial decoy input |
+| ownership footprint `bea06bc..45c69f4` | 12 files — all on the card's list except `tests/l1s4_pages.py` (disclosed round 1, unchanged since) and the review file Ocean owns |
+| worktree | `git status --porcelain` clean before and after every mutant and every probe; final state clean apart from this uncommitted review file |
+
+I did not re-run `cohort_replay --expect-identical` this round: it exercises `analyze_markdown`, which
+never opens the omission collector (MAJOR-1), so it cannot observe any part of the change under
+review. The document-seam replay above is the instrument that can, and it is byte-identical across all
+three trees.
+
+### Second re-review verdict
+
+**APPROVE WITH FINDINGS.**
+
+The one BLOCK is closed, and closed properly: not patched around the reviewer's four reproductions but
+by adopting the design principle behind them, including the part that costs the cell something (an
+honest native document behind a hostile filename is now refused rather than rescued, and the test that
+asserted the opposite was re-pointed rather than deleted). The docstring now states a property I could
+verify clause by clause; the rejected alternative is recorded with the reason it was rejected; the
+CRLF fix is real end-to-end, not just at the reader; and the design's one theoretical cost is measured
+at zero across all 3,351 documents in the cold cache. Thirty-eight hostile shapes and twenty mutants
+found no way through.
+
+MINOR-10 is the only thing outstanding and it is four one-line tests I have already written and
+verified. I would accept it in this cell or as a follow-up at composition — Ocean's call. Nothing here
+warrants holding the branch.
