@@ -68358,3 +68358,131 @@ by SHA in the closing message to Ocean.
   distinctly-named note rather than the page silently keeping every other word (F-5, unchanged
   fail-closed direction, only the naming and dimension-reporting changed).
 * The rotation prerequisite named in the prior section is unchanged and still open for Phase 2.2.
+
+# §P21GEOMETRY-CLOSURE-2 — re-review APPROVE WITH FINDINGS; R-1 and R-3 closed, R-2 registered
+
+**Re-review verdict: APPROVE WITH FINDINGS** (was BLOCK), `docs/moneythumb-replacement/reviews/
+PHASE2_P21GEOMETRY_REVIEW.md` §"Re-review", reviewed at `1993fda`. Both prior BLOCKs and all six
+MAJOR/MINOR findings from the first review were independently re-killed by the re-reviewer (their
+own words: *"Every one of its 12 rows reproduces; my only survivor is a variant it does not
+claim."*). Three MINOR residuals remained: R-1 (a guard-completeness gap), R-2 (a registration item
+for Ocean, nothing to change), R-3 (a docstring/wording mismatch). Base for this section: `1993fda`.
+Closure-2 tip: `908a93d`.
+
+## R-1, R-2, R-3: reproduction → fix → killer
+
+**R-1 (residual of F-3) — reproduced.** The widened AST guard refused `median` (any spelling),
+`sorted(`, `statistics` imports and the literal `0.6`, but a `list.sort()`-based hand-rolled median
+with a `0.5` literal is a DIFFERENT spelling of the same computation:
+```
+_h = [w.height for w in words]; _h.sort()
+_tol = max(1.0, _h[len(_h)//2] * 0.5)
+_canonical_group_lines(boxes, tolerance=_tol)
+```
+Confirmed **exit 0, SURVIVED**, `149 passed`, against the guard as it stood at `1993fda`.
+
+**Fix.** Targets the MECHANISM every tolerance-computation variant needs, not its arithmetic: the
+guard now asserts, by AST, that `geometry.py` passes **no keyword argument at all** to
+`_canonical_group_lines`/`evidence.group_lines` — the delegation is meant to be unparameterised, so
+ANY keyword (`tolerance=` under any name) is refused regardless of how the value was computed. Also
+added `.sort(` (an `ast.Attribute` call, distinct from the `ast.Name` `sorted()` the guard already
+banned) to the banned-call set, closing the specific spelling the reviewer used as well as the
+mechanism behind it.
+
+**Killer.** Re-applied the reviewer's exact mutant against the fixed guard: **exit 1, KILLED**
+(caught by the new no-keyword-argument assertion specifically — printed AST node confirms the
+`tolerance=_tol` keyword at the `_canonical_group_lines` call site is what trips it).
+
+**R-2 (registration) — nothing to change; recorded here for the composition record.** Card item 3 is
+ruled ("do not re-decide"): `geometry_from_pdf` must be `geometry_from_evidence(native_evidence_
+from_pdf(...))` with BYTE-IDENTICAL output. F-8 (closed in `§P21GEOMETRY-CLOSURE`) makes ONE narrow,
+untriggered exception to that: an `UNREADABLE_PAGE_NOTE` page reports `1.0 × 1.0` where Phase 2.0
+reported `0.0 × 0.0`, because `PageFrame` refuses non-positive dimensions (a `0.0 × 0.0` frame is
+unconstructible) and "no note-string branch in the neutral consumer" (F-8, separately ruled) and
+"byte-identical on this exact page" are mutually exclusive. Untriggered on the pinned corpus (0/109
+PDFs, 0/830 pages); no consumer of `PageGeometry.width`/`.height` exists outside `geometry.py`
+itself; pinned in both directions (`test_the_unreadable_native_page_placeholder_reports_its_own_
+frame_dimensions` — re-adding the note branch is KILLED). Ocean registers this named exception to a
+ruled card deliverable in the composition record; no code or test change was made for R-2.
+
+**R-3 (wording) — reproduced.** `PageFrame.pdf_points(...)` construction sits in the FIRST `try` in
+`native_evidence_from_pdf`, alongside `get_text`/`rect`. A page whose read SUCCEEDS but whose rect is
+zero-area is refused by `PageFrame`'s own `_positive(width)`/`_positive(height)` check and therefore
+caught by that same first `except` — filed as `UNREADABLE_PAGE_NOTE`, whose docstring at the time
+said the page's read "threw", which this case does not do. Reproduced on a 2-page synthetic document
+(page 0's `rect` property monkeypatched to return a zero-area object, `get_text` untouched):
+```
+page0 notes: ('native_page_unreadable',)   words: 0   frame dims: (1.0, 1.0)
+page1 notes: ()                            words: 1   (unaffected)
+```
+matching the reviewer's own repro exactly (dims `(1.0, 1.0)`, legacy would have kept 6/9 words at
+`(0.0, 0.0)`).
+
+**Fix (the choice this closure makes between Ocean's two options).** Kept `PageFrame.pdf_points(...)`
+construction in the FIRST `try` (did not move it to the word-refusal `try`) — a zero-area rect has no
+real page size to publish, which is the SAME operative fact as a genuine read failure, and filing it
+as a "word refused" would misdescribe the cause just as narrowly in the other direction (no word was
+ever reached). Broadened three places instead: the `UNREADABLE_PAGE_NOTE` module docstring, the
+`native_evidence_from_pdf` function docstring, and the inline per-page comment — all now say the note
+covers a read that threw **or** succeeded but produced a rect `PageFrame` cannot represent.
+
+**Killer / pin.** New test `test_a_zero_area_rect_is_filed_as_unreadable_not_word_refused`: a 2-page
+synthetic document, page 0's `rect` property monkeypatched to a zero-area object — asserts
+`UNREADABLE_PAGE_NOTE` present, `WORD_REFUSED_NOTE` absent, placeholder dims `(1.0, 1.0)`, and the
+sibling page unaffected (`612.0 × 792.0`, 1 line).
+
+## Corrected mutation table (M1–M9, all variants named by the two reviews, + R-1's own mutant)
+
+| mutant | defect simulated | killer | verdict |
+|---|---|---|---|
+| M1 | `to_pdf_points` bypassed | the equivalence pin + both pixel-evidence tests | KILLED |
+| M2 (`PageGeometry` site) | `page = page_index` (0-based leak) | the equivalence pin + the page-numbering pin | KILLED |
+| M2 (`GeoLine` site — F-2) | `page = page_index` (0-based leak) | `_assert_geometry_equal`'s `ll.page == nl.page` | KILLED |
+| M3 | empty pages dropped before `word_count` | the empty-middle-page pin; the page-numbering pin | KILLED |
+| M4 (`sorted()` + `0.5`) | hand-rolled median, `sorted()`-based | the AST guard's `sorted(`/keyword-argument refusal | KILLED |
+| M4 (`list.sort()` + `0.5` — R-1) | hand-rolled median, `.sort()`-based | the AST guard's new no-keyword-argument assertion | KILLED |
+| M5 | `source` hardcoded `"native"` | the pixel-evidence source assertion; the mixed-space test | KILLED |
+| M6 (`except → raise`) | the broad exception guard removed | the hostile-object test's dangling-word-id `LineBox` case | KILLED |
+| M7 | words re-sorted by text instead of x | the equivalence pin + the pixel round-trip test | KILLED |
+| M8 | `frame` forced to `None` | the pixel-evidence frame assertion; the mixed-space test | KILLED |
+| M9 (y unconverted) | x converted, y left in pixels | the pixel round-trip test; the native/pixel agreement test | KILLED |
+| M9 (y÷scale_x) | one axis' scale used for the other | the distinct-per-axis-scale test, against the authored point | KILLED |
+| M9 (both÷scale_x) | one axis' scale used for both | the distinct-per-axis-scale test | KILLED |
+| M9 (both÷scale_y — re-review's 3rd variant) | one axis' scale used for both, the other direction | the distinct-per-axis-scale test | KILLED |
+| M9 (x/y scales swapped — re-review's 4th variant) | the two axes' scales exchanged | the distinct-per-axis-scale test | KILLED |
+
+15/15 mutant variants KILLED against the closure-2 tree `908a93d`. Tree verified `git status
+--porcelain` empty after every mutant and at the end of the run.
+
+## Proof floor (closure-2 tip `908a93d`)
+
+| check | result | exit |
+|---|---|---:|
+| targeted (`test_geometry_frames.py` + `test_structurer.py` + `test_evidence_canonical.py` + `test_evidence_boundary.py` + `test_escalation_tripwires.py`) | 158 passed | 0 |
+| 5 canonical guards | 267 passed | 0 |
+| full default suite | 8,454 passed, 45 skipped, 38 deselected (+1 over closure-1, the new R-3 test) | 0 |
+| mutation table (15 variants) | 15/15 KILLED, tree clean | — |
+| full 109-PDF / 830-page equivalence (independent of the committed 12-PDF test) | 0 mismatches | — |
+| `privacy_scan_branch.py` (added lines, base `888fb1c`) | hit_count 0 (population 3,380; 1,710 added lines) | 0 |
+| `huntington_msg_privacy_scan.py` (commit messages, 8 commits) | hit_count 0 (population 216) | 0 |
+
+`corpus_gate.py`, `pytest -m corpus`, and cohort_replay were again not re-run: only
+`analysis/structurer/geometry.py` (docstrings/comments + the try-block boundary already established
+in closure-1) and `tests/test_geometry_frames.py` changed, the module remains dormant in production,
+and the full-corpus equivalence check (stronger evidence for this specific module than either of
+those instruments) was re-run directly and is unchanged at 0 mismatches. `tasklist | findstr python`
+checked clean before every proof; every run was a sequential foreground command polled directly to
+completion.
+
+## Commits (this closure)
+
+`908a93d` (R-1, R-3) · this section's own commit, reported by SHA in the closing message to Ocean.
+
+## Risks (last)
+
+* R-2 is now the record Ocean needs: F-8's `1.0 × 1.0` vs. legacy's `0.0 × 0.0` on the
+  `UNREADABLE_PAGE_NOTE` placeholder is a named, ruled, untriggered exception to card item 3's
+  byte-identical requirement, not a silent gap — it belongs in the composition record alongside this
+  entry.
+* Every other risk named in `§P21GEOMETRY` and `§P21GEOMETRY-CLOSURE` (the rotation prerequisite,
+  the ~2.7x cost / discarded `evidence_sha256`) is unchanged by this closure.
