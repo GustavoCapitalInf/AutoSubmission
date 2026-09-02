@@ -22,14 +22,17 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Any, Mapping
 
 from .endpoint_policy import classify_endpoint
 from .paddle_config import (
     DATA_SCOPE_SYNTHETIC,
+    PADDLE_CUSTOMER_DATA_OPT_IN_ENV,
+    PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL,
     PADDLE_REMOTE_OPT_IN_ENV,
     PADDLE_REMOTE_OPT_IN_LITERAL,
     PADDLE_WORKER_CONTRACT,
@@ -131,6 +134,15 @@ class PaddleClient:
     test seam; a `PaddleSettings` built by `load_paddle_settings()` already
     agrees with the real environment it read, so this is a no-op for every
     honest caller.
+
+    R-2 (`PHASE2_P21PADDLE_REVIEW.md` re-review): the SAME re-derivation
+    applies to `settings.customer_data_opt_in` — a hand-built settings
+    object claiming it (regardless of which `data_scope` a later call might
+    use) is refused at construction unless `environ` also carries the exact
+    customer-data literal. `check_remote_authorization` still owns the
+    scope-specific gate (a `data_scope="customer"` call needs this AND the
+    caller to declare that scope); this is defense in depth at the object
+    that will go on to make the request, not a replacement for it.
     """
 
     def __init__(self, settings: PaddleSettings, *, timeout: float = DEFAULT_TIMEOUT, opener=None,
@@ -150,6 +162,15 @@ class PaddleClient:
                     f"{PADDLE_REMOTE_OPT_IN_ENV}={PADDLE_REMOTE_OPT_IN_LITERAL} agreeing in both "
                     "settings and the environment",
                 )
+            if settings.customer_data_opt_in:
+                customer_opt_in = source.get(PADDLE_CUSTOMER_DATA_OPT_IN_ENV) == PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL
+                if not customer_opt_in:
+                    raise PaddleRefused(
+                        "remote_customer_data_refused",
+                        f"PaddleClient refuses to construct a client claiming customer_data_opt_in "
+                        f"without {PADDLE_CUSTOMER_DATA_OPT_IN_ENV}={PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL} "
+                        "agreeing in the environment",
+                    )
         self.settings = settings
         self.timeout = timeout
         self._opener = opener or _default_opener()
@@ -208,16 +229,67 @@ def _is_transient(exc: Exception) -> bool:
     return isinstance(exc, (TimeoutError, ConnectionError, urllib.error.URLError, OSError))
 
 
+#: R-1 (`PHASE2_P21PADDLE_REVIEW.md` re-review): `gpu`, `python_version` and
+#: `cuda_compiled` are copied into `evidence.runtime` by `ocr.paddle_rung`'s
+#: whitelist but are NOT among `IDENTITY_CHECK_FIELDS` (they are not pinned
+#: values — a GPU name or a Python patch version legitimately varies) — so
+#: the top-level key whitelist alone did not stop a worker nesting arbitrary
+#: text INSIDE one of these three fields (`gpu.note`, a `python_version`
+#: string with a URL appended). These bound the SHAPE of exactly those three
+#: fields before ANY of them can reach `verify_identity`'s caller — a
+#: mismatch refuses `paddle_runtime_mismatch`, the SAME reason and the SAME
+#: place (before any `/ocr` request) as every other identity check.
+_GPU_KEYS = frozenset({"name", "memory_total_mib", "driver_version"})
+#: Letters, digits, space, parentheses, `+`, `.`, `-` — a GPU model name
+#: shape (e.g. "NVIDIA GeForce RTX 5090") with no `/`, no `:`, and (checked
+#: separately) no whitespace run.
+_GPU_NAME_RE = re.compile(r"\A[A-Za-z0-9()+.\- ]{1,80}\Z")
+_DRIVER_VERSION_RE = re.compile(r"\A\d+(\.\d+){1,3}\Z")
+_PYTHON_VERSION_RE = re.compile(r"\A\d+\.\d+\.\d+\Z")
+
+
+def _shape_invalid_runtime_fields(remote: Mapping[str, Any]) -> list[str]:
+    """Which of `gpu` / `python_version` / `cuda_compiled` fail their shape
+    bound in `remote` (a `/version` payload). Empty means all three are
+    trustworthy shapes; this says nothing about their VALUES otherwise —
+    `ocr.paddle_rung._runtime_block`'s whitelist still governs which keys
+    survive into the evidence, and this only bounds what those three keys'
+    own content may look like."""
+    bad: list[str] = []
+    gpu = remote.get("gpu")
+    if not isinstance(gpu, Mapping) or set(gpu.keys()) != _GPU_KEYS:
+        bad.append("gpu")
+    else:
+        name = gpu.get("name")
+        if not isinstance(name, str) or not _GPU_NAME_RE.match(name) or "  " in name:
+            bad.append("gpu.name")
+        memory_total = gpu.get("memory_total_mib")
+        if isinstance(memory_total, bool) or not isinstance(memory_total, int):
+            bad.append("gpu.memory_total_mib")
+        driver = gpu.get("driver_version")
+        if not isinstance(driver, str) or not _DRIVER_VERSION_RE.match(driver):
+            bad.append("gpu.driver_version")
+    python_version = remote.get("python_version")
+    if not isinstance(python_version, str) or not _PYTHON_VERSION_RE.match(python_version):
+        bad.append("python_version")
+    cuda_compiled = remote.get("cuda_compiled")
+    if not isinstance(cuda_compiled, bool):
+        bad.append("cuda_compiled")
+    return bad
+
+
 def verify_identity(settings: PaddleSettings, *, client: "PaddleClient | None" = None,
                      environ: Mapping[str, str] | None = None) -> dict:
     """Fetch `/version` and refuse unless every `IDENTITY_CHECK_FIELDS` entry
     equals the pin (`paddle_runtime_identity()`) or the settings' own
-    declaration (provider, execution_class) — D5, CASE 16. Raises
-    `PaddleRefused("paddle_runtime_mismatch", …)` naming every mismatched
-    field; raises `PaddleTransportError` unchanged on a transport failure.
-    Sends no document — `/version` carries no image. `environ` is forwarded
-    to the `PaddleClient` this builds when `client` is not already supplied
-    (MAJOR-2's re-derivation test seam); ignored when `client` is given."""
+    declaration (provider, execution_class) — D5, CASE 16 — AND `gpu` /
+    `python_version` / `cuda_compiled` each pass their shape bound (R-1).
+    Raises `PaddleRefused("paddle_runtime_mismatch", …)` naming every
+    mismatched or shape-invalid field; raises `PaddleTransportError`
+    unchanged on a transport failure. Sends no document — `/version` carries
+    no image. `environ` is forwarded to the `PaddleClient` this builds when
+    `client` is not already supplied (MAJOR-2's re-derivation test seam);
+    ignored when `client` is given."""
     client = client or PaddleClient(settings, environ=environ)
     remote = client.version()
     expected = paddle_runtime_identity()
@@ -233,6 +305,7 @@ def verify_identity(settings: PaddleSettings, *, client: "PaddleClient | None" =
         "pipeline_switches": dict(expected["pipeline_switches"]),
     }
     mismatched = [name for name in IDENTITY_CHECK_FIELDS if remote.get(name) != wanted[name]]
+    mismatched.extend(_shape_invalid_runtime_fields(remote))
     if mismatched:
         raise PaddleRefused("paddle_runtime_mismatch", f"fields disagree with the pins: {', '.join(mismatched)}")
     return remote

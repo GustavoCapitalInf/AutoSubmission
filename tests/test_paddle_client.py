@@ -119,6 +119,40 @@ def test_local_free_client_needs_no_opt_in_at_all():
 
 
 # ---------------------------------------------------------------------------
+# R-2 — the customer-data half of MAJOR-2's re-derivation, pinned at both
+# check_remote_authorization AND PaddleClient (read_document's twin lives in
+# tests/test_paddle_rung.py, since it needs a document and a full rung call)
+# ---------------------------------------------------------------------------
+
+def test_r2_check_remote_authorization_refuses_a_hand_built_customer_opt_in_with_only_the_remote_literal_present():
+    """A hand-built settings object claims BOTH opt-ins; the real (here,
+    injected) environment carries only the remote one. The customer-data
+    gate must still refuse — this is the exact case the R-2 reversal mutant
+    (`customer_data_opt_in = settings.customer_data_opt_in`, dropping the
+    re-derivation) passes undetected without this test."""
+    settings = _hand_built("http://127.0.0.1:1", customer_data_opt_in=True)
+    with pytest.raises(PaddleRefused) as excinfo:
+        check_remote_authorization(settings, DATA_SCOPE_CUSTOMER, environ=REMOTE_ENVIRON)
+    assert excinfo.value.reason == "remote_customer_data_refused"
+
+
+def test_r2_paddle_client_refuses_a_hand_built_customer_opt_in_with_only_the_remote_literal_present():
+    with FakeWorker() as fake:
+        settings = _hand_built(fake.url, customer_data_opt_in=True)
+        with pytest.raises(PaddleRefused) as excinfo:
+            PaddleClient(settings, environ=REMOTE_ENVIRON)
+        assert excinfo.value.reason == "remote_customer_data_refused"
+        assert fake.requests == []
+
+
+def test_r2_paddle_client_permits_customer_opt_in_when_the_environment_actually_agrees():
+    with FakeWorker() as fake:
+        env = dict(REMOTE_ENVIRON, **{PADDLE_CUSTOMER_DATA_OPT_IN_ENV: PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL})
+        settings = _hand_built(fake.url, customer_data_opt_in=True)
+        PaddleClient(settings, environ=env)  # does not raise
+
+
+# ---------------------------------------------------------------------------
 # CASE 16 / M2 — per-field identity verification
 # ---------------------------------------------------------------------------
 
@@ -152,6 +186,83 @@ def test_case16_m2_every_field_mismatch_refuses_independently(field, bad_value):
         assert excinfo.value.reason == "paddle_runtime_mismatch"
         assert field in str(excinfo.value)
         assert fake.requests == []  # zero /ocr requests on a mismatch
+
+
+def test_r1_nested_injection_in_gpu_and_python_version_refuses():
+    """R-1 (`PHASE2_P21PADDLE_REVIEW.md` re-review): `gpu` and `python_version`
+    are copied into `evidence.runtime` by the rung's whitelist but are not
+    among `IDENTITY_CHECK_FIELDS`, so a worker could nest arbitrary text
+    INSIDE one of them. The reviewer's own payload: a `gpu.note` /
+    `gpu.operator` carrying a URL and an attacker domain, and a
+    `python_version` with a URL appended. Refused before any `/ocr` request."""
+    injected = {
+        "gpu": {
+            "name": "RTX 5090", "memory_total_mib": 32607, "driver_version": "1.0",
+            "note": "http://198.51.100.7/exfil", "operator": "attacker.example",
+        },
+        "python_version": "3.12.14 (see http://198.51.100.7)",
+    }
+    with FakeWorker(identity_overrides=injected) as fake:
+        settings = _settings(fake.url)
+        client = PaddleClient(settings, environ=REMOTE_ENVIRON)
+        with pytest.raises(PaddleRefused) as excinfo:
+            verify_identity(settings, client=client)
+        assert excinfo.value.reason == "paddle_runtime_mismatch"
+        assert "gpu" in str(excinfo.value)
+        assert "python_version" in str(excinfo.value)
+        assert fake.requests == []
+
+
+@pytest.mark.parametrize("bad_gpu", [
+    {"name": "RTX 5090", "memory_total_mib": 32607, "driver_version": "580.173.02", "extra": "x"},
+    {"name": "RTX 5090", "memory_total_mib": "32607", "driver_version": "580.173.02"},  # str, not int
+    {"name": "RTX 5090", "memory_total_mib": True, "driver_version": "580.173.02"},  # bool, not int
+    {"name": "RTX/5090", "memory_total_mib": 32607, "driver_version": "580.173.02"},  # "/" in name
+    {"name": "RTX  5090", "memory_total_mib": 32607, "driver_version": "580.173.02"},  # double space
+    {"name": "RTX 5090", "memory_total_mib": 32607, "driver_version": "not-a-version"},
+    "not-a-mapping-at-all",
+])
+def test_r1_every_gpu_shape_defect_refuses(bad_gpu):
+    with FakeWorker(identity_overrides={"gpu": bad_gpu}) as fake:
+        settings = _settings(fake.url)
+        client = PaddleClient(settings, environ=REMOTE_ENVIRON)
+        with pytest.raises(PaddleRefused) as excinfo:
+            verify_identity(settings, client=client)
+        assert excinfo.value.reason == "paddle_runtime_mismatch"
+        assert fake.requests == []
+
+
+@pytest.mark.parametrize("bad_value", ["3.12", "3.12.14.1", "3.12.14 extra", 3, None, ""])
+def test_r1_every_python_version_shape_defect_refuses(bad_value):
+    with FakeWorker(identity_overrides={"python_version": bad_value}) as fake:
+        settings = _settings(fake.url)
+        client = PaddleClient(settings, environ=REMOTE_ENVIRON)
+        with pytest.raises(PaddleRefused) as excinfo:
+            verify_identity(settings, client=client)
+        assert excinfo.value.reason == "paddle_runtime_mismatch"
+        assert fake.requests == []
+
+
+@pytest.mark.parametrize("bad_value", [1, 0, "true", None, "False"])
+def test_r1_cuda_compiled_must_be_a_real_bool(bad_value):
+    with FakeWorker(identity_overrides={"cuda_compiled": bad_value}) as fake:
+        settings = _settings(fake.url)
+        client = PaddleClient(settings, environ=REMOTE_ENVIRON)
+        with pytest.raises(PaddleRefused) as excinfo:
+            verify_identity(settings, client=client)
+        assert excinfo.value.reason == "paddle_runtime_mismatch"
+        assert fake.requests == []
+
+
+def test_r1_the_pinned_default_identity_passes_shape_validation():
+    """The FakeWorker's own DEFAULT_IDENTITY (and, by construction, the real
+    worker's version_payload on a healthy host) must pass R-1's shapes —
+    this is not a check that only ever refuses."""
+    with FakeWorker() as fake:
+        settings = _settings(fake.url)
+        client = PaddleClient(settings, environ=REMOTE_ENVIRON)
+        identity = verify_identity(settings, client=client)  # does not raise
+        assert isinstance(identity["gpu"], dict)
 
 
 def test_case16_declaration_wins_over_a_loopback_url_and_worker_corroborates():
