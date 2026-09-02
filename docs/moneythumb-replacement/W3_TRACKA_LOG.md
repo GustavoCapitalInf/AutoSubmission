@@ -69011,3 +69011,220 @@ sha in the closing message to Ocean.
   they can be trusted as fully reproducible from the current, fixed instrument set.
 * The Vast.ai instance's reachability is outside this cell's control; whoever runs the next live
   proof should confirm `check`/SSH connectivity BEFORE assuming the fixed lifecycle works end to end.
+
+# §P21ROUTING — the PaddleOCR slot filled in the escalation router and the intake ladder; every forbidden edge proved absent by the real DiscoveryRunner against an in-process fake worker; 0 coverage movement
+
+Cell R (Phase 2.1, `docs/agent-handoffs/P21-ROUTING.md`), worktree `mt21-routing`, branch
+`wave21-routing`, base `6749627` (train11 = cell G composed + the P21-PADDLE closure tip `5e41d09`
+merged as an integration base). Hygiene card in coverage clothing: `newly validated = 0` everywhere
+this cell measured it.
+
+## Population
+The fixtures this cell's own tests exercise: an in-process `FakeWorker` (`tests/paddle_fake_worker.py`)
+on an ephemeral loopback port for every routing/transport case, plus one directly-mocked
+`ocr.paddle_rung.read_document` return for CASE 9 (a claimable text built by giving each source line
+of a real committed-artifact fixture its own canonical `LineBox`, so a genuine registered parser
+claims it without this cell depending on PaddleOCR's own geometry-to-text fidelity for one bank's
+specific detection markers — that fidelity is cell P's own fixture to prove). The replay population is
+the full Phase 2.0 archive: `discovery_reports/TRAIN10-941918f/2026-09-02T063646.710847-0000-ef34ee30`
+(3,380 shas; 3,351 resolve to cached text; 29 unresolved, unchanged from Phase 2.0), against the
+READ-ONLY cold cache `.claude/recovery/webapp_data_train10_cold`. No production customer document was
+ever sent to a worker, fake or real, at any point in this cell's work.
+
+## Root cause
+Phase 2.0 left a SLOT: `EXTRACTOR_ORDER = ("local_tesseract", "visual")` with a comment naming
+PaddleOCR's place, and `RouterInputs` had no notion of which extractors a RUN's mode actually permits.
+Filling that slot naively (adding `"paddle"` to the tuple alone) would have let the SAME fixed
+preference order hand every `--scanned-visual` run a Paddle attempt it never asked for, and would have
+given the ladder no structural way to refuse "both OCR extractors in one call" or "the auto-mode
+fallthrough now has two arms instead of one" (Ruling A's own named hazard).
+
+## Solution
+`RouterInputs` gains a sixth field, `enabled: frozenset[str]` (D4) — a MODE constant, known before any
+document is read, that narrows `EXTRACTOR_ORDER` to the extractor(s) THIS run's mode actually permits
+(`--scanned-visual` → `{"visual"}`, `--scanned-paddle` → `{"paddle"}`, the webapp's deterministic
+fallback → `{"visual"}` via a new module constant `WORKER_ENABLED_EXTRACTORS`, every other mode →
+`frozenset()`). A repo-wide AST tripwire (`tests/test_escalation_tripwires.py::
+test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression`) requires every
+`enabled=` argument at a `decide(` call site to be a `self.<attribute>` or a module-level constant —
+never a call, comprehension, subscript or conditional — so a per-document fact cannot be smuggled in
+through a field that is supposed to be a pure run/mode fact (verified live by mutant M3).
+`ocr.pipeline.parse_statement` gains `allow_paddle_ocr` / `paddle_data_scope`, reachable ONLY on the
+forced path (`force_ocr and allow_paddle_ocr`); the non-forced ("auto") ladder is byte-identical to
+Phase 2.0 and never even imports `ocr.paddle_rung` (mutant M5). `discovery.runner.DiscoveryRunner`
+tracks one `enabled_extractors` set per mode (never more than one member — no two-engine escalation)
+and dispatches the RECOVERY/UPGRADE paths to either the existing `_read_visual` or the new
+`_read_paddle`, which mirrors `_read_visual` exactly and passes the LITERAL `paddle_data_scope=
+"customer"` (pinned by AST; mutant M4) — the runner reads the archive, so a real `--scanned-paddle`
+archive run is refused at the rung (`remote_customer_data_refused`, D8) rather than silently reaching
+a remote worker. `ocr.document.StatementMarkdown` gains `page_extractor` / `evidence`, each checked for
+internal consistency at construction (mutants M7, M8). `webapp.artifact_cache` gains the D6 schema
+bump (`EXTRACTION_SCHEMA_VERSION` 1 → 2, pinned directly — mutant M10), the Paddle truth-table branch
+in `_ocr_extractor` (mutant M9) and `ocr_settings_key` (never touching Paddle settings for an
+offline/visual-labelled call), and a drift-tolerant `cached_ocr` that treats a corrupted/mismatched
+cached evidence blob as a MISS, never as served. `telemetry.record` learns the `"paddle"` source path
+(mutant M12) without widening `FREE_MODELS` (mutant M13) or the visual fallthrough. `RESERVED_MODEL_
+PREFIXES` gains the Paddle token (mutant M15); `telemetry.run_of_record` gains an optional
+`paddle_ocr_key` partition, checked BEFORE the visual one and never confused with it (mutant M11).
+`webapp.worker.WORKER_ENABLED_EXTRACTORS` stays `{"visual"}` — the webapp is not wired to Paddle in
+this phase (mutant M16).
+
+## Newly validated
+**0.** Confirmed twice: cohort replay at BASE (`6749627`, `--expect-identical`) and at CLOSURE (this
+cell's tip, `--expect-identical --allow-unresolved --expect-unresolved 29`) both report `newly
+validated: 0`.
+
+## Other ladder movement
+**0** at both BASE and CLOSURE (`other ladder movement (up, not validated): 0`; `other ladder
+regressions: 0`).
+
+## Previously validated preserved
+**2,625 of 2,625**, payload IDENTICAL, at both BASE and CLOSURE — byte-for-byte the same cohort-replay
+report both times:
+
+| measure | BASE (`6749627`) | CLOSURE (`6bc0120`) |
+|---|---:|---:|
+| population | 3380 | 3380 |
+| replayed (text available) | 3351 | 3351 |
+| newly validated | 0 | 0 |
+| other ladder movement | 0 | 0 |
+| previously validated preserved | 2625 of 2625 | 2625 of 2625 |
+| … payload identical | 2625 | 2625 |
+| … payload changed | 0 | 0 |
+| validated regressions (BLOCKING) | 0 | 0 |
+| other ladder regressions | 0 | 0 |
+| unchanged non-validated | 726 (0 payload changed) | 726 (0 payload changed) |
+
+The two runs are structurally guaranteed to agree: the run of record's partitions are RECORDED
+(`provenance.json`'s own fixed key strings), so neither cohort-replay run ever recomputes an OCR/
+analysis settings key from this cell's code — confirmed empirically by running both.
+
+## Regressions
+**0.** Zero validated regressions, zero other-ladder regressions, at BASE and at CLOSURE.
+
+## Failure-class evidence
+* **Class A (extraction failure)** — the only class Paddle may ever be admitted from. CASE 1
+  (`test_case1_recovery_names_paddle_and_local_free_recovers`) proves the RECOVERY trigger
+  (`offline_rungs_produced_no_text`) names `paddle` and the rung actually runs; CASE 1's U-extract
+  shape (`test_case1_u_extract_shape_upgrade_also_names_paddle`) proves the UPGRADE trigger
+  (`extractor_output_unusable`, a below-floor Tesseract read) likewise names `paddle`.
+* **Class B (structure)** — the edge this whole card exists to keep closed. CASE 2
+  (`test_case2_usable_unclaimed_never_escalates_to_paddle`) proves a long, legible, genuinely usable,
+  unclaimed Tesseract read refuses with `no_admitted_trigger`, `paddle_rung="not_attempted"`, and the
+  fake worker records ZERO requests. CASE 4
+  (`test_case4_density_surfaced_but_usable_never_escalates`) proves the SAME for a density-surfaced
+  (padded-tabular) usable read — the surfaced-only signal never becomes an admitted trigger.
+* **Class C (financial validation failure)** — NO C → OCR edge, proved the same way. CASE 3
+  (`test_case3_claimed_but_financially_failing_never_escalates`) forces a claimed reconstruction to
+  fail financial validation and proves zero Paddle requests, `paddle_rung="not_attempted"`.
+* CASE 9's negative control (`test_case9_a_claimed_offline_read_is_never_escalated_to_paddle`) proves
+  an ALREADY-CLAIMED offline read is never handed to Paddle regardless of what a Paddle read would
+  have said — `_upgrade_eligible` (unchanged by this cell) refuses on `payload is not None` alone.
+
+## Escalation evidence
+Legal escalation population **unchanged at 13** — pinned directly by the corpus-marked
+`tools.phase2_trigger_split` measurement this cell did not touch (`pytest -m corpus`:
+`test_validated_tesseract_reads_are_never_classified_class_a` — `R=13`, `U=123`, `u_extract=0`,
+`u_structure=123`, `u_density_surfaced=23`, `legal_escalation_population=13`; `validated_intersect_
+R_or_U = set()`). Refusal counters: the runner's `"customer"` literal is pinned by AST
+(`test_read_paddle_passes_the_literal_customer_scope_by_ast`) and its live effect is proved by CASE
+1's refusal leg (`test_case1_refusal_leg_remote_paid_refuses_customer_scope`) — a `remote_paid` fake
+worker, opted in, still refuses BEFORE any `/ocr` (or even `/version`) request, `paddle_rung=
+"refused_customer_data"`, `outcome_reason="paddle_refused"`, `error_type="PaddleRefused"`. No real
+`--scanned-paddle` archive run was attempted (D8's privacy boundary); **OCR-fed validated = 0**,
+**attempted = 0** on the 13-document legal population, matching the phase's own scope decision exactly.
+
+## Remote evidence
+Every Paddle request any test in this suite issued went to `tests/paddle_fake_worker.FakeWorker` on an
+OS-assigned loopback port (`127.0.0.1:<ephemeral>`), started and torn down per test. Zero real network
+egress: `PADDLE_VAST_HOST` / `PADDLE_VAST_SSH_PORT` / `PADDLE_VAST_SSH_USER` are set in tests ONLY to
+obviously-synthetic literals (`"test-host.invalid"`, `"22"`, `"test-user"`) for the `remote_paid`
+config-validation path, never read from — or connected to — the real environment's Vast.ai endpoint.
+`PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` is asserted absent from the suite's own environment
+(`test_the_customer_data_opt_in_literal_is_never_set_in_the_suite_environment`) and is never set by any
+test in this cell.
+
+## Commits (this cell, base `6749627`)
+* `9302d62` — feat(routing): fill the PaddleOCR slot in the escalation router and ladder
+* `d1e215b` — test(routing): prove the Paddle routing slot, its forbidden edges, and every touched pin
+* `6bc0120` — fix(routing-tests): pin EXTRACTION_SCHEMA_VERSION at 2 and widen the postprocess-chain AST scan
+
+## Proof-floor exits
+* Full default suite: **8,663 passed, 45 skipped, 39 deselected**, `EXIT=0`.
+* The 5 canonical guards + 7 canonical conformance files (explicit run): **1,557 passed, 41 skipped**,
+  `EXIT=0`.
+* `python corpus_gate.py`: **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, `EXIT=0`.
+* `pytest -m corpus`: **34 passed, 8,712 deselected**, `EXIT=0`.
+* Cohort replay, full archive (`--shas` = every one of the run of record's 3,380 shas), at BASE
+  (`6749627`, `--expect-identical`): **`EXIT=0`**, table above.
+* Cohort replay, same population, at CLOSURE (`6bc0120`, `--expect-identical --allow-unresolved
+  --expect-unresolved 29`): **`EXIT=0`**, table above.
+* Archive sweep: **not required** — no `analysis/` reader changed in this cell.
+* `tests/test_visual_rung.py`: **32/32 test functions unchanged in meaning** (0 added, 0 removed, 0
+  renamed — `git diff 6749627 HEAD -- tests/test_visual_rung.py` touches only the `ROW_FIELDS` tail
+  assertion in one test to reflect the new appended columns; pytest collects 35 IDs because one
+  parametrized function multiplies, not because a function was added).
+* Mutation table: **16/16 mutants applied, killed, and reverted** (`git status --porcelain` clean
+  after each) — table below.
+
+## Mutation table (every mutant applied live, every killer named)
+| # | mutant | killer(s) | result |
+|---|---|---|---|
+| M1 | upgrade triggers admit unconditionally (over-admission) | `test_case2_usable_unclaimed_never_escalates_to_paddle` | killed |
+| M2 | `enabled` ignored in `decide` | the visual-rung suite (12 of 32 failed) | killed |
+| M3 | `enabled=` computed from `evidence.usable` at a call site | `test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression` | killed |
+| M4 | `_read_paddle` passes `"synthetic"` | `test_read_paddle_passes_the_literal_customer_scope_by_ast` + `test_case1_refusal_leg_remote_paid_refuses_customer_scope` | killed |
+| M5 | Paddle branch reachable without `force_ocr` | `test_allow_paddle_ocr_is_inert_on_the_non_forced_path` | killed |
+| M6 | Paddle branch calls `apply_admitted` | `test_case10_paddle_branch_never_references_the_postprocess_chain` (AST) + `test_case10_a_paddle_read_never_touches_ocr_client_at_runtime` (spy) | killed (both; AST gap found and fixed live — see fix commit) |
+| M7 | `page_extractor` length check disabled | `test_a_page_extractor_length_mismatch_refuses_at_construction` | killed |
+| M8 | `evidence.page_texts() != pages` accepted | `test_a_drifted_evidence_page_texts_refuses_at_construction` | killed |
+| M9 | `_ocr_extractor` returns `"visual"` for the paddle shape | `test_extractor_is_paddle_only_for_the_forced_paddle_shape` | killed |
+| M10 | `EXTRACTION_SCHEMA_VERSION` left at 1 | `test_extraction_schema_version_is_pinned_at_2` (added live — no direct pin existed) | killed |
+| M11 | `ocr_partition_for_row` returns the visual key for a paddle row | `test_ocr_partition_for_row_paddle` + `test_a_paddle_row_never_resolves_to_the_visual_key` | killed |
+| M12 | `source_path_for("paddle-ocr+ppocrv5")` → `"visual"` | `test_source_path_fallthrough_is_closed_not_a_guess` | killed |
+| M13 | `PADDLE_MODEL_TOKEN` added to `FREE_MODELS` | `test_paddle_model_token_is_not_in_free_models` | killed |
+| M14 | `_read_paddle` catches `PaddleTransportError` and calls `_read_visual` | all 3 parametrizations of `test_case18_transport_failures_fail_closed_with_no_second_attempt` | killed |
+| M15 | `RESERVED_MODEL_PREFIXES` without the Paddle token | `test_env_value_impersonating_the_paddle_rung_is_refused` | killed |
+| M16 | `WORKER_ENABLED_EXTRACTORS` becomes `{"visual", "paddle"}` | `test_case12_worker_enabled_extractors_is_visual_only` + `test_m16_two_engines_enabled_at_once_is_never_constructed` | killed |
+
+M6's AST scan had a real gap (it collected an import's ALIAS name, not the name imported — so
+`from .ocr_client import apply_admitted as _x` slipped past it while the runtime spy still caught it);
+fixed live in commit `6bc0120` and re-verified against the same mutant. M10 had no direct pin at all
+(only an indirect key-partitioning test); added live in the same commit.
+
+## Privacy + secrets counts
+* Privacy scan (`tools/privacy_scan_branch.py --data-dir <cold cache> --base 6749627 --ref HEAD --rows
+  <run>/rows.csv --run <run>`): **`hit_count: 0`** (`raw_hit_count: 6`, all six excluded by the
+  `words_class` rule — generic English words, not archive content; `added_lines: 1878`), `EXIT=0`.
+* Message scan (`tools/huntington_msg_privacy_scan.py`, same population): **`hit_count: 0`** across
+  all 3 commit messages, `EXIT=0`. (One WORDS coincidence — "construction" + "page_extractor"'s own
+  "page" token — was found and reworded before the final scan; not present in the committed history.)
+* Secrets scan (`git diff 6749627 HEAD` / `git log 6749627..HEAD --format=%B` compared against every
+  `PADDLE_VAST_*` value in `os.environ`, length ≥ 6): **0 hits.** One coincidental 4-character overlap
+  (`PADDLE_VAST_SSH_USER`'s real value, a common short English word) appears in the diff by pure
+  chance — confirmed to be ordinary prose, not the credential, by length/shape inspection; the two
+  longer, actually distinguishing values (`PADDLE_VAST_HOST`, `PADDLE_VAST_SSH_PORT`) do not appear
+  anywhere in the diff or the commit messages. No `PADDLE_VAST_*` variable in any added line is ever
+  set to anything but an obviously-synthetic test literal.
+
+## Risks
+* `offline_source_model` (design item 8, CASE 9) was implemented for BOTH the visual and the Paddle
+  upgrade-adoption branches, for symmetry and because the underlying logic is identical either way —
+  the card's own "Rows" bullet (design item 6) did not list this field explicitly, only design item 8's
+  prose did; flagged here rather than silently narrowed or silently widened without a note.
+* The Paddle→claim path (CASE 9) is proved through a directly-mocked `ocr.paddle_rung.read_document`
+  returning hand-built canonical evidence (one `LineBox` per source line), not through cell P's own
+  geometry/adapter code — that fidelity (does PaddleOCR's real word-box output regroup into the
+  original ledger rows) is cell P's fixture to prove (`tests/test_paddle_adapter.py`,
+  `tests/paddle_synthetic.py`), and this cell's proof floor does not re-derive it.
+* The 13-document legal population was NEVER run through Paddle, fake or real, in this closure —
+  by design (D8's privacy boundary) — so "Paddle recovers/upgrades a real archive document" remains
+  an untested, unauthorized path; Gustavo's separate remote-data ruling is requested, not assumed,
+  exactly as the umbrella card specifies.
+* `EXTRACTION_SCHEMA_VERSION` 1 → 2 and the new `allow_paddle_ocr` key-material field together
+  invalidate the WHOLE offline OCR cache partition (every extractor, not only Paddle) — the train's
+  cold run at the composed tree is required by the completion gate, not optional, and will re-read the
+  archive's offline text (Tesseract wall clock paid again; $0 vendor cost unaffected).
+* This cell never ran the live Vast.ai proof (out of scope — that is Ocean's one recorded live proof
+  over the tunnel, per the umbrella card) and never attempted to reach the Vast host at all, per the
+  standing network restriction.
