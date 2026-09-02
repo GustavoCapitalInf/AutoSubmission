@@ -1,6 +1,6 @@
 ---
 name: phase2-state
-description: "PHASE 2.0 COMPLETE (2026-09-02, gate met, awaiting Gustavo's approval of the closure report): composed train10 941918f (docs tip on train); OQ1-OQ11 RULED (PHASE2_RULINGS.md); five cells + P20-REPLAY-SHAPE reviewed/closed/re-reviewed; floor 2,625 preserved by full-archive replay AND cold run (2,625 -> 2,625, 3,380 unchanged); OCR_STAGE_VERSION 5; OCR-fed validated 0; legal escalation population 13; Phase 2.1 (PaddleOCR) NOT authorized until Gustavo approves"
+description: "PHASE 2.1 IN PROGRESS (opened 2026-09-02 on train11 from 9a54952; Ruling A / Ruling B / the Vast.ai remote_paid authorization recorded; cells G and P launched, R after P; privacy boundary: no customer documents to Vast). PHASE 2.0 COMPLETE (2026-09-02, gate met, approved by Gustavo): composed train10 941918f (docs tip on train); OQ1-OQ11 RULED (PHASE2_RULINGS.md); five cells + P20-REPLAY-SHAPE reviewed/closed/re-reviewed; floor 2,625 preserved by full-archive replay AND cold run (2,625 -> 2,625, 3,380 unchanged); OCR_STAGE_VERSION 5; OCR-fed validated 0; legal escalation population 13; Phase 2.1 (PaddleOCR) NOT authorized until Gustavo approves"
 metadata:
   node_type: memory
   type: project
@@ -76,3 +76,15 @@ extractor, geometry into `document_geometry`, allowed only on R + U-extract, per
 is NOT authorized until he approves.
 
 Related: [[batch9-state]] [[moneythumb-phase1-roadmap]] [[batch8-operating-model]] [[subagent-model-policy]]
+
+**PHASE 2.1 — PADDLEOCR + CANONICAL WORD BOXES + DOCUMENTGEOMETRY — IN PROGRESS (opened
+2026-09-02).** Gustavo approved Phase 2.0 and authorized Phase 2.1 only. Train **`train11`** from
+`origin/main` `9a54952`. Rulings A (automatic hosted extraction REFUSED) and B (density
+SURFACE-ONLY) and the explicit Vast.ai `remote_paid` authorization (with the DATA PRIVACY BOUNDARY:
+no production customer statements to Vast without a separate ruling) are recorded in
+`PHASE2_RULINGS.md` §"Phase 2.1". Umbrella card `docs/agent-handoffs/PHASE2-1-PADDLE.md`; cells
+`P21-GEOMETRY` (G), `P21-PADDLE` (P), `P21-ROUTING` (R — after P composes). Ocean's cell 0 landed the
+`evidence/` package and `ocr/paddle_config.py` (`1282eb0`, `888fb1c`). Live record: `BATCH9_TRANSITION.md`
+§7, 2026-09-02 "PHASE 2.1 OPENED" and later entries. Expected coverage movement in this phase: the
+13-document legal population is customer data and is NOT sent to Vast (D8) — synthetic proof only;
+Paddle-eligible 13 / attempted 0 / newly validated 0 reported honestly; the 2,625 floor untouched.

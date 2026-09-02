@@ -79,7 +79,15 @@ authoritative.
 
 # Exact next action
 
-**PHASE 2.0 IS COMPLETE (2026-09-02) AND STOPPED.** Gustavo reviews the closure report (the
+**PHASE 2.1 IS IN PROGRESS (opened 2026-09-02 on `train11`).** Gustavo approved Phase 2.0 and authorized
+Phase 2.1 (PaddleOCR + canonical word boxes + DocumentGeometry) only — rulings A / B and the Vast.ai
+authorization are in `docs/moneythumb-replacement/PHASE2_RULINGS.md` §"Phase 2.1"; the umbrella card is
+`docs/agent-handoffs/PHASE2-1-PADDLE.md`; the live record is `BATCH9_TRANSITION.md` §7 (2026-09-02 "PHASE 2.1
+OPENED" onward) and `PHASE2_STATE.md`. A fresh session resumes from those three files. The webapp auto-mode
+edge is now RULED (Ruling A: refused as doctrine). The remaining ruling owed: whether the 13-document legal
+escalation population (customer statements) may be sent to the Vast worker — requested at Phase 2.1's closure.
+
+*(superseded 2026-09-02)* **PHASE 2.0 IS COMPLETE (2026-09-02) AND STOPPED.** Gustavo reviews the closure report (the
 2026-09-02 entries of `docs/moneythumb-replacement/BATCH9_TRANSITION.md` §7 and `PHASE2_STATE.md`).
 **Do not start Phase 2.1 (PaddleOCR) until he approves.** One ruling is owed alongside the approval:
 the pre-existing webapp auto-mode edge `dispatch unclaimed / parser_exception → extract_statement`
