@@ -64845,3 +64845,201 @@ test in the tree that this branch could run has now been run at closure tree
 | `tools/huntington_msg_privacy_scan.py` (same population, 4 commits) | 0 hits every class | 0 |
 
 Nothing in this branch's ownership remains unproved.
+
+**Addendum 2 — the independent adversarial review's verdict (BLOCK — 1 BLOCK,
+3 MAJOR, 9 MINOR) closed on `wave20-router`, finding by finding.** Review
+copied read-only from `train10@8cfbc61` to
+`docs/moneythumb-replacement/reviews/PHASE2_P20ROUTER_REVIEW.md`. Every
+finding reproduced against the tree BEFORE fixing it, then closed, then the
+kill proved. Numbers below are measured at closure tree, listed at the end.
+
+**BLOCK-1 — `validated` documents labelled Class A (79 of 176 total).**
+Reproduced first, unchanged, with a direct script against the run-of-record
+cold cache using the tree's own `ExtractionQualityGate` and the pre-fix
+`classify_failure` order: **153 native documents classified `failure_class=
+"A"`, 79 of them `validated`**, plus every committed-artifact dry-run row
+(reproduced live through `DiscoveryRunner(MODE_DRY_RUN)` on
+`Misc/First Farmers 2026 01-document.pdf`: `evidence_quality=unusable`,
+`failure_class='A'` even though the document is `validated` and reads from a
+committed fixture with real text). Closed, four parts exactly as ruled: (1)
+`classify_failure` now checks `validated` FIRST, before evidence, before
+claimed. (2) The gate is scoped to `GATE_ASSESSED_SOURCES = {local_tesseract,
+visual}` via a new `discovery.runner._evidence_for_row`; native and
+committed-artifact rows report `evidence_quality="none"` and are usable BY
+CONSTRUCTION for `classify_failure` — the gate never sees them, so
+`document=None` for a committed-artifact row can no longer be misread as
+`no_text_produced`. (3) The pin is widened:
+`tests/test_escalation_router.py::test_no_validated_document_of_any_source_is_ever_classified_class_a`
+(`@pytest.mark.corpus`) computes `failure_class` for EVERY row of the run of
+record via `tools.phase2_trigger_split.measure_row_level_class_a`, which
+imports and calls the PRODUCTION `classify_failure`/`_evidence_for_row`
+directly (never a re-implementation). (4) Republished: `--row-level` on the
+instrument reports **0 validated Class-A, 0 total Class-A**, with the full
+source×class breakdown (`native:""` 2,589 · `native:B` 533 · `native:C` 50 ·
+`local_tesseract:""` 36 · `local_tesseract:B` 123 · `local_tesseract:C` 20 ·
+`none:B` 29 — no source ever produces `:A` again). Both reproduction scripts
+and the widened test are recorded above/below; the corresponding corpus test
+passes at closure and the reproduction numbers (153/79) are the "before"
+record.
+
+**MAJOR-1 — inert endpoint-policy seam.** Reproduced: with a stub exporting
+the INVENTED `extractor_allowed` name refusing everything, `decide` still
+returned `visual`; the guard imported a name, not the module, so any
+`ImportError` (including one from a real, differently-shaped module)
+silently meant "allowed". Removed entirely, not patched: `_endpoint_policy_
+allows` is deleted from `ocr/escalation.py`; `EscalationRouter.decide` picks
+the first unattempted member of `EXTRACTOR_ORDER` with no consultation of
+any kind. Endpoint policy is documented as enforced in exactly one place —
+`ocr_client._build_client` (cell B2) — in the module's own docstring.
+Mutation-table row 5 is replaced:
+`test_a_refused_endpoint_fails_the_document_closed_with_no_second_attempt`
+monkeypatches `ocr.ocr_client._build_client` to raise, and proves the row
+fails closed (`visual_rung=failed`, `outcome_class=failed`,
+`outcome_reason=ocr_failed`) with exactly one call, no second extractor.
+`test_the_router_has_no_endpoint_policy_seam_at_all` installs a module
+shaped like B2's REAL documented contract (`check_endpoint`) whose method
+raises `AssertionError` if ever called, and confirms `decide` still answers
+`local_tesseract` — the module is provably never touched. Attack A3 (a real
+`endpoint_policy` present and refusing) is closed by construction: there is
+no seam left for it to attack.
+
+**MAJOR-2 — fitted density floor, made surface-only.** `EvidenceQuality`
+gains a `signals` field; `BELOW_ALNUM_DENSITY_FLOOR` is recorded there and
+NEVER in `.reasons`, never affects `.usable`. The gate's admitted criteria
+are the parameter-free triad alone. Republished, both numbers: **U-extract
+(admitted) = 0**; **density-surfaced (candidate-only) = 23**; legal
+escalation population is now **13** (R alone — U contributes 0 under the
+admitted-only definition). `tools/phase2_trigger_split.py` gained
+`--densities` (closing MINOR-1: prints the min density among the 56 claimed
+and 36 validated reads, and the admitted-vs-surfaced split) and
+`--row-level`. The module docstring's "never tuned" claim is corrected to
+the honest characterisation: a corpus-fitted round number 0.0075 below the
+observed claimed minimum, keyed on WHITESPACE SHARE per the review's own
+composition table (median 0.321 vs 0.157), not noise. Default-suite pins
+added: `test_below_the_alnum_density_floor_is_surfaced_but_still_usable` and
+`test_the_admitted_criteria_are_the_parameter_free_triad_only` prove the
+signal is recorded and NEVER moves `usable`/`reasons`
+(mutant: re-adding density to the admission decision is exactly mutant M1's
+shape and is caught the same way). The corpus test additionally pins the
+resulting split (`u_extract==0`, `u_structure==123`,
+`u_density_surfaced==23`, `legal_escalation_population==13`) and is the
+measured killer of reproduced mutants N2 (floor 0.20 → density-surfaced 0,
+not 23), N3 (floor 0.74 → 35, not 23) and N4 (floor 0.75 → 43, not 23) — all
+three now leave `u_extract` and `validated_unusable` at 0 REGARDLESS (a
+structural improvement over the pre-fix state, where N4 alone crossed the
+validated minimum), so the density-surfaced count is what catches a quiet
+floor move now, not a usable/routing change — because none is possible any
+more.
+
+**MAJOR-3 — vocabularies enforced.** `DocumentRow.as_dict` now raises
+`ValueError` on a `failure_class` outside `FAILURE_CLASSES` or an
+`escalation_trigger` outside `("",) + EXTRACTION_TRIGGERS` — the same
+pattern `classify_outcome` uses for `DEFERRED_REASONS`
+(`telemetry/record.py:399`). Both vocabularies are exported from
+`telemetry/__init__.py` beside `DEFERRED_REASONS` (a narrow, ruled exception
+to this card's own file-ownership list, made because MAJOR-3 explicitly
+named that file; no other line in it was touched — confirmed by
+`git diff bea06bc HEAD -- telemetry/__init__.py`, four lines). Three new
+tests prove the refusal, the field name in the message, and that every
+member of both vocabularies (including `""`) is accepted.
+
+**MINORs, closed in the same pass.**
+* MINOR-1 — `--densities` flag added (see MAJOR-2).
+* MINOR-2 — recorded here for Ocean: `discovery/cli.py` (25 changed lines,
+  the escalation-budget wiring item 2f needs) is outside this card's and the
+  umbrella's declared ownership for cell A. No other cell's list names it;
+  reported, not resolved unilaterally.
+* MINOR-3/4 — corrected to what is measured at THIS closure tree in the
+  ledger below (this branch's own historical undercounts — "252" instead of
+  253, "45" instead of 39 collected — were measurement slips in the earlier
+  report, not code defects; the counts below are freshly run, not carried
+  forward).
+* MINOR-5 — the W3 sentence claiming a dedicated auto-mode tripwire test is
+  corrected here: the property (`ocr/pipeline.py`'s ladder never sees a
+  verdict) is proved by `test_escalation_and_pipeline_import_nothing_
+  forbidden`, an import-boundary guard, not a dedicated behavioural test. No
+  such test was ever added, and none is needed — the import guard is the
+  stronger proof.
+* MINOR-6 — tripwires widened to the entire filesystem tree (deliberately
+  NOT `git ls-files`: an untracked scratch file evaded a git-index-based
+  scan in my own first attempt at this fix, measured directly — see the
+  mutation table's A2 entry), excluding only `ocr/escalation.py` and
+  `tests/`. `test_every_decide_call_site_in_the_repository_uses_router_
+  inputs` pins the exact call-site COUNT per file (`discovery/runner.py`: 2,
+  `webapp/worker.py`: 1) as well as the constructor-provenance check;
+  `test_no_hand_rolled_router_inputs_construction_anywhere_in_the_repo` is
+  independent of it (catches a hand-rolled `RouterInputs(` even at a call
+  site that never reaches `decide(` in the scan). `RouterInputs.__subclasses__()
+  == []` is pinned alongside the field-set check.
+* MINOR-7 — `estimate_class_a_population`'s predicate is now literally
+  `_profile_triggers(profile) & ADMITTED_TRIGGERS` (one shared predicate
+  with the router's own admission rule — no independent re-derivation to
+  drift), and an unreadable file increments the ceiling instead of being
+  skipped.
+* MINOR-8 — `TRIGGER_REPORT_PRIORITY` (evidence-level, then profile-level,
+  then operator) replaces `ALL_TRIGGERS`' declaration order for REPORTING
+  (never for admission, which is unchanged). A recovery now reports
+  `offline_rungs_produced_no_text`, proved both at the router-unit level and
+  through the real `DiscoveryRunner`.
+* MINOR-9 — `escalation_trigger`/`escalation_refused` are now recorded
+  UNCONDITIONALLY the moment an upgrade candidate is built, before
+  `_upgrade_eligible` is even asked; a usable-evidence document reports
+  `no_admitted_trigger` whether or not it happened to be claimed. Docstring
+  notes added (not code changes, per the review's own recommendation) for
+  the parser-crash-graded-B nuance and the recovery `attempted=()` shape.
+
+**Mutation table, re-run in full against the closure tree.** Every mutant
+applied individually to the real code, `git status --porcelain` verified
+empty before and after each (reverted with `git checkout --` in every case
+but M9, N5, N2-N4, M8 which needed a manual restore matching the fix
+exactly, verified by re-running the killer test green afterward), no `-x`.
+
+| # | mutant | expected killer | result |
+|---|---|---|---|
+| M1 | upgrade trigger unconditional | CASE 1 | KILLED |
+| M2 | C → OCR edge (post-classify_document re-escalation) | CASE 2 | KILLED |
+| M3 | `stop` ignored | CASE 4 stop (2 tests: router unit + worker call site) | KILLED |
+| M4 | `truncation_flagged` admitted | OQ4 (2 tests) | KILLED |
+| M6 | `attempted` filter removed | CASE 3b | KILLED |
+| M7 | budget ceiling check removed | counter-refusal test | KILLED |
+| M8 | `RouterInputs` gains `payload` | field pin (2 files) | KILLED |
+| M9 | `analysis/pipeline.py` imports `ocr.escalation` | import guard (2 tests) | KILLED |
+| M5 | *(endpoint bypass)* | — | **RETIRED** — no endpoint seam remains to bypass (MAJOR-1) |
+| N1 | `OPERATOR_FORCED_VISUAL` on the UPGRADE trigger set (literal §5 reading) | CASE 1 | KILLED (confirms the cell's reading; unchanged from the review's own reproduction) |
+| N2 | `ALNUM_DENSITY_FLOOR` → 0.20 | corpus split pin (density-surfaced 0 ≠ 23) | KILLED |
+| N3 | `ALNUM_DENSITY_FLOOR` → 0.74 | corpus split pin (35 ≠ 23) | KILLED |
+| N4 | `ALNUM_DENSITY_FLOOR` → 0.75 | corpus split pin (43 ≠ 23); `validated_unusable` now stays `set()` regardless — structurally stronger than pre-fix | KILLED |
+| N5 | budget counter never incremented | `test_the_escalation_budget_permits_exactly_its_ceiling` + `test_cli_run_computes_and_publishes_the_escalation_budget` | KILLED |
+| A1 | `RouterInputs` subclass adding `payload` | `test_router_inputs_has_no_subclass` | KILLED |
+| A2 | foreign `decide(` call site + hand-rolled `RouterInputs(` under `tools/` (untracked file) | `test_every_decide_call_site_in_the_repository_uses_router_inputs` + `test_no_hand_rolled_router_inputs_construction_anywhere_in_the_repo` | KILLED (only after switching the scan from `git ls-files` to a real filesystem walk — the git-index version missed it, measured directly, see MINOR-6) |
+| A3 | B2's real `endpoint_policy`, refusing | `test_the_router_has_no_endpoint_policy_seam_at_all` (module present, method raises if called) | KILLED — no seam exists to attack |
+
+**Closure proof floor.**
+| proof | result | exit |
+|---|---|---|
+| `tests/test_escalation_router.py` + `tests/test_escalation_tripwires.py` + `tests/test_visual_rung.py` + `tests/test_discovery.py` + `tests/test_telemetry.py` + `tests/test_pipeline.py` + `tests/test_webapp_worker.py` + `tests/test_worker_privacy.py` | 269 passed, 4 deselected | 0 |
+| 5 canonical guards + 7 canonical conformance files (run together) | 1,537 passed / 41 skipped | 0 |
+| `python -m pytest tests/test_escalation_router.py -m corpus` | 2 passed (the Tesseract-only pin + the widened row-level BLOCK-1 pin) | 0 |
+| `tools.cohort_replay --expect-identical` (192-sha cohort: 179 Tesseract + 13 R) | population 192, replayed 179, newly validated 0, preserved 36/36 payload-identical, regressions 0 | 0 |
+| `python -m tools.phase2_trigger_split --densities --row-level` | headline numbers reproduced (see above) | 0 |
+| `tools/privacy_scan_branch.py` (193-sha population, `--base bea06bc --ref HEAD`) | 0 hits (MONEY/DIGITS/DATES/WORDS; 8 raw WORDS hits excluded by the standing `words_class` rule) | 0 |
+| `tools/huntington_msg_privacy_scan.py` (same population, 6 commits) | 0 hits every class | 0 |
+
+Full default suite re-run at closure (`python -m pytest -q`): launched; result
+appended in a follow-up commit if this composes before it lands, or reported
+directly to Ocean otherwise.
+
+**Commits (closure).** Implementation:
+`fix: P20-ROUTER — close the independent review's BLOCK and the three
+MAJORs` (BLOCK-1, MAJOR-1/2/3, MINOR-1/6/7/8/9 code changes and their new
+tests). Docs: this addendum.
+
+**Risk carried forward, restated.** The two textual-ambiguity resolutions
+flagged in the original report (`OPERATOR_FORCED_VISUAL` excluded from the
+discovery UPGRADE trigger set; the discovery runner's claimed-exclusion held
+stricter than the literal `stop=validated` wording) were independently
+re-derived and endorsed by the reviewer's own reproduction (N1, and the
+"what I did NOT find" section) — "the cell's flagged reading of §5 is the
+correct one, and I would rule the same way." No further action; still
+recorded as the reviewer confirmed it, not Gustavo directly, per the
+original report's own caveat.
