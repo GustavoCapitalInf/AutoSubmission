@@ -308,8 +308,19 @@ def main() -> None:
                   collector, timer, seen_hashes, document=analysed)
         except Exception as e:  # keep going; record the failure in its row
             traceback.print_exc()
+            # MINOR-8 (PHASE2_P20SEAM_REVIEW.md): the CSV cell carries the
+            # exception CLASS NAME only, never `str(e)` — this branch gained
+            # a new raise path in this card (`ocr.config.ProvenanceTokenError`
+            # on a hostile filename), and that exception's message quotes the
+            # whole `source_file` (`ocr/document.py`'s
+            # `ProvenanceTokenError` docstring). `traceback.print_exc()`
+            # above still prints the full traceback to the CONSOLE for a
+            # developer debugging a run; only the durable CSV artifact is
+            # reduced to the class name, matching every other class-name-only
+            # sink in this tree (`telemetry.record`'s `error_type`,
+            # `webapp/worker.py::_stage_failure`).
             rows.append({**{k: "" for k in FIELDS}, "file": path.name,
-                         "needs_review": "REVIEW", "error": f"{type(e).__name__}: {e}"})
+                         "needs_review": "REVIEW", "error": type(e).__name__})
             _emit(sink, run_id, path, markdown, doc, profile, byte_size,
                   collector, timer, seen_hashes, error_type=type(e).__name__)
 

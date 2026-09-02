@@ -205,6 +205,36 @@ def test_upload_with_no_files_returns_400():
     assert resp.status_code == 400
 
 
+def test_checked_upload_refuses_a_filename_with_a_line_break():
+    """MINOR-8 (PHASE2_P20SEAM_REVIEW.md): a multipart filename carrying a
+    raw CR/LF is refused at `_checked_upload`, with a class-name-only
+    message — never the raw filename echoed back (unlike every other
+    `_checked_upload` error branch, which safely echoes an ordinary
+    filename). Tested at the function level, not through the werkzeug test
+    client's multipart encoder: a raw `\\r\\n` inside a `Content-Disposition`
+    filename corrupts the multipart framing itself (the same two bytes are
+    the section delimiter), so the HTTP transport cannot reliably carry this
+    shape at all — `_checked_upload` is exercised directly so the refusal is
+    proven regardless of what any given multipart parser does with it."""
+    from webapp.app import _checked_upload
+
+    for hostile in ("evil\r\nname.pdf", "evil\nname.pdf", "evil\rname.pdf"):
+        page_count, profile, error = _checked_upload(hostile, b"%PDF-fake")
+        assert page_count is None
+        assert profile is None
+        assert error == {"error": "ProvenanceTokenError"}
+        assert "filename" not in error
+
+
+def test_checked_upload_still_echoes_an_ordinary_filename():
+    """The refusal above is scoped to the line-break shape — every other
+    `_checked_upload` error keeps echoing the (safe) filename it always did."""
+    from webapp.app import _checked_upload
+
+    page_count, profile, error = _checked_upload("not-a-pdf.pdf", b"not a pdf")
+    assert error == {"error": "file is not a PDF", "filename": "not-a-pdf.pdf"}
+
+
 def test_upload_can_force_visual_ocr(monkeypatch):
     seen = {}
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
