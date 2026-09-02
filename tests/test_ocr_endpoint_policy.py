@@ -317,6 +317,29 @@ def test_probe_never_retries_against_a_second_host(monkeypatch):
     assert contacted == ["http://localhost:8000/v1"]
 
 
+def test_probe_gates_an_injected_list_models_seam_too(monkeypatch):
+    """MINOR-1 (PHASE2_P20SEAM_REVIEW.md): before this, a refused endpoint's
+    default path was gated only incidentally, through `_build_client` inside
+    the default `list_models` closure. An INJECTED `list_models=` (the test
+    seam) bypassed the policy entirely, since it never reaches
+    `_build_client` at all — `probe_visual_ocr` now calls `check_endpoint`
+    explicitly at the top, so even an injected lister that would happily
+    return a model list never runs for a refused endpoint."""
+    from ocr.availability import probe_visual_ocr
+
+    called = []
+
+    def list_models():
+        called.append(True)
+        return ["baidu/Unlimited-OCR"]
+
+    settings = _settings("https://foo.runpod.net/v1")
+    status = probe_visual_ocr(settings=settings, list_models=list_models)
+    assert status.available is False
+    assert status.error_type == "EndpointRefused"
+    assert called == []  # the injected lister was never invoked
+
+
 def test_endpoint_class_and_remote_opt_in_exposed_on_settings():
     """Provenance surface (F-4(a)): both fields are readable on Settings for
     the cache key and telemetry (cell C keys on them)."""
