@@ -154,7 +154,7 @@ PADDLE_DEFAULT_WORKER_PORT = 8765
 PADDLE_DEFAULT_TUNNEL_LOCAL_PORT = 18765
 PADDLE_DEFAULT_RUNTIME_DIR = ".paddle_runtime"
 #: Informational item (b) (`PHASE2_P21PADDLE_REVIEW.md` re-review): the
-#: repository root — the directory holding `ocr/` — used to anchor a
+#: top-level checkout directory — the one holding `ocr/` — used to anchor a
 #: RELATIVE `PADDLE_RUNTIME_DIR` so a `status` / `measure` run from any
 #: other working directory still finds the SAME session token
 #: `tools.paddle_vast.cmd_start` wrote, instead of silently resolving
@@ -307,7 +307,7 @@ def load_paddle_settings(environ: Mapping[str, str] | None = None) -> PaddleSett
     runtime_dir_path = _Path(runtime_dir_raw)
     if not runtime_dir_path.is_absolute():
         # Informational item (b): anchor a relative runtime dir at the
-        # repository root, never the caller's CWD.
+        # top-level checkout directory, never the caller's CWD.
         runtime_dir_path = _REPO_ROOT / runtime_dir_path
     runtime_dir = str(runtime_dir_path)
     token = (source.get("PADDLE_WORKER_TOKEN") or "").strip() or None

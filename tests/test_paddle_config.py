@@ -333,7 +333,7 @@ def test_local_and_vast_partition_the_key_material():
 # Informational items (b) and (c) (PHASE2_P21PADDLE_REVIEW.md re-review)
 # ---------------------------------------------------------------------------
 
-def test_relative_runtime_dir_resolves_at_the_repository_root_not_cwd(tmp_path, monkeypatch):
+def test_relative_runtime_dir_resolves_at_the_checkout_base_not_cwd(tmp_path, monkeypatch):
     """(b) A relative PADDLE_RUNTIME_DIR must resolve the SAME way regardless
     of the process's current working directory — otherwise a `status` /
     `measure` run from a different directory silently finds no session
