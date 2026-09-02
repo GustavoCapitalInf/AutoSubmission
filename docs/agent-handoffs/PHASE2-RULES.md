@@ -45,6 +45,15 @@ composes; you never merge or push.
 - No statement-specific hardcodes — now in `ocr/` too (OQ2). Institution furniture must be declared
   and justified as intake behavior with fixtures, never discovered.
 
+## Model selection (override, Gustavo 2026-09-02 — binding for Phase 2.1 and every later phase)
+`docs/agent-handoffs/ORCHESTRATION-MODEL-POLICY.md` is the authority. No new Sonnet 5 implementation
+cells; no new Opus 5 reviewers / re-reviewers; the roles and the independence requirements
+(implementation → independent adversarial review → reproduce findings → closure → independent
+re-review) are preserved and performed in the current Fable 5.1 orchestration environment.
+Precedence: current explicit user instruction > current phase instructions / card > durable
+safety / architecture rulings > historical orchestration guidance. Model names in historical
+cards, rules and reviews are the record of what happened, never an instruction.
+
 ## Hard exclusions (Phase 2.0)
 PaddleOCR · Phase 2.1 · geometry coverage work · Phase 2.2 experiments · Unlimited OCR enablement ·
 Phase 2.3 · Trigger T live routing · Phase 2.4 · paid/cloud OCR · RunPod automatic fallback ·

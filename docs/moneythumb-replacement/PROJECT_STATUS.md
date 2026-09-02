@@ -92,8 +92,12 @@ approval.
 - No new statement-specific constants (guard test enforces); registry-only
   counterparty knowledge, with fixtures.
 - Protected modules (MASTER_PLAN §4) require Ocean review + forensic audit.
-- All delegated agents run on Claude Opus 5 (`CLAUDE_CODE_SUBAGENT_MODEL=opus`);
-  verify before launch, stop and ask if misconfigured.
+- Model selection for delegated agents follows `docs/agent-handoffs/ORCHESTRATION-MODEL-POLICY.md`
+  (Gustavo's 2026-09-02 override: no new Sonnet 5 implementation cells, no new Opus 5 reviewers;
+  the roles and independence requirements are preserved and performed in the current Fable 5.1
+  orchestration environment; precedence = current user instruction > current phase card > durable
+  rulings > historical guidance). The earlier "all delegated agents run on Claude Opus 5" rule is
+  superseded.
 - MoneyThumb outputs are never ground truth; discrepancies go through H-2
   classification and Ocean ruling.
 - `moneythumbResults/`, discovery PDFs, and unmasked reports are never committed.

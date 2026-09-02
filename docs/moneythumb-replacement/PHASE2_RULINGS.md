@@ -108,7 +108,9 @@ architecture. **Paddle must not become its own independent financial parser or v
   now.
 * **Floor:** 2,625 preserved; a gain never cancels a regression; no weakening of any of the ten
   protections; one account → one ADB; no invented values.
-* **Models:** Ocean = Fable 5.1 (lead). Implementation agents = Claude Sonnet 5 at HIGH effort (the
+* **Models** *(SUPERSEDED 2026-09-02 by `docs/agent-handoffs/ORCHESTRATION-MODEL-POLICY.md` — the
+  model names below are the 2026-09-01 record, not an instruction; the roles and independence
+  requirements stand):* Ocean = Fable 5.1 (lead). Implementation agents = Claude Sonnet 5 at HIGH effort (the
   Phase 2.0 default). Independent review agents review every implementation branch; an implementation
   agent never approves its own work.
 * **Completion gate and STOP:** the gate is enumerated in `docs/agent-handoffs/PHASE2-0-SAFETY.md`

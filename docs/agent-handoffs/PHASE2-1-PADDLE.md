@@ -382,7 +382,9 @@ vs the Phase 2.0 run of record with `--fail-on-regression` (2,625 → 2,625; 0 m
 (run id recorded); the live Paddle proof recorded once by Ocean over the tunnel.
 
 ## Adversarial review plan
-Every cell branch gets an independent adversarial review (Opus; a fresh agent that reads only the
+Every cell branch gets an independent adversarial review (performed in the current orchestration
+environment per `ORCHESTRATION-MODEL-POLICY.md` — Gustavo's 2026-09-02 override supersedes the
+"Opus" wording this card originally carried; a fresh agent that reads only the
 rulings, this card, the cell card, the diff and the tests). Attack list (from the authorization §28):
 Class B → Paddle leakage · Class C → Paddle leakage · validator-driven escalation · density-trigger
 leakage · Trigger T accidentally live · implicit Vast fallback · other hosted/cloud fallback ·
