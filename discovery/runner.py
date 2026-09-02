@@ -1145,6 +1145,17 @@ def _failure_reason(error_type: str | None, dispatch) -> str | None:
     if error_type == "AmbiguousParserError":
         return "parser_ambiguous"
     if dispatch is not None and dispatch.outcome == "parser_exception":
+        # Phase 2.0 (P20-SURFACES, composed by Ocean): the Q3 native-only gate
+        # refuses an OCR-fed sibling-omission admission by raising
+        # `Q3ProvenanceRefused`, which `_guarded` records as a parser failure
+        # under that CLASS NAME. It is a POLICY refusal, not a crash, and a
+        # triage queue must be able to tell the two apart — so the reason token
+        # names it. Class name only, never a message (H3_SCHEMA I1).
+        if any(
+            getattr(failure, "exception", None) == "Q3ProvenanceRefused"
+            for failure in (getattr(dispatch, "exceptions", None) or ())
+        ):
+            return "q3_provenance_refused"
         return "parser_exception"
     if dispatch is not None and dispatch.outcome == "unclaimed":
         return "parser_declined" if dispatch.attempted else "no_parser_matched"

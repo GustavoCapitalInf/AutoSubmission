@@ -395,7 +395,7 @@ def test_no_page_level_or_remote_extractor_id_is_ever_produced():
         assert decision.extractor in (None, *EXTRACTOR_ORDER)
 
 
-def test_the_router_has_no_endpoint_policy_seam_at_all():
+def test_the_router_has_no_endpoint_policy_seam_at_all(monkeypatch):
     """P20-ROUTER review, MAJOR-1 (ruled): the router does not consult, nor
     import, any endpoint-policy module — that enforcement lives entirely in
     `ocr_client._build_client` (cell B2), which fails closed before any
@@ -409,11 +409,16 @@ def test_the_router_has_no_endpoint_policy_seam_at_all():
     fake_module.check_endpoint = lambda base_url, *, opt_in: (_ for _ in ()).throw(
         AssertionError("the router must never call an endpoint-policy module")
     )
-    sys.modules["ocr.endpoint_policy"] = fake_module
-    try:
-        decision = EscalationRouter.decide(_inputs(triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE})))
-    finally:
-        del sys.modules["ocr.endpoint_policy"]
+    # Composition (Ocean, train10): the REAL `ocr.endpoint_policy` (cell B2)
+    # is imported by `ocr_client._build_client` and pinned by class identity
+    # in tests/test_ocr_endpoint_policy.py. A bare `del sys.modules[...]`
+    # here evicted the real module when it was already loaded, so every later
+    # `from ocr.endpoint_policy import EndpointRefused` produced a SECOND class
+    # object and `pytest.raises(EndpointRefused)` stopped matching — 4
+    # order-dependent failures at the composed tree. `monkeypatch.setitem`
+    # restores whatever was there before, real module included.
+    monkeypatch.setitem(sys.modules, "ocr.endpoint_policy", fake_module)
+    decision = EscalationRouter.decide(_inputs(triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE})))
     assert decision.extractor == "local_tesseract"
 
 

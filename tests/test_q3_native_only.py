@@ -213,13 +213,35 @@ def test_the_model_charset_excludes_whitespace_and_angle_brackets():
 
 
 def _hostile_document(source_file: str, *, model: str = "local-tesseract-ocr") -> str:
-    """The L1-S4 Q3 fixture, wrapped in a REAL `StatementMarkdown.to_markdown()`
-    call so `source_file` is interpolated exactly as `ocr/document.py` does
-    it -- not a hand-typed approximation of the header."""
-    from ocr.document import StatementMarkdown
+    """The L1-S4 Q3 fixture behind a hostile `source_file`, laid out EXACTLY
+    as `StatementMarkdown.to_markdown()` formats a one-page document.
 
+    Composition note (Ocean, train10): this used to go through the real
+    `StatementMarkdown(...)` constructor. Since cell P20-SEAM the WRITER
+    refuses a `source_file` carrying a line break or `-->` at construction
+    (`ocr/document.py::__post_init__`, pinned in
+    tests/test_ocr_provenance_injection.py), so four of these cases can no
+    longer be BUILT through it. The reader's property must hold on its own —
+    a cached header written before the writer refused, or one arriving through
+    a path the writer does not own, is exactly the input it exists for — so the
+    header is laid here byte-for-byte as `to_markdown()` would have written it
+    (the same f-string, the same `\\n\\n` block join, the same trailing newline),
+    and the writer-side refusal is pinned separately by cell B2's own tests."""
     body = document([idle_account(), posting_account()]).split("\n\n", 1)[1]
-    return StatementMarkdown(source_file=source_file, model=model, pages=[body]).to_markdown()
+    pages = [body]
+    empty = sum(1 for p in pages if not p.strip())
+    header = (
+        f"<!-- source: {source_file} | pages: {len(pages)} "
+        f"| model: {model} | empty: {empty} -->"
+    )
+    blocks = [header, ""]
+    for i, page in enumerate(pages, start=1):
+        if page.strip():
+            blocks.append(f"--- Page {i} ---")
+            blocks.append(page.strip())
+        else:
+            blocks.append(f"--- Page {i} (empty) ---")
+    return "\n\n".join(blocks) + "\n"
 
 
 _BLOCK1_HOSTILE_SOURCE_FILES = (
