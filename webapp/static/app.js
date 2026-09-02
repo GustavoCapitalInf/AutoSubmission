@@ -10,7 +10,7 @@ const els = {
   statusMark: document.getElementById("statusMark"),
   statusHeading: document.getElementById("statusHeading"),
   statusCopy: document.getElementById("statusCopy"),
-  confidenceValue: document.getElementById("confidenceValue"),
+  validationValue: document.getElementById("validationValue"),
   statusList: document.getElementById("statusList"),
   metricsGrid: document.getElementById("metricsGrid"),
   decisionPill: document.getElementById("decisionPill"),
@@ -591,21 +591,36 @@ function setTransactionFilterButtons(selector, activeValue) {
   });
 }
 
-function confidenceFrom(report) {
+// OQ9 (PHASE2_RULINGS.md): the UI used to show a value labelled "OCR
+// confidence" that was in fact four hard-coded percentage tiers re-encoding
+// the validator's own `quality` verdict -- not a measurement of any
+// extractor's output, and misleading the day a second extractor exists.
+// Removed with no substitute score: `validationLabel` / `packageValidationLabel`
+// return WORDS only, taken from the closed vocabulary the payload already
+// carries (`quality.corporate_use`, `quality.level`, `pkg.totals.decision` /
+// `.completeness` / `.cross_account_averages_refused`) -- never a percentage,
+// never a number of any kind. `tests/test_webapp_confidence_label.py` is the
+// guard that keeps it that way.
+function validationLabel(report = {}) {
+  // MINOR-4 (PHASE2_P20SURFACES_REVIEW.md): render the payload's OWN word
+  // through the same `labelize` every other status label in this file already
+  // uses (decisionPill, packageValidationLabel below) rather than promoting
+  // `corporate_use === "approved"` to the stronger, invented word "Validated"
+  // -- one vocabulary across both labels, and never a word `quality` did not
+  // itself carry. `assess_quality` (analysis/pipeline.py) always sets
+  // `corporate_use` to one of "approved" / "summary_only" / "manual_review_
+  // required" on every real payload; `level` and the literal fallback exist
+  // only for a malformed or missing `quality` object.
   const q = report.quality || {};
-  if (q.transaction_detail_reliable && q.corporate_use === "approved") return 98;
-  if (q.transaction_detail_reliable) return 94;
-  if (q.corporate_use === "manual_review_required") return 72;
-  if (q.level === "needs_review") return 72;
-  if (q.corporate_use === "summary_only" || q.level === "summary_only") return 72;
-  return 80;
+  return labelize(q.corporate_use || q.level || "review");
 }
 
-function packageConfidence(pkg = {}) {
+function packageValidationLabel(pkg = {}) {
   const totals = pkg.totals || {};
-  if (totals.failed || totals.integrity_high || totals.manual_review) return 72;
-  if (totals.summary_only || totals.integrity_review) return 86;
-  return 98;
+  const words = [labelize(totals.decision || "review_required")];
+  if (totals.completeness === "partial") words.push("completeness: partial");
+  if (totals.cross_account_averages_refused) words.push("cross-account averages refused");
+  return words.join(" · ");
 }
 
 function derivedIntegrity(report = {}) {
@@ -654,7 +669,7 @@ function setBanner(state, title, meta) {
   els.statusBanner.className = `status-banner ${state || "pending"}`.trim();
   els.statusMark.textContent = state === "done" ? "✓" : state === "error" ? "!" : "·";
   els.statusCopy.textContent = title;
-  els.confidenceValue.textContent = meta;
+  els.validationValue.textContent = meta;
 }
 
 function setStatusRows(rows) {
@@ -677,7 +692,7 @@ function setInitialState() {
     ["Pages processed", "--"],
     ["Processing time", "--"],
     ["Parsing mode", parseModeLabel(selectedParseMode())],
-    ["OCR confidence", "--"],
+    ["Validation", "--"],
     ["Text blocks detected", "--"],
     ["File size", "--"],
   ]);
@@ -1136,14 +1151,14 @@ function renderAnalysis(report) {
   const insuranceProviders = detection.insurance_providers || [];
   const totalCredits = metrics.effective_total_deposits;
   const totalDebits = metrics.effective_total_withdrawals;
-  const confidence = confidenceFrom(report);
+  const validation = validationLabel(report);
   const elapsed = startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Complete";
   const decision = hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
     ? "review_required"
     : quality.corporate_use || quality.level || "review_required";
 
   els.statusHeading.textContent = "OCR completed";
-  setBanner("done", "Extraction completed", `${confidence}%`);
+  setBanner("done", "Extraction completed", validation);
   els.decisionPill.textContent = labelize(decision);
   els.decisionPill.className = `decision-pill ${decision}`.trim();
 
@@ -1156,7 +1171,7 @@ function renderAnalysis(report) {
     ["Document integrity", integrityLabel(integrity)],
     ["Revenue reconciliation", metrics.revenue_reconciles ? "Balanced" : "Review required"],
     ["Eligible deposits basis", metrics.withholding_denominator_label || "Eligible deposits"],
-    ["OCR confidence", `${confidence}%`],
+    ["Validation", validation],
     ["Text blocks detected", formatNumber(transactions.length || metrics.effective_num_deposits || "--")],
     ["File size", formatBytes(currentFile && currentFile.size)],
   ]);
@@ -1225,7 +1240,7 @@ function renderAnalysis(report) {
 function renderError(message) {
   setProgress(false);
   els.statusHeading.textContent = "Processing failed";
-  setBanner("error", "Processing failed", "--");
+  setBanner("error", "Processing failed", "Failed");
   els.decisionPill.textContent = "review required";
   els.decisionPill.className = "decision-pill error";
   els.summaryBox.textContent = message;
@@ -1244,7 +1259,7 @@ function showSelectedFile(file) {
     ["Pages processed", "Queued"],
     ["Processing time", "Running"],
     ["Parsing mode", parseModeLabel(selectedParseMode())],
-    ["OCR confidence", "--"],
+    ["Validation", "--"],
     ["Text blocks detected", "--"],
     ["File size", formatBytes(file.size)],
   ]);
@@ -1369,7 +1384,7 @@ function pollJob(jobId) {
         ["Pages processed", formatNumber(status.page_count || "--")],
         ["Processing time", startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Running"],
         ["Parsing mode", parseModeLabel(status.parse_mode || selectedParseMode())],
-        ["OCR confidence", "--"],
+        ["Validation", "--"],
         ["Text blocks detected", stage],
         ["File size", formatBytes(currentFile && currentFile.size)],
       ]);
@@ -1427,7 +1442,7 @@ function renderPackageAnalysis(pkg) {
   const funders = Array.isArray(pkg.funders) ? pkg.funders : [];
   const potentialLenders = Array.isArray(pkg.potential_lenders) ? pkg.potential_lenders : [];
   const insuranceProviders = Array.isArray(pkg.insurance_providers) ? pkg.insurance_providers : [];
-  const confidence = packageConfidence(pkg);
+  const validation = packageValidationLabel(pkg);
   // CURRENCY DOCTRINE §D: ONE denominated set of package figures. §F: none at
   // all when the package could not prove a single currency.
   const currencyInfo = packageCurrencyInfo(pkg);
@@ -1436,7 +1451,7 @@ function renderPackageAnalysis(pkg) {
   const moneyNote = (note) => refusalNote || note;
 
   els.statusHeading.textContent = "Package completed";
-  setBanner("done", "Package analysis completed", `${confidence}%`);
+  setBanner("done", "Package analysis completed", validation);
   els.decisionPill.textContent = labelize(totals.decision || "review required");
   els.decisionPill.className = `decision-pill ${totals.decision || ""}`.trim();
   setStatusRows([
