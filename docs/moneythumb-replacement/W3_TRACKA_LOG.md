@@ -65025,9 +65025,9 @@ exactly, verified by re-running the killer test green afterward), no `-x`.
 | `tools/privacy_scan_branch.py` (193-sha population, `--base bea06bc --ref HEAD`) | 0 hits (MONEY/DIGITS/DATES/WORDS; 8 raw WORDS hits excluded by the standing `words_class` rule) | 0 |
 | `tools/huntington_msg_privacy_scan.py` (same population, 6 commits) | 0 hits every class | 0 |
 
-Full default suite re-run at closure (`python -m pytest -q`): launched; result
-appended in a follow-up commit if this composes before it lands, or reported
-directly to Ocean otherwise.
+Full default suite re-run at closure (`python -m pytest -q`): **7,879
+passed, 44 skipped, 37 deselected**, exit 0 (285.22 s; 0 failures, 0 errors
+— grepped the log directly).
 
 **Commits (closure).** Implementation:
 `fix: P20-ROUTER — close the independent review's BLOCK and the three
