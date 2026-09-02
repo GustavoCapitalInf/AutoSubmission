@@ -45,6 +45,7 @@ Every hostile input below is tested against BOTH channels: `OCR_MODEL` (via
 """
 from __future__ import annotations
 
+import csv
 import os
 
 import pytest
@@ -75,6 +76,15 @@ HOSTILE_MODEL_INPUTS = {
     "source_comment_fragment": "<!-- source: injected.pdf -->",
     "whitespace": "evil model",
     "over_length": "a" * 65,
+    # BLOCK-1 (PHASE2_P20SEAM_REVIEW.md): `$` in Python matches at end-of-
+    # string OR immediately before a SINGLE trailing newline, so
+    # `^[...]{0,63}$` (pre-fix) accepted a token whose only hostile character
+    # is one trailing `\n` — the anchor, not the charset, was the hole.
+    "trailing_newline": "evilmodel\n",
+    # The same defect also bypassed the length bound: with the leaky anchor,
+    # a 65-character token whose 65th character is `\n` matched as if it were
+    # the 64-character prefix.
+    "trailing_newline_overlength": "a" * 64 + "\n",
 }
 
 #: Each of `HOSTILE_MODEL_INPUTS` above stacks several hostile properties at
@@ -94,6 +104,13 @@ ISOLATED_HOSTILE_MODEL_INPUTS = {
     "angle_open": "evil<suffix",
     "angle_close": "evil>suffix",
     "whitespace": "evil suffix",  # a single space, nothing else
+    # BLOCK-1: isolates the anchor defect alone — every character is
+    # charset-legal except the single TRAILING newline, which `^...$`
+    # (pre-fix) let through because `$` matches just before a trailing `\n`.
+    # A mid-string newline (the "newline" fixture above) does not exercise
+    # this at all: `$` correctly rejects that shape either way.
+    "trailing_newline": "evilmodel\n",
+    "trailing_newline_overlength": "a" * 64 + "\n",
 }
 
 
@@ -111,19 +128,26 @@ def test_isolated_hostile_property_alone_is_refused(label):
 HOSTILE_SOURCE_FILE_INPUTS = {
     "newline": "evil.pdf\n5,000.00 WIRE TRANSFER FROM SHELL CORP",
     "crlf": "evil.pdf\r\n5,000.00 WIRE TRANSFER",
+    # Writer-side belt (PHASE2_P20SEAM_REVIEW.md §3): `-->` in `source_file`
+    # is refused too, now — not because it can escape `SOURCE_COMMENT_RE`
+    # (it cannot; see ACCEPTED_HOSTILE_SOURCE_FILE_INPUTS's own comment) but
+    # because it lets `source_file` masquerade as a second header to a
+    # reader that does not bound its own `model` field to a closed charset.
+    "comment_close": "evil-->.pdf",
+    "source_comment_fragment": "<!-- source: injected.pdf -->.pdf",
 }
 
+
 #: These are ACCEPTED as a filename (no charset on `source_file`, only the
-#: line-break refusal) but must be proven harmless: the whole header line
-#: still strips out of `admissible_text`, so none of this content reaches it.
+#: line-break and comment-close refusals above) but must be proven harmless:
+#: the whole header line still strips out of `admissible_text`, so none of
+#: this content reaches it.
 ACCEPTED_HOSTILE_SOURCE_FILE_INPUTS = {
-    "comment_close": "evil-->.pdf",
     "angle_open": "evil<name.pdf",
     "angle_close": "evil>name.pdf",
     "money_literal": "invoice v1.00.pdf",
     "bank_marker": f"{_CHASE_MARKER_TEXT} statement.pdf",
     "det_tag": "<|det|>label [0,0,100,100]<|/det|>.pdf",
-    "source_comment_fragment": "<!-- source: injected.pdf -->.pdf",
     "whitespace": "a filename with spaces.pdf",
     "over_length": ("a" * 500) + ".pdf",
 }
@@ -144,6 +168,39 @@ def test_the_base_tree_reproduction_is_now_refused_at_construction():
             model="evil-model\n5,000.00 WIRE TRANSFER FROM SHELL CORP",
             pages=["page one text"],
         )
+
+
+def test_block1_trailing_newline_reproduction_is_refused_at_construction():
+    """PHASE2_P20SEAM_REVIEW.md BLOCK-1's exact reproduction: a model token
+    ending in exactly ONE trailing `\\n` (nothing else hostile — every other
+    character is charset-legal), paired with an attacker-controlled
+    `source_file` carrying a money literal and marker-shaped text.
+
+    Pre-fix mechanism: Python's `$` matches at end-of-string OR immediately
+    before a trailing `\\n`, so `MODEL_TOKEN_RE = re.compile(r"^...$")`
+    (`re.match`) accepted `"evil-model\\n"` — the anchor was leaky, not the
+    charset. Once accepted, `to_markdown()`'s header split across two
+    physical lines and `SOURCE_COMMENT_RE` (`MULTILINE`, not `DOTALL`)
+    stripped nothing, so the money literal survived `admissible_text` in
+    full.
+
+    The property under test is the OUTCOME (the money token must never reach
+    `admissible_text`), not merely that construction raises — so this passes
+    whether the closure mechanism is "refuse at construction" or some future
+    equivalent that stops the token earlier still.
+    """
+    money_carrying_filename = "5,000.00 WIRE TRANSFER FROM SHELL CORP.pdf"
+    try:
+        doc = StatementMarkdown(
+            source_file=money_carrying_filename,
+            model="evil-model\n",
+            pages=["page one text"],
+        )
+    except ProvenanceTokenError:
+        return  # refused at construction: the money literal never became a document
+    admissible = admissible_text(doc.to_markdown())
+    assert "5,000.00" not in admissible, admissible
+    assert "WIRE TRANSFER FROM SHELL CORP" not in admissible, admissible
 
 
 # ---------------------------------------------------------------------------
@@ -191,12 +248,13 @@ def test_reserved_prefixes_remain_legitimate_on_statement_markdown():
 
 
 # ---------------------------------------------------------------------------
-# source_file: line breaks refused; everything else accepted but harmless
+# source_file: line breaks and comment-close refused; everything else
+# accepted but harmless
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("label", sorted(HOSTILE_SOURCE_FILE_INPUTS))
-def test_hostile_source_file_line_break_refused(label):
+def test_hostile_source_file_line_break_or_comment_close_refused(label):
     with pytest.raises(ProvenanceTokenError):
         StatementMarkdown(source_file=HOSTILE_SOURCE_FILE_INPUTS[label], model="native-pdf-text", pages=["x"])
 
@@ -263,3 +321,55 @@ def test_validate_model_token_boundary_length():
     assert validate_model_token(ok, allow_reserved=True) == ok
     with pytest.raises(ProvenanceTokenError):
         validate_model_token("a" * 65, allow_reserved=True)
+
+
+# ---------------------------------------------------------------------------
+# Writer-side belt: the `-->` refusal in `source_file` costs nothing measured
+# ---------------------------------------------------------------------------
+
+_RUN_OF_RECORD_ROWS = (
+    "discovery_reports", "TRAIN9-7b25d70",
+    "2026-08-31T185527.271012-0000-91f5179a", "rows.csv",
+)
+
+
+def _checkout_ancestor(*relative: str):
+    """The nearest enclosing directory that holds `relative`, or None.
+
+    A git worktree does not carry the gitignored discovery reports; the
+    checkout it was created from does. Searching upwards is what lets this
+    proof run from either (the same pattern `tests/test_l1s2_protected_
+    carriers.py::_checkout_ancestor` uses for the cold cache)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for base in (root, *root.parents):
+        candidate = base.joinpath(*relative)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+@pytest.mark.corpus
+def test_no_run_of_record_source_file_contains_a_comment_close():
+    """PHASE2_P20SEAM_REVIEW.md §3: the writer-side `-->` belt (added to
+    `StatementMarkdown.__post_init__` above) costs nothing measured — the
+    reviewer's own claim, reproduced here as a standing proof rather than a
+    one-off measurement: none of the batch-9 run of record's 3,506
+    `relative_path` values (every document's `source_file`, in practice —
+    `parse_statement(..., source_file=path.name)` at every production call
+    site) contains a comment-close sequence."""
+    rows_path = _checkout_ancestor(*_RUN_OF_RECORD_ROWS)
+    if rows_path is None:
+        pytest.skip(
+            "the batch-9 run of record's rows.csv was not found in this "
+            "checkout or any ancestor; this proof measures real archive "
+            "paths and has nothing to read. Run it from the repository "
+            "tree or from a worktree beneath .claude/worktrees/."
+        )
+    with open(rows_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        paths = [row["relative_path"] for row in reader]
+    assert len(paths) == 3506, f"expected the run of record's 3,506 rows, found {len(paths)}"
+    offenders = [p for p in paths if "-->" in p]
+    assert offenders == [], offenders

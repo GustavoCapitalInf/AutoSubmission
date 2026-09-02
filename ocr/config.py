@@ -34,7 +34,20 @@ class ProvenanceTokenError(ValueError):
 #: kind (so a newline, CR, or a plain space cannot appear), `<`, `>`, `!`,
 #: `$`, `,`, quotes and backslash — which is also why a valid token cannot
 #: contain `-->`, a `<|det|>`-style region tag, or a `<!-- source:` fragment.
-MODEL_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+-]{0,63}$")
+#:
+#: BLOCK-1 (PHASE2_P20SEAM_REVIEW.md): anchored with `\A` / `\Z`, NOT `^` / `$`.
+#: In Python, `$` matches at the end of the string OR immediately before a
+#: trailing `\n` — `re.match(r"^...$", "evilmodel\n")` succeeds, so the
+#: previous pattern accepted a token whose only hostile character was a
+#: single trailing newline (and, via the same leak, a 65-character token
+#: whose 65th character was `\n`, silently bypassing the length bound too).
+#: `\A` and `\Z` anchor to the true start/end of the string with no such
+#: carve-out. Every other anchored validator in this module uses the same
+#: discipline: `_MONEY_SHAPE_RE` is unanchored by design (a `.search`, not
+#: a full-string match, so `$` there was never the same hazard), and the
+#: opt-in literal check (`ocr.endpoint_policy.remote_opt_in_from_env`) is a
+#: plain `==` string comparison, not a regex, so it has no anchor to leak.
+MODEL_TOKEN_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._/+-]{0,63}\Z")
 
 #: A money-shaped substring the charset alone does not exclude: digits and a
 #: single `.` are both allowed characters, so a version string like "v1.00"
