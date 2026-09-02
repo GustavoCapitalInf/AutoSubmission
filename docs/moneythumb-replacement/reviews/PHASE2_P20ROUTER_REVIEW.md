@@ -342,3 +342,270 @@ the train; the density floor pinned in the default suite and honestly characteri
 the vocabularies actually enforced or the claim withdrawn), then re-review. The MINORs are
 cheap and should ride along, MINOR-6 and MINOR-7 in particular, because both are one-line
 widenings of guards that already exist.
+
+---
+
+## Re-review (closure 49fe3fe)
+
+```
+CLOSURE       wave20-router @ 49fe3fe (3051da7 fix, 9ba3ace + 49fe3fe W3 addenda) on aaa513f
+REVIEWED IN   .claude/worktrees/rev20-router, detached at 49fe3fe
+DIFF          git diff aaa513f..49fe3fe — 9 files, +1,480 / −160
+RE-VERDICT    APPROVE WITH FINDINGS — BLOCK-1 closed and independently
+              re-measured; all three MAJORs and all nine MINORs closed or
+              correctly documented; 2 NEW MAJOR findings, both single-edit,
+              both must close pre-compose; no BLOCK remains.
+```
+
+Every number below is re-measured at `49fe3fe`, never read off the closure text. Worktree
+`git status --porcelain` was empty before, between and after every mutant and attack (each applied
+alone, reverted with `git checkout --` in a `finally`, cleanliness asserted before the next); the
+only uncommitted path at the end is this review file. No commit, no push, no network call, no write
+to either cold cache.
+
+### A. Per-finding verdicts
+
+| finding | closure claim | re-measured at 49fe3fe | verdict |
+|---|---|---|---|
+| **BLOCK-1** validated → Class A | `validated` checked first; gate scoped to `GATE_ASSESSED_SOURCES`; widened pin | **0** validated Class-A and **0** Class-A rows of ANY source over the whole run of record (my own driver, production `classify_failure` + `_evidence_for_row`); both runner reproductions flipped | **CLOSED** |
+| **MAJOR-1** endpoint seam inert | seam REMOVED from the router; enforced once at `ocr_client._build_client` | `grep endpoint_policy\|extractor_allowed` over `ocr/escalation.py`, `discovery/`, `webapp/`: one docstring line explaining the removal, **zero code hits**; `extractor_allowed` appears in no `.py` file in the repo | **CLOSED — better than the fix I asked for** |
+| **MAJOR-2** fitted density floor | criterion made SURFACE-ONLY (`signals`, never `reasons`/`usable`/triggers); honest characterisation written into the constant's docstring | gate side proven (S1, S2 killed); **call-site side unenforced** — S3 survives everything | **PARTLY CLOSED → NEW MAJOR-4** |
+| **MAJOR-3** dead vocabularies | enforced at `DocumentRow.as_dict`; exported from `telemetry` | out-of-vocabulary tokens raise `ValueError`; all 32 legal combinations accepted; both names in `telemetry.__all__`; reverting the check is killed | **CLOSED** |
+| MINOR-1 `--densities` missing | flag added | `--densities` prints min 0.7075 (56 claimed) / 0.7433 (36 validated), exit 0 | **CLOSED** |
+| MINOR-2 `discovery/cli.py` ownership | referred to Ocean | ownership now also includes `telemetry/__init__.py` and the reviewer's own `reviews/*.md` | **OPEN for Ocean (widened)** |
+| MINOR-3 252 vs 253 | acknowledged as a measurement slip | closure ledger claims 269 passed / 4 deselected; I measure **269 passed, 4 deselected, exit 0** | **CLOSED** |
+| MINOR-4 test-count arithmetic | corrected | `test_escalation_router.py` 52 `def test_` / **53 collected** (51 default + 2 corpus); tripwires **8** | **CLOSED** |
+| MINOR-5 auto-mode tripwire wording | corrected in the W3 | the property remains covered by the `ocr/pipeline.py` import guard | **CLOSED** |
+| MINOR-6 tripwires scoped to two trees | repo-wide AST scan + `__subclasses__() == []` + `RouterInputs(` construction scan | A1 killed by `test_router_inputs_has_no_subclass`; A2 **untracked** file under `tools/` killed by BOTH new tests | **CLOSED → NEW MAJOR-5 (the scan's walk)** |
+| MINOR-7 budget predicate | predicate is now literally `_profile_triggers(profile) & ADMITTED_TRIGGERS`; unreadable file counts toward the ceiling | zero-page profile (`classification="unknown"`, 0 native chars) now admitted by the estimator; both reverts killed | **CLOSED** |
+| MINOR-8 R never on a row | `TRIGGER_REPORT_PRIORITY`, most-specific first | a real recovery through `DiscoveryRunner` now reports `escalation_trigger='offline_rungs_produced_no_text'`; the revert is killed by 2 tests | **CLOSED** |
+| MINOR-9a `escalation_refused` not comparable | candidate verdict recorded unconditionally | pinned by `test_usable_evidence_reports_the_same_refusal_whether_or_not_it_was_claimed` (default suite; also a second killer for M1/N1) | **CLOSED** |
+| MINOR-9b recovery `attempted=()` shape | comment documenting the fail-closed direction | unchanged behaviour, correctly characterised | **ACCEPTED as documented** |
+| MINOR-9c parser-crash graded B | docstring note; population 0 | population still 0 | **ACCEPTED as documented** |
+
+### B. BLOCK-1 — re-measured row-level table (whole run of record)
+
+Driver: my own script, importing the production `discovery.runner.classify_failure`,
+`_evidence_for_row` and `GATE_ASSESSED_SOURCES`; evidence for gate-assessed sources read from the
+read-only cold cache; `claimed` proxied by `dispatch_outcome` (immaterial — `validated` is now
+checked first). `GATE_ASSESSED_SOURCES = ['local_tesseract', 'visual']`.
+
+| source_path | failure_class | validated | n | was at aaa513f |
+|---|---|---|---:|---:|
+| local_tesseract | `""` | yes | 36 | 36 |
+| local_tesseract | B | no | 123 | 100 (+23 that were A) |
+| local_tesseract | C | no | 20 | 20 |
+| native | `""` | yes | 2,589 | 2,510 (+**79** that were **A**) |
+| native | B | no | 533 | 482 (+51 that were A) |
+| native | C | no | 50 | 27 (+23 that were A) |
+| none | B | no | 29 | — (see MINOR-10) |
+
+**Total rows classified A: 0** (was 176). **Validated classified A: 0** (was 79). **Native unclaimed
+classified A: 0** (was 51). `U = 123`, **U-extract (admitted triad) = 0**, **density-surfaced = 23**,
+`R = 13`, **legal escalation population = 13** — exactly the population Ocean's ruling states, and
+identical to the cell's instrument run (`--row-level`, `--densities`), which I ran separately and
+which agrees line for line.
+
+Both runner reproductions, re-run at 49fe3fe:
+
+```
+REPRO 1  sha16 E3C98E2252BE3E70  native | claimed | validated
+         evidence_quality 'none'  failure_class ''      (was: unusable / 'A')
+REPRO 2  sha16 58CB0DCC7460A445  committed_artifact | claimed | validated   (MODE_DRY_RUN)
+         evidence_quality 'none'  failure_class ''      (was: unusable / 'A')
+```
+
+**One honest correction to the coordinator's expectation.** I was asked to confirm the widened
+corpus-marked pin fails if the old `classify_failure` order is re-introduced. **It does not.** With
+the old order restored (`evidence` graded before `validated`), `tests/test_escalation_router.py -m
+corpus` reports `2 passed`. The reason is sound rather than alarming: the SCOPE fix alone already
+empties the population — a native/committed-artifact row is `usable` by construction, and no
+Tesseract read is unusable under the admitted triad, so no document exists for which the order
+matters. The order IS pinned, by a **default-suite unit test**,
+`test_validated_overrides_unusable_evidence_no_failure`, which is the sole killer when the mutant is
+run against the full owned set (`1 failed, 213 passed`). Widening `GATE_ASSESSED_SOURCES` to include
+`native`/`committed_artifact` (mutant S5) is killed by four tests, two of them the exact
+reproductions above. So both halves of BLOCK-1's fix are pinned — just not by the test the brief
+expected.
+
+### C. NEW MAJOR-4 — the surface-only ruling is enforced in the gate, not at the call site
+
+**Where.** `discovery/runner.py:917-919` (the upgrade trigger set) against `ocr/escalation.py:326-341`.
+
+Ocean's ruling is that the density signal "never sets `usable=False`, never admits a trigger". The
+first half is enforced twice over; the second half is enforced by nothing.
+
+| mutant | tests run | result |
+|---|---|---|
+| **S1** `signals.append(...)` → `reasons.append(...)` (signal sets `usable=False`) | router file | KILLED — `test_below_the_alnum_density_floor_is_surfaced_but_still_usable`, `test_the_admitted_criteria_are_the_parameter_free_triad_only` |
+| **S2** `usable = not reasons and not signals` | router file | KILLED — same two |
+| **S3** runner admits the trigger on the signal: `... if (not evidence.usable or evidence.signals) else frozenset()` | **router + tripwires + visual_rung + discovery + telemetry + webapp_worker (214 tests)** AND the corpus slice | **SURVIVES BOTH — 214 passed, 4 deselected; corpus 2 passed** |
+
+One line in `discovery/runner.py` re-admits the 23-document density population as a live routing
+trigger — precisely the population MAJOR-2 ruled must not route — and the entire proof floor stays
+green. It is invisible to CASE 1 (whose fixture is high-density prose, so it carries no signal) and
+invisible to the corpus pins (a density-triggered escalation makes no *validated* document Class A).
+
+**The shipped code is correct**; what is missing is the killer. PHASE2-RULES requires a mutation
+table for "every gate, router edge, charset, allowlist or **selection rule** you add", and
+surfaced-vs-admitted is a new selection rule whose forbidden edge has no test.
+
+**Fix I would accept — I wrote it, and verified both directions.** A Tesseract fixture that is
+usable under the triad but below the density floor, driven through the real `DiscoveryRunner`:
+
+```python
+PADDED_TABULAR = ("\n".join("DATE" + " "*14 + "DESCRIPTION" + " "*26 + "AMOUNT" + " "*18 + "BALANCE"
+                            for _ in range(12)) + "\n")
+# gate: chars_total 1043, usable True, reasons (), signals ('below_alnum_density_floor',)
+# runner (--scanned-visual, escalation on, load_settings armed to pytest.fail):
+#   visual_rung 'not_attempted' | evidence_quality 'usable' | escalation_refused 'no_admitted_trigger'
+```
+
+Measured: **passes on the clean tree** (2 passed) and **fails under S3** (`FAILED
+test_a_density_surfaced_but_usable_tesseract_read_never_escalates`). Add this test (or an equivalent)
+to `tests/test_escalation_router.py` and MAJOR-4 is closed.
+
+Secondary, now only a MINOR: there is still **no default-suite pin of the split**. Moving
+`ALNUM_DENSITY_FLOOR` to 0.20, 0.74 or 0.75 leaves the default suite green (107 passed each);
+only the corpus-marked slice fires (N2c and N4c both KILLED by
+`test_validated_tesseract_reads_are_never_classified_class_a`, which now asserts `u_extract == 0`,
+`u_structure == 123`, `u_density_surfaced == 23`, `legal_escalation_population == 13`). Since the
+signal no longer routes, a floor drift is a measurement-drift issue rather than a safety one, so the
+corpus-only pin is defensible — but it should be said plainly rather than left as "pinned".
+
+### D. NEW MAJOR-5 — the repo-wide tripwire walks nested worktrees and will fail the train's own suite
+
+**Where.** `tests/test_escalation_tripwires.py`, `EXCLUDED_DIR_NAMES` (`.git`, `.github`, caches,
+`node_modules`, venvs) and `_tracked_python_files()`, which is a filesystem `rglob` from `ROOT`.
+
+`.claude` is **not** excluded. The main checkout holds eight full checkouts under
+`.claude/worktrees/` (`b7-302f8f2`, `mt10-ocraudit`, `mt20-artifacts`, `mt20-postprocess`,
+`mt20-router`, `mt20-seam`, `mt20-surfaces`, `mt4-countsp3`, plus this review worktree). Running the
+suite from the main checkout — which is exactly what Ocean does at the train and what
+`tools/train/floor.sh` and `corpus_gate.py` do — walks all of them.
+
+**Reproduced** inside the review worktree by planting one nested checkout
+(`.claude/worktrees/sibling/{discovery/runner.py, ocr/escalation.py}`):
+
+```
+FAILED tests/test_escalation_tripwires.py::test_every_decide_call_site_in_the_repository_uses_router_inputs
+FAILED tests/test_escalation_tripwires.py::test_no_hand_rolled_router_inputs_construction_anywhere_in_the_repo
+2 failed, 6 passed
+```
+
+Both new tripwires break: `by_file` gains `.claude/worktrees/…/discovery/runner.py` (≠
+`EXPECTED_DECIDE_CALL_SITES`), and the `RouterInputs(` scan finds `router_inputs`'s own body in the
+nested `ocr/escalation.py` — because the exclusion is the literal relative path `"ocr/escalation.py"`,
+which the nested copy does not match. The cell's own green full-suite run (7,879 passed) was made
+from a worktree that contains no nested checkout, so the failure was never seen.
+
+This is a guard failing for a reason unrelated to what it guards — the shape most likely to get a
+good guard weakened at 2 a.m. **Fix I would accept:** add `.claude` to `EXCLUDED_DIR_NAMES` (and,
+belt-and-braces, skip any directory below `ROOT` that itself contains a `.git` entry). One line;
+please re-run the tripwire file from the MAIN checkout after the fix, not from a worktree.
+
+### E. Attacks re-applied
+
+| attack | at aaa513f | at 49fe3fe |
+|---|---|---|
+| **A1** `RouterInputs` subclass adding `payload` / `dispatch_outcome`, in an imported module | SURVIVED | **KILLED** — `test_router_inputs_has_no_subclass` |
+| **A2** hand-rolled `RouterInputs(...)` call site under `tools/`, **untracked** (never `git add`ed), `triggers` from `dispatch_outcome`, `stop` from a reconciliation flag | SURVIVED | **KILLED** — `test_every_decide_call_site_in_the_repository_uses_router_inputs` AND `test_no_hand_rolled_router_inputs_construction_anywhere_in_the_repo` (the `rglob`-not-`git ls-files` choice is what catches it) |
+| **A3** cell B2's real `check_endpoint` contract present and refusing | SURVIVED (fail-open) | **N/A — the seam is gone**; enforcement moved to `_build_client`, proven fail-closed with exactly one attempt (`test_a_refused_endpoint_fails_the_document_closed_with_no_second_attempt`: `visual_rung='failed'`, `outcome=('failed','ocr_failed')`, `error_type='RuntimeError'`, `len(calls) == 1`, `source_path='none'`) |
+| **A2c** hand-rolled call site inside `tests/` (the deliberately excluded tree) | — | SURVIVES — accepted: `tests/` must build fixtures, and a test module cannot escalate a production document. Noted, not a finding. |
+
+### F. Mutation table re-run at 49fe3fe
+
+All applied alone, reverted, tree verified clean between each.
+
+| # | mutant | killer(s) | result |
+|---|---|---|---|
+| M1 | upgrade trigger unconditional | `test_case1_…never_escalates`, `test_usable_evidence_reports_the_same_refusal_…` | KILLED |
+| M3 | `stop` ignored | `test_stop_refuses_regardless_of_any_trigger`, `test_force_ocr_decision_stops_…` | KILLED |
+| M4 | `truncation_flagged` admitted | `test_truncation_flagged_alone_is_refused_oq4`, `test_all_triggers_and_admitted_triggers` | KILLED |
+| M6 | `attempted` filter removed | 8 tests incl. `test_every_extractor_already_attempted_refuses_case_3b` | KILLED |
+| M7 | budget ceiling never trips | `test_the_escalation_budget_refuses_past_its_ceiling` | KILLED |
+| M8 | `RouterInputs` gains `payload` | field pin in both files | KILLED |
+| M9 | `analysis/pipeline.py` imports `ocr.escalation` | import guard ×2 (unchanged; verified at aaa513f) | KILLED |
+| N1 | `OPERATOR_FORCED_VISUAL` on the UPGRADE path | `test_case1_…`, `test_usable_evidence_reports_the_same_refusal_…` | KILLED |
+| N2/N3/N4 | floor → 0.20 / 0.74 / 0.75 | corpus slice only (`test_validated_tesseract_reads_are_never_classified_class_a`); default suite green | KILLED in the corpus slice |
+| N5 | budget counter never incremented | `test_the_escalation_budget_permits_…`, `test_cli_run_computes_and_publishes_…` | KILLED |
+| **S1** | density signal → `reasons` | 2 gate tests | KILLED |
+| **S2** | `usable` also requires no signals | 2 gate tests | KILLED |
+| **S3** | runner admits a trigger on the signal | — | **SURVIVES (MAJOR-4)** |
+| **S4** | old `classify_failure` order | `test_validated_overrides_unusable_evidence_no_failure` (default suite); **NOT** the corpus pin | KILLED |
+| **S5** | `GATE_ASSESSED_SOURCES` widened to native/committed-artifact | `test_gate_assessed_sources_are_exactly_…`, `test_a_native_document_is_usable_by_construction…`, `test_a_committed_artifact_row_is_usable_by_construction…`, `test_a_claimed_digital_document_carries_no_failure_class` | KILLED |
+| **MINOR-8 revert** | report in `ALL_TRIGGERS` order | `test_the_most_specific_admitted_trigger_is_reported_…`, `test_recovery_through_the_real_runner_…` | KILLED |
+| **MINOR-7 revert** | hand-written estimator predicate | `test_estimate_class_a_population_counts_scanned_and_mixed_profiles_only` | KILLED |
+| **MINOR-7b revert** | unreadable file skipped | `test_estimate_class_a_population_counts_an_unreadable_file_toward_the_ceiling` | KILLED |
+| **MAJOR-3 revert** | `as_dict` stops validating | `test_as_dict_refuses_a_failure_class_outside_the_vocabulary` | KILLED |
+
+### G. New MINORs from the closure
+
+* **MINOR-10 — the instrument classifies rows the runner never classifies.** `measure_row_level_class_a`
+  (and my own driver, which agrees) grades the 29 `source_path="none"` rows as `B`. The runner returns
+  early for every one of them (invalid PDF, deferred, `ocr_failed`, `escalation_refused`), so
+  `rows.csv` carries `failure_class=""` there. The Class-A conclusion is unaffected; the published
+  B count is 29 higher than the runner's. Fix: skip `source_path == "none"` in the instrument, or
+  label the column "as the runner would classify it if it reached the classifier".
+* **MINOR-11 — one row shape contradicts the new `evidence_quality` invariant.** A budget-refused
+  recovery row is measured as `source_path='none'` (not gate-assessed) yet `evidence_quality='unusable'`,
+  `failure_class=''`, and it records `escalation_trigger='offline_rungs_produced_no_text'` for an
+  escalation that never ran (`escalation_refused='escalation_budget_exhausted'` does say so).
+  Defensible — the offline ladder genuinely produced nothing — but it is the single exception to
+  "only `GATE_ASSESSED_SOURCES` get `usable`/`unusable`", which
+  `test_gate_assessed_sources_are_exactly_tesseract_and_visual` otherwise pins.
+* **MINOR-2 (widened)** — ownership beyond the card's list is now `discovery/cli.py`,
+  `telemetry/__init__.py`, and `docs/moneythumb-replacement/reviews/PHASE2_P20ROUTER_REVIEW.md` (the
+  cell committed the reviewer's file on its own branch; it is byte-identical to Ocean's copy on
+  `train10` at `8cfbc61`, so the composition is a no-op — but a cell committing a reviewer artifact
+  should be Ocean's call). Nothing else: `git diff --stat bea06bc..49fe3fe` over `analysis/`,
+  `ocr/ocr_client.py`, `ocr/pipeline.py`, `ocr/config.py`, `ocr/document.py`,
+  `webapp/artifact_cache.py`, `tools/cohort_replay.py`, `telemetry/stated_counts.py` is **empty**,
+  and `telemetry/record.py` is still a single additive hunk.
+
+### H. Proof floor re-run at 49fe3fe (verbatim)
+
+| proof | result | exit |
+|---|---|---|
+| `tests/test_escalation_router.py` + `…tripwires` + `…visual_rung` + `…discovery` + `…telemetry` + `…pipeline` + `…webapp_worker` + `…worker_privacy` | 269 passed, 4 deselected | **0** |
+| 5 canonical guards | 255 passed | **0** |
+| `tests/test_escalation_router.py -m corpus` | 2 passed, 51 deselected | **0** |
+| `python -m tools.phase2_trigger_split --densities --row-level` | R 13 · U 123 · U-extract **0** · U-structure 123 · density-surfaced **23** · legal escalation population **13** · validated-with-A **0** · total-A **0** | **0** |
+| `tools.cohort_replay --expect-identical` (192 shas: 179 Tesseract + 13 R) | population 192, replayed 179, **newly validated 0**, previously validated preserved **36 of 36**, payload identical 36, **validated regressions 0**, other ladder movement 0, unchanged non-validated 143 (payload changed 0), no text/absent 13; runtime 78 s | **0** |
+| 3.13+-only API scan over `git diff aaa513f..49fe3fe -- '*.py'` | none | — |
+| `git status --porcelain` after every mutant/attack | empty | — |
+
+(The regression floor is byte-identical to the aaa513f measurement. An earlier 179-line run in this
+session came from a scratch sha file that had been truncated between runs; the cohort was regenerated
+deterministically — 179 Tesseract ∪ 13 R = 192 — and re-run, and the numbers above are that run.)
+
+### I. Re-review verdict
+
+**APPROVE WITH FINDINGS.**
+
+The BLOCK is closed, and closed at the root rather than at the symptom: `classify_failure` now grades
+the validator's verdict first, and `ExtractionQualityGate` is scoped by `GATE_ASSESSED_SOURCES` so a
+native read and a committed-artifact rung are never handed to it at all. Independently re-measured
+over the entire run of record, **no document of any source classifies Class A, and no validated
+document classifies Class A** — down from 176 and 79. MAJOR-1 was resolved better than I proposed:
+rather than patching a guessed contract, the seam was deleted and enforcement left in the one place
+that can fail closed, proven with exactly one `_build_client` attempt and no second endpoint. MAJOR-3
+now raises where it previously only claimed to. Every MINOR is closed, correctly documented, or
+referred to Ocean, and the two documentation inaccuracies I raised are acknowledged in the W3 with
+the corrected numbers — which match mine.
+
+Two new MAJORs stand, both single-edit and both reproduced here:
+
+1. **MAJOR-4** — the surfaced-vs-admitted rule is enforced inside the gate but not where the runner
+   builds its trigger set; a one-line edit re-admits the 23-document density population as a routing
+   trigger with the whole proof floor, corpus slice included, still green. The missing killer is
+   written and demonstrated above (passes clean, fails under the mutant); adding it closes this.
+2. **MAJOR-5** — the new repo-wide tripwire walks `.claude/worktrees/`, so both of its own tests fail
+   whenever the suite runs from the main checkout with any worktree present. That is the train's
+   normal state. One word in `EXCLUDED_DIR_NAMES` closes it; re-run the tripwire file from the main
+   checkout to confirm.
+
+Neither is a defect in what the code does today — both are gaps in what the tests would catch
+tomorrow, which is the whole point of this phase. Close them, re-run `tests/test_escalation_tripwires.py`
+from the main checkout and the router file's default + corpus selections, and I would sign this
+APPROVE with no reservation.
