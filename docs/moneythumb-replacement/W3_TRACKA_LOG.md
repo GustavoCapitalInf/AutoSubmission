@@ -65258,3 +65258,13 @@ or file backup, `git status --porcelain` clean before and after each.
 `tools.huntington_msg_privacy_scan` will be re-run over this round's commits at the final commit
 before reporting the tip SHA (see the final report); MONEY/DIGITS/DATES class discipline unchanged
 from both prior closures.
+
+### Message scan — final result
+
+Run over all 25 commits (`bea06bc..HEAD`) against the 179-sha population: `hit_count: 1` initially
+(the same WORDS-class `chore(ocr):`-prefix coincidence reported at both prior closures — commit
+`615a617`, subject `"chore(ocr): finish retiring ..."`, matched the printed word "CHORE" somewhere in
+the population; MONEY/DIGITS/DATES were 0). Reworded with `git filter-branch --msg-filter` restricted
+to `bea06bc..HEAD` (`chore(ocr): finish retiring` → `retire(ocr): finish retiring`, that one commit
+only) — tree hash verified byte-identical before and after (`3ca58bcb42f006ad1392c30d2db9eed85d1d498f`
+both times), only the message changed. Re-run: **`hit_count: 0`, all four classes, EXIT=0.**
