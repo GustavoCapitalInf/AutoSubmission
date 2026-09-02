@@ -65134,3 +65134,127 @@ correct and matches the review's own request, but its absence is not
 observable here; a CI run on the pinned 3.12 interpreter is the check that
 would actually exercise this, per the review's own note about the 3.12.3
 boundary.
+
+## Closure-2 — re-review verdict APPROVE WITH FINDINGS, six residuals closed in one pass
+
+Re-review fetched from `train10` at `76fb416` (`git show`, never merged), verdict **APPROVE WITH
+FINDINGS**: every BLOCK and MAJOR from the first review re-measured CLOSED at `1cc759e` (17-case
+trailing/leading battery refused on all three entry points; endpoint provenance present and tracking
+the env in a real `build_record` output; per-page unrecognised-model counts restored; the
+`wave20-router` merge conflict gone). Six residuals (one MAJOR, five MINOR) closed here, in one pass,
+per Ocean's instruction — no further re-review; Ocean checks at composition. The review document
+itself is `git rm`'d from this branch (Ocean holds the canonical copy on `train10` with the re-review
+appended); its content is summarised here instead.
+
+### NEW-1 (MAJOR) — the IMDS exclusion was unpinned against the `ipv4_mapped` normalisation it depends on
+
+The IMDS check (`str(ip) in _IMDS_ADDRESSES`) only matches AFTER `ipv4_mapped` normalisation turns
+`::ffff:169.254.169.254` into `169.254.169.254` — an interpreter-INDEPENDENT interaction, unlike N7a
+(CGNAT), so it IS killable on this host. Added `("http://[::ffff:169.254.169.254]/v1", "remote")` to
+`test_classify_endpoint`. **Mutant N7b re-applied** (remove the `ipv4_mapped` normalisation block) on
+the closure-2 tree: **KILLED** — the new case alone turns red (`private` instead of `remote`), 62
+others stay green. Mutation-table note: N7a (CGNAT exclusion removed) remains deliberately unkillable
+on Python 3.12.3+/3.13+ (the interpreter's own `is_private` already excludes CGNAT there); N7b is now
+pinned and killed.
+
+### NEW-2 (MINOR) — the probe's own opt-in re-derivation was unpinned
+
+`test_remote_opt_in_field_cannot_spoof_the_real_check` covered `_build_client` only.
+`test_probe_remote_opt_in_field_cannot_spoof_the_real_check` (new) calls `probe_visual_ocr(settings=
+<hand-built Settings with remote_opt_in=True>, list_models=lambda: ["m"])` (the injected seam bypasses
+`_build_client` entirely) and asserts `status.available is False`. **Mutant N2b re-applied** (`probe_
+visual_ocr`'s `check_endpoint` call reverted to `opt_in=settings.remote_opt_in`): **KILLED** — the new
+test is the only one of 64 that turns red.
+
+### NEW-3 (MINOR) — MINOR-6 covered 3 of the 34 characters `urlsplit` strips
+
+`urlsplit` drops `\t\r\n` ANYWHERE (already refused) but also strips the whole WHATWG
+C0-control-or-space set (0x00-0x20) from BOTH ENDS of the string. Chose the refusal (not the
+docstring-narrowing alternative): `classify_endpoint` now also returns `invalid` when `base_url !=
+base_url.strip(urllib.parse._WHATWG_C0_CONTROL_OR_SPACE)` — the private name imported defensively
+(`try/except ImportError`, falling back to the literal 33-character set) so a future interpreter
+renaming or removing it cannot crash the module at import time. Four new `test_classify_endpoint`
+cases (a leading space, a leading `\x01`, a leading NUL, a trailing `\x1f`). **Mutant applied**
+(remove the new check): **KILLED** — all four new cases turn red (`loopback` instead of `invalid`),
+64 others stay green.
+
+### NEW-4 (MINOR) — `-->` reintroduced the opaque-failure UX MINOR-8 fixed for CR/LF
+
+A raw CR/LF corrupts multipart framing (the parser drops the part before `_checked_upload` ever runs),
+but a raw `-->` does not — `a-->b.pdf` reached the view and then died as an opaque per-job failure at
+`StatementMarkdown.__post_init__`'s writer-side belt, exactly the defect MINOR-8 fixed for CR/LF.
+`_checked_upload`'s guard extended to `"-->" in filename`, identical class-name-only shape (no
+`filename` key). New function-level test `test_checked_upload_refuses_a_filename_with_a_comment_close`.
+**Mutant applied** (revert the guard to CR/LF only): **KILLED** — falls through to `"PDF could not be
+read"` WITH the raw filename echoed back (the exact leak this closes).
+
+### NEW-5 (MINOR) — the `-->` belt's docstring overstated what it closes
+
+Measured by the reviewer against cell D's base header reader: a `source_file` WITHOUT `-->` that still
+supplies its own `| model: X` field inside the (never-closed) comment reaches the reader unchanged —
+the belt does nothing for that shape, only for the early-close shape. One sentence added to
+`ocr/document.py::StatementMarkdown.__post_init__`'s docstring: the belt blocks the early-close shape
+only; the field-supplying spoof needs no `-->` and is closed entirely by cell D's reader, which must
+not be assumed to depend on this branch. (Recorded here too, superseding this section's own earlier,
+less precise wording of the same dependency in "Closure — independent adversarial review response".)
+
+### NEW-6 (MINOR, informational) — `model_calls_for` gained an uncaught raise path into telemetry
+
+`load_settings()` (called at record time for OQ3 provenance, MAJOR-2) raises `ProvenanceTokenError`
+for a hostile `OCR_MODEL`. Every `_emit` call site wraps the WHOLE `build_record(...)` call in `except
+Exception: pass` (H3_SCHEMA I4), so an uncaught raise here would silently drop the ENTIRE telemetry
+record for a document that otherwise processed fine — not merely the two provenance fields. Now caught
+narrowly (`except ProvenanceTokenError`, not bare `Exception`) around only the `load_settings()` read;
+`endpoint_class` / `remote_opt_in` degrade to `None` and the rest of the call entry (model, purpose,
+calls, tokens) is built normally. New test `test_model_calls_for_degrades_two_fields_not_the_record_
+on_a_hostile_ocr_model` reproduces the exact prior failure first (`monkeypatch.setenv("OCR_MODEL",
+"evil-model\n")`, BLOCK-1's own hostile shape) — confirmed to raise before the fix, confirmed to
+degrade only the two fields after. **Mutant applied** (remove the try/except): **KILLED** — the test
+raises `ProvenanceTokenError` uncaught, reproducing NEW-6 exactly.
+
+### Ownership note: files beyond the card list, all forced consequences of granted widenings
+
+Recorded per the reviewer's own enumeration (their §5 "Ownership at the closure"), not newly
+discovered here: `docs/moneythumb-replacement/H3_SCHEMA.md` (documents the `model_calls_for` /
+`diagnostics` shape changes the MAJOR-2/MAJOR-3 widening made — its absence would itself have been a
+finding), `tests/test_batch.py` (new — MINOR-8's `batch.py` fix needed a test and none existed),
+`tests/test_webapp_app.py` (MINOR-8's `_checked_upload` fix, now also NEW-4's), `tests/test_
+diagnostics.py`, `tests/test_document_outcome.py`, `tests/test_telemetry_corpus.py` (three closed-key
+pins moved to admit `source_path_unrecognized_model`, all asserting EXACT set equality against
+`DIAGNOSTICS_KEYS | {"source_path_unrecognized_model"}` rather than relaxed to a superset check — the
+reviewer read all five diffs and found none of them weakened, only widened honestly).
+
+### Proof floor re-run at the closure-2 tree
+
+Per Ocean's instruction, the specified subset plus the 5 canonical guards (not the full floor — the
+re-review already covers the regression-sensitive measurements below):
+
+- `tests/test_ocr_endpoint_policy.py`, `tests/test_ocr_provenance_injection.py`,
+  `tests/test_telemetry.py`, `tests/test_webapp_app.py`, `tests/test_diagnostics.py`, plus the 5
+  canonical guards (`test_no_statement_hardcodes.py`, `test_no_parser_helper_clones.py`,
+  `test_r1_hardcodes.py`, `test_experiments_are_not_wired.py`, `test_filename_boundary.py`):
+  **570 passed, 1 deselected — exit 0**.
+- Additional spot check (not requested, run for confidence given `telemetry/record.py` changed again):
+  `test_document_outcome.py`, `test_telemetry_corpus.py`, `test_batch.py`,
+  `test_ocr_defect_signatures.py`, `test_ocr_client.py`, `test_pipeline.py`, `test_discovery.py`,
+  `test_visual_rung.py`, `test_privacy3_boundaries.py`: **350 passed, 4 deselected — exit 0**.
+
+### Mutation re-verification (six new/re-applied mutants, this pass)
+
+| mutant | result |
+|---|---|
+| N7b — `ipv4_mapped` normalisation removed | KILLED (was SURVIVED at first closure) — `test_classify_endpoint[http://[::ffff:169.254.169.254]/v1-remote]` |
+| N2b — `probe_visual_ocr` trusts `settings.remote_opt_in` | KILLED (was SURVIVED) — `test_probe_remote_opt_in_field_cannot_spoof_the_real_check` |
+| NEW-3 — WHATWG C0-control-or-space end-strip check removed | KILLED (new) — 4 `test_classify_endpoint` cases |
+| NEW-4 — `_checked_upload`'s `-->` guard removed | KILLED (new) — `test_checked_upload_refuses_a_filename_with_a_comment_close` |
+| NEW-6 — `model_calls_for`'s `try/except ProvenanceTokenError` removed | KILLED (new) — `test_model_calls_for_degrades_two_fields_not_the_record_on_a_hostile_ocr_model` |
+| N7a — CGNAT exclusion removed | SURVIVED, accepted (unkillable on Python 3.12.3+/3.13+/3.14.5; the interpreter's own `is_private` already excludes CGNAT — recorded, not fixed, per the re-review's own confirmation this reasoning holds) |
+
+Every mutant applied to the committed tree, target file run in full, restored by exact-string revert
+or file backup, `git status --porcelain` clean before and after each.
+
+### Message scan
+
+`tools.huntington_msg_privacy_scan` will be re-run over this round's commits at the final commit
+before reporting the tip SHA (see the final report); MONEY/DIGITS/DATES class discipline unchanged
+from both prior closures.
