@@ -95,7 +95,15 @@ def page_evidence_from_result(raw: Mapping[str, Any], *, frame: PageFrame) -> Pa
             )
         confidence = _line_confidence(score, line_index=line_index)
         for word_index, (text_value, box) in enumerate(zip(line_words, line_boxes)):
-            text_str = str(text_value)
+            if not isinstance(text_value, str):
+                # MINOR-10 (PHASE2_P21PADDLE_REVIEW.md): a malformed result
+                # (e.g. a bare number) must refuse the page, never be
+                # coerced by `str()` into a manufactured, number-shaped
+                # token that looks like it came from OCR.
+                raise PaddleAdapterError(
+                    f"line {line_index} word {word_index}: text_word entry is not a string: {text_value!r}"
+                )
+            text_str = text_value
             if not text_str.strip():
                 dropped += 1
                 continue

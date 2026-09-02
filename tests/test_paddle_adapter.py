@@ -186,6 +186,33 @@ def test_case8_malformed_word_box_shape_refuses():
         page_evidence_from_result(raw, frame=_demo_frame())
 
 
+def test_minor10_non_string_text_word_entry_refuses_never_coerced():
+    """MINOR-10 (PHASE2_P21PADDLE_REVIEW.md): a malformed result (a bare
+    number where OCR text should be) must refuse the page — `str()` would
+    otherwise manufacture a number-shaped token that looks like it came
+    from OCR, exactly the class of hazard CASE 8's other shapes exist for."""
+    raw = {
+        "text_word": [[1234.56]],
+        "text_word_boxes": [[[1, 2, 50, 20]]],
+        "rec_texts": ["x"],
+        "rec_scores": [0.9],
+    }
+    with pytest.raises(PaddleAdapterError, match="not a string"):
+        page_evidence_from_result(raw, frame=_demo_frame())
+
+
+@pytest.mark.parametrize("bad_value", [None, True, False, ["a", "list"], {"a": "dict"}])
+def test_minor10_every_non_string_shape_refuses(bad_value):
+    raw = {
+        "text_word": [[bad_value]],
+        "text_word_boxes": [[[1, 2, 50, 20]]],
+        "rec_texts": ["x"],
+        "rec_scores": [0.9],
+    }
+    with pytest.raises(PaddleAdapterError, match="not a string"):
+        page_evidence_from_result(raw, frame=_demo_frame())
+
+
 def test_case8_bad_rec_score_refuses():
     raw = {
         "text_word": [["X"]],
