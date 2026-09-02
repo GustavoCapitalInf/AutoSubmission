@@ -1,0 +1,1 @@
+before  $1.00 middle <img class="doc-image" src="data:image/png;base64,AA" alt="image" /> after

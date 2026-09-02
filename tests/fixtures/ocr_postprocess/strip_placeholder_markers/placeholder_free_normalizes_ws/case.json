@@ -1,0 +1,17 @@
+{
+  "function": "strip_placeholder_markers",
+  "case": "placeholder_free_normalizes_ws",
+  "classification": "reads/removes metadata-only content re: money/date (MINOR-3: an unconditional, non-financial byte-level rewrite)",
+  "reviewer_finding": "PHASE2_P20POSTPROC_REVIEW.md MINOR-3",
+  "what_changes": "on input containing NO placeholder at all, the function still does `text.splitlines()` + `\"\\n\".join(...)`: a CRLF line ending becomes a bare LF, and a trailing newline is dropped",
+  "what_does_not_change": "every money/date/digit token; this is a byte-level normalization, never a financial or content change",
+  "numeric_tokens_before": {"money": ["$100.00", "$50.00"], "date": [], "digit_run": []},
+  "numeric_tokens_after": {"money": ["$100.00", "$50.00"], "date": [], "digit_run": []},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": false, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "committed as CRLF+trailing-newline in input.md and bare-LF+no-trailing-newline in expected.md specifically to demonstrate the normalization; this function still keeps METADATA_ONLY_LABEL because money/date tokens are never touched, but a byte-hash taken over the page before/after this function would differ even with no placeholder present -- worth declaring precisely because rows 1-4 are the ones nominated for first re-admission"
+}

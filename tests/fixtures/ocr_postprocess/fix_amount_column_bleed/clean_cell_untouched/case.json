@@ -1,0 +1,16 @@
+{
+  "function": "fix_amount_column_bleed",
+  "case": "clean_cell_untouched",
+  "classification": "writes/reassigns financial-value meaning (harmless on this input: a money-only Amount cell)",
+  "what_changes": "nothing",
+  "what_does_not_change": "an Amount cell holding exactly one money value (no bleed pattern to match) is left untouched, even with a long digit-bearing description in the adjacent column",
+  "numeric_tokens_before": {"money": ["6,000.00"], "date": ["01/03"], "digit_run": ["8801234567"]},
+  "numeric_tokens_after": {"money": ["6,000.00"], "date": ["01/03"], "digit_run": ["8801234567"]},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": false, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "the harmless input for this function"
+}

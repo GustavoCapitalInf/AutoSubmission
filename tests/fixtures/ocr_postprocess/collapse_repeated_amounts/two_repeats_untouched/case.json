@@ -1,0 +1,17 @@
+{
+  "function": "collapse_repeated_amounts",
+  "case": "two_repeats_untouched",
+  "classification": "writes/deletes financial-value meaning: deletes distinct adjacent amounts (harmless on this input: pins the >=3 boundary)",
+  "reviewer_finding": "PHASE2_P20POSTPROC_REVIEW.md MAJOR-5, mutant N",
+  "what_changes": "nothing",
+  "what_does_not_change": "a run where the dominant value repeats only TWICE (below the >=3 destruction threshold) beside a distinct amount is left completely untouched -- all three tokens survive",
+  "numeric_tokens_before": {"money": ["$50.00", "$50.00", "$75.00"], "date": [], "digit_run": []},
+  "numeric_tokens_after": {"money": ["$50.00", "$50.00", "$75.00"], "date": [], "digit_run": []},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": false, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "MAJOR-5: without this fixture, the single most destructive member's own destruction threshold (count >= 3) was unpinned -- mutant N (widening it to count >= 2) survived every existing fixture, because three_identical_collapse and distinct_adjacent_deleted both use a dominant count of exactly 3, which satisfies >=2 identically to >=3. This fixture is the one whose real output (untouched) would change under the mutant (it would collapse to a single '$50.00', destroying $75.00)"
+}

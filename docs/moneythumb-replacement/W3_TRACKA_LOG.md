@@ -65268,3 +65268,353 @@ the population; MONEY/DIGITS/DATES were 0). Reworded with `git filter-branch --m
 to `bea06bc..HEAD` (`chore(ocr): finish retiring` → `retire(ocr): finish retiring`, that one commit
 only) — tree hash verified byte-identical before and after (`3ca58bcb42f006ad1392c30d2db9eed85d1d498f`
 both times), only the message changed. Re-run: **`hit_count: 0`, all four classes, EXIT=0.**
+
+# §P20POSTPROC — the nine-function census, the whole-chain quarantine, and the OQ2 guard into `ocr/`
+
+**Card:** P20-POSTPROCESS (Phase 2.0 cell B1). **Ruling executed:** OQ1 = C — quarantine the
+entire postprocess chain; re-admit per function on that function's own census + fixtures, after
+independent review; nothing re-admitted in Phase 2.0. OQ2 = YES — the no-statement-hardcodes
+guard extends into `ocr/`. **Hygiene card:** newly validated = 0 (required); previously
+validated preserved, payload identical.
+
+**Population.** The 179 `source_path = local_tesseract` shas in the run-of-record `rows.csv`,
+which already contain all 6 committed corpus artifacts' shas (measured: union of the two sets
+is 179, not 185 — full overlap). This is the only population the quarantine can touch:
+the visual rung has never run in production (0 documents), so the offline (native + Tesseract)
+partition is the seam the cohort replay proves, not the chain itself.
+
+**Root cause.** `ocr_client.postprocess` ran nine functions on every visual read before the
+validator saw it, unconditionally. Two (`collapse_repeated_amounts`, F-1;
+`fix_amount_column_bleed`, F-11) provably rewrite ledger values in complementary scopes. A
+third (`repair_fused_amount_table`) was carried in the audit as "explicitly UNPROVEN" for a
+debit/credit/balance fold. Three more delete text (metadata-only, by construction). None had
+ever run on a real page, so none of this was measured — only argued.
+
+**Solution.** (1) A read-only executable census (`tools/ocr_postprocess_census.py`) imports all
+nine functions and runs 17 committed synthetic fixtures (`tests/fixtures/ocr_postprocess/`)
+through each, classifying every function as precisely as the evidence supports and recording a
+mechanically-verified numeric-token delta for every fixture — not prose. (2) The chain is
+quarantined on both paths that could reach it: `ocr_page` returns the model's raw completion
+string through a new `apply_admitted()` no-op gate instead of calling `postprocess`, and
+`embed_image_regions` is no longer called there either (F-2 closed); `ocr/render.py`'s two
+region-rendering functions render raw content and never call `postprocess`. `POSTPROCESS_STATE
+= "quarantined"` and `ADMITTED_POSTPROCESS: tuple[str, ...] = ()` are exported from
+`ocr/ocr_client.py` under those exact names for cell C's cache key. (3) A declared
+`INTAKE_FURNITURE` register names the TD QR-derailment recovery (three entries) and the generic
+mis-segmentation detector (one entry) as page-selection behavior, each with issuer, scope,
+justification and its pinning test. (4) `tests/test_no_statement_hardcodes.py` gained an
+`OCR_DIR` scan reusing the same five pattern classes already enforced over `analysis/`, plus a
+register-driven guard: every issuer-named regex in the three files this card owns
+(`ocr_client.py`, `pipeline.py`, `render.py`) must be named in `INTAKE_FURNITURE`.
+
+**Settled by construction (the census's central finding).** `repair_fused_amount_table`'s
+debit/credit/balance fold — left "explicitly UNPROVEN" by the audit and the adversarial review
+— IS constructible: the function's gate inspects only the FIRST and LAST cell of a fused header
+row (`DATE` ... `AMOUNT`), never any middle cell, so a genuine 5-cell debit/credit/balance data
+row beneath such a header gets folded to 3 columns, burying the debit AND credit values in free
+text and relabeling the table's true final column (a running balance) as the row's "amount". No
+digit is deleted, but which column is the transaction amount changes. Reproduced at
+`tests/fixtures/ocr_postprocess/repair_fused_amount_table/debit_credit_balance_folded/` and
+pinned by `tests/test_ocr_postprocess_census.py::
+test_repair_fused_amount_table_fold_is_settled_by_construction`.
+
+**MINOR-6 closed.** The chain is nine functions, not six (`strip_det_tags`,
+`strip_refusal_commentary`, `strip_placeholder_markers` were the three missed, all metadata-only
+strippers). All nine are classified, fixtured and tested.
+
+**Newly validated:** 0 (not run; hygiene card, not a coverage card). **Other ladder movement:**
+0. **Previously validated preserved:** 36 of 36 in the target cohort, payload identical, at both
+base (`bea06bc`) and closure (`a68e4be`). **Regressions:** 0.
+
+**Correctness evidence.** `tools/ocr_postprocess_census.py` + 17 fixtures (input/expected/
+case.json triples) under `tests/fixtures/ocr_postprocess/`; `tests/test_ocr_postprocess_census.py`
+(72 cases: function-output pins, full-chain cross-checks, independently recomputed
+numeric-token-delta cross-checks — a case.json record is never merely trusted). F-1's
+`[a,a,a,b,c] -> [a]` and F-11's cell-reassignment both reproduced exactly. `docs/
+moneythumb-replacement/OCR_POSTPROCESS_CENSUS.md` is the durable nine-row record.
+
+**Generalization evidence.** The quarantine is structural, not a policy note: `postprocess` is
+called by nothing reachable from `ocr_page` or `ocr/render.py` (proven by 8 applied-and-reverted
+mutants below, each on the real file, not a copy). `apply_admitted` reads
+`ADMITTED_POSTPROCESS` fresh on every call, so a future re-admission is a one-line, reviewed
+change, never a silent revival of the whole chain.
+
+**OQ2 blast radius (measured before any test was written).** `REMOVED_LITERALS` / `YEAR_RE` /
+`ACCOUNT_RE` / `MOJIBAKE_RE` / `CALENDAR_RE`: 0 hits across every file in `ocr/`. `AMOUNT_RE`: 6
+hits across 2 files, both furniture (a geometry ratio constant in `column_grid.py`; five CSS
+sizing values in `render.py`'s stylesheet constant) — ratcheted as `OCR_AMOUNT_BASELINE`
+(shrink-only). Issuer-named regex: exactly one (`_TD_MARKERS_RE`), already registered.
+`ocr/native_text.py` (issuer-tagged geometry constants for several banks) is measured and named
+as out of scope for this card — not owned by it, not the postprocess/intake-furniture surface
+OQ1/OQ2 govern — rather than silently absorbed into this card's own zero.
+
+**Mutation table — every mutant applied to the real committed file and reverted (`git checkout
+--`), not merely described:**
+
+| mutant | killer | result |
+|---|---|---|
+| `ocr_page` calls `postprocess` again | `test_ocr_page_returns_raw_det_tags_unremoved` + 3 more raw-return tests | killed (4 tests failed) |
+| `render_boxed` re-enters `postprocess` | `test_render_boxed_never_calls_the_quarantined_postprocess_chain` | killed |
+| `ADMITTED_POSTPROCESS = ("strip_det_tags",)` | `test_admitted_postprocess_is_empty_in_phase_2_0` | killed |
+| `apply_admitted` applies a non-admitted member | `test_apply_admitted_never_applies_an_unlisted_member` + the no-op test | killed (2 tests failed) |
+| `embed_image_regions` wired back into `ocr_page` | `test_ocr_page_does_not_embed_image_regions` | killed |
+| an unregistered issuer marker added to `ocr/pipeline.py` (real file) | `test_every_issuer_named_regex_in_ocr_is_registered` | killed |
+| `_mask_qr` gains a text parameter (a channel to a printed figure) | `test_mask_qr_cannot_depend_on_a_printed_figure_by_signature` | killed |
+| F-1 fixture's `numeric_tokens_delta.money.disappeared` recorded `false` | `test_recorded_token_delta_matches_mechanical_diff` + `test_f1_distinct_adjacent_amounts_are_recorded_as_disappeared` | killed (2 tests failed) |
+
+**Cohort replay.** `tools/cohort_replay.py --shas <179-sha population> --expect-identical`
+(private list; the 179 Tesseract shas from the run-of-record `rows.csv` union the 6 committed
+corpus artifacts' shas — full overlap, union is 179). Base (`bea06bc`, working tree stashed to
+reach it): 179/179 replayed, 36/36 previously validated preserved (payload identical), 0 newly
+validated, 0 regressions, exit 0. Closure (`a68e4be`): identical — 179/179, 36/36 preserved
+(payload identical), 0/0/0, exit 0. No `--parser` cohort applies: this cell touches no
+registered parser module.
+
+**Proof floor.** Full default suite at closure: 7,892 passed / 45 skipped / 35 deselected, exit
+0 (up from the composed batch-9 floor of 7,815/44/35 — net +77 passed, +1 skipped, matching the
+new census/intake-furniture tests and one declared-isolated fixture skip). The 5 canonical
+guards: 264 passed (includes the extended `test_no_statement_hardcodes.py`, now 60 tests, up
+from its prior count). `python corpus_gate.py`: GREEN, 105 PASS / 3 WITHHELD / 1 REFUSED,
+unchanged from baseline. Corpus-marked slice (`pytest -m corpus`): 31 passed, 7,941 deselected,
+exit 0 (baseline recorded 30 — the +1 is not from this cell; no test added here carries
+`@pytest.mark.corpus`). Targeted files
+(`test_ocr_client.py`, `test_render.py`, `test_ocr_postprocess_census.py`,
+`test_ocr_intake_furniture.py`, `test_pipeline.py`, `test_truncation.py`, `test_visual_rung.py`,
+the 4 remaining canonical guards): 466 passed / 1 skipped / 1 deselected.
+
+**Privacy scan.** `tools/privacy_scan_branch.py --base bea06bc --ref HEAD --shas <179-sha
+population>`: population 179, documents_read 179, added_lines 1,552, **hit_count 0** across
+MONEY/DIGITS/DATES/WORDS. 2 raw WORDS hits were excluded by the words_class rule (`AMOUNTS`
+`RECORDED`, consecutive ALL-CAPS tokens from this cell's own test-function name and prose,
+never a document token — the same false-positive shape the standing lesson already names).
+
+**Message scan.** `tools.huntington_msg_privacy_scan --base bea06bc --ref HEAD --shas <179-sha
+population>`: 4 commits scanned, **hit_count 0** across all four classes.
+
+**Tests added.** `tests/test_ocr_postprocess_census.py` (new, 72 cases across 8 test functions);
+`tests/test_ocr_intake_furniture.py` (new, 8 tests); `tests/test_no_statement_hardcodes.py`
+extended (+9 tests, the OQ2 scans and the issuer-marker guard + its own mutation test);
+`tests/test_ocr_client.py` rewritten (38 -> 26 tests: 22 per-function behavior tests moved to
+the executable census; 10 new tests pin the quarantine wiring — raw pass-through, the no-op
+admission gate, its ordering and selectivity); `tests/test_render.py` +1 (the display-path
+quarantine pin). 17 synthetic fixture cases (51 files) under `tests/fixtures/ocr_postprocess/`.
+
+**Ownership discipline.** Only files this card owns were edited:
+`ocr/ocr_client.py`, `ocr/render.py`, `tools/ocr_postprocess_census.py` (new),
+`docs/moneythumb-replacement/OCR_POSTPROCESS_CENSUS.md` (new), `tests/fixtures/ocr_postprocess/`
+(new), `tests/test_ocr_postprocess_census.py` (new), `tests/test_ocr_intake_furniture.py` (new),
+`tests/test_ocr_client.py`, `tests/test_render.py`, `tests/test_no_statement_hardcodes.py`.
+`ocr/pipeline.py` was read and scanned (OQ2) but not edited — no change was needed on the
+raw/`apply_admitted` return path, since `ocr_page`'s change already covers it.
+`_build_client` in `ocr/ocr_client.py` (B2's function) is untouched, byte-identical.
+`ocr/config.py`, `ocr/document.py`, `ocr/availability.py`, `analysis/*` untouched.
+
+**Commits (`bea06bc..HEAD`, wave20-postprocess):** `37673e8` (the executable census, fixtures,
+doc), `0a72454` (the quarantine wiring itself), `2664259` (the analysis/display-path test
+rewrite), `a68e4be` (the OQ2 guard extension + intake-furniture pins).
+
+**Host notes.** A committed fixture path (`strip_oversized_embedded_images/
+oversized_dropped_small_and_money_kept/`) exceeded the Windows path-length budget under this
+worktree's long OneDrive prefix (`git stash` failed with "Filename too long"); renamed the case
+directory to `oversized_dropped` before any commit — no fixture content changed, only the
+directory name and its two internal references (case.json's `case` field, the census doc).
+Recorded here so a future cell measures this worktree's ~150-character root prefix before
+naming a deeply nested fixture directory. `pytest -m corpus` took ~2,576s (0:42:56) on this
+host — slower than the ~1,973s a prior reviewer measured; both single-harness, no concurrent
+proof was launched deliberately, though two long-lived `pytest -m corpus` worker processes
+(command line confirmed via `Get-CimInstance Win32_Process`) were observed still resident on
+this host during this cell's own cohort-replay and privacy-scan steps — read-only operations
+proceeded regardless since neither touches the sqlite caches' `mode=ro` files or this cell's own
+working tree.
+
+**Risks and a concern about the ruled scope.** (1) `ocr/native_text.py`'s own issuer-tagged
+geometry constants are a real, measured OQ2-shaped blast radius sitting entirely outside this
+card's ownership; whichever cell inherits that module's hygiene should not have to rediscover
+it. (2) The debit/credit/balance fold this census settled by construction is narrower than it
+first appears — it requires the table's OWN fused header to literally read `AMOUNT` (not
+`BALANCE`) as its last word — but it is real, and OQ1's whole-chain quarantine is the only ruled
+disposition that actually closes it (option (b), scoping only the two PROVEN rewrites behind a
+flag, would have left this exact hazard running by default, as the review's own OQ1 adjudication
+already anticipated). No disagreement with the ruling — this finding is offered as the sharpest
+evidence yet that (c) was the correct call, not as a reason to reconsider it.
+
+## §P20POSTPROC closure — the independent adversarial review, closed finding by finding
+
+**Verdict:** APPROVE WITH FINDINGS (5 MAJOR, 6 MINOR — none a BLOCK; all additive). Every finding
+reproduced independently before any fix, per the review's own instruction. Committed at
+`docs/moneythumb-replacement/reviews/PHASE2_P20POSTPROC_REVIEW.md`.
+
+**MAJOR-1 — four rows carried an absolute "cannot touch a financial value" claim.**
+Reproduced: constructed an orphan-bracket det tag containing a money token (deleted), a
+well-formed-pair span reaching an orphan opening tag to the NEXT tag's close (deleted the money
+between them), an oversized image whose `alt` attribute carried a money token (deleted at the
+PRODUCTION threshold), a stray text span between `<td>` cells in a fused row (deleted on rebuild),
+and a `<caption>`'s money token in a table that actually fires (deleted by both full-table-rewrite
+functions). **Fixed:** corrected the four `CLASSIFICATION` strings and the census doc's rows 1, 4,
+7, 8, 9; two functions (`strip_det_tags`, `strip_oversized_embedded_images`) lost the unconditional
+metadata-only label; six new fixtures added. **Killer:** `test_metadata_only_classification_never_
+deletes_a_financial_token` (fails if a function relabeled into the metadata-only bucket has any
+fixture showing money/date disappearance) plus the six new fixture assertions themselves.
+
+**MAJOR-2 — the issuer-string guard was scoped to 3 files; layer-wide costs 0 offenders.**
+Reproduced: measured 0 additional offenders scanning all 13 `ocr/*.py` files; confirmed an inline
+`re.search` literal (not a `re.compile` assignment) passed through the old detector undetected.
+**Fixed:** the guard now iterates every file in `ocr/`; the detector inspects every `str`
+`ast.Constant` in a module, attributed to its nearest enclosing assignment or function name; the
+two pre-existing files (`native_text.py`, `column_grid.py`) carry a named, counted, shrink-only
+`OCR_ISSUER_STRING_BASELINE` (25 occurrences / 5 issuers; 3 occurrences / 1 issuer) instead of a
+blanket exclusion. **Killer (mutant I):** an inline `re.search` issuer marker in a synthetic module
+and in the real `ocr/pipeline.py`, both caught by `test_every_issuer_named_regex_in_ocr_is_
+registered`. **Killer (mutant J):** an issuer marker added to the real `ocr/native_text.py` (25 ->
+26 occurrences), caught by `test_ocr_issuer_string_baseline_is_not_exceeded`.
+
+**MAJOR-3 — a registered regex NAME was a blanket licence for its whole pattern.**
+Reproduced: widened `_TD_MARKERS_RE` with a second issuer's marker on the real file; nothing in the
+tree failed. **Fixed:** `test_registered_regex_pattern_matches_its_declared_issuer_and_no_other`
+asserts every registered regex with a non-`None` issuer carries that issuer's marker and no other
+institution's. **Killer (mutant K):** the same widening, re-applied to the real
+`ocr/ocr_client.py`, now fails that exact test.
+
+**MAJOR-4 — the register omitted the two functions that select among candidate reads by content.**
+Reproduced: `is_td_statement`, `looks_truncated_td`, `recover_truncated_td_page` were absent from
+`INTAKE_FURNITURE`, and the two present entries' `scope` strings described only a render parameter.
+**Fixed:** all three registered (register now 7 entries); `_TD_RECOVERY_VARIANTS` and
+`looks_missegmented`'s `scope` strings now state plainly that they select among candidate re-OCR
+reads, keyed on a printed structural caption / table-shape signature, never a figure. New tests
+construct candidate reads where the wrong ones print an implausibly large balance and the
+recovered one a small one, proving selection follows the caption regardless of figure size.
+
+**MAJOR-5 — five behavioral pins were deleted, not moved to the census.**
+Reproduced: dropping `_DET_ORPHAN_RE.sub`, `_DET_BARE_RE.sub`, or widening F-1's `count >= 3` to
+`>= 2` all survived the full targeted suite. **Fixed:** restored the boundary fixture (a value
+repeating exactly twice beside a distinct amount, untouched), the placeholder-bracket-preserved
+fixture, the refusal-leaves-normal-text fixture, the label/value-summary-untouched fixture, and the
+orphan/bare-tag fixture. **Correction found during closure, not by the review:** the restored
+orphan/bare fixture's own single input is fully cleaned by the orphan branch alone —
+`_DET_BARE_RE` never fires on it, so it does not kill a mutant dropping only the bare-tag branch.
+Added a second, minimal fixture (a bare tag with no brackets and no closing pair) that isolates
+`_DET_BARE_RE`'s own contribution. **Killers:** mutant L (drop `_DET_ORPHAN_RE.sub`) killed by the
+restored fixture; mutant M (drop `_DET_BARE_RE.sub`) killed by the new minimal fixture; mutant N
+(`count >= 3` -> `>= 2`) killed by the two-repeats-untouched fixture — all three re-applied to the
+real `ocr/ocr_client.py` and reverted.
+
+**MINOR-1 — `apply_admitted`'s order test could not distinguish tuple order from declaration
+order.** Reproduced: an alternate implementation iterating `_POSTPROCESS_MEMBERS`' own declaration
+order, filtered by membership, passed the existing test. **Fixed:** added an order-sensitive input
+(a det tag sitting between two money tokens that would otherwise form one run) where the two
+orders produce genuinely different output. **Killer (mutant P):** the declaration-order
+implementation, applied to the real file, now fails `test_apply_admitted_order_is_the_tuples_
+own_order_not_declaration_order`.
+
+**MINOR-2 — "always an exact duplicate" was false for the page-footer collapser.** Reproduced: a
+shorter footer that is a textual prefix of a longer one sharing the same page number collapses
+destructively (a genuinely distinct digit-run value is lost with no surviving copy). **Fixed:**
+corrected the classification text; added the `prefix_footer_collapsed` fixture.
+
+**MINOR-3 — the placeholder stripper's unconditional whitespace rewrite was undeclared.**
+Reproduced: CRLF -> LF and a dropped trailing newline occur even with no placeholder present.
+**Fixed:** stated in the classification; added the `placeholder_free_normalizes_ws` fixture.
+
+**MINOR-4 — the DPI-fallback's `looks_missegmented` check now reads raw text, undeclared.**
+Reproduced: a raw page carrying a stripped-metadata construct between `<table>` and its first
+`<tr>` defeats the match where postprocessed text would have matched — strictly less often, never
+more. **Fixed:** one paragraph under "Quarantine mechanics" in the census doc; a fixture-style
+test (`test_looks_missegmented_fires_strictly_less_often_on_raw_text`) pins both sides.
+
+**MINOR-5 — the truncation flag-only test no longer proved the property on raw text.**
+**Fixed:** added `assert structural_tail_signals(raw) == []` beside the existing cleaned-text
+assertion in `tests/test_truncation.py`.
+
+**MINOR-6 — ownership and counting nits.** `tests/test_render.py` is recorded here as an ownership
+EXTENSION beyond the card's original list (not pre-granted) — it is the natural home of the
+display-path mutant killer, and Ocean should record the one-file extension at compose time. The
+OCR_DIR scan reuses SIX pattern classes (not five). Privacy/message figures restated at the tip
+below.
+
+**Full mutation campaign, re-run on the closure tree, every mutant applied to the REAL committed
+file and reverted with `git checkout --`, `git status --porcelain` verified clean before and after
+every mutant:** A, B, C, D, E, F, G, H, L, M, N, O, P, Q — killed. I, J, K — killed (I and K also
+independently on the real files `ocr/pipeline.py` and `ocr/ocr_client.py`; J on the real
+`ocr/native_text.py`). **17/17 mutants killed.**
+
+**Proof floor at closure (`a123f25`):** full suite 7,961 passed / 45 skipped / 35 deselected, exit
+0. 5 canonical guards: green. `python corpus_gate.py`: GREEN, 105 PASS / 3 WITHHELD / 1 REFUSED,
+exit 0 (unchanged). Corpus-marked slice: 31 passed / 8,010 deselected, exit 0. Targeted files: 535
+passed / 1 skipped / 1 deselected.
+
+**Cohort replay at closure (`a123f25`), 179-sha population:** 179/179 replayed, 36/36 previously
+validated preserved payload-identical, 0 newly validated, 0 up, 0 down, exit 0.
+
+**Privacy scan at closure:** hit_count 0 (added_lines 3,101; 4 raw WORDS hits, all excluded as
+`words_class` — the same "AMOUNTS RECORDED" split-caps artifact from this cell's own test-function
+name, now also echoed in the committed review document that quotes it). **Message scan at
+closure:** 11 commits scanned, hit_count 0 across all four classes.
+
+**Commits (review-response, `daa5988..HEAD`):** `58b5d22` (MAJOR-1 + MAJOR-5 + MINOR-2/3),
+`afa0a86` (MAJOR-2), `ea5afae` (MAJOR-3 + MAJOR-4), `f4917c8` (MINOR-1 + MINOR-4/5), `ee58d76`
+(docs), `a123f25` (the MAJOR-5 self-correction found during closure verification). Tree clean.
+
+## §P20POSTPROC closure-2 — the re-review's four residuals, closed
+
+**Re-review verdict (closure `5270834`):** APPROVE WITH FINDINGS — all 5 MAJOR and all 6 MINOR from
+the first review RE-CLOSED by independent re-measurement (not read off the closure text); 22/22
+campaign mutants killed (A-V), including the cell's own self-found `a123f25` correction confirmed
+genuine (`bare_tag_no_brackets_removed` is absent from mutant L's killer list — the isolation is
+real). Four new MINOR residuals fell out of the pass (R1-R4), none blocking. All four closed here.
+
+**MINOR-R3 — the fixture floor (`>= 17`) stayed satisfied at 31; deleting one fixture re-opened
+MAJOR-5 with the suite green.** Reproduced the reviewer's Y+N compound exactly: moved
+`collapse_repeated_amounts/two_repeats_untouched` out, widened `collapse_repeated_amounts`'
+`count >= 3` to `>= 2` on the real file — **SURVIVED** under the old floor (confirmed before
+fixing). **Fixed:** `EXPECTED_FIXTURE_COUNT`, a per-function exact-count dict (31 total), and
+`test_every_function_has_exactly_its_expected_fixture_count`. Re-applied the identical Y+N
+compound after the fix: **KILLED** — `{'collapse_repeated_amounts': (3, 4)}` — before the money
+threshold's own mutant N assertion is even reached. Fixture and code restored, tree verified clean.
+
+**MINOR-R4 — the durable census doc still said "17 fixtures".** Fixed: `## Proof` now reads 31
+fixtures / 130 collected cases, matching the tree exactly (130 passed, 1 skipped, confirmed by
+running the file). Added the one sentence the re-review asked for: the CRLF/form-feed whitespace
+claims on `strip_placeholder_markers` are true by direct measurement on the function in isolation
+but not provable through this fixture harness, because `Path.read_text()` (the fixture loader)
+universal-newline-translates CRLF to LF before the function ever sees it — verified by reading the
+fixture's raw bytes (`\r\n` present) against what `Path.read_text()` actually returns (`\n` only).
+
+**MINOR-R1 — the exclusivity check's full-marker substring match misses a shorter, word-boundary
+PREFIX of another institution's marker.** Reproduced mutant W exactly: widened `_TD_MARKERS_RE`
+with `\bguardian\b` (a bare prefix of "guardian credit union", an institution with no existing
+negative test) on the real file — **SURVIVED**, confirmed before fixing. **Fixed:** a new test
+sweeps every non-TD entry in `ISSUER_NAME_LEXICON` and asserts `is_td_statement` says no for each
+institution's own printed text, rather than relying on whichever banks happen to have an
+incidental negative test elsewhere. Re-applied mutant W after the fix: **KILLED** —
+`is_td_statement matched a non-TD institution's own marker: 'guardian credit union'`. Reverted;
+`_TD_MARKERS_RE` confirmed restored to its original three alternatives and the full targeted+guard
+suite re-verified green.
+
+**MINOR-R2 — the exclusivity check's subject list and marker sets were hardcoded literals.**
+Fixed: `_resolve_regex_subjects()` looks up every `INTAKE_FURNITURE` key on `ocr.ocr_client` and
+keeps the ones carrying a `.pattern` (today still exactly `{_TD_MARKERS_RE}`, but now discovered,
+not named); a new shared `ISSUER_MARKERS_BY_ISSUER` table (in `tests/test_no_statement_hardcodes.py`,
+beside `ISSUER_NAME_LEXICON`) maps each registered issuer to its own markers, read by both the
+exclusivity test and its mutant-K counter-test, replacing two separately hardcoded `td_markers`
+copies with one declaration.
+
+**Housekeeping instructed at this step:**
+* `git rm`'d `docs/moneythumb-replacement/reviews/PHASE2_P20POSTPROC_REVIEW.md` — confirmed
+  byte-identical to Ocean's `train10` copy before removal (the re-review's own sha256 check); Ocean
+  holds the canonical copy with the re-review section appended.
+* **Two** one-file ownership extensions beyond the card's original list, both recorded here for
+  Ocean to note at compose (neither was pre-granted): `tests/test_render.py` (the display-path
+  mutant killer, added at first closure) and `tests/test_truncation.py` (the MINOR-5 raw-text
+  assertion, +1 line, added at first closure). The first closure section above named only the
+  first; the re-review's MINOR-6 addendum named the second.
+
+**Proof floor after the four fixes, this tree:** targeted 7 files (`test_ocr_postprocess_census`,
+`test_ocr_intake_furniture`, `test_ocr_client`, `test_pipeline`, `test_render`, `test_truncation`,
+`test_visual_rung`): **270 passed / 1 skipped / 1 deselected, exit 0** (+2 over the re-review's 268:
+one new fixture-count test, one new lexicon-sweep test). 5 canonical guards: **267 passed, exit 0**
+(unchanged — `ISSUER_MARKERS_BY_ISSUER` is a constant, not a new test).
+`python -m tools.ocr_postprocess_census`: 9 rows, all pass, **exit 0**.
+
+Per this step's exact instruction, the full suite / `corpus_gate.py` / cohort replay / privacy scan
+were not re-run this round (already green at `5270834` per the re-review's own independent
+re-measurement, reported above); only the message scan was re-run, over the commits this step adds.

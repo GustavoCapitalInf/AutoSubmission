@@ -1,0 +1,16 @@
+{
+  "function": "collapse_repeated_page_numbers",
+  "case": "distinct_pages_untouched",
+  "classification": "restructures without inventing financial values (harmless on this input)",
+  "what_changes": "nothing",
+  "what_does_not_change": "two DISTINCT consecutive page footers ('Page 4 of 10', 'Page 5 of 10') are left untouched, because the backreference requires an EXACT repeat of the whole captured group",
+  "numeric_tokens_before": {"money": [], "date": [], "digit_run": ["4", "10", "5", "10"]},
+  "numeric_tokens_after": {"money": [], "date": [], "digit_run": ["4", "10", "5", "10"]},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": false, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "the harmless input for this function: distinct page numbers never collapse"
+}

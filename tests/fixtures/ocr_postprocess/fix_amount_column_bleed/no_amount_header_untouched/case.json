@@ -1,0 +1,16 @@
+{
+  "function": "fix_amount_column_bleed",
+  "case": "no_amount_header_untouched",
+  "classification": "writes/reassigns financial-value meaning (harmless on this input: no column is headed 'Amount')",
+  "what_changes": "nothing",
+  "what_does_not_change": "a table with no 'Amount' header is left byte-for-byte untouched, even though its last cell ends in a bare money-shaped value",
+  "numeric_tokens_before": {"money": ["-74.88"], "date": [], "digit_run": []},
+  "numeric_tokens_after": {"money": ["-74.88"], "date": [], "digit_run": []},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": false, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "the function is scoped to tables that print an 'Amount' header; this is a second harmless boundary case"
+}

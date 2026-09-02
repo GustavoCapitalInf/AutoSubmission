@@ -1,0 +1,1 @@
+<table><tr><td>DATE04/06</td><td>DESCRIPTIONWidget Co Payment</td><td>REF123456</td><td>AMOUNT500.00</td></tr><tr><td>04/07</td><td>Northstar Vendor Inc</td><td>10.00</td><td>25.00</td><td>105.00</td></tr></table>

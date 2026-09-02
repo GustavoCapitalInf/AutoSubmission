@@ -1,0 +1,1 @@
+Total withdrawals and other debits -$200.27  -$200.27  Page 4 of 10

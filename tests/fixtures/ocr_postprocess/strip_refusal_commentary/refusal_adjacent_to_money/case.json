@@ -1,0 +1,16 @@
+{
+  "function": "strip_refusal_commentary",
+  "case": "refusal_adjacent_to_money",
+  "classification": "reads/removes metadata-only content",
+  "what_changes": "the tightly anchored three-sentence model refusal template is removed",
+  "what_does_not_change": "a money token glued directly onto the end of the refusal template, with NO separator, survives byte-for-byte, proving the pattern cannot over-consume adjacent financial text",
+  "numeric_tokens_before": {"money": ["$99.00"], "date": ["03/01"], "digit_run": []},
+  "numeric_tokens_after": {"money": ["$99.00"], "date": ["03/01"], "digit_run": []},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": false, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "the refusal template's own text carries no digits, and the regex's fixed sentence structure cannot extend its match past its own final period into adjacent content"
+}

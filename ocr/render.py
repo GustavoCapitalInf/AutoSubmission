@@ -176,20 +176,22 @@ def _image_region_html(coords, page_image) -> str:
 
 
 def _region_html(label: str, coords, content: str, page_image) -> str:
-    from .ocr_client import postprocess
+    # OQ1 = C: the display path never calls `postprocess` (or `apply_admitted`
+    # — the quarantine covers analysis AND display alike). `content` is the
+    # model's raw region text, rendered as-is.
     label = label.lower()
     color = REGION_COLORS.get(label, "#5c8cff")
     if page_image is not None and label in _PICTURE_LABELS:
         inner = _image_region_html(coords, page_image)
     else:
-        inner = render_fragment(postprocess(content))
+        inner = render_fragment(content)
     return (f'<div class="region" style="border-color:{color}">'
             f'<span class="region-tag" style="background:{color}">{html.escape(label)}</span>'
             f'{inner}</div>')
 
 
 def _render_boxed_page(raw: str, page_image) -> str:
-    from .ocr_client import postprocess
+    # OQ1 = C: raw content only — no `postprocess` on the display path.
     parts = _REGION_SPLIT_RE.split(raw)
     regions = []
     for j in range(1, len(parts), 6):
@@ -198,7 +200,7 @@ def _render_boxed_page(raw: str, page_image) -> str:
                                      content, page_image))
     if not regions:
         # No complete region tags yet (very start of a page's stream): plain text.
-        return render_fragment(postprocess(raw))
+        return render_fragment(raw)
     return "".join(regions)
 
 

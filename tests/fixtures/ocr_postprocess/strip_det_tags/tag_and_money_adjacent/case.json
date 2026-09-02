@@ -1,0 +1,16 @@
+{
+  "function": "strip_det_tags",
+  "case": "tag_and_money_adjacent",
+  "classification": "reads/removes metadata-only content",
+  "what_changes": "the <|det|>label [x0,y0,x1,y1]<|/det|> region annotation and its four bounding-box coordinate digits are removed",
+  "what_does_not_change": "the money token and the date immediately following the tag, with no separator, survive byte-for-byte",
+  "numeric_tokens_before": {"money": ["$12.34"], "date": ["01/15"], "digit_run": ["10", "20", "30", "40"]},
+  "numeric_tokens_after": {"money": ["$12.34"], "date": ["01/15"], "digit_run": []},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": true, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "the digit_run tokens that disappear are the tag's own bounding-box coordinates (geometry, not a financial value); the det-tag grammar (label + four bare integers) cannot hold a money-shaped or date-shaped token, so a financial value can never sit inside the removed span"
+}

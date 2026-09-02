@@ -1,0 +1,16 @@
+{
+  "function": "collapse_repeated_page_numbers",
+  "case": "exact_duplicate_collapsed",
+  "classification": "restructures without inventing financial values",
+  "what_changes": "three consecutive EXACT copies of the 'Page 4 of 10' footer collapse to one occurrence (backreference match)",
+  "what_does_not_change": "the page/count values themselves (4, 10) are unchanged where they survive",
+  "numeric_tokens_before": {"money": [], "date": [], "digit_run": ["4", "10", "4", "10", "4", "10"]},
+  "numeric_tokens_after": {"money": [], "date": [], "digit_run": ["4", "10"]},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": true, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "digit_run tokens DO disappear here (2 of the 3 copies each of '4' and '10'), stated precisely per the card's instruction not to force a misleading label: these are page/count furniture, never a financial value, and every disappearing copy is an EXACT duplicate of the one surviving token -- no distinct information is lost, only a backreference-matched literal repeat. This function never touches money-shaped or date-shaped tokens (neither category appears in either page)"
+}

@@ -1,0 +1,17 @@
+{
+  "function": "split_fused_header_row",
+  "case": "stray_text_between_cells_deleted",
+  "classification": "restructures without inventing/replacing financial values WITHIN <td> cells, but not metadata-only at the row level",
+  "reviewer_finding": "PHASE2_P20POSTPROC_REVIEW.md MAJOR-1(c)",
+  "what_changes": "the fused header row is rebuilt from `_CELL_RE.findall` alone; text sitting in the `<tr>` OUTSIDE any `<td>` (here, 'STRAY Total $9,999.00' between two cells) is discarded entirely when the row is rebuilt, and the money token it carried is discarded with it",
+  "what_does_not_change": "the value that DOES live inside a `<td>` (the fused header's own values move to the same column index; the already-clean second row is untouched)",
+  "numeric_tokens_before": {"money": ["$9,999.00", "$1,200.00", "2.00"], "date": ["01/09"], "digit_run": ["01", "05"]},
+  "numeric_tokens_after": {"money": ["$1,200.00", "2.00"], "date": ["01/05", "01/09"], "digit_run": []},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": true, "appeared": false},
+    "date": {"disappeared": false, "appeared": true},
+    "digit_run": {"disappeared": true, "appeared": false}
+  },
+  "semantics_can_change": true,
+  "semantics_note": "the date/digit_run appeared/disappeared entries include the same classification-boundary artifact already documented for this function's other fixtures (a digit glued to 'DATE' with no word boundary is reclassified once relocated to its own cell); the money delta is the real finding -- $9,999.00 is genuinely destroyed because it was never inside a <td> at all"
+}

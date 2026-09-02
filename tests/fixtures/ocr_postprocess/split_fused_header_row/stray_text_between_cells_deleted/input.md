@@ -1,0 +1,1 @@
+<table><tr><td>DATE01/05</td>STRAY Total $9,999.00<td>AMOUNT$1,200.00</td></tr><tr><td>01/09</td><td>2.00</td></tr></table>

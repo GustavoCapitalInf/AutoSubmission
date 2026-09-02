@@ -1,0 +1,2 @@
+STATEMENT OF ACCOUNT
+The image provided is a QR code. It does not contain any text, mathematical formulas, tables, or figures that can be processed according to the OCR instructions. Therefore, no textual content can be extracted from this image.$99.00 due 03/01

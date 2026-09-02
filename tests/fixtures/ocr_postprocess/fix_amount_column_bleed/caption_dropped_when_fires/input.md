@@ -1,0 +1,1 @@
+<table><caption>Total fees $4,321.00</caption><tr><td>Date</td><td>Description</td><td>Amount</td></tr><tr><td>01/03</td><td>x y</td><td>ID:123 $1.00</td></tr></table>

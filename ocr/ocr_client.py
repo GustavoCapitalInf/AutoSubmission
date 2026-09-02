@@ -382,6 +382,164 @@ def strip_oversized_embedded_images(text: str, *, max_len: int = 25_000) -> str:
     return _DATA_IMG_RE.sub(repl, text)
 
 
+# ---------------------------------------------------------------------------
+# OQ1 = C (docs/moneythumb-replacement/PHASE2_RULINGS.md): quarantine the
+# entire nine-function postprocess chain on every path. The default is raw
+# evidence. Re-admission is per function, on that function's own census
+# (docs/moneythumb-replacement/OCR_POSTPROCESS_CENSUS.md) + synthetic
+# fixtures (tests/fixtures/ocr_postprocess/), after independent review.
+# Nothing is re-admitted in Phase 2.0: ADMITTED_POSTPROCESS is empty and
+# apply_admitted() is a no-op. `postprocess` itself stays importable (the
+# census and its tests exercise it directly) but is called by NOTHING on the
+# analysis path (`ocr_page`, below) or the display path (`ocr/render.py`).
+# ---------------------------------------------------------------------------
+POSTPROCESS_STATE = "quarantined"
+ADMITTED_POSTPROCESS: tuple[str, ...] = ()
+
+#: Every member `apply_admitted` is allowed to apply, keyed by name so a
+#: future re-admission names a member rather than re-wiring a call chain.
+_POSTPROCESS_MEMBERS = {
+    "strip_det_tags": strip_det_tags,
+    "strip_refusal_commentary": strip_refusal_commentary,
+    "strip_placeholder_markers": strip_placeholder_markers,
+    "strip_oversized_embedded_images": strip_oversized_embedded_images,
+    "collapse_repeated_amounts": collapse_repeated_amounts,
+    "collapse_repeated_page_numbers": collapse_repeated_page_numbers,
+    "split_fused_header_row": split_fused_header_row,
+    "repair_fused_amount_table": repair_fused_amount_table,
+    "fix_amount_column_bleed": fix_amount_column_bleed,
+}
+
+
+def apply_admitted(text: str) -> str:
+    """Apply exactly the members named in `ADMITTED_POSTPROCESS`, in the order
+    they appear there. This is what the analysis path calls instead of
+    `postprocess` — in Phase 2.0 `ADMITTED_POSTPROCESS` is empty, so this is a
+    no-op and `text` returns unchanged. A future re-admission adds a name to
+    the tuple; it never revives the whole chain."""
+    for name in ADMITTED_POSTPROCESS:
+        text = _POSTPROCESS_MEMBERS[name](text)
+    return text
+
+
+# ---------------------------------------------------------------------------
+# OQ2 = YES: the no-statement-hardcodes / value-meaning-hardcodes protection
+# extends into `ocr/`. Everything below chooses WHICH PIXELS ARE READ (page
+# selection / render variant), never what a value means, and is declared here
+# rather than discovered. `tests/test_no_statement_hardcodes.py`'s OCR_DIR
+# scan asserts every issuer-named regex in `ocr/ocr_client.py`, `ocr/pipeline.py`
+# and `ocr/render.py` is registered here; `tests/test_ocr_intake_furniture.py`
+# pins each declared behavior to what it actually does.
+# ---------------------------------------------------------------------------
+INTAKE_FURNITURE = {
+    "_TD_MARKERS_RE": {
+        "issuer": "TD",
+        "behavior": "detects the issuer's own printed page-1 banner text",
+        "justification": (
+            "a QR-code region on TD's page 1 derails generation; recognizing "
+            "the issuer's own printed banner is what lets the pipeline choose "
+            "a page-1 render variant that avoids the derailment"
+        ),
+        "scope": "detection only (feeds page-1 render-variant selection); "
+                 "never reads or writes a money token",
+        "pinned_by": "tests/test_ocr_intake_furniture.py",
+    },
+    "is_td_statement": {
+        "issuer": "TD",
+        "behavior": "the printed-banner test itself: True iff `_TD_MARKERS_RE` "
+                     "matches the page text",
+        "justification": (
+            "a thin, named wrapper around the same detection `_TD_MARKERS_RE` "
+            "performs; declared separately (review MAJOR-4) because it is the "
+            "function other intake code actually calls"
+        ),
+        "scope": "detection only; never reads or writes a money token",
+        "pinned_by": "tests/test_ocr_intake_furniture.py, tests/test_ocr_client.py",
+    },
+    "looks_truncated_td": {
+        "issuer": "TD",
+        "behavior": "True iff the page is a TD page-1 whose 'STATEMENT OF "
+                     "ACCOUNT' banner printed but whose 'ACCOUNT SUMMARY' "
+                     "caption did not — the QR-derailment signature",
+        "justification": (
+            "detects a printed STRUCTURAL SECTION CAPTION's absence, never a "
+            "figure; the two substrings it tests for are never removed by "
+            "any postprocess member, so this reads exactly the same "
+            "on raw text as it would on cleaned text"
+        ),
+        "scope": "detection only (feeds recover_truncated_td_page's "
+                 "candidate-read selection, below); never reads or writes a "
+                 "money token",
+        "pinned_by": "tests/test_ocr_intake_furniture.py, tests/test_ocr_client.py",
+    },
+    "_TD_RECOVERY_VARIANTS": {
+        "issuer": "TD",
+        "behavior": "a fixed, declared list of (dpi, mask_qr) render variants "
+                     "tried in order until one recovers the page",
+        "justification": (
+            "which render variant avoids the QR derailment varies per "
+            "statement; trying a fixed, declared list is page-selection, not "
+            "value invention — no variant is chosen from the page's content"
+        ),
+        "scope": "render variant (dpi, mask flag) selection only, AND (review "
+                 "MAJOR-4) selects which of up to five candidate re-OCR reads "
+                 "is kept via `recover_truncated_td_page` (below), keyed on a "
+                 "printed structural section caption ('ACCOUNT SUMMARY'), "
+                 "never on a printed figure",
+        "pinned_by": "tests/test_ocr_intake_furniture.py",
+    },
+    "recover_truncated_td_page": {
+        "issuer": "TD",
+        "behavior": "re-OCRs a truncated TD page-1 across `_TD_RECOVERY_"
+                     "VARIANTS` in order and keeps the first read whose "
+                     "'ACCOUNT SUMMARY' caption is present and no longer "
+                     "flagged truncated",
+        "justification": (
+            "chooses among candidate reads on a printed structural section "
+            "caption alone; no arithmetic, no value comparison, no candidate "
+            "selected because it 'balances' anything — the same fail-closed "
+            "shape as `_mask_qr` and `_TD_MARKERS_RE`, applied across reads "
+            "instead of within one"
+        ),
+        "scope": "selects which of up to five candidate re-OCR reads is kept, "
+                 "keyed on a printed structural section caption, never on a "
+                 "printed figure",
+        "pinned_by": "tests/test_ocr_intake_furniture.py, tests/test_ocr_client.py",
+    },
+    "_mask_qr": {
+        "issuer": "TD",
+        "behavior": "whites out a fixed rectangle of the page before re-render",
+        "justification": (
+            "the QR code + 'Go paperless' box occupies a fixed structural "
+            "region (top-right corner) on every TD statement; masking pixels "
+            "there never touches the body/table region where printed "
+            "financial figures live"
+        ),
+        "scope": "pixel masking on a fixed fraction of the page "
+                 "(60-100% width x 0-12% height); takes only an image, "
+                 "never text, so it cannot depend on a printed figure",
+        "pinned_by": "tests/test_ocr_intake_furniture.py",
+    },
+    "looks_missegmented": {
+        "issuer": None,
+        "behavior": "detects a standalone single-column amount table (a "
+                    "column-split mis-segmentation signature) and triggers a "
+                    "lower-DPI re-OCR of the page",
+        "justification": (
+            "a lone amount-only table never occurs in a correctly read "
+            "statement; this is a structural OCR-layout artifact, not an "
+            "issuer-specific rule — no issuer name or printed figure "
+            "participates in the signature"
+        ),
+        "scope": "render DPI selection only, AND (review MAJOR-4) selects "
+                 "which of two candidate re-OCR reads (`ocr/pipeline.py`'s "
+                 "fallback-DPI branch) is kept, keyed on a table-shape "
+                 "signature, never on a printed figure",
+        "pinned_by": "tests/test_ocr_client.py",
+    },
+}
+
+
 def _build_client(settings: Settings):
     """Build the OpenAI-compatible client for the visual rung — OQ3's gate.
 
@@ -440,11 +598,20 @@ def postprocess(raw: str) -> str:
 
 def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=None,
              on_delta=None) -> str:
-    """Run OCR on one page image and return the cleaned markdown.
+    """Run OCR on one page image and return the model's raw markdown.
+
+    OQ1 = C (Phase 2.0): the nine-function `postprocess` cleanup chain is
+    quarantined on every path. This returns the model's completion string as
+    received — det tags, refusal prose, placeholders, degenerate repeated
+    amounts and fused table cells all included — passed only through
+    `apply_admitted`, which is a no-op while `ADMITTED_POSTPROCESS` is empty.
+    `embed_image_regions` is likewise not applied here: document pixels never
+    enter the text the validator reads (F-2); the function stays importable,
+    unwired, for a possible future display-only use.
 
     If `on_delta` is given, the request is streamed and each raw text chunk is
     passed to `on_delta(chunk)` as it arrives (for live display). The returned
-    value is always the fully-cleaned markdown regardless of streaming.
+    value is always the same raw text regardless of streaming.
 
     O-3: the return value is a `PageText` — a `str` carrying the model's
     completion signals (`finish_reason`, `usage.completion_tokens`, and the
@@ -497,9 +664,10 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
                     if delta:
                         raw += delta
                         on_delta(delta)
-            # Embed picture regions (crop from the page) before text det tags are stripped.
-            raw = embed_image_regions(raw, image)
-            return PageText(postprocess(raw), finish_reason=finish_reason,
+            # OQ1 = C: no cleanup chain and no pixel embedding on the analysis
+            # path. `apply_admitted` is a no-op in Phase 2.0 (ADMITTED_POSTPROCESS
+            # is empty), so this is the model's raw completion string.
+            return PageText(apply_admitted(raw), finish_reason=finish_reason,
                             completion_tokens=completion_tokens, max_tokens=_MAX_TOKENS)
         except Exception as e:  # transient network / server errors
             last_exc = e

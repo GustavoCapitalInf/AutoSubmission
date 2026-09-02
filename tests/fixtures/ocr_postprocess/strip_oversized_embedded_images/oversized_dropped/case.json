@@ -1,0 +1,19 @@
+{
+  "function": "strip_oversized_embedded_images",
+  "case": "oversized_dropped",
+  "classification": "reads/removes metadata-only content",
+  "call_kwargs": {"max_len": 100},
+  "isolated_function_only": true,
+  "isolated_function_only_reason": "the fixture uses an explicit max_len=100 to keep the fixture file lightweight; the production chain's default is max_len=25_000. The mechanism this fixture proves (oversized image dropped, small image and all text kept) is identical at either threshold, so only the isolated-function call is pinned here",
+  "what_changes": "the embedded base64 <img> data URI whose total markup length exceeds the threshold is dropped entirely",
+  "what_does_not_change": "the money token, the small (under-threshold) embedded image, and all surrounding text",
+  "numeric_tokens_before": {"money": ["$1.00"], "date": [], "digit_run": ["64", "64"]},
+  "numeric_tokens_after": {"money": ["$1.00"], "date": [], "digit_run": ["64"]},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": true, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "the digit_run token that disappears is '64' from the MIME label 'base64' inside the DROPPED image's own data-URI prefix (a census-tool artifact of scanning for bare digit runs, not a printed figure); the surviving '64' is the small image's own 'base64' label. The function's own regex only ever matches image markup (`<img ... src=\"data:image/...\">`), which never overlaps a money- or date-shaped printed token"
+}
