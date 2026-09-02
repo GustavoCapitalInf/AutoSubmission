@@ -1,0 +1,17 @@
+{
+  "function": "strip_det_tags",
+  "case": "bare_tag_no_brackets_removed",
+  "classification": "removes a markup span whose content is UNCONSTRAINED by the pattern (this case: metadata-only, and the one that actually isolates `_DET_BARE_RE`'s own contribution)",
+  "corrects": "the restored orphan_and_bare_tags_preserve_adjacent_text fixture (MAJOR-5) reproduces the deleted base test verbatim, but independent re-verification here found `_DET_ORPHAN_RE` alone fully cleans that input -- `_DET_BARE_RE` never fires on it, so it does not actually kill a mutant that drops `_DET_BARE_RE.sub`. This fixture is a bare `<|det|>` tag with NO bracket at all (so `_DET_ORPHAN_RE`, which requires one, cannot match, and no closing tag exists, so `_DET_PAIR_RE` cannot match either) -- only `_DET_BARE_RE` removes it.",
+  "what_changes": "the bare tag marker `<|det|>` (no brackets, no closing tag) is removed",
+  "what_does_not_change": "the money token and surrounding text",
+  "numeric_tokens_before": {"money": ["$50.00"], "date": [], "digit_run": []},
+  "numeric_tokens_after": {"money": ["$50.00"], "date": [], "digit_run": []},
+  "numeric_tokens_delta": {
+    "money": {"disappeared": false, "appeared": false},
+    "date": {"disappeared": false, "appeared": false},
+    "digit_run": {"disappeared": false, "appeared": false}
+  },
+  "semantics_can_change": false,
+  "semantics_note": "verified by construction: removing this fixture's ability to reach `_DET_BARE_RE` (simulating dropping that regex's `.sub` call) leaves the literal '<|det|>' marker in the output, which this fixture's expected.md does not contain -- the mutation-table killer for mutant M"
+}

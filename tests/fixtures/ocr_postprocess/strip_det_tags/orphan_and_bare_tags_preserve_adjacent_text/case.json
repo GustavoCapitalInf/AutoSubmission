@@ -13,5 +13,5 @@
     "digit_run": {"disappeared": true, "appeared": false}
   },
   "semantics_can_change": false,
-  "semantics_note": "the digit_run tokens that disappear are the two orphan tags' own bounding-box coordinates (geometry, not printed financial figures); both money tokens and the page footer survive. MAJOR-5: restoring this exact fixture is what kills mutant L (dropping `_DET_ORPHAN_RE.sub`) and mutant M (dropping `_DET_BARE_RE.sub`) -- without it, both branches of strip_det_tags were unpinned"
+  "semantics_note": "the digit_run tokens that disappear are the two orphan tags' own bounding-box coordinates (geometry, not printed financial figures); both money tokens and the page footer survive. MAJOR-5: restoring this exact fixture kills mutant L (dropping `_DET_ORPHAN_RE.sub`) -- CORRECTED after independent re-verification: `_DET_ORPHAN_RE` alone fully cleans this specific input, so it does NOT also kill mutant M (dropping `_DET_BARE_RE.sub`), despite the deleted base test's own name/comment suggesting both branches were exercised. See the sibling fixture `bare_tag_no_brackets_removed` for the input that actually isolates `_DET_BARE_RE`'s contribution and kills mutant M"
 }
