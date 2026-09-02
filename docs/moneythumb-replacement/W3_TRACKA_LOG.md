@@ -68684,3 +68684,15 @@ tree content). This W3 subsection's own commit is reported by sha in the closing
 
 * Everything listed there still holds — the live worker path, the measurements file's erratum, and
   the Vast.ai instance's reachability remain exactly as recorded; this closure changed none of it.
+
+## Erratum — R-5's counts, re-measured after this section's own commit
+
+The R-5 counts above were measured before this section's own commit existed, the same unavoidable
+lag noted in the first closure's record. Re-measured immediately afterward, at the TRUE final tip
+(`ec45e46`): `tools/privacy_scan_branch.py` — **added_lines 5,932, hit_count still 0** across all four
+classes (111 WORDS-class raw hits now, up from 94, all still excluded by `words_class`, entirely from
+this section's own prose describing prior hits and fixes). `tools/huntington_msg_privacy_scan.py` — 31
+commits scanned (up from 30; this section's own commit added none), **MONEY/DIGITS/DATES still 0,
+WORDS still 11** (this commit's own message introduced no new coincidental bigram). Secrets scan —
+still **0 / 0 / 0**. No gating count moved; only the two raw/volume figures grew, and only because this
+very row exists.
