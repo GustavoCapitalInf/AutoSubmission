@@ -142,9 +142,12 @@ def test_m9_body_over_the_bound_is_refused():
     (enormous, never-sent) body would be read — proven by a request that
     declares an over-the-bound length but sends only a handful of bytes and
     still gets `body_too_large` back promptly, never a hang waiting to read
-    bytes that never arrive."""
+    bytes that never arrive. The bound's absolute value is pinned too — a
+    mutant that merely widens `MAX_BODY_BYTES` (e.g. to 40 MiB) must fail
+    here, not just a mutant that removes the check."""
     import http.client
 
+    assert worker.MAX_BODY_BYTES == 32 * 1024 * 1024
     identity = {"provider": "local", "execution_class": "local_free"}
     server = worker.build_server("127.0.0.1", 0, identity, None)
     port = server.server_address[1]
