@@ -362,22 +362,33 @@ def test_expect_identical_refuses_a_vacuous_zero_resolution_on_the_selected_coho
     offline_key = KEY_OFFLINE_NOLOCAL
     cache = ArtifactCache(Storage(data_dir))
 
-    # The correspondence-sample document: cached under the offline key, and
-    # named FIRST in rows.csv so verify_reconstruction's bounded sample sees
-    # it and the run's declared offline key passes existence+correspondence.
-    corr_pdf = b"%PDF-1.7\ncorrespondence-sample document, never selected for replay"
-    corr_sha = content_sha256(corr_pdf)
-    corr_doc = StatementMarkdown(source_file="corr.pdf", model="native-pdf-text", pages=["CORR PAGE"])
-    cache.put_ocr(corr_sha, offline_key, corr_doc)
-    result = cached_analysis(
-        corr_doc.to_markdown(), compute=lambda: {"marker": "CORR"}, cache=cache,
-        parse_mode="deterministic", sheets=corr_doc.pages,
-    )
-    assert not result.cached
+    # Review MINOR-7: verify_reconstruction's bounded correspondence check
+    # now requires a 90% SUPERMAJORITY of the sample to resolve, not just
+    # "at least one" -- so this fixture needs enough correspondence-sample
+    # documents that DO resolve to clear that bound on its own, while the
+    # one document the caller actually selects (via --shas) still never
+    # resolves at all, to isolate the SEPARATE guard this test proves
+    # (tools/cohort_replay.py::main refusing a cohort-level vacuous
+    # resolution the run-level correspondence check cannot see in advance).
+    rows_csv_lines = [
+        "content_sha256,folder_label,outcome_class,outcome_reason,parser_id,source_path,visual_rung"
+    ]
+    for i in range(20):
+        corr_pdf = f"%PDF-1.7\ncorrespondence-sample document {i}, never selected for replay".encode()
+        corr_sha = content_sha256(corr_pdf)
+        corr_doc = StatementMarkdown(source_file="corr.pdf", model="native-pdf-text", pages=[f"CORR PAGE {i}"])
+        cache.put_ocr(corr_sha, offline_key, corr_doc)
+        result = cached_analysis(
+            corr_doc.to_markdown(), compute=lambda i=i: {"marker": f"CORR{i}"}, cache=cache,
+            parse_mode="deterministic", sheets=corr_doc.pages,
+        )
+        assert not result.cached
+        rows_csv_lines.append(f"{corr_sha},Correspondence,validated,,some_parser,native,not_attempted")
 
     # The document the caller actually asks to replay: never cached at all.
     target_pdf = b"%PDF-1.7\nthe replay target, no cached artifact anywhere"
     target_sha = content_sha256(target_pdf)
+    rows_csv_lines.append(f"{target_sha},Target,failed,no_parser_matched,,native,not_attempted")
 
     from webapp.artifact_cache import analysis_settings_key
 
@@ -385,12 +396,7 @@ def test_expect_identical_refuses_a_vacuous_zero_resolution_on_the_selected_coho
         run_dir, offline_key=offline_key, analysis_key=analysis_settings_key(parse_mode="deterministic"),
         mode="digital",
     )
-    (run_dir / "rows.csv").write_text(
-        "content_sha256,folder_label,outcome_class,outcome_reason,parser_id,source_path,visual_rung\n"
-        f"{corr_sha},Correspondence,validated,,some_parser,native,not_attempted\n"
-        f"{target_sha},Target,failed,no_parser_matched,,native,not_attempted\n",
-        encoding="utf-8",
-    )
+    (run_dir / "rows.csv").write_text("\n".join(rows_csv_lines) + "\n", encoding="utf-8")
     shas_file = tmp_path / "shas.txt"
     shas_file.write_text(target_sha + "\n", encoding="utf-8")
 

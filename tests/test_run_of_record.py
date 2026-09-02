@@ -444,15 +444,23 @@ def test_correspondence_raises_when_the_offline_key_resolves_none_of_the_runs_ow
         conn.close()
 
 
-def test_correspondence_passes_when_at_least_one_sampled_row_resolves(tmp_path):
-    db_path = _make_cache_db(tmp_path, [
-        ("ocr", "ROW-SHA-1", "REAL-OFFLINE-KEY", "artifacts/ocr/aa/x.json"),
-        ("analysis", "ROW-SHA-1", "REAL-ANALYSIS-KEY", "artifacts/analysis/aa/y.json"),
-    ])
-    _write_rows_csv(tmp_path, [
-        {"content_sha256": "ROW-SHA-1", "source_path": "native"},
-        {"content_sha256": "ROW-SHA-2", "source_path": "local_tesseract"},  # never cached; harmless
-    ])
+def test_correspondence_passes_when_a_supermajority_of_the_sample_resolves(tmp_path):
+    """Review MINOR-7: the bound is a SUPERMAJORITY (90%), not "at least
+    one" -- nine of ten sampled rows resolve, one is a genuine gap (the
+    shape F-9 measured on the real archive: individual documents can
+    legitimately miss from a partial cold cache without the key being
+    wrong)."""
+    cache_rows = [
+        ("analysis", "ANY-SHA", "REAL-ANALYSIS-KEY", "artifacts/analysis/aa/y.json"),
+    ]
+    row_specs = []
+    for i in range(10):
+        sha = f"ROW-SHA-{i}"
+        row_specs.append({"content_sha256": sha, "source_path": "native"})
+        if i != 9:  # nine of ten cached; the tenth is a genuine, honest gap
+            cache_rows.append(("ocr", sha, "REAL-OFFLINE-KEY", f"artifacts/ocr/aa/{sha}.json"))
+    db_path = _make_cache_db(tmp_path, cache_rows)
+    _write_rows_csv(tmp_path, row_specs)
     partitions = RunPartitions(
         ocr_keys_by_source={"native": "REAL-OFFLINE-KEY", "local_tesseract": "REAL-OFFLINE-KEY"},
         analysis_key="REAL-ANALYSIS-KEY",
@@ -461,7 +469,73 @@ def test_correspondence_passes_when_at_least_one_sampled_row_resolves(tmp_path):
     )
     conn = _conn(db_path)
     try:
-        verify_reconstruction(partitions, conn, tmp_path)  # must not raise
+        verify_reconstruction(partitions, conn, tmp_path)  # 90% resolves: must not raise
+    finally:
+        conn.close()
+
+
+def test_correspondence_refuses_a_one_accidental_hit_sample(tmp_path):
+    """Review MINOR-7's named scenario: one lucky/accidental resolution in
+    a ten-row sample (10%) is NOT the supermajority the bound requires --
+    the OLD "at least one resolves" bound would have accepted this; the new
+    90% bound must not."""
+    cache_rows = [
+        ("ocr", "ROW-SHA-0", "REAL-OFFLINE-KEY", "artifacts/ocr/aa/ROW-SHA-0.json"),
+        ("analysis", "ANY-SHA", "REAL-ANALYSIS-KEY", "artifacts/analysis/aa/y.json"),
+    ]
+    row_specs = [{"content_sha256": f"ROW-SHA-{i}", "source_path": "native"} for i in range(10)]
+    db_path = _make_cache_db(tmp_path, cache_rows)
+    _write_rows_csv(tmp_path, row_specs)
+    partitions = RunPartitions(
+        ocr_keys_by_source={"native": "REAL-OFFLINE-KEY", "local_tesseract": "REAL-OFFLINE-KEY"},
+        analysis_key="REAL-ANALYSIS-KEY",
+        ocr_stage_version=5, analysis_stage_version=17, mode="scanned",
+        origin=ORIGIN_RECONSTRUCTED,
+    )
+    conn = _conn(db_path)
+    try:
+        with pytest.raises(RunOfRecordError):
+            verify_reconstruction(partitions, conn, tmp_path)
+    finally:
+        conn.close()
+
+
+def test_correspondence_cannot_tell_two_full_tranches_apart(tmp_path):
+    """Review MINOR-7's honestly-documented residual, PROVEN rather than
+    merely asserted: a resolution-RATE check cannot distinguish two
+    tranches that each fully cover the sampled documents. Here the WRONG
+    tranche holds an artifact for every one of the sample's three
+    documents (not just the ones the correct tranche holds) -- 3/3
+    resolve, 100% >= 90%, and this check is genuinely unable to tell it
+    apart from the correct tranche. This is the documented, out-of-scope
+    residual, not a bug: closing it needs an instrument that can tell two
+    ARTIFACTS apart (content or provenance), not one that asks "does
+    something exist here"."""
+    db_path = _make_cache_db(tmp_path, [
+        ("ocr", "ROW-SHA-0", "WRONG-TRANCHE-KEY", "artifacts/ocr/aa/wrong0.json"),
+        ("ocr", "ROW-SHA-1", "WRONG-TRANCHE-KEY", "artifacts/ocr/aa/wrong1.json"),
+        ("ocr", "ROW-SHA-2", "WRONG-TRANCHE-KEY", "artifacts/ocr/aa/wrong2.json"),
+        ("ocr", "ROW-SHA-0", "CORRECT-TRANCHE-KEY", "artifacts/ocr/aa/right0.json"),
+        ("ocr", "ROW-SHA-1", "CORRECT-TRANCHE-KEY", "artifacts/ocr/aa/right1.json"),
+        ("ocr", "ROW-SHA-2", "CORRECT-TRANCHE-KEY", "artifacts/ocr/aa/right2.json"),
+        ("analysis", "ANY-SHA", "REAL-ANALYSIS-KEY", "artifacts/analysis/aa/y.json"),
+    ])
+    _write_rows_csv(tmp_path, [
+        {"content_sha256": "ROW-SHA-0", "source_path": "native"},
+        {"content_sha256": "ROW-SHA-1", "source_path": "native"},
+        {"content_sha256": "ROW-SHA-2", "source_path": "native"},
+    ])
+    # The run's reconstruction is WRONG (declares the wrong tranche as its
+    # offline key), but that tranche happens to fully cover the sample too.
+    partitions = RunPartitions(
+        ocr_keys_by_source={"native": "WRONG-TRANCHE-KEY", "local_tesseract": "WRONG-TRANCHE-KEY"},
+        analysis_key="REAL-ANALYSIS-KEY",
+        ocr_stage_version=5, analysis_stage_version=17, mode="scanned",
+        origin=ORIGIN_RECONSTRUCTED,
+    )
+    conn = _conn(db_path)
+    try:
+        verify_reconstruction(partitions, conn, tmp_path)  # cannot be told apart: does not raise
     finally:
         conn.close()
 

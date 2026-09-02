@@ -343,13 +343,43 @@ def verify_reconstruction(partitions: RunPartitions, conn: Any, run_dir: str | P
        resolves that other tranche's text silently). A bounded sample — the
        first 50 of the run's own rows whose ``source_path`` is ``native`` or
        ``local_tesseract`` (their own provenance already says text was
-       read) — must resolve AT LEAST ONE artifact under the offline key for
-       its own ``content_sha256``; a sample that resolves ZERO of a
-       non-empty population is refused. (A partial cold cache can legitimately
-       miss individual documents — see F-9's own measurement, 3,364/3,380 on
-       the train9 archive — so this is "resolves none", not "resolves all";
-       the stronger, whole-cohort version of this check belongs to
-       ``tools/cohort_replay.py``'s own ``--expect-identical`` gate.)
+       read) — must resolve an artifact under the offline key for its own
+       ``content_sha256`` on at least :data:`_CORRESPONDENCE_MIN_RESOLVED_FRACTION`
+       (90%) of the sample, or the record is refused (review MINOR-7: a
+       weaker "resolves at least one" bound closed the reproduced 0-of-N
+       failure but let a 1-of-N accident through unchallenged). This is a
+       SUPERMAJORITY, not "resolves all": measured directly against the
+       train9 archive (every ``native``/``local_tesseract`` row, not just a
+       sample), **3,476 of 3,476 offline rows resolve their own sha under
+       the archive's one offline key — 100%**. The archive supports "resolves
+       all" outright; 90% is a deliberate SAFETY MARGIN below that measured
+       ceiling, for a hypothetical future archive with genuine partial
+       coverage, not evidence that one exists today. (An EARLIER version of
+       this docstring cited the OCR cache's own "3,364 inputs / 3,380 run
+       shas" count as if it were that evidence — it is not: 3,380 minus the
+       29 shas whose ``source_path`` is ``none`` throughout (no offline read
+       was ever attempted, so :func:`_sample_offline_rows` already excludes
+       them) is 3,351 offline shas, every one cached, plus 13 cached
+       NEGATIVE/deferred OCR results (a real cached fact, not a miss) is
+       3,364. That arithmetic describes documents this sample never looks
+       at in the first place, not a gap in the ones it does.)
+
+       **A residual this bound does NOT close, stated honestly rather than
+       silently accepted:** a resolution-RATE check cannot distinguish two
+       tranches that each fully cover the sampled documents. If a wrong
+       tranche happens to hold an artifact for EVERY document the sample
+       looks at (not just the ones the correct tranche holds), the wrong
+       key resolves 100% of the sample too, and this check cannot tell them
+       apart — proven, not merely asserted, by
+       ``test_correspondence_cannot_tell_two_full_tranches_apart`` below.
+       Unreachable on either frozen cold cache (re-verified: each holds
+       exactly one OCR settings key), and strictly narrower than the defect
+       this whole module replaces (there, EVERY reconstruction was exposed
+       to it; here, only a wrong tranche that happens to duplicate the
+       correct tranche's exact coverage is) — closing it needs a check that
+       can tell two artifacts APART (e.g. by content or by provenance
+       metadata), which is a different instrument than "does something
+       exist here", and is out of this card's scope.
 
     The VISUAL key is exempt from both: a run whose visual rung never fired
     (batch 8, batch 9 — ``visual_rung = not_attempted`` on every row)
@@ -409,6 +439,14 @@ def _sample_offline_rows(run_dir: Path, limit: int) -> list[dict[str, Any]]:
     return sampled
 
 
+#: Review MINOR-7: the SUPERMAJORITY bound `_require_offline_key_resolves_a_sample`
+#: enforces. Measured on the train9 archive (every offline row, not just a
+#: sample): 3,476/3,476 resolve — 100%. 90% is a deliberate safety margin
+#: below that ceiling; see :func:`verify_reconstruction`'s docstring for the
+#: full derivation and the residual this bound does NOT close.
+_CORRESPONDENCE_MIN_RESOLVED_FRACTION = 0.90
+
+
 def _require_offline_key_resolves_a_sample(
     conn: Any, run_dir: Path, offline_key: str | None, *, sample_size: int = _CORRESPONDENCE_SAMPLE_SIZE
 ) -> None:
@@ -419,16 +457,22 @@ def _require_offline_key_resolves_a_sample(
         # Nothing to check against — a run with no offline reads at all
         # (unusual, but not this function's call to refuse).
         return
-    for row in sample:
-        sha = (row.get("content_sha256") or "").strip().upper()
-        if sha and select_artifact(conn, "ocr", sha, offline_key) is not None:
-            return  # at least one of the sample resolves: correspondence holds
-    raise RunOfRecordError(
-        f"the offline OCR key {offline_key!r} resolves NONE of the first "
-        f"{len(sample)} rows this run recorded as read (source_path native/"
-        "local_tesseract) — the record names the wrong partition for this "
-        "cache and must not be served"
+    shas = [(row.get("content_sha256") or "").strip().upper() for row in sample]
+    shas = [sha for sha in shas if sha]
+    if not shas:
+        return
+    resolved = sum(
+        1 for sha in shas if select_artifact(conn, "ocr", sha, offline_key) is not None
     )
+    fraction = resolved / len(shas)
+    if fraction < _CORRESPONDENCE_MIN_RESOLVED_FRACTION:
+        raise RunOfRecordError(
+            f"the offline OCR key {offline_key!r} resolves only {resolved}/{len(shas)} "
+            f"({fraction:.0%}) of the sampled rows this run recorded as read "
+            "(source_path native/local_tesseract) — below the required "
+            f"{_CORRESPONDENCE_MIN_RESOLVED_FRACTION:.0%} — the record names the wrong "
+            "partition for this cache and must not be served"
+        )
 
 
 def ocr_partition_for_row(row: Mapping[str, Any], partitions: RunPartitions) -> str | None:
