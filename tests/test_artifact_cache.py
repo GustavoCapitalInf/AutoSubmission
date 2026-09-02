@@ -31,6 +31,7 @@ from ocr.document import StatementMarkdown
 from ocr.truncation import PageIntegrity
 from webapp.artifact_cache import (
     ANALYSIS_STAGE_VERSION,
+    EXTRACTION_SCHEMA_VERSION,
     OCR_STAGE_VERSION,
     ArtifactCache,
     CACHE_FORMAT_VERSION,
@@ -425,6 +426,12 @@ def test_ocr_settings_key_only_calls_load_paddle_settings_for_the_paddle_branch(
     for name in ("load_paddle_settings", "paddle_settings_key_material"):
         assert name not in before, f"{name} referenced before the paddle-only branch"
         assert name in after, f"{name} missing from the paddle-only branch"
+
+
+def test_extraction_schema_version_is_pinned_at_2():
+    """M10: D6 bumps EXTRACTION_SCHEMA_VERSION 1 -> 2 in the SAME commit as
+    the page_extractor/evidence fields it describes; this is that pin."""
+    assert EXTRACTION_SCHEMA_VERSION == 2
 
 
 def test_paddle_model_token_is_not_in_free_models():

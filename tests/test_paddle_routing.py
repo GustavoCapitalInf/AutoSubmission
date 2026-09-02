@@ -353,9 +353,18 @@ def test_case10_paddle_branch_never_references_the_postprocess_chain():
             names.add(node.id)
         if isinstance(node, ast.Attribute):
             names.add(node.attr)
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
+        if isinstance(node, ast.ImportFrom):
+            if node.module:
+                names.add(node.module)
             for alias in node.names:
-                names.add(alias.asname or alias.name)
+                names.add(alias.name)
+                if alias.asname:
+                    names.add(alias.asname)
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.name)
+                if alias.asname:
+                    names.add(alias.asname)
     forbidden = {"ocr_client", "postprocess", "apply_admitted"}
     assert not (names & forbidden), names & forbidden
 
