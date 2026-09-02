@@ -1869,8 +1869,16 @@ def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object
     on a line-break in `source_file`) — but as an opaque per-job failure
     instead of a clean 400 at upload, and `_stage_failure` (`webapp/
     worker.py`) already withholds that message from the job record, so the
-    only change here is WHERE the refusal happens, not what it reveals."""
-    if "\r" in filename or "\n" in filename:
+    only change here is WHERE the refusal happens, not what it reveals.
+
+    NEW-4 (re-review, closure 1cc759e): the same reasoning extends to `-->`,
+    which `StatementMarkdown.__post_init__` also refuses (the writer-side
+    belt) but this function did not — a filename like `a-->b.pdf` reached
+    the view (a raw `-->` does not corrupt multipart framing the way CR/LF
+    does) and then died as the same opaque per-job failure MINOR-8 fixed for
+    CR/LF. Refused here too, for consistency, with the identical
+    class-name-only shape."""
+    if "\r" in filename or "\n" in filename or "-->" in filename:
         return None, None, {"error": "ProvenanceTokenError"}
     if len(pdf_bytes) > MAX_UPLOAD_BYTES:
         return None, None, {

@@ -226,6 +226,22 @@ def test_checked_upload_refuses_a_filename_with_a_line_break():
         assert "filename" not in error
 
 
+def test_checked_upload_refuses_a_filename_with_a_comment_close():
+    """NEW-4 (re-review, closure 1cc759e): `StatementMarkdown.__post_init__`
+    also refuses `-->` in `source_file` (the writer-side belt), but a raw
+    `-->` does not corrupt multipart framing the way CR/LF does, so a
+    filename like `a-->b.pdf` reached the view and then died as the same
+    opaque per-job failure MINOR-8 fixed for CR/LF. Refused at
+    `_checked_upload` too now, with the identical class-name-only shape."""
+    from webapp.app import _checked_upload
+
+    page_count, profile, error = _checked_upload("evil-->name.pdf", b"%PDF-fake")
+    assert page_count is None
+    assert profile is None
+    assert error == {"error": "ProvenanceTokenError"}
+    assert "filename" not in error
+
+
 def test_checked_upload_still_echoes_an_ordinary_filename():
     """The refusal above is scoped to the line-break shape — every other
     `_checked_upload` error keeps echoing the (safe) filename it always did."""
