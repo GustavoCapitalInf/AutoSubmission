@@ -309,7 +309,16 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
             refused[Path(rel).name] = section
         else:
             assert outcome == "validated", rel
-            assert section == empty_diagnostics(), rel
+            # MAJOR-3 (PHASE2_P20SEAM_REVIEW.md): build_record adds
+            # source_path_unrecognized_model ALONGSIDE diagnose_document's
+            # own closed taxonomy (never a member of it). False here because
+            # none of the 109 corpus documents carries an unrecognised OCR
+            # model token (all are native or the 6 committed Tesseract
+            # fixtures).
+            assert section == {
+                **empty_diagnostics(),
+                "source_path_unrecognized_model": False,
+            }, rel
             quiet += 1
 
     assert quiet == 102
