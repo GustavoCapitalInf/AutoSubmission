@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 
 import pytest
 
@@ -136,10 +137,37 @@ def test_unauthorized_without_matching_bearer_token():
 
 
 def test_m9_body_over_the_bound_is_refused():
-    assert worker.MAX_BODY_BYTES == 32 * 1024 * 1024
-    # The bound is enforced on Content-Length before any read; this asserts
-    # the constant itself is the documented one, and a dedicated HTTP-level
-    # test (test_paddle_vast_tool / live) exercises the header path.
+    """A real HTTP round trip against `worker.build_server`: the
+    `Content-Length` bound is enforced from the HEADER alone, before the
+    (enormous, never-sent) body would be read — proven by a request that
+    declares an over-the-bound length but sends only a handful of bytes and
+    still gets `body_too_large` back promptly, never a hang waiting to read
+    bytes that never arrive."""
+    import http.client
+
+    identity = {"provider": "local", "execution_class": "local_free"}
+    server = worker.build_server("127.0.0.1", 0, identity, None)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5.0)
+        try:
+            conn.putrequest("POST", "/ocr")
+            oversized = worker.MAX_BODY_BYTES + 1
+            conn.putheader("Content-Length", str(oversized))
+            conn.endheaders()
+            conn.send(b"{}")  # far short of the declared length; the server must not wait for the rest
+            response = conn.getresponse()
+            body = json.loads(response.read().decode("utf-8"))
+            assert response.status == 413
+            assert body == {"error": "body_too_large"}
+        finally:
+            conn.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5.0)
 
 
 def test_bad_base64_refused():

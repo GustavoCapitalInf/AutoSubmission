@@ -157,15 +157,35 @@ def test_case18_timeout_is_a_transport_error():
         assert excinfo.value.reason == "paddle_worker_unreachable"
 
 
+class _UrlSpyingOpener:
+    """Wraps the real opener, recording the exact URL of every `.open()`
+    call — the seam M4's mutant (a retry to a hardcoded second URL, e.g. the
+    visual endpoint) would have to go through."""
+
+    def __init__(self, real_opener):
+        self._real = real_opener
+        self.urls: list[str] = []
+
+    def open(self, request, timeout=None):
+        self.urls.append(request.full_url)
+        return self._real.open(request, timeout=timeout)
+
+
 def test_m4_no_retry_to_a_different_url_ever():
     """A transport failure never causes a second, different URL to be
-    contacted — the client has exactly one `settings.worker_url` for its
-    whole lifetime and `_request` only ever builds requests against it."""
+    contacted — every attempt (including retries) targets the SAME
+    `settings.worker_url`, proven by recording every URL `_request` ever
+    opens, not merely asserting the settings object was not mutated."""
+    from ocr.paddle_client import _default_opener
+
     with FakeWorker(fail_mode="connection_refused") as fake:
         settings = _settings(fake.url)
-        client = PaddleClient(settings)
+        spy = _UrlSpyingOpener(_default_opener())
+        client = PaddleClient(settings, opener=spy)
         with pytest.raises(PaddleTransportError):
             client.health()
+        assert spy.urls, "no request was even attempted"
+        assert set(spy.urls) == {settings.worker_url + "/health"}
         assert client.settings.worker_url == settings.worker_url
 
 
