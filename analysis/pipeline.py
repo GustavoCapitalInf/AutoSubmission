@@ -1,6 +1,12 @@
-"""Orchestrates the analysis stages: extract -> reconcile -> (escalate) ->
-metrics -> detect. Extraction runs on the cheap flash-lite model; only a
-statement that fails reconciliation is re-extracted with the stronger model."""
+"""Orchestrates the analysis stages: extract -> reconcile -> metrics -> detect.
+
+No statement is ever re-extracted because it failed reconciliation. The
+reconciliation-based selection between two hosted extractions that used to sit
+between `reconcile` and `metrics` was REMOVED under ruling R9
+(`docs/moneythumb-replacement/PHASE2_RULINGS.md`, 2026-09-03; card P22-FENCE):
+the validator is a verifier, never an optimizer, and
+`tests/test_pipeline_escalation_fence.py` characterised the removed behaviour
+at the base tree and pins its absence."""
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
@@ -862,12 +868,13 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # the nine unconditional repairs' crashes would be exactly the
         # misattribution this seam exists to prevent.
         #
-        # NOT applied to the two LLM-branch repair calls below, and that is a
-        # boundary rather than an omission: `extract_statement` on those
-        # branches is itself an unguarded call that raises out of this
+        # NOT applied to the LLM-branch repair call below, and that is a
+        # boundary rather than an omission: `extract_statement` on that
+        # branch is itself an unguarded call that raises out of this
         # function, so guarding one line inside a branch that makes no
-        # totality promise would buy nothing. The escalation call already
-        # reduces any crash to `type(e).__name__` in its own `except`.
+        # totality promise would buy nothing. (A second such call — the
+        # escalation extraction, with its own `except` — stood after
+        # `reconcile` until R9 removed it; see the pinned `escalated` below.)
         try:
             stmt = apply_statement_repairs(markdown, normalized, dispatch=dispatch)
         except Exception as exc:
@@ -955,51 +962,23 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     claiming = claiming_parser_id(dispatch)
     recon = reconcile(stmt, parser_id=claiming)
 
-    escalated = False
-    # Cheap model's mistakes surface as reconciliation failures — re-extract those
-    # with the stronger model before trusting the numbers. On small-bank / image
-    # statements the line items are often incomplete (coverage always fails), so
-    # what matters most is a SELF-RECONCILING SUMMARY: escalate whenever the summary
-    # is inconsistent (or fully clean), and prefer whichever extraction's summary
-    # reconciles, falling back to fewer overall issues.
-    needs_escalation = not recon.ok and (recon.summary_ok is not True)
-    # `parse_mode != "deterministic"` is the FIRST clause, and it is the only
-    # one of the four that is a statement about the CALLER'S CONTRACT rather
-    # than about this document (#PRIVACY3, closing W3 §EXTRACTPRIV XP9 finding
-    # 2). Deterministic mode promises no hosted-model call, and until this line
-    # the promise rested on a coincidence: `deterministic_stmt is None` is true
-    # on the structurer branch (`GENERIC_STRUCTURER_ENABLED`), where
-    # `structured_stmt` is not None, so nothing above stopped a
-    # deterministic-mode run from reaching `extract_statement` below — except
-    # that the structurer only publishes a statement whose ledger GROUNDS, so
-    # `recon.ok` is True and `needs_escalation` is False. That is a property of
-    # the structurer, not of the mode, and one widened grounding rule would have
-    # turned an offline guarantee into a vendor call with no test failing.
+    # R9 (`PHASE2_RULINGS.md`, 2026-09-03; card P22-FENCE): PINNED FALSE.
     #
-    # Fail-closed and free: in deterministic mode the branch above has already
-    # raised (`no deterministic parser matched this statement`) for every
-    # document that has no `deterministic_stmt` and no `structured_stmt`, so the
-    # only documents this clause can reach are structurer-published ones, which
-    # measure `needs_escalation is False` today. Zero movement by construction;
-    # the clause exists so it stays zero.
-    if (
-        parse_mode != "deterministic"
-        and deterministic_stmt is None
-        and needs_escalation
-        and settings.escalation_model != settings.model
-    ):
-        try:
-            alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
-            alt = apply_statement_repairs(markdown, alt, dispatch=dispatch)
-            alt_recon = reconcile(alt, parser_id=claiming)
-            better_summary = bool(alt_recon.summary_ok) and not recon.summary_ok
-            fewer_issues = alt_recon.summary_ok == recon.summary_ok and len(alt_recon.issues) < len(recon.issues)
-            if alt_recon.ok or better_summary or fewer_issues:
-                stmt, recon, model_used, escalated = alt, alt_recon, settings.escalation_model, True
-        except Exception as e:
-            recon.issues.append(
-                f"escalation extraction failed ({type(e).__name__}); using primary extraction with review guards"
-            )
+    # Until this cell the block that stood here ran a SECOND hosted extraction
+    # with `settings.escalation_model` whenever `recon` failed, reconciled the
+    # alternate, and kept whichever extraction reconciled — "falling back to
+    # fewer overall issues" — which is, verbatim, the "multiple extractions ->
+    # compare financial reconciliation -> prefer whichever reconciles" pattern
+    # the anti-optimizer rule forbids. It is REMOVED, not fenced: this module
+    # makes at most one `extract_statement` call, binds at most one `reconcile`
+    # result per scope, and derives this flag from nothing. The field stays on
+    # `Report`, and so in every payload, for shape stability only.
+    # `tests/test_pipeline_escalation_fence.py` characterised the removed
+    # behaviour at the base tree and pins its absence with AST tripwires. (The
+    # #PRIVACY3 guarantee the removed guard's first clause carried — no hosted
+    # call in deterministic mode — is now structural: the one call left is in
+    # the branch above, after the deterministic-mode raises.)
+    escalated = False
 
     published = list(partition.accounts) if partition is not None else []
     source_scope = published[0].section_text if published else markdown

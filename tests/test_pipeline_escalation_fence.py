@@ -1,31 +1,28 @@
-"""P22-FENCE (Phase 2.2 cell F; ruling R9; Ruling A in code) — CHARACTERISATION.
+"""P22-FENCE (Phase 2.2 cell F; ruling R9; Ruling A in code).
 
-THIS FILE, AS COMMITTED FIRST, DOCUMENTS THE BEHAVIOUR THAT IS ABOUT TO BE
-REMOVED. Every test below PASSES at the cell's base (`train12` `b23cb50`, code
-tree `4f7d798`) and each one names an edge the doctrine forbids:
+This file was committed FIRST as a characterisation (commit 034a855): every
+test in it PASSED at the cell's base (`train12` `b23cb50`, code tree
+`4f7d798`) on the behaviour the doctrine forbids, and each is inverted in the
+commit that removes the edge it characterised:
 
-* **Edge 1 — the selection.** `analysis/pipeline.py`'s escalation block runs a
-  SECOND hosted extraction with `settings.escalation_model` whenever the first
-  fails reconciliation, reconciles the alternate, and "prefer[s] whichever
-  extraction's summary reconciles, falling back to fewer overall issues"
-  (`REPO_VALIDATOR_MEMO.md` §9 row 8). That is the exact pattern Gustavo's R9
-  forbids: "multiple extractions -> compare financial reconciliation -> prefer
-  whichever extraction reconciles". The test reproduces it on a fake extractor
-  whose PRIMARY fails and whose ALTERNATE reconciles: the base adopts the
-  alternate (`model_used == settings.escalation_model`, `escalated is True`,
-  two calls).
-* **Edge 2 — the Class-B -> hosted hop.** In the webapp's default
-  `parse_mode="auto"`, a dispatch that is `unclaimed`, `parser_exception` or
-  `ambiguous` falls through to `extract_statement` with NO opt-in of any kind
-  in the environment — the hop Ruling A refused as doctrine ("No 'parser
-  failure -> hosted model' hop"). Three tests reproduce it, one per outcome;
-  the card names the first two and the third reaches the SAME call site.
-
-The fix commit that follows inverts these tests in place (the alternate is
-NEVER adopted; the second call NEVER happens; the hop requires the exact
-opt-in literal) and adds the tripwires. The docstrings are rewritten there;
-until then, read every assertion here as "this is what the base does", not as
-"this is what is wanted".
+* **Edge 1 — the selection (REMOVED in this commit).** `analysis/pipeline.py`'s
+  escalation block ran a SECOND hosted extraction with
+  `settings.escalation_model` whenever the first failed reconciliation,
+  reconciled the alternate, and "prefer[red] whichever extraction's summary
+  reconciles, falling back to fewer overall issues" (`REPO_VALIDATOR_MEMO.md`
+  §9 row 8) — Gustavo's R9 verbatim: "multiple extractions -> compare
+  financial reconciliation -> prefer whichever extraction reconciles". The
+  characterisation reproduced it on a fake extractor whose PRIMARY fails and
+  whose ALTERNATE reconciles (the base adopted the alternate: two calls,
+  `model_used == settings.escalation_model`, `escalated is True`); the
+  inverted test proves the alternate is never asked for.
+* **Edge 2 — the Class-B -> hosted hop (STILL CHARACTERISED HERE; fenced in the
+  next commit).** In the webapp's default `parse_mode="auto"`, a dispatch that
+  is `unclaimed`, `parser_exception` or `ambiguous` falls through to
+  `extract_statement` with NO opt-in of any kind in the environment — the hop
+  Ruling A refused as doctrine ("No 'parser failure -> hosted model' hop").
+  Three tests reproduce it, one per outcome; the card names the first two and
+  the third reaches the SAME call site.
 
 Hygiene: no network (the extractor is a monkeypatched fake at the
 `analysis.pipeline` import site); `GEMINI_API_KEY` is asserted absent; every
@@ -128,15 +125,23 @@ def clean_environment(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_characterisation_base_adopts_the_alternate_extraction_that_reconciles(
+def test_the_alternate_extraction_that_reconciles_is_never_adopted(
     clean_environment, monkeypatch,
 ):
-    """CHARACTERISATION OF THE REMOVED BEHAVIOUR (R9). At base, an unclaimed
-    document in auto mode is extracted with `settings.model`; because that
-    result fails reconciliation, the base extracts AGAIN with
-    `settings.escalation_model`, reconciles that too, and ADOPTS the alternate
-    because its reconciliation passed. Two hosted calls; the report says the
-    escalation model produced it and `escalated is True`."""
+    """THE INVERTED CHARACTERISATION (R9). At the base tree this test, under
+    its former name `test_characterisation_base_adopts_the_alternate_
+    extraction_that_reconciles` (commit 034a855), PASSED on the unsafe
+    behaviour: the primary extraction failed reconciliation, so the base
+    extracted AGAIN with `settings.escalation_model`, reconciled that, and
+    ADOPTED it because its reconciliation passed — two hosted calls,
+    `model_used == settings.escalation_model`, `escalated is True`.
+
+    Now the same fixture — an alternate that WOULD reconcile if asked for —
+    is never asked for. Exactly ONE hosted call, with `settings.model`; the
+    primary's failed reconciliation STANDS (a failing validator is a finding,
+    not a search objective); `escalated` is pinned False. Mutant M2 (re-adding
+    `if alt_recon.ok: stmt = alt`) turns the call count back to two and the
+    adopted amount back to the alternate's, and fails here."""
     fake = _FakeExtractor({
         "model-a": _failing_statement,
         "model-b": _reconciling_statement,
@@ -148,11 +153,17 @@ def test_characterisation_base_adopts_the_alternate_extraction_that_reconciles(
         UNCLAIMED_MARKDOWN, parse_mode="auto", settings=settings,
     )
 
-    assert fake.calls == [settings.model, settings.escalation_model]
-    assert report.model_used == settings.escalation_model
-    assert report.escalated is True
-    assert report.reconciliation.ok is True
-    assert [t.amount for t in report.statement.transactions] == [500.00]
+    assert fake.calls == [settings.model], (
+        "a second hosted extraction ran — the R9 selection is back"
+    )
+    assert settings.escalation_model not in fake.calls
+    assert report.model_used == settings.model
+    assert report.escalated is False
+    assert report.reconciliation.ok is False, (
+        "the primary's failed reconciliation must stand; nothing may be "
+        "adopted because it reconciles"
+    )
+    assert [t.amount for t in report.statement.transactions] == [100.00]
 
 
 # ---------------------------------------------------------------------------
