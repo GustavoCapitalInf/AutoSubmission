@@ -218,3 +218,154 @@ boxes enabled; any v6 evaluation is a separate measurement/ruling.
 The Phase 2.1 completion gate is enumerated in `docs/agent-handoffs/PHASE2-1-PADDLE.md` §Completion.
 When it is met, Phase 2.1 STOPS and the closure report goes to Gustavo. Phase 2.2 does not begin.
 Unlimited OCR is not enabled.
+
+---
+
+# Phase 2 remainder — FULL EXECUTION AUTHORIZATION and rulings R1–R14 (Gustavo, 2026-09-03) — BINDING
+
+```
+STATUS: RULED — recorded by Ocean (Fable 5.1) on receipt, verbatim in meaning, before train12 opened
+AUTHORITY: Gustavo, 2026-09-03, on approving the planning package
+           docs/moneythumb-replacement/phase2_remainder/PHASE2_REMAINDER_PLAN.md ("approve its overall direction")
+FROZEN REGRESSION FLOOR: 2,625 / 3,380 (phase2.1-final = d5d82e8; code tree 4f7d798)
+```
+
+## The authorization
+
+* **The COMPLETE remainder of Phase 2 is authorized**: 2.2 Truth Instruments → 2.3 Broad Paddle Evidence
+  Wave → 2.4 Generalized Reconstruction v1 → 2.5 Reconstruction v2 + Paddle production admission → 2.6
+  Unlimited OCR go/no-go (+ implementation if justified) → 2.7 final Phase 2 closure. Ocean proceeds
+  **autonomously** from one GREEN milestone to the next; no routine per-milestone approval is required.
+  Every milestone keeps the established discipline (bounded card → implementation → focused tests →
+  mutation/tripwire tests → corpus measurement → technically relevant performance measurement →
+  independent adversarial review → reproduce findings → closure → independent re-review → composition →
+  composed-tree proof → CI → durable documentation). **A RED gate is fixed, never passed.**
+* **Orchestration**: `ORCHESTRATION-MODEL-POLICY.md` stands (Ocean = Fable 5.1 lead; roles and
+  independence preserved; no historical model routing restored).
+* **Preserve Phase 1 and Phase 2.1** in full (the 2,625 floor; native/deterministic first; the existing
+  parsers; immutable evidence; canonical words/boxes; `DocumentGeometry`; the PaddleOCR 3.7 / PP-OCRv5
+  baseline; the Vast worker architecture; provenance; run-of-record rules; the postprocess quarantine; the
+  no-hardcode protections; the validator as the only truth authority). No rewrite of Phase 1; no regression
+  to OCR → flattened text → bank-specific parsers. **Gain never cancels regression.**
+* **Product goal**: substantial bank/layout agnosticism — for any sufficiently legible, sufficiently
+  complete statement from an unseen layout: acquire evidence → understand layout → reconstruct
+  transactions → account/period/currency context → ledger → metrics → the SAME validator → VALIDATED,
+  without a new parser. REVIEW / REFUSED_NOT_STATEMENT / REFUSED_INCOMPLETE / REFUSED_UNREADABLE /
+  REFUSED_CONTRADICTORY / REFUSED_INSUFFICIENT_EVIDENCE (or repository-native equivalents) are correct
+  terminal outcomes. Never force a file to validate.
+* **R = 13 is NOT Paddle's ceiling**; the research scope is the 755 unresolved (3,380 − 2,625). The
+  finding that 583 / 755 are native-text PDFs makes generalized reconstruction a first-class objective;
+  more OCR does not solve a structural problem. Research admission and production admission are
+  different concepts; research is broad, production is evidence-derived, validation is unchanged.
+* **The Ocrolus (primary) and MoneyThumb (secondary) research** stays an architectural input with its
+  epistemic labels; fresh competitive research is authorized where it would materially improve a design.
+* **Priorities**: 1 correctness · 2 generalized coverage · 3 reliability · 4 maintainability ·
+  5 performance. **Billing / cost accounting is OUT OF SCOPE for Ocean** (Gustavo tracks Vast charges,
+  rates, credits, spend); no time on rates, cost telemetry, billing fields, or cost gates; the earlier
+  Vast hourly-rate ruling request is **WITHDRAWN**. Technical performance (latency, throughput, cold/warm
+  inference, RAM, VRAM, GPU utilisation, request and transfer sizes, model load, timeout/failure) is
+  measured where technically relevant, never for its own sake.
+* **Phase 2.2 must account for all 755 exactly**: a disjoint primary classification summing to 755
+  (conceptually COMPLETE/SUFFICIENT · PARTIAL/INCOMPLETE · NON_STATEMENT_BANK_DOCUMENT · NON_BANK ·
+  UNREADABLE/CORRUPT · UNCERTAIN; better repository-supported terminology allowed); overlapping diagnostic
+  labels (R, U, density, extraction/structural/financial failure) reported separately and never summed
+  as if disjoint.
+* **Phase 2.3** measures stages independently (attempted → Paddle execution → evidence → word/numeric
+  fidelity → boxes/geometry usable → DocumentGeometry → reconstruction claim → validation →
+  validated/review/refusal); never one "Paddle success" number; on the approved Vast.ai environment.
+* **Phase 2.4** has a REAL generality gate: if reconstruction appears to memorise/tune to the development
+  corpus, STOP the milestone internally, investigate, fix, re-review; never continue past a RED generality
+  gate. DocumentGeometry stays evidence-level; a neutral LayoutModel carries structural interpretation;
+  financial reconstruction produces evidence-grounded candidates; the validator stays separate.
+* **Phase 2.5** derives the Paddle production-routing policy from measured evidence-quality /
+  document-state conditions; "Phase 1 failed → always call Paddle" is not a policy.
+* **Phase 2.6** — Unlimited OCR (the Baidu vision-language model) runs on a **DIFFERENT COMPUTER**: not
+  the development machine, not the Vast Paddle instance; never moved onto Vast for convenience. It is an
+  independently configured remote/self-hosted extractor endpoint whose provider / execution_class reflect
+  its ACTUAL deployment (never labelled Vast unless it runs there). Extractor only; the path is
+  Unlimited → immutable evidence → canonical evidence → geometry/region sidecar as supported →
+  generalized reconstruction → the SAME validator; no Unlimited truth path. A Paddle *financial* failure
+  never triggers Unlimited; Unlimited targets genuine EXTRACTION shortcomings (A), never structural (B) or
+  financial (C) failures. NO-GO is a valid successful result. If the Unlimited computer is unreachable:
+  implement and prove everything provable without it (interface, config contract, client, adapters,
+  provenance, partitioning, routing, fail-closed behaviour, mocked contract tests, security boundaries,
+  anti-optimizer tripwires), surface the external dependency, never fake a live proof, never claim
+  production readiness; continue to 2.7 only if the milestone's gate permits closure without live
+  admission, else wait on the dependency.
+* **Phase 2.7** freezes the architecture and the evidence-derived router; reports the exact raw and
+  complete-statement censuses, per-source contributions (Phase 1 / Paddle / generalized reconstruction /
+  Unlimited if admitted), both coverages, every classification bucket, review/refusal population, false
+  accepts, validated regressions, development-corpus and sealed-holdout performance, final Paddle (and
+  Unlimited) triggers, the residual and WHY per category, runtime characteristics, and the Phase 3
+  handoff; then freeze, tag, push, green CI, durable docs, clean worktree, STOP. **Phase 3 / Qwen is not
+  begun** without explicit authorization; Phase 2 interfaces stay suitable for a future evidence-grounded
+  VLM producer that returns candidates to the SAME validator.
+
+## Customer-data authorization — Paddle (supersedes the Phase 2.1 privacy boundary for THIS path)
+
+APPROVED. Real customer bank statements may be processed by the approved environment **provider =
+Vast.ai · execution_class = remote_paid · extractor = PaddleOCR** for the remainder of Phase 2, for:
+CTRL (validated customer statements used for calibration/control) · U755 (the unresolved corpus) · SLICE
+(configuration A/B) · the broad research wave · unresolved customer statements · a bounded validated
+control sample · later Paddle proof/measurement Phase 2 needs. Retention: the remote worker keeps
+nothing unnecessary; temporary remote request artefacts are removed after processing; local research
+partitions and rasters are permitted under the existing gitignored on-machine archive/research rules;
+customer statements, rasters and sensitive extracted contents are never committed.
+`PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` may be set explicitly in the environment of authorized
+research/evaluation runs; never in a tracked file; never silently the default for ordinary auto mode.
+Preserved: protected transport; loopback-bound worker; bounded payloads; no arbitrary filesystem access;
+no public processing endpoint; no customer contents in ordinary logs; no customer documents or secrets
+in Git; complete provenance; remote stays remote through localhost/SSH. Stopping the instance between
+waves is operationally preferred, not a release gate.
+
+## Customer-data authorization — the Unlimited computer
+
+If the separate Unlimited computer is infrastructure we control and processing stays entirely on it,
+real customer statements are authorized for the 2.6 evaluation there, labelled with its ACTUAL
+provider/class. Any forwarding of customer contents to Baidu-hosted inference, another vendor API or any
+third-party cloud endpoint is NOT authorized: STOP before transmitting and surface the exact data-flow
+change for a ruling. Downloading weights is not transmitting customer data.
+
+## Rulings R1–R14 (numbering per PHASE2_REMAINDER_PLAN.md §N)
+
+| # | ruling |
+|---|---|
+| R1 | the operational scope of the Paddle customer-data authorization — as recorded above (populations, retention, opt-in rules, protections) |
+| R2 | **WITHDRAWN** — no Vast rate; cost accounting is Gustavo's, never Ocean's |
+| R3 | **Sealed truth / adjudication**: Gustavo is the final adjudication authority; Ocean prepares evidence packets, proposes labels, identifies conflicts and uncertain documents, prepares queues; an analyst may later be delegated with the same tooling. The sealed store lives on this machine outside the repository, inaccessible to implementation/tuning paths, keyed by content SHA, minimum truth metadata only, no unnecessary PDF duplication, never committed as readable truth, versioned/auditable, exposing only a non-sensitive manifest/hash/version to the repository. NEVER automatically labels: MoneyThumb outputs, folder names, historical census classifications, parser outputs, Paddle outputs, Unlimited outputs, prior model classifications — evidence for an adjudicator, never truth. Gustavo adjudicating the first slice through the CLI is approved in direction; slice mechanics are implementation decisions |
+| R4 | **Unseen holdout APPROVED**: the 3,380 stay development/regression/historical; the primary holdout is genuinely new, production-representative statements unavailable to the implementation/tuning path (statements received after the reconstruction design freezes are preferred); staged growth ~30 → ~100 → 300+ as guidance; diversity across institutions, layouts, periods, page counts, account types, native vs scanned, formatting; implementation never inspects sealed truth before its evaluation event; an opened holdout that affects implementation is no longer unseen; DEVELOPMENT and SEALED-HOLDOUT performance reported separately |
+| R5 | **PP-OCRv6 A/B YES**: separately pinned partitions; SLICE + ~200 pages as the starting sample (Ocean may improve); compare numeric and character fidelity, missing/extra tokens, geometry, completeness, scanned pages, downstream reconstruction, false evidence, stability, latency, VRAM; no production pin change without evidence and the reviewed milestone gate |
+| R6 | **Orientation classifiers YES** as a SECOND separately pinned configuration for scanned/mixed/orientation-sensitive pages; baseline untouched; measured; identity explicit in provenance and partitions; Ocean chooses the components |
+| R7 | **Unlimited**: runs on its own separate computer (see above); implementation authorized on go/no-go evidence without further approval; NO-GO valid; live admission only against the actual machine |
+| R8 | **Production Paddle deployment class DEFERRED to 2.5 measurements** (reliability, latency, operational complexity, privacy/security, GPU, throughput, maintainability, runtime compatibility); never blocks research |
+| R9 | **REMOVE OR HARD-FENCE** the hosted-extraction selection by reconciliation (`analysis/pipeline.py`, auto mode) during Phase 2: tripwire it unreachable immediately where practical; reproduce/characterise; remove or fully fence in Phase 2 hygiene work; preserve regression proof; surface any previously validated result that depended on it |
+| R10 | **Schedule a Phase 1 hygiene ceremony** for the six bank-keyed `bank_repairs.py` rewrites at the safest Phase 2 milestone: inventory, independent reproduction, comparison with the repair doctrine, classification (safe evidence-preserving normalisation / unsafe rewrite / legacy needing replacement), tests/tripwires; delete nothing merely for being bank-specific, keep nothing merely for being old; no new bank-keyed repair logic as coverage strategy |
+| R11 | **`refused` APPROVED** as a first-class terminal outcome (Ocean may improve vocabulary/ordering); ANY movement out of `validated` stays a regression unless independently proven a correction of an incorrect validation; comparison/reporting may widen to validated/review/withheld/refused/failed/classification outcomes but must preserve exact transition visibility; **two denominators**: RAW (validated / original corpus) and CONFIRMED-COMPLETE-LEGIBLE (validated / adjudicated complete, sufficiently legible target statements); both always reported, the raw never replaced |
+| R12 | **CCL APPROVED**: adjudicated `STATEMENT_COMPLETE` AND sufficiently legible for a competent system to recover the evidence present; the primary CCL is the bank-account statement types the engine targets (deposit/checking/savings/business where in scope); credit-card and loan statements and other classes measured and reported separately until explicitly admitted; adjudication never excludes a difficult but valid target statement |
+| R13 | **Declined branch YES**: the LayoutModel/structurer may run where a registration identified/claimed an issuer or family, the parser DECLINED, and no financial candidate was produced; detected issuer identity preserved as `bank` where evidence supports it; REQUIRED TRIPWIRE: withheld / review / validated documents are never routed into the generic path to search for another interpretation — validator failure never becomes a reconstruction retry; measured independently |
+| R14 | **Chain-derived-direction integrity flag YES**, FLAG / MEASURE ONLY at first (never withhold/refuse on it alone until control measurements establish its meaning and false-positive behaviour); meaning: every debit/credit direction on the candidate was inferred through chain/balance relationships with no sufficiently independent direction evidence on the document; measured on CTRL and the unresolved populations (frequency, layout distribution, correlation with known-correct and with ambiguous/error cases, interaction with reconstruction, whether independent evidence was genuinely absent); Ocean then recommends diagnostic / review trigger / stricter gate; the flag never invents direction evidence |
+
+## Anti-optimizer rule (restated, binding)
+
+FORBIDDEN: several interpretations → test reconciliation → keep whichever balances · changing OCR
+digits until totals reconcile · validator failure → keep invoking extractors/models until something
+passes · using reconciliation as evidence that selects an otherwise unsupported candidate. The
+validator is a VERIFIER — not an OCR corrector, candidate generator, search objective, model router or
+optimizer. Candidates have independent evidentiary support BEFORE validation; several independently
+plausible interpretations → REVIEW / REFUSE. The planned tripwires are kept and strengthened.
+
+## STOP conditions (the only reasons to stop and ask)
+
+Continuing would weaken the validator · a false accept cannot be confidently closed · a previously
+validated result regresses without an independently proven correctness correction · customer data
+would reach a NEW external provider · continuing requires abandoning Phase 1 or 2.1 architecture · a
+fundamental security/privacy/legal issue exceeds the authorization · the sealed holdout reveals a
+fundamental generalization failure requiring strategic redesign · a milestone premise is disproven and
+a materially different program is required · continuing requires Phase 3 / Qwen · the final Unlimited
+live proof needs the separate Unlimited computer and it is unavailable. Otherwise: continue.
+
+## Immediate actions ordered (2026-09-03)
+
+Privacy-scan the untracked planning package → commit it durably if clean → record this authorization
+(this section) → open `train12` from `main` at `phase2.1-final` → the Phase 2.2 umbrella card in the
+house format → begin Phase 2.2 → continue through 2.3–2.7 on GREEN gates without waiting for approval.
