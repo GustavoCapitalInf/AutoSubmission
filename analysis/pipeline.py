@@ -8,6 +8,7 @@ the validator is a verifier, never an optimizer, and
 `tests/test_pipeline_escalation_fence.py` characterised the removed behaviour
 at the base tree and pins its absence."""
 from __future__ import annotations
+import os
 import re
 from dataclasses import dataclass, field
 from collections.abc import Sequence
@@ -704,6 +705,71 @@ class _Analysed:
     partition: MultiAccountPartition | None = None
 
 
+#: THE HOSTED-EXTRACTION OPT-IN (P22-FENCE — Ruling A in code, `PHASE2_RULINGS.md`
+#: 2026-09-02; the OQ3 idiom of `ocr/endpoint_policy.py`).
+#:
+#: Auto mode used to hop from a dispatch that produced no statement —
+#: `unclaimed`, `parser_exception`, `ambiguous` — straight to the hosted
+#: extractor: a Class-B (structure) failure routed to another extractor, the
+#: "parser failure -> hosted model" hop Ruling A refuses as doctrine. The hop
+#: now exists ONLY behind this variable, compared to its literal EXACTLY (`==`,
+#: never truthiness: "1", "true", the literal in another case or with a
+#: trailing newline all refuse) and READ AT THE CALL SITE from the live process
+#: environment, never at import — a process that sets it after this module
+#: loaded is opted in, one that unsets it is not. `Settings` gains no field: an
+#: environment literal is a deliberate operator act, exactly like the OCR and
+#: Paddle opt-ins, and it is documented here because this is the only place it
+#: is read. The literal appears in no tracked file but this definition
+#: (`tests/test_pipeline_escalation_fence.py` scans the tree); an operator sets
+#: it in the environment or a gitignored `.env`.
+#:
+#: Absent, a document that reaches the hosted branch takes the deterministic-
+#: mode outcome for its dispatch — the SAME exception class and message
+#: `parse_mode="deterministic"` raises for it — with the refusal recorded on
+#: the exception object as `hosted_extraction`. On the exception because there
+#: is no payload to record it on, and never in the message, which
+#: `webapp/worker.py`'s declared-refusal allow-list and the router tests pin
+#: byte for byte.
+HOSTED_EXTRACTION_OPT_IN_ENV = "HOSTED_EXTRACTION_OPT_IN"
+HOSTED_EXTRACTION_OPT_IN_LITERAL = "I_ACCEPT_HOSTED_MODEL_EXTRACTION"
+HOSTED_EXTRACTION_REFUSED_NO_OPT_IN = "refused_no_opt_in"
+
+
+def hosted_extraction_opted_in(
+    environ: "os._Environ[str] | dict[str, str] | None" = None,
+) -> bool:
+    """True only when the opt-in variable is EXACTLY the literal — never truthy.
+
+    A plain `==` on the string, as `ocr.endpoint_policy.remote_opt_in_from_env`
+    does it. `environ` is an injection seam for tests; production callers pass
+    nothing and get `os.environ`, read when THIS call runs.
+    """
+    source = os.environ if environ is None else environ
+    return source.get(HOSTED_EXTRACTION_OPT_IN_ENV) == HOSTED_EXTRACTION_OPT_IN_LITERAL
+
+
+def _hosted_extraction_refused(dispatch: Dispatch) -> RuntimeError:
+    """The deterministic-mode outcome for `dispatch`, with the refusal recorded.
+
+    Built from the dispatch's OUTCOME and the registry's own ids and class
+    names — never from the document — exactly as the deterministic raises
+    above the call site build theirs, so a refused auto-mode document is
+    indistinguishable from a deterministic-mode one everywhere the message is
+    read, and distinguishable by the attribute wherever the object is.
+    Returned rather than raised so the call site writes
+    `raise _hosted_extraction_refused(dispatch)` from outside any `except`:
+    no `__context__` for a traceback renderer to walk.
+    """
+    if dispatch.outcome == "ambiguous":
+        refusal: RuntimeError = AmbiguousParserError(dispatch.candidates)
+    elif dispatch.outcome == "parser_exception":
+        refusal = ParserCrashError(dispatch.exceptions)
+    else:
+        refusal = RuntimeError("no deterministic parser matched this statement")
+    refusal.hosted_extraction = HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
+    return refusal
+
+
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
                      parse_mode: str = "auto",
                      document_geometry: object | None = None,
@@ -937,11 +1003,11 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # (`PHASE2-0-SAFETY.md` §Objective), so this checks the recorded
         # exception's CLASS NAME ONLY — never a message, exactly as
         # `analysis.parser_registry.ParserFailure` already stores it — and
-        # refuses in EVERY mode. This does not widen the pre-existing
-        # `unclaimed` asymmetry (BLOCK-2's own finding: an `unclaimed`
-        # dispatch still falls through to `extract_statement` outside
-        # deterministic mode exactly as it always did; that is a separate,
-        # pre-existing edge this fix does not touch).
+        # refuses in EVERY mode. BLOCK-2 also named, and did not touch, the
+        # pre-existing `unclaimed` asymmetry — an `unclaimed` dispatch fell
+        # through to `extract_statement` outside deterministic mode with no
+        # opt-in of any kind. Ruling A refused that edge as doctrine and
+        # P22-FENCE fenced it below (`hosted_extraction_opted_in`).
         if dispatch.outcome == "parser_exception" and any(
             failure.exception == Q3ProvenanceRefused.__name__
             for failure in dispatch.exceptions
@@ -953,6 +1019,17 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
             raise ParserCrashError(dispatch.exceptions)
         if parse_mode == "deterministic":
             raise RuntimeError("no deterministic parser matched this statement")
+        # THE FENCE (P22-FENCE; Ruling A in code). Everything that reaches this
+        # line is a dispatch that produced no statement, in a mode that may
+        # make a hosted call — the Class-B -> hosted hop. It runs ONLY behind
+        # the operator's exact opt-in literal, read from the process
+        # environment HERE, at the call, never at import; otherwise the
+        # document takes precisely the outcome deterministic mode gave it
+        # above, with the refusal recorded on the exception. What follows is
+        # the ONE hosted extraction this module makes: no second call, no
+        # selection (R9).
+        if not hosted_extraction_opted_in():
+            raise _hosted_extraction_refused(dispatch)
         stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
         stmt = apply_statement_repairs(markdown, stmt, dispatch=dispatch)
     # One key for both halves of the count check: the mapping `reconcile`

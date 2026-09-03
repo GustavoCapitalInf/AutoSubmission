@@ -12,10 +12,15 @@ load_dotenv()
 @dataclass
 class Settings:
     api_key: str
-    # Cheap/fast default for extraction. Its mistakes are caught by reconciliation,
-    # so a statement that fails reconciliation is re-extracted with the stronger
-    # (still cheap) escalation model — you pay flash-lite prices for the clean 90%.
+    # The hosted extraction model — the ONE hosted call `analysis/pipeline.py`
+    # can make, and only behind the operator opt-in documented there (P22-FENCE).
     model: str
+    # RETAINED, NOT READ (R9, P22-FENCE). The second extraction this model was
+    # for — re-extracting a statement that failed reconciliation and keeping
+    # whichever result reconciled — was removed from `analysis/pipeline.py`;
+    # nothing under `analysis/` reads this field now. It stays because it is
+    # analysis settings-key material (`webapp/artifact_cache.py`), so removing
+    # it would silently repartition every analysis cache.
     escalation_model: str
     withholding_denominator_mode: str = "legacy_eligible_deposits"
 

@@ -539,15 +539,19 @@ def test_q3_refusal_is_fail_closed_in_auto_mode_too(
         analyze_document(_q3_document(model), parse_mode="auto")
 
 
-def test_the_preexisting_unclaimed_to_auto_fallthrough_is_unchanged():
-    """BLOCK-2's own finding, pinned so this closure does not silently widen
-    its own fix: a document NOTHING claims (`dispatch.outcome == "unclaimed"`,
-    unrelated to Q3) still falls through to `extract_statement` in
-    `parse_mode="auto"` exactly as it did before this card -- a separate,
-    pre-existing edge Ocean is reporting to Gustavo, which this fix must not
-    touch. `extract_statement` is stubbed to return a value rather than to
-    fail the test, because reaching it here is the CORRECT, unchanged
-    behaviour being pinned, not a defect."""
+def test_the_unclaimed_to_auto_fallthrough_is_fenced_behind_the_hosted_opt_in(monkeypatch):
+    """BLOCK-2's own finding, since RULED. This pin used to assert the edge
+    UNCHANGED: a document NOTHING claims (`dispatch.outcome == "unclaimed"`,
+    unrelated to Q3) fell through to `extract_statement` in
+    `parse_mode="auto"` with no opt-in at all -- the separate, pre-existing
+    edge Ocean reported to Gustavo. Ruling A (PHASE2_RULINGS.md, 2026-09-02)
+    refused that Class-B -> hosted hop as doctrine and P22-FENCE (Phase 2.2,
+    R9) fenced it: without the exact literal in the environment auto mode
+    raises exactly what deterministic mode raises and the extractor is never
+    reached; with it, the single hosted extraction runs. Both halves pinned
+    here so THIS file's closure keeps stating the true shape of the edge it
+    once had to leave alone. `extract_statement` is stubbed to return a value
+    for the opted-in half, because reaching it there is the correct behaviour."""
     import analysis.pipeline as pipeline
     from analysis.schema import Statement
 
@@ -561,13 +565,19 @@ def test_the_preexisting_unclaimed_to_auto_fallthrough_is_unchanged():
         "<!-- source: s.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"
         "\n\n--- Page 1 ---\ncompletely unrecognisable text, no template furniture\n"
     )
-    original = pipeline.extract_statement
-    pipeline.extract_statement = _stub
-    try:
+    monkeypatch.setattr(pipeline, "extract_statement", _stub)
+    monkeypatch.delenv(pipeline.HOSTED_EXTRACTION_OPT_IN_ENV, raising=False)
+
+    with pytest.raises(RuntimeError, match="no deterministic parser matched") as refused:
         pipeline.analyze_document(unclaimed_markdown, parse_mode="auto")
-    finally:
-        pipeline.extract_statement = original
-    assert reached, "the pre-existing unclaimed->auto fallthrough moved -- report, do not fix here"
+    assert reached == [], "auto mode reached the hosted extractor with no opt-in (Ruling A)"
+    assert refused.value.hosted_extraction == pipeline.HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
+
+    monkeypatch.setenv(
+        pipeline.HOSTED_EXTRACTION_OPT_IN_ENV, pipeline.HOSTED_EXTRACTION_OPT_IN_LITERAL,
+    )
+    pipeline.analyze_document(unclaimed_markdown, parse_mode="auto")
+    assert reached == [True], "the opted-in hosted extraction did not run exactly once"
 
 
 def test_the_refusal_is_the_same_shape_l1_c17_uses_for_an_unratified_reason():
