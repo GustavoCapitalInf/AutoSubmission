@@ -475,3 +475,204 @@ the docstring that claims otherwise (MAJOR-3); and pin `_upgrade_eligible` with 
 actually reaches it, then stop crediting it for a refusal the router performs (MAJOR-4). None blocks
 composition on safety grounds; all four should close before the train, because each is a place where
 this branch's own documentation currently promises more than the branch delivers.
+
+---
+
+## Re-review
+
+```
+VERDICT: APPROVE WITH FINDINGS
+RE-REVIEWER: an independent agent that wrote neither the branch nor the first review
+TIP RE-REVIEWED: 97ab9cb (closure)   REVIEWED TIP: d2098c2   BASE: 6749627
+CLOSURE DIFF: d2098c2..97ab9cb — 15 files, +1,046 / -59 (3 commits: 5767910, db0071e, 97ab9cb)
+WORKTREE: .claude/worktrees/rev21-routing (detached at 97ab9cb; `git status --porcelain` clean but for this file after every mutant and every script)
+HOST: Windows, Git Bash, Python 3.14.5 (CI pins 3.12); PaddleOCR NOT installed; the Vast host was never contacted — every Paddle request went to the in-process fake worker on loopback
+RESIDUAL FINDINGS: 0 BLOCK · 1 MAJOR · 3 MINOR
+```
+
+Every one of the first review's five surviving mutants (RX1, RX2, RX3, RX4, RX5) now dies, each re-applied by
+me as a textual edit, restored in a `finally`, with a clean `git status --porcelain` verified after each. The
+four MAJORs and seven MINORs are genuinely closed as *claimed*. Attacking the closure itself found one new
+defect in the code the closure added: the `cache_finding` column it introduced for MAJOR-1 **leaks a drift
+observed on one document onto every later document in the same run** that does not re-run that rung — a
+false finding on the wrong row, reproduced through the real `DiscoveryRunner`. No safety property is touched
+by it (it changes no routing, no escalation, no payload); it is the MAJOR-1 fix being wrong on the second
+document, not the first.
+
+### 1. Finding-by-finding: first-review finding → the cell's closure → what I measured
+
+| first-review finding | the cell's closure | what I measured at 97ab9cb |
+|---|---|---|
+| **MAJOR-1** D6 record untested; drift a silent, self-erasing miss (RX1/RX2/RX3 survived 507) | `CacheResult.finding` + `CACHE_FINDING_EVIDENCE_DRIFT`; `DocumentRow.cache_finding` projected after all five `_read*` sites; three artifact-cache tests + one runner test | **RX1** (serve the drifted record) → **KILLED**, 2 failed / 108 passed (`test_cached_ocr_treats_a_drifted_evidence_blob_as_a_miss_with_a_finding`, `test_a_drifted_cache_entry_surfaces_as_cache_finding_on_the_row`). **RX2** (`evidence=None` on restore) → **KILLED**, 2 failed (round-trip + drift tests). **RX3** (`put_ocr` stores `[]`) → **KILLED**, 1 failed (round-trip test). By AST I found exactly 5 `self._read*(` call sites in `process()` (lines 1034, 1118, 1140, 1234, 1267 — and none elsewhere in the class); all 5 are immediately followed by `self._project_cache_finding(row)`. The `drifted` flag is set before `put_ocr` overwrites the entry and the finding is returned on the same `CacheResult`. A record whose stored `page_extractor` has the wrong length, or carries a money-shaped token, is likewise refused-and-recomputed with the finding (measured: `cached=False recomputed=1 finding=cached_evidence_drift` for both). **But see residual MAJOR-A below: the projection leaks across documents.** |
+| **MAJOR-2** the `allow_paddle_ocr=True` tripwire blind to `_TREE_PROBE` | `_embedded_program_asts` / `_all_asts_for_file`; both repo-wide scans widened; `EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES` names both files with reasons | The probe IS detected (E6, indenting the existing `_TREE_PROBE` so it no longer parses → **KILLED**, 2 failed: the case-12 pin and `test_the_tree_probe_is_detected_as_an_embedded_program_string`). A clean triple-quoted third site in a fresh file (`discovery/cli.py`, E7b) → **KILLED**; a `+`-concatenated one (E4b) → **KILLED**. Tree measurement: 303 files scanned, 15 carry ≥1 embedded program (14 pre-existing `tools/*` instruments + `tools/train/provenance.py`), none of the 14 contains the keyword. **What the scan does NOT cover** (residual MINOR-B): indented / dedent-style strings, f-strings, `%`-templates, bytes literals, nested programs, and — at direct sites — `**{"allow_paddle_ocr": True}` and non-`Constant` truthy values; and the assertion is per-FILE, so a second site inside an already-named file passes (E7). |
+| **MAJOR-3** `page_extractor` populated for Paddle only | native/Tesseract: `[native.model] * len(native.pages)` at the offline ladder's one exit; visual: `[settings.model] * len(pages_out)`; four pipeline assertions; no schema change | Native rung with pages `["native text page", "", "third"]` → `page_extractor == ['native-pdf-text'] * 3`, one token per page including the empty page (measured). A 3-page visual `StatementMarkdown` (with an empty middle page) through `put_ocr`/`cached_ocr` → `cached=True`, `page_extractor` restored as the 3-element list, stored record keys `['evidence','model','page_extractor','page_integrity','pages']`. `EXTRACTION_SCHEMA_VERSION` stays 2 (pin unchanged). Replay: see §4. |
+| **MAJOR-4** `_upgrade_eligible` unpinned; `return True` survived 387 | docstring corrected; `escalation_refused == "no_admitted_trigger"` asserted; a standing negative control; the real killer with a below-floor read + monkeypatched `_analyse` | **RX5** (`return True`) → **KILLED**, 1 failed / 28 passed in `tests/test_paddle_routing.py` (`test_upgrade_eligible_refuses_an_unusable_but_already_claimed_read`). **Instrumented**: with the real gate wrapped by a spy under exactly that fixture shape, the gate was called once with `collector.seen=False, payload is not None=True` and returned `False`; row `trigger='extractor_output_unusable'`, `paddle_rung='not_attempted'`, `escalation_extractor=''`, fake `/ocr` requests **0**. Forcing the gate to `True` flips the same run to `paddle_rung='upgraded'`, `escalation_extractor='paddle'`, **3** fake requests. The killer reaches the gate and its assertion is load-bearing. |
+| **MINOR-1** dead `allow_paddle_ocr` attribute | removed | `grep -rn "\.allow_paddle_ocr\b" discovery/` → the attribute no longer exists; the closure diff removes the six-line block and adds no reader. |
+| **MINOR-2** eight of nine `REFUSAL_REASONS` never reached a row | `paddle_refusal_reason` column, closed-vocabulary validated in `as_dict`; two tests incl. a `paddle_runtime_mismatch` reproduction | `DocumentRow.as_dict()` refuses `'bogus'`, `'PaddleRefused'`, `'paddle_runtime_mismatch\n'`, `'12.34'` (all `ValueError`); accepts all 9 `REFUSAL_REASONS` members and `''`. Non-Paddle rows through the real runner (a recovered Paddle read; a Class-B unclaimed read) carry `''`. The attribute is reset at the top of every `_read_paddle` and projected only after `_read_paddle` — no cross-document leak for THIS column. |
+| **MINOR-3** `model_calls_for` paddle arm untested | two telemetry tests | present in the diff; `tests/test_telemetry.py` in the nine-file run (404 passed). Not independently re-attacked. |
+| **MINOR-4** CLI preflight untested | `probe_paddle_ocr` imported at module level; three tests | the three tests pass in the nine-file run; the refusal-token test asserts no `127.0.0.1`/`http://`/`ssh`/`.invalid`/`@` in stderr. Not independently re-attacked beyond reading the diff (the import move is behaviour-neutral: same function, same call). |
+| **MINOR-5** `str(exc)` verbatim into `provenance.json` | class name only, plus a `.reason` only when it is a `REFUSAL_REASONS` member; a real `collect()` test | read the fix: `reason in REFUSAL_REASONS` is a membership test on the closed tuple, never the message. Observation (pre-existing, outside this closure's scope): the probe's generic `attempt()` wrapper at `tools/train/provenance.py:70` still writes `f"{type(exc).__name__}: {exc}"` for every OTHER probed value; a failure of `run_of_record_partitions` outside the Paddle `try` would still go verbatim. Not a regression of this closure. |
+| **MINOR-6** `enabled=` tripwire shape-only (RX4 survived) | AST pin: `self.enabled_extractors` assigned only in `__init__` | **RX4a** (plain `self.enabled_extractors = …` in `process()`) → **KILLED** (`['process:...']`), and a helper METHOD that assigns it (RX4d) → **KILLED**. **Six spellings SURVIVE** the pin: `setattr(self, "enabled_extractors", …)` (RX4b), `self.__dict__["enabled_extractors"] = …` (RX4c), tuple-unpack target (RX4e), `for self.enabled_extractors in (…):` (RX4f), `vars(self)[…] = …` (RX4g), a module-level helper function `_tune_runner(self)` (RX4h) — each 12 passed / 0 failed over `tests/test_escalation_tripwires.py`. Residual MINOR-C. As the first review said, `enabled` can only narrow. |
+| **MINOR-7** one-extractor pin over 4 of 6 modes | all six modes iterated | present in the diff; passes. |
+
+### 2. Residual findings
+
+#### MAJOR-A — `cache_finding` leaks from one document onto every later document in the same run (a false finding on the wrong row)
+
+`discovery/runner.py:888-903` (`_project_cache_finding`), with the resets at `discovery/runner.py:727`
+(`_read`), `:785` (`_read_visual`), `:848` (`_read_paddle`), and the projection call at `:1035` (after
+`_read`, executed for EVERY document).
+
+`_project_cache_finding` reads `self._last_ocr_finding or self._last_visual_finding or
+self._last_paddle_finding`. Only `_last_ocr_finding` is reset on every document (inside `_read`);
+`_last_visual_finding` / `_last_paddle_finding` are reset only when their own rung runs. `process()` calls
+`_project_cache_finding(row)` right after `_read` for every document, so a drift recorded by the Paddle (or
+visual) rung on document A is projected onto document B, C, … for as long as that rung does not run again.
+`discovery/cli.py:130-139` constructs ONE `DiscoveryRunner` and calls `process()` on it for the whole run, so
+this is the production shape, not a test artefact. The method's own docstring ("at most one of the three is
+ever truthy for a single call") is true for one document and false for a run.
+
+**Reproduction (real `DiscoveryRunner`, real `ArtifactCache`, `--scanned-paddle`, `local_free` fake
+worker, one runner instance, two distinct PDFs — the second is the same fixture with a trailing comment so
+its sha differs):**
+
+```
+A first pass:            paddle_rung=recovered  cache_finding=''
+A second pass (drifted): paddle_rung=recovered  cache_finding='cached_evidence_drift'
+   runner state after A: _last_ocr_finding=None  _last_paddle_finding='cached_evidence_drift'
+B on the SAME runner (Class B, no escalation, _read_paddle never called):
+   paddle_rung=not_attempted  escalation_refused='no_admitted_trigger'  cache_paddle='bypass'
+   cache_finding='cached_evidence_drift'          <-- a finding about A, on B's row
+B on a FRESH runner:     cache_finding=''
+```
+
+No routing, escalation, payload, or `validated` value is affected (the column is write-only diagnostics);
+the harm is that the counter MAJOR-1 was fixed to provide now over-counts, and a reader of `rows.csv` will
+attribute a drift to documents whose artifacts were never touched.
+
+**Fix.** Reset all three `_last_*_finding` at the top of `process()` — or have
+`_project_cache_finding(row, rung)` read only the attribute of the rung that just ran, with `_read`
+projecting `_last_ocr_finding` alone. Add a two-document test on ONE runner instance: document A drifted →
+finding; document B (no escalation) → `cache_finding == ""`. The existing
+`test_a_drifted_cache_entry_surfaces_as_cache_finding_on_the_row` cannot see this because it builds a fresh
+runner per `process()` call.
+
+#### MINOR-B — the embedded-program scan and the site pin: what they do not cover
+
+`tests/test_escalation_tripwires.py:381-404` (`_embedded_program_asts`) and
+`tests/test_paddle_routing.py:485-506` (`EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES` + the case-12 pin).
+
+Measured over synthetic shapes and then as live mutants (a third `ocr_settings_key(..., allow_paddle_ocr=True)`
+site added to `discovery/cli.py`, a file NOT in the expected set): a clean triple-quoted program → **seen**
+(E7b killed); a `+`-concatenation whose fragment is ≥40 chars with a trailing newline → **seen** (E4b
+killed); **invisible**: a string with a leading indent (the `textwrap.dedent` style; E2b **survived** —
+`IndentationError` is swallowed as `SyntaxError`), an f-string program (E3b **survived**; `JoinedStr` is not
+`Constant`), a `%`-format template, a bytes literal, a program nested inside an embedded program (the walk
+is one level deep), and — at a DIRECT, non-embedded site — `**{"allow_paddle_ocr": True}` (E8b
+**survived**; `keyword.arg is None`) and any non-`Constant` truthy value (`bool(1)`). Separately, the pin is
+per-FILE: a second clean site inside `tools/train/provenance.py` (E7) **survived** because that file is
+already in the expected set. Tree numbers: 303 files; 1,677 long multi-line string constants the scan cannot
+parse; 42 multi-line f-strings never inspected. All of these require a deliberate author, and the one
+realistic accident — refactoring `_TREE_PROBE` to a dedented string — is caught by the equality (E6 killed,
+2 failed). **Fix:** assert site COUNTS per file (`{"discovery/runner.py": 1, "tools/train/provenance.py":
+1}`); `textwrap.dedent` before `ast.parse`; include `JoinedStr` by joining its constant parts with a
+placeholder name; treat a `**{...}` dict literal carrying the key with a non-`False` value, and a
+non-`Constant` value for the keyword, as offenders.
+
+#### MINOR-C — the `enabled_extractors` assignment pin is spelling-dependent
+
+`tests/test_escalation_tripwires.py:210-252`. Six re-spellings of RX4 survive it (RX4b/c/e/f/g/h above,
+each 12 passed / 0 failed), two die (plain attribute assignment; a helper method). The exposure is the one
+the first review sized: `enabled` narrows an already-admitted decision and cannot start one. **Fix:** walk
+assignment targets recursively (`Tuple`/`List`/`Starred`), include `For`/`With`/`NamedExpr`/comprehension
+targets, walk module-level functions as well as the class body, and refuse the string constant
+`"enabled_extractors"` anywhere in `discovery/runner.py` outside `__init__` (this kills `setattr`,
+`__dict__` and `vars` at once).
+
+#### MINOR-D — a drift followed by a failed recompute loses the finding (and keeps the drifted entry)
+
+`webapp/artifact_cache.py:1241-1248`. When `cached_ocr` detects a drift and `compute()` then raises, no
+`CacheResult` is constructed, so the drift is never reported; `_read_visual` / `_read_paddle` catch the
+exception and the row shows `error_type` with `cache_finding=""`. Measured: `RuntimeError` propagates,
+and afterwards `get_ocr` still returns the drifted pages (`hit=True pages=['drifted']`). The entry is
+therefore found again on the next run rather than lost — acceptable, but undocumented in the docstring that
+now describes the finding path. **Fix:** either document it, or attach the finding to the raised exception
+and let `_read_*` project it from the `except` branch.
+
+### 3. Proof floor I re-ran myself (all at 97ab9cb; `tasklist | findstr python` empty before each harness; one harness at a time)
+
+| proof | result |
+|---|---|
+| the nine named files: `tests/test_paddle_routing.py tests/test_artifact_cache.py tests/test_escalation_router.py tests/test_escalation_tripwires.py tests/test_visual_rung.py tests/test_pipeline.py tests/test_discovery.py tests/test_run_of_record.py tests/test_telemetry.py` | **404 passed, 4 deselected**, 73.06 s, exit 0 |
+| mutation baselines | `test_artifact_cache + test_paddle_routing` **110**; `test_paddle_routing` alone **29**; `test_escalation_tripwires` alone **12**; the case-12 pin alone **1** |
+| the 5 canonical guards | **275 passed**, 10.50 s, exit 0 |
+| privacy scan (`tools/privacy_scan_branch.py --data-dir <main>/.claude/recovery/webapp_data_train10_cold --base d2098c2 --ref 97ab9cb --rows <run>/rows.csv --run <run>`) | `added_lines: 1046`, `documents_read: 3351` of `population: 3380`, **`hit_count: 0`** (`raw_hit_count: 9`, all 9 `words_class`), `residue_files: 0`, exit 0 |
+| secrets scan (mine): the closure diff's 1,046 added lines and the 3 commit messages vs the `PADDLE_VAST_*` values in `os.environ` | `PADDLE_VAST_HOST` (14 chars) **0 / 0**; `PADDLE_VAST_SSH_PORT` (5 chars) **0 / 0**; `PADDLE_VAST_SSH_USER` (4 chars, an all-lowercase common word) 9 whole-word coincidences in added lines and 1 in a message — every one is the ordinary word inside `--<word>`, `<word>.mkdir`, `empty-<word>` (a CLI path argument and a test label), never an assigned value; the only IPv4 literal is `127.0.0.1`; no `user@host` shape; no port near an `ssh`/`port` word |
+| ownership | all 15 closure files and all 25 cell files are inside the card's list; `ocr/config.py` diff = `RESERVED_MODEL_PREFIXES` + its one import; `webapp/worker.py` diff = the constant + the `enabled=` argument; no Phase 2.0 tripwire allowlist (`EXCLUDED_FROM_REPO_SCAN`, `EXCLUDED_TREES_FROM_REPO_SCAN`, the `decide(` call-site set) changed; the ONE widened set is `EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES` (1 → 2 files, with reasons — the first review's fix option) |
+| not re-run (per the brief; no finding required it) | the full suite · `corpus_gate.py` · `pytest -m corpus` · the cohort replay |
+
+### 4. The replay numbers under MAJOR-3
+
+`tools/cohort_replay.py:247-249` (`ColdCache.text()`) rebuilds each replayed document from
+`document["pages"]` and `document["model"]` only, and it reads the Phase 2.0 cold cache, whose schema-1
+records have no `page_extractor` key at all — so a per-page provenance list written by a new read can neither
+be read by the replay nor alter a replayed page string, and 3,351 replayed / 2,625-of-2,625 identical / 0
+newly validated is the only number the closure replay could have produced.
+
+### 5. Mutation table — every mutant I applied (textual edit; restored in `finally`; `git status --porcelain` clean after each)
+
+| # | mutant | result | killer(s) I observed |
+|---|---|---|---|
+| RX1 | `cached_ocr`'s `except` returns the drifted record as a hit | **KILLED** (2) | `test_cached_ocr_treats_a_drifted_evidence_blob_as_a_miss_with_a_finding`, `test_a_drifted_cache_entry_surfaces_as_cache_finding_on_the_row` |
+| RX2 | `cached_ocr` restores `evidence=None` | **KILLED** (2) | `test_cached_ocr_round_trips_evidence_and_reproduces_its_sha`, the drift test |
+| RX3 | `put_ocr` stores `"page_extractor": []` | **KILLED** (1) | the round-trip test |
+| RX5 | `_upgrade_eligible` → `return True` | **KILLED** (1) | `test_upgrade_eligible_refuses_an_unusable_but_already_claimed_read` |
+| RX4a | `self.enabled_extractors = frozenset({"paddle"})` at the top of `process()` | **KILLED** (1) | `test_discovery_runner_enabled_extractors_is_assigned_only_in_init` |
+| RX4d | a helper method `_tune()` assigns it; `process()` calls it | **KILLED** (1) | the same |
+| RX4b | `setattr(self, "enabled_extractors", …)` | **SURVIVED** (12 passed) | none → MINOR-C |
+| RX4c | `self.__dict__["enabled_extractors"] = …` | **SURVIVED** | none → MINOR-C |
+| RX4e | `self.enabled_extractors, _unused = …, None` | **SURVIVED** | none → MINOR-C |
+| RX4f | `for self.enabled_extractors in (…): pass` | **SURVIVED** | none → MINOR-C |
+| RX4g | `vars(self)["enabled_extractors"] = …` | **SURVIVED** | none → MINOR-C |
+| RX4h | module-level `_tune_runner(runner)` assigns it; `process()` calls it | **SURVIVED** | none → MINOR-C |
+| E6 | the existing `_TREE_PROBE` indented so it no longer parses (hidden from the widened scan) | **KILLED** (2) | the case-12 pin (found set ≠ expected), `test_the_tree_probe_is_detected_as_an_embedded_program_string` |
+| E7 | a second clean-string site inside `tools/train/provenance.py` | **SURVIVED** (per-file pin) | none → MINOR-B |
+| E7b | a clean-string site in `discovery/cli.py` | **KILLED** (1) | the case-12 pin |
+| E4b | a `+`-concatenated site in `discovery/cli.py` | **KILLED** (1) | the case-12 pin |
+| E2b | an indented (dedent-style) string site in `discovery/cli.py` | **SURVIVED** | none → MINOR-B |
+| E3b | an f-string site in `discovery/cli.py` | **SURVIVED** | none → MINOR-B |
+| E8b | a direct `**{"allow_paddle_ocr": True}` site in `discovery/cli.py` | **SURVIVED** | none → MINOR-B |
+
+### 6. What I attacked and could not break
+
+* **The five read sites.** By AST, `process()` contains exactly five `self._read*(` calls and no other
+  method of the class calls one; each is followed by `_project_cache_finding(row)`. The drift IS carried
+  out of `cached_ocr` (a `CacheResult` field, set from a flag captured before `put_ocr` overwrites the
+  entry) and onto the row of the document whose read drifted. Wrong-length and money-shaped
+  `page_extractor` records are refused-and-recomputed with the same finding, never served, never raised
+  out. A schema-1 record loads as `[]` / `None` with `cached=True`.
+* **`page_extractor` on every rung.** Native: one token per page including an empty page, equal to the
+  document's `model`. Visual: a 3-token list survives `put_ocr` → `cached_ocr` byte-for-byte, with an empty
+  middle page. Paddle: the read's own list (the first review's round-trip, now pinned).
+* **The MAJOR-4 killer is honest.** Instrumented: the gate is reached once with `payload is not None` and
+  `collector.seen=False`, returns `False`, zero fake requests; forced `True` → `upgraded`, 3 requests.
+* **Closed vocabularies.** `cache_finding` and `paddle_refusal_reason` are enforced at `as_dict()`;
+  hostile tokens (a newline suffix, a money shape, the class name, a case change) are refused; all nine
+  `REFUSAL_REASONS` accepted; empty on every non-Paddle row and after a successful Paddle read.
+* **The router and the ladder** are untouched by the closure diff (`ocr/escalation.py`, `ocr/document.py`,
+  `telemetry/*`, `webapp/worker.py` do not appear in `d2098c2..97ab9cb`); the first review's routing
+  attacks therefore stand as measured there.
+* **Nothing left the machine.** The suite's Paddle traffic went to `tests.paddle_fake_worker.FakeWorker`
+  on an ephemeral loopback port; `PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` is absent from this session's
+  environment; I never contacted the Vast host; no `discovery_reports/` artifact, cold cache, or archive
+  file was written by anything I ran (the cold cache was opened read-only by the privacy scan only; every
+  runner I drove wrote to a `tempfile.mkdtemp` directory).
+
+### 7. Verdict
+
+**APPROVE WITH FINDINGS.** The first review's five surviving mutants are dead, the four MAJORs are closed as
+specified, and nothing in the closure diff touches a routing, admission, validation or privacy mechanism.
+One defect was introduced by the closure itself — MAJOR-A, a cross-document leak of the new `cache_finding`
+column — with a one-line fix and a two-document test; it should close before the train because the column's
+whole purpose is to be countable. MINOR-B/C/D bound what the new tripwires and the finding path do not cover
+and are recorded so no later card mistakes them for more than they are.
