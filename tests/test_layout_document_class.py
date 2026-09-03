@@ -30,7 +30,7 @@ from layout import (
 )
 from layout.refusals import ACCOUNT_KINDS, FINDING_CODES, LANGUAGES, MODALITIES, PRODUCED_SUB_KINDS, SUB_KINDS, TIERS
 from layout.signals import SIGNALS
-from tests.layout_fixtures import FIXTURES, Expect, LayoutFixture, build, names
+from tests.layout_fixtures import Expect, LayoutFixture, build, names
 
 MODES = ("evidence", "text")
 BOX_DEPENDENT_SIGNALS = frozenset({"table_alignment", "micr_band", "cheque_aspect", "screenshot_frame"})
