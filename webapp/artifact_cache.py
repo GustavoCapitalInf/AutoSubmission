@@ -291,6 +291,7 @@ __all__ = [
     "ArtifactCache",
     "CacheResult",
     "CACHE_FINDING_EVIDENCE_DRIFT",
+    "cache_finding_of",
     "CACHE_FORMAT_VERSION",
     "OCR_STAGE_VERSION",
     "ANALYSIS_STAGE_VERSION",
@@ -1202,6 +1203,18 @@ def cached_ocr(
     returns ``finding=None`` — so "we silently repaired a corrupted artifact"
     is a counted, callable fact rather than indistinguishable from an
     ordinary miss once the recompute overwrites the drifted entry.
+
+    P21-ROUTING closure-2 (MINOR-D): when a drift was detected and the
+    recompute itself then RAISES (a worker that refuses connections, a
+    transport failure, a refusal), no :class:`CacheResult` exists to carry
+    the finding — so the finding is attached to the exception instead, as
+    the attribute :func:`cache_finding_of` reads back
+    (``exc.cache_finding == CACHE_FINDING_EVIDENCE_DRIFT``), and the
+    exception propagates unchanged in type and message (callers that key on
+    ``type(exc).__name__`` see the same class). The drifted entry is NOT
+    overwritten on that path (nothing was computed to overwrite it with): it
+    is found — and reported — again on the next call, never lost and never
+    served. An exception with no drift behind it carries no attribute.
     """
     if cache is None:
         return CacheResult(compute(), False, STAGE_OCR, None)
@@ -1240,12 +1253,31 @@ def cached_ocr(
             drifted = True  # a drifted cached copy: fall through to a fresh compute() below
         else:
             return CacheResult(value, True, STAGE_OCR, key, finding=None)
-    document_out = compute()
+    try:
+        document_out = compute()
+    except Exception as exc:
+        if drifted:
+            # MINOR-D: no CacheResult will exist to carry the finding, so the
+            # exception carries it. Every BaseException instance accepts
+            # attribute assignment (the C-level struct owns a __dict__), so
+            # this cannot itself fail; the type and message are untouched.
+            exc.cache_finding = CACHE_FINDING_EVIDENCE_DRIFT
+        raise
     cache.put_ocr(input_sha, settings_key, document_out)
     return CacheResult(
         document_out, False, STAGE_OCR, key,
         finding=CACHE_FINDING_EVIDENCE_DRIFT if drifted else None,
     )
+
+
+def cache_finding_of(exc: BaseException) -> str | None:
+    """P21-ROUTING closure-2 (MINOR-D): the cache finding :func:`cached_ocr`
+    attached to ``exc`` before letting it propagate out of a failed
+    recompute — ``CACHE_FINDING_EVIDENCE_DRIFT`` when the entry the failed
+    recompute was replacing had drifted, else ``None``. The ONE reader of the
+    attribute; callers never spell the attribute name themselves."""
+    finding = getattr(exc, "cache_finding", None)
+    return finding if isinstance(finding, str) and finding else None
 
 
 def cached_analysis(

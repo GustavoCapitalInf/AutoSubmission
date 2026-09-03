@@ -900,6 +900,63 @@ def test_cached_ocr_loads_a_schema_1_record_as_empty_page_extractor_and_none_evi
     assert result.value.evidence is None
 
 
+def _drift_stored_entry(cache, input_sha: str, settings_key: str) -> None:
+    key = cache_key(STAGE_OCR, input_sha, settings_key)
+    path = cache._artifact_path(STAGE_OCR, key)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["artifact"]["document"]["pages"] = ["drifted"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_cached_ocr_attaches_the_drift_finding_to_a_failed_recompute(cache):
+    """P21-ROUTING closure-2 (MINOR-D). A drift was detected and the
+    recompute then RAISES: no `CacheResult` exists, so the finding rides on
+    the exception — `cache_finding_of(exc) == CACHE_FINDING_EVIDENCE_DRIFT`
+    — while the exception's type and message are untouched. The drifted
+    entry is NOT overwritten (nothing was computed): it is found again, and
+    reported again, on the next call. Reproduced at 97ab9cb: the exception
+    carried nothing and the drift was lost with the failed read."""
+    from webapp.artifact_cache import cache_finding_of
+
+    input_sha = content_sha256(PDF)
+    settings_key = ocr_settings_key()
+    cache.put_ocr(input_sha, settings_key, _doc_with_evidence())
+    _drift_stored_entry(cache, input_sha, settings_key)
+
+    def failing_compute():
+        raise RuntimeError("worker unreachable")
+
+    with pytest.raises(RuntimeError) as caught:
+        cached_ocr(PDF, compute=failing_compute, cache=cache, source_file="s.pdf")
+    assert cache_finding_of(caught.value) == CACHE_FINDING_EVIDENCE_DRIFT
+    assert str(caught.value) == "worker unreachable"  # type and message untouched
+
+    # the drifted entry is still there — never served, found again next time
+    hit, document = cache.get_ocr(input_sha, settings_key)
+    assert hit is True and document["pages"] == ["drifted"]
+    with pytest.raises(RuntimeError) as again:
+        cached_ocr(PDF, compute=failing_compute, cache=cache, source_file="s.pdf")
+    assert cache_finding_of(again.value) == CACHE_FINDING_EVIDENCE_DRIFT
+
+    # and a recompute that then SUCCEEDS reports the same drift on its CacheResult
+    result = cached_ocr(PDF, compute=lambda: _doc(pages=["fresh"]), cache=cache, source_file="s.pdf")
+    assert result.finding == CACHE_FINDING_EVIDENCE_DRIFT and result.cached is False
+
+
+def test_cached_ocr_attaches_no_finding_to_a_failed_compute_without_a_drift(cache):
+    """The negative control for the test above: an ordinary miss whose
+    compute raises carries NO finding — `cache_finding_of` is `None`."""
+    from webapp.artifact_cache import cache_finding_of
+
+    def failing_compute():
+        raise RuntimeError("worker unreachable")
+
+    with pytest.raises(RuntimeError) as caught:
+        cached_ocr(PDF, compute=failing_compute, cache=cache, source_file="s.pdf")
+    assert cache_finding_of(caught.value) is None
+    assert cache_finding_of(RuntimeError("bare")) is None
+
+
 def test_cached_analysis_computes_once_and_partitions_on_settings(cache):
     calls = []
 

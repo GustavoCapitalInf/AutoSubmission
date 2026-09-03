@@ -693,6 +693,33 @@ class DiscoveryRunner:
         self.escalation_budget = escalation_budget
         self.escalations_used = 0
 
+    # -- per-document state -------------------------------------------------
+
+    def _reset_per_document_state(self) -> None:
+        """P21-ROUTING closure-2 (MAJOR-A). Every `_last_*` attribute on this
+        class is a PER-DOCUMENT cache disposition (`_last_*_cached`, the
+        `_last_*_finding` trio, `_last_paddle_refusal_reason`), read back by
+        `process()` right after the `_read*` call that set it. Each `_read*`
+        method resets its OWN attributes at its own call — but a rung that
+        does NOT run on a document leaves its attributes holding whatever the
+        LAST document that ran that rung left there, and `discovery/cli.py`
+        drives ONE runner across a whole run. Reproduced (re-review, MAJOR-A):
+        a Paddle drift on document A projected `cache_finding =
+        cached_evidence_drift` onto document B's row, where `_read_paddle`
+        never ran. So `process()` calls this FIRST, before any read, and a
+        projection can never see a previous document's value. The class
+        attributes below are the defaults this restores; `tests/
+        test_paddle_routing.py` pins by AST that the set assigned here equals
+        the set of `_last_*` class attributes, so a future attribute cannot
+        be added without its reset."""
+        self._last_ocr_cached = False
+        self._last_visual_cached = False
+        self._last_paddle_cached = False
+        self._last_ocr_finding = None
+        self._last_visual_finding = None
+        self._last_paddle_finding = None
+        self._last_paddle_refusal_reason = ""
+
     # -- resolution ---------------------------------------------------------
 
     def _read(self, raw: bytes, source_file: str, profile):
@@ -803,6 +830,11 @@ class DiscoveryRunner:
                 self._last_visual_finding = result.finding
         except Exception as exc:
             self._last_visual_cached = False
+            # MINOR-D: a drift observed just before a recompute that then
+            # FAILED still travels — `cached_ocr` attaches the finding to the
+            # exception it lets through, and the row records it beside
+            # `error_type` rather than losing it with the failed read.
+            self._last_visual_finding = self._cache_finding_of(exc)
             return None, None, type(exc).__name__
         self._last_visual_cached = cached
         if document is None:
@@ -868,6 +900,7 @@ class DiscoveryRunner:
                 self._last_paddle_finding = result.finding
         except Exception as exc:
             self._last_paddle_cached = False
+            self._last_paddle_finding = self._cache_finding_of(exc)  # MINOR-D, as _read_visual
             if isinstance(exc, PaddleRefused):
                 # MINOR-2: the reason travels regardless of WHICH refusal it
                 # is — `remote_customer_data_refused` keeps its own row
@@ -892,14 +925,33 @@ class DiscoveryRunner:
         recompute that immediately follows it inside `cached_ocr` — a
         drifted entry is overwritten in the cache itself, but not on this
         row. Each `_read*` method resets its OWN `_last_*_finding` to `None`
-        at its own call, so at most one of the three is ever truthy for a
-        single call; `row.cache_finding` is set (never cleared) so an
-        earlier rung's finding on the SAME document (offline, then an
-        escalation) is not lost when a later rung's own call finds nothing
-        to report."""
+        at its own call, AND `process()` resets all three (with every other
+        per-document `_last_*` attribute) via `_reset_per_document_state`
+        before any read — closure-2, MAJOR-A: without that second reset a
+        rung that did not run on THIS document still held the previous
+        document's finding, and this projection copied it onto the wrong
+        row. So at most one of the three is ever truthy for a single call,
+        and none of them is ever a previous document's; `row.cache_finding`
+        is set (never cleared) so an earlier rung's finding on the SAME
+        document (offline, then an escalation) is not lost when a later
+        rung's own call finds nothing to report. A rung whose recompute
+        FAILED after a drift (MINOR-D) sets its `_last_*_finding` from the
+        exception `cached_ocr` let through, so the finding lands here beside
+        `error_type`."""
         finding = self._last_ocr_finding or self._last_visual_finding or self._last_paddle_finding
         if finding:
             row.cache_finding = finding
+
+    @staticmethod
+    def _cache_finding_of(exc: BaseException) -> str | None:
+        """MINOR-D: the cache finding `webapp.artifact_cache.cached_ocr`
+        attached to an exception it re-raised out of a failed recompute
+        (`None` when there was none). Imported lazily, like `cached_ocr`
+        itself — this module never imports `webapp.artifact_cache` at module
+        level (see the mirrored `CACHE_FINDING_EVIDENCE_DRIFT` above)."""
+        from webapp.artifact_cache import cache_finding_of
+
+        return cache_finding_of(exc)
 
     def _project_paddle_refusal(self, row: "DocumentRow") -> None:
         """MINOR-2: called right after every `_read_paddle` invocation — the
@@ -995,6 +1047,7 @@ class DiscoveryRunner:
         # when a case-insensitive filesystem kept a different casing
         # (Inventory.disk_spelling). Only the read uses the disk spelling.
         started = time.perf_counter()
+        self._reset_per_document_state()  # MAJOR-A: before ANY read, every document
         path = self.root / (disk_relative_path or relative_path)
         raw = path.read_bytes()
         timer, collector = StageTimer(), DispatchCollector()

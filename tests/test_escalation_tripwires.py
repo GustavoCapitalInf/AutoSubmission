@@ -34,7 +34,10 @@ from __future__ import annotations
 
 import ast
 import inspect
+import textwrap
 from pathlib import Path
+
+import pytest
 
 from ocr.escalation import RouterInputs, router_inputs
 
@@ -190,12 +193,11 @@ def test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression()
     fact from being smuggled into the router through a field that is
     supposed to be a pure run/mode fact known before any document is read."""
     offenders: list[str] = []
-    for path, call in _decide_call_sites_repo_wide():
+    for relative, call in _decide_call_sites_repo_wide():
         argument_nodes = list(call.args) + [kw.value for kw in call.keywords]
         if len(argument_nodes) != 1 or not _is_router_inputs_call(argument_nodes[0]):
             continue  # the other test already fails this shape
         enabled_value = _enabled_keyword_value(argument_nodes[0])
-        relative = str(path.relative_to(ROOT)).replace("\\", "/")
         if enabled_value is None:
             offenders.append(f"{relative}:{call.lineno} — decide(...) call has no enabled= argument")
             continue
@@ -221,34 +223,168 @@ def test_discovery_runner_enabled_extractors_is_assigned_only_in_init():
     picks (admission already happened before it is consulted), so this is a
     belt on an already-safe design, not a closure of an exploitable gap —
     recorded precisely so a later card does not mistake the tripwire for
-    more than that."""
+    more than that.
+
+    P21-ROUTING closure-2 (MINOR-C): the first version of this pin walked
+    only `Assign`/`AnnAssign`/`AugAssign` targets, only `self.<attr>`, only
+    inside the CLASS body — six re-spellings survived it (`setattr`,
+    `self.__dict__[...]`, `vars(self)[...]`, a tuple-unpack target, a
+    `for` target, a module-level helper). The pin is now
+    `_enabled_extractors_pin_offenders`: every STORE/DEL-context attribute
+    named `enabled_extractors` on ANY object anywhere in the module outside
+    `__init__` (which covers tuple/list/starred unpacking, `for`/`with`/
+    comprehension targets, `AugAssign`, `AnnAssign`, module-level functions
+    and helper methods alike, because the AST marks every target position
+    with `Store`), plus a refusal of the string `"enabled_extractors"` in
+    any non-docstring string constant or f-string outside `__init__`
+    (which kills `setattr`, `__dict__` and `vars` at once). Each spelling
+    is planted and proved caught by
+    `test_enabled_extractors_pin_catches_every_reassignment_spelling`."""
     import discovery.runner as runner_module
 
-    tree = ast.parse(inspect.getsource(runner_module))
-    class_node = next(
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.ClassDef) and n.name == "DiscoveryRunner"
-    )
-    offenders: list[str] = []
-    for method in class_node.body:
-        if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for node in ast.walk(method):
-            targets: list[ast.AST] = []
-            if isinstance(node, ast.Assign):
-                targets = list(node.targets)
-            elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-                targets = [node.target]
-            for target in targets:
-                if (
-                    isinstance(target, ast.Attribute) and target.attr == "enabled_extractors"
-                    and isinstance(target.value, ast.Name) and target.value.id == "self"
-                    and method.name != "__init__"
-                ):
-                    offenders.append(f"{method.name}:{node.lineno}")
+    offenders = _enabled_extractors_pin_offenders(inspect.getsource(runner_module))
     assert offenders == [], (
-        f"self.enabled_extractors assigned outside __init__: {offenders}"
+        f"enabled_extractors assigned or named outside DiscoveryRunner.__init__: {offenders}"
     )
+
+
+ENABLED_EXTRACTORS_ATTR = "enabled_extractors"
+
+
+def _docstring_node_ids(tree: ast.AST) -> set[int]:
+    """The `id()` of every Constant that is a module/class/function
+    docstring — the one place prose may legitimately name the attribute."""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = node.body
+            if (
+                body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                ids.add(id(body[0].value))
+    return ids
+
+
+def _enabled_extractors_pin_offenders(source: str) -> list[str]:
+    """MINOR-C. Every way `discovery/runner.py`'s SOURCE could assign, delete
+    or name `enabled_extractors` outside `DiscoveryRunner.__init__`, as a
+    list of `line: reason` strings (empty = the pin holds). Pure function of
+    the source text so the planted-spelling tests below can feed it a
+    mutated copy without touching the tree."""
+    tree = ast.parse(source)
+    init: ast.FunctionDef | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "DiscoveryRunner":
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                    init = item
+    assert init is not None, "DiscoveryRunner.__init__ not found in the source"
+    init_first, init_last = init.lineno, init.end_lineno or init.lineno
+    docstrings = _docstring_node_ids(tree)
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        lineno = getattr(node, "lineno", None)
+        if lineno is None or init_first <= lineno <= init_last:
+            continue
+        if (
+            isinstance(node, ast.Attribute) and node.attr == ENABLED_EXTRACTORS_ATTR
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ):
+            offenders.append(f"{lineno}: `{ast.unparse(node)}` is a store/delete target outside __init__")
+        elif (
+            isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and ENABLED_EXTRACTORS_ATTR in node.value and id(node) not in docstrings
+        ):
+            offenders.append(f"{lineno}: a non-docstring string constant names {ENABLED_EXTRACTORS_ATTR!r}")
+        elif isinstance(node, ast.JoinedStr) and ENABLED_EXTRACTORS_ATTR in _fstring_text(node):
+            offenders.append(f"{lineno}: an f-string names {ENABLED_EXTRACTORS_ATTR!r}")
+    return offenders
+
+
+def _plant_in_process(
+    source: str, lines: str, module_suffix: str = "", before_process: str = "",
+) -> str:
+    """The reviewer's mutant shape: `lines` (already indented for a method
+    body) inserted as the first statement(s) of `DiscoveryRunner.process()`
+    after its docstring; `before_process` (a sibling METHOD, indented for
+    the class body) inserted immediately above `def process(`;
+    `module_suffix` appended at module level."""
+    tree = ast.parse(source)
+    process = next(
+        n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "process"
+    )
+    first = process.body[0]
+    has_docstring = isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+    insert_before = (process.body[1] if has_docstring else first).lineno
+    src_lines = source.splitlines(keepends=True)
+    return (
+        "".join(src_lines[: process.lineno - 1])
+        + before_process
+        + "".join(src_lines[process.lineno - 1: insert_before - 1])
+        + lines
+        + "".join(src_lines[insert_before - 1:])
+        + module_suffix
+    )
+
+
+#: The re-review's surviving spellings (RX4b/c/e/f/g/h), the two it killed
+#: (RX4a, RX4d) as controls, and the remaining target forms the fix names.
+#: Each value: (lines planted inside process(), module-level suffix,
+#: sibling method planted above process()).
+ENABLED_EXTRACTORS_SPELLINGS: dict[str, tuple[str, str, str]] = {
+    "RX4a plain attribute": ('        self.enabled_extractors = frozenset({"paddle"})\n', "", ""),
+    "RX4b setattr": ('        setattr(self, "enabled_extractors", frozenset({"paddle"}))\n', "", ""),
+    "RX4c self.__dict__": ('        self.__dict__["enabled_extractors"] = frozenset({"paddle"})\n', "", ""),
+    "RX4d helper method": (
+        '        self._tune()\n', "",
+        '    def _tune(self):\n        self.enabled_extractors = frozenset({"paddle"})\n\n',
+    ),
+    "RX4e tuple-unpack target": ('        self.enabled_extractors, _unused = frozenset({"paddle"}), None\n', "", ""),
+    "RX4f for target": ('        for self.enabled_extractors in (frozenset({"paddle"}),):\n            pass\n', "", ""),
+    "RX4g vars(self)": ('        vars(self)["enabled_extractors"] = frozenset({"paddle"})\n', "", ""),
+    "RX4h module-level helper": (
+        '        _tune_runner(self)\n',
+        '\n\ndef _tune_runner(runner):\n    runner.enabled_extractors = frozenset({"paddle"})\n', "",
+    ),
+    "with target": ('        with open(__file__) as self.enabled_extractors:\n            pass\n', "", ""),
+    "comprehension target": ('        [0 for self.enabled_extractors in (frozenset(),)]\n', "", ""),
+    "starred/list unpack target": ('        [*self.enabled_extractors, _x] = [frozenset(), 0]\n', "", ""),
+    "AugAssign": ('        self.enabled_extractors |= frozenset({"paddle"})\n', "", ""),
+    "AnnAssign": ('        self.enabled_extractors: frozenset[str] = frozenset()\n', "", ""),
+    "del target": ('        del self.enabled_extractors\n', "", ""),
+    "adjacent-literal string": ('        setattr(self, "enabled_" "extractors", frozenset())\n', "", ""),
+    "f-string attribute name": ('        setattr(self, f"enabled_extractors{\'\'}", frozenset())\n', "", ""),
+    "__dict__.update in a helper": (
+        '        _poke(self)\n',
+        '\n\ndef _poke(runner):\n    runner.__dict__.update({"enabled_extractors": frozenset()})\n', "",
+    ),
+}
+
+
+@pytest.mark.parametrize("spelling", sorted(ENABLED_EXTRACTORS_SPELLINGS))
+def test_enabled_extractors_pin_catches_every_reassignment_spelling(spelling):
+    """MINOR-C: each spelling planted into a COPY of `discovery/runner.py`'s
+    source (the tree is never touched) is reported by the pin. The
+    adjacent-literal spelling (`"enabled_" "extractors"` is ONE constant to
+    the parser) is included so the string rule is shown to see through the
+    one concatenation the compiler folds."""
+    import discovery.runner as runner_module
+
+    lines, suffix, before = ENABLED_EXTRACTORS_SPELLINGS[spelling]
+    planted = _plant_in_process(inspect.getsource(runner_module), lines, suffix, before)
+    offenders = _enabled_extractors_pin_offenders(planted)
+    assert offenders, f"the pin did not see the spelling {spelling!r}"
+
+
+def test_enabled_extractors_pin_is_not_vacuous_on_the_real_source():
+    """The negative control for the parametrized test above: the pin's
+    reporting is what changes when a spelling is planted, not a constant
+    failure — the unmodified source yields no offender at all."""
+    import discovery.runner as runner_module
+
+    assert _enabled_extractors_pin_offenders(inspect.getsource(runner_module)) == []
 
 
 # ---------------------------------------------------------------------------
@@ -378,28 +514,113 @@ def _tracked_python_files() -> list[Path]:
 #: Python syntax. Measured over the whole tracked tree (2026-09-02): the
 #: ONLY string in the entire repository that satisfies both conditions is
 #: `tools/train/provenance.py::_TREE_PROBE` itself.
+#:
+#: P21-ROUTING closure-2 (MINOR-B). The first version parsed each string
+#: VERBATIM and looked at `ast.Constant` only, so an INDENTED program (the
+#: `textwrap.dedent` style — `IndentationError` is a `SyntaxError`) and an
+#: f-string program (`ast.JoinedStr`, not `Constant`) were invisible. Now
+#: every candidate is `textwrap.dedent`ed before parsing, and an f-string is
+#: read as its constant parts joined with the placeholder NAME
+#: `_FSTRING_HOLE_` standing in for each `{...}` — a program with holes in
+#: expression position still parses. An f-string whose constant parts name
+#: one of `EMBEDDED_PROGRAM_KEYWORDS` but which still cannot be parsed FAILS
+#: CLOSED (`EmbeddedProgramUnreadable`, an `AssertionError`): the scan
+#: refuses to certify what it cannot read. Still NOT covered, recorded so a
+#: later card does not mistake the scan for more: `%`-format templates
+#: assembled at runtime, bytes literals, and a program nested inside an
+#: embedded program (the walk is one level deep).
+_FSTRING_HOLE = "_FSTRING_HOLE_"
+EMBEDDED_PROGRAM_KEYWORDS = ("allow_paddle_ocr", "decide(", "router_inputs(", "RouterInputs(")
+
+
+class EmbeddedProgramUnreadable(AssertionError):
+    """An f-string names a guarded keyword but cannot be parsed as a program
+    even with placeholders — the scan fails closed rather than certify it."""
+
+
+def _fstring_text(node: ast.JoinedStr) -> str:
+    parts: list[str] = []
+    for value in node.values:
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            parts.append(value.value)
+        else:
+            parts.append(_FSTRING_HOLE)
+    return "".join(parts)
+
+
+def _embedded_program_texts(tree: ast.AST) -> list[tuple[str, bool]]:
+    """Every string constant and every f-string (as placeholder text) in
+    `tree`, tagged `is_fstring`."""
+    texts: list[tuple[str, bool]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            texts.append((node.value, False))
+        elif isinstance(node, ast.JoinedStr):
+            texts.append((_fstring_text(node), True))
+    return texts
+
+
 def _embedded_program_asts(source: str) -> list[ast.AST]:
     embedded: list[ast.AST] = []
     tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            text = node.value
-            if len(text) < 40 or "\n" not in text:
-                continue  # too short/one-line to plausibly be a program
-            try:
-                embedded.append(ast.parse(text))
-            except SyntaxError:
-                continue
+    for text, is_fstring in _embedded_program_texts(tree):
+        if len(text) < 40 or "\n" not in text:
+            continue  # too short/one-line to plausibly be a program
+        try:
+            embedded.append(ast.parse(textwrap.dedent(text)))
+        except (SyntaxError, ValueError):
+            if is_fstring and any(keyword in text for keyword in EMBEDDED_PROGRAM_KEYWORDS):
+                raise EmbeddedProgramUnreadable(
+                    f"an f-string names {[k for k in EMBEDDED_PROGRAM_KEYWORDS if k in text]} "
+                    f"but cannot be parsed as a program: the scan will not certify it"
+                )
+            continue
     return embedded
 
 
-def _all_asts_for_file(path: Path) -> list[ast.AST]:
-    """The file's own AST, plus one AST per embedded program string found
+def _all_asts_for_source(source: str) -> list[ast.AST]:
+    """The source's own AST, plus one AST per embedded program string found
     inside it (see `_embedded_program_asts`) — what every repo-wide scan in
-    this module now walks, instead of the file's own top-level tree alone."""
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(path))
-    return [tree, *_embedded_program_asts(source)]
+    this module walks, instead of the top-level tree alone."""
+    return [ast.parse(source), *_embedded_program_asts(source)]
+
+
+def _all_asts_for_file(path: Path) -> list[ast.AST]:
+    return _all_asts_for_source(path.read_text(encoding="utf-8"))
+
+
+def _tree_sources() -> list[tuple[str, str]]:
+    """`(posix-relative path, source text)` for every file in the repo-wide
+    scan's scope. The scans below take such a list so a test can hand them
+    a PLANTED copy of a file without touching the tree (MINOR-B)."""
+    return [
+        (str(path.relative_to(ROOT)).replace("\\", "/"), path.read_text(encoding="utf-8"))
+        for path in _tracked_python_files()
+    ]
+
+
+@pytest.mark.parametrize("shape", ["indented", "fstring", "fstring_indented"])
+def test_embedded_program_scan_reads_indented_and_fstring_programs(shape):
+    """MINOR-B (E2b, E3b): a `decide(` site inside an indented or f-string
+    program is now visible to the scan; verbatim-parse blindness is gone."""
+    program = (
+        "router.decide(router_inputs(profile=p, evidence=e, triggers=t, attempted=a, "
+        "stop=False, enabled=E))\nprint('done')\n"
+    )
+    if shape == "indented":
+        source = 'import textwrap\nP = textwrap.dedent("""\n    ' + program.replace("\n", "\n    ") + '""")\n'
+    elif shape == "fstring":
+        source = 'X = 1\nP = f"""\n' + program + 'print({X})\n"""\n'
+    else:
+        source = 'X = 1\nP = f"""\n    ' + program.replace("\n", "\n    ") + 'print({X})\n"""\n'
+    sites = _decide_call_sites([("planted.py", source)])
+    assert len(sites) == 1, "the embedded decide( site was not seen"
+
+
+def test_embedded_program_scan_fails_closed_on_an_unreadable_fstring_naming_a_keyword():
+    source = 'X = 1\nP = f"""\nthis is not python but it says allow_paddle_ocr=True {X}\nand more prose\n"""\n'
+    with pytest.raises(EmbeddedProgramUnreadable):
+        _embedded_program_asts(source)
 
 
 def test_the_tree_probe_is_detected_as_an_embedded_program_string():
@@ -417,15 +638,81 @@ def test_the_tree_probe_is_detected_as_an_embedded_program_string():
     assert count >= 1, "the _TREE_PROBE string was not detected as an embedded program"
 
 
-def _decide_call_sites_repo_wide() -> list[tuple[Path, ast.Call]]:
-    sites: list[tuple[Path, ast.Call]] = []
-    for path in _tracked_python_files():
-        for tree in _all_asts_for_file(path):
+def _decide_call_sites(sources: list[tuple[str, str]]) -> list[tuple[str, ast.Call]]:
+    """Every `decide(` call in `sources` (file trees AND embedded program
+    strings), as `(relative path, call)`."""
+    sites: list[tuple[str, ast.Call]] = []
+    for relative, source in sources:
+        for tree in _all_asts_for_source(source):
             visitor = _DecideCallVisitor()
             visitor.visit(tree)
             for call in visitor.calls:
-                sites.append((path, call))
+                sites.append((relative, call))
     return sites
+
+
+def _decide_call_sites_repo_wide() -> list[tuple[str, ast.Call]]:
+    return _decide_call_sites(_tree_sources())
+
+
+def _check_decide_call_sites(
+    sources: list[tuple[str, str]], expected: dict[str, int] = EXPECTED_DECIDE_CALL_SITES,
+) -> None:
+    """The `decide(` call-site pin as a pure function of `sources`: every
+    site's argument is a single `router_inputs(...)` call, and the sites
+    COUNT PER FILE equals `expected` exactly — a second site inside an
+    already-expected file fails (MINOR-B). Raises `AssertionError`."""
+    offenders: list[str] = []
+    by_file: dict[str, int] = {}
+    for relative, call in _decide_call_sites(sources):
+        by_file[relative] = by_file.get(relative, 0) + 1
+        argument_nodes = list(call.args) + [kw.value for kw in call.keywords]
+        if len(argument_nodes) != 1 or not _is_router_inputs_call(argument_nodes[0]):
+            offenders.append(
+                f"{relative}:{call.lineno} — decide(...) argument is "
+                f"not a single `router_inputs(...)` call"
+            )
+    assert not offenders, "\n".join(offenders)
+    assert by_file == expected, (
+        f"the set of decide(...) call sites changed: {by_file} != "
+        f"{expected} — a new escalation call site anywhere "
+        f"in the repository is a reviewed decision, not a silent addition"
+    )
+
+
+_PLANTED_DECIDE_SITE = (
+    "\n\ndef _planted(self):\n"
+    "    return self.router.decide(router_inputs(profile=None, evidence=None, triggers=(), "
+    "attempted=(), stop=False, enabled=self.enabled_extractors))\n"
+)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["plain", "indented_string", "fstring", "dict_unpacked_argument"],
+)
+def test_a_second_decide_site_in_an_expected_file_fails_the_per_file_count(shape):
+    """MINOR-B (E7 for the `decide(` scan): the pin counts sites PER FILE,
+    so a second site planted into a COPY of `discovery/runner.py` — as plain
+    code, inside an indented program string, inside an f-string program, or
+    hand-fed a `**{...}` argument — fails the check even though the file is
+    already in the expected set. The tree is never touched."""
+    runner_source = (ROOT / "discovery" / "runner.py").read_text(encoding="utf-8")
+    if shape == "plain":
+        planted = runner_source + _PLANTED_DECIDE_SITE
+    elif shape == "indented_string":
+        planted = runner_source + '\nPROBE = """\n    ' + _PLANTED_DECIDE_SITE.strip("\n").replace("\n", "\n    ") + '\n"""\n'
+    elif shape == "fstring":
+        planted = runner_source + '\nX = 1\nPROBE = f"""\n' + _PLANTED_DECIDE_SITE.strip("\n") + '\nprint({X})\n"""\n'
+    else:
+        planted = runner_source + "\n\ndef _planted(self):\n    return self.router.decide(**{'inputs': None})\n"
+    with pytest.raises(AssertionError):
+        _check_decide_call_sites([("discovery/runner.py", planted)], expected={"discovery/runner.py": 2})
+
+
+def test_the_decide_per_file_check_is_not_vacuous():
+    runner_source = (ROOT / "discovery" / "runner.py").read_text(encoding="utf-8")
+    _check_decide_call_sites([("discovery/runner.py", runner_source)], expected={"discovery/runner.py": 2})
 
 
 def _router_inputs_construction_sites_repo_wide() -> list[tuple[Path, int]]:
@@ -449,23 +736,7 @@ def _router_inputs_construction_sites_repo_wide() -> list[tuple[Path, int]]:
 
 
 def test_every_decide_call_site_in_the_repository_uses_router_inputs():
-    offenders: list[str] = []
-    by_file: dict[str, int] = {}
-    for path, call in _decide_call_sites_repo_wide():
-        relative = str(path.relative_to(ROOT)).replace("\\", "/")
-        by_file[relative] = by_file.get(relative, 0) + 1
-        argument_nodes = list(call.args) + [kw.value for kw in call.keywords]
-        if len(argument_nodes) != 1 or not _is_router_inputs_call(argument_nodes[0]):
-            offenders.append(
-                f"{relative}:{call.lineno} — decide(...) argument is "
-                f"not a single `router_inputs(...)` call"
-            )
-    assert not offenders, "\n".join(offenders)
-    assert by_file == EXPECTED_DECIDE_CALL_SITES, (
-        f"the set of decide(...) call sites changed: {by_file} != "
-        f"{EXPECTED_DECIDE_CALL_SITES} — a new escalation call site anywhere "
-        f"in the repository is a reviewed decision, not a silent addition"
-    )
+    _check_decide_call_sites(_tree_sources())
 
 
 def test_no_hand_rolled_router_inputs_construction_anywhere_in_the_repo():

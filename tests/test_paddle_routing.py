@@ -28,7 +28,7 @@ from evidence.canonical import ExtractionEvidence, LineBox, PageEvidence, PageFr
 from ocr.document import StatementMarkdown
 from ocr.paddle_rung import PaddleRead
 from tests.paddle_fake_worker import FakeWorker
-from tests.test_escalation_tripwires import _all_asts_for_file, _tracked_python_files
+from tests.test_escalation_tripwires import _all_asts_for_source, _tree_sources
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "Bank Statements"
@@ -472,39 +472,181 @@ def test_case12_webapp_worker_has_no_allow_paddle_ocr_call_site():
 #: merely a set of names, so a third site cannot be added by widening the
 #: assertion without a reviewed reason alongside it:
 #:
-#: * `discovery/runner.py` (`_read_paddle`) — the ONE site that reads a
-#:   document and may reach the Paddle rung's `/ocr` endpoint.
+#: * `discovery/runner.py` (`_read_paddle`) — the ONE method that reads a
+#:   document and may reach the Paddle rung's `/ocr` endpoint. TWO sites:
+#:   the `parse_statement(...)` call inside its `compute()` closure and the
+#:   `cached_ocr(...)` call that keys the Paddle partition (the two flags
+#:   MUST agree — `cached_ocr`'s own docstring says why).
 #: * `tools/train/provenance.py` (inside `_TREE_PROBE`, a subprocess-run
 #:   string program) — KEY COMPUTATION ONLY: `ac.ocr_settings_key(force_ocr=
 #:   True, ..., allow_paddle_ocr=True)` derives a settings-key fingerprint
 #:   for the `paddle_ocr_key` provenance partition. It reads no document,
 #:   opens no socket, and cannot reach the Paddle rung at all — confirmed by
 #:   reading the call site itself (`ocr_settings_key`, not `parse_statement`
-#:   or `read_document`).
-EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES = {
-    "discovery/runner.py": "reads a document (_read_paddle)",
-    "tools/train/provenance.py": "key computation only, no document, no socket (_TREE_PROBE)",
+#:   or `read_document`). ONE site.
+#:
+#: P21-ROUTING closure-2 (MINOR-B): the pin is a COUNT per file, not a set
+#: of file names — a second site inside an already-expected file (E7) fails.
+EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES: dict[str, tuple[int, str]] = {
+    "discovery/runner.py": (2, "reads a document (_read_paddle: parse_statement + cached_ocr)"),
+    "tools/train/provenance.py": (1, "key computation only, no document, no socket (_TREE_PROBE)"),
 }
 
 
-def test_case12_allow_paddle_ocr_true_appears_only_at_the_one_reviewed_call_site():
-    """Repo-wide (production code, `tests/` excluded by `_tracked_python_files`;
-    embedded program strings — e.g. `tools/train/provenance.py`'s
-    `_TREE_PROBE`, MAJOR-2's own finding — included via `_all_asts_for_file`):
-    `allow_paddle_ocr=True` appears ONLY at the two reviewed sites named in
-    `EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES`, each for the reason given there —
-    never the webapp (Ruling A), and never anywhere that reads a document
-    except `_read_paddle` itself."""
-    offending_files: set[str] = set()
-    for path in _tracked_python_files():
-        for tree in _all_asts_for_file(path):
+#: The callables that CONSUME the flag: a `**{...}` with a key the scan
+#: cannot read is an offender only at one of these (an unrelated
+#: `LineBox(**{**dict(line), ...})` in `evidence/` is not a Paddle site).
+_ALLOW_PADDLE_OCR_CONSUMERS = frozenset({"parse_statement", "ocr_settings_key", "cached_ocr", "_ocr_extractor"})
+
+
+def _callee_name(func: ast.AST) -> str | None:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _allow_paddle_ocr_sites(sources: list[tuple[str, str]]) -> tuple[dict[str, int], list[str]]:
+    """`(sites per file, offenders)` over `sources` (file trees AND embedded
+    program strings). A SITE is the keyword `allow_paddle_ocr=True` with a
+    literal `True`. An OFFENDER (MINOR-B) is any spelling the scan cannot
+    certify as `False`: a non-`Constant` value (`bool(1)`, a call, a name
+    other than the same-named parameter), a `Constant` other than
+    `True`/`False` (`1`, `"yes"`), a `**{...}` dict-literal unpacking that
+    carries the key, a `**{...}` with a computed key at a flag consumer, or
+    a local re-binding of the name `allow_paddle_ocr` anywhere (which is
+    what would make the one permitted pass-through —
+    `allow_paddle_ocr=allow_paddle_ocr`, the parameter plumbing inside
+    `webapp/artifact_cache.py`, whose CALLER's keyword is scanned at the
+    caller — mean something other than the caller's literal)."""
+    by_file: dict[str, int] = {}
+    offenders: list[str] = []
+    for relative, source in sources:
+        for tree in _all_asts_for_source(source):
             for node in ast.walk(tree):
                 if (
-                    isinstance(node, ast.keyword) and node.arg == "allow_paddle_ocr"
-                    and isinstance(node.value, ast.Constant) and node.value.value is True
+                    isinstance(node, ast.Name) and node.id == "allow_paddle_ocr"
+                    and isinstance(node.ctx, ast.Store)
                 ):
-                    offending_files.add(str(path.relative_to(ROOT)).replace("\\", "/"))
-    assert offending_files == set(EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES), offending_files
+                    offenders.append(f"{relative}:{node.lineno} — the name allow_paddle_ocr is re-bound")
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = _callee_name(node.func)
+                for kw in node.keywords:
+                    if kw.arg == "allow_paddle_ocr":
+                        value = kw.value
+                        if isinstance(value, ast.Constant) and value.value is True:
+                            by_file[relative] = by_file.get(relative, 0) + 1
+                        elif isinstance(value, ast.Constant) and value.value is False:
+                            continue
+                        elif isinstance(value, ast.Name) and value.id == "allow_paddle_ocr":
+                            continue  # the same-named parameter passed through; its caller is scanned
+                        else:
+                            offenders.append(
+                                f"{relative}:{value.lineno} — allow_paddle_ocr= is "
+                                f"{ast.dump(value)}, not a literal True/False"
+                            )
+                    elif kw.arg is None and isinstance(kw.value, ast.Dict):
+                        for key in kw.value.keys:
+                            readable = isinstance(key, ast.Constant) and isinstance(key.value, str)
+                            if readable and key.value == "allow_paddle_ocr":
+                                offenders.append(
+                                    f"{relative}:{kw.value.lineno} — **{{'allow_paddle_ocr': ...}} "
+                                    f"dict-unpacked around the keyword scan"
+                                )
+                            elif not readable and callee in _ALLOW_PADDLE_OCR_CONSUMERS:
+                                offenders.append(
+                                    f"{relative}:{kw.value.lineno} — **{{...}} with a computed key "
+                                    f"at {callee}(), which the scan cannot read"
+                                )
+    return by_file, offenders
+
+
+def _assert_allow_paddle_ocr_sites_pinned(
+    sources: list[tuple[str, str]], expected: dict[str, int],
+) -> None:
+    by_file, offenders = _allow_paddle_ocr_sites(sources)
+    assert offenders == [], "\n".join(offenders)
+    assert by_file == expected, f"allow_paddle_ocr=True sites per file: {by_file} != {expected}"
+
+
+def test_case12_allow_paddle_ocr_true_appears_only_at_the_reviewed_call_sites():
+    """Repo-wide (production code, `tests/` excluded by `_tracked_python_files`;
+    embedded program strings — e.g. `tools/train/provenance.py`'s
+    `_TREE_PROBE`, MAJOR-2's own finding — included, indented and f-string
+    programs too since MINOR-B): `allow_paddle_ocr=True` appears EXACTLY the
+    number of times per file `EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES` names,
+    each for the reason given there — never the webapp (Ruling A), and never
+    anywhere that reads a document except `_read_paddle` itself — and no
+    spelling the scan cannot certify exists anywhere."""
+    _assert_allow_paddle_ocr_sites_pinned(
+        _tree_sources(),
+        {relative: count for relative, (count, _reason) in EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES.items()},
+    )
+
+
+#: MINOR-B: the re-review's surviving shapes, each planted into a copy of a
+#: file that is ALREADY in the expected set (so only the count or the
+#: offender rule can catch it), plus the direct-site spellings.
+_KEY_CALL = (
+    "import webapp.artifact_cache as ac\n"
+    "k = ac.ocr_settings_key(force_ocr=True, allow_local_ocr=False,\n"
+    "                        allow_visual_ocr=False, allow_paddle_ocr=True)\n"
+)
+ALLOW_PADDLE_OCR_PLANTED_SHAPES: dict[str, str] = {
+    "E7 second clean site": '\n_SECOND = r"""\n' + _KEY_CALL + '"""\n',
+    "E2b indented (dedent-style) string": (
+        '\nimport textwrap\n_SECOND = textwrap.dedent("""\n    ' + _KEY_CALL.replace("\n", "\n    ") + '""")\n'
+    ),
+    "E3b f-string program": '\n_X = 1\n_SECOND = f"""\n' + _KEY_CALL + 'print({_X})\n"""\n',
+    "E8b direct **{'allow_paddle_ocr': True}": (
+        "\nfrom webapp.artifact_cache import ocr_settings_key\n"
+        "_K = ocr_settings_key(force_ocr=True, **{'allow_paddle_ocr': True})\n"
+    ),
+    "computed dict key": (
+        "\nfrom webapp.artifact_cache import ocr_settings_key\n"
+        "_N = 'allow_' + 'paddle_ocr'\n_K = ocr_settings_key(force_ocr=True, **{_N: True})\n"
+    ),
+    "non-Constant value bool(1)": (
+        "\nfrom webapp.artifact_cache import ocr_settings_key\n"
+        "_K = ocr_settings_key(force_ocr=True, allow_paddle_ocr=bool(1))\n"
+    ),
+    "non-bool Constant 1": (
+        "\nfrom webapp.artifact_cache import ocr_settings_key\n"
+        "_K = ocr_settings_key(force_ocr=True, allow_paddle_ocr=1)\n"
+    ),
+    "a Name value": (
+        "\nfrom webapp.artifact_cache import ocr_settings_key\n"
+        "_T = True\n_K = ocr_settings_key(force_ocr=True, allow_paddle_ocr=_T)\n"
+    ),
+    "the same-named parameter re-bound locally": (
+        "\nfrom webapp.artifact_cache import ocr_settings_key\n"
+        "allow_paddle_ocr = True\n_K = ocr_settings_key(force_ocr=True, allow_paddle_ocr=allow_paddle_ocr)\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(ALLOW_PADDLE_OCR_PLANTED_SHAPES))
+def test_allow_paddle_ocr_pin_catches_every_planted_shape(shape):
+    """Each shape appended to a COPY of `tools/train/provenance.py` (already
+    expected with count 1) fails the pin — by count (a second literal site)
+    or by the offender rule (a spelling the scan cannot certify). The tree
+    is never touched."""
+    real = (ROOT / "tools" / "train" / "provenance.py").read_text(encoding="utf-8")
+    planted = real + ALLOW_PADDLE_OCR_PLANTED_SHAPES[shape]
+    with pytest.raises(AssertionError):
+        _assert_allow_paddle_ocr_sites_pinned(
+            [("tools/train/provenance.py", planted)], {"tools/train/provenance.py": 1},
+        )
+
+
+def test_allow_paddle_ocr_pin_is_not_vacuous_on_the_real_files():
+    """The negative control: the unmodified files pass with exactly their
+    expected counts, so the parametrized failures above are the plants'."""
+    for relative, (count, _reason) in EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES.items():
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        _assert_allow_paddle_ocr_sites_pinned([(relative, source)], {relative: count})
 
 
 def test_case12_scanned_paddle_and_scanned_visual_never_both_enabled():
@@ -759,3 +901,204 @@ def test_m16_two_engines_enabled_at_once_is_never_constructed():
     from webapp.worker import WORKER_ENABLED_EXTRACTORS
 
     assert WORKER_ENABLED_EXTRACTORS != frozenset({"visual", "paddle"})
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING closure-2 MAJOR-A: `cache_finding` never leaks from one
+# document onto a later document processed by the SAME runner.
+# ---------------------------------------------------------------------------
+
+
+def _tesseract_by_name(monkeypatch, texts: dict[str, str | None]) -> None:
+    """A per-document Tesseract fake keyed on the file name: `None` (the
+    RECOVERY shape, escalates) or a text (Class B when unclaimable)."""
+    def fake(pdf_bytes, source_file="", **kwargs):
+        text = texts[source_file]
+        if text is None:
+            return None
+        return StatementMarkdown(source_file=source_file, model="local-tesseract-ocr", pages=[text])
+
+    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", fake)
+
+
+@pytest.fixture
+def two_scan_tree(tmp_path: Path) -> Path:
+    """Two DISTINCT documents: B is the same fixture with a trailing comment
+    so its sha differs (the re-review's exact shape)."""
+    (tmp_path / "BankZ").mkdir()
+    (tmp_path / "BankZ" / "scanA.pdf").write_bytes(SCAN_BYTES)
+    (tmp_path / "BankZ" / "scanB.pdf").write_bytes(SCAN_BYTES + b"\n%B-variant\n")
+    return tmp_path
+
+
+def _drift_paddle_artifact(cache, content_sha256: str) -> None:
+    from webapp.artifact_cache import cache_key, ocr_settings_key
+    import json as _json
+
+    settings_key = ocr_settings_key(
+        force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True,
+    )
+    path = cache._artifact_path("ocr", cache_key("ocr", content_sha256, settings_key))
+    payload = _json.loads(path.read_text(encoding="utf-8"))
+    payload["artifact"]["document"]["pages"] = ["a completely different page"]
+    path.write_text(_json.dumps(payload), encoding="utf-8")
+
+
+@pytest.mark.parametrize("order", ["A_then_B", "B_then_A"])
+def test_a_cache_finding_never_leaks_onto_a_later_document_on_the_same_runner(
+    two_scan_tree, monkeypatch, tmp_path, order,
+):
+    """MAJOR-A, the re-review's reproduction and its mirror, on ONE
+    `DiscoveryRunner` with a real `ArtifactCache`: document A's Paddle
+    artifact is drifted (so A's row carries `cached_evidence_drift`);
+    document B is Class B (usable, unclaimable — `_read_paddle` never runs
+    on it) and its row must carry `""` whether it is processed AFTER the
+    drifted A (the leak shape: `_last_paddle_finding` still held A's value)
+    or before it. Reproduced at 97ab9cb: B after A → `cached_evidence_drift`
+    on B's row; fixed by `_reset_per_document_state()` at the top of
+    `process()`."""
+    from webapp.artifact_cache import CACHE_FINDING_EVIDENCE_DRIFT, open_cache
+
+    cache = open_cache(tmp_path / "data")
+    _tesseract_by_name(monkeypatch, {"scanA.pdf": None, "scanB.pdf": USABLE_UNCLAIMABLE})
+    with FakeWorker(identity_overrides={"provider": "local", "execution_class": "local_free"}) as fake:
+        _local_free_env(monkeypatch, fake.url)
+        runner = _runner(two_scan_tree, cache=cache, visual_escalation=True)
+
+        first_a = runner.process("BankZ/scanA.pdf", "BankZ")
+        assert first_a.paddle_rung == "recovered" and first_a.cache_finding == ""
+        _drift_paddle_artifact(cache, first_a.content_sha256)
+
+        if order == "A_then_B":
+            drifted_a = runner.process("BankZ/scanA.pdf", "BankZ")
+            b = runner.process("BankZ/scanB.pdf", "BankZ")
+        else:
+            b = runner.process("BankZ/scanB.pdf", "BankZ")
+            drifted_a = runner.process("BankZ/scanA.pdf", "BankZ")
+            b_after = runner.process("BankZ/scanB.pdf", "BankZ")
+            assert b_after.cache_finding == ""
+
+    assert drifted_a.paddle_rung == "recovered"
+    assert drifted_a.cache_finding == CACHE_FINDING_EVIDENCE_DRIFT
+    assert b.paddle_rung == "not_attempted"
+    assert b.escalation_refused == "no_admitted_trigger"
+    assert b.cache_finding == "", "a finding about A landed on B's row"
+
+
+def test_every_per_document_last_attribute_is_reset_at_the_top_of_process():
+    """MAJOR-A's structural half: every `_last_*` class attribute of
+    `DiscoveryRunner` (they are all per-document cache dispositions) is
+    assigned in `_reset_per_document_state`, and `process()` calls that
+    method BEFORE its first `self._read*(` call — so a new `_last_*`
+    attribute cannot be added without its reset, and the reset cannot drift
+    below a read."""
+    import discovery.runner as runner_module
+
+    class_attrs = {
+        name for name in vars(DiscoveryRunner)
+        if name.startswith("_last_") and not callable(getattr(DiscoveryRunner, name))
+    }
+    assert class_attrs, "the per-document attributes vanished; re-pin"
+
+    tree = ast.parse(inspect.getsource(runner_module))
+    class_node = next(
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "DiscoveryRunner"
+    )
+    methods = {n.name: n for n in class_node.body if isinstance(n, ast.FunctionDef)}
+    reset = methods["_reset_per_document_state"]
+    reset_targets = {
+        node.attr for node in ast.walk(reset)
+        if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
+        and isinstance(node.value, ast.Name) and node.value.id == "self"
+    }
+    assert reset_targets == class_attrs, (
+        f"per-document attributes without a reset: {class_attrs - reset_targets}; "
+        f"resets of nothing: {reset_targets - class_attrs}"
+    )
+
+    process = methods["process"]
+    reset_calls = [
+        node.lineno for node in ast.walk(process)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_reset_per_document_state"
+    ]
+    read_calls = [
+        node.lineno for node in ast.walk(process)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr.startswith("_read")
+        and isinstance(node.func.value, ast.Name) and node.func.value.id == "self"
+    ]
+    assert reset_calls, "process() never calls _reset_per_document_state"
+    assert read_calls, "process() has no _read* call; re-pin"
+    assert min(reset_calls) < min(read_calls), "the reset must precede every read"
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING closure-2 MINOR-D: a drift followed by a FAILED recompute keeps
+# the finding on the row, beside `error_type`.
+# ---------------------------------------------------------------------------
+
+
+def test_a_drift_followed_by_a_failed_recompute_keeps_the_finding_on_the_row(
+    scan_tree, monkeypatch, tmp_path,
+):
+    """A drifted Paddle artifact, then a fake worker that REFUSES connections
+    on the recompute: the row records `paddle_rung = failed`, `error_type =
+    PaddleTransportError` — AND `cache_finding = cached_evidence_drift`,
+    because `cached_ocr` attached the finding to the exception it let
+    through. Reproduced at 97ab9cb: `cache_finding == ""` on that row."""
+    from webapp.artifact_cache import CACHE_FINDING_EVIDENCE_DRIFT, open_cache
+
+    cache = open_cache(tmp_path / "data")
+    _tesseract(monkeypatch, None)  # RECOVERY
+    with FakeWorker(identity_overrides={"provider": "local", "execution_class": "local_free"}) as fake:
+        _local_free_env(monkeypatch, fake.url)
+        first = _runner(scan_tree, cache=cache, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+    assert first.paddle_rung == "recovered"
+    _drift_paddle_artifact(cache, first.content_sha256)
+
+    with FakeWorker(
+        identity_overrides={"provider": "local", "execution_class": "local_free"},
+        fail_mode="connection_refused",
+    ) as fake:
+        _local_free_env(monkeypatch, fake.url)
+        second = _runner(scan_tree, cache=cache, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+
+    assert second.paddle_rung == "failed"
+    assert second.outcome_reason == "ocr_failed"
+    assert second.error_type == "PaddleTransportError"
+    assert second.cache_finding == CACHE_FINDING_EVIDENCE_DRIFT
+
+
+def test_read_visual_records_the_drift_finding_when_its_recompute_fails(scan_tree, monkeypatch, tmp_path):
+    """The `_read_visual` mirror of the test above, at the method seam: a
+    drifted VISUAL artifact and a `parse_statement` that raises on the
+    recompute → the error type is returned AND `_last_visual_finding`
+    carries the drift for `_project_cache_finding` to project."""
+    import json as _json
+
+    from discovery.runner import MODE_SCANNED_VISUAL
+    from ocr.inspect import inspect_pdf
+    from webapp.artifact_cache import CACHE_FINDING_EVIDENCE_DRIFT, cache_key, ocr_settings_key, open_cache
+
+    cache = open_cache(tmp_path / "data")
+    profile = inspect_pdf(SCAN_BYTES)
+    settings_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True)
+    from tests.test_artifact_cache import _doc_with_evidence
+
+    cache.put_ocr(profile.content_sha256, settings_key, _doc_with_evidence())
+    path = cache._artifact_path("ocr", cache_key("ocr", profile.content_sha256, settings_key))
+    payload = _json.loads(path.read_text(encoding="utf-8"))
+    payload["artifact"]["document"]["pages"] = ["drifted"]
+    path.write_text(_json.dumps(payload), encoding="utf-8")
+
+    def _raise(*a, **k):
+        raise RuntimeError("visual endpoint unreachable")
+
+    monkeypatch.setattr("ocr.pipeline.parse_statement", _raise)
+    runner = DiscoveryRunner(
+        scan_tree, mode=MODE_SCANNED_VISUAL, run_id="t", sink=None, cache=cache, dedup=DedupIndex(),
+    )
+    document, markdown, error = runner._read_visual(SCAN_BYTES, "scan.pdf", profile)
+    assert (document, markdown, error) == (None, None, "RuntimeError")
+    assert runner._last_visual_finding == CACHE_FINDING_EVIDENCE_DRIFT
