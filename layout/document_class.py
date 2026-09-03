@@ -36,9 +36,12 @@ Decision order (ruled, `P22-CLASSIFY.md` §5)
    once; a deposit-slip / letter / screenshot lexicon beside two statement
    anchors. Signals are LISTED, never resolved by priority.
 3. Non-statement sub-kinds, when their signals fire WITHOUT a statement
-   table signal (the card statement may have a single amount column but no
-   running balance): cheque / voided cheque, deposit slip, letter, card,
-   loan, brokerage, screenshot.
+   table signal: cheque / voided cheque, deposit slip, letter, card, loan,
+   brokerage, screenshot. The card statement alone may carry a table, and
+   only a card-shaped one: a single amount column, no running balance, no
+   deposit-account furniture. A card / loan / brokerage lexicon beside
+   deposit-account furniture and no table is two account kinds claiming one
+   document → `KIND_UNCERTAIN`.
 4. `ACTIVITY_EXPORT`: a dated ledger with NO period / opening / closing
    anchor plus reverse chronology or pending rows.
 5. Statements: `STATEMENT_COMPLETE` iff period AND opening AND closing AND a
@@ -46,6 +49,20 @@ Decision order (ruled, `P22-CLASSIFY.md` §5)
    finding; `STATEMENT_ILLEGIBLE` when statement anchors exist but the
    evidence is below the usable floor; `STATEMENT_PARTIAL{findings}`
    otherwise; a table alone, one anchor alone, or nothing → `KIND_UNCERTAIN`.
+
+Layout classes the rules read (each pinned by a synthetic fixture)
+-------------------------------------------------------------------
+* a balance label with its amount on the same line or the next;
+* a summary box whose labels are STACKED two-line cells ("Opening" over
+  "balance ($)") with the values row below — never a contiguous phrase;
+* a period printed as a phrase with a date within two lines, as two dates
+  with a connector, as dates beside the opening and closing labels, or as
+  a stacked start-date / end-date cell;
+* rows WRAPPED over two lines (the date on one, the amount and balance on
+  the next) — the page-break balance check sees them;
+* a balance printed at intervals rather than on every row — such a layout
+  is never accused of a page-break discontinuity;
+* a MICR-shaped line on a page that carries the table is not a cheque page.
 
 Every threshold is a named, versioned constant below. Page indices are
 0-based everywhere (as in `evidence.canonical`).
