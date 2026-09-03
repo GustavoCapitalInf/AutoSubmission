@@ -122,3 +122,19 @@ built (Phase 2.2 prerequisites)**: the rotation-frame mismatch (0/830 pages toda
 geometry path's discarded evidence sha (~2.7×); `analysis_input_sha` is geometry-blind; Tesseract word
 boxes; a `local_free` worker deployment. **Next**: Gustavo reviews the closure report. Phase 2.2 is
 NOT started; Unlimited OCR is NOT enabled.
+
+**PHASE 2 REMAINDER — FULLY AUTHORIZED 2026-09-03 (Gustavo): 2.2 → 2.7 proceed autonomously on GREEN
+gates; rulings R1–R14 in `PHASE2_RULINGS.md` §"Phase 2 remainder"; the plan
+`phase2_remainder/PHASE2_REMAINDER_PLAN.md`; cost accounting is Gustavo's (never Ocean's); Unlimited
+lives on a SEPARATE computer (never Vast).**
+
+**PHASE 2.2 — TRUTH INSTRUMENTS — IN PROGRESS (opened 2026-09-03 on `train12` from `main` `a7ac9b0`;
+code tree `4f7d798`).** Umbrella `docs/agent-handoffs/PHASE2-2-TRUTH.md`; cells K `P22-IDENTITY`,
+C `P22-CLASSIFY`, H `P22-HOLDOUT`, F `P22-FENCE` (parallel), then T `P22-TRUTHTABLE` from the
+integration base after K + C compose. Delivers: classifier (disjoint kinds summing to 755 / 3,380),
+taxonomy L0–L6, `refused` + transition matrix + two denominators, sealed truth store + adjudication CLI
++ holdout cage + firewall, native evidence persisted (schema 3) in the display frame, geometry-aware
+analysis key (stage 18), research partitions refused by `run_of_record`, research mode through the
+router (`operator_forced_paddle`), R9 fence. Expected coverage +0; no customer page leaves the machine;
+adjudication prepared for Gustavo, not a gate. Live record: `BATCH9_TRANSITION.md` §7 (2026-09-03
+"PHASE 2.2 OPENED" onward). Next on GREEN: Phase 2.3 (`PHASE2-3-WAVE.md`) without a user approval.
