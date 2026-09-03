@@ -830,3 +830,46 @@ def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path
     assert note == "not recorded: PaddleConfigError"
     assert "PADDLE_PROVIDER" not in note  # the variable NAME never crosses either
     assert "not set" not in note  # PaddleConfigError's own message text, absent
+
+
+def test_provenance_probe_tolerates_stdout_noise_before_its_json(tmp_path, monkeypatch):
+    """Composed-tree finding (Phase 2.1, Ocean, 2026-09-02): on the CI runner
+    a newer PyMuPDF printed a `fitz` deprecation notice to STDOUT on import,
+    the probe's output was no longer pure JSON, and `collect` silently
+    recorded the whole tree block as an error — so `run_of_record` vanished.
+    The probe now delimits its JSON with a marker line; whatever precedes it
+    is recorded as bounded `stdout_noise`, never a parse failure."""
+    import tools.train.provenance as provenance
+
+    for name in list(os.environ):
+        if name.startswith("PADDLE_"):
+            monkeypatch.delenv(name, raising=False)
+    noisy = "print('warning: some library printed this on import')\n" + provenance._TREE_PROBE
+    monkeypatch.setattr(provenance, "_TREE_PROBE", noisy)
+
+    root = tmp_path / "root"
+    root.mkdir()
+    record = provenance.collect(
+        Path(__file__).resolve().parents[1], root, tmp_path / "data",
+        label="test", hash_corpus=False, mode="digital",
+    )
+    assert "run_of_record" in record, {"tree": record.get("tree")}
+    assert "offline_ocr_key" in record["run_of_record"]["partitions"]
+    assert "error" not in record["tree"]
+
+
+def test_provenance_probe_without_its_marker_is_an_error_not_a_guess(tmp_path, monkeypatch):
+    """The other direction: output that never carries the marker (a probe
+    that crashed before printing, or an older probe) is still recorded as an
+    error — the parent never parses a guess out of arbitrary stdout."""
+    import tools.train.provenance as provenance
+
+    monkeypatch.setattr(provenance, "_TREE_PROBE", "print('{\"looks\": \"like json\"}')\n")
+    root = tmp_path / "root"
+    root.mkdir()
+    record = provenance.collect(
+        Path(__file__).resolve().parents[1], root, tmp_path / "data",
+        label="test", hash_corpus=False, mode="digital",
+    )
+    assert "error" in record["tree"]
+    assert "run_of_record" not in record

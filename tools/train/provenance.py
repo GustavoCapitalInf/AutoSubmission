@@ -163,6 +163,12 @@ def inventory():
     fields["baseline_deviations"] = list(inv.baseline_deviations(result))
     return fields
 attempt("inventory", inventory)
+# The JSON is delimited by a marker line so that anything an imported module
+# prints to STDOUT on import (a library deprecation notice — PyMuPDF's
+# `fitz` shim prints one on newer releases, which is exactly what broke the
+# Phase 2.1 CI run at the composed tree) is noise the parent can record and
+# skip, never a parse failure that silently drops the whole tree block.
+print("__TREE_PROBE_JSON__")
 print(json.dumps(out, default=str))
 '''
 
@@ -249,8 +255,20 @@ def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corp
                           "stderr": completed.stderr.strip()[-2000:]}
         except (OSError, subprocess.TimeoutExpired) as exc:
             tree_probe = {"exit": None, "error": f"{type(exc).__name__}: {exc}"}
+    # Parse only what follows the probe's own marker line; whatever an
+    # imported module printed BEFORE it is recorded as `stdout_noise`
+    # (bounded) rather than allowed to turn the tree block into an error.
     try:
-        tree = json.loads(tree_probe["stdout"]) if tree_probe.get("exit") == 0 else {"error": tree_probe}
+        if tree_probe.get("exit") == 0:
+            marker = "__TREE_PROBE_JSON__"
+            noise, found, payload = tree_probe["stdout"].partition(marker)
+            if not found:
+                raise json.JSONDecodeError("probe marker missing", tree_probe["stdout"], 0)
+            tree = json.loads(payload)
+            if noise.strip():
+                tree_probe["stdout_noise"] = noise.strip()[-2000:]
+        else:
+            tree = {"error": tree_probe}
     except json.JSONDecodeError:
         tree = {"error": tree_probe}
     # P20-ARTIFACTS: lift the probe's flat `run_of_record_partitions` into the
