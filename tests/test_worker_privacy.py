@@ -485,7 +485,21 @@ _BOUNDARY_HELPERS = {
 #:
 #: The list is still the point, in the other direction: an EMPTY expectation
 #: means the first new leak anywhere in `webapp/` fails this test.
-_LEDGERED_EXCEPTION_USES: list[str] = []
+#:
+#: Phase 2.1 (P21-ROUTING closure-2, MINOR-D; composed-tree finding, Ocean
+#: 2026-09-02): ONE entry, and it is not a leak. `webapp/artifact_cache.py::
+#: cached_ocr` re-raises a `compute()` failure unchanged after a cached
+#: evidence blob was found drifted, and before re-raising it STORES a closed
+#: token on the exception object (`exc.cache_finding =
+#: CACHE_FINDING_EVIDENCE_DRIFT`) so the caller can record the drift beside the
+#: class name. Nothing is READ from the exception — not its message, not its
+#: args, not its traceback — and the token is a module constant, so no
+#: document content can travel through this use. The census is strict by
+#: design (any use of the name that is not `type(e)` / bare `raise` / a
+#: boundary helper is a finding), which is exactly why the entry is ledgered
+#: here with its reason rather than special-cased in the scanner: the reader
+#: `cache_finding_of` is the only consumer and reads only that attribute.
+_LEDGERED_EXCEPTION_USES: list[str] = ["webapp/artifact_cache.py:cached_ocr"]
 
 
 def _exception_object_uses(path: Path, helpers: frozenset[str]) -> list[str]:

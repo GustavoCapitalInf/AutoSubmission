@@ -820,6 +820,12 @@ def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path
         Path(__file__).resolve().parents[1], root, data_dir,
         label="test", hash_corpus=False, mode="digital",
     )
+    # The probe runs in a subprocess; when it fails, `collect` records the
+    # failure under `tree` and writes no `run_of_record` block at all. Surface
+    # that record in the assertion so a host-specific probe failure (seen once
+    # on the CI runner at the Phase 2.1 composed tree) reads as its cause,
+    # never as a bare KeyError.
+    assert "run_of_record" in record, {"tree": record.get("tree")}
     note = record["run_of_record"]["partitions"]["paddle_ocr_key_note"]
     assert note == "not recorded: PaddleConfigError"
     assert "PADDLE_PROVIDER" not in note  # the variable NAME never crosses either

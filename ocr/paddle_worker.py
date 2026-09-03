@@ -3,10 +3,11 @@ cell P, `docs/agent-handoffs/P21-PADDLE.md` §1, D7).
 
 Runs under the Vast.ai host's `/venv/main` Python (3.12), where `paddleocr`,
 `paddlepaddle-gpu`, `Pillow` and `numpy` are installed. It uses ONLY the
-standard library plus Pillow and numpy at import time — `paddleocr` is
-imported inside the inference function so this module stays importable, and
-its request validation unit-testable, on a machine that has never installed
-PaddleOCR (this repository's default suite included).
+standard library plus Pillow at import time and through every request bound —
+`numpy` and `paddleocr` are imported inside `_Model.infer`, the model
+boundary, so this module stays importable, and its request validation
+unit-testable, on a machine that has installed neither (this repository's
+default suite and CI included).
 
 Design (see the umbrella card, D7, and this file's own card, §1):
 
@@ -268,17 +269,24 @@ class _Model:
         )
 
     def infer(self, image) -> tuple[dict, bool]:
-        """Run one inference. Returns `(raw_result_dict, cold_load)`. Serialized:
-        one inference in flight at a time, across every request."""
+        """Run one inference on a PIL image. Returns `(raw_result_dict,
+        cold_load)`. Serialized: one inference in flight at a time, across
+        every request. `numpy` and `paddleocr` are imported HERE, inside the
+        guarded block — a host without either (this repository's default
+        suite, CI) reaches this point with every request bound already
+        enforced and fails closed as `inference_failed`."""
         cold_load = False
         with self._infer_lock:
             try:
+                import numpy as np
+
+                array = np.array(image.convert("RGB"))
                 if self._pipeline is None:
                     with self._lock:
                         if self._pipeline is None:
                             self._pipeline = self._build()
                             cold_load = True
-                results = self._pipeline.predict(input=image, return_word_box=True)
+                results = self._pipeline.predict(input=array, return_word_box=True)
             except WorkerRefused:
                 raise
             except Exception as exc:
@@ -497,11 +505,12 @@ def handle_ocr_request(payload: dict, *, identity: dict, token: str | None,
         payload, token=token, auth_header=auth_header
     )
 
-    import numpy as np
-
-    array = np.array(image.convert("RGB"))
+    # The model boundary is `_MODEL.infer`: numpy (like paddleocr) is a
+    # host-side inference dependency imported THERE, never here, so this
+    # handler — and every bound above it — runs on a machine with neither
+    # installed (the repository's default suite, CI included).
     t_infer_start = time.perf_counter()
-    raw, cold_load = _MODEL.infer(array)
+    raw, cold_load = _MODEL.infer(image)
     inference_ms = (time.perf_counter() - t_infer_start) * 1000.0
     total_ms = decode_ms + inference_ms
 
