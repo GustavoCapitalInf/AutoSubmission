@@ -448,3 +448,19 @@ findings reproduced and closed, re-reviews green · cold run / replay green · C
 `PADDLE_VAST_RUNBOOK.md`, the reviews) · worktree clean → **STOP. Return the Phase 2.1 closure report to
 Gustavo. Phase 2.2 does not begin. Unlimited OCR is not enabled. The 13-document remote-data ruling is
 requested, not assumed.**
+
+## Closure (Ocean, 2026-09-03)
+Every completion criterion above is met at composed code tree **`4f7d798`** (`train11`): cell 0
+(`evidence/`, `ocr/paddle_config.py`) + G (`6380f67`) + P (`db2ad95`, live proof `c2c1d82`) + R
+(`d757f86`) + three composed-tree integration fixes (`bf8cd11`, `4f7d798`), each cell reviewed →
+closed → re-reviewed → residuals closed (reviews under `docs/moneythumb-replacement/reviews/PHASE2_P21*`);
+floor green (suite 8,756 / guards 275 / conformance 1,282 / gate 105-3-1 / corpus slice 34); remote CI
+green (run 33705014589); cold run `discovery_reports/TRAIN11-4f7d798/2026-09-03T022827.644186-0000-331d9136`
+vs the Phase 2.0 run of record: **2,625 → 2,625, 3,380 unchanged, compare exit 0**; Paddle-eligible 13
+documents / 17 pages, attempted 0 (privacy boundary, D8), newly validated Paddle-fed SHAs none, OCR-fed
+validated 0, false accepts 0 on evaluated truth; the synthetic live proof on the real RTX 5090 recorded in
+`PADDLE_MEASUREMENTS.md`. Measurements, the closure record and the two rulings requested from Gustavo
+(the 13-document remote-data ruling; the Vast hourly rate) are in `docs/moneythumb-replacement/BATCH9_TRANSITION.md`
+§7 (2026-09-02/03) and `PHASE2_STATE.md`. Model routing for reviews changed mid-phase under
+`ORCHESTRATION-MODEL-POLICY.md` (recorded there and in §7). **STOPPED. Phase 2.2 does not begin.
+Unlimited OCR is not enabled.**

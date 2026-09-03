@@ -1,6 +1,6 @@
 ---
 name: phase2-state
-description: "PHASE 2.1 IN PROGRESS (opened 2026-09-02 on train11 from 9a54952; Ruling A / Ruling B / the Vast.ai remote_paid authorization recorded; cells G and P launched, R after P; privacy boundary: no customer documents to Vast). PHASE 2.0 COMPLETE (2026-09-02, gate met, approved by Gustavo): composed train10 941918f (docs tip on train); OQ1-OQ11 RULED (PHASE2_RULINGS.md); five cells + P20-REPLAY-SHAPE reviewed/closed/re-reviewed; floor 2,625 preserved by full-archive replay AND cold run (2,625 -> 2,625, 3,380 unchanged); OCR_STAGE_VERSION 5; OCR-fed validated 0; legal escalation population 13; Phase 2.1 (PaddleOCR) NOT authorized until Gustavo approves"
+description: "PHASE 2.1 COMPLETE (2026-09-03, gate met, STOPPED pending Gustavo's approval of the closure report; composed code tree 4f7d798 on train11; cold run 2,625 -> 2,625; Paddle-eligible 13 / attempted 0 by the privacy boundary; two rulings requested: the 13-document remote-data run and the Vast hourly rate). Opening record: (opened 2026-09-02 on train11 from 9a54952; Ruling A / Ruling B / the Vast.ai remote_paid authorization recorded; cells G and P launched, R after P; privacy boundary: no customer documents to Vast). PHASE 2.0 COMPLETE (2026-09-02, gate met, approved by Gustavo): composed train10 941918f (docs tip on train); OQ1-OQ11 RULED (PHASE2_RULINGS.md); five cells + P20-REPLAY-SHAPE reviewed/closed/re-reviewed; floor 2,625 preserved by full-archive replay AND cold run (2,625 -> 2,625, 3,380 unchanged); OCR_STAGE_VERSION 5; OCR-fed validated 0; legal escalation population 13; Phase 2.1 (PaddleOCR) NOT authorized until Gustavo approves"
 metadata:
   node_type: memory
   type: project
@@ -88,3 +88,37 @@ no production customer statements to Vast without a separate ruling) are recorde
 §7, 2026-09-02 "PHASE 2.1 OPENED" and later entries. Expected coverage movement in this phase: the
 13-document legal population is customer data and is NOT sent to Vast (D8) — synthetic proof only;
 Paddle-eligible 13 / attempted 0 / newly validated 0 reported honestly; the 2,625 floor untouched.
+
+**PHASE 2.1 — COMPLETE 2026-09-03 (completion gate met; STOPPED pending Gustavo's approval of the
+closure report).** Composed code tree **`4f7d798`** on `train11`: cell 0 (`evidence/` +
+`ocr/paddle_config.py`, Ocean) → G `6380f67` (one `DocumentGeometry` from canonical evidence; native
+byte-identical on all 109 corpus PDFs / 830 pages) → P `db2ad95` + live proof `c2c1d82` (the loopback
+stdlib worker on the Vast RTX 5090, the bounded client with declaration + worker corroboration, the
+3.7 adapter into immutable evidence, the fail-closed rung, the lifecycle tool, the synthetic
+measurements) → R `d757f86` (`RouterInputs.enabled`; `EXTRACTOR_ORDER` = local_tesseract, paddle,
+visual; the forced-path-only rung; `--scanned-paddle`; per-page provenance on every rung;
+EXTRACTION_SCHEMA_VERSION 2; the customer-scope refusal at the runner) → three composed-tree integration
+fixes (`bf8cd11`, `4f7d798`). Every cell: implementation → independent adversarial review → every
+finding reproduced → closure → independent re-review → residuals closed (G: BLOCK → APPROVE WITH
+FINDINGS; P: APPROVE WITH FINDINGS twice; R: APPROVE WITH FINDINGS twice, the re-review and closure-2
+performed in the Fable 5.1 environment under `ORCHESTRATION-MODEL-POLICY.md`).
+
+**Proof at the composed tree**: full suite **8,756 passed / 45 skipped / 39 deselected**; guards 275;
+conformance 1,282; gate GREEN 105/3/1; corpus slice 34; remote CI GREEN run 33705014589; **cold run
+`discovery_reports/TRAIN11-4f7d798/2026-09-03T022827.644186-0000-331d9136` vs the Phase 2.0 run of
+record: 2,625 → 2,625, 3,380 unchanged, compare exit 0** (peak 1,239 MB; the offline OCR partition
+rebuilt under schema 2); cohort replay 2,625 / 2,625 identical at every cell's base and closure.
+Measured on the new run of record: R 13 · U 123 · U-extract 0 · U-structure 123 · density-surfaced
+23 · legal escalation population 13 · row-level Class-A 0 · OCR-fed validated 0 · **Paddle-eligible 13
+documents / 17 pages · attempted 0 · newly validated Paddle-fed SHAs NONE · false accepts 0** (the
+Paddle path proven end to end on synthetic fixtures: real PP-OCRv5 inference over the tunnel, cold e2e
+5,208 ms, warm median 1,872 ms, `evidence_sha256` stable, cost "rate not measured").
+
+**Rulings requested from Gustavo (not assumed)**: (1) may the 13-document legal escalation population
+(customer statements, 17 pages) be sent to the Vast worker — the remote-data / privacy / retention
+ruling (D8); until then `PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` stays unset and a `--scanned-paddle`
+archive run refuses by construction; (2) the Vast hourly rate for the cost figure. **Documented, not
+built (Phase 2.2 prerequisites)**: the rotation-frame mismatch (0/830 pages today); the native
+geometry path's discarded evidence sha (~2.7×); `analysis_input_sha` is geometry-blind; Tesseract word
+boxes; a `local_free` worker deployment. **Next**: Gustavo reviews the closure report. Phase 2.2 is
+NOT started; Unlimited OCR is NOT enabled.

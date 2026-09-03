@@ -79,7 +79,14 @@ authoritative.
 
 # Exact next action
 
-**PHASE 2.1 IS IN PROGRESS (opened 2026-09-02 on `train11`).** Gustavo approved Phase 2.0 and authorized
+**PHASE 2.1 IS COMPLETE (2026-09-03) AND STOPPED.** Composed code tree `4f7d798` on `train11`; floor,
+CI and the cold run (2,625 → 2,625, 3,380 unchanged) green; the closure report is with Gustavo — live state
+in `docs/moneythumb-replacement/PHASE2_STATE.md`, the record in `BATCH9_TRANSITION.md` §7 (2026-09-02/03).
+**Do not start Phase 2.2 or enable Unlimited OCR.** Two rulings are requested: whether the 13-document legal
+escalation population (customer statements) may be sent to the Vast worker, and the Vast hourly rate.
+Model routing for agents follows `docs/agent-handoffs/ORCHESTRATION-MODEL-POLICY.md` (2026-09-02 override).
+
+*(superseded 2026-09-03)* **PHASE 2.1 IS IN PROGRESS (opened 2026-09-02 on `train11`).** Gustavo approved Phase 2.0 and authorized
 Phase 2.1 (PaddleOCR + canonical word boxes + DocumentGeometry) only — rulings A / B and the Vast.ai
 authorization are in `docs/moneythumb-replacement/PHASE2_RULINGS.md` §"Phase 2.1"; the umbrella card is
 `docs/agent-handoffs/PHASE2-1-PADDLE.md`; the live record is `BATCH9_TRANSITION.md` §7 (2026-09-02 "PHASE 2.1
