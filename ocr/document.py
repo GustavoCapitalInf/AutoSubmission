@@ -7,6 +7,16 @@ from .config import ProvenanceTokenError, validate_model_token
 from .truncation import PageIntegrity
 
 
+def native_evidence_describes(pages: list[str], evidence: ExtractionEvidence) -> bool:
+    """THE consistency rule between a `StatementMarkdown`'s page list and a
+    native evidence (P22-IDENTITY, D5): the page COUNTS agree. Deliberately
+    NOT text equality — see `StatementMarkdown.native_evidence`. One
+    function so `__post_init__` (a constructed object refuses a mismatch)
+    and the intake ladder (which attaches only what this rule admits) can
+    never disagree about what "describes" means."""
+    return len(evidence.pages) == len(pages)
+
+
 @dataclass
 class StatementMarkdown:
     source_file: str
@@ -39,6 +49,21 @@ class StatementMarkdown:
     # test_ocr_document_imports_only_evidence_config_and_truncation`.
     page_extractor: list[str] = field(default_factory=list)
     evidence: ExtractionEvidence | None = None
+    # P22-IDENTITY (Phase 2.2, D5). `native_evidence` is the immutable
+    # canonical evidence of the NATIVE reader (`evidence/native.py`: PyMuPDF
+    # word boxes in the display frame) behind a native-rung read, attached
+    # once per document by the intake ladder and persisted in the OCR record
+    # with its sha (`EXTRACTION_SCHEMA_VERSION` 3). It is a SIBLING of
+    # `evidence`, deliberately, because the D9 invariant that field carries
+    # (`evidence.page_texts() == pages`) does NOT hold for the native rung:
+    # the native page strings come from `ocr/native_text.py::_native_pages`
+    # (PyMuPDF text BLOCKS, plus whatever a bank-specific native reader
+    # appended), not from grouping these words into lines. So this field's
+    # own consistency check is page COUNT only — never text equality — and
+    # that asymmetry is the whole reason it is not `evidence`. `None` for
+    # every rung that is not the native rung, and for a native read whose
+    # PDF yields no placeable word.
+    native_evidence: ExtractionEvidence | None = None
 
     def __post_init__(self) -> None:
         """Close F-4(b) / MAJOR-2 at the point both fields are SET.
@@ -122,6 +147,28 @@ class StatementMarkdown:
                     "evidence.page_texts() does not equal pages: the derived "
                     "page strings and the evidence they came from must be one object"
                 )
+        # P22-IDENTITY (D5): `native_evidence` describes the same document
+        # page for page — the ONE rule is `native_evidence_describes`, shared
+        # with the intake ladder, which declines to attach an evidence that
+        # fails it rather than raising in the middle of a read.
+        if self.native_evidence is not None:
+            if not isinstance(self.native_evidence, ExtractionEvidence):
+                raise ProvenanceTokenError(
+                    "native_evidence must be an evidence.canonical.ExtractionEvidence or None"
+                )
+            if not native_evidence_describes(self.pages, self.native_evidence):
+                raise ProvenanceTokenError(
+                    f"native_evidence carries {len(self.native_evidence.pages)} pages but "
+                    f"pages has {len(self.pages)}: they must describe the same document"
+                )
+
+    @property
+    def native_evidence_sha256(self) -> str | None:
+        """The `evidence_sha256` of the attached native evidence, or `None`.
+        The lineage a row's `evidence_sha256` column carries for a native
+        read (populated by the runner, not here); what a cache hit must
+        reproduce byte-for-byte."""
+        return None if self.native_evidence is None else self.native_evidence.evidence_sha256
 
     @property
     def truncated_pages(self) -> list[int]:

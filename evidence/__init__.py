@@ -1,6 +1,18 @@
-"""Canonical extraction evidence (Phase 2.1). Standard library only — see
+"""Canonical extraction evidence (Phase 2.1) and the ONE native PDF reader
+(Phase 2.2, `evidence/native.py`). No repository package is imported here;
+the only third-party import in the package is PyMuPDF, lazily, inside
+`native_evidence_from_pdf` — so this package imports with PyMuPDF absent. See
 `evidence/canonical.py`'s docstring for the boundary argument and the
 coordinate conventions."""
+from .native import (
+    FRAME_DISPLAY,
+    NATIVE_EXTRACTOR_ID,
+    ROTATION_APPLIED_NOTE,
+    UNREADABLE_PAGE_NOTE,
+    WORD_OUTSIDE_FRAME_NOTE,
+    WORD_REFUSED_NOTE,
+    native_evidence_from_pdf,
+)
 from .canonical import (
     COORDINATE_SPACES,
     EVIDENCE_SCHEMA_VERSION,
@@ -29,10 +41,16 @@ from .canonical import (
 __all__ = [
     "COORDINATE_SPACES",
     "EVIDENCE_SCHEMA_VERSION",
+    "FRAME_DISPLAY",
+    "NATIVE_EXTRACTOR_ID",
     "PDF_POINT",
     "PIXEL",
     "POINTS_PER_INCH",
+    "ROTATION_APPLIED_NOTE",
     "SCALE_TOLERANCE",
+    "UNREADABLE_PAGE_NOTE",
+    "WORD_OUTSIDE_FRAME_NOTE",
+    "WORD_REFUSED_NOTE",
     "EvidenceError",
     "ExtractionEvidence",
     "LineBox",
@@ -43,6 +61,7 @@ __all__ = [
     "canonical_json",
     "from_json",
     "group_lines",
+    "native_evidence_from_pdf",
     "page_text",
     "sha256_of_json",
     "to_json",

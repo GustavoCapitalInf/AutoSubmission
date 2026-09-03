@@ -184,14 +184,67 @@ def test_a_word_outside_its_raster_refuses_the_page():
         PageEvidence(frame=frame, words=(inside, outside))
 
 
-def test_native_words_slightly_outside_the_page_rect_are_kept():
-    """PyMuPDF words can sit in the bleed; refusing them would change
-    `geometry_from_pdf`'s Phase 2.0 behaviour. Bounds are enforced for
-    rasters only — a raster physically cannot hold a box outside itself."""
+def test_a_word_outside_its_pdf_point_frame_refuses_the_page_no_clamp_no_swap():
+    """CASE 15 (Phase 2.2, P22-IDENTITY item 3; D4). INVERTED from the Phase
+    2.1 pin `test_native_words_slightly_outside_the_page_rect_are_kept`,
+    which kept a bleed word because refusing it would have changed
+    `geometry_from_pdf`'s Phase 2.0 behaviour. Ruled otherwise in 2.2: the
+    native reader now places every box in the DISPLAY frame, so a
+    `pdf_point` frame refuses a box outside `[0, width] x [0, height]`
+    exactly as a `pixel` frame always has — at construction, whole page, no
+    clamp, no swap (the refusing box is left unmodified; nothing is built).
+    The representation is unchanged: `EVIDENCE_SCHEMA_VERSION` stays 1. The
+    measured consequence on the archive (words PyMuPDF places outside
+    `page.rect` on unrotated pages) is recorded in this cell's W3 section."""
     frame = PageFrame.pdf_points(page_index=0, width_pt=612.0, height_pt=792.0)
-    bleed = _word(0, "bleed", -2.0, 10.0, 20.0, 20.0, index=0)
-    page = PageEvidence(frame=frame, words=(bleed,))
-    assert page.words == (bleed,)
+    inside = _word(0, "inside", 10.0, 10.0, 50.0, 20.0, index=0)
+    PageEvidence(frame=frame, words=(inside,))  # the in-frame control constructs
+    for box in (
+        (-2.0, 10.0, 20.0, 20.0),        # past the left edge (the old "bleed" shape)
+        (600.0, 10.0, 620.0, 20.0),      # past the right edge
+        (10.0, -0.5, 50.0, 20.0),        # past the top edge, sub-point
+        (10.0, 780.0, 50.0, 800.0),      # past the bottom edge
+        (10.0, 792.0 + 30.0, 50.0, 792.0 + 40.0),  # wholly off the page
+    ):
+        outside = _word(0, "outside", *box, index=1)
+        with pytest.raises(MalformedGeometry):
+            PageEvidence(frame=frame, words=(inside, outside))
+        # never swapped, never clamped: the word object itself is untouched
+        assert (outside.x0, outside.y0, outside.x1, outside.y1) == tuple(float(v) for v in box)
+    # a box exactly ON the edges is inside (closed interval), in both spaces
+    edge = _word(0, "edge", 0.0, 0.0, 612.0, 792.0, index=2)
+    assert PageEvidence(frame=frame, words=(edge,)).words == (edge,)
+    assert EVIDENCE_SCHEMA_VERSION == 1
+
+
+def test_the_bounds_rule_is_the_same_in_both_spaces():
+    """One rule, two frames: the same overshoot refuses a pixel frame and a
+    pdf_point frame alike, so a mutant that drops the check for one space
+    (M4) is caught here as well as by CASE 15 above."""
+    pixel = _pixel_frame()
+    point = PageFrame.pdf_points(page_index=0, width_pt=612.0, height_pt=792.0)
+    for frame in (pixel, point):
+        spill = _word(0, "spill", frame.width - 5.0, 10.0, frame.width + 5.0, 40.0, index=0)
+        with pytest.raises(MalformedGeometry):
+            PageEvidence(frame=frame, words=(spill,))
+        ok = _word(0, "ok", frame.width - 15.0, 10.0, frame.width, 40.0, index=0)
+        assert PageEvidence(frame=frame, words=(ok,)).words == (ok,)
+
+
+def test_every_existing_evidence_fixture_in_this_file_still_constructs():
+    """Item 3's proof obligation: the validation tightened, the shape did not
+    — every evidence this file builds (pixel and pdf_point, with and without
+    raw) still constructs and still round-trips with its sha reproduced."""
+    for with_raw in (True, False):
+        evidence = _document(with_raw=with_raw)
+        rebuilt = from_json(to_json(evidence))
+        assert rebuilt.evidence_sha256 == evidence.evidence_sha256
+    frame = PageFrame.pdf_points(page_index=0, width_pt=612.0, height_pt=792.0)
+    words = (
+        _word(0, "AMOUNT", 500.0, 100.0, 560.0, 110.0, index=0),
+        _word(0, "DATE", 50.0, 100.5, 90.0, 110.5, index=1),
+    )
+    assert len(PageEvidence(frame=frame, words=words).lines) == 1
 
 
 def test_words_from_another_page_or_duplicate_ids_are_refused():

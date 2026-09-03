@@ -873,3 +873,148 @@ def test_provenance_probe_without_its_marker_is_an_error_not_a_guess(tmp_path, m
     )
     assert "error" in record["tree"]
     assert "run_of_record" not in record
+
+
+# ---------------------------------------------------------------------------
+# P22-IDENTITY (Phase 2.2, cell K; D7; case 17): research partitions are
+# never a run of record — refused by name before any key is read; the
+# production key is unchanged when the field is empty; cohort_replay and
+# provenance honour it.
+# ---------------------------------------------------------------------------
+
+
+def _write_recorded_run_with_partition(run_dir: Path, research_partition, **keys) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    partitions = {"offline_ocr_key": keys.get("offline_key", "OFFLINE1"),
+                  "analysis_key": keys.get("analysis_key", "ANALYSIS1"), "mode": keys.get("mode", "digital")}
+    if research_partition is not None:
+        partitions["research_partition"] = research_partition
+    (run_dir / "provenance.json").write_text(
+        json.dumps({"tree": {"OCR_STAGE_VERSION": 5, "ANALYSIS_STAGE_VERSION": 18},
+                    "run_of_record": {"partitions": partitions}}),
+        encoding="utf-8",
+    )
+
+
+def test_a_recorded_run_carrying_a_research_partition_is_refused_by_name(tmp_path):
+    """M11: the refusal names the partition, subclasses RunOfRecordError (so
+    every exit-5 boundary honours it), and fires BEFORE any key is served."""
+    from telemetry.run_of_record import ResearchPartitionRefused
+
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, "p23-wave-a")
+    with pytest.raises(ResearchPartitionRefused) as caught:
+        partitions_for_run(run_dir)
+    assert caught.value.partition == "p23-wave-a"
+    assert "p23-wave-a" in str(caught.value)
+    assert isinstance(caught.value, RunOfRecordError)
+
+
+@pytest.mark.parametrize("value", ["", None])
+def test_an_empty_or_absent_research_partition_is_a_production_run(tmp_path, value):
+    """The production selection is unchanged when the field is empty or
+    (every run recorded before this cell) absent."""
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, value)
+    partitions = partitions_for_run(run_dir)
+    assert partitions.origin == ORIGIN_RECORDED
+    assert partitions.research_partition == ""
+    assert partitions.ocr_keys_by_source["native"] == "OFFLINE1"
+    assert partitions.analysis_key == "ANALYSIS1"
+
+
+def test_a_non_string_research_partition_is_malformed(tmp_path):
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, ["not", "a", "string"])
+    with pytest.raises(RunOfRecordError):
+        partitions_for_run(run_dir)
+
+
+def test_a_research_run_is_refused_even_when_its_keys_exist_in_the_cache(tmp_path):
+    """The refusal is not a verification failure: even a cache that DOES hold
+    the research run's keys is refused, because a research artifact can never
+    become historical truth (D7)."""
+    from telemetry.run_of_record import ResearchPartitionRefused
+
+    db_path = _make_cache_db(tmp_path, [
+        ("ocr", "SHA1", "RESEARCH-OFFLINE", "artifacts/ocr/aa/x.json"),
+        ("analysis", "SHA1", "RESEARCH-ANALYSIS", "artifacts/analysis/aa/y.json"),
+    ])
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, "p23-wave-a", offline_key="RESEARCH-OFFLINE",
+                                       analysis_key="RESEARCH-ANALYSIS")
+    conn = _conn(db_path)
+    try:
+        with pytest.raises(ResearchPartitionRefused):
+            partitions_for_run(run_dir, conn=conn)
+    finally:
+        conn.close()
+
+
+def test_cohort_replay_exits_5_on_a_research_run_without_any_change_of_its_own(tmp_path, monkeypatch):
+    """CASE 17: `tools/cohort_replay.py` needs no change — its existing
+    `RunOfRecordError` boundary turns the refusal into exit 5 and never
+    selects an artifact of the research run."""
+    import tools.cohort_replay as cohort_replay
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    _make_cache_db(data_dir, [
+        ("ocr", "A" * 64, "RESEARCH-OFFLINE", "artifacts/ocr/aa/x.json"),
+        ("analysis", "A" * 64, "RESEARCH-ANALYSIS", "artifacts/analysis/aa/y.json"),
+    ])
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, "p23-wave-a", offline_key="RESEARCH-OFFLINE",
+                                       analysis_key="RESEARCH-ANALYSIS")
+    _write_rows_csv(run_dir, [{"content_sha256": "A" * 64, "source_path": "native",
+                               "outcome_class": "validated", "outcome_reason": "", "parser_id": "x",
+                               "folder_label": "f", "visual_rung": "not_attempted"}])
+    shas = tmp_path / "shas.txt"
+    shas.write_text("A" * 64 + "\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    exit_code = cohort_replay.main([
+        "--run", str(run_dir), "--data-dir", str(data_dir), "--shas", str(shas),
+        "--census", str(tmp_path / "absent-census.csv"), "--expect-identical",
+    ])
+    assert exit_code == 5
+
+
+def test_provenance_records_the_research_partition_and_folds_it_into_the_keys(tmp_path, monkeypatch):
+    """`tools/train/provenance.py --research-partition <id>` records the id in
+    `run_of_record.partitions` and computes the OCR keys WITH it, so the
+    recorded run is refused as a run of record; a production call records
+    the empty string and the production keys."""
+    import tools.train.provenance as provenance
+    from telemetry.run_of_record import ResearchPartitionRefused
+
+    for name in list(os.environ):
+        if name.startswith("PADDLE_"):
+            monkeypatch.delenv(name, raising=False)
+    root = tmp_path / "root"
+    root.mkdir()
+    checkout = Path(__file__).resolve().parents[1]
+    production = provenance.collect(checkout, root, tmp_path / "data", label="t", hash_corpus=False, mode="digital")
+    research = provenance.collect(checkout, root, tmp_path / "data", label="t", hash_corpus=False, mode="digital",
+                                  research_partition="p23-wave-a")
+    assert "run_of_record" in production, {"tree": production.get("tree")}
+    assert "run_of_record" in research, {"tree": research.get("tree")}
+    prod_parts = production["run_of_record"]["partitions"]
+    research_parts = research["run_of_record"]["partitions"]
+    assert prod_parts["research_partition"] == ""
+    assert research_parts["research_partition"] == "p23-wave-a"
+    assert prod_parts["offline_ocr_key"] != research_parts["offline_ocr_key"]
+    assert prod_parts["visual_ocr_key"] != research_parts["visual_ocr_key"]
+    assert prod_parts["analysis_key"] == research_parts["analysis_key"]
+    assert production["tree"]["EXTRACTION_SCHEMA_VERSION"] == 3
+    assert production["tree"]["EVIDENCE_SCHEMA_VERSION"] == 1
+    assert "RECONSTRUCTION_MODE" in production["env"]
+
+    run_dir = tmp_path / "research-run"
+    run_dir.mkdir()
+    (run_dir / "provenance.json").write_text(json.dumps(research, default=str), encoding="utf-8")
+    with pytest.raises(ResearchPartitionRefused):
+        partitions_for_run(run_dir)
+    production_dir = tmp_path / "production-run"
+    production_dir.mkdir()
+    (production_dir / "provenance.json").write_text(json.dumps(production, default=str), encoding="utf-8")
+    assert partitions_for_run(production_dir).research_partition == ""

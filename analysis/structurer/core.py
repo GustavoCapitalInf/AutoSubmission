@@ -19,7 +19,6 @@ just closed.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 
 from ..dates import assign_transaction_years
@@ -39,9 +38,12 @@ __all__ = [
     "structurer_enabled",
 ]
 
-#: Opt-in. Default OFF until Ocean flips it after measured validation
-#: (W3-3b ruling 6). Absent or "0"/"false"/"" means the rung does not run, and
-#: `analyze_markdown` behaves exactly as it does today.
+#: RETIRED (P22-IDENTITY, Phase 2.2, D6). This was the W3-3b opt-in
+#: environment variable; the rung now reads `Settings.reconstruction_mode`
+#: (`analysis/config.py`, closed vocabulary `off | research | production`,
+#: environment `RECONSTRUCTION_MODE`). The old variable is INERT: setting it
+#: changes nothing, which `tests/test_structurer_safety.py` proves. The name
+#: is kept only so existing imports keep resolving.
 STRUCTURER_ENV = "GENERIC_STRUCTURER_ENABLED"
 
 #: What `Report.model_used` says when this rung produced the statement. The
@@ -60,8 +62,21 @@ STRUCTURER_MODEL = "generic-structurer-deterministic"
 PUBLISHED_SUMMARY_FIELDS = ("beginning_balance", "ending_balance")
 
 
-def structurer_enabled() -> bool:
-    return os.environ.get(STRUCTURER_ENV, "").strip().lower() not in ("", "0", "false", "no")
+def structurer_enabled(settings=None) -> bool:
+    """Whether the generic rung may run: `Settings.reconstruction_mode != "off"`
+    (P22-IDENTITY, D6). `settings` is an `analysis.config.Settings` (or any
+    object with a `reconstruction_mode` attribute); when omitted the settings
+    are loaded from the environment, which is what `structure_unclaimed`
+    does per document. `webapp/artifact_cache.py::analysis_settings_key`
+    passes the SAME settings object it fingerprints, so the key and the rung
+    can never disagree about what "enabled" means. Off is the default and
+    the whole archive's history. The retired `GENERIC_STRUCTURER_ENABLED`
+    variable is not consulted at all."""
+    if settings is None:
+        from ..config import load_settings
+
+        settings = load_settings()
+    return str(getattr(settings, "reconstruction_mode", "off")) != "off"
 
 
 @dataclass(frozen=True)

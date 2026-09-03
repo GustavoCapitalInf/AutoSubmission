@@ -8,10 +8,12 @@ Why a neutral package
 `analysis/structurer/geometry.py` consumes it. The Phase 2.0 tripwires pin the
 `analysis -> ocr` import allowlist EMPTY and forbid the OCR ladder from
 importing `analysis`; an evidence type owned by either side would force one of
-those boundaries to widen. This package is owned by neither: it imports ONLY
-the standard library (pinned by `tests/test_evidence_boundary.py`), knows
-nothing about a parser, a validator, a statement, an amount or a date, and
-never decides what any word MEANS. It records where a word is and what it
+those boundaries to widen. This package is owned by neither: it imports
+nothing from any repository package and, apart from the ONE lazy `fitz`
+import inside `evidence/native.py::native_evidence_from_pdf` (Phase 2.2,
+D3), only the standard library (pinned by `tests/test_evidence_boundary.py`),
+knows nothing about a parser, a validator, a statement, an amount or a date,
+and never decides what any word MEANS. It records where a word is and what it
 says, immutably, with enough frame information that every coordinate
 conversion is deterministic and replayable from the serialized artifact alone.
 
@@ -27,6 +29,11 @@ Coordinate conventions (explicit, tested — `tests/test_evidence_canonical.py`)
 * A box is ``(x0, y0, x1, y1)`` with ``x0 < x1`` and ``y0 < y1`` — enforced at
   construction, never silently swapped or clamped. A degenerate or inverted
   box is `MalformedGeometry` (the "no guessed structure" direction, CASE 8).
+* A box lies INSIDE its page's frame, ``[0, width] x [0, height]``, in BOTH
+  spaces (Phase 2.2: `pdf_point` frames gained the bounds check `pixel`
+  frames always had, because the native reader — `evidence/native.py` — now
+  places every word in the DISPLAY frame `page.rect` describes). A box
+  outside its frame refuses the page at construction; nothing is clamped.
 * A ``pixel`` frame carries the raster's dimensions and dpi, the PDF page's
   dimensions in points and the page's rotation as the rasteriser applied it;
   ``scale_x`` / ``scale_y`` are pixels-per-point per axis and MUST agree with
@@ -419,11 +426,21 @@ class PageEvidence:
             if word.word_id in seen:
                 raise EvidenceError(f"duplicate word_id {word.word_id}")
             seen.add(word.word_id)
-            if self.frame.space == PIXEL and not (
+            # A box lies INSIDE its frame in BOTH spaces. Pixel frames always
+            # refused a word outside the raster (a raster physically cannot
+            # hold one); since Phase 2.2 (P22-IDENTITY item 3, D4) a
+            # `pdf_point` frame refuses a word outside `[0, width] x
+            # [0, height]` too — the native reader now transforms every box
+            # into the display frame `page.rect` describes, so a box outside
+            # it is a defect of the transform or of the PDF, refused whole,
+            # never clamped, never swapped. The representation is unchanged
+            # (`EVIDENCE_SCHEMA_VERSION` stays 1); only this validation
+            # tightened.
+            if not (
                 0.0 <= word.x0 and word.x1 <= self.frame.width and 0.0 <= word.y0 and word.y1 <= self.frame.height
             ):
                 raise MalformedGeometry(
-                    f"word {word.word_id} lies outside its raster "
+                    f"word {word.word_id} lies outside its {self.frame.space} frame "
                     f"({self.frame.width:.0f} x {self.frame.height:.0f}): "
                     f"({word.x0}, {word.y0}, {word.x1}, {word.y1})"
                 )
