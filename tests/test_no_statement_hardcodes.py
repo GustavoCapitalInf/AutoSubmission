@@ -1087,3 +1087,122 @@ def test_the_issuer_marker_guard_catches_growth_inside_a_ratcheted_file(tmp_path
     assert actual > baseline["native_text.py"], (
         "the ratchet mechanism did not see the added issuer marker as growth"
     )
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING CASE 15: the OQ2 protection extends to `evidence/` and
+# `tools/paddle_vast.py`, reusing the SAME pattern classes and helper
+# functions defined above — no new detection logic, only a new scope, exactly
+# the OCR extension's own precedent (see its header comment). Blast radius
+# measured before this test was written: every scan below is clean (0 hits)
+# over both `evidence/*.py` and `tools/paddle_vast.py`.
+# ---------------------------------------------------------------------------
+
+EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "evidence"
+PADDLE_VAST_TOOL = Path(__file__).resolve().parent.parent / "tools" / "paddle_vast.py"
+
+
+def _paddle_phase21_modules() -> list[Path]:
+    """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope."""
+    modules = sorted(EVIDENCE_DIR.glob("*.py"))
+    if PADDLE_VAST_TOOL.exists():
+        modules.append(PADDLE_VAST_TOOL)
+    return modules
+
+
+def test_no_removed_literals_in_evidence_and_paddle_vast():
+    offenders = []
+    for path in _paddle_phase21_modules():
+        source = path.read_text(encoding="utf-8").upper()
+        for literal in REMOVED_LITERALS:
+            if literal.upper() in source:
+                offenders.append(f"{path.name}: {literal}")
+    assert not offenders, f"statement-specific literals: {offenders}"
+
+
+def test_no_literal_years_in_evidence_and_paddle_vast():
+    offenders = []
+    for path in _paddle_phase21_modules():
+        for number, line in _code_lines(path):
+            if not YEAR_RE.search(line):
+                continue
+            if "2000 +" in line or "+= 2000" in line or "+ 2000" in line:
+                continue
+            offenders.append(f"{path.name}:{number}: {line.strip()}")
+    assert not offenders, f"literal year constants: {offenders}"
+
+
+#: `canonical.py:615` -- `"0123456789ABCDEFabcdef"`, the hex-digit CHARSET
+#: `_is_sha256_hex` validates against, not an account number. A ratchet
+#: baseline in the same spirit as `OCR_AMOUNT_BASELINE`.
+EVIDENCE_ACCOUNT_BASELINE = {"canonical.py"}
+
+
+def test_no_literal_account_numbers_in_evidence_and_paddle_vast():
+    offenders = []
+    for path in _paddle_phase21_modules():
+        if path.name in EVIDENCE_ACCOUNT_BASELINE:
+            continue
+        for number, line in _code_lines(path):
+            if ACCOUNT_RE.search(line):
+                offenders.append(f"{path.name}:{number}: {line.strip()}")
+    assert not offenders, f"literal account-number digit runs: {offenders}"
+
+
+def test_evidence_account_baseline_still_describes_a_real_offender():
+    """The ratchet may only ever shrink."""
+    stale = []
+    for name in sorted(EVIDENCE_ACCOUNT_BASELINE):
+        path = EVIDENCE_DIR / name
+        if not path.exists():
+            stale.append(f"{name}: no longer exists")
+            continue
+        hits = [line for _, line in _code_lines(path) if ACCOUNT_RE.search(line)]
+        if not hits:
+            stale.append(f"{name}: clean now, remove it from EVIDENCE_ACCOUNT_BASELINE")
+    assert not stale, f"stale EVIDENCE_ACCOUNT_BASELINE entries: {stale}"
+
+
+def test_no_exact_amount_constants_in_evidence_and_paddle_vast():
+    offenders = []
+    for path in _paddle_phase21_modules():
+        for number, line in _code_lines(path):
+            for match in AMOUNT_RE.finditer(line):
+                if float(match.group(0)) >= 1.0:
+                    offenders.append(f"{path.name}:{number}: {line.strip()}")
+                    break
+    assert not offenders, f"exact-cent amount constants: {offenders}"
+
+
+def test_no_literal_calendar_fields_in_evidence_and_paddle_vast_patterns():
+    offenders = []
+    for path in _paddle_phase21_modules():
+        for number, text in _pattern_strings(path):
+            if "\\d" not in text and "\\s" not in text:
+                continue
+            for match in CALENDAR_RE.finditer(text):
+                offenders.append(
+                    f"{path.name}:{number}: literal {match.group(1)!r} in {text[:70]!r}"
+                )
+    assert not offenders, f"literal calendar fields pinned into a pattern: {offenders}"
+
+
+def test_no_raw_mojibake_sequences_in_evidence_and_paddle_vast():
+    offenders = []
+    for path in _paddle_phase21_modules():
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if MOJIBAKE_RE.search(line):
+                offenders.append(f"{path.name}:{number}")
+    assert not offenders, f"raw mojibake byte sequences: {offenders}"
+
+
+def test_evidence_and_paddle_vast_scope_is_not_accidentally_empty():
+    """A scan over an empty file list passes vacuously and proves nothing —
+    the same lesson `test_the_calendar_scan_still_sees_the_literal_in_real_
+    code` exists to teach elsewhere in this file. `evidence/canonical.py`
+    always exists (cell 0's contract); `tools/paddle_vast.py` may not exist
+    yet on a base tree ahead of cell P's composition, so it is checked
+    separately and never REQUIRED for this pin to be meaningful."""
+    modules = _paddle_phase21_modules()
+    names = {path.name for path in modules}
+    assert "canonical.py" in names, "evidence/canonical.py was not found by the scan"

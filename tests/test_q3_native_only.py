@@ -460,6 +460,16 @@ def test_local_tesseract_ocr_refuses_and_fails_closed():
         _analyze(_q3_document("local-tesseract-ocr"))
 
 
+def test_paddle_ocr_refuses_and_fails_closed():
+    """P21-ROUTING CASE 14: a Paddle-fed document's provenance header names
+    `paddle-ocr+ppocrv5` (`analysis.provenance.extractor_model` reads it
+    verbatim off `StatementMarkdown.to_markdown()`'s first line, unchanged by
+    this cell), never `native-pdf-text` — Q3 refuses it exactly like any
+    other non-native provenance, fail closed, with no OCR-specific carve-out."""
+    with pytest.raises(ParserCrashError):
+        _analyze(_q3_document("paddle-ocr+ppocrv5"))
+
+
 def test_header_removed_refuses_and_fails_closed():
     """CASE 10: no provenance header at all -- absence refuses, the direction
     L1-C17 already reads every other omission class fail-closed in."""

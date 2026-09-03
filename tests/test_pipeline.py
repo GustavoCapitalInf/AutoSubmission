@@ -23,6 +23,9 @@ def test_parse_statement_uses_injected_ocr(monkeypatch):
     assert doc.pages == ["# md for p0", "# md for p1", "# md for p2"]
     assert len(calls) == 3
     assert "--- Page 3 ---" in doc.to_markdown()
+    # MAJOR-3: one token per page, not one token total — a 3-page visual
+    # read gets 3 (identical) entries, matching `doc.pages`' own length.
+    assert doc.page_extractor == ["baidu/Unlimited-OCR"] * 3
 
 
 def test_parse_statement_ocrs_pages_concurrently(monkeypatch):
@@ -230,6 +233,8 @@ def test_ladder_native_rung_wins_and_replays_pages(monkeypatch):
     assert doc.model == "native-pdf-text"
     assert replayed == [(0, "native page one"), (1, "native page two")]
     assert stages == ["native"]
+    # MAJOR-3: the native rung's per-page provenance, design item 3's first arm.
+    assert doc.page_extractor == ["native-pdf-text", "native-pdf-text"]
 
 
 def test_ladder_tesseract_rung_is_capability_gated(monkeypatch):
@@ -250,6 +255,8 @@ def test_ladder_tesseract_rung_is_capability_gated(monkeypatch):
     doc = parse_statement(b"%PDF-fake", allow_local_ocr=True, allow_visual_ocr=False)
     assert doc.model == "local-tesseract-ocr"
     assert tesseract_calls == ["" ]
+    # MAJOR-3: the Tesseract rung's per-page provenance, design item 3's second arm.
+    assert doc.page_extractor == ["local-tesseract-ocr"]
 
 
 def test_ladder_stops_before_visual_when_not_allowed(monkeypatch):
@@ -272,6 +279,10 @@ def test_ladder_force_ocr_skips_offline_rungs(monkeypatch):
                           max_workers=1, on_stage=stages.append)
     assert doc.pages == ["# visual"]
     assert stages == ["visual_ocr"]
+    # MAJOR-3: the visual rung's per-page provenance, design item 3's third
+    # arm — `settings.model`, the same token this call already stamps as
+    # `doc.model` (the fixture's default OCR_MODEL, unless overridden).
+    assert doc.page_extractor == [doc.model] * len(doc.pages)
 
 
 def test_ladder_profile_skips_native_for_textless_pdf(monkeypatch):
@@ -302,3 +313,121 @@ def test_ladder_announces_every_rung_in_order(monkeypatch):
                           on_stage=stages.append)
     assert doc.pages == ["# visual"]
     assert stages == ["native", "local_ocr", "visual_ocr"]
+
+
+# ---------------------------------------------------------------------------
+# P21-ROUTING (Phase 2.1): the Paddle rung. `ocr.paddle_rung.read_document`
+# is mocked at its ONE call site (`ocr.pipeline`'s lazy import) — the rung's
+# OWN behaviour is `tests/test_paddle_rung.py`'s to prove; this module tests
+# only the LADDER's wiring: when the branch fires, its ValueError contract,
+# and that it never touches the non-forced path (CASE 12).
+# ---------------------------------------------------------------------------
+
+from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame, WordBox  # noqa: E402
+
+
+def _fake_paddle_read(text: str = "paddle page one"):
+    from ocr.paddle_rung import PaddleRead
+
+    frame = PageFrame.pdf_points(page_index=0, width_pt=600.0, height_pt=800.0)
+    word = WordBox(word_id="p0.l0.w0", page_index=0, text=text, x0=10.0, y0=10.0, x1=100.0, y1=25.0)
+    page = PageEvidence(frame=frame, words=(word,))
+    evidence = ExtractionEvidence(
+        document_sha256="A" * 64, extractor_id="paddle-ocr", model_token="paddle-ocr+ppocrv5",
+        pages=(page,), runtime={"provider": "local", "execution_class": "local_free"},
+    )
+    return PaddleRead(
+        pages=list(evidence.page_texts()), evidence=evidence,
+        page_extractor=["paddle-ocr+ppocrv5"], telemetry={},
+    )
+
+
+def test_forced_paddle_branch_returns_a_paddle_labelled_document(monkeypatch):
+    fake_read = _fake_paddle_read()
+    calls = []
+    monkeypatch.setattr(
+        "ocr.paddle_rung.read_document",
+        lambda pdf_bytes, *, document_sha256, data_scope, dpi=300, **k:
+            (calls.append((document_sha256, data_scope)), fake_read)[1],
+    )
+    doc = parse_statement(
+        b"%PDF-fake", force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
+        paddle_data_scope="synthetic",
+    )
+    assert doc.model == "paddle-ocr+ppocrv5"
+    assert doc.pages == fake_read.pages
+    assert doc.page_extractor == ["paddle-ocr+ppocrv5"]
+    assert doc.evidence is fake_read.evidence
+    assert len(calls) == 1
+    document_sha256, data_scope = calls[0]
+    assert data_scope == "synthetic"  # threaded through unchanged
+    assert len(document_sha256) == 64  # the profile's content_sha256, computed fresh
+
+
+def test_paddle_and_visual_together_is_a_value_error():
+    """The router names exactly one extractor per call; the ladder refuses a
+    hand-built call that asks for both."""
+    with pytest.raises(ValueError):
+        parse_statement(
+            b"%PDF-fake", force_ocr=True, allow_visual_ocr=True, allow_paddle_ocr=True,
+            paddle_data_scope="synthetic",
+        )
+
+
+def test_paddle_without_a_data_scope_is_a_value_error(monkeypatch):
+    monkeypatch.setattr(
+        "ocr.paddle_rung.read_document",
+        lambda *a, **k: pytest.fail("must refuse before any request"),
+    )
+    with pytest.raises(ValueError):
+        parse_statement(
+            b"%PDF-fake", force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
+        )
+
+
+def test_allow_paddle_ocr_is_inert_on_the_non_forced_path(monkeypatch):
+    """CASE 12: `allow_paddle_ocr=True` WITHOUT `force_ocr` never imports
+    `ocr.paddle_rung` at all — the auto-mode fallthrough to the visual rung
+    (pre-existing) stays exactly as it is and gains no Paddle arm."""
+    monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
+    _mock_visual(monkeypatch, text="# visual only")
+
+    import sys
+
+    sys.modules.pop("ocr.paddle_rung", None)
+    doc = parse_statement(
+        b"%PDF-fake", force_ocr=False, allow_visual_ocr=True, allow_paddle_ocr=True,
+        paddle_data_scope="synthetic", max_workers=1,
+    )
+    assert doc.pages == ["# visual only"]  # the visual rung served it, not Paddle
+    assert "ocr.paddle_rung" not in sys.modules
+
+
+def test_a_drifted_evidence_page_texts_refuses_at_construction(monkeypatch):
+    """M8: a `PaddleRead` whose `evidence.page_texts()` does not equal
+    `pages` must never become a `StatementMarkdown` — the drift test."""
+    from ocr.paddle_rung import PaddleRead
+
+    fake_read = _fake_paddle_read()
+    drifted = PaddleRead(
+        pages=["something else entirely"], evidence=fake_read.evidence,
+        page_extractor=fake_read.page_extractor, telemetry={},
+    )
+    monkeypatch.setattr("ocr.paddle_rung.read_document", lambda *a, **k: drifted)
+    with pytest.raises(Exception):
+        parse_statement(
+            b"%PDF-fake", force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
+            paddle_data_scope="synthetic",
+        )
+
+
+def test_a_page_extractor_length_mismatch_refuses_at_construction():
+    """M7: `page_extractor` must have exactly one entry per page, or the
+    construction refuses rather than silently mis-describing a page."""
+    from ocr.document import StatementMarkdown
+
+    with pytest.raises(Exception):
+        StatementMarkdown(
+            source_file="s.pdf", model="paddle-ocr+ppocrv5",
+            pages=["a", "b"], page_extractor=["paddle-ocr+ppocrv5"],
+        )

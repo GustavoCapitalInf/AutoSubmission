@@ -97,6 +97,14 @@ ORIGIN_RECONSTRUCTED = "reconstructed"
 #: where its actual policy constant (``LOCAL_OCR_MODES``) is load-bearing.
 _VISUAL_ROW_OUTCOMES = frozenset({"recovered", "upgraded"})
 
+#: P21-ROUTING (Phase 2.1). The SAME shape, for the Paddle rung's own row
+#: column (``discovery/report.py``'s ``paddle_rung``). A row can carry
+#: `recovered`/`upgraded` in AT MOST ONE of ``visual_rung`` / ``paddle_rung``
+#: (a mode enables exactly one escalation extractor — D4), so the two
+#: partitions are mutually exclusive per row by construction, never by a
+#: precedence rule this module would have to enforce.
+_PADDLE_ROW_OUTCOMES = frozenset({"recovered", "upgraded"})
+
 
 class RunOfRecordError(RuntimeError):
     """Fail-closed. Raised when:
@@ -175,6 +183,7 @@ def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartit
     analysis_key = partitions.get("analysis_key")
     mode = partitions.get("mode")
     visual_key = partitions.get("visual_ocr_key")
+    paddle_key = partitions.get("paddle_ocr_key")
     for name, value in (("offline_ocr_key", offline_key), ("analysis_key", analysis_key), ("mode", mode)):
         if not isinstance(value, str) or not value:
             raise RunOfRecordError(
@@ -193,6 +202,13 @@ def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartit
     ocr_keys_by_source = {"native": offline_key, "local_tesseract": offline_key}
     if isinstance(visual_key, str) and visual_key:
         ocr_keys_by_source["visual"] = visual_key
+    # P21-ROUTING: `paddle_ocr_key` is OPTIONAL, like `visual_ocr_key` — a run
+    # recorded before this cell, or one whose Paddle settings did not load at
+    # provenance time, simply has no Paddle partition, and a `paddle_rung`
+    # row on such a run resolves to `None` via `ocr_partition_for_row` (never
+    # a fallback to another partition).
+    if isinstance(paddle_key, str) and paddle_key:
+        ocr_keys_by_source["paddle"] = paddle_key
     tree = provenance.get("tree") if isinstance(provenance.get("tree"), dict) else {}
     return RunPartitions(
         ocr_keys_by_source=ocr_keys_by_source,
@@ -479,8 +495,18 @@ def ocr_partition_for_row(row: Mapping[str, Any], partitions: RunPartitions) -> 
     """The OCR settings key ONE row's own provenance names, or ``None`` when
     the row names a partition ``partitions`` does not have (e.g. a
     ``source_path`` of ``"none"`` — no OCR text at all — or a
-    ``visual_rung`` of ``"recovered"``/``"upgraded"`` on a run whose
-    partitions carry no visual key). Never a fallback to another partition."""
+    ``visual_rung``/``paddle_rung`` of ``"recovered"``/``"upgraded"`` on a run
+    whose partitions carry no visual/paddle key). Never a fallback to another
+    partition.
+
+    P21-ROUTING: `paddle_rung` is checked FIRST — a row is never both
+    (`enabled_extractors` holds one extractor per mode, D4), but checking one
+    order rather than "whichever is set" keeps this a total, deterministic
+    function of the row rather than one that could disagree with itself
+    across two reads of the same row."""
+    paddle_rung = str(row.get("paddle_rung") or "").strip()
+    if paddle_rung in _PADDLE_ROW_OUTCOMES:
+        return partitions.ocr_keys_by_source.get("paddle")
     visual_rung = str(row.get("visual_rung") or "").strip()
     if visual_rung in _VISUAL_ROW_OUTCOMES:
         return partitions.ocr_keys_by_source.get("visual")

@@ -107,6 +107,13 @@ _DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
     "no deterministic parser matched this statement",
 )
 
+#: P21-ROUTING (Phase 2.1, D4, Ruling A). The webapp's ONE `enabled` value: a
+#: module-level constant, never computed per document. The webapp is NOT
+#: wired to PaddleOCR in Phase 2.1 — only the pre-existing visual (local,
+#: $0-vendor) rung is ever named here — so this fallback's behaviour stays
+#: byte-identical to Phase 2.0 (CASE 12).
+WORKER_ENABLED_EXTRACTORS: frozenset[str] = frozenset({"visual"})
+
 
 def _force_ocr_decision(doc, profile: DocumentProfile | None, analysis: dict | None) -> Escalation:
     """P20-ROUTER item 3: the deterministic `force_ocr` fallback's ONE router
@@ -142,6 +149,7 @@ def _force_ocr_decision(doc, profile: DocumentProfile | None, analysis: dict | N
     return EscalationRouter.decide(router_inputs(
         profile=profile, evidence=evidence, triggers=triggers,
         attempted=("local_tesseract",), stop=analysis is not None,
+        enabled=WORKER_ENABLED_EXTRACTORS,
     ))
 
 

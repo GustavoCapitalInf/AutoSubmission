@@ -97,13 +97,40 @@ def run_of_record_partitions():
                         "actual partitions were not recorded"}
     from discovery.runner import LOCAL_OCR_MODES
     allow_local_ocr = mode in LOCAL_OCR_MODES
-    return {
+    partitions = {
         "offline_ocr_key": ac.ocr_settings_key(force_ocr=False, allow_local_ocr=allow_local_ocr,
                                                allow_visual_ocr=False),
         "visual_ocr_key": ac.ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
         "analysis_key": ac.analysis_settings_key(parse_mode="deterministic"),
         "mode": mode,
     }
+    # P21-ROUTING (Phase 2.1, design item 7): the Paddle partition, recorded
+    # ONLY when Paddle settings actually load from this host's environment —
+    # never a placeholder key. Most hosts running provenance have no
+    # PADDLE_* configuration set, and that is the expected, common case: the
+    # key is simply omitted, with a note, rather than guessed.
+    try:
+        partitions["paddle_ocr_key"] = ac.ocr_settings_key(
+            force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False,
+            allow_paddle_ocr=True,
+        )
+    except Exception as exc:  # PaddleConfigError, most commonly: recorded, never fatal
+        # P21-ROUTING closure (MINOR-5): the exception's own message is NEVER
+        # written verbatim — only the class name, plus the CLOSED-vocabulary
+        # `.reason` a `PaddleRefused` carries (never `PaddleConfigError`'s own
+        # message, which can name an arbitrary configuration variable's
+        # surrounding text). `provenance.json` is a durable run record this
+        # module's own closure reports quote; an unbounded `str(exc)` is
+        # exactly the "an exception message can quote content" hazard this
+        # tree refuses everywhere else, even though today's realistic
+        # exception (`PaddleConfigError`) happens to name only variables.
+        from ocr.paddle_config import REFUSAL_REASONS
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, str) and reason in REFUSAL_REASONS:
+            partitions["paddle_ocr_key_note"] = f"not recorded: {type(exc).__name__}: {reason}"
+        else:
+            partitions["paddle_ocr_key_note"] = f"not recorded: {type(exc).__name__}"
+    return partitions
 attempt("run_of_record_partitions", run_of_record_partitions)
 def registry():
     import analysis.parser_registry as pr

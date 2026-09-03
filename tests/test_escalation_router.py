@@ -213,8 +213,8 @@ def test_the_gate_is_a_pure_function_of_document_and_profile():
 # object behind it).
 # ---------------------------------------------------------------------------
 
-def test_gate_assessed_sources_are_exactly_tesseract_and_visual():
-    assert GATE_ASSESSED_SOURCES == frozenset({"local_tesseract", "visual"})
+def test_gate_assessed_sources_are_exactly_tesseract_visual_and_paddle():
+    assert GATE_ASSESSED_SOURCES == frozenset({"local_tesseract", "visual", "paddle"})
 
 
 def test_a_native_document_is_usable_by_construction_regardless_of_content():
@@ -254,7 +254,7 @@ def test_tesseract_and_visual_sources_are_really_gate_assessed():
 
 def test_router_inputs_field_set_is_pinned():
     assert set(RouterInputs.__dataclass_fields__) == {
-        "profile", "evidence", "triggers", "attempted", "stop",
+        "profile", "evidence", "triggers", "attempted", "stop", "enabled",
     }
 
 
@@ -262,14 +262,15 @@ def test_router_inputs_constructor_normalises_and_is_keyword_only():
     evidence = ExtractionQualityGate.assess(None, None)
     inputs = router_inputs(
         profile=None, evidence=evidence, triggers={OFFLINE_RUNGS_PRODUCED_NO_TEXT},
-        attempted=["local_tesseract"], stop=0,
+        attempted=["local_tesseract"], stop=0, enabled=["visual"],
     )
     assert isinstance(inputs, RouterInputs)
     assert inputs.triggers == frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT})
     assert inputs.attempted == ("local_tesseract",)
     assert inputs.stop is False
+    assert inputs.enabled == frozenset({"visual"})
     with pytest.raises(TypeError):
-        router_inputs(None, evidence, frozenset(), (), False)  # positional: refused
+        router_inputs(None, evidence, frozenset(), (), False, frozenset())  # positional: refused
 
 
 # ---------------------------------------------------------------------------
@@ -277,12 +278,20 @@ def test_router_inputs_constructor_normalises_and_is_keyword_only():
 # ---------------------------------------------------------------------------
 
 def _inputs(**overrides) -> RouterInputs:
+    # Unit-level default: every extractor "enabled", so these pure tests of
+    # `decide`'s ORDER / ATTEMPTED logic are unaffected by D4's mode
+    # narrowing unless a test deliberately overrides `enabled` to exercise
+    # it. Production callers never do this (each mode enables at most one
+    # extractor) — see the D4-specific tests below and the CASE 1-4 tests,
+    # which go through the real `DiscoveryRunner` and therefore a real,
+    # narrow `enabled` set.
     base = dict(
         profile=None,
         evidence=ExtractionQualityGate.assess(None, None),
         triggers=frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT}),
         attempted=(),
         stop=False,
+        enabled=frozenset(EXTRACTOR_ORDER),
     )
     base.update(overrides)
     return router_inputs(**base)
@@ -331,10 +340,66 @@ def test_every_extractor_already_attempted_refuses_case_3b():
 
 
 def test_a_partially_attempted_ladder_names_the_next_extractor():
+    """Phase 2.1 (D4): with every extractor enabled, the next one after
+    `local_tesseract` in `EXTRACTOR_ORDER` is `paddle` — it now sits between
+    `local_tesseract` and `visual`."""
     decision = EscalationRouter.decide(_inputs(
         triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=("local_tesseract",),
     ))
+    assert decision.extractor == "paddle"
+
+
+def test_a_partially_attempted_ladder_names_the_next_after_paddle_too():
+    decision = EscalationRouter.decide(_inputs(
+        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}),
+        attempted=("local_tesseract", "paddle"),
+    ))
     assert decision.extractor == "visual"
+
+
+# ---------------------------------------------------------------------------
+# D4: `enabled` narrows which allowed extractor `decide` may pick — the
+# fixture every real mode actually uses (exactly one member, or none).
+# ---------------------------------------------------------------------------
+
+def test_enabled_narrows_to_paddle_only():
+    decision = EscalationRouter.decide(_inputs(
+        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
+        enabled=frozenset({"paddle"}),
+    ))
+    assert decision.extractor == "paddle"
+
+
+def test_enabled_narrows_to_visual_only():
+    decision = EscalationRouter.decide(_inputs(
+        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
+        enabled=frozenset({"visual"}),
+    ))
+    assert decision.extractor == "visual"
+
+
+def test_an_admitted_trigger_with_nothing_enabled_refuses():
+    """M2's own negative control at the unit level: an admitted trigger with
+    `enabled=frozenset()` (no mode has authorised any extractor at all) must
+    refuse — never silently pick the fixed order's first member regardless
+    of what the mode allows."""
+    decision = EscalationRouter.decide(_inputs(
+        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
+        enabled=frozenset(),
+    ))
+    assert decision.extractor is None
+    assert decision.refused == ("no_allowed_extractor_remains",)
+
+
+def test_enabled_does_not_add_an_extractor_the_order_does_not_already_name():
+    """`enabled` only ever NARROWS `EXTRACTOR_ORDER`; naming an unknown
+    extractor id in `enabled` grants it nothing."""
+    decision = EscalationRouter.decide(_inputs(
+        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
+        enabled=frozenset({"unlimited_ocr"}),
+    ))
+    assert decision.extractor is None
+    assert decision.refused == ("no_allowed_extractor_remains",)
 
 
 def test_the_most_specific_admitted_trigger_is_reported_not_the_declaration_order():
@@ -381,10 +446,10 @@ def test_recovery_through_the_real_runner_reports_offline_rungs_produced_no_text
     assert row.escalation_trigger == OFFLINE_RUNGS_PRODUCED_NO_TEXT
 
 
-def test_no_paddle_slot_in_the_extractor_order_yet():
-    """Phase 2.0 exclusion: no PaddleOCR id anywhere in the fixed order."""
-    assert EXTRACTOR_ORDER == ("local_tesseract", "visual")
-    assert not any("paddle" in extractor.lower() for extractor in EXTRACTOR_ORDER)
+def test_the_paddle_slot_is_filled_between_tesseract_and_visual():
+    """Phase 2.1 (D4, OQ5): PaddleOCR takes the SLOT Phase 2.0 left named but
+    empty, in the documented position."""
+    assert EXTRACTOR_ORDER == ("local_tesseract", "paddle", "visual")
 
 
 def test_no_page_level_or_remote_extractor_id_is_ever_produced():

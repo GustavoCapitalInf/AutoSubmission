@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from .endpoint_policy import classify_endpoint, remote_opt_in_from_env
+from .paddle_config import PADDLE_MODEL_TOKEN
 
 try:
     from dotenv import load_dotenv
@@ -67,10 +68,16 @@ _MONEY_SHAPE_RE = re.compile(r"\d+\.\d{2}(?!\d)")
 #: `StatementMarkdown` — never through this env-facing validator — which is
 #: why `ocr.document.StatementMarkdown.__post_init__` validates with
 #: `allow_reserved=True`.
+#: P21-ROUTING (Phase 2.1): `PADDLE_MODEL_TOKEN` joins the reserved set so an
+#: env-supplied `OCR_MODEL` cannot impersonate the Paddle rung either — the
+#: same reasoning as the three deterministic-ladder tokens above. The Paddle
+#: rung sets this token directly on `StatementMarkdown`
+#: (`allow_reserved=True`), never through this env-facing validator.
 RESERVED_MODEL_PREFIXES = (
     "native-pdf-text",
     "local-tesseract-ocr",
     "deterministic-native-preflight",
+    PADDLE_MODEL_TOKEN,
 )
 
 

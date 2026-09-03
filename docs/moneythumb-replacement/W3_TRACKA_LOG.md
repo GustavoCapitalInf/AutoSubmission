@@ -69359,3 +69359,673 @@ worker) plus the two-run stability probe above:
 Only `docs/moneythumb-replacement/PADDLE_MEASUREMENTS.md` (regenerated) and this W3 section are
 touched by this pass — no `ocr/`, `tools/`, or `tests/` file changed, since the live run reproduced
 the existing, already-closed code exactly as documented; nothing here required a new fix.
+
+# §P21ROUTING — the PaddleOCR slot filled in the escalation router and the intake ladder; every forbidden edge proved absent by the real DiscoveryRunner against an in-process fake worker; 0 coverage movement
+
+Cell R (Phase 2.1, `docs/agent-handoffs/P21-ROUTING.md`), worktree `mt21-routing`, branch
+`wave21-routing`, base `6749627` (train11 = cell G composed + the P21-PADDLE closure tip `5e41d09`
+merged as an integration base). Hygiene card in coverage clothing: `newly validated = 0` everywhere
+this cell measured it.
+
+## Population
+The fixtures this cell's own tests exercise: an in-process `FakeWorker` (`tests/paddle_fake_worker.py`)
+on an ephemeral loopback port for every routing/transport case, plus one directly-mocked
+`ocr.paddle_rung.read_document` return for CASE 9 (a claimable text built by giving each source line
+of a real committed-artifact fixture its own canonical `LineBox`, so a genuine registered parser
+claims it without this cell depending on PaddleOCR's own geometry-to-text fidelity for one bank's
+specific detection markers — that fidelity is cell P's own fixture to prove). The replay population is
+the full Phase 2.0 archive: `discovery_reports/TRAIN10-941918f/2026-09-02T063646.710847-0000-ef34ee30`
+(3,380 shas; 3,351 resolve to cached text; 29 unresolved, unchanged from Phase 2.0), against the
+READ-ONLY cold cache `.claude/recovery/webapp_data_train10_cold`. No production customer document was
+ever sent to a worker, fake or real, at any point in this cell's work.
+
+## Root cause
+Phase 2.0 left a SLOT: `EXTRACTOR_ORDER = ("local_tesseract", "visual")` with a comment naming
+PaddleOCR's place, and `RouterInputs` had no notion of which extractors a RUN's mode actually permits.
+Filling that slot naively (adding `"paddle"` to the tuple alone) would have let the SAME fixed
+preference order hand every `--scanned-visual` run a Paddle attempt it never asked for, and would have
+given the ladder no structural way to refuse "both OCR extractors in one call" or "the auto-mode
+fallthrough now has two arms instead of one" (Ruling A's own named hazard).
+
+## Solution
+`RouterInputs` gains a sixth field, `enabled: frozenset[str]` (D4) — a MODE constant, known before any
+document is read, that narrows `EXTRACTOR_ORDER` to the extractor(s) THIS run's mode actually permits
+(`--scanned-visual` → `{"visual"}`, `--scanned-paddle` → `{"paddle"}`, the webapp's deterministic
+fallback → `{"visual"}` via a new module constant `WORKER_ENABLED_EXTRACTORS`, every other mode →
+`frozenset()`). A repo-wide AST tripwire (`tests/test_escalation_tripwires.py::
+test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression`) requires every
+`enabled=` argument at a `decide(` call site to be a `self.<attribute>` or a module-level constant —
+never a call, comprehension, subscript or conditional — so a per-document fact cannot be smuggled in
+through a field that is supposed to be a pure run/mode fact (verified live by mutant M3).
+`ocr.pipeline.parse_statement` gains `allow_paddle_ocr` / `paddle_data_scope`, reachable ONLY on the
+forced path (`force_ocr and allow_paddle_ocr`); the non-forced ("auto") ladder is byte-identical to
+Phase 2.0 and never even imports `ocr.paddle_rung` (mutant M5). `discovery.runner.DiscoveryRunner`
+tracks one `enabled_extractors` set per mode (never more than one member — no two-engine escalation)
+and dispatches the RECOVERY/UPGRADE paths to either the existing `_read_visual` or the new
+`_read_paddle`, which mirrors `_read_visual` exactly and passes the LITERAL `paddle_data_scope=
+"customer"` (pinned by AST; mutant M4) — the runner reads the archive, so a real `--scanned-paddle`
+archive run is refused at the rung (`remote_customer_data_refused`, D8) rather than silently reaching
+a remote worker. `ocr.document.StatementMarkdown` gains `page_extractor` / `evidence`, each checked for
+internal consistency at construction (mutants M7, M8). `webapp.artifact_cache` gains the D6 schema
+bump (`EXTRACTION_SCHEMA_VERSION` 1 → 2, pinned directly — mutant M10), the Paddle truth-table branch
+in `_ocr_extractor` (mutant M9) and `ocr_settings_key` (never touching Paddle settings for an
+offline/visual-labelled call), and a drift-tolerant `cached_ocr` that treats a corrupted/mismatched
+cached evidence blob as a MISS, never as served. `telemetry.record` learns the `"paddle"` source path
+(mutant M12) without widening `FREE_MODELS` (mutant M13) or the visual fallthrough. `RESERVED_MODEL_
+PREFIXES` gains the Paddle token (mutant M15); `telemetry.run_of_record` gains an optional
+`paddle_ocr_key` partition, checked BEFORE the visual one and never confused with it (mutant M11).
+`webapp.worker.WORKER_ENABLED_EXTRACTORS` stays `{"visual"}` — the webapp is not wired to Paddle in
+this phase (mutant M16).
+
+## Newly validated
+**0.** Confirmed twice: cohort replay at BASE (`6749627`, `--expect-identical`) and at CLOSURE (this
+cell's tip, `--expect-identical --allow-unresolved --expect-unresolved 29`) both report `newly
+validated: 0`.
+
+## Other ladder movement
+**0** at both BASE and CLOSURE (`other ladder movement (up, not validated): 0`; `other ladder
+regressions: 0`).
+
+## Previously validated preserved
+**2,625 of 2,625**, payload IDENTICAL, at both BASE and CLOSURE — byte-for-byte the same cohort-replay
+report both times:
+
+| measure | BASE (`6749627`) | CLOSURE (`6bc0120`) |
+|---|---:|---:|
+| population | 3380 | 3380 |
+| replayed (text available) | 3351 | 3351 |
+| newly validated | 0 | 0 |
+| other ladder movement | 0 | 0 |
+| previously validated preserved | 2625 of 2625 | 2625 of 2625 |
+| … payload identical | 2625 | 2625 |
+| … payload changed | 0 | 0 |
+| validated regressions (BLOCKING) | 0 | 0 |
+| other ladder regressions | 0 | 0 |
+| unchanged non-validated | 726 (0 payload changed) | 726 (0 payload changed) |
+
+The two runs are structurally guaranteed to agree: the run of record's partitions are RECORDED
+(`provenance.json`'s own fixed key strings), so neither cohort-replay run ever recomputes an OCR/
+analysis settings key from this cell's code — confirmed empirically by running both.
+
+## Regressions
+**0.** Zero validated regressions, zero other-ladder regressions, at BASE and at CLOSURE.
+
+## Failure-class evidence
+* **Class A (extraction failure)** — the only class Paddle may ever be admitted from. CASE 1
+  (`test_case1_recovery_names_paddle_and_local_free_recovers`) proves the RECOVERY trigger
+  (`offline_rungs_produced_no_text`) names `paddle` and the rung actually runs; CASE 1's U-extract
+  shape (`test_case1_u_extract_shape_upgrade_also_names_paddle`) proves the UPGRADE trigger
+  (`extractor_output_unusable`, a below-floor Tesseract read) likewise names `paddle`.
+* **Class B (structure)** — the edge this whole card exists to keep closed. CASE 2
+  (`test_case2_usable_unclaimed_never_escalates_to_paddle`) proves a long, legible, genuinely usable,
+  unclaimed Tesseract read refuses with `no_admitted_trigger`, `paddle_rung="not_attempted"`, and the
+  fake worker records ZERO requests. CASE 4
+  (`test_case4_density_surfaced_but_usable_never_escalates`) proves the SAME for a density-surfaced
+  (padded-tabular) usable read — the surfaced-only signal never becomes an admitted trigger.
+* **Class C (financial validation failure)** — NO C → OCR edge, proved the same way. CASE 3
+  (`test_case3_claimed_but_financially_failing_never_escalates`) forces a claimed reconstruction to
+  fail financial validation and proves zero Paddle requests, `paddle_rung="not_attempted"`.
+* CASE 9's negative control (`test_case9_a_claimed_offline_read_is_never_escalated_to_paddle`) proves
+  an ALREADY-CLAIMED offline read is never handed to Paddle regardless of what a Paddle read would
+  have said — `_upgrade_eligible` (unchanged by this cell) refuses on `payload is not None` alone.
+
+## Escalation evidence
+Legal escalation population **unchanged at 13** — pinned directly by the corpus-marked
+`tools.phase2_trigger_split` measurement this cell did not touch (`pytest -m corpus`:
+`test_validated_tesseract_reads_are_never_classified_class_a` — `R=13`, `U=123`, `u_extract=0`,
+`u_structure=123`, `u_density_surfaced=23`, `legal_escalation_population=13`; `validated_intersect_
+R_or_U = set()`). Refusal counters: the runner's `"customer"` literal is pinned by AST
+(`test_read_paddle_passes_the_literal_customer_scope_by_ast`) and its live effect is proved by CASE
+1's refusal leg (`test_case1_refusal_leg_remote_paid_refuses_customer_scope`) — a `remote_paid` fake
+worker, opted in, still refuses BEFORE any `/ocr` (or even `/version`) request, `paddle_rung=
+"refused_customer_data"`, `outcome_reason="paddle_refused"`, `error_type="PaddleRefused"`. No real
+`--scanned-paddle` archive run was attempted (D8's privacy boundary); **OCR-fed validated = 0**,
+**attempted = 0** on the 13-document legal population, matching the phase's own scope decision exactly.
+
+## Remote evidence
+Every Paddle request any test in this suite issued went to `tests/paddle_fake_worker.FakeWorker` on an
+OS-assigned loopback port (`127.0.0.1:<ephemeral>`), started and torn down per test. Zero real network
+egress: `PADDLE_VAST_HOST` / `PADDLE_VAST_SSH_PORT` / `PADDLE_VAST_SSH_USER` are set in tests ONLY to
+obviously-synthetic literals (`"test-host.invalid"`, `"22"`, `"test-user"`) for the `remote_paid`
+config-validation path, never read from — or connected to — the real environment's Vast.ai endpoint.
+`PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` is asserted absent from the suite's own environment
+(`test_the_customer_data_opt_in_literal_is_never_set_in_the_suite_environment`) and is never set by any
+test in this cell.
+
+## Commits (this cell, base `6749627`)
+* `9302d62` — feat(routing): fill the PaddleOCR slot in the escalation router and ladder
+* `d1e215b` — test(routing): prove the Paddle routing slot, its forbidden edges, and every touched pin
+* `6bc0120` — fix(routing-tests): pin EXTRACTION_SCHEMA_VERSION at 2 and widen the postprocess-chain AST scan
+
+## Proof-floor exits
+* Full default suite: **8,663 passed, 45 skipped, 39 deselected**, `EXIT=0`.
+* The 5 canonical guards + 7 canonical conformance files (explicit run): **1,557 passed, 41 skipped**,
+  `EXIT=0`.
+* `python corpus_gate.py`: **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, `EXIT=0`.
+* `pytest -m corpus`: **34 passed, 8,712 deselected**, `EXIT=0`.
+* Cohort replay, full archive (`--shas` = every one of the run of record's 3,380 shas), at BASE
+  (`6749627`, `--expect-identical`): **`EXIT=0`**, table above.
+* Cohort replay, same population, at CLOSURE (`6bc0120`, `--expect-identical --allow-unresolved
+  --expect-unresolved 29`): **`EXIT=0`**, table above.
+* Archive sweep: **not required** — no `analysis/` reader changed in this cell.
+* `tests/test_visual_rung.py`: **32/32 test functions unchanged in meaning** (0 added, 0 removed, 0
+  renamed — `git diff 6749627 HEAD -- tests/test_visual_rung.py` touches only the `ROW_FIELDS` tail
+  assertion in one test to reflect the new appended columns; pytest collects 35 IDs because one
+  parametrized function multiplies, not because a function was added).
+* Mutation table: **16/16 mutants applied, killed, and reverted** (`git status --porcelain` clean
+  after each) — table below.
+
+## Mutation table (every mutant applied live, every killer named)
+| # | mutant | killer(s) | result |
+|---|---|---|---|
+| M1 | upgrade triggers admit unconditionally (over-admission) | `test_case2_usable_unclaimed_never_escalates_to_paddle` | killed |
+| M2 | `enabled` ignored in `decide` | the visual-rung suite (12 of 32 failed) | killed |
+| M3 | `enabled=` computed from `evidence.usable` at a call site | `test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression` | killed |
+| M4 | `_read_paddle` passes `"synthetic"` | `test_read_paddle_passes_the_literal_customer_scope_by_ast` + `test_case1_refusal_leg_remote_paid_refuses_customer_scope` | killed |
+| M5 | Paddle branch reachable without `force_ocr` | `test_allow_paddle_ocr_is_inert_on_the_non_forced_path` | killed |
+| M6 | Paddle branch calls `apply_admitted` | `test_case10_paddle_branch_never_references_the_postprocess_chain` (AST) + `test_case10_a_paddle_read_never_touches_ocr_client_at_runtime` (spy) | killed (both; AST gap found and fixed live — see fix commit) |
+| M7 | `page_extractor` length check disabled | `test_a_page_extractor_length_mismatch_refuses_at_construction` | killed |
+| M8 | `evidence.page_texts() != pages` accepted | `test_a_drifted_evidence_page_texts_refuses_at_construction` | killed |
+| M9 | `_ocr_extractor` returns `"visual"` for the paddle shape | `test_extractor_is_paddle_only_for_the_forced_paddle_shape` | killed |
+| M10 | `EXTRACTION_SCHEMA_VERSION` left at 1 | `test_extraction_schema_version_is_pinned_at_2` (added live — no direct pin existed) | killed |
+| M11 | `ocr_partition_for_row` returns the visual key for a paddle row | `test_ocr_partition_for_row_paddle` + `test_a_paddle_row_never_resolves_to_the_visual_key` | killed |
+| M12 | `source_path_for("paddle-ocr+ppocrv5")` → `"visual"` | `test_source_path_fallthrough_is_closed_not_a_guess` | killed |
+| M13 | `PADDLE_MODEL_TOKEN` added to `FREE_MODELS` | `test_paddle_model_token_is_not_in_free_models` | killed |
+| M14 | `_read_paddle` catches `PaddleTransportError` and calls `_read_visual` | all 3 parametrizations of `test_case18_transport_failures_fail_closed_with_no_second_attempt` | killed |
+| M15 | `RESERVED_MODEL_PREFIXES` without the Paddle token | `test_env_value_impersonating_the_paddle_rung_is_refused` | killed |
+| M16 | `WORKER_ENABLED_EXTRACTORS` becomes `{"visual", "paddle"}` | `test_case12_worker_enabled_extractors_is_visual_only` + `test_m16_two_engines_enabled_at_once_is_never_constructed` | killed |
+
+M6's AST scan had a real gap (it collected an import's ALIAS name, not the name imported — so
+`from .ocr_client import apply_admitted as _x` slipped past it while the runtime spy still caught it);
+fixed live in commit `6bc0120` and re-verified against the same mutant. M10 had no direct pin at all
+(only an indirect key-partitioning test); added live in the same commit.
+
+## Privacy + secrets counts
+* Privacy scan (`tools/privacy_scan_branch.py --data-dir <cold cache> --base 6749627 --ref HEAD --rows
+  <run>/rows.csv --run <run>`): **`hit_count: 0`** (`raw_hit_count: 6`, all six excluded by the
+  `words_class` rule — generic English words, not archive content; `added_lines: 1878`), `EXIT=0`.
+* Message scan (`tools/huntington_msg_privacy_scan.py`, same population): **`hit_count: 0`** across
+  all 3 commit messages, `EXIT=0`. (One WORDS coincidence — "construction" + "page_extractor"'s own
+  "page" token — was found and reworded before the final scan; not present in the committed history.)
+* Secrets scan (`git diff 6749627 HEAD` / `git log 6749627..HEAD --format=%B` compared against every
+  `PADDLE_VAST_*` value in `os.environ`, length ≥ 6): **0 hits.** One coincidental 4-character overlap
+  (`PADDLE_VAST_SSH_USER`'s real value, a common short English word) appears in the diff by pure
+  chance — confirmed to be ordinary prose, not the credential, by length/shape inspection; the two
+  longer, actually distinguishing values (`PADDLE_VAST_HOST`, `PADDLE_VAST_SSH_PORT`) do not appear
+  anywhere in the diff or the commit messages. No `PADDLE_VAST_*` variable in any added line is ever
+  set to anything but an obviously-synthetic test literal.
+
+## Risks
+* `offline_source_model` (design item 8, CASE 9) was implemented for BOTH the visual and the Paddle
+  upgrade-adoption branches, for symmetry and because the underlying logic is identical either way —
+  the card's own "Rows" bullet (design item 6) did not list this field explicitly, only design item 8's
+  prose did; flagged here rather than silently narrowed or silently widened without a note.
+* The Paddle→claim path (CASE 9) is proved through a directly-mocked `ocr.paddle_rung.read_document`
+  returning hand-built canonical evidence (one `LineBox` per source line), not through cell P's own
+  geometry/adapter code — that fidelity (does PaddleOCR's real word-box output regroup into the
+  original ledger rows) is cell P's fixture to prove (`tests/test_paddle_adapter.py`,
+  `tests/paddle_synthetic.py`), and this cell's proof floor does not re-derive it.
+* The 13-document legal population was NEVER run through Paddle, fake or real, in this closure —
+  by design (D8's privacy boundary) — so "Paddle recovers/upgrades a real archive document" remains
+  an untested, unauthorized path; Gustavo's separate remote-data ruling is requested, not assumed,
+  exactly as the umbrella card specifies.
+* `EXTRACTION_SCHEMA_VERSION` 1 → 2 and the new `allow_paddle_ocr` key-material field together
+  invalidate the WHOLE offline OCR cache partition (every extractor, not only Paddle) — the train's
+  cold run at the composed tree is required by the completion gate, not optional, and will re-read the
+  archive's offline text (Tesseract wall clock paid again; $0 vendor cost unaffected).
+* This cell never ran the live Vast.ai proof (out of scope — that is Ocean's one recorded live proof
+  over the tunnel, per the umbrella card) and never attempted to reach the Vast host at all, per the
+  standing network restriction.
+
+# §P21ROUTING-CLOSURE — every finding of the independent review reproduced, then fixed, then killed; proof floor and full-archive replay re-run green at the closure tip
+
+Independent adversarial review of `wave21-routing` at `d2098c2` (`docs/moneythumb-replacement/reviews/
+PHASE2_P21ROUTING_REVIEW.md`, committed on `train11`): **APPROVE WITH FINDINGS — 0 BLOCK / 4 MAJOR / 7
+MINOR**. The review confirmed every routing safety property (no Class B/C → Paddle edge, no
+validator-driven escalation, no auto-mode/`force_ocr` hop, no customer document to a remote worker, no
+Paddle material in the offline cache key, all 16 of the cell's own mutants genuinely killed) and found
+the four MAJORs to be **unpinned or mis-stated protection**, not broken protection, plus seven MINOR
+gaps. Every finding is closed below: reproduction first, then the fix, then the killer.
+
+## MAJOR-1 — the D6 artifact record had no test; a drifted cached read was a silent, self-erasing miss
+
+**Reproduction.** Reapplied the reviewer's three mutants against the pre-fix `cached_ocr`/`put_ocr`:
+RX1 (`except` clause serves the drifted record instead of falling through), RX2 (`evidence` never
+restored — always `None`), RX3 (`put_ocr` never stores `page_extractor` — always `[]`). All three
+**SURVIVED** the full `tests/test_artifact_cache.py` + `tests/test_paddle_routing.py` suite (182/182
+still green with each mutant in place), confirming the review's finding exactly.
+
+**Fix.** `CacheResult` gains `finding: str | None = None`; `cached_ocr` tracks whether the round-trip
+check raised (`drifted`) and returns `finding=CACHE_FINDING_EVIDENCE_DRIFT` on the recompute that
+follows — never on an ordinary hit, miss or bypass. `DiscoveryRunner` gains `_last_ocr_finding` /
+`_last_visual_finding` / `_last_paddle_finding`, captured right after every `cached_ocr` call and
+projected onto a new `DocumentRow.cache_finding` column (validated against `{"", CACHE_FINDING_
+EVIDENCE_DRIFT}` in `as_dict()`) via a new `_project_cache_finding` helper called at all five `_read*`
+call sites in `process()` — so the fact that a drift happened survives the recompute that immediately
+overwrites the drifted cache entry.
+
+**Tests added** (`tests/test_artifact_cache.py`): `test_cached_ocr_round_trips_evidence_and_reproduces_
+its_sha`, `test_cached_ocr_treats_a_drifted_evidence_blob_as_a_miss_with_a_finding` (a REAL
+`ArtifactCache`, with the stored JSON artifact corrupted directly on disk so `pages` disagrees with its
+own stored `evidence`), `test_cached_ocr_loads_a_schema_1_record_as_empty_page_extractor_and_none_
+evidence`. Plus, through the real `DiscoveryRunner` (`tests/test_paddle_routing.py`):
+`test_a_drifted_cache_entry_surfaces_as_cache_finding_on_the_row`.
+
+**Killers confirmed.** RX1: `test_cached_ocr_treats_a_drifted_evidence_blob_as_a_miss_with_a_finding`
+fails (`cached=True` instead of `False`) with RX1 re-applied to the fixed code. RX2: both the
+round-trip test and the drift test fail (`page_extractor`/`evidence`/`cached` mismatches). RX3: the
+round-trip test fails (`page_extractor == []` instead of `['paddle-ocr+ppocrv5']`). All three verified
+individually, mutant applied → test fails → reverted → `git status --porcelain` clean → suite green
+again.
+
+## MAJOR-2 — the repo-wide `allow_paddle_ocr=True` tripwire was blind to `tools/train/provenance.py`'s embedded `_TREE_PROBE` string, which contains a second real call site
+
+**Reproduction.** `ast.parse(Path("tools/train/provenance.py").read_text())` finds **zero**
+`allow_paddle_ocr` keyword nodes even though the plain text contains it once (`grep -c` → 1) — the
+occurrence lives inside `_TREE_PROBE`, a triple-quoted string later run as a whole program in a
+subprocess. `test_case12_allow_paddle_ocr_true_appears_only_at_the_one_reviewed_call_site` PASSED
+before the fix, asserting a false property (`offending_files == {"discovery/runner.py"}`) purely
+because its scan never looked inside the string.
+
+**Fix.** `tests/test_escalation_tripwires.py` gains `_embedded_program_asts` (every string constant in
+a file's AST that is long enough, multi-line, and `ast.parse`s cleanly on its own — ordinary prose
+essentially never satisfies the third condition) and `_all_asts_for_file` (a file's own tree plus one
+tree per embedded program found). `_decide_call_sites_repo_wide` and `_router_inputs_construction_
+sites_repo_wide` now walk `_all_asts_for_file` instead of a single parse. `tests/test_paddle_routing.
+py`'s scan does the same and now asserts against `EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES` — a dict naming
+BOTH reviewed sites with their reasons (`discovery/runner.py`: reads a document; `tools/train/
+provenance.py`: key computation only, no document, no socket).
+
+**Measurement.** Sweeping the whole tracked tree for embedded-program strings found the reviewer's one
+(`tools/train/provenance.py::_TREE_PROBE`) plus several pre-existing, unrelated `tools/*mutation*.py` /
+`tools/*census*.py` instruments that embed code snippets for their OWN mutation-testing purposes — none
+of them contain `allow_paddle_ocr=True`, `decide(`, or `RouterInputs(` (confirmed: the widened scans
+still assert the exact same, now-honest, expected sets).
+
+**Killer confirmed.** `test_case12_allow_paddle_ocr_true_appears_only_at_the_one_reviewed_call_site`
+now finds BOTH sites and passes only because both are named with reasons; reverting the scan to a
+single-file `ast.parse` (the pre-fix shape) reproduces the false-pass the review found.
+
+## MAJOR-3 — `page_extractor` was populated for the Paddle rung only; design item 3 and the record's own docstring both claim every rung
+
+**Reproduction.** `grep -rn page_extractor --include=*.py ocr/*.py` (outside `tests/`) showed exactly
+two WRITE sites before the fix — `ocr/paddle_rung.py:234` and `ocr/pipeline.py`'s Paddle branch. The
+native, Tesseract and visual rungs never set it, so every non-Paddle read stored `"page_extractor": []`
+against `webapp/artifact_cache.py`'s own EXTRACTION_SCHEMA_VERSION docstring, which already claimed
+"every rung."
+
+**Fix.** `ocr/pipeline.py`: right where the offline ladder already sets `native.page_integrity =
+assess_pages(native.pages)` (the SAME code path for both the native and Tesseract rungs — `native` is
+whichever one actually produced the read), added `native.page_extractor = [native.model] *
+len(native.pages)`. The visual rung's closing `StatementMarkdown(...)` gains `page_extractor=
+[settings.model] * len(pages_out)`. Both reuse the SAME token the object already carries as its own
+`.model` — no new provenance source, no new validation risk (the token already passed `validate_model_
+token` once as `.model`).
+
+**Tests added** (`tests/test_pipeline.py`): assertions on `doc.page_extractor` in `test_ladder_native_
+rung_wins_and_replays_pages` (`["native-pdf-text", "native-pdf-text"]`), `test_ladder_tesseract_rung_is_
+capability_gated` (`["local-tesseract-ocr"]`), `test_ladder_force_ocr_skips_offline_rungs` (single-page
+visual), and `test_parse_statement_uses_injected_ocr` (a 3-page visual read — `["baidu/Unlimited-OCR"]
+* 3`, proving one token PER PAGE, not one total).
+
+**Consequence, stated plainly (not a NEW cold-run cost — the schema bump already required one):**
+`EXTRACTION_SCHEMA_VERSION` stays 2 (no version bump needed — this fully populates the v2 shape's
+existing field, it does not change the shape); `tools/cohort_replay.py`'s `ColdCache.text()` never
+reads `page_extractor` from a stored artifact at all, so this change is invisible to the cohort replay
+(confirmed: the closure replay below reproduces the identical 2,625/2,625 numbers).
+
+## MAJOR-4 — `_upgrade_eligible`, the gate the card credited as CASE 9's killer, was unpinned; `return True` survived the whole relevant suite
+
+**Reproduction.** Replaced `_upgrade_eligible`'s body with `return True`: **SURVIVED** —
+`tests/test_paddle_routing.py`, `tests/test_visual_rung.py`, `tests/test_escalation_router.py`,
+`tests/test_discovery.py` all green (165/165). The reason: `test_case9_a_claimed_offline_read_is_
+never_escalated_to_paddle`'s fixture is a USABLE, claimed Tesseract read, so `upgrade_triggers` is
+empty and the ROUTER refuses with `no_admitted_trigger` before `_upgrade_eligible` is ever consulted —
+the property CASE 9 asserts is real, but the mechanism credited for it was not the one enforcing it.
+
+**Fix.** Corrected `test_case9_a_claimed_offline_read_is_never_escalated_to_paddle`'s docstring to say
+what it actually proves (the router refuses it), added `row.escalation_refused ==
+"no_admitted_trigger"` to that test as an explicit assertion of the mechanism, added `test_upgrade_
+eligible_return_true_survives_a_claimed_usable_read` as a standing negative control (documents the
+exact shape MAJOR-4 found), and added `test_upgrade_eligible_refuses_an_unusable_but_already_claimed_
+read` — the ONE shape `_upgrade_eligible` exists to refuse: a below-floor (unusable) Tesseract read (so
+the router DOES admit `extractor_output_unusable`) whose `_analyse` is monkeypatched to return a
+payload anyway (the D-3-cache-hit shape the gate's own docstring names, `collector.seen=False` but
+`payload is not None`) — asserting `paddle_rung == "not_attempted"` and zero fake-worker requests.
+
+**Killer confirmed.** `test_upgrade_eligible_refuses_an_unusable_but_already_claimed_read` FAILS with
+`_upgrade_eligible` mutated to `return True` (`paddle_rung == "upgraded"` instead of
+`"not_attempted"`); the other three tests in this section still pass under the same mutation (by
+design — they exercise a different, router-level mechanism), confirming the fix is precise rather than
+accidentally redundant with an existing test.
+
+## MINOR-1 — the dead `DiscoveryRunner.allow_paddle_ocr` attribute
+
+Removed. `grep -rn "\.allow_paddle_ocr\b"` confirmed it was assigned and never read anywhere in the
+repository before the removal.
+
+## MINOR-2 — eight of nine closed `REFUSAL_REASONS` never reached a row
+
+`_read_paddle` now records `exc.reason` on EVERY `PaddleRefused` (not only `remote_customer_data_
+refused`) into a new `_last_paddle_refusal_reason` attribute, projected onto a new `DocumentRow.
+paddle_refusal_reason` column (validated against `ocr.paddle_config.REFUSAL_REASONS` or `""`).
+`outcome_reason` keeps its own, coarser closed vocabulary unchanged. Tests added: `test_a_runtime_
+mismatch_refusal_surfaces_its_reason_on_the_row` (a `local_free` fake worker whose identity disagrees
+with one D5 pin — `paddleocr_version` — through the REAL `verify_identity`/`PaddleRefused` path, over
+the real `DiscoveryRunner`, asserting `paddle_refusal_reason == "paddle_runtime_mismatch"` and zero
+`/ocr` requests) and `test_a_successful_paddle_read_leaves_paddle_refusal_reason_empty`.
+
+## MINOR-3 — `model_calls_for`'s paddle arm had no test
+
+Added `test_model_calls_for_reports_one_call_per_paddle_page` and `test_model_calls_for_paddle_is_
+unpriced_not_free` to `tests/test_telemetry.py`.
+
+## MINOR-4 — the `--scanned-paddle` CLI preflight had no test
+
+`ocr.paddle_client.probe` is now imported at MODULE level in `discovery/cli.py` as `probe_paddle_ocr`
+(mirroring `probe_visual_ocr`'s existing pattern), making it directly monkeypatchable. Added `test_cli_
+refuses_to_start_when_the_paddle_worker_is_unusable`, `test_cli_paddle_preflight_prints_only_the_
+closed_token_never_a_host` (asserts the closed reason token appears and that no host/port/URL/SSH shape
+ever does), and `test_cli_starts_when_the_paddle_worker_is_usable`.
+
+## MINOR-5 — `tools/train/provenance.py` wrote `str(exc)` verbatim into the durable run record
+
+**Reproduction:** `f"not recorded: {type(exc).__name__}: {exc}"` against a fabricated exception with a
+hostile message reproduces the message crossing verbatim into the string that would be written to
+`provenance.json`.
+
+**Fix:** only `type(exc).__name__` is written unconditionally; a `PaddleRefused`'s own closed-
+vocabulary `.reason` is appended ONLY when it is actually a member of `REFUSAL_REASONS` — never the
+exception's free-text message.
+
+**Test added** (`tests/test_run_of_record.py`): `test_provenance_paddle_key_note_never_leaks_a_raw_
+exception_message` — a real (fast, empty-root) `tools.train.provenance.collect()` call with every
+`PADDLE_*` env var removed, asserting the record's `paddle_ocr_key_note` is exactly `"not recorded:
+PaddleConfigError"` and contains neither the variable name nor `PaddleConfigError`'s own message text.
+
+## MINOR-6 — the `enabled=` tripwire was shape-only; a per-document reassignment of `self.enabled_extractors` satisfied it
+
+**Reproduction.** Inserted `self.enabled_extractors = frozenset({"paddle"})` at the top of `process()`:
+`test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression` still PASSED (the mutant
+is shape-legal — it is still `self.<attribute>` at the call site — the tripwire never asked WHERE that
+attribute was last assigned).
+
+**Fix.** Added `test_discovery_runner_enabled_extractors_is_assigned_only_in_init` to `tests/test_
+escalation_tripwires.py`: an AST walk over every method of the `DiscoveryRunner` class body, flagging
+any `Assign`/`AnnAssign`/`AugAssign` whose target is `self.enabled_extractors` outside `__init__`.
+
+**Killer confirmed.** The same RX4 mutant now fails this new test (`['process:997']` reported as the
+offending assignment); reverted, suite green again. Recorded honestly in both the review and this
+closure: `enabled` can only ever narrow an already-admitted decision, so this closes a completeness gap
+in the tripwire's OWN guarantee, not an exploitable safety edge.
+
+## MINOR-7 — the "at most one enabled extractor" pin covered 4 of 6 modes
+
+`test_case12_scanned_paddle_and_scanned_visual_never_both_enabled` now iterates all six modes
+(`scanned-visual`, `scanned-paddle`, `scanned`, `digital`, `profile-only`, `dry-run`), not four.
+
+## Proof floor re-run at the closure tip
+
+* Full default suite: **8,680 passed, 45 skipped, 39 deselected**, `EXIT=0` (up from 8,663 — 17 new
+  tests this closure added, net of none removed).
+* The 5 canonical guards + 7 canonical conformance files: **1,557 passed, 41 skipped**, `EXIT=0`
+  (unchanged from the original closure — no guard/conformance file touched here).
+* `python corpus_gate.py`: **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED**, `EXIT=0`.
+* `pytest -m corpus`: **34 passed, 8,730 deselected**, `EXIT=0` (unchanged — no new corpus-marked test).
+* Full-archive cohort replay (`--shas` = all 3,380 shas of the run of record), `--expect-identical
+  --allow-unresolved --expect-unresolved 29`, at the CLOSURE tip (`db0071e`): population 3,380; replayed
+  3,351; **newly validated 0**; other ladder movement 0; **previously validated preserved 2,625 of
+  2,625, payload identical**; validated regressions **0**; other ladder regressions 0; unchanged
+  non-validated 726 (0 payload changed); `EXIT=0` — byte-identical to both the original closure's base
+  and closure replays. MAJOR-3's page-extractor population is confirmed invisible to this proof
+  (`ColdCache.text()` never reads that field).
+* Every touched test file re-run together: **597 passed, 5 deselected** (`test_paddle_routing.py`,
+  `test_escalation_router.py`, `test_escalation_tripwires.py`, `test_visual_rung.py`, `test_artifact_
+  cache.py`, `test_run_of_record.py`, `test_telemetry.py`, `test_pipeline.py`, `test_q3_native_only.py`,
+  `test_ocr_provenance_injection.py`, `test_discovery.py`, `test_no_statement_hardcodes.py`, `test_
+  document.py`).
+* Full mutation table: **M1–M16 unaffected by this closure (mechanisms unchanged) and all 5 reviewer
+  mutants that survived (RX1–RX5) now KILLED**, each individually re-verified (mutant applied → new
+  test fails → reverted → `git status --porcelain` clean → suite green) — see each finding's own
+  section above for the exact killer. RX6–RX13 (already killed in the original review) were not
+  re-applied individually in this closure, since none of the mechanisms they exercise
+  (`_force_ocr_decision`'s `stop`, `GATE_ASSESSED_SOURCES`, `visual_escalation` gating, the `refused_
+  customer_data` row branch, `evidence_sha256` projection) were touched by any fix in this closure —
+  confirmed instead by the full re-run of every test that names them, all still green.
+
+## Privacy, message and secrets counts at the closure tip (`db0071e`)
+
+* Privacy scan (`tools/privacy_scan_branch.py`, same population as the original closure):
+  **`hit_count: 0`** (`raw_hit_count: 9`, all nine excluded by the `words_class` rule — generic English
+  words, not archive content; `added_lines: 2852`), `EXIT=0`.
+* Message scan (`tools/huntington_msg_privacy_scan.py`, 6 commits): **`hit_count: 0`**. (One WORDS
+  coincidence — "collect() call" against an archive document's "COLLECT CALL" — was found and reworded
+  via `git commit --amend` on the tip commit, tree byte-identical, before the final scan; the amended
+  tip is `db0071e`, superseding the `3226b15` sha this section's own commit list would otherwise name.)
+* Secrets scan (`git diff 6749627..HEAD` and `git log 6749627..HEAD --format=%B` against every
+  `PADDLE_VAST_*` value in `os.environ`, length ≥ 6): **0 hits** for the two long, distinguishing values
+  (`PADDLE_VAST_HOST`, `PADDLE_VAST_SSH_PORT`); the same harmless 4-character common-word coincidence on
+  `PADDLE_VAST_SSH_USER` noted in the original closure persists (confirmed still ordinary prose, not
+  the credential — the value never appears as an assigned SECRET, only as fixed, obviously-synthetic
+  test literals like `"test-host"` / `"test-user"` / `"22"`).
+
+## Commits (this closure, on top of `d2098c2`)
+
+* `5767910` — fix(routing): close the review's four MAJOR findings and seven MINORs
+* `db0071e` — test(routing): reproduce and kill every review finding, RX1-RX5 included (message
+  reworded once via amend for the secrets-scan/message-scan finding above; tree otherwise
+  byte-identical to the originally-committed `3226b15`)
+
+**Closure tip: `db0071e`.**
+
+## Risks (unchanged from §P21ROUTING, plus)
+
+* The review's RX6–RX13 were not individually re-applied in this closure (see the proof-floor note
+  above) — a future change to `_force_ocr_decision`, `GATE_ASSESSED_SOURCES`, `visual_escalation`
+  gating, the `refused_customer_data` branch, or `evidence_sha256` projection should re-verify them
+  directly rather than relying solely on the existing test suite staying green.
+* `MINOR-6`'s AST pin covers `DiscoveryRunner.enabled_extractors` only — the same class of gap
+  (shape-only tripwires blind to reassignment location) could in principle exist for other `self.<attr>`
+  values the D4 tripwire accepts; not swept exhaustively here.
+
+# §P21ROUTING-CLOSURE-2 — the re-review's residual findings (1 MAJOR / 3 MINOR) each reproduced at the closure tip, fixed, and killed; the closure's own defect (the cross-document `cache_finding` leak) closed with the reviewer's exact two-document shape
+
+Scope: `docs/moneythumb-replacement/reviews/PHASE2_P21ROUTING_REVIEW.md` `## Re-review` (verdict APPROVE
+WITH FINDINGS at `97ab9cb`; residual MAJOR-A, MINOR-B, MINOR-C, MINOR-D), under Ocean's rulings for each.
+Base `97ab9cb` (closure tip). Files touched: `discovery/runner.py`, `webapp/artifact_cache.py`,
+`tests/test_escalation_tripwires.py`, `tests/test_paddle_routing.py`, `tests/test_artifact_cache.py`, this
+section — all inside the card's ownership list. No routing, admission, validation, cache-key or privacy
+mechanism changed: `ocr/escalation.py`, `ocr/pipeline.py`, `ocr/document.py`, `telemetry/*`,
+`webapp/worker.py`, the `decide(` call sites and `ADMITTED_TRIGGERS` are untouched. Every Paddle request in
+the suite went to the in-process fake worker on loopback; the Vast host was never contacted; no
+`PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` set anywhere; `newly validated` stays 0 by construction (no reader or
+ladder change — the cohort replay is the train's, at the composed tree).
+
+## Method
+
+Every residual finding was REPRODUCED at `97ab9cb` with its own script before any fix, then fixed, then
+its killer written, then the reviewer's surviving mutants (and the closure's own) re-applied as exact
+textual edits by a harness that restores with `git checkout --` in a `finally` and asserts
+`git status --porcelain` empty after each. `tasklist | findstr python` was empty before every harness;
+one harness at a time; the cold cache was opened read-only by the scans only; every runner in every
+reproduction and test wrote to a `tempfile` directory.
+
+## MAJOR-A — `cache_finding` leaked from one document onto every later document on the same runner
+
+* **Reproduction (at `97ab9cb`, the re-review's exact shape).** ONE `DiscoveryRunner` in `--scanned-paddle`,
+  ONE real `ArtifactCache`, a `local_free` in-process fake worker, two distinct PDFs (B = the image-only
+  fixture with a trailing comment so its sha differs; Tesseract faked per file name: `None` for A, the
+  usable-unclaimable Class-B prose for B). A first pass → `paddle_rung=recovered cache_finding=''`; A's
+  Paddle artifact drifted, A again → `cache_finding='cached_evidence_drift'`; runner state after A:
+  `_last_ocr_finding=None _last_paddle_finding='cached_evidence_drift'`; **B on the SAME runner →
+  `paddle_rung=not_attempted escalation_refused='no_admitted_trigger' cache_paddle='bypass'
+  cache_finding='cached_evidence_drift'`** — A's finding on B's row; B on a fresh runner → `''`.
+* **Root cause.** `_read` reset `_last_ocr_finding` on every document, but `_last_visual_finding` /
+  `_last_paddle_finding` were reset only when their own rung ran, and `process()` projects the `or` of the
+  three after `_read` for every document.
+* **Fix.** `DiscoveryRunner._reset_per_document_state()` — called as the FIRST statement of `process()`
+  after the timer starts, before any read — resets EVERY per-document `_last_*` attribute: the three
+  `_last_*_cached` dispositions, the three `_last_*_finding`, and `_last_paddle_refusal_reason` (every
+  `_last_*` attribute the class carries; none other found). `_project_cache_finding`'s docstring corrected.
+* **Killers.** `test_a_cache_finding_never_leaks_onto_a_later_document_on_the_same_runner[A_then_B]` and
+  `[B_then_A]` (`tests/test_paddle_routing.py`: one runner, real `ArtifactCache`, the reviewer's two
+  documents; A drifted → `cached_evidence_drift`, B → `""` in both orders — the mirror also processes B
+  again after the drifted A). `test_every_per_document_last_attribute_is_reset_at_the_top_of_process`:
+  by introspection + AST, the set of `_last_*` class attributes equals the set assigned in
+  `_reset_per_document_state`, and the reset call's line precedes every `self._read*(` call in `process()`.
+* **Confirmed:** the reproduction re-run after the fix prints `cache_finding=''` on B (`NO_LEAK`).
+
+## MINOR-B — the embedded-program scan and the site pin
+
+* **Reproduction (at `97ab9cb`).** Against the tree's own scan predicate: an indented (dedent-style) string
+  program → 0 sites seen; an f-string program → 0; a direct `**{"allow_paddle_ocr": True}` → 0;
+  `allow_paddle_ocr=bool(1)` → 0; a second clean site appended to a copy of `tools/train/provenance.py`
+  → 2 sites counted but the pin compared a SET of file names, so `{'tools/train/provenance.py'}` ==
+  expected either way (E7).
+* **Fix.** `tests/test_escalation_tripwires.py`: `_embedded_program_asts` now `textwrap.dedent`s every
+  candidate before `ast.parse`; f-strings (`ast.JoinedStr`) are read as their constant parts joined with
+  the placeholder name `_FSTRING_HOLE_` for each `{...}`; an f-string whose constant parts name a guarded
+  keyword (`allow_paddle_ocr`, `decide(`, `router_inputs(`, `RouterInputs(`) but still cannot be parsed
+  FAILS CLOSED (`EmbeddedProgramUnreadable`). The `decide(` check became `_check_decide_call_sites(sources,
+  expected)` — a pure function of `(relative path, source)` pairs with per-file COUNTS (already per-file;
+  now plantable). `tests/test_paddle_routing.py`: `EXPECTED_ALLOW_PADDLE_OCR_TRUE_SITES` is a COUNT per
+  file with the reason — `discovery/runner.py: 2` (the `parse_statement` and `cached_ocr` calls inside
+  `_read_paddle`; the first closure's docstring said "one site" while two literal sites already existed
+  in that file — corrected), `tools/train/provenance.py: 1` (`_TREE_PROBE`, key computation only).
+  `_allow_paddle_ocr_sites` treats as OFFENDERS: a non-`Constant` value, a `Constant` other than
+  `True`/`False`, a `**{...}` carrying the key, a `**{...}` with a computed key at a flag consumer
+  (`parse_statement` / `ocr_settings_key` / `cached_ocr` / `_ocr_extractor`), and any local re-binding of
+  the name `allow_paddle_ocr`; the ONE permitted non-literal is the same-named parameter pass-through
+  `allow_paddle_ocr=allow_paddle_ocr` (the plumbing inside `webapp/artifact_cache.py`, whose caller's own
+  keyword is scanned at the caller — the re-binding rule is what keeps that exemption honest).
+* **Killers.** Planted-copy tests (the tree is never touched):
+  `test_allow_paddle_ocr_pin_catches_every_planted_shape[...]` × 9 (E7 second clean site; E2b indented;
+  E3b f-string; E8b `**{'allow_paddle_ocr': True}`; computed dict key; `bool(1)`; the Constant `1`; a
+  `Name` value; the same-named parameter re-bound locally), with
+  `test_allow_paddle_ocr_pin_is_not_vacuous_on_the_real_files` as the control;
+  `test_embedded_program_scan_reads_indented_and_fstring_programs[indented|fstring|fstring_indented]`;
+  `test_embedded_program_scan_fails_closed_on_an_unreadable_fstring_naming_a_keyword`;
+  `test_a_second_decide_site_in_an_expected_file_fails_the_per_file_count[plain|indented_string|fstring|
+  dict_unpacked_argument]` with `test_the_decide_per_file_check_is_not_vacuous` as the control.
+* **Measured on the tree:** the widened scan over 303 files finds no new offender and no unreadable
+  f-string naming a keyword; the tree's counts are exactly the pinned ones.
+
+## MINOR-C — the `enabled_extractors` assignment pin was spelling-dependent
+
+* **Reproduction (at `97ab9cb`).** The tree's own pin test run against planted copies of the runner source
+  (`inspect.getsource` monkeypatched): RX4a plain attribute → KILLED (control); **RX4b `setattr`, RX4c
+  `self.__dict__[...]`, RX4e tuple-unpack target, RX4f `for` target, RX4g `vars(self)[...]`, RX4h a
+  module-level helper, a `with` target and a comprehension target → all SURVIVED** (8 spellings).
+* **Fix.** `_enabled_extractors_pin_offenders(source)`: every `ast.Attribute` named `enabled_extractors`
+  in `Store` or `Del` context ANYWHERE in the module outside `DiscoveryRunner.__init__`'s line range —
+  on any object, not only `self` — which is every target position at once (tuple/list/starred unpacking,
+  `for`/`async for`, `with`, comprehension targets, `AugAssign`, `AnnAssign`, `del`, module-level
+  functions and helper methods alike, because the compiler marks every target with `Store`); plus a refusal
+  of the string `"enabled_extractors"` inside ANY non-docstring string constant or f-string outside
+  `__init__` (kills `setattr`, `__dict__`, `vars`, `__dict__.update`, and the adjacent-literal
+  `"enabled_" "extractors"` the parser folds into one constant).
+* **Killers.** `test_enabled_extractors_pin_catches_every_reassignment_spelling[...]` × 17 (RX4a–h, `with`,
+  comprehension, starred/list unpack, `AugAssign`, `AnnAssign`, `del`, adjacent-literal, f-string
+  attribute name, `__dict__.update` in a helper) — each planted by `_plant_in_process` into a COPY of the
+  source (inside `process()`, as a sibling method, or at module level), with
+  `test_enabled_extractors_pin_is_not_vacuous_on_the_real_source` as the control; the production pin
+  `test_discovery_runner_enabled_extractors_is_assigned_only_in_init` now calls the same function.
+
+## MINOR-D — a drift followed by a failed recompute lost the finding
+
+* **Reproduction (at `97ab9cb`).** Unit: a drifted entry, then `compute()` raising → `RuntimeError`
+  propagated with NO finding anywhere; `get_ocr` afterwards still `hit=True pages=['drifted']`. Runner:
+  a drifted Paddle artifact + a fake worker with `fail_mode="connection_refused"` → `paddle_rung=failed
+  error_type='PaddleTransportError' cache_finding=''`.
+* **Fix.** `cached_ocr` wraps the recompute: when a drift was detected and `compute()` raises, the finding
+  is attached to the exception (`exc.cache_finding = CACHE_FINDING_EVIDENCE_DRIFT`; every `BaseException`
+  instance accepts attribute assignment, so this cannot itself fail) and the exception propagates with its
+  type and message untouched — callers keying on `type(exc).__name__` (the row's `error_type`) see the same
+  class. `cache_finding_of(exc)` is the ONE reader (exported). `_read_visual` / `_read_paddle` set their
+  `_last_*_finding` from it on the `except` path, so `_project_cache_finding` lands it on the row beside
+  `error_type`. Documented in `cached_ocr`'s docstring, including that the drifted entry is NOT
+  overwritten on that path (nothing was computed) and is found and reported again on the next call.
+* **Killers.** `test_cached_ocr_attaches_the_drift_finding_to_a_failed_recompute` (unit: the finding rides
+  the exception twice in a row, message untouched, entry still drifted, then a succeeding recompute
+  reports the same finding on its `CacheResult`) with
+  `test_cached_ocr_attaches_no_finding_to_a_failed_compute_without_a_drift` as the control;
+  `test_a_drift_followed_by_a_failed_recompute_keeps_the_finding_on_the_row` (real runner, drifted Paddle
+  artifact, fake worker refusing connections: `paddle_rung=failed`, `outcome_reason=ocr_failed`,
+  `error_type=PaddleTransportError`, `cache_finding=cached_evidence_drift`);
+  `test_read_visual_records_the_drift_finding_when_its_recompute_fails` (the `_read_visual` seam).
+* **Confirmed:** the reproduction re-run after the fix attaches the finding on the unit path and shows it
+  on the runner row.
+
+## Mutation table (harness: exact single-occurrence textual edits; `git checkout --` in a `finally`; `git status --porcelain` empty after every one of the 23)
+
+| # | mutant as applied | result | killer(s) |
+|---|---|---|---|
+| MA-1 | `process()` no longer calls `_reset_per_document_state()` (the leak) | **KILLED** (3) | the two-document test, both orders; the reset/order pin |
+| MA-2 | the reset forgets `_last_paddle_finding` | **KILLED** (3) | the same three |
+| MA-3 | the reset call moved below the offline `_read` | **KILLED** (1) | `test_every_per_document_last_attribute_is_reset_at_the_top_of_process` |
+| MD-1 | `cached_ocr` no longer attaches the finding to a failed recompute | **KILLED** (3) | the unit test, the runner test, the `_read_visual` seam test |
+| MD-2 | `_read_paddle` drops the finding on its `except` path | **KILLED** (1) | `test_a_drift_followed_by_a_failed_recompute_keeps_the_finding_on_the_row` |
+| MD-3 | `_read_visual` drops the finding on its `except` path | **KILLED** (1) | `test_read_visual_records_the_drift_finding_when_its_recompute_fails` |
+| E7 | a second clean-string `allow_paddle_ocr=True` site inside `tools/train/provenance.py` (the re-review's survivor) | **KILLED** (1) | `test_case12_allow_paddle_ocr_true_appears_only_at_the_reviewed_call_sites` |
+| E2b | an indented (dedent-style) string site in `discovery/cli.py` (survivor) | **KILLED** (1) | the same |
+| E3b | an f-string program site in `discovery/cli.py` (survivor) | **KILLED** (1) | the same |
+| E8b | a direct `**{'allow_paddle_ocr': True}` site in `discovery/cli.py` (survivor) | **KILLED** (1) | the same |
+| E9 | `allow_paddle_ocr=bool(1)` in `discovery/cli.py` | **KILLED** (1) | the same |
+| E10 | a second `decide(` site as an f-string program in `webapp/worker.py` | **KILLED** (1) | `test_every_decide_call_site_in_the_repository_uses_router_inputs` |
+| E11 | a second `decide(` site as an indented string program in `webapp/worker.py` | **KILLED** (1) | the same |
+| RX4b | `setattr(self, "enabled_extractors", …)` in `process()` (survivor) | **KILLED** (1) | `test_discovery_runner_enabled_extractors_is_assigned_only_in_init` |
+| RX4c | `self.__dict__["enabled_extractors"] = …` (survivor) | **KILLED** (1) | the same |
+| RX4e | `self.enabled_extractors, _unused = …, None` (survivor) | **KILLED** (1) | the same |
+| RX4f | `for self.enabled_extractors in (…): pass` (survivor) | **KILLED** (1) | the same |
+| RX4g | `vars(self)["enabled_extractors"] = …` (survivor) | **KILLED** (1) | the same |
+| RX4h | module-level `_tune_runner(runner)` assigns it; `process()` calls it (survivor) | **KILLED** (1) | the same |
+| RX4i | `with … as self.enabled_extractors:` | **KILLED** (1) | the same |
+| RX4j | a comprehension target | **KILLED** (1) | the same |
+| RX4k | `self.enabled_extractors \|= …` | **KILLED** (1) | the same |
+| RX4l | `setattr(self, "enabled_" "extractors", …)` (adjacent literals) | **KILLED** (1) | the same |
+
+**23 / 23 killed; every one of the re-review's 11 surviving mutants (RX4b/c/e/f/g/h, E7, E2b, E3b, E8b,
+plus the MAJOR-A leak it reproduced) now dies.** The reviewer's first-review mutants RX1–RX3, RX5 and the
+card's M1–M16 were not re-applied here: nothing they exercise changed in this closure (the `cached_ocr`
+hit/miss paths, `put_ocr`, `_upgrade_eligible`, the router, the ladder), and every test that names them
+is in the nine-file run below, green.
+
+## Proof floor (all at the code tip `145344f`; `tasklist | findstr python` empty before each; one at a time)
+
+| proof | result |
+|---|---|
+| the nine named files (`test_paddle_routing`, `test_artifact_cache`, `test_escalation_router`, `test_escalation_tripwires`, `test_visual_rung`, `test_pipeline`, `test_discovery`, `test_run_of_record`, `test_telemetry`) | **448 passed, 4 deselected**, exit 0 (404 at `97ab9cb`; +44 = tripwires 12 → 39, paddle routing 29 → 44, artifact cache 81 → 83, collected) |
+| the 5 canonical guards | **275 passed**, exit 0 |
+| `tests/test_visual_rung.py` | unchanged (35 collected, in the nine-file run) |
+| privacy scan (`tools/privacy_scan_branch.py --data-dir <main>/.claude/recovery/webapp_data_train10_cold --base 97ab9cb --ref HEAD --rows <run of record>/rows.csv --run <run of record>`) | `added_lines: 845`, `documents_read: 3351` of `population: 3380`, **`hit_count: 0`** (`raw_hit_count: 5`, all five `words_class`), `residue_files: 0`, exit 0 |
+| message scan (`tools/huntington_msg_privacy_scan.py`, same population) | `commits_scanned: 1`, **`hit_count: 0`**, exit 0 |
+| secrets (every `PADDLE_VAST_*` value in `os.environ`, whole-token, vs the 845 added lines and the commit message) | `PADDLE_VAST_HOST` (14 chars) **0 / 0**; `PADDLE_VAST_SSH_PORT` (5) **0 / 0**; `PADDLE_VAST_SSH_USER` (4) **0 / 0**; no IPv4 literal in any added line; no `user@host` shape |
+| not run (per the brief; Ocean runs them at the composed tree) | the full suite · `corpus_gate.py` · the corpus slice · the cohort replay |
+
+The scans above cover the code commit; the same three are re-run over `97ab9cb..<final tip>` after this
+section's commit and reported in the closure message.
+
+## Commits (on top of `97ab9cb`)
+
+* `145344f` — fix(routing): close the re-review's residual findings — per-document cache-disposition
+  reset, drift finding on a failed recompute, spelling-independent tripwires
+* this section's commit — the closure-2 tip, named in the closure message.
+
+## Risks and what the widened tripwires still do NOT see (recorded so no later card mistakes them for more)
+
+* Embedded-program scan: `%`-format templates assembled at runtime, bytes literals, and a program nested
+  inside an embedded program (the walk is one level deep) remain invisible; an f-string program whose
+  `{...}` sits in a position where the placeholder NAME does not parse (inside an operator, say) is
+  refused only if its constant parts name a guarded keyword.
+* `allow_paddle_ocr` pin: a plain `**kwargs` `Name` unpacking at a consumer is not an offender — the
+  webapp's pre-existing `_cached_ocr_timed(timer, pdf_bytes, **kwargs)` → `cached_ocr(pdf_bytes,
+  **kwargs)` is that shape, and its callers' explicit keywords are what the scan sees; the flag passed
+  POSITIONALLY through a same-named parameter is likewise invisible (the original scan never saw
+  positional arguments either).
+* `enabled_extractors` pin: an attribute name assembled at runtime (`"enabled_" + "extractors"` with a
+  real `BinOp`, or split across an f-string hole) is not seen; as both reviews sized it, `enabled` can
+  only NARROW an already-admitted decision, so the pin remains a belt on a safe design.
+* MINOR-D's attribute rides on the exception object; a caller that re-raises a NEW exception from the
+  `except` (none does today — both `_read_*` methods return the class name) would drop it.
+* The re-review's MINOR-5 observation about the probe's generic `attempt()` wrapper writing
+  `f"{type(exc).__name__}: {exc}"` for OTHER probed values is pre-existing and outside this closure.

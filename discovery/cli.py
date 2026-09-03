@@ -29,6 +29,7 @@ import sys
 from pathlib import Path
 
 from ocr.availability import probe_visual_ocr
+from ocr.paddle_client import probe as probe_paddle_ocr
 from telemetry import JsonlSink, NullSink, new_run_id, telemetry_disabled
 
 from .inventory import (
@@ -44,6 +45,7 @@ from .runner import (
     MODE_DRY_RUN,
     MODE_PROFILE_ONLY,
     MODE_SCANNED,
+    MODE_SCANNED_PADDLE,
     MODE_SCANNED_VISUAL,
     DiscoveryRunner,
     estimate_class_a_population,
@@ -120,7 +122,7 @@ def run(
     # `--scanned-visual` run's own GPU spend against a population it measured
     # itself, not to change any other mode's behaviour.
     escalation_budget = None
-    if mode == MODE_SCANNED_VISUAL and visual_escalation:
+    if mode in (MODE_SCANNED_VISUAL, MODE_SCANNED_PADDLE) and visual_escalation:
         escalation_budget = estimate_class_a_population(
             root, selected, disk_spelling=inventory.disk_spelling,
         )
@@ -178,10 +180,17 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--scanned-visual", action="store_true",
                       help="Tranche 3: as --scanned plus the LOCAL visual-OCR rung "
                            "($0 vendor). Probes the endpoint before starting.")
+    mode.add_argument("--scanned-paddle", action="store_true",
+                      help="P21-ROUTING (Phase 2.1): as --scanned plus the PaddleOCR "
+                           "escalation rung in place of the visual one. Probes the "
+                           "worker before starting; a real archive run is REFUSED at "
+                           "the rung with remote_customer_data_refused (D8) unless "
+                           "Gustavo has separately authorized the remote-data run.")
     parser.add_argument("--no-visual-escalation", action="store_true",
-                        help="--scanned-visual only: use the visual rung solely to "
-                             "recover documents the offline rungs could not read at "
-                             "all; do not re-read unclaimed Tesseract output.")
+                        help="--scanned-visual / --scanned-paddle only: use the "
+                             "escalation rung solely to recover documents the "
+                             "offline rungs could not read at all; do not re-read "
+                             "unclaimed Tesseract output.")
     parser.add_argument("--root", default=str(DEFAULT_ROOT), help="Corpus root.")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Report directory.")
     parser.add_argument("--limit", type=int, help="Process at most N documents.")
@@ -196,13 +205,17 @@ def main(argv: list[str] | None = None) -> int:
         else MODE_PROFILE_ONLY if args.profile_only
         else MODE_DIGITAL if args.digital
         else MODE_SCANNED_VISUAL if args.scanned_visual
+        else MODE_SCANNED_PADDLE if args.scanned_paddle
         else MODE_SCANNED
     )
-    if args.no_visual_escalation and selected_mode != MODE_SCANNED_VISUAL:
+    if args.no_visual_escalation and selected_mode not in (MODE_SCANNED_VISUAL, MODE_SCANNED_PADDLE):
         # Refuse rather than ignore: silently accepting it would let an operator
-        # believe a policy was applied to a mode that has no visual rung at all.
-        print("discovery: --no-visual-escalation applies to --scanned-visual only",
-              file=sys.stderr)
+        # believe a policy was applied to a mode that has no escalation rung at all.
+        print(
+            "discovery: --no-visual-escalation applies to --scanned-visual / "
+            "--scanned-paddle only",
+            file=sys.stderr,
+        )
         return 2
 
     if selected_mode in LOCAL_OCR_MODES:
@@ -227,6 +240,22 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if not args.quiet:
             print(f"discovery: {status.message()}", file=sys.stderr)
+
+    if selected_mode == MODE_SCANNED_PADDLE:
+        # P21-ROUTING: the SAME preflight discipline as --scanned-visual,
+        # mirrored onto the Paddle worker (config / opt-in / version / health)
+        # rather than the visual endpoint. Never prints a host — `probe()`
+        # names only a closed refusal token. `probe_paddle_ocr` is imported
+        # at MODULE level (mirroring `probe_visual_ocr` above) precisely so
+        # a test can monkeypatch `cli.probe_paddle_ocr` the same way it
+        # already monkeypatches `cli.probe_visual_ocr` (MINOR-4).
+        paddle_status = probe_paddle_ocr()
+        if not paddle_status.available:
+            print(f"discovery: --scanned-paddle cannot start. {paddle_status.reason}",
+                  file=sys.stderr)
+            return 2
+        if not args.quiet:
+            print(f"discovery: paddle worker ok ({paddle_status.reason})", file=sys.stderr)
 
     def progress(index: int, total: int, relative_path: str) -> None:
         if not args.quiet:

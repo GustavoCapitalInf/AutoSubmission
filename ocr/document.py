@@ -1,6 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+from evidence.canonical import ExtractionEvidence
+
 from .config import ProvenanceTokenError, validate_model_token
 from .truncation import PageIntegrity
 
@@ -21,6 +23,22 @@ class StatementMarkdown:
     # PDF, and DocumentProfile is built without ever calling OCR, so it cannot
     # hold this. This is the OCR result object, so this is where the flag lives.
     page_integrity: list[PageIntegrity] = field(default_factory=list)
+    # P21-ROUTING (Phase 2.1, design item 3). `page_extractor` is one
+    # provenance token per page, in page order — set by the ladder for
+    # WHICHEVER rung produced `pages` (native's own per-page token,
+    # `"local-tesseract-ocr"`, the visual settings' model, or the Paddle
+    # rung's list); empty means "not populated" (every pre-Phase-2.1 caller,
+    # including a cached artifact restored from a schema-1 record). `evidence`
+    # is the immutable canonical extraction evidence (`evidence.canonical.
+    # ExtractionEvidence`) behind a Paddle (or, later, native-geometry) read;
+    # `None` for every rung that does not produce geometry. Importing
+    # `evidence.canonical` here widens no pinned boundary — `evidence/` is a
+    # neutral, stdlib-only package owned by neither `ocr` nor `analysis`
+    # (D1) — and this module's own import set is pinned by
+    # `tests/test_escalation_tripwires.py::
+    # test_ocr_document_imports_only_evidence_config_and_truncation`.
+    page_extractor: list[str] = field(default_factory=list)
+    evidence: ExtractionEvidence | None = None
 
     def __post_init__(self) -> None:
         """Close F-4(b) / MAJOR-2 at the point both fields are SET.
@@ -72,6 +90,38 @@ class StatementMarkdown:
             raise ProvenanceTokenError(
                 "source_file rejected: contains a comment-close sequence ('-->')"
             )
+        # P21-ROUTING design item 3: `page_extractor`, when populated, must
+        # describe every page — one token each, in order — and every token
+        # must itself be a valid provenance token (the native/tesseract/
+        # visual/Paddle rungs all set reserved-prefix tokens directly here,
+        # never through the env-facing validator).
+        if self.page_extractor:
+            if len(self.page_extractor) != len(self.pages):
+                raise ProvenanceTokenError(
+                    f"page_extractor has {len(self.page_extractor)} entries "
+                    f"but pages has {len(self.pages)}: one token per page, or none at all"
+                )
+            for token in self.page_extractor:
+                validate_model_token(token, allow_reserved=True)
+        # `evidence`, when present, is the SAME object `pages` was derived
+        # from (D9 / D6): the page count and the derived page strings must
+        # match exactly, or a drift between the two is a defect this
+        # construction refuses rather than silently carries.
+        if self.evidence is not None:
+            if not isinstance(self.evidence, ExtractionEvidence):
+                raise ProvenanceTokenError(
+                    "evidence must be an evidence.canonical.ExtractionEvidence or None"
+                )
+            if len(self.evidence.pages) != len(self.pages):
+                raise ProvenanceTokenError(
+                    f"evidence carries {len(self.evidence.pages)} pages but "
+                    f"pages has {len(self.pages)}: they must describe the same document"
+                )
+            if self.evidence.page_texts() != self.pages:
+                raise ProvenanceTokenError(
+                    "evidence.page_texts() does not equal pages: the derived "
+                    "page strings and the evidence they came from must be one object"
+                )
 
     @property
     def truncated_pages(self) -> list[int]:
