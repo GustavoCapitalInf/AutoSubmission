@@ -774,6 +774,133 @@ def conflict_card_and_running_balance() -> LayoutFixture:
                     expect_evidence=ex, expect_text=ex, note="the card lexicon beside a running balance")
 
 
+# ---------------------------------------------------------------------------
+# regression pins for the layout classes the archive taught the rules
+# (each is a GENERIC shape, never a document): stacked summary cells, wrapped
+# rows, a balance printed at intervals, an overdraft line-of-credit box on a
+# deposit statement, a MICR-shaped line on a page that carries the table
+# ---------------------------------------------------------------------------
+
+def statement_stacked_summary_cells() -> LayoutFixture:
+    """A summary box whose labels are two-line cells ("Opening" over
+    "balance ($)"); the values row sits below the box. Neither "opening
+    balance" nor "closing balance" is a contiguous phrase anywhere."""
+    rows: list[list[Tok]] = [
+        [tok("SYNTHETIC", LEFT), tok("CHEQUING", LEFT + 70.0), tok("ACCOUNT", LEFT + 135.0)],
+        [tok("Statement", LEFT), tok("Period:", LEFT + 65.0), tok(_date(1, 3, "en"), LEFT + 120.0), tok("to", LEFT + 200.0),
+         tok(_date(31, 3, "en"), LEFT + 230.0)],
+        [],
+        [tok("Opening", LEFT), tok("Total", LEFT + 120.0), tok("Total", LEFT + 240.0), tok("Closing", LEFT + 360.0)],
+        [tok("balance", LEFT), tok("($)", LEFT + 55.0), tok("deposits", LEFT + 120.0), tok("($)", LEFT + 180.0),
+         tok("withdrawals", LEFT + 240.0), tok("($)", LEFT + 320.0), tok("balance", LEFT + 360.0), tok("($)", LEFT + 415.0)],
+        [rtok(cents(50_000), LEFT + 100.0), rtok(cents(15_000), LEFT + 220.0), rtok(cents(5_000), LEFT + 340.0),
+         rtok(cents(60_000), LEFT + 460.0)],
+        [],
+        [tok("DATE", X_DATE), tok("DESCRIPTION", X_DESC), rtok("AMOUNT", R_AMOUNT), rtok("BALANCE", R_BALANCE)],
+    ]
+    balance = 50_000
+    for i, amount in enumerate((5_000, -2_000, 4_000, -1_000, 4_000)):
+        balance += amount
+        rows.append([tok(_date(2 + i, 3, "en"), X_DATE), tok("Synthetic", X_DESC), tok("item", X_DESC + 70.0),
+                     rtok(cents(abs(amount)), R_AMOUNT), rtok(cents(balance), R_BALANCE)])
+    rows.append([])
+    rows.append([tok("Page", LEFT), tok("1", LEFT + 40.0), tok("of", LEFT + 60.0), tok("1", LEFT + 90.0)])
+    ev, tx = _complete()
+    return _fixture("statement_stacked_summary_cells", [make_page(rows)], expect_evidence=ev, expect_text=tx)
+
+
+def statement_wrapped_rows() -> LayoutFixture:
+    """Two pages; on page 2 the first rows print the date and description
+    on one line and the amount and balance on the next (wrapped rows). The
+    running balance is continuous across the page break, so no
+    discontinuity may be accused."""
+    pages = statement_pages(n_rows=10, n_pages=2)
+    second = pages[1]
+    # rebuild page 2: split its first two ledger rows into two lines each
+    from tests.layout_fixtures.builders import line_at
+
+    new_lines = []
+    split = 0
+    for line in second.lines:
+        texts = [w.text for w in line.words]
+        is_row = any(find_iso(t) for t in texts[:1]) and split < 2
+        if is_row:
+            y = line.words[0].y1
+            new_lines.append(line_at(y, [Tok(w.text, w.x0) for w in line.words[:2]]))
+            new_lines.append(line_at(y + 9.0, [Tok(w.text, w.x0) for w in line.words[2:]]))
+            split += 1
+        else:
+            new_lines.append(line)
+    second = SyntheticPage(width_pt=second.width_pt, height_pt=second.height_pt, lines=tuple(new_lines))
+    ev, tx = _complete()
+    ev = Expect(**{**ev.__dict__, "absent_findings": frozenset({"balance_discontinuity_at_page_break"})})
+    tx = Expect(**{**tx.__dict__, "absent_findings": frozenset({"balance_discontinuity_at_page_break"})})
+    return _fixture("statement_wrapped_rows", [pages[0], second], expect_evidence=ev, expect_text=tx)
+
+
+def find_iso(text: str) -> bool:
+    return len(text) == 10 and text[4] == "/" or (len(text) == 10 and text[2] == "/")
+
+
+def statement_balance_at_intervals() -> LayoutFixture:
+    """The balance is printed only on the last row of each page; every
+    other row carries the amount alone. Such a layout cannot be checked
+    at the page break and must not be accused of a discontinuity."""
+    pages = statement_pages(n_rows=10, n_pages=2)
+    rebuilt = []
+    for page in pages:
+        from tests.layout_fixtures.builders import line_at
+
+        lines = list(page.lines)
+        row_indices = [i for i, line in enumerate(lines) if find_iso(line.words[0].text)]
+        for i in row_indices[:-1]:
+            line = lines[i]
+            lines[i] = line_at(line.words[0].y1, [Tok(w.text, w.x0) for w in line.words[:-1]])   # drop the balance
+        rebuilt.append(SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=tuple(lines)))
+    ex = Expect("STATEMENT_COMPLETE", None, "structural", frozenset({"table_run", "table_alignment"}),
+                absent_findings=frozenset({"balance_discontinuity_at_page_break"}), absent_signals=frozenset({"running_balance"}))
+    tx = Expect("STATEMENT_COMPLETE", None, "lexical", frozenset({"table_run"}),
+                absent_findings=frozenset({"balance_discontinuity_at_page_break"}), absent_signals=frozenset({"running_balance"}))
+    return _fixture("statement_balance_at_intervals", rebuilt, expect_evidence=ex, expect_text=tx)
+
+
+def statement_with_overdraft_line_box() -> LayoutFixture:
+    """A chequing statement with an overdraft line-of-credit box (credit
+    limit, credit line, annual percentage rate) beside a running balance:
+    line-of-credit furniture is not the card lexicon, and the statement
+    stays complete with account_kind deposit."""
+    pages = statement_pages(n_rows=8, n_pages=1)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    extra = (
+        line_at(page.height_pt - 120.0, [tok("Overdraft", LEFT), tok("line", LEFT + 65.0), tok("of", LEFT + 95.0),
+                                          tok("credit", LEFT + 115.0)]),
+        line_at(page.height_pt - 102.0, [tok("Credit", LEFT), tok("limit", LEFT + 45.0), rtok(cents(100_000), R_BALANCE)]),
+        line_at(page.height_pt - 84.0, [tok("Credit", LEFT), tok("line", LEFT + 45.0), tok("annual", LEFT + 85.0),
+                                         tok("percentage", LEFT + 130.0), tok("rate", LEFT + 205.0), rtok("12.0%", R_BALANCE)]),
+    )
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=page.lines + extra)
+    ev, tx = _complete()
+    ev = Expect(**{**ev.__dict__, "absent_signals": frozenset({"card_lexicon"})})
+    tx = Expect(**{**tx.__dict__, "absent_signals": frozenset({"card_lexicon", "table_alignment"})})
+    return _fixture("statement_with_overdraft_line_box", [page], expect_evidence=ev, expect_text=tx)
+
+
+def statement_with_micr_on_table_page() -> LayoutFixture:
+    """A MICR-shaped line printed on a page that carries the transaction
+    table (a cheque image reproduced under the ledger): the page is not a
+    cheque page, so there is no table-versus-cheque conflict."""
+    pages = statement_pages(n_rows=8, n_pages=1)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    micr = line_at(page.height_pt - 60.0, [tok(MICR_LINE, LEFT)])
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=page.lines + (micr,))
+    ev, tx = _complete()
+    return _fixture("statement_with_micr_on_table_page", [page], expect_evidence=ev, expect_text=tx)
+
+
 def nothing_fires() -> LayoutFixture:
     rows = [
         [tok("SYNTHETIC", LEFT), tok("MEETING", LEFT + 70.0), tok("NOTES", LEFT + 130.0)],
@@ -818,6 +945,11 @@ FIXTURES: dict[str, Callable[[], LayoutFixture]] = {
     "file_invalid_java": file_invalid_java,
     "conflict_table_and_cheque": conflict_table_and_cheque,
     "conflict_card_and_running_balance": conflict_card_and_running_balance,
+    "statement_stacked_summary_cells": statement_stacked_summary_cells,
+    "statement_wrapped_rows": statement_wrapped_rows,
+    "statement_balance_at_intervals": statement_balance_at_intervals,
+    "statement_with_overdraft_line_box": statement_with_overdraft_line_box,
+    "statement_with_micr_on_table_page": statement_with_micr_on_table_page,
     "nothing_fires": nothing_fires,
 }
 

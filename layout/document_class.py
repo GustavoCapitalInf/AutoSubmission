@@ -128,6 +128,8 @@ TABLE_ALIGN_MIN_SHARE = 0.8
 # --- running balance --------------------------------------------------------
 RUNNING_BALANCE_MIN_PAIRS = 3
 RUNNING_BALANCE_MIN_SHARE = 0.6
+#: A card-shaped table: this share of its rows carries exactly one money token.
+SINGLE_AMOUNT_COLUMN_MIN_SHARE = 0.8
 
 # --- cheque -----------------------------------------------------------------
 CHEQUE_ASPECT_MIN = 2.0
@@ -413,6 +415,7 @@ class _Signals:
     table: bool = False            # the statement table signal (mode-aware)
     aligned: bool = False          # geometric confirmation (evidence mode)
     running_balance: bool = False
+    single_amount_column: bool = False   # most table rows carry exactly one money token
     reverse_chronology: bool = False
     pending: bool = False
     discontinuities: list[tuple[int, int]] = field(default_factory=list)   # (page_before, page_after)
@@ -448,9 +451,25 @@ def _next_nonempty(lines: tuple[_Line, ...], index: int) -> _Line | None:
     return None
 
 
+def _following_nonempty(lines: tuple[_Line, ...], index: int, count: int) -> list[_Line]:
+    out: list[_Line] = []
+    for line in lines[index + 1:]:
+        if line.text.strip():
+            out.append(line)
+            if len(out) >= count:
+                break
+    return out
+
+
+#: A period phrase's dates may sit on the phrase's line or within this many
+#: following non-empty lines (a label cell over a date cell).
+PERIOD_DATE_WITHIN = 2
+
+
 def _label_with_amount(page: _Page, name: str, signal: str, signals: _Signals) -> _Line | None:
     """A balance label with an adjacent amount: on the same line, or on the
-    next non-empty line. Returns the label line on the first hit."""
+    next non-empty line. Returns the label line on the first hit. Falls back
+    to the STACKED form (`_stacked_label`) when no contiguous phrase fires."""
     found: _Line | None = None
     for index, line in enumerate(page.lines):
         hits = _distinct_hits(find_lexicon(line.text, name))
@@ -466,7 +485,93 @@ def _label_with_amount(page: _Page, name: str, signal: str, signals: _Signals) -
             _vote(signals, hit.language)
         if found is None:
             found = line
+    if found is None:
+        found = _stacked_label(page, name, signal, signals)
     return found
+
+
+#: A stacked label's words (a summary cell such as "Closing" over "balance
+#: ($)", two to four lines tall once every cell's halves are grouped) must
+#: be followed by the values row — the first money-bearing line among the
+#: next `STACKED_LABEL_VALUES_WITHIN` non-empty lines, carrying at least
+#: `STACKED_LABEL_MIN_VALUES` money tokens.
+STACKED_LABEL_MAX_LINES = 4
+STACKED_LABEL_VALUES_WITHIN = 5
+STACKED_LABEL_MIN_VALUES = 2
+
+_WORD_RE = re.compile(r"[a-z']+")
+
+
+def _stacked_phrases(name: str) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+    """(language, phrase, folded words) for every multi-word phrase of a lexicon."""
+    out = []
+    for language in LANGUAGE_CODES:
+        for phrase in LEXICONS[name][language]:
+            words = tuple(w for w in _WORD_RE.findall(fold(phrase)))
+            if len(words) >= 2:
+                out.append((language, phrase, words))
+    return tuple(out)
+
+
+_STACKED = {name: _stacked_phrases(name) for name in ("opening_balance", "closing_balance")}
+
+
+def _stacked_label(page: _Page, name: str, signal: str, signals: _Signals) -> _Line | None:
+    """A summary-box label whose words are STACKED in a two-line cell
+    ("Opening" over "balance ($)", "Solde" over "de fermeture ($)"). A block
+    reader merges the top halves of every cell into one line and the bottom
+    halves into the next; a word-box reader groups them into two visual
+    lines. Either way the phrase is never contiguous. The rule: within a
+    window of one or two money-free lines, the phrase's first word precedes
+    its last word and its other words are present, and a values row with at
+    least `STACKED_LABEL_MIN_VALUES` money tokens follows within
+    `STACKED_LABEL_VALUES_WITHIN` lines. The refs point at the first and
+    last words of the phrase."""
+    lines = page.lines
+    for start in range(len(lines)):
+        if not lines[start].text.strip() or find_money(lines[start].text):
+            continue
+        for width in range(1, STACKED_LABEL_MAX_LINES + 1):
+            window = lines[start:start + width]
+            if len(window) < width:
+                break
+            if width > 1 and (not window[-1].text.strip() or find_money(window[-1].text)):
+                break
+            values = None
+            for candidate in _following_nonempty(lines, start + width - 1, STACKED_LABEL_VALUES_WITHIN):
+                if find_money(candidate.text):
+                    if len(find_money(candidate.text)) >= STACKED_LABEL_MIN_VALUES:
+                        values = candidate
+                    break
+            if values is None:
+                continue
+            tokens: list[tuple[int, str, int, int]] = []   # (line offset in window, word, start, end)
+            for offset, line in enumerate(window):
+                folded = fold(line.text)
+                for match in _WORD_RE.finditer(folded):
+                    tokens.append((offset, match.group(0), match.start(), match.end()))
+            words = [t[1] for t in tokens]
+            for language, phrase, phrase_words in _STACKED[name]:
+                first, last = phrase_words[0], phrase_words[-1]
+                try:
+                    a = words.index(first)
+                except ValueError:
+                    continue
+                b = -1
+                for index in range(len(words) - 1, a, -1):
+                    if words[index] == last:
+                        b = index
+                        break
+                if b <= a:
+                    continue
+                if any(word not in words for word in phrase_words[1:-1] if len(word) > 2):
+                    continue
+                for index in (a, b):
+                    offset, _, s, e = tokens[index]
+                    signals.refs.append(_ref(window[offset], s, e, signal))
+                _vote(signals, language)
+                return window[0]
+    return None
 
 
 def _period(page: _Page, signals: _Signals, day_first: bool) -> bool:
@@ -477,8 +582,8 @@ def _period(page: _Page, signals: _Signals, day_first: bool) -> bool:
         # (a) a period phrase with a date on the same or the next line
         hits = _distinct_hits(find_lexicon(text, "period_phrase"))
         if hits:
-            following = _next_nonempty(page.lines, index)
-            if dates or (following is not None and find_dates(following.text, day_first=day_first)):
+            following = _following_nonempty(page.lines, index, PERIOD_DATE_WITHIN)
+            if dates or any(find_dates(line.text, day_first=day_first) for line in following):
                 for hit in hits:
                     signals.refs.append(_ref(line, hit.start, hit.end, "period_expression"))
                     _vote(signals, hit.language)
@@ -497,7 +602,29 @@ def _period(page: _Page, signals: _Signals, day_first: bool) -> bool:
                         _vote(signals, language)
                         fired = True
                         break
+        # (d) a STACKED range: this line and the next non-empty line each
+        #     carry exactly one full date (with a year), no money and at most
+        #     a few other words, in order — a start-date cell over an
+        #     end-date cell, the connector implied by the layout
+        if len(dates) == 1 and dates[0].year is not None and not find_money(text) and _few_other_words(text):
+            following = _next_nonempty(page.lines, index)
+            if following is not None and following is not line:
+                next_dates = find_dates(following.text, day_first=day_first)
+                if (len(next_dates) == 1 and next_dates[0].year is not None and not find_money(following.text)
+                        and _few_other_words(following.text) and dates[0].sort_key() <= next_dates[0].sort_key()):
+                    signals.refs.append(_ref(line, dates[0].start, dates[0].end, "period_expression"))
+                    signals.refs.append(_ref(following, next_dates[0].start, next_dates[0].end, "period_expression"))
+                    fired = True
     return fired
+
+
+#: A stacked date-range cell carries at most this many alphabetic words in
+#: total (a month name counts; digits do not): "from <month> <d>, <y>" is 2.
+STACKED_RANGE_MAX_WORDS = 4
+
+
+def _few_other_words(text: str) -> bool:
+    return len(_WORD_RE.findall(fold(text))) <= STACKED_RANGE_MAX_WORDS
 
 
 def _period_from_balance_lines(signals: _Signals, day_first: bool) -> bool:
@@ -602,6 +729,7 @@ def _table(doc: _Doc, signals: _Signals, day_first: bool) -> list[list[list[_Row
     groups per page (aligned in evidence mode)."""
     per_page: list[list[list[_Row]]] = []
     counted_rows = 0
+    single_money_rows = 0
     aligned_any = False
     chained_total = 0
     candidates_total = 0
@@ -618,6 +746,7 @@ def _table(doc: _Doc, signals: _Signals, day_first: bool) -> list[list[list[_Row
                 aligned_any = True
             qualifying.append(group)
             counted_rows += len(group)
+            single_money_rows += sum(1 for row in group if len(row.money) == 1)
             chained, candidates = _chain_pairs(group)
             chained_total += chained
             candidates_total += candidates
@@ -638,6 +767,7 @@ def _table(doc: _Doc, signals: _Signals, day_first: bool) -> list[list[list[_Row
     signals.table_rows = counted_rows
     if counted_rows >= TABLE_MIN_ROWS:
         signals.table = True
+        signals.single_amount_column = single_money_rows >= SINGLE_AMOUNT_COLUMN_MIN_SHARE * counted_rows
         for groups in per_page:
             for group in groups:
                 for row in group:
@@ -660,8 +790,30 @@ def _table(doc: _Doc, signals: _Signals, day_first: bool) -> list[list[list[_Row
     return per_page
 
 
-def _discontinuities(per_page: list[list[list[_Row]]], signals: _Signals) -> None:
-    """Last balance on page p vs the first computed balance on page p+1."""
+def _money_rows(page: _Page, start: int, stop: int) -> list[_Row]:
+    """Every line of `page` in `[start, stop]` carrying at least two money
+    tokens, dated or not — a wrapped row prints its date on one line and
+    its amount and balance on the next, and the boundary check must see
+    that row, not skip it. Page-marker lines are excluded."""
+    rows: list[_Row] = []
+    for line in page.lines[start:stop + 1]:
+        money = find_money(line.text)
+        if len(money) < 2 or find_page_marker(line.text) is not None:
+            continue
+        rows.append(_Row(line, (), tuple(money)))
+    return rows
+
+
+def _discontinuities(doc: _Doc, per_page: list[list[list[_Row]]], signals: _Signals) -> None:
+    """Last balance on page p vs the first computed balance on page p+1.
+
+    The tail is the last money-pair line from the last group's first row to
+    the page end; the head is the first money-pair line from the page top
+    to the first group's last row (wrapped rows included on both sides).
+    The check applies only where the layout is KNOWN to print a balance on
+    every row: both sides chain on their own, and no dated amount-only row
+    follows the tail or precedes the head (a layout that prints the balance
+    at intervals cannot be checked this way and is not accused)."""
     if not signals.running_balance:
         return
     for p in range(len(per_page) - 1):
@@ -669,17 +821,21 @@ def _discontinuities(per_page: list[list[list[_Row]]], signals: _Signals) -> Non
         after = per_page[p + 1]
         if not before or not after:
             continue
-        last_group = before[-1]
-        first_group = after[0]
-        tail = [row for row in last_group if len(row.money) >= 2]
-        head = [row for row in first_group if len(row.money) >= 2]
+        page_before = doc.pages[p]
+        page_after = doc.pages[p + 1]
+        tail = _money_rows(page_before, before[-1][0].line.index, len(page_before.lines) - 1)
+        head = _money_rows(page_after, 0, after[0][-1].line.index)
         if not tail or not head:
+            continue
+        if any(len(row.money) == 1 and row.line.index > tail[-1].line.index for row in before[-1]):
+            continue
+        if any(len(row.money) == 1 and row.line.index < head[0].line.index for row in after[0]):
             continue
         # both sides must chain on their own, so the layout is known to
         # carry a balance column on both pages
-        if len(tail) >= 2 and _chain_pairs(tail[-3:])[0] < min(2, len(tail[-3:]) - 1):
+        if len(tail) < 2 or _chain_pairs(tail[-3:])[0] < min(2, len(tail[-3:]) - 1):
             continue
-        if len(head) >= 2 and _chain_pairs(head[:3])[0] < min(2, len(head[:3]) - 1):
+        if len(head) < 2 or _chain_pairs(head[:3])[0] < min(2, len(head[:3]) - 1):
             continue
         last_balance = tail[-1].money[-1].cents
         first_row = head[0]
@@ -703,8 +859,14 @@ def _markers(doc: _Doc, signals: _Signals) -> None:
             break
 
 
-def _cheque(doc: _Doc, signals: _Signals) -> None:
+def _cheque(doc: _Doc, per_page: list[list[list[_Row]]], signals: _Signals) -> None:
+    """The cheque signals per page. STRUCTURAL: a MICR-shaped line in the
+    bottom band of a cheque-proportioned page — a page fact, whatever else
+    the page carries. LEXICAL: MICR-shaped digit groups or the payee lexicon
+    on a page WITHOUT a transaction table (a statement page that lists two
+    long account numbers is not a cheque)."""
     for page in doc.pages:
+        page_has_table = bool(per_page[page.index]) if page.index < len(per_page) else False
         aspect_ok = False
         if page.width and page.height:
             aspect = page.width / page.height
@@ -727,7 +889,7 @@ def _cheque(doc: _Doc, signals: _Signals) -> None:
                 signals.refs.append(_ref(line, hit.start, hit.end, "cheque_lexicon"))
                 _vote(signals, hit.language)
         page_structural = micr_band and aspect_ok
-        page_lexical = micr_shape or lexicon
+        page_lexical = (micr_shape or lexicon) and not page_has_table
         if page_structural:
             signals.cheque_structural = True
         if page_lexical:
@@ -860,9 +1022,9 @@ def _evaluate(doc: _Doc) -> _Signals:
     if not signals.period and _period_from_balance_lines(signals, day_first):
         signals.period = True
     per_page = _table(doc, signals, day_first)
-    _discontinuities(per_page, signals)
+    _discontinuities(doc, per_page, signals)
     _markers(doc, signals)
-    _cheque(doc, signals)
+    _cheque(doc, per_page, signals)
     _lexicon_subkinds(doc, signals)
     _screenshot(doc, signals)
     signals.words_per_page = doc.word_count / max(1, len(doc.pages))
@@ -965,19 +1127,27 @@ def _decide(doc: _Doc, signals: _Signals, profile: DocumentProfileFacts) -> Docu
 
     cheque = signals.cheque_structural or signals.cheque_lexical
     lexical_kinds = set(signals.subkind_lexicons)
-    non_statement = {"deposit_slip", "letter"} & lexical_kinds
-    # 2. conflicts
+    # 2. conflicts (the named ones hold with or without a table; the rest
+    #    only where a lexicon would otherwise decide — i.e. without a table)
     if signals.table and cheque:
         return uncertain()
     if "card" in lexical_kinds and signals.running_balance:
         return uncertain()
-    if cheque and (lexical_kinds - {"deposit_slip"}):
-        return uncertain()
-    if len(lexical_kinds) > 1:
-        return uncertain()
-    if (non_statement or (signals.screenshot and not signals.table)) and signals.anchors >= 2:
-        return uncertain()
-    # 3. sub-kinds without a table
+    if not signals.table:
+        if cheque and (lexical_kinds - {"deposit_slip"}):
+            return uncertain()
+        if len(lexical_kinds) > 1:
+            return uncertain()
+        if (({"deposit_slip", "letter"} & lexical_kinds) or signals.screenshot) and signals.anchors >= 2:
+            return uncertain()
+        # a card / loan / brokerage lexicon beside deposit-account furniture
+        # (checking, savings, deposits, withdrawals ...) is two account kinds
+        # claiming one document
+        if (lexical_kinds & {"card", "loan", "brokerage"}) and signals.deposit_account:
+            return uncertain()
+    # 3. sub-kinds: a lexicon decides only WITHOUT a statement table; the
+    #    card statement may carry a table, but a card-shaped one (a single
+    #    amount column, no running balance, no deposit-account furniture)
     if cheque:
         structural = signals.cheque_structural
         tier = "structural" if structural else "lexical"
@@ -989,13 +1159,16 @@ def _decide(doc: _Doc, signals: _Signals, profile: DocumentProfileFacts) -> Docu
             return _verdict("NOT_A_STATEMENT", "deposit_slip", "lexical", [], signals, profile, doc)
         if "letter" in lexical_kinds:
             return _verdict("NOT_A_STATEMENT", "letter_or_notice", "lexical", [], signals, profile, doc)
+        if "card" in lexical_kinds:
+            return _verdict("NOT_A_STATEMENT", "card_statement", "lexical", [], signals, profile, doc)
         if "loan" in lexical_kinds:
             return _verdict("NOT_A_STATEMENT", "loan_statement", "lexical", [], signals, profile, doc)
         if "brokerage" in lexical_kinds:
             return _verdict("NOT_A_STATEMENT", "brokerage", "lexical", [], signals, profile, doc)
         if signals.screenshot and signals.anchors < 2:
             return _verdict("NOT_A_STATEMENT", "screenshot", "structural", [], signals, profile, doc)
-    if "card" in lexical_kinds and not signals.running_balance:
+    elif ("card" in lexical_kinds and signals.single_amount_column and not signals.running_balance
+          and not signals.deposit_account):
         return _verdict("NOT_A_STATEMENT", "card_statement", "lexical", [], signals, profile, doc)
     # 4. activity export
     if signals.table and signals.anchors == 0 and (signals.reverse_chronology or signals.pending):

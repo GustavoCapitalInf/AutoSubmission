@@ -40,6 +40,7 @@ clock, no randomness, results ordered by position.
 """
 from __future__ import annotations
 
+import functools
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -135,10 +136,25 @@ def _fold_char(ch: str) -> str:
     return lowered if len(lowered) == 1 else base
 
 
+#: A translation table over the code points a statement page can carry
+#: (Latin-1 Supplement through the enclosed alphanumerics that hold the
+#: MICR symbols), built once from `_fold_char` so the fast path and the
+#: per-character path agree by construction.
+_FOLD_TABLE: dict[int, str] = {
+    code: _fold_char(chr(code)) for code in range(0x80, 0x2500) if _fold_char(chr(code)) != chr(code)
+}
+
+
+@functools.lru_cache(maxsize=8192)
 def fold(text: str) -> str:
     """Lower-case, accent-stripped, apostrophe-normalised, LENGTH-PRESERVING
     (one output character per input character), so an offset into the
-    folded text is the same offset into the source text."""
+    folded text is the same offset into the source text. Memoised: the
+    classifier folds the same line once per signal family, and a cache of a
+    pure function is still a pure function."""
+    fast = text.translate(_FOLD_TABLE).lower()
+    if len(fast) == len(text):
+        return fast
     return "".join(_fold_char(ch) for ch in text)
 
 
@@ -161,18 +177,30 @@ LEXICONS: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType({
         es=("periodo del", "período del", "periodo de facturación", "fecha del estado", "estado de cuenta al",
             "periodo", "período"),
     ),
+    # Balance labels. The qualified forms ("closing ACCOUNT balance",
+    # "opening LEDGER balance") are the same furniture with a noun between
+    # the adjective and "balance"; a lexicon of phrases carries each form.
     "opening_balance": _lexicon(
         en=("beginning balance", "opening balance", "previous balance", "balance forward", "balance brought forward",
-            "starting balance", "prior balance", "balance at beginning", "beginning of period balance"),
+            "starting balance", "prior balance", "balance at beginning", "beginning of period balance",
+            "opening account balance", "beginning account balance", "opening statement balance",
+            "previous statement balance", "opening ledger balance", "beginning ledger balance",
+            "balance at start", "balance at the beginning"),
         fr=("solde d'ouverture", "solde précédent", "solde reporté", "solde au début", "solde de début",
-            "solde antérieur", "ancien solde"),
-        es=("saldo inicial", "saldo anterior", "saldo al inicio", "saldo de apertura", "saldo previo"),
+            "solde antérieur", "ancien solde", "solde à l'ouverture", "solde de début de période"),
+        es=("saldo inicial", "saldo anterior", "saldo al inicio", "saldo de apertura", "saldo previo",
+            "saldo inicial del periodo"),
     ),
     "closing_balance": _lexicon(
         en=("ending balance", "closing balance", "new balance", "balance at end", "end of period balance",
-            "final balance", "ending daily balance", "closing daily balance"),
-        fr=("solde de clôture", "solde final", "solde à la fin", "nouveau solde", "solde de fin", "solde de fermeture"),
-        es=("saldo final", "saldo al cierre", "nuevo saldo", "saldo de cierre", "saldo al final"),
+            "final balance", "ending daily balance", "closing daily balance", "closing account balance",
+            "ending account balance", "closing statement balance", "ending statement balance",
+            "closing ledger balance", "ending ledger balance", "balance at close", "balance at closing",
+            "balance at the end"),
+        fr=("solde de clôture", "solde final", "solde à la fin", "nouveau solde", "solde de fin", "solde de fermeture",
+            "solde à la fermeture", "solde à la clôture", "solde de fin de période"),
+        es=("saldo final", "saldo al cierre", "nuevo saldo", "saldo de cierre", "saldo al final",
+            "saldo final del periodo"),
     ),
     # Cheque furniture: the payee line. One hit is specific enough.
     "cheque": _lexicon(
@@ -244,9 +272,13 @@ LEXICON_STRONG: Mapping[str, frozenset[str]] = MappingProxyType({
     "deposit_slip": frozenset({"deposit ticket", "deposit slip", "less cash received", "net deposit",
                                "total from other side", "bordereau de dépôt", "boleta de depósito",
                                "comprobante de depósito", "ficha de depósito"}),
-    "card": frozenset({"minimum payment", "credit limit", "available credit", "cash advance", "minimum amount due",
-                       "credit line", "paiement minimum", "limite de crédit", "crédit disponible", "avance de fonds",
-                       "pago mínimo", "límite de crédito", "crédito disponible", "adelanto de efectivo"}),
+    # Card STRONG phrases are the ones a revolving-credit summary prints and a
+    # deposit statement's overdraft line-of-credit box does not: a minimum
+    # payment and a cash advance. "credit limit" / "available credit" /
+    # "credit line" / the APR are line-of-credit furniture too, so they stay
+    # weak (they count toward the two distinct phrases, never alone).
+    "card": frozenset({"minimum payment", "minimum amount due", "cash advance", "paiement minimum", "avance de fonds",
+                       "pago mínimo", "adelanto de efectivo"}),
     "loan": frozenset({"principal balance", "principal", "escrow", "amortization", "loan number", "loan balance",
                        "capital restant", "amortissement", "prêt", "solde du prêt", "capital pendiente",
                        "amortización", "préstamo", "saldo del préstamo"}),
@@ -274,32 +306,38 @@ class LexiconHit:
     end: int
 
 
-def _phrase_regex(phrase: str) -> re.Pattern[str]:
-    parts = [re.escape(part) for part in fold(phrase).split(" ")]
-    return re.compile(r"(?<![a-z0-9])" + r"\s+".join(parts) + r"(?![a-z0-9])")
+def _compile_lexicon(by_language: Mapping[str, tuple[str, ...]]) -> tuple[re.Pattern[str], dict[str, tuple[tuple[str, str], ...]]]:
+    """ONE alternation per lexicon, longest phrase first, over folded text;
+    a folded phrase maps back to every (language, phrase) that folds to it,
+    so a word two languages share votes for both."""
+    entries: dict[str, list[tuple[str, str]]] = {}
+    for language in LANGUAGE_CODES:
+        for phrase in by_language[language]:
+            entries.setdefault(fold(phrase), []).append((language, phrase))
+    alternatives = sorted(entries, key=lambda folded: (-len(folded), folded))
+    body = "|".join(r"\s+".join(re.escape(part) for part in alt.split(" ")) for alt in alternatives)
+    pattern = re.compile(r"(?<![a-z0-9])(?:" + body + r")(?![a-z0-9])")
+    return pattern, {folded: tuple(pairs) for folded, pairs in entries.items()}
 
 
-_LEXICON_RES: dict[str, tuple[tuple[str, str, re.Pattern[str]], ...]] = {
-    name: tuple(
-        (language, phrase, _phrase_regex(phrase))
-        for language in LANGUAGE_CODES
-        for phrase in by_language[language]
-    )
-    for name, by_language in LEXICONS.items()
+_LEXICON_RES: dict[str, tuple[re.Pattern[str], dict[str, tuple[tuple[str, str], ...]]]] = {
+    name: _compile_lexicon(by_language) for name, by_language in LEXICONS.items()
 }
+_WHITESPACE_RUN = re.compile(r"\s+")
 
 
 def find_lexicon(text: str, name: str) -> list[LexiconHit]:
-    """Every occurrence of every phrase of lexicon `name` in `text`, ordered
-    by (start, language order, phrase). Overlaps are reported as they are;
-    `distinct_hits` in document_class collapses them."""
+    """Every occurrence of a phrase of lexicon `name` in `text`, in text
+    order; at one position the LONGEST phrase wins, and a phrase two
+    languages share yields one hit per language (language order)."""
     folded = fold(text)
-    hits: list[tuple[int, int, int, LexiconHit]] = []
-    for order, (language, phrase, pattern) in enumerate(_LEXICON_RES[name]):
-        for match in pattern.finditer(folded):
-            hits.append((match.start(), order, match.end(), LexiconHit(name, language, phrase, match.start(), match.end())))
-    hits.sort(key=lambda item: (item[0], item[1], item[2]))
-    return [hit for _, _, _, hit in hits]
+    pattern, entries = _LEXICON_RES[name]
+    hits: list[LexiconHit] = []
+    for match in pattern.finditer(folded):
+        key = _WHITESPACE_RUN.sub(" ", match.group(0))
+        for language, phrase in entries[key]:
+            hits.append(LexiconHit(name, language, phrase, match.start(), match.end()))
+    return hits
 
 
 # ---------------------------------------------------------------------------
@@ -505,9 +543,12 @@ _MICR_MAX_SYMBOLS = 6
 
 
 def is_micr_shaped(text: str) -> bool:
-    """A line made of long digit groups and (at most a few) MICR symbols:
+    """A line made of long digit groups and a few MICR symbols (at least
+    one: the transit / on-us marks, or the characters OCR reads them as):
     a routing/transit group, an account group, a cheque-number group. Any
-    letter, slash or other character disqualifies the line."""
+    letter, slash or other character disqualifies the line; so does a bare
+    run of numbers with no symbol at all (a statement's own account and
+    reference numbers look like that)."""
     stripped = text.strip()
     if not stripped:
         return False
@@ -519,7 +560,7 @@ def is_micr_shaped(text: str) -> bool:
     if sum(len(group) for group in groups) < _MICR_MIN_DIGITS:
         return False
     others = [ch for ch in stripped if not (ch.isdigit() or ch.isspace())]
-    if len(others) > _MICR_MAX_SYMBOLS:
+    if not others or len(others) > _MICR_MAX_SYMBOLS:
         return False
     return all(ch in MICR_SYMBOLS for ch in others)
 

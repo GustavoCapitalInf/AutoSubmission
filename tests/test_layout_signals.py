@@ -240,7 +240,7 @@ def test_non_dates_do_not_parse(text):
 
 @pytest.mark.parametrize("text", [
     "⑆111111111⑆ 2222222222⑈ 1001",
-    "111111111 2222222222 1001",
+    "|111111111| 2222222222' 1001",
     ":111111111: 2222222222\" 1001",
     "c111111111c 22222222222c",
 ])
@@ -253,6 +253,7 @@ def test_micr_shaped_lines(text):
     "03/05/2031 2222222222 1001",
     "555 0100 800 1234",
     "1111 2222 3333 4444",
+    "111111111 2222222222 1001",    # bare numbers with no MICR symbol: a statement's own reference numbers
     "2222222222",
     "",
     "Page 1 of 2",
