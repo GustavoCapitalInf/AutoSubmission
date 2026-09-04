@@ -1053,7 +1053,7 @@ def _legacy_pages_with_a_word_outside_the_page_rect(legacy) -> set[int]:
 #: Measured while writing this cell (read-only census over all 12 pinned
 #: PDFs): exactly ONE of the 12 carries words PyMuPDF places outside
 #: `page.rect` on unrotated pages — sha16 58FE8A5C3D8760D6, one word per page
-#: on all 4 of its pages, each 7.75 pt past an edge. Every other pinned PDF
+#: on all 4 of its pages, each 7.750 pt past an edge. Every other pinned PDF
 #: has none. This is the whole divergence population of the pin below.
 _PINNED_PAGES_REFUSED_BY_THE_BOUNDS_RULE = {"58FE8A5C3D8760D6": {1, 2, 3, 4}}
 

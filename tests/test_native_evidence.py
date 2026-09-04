@@ -182,9 +182,9 @@ def test_an_unrotated_page_keeps_pymupdf_boxes_verbatim():
 # ---------------------------------------------------------------------------
 
 #: Tolerance MEASURED while writing this pin (PyMuPDF 1.27.2.3, Poppler
-#: 24.08): the maximum absolute per-coordinate delta between a rotated
-#: page's display boxes and the `/Rotate 0` boxes was 3.05e-5 pt at 90 and
-#: 180 and 1.53e-5 pt at 270 (the form XObject's matrix is written to the
+#: 24.08.0): the maximum absolute per-coordinate delta between a rotated
+#: page's display boxes and the `/Rotate 0` boxes was 0.0000305 pt at 90 and
+#: 180 and 0.0000153 pt at 270 (the form XObject's matrix is written to the
 #: content stream at single precision); the delta against the independent
 #: formula applied to PyMuPDF's raw boxes was 0.0 at every angle. The
 #: assertion bounds below are 1e-3 pt and 1e-6 pt respectively.
