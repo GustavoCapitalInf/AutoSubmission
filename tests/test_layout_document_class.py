@@ -589,7 +589,7 @@ def test_the_period_forms_of_the_precision_pass(fixtures):
     words of a stacked date-range cell) — each fixture is complete in both
     modes and the period is found without a `statement period` phrase."""
     for name in ("statement_dated_labels_after_a_dateless_header", "statement_statement_ending_phrase",
-                 "statement_last_this_statement_dates"):
+                 "statement_last_this_statement_dates", "statement_stacked_range_with_page_marker"):
         for mode in MODES:
             verdict = _classify(fixtures[name], mode)
             assert verdict.kind == "STATEMENT_COMPLETE", (name, mode, verdict)

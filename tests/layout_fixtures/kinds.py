@@ -1123,6 +1123,25 @@ def statement_last_this_statement_dates() -> LayoutFixture:
     return _fixture("statement_last_this_statement_dates", [page], expect_evidence=ev, expect_text=tx)
 
 
+def statement_stacked_range_with_page_marker() -> LayoutFixture:
+    """A stacked date-range cell whose first line also carries the page
+    marker and no period phrase at all: `Cycle start date: <date> Page 1 of
+    1` over `Cycle end date: <date>`. The marker's words are not words of
+    the cell."""
+    pages = statement_pages(lang="en", period=False, page_markers=False, n_rows=6)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    extra = (
+        line_at(TOP_MARGIN - 38.0, [tok("Cycle", LEFT), tok("start", LEFT + 40.0), tok("date:", LEFT + 80.0), tok(_date(1, 3, "en"), LEFT + 120.0),
+                                     tok("Page", LEFT + 300.0), tok("1", LEFT + 340.0), tok("of", LEFT + 360.0), tok("1", LEFT + 390.0)]),
+        line_at(TOP_MARGIN - 20.0, [tok("Cycle", LEFT), tok("end", LEFT + 40.0), tok("date:", LEFT + 70.0), tok(_date(31, 3, "en"), LEFT + 110.0)]),
+    )
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=extra + page.lines)
+    ev, tx = _complete()
+    return _fixture("statement_stacked_range_with_page_marker", [page], expect_evidence=ev, expect_text=tx)
+
+
 def nothing_fires() -> LayoutFixture:
     rows = [
         [tok("SYNTHETIC", LEFT), tok("MEETING", LEFT + 70.0), tok("NOTES", LEFT + 130.0)],
@@ -1185,6 +1204,7 @@ FIXTURES: dict[str, Callable[[], LayoutFixture]] = {
     "statement_dated_labels_after_a_dateless_header": statement_dated_labels_after_a_dateless_header,
     "statement_statement_ending_phrase": statement_statement_ending_phrase,
     "statement_last_this_statement_dates": statement_last_this_statement_dates,
+    "statement_stacked_range_with_page_marker": statement_stacked_range_with_page_marker,
     "nothing_fires": nothing_fires,
 }
 
