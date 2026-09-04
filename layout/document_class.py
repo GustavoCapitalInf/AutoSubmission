@@ -446,6 +446,11 @@ class _Signals:
     aligned: bool = False          # geometric confirmation (evidence mode)
     running_balance: bool = False
     single_amount_column: bool = False   # most table rows carry exactly one money token
+    ledger_rows: int = 0                 # dated money rows that are not anchor lines (wrapped rows included)
+    short_ledger: bool = False           # 1..TABLE_MIN_ROWS-1 ledger rows: a complete statement with few transactions
+    balance_pair: bool = False           # opening == closing to the cent with no ledger row: a printed zero-activity structure
+    opening_cents: int | None = None
+    closing_cents: int | None = None
     reverse_chronology: bool = False
     pending: bool = False
     discontinuities: list[tuple[int, int]] = field(default_factory=list)   # (page_before, page_after)
@@ -521,18 +526,30 @@ def _label_with_amount(page: _Page, name: str, signal: str, signals: _Signals) -
         if not hits:
             continue
         money = find_money(line.text)
+        cents: int | None = money[-1].cents if money else None
         if not money:
             following = _next_nonempty(page.lines, index)
             if following is None or not find_money(following.text):
                 continue
+            cents = find_money(following.text)[0].cents
         for hit in hits:
             signals.refs.append(_ref(line, hit.start, hit.end, signal))
             _vote(signals, hit.language)
         if found is None:
             found = line
+            _record_amount(signals, name, cents)
     if found is None:
         found = _stacked_label(page, name, signal, signals)
     return found
+
+
+def _record_amount(signals: _Signals, name: str, cents: int | None) -> None:
+    """The first opening amount and the last closing amount seen (contiguous
+    label forms only; a stacked cell leaves the amount unknown)."""
+    if name == "opening_balance" and signals.opening_cents is None:
+        signals.opening_cents = cents
+    elif name == "closing_balance":
+        signals.closing_cents = cents
 
 
 #: A stacked label's words (a summary cell such as "Closing" over "balance
@@ -740,6 +757,13 @@ def _member_rows(page: _Page, day_first: bool) -> list[_Row]:
     return rows
 
 
+def _is_anchor_line(text: str) -> bool:
+    """A dated money line that IS a summary anchor (a balance label with its
+    date and amount, a period line) is not a ledger row."""
+    label = _label_text(text)
+    return any(find_lexicon(label, name) for name in ("opening_balance", "closing_balance", "period_phrase"))
+
+
 def _groups(rows: list[_Row]) -> list[list[_Row]]:
     groups: list[list[_Row]] = []
     for row in rows:
@@ -853,6 +877,18 @@ def _table(doc: _Doc, signals: _Signals, day_first: bool) -> list[list[list[_Row
                     signals.pending = True
         per_page.append(qualifying)
     signals.table_rows = counted_rows
+    anchor_lines = {id(line) for line in (signals.opening_line, signals.closing_line) if line is not None}
+    ledger = [
+        row for page in doc.pages for row in _member_rows(page, day_first)
+        if id(row.line) not in anchor_lines and not _is_anchor_line(row.line.text)
+    ]
+    signals.ledger_rows = len(ledger)
+    if counted_rows < TABLE_MIN_ROWS and 1 <= len(ledger) < TABLE_MIN_ROWS:
+        # A complete statement may print one to four transactions: too few
+        # rows for the table signal, still a printed ledger.
+        signals.short_ledger = True
+        for row in ledger:
+            signals.refs.append(_line_ref(row.line, "short_ledger"))
     if counted_rows >= TABLE_MIN_ROWS:
         signals.table = True
         signals.single_amount_column = single_money_rows >= SINGLE_AMOUNT_COLUMN_MIN_SHARE * counted_rows
@@ -1110,6 +1146,14 @@ def _evaluate(doc: _Doc) -> _Signals:
     if not signals.period and _period_from_balance_lines(signals, day_first):
         signals.period = True
     per_page = _table(doc, signals, day_first)
+    if (signals.opening_cents is not None and signals.closing_cents is not None
+            and signals.opening_cents == signals.closing_cents and signals.ledger_rows == 0 and not signals.table):
+        # Opening and closing coincide to the cent and no ledger row is
+        # printed: the zero-activity structure without its declaration.
+        signals.balance_pair = True
+        for line in (signals.opening_line, signals.closing_line):
+            if line is not None:
+                signals.refs.append(_line_ref(line, "balance_pair_coincides"))
     _discontinuities(doc, per_page, signals)
     _markers(doc, signals)
     _cheque(doc, per_page, signals)
@@ -1132,8 +1176,14 @@ def _page_findings(doc: _Doc, signals: _Signals, profile: DocumentProfileFacts) 
     numbers = [number for _, number, _ in markers]
     n_pages = len(doc.pages)
     gap_after: int | None = None
-    for (page_before, before, _), (page_after, after, _) in zip(markers, markers[1:]):
-        if after != before + 1:
+    for (page_before, before, total_before), (page_after, after, _) in zip(markers, markers[1:]):
+        # A page without a marker between two marked pages is not a gap: the
+        # declared numbers may advance by at most the pages present. A clean
+        # restart (`1 of M` right after a sequence that reached its own
+        # total) is a second statement in one file, not a gap either.
+        if after == 1 and before == total_before:
+            continue
+        if after <= before or after - before > page_after - page_before:
             gap_after = page_before
             break
     if gap_after is not None:
@@ -1160,7 +1210,7 @@ def _statement_findings(doc: _Doc, signals: _Signals, profile: DocumentProfileFa
     for page_before, page_after in signals.discontinuities:
         findings.append(Finding("balance_discontinuity_at_page_break", page_after,
                                 f"page_break={page_before}/{page_after}"))
-    if not signals.table and not signals.zero_activity:
+    if not (signals.table or signals.zero_activity or signals.short_ledger or signals.balance_pair):
         findings.append(Finding("table_truncated", None, f"rows={signals.table_rows}"))
         if doc.pages:
             signals.refs.append(EvidenceRef(doc.pages[-1].index, None, None, "table_truncated"))
@@ -1267,19 +1317,19 @@ def _decide(doc: _Doc, signals: _Signals, profile: DocumentProfileFacts) -> Docu
     if signals.table and signals.anchors == 0 and (signals.reverse_chronology or signals.pending):
         return _verdict("ACTIVITY_EXPORT", None, "structural" if signals.aligned else "lexical", [], signals, profile, doc)
     # 5. statements
+    ledger = signals.table or signals.zero_activity or signals.short_ledger or signals.balance_pair
     shaped = (
-        (signals.table and signals.anchors >= 1)
+        (ledger and signals.anchors >= 1)
         or signals.anchors >= 2
-        or (signals.zero_activity and signals.anchors >= 1)
         or (signals.table and bool(signals.markers))
     )
     if not shaped:
         return uncertain()
     findings = _statement_findings(doc, signals, profile)
-    complete = signals.period and signals.opening and signals.closing and (signals.table or signals.zero_activity)
+    complete = signals.period and signals.opening and signals.closing and ledger
     if complete and not findings:
         return _verdict("STATEMENT_COMPLETE", None, "structural" if signals.aligned else "lexical", [], signals, profile, doc)
-    if not (signals.table or signals.zero_activity):
+    if not ledger:
         floor = ILLEGIBLE_RATIO * ILLEGIBLE_EXPECTED_WORDS_PER_PAGE
         if signals.words_per_page < floor:
             if doc.pages:

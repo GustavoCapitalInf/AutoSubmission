@@ -445,7 +445,7 @@ def activity_export() -> LayoutFixture:
 
 
 CHEQUE_W = 600.0
-CHEQUE_H = 260.0          # aspect 2.31 — inside [2.0, 2.6]
+CHEQUE_H = 260.0          # aspect just over 2.3 — inside [2.0, 2.6]
 MICR_LINE = "⑆111111111⑆ 2222222222⑈ 1001"   # E-13B-shaped digit groups with transit / on-us symbols
 
 
@@ -997,6 +997,79 @@ def statement_label_interrupted_by_date() -> LayoutFixture:
     return _fixture("statement_label_interrupted_by_date", [page], expect_evidence=ev, expect_text=tx)
 
 
+def statement_short_three_rows() -> LayoutFixture:
+    """A complete statement with THREE transactions: too few rows for the
+    table signal, still a printed ledger between the three anchors."""
+    pages = statement_pages(lang="en", n_rows=3, n_pages=1)
+    ex = Expect("STATEMENT_COMPLETE", None, "lexical", frozenset({"period_expression", "opening_balance_label",
+                                                                  "closing_balance_label", "short_ledger"}),
+                absent_signals=frozenset({"table_run", "table_alignment"}), account_kind="deposit")
+    return _fixture("statement_short_three_rows", pages, expect_evidence=ex, expect_text=ex)
+
+
+def statement_unmarked_middle_page() -> LayoutFixture:
+    """Three pages, `Page 1 of 3` and `Page 3 of 3` printed, the middle page
+    carrying no marker at all: the numbers advance by exactly the pages
+    present, so there is no gap."""
+    pages = statement_pages(n_rows=12, n_pages=3)
+    from tests.layout_fixtures.builders import line_at
+
+    middle = pages[1]
+    kept = tuple(line for line in middle.lines if not line.text.lower().startswith("page "))
+    middle = SyntheticPage(width_pt=middle.width_pt, height_pt=middle.height_pt, lines=kept)
+    ev, tx = _complete()
+    ev = Expect(**{**ev.__dict__, "absent_findings": frozenset({"page_gap", "missing_pages"})})
+    tx = Expect(**{**tx.__dict__, "absent_findings": frozenset({"page_gap", "missing_pages"})})
+    return _fixture("statement_unmarked_middle_page", [pages[0], middle, pages[2]], expect_evidence=ev, expect_text=tx)
+
+
+def statement_two_statements_one_file() -> LayoutFixture:
+    """Two complete statements bound into one file: the markers run
+    `1 of 1` then `1 of 1` again — a clean restart, not a gap."""
+    first = statement_pages(lang="en", n_rows=6, n_pages=1)
+    second = statement_pages(lang="en", n_rows=6, n_pages=1)
+    ev, tx = _complete()
+    ev = Expect(**{**ev.__dict__, "absent_findings": frozenset({"page_gap"})})
+    tx = Expect(**{**tx.__dict__, "absent_findings": frozenset({"page_gap"})})
+    return _fixture("statement_two_statements_one_file", first + second, expect_evidence=ev, expect_text=tx)
+
+
+def statement_balance_pair_no_rows() -> LayoutFixture:
+    """Opening and closing balance equal to the cent and no ledger row, with
+    no printed declaration: the zero-activity STRUCTURE."""
+    rows = [
+        [tok("SYNTHETIC", LEFT), tok("SAVINGS", LEFT + 70.0), tok("ACCOUNT", LEFT + 130.0), tok("STATEMENT", LEFT + 195.0)],
+        [tok("Statement", LEFT), tok("Period:", LEFT + 65.0), tok(_date(1, 3, "en"), LEFT + 120.0), tok("to", LEFT + 200.0),
+         tok(_date(31, 3, "en"), LEFT + 230.0)],
+        [tok("Beginning", LEFT), tok("Balance", LEFT + 65.0), rtok(cents(OPENING_CENTS), R_BALANCE)],
+        [tok("Ending", LEFT), tok("Balance", LEFT + 50.0), rtok(cents(OPENING_CENTS), R_BALANCE)],
+        [],
+        [tok("Page", LEFT), tok("1", LEFT + 40.0), tok("of", LEFT + 60.0), tok("1", LEFT + 90.0)],
+    ]
+    ex = Expect("STATEMENT_COMPLETE", None, "lexical", frozenset({"period_expression", "opening_balance_label",
+                                                                  "closing_balance_label", "balance_pair_coincides"}),
+                absent_signals=frozenset({"table_run", "short_ledger", "zero_activity_declaration"}))
+    return _fixture("statement_balance_pair_no_rows", [make_page(rows)], expect_evidence=ex, expect_text=ex)
+
+
+def statement_label_variants() -> LayoutFixture:
+    """The `Beginning statement balance` / `Ending statement balance` and
+    `Balance last statement` / `Balance this statement` label forms."""
+    pages = statement_pages(lang="en", opening=False, closing=False, n_rows=6)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    extra = (
+        line_at(TOP_MARGIN - 30.0, [tok("Beginning", LEFT), tok("statement", LEFT + 65.0), tok("balance", LEFT + 130.0),
+                                     rtok(cents(OPENING_CENTS), R_BALANCE)]),
+        line_at(TOP_MARGIN - 12.0, [tok("Balance", LEFT), tok("this", LEFT + 55.0), tok("statement", LEFT + 85.0),
+                                     rtok(cents(OPENING_CENTS + 5_000), R_BALANCE)]),
+    )
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=extra + page.lines)
+    ev, tx = _complete()
+    return _fixture("statement_label_variants", [page], expect_evidence=ev, expect_text=tx)
+
+
 def nothing_fires() -> LayoutFixture:
     rows = [
         [tok("SYNTHETIC", LEFT), tok("MEETING", LEFT + 70.0), tok("NOTES", LEFT + 130.0)],
@@ -1051,6 +1124,11 @@ FIXTURES: dict[str, Callable[[], LayoutFixture]] = {
     "statement_wrapped_rows_everywhere": statement_wrapped_rows_everywhere,
     "statement_debit_credit_no_balance": statement_debit_credit_no_balance,
     "statement_label_interrupted_by_date": statement_label_interrupted_by_date,
+    "statement_short_three_rows": statement_short_three_rows,
+    "statement_unmarked_middle_page": statement_unmarked_middle_page,
+    "statement_two_statements_one_file": statement_two_statements_one_file,
+    "statement_balance_pair_no_rows": statement_balance_pair_no_rows,
+    "statement_label_variants": statement_label_variants,
     "nothing_fires": nothing_fires,
 }
 

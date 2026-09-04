@@ -532,3 +532,52 @@ def test_every_kind_has_a_fixture(fixtures):
             if _expectation(fx, mode) is not None:
                 seen.add(_classify(fx, mode).kind)
     assert seen == set(KINDS), seen
+
+
+# ---------------------------------------------------------------------------
+# the precision pass: a complete statement may print zero to four transactions
+# ---------------------------------------------------------------------------
+
+def test_a_short_statement_is_complete_on_its_printed_ledger(fixtures):
+    """Mutant M13's killer: a complete statement with one to four
+    transactions has no table signal (fewer than five rows) and is still
+    complete on its anchors plus the short ledger — never `table_truncated`."""
+    for mode in MODES:
+        verdict = _classify(fixtures["statement_short_three_rows"], mode)
+        assert verdict.kind == "STATEMENT_COMPLETE", (mode, verdict)
+        assert "short_ledger" in _signal_names(verdict)
+        assert "table_run" not in _signal_names(verdict)
+
+
+def test_a_coinciding_balance_pair_with_no_rows_is_the_zero_activity_structure(fixtures):
+    """Mutant M15's killer."""
+    for mode in MODES:
+        verdict = _classify(fixtures["statement_balance_pair_no_rows"], mode)
+        assert verdict.kind == "STATEMENT_COMPLETE", (mode, verdict)
+        assert "balance_pair_coincides" in _signal_names(verdict)
+    # the same shape with DIFFERENT opening and closing amounts is a partial
+    # (its ledger is missing), not a complete statement
+    partial = _classify(fixtures["statement_illegible"], "text")
+    assert partial.kind != "STATEMENT_COMPLETE"
+
+
+def test_an_unmarked_middle_page_and_a_clean_restart_are_not_gaps(fixtures):
+    """Mutant M14's killer: the declared numbers may advance by the pages
+    present; `1 of M` after a completed sequence is a second statement."""
+    for name in ("statement_unmarked_middle_page", "statement_two_statements_one_file"):
+        for mode in MODES:
+            verdict = _classify(fixtures[name], mode)
+            assert verdict.kind == "STATEMENT_COMPLETE", (name, mode, verdict)
+            assert "page_gap" not in _finding_codes(verdict)
+    # a real gap (a page removed between two marked pages) is still found
+    gap = _classify(fixtures["partial_page_removed"], "evidence")
+    assert "page_gap" in _finding_codes(gap)
+
+
+def test_the_statement_balance_label_forms_anchor(fixtures):
+    """Mutant M16's killer: `Beginning statement balance` / `Balance this
+    statement` are opening / closing labels."""
+    for mode in MODES:
+        verdict = _classify(fixtures["statement_label_variants"], mode)
+        assert verdict.kind == "STATEMENT_COMPLETE", (mode, verdict)
+        assert {"opening_balance_label", "closing_balance_label"} <= _signal_names(verdict)
