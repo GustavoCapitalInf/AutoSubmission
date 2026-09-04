@@ -182,6 +182,8 @@ REVERSE_CHRONOLOGY_MIN_DECREASES = 3
 _DETAIL_GRAMMAR = re.compile(r"^(?:[a-z_]+=[0-9./-]+(?:;[a-z_]+=[0-9./-]+)*)?$")
 #: Range connectors compared against FOLDED text between two dates.
 _FOLDED_CONNECTORS = {language: tuple(fold(c) for c in connectors) for language, connectors in RANGE_CONNECTORS.items()}
+#: The "from … to" label pair of a period cell, per language (folded words).
+_FROM_TO_WORDS = {"en": ("from", "to"), "fr": ("du", "au"), "es": ("del", "al")}
 
 
 # ---------------------------------------------------------------------------
@@ -483,13 +485,28 @@ def _following_nonempty(lines: tuple[_Line, ...], index: int, count: int) -> lis
 PERIOD_DATE_WITHIN = 2
 
 
+def _label_text(text: str, day_first: bool = False) -> str:
+    """The line with its money and date tokens blanked to spaces (length
+    preserving): a label is read on the words alone, so "Beginning
+    <date> balance on" — a date cell grouped into the label's visual line —
+    still reads "beginning balance"."""
+    chars = list(text)
+    for token in find_money(text):
+        for i in range(token.start, token.end):
+            chars[i] = " "
+    for token in find_dates(text, day_first=day_first):
+        for i in range(token.start, token.end):
+            chars[i] = " "
+    return "".join(chars)
+
+
 def _label_with_amount(page: _Page, name: str, signal: str, signals: _Signals) -> _Line | None:
     """A balance label with an adjacent amount: on the same line, or on the
     next non-empty line. Returns the label line on the first hit. Falls back
     to the STACKED form (`_stacked_label`) when no contiguous phrase fires."""
     found: _Line | None = None
     for index, line in enumerate(page.lines):
-        hits = _distinct_hits(find_lexicon(line.text, name))
+        hits = _distinct_hits(find_lexicon(_label_text(line.text), name))
         if not hits:
             continue
         money = find_money(line.text)
@@ -546,27 +563,22 @@ def _stacked_label(page: _Page, name: str, signal: str, signals: _Signals) -> _L
     last words of the phrase."""
     lines = page.lines
     for start in range(len(lines)):
-        if not lines[start].text.strip() or find_money(lines[start].text):
+        if not lines[start].text.strip():
             continue
         for width in range(1, STACKED_LABEL_MAX_LINES + 1):
             window = lines[start:start + width]
             if len(window) < width:
                 break
-            if width > 1 and (not window[-1].text.strip() or find_money(window[-1].text)):
+            if width > 1 and not window[-1].text.strip():
                 break
-            values = None
-            for candidate in _following_nonempty(lines, start + width - 1, STACKED_LABEL_VALUES_WITHIN):
-                if find_money(candidate.text):
-                    if len(find_money(candidate.text)) >= STACKED_LABEL_MIN_VALUES:
-                        values = candidate
-                    break
-            if values is None:
-                continue
             tokens: list[tuple[int, str, int, int]] = []   # (line offset in window, word, start, end)
+            money_at: list[tuple[int, int]] = []           # (line offset, start) of every money token in the window
             for offset, line in enumerate(window):
                 folded = fold(line.text)
                 for match in _WORD_RE.finditer(folded):
                     tokens.append((offset, match.group(0), match.start(), match.end()))
+                for token in find_money(line.text):
+                    money_at.append((offset, token.start))
             words = [t[1] for t in tokens]
             for language, phrase, phrase_words in _STACKED[name]:
                 first, last = phrase_words[0], phrase_words[-1]
@@ -583,6 +595,22 @@ def _stacked_label(page: _Page, name: str, signal: str, signals: _Signals) -> _L
                     continue
                 if any(word not in words for word in phrase_words[1:-1] if len(word) > 2):
                     continue
+                # money inside the window may sit only AFTER the phrase's last
+                # word (a values column to the right of a merged header row)
+                b_offset, _, _, b_end = tokens[b]
+                if any((offset, start) < (b_offset, b_end) for offset, start in money_at):
+                    continue
+                after = [m for m in money_at if m >= (b_offset, b_end)]
+                values_here = len(after) >= STACKED_LABEL_MIN_VALUES
+                if not values_here:
+                    values = None
+                    for candidate in _following_nonempty(lines, start + width - 1, STACKED_LABEL_VALUES_WITHIN):
+                        if find_money(candidate.text):
+                            if len(find_money(candidate.text)) >= STACKED_LABEL_MIN_VALUES:
+                                values = candidate
+                            break
+                    if values is None:
+                        continue
                 for index in (a, b):
                     offset, _, s, e = tokens[index]
                     signals.refs.append(_ref(window[offset], s, e, signal))
@@ -596,8 +624,18 @@ def _period(page: _Page, signals: _Signals, day_first: bool) -> bool:
     for index, line in enumerate(page.lines):
         text = line.text
         dates = find_dates(text, day_first=day_first)
+        # (e) the "from … to" labels with two full dates on one line, the
+        #     dates separated by other cells of a merged header row
+        if len(dates) >= 2 and any(d.year is not None for d in dates):
+            label_words = set(_WORD_RE.findall(fold(_label_text(text, day_first))))
+            for language, (word_from, word_to) in _FROM_TO_WORDS.items():
+                if word_from in label_words and word_to in label_words:
+                    signals.refs.append(_ref(line, dates[0].start, dates[1].end, "period_expression"))
+                    _vote(signals, language)
+                    fired = True
+                    break
         # (a) a period phrase with a date on the same or the next line
-        hits = _distinct_hits(find_lexicon(text, "period_phrase"))
+        hits = _distinct_hits(find_lexicon(_label_text(text, day_first), "period_phrase"))
         if hits:
             following = _following_nonempty(page.lines, index, PERIOD_DATE_WITHIN)
             if dates or any(find_dates(line.text, day_first=day_first) for line in following):
@@ -662,18 +700,32 @@ class _Row:
     line: _Line
     dates: tuple[DateToken, ...]
     money: tuple[MoneyToken, ...]
+    money_line: _Line | None = None    # a WRAPPED row: the amount and balance sit on the line after the date
+
+    @property
+    def amount_line(self) -> _Line:
+        return self.money_line or self.line
 
 
 def _member_rows(page: _Page, day_first: bool) -> list[_Row]:
+    """Dated money rows: a line with a date and money, or a WRAPPED row —
+    a dated line without money whose next line carries money and no date
+    (the amount and balance printed under the date and description)."""
     rows: list[_Row] = []
-    for line in page.lines:
-        money = find_money(line.text)
-        if not money:
-            continue
+    lines = page.lines
+    for index, line in enumerate(lines):
         dates = find_dates(line.text, day_first=day_first)
         if not dates:
             continue
-        rows.append(_Row(line, tuple(dates), tuple(money)))
+        money = find_money(line.text)
+        if money:
+            rows.append(_Row(line, tuple(dates), tuple(money)))
+            continue
+        if index + 1 < len(lines):
+            following = lines[index + 1]
+            next_money = find_money(following.text)
+            if next_money and not find_dates(following.text, day_first=day_first):
+                rows.append(_Row(line, tuple(dates), tuple(next_money), following))
     return rows
 
 
@@ -688,14 +740,17 @@ def _groups(rows: list[_Row]) -> list[list[_Row]]:
 
 
 def _money_right_edge(row: _Row, token: MoneyToken) -> float | None:
-    assert row.line.words is not None
-    covering = [w for w in row.line.words if w.start < token.end and w.end > token.start]
+    line = row.amount_line
+    assert line.words is not None
+    covering = [w for w in line.words if w.start < token.end and w.end > token.start]
     return max(w.x1 for w in covering) if covering else None
 
 
 def _aligned(group: list[_Row], char_width: float | None) -> bool:
-    """Evidence mode: the money tokens of the group's lines share a right
-    edge within `TABLE_ALIGN_TOLERANCE_CW` character widths."""
+    """Evidence mode: the group's money tokens fall on at most TWO shared
+    right edges (an amount column, or a debit column and a credit column)
+    that together cover `TABLE_ALIGN_MIN_SHARE` of its rows, each edge
+    within `TABLE_ALIGN_TOLERANCE_CW` character widths."""
     if char_width is None:
         return False
     tolerance = TABLE_ALIGN_TOLERANCE_CW * char_width
@@ -706,7 +761,7 @@ def _aligned(group: list[_Row], char_width: float | None) -> bool:
             if edge is not None:
                 edges.append((edge, row_index))
     edges.sort()
-    best = 0
+    clusters: list[set[int]] = []
     i = 0
     while i < len(edges):
         anchor = edges[i][0]
@@ -715,9 +770,14 @@ def _aligned(group: list[_Row], char_width: float | None) -> bool:
         while j < len(edges) and edges[j][0] - anchor <= tolerance:
             members.add(edges[j][1])
             j += 1
-        best = max(best, len(members))
+        clusters.append(members)
         i += 1
-    return best >= max(2, int(-(-TABLE_ALIGN_MIN_SHARE * len(group) // 1)))
+    clusters.sort(key=len, reverse=True)
+    covered: set[int] = set()
+    for cluster in clusters[:2]:
+        if len(cluster) >= 2:
+            covered |= cluster
+    return len(covered) >= max(2, int(-(-TABLE_ALIGN_MIN_SHARE * len(group) // 1)))
 
 
 def _chain_pairs(group: list[_Row]) -> tuple[int, int]:
@@ -1142,7 +1202,12 @@ def _decide(doc: _Doc, signals: _Signals, profile: DocumentProfileFacts) -> Docu
     def uncertain() -> DocumentClass:
         return _verdict("KIND_UNCERTAIN", None, "uncertain", [], signals, profile, doc)
 
-    cheque = signals.cheque_structural or signals.cheque_lexical
+    # A cheque-proportioned page with a MICR band is a cheque page whatever
+    # the document; MICR text or a payee line on a letter-size page is a
+    # cheque signal only for a document that is not statement-shaped (a
+    # statement's cheque-image enclosures are read as MICR text by a
+    # native or OCR reader and are not a second document kind).
+    cheque = signals.cheque_structural or (signals.cheque_lexical and signals.anchors < 2)
     lexical_kinds = set(signals.subkind_lexicons)
     # 2. conflicts (the named ones hold with or without a table; the rest
     #    only where a lexicon would otherwise decide — i.e. without a table)

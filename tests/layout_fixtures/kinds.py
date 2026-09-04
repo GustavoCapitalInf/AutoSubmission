@@ -25,6 +25,7 @@ from tests.layout_fixtures.builders import (
     PAGE_HEIGHT_PT,
     PAGE_WIDTH_PT,
     SYNTHETIC_YEAR,
+    TOP_MARGIN,
     SyntheticPage,
     Tok,
     cents,
@@ -901,6 +902,101 @@ def statement_with_micr_on_table_page() -> LayoutFixture:
     return _fixture("statement_with_micr_on_table_page", [page], expect_evidence=ev, expect_text=tx)
 
 
+def statement_from_to_header_line() -> LayoutFixture:
+    """A merged header row: `Statement of: … From: <date> Account: … To:
+    <date>` — the two dates are on one line but separated by other cells,
+    so no connector joins them; the FROM / TO labels with two full dates
+    make the period."""
+    pages = statement_pages(lang="en", period=False)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    header = line_at(TOP_MARGIN - 20.0, [tok("Statement", LEFT), tok("of:", LEFT + 65.0), tok("From:", LEFT + 100.0),
+                                          tok(_date(1, 3, "en"), LEFT + 140.0), tok("Account:", LEFT + 220.0),
+                                          tok("SYN-1", LEFT + 280.0), tok("To:", LEFT + 330.0), tok(_date(31, 3, "en"), LEFT + 355.0)])
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=(header,) + page.lines)
+    ev, tx = _complete()
+    return _fixture("statement_from_to_header_line", [page], expect_evidence=ev, expect_text=tx)
+
+
+def statement_with_cheque_image_page() -> LayoutFixture:
+    """A complete statement followed by a cheque-image enclosure page: a
+    letter-size page carrying the payee line and a MICR-shaped line. The
+    document is statement-shaped, so the enclosure is not a second kind
+    and no table-versus-cheque conflict is raised."""
+    pages = statement_pages(lang="en", n_pages=1, page_markers=False)
+    enclosure = _cheque_page(_cheque_rows(micr=True, void=False), micr=True, width=PAGE_WIDTH_PT, height=PAGE_HEIGHT_PT)
+    ev, tx = _complete()
+    ev = Expect(**{**ev.__dict__, "signals": ev.signals - {"page_marker"}, "absent_signals": frozenset()})
+    tx = Expect(**{**tx.__dict__, "signals": tx.signals - {"page_marker"}})
+    return _fixture("statement_with_cheque_image_page", pages + [enclosure], expect_evidence=ev, expect_text=tx)
+
+
+def statement_wrapped_rows_everywhere() -> LayoutFixture:
+    """Every ledger row is two lines: the date and description on one, the
+    amount and balance on the next. No line carries a date and money
+    together; the wrapped-row model still sees a table."""
+    pages = statement_pages(n_rows=8, n_pages=1)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    new_lines = []
+    for line in page.lines:
+        if find_iso(line.words[0].text):
+            y = line.words[0].y1
+            new_lines.append(line_at(y, [Tok(w.text, w.x0) for w in line.words[:-2]]))
+            new_lines.append(line_at(y + 9.0, [Tok(w.text, w.x0) for w in line.words[-2:]]))
+        else:
+            new_lines.append(line)
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=tuple(new_lines))
+    ev, tx = _complete()
+    return _fixture("statement_wrapped_rows_everywhere", [page], expect_evidence=ev, expect_text=tx)
+
+
+def statement_debit_credit_no_balance() -> LayoutFixture:
+    """Two money columns (withdrawals and deposits) and NO balance column:
+    each row carries one money token in one of two right-aligned columns,
+    so the table is confirmed by the two columns together."""
+    pages = statement_pages(n_rows=8, n_pages=1, columns="debit_credit_balance")
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    new_lines = []
+    for line in page.lines:
+        if find_iso(line.words[0].text):
+            new_lines.append(line_at(line.words[0].y1, [Tok(w.text, w.x0) for w in line.words[:-1]]))   # drop the balance
+        else:
+            new_lines.append(line)
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=tuple(new_lines))
+    ex = Expect("STATEMENT_COMPLETE", None, "structural", frozenset({"table_run", "table_alignment"}),
+                absent_signals=frozenset({"running_balance"}), account_kind="deposit")
+    tx = Expect("STATEMENT_COMPLETE", None, "lexical", frozenset({"table_run"}),
+                absent_signals=frozenset({"running_balance", "table_alignment"}), account_kind="deposit")
+    return _fixture("statement_debit_credit_no_balance", [page], expect_evidence=ex, expect_text=tx)
+
+
+def statement_label_interrupted_by_date() -> LayoutFixture:
+    """The opening label's words with a date cell grouped between them
+    ("Beginning <date> balance on … $"), and a merged summary row whose
+    values sit to the right on the same line ("Ending credits (+) balance
+    deposits <v> <v>"): labels are read on the words alone; a merged
+    header may carry its values after the phrase."""
+    pages = statement_pages(lang="en", opening=False, closing=False)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    extra = (
+        line_at(TOP_MARGIN - 30.0, [tok("Beginning", LEFT), tok(_date(1, 3, "en"), LEFT + 70.0), tok("balance", LEFT + 150.0),
+                                     tok("on", LEFT + 205.0), rtok(cents(OPENING_CENTS), R_BALANCE)]),
+        line_at(TOP_MARGIN - 12.0, [tok("Ending", LEFT), tok("credits", LEFT + 60.0), tok("(+)", LEFT + 115.0),
+                                     tok("balance", LEFT + 150.0), tok("deposits", LEFT + 205.0),
+                                     rtok(cents(15_000), R_AMOUNT), rtok(cents(OPENING_CENTS + 5_000), R_BALANCE)]),
+    )
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=extra + page.lines)
+    ev, tx = _complete()
+    return _fixture("statement_label_interrupted_by_date", [page], expect_evidence=ev, expect_text=tx)
+
+
 def nothing_fires() -> LayoutFixture:
     rows = [
         [tok("SYNTHETIC", LEFT), tok("MEETING", LEFT + 70.0), tok("NOTES", LEFT + 130.0)],
@@ -950,6 +1046,11 @@ FIXTURES: dict[str, Callable[[], LayoutFixture]] = {
     "statement_balance_at_intervals": statement_balance_at_intervals,
     "statement_with_overdraft_line_box": statement_with_overdraft_line_box,
     "statement_with_micr_on_table_page": statement_with_micr_on_table_page,
+    "statement_from_to_header_line": statement_from_to_header_line,
+    "statement_with_cheque_image_page": statement_with_cheque_image_page,
+    "statement_wrapped_rows_everywhere": statement_wrapped_rows_everywhere,
+    "statement_debit_credit_no_balance": statement_debit_credit_no_balance,
+    "statement_label_interrupted_by_date": statement_label_interrupted_by_date,
     "nothing_fires": nothing_fires,
 }
 
