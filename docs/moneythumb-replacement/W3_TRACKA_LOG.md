@@ -70029,3 +70029,333 @@ section's commit and reported in the closure message.
   `except` (none does today — both `_read_*` methods return the class name) would drop it.
 * The re-review's MINOR-5 observation about the probe's generic `attempt()` wrapper writing
   `f"{type(exc).__name__}: {exc}"` for OTHER probed values is pre-existing and outside this closure.
+# §P22IDENTITY — the ONE native reader in the neutral package, display-frame word boxes, native evidence persisted with its sha, the geometry-aware analysis key, research partitions refused as a run of record; 0 coverage movement, one ruling requested
+
+Cell K (Phase 2.2, `docs/agent-handoffs/P22-IDENTITY.md`), worktree `mt22-identity`, branch
+`wave22-identity`, base `train12` at `b23cb50`. Hygiene card: `newly validated = 0` everywhere this cell
+measured it; every previously validated document preserved payload-identical (how: below).
+
+## Population
+* Fixtures (all synthetic, invented rows, dates ≥ 2031): the three structurer/safety fixtures of
+  `tests/test_geometry_frames.py`; the four-angle ledger of `tests/test_native_evidence.py` (one displayed
+  page produced four times with `/Rotate` 0/90/180/270 — for 90/270 the unrotated page is landscape and
+  the content is pre-rotated into it as a form XObject, the shape of a real rotated statement); the
+  two-page refusal fixtures; the hand-built native-shaped evidences of `tests/test_artifact_cache.py`.
+* The 12 pinned corpus PDFs (read-only, by sha16, the Phase 2.1 set unchanged): DF4905B76381B48D,
+  3D8D7F8F43ED2A06, 393547C0407F1A87, 040261AC8183C1EF, CD7E104D7474DD68, 6EFD091D2A38B437,
+  1C1DA63082C5D724, A198CD1DEE8C154B, A26ECE4F32488CEC, 58FE8A5C3D8760D6, 90BA1E7A5D5822A6, AF60A6EB9CEBB451.
+* The /Rotate census (item 8; read-only over the run of record's 3,380 distinct shas via its `rows.csv`,
+  opened from bytes, 113.8 s): 25,528 pages; 12 pages unreadable by PyMuPDF; 8,074,636 non-blank words;
+  **rotated pages 82** (histogram: 0 → 25,434; 90 → 19; 270 → 63; no 180) in **13 documents with ≥ 1
+  rotated page**; after the rotation transform **0** words on rotated pages lie outside the display
+  frame; 0 boxes degenerate after the transform. The 12 pinned PDFs and the 109-document manifest carry
+  0 rotated pages (830 manifest pages).
+* The replay population: the UNION of every registration (`--parser` per id over all 84 registry ids;
+  81 of them claimed at least one document in the run of record; 2,695 distinct claimed shas), from the
+  run of record `discovery_reports/TRAIN11-4f7d798/…-331d9136` against the READ-ONLY cold cache
+  `.claude/recovery/webapp_data_train11_cold`; plus the whole archive (3,380 shas, 29 with
+  `source_path=none`) at closure.
+
+## Root cause
+Three identity defects Phase 2.1 documented: (1) `analysis_input_sha` was geometry-blind — an analysis
+fed geometry and a text-only analysis of the same markdown resolved to one key, so a warm cache would
+have served a stale answer the day 2.3 turned the structurer on; (2) the native geometry path computed
+an evidence sha nobody stored and recomputed it on every read — no native document had lineage to its
+words; (3) PyMuPDF's `get_text("words")` boxes live in the page's UNROTATED space while `page.rect` is the
+rotated display rectangle — a rotated page's native and Paddle geometries could not be compared. A
+fourth need: 2.3's research partitions must never become historical truth. Two structural facts drove
+the shape: the intake ladder cannot import `analysis` and the structurer cannot import `ocr`, so the one
+reader both must share can live only in the neutral `evidence/` package — whose tripwire said "stdlib
+only"; and the analysis input hash is looked up, with no version parameter, by both replay/observer
+instruments on every historical run.
+
+## Solution
+1. `evidence/native.py` — the ONE native reader. `import fitz` is the first statement of the function
+   body (guarded, so an unimportable PyMuPDF is the reader's `None`) and the ONLY third-party import in
+   the package. Per page: frame = `PageFrame.pdf_points(page.rect, page.rotation)` (display); every
+   non-blank word's box is mapped by `page.rotation_matrix` (four corners, then the enclosing box — a
+   transform, never a swap); the identity matrix is applied as the identity, so an unrotated page's boxes
+   are PyMuPDF's raw floats verbatim; a rotated page carries `rotation_applied`; a box outside the display
+   frame refuses the page whole with `native_word_outside_frame` and its REAL frame (by elimination the
+   only `MalformedGeometry` a page of valid boxes can raise — no second copy of the bounds arithmetic);
+   the Phase 2.1 note is retired and never emitted. `runtime = {pymupdf_version, frame: "display"}`,
+   `raw/confidence/line_ref = None`, `document_sha256` local upper-case hex. `None` exactly on the Phase
+   2.1 rule (unimportable PyMuPDF, unparseable bytes, no pages, zero placeable words).
+2. `analysis/structurer/geometry.py::native_evidence_from_pdf` is `from evidence.native import
+   native_evidence_from_pdf` (the only new import; the now-dead `import hashlib` removed with the moved
+   body); `geometry_from_pdf` unchanged; the three identity constants kept and pinned equal to their
+   `evidence.native` twins; `UNROTATED_WORDS_NOTE` kept, documented RETIRED.
+3. `evidence/canonical.py`: the bounds check `0 ≤ x0, x1 ≤ width, 0 ≤ y0, y1 ≤ height` now applies to
+   BOTH spaces (it was pixel-only). `EVIDENCE_SCHEMA_VERSION` stays 1: the representation is unchanged;
+   only a validation tightened. Every existing evidence fixture still constructs
+   (`test_every_existing_evidence_fixture_in_this_file_still_constructs`).
+4. `tests/test_evidence_boundary.py` amended precisely: no repository-package import anywhere under
+   `evidence/` (`layout` added to the forbidden prefixes); the set of third-party import SITES
+   (file, enclosing function, module) over the whole package equals exactly
+   `{("evidence/native.py", "native_evidence_from_pdf", "fitz")}`; the reader's first statement is the
+   guarded `import fitz`; the checker is proven non-vacuous on synthetic sources; `import evidence`
+   succeeds in a subprocess with `sys.modules["fitz"] = None` and the reader answers `None` there.
+5. D5. `ocr/document.py`: `StatementMarkdown.native_evidence` (page-count check only — the ONE rule
+   `native_evidence_describes`, shared with the ladder; NO text equality, documented: the native page
+   strings come from `_native_pages` text blocks, not from word grouping) and the
+   `native_evidence_sha256` property. `ocr/pipeline.py`: the native rung — and only it — attaches the
+   reader's evidence once per document, by attribute (a read is whatever object the rung produced; the
+   suite's duck-typed fakes are not dataclasses), only when the rule admits it. `webapp/artifact_cache.py`:
+   the OCR record persists `native_evidence` (JSON) and `native_evidence_sha256`; `cached_ocr` restores it
+   and RE-VERIFIES the blob against the claimed sha (a sha without its blob is a drift too) — the same
+   miss-with-finding as a drifted `evidence`; a schema-2 record restores with `native_evidence=None` and
+   analyses. `EXTRACTION_SCHEMA_VERSION` 2 → 3 with its pin in the same commit. `to_markdown()` untouched.
+6. D6. `analysis_input_sha(markdown, sheets, *, evidence_sha256=None)` carries the evidence sha
+   (upper-cased; a malformed or EMPTY sha is refused) — see the deviation below for the no-geometry case;
+   `cached_analysis(..., evidence_sha256=None)` threads it. `analysis/config.py::Settings.reconstruction_mode`
+   (`RECONSTRUCTION_MODE`; closed `off | research | production`; blank → `off`; anything else refuses at
+   load and at construction). `structurer_enabled(settings=None)` reads the setting (`!= "off"`);
+   `analysis_settings_key` carries `reconstruction_mode` and derives `generic_structurer` from the SAME
+   settings object. `GENERIC_STRUCTURER_ENABLED` is inert (M10). `ANALYSIS_STAGE_VERSION` 17 → 18 with its
+   pin in the same commit. `webapp/worker.py` needs no change (text-only; the default `None`).
+7. D7. `ocr_settings_key(..., research_partition="")`: key material ONLY when non-empty (closed shape
+   `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, `fullmatch`), so the production key is byte-identical to a call
+   that never heard of the field; `cached_ocr` threads it. `telemetry/run_of_record.py`:
+   `ResearchPartitionRefused(RunOfRecordError)` raised by name from the RECORDED block before any key is
+   served (a non-string is malformed; empty/absent is production); `RunPartitions.research_partition`.
+   `tools/train/provenance.py --research-partition`: recorded in `run_of_record.partitions`, folded into
+   every OCR key there; `RECONSTRUCTION_MODE` joins `ENV_KNOBS`; `EXTRACTION_SCHEMA_VERSION` /
+   `EVIDENCE_SCHEMA_VERSION` join the tree block. `tools/cohort_replay.py` needs NO change: its existing
+   `RunOfRecordError` boundary is exit 5 (proven by `test_cohort_replay_exits_5_on_a_research_run_without_any_change_of_its_own`).
+8. The /Rotate census: above (a scratch script; counts only; not committed — the card requires none).
+9. No hardcodes: the OQ2 scans over `evidence/`, `analysis/`, `ocr/` are in the guards run.
+
+## newly validated
+0.
+
+## other ladder movement
+0.
+
+## previously validated preserved
+All, payload identical — proven by `cohort_replay --expect-identical` at BASE and at CLOSURE over the
+union of every registration, and additionally over the whole archive at closure (exits below). How the
+key change is handled: the replay reads the run of record's RECORDED partitions (OCR keys at schema 2,
+the analysis key at stage 17) through `telemetry/run_of_record.py` as it stands, resolves each row's
+cached text under the recorded offline key, and looks the baseline payload up under the recorded analysis
+key with THIS tree's `analysis_input_sha(markdown, pages)` — which is byte-identical to the Phase 2.1
+composition for a text-only call (pinned by
+`test_analysis_input_sha_without_evidence_is_byte_identical_to_the_phase_2_1_composition`). Nothing in
+the replay exercises the intake ladder (cached text), so the native-evidence attach is proven inert on
+text by the `to_markdown()` byte-identity pin (M14's killer, the committed corpus artifacts) and by the
+ladder tests; the cold run at the train is where every native document is re-read.
+
+## regressions
+0.
+
+## correctness evidence
+* The two equality pins: (a) `geometry_from_pdf` byte-identical to the legacy Phase 2.0 copy on the three
+  synthetic fixtures, the empty-middle-page fixture, and 11 of the 12 pinned PDFs unconditionally
+  (`test_geometry_from_pdf_is_byte_identical_*`); (b) on every UNROTATED page of all 12 pinned PDFs
+  whose words all lie inside the display frame, byte-identical; the exact divergence population pinned
+  (`test_unrotated_geometry_is_byte_identical_to_phase_2_1_except_pages_the_bounds_rule_refuses`) — see
+  the ruling request.
+* The four-angle pin (`test_four_angle_pin_boxes_land_at_the_expected_display_positions`): same line
+  texts, 12 words at every angle, frame = the display rect at every angle (landscape underneath at
+  90/270, witnessed), every box inside the frame, `rotation_applied` iff rotated, the retired note never
+  emitted; boxes equal the `/Rotate 0` boxes within the measured cross-angle tolerance (max 3.05e-5 pt at
+  90 and 180, 1.53e-5 pt at 270 — single-precision content-stream numbers; bound 1e-3) AND equal an
+  INDEPENDENT rotation formula applied to PyMuPDF's raw unrotated boxes (max delta 0.0; bound 1e-6).
+  Poppler cross-check (`test_four_angle_pin_agrees_with_popplers_display_orientation`): the 72-dpi
+  `pdf2image` raster of each rotated page has the frame's dimensions, is pixel-identical (ink mask) to
+  the `/Rotate 0` raster, carries ink under all 12 transformed boxes and under strictly fewer
+  untransformed boxes. The sideways-display fixture of Phase 2.1 is kept as the inverted pin
+  (`test_rotation_is_recorded_and_applied_the_phase_2_1_note_is_retired`).
+* The sha round-trip: `test_cached_ocr_round_trips_native_evidence_and_reproduces_its_sha_byte_for_byte`,
+  through a restart too; the two drift directions (tampered sidecar sha; tampered blob) and a sha
+  without its blob are each a miss-with-finding; a schema-2 record is a clean hit that analyses.
+* The two version pins: `test_extraction_schema_version_is_pinned_at_3`, `test_analysis_stage_version_is_pinned_at_18`.
+* The partition refusal: by name, before any key; even when the cache holds the research run's keys;
+  through `cohort_replay` (exit 5) and `provenance` (the recorded research run refuses, the production
+  run selects, its `research_partition` is `""`).
+* Mutation table (14/14 killed; run without `-x`; tree verified clean after every row; 176 s):
+
+| mutant | edit (exact, single occurrence) | killers (named) | result |
+|---|---|---|---|
+| M1 | `evidence/native.py`: `transform = None if matrix == _IDENTITY else matrix` → `transform = None` | `test_four_angle_pin_boxes_land_at_the_expected_display_positions` (90/180/270), `test_four_angle_pin_agrees_with_popplers_display_orientation`, `test_a_mixed_document_rotated_and_unrotated_pages_each_get_their_own_frame`, `test_a_word_outside_the_display_frame_refuses_the_page_with_its_real_frame[90]`, `test_rotation_is_recorded_and_applied_the_phase_2_1_note_is_retired` (11 failed) | killed |
+| M2 | `evidence/native.py`: module-level `import fitz` added after `import hashlib` | `test_the_only_third_party_import_is_fitz_lazily_inside_the_native_reader`, `test_import_evidence_succeeds_with_fitz_unimportable` | killed |
+| M3 | `evidence/canonical.py`: `import fitz` added after `import json` | the same two | killed |
+| M4 | `evidence/canonical.py`: `if not (` → `if self.frame.space == PIXEL and not (` | `test_a_word_outside_its_pdf_point_frame_refuses_the_page_no_clamp_no_swap`, `test_the_bounds_rule_is_the_same_in_both_spaces`, `test_a_word_outside_the_display_frame_refuses_the_page_with_its_real_frame` (0/90), `test_unrotated_geometry_is_byte_identical_…except_pages_the_bounds_rule_refuses[58FE8A5C3D8760D6]` (5 failed) | killed |
+| M5 | `EXTRACTION_SCHEMA_VERSION = 3` → `= 2` | `test_extraction_schema_version_is_pinned_at_3` | killed |
+| M6 | `_restore_native_evidence`: the claimed-sha comparison → `if False:` | `test_a_native_evidence_whose_stored_sha_does_not_match_is_a_miss_with_a_finding` | killed |
+| M7 | `analysis_input_sha`: `material["evidence"] = …` → `pass` | `test_two_analyses_of_identical_markdown_with_and_without_evidence_take_different_keys` | killed |
+| M8 | `analysis_settings_key`: `"reconstruction_mode": str(getattr(…))` → `"off"` | `test_reconstruction_mode_partitions_the_analysis_settings_key` | killed |
+| M9 | `ANALYSIS_STAGE_VERSION = 18` → `= 17` | `test_analysis_stage_version_is_pinned_at_18` | killed |
+| M10 | `structurer_enabled`: `or os.environ.get(STRUCTURER_ENV…)` re-admitted | `test_the_retired_environment_variable_is_inert`, `test_the_retired_environment_variable_does_not_touch_the_analysis_key`, `test_with_the_rung_off_the_pipeline_refuses_exactly_as_before` | killed |
+| M11 | `run_of_record`: `if research_partition:` → `if False:` | `test_a_recorded_run_carrying_a_research_partition_is_refused_by_name`, `test_a_research_run_is_refused_even_when_its_keys_exist_in_the_cache`, `test_cohort_replay_exits_5_on_a_research_run_without_any_change_of_its_own`, `test_provenance_records_the_research_partition_and_folds_it_into_the_keys` | killed |
+| M12 | `ocr_settings_key`: `settings["research_partition"] = partition` → `pass` | `test_a_non_empty_research_partition_is_its_own_ocr_partition`, `test_cached_ocr_threads_the_research_partition_into_its_own_entry`, `test_provenance_records_the_research_partition_and_folds_it_into_the_keys` | killed |
+| M13 | `geometry.py`: the re-export replaced by a local `def native_evidence_from_pdf` delegating to `evidence.native` | `test_geometry_module_defines_no_native_reader_it_only_imports_the_one_in_evidence` | killed |
+| M14 | `ocr/document.py::to_markdown`: `+ "\n"` → `+ "\n\n"` | `test_the_committed_page_list_rejoins_to_the_committed_markdown` (the committed corpus-artifact pin) | killed |
+
+## generalization evidence
+* A mixed-frame document: `test_mixed_coordinate_spaces_on_one_document_are_legal` (pixel page + pdf_point
+  page, Phase 2.1, still green under the tightened bounds rule);
+  `test_a_mixed_document_rotated_and_unrotated_pages_each_get_their_own_frame` (a `/Rotate 270` page with
+  a landscape page underneath beside an upright page: each converts by its own matrix, both display as
+  letter, same words, same lines, boxes equal within the cross-angle tolerance).
+* A rotated document: the four-angle pin and the Poppler cross-check above; the two-page refusal fixture
+  at `/Rotate 90` (an injected off-page word refuses the page with its real display frame and the
+  rotation note; the sibling page untouched).
+
+## identity evidence (the two key changes)
+* OCR key: `EXTRACTION_SCHEMA_VERSION` 3 is key material for every extractor label at v5+ (the whole
+  OCR cache goes cold at the train's cold run — required anyway to attach native evidence to every native
+  document); `research_partition` present only when non-empty (`test_an_empty_research_partition_leaves_the_production_ocr_key_byte_identical`;
+  `test_a_non_empty_research_partition_is_its_own_ocr_partition`).
+* Analysis key: stage 18; `reconstruction_mode` in the settings key (three modes → three keys);
+  `evidence_sha256` in the input hash (case 12: text-only vs geometry-fed vs another sha → three entries;
+  the same sha again → a hit); the retired variable moves nothing.
+
+## commits
+* `0e3218a` — the reader moved to the neutral package with display-frame boxes; the bounds check; the
+  re-export; native evidence persisted with its sha (schema bump + pin); the geometry-aware analysis key
+  (stage bump + pin); the reconstruction-mode setting and the inert env contract; research partitions in
+  the OCR key, refused by run_of_record, recorded by provenance; the tests.
+* `bcb6d28` — comment-only: four measured literals in two pin comments restated in a non-money shape
+  after the privacy scan flagged their two-decimal form (same values; no test or production line moved).
+* `8d9b4aa` — comment-only: the two measured tolerances restated once more in an exponent form after the
+  final-tree scan flagged the decimal expansion of one as a seven-digit run (same values; comment only).
+  `git diff 0e3218a..8d9b4aa --stat` touches only `tests/test_geometry_frames.py` (1 line) and
+  `tests/test_native_evidence.py` (3 lines), all comments — the CODE tree is `0e3218a`'s throughout.
+* the W3 commit — this section appended to `docs/moneythumb-replacement/W3_TRACKA_LOG.md`.
+
+## proof-floor exits
+All heavy proofs ran ONE at a time under the shared host lock (`discovery_reports/train12-logs/HARNESS.lock`,
+taken by my detached runner after a 12,000 s wait behind another cell's floor; released by the runner's
+own trap), each as a detached command with a durable log ending in an `EXIT=` line
+(`scratchpad/p22identity_logs/`). Tree `0e3218a`; base worktree `mt22-identity-base` at `b23cb50`.
+
+| step | command (from the worktree unless noted) | result | exit |
+|---|---|---|---|
+| full default suite | `python -m pytest -q -p no:cacheprovider` (`tools/train/floor.sh` step 1) | **1 failed, 8,827 passed, 45 skipped, 39 deselected** — the one failure is `tests/test_parser_registry_fingerprint.py::test_the_generic_structurer_flag_partitions_the_analysis_key` (DEV-3, outside ownership; it asserts the retired variable still switches the rung) | `SUITE_EXIT=1` |
+| canonical guards (5 files) | floor.sh step 2 | 275 passed | `GUARDS_EXIT=0` |
+| canonical conformance (7 files) | floor.sh step 3 | 1,282 passed, 41 skipped | `CONFORMANCE_EXIT=0` |
+| corpus gate | `python corpus_gate.py` (floor.sh step 4) | `Outcomes: 105 PASS / 3 WITHHELD / 1 REFUSED`, `Verdicts: 1 refused / 3 review / 102 validated / 3 withheld`, `RESULT: GREEN` | `GATE_EXIT=0` |
+| corpus-marked slice | `python -m pytest -q -p no:cacheprovider -m corpus` (floor.sh step 5; from a worktree beneath `.claude/worktrees/`) | 34 passed, 8,878 deselected (1,135.66 s) | `CORPUS_EXIT=0`; floor `EXIT=done`, `FLOOR_EXIT=0` |
+| cohort replay, BASE, union of every registration — FIRST attempt | `python -m tools.cohort_replay --run <run of record> --data-dir <train11 cold> --parser <id> ×84 --expect-identical` in the base worktree | `empty cohort` — my scratch id file was written with CRLF line endings, so the shell loop passed `--parser "<id>\r"` and no `parser_id` matched: the instrument selected NOTHING and measured nothing (a scratch-file artefact, not a tree result); recorded as-is and re-run with an LF-clean list (next rows) | `EXIT=4` |
+| cohort replay, CLOSURE, union — FIRST attempt | the same command in the worktree | `empty cohort`, the same cause | `EXIT=4` |
+| cohort replay, CLOSURE, the WHOLE archive | `python -m tools.cohort_replay --run <run of record> --data-dir <train11 cold> --shas <all 3,380> --expect-identical --expect-unresolved 29` | population 3,380; replayed 3,351; **newly validated 0**; other ladder movement 0; **previously validated preserved 2,625 of 2,625, payload identical 2,625, payload changed 0**; **validated regressions 0**; other ladder regressions 0; unchanged non-validated 726 (payload changed on 0); no text / absent 29 (the named, reviewed gap: `source_path=none` throughout, the 13 deferred among them); runtime 2,410 s, per-document median 473 ms | `EXIT=0` |
+| privacy scan of ADDED lines vs the whole population — FIRST attempt (tree `0e3218a`) | `python tools/privacy_scan_branch.py --data-dir <train11 cold> --base b23cb50 --ref wave22-identity --run <run of record> --shas <all 3,380>` | population 3,380, documents read 3,351 (29 with no cached text), added lines 2,108; raw hits 22, 18 excluded by the scanner's `words_class` rule; **residue 4 sites in 2 files, all MONEY, all in test COMMENTS**: `tests/test_geometry_frames.py` `'7.75'` (the measured overshoot of the pinned TD document's out-of-frame words), `tests/test_native_evidence.py` `'24.08'` (the Poppler version), `'3.05'` and `'1.53'` (the measured cross-angle tolerances, `…e-5`) — this cell's OWN measurements whose two-decimal shape coincides with amounts printed somewhere in 3,351 statements (provenance: `page.get_text` geometry, `pdftoppm -v`, float arithmetic — none from a document). Adjudicated, then RESTATED with the same values in a non-money shape (`7.750 pt`, `24.08.0`, `0.0000305 pt`, `0.0000153 pt`) in a comment-only commit, and re-scanned (next rows) | `EXIT=1` (4 residue) |
+| commit-message scan vs the whole population — FIRST attempt (tree `0e3218a`) | `python tools/huntington_msg_privacy_scan.py --data-dir <train11 cold> --base b23cb50 --ref wave22-identity --run <run of record> --shas <all 3,380>` | commits scanned 1; documents read 3,351; hits MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0 | `EXIT=0` |
+| cohort replay, BASE, union of every registration — CORRECTED (LF-clean id list; runner 2, lock taken after a 7,920 s wait) | `python -m tools.cohort_replay --run <run of record> --data-dir <train11 cold> --parser <id> ×84 --expect-identical` in the base worktree `mt22-identity-base` (tree `b23cb50`) | population 2,695; replayed 2,695; newly validated 0; other ladder movement 0; **previously validated preserved 2,625 of 2,625, payload identical 2,625, changed 0**; validated regressions 0; other ladder regressions 0; unchanged non-validated 70 (payload changed on 0); no text / absent 0; runtime 2,249 s, median 614 ms — the instrument reproduces the run of record at base (fidelity) | `EXIT=0` |
+| cohort replay, CLOSURE, union of every registration — CORRECTED | the same command in the worktree (tree `bcb6d28`; the code tree is unchanged by the later comment-only commits) | population 2,695; replayed 2,695; **newly validated 0**; other ladder movement 0; **previously validated preserved 2,625 of 2,625, payload identical 2,625, changed 0**; **validated regressions 0**; other ladder regressions 0; unchanged non-validated 70 (payload changed on 0); no text / absent 0; runtime 2,236 s, median 613 ms | `EXIT=0` |
+| privacy scan — SECOND attempt (tree `bcb6d28`, after the four literals were restated) | the same command, under the lock (runner 3) | raw hits 19, 18 excluded by `words_class`; **residue 1 site, DIGITS**: `tests/test_native_evidence.py` `'0000153'` — the decimal expansion of the restated tolerance (`0.0000153 pt`) is a seven-digit run that coincides with a digit token printed somewhere in 3,351 statements; provenance: this cell's float measurement, not a document. Restated once more (`153e-7 pt`, `305e-7 pt`) in the comment-only commit `8d9b4aa` | `EXIT=1` (1 residue) |
+| commit-message scan — SECOND attempt (tree `bcb6d28`) | the same command | commits scanned 2; hits MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0 | `EXIT=0` |
+| **privacy scan — FINAL (tree `8d9b4aa`)** | the same command, under the lock (runner 4, taken after a 2,040 s wait) | population 3,380, documents read 3,351, added lines 2,108; raw hits 18, all 18 excluded by the scanner's `words_class` rule; **residue 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) | `EXIT=0` |
+| **commit-message scan — FINAL (tree `8d9b4aa`)** | the same command | commits scanned 3; documents read 3,351; **hits MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** | `EXIT=0` |
+
+The mutation table (14/14 killed, 176 s, targeted tests only) ran before the floor on a clean tree and is recorded under Correctness evidence.
+
+## privacy count
+**0** residue sites over the branch's 2,108 added lines against the whole run-of-record population (3,380 shas; 3,351 with cached text; the 29 without are the named `source_path=none` gap) at the final tree — after two adjudicated, restated rounds (4 MONEY sites, then 1 DIGITS site, all of them this cell's own measured literals in two test comments, provenance recorded above; none from a document). Message scan **0** (MONEY / DIGITS / DATES / WORDS) over the 3 commits. Every heavy proof ran under the shared host lock, one at a time; the lock was released by each runner's own trap (`LOCK_RELEASED` lines in the logs).
+
+## the one-line runner change for cell T
+`telemetry/record.py::source_section` (the row's `evidence_sha256` is projected from it by
+`discovery/runner.py::_project_source`): line
+`"evidence_sha256": getattr(evidence, "evidence_sha256", None) if evidence is not None else None,`
+becomes
+`"evidence_sha256": (getattr(evidence, "evidence_sha256", None) if evidence is not None else None) or getattr(doc, "native_evidence_sha256", None),`
+— a Paddle read keeps its evidence sha; a native read gains its native evidence sha; every other rung
+stays `None`. (`webapp/worker.py` needs nothing; the runner's `cached_ocr` call needs
+`research_partition=` only in T's research mode.)
+
+## native-evidence size (measured on the fixtures and the 12 pinned PDFs; extrapolated to nothing)
+Canonical JSON of `to_json(native_evidence)`: structurer fixture 46 words → 9,801 B; the 6 pt safety
+fixture 12 words → 3,262 B; the two-column fixture 10 words → 2,591 B; the four-angle ledger 12 words →
+3,164–3,196 B across the four angles. The 12 pinned PDFs together: 23,976 words → 5,150,410 B (214.8 B per
+word; 1.19 × their 4,338,850 PDF bytes; per document 166,408 B (743 words) to 901,720 B (4,313 words);
+the TD document 0 B because its every page is refused — see the ruling). Read time on the pinned PDFs:
+14.6–90.0 ms per document.
+
+## deviations from the card (each named, with its reason)
+* **DEV-1 — the literal `"no-geometry"` is NOT hashed into `analysis_input_sha` for a text-only
+  analysis.** The material carries an `"evidence"` field only when a sha is supplied. Reason: the
+  function is the one composition both `tools/cohort_replay.py::ColdCache.baseline_payload` and the
+  telemetry observer's `_ArtifactJoin.payload_for` use to look a run of record's analysis artifacts up —
+  with no version parameter. Hashing the literal would have moved the text-only input sha, so the
+  closure replay could not have found ONE baseline payload (every row `presence-changed`, exit 3), and
+  the observer would have gone blind on every historical run — the FILENAME-BOUNDARY hazard the
+  function's own docstring names. Teaching both readers a versioned composition (the P20-ARTIFACTS
+  precedent) needs `telemetry/stated_counts.py` and two cohort-replay test fixtures — outside this cell's
+  ownership. The identity property the item exists for holds in full (case 12: text-only, geometry-fed
+  and a second sha are three entries; a malformed/empty sha refuses), the stage-18 settings key separates
+  every 2.2+ artifact from older ones, and the text-only composition is pinned byte-identical to the
+  Phase 2.1 formula. If Ocean wants the literal, the follow-up is: `analysis_input_sha(...,
+  stage_version=None)` reproducing the two-field shape below stage 18, plus the two readers passing
+  `partitions.analysis_stage_version` (one line each) and the fixtures writing the live stage.
+* **DEV-2 — the unrotated byte-identity pin cannot hold on ONE of the 12 pinned PDFs under the ruled
+  bounds check, and the existing 12-PDF pin's parametrization now excludes it.** Items 1/3 (refuse a page
+  holding a box outside the display frame; no clamp, no swap) are implemented exactly as ruled; item 2's
+  pin ("byte-identical on every unrotated page … the same ≥ 12 pinned") is stated as strongly as the
+  measured data allows: byte-identical on every unrotated page whose words all lie inside the frame — 11
+  of 12 in full — and the exact divergence population pinned (`_PINNED_PAGES_REFUSED_BY_THE_BOUNDS_RULE`:
+  sha16 58FE8A5C3D8760D6, one word 7.75 pt past an edge on each of its 4 pages, so its native evidence
+  is `None` — the reader's zero-words rule — where Phase 2.1 returned a full geometry). Any other
+  divergence on any pinned page fails the pin. This is the ruling request in Risks.
+* **DEV-3 — a test outside this cell's ownership fails under the retired environment contract:**
+  `tests/test_parser_registry_fingerprint.py::test_the_generic_structurer_flag_partitions_the_analysis_key`
+  sets `GENERIC_STRUCTURER_ENABLED=1` and asserts `structurer_enabled()` is True — exactly what item 6
+  retires. Not edited (ownership). The one-test change it needs: set `RECONSTRUCTION_MODE=research` /
+  `off` instead of the retired variable (and its falsey loop becomes `off`/blank). Also outside ownership
+  and NOT failing: `tests/test_privacy3_boundaries.py` (two tests set the retired variable; both still
+  pass — the first is now vacuous about the structurer branch and should set `RECONSTRUCTION_MODE`),
+  `tools/extractpriv_reachability.py` (a probe tool that sets the retired variable), and two comments in
+  `analysis/pipeline.py` naming it. Reported as the STOP condition it is; everything else proceeds.
+* **DEV-4 — `native_evidence` is attached by attribute assignment, not through the constructor.** The
+  ladder already sets `page_integrity` / `page_extractor` by attribute because a read is whatever object
+  the rung produced — six existing test files monkeypatch the native rung with duck-typed fakes that are
+  not dataclasses. The ONE rule (`native_evidence_describes`) is shared by the constructor's check and the
+  ladder; a read whose page list a reader reshaped past it carries no lineage rather than a raise in the
+  middle of a read (visible as an empty `evidence_sha256` on the row once T projects it).
+* **DEV-5 — two existing tests were inverted/narrowed, not only appended:** `tests/test_evidence_canonical.py::
+  test_native_words_slightly_outside_the_page_rect_are_kept` (its premise is what item 3 rules out) became
+  `test_a_word_outside_its_pdf_point_frame_refuses_the_page_no_clamp_no_swap`; `tests/test_geometry_frames.py::
+  test_rotation_is_recorded_never_corrected` became the inverted `…_and_applied_the_phase_2_1_note_is_retired`;
+  the 12-PDF pin's parametrization excludes the one diverging PDF (DEV-2).
+* **DEV-6 — `geometry.py`: the dead `import hashlib` was removed with the moved reader body** ("delete
+  nothing else" read as functionality; nothing else deleted). The module docstring and the retired
+  constant's comment were updated.
+* **DEV-7 — additive extras:** the census also measured out-of-frame words (the finding behind DEV-2);
+  provenance records `EXTRACTION_SCHEMA_VERSION` / `EVIDENCE_SCHEMA_VERSION` beside the stage versions;
+  `Settings.__post_init__` validates the mode at construction as well as at load; a whole-archive
+  closure replay beside the required union replay.
+* **DEV-8 — the census scripts are scratch scripts, not committed** (the card: a committed instrument is
+  not required for a count); the method and every count are recorded above.
+
+## risks (last)
+* **RULING REQUESTED (the top risk) — the strict `pdf_point` bounds rule on real PDFs.** Measured over all
+  3,380 (unrotated pages): 1,514 PyMuPDF words lie outside `page.rect` on 467 pages in 140 documents
+  (overshoot ≤ 0.5 pt: 144 words; ≤ 1 pt: 72; ≤ 5 pt: 438; ≤ 50 pt: 504; > 50 pt: 356; by page maximum:
+  31 / 22 / 38 / 371 / 5 pages; by document maximum: 10 / 16 / 10 / 101 / 3). Under items 1/3 as ruled,
+  those 467 pages carry zero native words: **102 documents have EVERY page refused (their
+  `native_evidence` is `None`), 38 more lose some pages; 138,638 words (1.7 % of 8,074,636) lose native
+  geometry; 89 of the every-page documents and 20 of the some-pages documents are VALIDATED.** Over the
+  109-document manifest: 7 documents / 33 of 830 pages. Coverage today is untouched by construction (no
+  production consumer of geometry), but D5's lineage and 2.4's reconstruction on those pages are lost,
+  and most of the offending words are footers/headers sitting 5–50 pt into the margin, not junk (the
+  > 50 pt band — off-canvas text — is 356 words). The options are each a small, localized flip
+  (`canonical.py`'s check, the reader's third catch, two tests): (a) keep as ruled; (b) refuse only the
+  out-of-frame WORDS with a per-page note carrying the dropped count (the card forbids silently dropping
+  an inverted box; this would be a named, counted drop); (c) treat a `pdf_point` frame as a viewport, not a
+  container — no bounds check (the transform's correctness stays proven by the four-angle pin and by the
+  census fact that 0 words on rotated pages fall outside after the transform); (d) a bounded tolerance.
+  Until ruled, the pin and this record state the divergence exactly.
+* **DEV-3 leaves the full default suite red by exactly one named test** outside this cell's ownership.
+* The OCR artifact store grows by the native evidence: 214.8 B per word measured on the 12 pinned PDFs
+  (1.19 × their PDF bytes); the archive's word count is 8,074,636 — the cold run's store size is measured
+  at the train, not extrapolated here.
+* The native rung reads PyMuPDF words once more per document (14.6–90.0 ms per pinned PDF) — cold-run
+  wall clock, not vendor cost.
+* A document whose every page is refused answers `None` (the zero-words rule), so the refusal notes are
+  not observable on it; a partially refused document carries them.
+* The research-partition refusal keys on the RECORDED provenance block: a research run whose provenance
+  was written without `--research-partition` is not refused by name (its keys still cannot collide with
+  production's, and its data directory is separate). Cell T's runner must pass the partition to
+  `provenance.py` — named here for T.
+* `analysis_settings_key` reads `reconstruction_mode` off the settings object it fingerprints; a stand-in
+  without the attribute reads as `off` (documented).
+* Opportunity, not built: a versioned `analysis_input_sha` (DEV-1) if the literal is wanted later.
