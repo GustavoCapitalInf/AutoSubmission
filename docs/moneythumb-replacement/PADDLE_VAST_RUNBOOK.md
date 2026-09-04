@@ -155,3 +155,35 @@ nothing in `webapp/` or the auto-mode discovery runner calls Paddle). Not a $0 v
 never invented from a rate table). Not a replacement for the deterministic validator
 (Paddle produces evidence; it never decides a transaction, a sign, a balance, an
 account, a currency, or `validated`).
+
+## The Vast.ai Secure Cloud machine (2026-09-03) — the approved endpoint for Phase 2.3+
+
+Gustavo provisioned a new Vast.ai **Secure Cloud** instance for every Phase 2.3+ Paddle run that
+involves real customer statements; **the previous instance is retired for customer data.** Connection
+details live ONLY in the local, gitignored `.env` (`PADDLE_VAST_HOST` / `PADDLE_VAST_SSH_PORT` /
+`PADDLE_VAST_SSH_USER`; `PADDLE_PROVIDER=vast.ai`; `PADDLE_EXECUTION_CLASS=remote_paid`) — never in a
+tracked file, never in a report. SSH authentication uses this machine's existing key (verified).
+
+Brought up with the unchanged Phase 2.1 lifecycle on 2026-09-03: `check` (GPU RTX 5090 32,607 MiB,
+driver 580.82.07; remote `/venv/main` paddleocr 3.7.0 / paddlepaddle 3.3.0 / Python 3.12.14;
+`versions_match_pins: true`) → `deploy` (the worker's `/version` echoes provider `vast.ai`, class
+`remote_paid`, PP-OCRv5, `PP-OCRv5_server_det` + `en_PP-OCRv5_mobile_rec`, the D5 switches,
+`return_word_box: true`) → `start` (worker on the remote **loopback** port 8765) → `tunnel-up` (local
+18765 → remote 127.0.0.1:8765) → `status` (`probe.available: false`, `paddle_remote_opt_in_required` —
+the expected refusal without the literal) → the live proof `tests/test_paddle_live.py -m live` (1
+passed) and `measure` (see `PADDLE_MEASUREMENTS.md` §"Secure Cloud machine") with the opt-in literal
+set only in each command's own environment → a fail-closed probe (synthetic bytes declared
+`data_scope="customer"` without the second literal → `PaddleRefused: remote_customer_data_refused`
+before any connection; the same bytes as `synthetic` with the tunnel down → `paddle_worker_unreachable`,
+so the authorization check precedes the transport) → `stop` + `tunnel-down` (`tunnel_running: false`).
+
+**Port note.** The requested binding (worker on remote 127.0.0.1:8080, tunnel local 8080) is not used:
+the instance's own Jupyter listens on `0.0.0.0:8080`, so the loopback worker keeps the Phase 2.1 default
+8765 and the tunnel keeps the default local 18765 (deliberately a different number so "localhost" in a
+log reads as a tunnel). The worker is never registered as a Vast open port and never fronted by the
+instance's public listeners.
+
+**For the 2.3 wave**: `PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` is set ONLY in the environment of the
+research-mode command, under the 2026-09-03 authorization recorded in `PHASE2_RULINGS.md`
+§"Customer-data authorization — Paddle"; the worker retains nothing; stop the worker and tear the
+tunnel down after each wave.

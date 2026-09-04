@@ -145,3 +145,29 @@ environment — never exported for the shell session. `PADDLE_REMOTE_CUSTOMER_DA
 set. The final `status` after `stop`/`tunnel-down` confirmed `probe.available: false` (worker
 process gone) and `tunnel_running: false` — nothing from this run was left running, locally or
 remotely.
+
+## Secure Cloud machine (2026-09-03) — `tools.paddle_vast measure --n-rows 8 --warm-requests 20`, synthetic fixture only
+
+Identity verified before any image: provider `vast.ai` / `remote_paid`; NVIDIA GeForce RTX 5090 32,607 MiB,
+driver 580.82.07; PaddleOCR 3.7.0 / PaddlePaddle 3.3.0 / CUDA compiled; PP-OCRv5; `PP-OCRv5_server_det` +
+`en_PP-OCRv5_mobile_rec`; switches unchanged (orientation classify off, unwarping off, textline orientation
+off, `return_word_box=True`, `text_rec_score_thresh=0.0`); worker contract 1; remote Python 3.12.14.
+
+| metric | value |
+|---|---|
+| live proof (`tests/test_paddle_live.py -m live`) | 1 passed |
+| first request end-to-end (model already loaded by the deploy self-check, so not a true cold load) | 1,040 ms (inference 350 ms) |
+| warm median end-to-end, n=20 | **1,111 ms** |
+| warm p95 end-to-end, n=20 | 1,125 ms |
+| bytes sent per page (raw PNG / wire) | 253,799 / 338,489 |
+| bytes received per page | 12,263 |
+| GPU memory used (last / peak) | 7,692 MiB / 7,692 MiB of 32,607 |
+| GPU utilisation samples | 0 % between requests (sampling artefact, as in Phase 2.1) |
+| local peak RSS | not measured (psutil not installed) |
+| measurement wall time | 35.3 s |
+| cost | not measured — cost accounting is Gustavo's by the 2026-09-03 ruling; no rate is recorded |
+
+Fail-closed probe on the same machine (synthetic bytes): `data_scope="customer"` without
+`PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` → `PaddleRefused: remote_customer_data_refused` before any
+connection; `data_scope="synthetic"` with the tunnel down → `PaddleTransportError:
+paddle_worker_unreachable`. Worker stopped and tunnel torn down afterwards (`tunnel_running: false`).
