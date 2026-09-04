@@ -70029,3 +70029,309 @@ section's commit and reported in the closure message.
   `except` (none does today — both `_read_*` methods return the class name) would drop it.
 * The re-review's MINOR-5 observation about the probe's generic `attempt()` wrapper writing
   `f"{type(exc).__name__}: {exc}"` for OTHER probed values is pre-existing and outside this closure.
+# §P22FENCE — the reconciliation-based selection between two hosted extractions REMOVED (R9) and the auto-mode Class-B → hosted edge FENCED behind the exact operator opt-in (Ruling A in code); deterministic mode proven byte-identical over the union of every registration at base and closure (2,625 of 2,625 preserved, payload identical, both trees); the diagnostics count-guard consequence handed to cell T
+
+Scope: card `docs/agent-handoffs/P22-FENCE.md` (Phase 2.2 cell F; umbrella `PHASE2-2-TRUTH.md` D11, case 22;
+rulings R9 and Ruling A, `PHASE2_RULINGS.md`). Base `train12` `b23cb50` (code tree `4f7d798`); branch
+`wave22-fence`; worktree `.claude/worktrees/mt22-fence`; closure code commit **`f9bb315`** (tree
+`ea0300d374fac7d492c8c3d11def844153e030b7`; this section's commit is documentation only). SHA REMAP: the
+closure replay, the floor and the mutation table ran at commit `157e7e1`, whose message was afterwards
+reworded (a WORDS-class message-scan hit on the bigram "STATEMENT IMMEDIATELY", my own prose) into
+`f9bb315` — same tree hash, byte-identical files; every log label that says `157e7e1` names this tree.
+Files touched, all inside the card's ownership: `analysis/pipeline.py` (the escalation block and the
+auto-mode fall-through, plus the module docstring and two comments that described them),
+`analysis/config.py` (two comments, no code), `tests/test_pipeline_escalation_fence.py` (new),
+`tests/test_privacy3_boundaries.py` (one static test inverted), `tests/test_q3_native_only.py` (one pin
+inverted), `tests/test_analysis.py` (one test opts in), this section. NOT touched: `telemetry/**` and
+`tests/test_diagnostics.py` (cell T's — §Diagnostics below), `analysis/extract.py`, `analysis/bank_repairs.py`,
+`webapp/**`. No network anywhere (the hosted extractor is a monkeypatched fake at the `analysis.pipeline`
+import site in every test; `GEMINI_API_KEY` asserted absent; no host named); no customer data in any tracked
+file, test or message; the opt-in literal is spelled in exactly one tracked file (its definition) and never in
+this section. Hygiene card: `newly validated = 0`; every previously validated document preserved
+payload-identical.
+
+## Population (the union replay)
+
+`python -m tools.cohort_replay --run <TRAIN11-4f7d798/…-331d9136> --data-dir <webapp_data_train11_cold>
+--expect-identical --parser <id> …`, from a detached worktree at `b23cb50` (base) and from this worktree at
+tree `ea0300d3` (closure), over the UNION of every registration: registry 84 ids; 81 have rows in the run of
+record and were packed greedily into 7 chunks (≤ 430 rows each; chunk 01 = `chase` 526 rows alone); the 3
+with no row (`columbia_bank`, `demo_national`, `td_canada`) were run singly and printed `empty cohort` with
+exit 4 at both trees — the recorded fact, not a failure. Every log is its own file under
+`discovery_reports/train12-logs/p22fence/` (untracked) with an `EXIT=` line; the `.md`/`.json` reports beside
+them are private and name shas only. Chunk membership: 01 `chase` · 02 `bank_of_america community_section
+brex` · 03 `wells_fargo rbc bmo_us_activity altana` · 04 `bmo_ca_business scotiabank td_canada_native us_bank
+core_processor_enclosures regions atb` · 05 `pnc navy_federal truist bluevine first_citizens mission_valley
+huntington td_us cibc square_checking citibusiness` · 06 the next thirty by row count (`mercury` … `texas_first_scanned`)
+· 07 the last twenty-five (`member_statement_rollup` … `texas_bank`); the exact lists are in `MASTER.log`.
+
+BASE (`b23cb50`), from each chunk's own table — 534 / 515 / 455 / 381 / 454 / 346 / 79 s:
+
+| chunk | population | replayed | newly validated | other ladder up | previously validated preserved | payload identical | payload changed | validated regressions | other regressions | unchanged non-validated (payload changed) | EXIT |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 01 | 504 | 504 | 0 | 0 | 504 of 504 | 504 | 0 | 0 | 0 | 0 (0) | 0 |
+| 02 | 427 | 427 | 0 | 0 | 425 of 425 | 425 | 0 | 0 | 0 | 2 (0) | 0 |
+| 03 | 412 | 412 | 0 | 0 | 402 of 402 | 402 | 0 | 0 | 0 | 10 (0) | 0 |
+| 04 | 418 | 418 | 0 | 0 | 409 of 409 | 409 | 0 | 0 | 0 | 9 (0) | 0 |
+| 05 | 426 | 426 | 0 | 0 | 423 of 423 | 423 | 0 | 0 | 0 | 3 (0) | 0 |
+| 06 | 418 | 418 | 0 | 0 | 394 of 394 | 394 | 0 | 0 | 0 | 24 (0) | 0 |
+| 07 | 90 | 90 | 0 | 0 | 68 of 68 | 68 | 0 | 0 | 0 | 22 (0) | 0 |
+| **union** | **2,695** | **2,695** | **0** | **0** | **2,625 of 2,625** | **2,625** | **0** | **0** | **0** | **70 (0)** | 0 × 7 |
+
+CLOSURE (tree `ea0300d3`, labelled `157e7e1`) — 435 / 393 / 334 / 300 / 400 / 334 / 77 s: **every cell of the
+table above reproduced exactly** (504/504/504 · 427/427/425 · 412/412/402 · 418/418/409 · 426/426/423 ·
+418/418/394 · 90/90/68; union 2,695 replayed, 2,625 of 2,625 preserved payload-identical, 0 newly
+validated, 0 other movement, 0 regressions of either kind, 70 unchanged non-validated with payload changed
+on 0; EXIT 0 × 7). The union is the entire 2,625 floor: every validated document of the run of record is in
+some registration's cohort, and each reproduces its outcome and its payload byte for byte at both trees.
+
+Empty cohorts (`replay-empty-{base,closure}-{columbia_bank,demo_national,td_canada}.log`): `empty cohort`,
+EXIT=4, all six.
+
+EXTRA, beyond the card's union: the 737 rows the run of record dispatched to NO registration (`parser_id`
+empty: 585 `failed/no_parser_matched`, 122 `failed/parser_declined`, 17 `failed/invalid_pdf`, 13
+`deferred/deferred_visual_ocr`; 685 distinct shas, 29 of them with no text source) are the exact population
+the fence touches, so they were replayed by sha (`--shas`, `--expect-identical --expect-unresolved 29`) at
+both trees:
+
+QUEUED at the time of this section's commit: the host lock passed to cell C's archive census and proof floor
+at 20:00:12, seconds after this cell released it, and heavy proofs run one at a time on this host. The
+no-parser replay runs in the next lock window together with the post-commit re-scans; its per-tree table
+(population 685 / replayed 656 / unresolved 29 expected) goes in the closure message to Ocean, who may
+append it here at composition. It is extra evidence: the ruled population above is complete.
+
+## Root cause (the two edges, characterised with the base test)
+
+Both edges were CHARACTERISED before anything moved, by `tests/test_pipeline_escalation_fence.py` as committed
+at `034a855`, which PASSED at `b23cb50` on the unsafe behaviour (4 tests, 1.24 s):
+
+* **Edge 1 — the selection** (`analysis/pipeline.py` 958–1002 at base; `REPO_VALIDATOR_MEMO.md` §9 row 8).
+  After `recon = reconcile(stmt, …)`: `needs_escalation = not recon.ok and recon.summary_ok is not True`; when
+  `parse_mode != "deterministic" and deterministic_stmt is None and needs_escalation and
+  settings.escalation_model != settings.model`, a SECOND `extract_statement(…, model=settings.escalation_model)`
+  ran, `alt_recon = reconcile(alt, …)`, and `if alt_recon.ok or better_summary or fewer_issues: stmt, recon,
+  model_used, escalated = alt, alt_recon, settings.escalation_model, True`; its `except` appended
+  `"escalation extraction failed (…)"` to `recon.issues`. Characterised: a fake extractor whose PRIMARY fails
+  the sum identity (opening 1,000.00 + one posting 100.00 ≠ closing 1,500.00, no stated totals so
+  `summary_ok is None`) and whose ALTERNATE reconciles (posting 500.00) → the base made two calls `[model-a,
+  model-b]`, adopted the alternate (`model_used == "model-b"`, `escalated is True`, `reconciliation.ok is
+  True`, the published posting 500.00). R9's forbidden pattern verbatim: multiple extractions → compare
+  financial reconciliation → prefer whichever reconciles.
+* **Edge 2 — the Class-B → hosted hop** (`analysis/pipeline.py` 914–950 at base). The `else` branch (no
+  deterministic statement, no structurer statement) raised in deterministic mode for `ambiguous`
+  (`AmbiguousParserError`), `parser_exception` (`ParserCrashError`) and `unclaimed` (the declared
+  `RuntimeError`), and in EVERY other mode fell through to `extract_statement` with no opt-in of any kind.
+  Characterised, one test per outcome, nothing set in the environment: auto mode reached the hosted extractor
+  once for an unclaimed synthetic, for a synthetic registration that raises in `parse`, and for two synthetic
+  registrations that both claim — carrying the finding as the `parser_exception` / `parser_ambiguous` review
+  flag. The card enumerates `unclaimed` and `parser_exception`; `ambiguous` reaches the SAME call site
+  (measured, not assumed) and is a named deviation below.
+
+## Solution
+
+**Removal (commit `c5e28d8`).** The block is deleted outright: no second `extract_statement` call; no
+`alt_recon`, `better_summary`, `fewer_issues`, `needs_escalation`; no `"escalation extraction failed …"`
+issue string; `settings.escalation_model` is no longer read in the module. `escalated = False` stays as a
+pinned local with a comment naming R9 and passes through unchanged to `_account_report`, so `Report.escalated`
+and every payload keep their shape. The module docstring (which said "only a statement that fails
+reconciliation is re-extracted with the stronger model") and the one repair-seam comment that referred to
+"the two LLM-branch repair calls" / "the escalation call" are corrected — documentation OF the removed block,
+named here because the card scopes the diff to the block.
+
+**Fence (commit `f9bb315`).** Beside `analyze_markdown` (the only place it is read; the other opt-ins are
+documented in their own modules, not in `Settings`): `HOSTED_EXTRACTION_OPT_IN_ENV`,
+`HOSTED_EXTRACTION_OPT_IN_LITERAL`, `HOSTED_EXTRACTION_REFUSED_NO_OPT_IN = "refused_no_opt_in"`;
+`hosted_extraction_opted_in(environ=None) -> bool` — `source.get(ENV) == LITERAL`, the
+`ocr/endpoint_policy.py` idiom, exact equality never truthiness, `os.environ` read when the function runs;
+`_hosted_extraction_refused(dispatch) -> RuntimeError` — the deterministic-mode exception for the dispatch
+(`AmbiguousParserError(dispatch.candidates)` / `ParserCrashError(dispatch.exceptions)` / the declared
+`RuntimeError`), built from registry ids and class names only, with `hosted_extraction = "refused_no_opt_in"`
+set on the object, returned not raised. At the call site, DIRECTLY after `if parse_mode == "deterministic":
+raise RuntimeError(…)` and directly before the one `extract_statement` call: `if not
+hosted_extraction_opted_in(): raise _hosted_extraction_refused(dispatch)`. Deterministic mode therefore never
+evaluates the fence (its raises precede it, textually untouched); `Settings` gains no field; `import os`
+added; the BLOCK-2 comment's sentence that said the `unclaimed` edge was left untouched now says it is
+fenced. `analysis/config.py`: `model` documented as the one hosted model; `escalation_model` marked
+RETAINED, NOT READ (settings-key material for `webapp/artifact_cache.py`; removing it would repartition every
+analysis cache) — comments, not code. Branch diff `b23cb50..f9bb315`: 6 files, +971 / −96;
+`analysis/pipeline.py` 161 changed lines.
+
+**Tests.** `tests/test_pipeline_escalation_fence.py` (35 tests): the inverted edge-1 characterisation; per
+outcome, without the literal auto mode raises the SAME class and message as deterministic mode with the
+refusal recorded on the exception (and the deterministic-mode exception carries no such attribute), with it
+the single hosted extraction runs; the exact-literal table (`1`, `true`, `yes`, `TRUE`, lower case, trailing
+newline, leading/trailing space, the OCR rung's literal — all refuse); read-at-call-site after import; the
+injection seam; deterministic mode refusing all three outcomes WITH the literal set; `escalated` pinned False
+(dynamic + static); tripwires (a)–(d); the webapp seam. Existing tests changed, each with why:
+`tests/test_privacy3_boundaries.py::test_the_escalation_guard_tests_parse_mode_first` asserted the guard
+EXISTED with `parse_mode` as its first clause → now
+`test_the_escalation_guard_is_gone_and_the_escalation_model_is_never_read` (no `If` tests
+`escalation_model`; no attribute read of it in the module); its dynamic sibling
+`test_the_parse_mode_clause_is_what_stops_the_call_on_the_structurer_branch` is untouched and green (its
+docstring's "mutant M23" narrative describes a clause that no longer exists; the property it proves — no call
+in deterministic mode with the structurer on — now holds structurally).
+`tests/test_q3_native_only.py::test_the_preexisting_unclaimed_to_auto_fallthrough_is_unchanged` pinned the
+edge UNCHANGED as BLOCK-2's reported finding → now
+`test_the_unclaimed_to_auto_fallthrough_is_fenced_behind_the_hosted_opt_in` (both halves of the fence).
+`tests/test_analysis.py::test_analysis_marks_incomplete_detail_as_manual_review` exercises the hosted branch
+on a fake extractor in auto mode → now sets the literal (through the module's constants) to reach it. No
+other test, fixture or documented behaviour depended on the removed selection: the only consumers of
+`escalated` are payload-shape pins (`tests/l1s3_payloads.py`, `tests/test_adjudication.py`, both `False`) and
+telemetry's `escalated=bool(payload.get("escalated"))`, unchanged; no fixture in the suite reconciles only
+through the alternate (the full suite reports exactly the one expected failure, below).
+
+**Deviations from the card, named.** (1) `ambiguous` is fenced too: it reaches the same call site as the two
+outcomes the card enumerates, the fence is AT the call site as ruled, and leaving it unfenced would have
+required a deliberate bypass of a Class-B → hosted hop Ruling A refuses; its deterministic-mode outcome is
+`AmbiguousParserError`, exactly as the mechanism prescribes. (2) The refusal record rides on the exception
+object (`exc.hosted_extraction == "refused_no_opt_in"`), not "the payload": the deterministic-mode outcome for
+these dispatches is a raise, so no payload exists; the message cannot carry it because `webapp/worker.py`'s
+`_DECLARED_ANALYSIS_REFUSALS` matches it exactly and `tests/test_escalation_router.py` pins it; the worker (not
+mine) does not publish the attribute today — under Risks. (3) `analysis/config.py` received comment edits,
+not docstring edits, because the stale comment stated the removed behaviour as current. (4) The module
+docstring and one repair-seam comment in `pipeline.py` were corrected for the same reason. (5) The no-parser
+`--shas` replay is extra evidence beyond the card's union. (6) The fence commit's message was reworded after
+the message scan (sha remap above); trees identical.
+
+## newly validated · other ladder movement · previously validated preserved · regressions
+
+**newly validated 0** (union 2,695 shas, both trees) · **other ladder movement 0** · **previously validated
+preserved 2,625 of 2,625, payload identical, at base AND at closure** — the whole floor · **regressions 0**
+(validated 0; other ladder 0; unchanged non-validated 70 with payload changed on 0). Deterministic mode never
+executes a changed line: the deterministic raises precede the fence textually and the removed block was
+reachable only on `parse_mode != "deterministic"`.
+
+## Correctness evidence
+
+* **The inverted characterisation** (`test_the_alternate_extraction_that_reconciles_is_never_adopted`): same
+  fixture, exactly one call `[model-a]`, `model-b` never consulted, `model_used == "model-a"`, `escalated is
+  False`, `reconciliation.ok is False` (the failure STANDS), the published posting 100.00.
+* **Tripwire (a)** `test_at_most_one_extract_statement_call_in_the_module_inside_the_analysis_body`: ≤ 1
+  `extract_statement` call node in the module; 0 directly in `analyze_markdown`, which is pinned to delegate to
+  `_analyse`, where the one call lives. `test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence`:
+  in the statement list holding that call, `if parse_mode == 'deterministic': raise` precedes it and `if not
+  hosted_extraction_opted_in(): raise` is the statement directly before it.
+* **Tripwire (b)**, defined concretely as `reconcile_selection_violations(source)` — four AST rules over every
+  function scope of `analysis/pipeline.py`: B1 at most one name bound from `reconcile(…)` per scope; B2 such a
+  name is bound exactly once (never re-bound, never a tuple-unpack target); B3 every `reconcile(…)` call sits
+  in one of two syntactic positions — the value of a single-target `Name = reconcile(…)` or a positional
+  argument of `_account_report(…)` — any other parent (a comparison, an `if`/`while`/`IfExp` test, a `BoolOp`,
+  an attribute access on the call, a `return`, another function's arguments) is refused; B4 no `Compare`,
+  `BoolOp` or `IfExp` reads attributes of two different reconcile-bound names. Proven to refuse the base's own
+  block re-inserted verbatim into the current module (B1, B2 on `recon`, B4) and four other shapes (inline
+  test, helper argument, conditional expression, return); passes on the module.
+* **Tripwire (c)** `test_the_opt_in_literal_appears_in_no_tracked_file_but_its_definition`: `git ls-files`
+  (not a walk — an untracked local `.env` carrying the literal is the operator's act, not a violation), every
+  file type read as bytes, the literal found exactly once, in `analysis/pipeline.py`; `docs/` prose excepted
+  (the two cards that ruled the literal name it) with nothing non-`.md` under `docs/` allowed to carry it;
+  the test file itself never spells it.
+* **Tripwire (d)** dynamic: `test_deterministic_mode_never_reaches_the_hosted_call_even_when_opted_in[3]` —
+  deterministic mode raises before the fence for all three outcomes WITH the literal set, and the raised
+  object carries no `hosted_extraction` attribute; the existing PRIVACY-3 dynamic tests stay green.
+* **The fence**: `test_without_the_literal_auto_mode_takes_the_deterministic_outcome[3]`,
+  `test_with_the_literal_the_single_hosted_extraction_runs[3]`, `test_only_the_exact_literal_opts_in[9]`,
+  `test_the_literal_is_read_at_the_call_site_not_at_import`, `test_the_injection_seam_compares_exactly`; the
+  webapp seam `webapp.worker._analyze_doc`: auto mode without the literal returns the SAME `(markdown, html,
+  None, "no deterministic parser matched this statement")` as deterministic mode on an unclaimed synthetic
+  with the extractor never called; with it, one hosted extraction publishes `escalated: false`, `model_used ==
+  load_settings().model`, `parse_mode: "auto"`.
+* **Mutation table** (harness on the clean tree; every mutant an exact textual edit applied as documented;
+  killer set = the fence file + `test_privacy3_boundaries.py` + `test_q3_native_only.py` + `test_analysis.py`,
+  run WITHOUT `-x`; restored with `git checkout --` in a `finally`; `git status --porcelain` empty and
+  `pipeline.py` byte-identical after every mutant; `tasklist` showed no other python process at start):
+
+| mutant | applied | result | killers (named) |
+|---|---|---|---|
+| M1 | a second `extract_statement(…, model=settings.escalation_model)` after the pinned flag, guarded by `not recon.ok` | KILLED, 10 failed / 392 passed | tripwire (a) `test_at_most_one_extract_statement_call…`; `test_the_one_hosted_call_sits_behind…`; `test_the_alternate_extraction…never_adopted`; `test_escalated_is_false_on_the_hosted_path…`; privacy3 `test_the_escalation_guard_is_gone…` and `test_the_parse_mode_clause…structurer_branch`; q3 `…fenced_behind_the_hosted_opt_in`; plus 3 incidental `test_analysis.py` kills (the mutant lacks the base's `deterministic_stmt is None` clause, so claimed documents failing reconciliation reached the REAL extractor and hit the missing-key refusal) |
+| M2 | the selection re-added: `alt = extract_statement(…escalation_model)`, `alt_recon = reconcile(alt, …)`, `if alt_recon.ok: stmt, recon, model_used, escalated = alt, alt_recon, …, True` | KILLED, 12 / 390 | tripwire (b) `test_no_two_reconcile_results_are_compared_or_selected_between`; the inverted characterisation; tripwire (a); the pinned-False static and dynamic tests; the same privacy3 / q3 killers; the same 3 incidental kills |
+| M3 | `return bool(source.get(ENV))` (truthy) | KILLED, 10 / 392 | `test_only_the_exact_literal_opts_in[1, true, yes, TRUE, lowercase, trailing-newline, leading-space, trailing-space, the-ocr-literal]`; `test_the_injection_seam_compares_exactly` |
+| M4 | `_HOSTED_OPTED_IN_AT_IMPORT = …` at module level; the helper returns it when `environ is None` | KILLED, 9 / 393 | `test_the_literal_is_read_at_the_call_site_not_at_import`; every opted-in test (`test_with_the_literal…[3]`, `test_the_alternate_extraction…`, `test_escalated_is_false_on_the_hosted_path…`, the webapp opted-in test, q3, `test_analysis…manual_review`) — the module was imported at collection with the variable absent |
+| M5 | the two fence lines deleted | KILLED, 16 / 386 | `test_without_the_literal_auto_mode_takes_the_deterministic_outcome[3]`; `test_only_the_exact_literal_opts_in[9]`; `test_the_literal_is_read_at_the_call_site…`; `test_the_one_hosted_call_sits_behind…`; the webapp equality test; q3 |
+| M6 | `escalated = not recon.ok` | KILLED, 8 / 394 | `test_escalated_is_assigned_only_the_constant_false_in_the_module`; `test_escalated_is_false_on_the_hosted_path_whose_primary_fails`; `test_the_alternate_extraction…never_adopted` (the five `test_the_reconcile_selection_check_*` failures are a fixture artefact — they anchor on the literal line `escalated = False`, which the mutant rewrote — not evidence about the property) |
+| M7 | the deterministic-mode `raise RuntimeError("no deterministic parser matched …")` deleted | KILLED, 3 / 399 | `test_deterministic_mode_never_reaches_the_hosted_call_even_when_opted_in[unclaimed]`; `test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence`; `test_without_the_literal…[unclaimed]` (the deterministic-mode exception now carried the refusal attribute). FINDING: the PRIVACY-3 dynamic test the card names as M7's killer does NOT kill it — with the raise gone and no literal set, the fence refuses with the identical message, so "deterministic mode never calls the extractor" still holds by the fence rather than by the mode. That is why tripwire (d)'s dynamic half runs WITH the literal set, and why the static ordering test exists. |
+
+Survivors: none (7/7 killed). Harness log: scratch `mutants_p22fence.log` (untracked); the table above is its
+content.
+
+## Escalation evidence (no validator → extractor edge remains in `analysis/`)
+
+The module's one `extract_statement` call is in the `else` branch that runs BEFORE `reconcile` (it produces
+the statement `reconcile` then verifies); it is guarded by the deterministic raise and the fence, both of
+which read only `parse_mode`, the dispatch outcome and the environment — never a reconciliation result. Every
+`reconcile(…)` result in the module is either the single `recon` handed to `_account_report` or the sibling
+loop's positional argument to the same function (tripwire (b) passes on the module); no `If` in the module
+tests `escalation_model`; `escalated` is a constant. Failure-class evidence: this cell touches class B
+(structure: `unclaimed` / `parser_exception` / `ambiguous`) → hosted-extractor routing, which now requires the
+operator act, and removes the class C (financial) → second-extractor edge entirely; no A/B/C → OCR edge is
+introduced or widened (`tests/test_escalation_tripwires.py` and `tests/test_escalation_router.py` green in
+the targeted run of the privacy / worker / router / tripwire files: 475 passed, 3 skipped; and in the full
+suite).
+
+## The diagnostics guard-count consequence (for cell T; NOT changed here)
+
+`telemetry/diagnostics.py` maps reconciliation issue strings by CALL SITE:
+`tests/test_diagnostics.py::test_reconciliation_issue_sites_match_the_anchor_count` asserts `issues.append(`
+sites in `analysis/reconcile.py` + `analysis/pipeline.py` == `len(RECON_ISSUE_ANCHORS)` == 7. The removed
+block owned the one site in `pipeline.py` (`"escalation extraction failed …"`), so on this branch the count
+is **6 + 0 = 6 ≠ 7** and that test FAILS by design — the ONLY failure in this branch's full suite (1 failed /
+8,790 passed / 45 skipped / 39 deselected; base 8,756 + 35 new tests − this one). Per the card: the anchor
+`recon:escalation_extraction_failed` STAYS in the vocabulary (a record written before this change must still
+classify), only the count guard changes, `telemetry/**` and `tests/test_diagnostics.py` are cell T's, and no
+dead code was left to keep the count. Ocean sequences T's guard update (6, or a shape that counts
+`reconcile.py` alone) at composition; until then `SUITE_EXIT=1` on this branch is this one test.
+
+## Commits (on top of `b23cb50`)
+
+* `034a855` test(p22-fence): characterise the two hosted-extraction edges at base BEFORE any change
+* `c5e28d8` fix(pipeline): REMOVE the reconciliation-based selection between two hosted extractions (R9)
+* `f9bb315` fix(pipeline): FENCE the auto-mode Class-B → hosted edge behind the exact operator opt-in; the four tripwires (reworded from `157e7e1`; tree `ea0300d3` identical)
+* this section's commit (documentation only; the code tree stays `ea0300d3`)
+
+## Proof-floor exits (each step its own durable log with an `EXIT=` line under `discovery_reports/train12-logs/p22fence/`; the host lock `HARNESS.lock` held for the whole sequence — acquired 18:04:07, released 20:00:12 — then re-acquired for the extra replay; nothing ran beside another harness)
+
+| step | result | EXIT |
+|---|---|---:|
+| union cohort replay, base `b23cb50`, 7 chunks | 2,695 / 2,695 replayed; 2,625 of 2,625 preserved, payload identical; 0 newly validated; 0 movement; 0 regressions | 0 × 7 |
+| union cohort replay, closure tree `ea0300d3`, 7 chunks | identical to base, every cell | 0 × 7 |
+| empty-cohort registrations × 3 × 2 trees | `empty cohort` | 4 × 6 |
+| no-parser population replay (685 shas, `--expect-unresolved 29`), base and closure — EXTRA | queued behind cell C's lock window; result in the closure message | — |
+| full default suite (`python -m pytest -q -p no:cacheprovider`) | 1 failed (`test_reconciliation_issue_sites_match_the_anchor_count`, cell T's count guard — §Diagnostics) / 8,790 passed / 45 skipped / 39 deselected in 328 s | 1 |
+| canonical guards (5 files) | 275 passed | 0 |
+| canonical conformance (7 files) | 1,282 passed / 41 skipped | 0 |
+| `python corpus_gate.py` | GREEN — 109 pinned PDFs (103 native, 6 committed OCR); 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 102 validated / 3 review / 3 withheld / 1 refused; 393.7 s | 0 |
+| `pytest -m corpus` | 34 passed / 8,841 deselected in 1,139 s | 0 |
+| mutation table M1–M7 | 7/7 killed; tree clean and byte-identical after each | 0 |
+| privacy scan (`tools/privacy_scan_branch.py --data-dir <webapp_data_train11_cold> --base b23cb50 --ref HEAD --rows <run>/rows.csv --run <run>`, population = the run of record) | `added_lines: 971`, `documents_read: 3351` of `population: 3380` (29 `no_cached_text` = the no-text shas), **`hit_count: 0`** (`raw_hit_count: 15`, all 15 `words_class` by rule), `residue_files: 0`, `residue_sites: 0` | 0 |
+| message scan (`tools/huntington_msg_privacy_scan.py`, same population, `b23cb50..157e7e1`) | `commits_scanned: 3`; **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 1** — the WORDS hit is the bigram "STATEMENT IMMEDIATELY" in `157e7e1`'s own message (my prose, the ordering of the fence line; some statements print the phrase as boilerplate); reworded → `f9bb315`, tree identical | 1 (before the reword) |
+
+The scans above cover the code commits; both are re-run over `b23cb50..<final tip>` after this section's
+commit and reported in the closure message.
+
+## Privacy count
+
+Added lines: **0 hits** against the printed tokens of the 3,380-document run-of-record population (971 added
+lines at the code tip; 3,351 documents read; residue 0). Messages: MONEY / DIGITS / DATES **0**; WORDS 1
+before the reword (my own prose, no document token), re-scanned after it in the closure message. The opt-in
+literal: exactly one tracked occurrence (its definition); no secret, host, port or token in any added line.
+
+## Risks (last)
+
+* **The webapp user-facing change without the literal.** A webapp user in the default auto mode whose
+  document no registration claims (or on which a registration crashes, or two claim) used to receive a hosted
+  extraction; they now receive the deterministic refusal — `analysis_error = "no deterministic parser matched
+  this statement"` (the declared literal `webapp/worker.py` allow-lists) or the class-name reduction for
+  `ParserCrashError` / `AmbiguousParserError` — unless the operator sets the literal in the server's
+  environment. `webapp/static/app.js::friendlyAnalysisError` renders that refusal as "Use Auto mode for
+  fallback extraction, or add a bank-specific deterministic parser before using Deterministic only", which is
+  now misleading for an auto-mode user without the literal (`webapp/` is not this cell's; a one-line wording
+  follow-up for Ocean).
+* The refusal record (`hosted_extraction`) lives on the exception object only; `webapp/worker.py` reduces
+  exceptions to the declared literal or the class name and does not publish the attribute — surfacing
+  "refused for want of the opt-in" in the job store needs a worker change (not mine).
+* `Settings.escalation_model` and `GEMINI_ESCALATION_MODEL` are now dead configuration retained as settings-key
+  material; `tools/extractpriv_reachability.py` (excused in `corpus_gate.py`'s register) still describes the
+  old guard in its docstring.
+* Tripwire (c) trusts `git ls-files`; a literal in an untracked file is by design not a violation.
+* The M7 finding: a future removal of the deterministic raise would be caught only by the opted-in
+  deterministic test and the static ordering test, not by the historical PRIVACY-3 dynamic test.
+
