@@ -109,7 +109,7 @@ def world(tmp_path, monkeypatch):
              printed_period_end="2031-01-31", opening_balance="100.00", closing_balance="150.25",
              printed_transaction_count="3"),
         dict(content_sha256=S["false_accept"], account_count="1", printed_period_start="2031-01-01",
-             printed_period_end="2031-01-31", opening_balance="100.00", closing_balance="150.52",
+             printed_period_end="2031-01-31", opening_balance="100.00", closing_balance="284708.19",
              printed_transaction_count="3"),
         dict(content_sha256=S["row_absent"], account_count="1", opening_balance="100.00",
              closing_balance="150.25"),

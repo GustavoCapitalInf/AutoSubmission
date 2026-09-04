@@ -40,8 +40,8 @@ def synthetic_pdf() -> bytes:
     try:
         for number, lines in enumerate((
             ("SYNTHETIC ACCOUNT STATEMENT", "Statement period 2031-01-01 to 2031-01-31",
-             "Opening balance 100.00", "2031-01-05 SYNTHETIC ROW ONE -12.34"),
-            ("Page two of the synthetic statement", "Closing balance 87.66"),
+             "Opening balance 384921.37", "2031-01-05 SYNTHETIC ROW ONE -100213.19"),
+            ("Page two of the synthetic statement", "Closing balance 284708.18"),
         ), start=1):
             page = doc.new_page(width=612, height=792)
             for index, line in enumerate(lines):
@@ -215,8 +215,8 @@ def answers_for(world, **overrides) -> dict:
             kind="STATEMENT_COMPLETE", sub_kind=None, account_kind="deposit", modality="digital",
             legible=True, completeness_findings=[], account_count=1,
             printed_period_start="2031-01-01", printed_period_end="2031-01-31",
-            opening_balance="100.00", closing_balance="87.66", printed_transaction_count=1,
-            sampled_rows=[{"date": "2031-01-05", "description": "SYNTHETIC ROW ONE", "amount": "-12.34"}],
+            opening_balance="384921.37", closing_balance="284708.18", printed_transaction_count=1,
+            sampled_rows=[{"date": "2031-01-05", "description": "SYNTHETIC ROW ONE", "amount": "-100213.19"}],
             notes="a synthetic note",
         ),
         world["sha_invalid"]: dict(
@@ -288,7 +288,7 @@ def test_run_interactive_asks_the_kind_with_no_default(world, monkeypatch, capsy
     script = iter([
         # document 1: the human types every field
         "STATEMENT_COMPLETE", "", "deposit", "digital", "y", "", "1", "2031-01-01", "2031-01-31",
-        "100.00", "87.66", "1", "2031-01-05 | SYNTHETIC ROW ONE | -12.34", "", "a synthetic note", "y",
+        "384921.37", "284708.18", "1", "2031-01-05 | SYNTHETIC ROW ONE | -100213.19", "", "a synthetic note", "y",
         # document 2: an empty kind is refused, then the human quits
         "", "quit",
     ])
@@ -301,7 +301,7 @@ def test_run_interactive_asks_the_kind_with_no_default(world, monkeypatch, capsy
     assert adjudicate.main(run_args(world) + ["--adjudicator", "principal_adjudicator"]) == 0
     records = TruthStore.open().records()
     assert len(records) == 1 and records[0]["kind"] == "STATEMENT_COMPLETE"
-    assert records[0]["sampled_rows"][0]["amount"] == "-12.34"
+    assert records[0]["sampled_rows"][0]["amount"] == "-100213.19"
     kind_prompts = [p for p in prompts if p.lower().startswith("kind")]
     assert kind_prompts, prompts
     for prompt in kind_prompts:
@@ -368,7 +368,7 @@ def test_export_digest_writes_the_non_sensitive_digest(world, tmp_path):
     assert parsed["record_count"] == 2
     assert parsed["adjudicated_sha16"] == sorted([world["sha_good"][:16], world["sha_invalid"][:16]])
     text = out.read_text(encoding="utf-8")
-    assert "STATEMENT_COMPLETE" not in text and "87.66" not in text
+    assert "STATEMENT_COMPLETE" not in text and "284708.18" not in text
 
 
 def test_the_committed_digest_matches_an_empty_store(tmp_path, monkeypatch):
