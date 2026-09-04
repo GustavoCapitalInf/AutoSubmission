@@ -70335,3 +70335,63 @@ literal: exactly one tracked occurrence (its definition); no secret, host, port 
 * The M7 finding: a future removal of the deterministic raise would be caught only by the opted-in
   deterministic test and the static ordering test, not by the historical PRIVACY-3 dynamic test.
 
+# §P22FENCE-2 — the extra no-parser replay (685 shas / 737 rows, the exact population the fence touches) reproduces outcome and payload at base and closure with exactly the 29 expected unresolved; the post-commit scans over `b23cb50..fac80af` are 0 / 0; the lock-window record
+
+Scope: the closure of §P22FENCE (the section above; never edited). Code tree unchanged at
+`ea0300d374fac7d492c8c3d11def844153e030b7` (commit `f9bb315`); branch tip before this section `fac80af`.
+This section records the one proof §P22FENCE left QUEUED behind other cells' lock windows, and the two
+re-scans it promised for the closure message. Nothing else moved; no file outside this section changed.
+
+## The no-parser replay (EXTRA evidence beyond the card's union)
+
+Population: every row of the run of record with an empty `parser_id` — 737 rows, 685 distinct content shas
+(585 `failed/no_parser_matched`, 122 `failed/parser_declined`, 17 `failed/invalid_pdf`, 13
+`deferred/deferred_visual_ocr`; `dispatch_outcome` `unclaimed` on 707 rows and empty on the 30 rows whose
+`source_path` is `none`; 656 distinct shas have a text source, 29 do not). These are the documents that reach
+the fenced call site in auto mode; in deterministic mode (every run of record) they must take the same
+`failed` outcome before and after the change. The sha list is
+`discovery_reports/train12-logs/p22fence/no-parser-shas.txt` (untracked; shas only).
+
+Command, per tree: `python -m tools.cohort_replay --run <TRAIN11-4f7d798/…-331d9136> --data-dir
+<webapp_data_train11_cold> --shas <no-parser-shas.txt> --expect-identical --expect-unresolved 29 --label …
+--out … --json …`, from the detached base worktree at `b23cb50` and from this worktree at `ea0300d3`.
+
+| tree | population | replayed (text available) | unresolved (no text) | newly validated | other ladder up | previously validated preserved | validated regressions | other ladder regressions | unchanged non-validated (payload changed) | EXIT | wall |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| base `b23cb50` | 685 | 656 | 29 (= expected) | 0 | 0 | 0 of 0 | 0 | 0 | 656 (0) | 0 | 13 s |
+| closure `ea0300d3` | 685 | 656 | 29 (= expected) | 0 | 0 | 0 of 0 | 0 | 0 | 656 (0) | 0 | 13 s |
+
+Reading: no member of this population was ever validated (`0 of 0` preserved), every one of the 656 with
+text reproduces its `failed` outcome at both trees, no payload changed on any of them, and the 29 that did
+not replay are exactly the 29 no-text shas the population census predicted (`--expect-unresolved 29`
+satisfied at both trees; the tool would have exited 3 on any other count). Together with §P22FENCE's union
+(2,695 shas, the whole 2,625 floor payload-identical) this covers 3,380 − (2,695 + 685 = 3,380) — every
+distinct sha of the run of record was replayed or accounted for as no-text at both trees.
+
+## The post-commit re-scans (over `b23cb50..fac80af`, i.e. the code commits plus §P22FENCE's commit)
+
+| scan | result | EXIT |
+|---|---|---:|
+| `tools/privacy_scan_branch.py --data-dir <webapp_data_train11_cold> --base b23cb50 --ref HEAD --rows <run>/rows.csv --run <run>` (population = the run of record, 3,380) | `added_lines: 1277`, `documents_read: 3351` (29 `no_cached_text`, the no-text shas), **`hit_count: 0`** (`raw_hit_count: 19`, all `words_class` by rule), `residue_files: 0`, `residue_sites: 0` | 0 |
+| `tools/huntington_msg_privacy_scan.py`, same population, `b23cb50..HEAD` | `commits_scanned: 4`, **`hit_count: 0`** — MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0 (the one WORDS hit §P22FENCE recorded on `157e7e1`'s message is gone with the reword to `f9bb315`) | 0 |
+
+This section's own commit is scanned the same way after it lands and the result goes in the closure message.
+
+## The lock-window record (heavy proofs one at a time on this host)
+
+§P22FENCE's driver held `HARNESS.lock` 18:04:07 → 20:00:12 (both union replays, the empty cohorts, the
+suite, guards, conformance, gate, corpus slice, both scans). The extra replay's driver started 20:15:42 and
+polled the lock every 120 s — 127 polls — while cells C, K, C again and H ran their windows; it acquired the
+lock 2026-09-04 00:29:41, ran the two replays (13 s each) and the two re-scans (20 s, 18 s), and released it
+00:30:46 (`driver3-stdout.log` ends `LOCK released / DRIVER done / EXIT=done`; confirmed by a direct read of
+that file, not by a monitor). The detached base worktree `.claude/worktrees/mt22-fence-base` (`b23cb50`,
+used only to run the base replays) is removed at closure.
+
+## Headline, restated for the closure
+
+newly validated **0** · other ladder movement **0** · previously validated preserved **2,625 of 2,625,
+payload identical, at base and at closure** (§P22FENCE's union) · regressions **0** · the no-parser
+population **656 of 656 replayed identical, 29 unresolved as expected, both trees** · privacy **0** ·
+messages **0** · the one failing test on this branch remains cell T's count guard
+(`tests/test_diagnostics.py::test_reconciliation_issue_sites_match_the_anchor_count`, 7 → 6), by design.
+
