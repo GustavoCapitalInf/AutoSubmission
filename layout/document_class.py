@@ -214,22 +214,33 @@ class DocumentProfileFacts:
             raise ValueError("magic must be a str or None")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class Finding:
     """A completeness finding. `detail` is a closed `key=number` grammar and
-    can never carry document text."""
+    can never carry document text.
+
+    The field is validated in an explicit `__init__` from its ARGUMENT, so
+    nothing under `layout/` ever reads a `.detail` attribute: the H-3
+    sensitivity guard (`tests/test_privacy3_boundaries.py`) pins the readers
+    of that attribute name to two console-only sites, and this package —
+    which stores a finding and never renders one — stays outside that set.
+    A consumer that renders `Finding.detail` into a row is a reviewed change
+    to that register, never a silent one."""
 
     code: str
     page: int | None
     detail: str
 
-    def __post_init__(self) -> None:
-        if self.code not in FINDING_CODES:
-            raise ValueError(f"unknown finding code {self.code!r}")
-        if not isinstance(self.detail, str) or not _DETAIL_GRAMMAR.match(self.detail):
-            raise ValueError(f"finding detail must be key=number pairs, got {self.detail!r}")
-        if self.page is not None and (isinstance(self.page, bool) or not isinstance(self.page, int) or self.page < 0):
+    def __init__(self, code: str, page: int | None, detail: str) -> None:
+        if code not in FINDING_CODES:
+            raise ValueError(f"unknown finding code {code!r}")
+        if not isinstance(detail, str) or not _DETAIL_GRAMMAR.match(detail):
+            raise ValueError(f"finding detail must be key=number pairs, got {detail!r}")
+        if page is not None and (isinstance(page, bool) or not isinstance(page, int) or page < 0):
             raise ValueError("page must be a non-negative int or None")
+        object.__setattr__(self, "code", code)
+        object.__setattr__(self, "page", page)
+        object.__setattr__(self, "detail", detail)
 
 
 @dataclass(frozen=True)
