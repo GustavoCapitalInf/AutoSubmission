@@ -581,3 +581,17 @@ def test_the_statement_balance_label_forms_anchor(fixtures):
         verdict = _classify(fixtures["statement_label_variants"], mode)
         assert verdict.kind == "STATEMENT_COMPLETE", (mode, verdict)
         assert {"opening_balance_label", "closing_balance_label"} <= _signal_names(verdict)
+
+
+def test_the_period_forms_of_the_precision_pass(fixtures):
+    """Mutants M17 (rule (c) reads only the first label line), M18 (the
+    `statement ending` family removed), M19 (a page marker counted as
+    words of a stacked date-range cell) — each fixture is complete in both
+    modes and the period is found without a `statement period` phrase."""
+    for name in ("statement_dated_labels_after_a_dateless_header", "statement_statement_ending_phrase",
+                 "statement_last_this_statement_dates"):
+        for mode in MODES:
+            verdict = _classify(fixtures[name], mode)
+            assert verdict.kind == "STATEMENT_COMPLETE", (name, mode, verdict)
+            assert "period_expression" in _signal_names(verdict), (name, mode)
+

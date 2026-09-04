@@ -173,7 +173,8 @@ LEXICONS: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType({
     # document_class), or as a two-date range with a connector.
     "period_phrase": _lexicon(
         en=("statement period", "statement date", "for the period", "period covered", "period ending",
-            "billing period", "activity period", "statement of account for", "statement from"),
+            "billing period", "activity period", "statement of account for", "statement from", "statement ending",
+            "this statement", "last statement", "statement closing date", "period from"),
         fr=("période du", "période de relevé", "période couverte", "relevé du", "date du relevé",
             "période"),
         es=("periodo del", "período del", "periodo de facturación", "fecha del estado", "estado de cuenta al",

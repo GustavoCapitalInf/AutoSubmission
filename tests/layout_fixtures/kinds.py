@@ -1070,6 +1070,59 @@ def statement_label_variants() -> LayoutFixture:
     return _fixture("statement_label_variants", [page], expect_evidence=ev, expect_text=tx)
 
 
+def statement_dated_labels_after_a_dateless_header() -> LayoutFixture:
+    """The closing label appears first as a dateless column header
+    ("Ending statement balance" over a value), then the summary prints
+    `<date> Beginning balance <v>` and `<date> Ending balance <v>`; no
+    period phrase anywhere. The dates beside the labels are the period."""
+    pages = statement_pages(lang="en", period=False, opening=False, closing=False, n_rows=6)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    extra = (
+        line_at(TOP_MARGIN - 48.0, [tok("Account", LEFT), tok("type", LEFT + 55.0), tok("Ending", LEFT + 200.0),
+                                     tok("statement", LEFT + 245.0), tok("balance", LEFT + 310.0)]),
+        line_at(TOP_MARGIN - 30.0, [tok("Synthetic", LEFT), tok("chequing", LEFT + 65.0), rtok(cents(OPENING_CENTS + 5_000), R_BALANCE)]),
+        line_at(TOP_MARGIN - 12.0, [tok(_date(1, 3, "en"), LEFT), tok("Beginning", LEFT + 80.0), tok("balance", LEFT + 145.0),
+                                     rtok(cents(OPENING_CENTS), R_BALANCE)]),
+        line_at(TOP_MARGIN + 6.0, [tok(_date(31, 3, "en"), LEFT), tok("Ending", LEFT + 80.0), tok("balance", LEFT + 125.0),
+                                    rtok(cents(OPENING_CENTS + 5_000), R_BALANCE)]),
+    )
+    shifted = tuple(line for line in page.lines)
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=extra + shifted)
+    ev, tx = _complete()
+    return _fixture("statement_dated_labels_after_a_dateless_header", [page], expect_evidence=ev, expect_text=tx)
+
+
+def statement_statement_ending_phrase() -> LayoutFixture:
+    """`Statement ending <date>` is the only period form printed."""
+    pages = statement_pages(lang="en", period=False, n_rows=6)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    header = line_at(TOP_MARGIN - 20.0, [tok("Statement", LEFT), tok("ending", LEFT + 65.0), tok(_date(31, 3, "en"), LEFT + 115.0)])
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=(header,) + page.lines)
+    ev, tx = _complete()
+    return _fixture("statement_statement_ending_phrase", [page], expect_evidence=ev, expect_text=tx)
+
+
+def statement_last_this_statement_dates() -> LayoutFixture:
+    """`Last statement: <date>  Page 1 of 1` over `This statement: <date>`:
+    a stacked date range whose first line also carries the page marker."""
+    pages = statement_pages(lang="en", period=False, page_markers=False, n_rows=6)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    extra = (
+        line_at(TOP_MARGIN - 38.0, [tok("Last", LEFT), tok("statement:", LEFT + 35.0), tok(_date(1, 3, "en"), LEFT + 110.0),
+                                     tok("Page", LEFT + 300.0), tok("1", LEFT + 340.0), tok("of", LEFT + 360.0), tok("1", LEFT + 390.0)]),
+        line_at(TOP_MARGIN - 20.0, [tok("This", LEFT), tok("statement:", LEFT + 35.0), tok(_date(31, 3, "en"), LEFT + 110.0)]),
+    )
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=extra + page.lines)
+    ev, tx = _complete()
+    return _fixture("statement_last_this_statement_dates", [page], expect_evidence=ev, expect_text=tx)
+
+
 def nothing_fires() -> LayoutFixture:
     rows = [
         [tok("SYNTHETIC", LEFT), tok("MEETING", LEFT + 70.0), tok("NOTES", LEFT + 130.0)],
@@ -1129,6 +1182,9 @@ FIXTURES: dict[str, Callable[[], LayoutFixture]] = {
     "statement_two_statements_one_file": statement_two_statements_one_file,
     "statement_balance_pair_no_rows": statement_balance_pair_no_rows,
     "statement_label_variants": statement_label_variants,
+    "statement_dated_labels_after_a_dateless_header": statement_dated_labels_after_a_dateless_header,
+    "statement_statement_ending_phrase": statement_statement_ending_phrase,
+    "statement_last_this_statement_dates": statement_last_this_statement_dates,
     "nothing_fires": nothing_fires,
 }
 

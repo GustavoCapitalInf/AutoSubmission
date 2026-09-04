@@ -439,6 +439,8 @@ class _Signals:
     closing: bool = False
     opening_line: _Line | None = None
     closing_line: _Line | None = None
+    opening_lines: list = field(default_factory=list)   # every opening-label line seen
+    closing_lines: list = field(default_factory=list)   # every closing-label line seen
     zero_activity: bool = False
     # table
     table_rows: int = 0            # counted rows in qualifying groups
@@ -535,6 +537,7 @@ def _label_with_amount(page: _Page, name: str, signal: str, signals: _Signals) -
         for hit in hits:
             signals.refs.append(_ref(line, hit.start, hit.end, signal))
             _vote(signals, hit.language)
+        (signals.opening_lines if name == "opening_balance" else signals.closing_lines).append(line)
         if found is None:
             found = line
             _record_amount(signals, name, cents)
@@ -707,18 +710,25 @@ STACKED_RANGE_MAX_WORDS = 4
 
 
 def _few_other_words(text: str) -> bool:
-    return len(_WORD_RE.findall(fold(text))) <= STACKED_RANGE_MAX_WORDS
+    folded = fold(text)
+    marker = find_page_marker(text)
+    if marker is not None:
+        folded = folded[:marker.start] + " " * (marker.end - marker.start) + folded[marker.end:]
+    return len(_WORD_RE.findall(folded)) <= STACKED_RANGE_MAX_WORDS
 
 
 def _period_from_balance_lines(signals: _Signals, day_first: bool) -> bool:
-    """(c) two dates beside the opening and closing labels."""
-    if signals.opening_line is None or signals.closing_line is None:
-        return False
-    open_dates = find_dates(signals.opening_line.text, day_first=day_first)
-    close_dates = find_dates(signals.closing_line.text, day_first=day_first)
-    if open_dates and close_dates:
-        signals.refs.append(_ref(signals.opening_line, open_dates[0].start, open_dates[0].end, "period_expression"))
-        signals.refs.append(_ref(signals.closing_line, close_dates[0].start, close_dates[0].end, "period_expression"))
+    """(c) two dates beside the opening and closing labels — any opening
+    label line with a date and any closing label line with a date (a
+    column header that repeats the label without a date does not hide the
+    dated summary line)."""
+    opening = [(line, find_dates(line.text, day_first=day_first)) for line in signals.opening_lines]
+    closing = [(line, find_dates(line.text, day_first=day_first)) for line in signals.closing_lines]
+    opening = [(line, dates) for line, dates in opening if dates]
+    closing = [(line, dates) for line, dates in closing if dates]
+    if opening and closing:
+        for line, dates in (opening[0], closing[0]):
+            signals.refs.append(_ref(line, dates[0].start, dates[0].end, "period_expression"))
         return True
     return False
 
