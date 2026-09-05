@@ -174,30 +174,59 @@ def test_the_analysis_settings_key_reads_the_registry_fingerprint(monkeypatch):
 
 
 def test_the_generic_structurer_flag_partitions_the_analysis_key(monkeypatch):
-    """The W3-3c generic rung is an ENV switch that changes the published
-    payload of every unclaimed document — it publishes a statement where the
-    pipeline would otherwise refuse — and it was invisible to the key. Two runs
-    of the same archive, one with the flag and one without, would have shared
-    every analysis entry and served each other's answers.
+    """The W3-3c generic rung changes the published payload of every unclaimed
+    document — it publishes a statement where the pipeline would otherwise
+    refuse — so its switch must partition the analysis key: two runs of the
+    same archive, one with the rung and one without, must never share an
+    analysis entry.
 
-    Off is the default and the archive's whole history, so nothing cached today
-    was written under the enabled value.
+    P22-IDENTITY (Phase 2.2, D6) moved that switch from the environment
+    variable `GENERIC_STRUCTURER_ENABLED` to `Settings.reconstruction_mode`
+    (`RECONSTRUCTION_MODE`, closed vocabulary `off | research | production`)
+    and RETIRED the variable. This pin follows the contract: the setting
+    partitions the key and the rung reads it; the retired variable does
+    neither, in any value that used to switch the rung on. Off is the
+    default and the archive's whole history, so nothing cached today was
+    written under any other value.
     """
+    from analysis.config import RECONSTRUCTION_MODE_ENV, Settings
     from analysis.structurer import STRUCTURER_ENV, structurer_enabled
 
     monkeypatch.delenv(STRUCTURER_ENV, raising=False)
+    monkeypatch.delenv(RECONSTRUCTION_MODE_ENV, raising=False)
     assert structurer_enabled() is False
     off = analysis_settings_key(parse_mode="deterministic")
 
-    monkeypatch.setenv(STRUCTURER_ENV, "1")
-    assert structurer_enabled() is True
-    assert analysis_settings_key(parse_mode="deterministic") != off
+    # the retired variable is INERT: no value moves the rung or the key
+    for value in ("1", "true", "yes", "0", "", "  ", "false", "no"):
+        monkeypatch.setenv(STRUCTURER_ENV, value)
+        assert structurer_enabled() is False, value
+        assert analysis_settings_key(parse_mode="deterministic") == off, value
+    monkeypatch.delenv(STRUCTURER_ENV, raising=False)
 
-    # …and the key reads the structurer's own accessor, so it agrees with the
-    # rung about what the flag MEANS: "0" is off, and so is a blank string.
-    for falsey in ("0", "", "  ", "false", "no"):
-        monkeypatch.setenv(STRUCTURER_ENV, falsey)
-        assert analysis_settings_key(parse_mode="deterministic") == off, falsey
+    # the setting partitions the key, and the key reads the structurer's own
+    # accessor, so it agrees with the rung about what "enabled" MEANS
+    monkeypatch.setenv(RECONSTRUCTION_MODE_ENV, "research")
+    assert structurer_enabled() is True
+    research = analysis_settings_key(parse_mode="deterministic")
+    assert research != off
+    monkeypatch.setenv(RECONSTRUCTION_MODE_ENV, "production")
+    assert structurer_enabled() is True
+    production = analysis_settings_key(parse_mode="deterministic")
+    assert production not in (off, research)
+    for value in ("off", "", "  "):
+        monkeypatch.setenv(RECONSTRUCTION_MODE_ENV, value)
+        assert structurer_enabled() is False, repr(value)
+        assert analysis_settings_key(parse_mode="deterministic") == off, repr(value)
+
+    # and through an explicit settings object, independently of the environment
+    monkeypatch.delenv(RECONSTRUCTION_MODE_ENV, raising=False)
+    monkeypatch.setenv(STRUCTURER_ENV, "1")
+    explicit_off = Settings(api_key="", model="m", escalation_model="e")
+    explicit_on = Settings(api_key="", model="m", escalation_model="e", reconstruction_mode="research")
+    assert structurer_enabled(explicit_off) is False and structurer_enabled(explicit_on) is True
+    assert analysis_settings_key(parse_mode="deterministic", analysis_settings=explicit_off) != \
+        analysis_settings_key(parse_mode="deterministic", analysis_settings=explicit_on)
 
 
 def test_the_digest_uses_the_caches_own_hashing_convention():
