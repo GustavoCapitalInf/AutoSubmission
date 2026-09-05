@@ -524,96 +524,215 @@ def test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence()
 
 
 # ---------------------------------------------------------------------------
-# Tripwire (b): no comparison of, or selection between, two reconcile results
+# Tripwire (b): no comparison of, or selection between, two reconcile results —
+# and (review PHASE2_P22FENCE_REVIEW F1) no way to walk around the check by
+# SCOPE or by NAME
 # ---------------------------------------------------------------------------
 #
-# THE CHECK, CONCRETELY. Over every function scope of `analysis/pipeline.py`
-# (nested functions and lambdas are their own scopes):
+# THE CHECK, CONCRETELY. Two layers over the whole text of `analysis/pipeline.py`.
 #
-#   B1  at most ONE name is bound from a `reconcile(...)` call in the scope;
-#   B2  a name bound from `reconcile(...)` is bound EXACTLY ONCE in its scope —
-#       never re-bound, never a tuple-unpack target (the base's
-#       `stmt, recon, model_used, escalated = alt, alt_recon, ...` was that);
+# NAME INTEGRITY (`name_integrity_violations`): the identifiers `reconcile` and
+# `extract_statement` are the ONLY handles to the two functions; each is bound
+# exactly once, by its canonical import, and is used only to CALL:
+#   N1  `from .reconcile import reconcile` and `from .extract import
+#       extract_statement` are the only bindings — exactly one `ImportFrom` per
+#       name, relative level 1, no `asname`, and the modules `reconcile` /
+#       `extract` are named by no other `Import` / `ImportFrom` (any level, any
+#       package, any alias: `from .reconcile import reconcile as verify`,
+#       `from . import extract as _ex`, `import analysis.extract` all refuse);
+#   N2  neither name is ever a Store/Del target, a parameter, a `global` /
+#       `nonlocal`, a walrus, `for`, `with` or comprehension target, or an
+#       import alias (`from .x import y as reconcile`);
+#   N3  a Load of either name is legal ONLY as the `func` of a `Call` —
+#       `_r = reconcile`, `(reconcile,)`, `map(reconcile, …)`,
+#       `_hosted = extract_statement` are refused;
+#   N4  no `Attribute` anywhere has `attr` equal to either name
+#       (`_ex.extract_statement`, `analysis.reconcile.reconcile`);
+#   N5  no string constant anywhere equals either name
+#       (`getattr(x, "extract_statement")`, `globals()["reconcile"]`);
+#   N6  the module never calls `getattr` / `setattr` / `globals` / `locals` /
+#       `vars` / `__import__` / `eval` / `exec` / `compile`, never imports
+#       `importlib` or `builtins`, and never reads `sys.modules` — the dynamic
+#       doors are closed as a CLASS, not by name (the module uses none of them).
+#
+# SELECTION (`reconcile_selection_violations`), over UNITS rather than scopes.
+# A unit is a top-level function TOGETHER WITH every function, lambda and
+# comprehension nested in it (the review's mutant R6 hid the second binding in
+# a closure that read the enclosing `recon`), plus the module body outside
+# functions:
+#   B1  at most ONE name is bound from a `reconcile(...)` call anywhere in the unit;
+#   B2  such a name is bound exactly once in the unit — never re-bound, never a
+#       tuple-unpack target (the base's `stmt, recon, model_used, escalated =
+#       alt, alt_recon, …` was that), never shadowed by a nested parameter or
+#       target;
 #   B3  every `reconcile(...)` call sits in one of exactly two syntactic
-#       positions: the value of a single-target `Name = reconcile(...)`
-#       assignment, or a direct POSITIONAL argument of `_account_report(...)`.
-#       Any other parent — a comparison, an `if`/`while`/conditional-expression
-#       test, a boolean operation, an attribute access on the call, a return,
-#       any other function's argument list — is refused;
-#   B4  no `Compare`, `BoolOp` or `IfExp` node reads attributes of two DIFFERENT
-#       reconcile-bound names (belt for B1: two scopes cannot share a name, but
-#       a reviewer can read this rule on its own).
-#
-# What this catches: `alt_recon = reconcile(alt)` (B1); `recon = alt_recon`
-# or a tuple re-bind (B2); `if reconcile(alt).ok:` / `_pick(recon,
-# reconcile(alt))` / `x = reconcile(a) if reconcile(b).ok else ...` (B3);
-# `alt_recon.ok == recon.ok` (B4). What it deliberately permits: the one
-# `recon = reconcile(stmt, parser_id=claiming)` per analysis, and the sibling
-# loop's `_account_report(sibling, reconcile(sibling, parser_id=claiming), ...)`,
-# where the result is consumed, never compared.
+#       positions: the value of a single-target `Name = reconcile(...)`, or a
+#       direct POSITIONAL argument of `_account_report(...)`. Any other parent —
+#       a comparison, an `if` / `while` / conditional-expression test, a boolean
+#       operation, an attribute access on the call, a `return`, another
+#       function's argument list — is refused;
+#   B4  no `Compare`, `BoolOp` or `IfExp` anywhere in the unit reads attributes
+#       of two DIFFERENT reconcile-bound names of that unit.
+# With N1–N6 holding, every reconciliation result the module can obtain is
+# produced by a call spelled `reconcile(`, so B1–B4 see all of them. What the
+# layers deliberately permit: the one `recon = reconcile(stmt, parser_id=
+# claiming)` per analysis, and the sibling loop's `_account_report(sibling,
+# reconcile(sibling, parser_id=claiming), …)`, where the result is consumed,
+# never compared. What no single-module scan can see: a helper whose body lives
+# in ANOTHER module — which is why `test_no_other_module_under_analysis_imports_
+# reconcile_or_extract_statement` pins that no such module exists.
+
+GUARDED_NAMES = frozenset({"reconcile", "extract_statement"})
+#: guarded name -> (the relative module it is imported from, the names that
+#: canonical `ImportFrom` may carry)
+CANONICAL_IMPORTS = {
+    "reconcile": ("reconcile", frozenset({"reconcile", "ReconResult"})),
+    "extract_statement": ("extract", frozenset({"extract_statement"})),
+}
+GUARDED_MODULES = frozenset({"reconcile", "extract"})
+DYNAMIC_DOORS = frozenset({
+    "getattr", "setattr", "globals", "locals", "vars", "__import__", "eval", "exec", "compile",
+})
+FORBIDDEN_IMPORTS = frozenset({"importlib", "builtins"})
+
+
+def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    return {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
 
 
 def _is_reconcile_call(node: ast.AST) -> bool:
-    return isinstance(node, ast.Call) and (
-        (isinstance(node.func, ast.Name) and node.func.id == "reconcile")
-        or (isinstance(node.func, ast.Attribute) and node.func.attr == "reconcile")
-    )
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "reconcile"
 
 
-_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+def _module_of(node: ast.ImportFrom) -> str:
+    return (node.module or "").split(".")[-1]
 
 
-def _scopes(tree: ast.Module):
-    """Every function scope, with its OWN nodes (nested scopes excluded) and a
-    child -> parent map over those nodes."""
-    for scope in ast.walk(tree):
-        if not isinstance(scope, _SCOPE_NODES):
-            continue
-        own: list[ast.AST] = []
-        parents: dict[ast.AST, ast.AST] = {}
-        stack = [scope]
-        while stack:
-            node = stack.pop()
-            own.append(node)
-            for child in ast.iter_child_nodes(node):
-                parents[child] = node
-                if isinstance(child, _SCOPE_NODES):
-                    continue
-                stack.append(child)
-        yield scope, own, parents
+def name_integrity_violations(source: str) -> list[str]:
+    """N1–N6 over the whole module: a list of violations, empty when clean."""
+    tree = ast.parse(source)
+    parents = _parents(tree)
+    violations: list[str] = []
+    canonical_count = {name: 0 for name in GUARDED_NAMES}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = _module_of(node)
+            for alias in node.names:
+                if alias.asname in GUARDED_NAMES:
+                    violations.append(f"N2 `{alias.name}` imported as guarded name `{alias.asname}`")
+                if alias.name in GUARDED_NAMES:
+                    wanted_module, _allowed = CANONICAL_IMPORTS[alias.name]
+                    if alias.asname is not None:
+                        violations.append(f"N1 `{alias.name}` imported as `{alias.asname}`")
+                    elif node.level == 1 and module == wanted_module and (node.module or "") == wanted_module:
+                        canonical_count[alias.name] += 1
+                    else:
+                        violations.append(f"N1 `{alias.name}` imported from {'.' * node.level}{node.module}")
+                elif alias.name in GUARDED_MODULES and (node.module in (None, "", "analysis") or module == "analysis"):
+                    violations.append(f"N1 module `{alias.name}` imported via `from {'.' * node.level}{node.module or ''} import`")
+            if module in GUARDED_MODULES and (node.module or "") in GUARDED_MODULES | {f"analysis.{m}" for m in GUARDED_MODULES}:
+                guarded = next(name for name, (mod, _a) in CANONICAL_IMPORTS.items() if mod == module)
+                allowed = CANONICAL_IMPORTS[guarded][1]
+                for alias in node.names:
+                    if alias.name not in allowed or alias.asname is not None:
+                        violations.append(f"N1 `from {'.' * node.level}{node.module} import {alias.name}` is not the canonical import")
+                if node.level != 1:
+                    violations.append(f"N1 `{node.module}` imported at level {node.level}")
+            if any(alias.name.split(".")[0] in FORBIDDEN_IMPORTS for alias in node.names) or module in FORBIDDEN_IMPORTS or (node.module or "").split(".")[0] in FORBIDDEN_IMPORTS:
+                violations.append(f"N6 import of a dynamic door: {ast.unparse(node)}")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                leaf = alias.name.split(".")[-1]
+                if root in FORBIDDEN_IMPORTS:
+                    violations.append(f"N6 import of a dynamic door: {ast.unparse(node)}")
+                if leaf in GUARDED_MODULES or alias.asname in GUARDED_NAMES:
+                    violations.append(f"N1 `{ast.unparse(node)}`")
+        elif isinstance(node, ast.Name) and node.id in GUARDED_NAMES:
+            if not isinstance(node.ctx, ast.Load):
+                violations.append(f"N2 `{node.id}` bound: {ast.unparse(parents[node])}")
+            else:
+                parent = parents.get(node)
+                if not (isinstance(parent, ast.Call) and parent.func is node):
+                    violations.append(f"N3 `{node.id}` used other than as a call: {ast.unparse(parent)}")
+        elif isinstance(node, ast.arg) and node.arg in GUARDED_NAMES:
+            violations.append(f"N2 `{node.arg}` is a parameter")
+        elif isinstance(node, (ast.Global, ast.Nonlocal)) and set(node.names) & GUARDED_NAMES:
+            violations.append(f"N2 {ast.unparse(node)}")
+        elif isinstance(node, ast.Attribute) and node.attr in GUARDED_NAMES:
+            violations.append(f"N4 attribute access `{ast.unparse(node)}`")
+        elif isinstance(node, ast.Attribute) and node.attr == "modules" and isinstance(node.value, ast.Name) and node.value.id == "sys":
+            violations.append("N6 `sys.modules` read")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in GUARDED_NAMES:
+            violations.append(f"N5 string constant {node.value!r}: {ast.unparse(parents[node])}")
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in DYNAMIC_DOORS:
+            violations.append(f"N6 dynamic door `{ast.unparse(node)}`")
+    for name, count in canonical_count.items():
+        if count != 1:
+            violations.append(f"N1 `{name}` has {count} canonical imports (expected exactly 1)")
+    return violations
+
+
+def _units(tree: ast.Module):
+    """`(label, nodes)` per unit: every top-level function (and every method of a
+    top-level class) with EVERYTHING nested in it, plus the module body outside
+    those functions."""
+    outside: list[ast.AST] = []
+    units: list[tuple[str, list[ast.AST]]] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            units.append((node.name, list(ast.walk(node))))
+        elif isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    units.append((f"{node.name}.{item.name}", list(ast.walk(item))))
+                else:
+                    outside.extend(ast.walk(item))
+        else:
+            outside.extend(ast.walk(node))
+    units.append(("<module>", outside))
+    return units
 
 
 def _bound_names(target: ast.AST) -> list[str]:
     return [node.id for node in ast.walk(target) if isinstance(node, ast.Name)]
 
 
+def _binding_sites(nodes: list[ast.AST], name: str) -> int:
+    sites = 0
+    for node in nodes:
+        if isinstance(node, ast.Assign):
+            sites += sum(name in _bound_names(t) for t in node.targets)
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign, ast.NamedExpr, ast.For, ast.comprehension)):
+            sites += name in _bound_names(node.target)
+        elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+            sites += name in _bound_names(node.optional_vars)
+        elif isinstance(node, ast.arg) and node.arg == name:
+            sites += 1
+    return sites
+
+
 def reconcile_selection_violations(source: str) -> list[str]:
-    """The rule set above, as a pure function of the module text: a list of
-    violations, empty when the module is clean. Exposed as a function so the
-    mutation table can call it on a mutant without touching the tree."""
+    """B1–B4 over every UNIT of the module (see the block comment above): a
+    list of violations, empty when the module is clean. A pure function of the
+    module text, so the mutation table can call it on a mutant without touching
+    the tree."""
     tree = ast.parse(source)
+    parents = _parents(tree)
     violations: list[str] = []
-    for scope, own, parents in _scopes(tree):
-        label = getattr(scope, "name", "<lambda>")
+    for label, nodes in _units(tree):
         reconcile_bound: list[str] = []
-        for node in own:
+        for node in nodes:
             if isinstance(node, ast.Assign) and _is_reconcile_call(node.value):
                 for target in node.targets:
                     reconcile_bound.extend(_bound_names(target))
         if len(reconcile_bound) > 1:
             violations.append(f"B1 {label}: {len(reconcile_bound)} names bound from reconcile(): {reconcile_bound}")
         for name in reconcile_bound:
-            sites = 0
-            for node in own:
-                if isinstance(node, ast.Assign):
-                    sites += sum(name in _bound_names(t) for t in node.targets)
-                elif isinstance(node, (ast.AugAssign, ast.AnnAssign, ast.NamedExpr, ast.For, ast.comprehension)):
-                    sites += name in _bound_names(node.target)
-                elif isinstance(node, ast.withitem) and node.optional_vars is not None:
-                    sites += name in _bound_names(node.optional_vars)
+            sites = _binding_sites(nodes, name)
             if sites != 1:
                 violations.append(f"B2 {label}: `{name}` is bound {sites} times")
-        for node in own:
+        for node in nodes:
             if not _is_reconcile_call(node):
                 continue
             parent = parents.get(node)
@@ -628,7 +747,7 @@ def reconcile_selection_violations(source: str) -> list[str]:
             if not (single_assignment or account_report_argument):
                 violations.append(f"B3 {label}: reconcile() in a refused position: {ast.unparse(parent)}")
         bound = set(reconcile_bound)
-        for node in own:
+        for node in nodes:
             if isinstance(node, (ast.Compare, ast.BoolOp, ast.IfExp)):
                 roots = {
                     leaf.value.id for leaf in ast.walk(node)
@@ -640,8 +759,26 @@ def reconcile_selection_violations(source: str) -> list[str]:
     return violations
 
 
+def test_name_integrity_holds_on_the_module():
+    assert name_integrity_violations(PIPELINE_SOURCE.read_text(encoding="utf-8")) == []
+
+
 def test_no_two_reconcile_results_are_compared_or_selected_between():
     assert reconcile_selection_violations(PIPELINE_SOURCE.read_text(encoding="utf-8")) == []
+
+
+def _mutant(*edits: tuple[str, str]) -> str:
+    """The CURRENT module text with each `(anchor, replacement)` applied once."""
+    source = PIPELINE_SOURCE.read_text(encoding="utf-8")
+    for anchor, replacement in edits:
+        assert source.count(anchor) == 1, anchor
+        source = source.replace(anchor, replacement)
+    return source
+
+
+ANCHOR_ESCALATED = "    escalated = False\n"
+ANCHOR_IMPORT_RECONCILE = "from .reconcile import reconcile, ReconResult\n"
+ANCHOR_IMPORT_EXTRACT = "from .extract import extract_statement\n"
 
 
 def test_the_reconcile_selection_check_catches_the_base_selection_verbatim():
@@ -650,9 +787,6 @@ def test_the_reconcile_selection_check_catches_the_base_selection_verbatim():
     text after the pinned `escalated = False`, trips B1, B2 and B3 (and B4 on
     its `alt_recon.summary_ok == recon.summary_ok`). This is mutant M2 in its
     fullest form, applied in memory."""
-    source = PIPELINE_SOURCE.read_text(encoding="utf-8")
-    anchor = "    escalated = False\n"
-    assert source.count(anchor) == 1
     base_block = (
         "    if not recon.ok and settings.escalation_model != settings.model:\n"
         "        alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))\n"
@@ -662,8 +796,7 @@ def test_the_reconcile_selection_check_catches_the_base_selection_verbatim():
         "        if alt_recon.ok or better_summary or fewer_issues:\n"
         "            stmt, recon, model_used, escalated = alt, alt_recon, settings.escalation_model, True\n"
     )
-    mutant = source.replace(anchor, anchor + base_block)
-    violations = reconcile_selection_violations(mutant)
+    violations = reconcile_selection_violations(_mutant((ANCHOR_ESCALATED, ANCHOR_ESCALATED + base_block)))
     assert any(v.startswith("B1 _analyse") for v in violations), violations
     assert any(v.startswith("B2 _analyse") and "`recon`" in v for v in violations), violations
     assert any(v.startswith("B4 _analyse") for v in violations), violations
@@ -676,10 +809,98 @@ def test_the_reconcile_selection_check_catches_the_base_selection_verbatim():
     "    return reconcile(stmt, parser_id=claiming)\n",
 ], ids=["inline-test", "helper-argument", "conditional-expression", "returned"])
 def test_the_reconcile_selection_check_refuses_every_other_position(mutant_line):
-    source = PIPELINE_SOURCE.read_text(encoding="utf-8")
-    anchor = "    escalated = False\n"
-    violations = reconcile_selection_violations(source.replace(anchor, anchor + mutant_line))
+    violations = reconcile_selection_violations(_mutant((ANCHOR_ESCALATED, ANCHOR_ESCALATED + mutant_line)))
     assert any(v.startswith(("B2", "B3")) for v in violations), violations
+
+
+def test_the_reviewers_nested_closure_selection_is_caught_across_scopes():
+    """Review F1, mutant R6 verbatim: a closure inside `_analyse` binds its own
+    `reconcile(...)` result and reads the enclosing `recon` — a reconciliation-
+    based selection between two candidates with NO second extraction, invisible
+    to every dynamic test. At c373957 it passed the per-scope check and the
+    whole killer set (402 passed). Over units it trips B1 (two reconcile-bound
+    names in `_analyse`) and B4 (`alt_recon.ok and not recon.ok`)."""
+    closure = (
+        "    def _prefer(candidate):\n"
+        "        alt_recon = reconcile(candidate, parser_id=claiming)\n"
+        "        return candidate if alt_recon.ok and not recon.ok else stmt\n"
+        "    stmt = _prefer(normalize_statement(stmt))\n"
+    )
+    violations = reconcile_selection_violations(_mutant((ANCHOR_ESCALATED, ANCHOR_ESCALATED + closure)))
+    assert any(v.startswith("B1 _analyse") for v in violations), violations
+    assert any(v.startswith("B4 _analyse") for v in violations), violations
+
+
+def test_a_nested_parameter_shadowing_the_reconcile_result_is_caught():
+    shadow = (
+        "    def _judge(recon):\n"
+        "        return recon.ok\n"
+        "    _judge(recon)\n"
+    )
+    violations = reconcile_selection_violations(_mutant((ANCHOR_ESCALATED, ANCHOR_ESCALATED + shadow)))
+    assert any(v.startswith("B2 _analyse") and "`recon`" in v for v in violations), violations
+
+
+@pytest.mark.parametrize("edits,rule", [
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _r = reconcile\n    alt_recon = _r(stmt, parser_id=claiming)\n"),), "N3"),
+    (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "from .reconcile import reconcile as verify\n"),), "N1"),
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _hosted = extract_statement\n"),), "N3"),
+    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from .extract import extract_statement as _second\n"),), "N1"),
+    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from . import extract as _extract_module\n"),), "N1"),
+    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from . import extract as _ex\n"),
+      (ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _ex.extract_statement\n")), "N4"),
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _f = getattr(os, \"extract_statement\")\n"),), "N5"),
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _f = getattr(os, \"path\")\n"),), "N6"),
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _f = globals()[\"extract_statement\"]\n"),), "N6"),
+    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "import importlib\n"),), "N6"),
+    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "import analysis.extract\n"),), "N1"),
+    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from .config import Settings as reconcile\n"),), "N2"),
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    reconcile = None\n"),), "N2"),
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _m = __import__(\"sys\").modules\n"),), "N6"),
+], ids=["alias-reconcile", "import-as-reconcile", "alias-extract", "import-as-extract",
+        "module-import-as", "module-attribute", "getattr-string", "getattr-any", "globals-lookup",
+        "importlib", "absolute-module-import", "asname-shadow", "rebinding", "dunder-import"])
+def test_every_alias_and_dynamic_door_is_refused(edits, rule):
+    """Review F1: the alias shapes that walked past the name-bound check at
+    c373957 (`_r = reconcile`; `from .reconcile import reconcile as verify`;
+    `_hosted = extract_statement`; `import … as _second`; `getattr`;
+    `globals()`), and the doors they would need, each caught by the named rule."""
+    violations = name_integrity_violations(_mutant(*edits))
+    assert any(v.startswith(rule) for v in violations), (rule, violations)
+
+
+ANALYSIS_ROOT = ROOT / "analysis"
+
+
+def test_no_other_module_under_analysis_imports_reconcile_or_extract_statement():
+    """The module-wide import guard (review F1, item 3): a helper whose body
+    lives in another module is the one shape a single-module scan cannot see,
+    so no module under `analysis/` other than `pipeline.py` may bind, import
+    or reach `reconcile` / `extract_statement` — by `ImportFrom`, by an
+    `Import` of their modules, or by attribute. (`reconcile.py` and
+    `extract.py` define them.)"""
+    offenders: list[str] = []
+    for path in sorted(ANALYSIS_ROOT.rglob("*.py")):
+        relative = path.relative_to(ROOT).as_posix()
+        if relative in ("analysis/pipeline.py", "analysis/reconcile.py", "analysis/extract.py"):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = _module_of(node)
+                if any(alias.name in GUARDED_NAMES or alias.asname in GUARDED_NAMES for alias in node.names):
+                    offenders.append(f"{relative}: {ast.unparse(node)}")
+                elif module in GUARDED_MODULES and (node.module or "") in GUARDED_MODULES | {f"analysis.{m}" for m in GUARDED_MODULES}:
+                    if any(alias.name not in {"ReconResult"} for alias in node.names):
+                        offenders.append(f"{relative}: {ast.unparse(node)}")
+                elif any(alias.name in GUARDED_MODULES for alias in node.names) and (node.module in (None, "", "analysis")):
+                    offenders.append(f"{relative}: {ast.unparse(node)}")
+            elif isinstance(node, ast.Import):
+                if any(alias.name in {"analysis.reconcile", "analysis.extract"} for alias in node.names):
+                    offenders.append(f"{relative}: {ast.unparse(node)}")
+            elif isinstance(node, ast.Attribute) and node.attr in GUARDED_NAMES:
+                offenders.append(f"{relative}: {ast.unparse(node)}")
+    assert offenders == [], offenders
 
 
 # ---------------------------------------------------------------------------
