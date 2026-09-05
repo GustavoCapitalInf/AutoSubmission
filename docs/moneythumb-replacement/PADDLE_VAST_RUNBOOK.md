@@ -187,3 +187,11 @@ instance's public listeners.
 research-mode command, under the 2026-09-03 authorization recorded in `PHASE2_RULINGS.md`
 §"Customer-data authorization — Paddle"; the worker retains nothing; stop the worker and tear the
 tunnel down after each wave.
+
+**Instance re-provisioned (2026-09-04).** The Secure Cloud machine was re-provisioned by Gustavo with a
+new SSH port (same connection contract; only the gitignored `.env` changed). The unchanged lifecycle
+re-proved it end to end: `check` (driver 580.105.08; paddleocr 3.7.0 / paddlepaddle 3.3.0 / Python
+3.12.14; pins match) → `deploy` → `start` (loopback 8765) → `tunnel-up` (local 18765) → `status`
+(refuses without the opt-in) → live proof 1 passed → `measure` (warm median 1,206 ms / p95 1,214 ms
+end-to-end per synthetic page; inference ≈ 333 ms; VRAM 7,692 MiB) → `stop` + `tunnel-down`. The
+instance's Jupyter still occupies 0.0.0.0:8080, so the port note above stands. No customer page sent.
