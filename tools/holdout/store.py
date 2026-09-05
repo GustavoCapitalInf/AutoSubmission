@@ -3,10 +3,15 @@
 Location
 --------
 `SEALED_TRUTH_DIR` in the process environment, REQUIRED — there is no default.
-It must be an absolute directory OUTSIDE every repository checkout: not under
-this checkout's root, not under the main repository when this is a worktree,
-not under any directory that carries a `.git` entry, never under a `.claude`
-or `Bank Statements` path component. The directory is created on first write.
+It must be an absolute directory OUTSIDE every repository checkout and ON THIS
+MACHINE: not under this checkout's root, not under the main repository when
+this is a worktree, not under any directory that carries a `.git` entry, never
+under a `.claude` or `Bank Statements` path component, never an ancestor of a
+checkout, never under a checkout's parent directory (the project folder and
+its siblings), and never under a OneDrive root (R3: "on this machine" — a
+synced folder is not this machine; roots come from the `OneDrive*`
+environment variables and from the checkout's own ancestry). The directory is
+created on first write.
 
 Storage
 -------
@@ -16,7 +21,9 @@ record carries `prev` (the previous record's hash, `GENESIS` for the first)
 and `hash` (sha256 over the canonical JSON of every field but `hash`), so the
 file is a chain: `verify_chain()` refuses a rewritten, reordered, or
 head-removed file. `manifest.json` remembers `store_version`, `record_count`,
-`chain_head` and `updated_at`, so a truncated file is caught too.
+`chain_head` and `updated_at`; EVERY append and every read that yields a
+verdict first calls `verify_against_manifest()`, so a truncated tail is
+refused, never re-sealed by the next append (review MAJOR-1).
 
 What is never stored
 --------------------
@@ -42,6 +49,7 @@ GENESIS = "GENESIS"
 TRUTH_FILE = "truth.jsonl"
 MANIFEST_FILE = "manifest.json"
 HOLDOUT_FILE = "holdout.jsonl"
+HOLDOUT_MANIFEST_FILE = "holdout_manifest.json"
 
 #: The closed document-kind vocabulary (the umbrella's classifier contract; one per document).
 KINDS = (
@@ -69,6 +77,8 @@ MAX_SAMPLED_ROWS = 3
 
 #: Path components under which a store or a packet directory is never accepted.
 FORBIDDEN_COMPONENTS = (".claude", "bank statements")
+#: Environment variables (by upper-cased prefix) that name a synced OneDrive root.
+ONEDRIVE_ENV_PREFIX = "ONEDRIVE"
 
 _SHA256_RE = re.compile(r"[0-9A-Fa-f]{64}")
 _CODE_RE = re.compile(r"[a-z][a-z0-9_]{0,39}")
@@ -128,17 +138,48 @@ def repository_roots() -> tuple[Path, ...]:
     return tuple(roots)
 
 
+def onedrive_roots(env: Mapping[str, str] | None = None) -> tuple[Path, ...]:
+    """Synced roots: every `OneDrive*` environment variable's directory, plus
+    every ancestor of a repository root whose name starts with `OneDrive`."""
+    env = os.environ if env is None else env
+    roots: list[Path] = []
+    for name, value in env.items():
+        if name.upper().startswith(ONEDRIVE_ENV_PREFIX) and value and value.strip():
+            candidate = Path(value.strip())
+            if candidate.is_absolute():
+                roots.append(candidate.resolve())
+    for root in repository_roots():
+        for ancestor in root.parents:
+            if ancestor.name.lower().startswith("onedrive"):
+                roots.append(ancestor)
+    unique: list[Path] = []
+    for root in roots:
+        if root not in unique:
+            unique.append(root)
+    return tuple(unique)
+
+
 def forbidden_ancestor(path: Path) -> str | None:
     """Why `path` (already resolved) may not hold sealed material, or None."""
     for part in path.parts:
         if part.lower() in FORBIDDEN_COMPONENTS:
             return f"under a {part!r} path component"
+        if part.lower().startswith("onedrive"):
+            return f"under a {part!r} path component (a synced folder is not this machine)"
     for root in repository_roots():
         if path == root or root in path.parents:
             return f"inside the repository checkout {root}"
+        if path in root.parents:
+            return f"an ancestor of the repository checkout {root}"
+        parent = root.parent
+        if path == parent or parent in path.parents:
+            return f"under the checkout's parent directory {parent}"
     for ancestor in (path, *path.parents):
         if (ancestor / ".git").exists():
             return f"inside a git checkout ({ancestor})"
+    for synced in onedrive_roots():
+        if path == synced or synced in path.parents:
+            return f"under a OneDrive root ({synced}); the store lives on this machine, never in a synced folder"
     return None
 
 
@@ -242,10 +283,12 @@ def _retry(action):
 
 
 class ChainedJsonl:
-    """An append-only JSONL file whose records form a hash chain."""
+    """An append-only JSONL file whose records form a hash chain, with a
+    sidecar manifest that remembers the head so a truncated tail is caught."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, manifest_path: Path | None = None):
         self.path = path
+        self.manifest_path = manifest_path
 
     def read(self) -> list[dict]:
         if not self.path.exists():
@@ -289,9 +332,60 @@ class ChainedJsonl:
     def head(self) -> str:
         return self.verify()
 
-    def append(self, payload: Mapping, *, records: list[dict] | None = None) -> dict:
+    def read_manifest(self) -> dict | None:
+        if self.manifest_path is None or not self.manifest_path.exists():
+            return None
+        return json.loads(_retry(lambda: self.manifest_path.read_text(encoding="utf-8")))
+
+    def verify_against_manifest(self, records: list[dict] | None = None) -> str:
+        """The chain must be intact AND agree with the sidecar manifest: a
+        file whose tail was removed still chains, but its head and count no
+        longer match what the manifest remembered."""
         records = self.read() if records is None else records
         head = self.verify(records)
+        manifest = self.read_manifest()
+        if manifest is None:
+            if records:
+                raise ChainError(
+                    f"{self.path.name} has records but {self.manifest_path.name if self.manifest_path else 'the manifest'} is missing"
+                )
+            return head
+        if manifest.get("chain_head") != head or manifest.get("record_count") != len(records):
+            raise ChainError(
+                f"{self.manifest_path.name} disagrees with {self.path.name} (truncated or replaced file): "
+                f"manifest {manifest.get('record_count')} records / head "
+                f"{str(manifest.get('chain_head'))[:12]}, file {len(records)} / {head[:12]}"
+            )
+        return head
+
+    def write_manifest(self, records: list[dict] | None = None) -> dict:
+        if self.manifest_path is None:
+            raise ChainError(f"{self.path.name}: no manifest path configured")
+        records = self.read() if records is None else records
+        head = self.verify(records)
+        manifest = {
+            "store_version": STORE_VERSION,
+            "record_count": len(records),
+            "chain_head": head,
+            "updated_at": utc_now_iso(),
+        }
+        text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+        target = self.manifest_path
+
+        def _write():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(".json.tmp")
+            temporary.write_text(text, encoding="utf-8")
+            os.replace(temporary, target)
+
+        _retry(_write)
+        return manifest
+
+    def append(self, payload: Mapping, *, records: list[dict] | None = None) -> dict:
+        """Append ONE record — only after the chain and its manifest agree
+        (review MAJOR-1: a truncated tail is never re-sealed)."""
+        records = self.read() if records is None else records
+        head = self.verify_against_manifest(records)
         record = dict(payload)
         for key in _CHAIN_KEYS:
             if key in record:
@@ -309,6 +403,8 @@ class ChainedJsonl:
                 os.fsync(handle.fileno())
 
         _retry(_write)
+        if self.manifest_path is not None:
+            self.write_manifest(records + [record])
         return record
 
 
@@ -500,7 +596,7 @@ class TruthStore:
         self.directory = refuse_inside_checkout(directory, what="the sealed truth store")
         self.truth_path = self.directory / TRUTH_FILE
         self.manifest_path = self.directory / MANIFEST_FILE
-        self._chain = ChainedJsonl(self.truth_path)
+        self._chain = ChainedJsonl(self.truth_path, self.manifest_path)
 
     @classmethod
     def open(cls, env: Mapping[str, str] | None = None) -> "TruthStore":
@@ -513,32 +609,20 @@ class TruthStore:
         return self._chain.verify()
 
     def verify_against_manifest(self) -> str:
-        records = self.records()
-        head = self._chain.verify(records)
-        if not self.manifest_path.exists():
-            if records:
-                raise ChainError("truth.jsonl has records but manifest.json is missing")
-            return head
-        manifest = json.loads(_retry(lambda: self.manifest_path.read_text(encoding="utf-8")))
-        if manifest.get("chain_head") != head or manifest.get("record_count") != len(records):
-            raise ChainError(
-                "manifest.json disagrees with truth.jsonl (truncated or replaced file): "
-                f"manifest {manifest.get('record_count')} records / head "
-                f"{str(manifest.get('chain_head'))[:12]}, file {len(records)} / {head[:12]}"
-            )
-        return head
+        return self._chain.verify_against_manifest()
 
     def append_record(self, **fields) -> dict:
         records = self.records()
-        self._chain.verify(records)
+        self._chain.verify_against_manifest(records)  # MAJOR-1: never append to a truncated file
         payload = build_record(seq=len(records) + 1, **fields)
-        record = self._chain.append(payload, records=records)
-        self.write_manifest(records + [record])
-        return record
+        return self._chain.append(payload, records=records)
 
     def latest_by_sha(self) -> dict[str, dict]:
+        """Current verdict per sha — only from a store that agrees with its manifest."""
+        records = self.records()
+        self._chain.verify_against_manifest(records)
         latest: dict[str, dict] = {}
-        for record in self.records():
+        for record in records:
             latest[record["content_sha256"]] = record
         return latest
 
@@ -550,8 +634,9 @@ class TruthStore:
         return sorted(sha[:16] for sha in self.latest_by_sha())
 
     def manifest(self) -> dict:
-        if self.manifest_path.exists():
-            return json.loads(_retry(lambda: self.manifest_path.read_text(encoding="utf-8")))
+        manifest = self._chain.read_manifest()
+        if manifest is not None:
+            return manifest
         return {
             "store_version": STORE_VERSION,
             "record_count": 0,
@@ -560,21 +645,4 @@ class TruthStore:
         }
 
     def write_manifest(self, records: list[dict] | None = None) -> dict:
-        records = self.records() if records is None else records
-        head = self._chain.verify(records)
-        manifest = {
-            "store_version": STORE_VERSION,
-            "record_count": len(records),
-            "chain_head": head,
-            "updated_at": utc_now_iso(),
-        }
-        text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-
-        def _write():
-            self.directory.mkdir(parents=True, exist_ok=True)
-            temporary = self.manifest_path.with_suffix(".json.tmp")
-            temporary.write_text(text, encoding="utf-8")
-            os.replace(temporary, self.manifest_path)
-
-        _retry(_write)
-        return manifest
+        return self._chain.write_manifest(records)

@@ -1,14 +1,34 @@
 """P22-HOLDOUT case 19: the leakage firewall.
 
 The sealed truth store (D9, R3, R4) is invisible to every implementation and
-tuning path. Checked by AST at ANY depth (a lazy import inside a function, a
-string literal in a docstring, a `getenv` call in a helper all count) over
-every module under the production roots; the store package itself imports
-nothing from those roots; the store refuses a path inside the checkout; and
-the repository digest carries no verdict, figure, kind, date or name — every
-one of its lines must match a closed grammar.
+tuning path. This is a STATIC literal / name / import tripwire, checked by
+AST at ANY depth (a lazy import inside a function, a string constant in a
+docstring, an env access in a helper three scopes deep all count) over every
+module under the production roots.
 
-The scanner lives here, in the test, in the `test_evidence_boundary.py`
+What it sees: a string or bytes constant containing the variable name, the
+store package or the CLI module (including one assembled from adjacent
+literals, `+`-concatenation of constants, a constant f-string, `"_".join` of
+constant parts, `.upper()`/`.lower()`/`.replace()` of a constant, and a
+reversed constant slice); `import` / `from … import` of `tools.holdout*` or
+`tools.adjudicate`; a `Name` or `Attribute` called `SEALED_TRUTH_DIR` /
+`HOLDOUT_STORE_DIR`; and any `os.environ` / `getenv` access whose (folded)
+key names SEALED, TRUTH or HOLDOUT — a second variable carrying the store
+path under such a name is caught by that rule.
+
+What it cannot see (named honestly; review MINOR-6): a name built at run
+time from parts it cannot fold (a base64 or other encoded literal, a value
+read from a file, a variable), a second environment variable whose name says
+nothing (`DATA_ROOT`), a pointer file, `__import__` / `importlib` with a
+built name, a hard-coded absolute path to the store, a walk over
+`os.environ`, or `exec` of a built statement. Those are side channels only
+review and the "no reading of the store from production" convention (the
+W3's MINOR-4 note) cover; the firewall pins the literal surface.
+
+The store package itself imports nothing from those roots; the store refuses
+a path inside the checkout; and the repository digest carries no verdict,
+figure, kind, date or name — every one of its lines must match a closed
+grammar. The scanner lives here, in the test, in the `test_evidence_boundary.py`
 idiom, and is pointed at a SCRATCH copy of a production module to prove it
 can actually catch a leak (M8).
 """
@@ -33,6 +53,9 @@ FORBIDDEN_LITERAL_FRAGMENTS = ("SEALED_TRUTH_DIR", "HOLDOUT_STORE_DIR", "tools.h
                                "tools/holdout", "tools.adjudicate", "tools/adjudicate")
 FORBIDDEN_IMPORT_PREFIXES = ("tools.holdout", "tools.adjudicate")
 FORBIDDEN_NAMES = ("SEALED_TRUTH_DIR", "HOLDOUT_STORE_DIR")
+#: An environment key naming any of these is a store reference, whatever the variable is called.
+ENV_KEY_TOKENS = ("SEALED", "TRUTH", "HOLDOUT")
+_ENV_GETTERS = ("get", "getenv")
 
 #: What `tools/holdout` and `tools/adjudicate.py` may never import.
 STORE_FORBIDDEN_PREFIXES = ("analysis", "ocr", "discovery", "webapp", "telemetry", "layout",
@@ -45,29 +68,120 @@ MONEY_RE = re.compile(r"(?<![0-9A-Fa-f])\d{1,3}(?:,\d{3})*\.\d{2}(?![0-9A-Fa-f])
 DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b")
 
 
+def _int_const(node) -> int | None:
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = _int_const(node.operand)
+        return None if inner is None else -inner
+    return None
+
+
+def _folded(node) -> str | None:
+    """The string a node evaluates to when it is built from constants only."""
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, str):
+            return node.value
+        if isinstance(node.value, bytes):
+            return node.value.decode("utf-8", "replace")
+        return None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _folded(node.left), _folded(node.right)
+        return None if left is None or right is None else left + right
+    if isinstance(node, ast.JoinedStr):
+        parts = []
+        for value in node.values:
+            inner = _folded(value.value if isinstance(value, ast.FormattedValue) else value)
+            if inner is None:
+                return None
+            parts.append(inner)
+        return "".join(parts)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        base = _folded(node.func.value)
+        if base is None:
+            return None
+        method = node.func.attr
+        if method == "join" and len(node.args) == 1 and isinstance(node.args[0], (ast.List, ast.Tuple)):
+            items = [_folded(element) for element in node.args[0].elts]
+            return None if any(item is None for item in items) else base.join(items)
+        if method in ("upper", "lower", "strip", "casefold", "swapcase", "title") and not node.args:
+            return getattr(base, method)()
+        if method == "replace" and len(node.args) == 2:
+            old, new = _folded(node.args[0]), _folded(node.args[1])
+            return None if old is None or new is None else base.replace(old, new)
+        return None
+    if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
+        base = _folded(node.value)
+        if base is None:
+            return None
+        bounds = [_int_const(part) if part is not None else None
+                  for part in (node.slice.lower, node.slice.upper, node.slice.step)]
+        if any(part is not None and bound is None
+               for part, bound in zip((node.slice.lower, node.slice.upper, node.slice.step), bounds)):
+            return None
+        return base[bounds[0]:bounds[1]:bounds[2]]
+    return None
+
+
+def _env_key(node) -> str | None:
+    """The folded key of an `os.environ[...]` / `os.environ.get(...)` / `os.getenv(...)` access."""
+    if isinstance(node, ast.Subscript):
+        target = node.value
+        if (isinstance(target, ast.Attribute) and target.attr == "environ") or \
+                (isinstance(target, ast.Name) and target.id == "environ"):
+            return _folded(node.slice)
+        return None
+    if isinstance(node, ast.Call):
+        func = node.func
+        is_getter = (
+            (isinstance(func, ast.Attribute) and func.attr in _ENV_GETTERS and (
+                (isinstance(func.value, ast.Attribute) and func.value.attr == "environ")
+                or (isinstance(func.value, ast.Name) and func.value.id in ("environ", "os"))))
+            or (isinstance(func, ast.Name) and func.id == "getenv")
+        )
+        if is_getter and node.args:
+            return _folded(node.args[0])
+    return None
+
+
 def _findings(path: Path) -> list[str]:
-    """Every way a module could reach the store, at any AST depth."""
+    """Every literal, name, import or env-key reference to the store at any depth."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found: list[str] = []
+    seen: set[tuple] = set()
+
+    def record(kind: str, what: str, line: int) -> None:
+        key = (kind, what, line)
+        if key not in seen:
+            seen.add(key)
+            found.append(f"{kind} {what!r} at line {line}")
+
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        text = _folded(node)
+        if text is not None:
+            lowered = text.lower()
             for fragment in FORBIDDEN_LITERAL_FRAGMENTS:
-                if fragment in node.value:
-                    found.append(f"literal {fragment!r} at line {node.lineno}")
-        elif isinstance(node, ast.Import):
+                if fragment.lower() in lowered:
+                    record("literal", fragment, getattr(node, "lineno", 0))
+        key = _env_key(node)
+        if key is not None and any(token in key.upper() for token in ENV_KEY_TOKENS):
+            record("environment key", key, getattr(node, "lineno", 0))
+        if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name.startswith(FORBIDDEN_IMPORT_PREFIXES):
-                    found.append(f"import {alias.name} at line {node.lineno}")
+                    record("import", alias.name, node.lineno)
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             if module.startswith(FORBIDDEN_IMPORT_PREFIXES):
-                found.append(f"from {module} import ... at line {node.lineno}")
+                record("from-import", module, node.lineno)
             if module == "tools" and any(a.name in ("holdout", "adjudicate") for a in node.names):
-                found.append(f"from tools import holdout/adjudicate at line {node.lineno}")
+                record("from-import", "tools.holdout/adjudicate", node.lineno)
         elif isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
-            found.append(f"name {node.id} at line {node.lineno}")
+            record("name", node.id, node.lineno)
         elif isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_NAMES:
-            found.append(f"attribute .{node.attr} at line {node.lineno}")
+            record("attribute", node.attr, node.lineno)
     return found
 
 
@@ -111,19 +225,29 @@ def test_no_production_module_references_the_store():
     assert not offenders, f"the sealed truth store leaked into a production path: {offenders}"
 
 
-@pytest.mark.parametrize(
-    "injection",
-    [
-        'import os\n_LEAK = os.environ.get("SEALED_TRUTH_DIR")\n',
-        'import os\n_LEAK = os.getenv("SEALED_TRUTH_DIR")\n',
-        'def _late():\n    from tools.holdout import store\n    return store\n',
-        'def _late():\n    import tools.holdout.store\n',
-        'def _late():\n    from tools import adjudicate\n',
-        'import importlib\n_M = importlib.import_module("tools.holdout.store")\n',
-        'from os import environ\n\ndef _deep():\n    class _K:\n        def m(self):\n            return environ["SEALED_TRUTH_DIR"]\n',
-        '"""A docstring that names HOLDOUT_STORE_DIR."""\n',
-    ],
-)
+INJECTIONS = [
+    'import os\n_LEAK = os.environ.get("SEALED_TRUTH_DIR")\n',
+    'import os\n_LEAK = os.getenv("SEALED_TRUTH_DIR")\n',
+    'def _late():\n    from tools.holdout import store\n    return store\n',
+    'def _late():\n    import tools.holdout.store\n',
+    'def _late():\n    from tools import adjudicate\n',
+    'import importlib\n_M = importlib.import_module("tools.holdout.store")\n',
+    'from os import environ\n\ndef _deep():\n    class _K:\n        def m(self):\n            return environ["SEALED_TRUTH_DIR"]\n',
+    '"""A docstring that names HOLDOUT_STORE_DIR."""\n',
+    # MINOR-6: the shapes the folding pass sees
+    'import os\n_LEAK = os.environ.get("SEALED_" + "TRUTH_DIR")\n',
+    'import os\n_LEAK = os.environ.get("_".join(["SEALED", "TRUTH", "DIR"]))\n',
+    'import os\n_LEAK = os.environ.get(f"SEALED_TRUTH_{\'DIR\'}")\n',
+    'import os\n_LEAK = os.environ.get("sealed_truth_dir".upper())\n',
+    'import os\n_LEAK = os.environ.get("RID_HTURT_DELAES"[::-1])\n',
+    'import os\n_LEAK = os.environ.get("MY_TRUTH_STORE_PATH")\n',
+    'import os\n_LEAK = os.environ["HOLDOUT_ROOT"]\n',
+    '_NAME = b"SEALED_TRUTH_DIR"\n',
+    '_MOD = "tools" "." "holdout"\n',
+]
+
+
+@pytest.mark.parametrize("injection", INJECTIONS)
 def test_a_mutant_production_module_is_caught_at_any_depth(tmp_path, injection):
     """M8: a scratch copy of `discovery/runner.py` with one injected leak."""
     source = ROOT / "discovery" / "runner.py"
@@ -139,6 +263,22 @@ def test_a_clean_scratch_copy_produces_no_finding(tmp_path):
     source = ROOT / "discovery" / "runner.py"
     scratch = tmp_path / "runner.py"
     shutil.copy(source, scratch)
+    assert _findings(scratch) == []
+
+
+NOT_SEEN = [
+    'import base64, os\n_LEAK = os.environ.get(base64.b64decode("U0VBTEVEX1RSVVRIX0RJUg==").decode())\n',
+    'import os\n_LEAK = os.environ.get("DATA_ROOT")\n',
+    '_P = "C:/somewhere/truth.jsonl"\n',
+]
+
+
+@pytest.mark.parametrize("injection", NOT_SEEN)
+def test_the_firewall_names_its_limits_truthfully(tmp_path, injection):
+    """The docstring's 'cannot see' list must stay true: these shapes are NOT
+    findings, so nobody mistakes the tripwire for a dynamic analysis."""
+    scratch = tmp_path / "runner.py"
+    scratch.write_text("x = 1\n" + injection, encoding="utf-8")
     assert _findings(scratch) == []
 
 
@@ -237,6 +377,21 @@ def test_the_committed_digest_is_non_sensitive():
     _assert_digest_is_non_sensitive(DIGEST_PATH.read_text(encoding="utf-8"))
 
 
+def _dev_corpus(tmp_path, *shas):
+    import csv
+
+    from tools.holdout.manifest import dev_corpus_from_rows
+
+    path = tmp_path / "dev_rows.csv"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["relative_path", "content_sha256", "outcome_class"])
+        writer.writeheader()
+        for sha in shas:
+            writer.writerow({"relative_path": f"synthetic/{sha[:8]}.pdf", "content_sha256": sha,
+                             "outcome_class": "validated"})
+    return dev_corpus_from_rows(path)
+
+
 def test_a_digest_rendered_from_a_populated_store_is_non_sensitive(tmp_path, monkeypatch):
     """M9's killer: a digest that included a kind, a figure or a date would
     fail the grammar. The committed digest is an EMPTY store's, so this test
@@ -262,7 +417,7 @@ def test_a_digest_rendered_from_a_populated_store_is_non_sensitive(tmp_path, mon
                  strata=build_strata(modality="scanned", bank_familiarity="unknown_bank",
                                      account_shape="single", table_shape="summary_only",
                                      currency="CAD", page_count=2, layout_family_code="fam_b"),
-                 dev_corpus_shas={sha_a})
+                 dev_corpus=_dev_corpus(tmp_path, sha_a))
     text = render_digest(store, manifest)
     _assert_digest_is_non_sensitive(text)
     parsed = parse_digest(text)

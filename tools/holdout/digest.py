@@ -14,6 +14,10 @@ figure, date, name or path has no line shape to live in. The grammar is
 the interface for the runner's research-mode refusal (cell T reads this file
 with its own few lines — it may not import this package): a holdout entry is
 `- <SHA16> <status>` under the `holdout_sha16_status:` header.
+
+The committed digest is also the ANCHOR a whole-chain rewrite cannot forge
+(review MAJOR-1's A3 case): `verify_against_digest` compares a store with the
+digest the repository carries.
 """
 from __future__ import annotations
 
@@ -49,17 +53,19 @@ def default_digest_path() -> Path:
 
 
 def render_digest(store: TruthStore | None, manifest: HoldoutManifest | None) -> str:
+    """Render from a store and a manifest that each agree with their sidecar
+    manifest files (a truncated file is refused, never exported)."""
     if store is None:
         record_count, chain_head, sha16s = 0, GENESIS, []
     else:
         records = store.records()
-        chain_head = store.verify_chain()
+        chain_head = store.verify_against_manifest()
         record_count = len(records)
         sha16s = store.adjudicated_sha16s()
     if manifest is None:
         holdout_head, statuses = GENESIS, []
     else:
-        holdout_head = manifest.verify_chain()
+        holdout_head = manifest.verify_against_manifest()
         statuses = manifest.sha16_statuses()
     lines = list(HEADER_LINES)
     lines.append(f"store_version: {STORE_VERSION}")
@@ -113,6 +119,20 @@ def parse_digest(text: str) -> dict:
     return result
 
 
+def verify_against_digest(store: TruthStore, manifest: HoldoutManifest, text: str) -> list[str]:
+    """Every disagreement between a live store and a digest text (empty when
+    they agree). The digest is the anchor a whole-chain rewrite that also
+    rewrote the sidecar manifests cannot forge."""
+    expected = parse_digest(text)
+    actual = parse_digest(render_digest(store, manifest))
+    mismatches: list[str] = []
+    for key in ("store_version", "record_count", "chain_head", "holdout_chain_head",
+                "adjudicated_sha16", "holdout_sha16_status"):
+        if expected[key] != actual[key]:
+            mismatches.append(key)
+    return mismatches
+
+
 def write_digest(text: str, path: Path | None = None) -> Path:
     target = default_digest_path() if path is None else Path(path)
 
@@ -137,5 +157,6 @@ __all__ = [
     "export_digest",
     "parse_digest",
     "render_digest",
+    "verify_against_digest",
     "write_digest",
 ]

@@ -1,11 +1,15 @@
 """P22-HOLDOUT item 4: the evaluation event (skeleton), proven on a
 synthetic store + a synthetic rows.csv.
 
-FALSE ACCEPT = system `validated` AND the oracle contradicts a money identity
-or a sampled row (never from the verdict alone — M12); FALSE REFUSAL = oracle
+FALSE ACCEPT = system `validated` AND the oracle contradicts a PARSED money
+identity or a sampled row (never from the verdict alone — M12; never from an
+unparseable export value — review MINOR-3a); `agree` needs at least one money
+identity, else `agree_partial` (review MINOR-3b); FALSE REFUSAL = oracle
 complete + legible statement AND system not validated (classified A/B/C from
-the row); items compared are marked `evaluated` WITH the engine version (M11);
-aggregates only on stdout; the private report refuses the checkout.
+the row); items compared are marked `evaluated` WITH the engine version
+(M11); a store or manifest that disagrees with its sidecar refuses the
+evaluation (review MAJOR-1); aggregates only on stdout; the private report
+refuses the checkout.
 """
 from __future__ import annotations
 
@@ -16,8 +20,8 @@ from pathlib import Path
 import pytest
 
 from tools.holdout import evaluate as evaluate_mod
-from tools.holdout.manifest import HoldoutManifest, build_strata
-from tools.holdout.store import StoreLocationError, TruthStore
+from tools.holdout.manifest import HoldoutManifest, build_strata, dev_corpus_from_rows
+from tools.holdout.store import ChainError, StoreLocationError, TruthStore
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,8 +38,8 @@ def sha(label: str) -> str:
 
 
 S = {name: sha(name) for name in ("agree", "false_accept", "false_refusal", "consistent", "unjudged",
-                                  "row_absent", "unadjudicated", "kind_conflict")}
-DEV = frozenset(sha(f"dev-{i}") for i in range(3))
+                                  "row_absent", "unadjudicated", "kind_conflict", "unparseable")}
+DEV = sorted(sha(f"dev-{i}") for i in range(3))
 
 
 def complete(**overrides) -> dict:
@@ -86,9 +90,12 @@ def world(tmp_path, monkeypatch):
     store.append_record(content_sha256=S["row_absent"], **complete())
     store.append_record(content_sha256=S["kind_conflict"], **complete(kind="STATEMENT_PARTIAL",
                                                                       completeness_findings=["page_gap"]))
+    store.append_record(content_sha256=S["unparseable"], **complete(sampled_rows=[]))
+    dev_corpus = dev_corpus_from_rows(write_csv(tmp_path / "dev_rows.csv", ROW_COLUMNS,
+                                                [row(d, "validated") for d in DEV]))
     for name in S:
         familiarity = "unknown_bank" if name in ("agree", "false_accept") else "known_bank"
-        manifest.add(content_sha256=S[name], source_batch="unseen-2031-01", dev_corpus_shas=DEV,
+        manifest.add(content_sha256=S[name], source_batch="unseen-2031-01", dev_corpus=dev_corpus,
                      strata=build_strata(modality="digital", bank_familiarity=familiarity,
                                          account_shape="single", table_shape="table_heavy",
                                          currency="USD", page_count=2, layout_family_code="fam_x"))
@@ -101,6 +108,7 @@ def world(tmp_path, monkeypatch):
         row(S["row_absent"], "validated"),
         row(S["unadjudicated"], "failed"),
         row(S["kind_conflict"], "validated"),
+        row(S["unparseable"], "validated"),
         # a second, worse row for the same sha must not hide the validated one
         row(S["agree"], "failed", relative_path="synthetic/duplicate.pdf"),
     ])
@@ -115,6 +123,8 @@ def world(tmp_path, monkeypatch):
              closing_balance="150.25"),
         dict(content_sha256=S["kind_conflict"], account_count="1", opening_balance="100.00",
              closing_balance="150.25"),
+        # MINOR-3a: an export that could not produce the figure
+        dict(content_sha256=S["unparseable"], account_count="1", closing_balance="n/a"),
     ])
     ledger = write_csv(tmp_path / "ledger.csv", LEDGER_COLUMNS, [
         dict(content_sha256=S["agree"], date="2031-01-05", description="synthetic row one", amount="-12.34"),
@@ -135,11 +145,12 @@ def run(world, **overrides) -> dict:
 
 def test_the_synthetic_evaluation_reports_each_judgement(world):
     result = run(world)
-    assert result["items"] == 8
-    assert result["compared"] == 7
+    assert result["items"] == 9
+    assert result["compared"] == 8
     assert result["false_accept"] == 2
     assert result["false_refusal"] == 1
     assert result["agree"] == 1
+    assert result["agree_partial"] == 1
     assert result["not_judgeable"] == 1
     assert result["consistent_refusal"] == 1
     assert result["kind_conflict"] == 1
@@ -151,9 +162,20 @@ def test_the_synthetic_evaluation_reports_each_judgement(world):
     assert by_sha16[S["false_accept"][:16]]["contradictions"] == ["closing_balance"]
     assert by_sha16[S["row_absent"][:16]]["contradictions"] == ["sampled_row_absent"]
     assert by_sha16[S["agree"][:16]]["judgement"] == "agree"
+    assert by_sha16[S["agree"][:16]]["money_compared"] == 3  # opening, closing, one ledger row
     assert by_sha16[S["agree"][:16]]["system_outcome"] == "validated"
     assert by_sha16[S["false_refusal"][:16]]["miss_class"] == "B"
     assert by_sha16[S["kind_conflict"][:16]]["judgement"] == "kind_conflict"
+
+
+def test_an_unparseable_system_figure_is_never_a_contradiction(world):
+    """Review MINOR-3a: `n/a` in a figures export is listed, not compared."""
+    result = run(world)
+    detail = {d["sha16"]: d for d in result["details"]}[S["unparseable"][:16]]
+    assert detail["judgement"] == "agree_partial"
+    assert detail["contradictions"] == []
+    assert detail["unparseable"] == ["closing_balance"]
+    assert detail["compared"] == 1 and detail["money_compared"] == 0
 
 
 def test_false_accept_needs_an_oracle_contradiction_never_the_verdict_alone(world):
@@ -168,8 +190,19 @@ def test_false_accept_needs_an_oracle_contradiction_never_the_verdict_alone(worl
     world["manifest"] = HoldoutManifest.open()
     result2 = run(world, figures_csv=None, ledger_csv=None, run_id="run-synthetic-2")
     by2 = {d["sha16"]: d for d in result2["details"]}
-    assert by2[S["false_accept"][:16]]["judgement"] == "agree"  # only account_count comparable, and it agrees
-    assert result2["false_accept"] == 0
+    assert by2[S["false_accept"][:16]]["judgement"] == "agree_partial"
+    assert result2["false_accept"] == 0 and result2["agree"] == 0
+
+
+def test_agree_requires_a_money_identity(world):
+    """Review MINOR-3b: `account_count` alone is `agree_partial`, never `agree`."""
+    world["manifest"] = HoldoutManifest.open()
+    result = run(world, figures_csv=None, ledger_csv=None)
+    judgements = {d["sha16"]: d["judgement"] for d in result["details"]}
+    assert judgements[S["agree"][:16]] == "agree_partial"
+    assert result["agree"] == 0
+    assert result["agree_partial"] >= 1
+    assert "agree_partial" in evaluate_mod.JUDGEMENTS
 
 
 def test_items_compared_are_marked_evaluated_with_the_engine_version(world):
@@ -202,15 +235,31 @@ def test_burned_and_graduated_items_are_not_evaluated(world):
     manifest.record_evaluation(item["holdout_id"], engine_version="engine-v0", evaluation_run_id="run-0")
     manifest.burn(item["holdout_id"], burned_by="P24-LAYOUT")
     result = run(world)
-    assert result["items"] == 7
+    assert result["items"] == 8
     assert HoldoutManifest.open().by_sha()[S["agree"]]["status"] == "burned"
+
+
+def test_a_truncated_store_or_manifest_refuses_the_evaluation(world):
+    """Review MAJOR-1: no evaluation reads a file that disagrees with its sidecar."""
+    truth = world["tmp"] / "sealed" / "truth.jsonl"
+    lines = truth.read_text(encoding="utf-8").splitlines()
+    truth.write_text("\n".join(lines[:-1]) + "\n", encoding="utf-8")
+    with pytest.raises(ChainError):
+        run(world)
+    truth.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    holdout = world["tmp"] / "sealed" / "holdout.jsonl"
+    events = holdout.read_text(encoding="utf-8").splitlines()
+    holdout.write_text("\n".join(events[:-1]) + "\n", encoding="utf-8")
+    with pytest.raises(ChainError):
+        run(world)
+    assert HoldoutManifest.open().events()[-1]["status"] == "unseen"  # nothing was marked
 
 
 def test_stdout_carries_aggregates_only(world, capsys):
     lines: list[str] = []
     run(world, out=lines.append)
     text = "\n".join(lines)
-    assert "false_accept: 2" in text and "false_refusal: 1" in text
+    assert "false_accept: 2" in text and "false_refusal: 1" in text and "agree_partial: 1" in text
     for value in S.values():
         assert value not in text and value[:16] not in text
     assert "150" not in text

@@ -3,38 +3,51 @@
 
 `holdout.jsonl` in the sealed store is an append-only hash chain of EVENTS
 (`added`, `evaluated`, `burned`, `graduated`); an item's current state is its
-latest event. Every item carries its strata (a code per stratum, never a
-customer name), the `not_in_dev_corpus` attestation — asserted at add time
-against the development corpus's sha set, which the caller MUST supply — and
-a status whose transitions are exactly:
+latest event; `holdout_manifest.json` remembers the chain's head and count and
+every read or append first verifies the file against it (review MAJOR-1).
+Every item carries its strata (a code per stratum, never a customer name),
+the `not_in_dev_corpus` attestation — asserted at add time ONLY against the
+run of record's sha set read from a `rows.csv`, and recorded with that
+population's digest, size and row count so the assertion is auditable
+(review MAJOR-3) — and a status whose transitions are exactly:
 
     unseen    -> evaluated   (the evaluation tool only: it names the engine
                               version and its run id)
     evaluated -> evaluated   (a later evaluation, a new engine version)
     evaluated -> burned      (explicit, with the card / commit that named it)
-    evaluated -> graduated   (ONLY with a freeze tag that exists AND the
-                              recorded attestation that the engine version did
-                              not change because of the item)
+    evaluated -> graduated   (ONLY with a FREEZE tag — `*-final` — that exists
+                              in the repository's real tag list AND points at
+                              a commit whose committer date is AFTER the
+                              item's last evaluation, plus the recorded
+                              attestation that the engine version did not
+                              change because of the item; review MAJOR-2)
 
 Everything else refuses. There is no generic status setter.
 """
 from __future__ import annotations
 
+import csv
 import re
+import subprocess
 from collections import Counter
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from .store import (
     GENESIS,
     HOLDOUT_FILE,
+    HOLDOUT_MANIFEST_FILE,
     MODALITIES,
     STORE_VERSION,
     ChainedJsonl,
     StoreError,
+    _retry,
     normalize_utc,
     refuse_inside_checkout,
     resolve_store_dir,
+    sha256_hex,
     validate_sha,
 )
 
@@ -58,6 +71,11 @@ STRATA_KEYS = (
     "page_count_bucket",
     "layout_family_code",
 )
+#: A freeze tag: the repository's freeze tags are `batch8-final`, `batch9-final`,
+#: `phase2.0-final`, `phase2.1-final` — the shape is `*-final`.
+FREEZE_TAG_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{0,78}-final")
+#: The recipe behind `DevCorpus.digest` (stated so an auditor can recompute it).
+DEV_CORPUS_DIGEST_RECIPE = "sha256 over the sorted distinct upper-hex content shas joined by LF, no trailing newline"
 
 _CURRENCY_RE = re.compile(r"[A-Za-z]{3}")
 _LAYOUT_CODE_RE = re.compile(r"[a-z][a-z0-9_]{0,39}")
@@ -73,6 +91,106 @@ class HoldoutRefusal(StoreError):
 
 class TransitionError(StoreError):
     """A status transition outside the ruled matrix, or without its evidence."""
+
+
+# --- the development corpus (MAJOR-3) ---------------------------------------
+
+
+@dataclass(frozen=True)
+class DevCorpus:
+    """The run of record's sha population, read from its `rows.csv`."""
+
+    shas: frozenset
+    digest: str
+    size: int
+    rows: int
+    source: str
+
+    def record(self) -> dict:
+        return {"digest": self.digest, "size": self.size, "rows": self.rows,
+                "source": self.source, "recipe": DEV_CORPUS_DIGEST_RECIPE}
+
+
+def dev_corpus_digest(shas) -> str:
+    return sha256_hex("\n".join(sorted({str(s).strip().upper() for s in shas})))
+
+
+def dev_corpus_from_rows(rows_csv: Path | str) -> DevCorpus:
+    """The ONLY builder: a run's `rows.csv` (its `content_sha256` column)."""
+    path = Path(rows_csv)
+    if not path.is_file():
+        raise HoldoutRefusal(f"dev corpus: not a rows.csv file: {path}")
+    shas: set[str] = set()
+    rows = 0
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None or "content_sha256" not in reader.fieldnames:
+            raise HoldoutRefusal(f"dev corpus: {path.name} has no content_sha256 column")
+        for row in reader:
+            rows += 1
+            value = (row.get("content_sha256") or "").strip().upper()
+            if value:
+                shas.add(validate_sha(value, what="dev corpus content_sha256"))
+    if not shas:
+        raise HoldoutRefusal(f"dev corpus: {path.name} names no content sha; an empty population is no attestation")
+    source = f"{path.parent.name}/{path.name}" if path.parent.name else path.name
+    return DevCorpus(shas=frozenset(shas), digest=dev_corpus_digest(shas), size=len(shas), rows=rows, source=source)
+
+
+# --- freeze tags (MAJOR-2) ---------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TagRef:
+    """A repository tag resolved through git: the commit it points at (peeled
+    for annotated tags) and that commit's committer date (ISO-8601, offset)."""
+
+    tag: str
+    commit: str
+    committer_date: str
+
+
+def freeze_tags_from_git(repo_dir: Path | str) -> dict[str, TagRef]:
+    """Every tag of `repo_dir`, resolved through `git for-each-ref`; empty on
+    any failure, which makes graduation refuse — fail closed."""
+    fmt = "%(refname:short)%09%(objectname)%09%(*objectname)%09%(committerdate:iso-strict)%09%(*committerdate:iso-strict)"
+    try:
+        completed = subprocess.run(
+            ["git", "for-each-ref", f"--format={fmt}", "refs/tags"], cwd=str(repo_dir),
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if completed.returncode != 0:
+        return {}
+    tags: dict[str, TagRef] = {}
+    for line in completed.stdout.splitlines():
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) != 5 or not parts[0]:
+            continue
+        name, obj, peeled, obj_date, peeled_date = parts
+        commit = peeled or obj
+        committer_date = peeled_date or obj_date
+        if not commit or not committer_date:
+            continue
+        tags[name] = TagRef(tag=name, commit=commit, committer_date=committer_date)
+    return tags
+
+
+def _parse_when(value: str, *, what: str) -> datetime:
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise TransitionError(f"{what}: not an ISO-8601 timestamp: {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise TransitionError(f"{what}: timestamp carries no offset: {value!r}")
+    return parsed
+
+
+# --- strata -------------------------------------------------------------------
 
 
 def page_count_bucket(page_count) -> str:
@@ -165,7 +283,8 @@ class HoldoutManifest:
     def __init__(self, directory: Path | str):
         self.directory = refuse_inside_checkout(directory, what="the holdout manifest")
         self.path = self.directory / HOLDOUT_FILE
-        self._chain = ChainedJsonl(self.path)
+        self.manifest_path = self.directory / HOLDOUT_MANIFEST_FILE
+        self._chain = ChainedJsonl(self.path, self.manifest_path)
 
     @classmethod
     def open(cls, env: Mapping[str, str] | None = None) -> "HoldoutManifest":
@@ -179,10 +298,19 @@ class HoldoutManifest:
     def verify_chain(self) -> str:
         return self._chain.verify()
 
+    def verify_against_manifest(self) -> str:
+        return self._chain.verify_against_manifest()
+
+    def manifest(self) -> dict:
+        manifest = self._chain.read_manifest()
+        if manifest is not None:
+            return manifest
+        return {"store_version": STORE_VERSION, "record_count": 0, "chain_head": GENESIS, "updated_at": None}
+
     def items(self) -> dict[str, dict]:
-        """Current state per holdout id (the chain is verified first)."""
+        """Current state per holdout id — only from a file that agrees with its manifest."""
         events = self.events()
-        self._chain.verify(events)
+        self._chain.verify_against_manifest(events)
         current: dict[str, dict] = {}
         for event in events:
             current[event["holdout_id"]] = _snapshot(event)
@@ -210,7 +338,7 @@ class HoldoutManifest:
         payload = dict(item)
         payload["event"] = event
         payload["event_at"] = normalize_utc(at, what="event_at")
-        return _snapshot(self._chain.append(payload))
+        return _snapshot(self._chain.append(payload))  # the chain verifies against its manifest first
 
     def add(
         self,
@@ -218,22 +346,22 @@ class HoldoutManifest:
         content_sha256,
         source_batch,
         strata,
-        dev_corpus_shas: Collection[str],
+        dev_corpus: DevCorpus,
         added_at: str | None = None,
     ) -> dict:
         try:
             sha = validate_sha(content_sha256)
         except StoreError as exc:
             raise HoldoutRefusal(str(exc)) from exc
-        if dev_corpus_shas is None or isinstance(dev_corpus_shas, str) or not len(dev_corpus_shas):
+        if not isinstance(dev_corpus, DevCorpus) or not dev_corpus.shas:
             raise HoldoutRefusal(
-                "dev_corpus_shas: the development corpus's sha set is required and must not be "
-                "empty; `not_in_dev_corpus` is asserted against it, never assumed"
+                "dev_corpus: the run of record's population (dev_corpus_from_rows(<rows.csv>)) is "
+                "required; `not_in_dev_corpus` is asserted against it, never assumed"
             )
-        if sha in {str(value).strip().upper() for value in dev_corpus_shas}:
+        if sha in dev_corpus.shas:
             raise HoldoutRefusal(
-                f"{sha[:16]}: present in the development corpus; a development document can "
-                "never be unseen"
+                f"{sha[:16]}: present in the development corpus ({dev_corpus.source}, "
+                f"{dev_corpus.size} shas); a development document can never be unseen"
             )
         if not isinstance(source_batch, str) or not _BATCH_RE.fullmatch(source_batch):
             raise HoldoutRefusal(f"source_batch: a batch label is required, got {source_batch!r}")
@@ -247,6 +375,7 @@ class HoldoutManifest:
             "added_at": normalize_utc(added_at, what="added_at"),
             "source_batch": source_batch,
             "not_in_dev_corpus": True,
+            "dev_corpus": dev_corpus.record(),
             "strata": _validate_strata(strata),
             "status": "unseen",
             "last_evaluated_at": None,
@@ -304,14 +433,16 @@ class HoldoutManifest:
         holdout_id: str,
         *,
         graduated_at_tag: str,
-        freeze_tags: Collection[str],
+        freeze_tags: Mapping[str, TagRef],
         attest_engine_version_unchanged: bool,
         attested_by: str,
         at: str | None = None,
     ) -> dict:
-        """`evaluated -> graduated`, only with an EXISTING freeze tag and the
-        explicit attestation that `last_engine_version` did not change because
-        of the item (§12: same-wave graduation is forbidden)."""
+        """`evaluated -> graduated`, only with (a) a tag of the freeze shape
+        `*-final`, (b) present in the repository's git-resolved tag list, (c)
+        pointing at a commit whose committer date is AFTER the item's last
+        evaluation (§12: a SUBSEQUENT freeze; same-wave graduation is
+        forbidden), and the explicit engine-version attestation."""
         item = self._current(holdout_id)
         self._check(item, "graduated")
         if attest_engine_version_unchanged is not True:
@@ -320,16 +451,30 @@ class HoldoutManifest:
                 "version did not change because of the item"
             )
         tag = _label("graduated_at_tag", graduated_at_tag)
-        if isinstance(freeze_tags, str) or tag not in set(freeze_tags):
-            raise TransitionError(f"{holdout_id}: {tag!r} names no existing freeze tag")
-        if not item.get("last_engine_version"):
-            raise TransitionError(f"{holdout_id}: no recorded engine version to attest about")
+        if not FREEZE_TAG_RE.fullmatch(tag):
+            raise TransitionError(f"{holdout_id}: {tag!r} is not a freeze tag (the shape is `*-final`)")
+        if isinstance(freeze_tags, str) or not isinstance(freeze_tags, Mapping) or tag not in freeze_tags:
+            raise TransitionError(f"{holdout_id}: {tag!r} is not in the repository's tag list")
+        ref = freeze_tags[tag]
+        if not isinstance(ref, TagRef) or ref.tag != tag or not ref.commit or not ref.committer_date:
+            raise TransitionError(f"{holdout_id}: {tag!r} did not resolve through git to a commit and a date")
+        if not item.get("last_engine_version") or not item.get("last_evaluated_at"):
+            raise TransitionError(f"{holdout_id}: no recorded evaluation to attest about")
+        evaluated = _parse_when(item["last_evaluated_at"], what="last_evaluated_at")
+        frozen = _parse_when(ref.committer_date, what=f"{tag} committer date")
+        if frozen <= evaluated:
+            raise TransitionError(
+                f"{holdout_id}: {tag!r} points at a commit dated {ref.committer_date}, not after the "
+                f"item's last evaluation {item['last_evaluated_at']} (a SUBSEQUENT freeze is required)"
+            )
         if not isinstance(attested_by, str) or not _ROLE_RE.fullmatch(attested_by.strip()):
             raise TransitionError(f"attested_by: a role code is required, got {attested_by!r}")
         attestation = {
             "engine_version_unchanged_because_of_item": True,
             "attested_by": attested_by.strip(),
             "engine_version": item["last_engine_version"],
+            "tag_commit": ref.commit,
+            "tag_committer_date": ref.committer_date,
         }
         updated = dict(item, status="graduated", graduated_at_tag=tag,
                        graduation_attestation=attestation)
@@ -340,6 +485,9 @@ __all__ = [
     "ALLOWED_TRANSITIONS",
     "BANK_FAMILIARITY",
     "ACCOUNT_SHAPES",
+    "DEV_CORPUS_DIGEST_RECIPE",
+    "DevCorpus",
+    "FREEZE_TAG_RE",
     "GENESIS",
     "HOLDOUT_STATUSES",
     "HoldoutManifest",
@@ -347,7 +495,11 @@ __all__ = [
     "PAGE_COUNT_BUCKETS",
     "STRATA_KEYS",
     "TABLE_SHAPES",
+    "TagRef",
     "TransitionError",
     "build_strata",
+    "dev_corpus_digest",
+    "dev_corpus_from_rows",
+    "freeze_tags_from_git",
     "page_count_bucket",
 ]

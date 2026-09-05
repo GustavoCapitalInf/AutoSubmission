@@ -6,22 +6,32 @@
     python -m tools.adjudicate run --slice <name> --packets <PRIVATE dir>
         [--answers <json>] [--adjudicator <role>] [--limit N]
     python -m tools.adjudicate status
+    python -m tools.adjudicate verify [--digest <path>]
     python -m tools.adjudicate export-digest [--out <path>]
     python -m tools.adjudicate holdout-add | holdout-burn | holdout-graduate | holdout-list
 
 `queue` builds one evidence packet per sha into the PRIVATE packet directory
 (outside every checkout; refused otherwise): page images rendered LOCALLY with
-PyMuPDF at a modest dpi, the prior census tag labelled `EVIDENCE (census,
-agent-derived, not truth)`, the classifier's proposal — only when a per-sha
-classification CSV is supplied — labelled `EVIDENCE (classifier proposal,
-tool-derived, not truth)`, a MoneyThumb comparison ONLY when explicitly
-supplied and labelled likewise, and the packet digest (sha256 over everything
-shown). `run` walks the queue, shows the packet and the evidence, asks for the
+PyMuPDF at a modest dpi (up to `--max-pages`, default 40; a cut packet says so
+in `packet.json` and the queue reports how many were cut), the prior census
+tag labelled `EVIDENCE (census, agent-derived, not truth)`, the classifier's
+proposal — only when a per-sha classification CSV is supplied — labelled
+`EVIDENCE (classifier proposal, tool-derived, not truth)`, a MoneyThumb
+comparison ONLY when explicitly supplied and labelled likewise, and the packet
+digest (sha256 over everything shown, page-image shas included). `run` first
+verifies the store against its manifest, then walks the queue: for every
+entry it RECOMPUTES the packet digest from the packet files (`packet.json` and
+the page images) and refuses a packet whose digest no longer matches the
+queue's (review MINOR-1), renders the evidence from `packet.json`, asks for the
 verdict and PROPOSES NOTHING as a default — the human types the kind; an
 answer without a kind appends nothing — then appends the record to the sealed
 store, verifies the chain, advances. Notes are hashed, never stored. `status`
-prints aggregates only. `export-digest` writes the repository digest.
-`--answers <json>` is the non-interactive mode for tests (synthetic).
+prints aggregates only. `verify` checks both chains against their manifests
+and, with `--digest`, against a repository digest. `export-digest` writes the
+repository digest. `holdout-add` asserts `not_in_dev_corpus` ONLY against a
+run's `rows.csv` (`--dev-rows`, required; review MAJOR-3). `holdout-graduate`
+resolves the freeze tag through git only (review MAJOR-2). `--answers <json>`
+is the non-interactive mode for tests (synthetic).
 
 Gustavo is the adjudicator (R3). This tool adjudicates nothing.
 """
@@ -31,7 +41,6 @@ import argparse
 import csv
 import json
 import re
-import subprocess
 import sys
 from collections import Counter
 from collections.abc import Mapping
@@ -45,6 +54,8 @@ from tools.holdout.manifest import (
     TABLE_SHAPES,
     HoldoutManifest,
     build_strata,
+    dev_corpus_from_rows,
+    freeze_tags_from_git,
 )
 from tools.holdout.store import (
     ACCOUNT_KINDS,
@@ -66,7 +77,7 @@ from tools.holdout.store import (
 )
 
 COMMANDS = (
-    "queue", "run", "status", "export-digest",
+    "queue", "run", "status", "verify", "export-digest",
     "holdout-add", "holdout-burn", "holdout-graduate", "holdout-list",
 )
 CENSUS_LABEL = "EVIDENCE (census, agent-derived, not truth)"
@@ -87,6 +98,7 @@ ANSWER_FIELDS = (
     "closing_balance", "printed_transaction_count", "sampled_rows", "notes",
 )
 _SLICE_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{0,59}")
+_PAGE_NAME_RE = re.compile(r"page-\d{3,}\.png")
 _SKIP = object()
 _QUIT = object()
 
@@ -138,30 +150,6 @@ def load_keyed_csv(path: Path | None, keys=("content_sha256", "sha")) -> dict[st
                 keyed[row[key].strip().upper()] = row
                 break
     return keyed
-
-
-def _dev_corpus(dev_rows: list[Path], dev_shas: list[Path]) -> set[str]:
-    corpus: set[str] = set()
-    for path in dev_rows:
-        corpus.update(load_rows(path))
-    for path in dev_shas:
-        corpus.update(read_sha_list(path))
-    return corpus
-
-
-def git_tags() -> frozenset[str]:
-    """The repository's tags (freeze tags among them); empty on any failure,
-    which makes graduation refuse — fail closed."""
-    try:
-        completed = subprocess.run(
-            ["git", "tag", "--list"], cwd=str(_this_checkout_root()), capture_output=True,
-            text=True, check=False, timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return frozenset()
-    if completed.returncode != 0:
-        return frozenset()
-    return frozenset(line.strip() for line in completed.stdout.splitlines() if line.strip())
 
 
 # --- packets ----------------------------------------------------------------
@@ -231,12 +219,42 @@ def build_evidence(sha: str, census_row, classifier_row, moneythumb_row) -> dict
     return evidence
 
 
+def packet_content(sha: str, slice_name: str, pages: list[dict], render: Mapping, evidence: Mapping,
+                   profile: Mapping) -> dict:
+    """Exactly what the packet digest covers — everything the adjudicator is shown."""
+    return {
+        "content_sha256": sha,
+        "slice": slice_name,
+        "pages": pages,
+        "render": {key: render.get(key) for key in ("page_count", "rendered", "truncated", "error")},
+        "evidence": evidence,
+        "profile": profile,
+    }
+
+
+def packet_digest_from_dir(packet_dir: Path) -> tuple[str, dict]:
+    """Recompute a packet's digest from the files on disk (`packet.json` plus
+    the page images it names, re-hashed) — the digest `run` records must be
+    the digest of what is on disk NOW, not what `queue` once wrote."""
+    packet = json.loads((packet_dir / PACKET_FILE).read_text(encoding="utf-8"))
+    pages: list[dict] = []
+    for page in packet.get("pages", []):
+        name = str(page.get("name", ""))
+        if not _PAGE_NAME_RE.fullmatch(name):
+            raise StoreError(f"packet names a page outside the packet shape: {name!r}")
+        data = (packet_dir / name).read_bytes()
+        pages.append({"name": name, "sha256": sha256_hex(data)})
+    content = packet_content(packet["content_sha256"], packet["slice"], pages, packet["render"],
+                             packet["evidence"], packet["profile"])
+    return sha256_hex(canonical_json(content)), packet
+
+
 def evidence_text(packet: Mapping) -> str:
     lines = [
         f"DOCUMENT {packet['sha16']} (content sha256 {packet['content_sha256']})",
         f"slice: {packet['slice']}",
         f"pages: rendered {packet['render']['rendered']} of {packet['render']['page_count']}"
-        + (f" (truncated at {packet['max_pages']})" if packet["render"].get("truncated") else "")
+        + (f" (cut at the {packet['max_pages']}-page cap)" if packet["render"].get("truncated") else "")
         + (f" -- render error: {packet['render']['error']}" if packet["render"]["error"] else ""),
         f"---- {packet['profile']['label']} ----",
     ]
@@ -317,15 +335,11 @@ def build_queue(
         packet_dir = slice_dir / sha16
         _retry(lambda: packet_dir.mkdir(parents=True, exist_ok=True))
         render = render_pages(data, packet_dir, dpi=dpi, max_pages=max_pages)
-        content = {
-            "content_sha256": sha,
-            "slice": slice_name,
-            "pages": render["pages"],
-            "render": {key: render[key] for key in ("page_count", "rendered", "truncated", "error")},
-            "evidence": build_evidence(sha, census.get(sha), classification.get(sha), moneythumb.get(sha)),
-            "profile": {"label": PROFILE_LABEL,
-                        "values": {field: (row.get(field) or "") for field in PROFILE_FIELDS}},
-        }
+        profile = {"label": PROFILE_LABEL,
+                   "values": {field: (row.get(field) or "") for field in PROFILE_FIELDS}}
+        content = packet_content(sha, slice_name, render["pages"], render,
+                                 build_evidence(sha, census.get(sha), classification.get(sha), moneythumb.get(sha)),
+                                 profile)
         digest = sha256_hex(canonical_json(content))
         packet = dict(content, sha16=sha16, packet_digest=digest, relative_path=row.get("relative_path") or "",
                       dpi=dpi, max_pages=max_pages)
@@ -334,19 +348,22 @@ def build_queue(
         entries.append({
             "content_sha256": sha, "sha16": sha16, "packet_dir": sha16, "packet_digest": digest,
             "page_count": render["page_count"], "pages_rendered": render["rendered"],
-            "render_error": render["error"], "status": "pending",
+            "truncated": render["truncated"], "render_error": render["error"], "status": "pending",
         })
     queue = {"slice": slice_name, "created_at": utc_now_iso(), "rows_csv": str(rows_csv),
-             "count": len(entries), "entries": entries}
+             "count": len(entries), "page_cap": max_pages, "entries": entries}
     _write_queue(slice_dir, queue)
     packets_built = sum(1 for e in entries if e["status"] == "pending")
     unavailable = len(entries) - packets_built
+    truncated = sum(1 for e in entries if e.get("truncated"))
     digest = queue_digest(entries)
     _write_text(slice_dir / QUEUE_DIGEST_FILE,
                 f"slice: {slice_name}\ncount: {len(entries)}\npackets: {packets_built}\n"
-                f"unavailable: {unavailable}\nqueue_digest: {digest}\n")
+                f"unavailable: {unavailable}\ntruncated: {truncated} (page cap {max_pages})\n"
+                f"queue_digest: {digest}\n")
     out(f"slice {slice_name}: {len(entries)} shas; packets: {packets_built}; "
-        f"unavailable: {unavailable}; queue digest {digest}; dir {slice_dir}")
+        f"unavailable: {unavailable}; truncated: {truncated} (page cap {max_pages}); "
+        f"queue digest {digest}; dir {slice_dir}")
     return queue
 
 
@@ -434,6 +451,7 @@ def run_queue(
     queue_path = slice_dir / QUEUE_FILE
     if not queue_path.is_file():
         raise StoreError(f"no queue for slice {slice_name!r} under {packets}")
+    store.verify_against_manifest()  # MAJOR-1: a truncated store is refused before anything is shown
     queue = json.loads(queue_path.read_text(encoding="utf-8"))
     role = validate_role((answers or {}).get("adjudicator") or adjudicator or "")
     answer_map = {
@@ -451,11 +469,22 @@ def run_queue(
         packet_dir = slice_dir / entry["packet_dir"]
         out("=" * 72)
         out(f"packet {packet_dir}")
+        # MINOR-1: the digest recorded is the digest of what is on disk now.
+        try:
+            recomputed, packet = packet_digest_from_dir(packet_dir)
+        except (OSError, ValueError, KeyError, StoreError) as exc:
+            out(f"refused: packet unreadable ({type(exc).__name__}); left pending")
+            summary["refused"] += 1
+            continue
+        if recomputed != entry.get("packet_digest") or recomputed != packet.get("packet_digest") \
+                or packet.get("content_sha256") != sha:
+            out("refused: packet digest mismatch (the packet was edited since queue); left pending")
+            summary["refused"] += 1
+            continue
         out(f"pages rendered {entry.get('pages_rendered')} of {entry.get('page_count')}"
+            + (f" (cut at the {packet.get('max_pages')}-page cap)" if packet["render"].get("truncated") else "")
             + (f"; render error {entry['render_error']}" if entry.get("render_error") else ""))
-        evidence_path = packet_dir / EVIDENCE_FILE
-        if evidence_path.is_file():
-            out(evidence_path.read_text(encoding="utf-8").rstrip("\n"))
+        out(evidence_text(packet).rstrip("\n"))
         if answers is not None:
             answer = answer_map.get(sha)
             if answer is None:
@@ -488,9 +517,9 @@ def run_queue(
                 continue
         try:
             record = store.append_record(
-                content_sha256=sha, adjudicator=role, packet_digest=entry["packet_digest"], **fields
+                content_sha256=sha, adjudicator=role, packet_digest=recomputed, **fields
             )
-            store.verify_chain()
+            store.verify_against_manifest()
         except RecordError as exc:
             out(f"refused: {exc}; left pending")
             summary["refused"] += 1
@@ -508,12 +537,12 @@ def run_queue(
             "refused": summary["refused"], "pending": pending}
 
 
-# --- status / digest --------------------------------------------------------
+# --- status / verify / digest ------------------------------------------------
 
 
 def print_status(store: TruthStore, manifest: HoldoutManifest, out=print) -> None:
     records = store.records()
-    head = store.verify_chain()
+    head = store.verify_against_manifest()
     latest = store.latest_by_sha()
     out(f"store: {store.directory}")
     out(f"records: {len(records)}")
@@ -526,6 +555,22 @@ def print_status(store: TruthStore, manifest: HoldoutManifest, out=print) -> Non
     out(f"holdout items: {sum(counts.values())}")
     for status in HOLDOUT_STATUSES:
         out(f"  {status}: {counts[status]}")
+
+
+def verify_store(store: TruthStore, manifest: HoldoutManifest, digest_path: Path | None, out=print) -> list[str]:
+    head = store.verify_against_manifest()
+    holdout_head = manifest.verify_against_manifest()
+    out(f"truth chain: {len(store.records())} records, head {head[:16]}, agrees with manifest.json")
+    out(f"holdout chain: {len(manifest.events())} events, head {holdout_head[:16]}, agrees with holdout_manifest.json")
+    if digest_path is None:
+        return []
+    text = Path(digest_path).read_text(encoding="utf-8")
+    mismatches = digest_mod.verify_against_digest(store, manifest, text)
+    if mismatches:
+        out(f"refused: the store disagrees with the digest {digest_path} on {mismatches}")
+    else:
+        out(f"the store agrees with the digest {digest_path}")
+    return mismatches
 
 
 def print_holdout_list(manifest: HoldoutManifest, out=print) -> None:
@@ -560,7 +605,8 @@ def build_parser() -> argparse.ArgumentParser:
     queue.add_argument("--classification", type=Path, default=None, help="per-sha classifier CSV (evidence only)")
     queue.add_argument("--moneythumb", type=Path, default=None, help="explicit MoneyThumb comparison CSV (evidence only)")
     queue.add_argument("--dpi", type=int, default=DEFAULT_DPI)
-    queue.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES)
+    queue.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES,
+                       help="page cap per packet; cut packets are counted in the queue output")
 
     run = sub.add_parser("run", help="walk a slice's queue and record verdicts")
     run.add_argument("--slice", required=True)
@@ -571,16 +617,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("status", help="aggregate counts for the store and the holdout")
 
+    verify = sub.add_parser("verify", help="both chains against their manifests (and a digest)")
+    verify.add_argument("--digest", type=Path, default=None,
+                        help="a repository digest to anchor against (e.g. the committed MANIFEST_DIGEST.txt)")
+
     export = sub.add_parser("export-digest", help="write the repository digest")
     export.add_argument("--out", type=Path, default=None)
 
     add = sub.add_parser("holdout-add", help="add an UNSEEN document to the holdout manifest")
     add.add_argument("--sha", required=True)
     add.add_argument("--source-batch", required=True)
-    add.add_argument("--dev-rows", type=Path, action="append", default=[],
-                     help="a run's rows.csv naming the development corpus (repeatable)")
-    add.add_argument("--dev-shas", type=Path, action="append", default=[],
-                     help="a sha list naming the development corpus (repeatable)")
+    add.add_argument("--dev-rows", type=Path, required=True,
+                     help="the run of record's rows.csv: the ONLY source of the development corpus")
     add.add_argument("--modality", required=True, choices=MODALITIES)
     add.add_argument("--bank", required=True, choices=BANK_FAMILIARITY)
     add.add_argument("--accounts", required=True, choices=ACCOUNT_SHAPES)
@@ -593,14 +641,14 @@ def build_parser() -> argparse.ArgumentParser:
     burn.add_argument("--id", required=True)
     burn.add_argument("--by", required=True, help="the card / commit that named the item")
 
-    graduate = sub.add_parser("holdout-graduate", help="evaluated -> graduated at a freeze tag")
+    graduate = sub.add_parser("holdout-graduate", help="evaluated -> graduated at a SUBSEQUENT freeze tag")
     graduate.add_argument("--id", required=True)
-    graduate.add_argument("--tag", required=True)
+    graduate.add_argument("--tag", required=True, help="a freeze tag (`*-final`) resolved through git")
     graduate.add_argument("--attest", action="store_true",
                           help="attest the engine version did not change because of the item")
     graduate.add_argument("--attested-by", required=True)
-    graduate.add_argument("--tags-from", type=Path, default=None,
-                          help="a file of freeze tags (default: git tag --list)")
+    graduate.add_argument("--repo", type=Path, default=None,
+                          help="the git repository whose tags are consulted (default: this checkout)")
 
     sub.add_parser("holdout-list", help="holdout items by status (no shas)")
     return parser
@@ -625,16 +673,15 @@ def main(argv: list[str] | None = None) -> int:
                       adjudicator=args.adjudicator, limit=args.limit)
         elif args.command == "status":
             print_status(TruthStore.open(), HoldoutManifest.open())
+        elif args.command == "verify":
+            if verify_store(TruthStore.open(), HoldoutManifest.open(), args.digest):
+                return 1
         elif args.command == "export-digest":
             target = digest_mod.export_digest(path=args.out)
             parsed = digest_mod.parse_digest(target.read_text(encoding="utf-8"))
             print(f"digest written: {target} (records {parsed['record_count']}, "
                   f"holdout {len(parsed['holdout_sha16_status'])})")
         elif args.command == "holdout-add":
-            if not args.dev_rows and not args.dev_shas:
-                print("refused: name the development corpus (--dev-rows and/or --dev-shas); "
-                      "`not_in_dev_corpus` is asserted, never assumed", file=sys.stderr)
-                return 2
             try:
                 strata = build_strata(modality=args.modality, bank_familiarity=args.bank,
                                       account_shape=args.accounts, table_shape=args.table,
@@ -643,23 +690,23 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError as exc:
                 print(f"refused: {exc}", file=sys.stderr)
                 return 2
+            dev_corpus = dev_corpus_from_rows(args.dev_rows)
             manifest = HoldoutManifest.open()
             item = manifest.add(content_sha256=args.sha, source_batch=args.source_batch,
-                                strata=strata, dev_corpus_shas=_dev_corpus(args.dev_rows, args.dev_shas))
-            print(f"added {item['holdout_id']} ({item['status']})")
+                                strata=strata, dev_corpus=dev_corpus)
+            print(f"added {item['holdout_id']} ({item['status']}); dev corpus {dev_corpus.source}: "
+                  f"{dev_corpus.size} shas over {dev_corpus.rows} rows, digest {dev_corpus.digest[:16]}")
         elif args.command == "holdout-burn":
             item = HoldoutManifest.open().burn(args.id, burned_by=args.by)
             print(f"{item['holdout_id']} -> {item['status']} by {item['burned_by']}")
         elif args.command == "holdout-graduate":
-            if args.tags_from is not None:
-                tags = frozenset(read_lines(args.tags_from))
-            else:
-                tags = git_tags()
+            repo = Path(args.repo) if args.repo is not None else _this_checkout_root()
             item = HoldoutManifest.open().graduate(
-                args.id, graduated_at_tag=args.tag, freeze_tags=tags,
+                args.id, graduated_at_tag=args.tag, freeze_tags=freeze_tags_from_git(repo),
                 attest_engine_version_unchanged=bool(args.attest), attested_by=args.attested_by,
             )
-            print(f"{item['holdout_id']} -> {item['status']} at {item['graduated_at_tag']}")
+            print(f"{item['holdout_id']} -> {item['status']} at {item['graduated_at_tag']} "
+                  f"(commit {item['graduation_attestation']['tag_commit'][:12]})")
         elif args.command == "holdout-list":
             print_holdout_list(HoldoutManifest.open())
         else:  # pragma: no cover - argparse restricts the choices
@@ -668,10 +715,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
     return 0
-
-
-def read_lines(path: Path) -> list[str]:
-    return [line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 if __name__ == "__main__":  # pragma: no cover

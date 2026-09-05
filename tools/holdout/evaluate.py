@@ -10,12 +10,16 @@ compared with the oracle; every miss is classed A / B / C from the row's
 `failure_class` and reasons; the judgements are
 
     false_accept        system `validated` AND the oracle contradicts a money
-                        identity (a figure) or a sampled row — never the
-                        verdict alone
+                        identity (a parsed figure) or a sampled row — never the
+                        verdict alone, never an unparseable export value
     kind_conflict       system `validated`, no figure/row contradiction, but the
                         oracle's kind is not STATEMENT_COMPLETE (reported on
                         its own line; never summed with false_accept)
-    agree               system `validated`, at least one comparison, no contradiction
+    agree               system `validated`, no contradiction, and at least ONE
+                        money identity compared (opening / closing balance, or
+                        a sampled row against the ledger)
+    agree_partial       system `validated`, no contradiction, only non-money
+                        figures compared (account_count, period, counts)
     not_judgeable       system `validated`, nothing comparable was supplied
     false_refusal       oracle complete + legible statement, system not validated
     consistent_refusal  system not validated and the oracle agrees it is not a
@@ -25,15 +29,20 @@ compared with the oracle; every miss is classed A / B / C from the row's
 is `unknown_bank`, read natively when digital. Items compared are marked
 `evaluated` with the engine version and the run id. Stdout carries aggregates
 only; the per-item detail (sha16, judgement, contradiction NAMES — no figures)
-goes to the private report, which refuses a path inside the checkout.
+goes to the private report, which refuses a path inside the checkout. The
+store and the manifest are verified against their sidecar manifests before
+anything is read (a truncated file refuses the evaluation).
 
 What the skeleton cannot judge without help: `rows.csv` carries no balances,
 periods or ledger rows, so a money identity is compared only when a per-sha
 `--figures` export (opening / closing / period / counts) is supplied, and a
 sampled row only when a per-sha `--ledger` export (date, description, amount)
 is; with `rows.csv` alone the only comparable figure is the row's
-`account_count`. A validated item with nothing comparable is `not_judgeable`,
-never `agree`.
+`account_count`, which can yield `agree_partial` at most. A value that does
+not parse (a figure export's `n/a`) is NOT compared — it is listed under
+`unparseable` in the detail and never becomes a contradiction. A system
+`refused` row (R11, cell T) classes as `unclassified` until its reasons are
+mapped here.
 """
 from __future__ import annotations
 
@@ -66,10 +75,12 @@ FIGURE_FIELDS = (
     "closing_balance",
     "printed_transaction_count",
 )
+MONEY_FIELDS = ("opening_balance", "closing_balance")
 JUDGEMENTS = (
     "false_accept",
     "kind_conflict",
     "agree",
+    "agree_partial",
     "not_judgeable",
     "false_refusal",
     "consistent_refusal",
@@ -88,6 +99,7 @@ _REASON_CLASS = {
     "withheld_adb": "C",
     "integrity_flags": "C",
 }
+_UNPARSEABLE = object()
 
 
 def classify_miss(row: Mapping) -> str:
@@ -118,35 +130,35 @@ def best_row_per_sha(rows_csv: Path) -> dict[str, dict]:
     return best
 
 
-def _canon_money(value) -> str | None:
+def _canon_money(value):
     text = "" if value is None else str(value).strip()
     if not text:
         return None
     try:
         figure = Decimal(text)
     except InvalidOperation:
-        return f"unparseable:{text}"
-    return format(figure, "f") if figure.is_finite() else f"unparseable:{text}"
+        return _UNPARSEABLE
+    return format(figure, "f") if figure.is_finite() else _UNPARSEABLE
 
 
-def _canon_date(value) -> str | None:
+def _canon_date(value):
     text = "" if value is None else str(value).strip()
     if not text:
         return None
     try:
         return date.fromisoformat(text).isoformat()
     except ValueError:
-        return f"unparseable:{text}"
+        return _UNPARSEABLE
 
 
-def _canon_count(value) -> str | None:
+def _canon_count(value):
     text = "" if value is None else str(value).strip()
     if not text:
         return None
     try:
         return str(int(text))
     except ValueError:
-        return f"unparseable:{text}"
+        return _UNPARSEABLE
 
 
 _CANON = {
@@ -183,27 +195,39 @@ def load_ledger(path: Path | None) -> dict[str, set[tuple[str, str, str]]] | Non
         sha = (row.get("content_sha256") or "").strip().upper()
         if not sha:
             continue
-        key = (
-            _canon_date(row.get("date")) or "",
-            description_hash(row.get("description") or ""),
-            _canon_money(row.get("amount")) or "",
-        )
+        when = _canon_date(row.get("date"))
+        amount = _canon_money(row.get("amount"))
+        if when in (None, _UNPARSEABLE) or amount in (None, _UNPARSEABLE):
+            continue  # an unparseable ledger row is never evidence of anything
+        key = (when, description_hash(row.get("description") or ""), amount)
         ledger.setdefault(sha, set()).add(key)
     return ledger
 
 
-def compare_figures(oracle: Mapping, system: Mapping) -> tuple[list[str], int]:
+def compare_figures(oracle: Mapping, system: Mapping) -> tuple[list[str], int, int, list[str]]:
+    """(contradictions, compared, money_compared, unparseable). A field is
+    compared only when both sides carry a value that PARSES; an unparseable
+    system value is listed, never a contradiction (review MINOR-3a)."""
     contradictions: list[str] = []
+    unparseable: list[str] = []
     compared = 0
+    money_compared = 0
     for field in FIGURE_FIELDS:
         oracle_value = oracle.get(field)
         system_value = system.get(field)
         if oracle_value is None or system_value is None or str(system_value).strip() == "":
             continue
+        canonical_oracle = _CANON[field](oracle_value)
+        canonical_system = _CANON[field](system_value)
+        if canonical_system is _UNPARSEABLE or canonical_oracle is _UNPARSEABLE:
+            unparseable.append(field)
+            continue
         compared += 1
-        if _CANON[field](oracle_value) != _CANON[field](system_value):
+        if field in MONEY_FIELDS:
+            money_compared += 1
+        if canonical_oracle != canonical_system:
             contradictions.append(field)
-    return contradictions, compared
+    return contradictions, compared, money_compared, unparseable
 
 
 def compare_rows(oracle_rows, ledger_rows) -> tuple[list[str], int]:
@@ -236,6 +260,8 @@ def evaluate_run(
         refuse_inside_checkout(report_path, what="the evaluation report")
         if report_path is not None else None
     )
+    store.verify_against_manifest()  # MAJOR-1: a truncated store never feeds an evaluation
+    manifest.verify_against_manifest()
     rows = best_row_per_sha(Path(rows_csv))
     figures = load_figures(figures_csv)
     ledger = load_ledger(ledger_csv)
@@ -263,7 +289,9 @@ def evaluate_run(
             "oracle_kind": None,
             "miss_class": None,
             "contradictions": [],
+            "unparseable": [],
             "compared": 0,
+            "money_compared": 0,
             "layout_generalization": False,
         }
         truth = oracle.get(sha)
@@ -286,14 +314,17 @@ def evaluate_run(
         if "account_count" not in system_figures and (row.get("account_count") or "").strip():
             system_figures["account_count"] = row["account_count"].strip()
         oracle_figures = {field: truth.get(field) for field in FIGURE_FIELDS}
-        contradictions, compared = compare_figures(oracle_figures, system_figures)
+        contradictions, compared, money_compared, unparseable = compare_figures(oracle_figures, system_figures)
         row_contradictions, row_compared = compare_rows(
             truth.get("sampled_rows", []), None if ledger is None else ledger.get(sha)
         )
         contradictions += row_contradictions
         compared += row_compared
+        money_compared += row_compared  # a sampled row carries an amount: a money identity
         detail["contradictions"] = contradictions
+        detail["unparseable"] = unparseable
         detail["compared"] = compared
+        detail["money_compared"] = money_compared
 
         oracle_complete = truth["kind"] == "STATEMENT_COMPLETE" and bool(truth["legible"])
         if system_outcome == "validated":
@@ -301,8 +332,10 @@ def evaluate_run(
                 judgement = "false_accept"
             elif truth["kind"] != "STATEMENT_COMPLETE":
                 judgement = "kind_conflict"
-            elif compared > 0:
+            elif compared > 0 and money_compared > 0:
                 judgement = "agree"
+            elif compared > 0:
+                judgement = "agree_partial"
             else:
                 judgement = "not_judgeable"
         elif oracle_complete:
@@ -317,7 +350,7 @@ def evaluate_run(
         strata = item["strata"]
         generalizes = (
             system_outcome == "validated"
-            and judgement in ("agree", "not_judgeable")
+            and judgement in ("agree", "agree_partial", "not_judgeable")
             and strata.get("bank_familiarity") == "unknown_bank"
             and (strata.get("modality") != "digital" or (row.get("source_path") or "") == "native")
         )

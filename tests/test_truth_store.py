@@ -1,10 +1,11 @@
 """P22-HOLDOUT case 18: the sealed truth store.
 
 Append-only, hash-chained JSONL keyed by content sha, living ONLY under
-`SEALED_TRUTH_DIR` (an absolute directory outside every checkout); refuses
-without the variable and refuses a path inside the checkout. Every fixture
-here is synthetic: shas are sha256 digests of literal strings, figures are
-plain example numbers, dates are in 2031+.
+`SEALED_TRUTH_DIR` (an absolute directory outside every checkout and outside
+any synced folder); refuses without the variable and refuses a path inside
+the checkout; never appends to a file that disagrees with its manifest
+(review MAJOR-1). Every fixture here is synthetic: shas are sha256 digests of
+literal strings, figures are plain example numbers, dates are in 2031+.
 """
 from __future__ import annotations
 
@@ -69,6 +70,11 @@ def store_dir(tmp_path, monkeypatch) -> Path:
     return target
 
 
+def truncate_to(path: Path, lines: int) -> None:
+    kept = path.read_text(encoding="utf-8").splitlines()[:lines]
+    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+
 # --- location ---------------------------------------------------------------
 
 
@@ -124,11 +130,53 @@ def test_the_named_repository_roots_are_all_refused():
             store_mod.refuse_inside_checkout(root / "anything", what="probe")
 
 
+def test_refuses_the_checkout_parent_its_siblings_and_every_ancestor(monkeypatch):
+    """Review MINOR-2: R3's 'on this machine, outside the repository' also
+    excludes the project folder beside the checkout and every directory
+    above it (a store AT an ancestor would contain the checkout)."""
+    for root in store_mod.repository_roots():
+        for probe in (root.parent, root.parent / "sibling_probe" / "sealed", *root.parents):
+            monkeypatch.setenv("SEALED_TRUTH_DIR", str(probe))
+            with pytest.raises(StoreLocationError):
+                TruthStore.open()
+
+
+def test_refuses_a_onedrive_root_named_by_the_environment(tmp_path, monkeypatch):
+    cloud = tmp_path / "cloud"
+    monkeypatch.setenv("OneDriveProbe", str(cloud))
+    monkeypatch.setenv("SEALED_TRUTH_DIR", str(cloud / "sealed"))
+    with pytest.raises(StoreLocationError, match="OneDrive"):
+        TruthStore.open()
+    assert cloud in store_mod.onedrive_roots()
+    # The same directory not named by any OneDrive variable is accepted.
+    monkeypatch.delenv("OneDriveProbe")
+    assert cloud not in store_mod.onedrive_roots()
+    assert TruthStore.open().directory == (cloud / "sealed").resolve()
+
+
+def test_refuses_a_path_with_a_onedrive_component(tmp_path, monkeypatch):
+    monkeypatch.setenv("SEALED_TRUTH_DIR", str(tmp_path / "OneDrive - Probe" / "sealed"))
+    with pytest.raises(StoreLocationError, match="synced"):
+        TruthStore.open()
+
+
+def test_the_checkouts_own_onedrive_ancestry_is_a_refused_root(monkeypatch):
+    synced = [a for r in store_mod.repository_roots() for a in r.parents if a.name.lower().startswith("onedrive")]
+    if not synced:
+        pytest.skip("this checkout is not under a OneDrive folder")
+    for root in synced:
+        assert root in store_mod.onedrive_roots()
+        monkeypatch.setenv("SEALED_TRUTH_DIR", str(root / "elsewhere" / "sealed"))
+        with pytest.raises(StoreLocationError):
+            TruthStore.open()
+
+
 def test_opens_and_creates_outside_the_checkout_on_first_write(store_dir):
     store = TruthStore.open()
     assert not store_dir.exists()  # nothing is created by opening
     assert store.records() == []
     assert store.verify_chain() == store_mod.GENESIS
+    assert store.verify_against_manifest() == store_mod.GENESIS
     store.append_record(**minimal_fields())
     assert store_dir.is_dir()
     assert (store_dir / "truth.jsonl").is_file()
@@ -146,6 +194,7 @@ def test_append_builds_a_chain_and_verify_walks_it(store_dir):
     assert first["prev"] == store_mod.GENESIS
     assert second["prev"] == first["hash"]
     assert store.verify_chain() == second["hash"]
+    assert store.verify_against_manifest() == second["hash"]
     manifest = store.manifest()
     assert manifest["store_version"] == store_mod.STORE_VERSION
     assert manifest["record_count"] == 2
@@ -223,11 +272,41 @@ def test_a_truncated_file_disagrees_with_the_manifest_head(store_dir):
     store = TruthStore.open()
     store.append_record(**minimal_fields("doc-a"))
     store.append_record(**minimal_fields("doc-b"))
-    lines = (store_dir / "truth.jsonl").read_text(encoding="utf-8").splitlines()
-    (store_dir / "truth.jsonl").write_text(lines[0] + "\n", encoding="utf-8")
+    truncate_to(store_dir / "truth.jsonl", 1)
     assert store.verify_chain()  # the shortened chain is internally consistent ...
     with pytest.raises(ChainError):
         store.verify_against_manifest()  # ... but the manifest remembers the head
+
+
+def test_a_tail_truncation_is_never_resealed_by_the_next_append(store_dir):
+    """Review MAJOR-1 (M13's killer): deleting the last event for a sha would
+    silently revert its verdict; the next append must REFUSE, leave the file
+    untouched and leave the manifest as the witness."""
+    store = TruthStore.open()
+    store.append_record(**minimal_fields("doc-a", kind="NOT_A_STATEMENT", sub_kind="letter"))
+    store.append_record(**minimal_fields("doc-b"))
+    store.append_record(**minimal_fields("doc-a", kind="STATEMENT_COMPLETE"))
+    manifest_before = store.manifest()
+    truncate_to(store_dir / "truth.jsonl", 2)  # the reversal: doc-a is NOT_A_STATEMENT again
+    before = (store_dir / "truth.jsonl").read_bytes()
+    with pytest.raises(ChainError):
+        store.append_record(**minimal_fields("doc-c"))
+    assert (store_dir / "truth.jsonl").read_bytes() == before
+    assert store.manifest() == manifest_before  # the witness is not overwritten
+    with pytest.raises(ChainError):
+        store.latest_by_sha()  # no verdict is read from a truncated store either
+    with pytest.raises(ChainError):
+        store.counts_by_kind()
+
+
+def test_records_without_a_manifest_are_refused(store_dir):
+    store = TruthStore.open()
+    store.append_record(**minimal_fields("doc-a"))
+    (store_dir / "manifest.json").unlink()
+    with pytest.raises(ChainError):
+        store.verify_against_manifest()
+    with pytest.raises(ChainError):
+        store.append_record(**minimal_fields("doc-b"))
 
 
 def test_the_latest_event_per_sha_is_the_current_verdict(store_dir):
