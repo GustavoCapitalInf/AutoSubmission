@@ -220,6 +220,15 @@ def test_short_dates_are_dates_without_a_year(text, expected):
     assert tokens[0].ymd() == expected
 
 
+def test_a_hyphen_joined_date_range_yields_both_dates():
+    """Review MINOR-11: a date touching the hyphen of a compact range is
+    still a date when what follows the hyphen is itself a full date."""
+    for text in ("03/01/31-03/31/31", "03/01/2031-03/31/2031", "01.03.2031-31.03.2031"):
+        tokens = find_dates(text)
+        assert len(tokens) == 2, (text, tokens)
+    assert find_dates("12-345-6789") == []
+
+
 def test_day_first_convention_resolves_ambiguous_numeric_dates():
     tokens = find_dates("05/03/2031", day_first=True)
     assert tokens[0].ymd() == (2031, 3, 5)

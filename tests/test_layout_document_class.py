@@ -661,10 +661,11 @@ def test_three_rotating_money_columns_align_in_evidence_mode(fixtures):
 
 def test_a_hyphen_joined_statement_dates_line_is_the_period(fixtures):
     """MINOR-11 / mutant M26."""
-    for mode in MODES:
-        verdict = _classify(fixtures["statement_hyphen_joined_dates"], mode)
-        assert verdict.kind == "STATEMENT_COMPLETE", (mode, verdict)
-        assert "period_expression" in _signal_names(verdict)
+    for name in ("statement_hyphen_joined_dates", "statement_bare_hyphen_range"):
+        for mode in MODES:
+            verdict = _classify(fixtures[name], mode)
+            assert verdict.kind == "STATEMENT_COMPLETE", (name, mode, verdict)
+            assert "period_expression" in _signal_names(verdict)
 
 
 def test_a_truncated_second_statement_owes_its_pages(fixtures):

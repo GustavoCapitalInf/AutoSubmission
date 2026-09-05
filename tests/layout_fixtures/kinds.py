@@ -1288,6 +1288,19 @@ def two_statements_second_truncated() -> LayoutFixture:
     return _fixture("two_statements_second_truncated", first + second, expect_evidence=ex, expect_text=ex)
 
 
+def statement_bare_hyphen_range() -> LayoutFixture:
+    """MINOR-11, the grammar alone: `<date>-<date>` with no phrase at all is
+    the only period form printed; both dates must parse for rule (b)."""
+    pages = statement_pages(lang="en", period=False, n_rows=6)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    header = line_at(TOP_MARGIN - 20.0, [tok(_date(1, 3, "en") + "-" + _date(31, 3, "en"), LEFT)])
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=(header,) + page.lines)
+    ev, tx = _complete()
+    return _fixture("statement_bare_hyphen_range", [page], expect_evidence=ev, expect_text=tx)
+
+
 def nothing_fires() -> LayoutFixture:
     rows = [
         [tok("SYNTHETIC", LEFT), tok("MEETING", LEFT + 70.0), tok("NOTES", LEFT + 130.0)],
@@ -1359,6 +1372,7 @@ FIXTURES: dict[str, Callable[[], LayoutFixture]] = {
     "statement_three_rotating_columns": statement_three_rotating_columns,
     "statement_hyphen_joined_dates": statement_hyphen_joined_dates,
     "two_statements_second_truncated": two_statements_second_truncated,
+    "statement_bare_hyphen_range": statement_bare_hyphen_range,
     "nothing_fires": nothing_fires,
 }
 
