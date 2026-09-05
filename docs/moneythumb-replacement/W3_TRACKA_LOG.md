@@ -70395,3 +70395,185 @@ population **656 of 656 replayed identical, 29 unresolved as expected, both tree
 messages **0** · the one failing test on this branch remains cell T's count guard
 (`tests/test_diagnostics.py::test_reconciliation_issue_sites_match_the_anchor_count`, 7 → 6), by design.
 
+# §P22FENCE-CLOSURE — every finding of `PHASE2_P22FENCE_REVIEW.md` (APPROVE WITH FINDINGS; 1 MAJOR / 5 MINOR) reproduced, then closed, then proven: the reconcile-selection tripwire made cross-scope and name-integral (F1 — the reviewer's closure and alias mutants now KILLED by the static layer), the refusal message carries the closed token (F3), the four wording sites corrected (F4–F6), F2 recorded as disclosed; 14/14 mutants killed, guards, conformance, the no-parser replay and both scans green at the closure tip
+
+Scope: the review at `docs/moneythumb-replacement/reviews/PHASE2_P22FENCE_REVIEW.md` (train12 `6f316fc`), under
+Ocean's closure direction of 2026-09-05. Base of the closure `c373957`; closure code tip **`2a73e77`** (tree
+`16512161c935bdceda181b0adb16b6c41f5e0c1f`; this section's commit is documentation only). SHA REMAP: the three
+closure commits were first `a314a65` / `9c3833e` / `56859e7`; the closure proof window ran at `56859e7`; the
+message scan then found one WORDS-class hit — the bigram "OVER UNITS" in `a314a65`'s message, my own prose —
+so the three messages were re-filtered (`git filter-branch --msg-filter`, one phrase) into `4706404` /
+`94954f2` / `2a73e77` with tree hashes `f298816…` / `201e476…` / `1651216…` unchanged, commit for commit. Every
+proof below therefore stands at the closure tip's tree. Files touched: `tests/test_pipeline_escalation_fence.py`
+(F1; F3 assertions), `analysis/pipeline.py` (F3: one constant and the refusal builder's message — nothing
+else), `README.md`, `adb_debug.py`, `tools/extractpriv_reachability.py`, `tests/test_privacy3_boundaries.py`
+(one docstring) — the wording sites Ocean assigned. NOT touched: `webapp/**` (app.js's one line and the
+worker's declared-refusal allow-list are Ocean's at composition), the analysis-key partition on the opt-in
+state (Ocean's, recorded), `telemetry/**`. The two committed sections above are not edited. No network; no
+customer data; the literal still in exactly one tracked file.
+
+## F1 (MAJOR) — reproduced → fixed (`4706404`) → proven
+
+**Reproduced at `c373957`** with the reviewer's shapes applied as real textual mutants to `analysis/pipeline.py`
+against the cell's whole killer set (the fence file + `test_privacy3_boundaries.py` + `test_q3_native_only.py` +
+`test_analysis.py`; no `-x`; `git checkout --` restore in a `finally`; tree clean after each; scratch
+`mutants_f1_repro_c373957.log`):
+
+| mutant | shape | at `c373957` |
+|---|---|---|
+| R6 | a closure inside `_analyse` binds `alt_recon = reconcile(candidate, …)` and returns `candidate if alt_recon.ok and not recon.ok else stmt` — a reconciliation-based selection with NO second extraction | **SURVIVED** 402 passed / 0 failed |
+| R7a | `_r = reconcile`; `alt_recon = _r(alt, …)`; `if alt_recon.ok and not recon.ok: stmt = alt` | **SURVIVED** 402 / 0 |
+| R7b | `from .reconcile import reconcile as verify`; the same selection through `verify` | **SURVIVED** 402 / 0 |
+| R8a | `_hosted = extract_statement`; a second call through `_hosted` under `not recon.ok` | killed dynamically only (8 failed: the fake received a second call) — the static check saw one call node |
+| R8b | `from .extract import extract_statement as _second`; a second call through `_second` | killed by ACCIDENT only (9 failed: the real function's missing-key refusal) |
+| R8c | `from . import extract as _extract_module`; `getattr(_extract_module, "extract_statement")(…)` | killed by accident only (9 failed) |
+| R8d | `globals()["extract_statement"](…)` | killed dynamically only (8 failed) |
+
+**Root cause**, as the review states it: `_scopes` excluded nested functions from the parent's node list, so B1
+saw one reconcile-bound name per scope and B4 built `bound` per scope; and `_is_reconcile_call` / `_calls_to`
+matched the identifiers by name, so an alias or an import-as renamed the function out of sight.
+
+**Fix (`4706404`, tests only).** Tripwire (b) now runs per UNIT — a top-level function together with every
+function, lambda and comprehension nested in it, plus the module body outside functions — so B1 (≤ 1
+reconcile-bound name per unit), B2 (bound exactly once; a nested parameter of the same name counts as a
+binding), B3 (the two permitted call positions) and B4 (no `Compare`/`BoolOp`/`IfExp` reading two
+reconcile-bound names of the unit) see the closure. A NAME-INTEGRITY layer, `name_integrity_violations(source)`,
+holds over the whole module: N1 the two canonical imports (`from .reconcile import reconcile, ReconResult`;
+`from .extract import extract_statement`; exactly one each, relative level 1, no `asname`) are the only imports
+naming the modules `reconcile` / `extract` or the two functions — `import … as`, `from . import extract as
+_ex`, `import analysis.extract` refuse; N2 neither name is ever a Store/Del target, a parameter, a
+`global`/`nonlocal`, a walrus / `for` / `with` / comprehension target or an import alias; N3 a Load of either
+name is legal ONLY as the `func` of a `Call`; N4 no `Attribute` has either name as `attr`; N5 no string constant
+equals either name; N6 the module never calls `getattr` / `setattr` / `globals` / `locals` / `vars` /
+`__import__` / `eval` / `exec` / `compile`, never imports `importlib` or `builtins`, never reads `sys.modules` —
+the dynamic doors closed as a class (the module uses none). The same layer closes tripwire (a)'s alias
+blindness. The module-wide import guard `test_no_other_module_under_analysis_imports_reconcile_or_extract_statement`
+walks every module under `analysis/` other than the two definers and pins that none imports, aliases or reaches
+either name (true today: the only mentions are prose in three docstrings) — the one shape a single-module scan
+cannot see.
+
+**Proven.** In memory, on the CURRENT module text: the reviewer's closure verbatim → B1 + B4; a shadowing nested
+parameter → B2; fourteen alias / door shapes each caught by the named rule (alias-reconcile N3 ·
+import-as-reconcile N1 · alias-extract N3 · import-as-extract N1 · module-import-as N1 · module-attribute N4 ·
+getattr-string N5 · getattr-any N6 · globals-lookup N6 · importlib N6 · absolute-module-import N1 ·
+asname-shadow N2 · rebinding N2 · dunder-import N6); the base block verbatim and the four positional shapes as
+before. As real mutants against the killer set at the closure tip (the table below): **R6, R7a, R7b and
+R8a–R8d all KILLED**, R6 by `test_no_two_reconcile_results_are_compared_or_selected_between` and the six
+alias shapes by `test_name_integrity_holds_on_the_module` — the static layer, not an accident (R8a–R8d keep
+their dynamic killers beside it).
+
+## F3 (MINOR) — the refusal message carries the closed token (`2a73e77`)
+
+`analysis/pipeline.py`: one constant `HOSTED_EXTRACTION_REFUSAL_SUFFIX = " (hosted extraction
+refused_no_opt_in)"` beside the opt-in definitions, and `_hosted_extraction_refused` sets `refusal.args` to the
+deterministic message + that suffix (the deterministic text stays the byte-for-byte PREFIX; the class is
+unchanged; the attribute stays). Built from the closed token and nothing else — no document text can enter a
+message. Deterministic mode never constructs this exception, so no run of record, the gate or any replay sees
+it. WHO RECORDS IT, exactly: a consumer that keeps `str(exc)` — the console tracebacks of `analyze.py` and
+`batch.py`, `adb_debug.py`'s stderr line — now carries it; `webapp/worker.py::_analysis_failure` publishes a
+message only when it EQUALS a declared literal, so its durable `analysis_error` shows the class-name reduction
+(`analysis stage failed: RuntimeError (message withheld; …)`) until `_DECLARED_ANALYSIS_REFUSALS` names the
+suffixed literal **`no deterministic parser matched this statement (hosted extraction refused_no_opt_in)`**
+(Ocean, one line, at composition — `app.js`'s `/no deterministic parser matched/i` already matches it);
+`batch.py`'s CSV keeps the class name only by its own reviewed rule (MINOR-8 of the P20 seam review), so the
+token reaches its console, not its cell. Tests: the per-outcome refusal test asserts prefix identity and the
+suffix for all three outcomes; `test_the_refusal_suffix_is_the_closed_token_and_nothing_else` pins the exact
+literal the worker must declare; the webapp-seam test pins the worker's current reduction beside the
+pipeline-level message and names the follow-up. The analysis-cache partition on the opt-in state (a hosted
+payload computed under the literal served later in auto mode without it, as a cache hit) is Ocean's at
+composition, recorded here as the review states it.
+
+## F4 / F5 / F6 (MINOR) — wording (`94954f2`), each site named
+
+* `README.md`: the "Tune via env" line no longer advertises `GEMINI_ESCALATION_MODEL` as a knob — the one
+  hosted model, behind the opt-in; the second model retained for settings-key stability only.
+* `tools/extractpriv_reachability.py`: the docstring records that the guard it was written against is gone and
+  what now carries its `calls=[]` answer.
+* `adb_debug.py`: `--parse-mode` help — deterministic never calls the hosted extractor; auto calls it once only
+  under the opt-in and otherwise refuses exactly as deterministic does.
+* `tests/test_privacy3_boundaries.py::test_the_parse_mode_clause_is_what_stops_the_call_on_the_structurer_branch`:
+  fixture and assertion unchanged; the docstring states the history, the present mechanism and F6's property
+  (with the deterministic raise deleted and no literal, the fence refuses with the identical message — the
+  opted-in deterministic test and the static ordering test are the distinguishing killers; the reviewer
+  confirmed 3 failed / 399 passed).
+* F4's surface list, completed: every auto-mode caller changed behaviour the same way — `webapp/worker.py::
+  _analyze_doc` (the card's), `analyze.py:188` (`analyze_document(markdown)`, default `auto`), `batch.py:299`
+  (default `auto`), `adb_debug.py:56` (`--parse-mode` default `auto`); deterministic everywhere else
+  (`discovery/runner.py`, `corpus_gate.py`, `benchmark/ourside.py`, every `tools/*` replay). The fence is
+  complete; the list in §P22FENCE's Risks was not.
+* `webapp/static/app.js:654` ("Use Auto mode for fallback extraction …"): not this cell's; Ocean's one line.
+
+## F2 (MINOR) — recorded as disclosed
+The three comment/docstring-only hunks in the protected module (module docstring; the repair-seam comment; the
+BLOCK-2 comment) and the two comment-only hunks in `analysis/config.py` were named as deviations 3–4 in
+§P22FENCE; the reviewer's hunk-by-hunk AST check confirms the code-level diff is exactly the two edges plus
+their definitions and `config.py` AST-identical. Nothing reverted; nothing added.
+
+## Proofs at the closure tip (targeted tests freely; the rest in one host-lock window)
+
+Targeted (before the window, at the F3 tree): the fence file + `test_q3_native_only.py` + `test_analysis.py` +
+`test_pipeline*.py` + `test_structurer_pipeline.py` **297 passed**; `test_privacy3_boundaries.py` +
+`test_worker_privacy.py` + `test_webapp_worker.py` + `test_escalation_router.py` +
+`test_escalation_tripwires.py` + `test_extraction_refusal_is_private.py` + `test_raise_privacy3.py` +
+`test_diagnostics.py` **540 passed / 3 skipped / 1 failed** — the one failure is cell T's count guard
+(`test_reconciliation_issue_sites_match_the_anchor_count`, 7 anchors vs 6 sites), exactly as before. The fence
+file alone: 54 tests.
+
+Lock window (`HARNESS.lock` acquired 2026-09-05 02:25:23 after 20 polls behind cell C's closure window,
+released 02:36:10; every step its own log under `discovery_reports/train12-logs/p22fence/closure/` with an
+`EXIT=` line). Mutation table at the closure tree (harness on the clean tree; exact textual edits; the killer set
+above, no `-x`; `git checkout --` restore in a `finally`; `git status --porcelain` empty and `pipeline.py`
+byte-identical after every mutant):
+
+| mutant | applied | result (failed / passed) | killers (named) |
+|---|---|---|---|
+| M1 | second `extract_statement(…escalation_model)` under `not recon.ok` | KILLED 10 / 411 | tripwire (a); the ordering test; the inverted characterisation; pinned-False dynamic; privacy3 static + dynamic; q3 (+ 3 incidental `test_analysis` kills, as in §P22FENCE) |
+| M2 | the selection re-added (`alt_recon = reconcile(alt)`; `if alt_recon.ok: stmt, recon, … = …`) | KILLED 12 / 409 | tripwire (b) `test_no_two_reconcile_results…`; (a); the inverted characterisation; pinned-False static + dynamic; privacy3; q3 (+ 3 incidental) |
+| M3 | truthy comparison | KILLED 10 / 411 | `test_only_the_exact_literal_opts_in[×9]`; the seam test |
+| M4 | the literal read at import | KILLED 9 / 412 | read-at-call-site; every opted-in test; q3 |
+| M5 | the two fence lines deleted | KILLED 16 / 405 | `test_without_the_literal…[×3]`; `…exact_literal…[×9]`; read-at-call-site; the ordering test; the webapp equality test; q3 |
+| M6 | `escalated = not recon.ok` | KILLED 18 / 403 | pinned-False static + dynamic; the inverted characterisation (the other 15 are the anchor artefact §P22FENCE named — the in-memory shape tests anchor on the literal line `escalated = False`) |
+| M7 | the deterministic raise deleted | KILLED 4 / 417 | `test_deterministic_mode_never_reaches…[unclaimed]`; the ordering test; `test_without_the_literal…[unclaimed]`; the webapp equality test |
+| R6 | the reviewer's nested-closure selection | **KILLED 1 / 420** | `test_no_two_reconcile_results_are_compared_or_selected_between` (B1 + B4 per unit) |
+| R7a | `_r = reconcile` alias | **KILLED 1 / 420** | `test_name_integrity_holds_on_the_module` (N3) |
+| R7b | `from .reconcile import reconcile as verify` | **KILLED 1 / 420** | `test_name_integrity_holds_on_the_module` (N1) |
+| R8a | `_hosted = extract_statement` | **KILLED 9 / 412** | `test_name_integrity_holds_on_the_module` (N3) + the dynamic killers (inverted characterisation, pinned-False dynamic, privacy3, q3) |
+| R8b | `from .extract import extract_statement as _second` | **KILLED 10 / 411** | `test_name_integrity_holds_on_the_module` (N1) + the same dynamic killers |
+| R8c | `from . import extract as _extract_module` + `getattr(…, "extract_statement")` | **KILLED 10 / 411** | `test_name_integrity_holds_on_the_module` (N1, N5, N6) + the same |
+| R8d | `globals()["extract_statement"]` | **KILLED 9 / 412** | `test_name_integrity_holds_on_the_module` (N5, N6) + the same |
+
+Survivors: none (14/14). `mutants` step EXIT=0.
+
+| step | result | EXIT |
+|---|---|---:|
+| mutation table (M1–M7 + R6, R7a, R7b, R8a–R8d) | 14/14 killed; tree clean and byte-identical after each | 0 |
+| canonical guards (5 files) | 275 passed | 0 |
+| canonical conformance (7 files) | 1,282 passed / 41 skipped | 0 |
+| no-parser replay at the closure tree (`--shas`, 685 shas, `--expect-unresolved 29`) — a belt: `pipeline.py` changed only in the refusal builder's message, which deterministic mode never constructs | population 685 · replayed 656 · unresolved 29 (= expected) · newly validated 0 · other movement 0 · preserved 0 of 0 · regressions 0 / 0 · unchanged non-validated 656 (payload changed on 0) — identical to §P22FENCE-2 | 0 |
+| privacy scan `b23cb50..56859e7` (population = the run of record, 3,380) | `added_lines: 1645`, `documents_read: 3351`, **`hit_count: 0`** (`raw_hit_count: 21`, all `words_class` by rule), `residue_sites: 0` | 0 |
+| message scan `b23cb50..56859e7` | `commits_scanned: 8`; MONEY 0 / DIGITS 0 / DATES 0 / **WORDS 1** — the bigram "OVER UNITS" in `a314a65`'s message (my prose); reworded → `4706404`, trees identical (the remap above) | 1 (before the reword) |
+
+Both scans are re-run over `b23cb50..<final tip>` after this section's commit and reported in the closure
+message. Not re-run, and why: the union cohort replay (7 chunks × 2 trees), the full suite, the gate and the
+corpus slice — the closure changes are tests, docstrings, README/help text and ONE message string inside a
+function deterministic mode never reaches; the deterministic partition cannot move, and the reviewer's own
+chunk-01 and no-parser replays at `c373957` reproduced §P22FENCE's tables exactly. Ocean's rule for this closure
+("if `pipeline.py` changes beyond the message string, re-run chunk 01 and the no-parser replay") is not
+triggered; the no-parser replay was re-run anyway as a 19-second belt.
+
+## Commits (on `c373957`; the pre-reword shas in parentheses, same trees)
+* `4706404` (`a314a65`) test(p22-fence): F1 — the cross-scope, name-integral tripwire; the module-wide import guard
+* `94954f2` (`9c3833e`) docs(p22-fence): F4/F5/F6 wording
+* `2a73e77` (`56859e7`) fix(pipeline): F3 — the refusal message carries the closed token
+* this section's commit (documentation only; the code tree stays `1651216…`)
+
+## Risks (last)
+* Until Ocean's one-line allow-list addition lands, a webapp auto-mode user without the literal sees the
+  class-name reduction (`analysis stage failed: RuntimeError (message withheld …)`) instead of the declared
+  refusal — strictly less informative than at `c373957`, never less safe (no document text either way).
+* The name-integrity layer refuses `getattr` / `globals()` and friends in the whole protected module; a future
+  legitimate use would have to be admitted by editing the tripwire, deliberately.
+* The module-wide guard covers `analysis/` only; a helper elsewhere (`tools/`, `webapp/`) that imported the two
+  names would be outside it — today none does (`git grep` at the tip), and the analysis→ocr allowlist and the
+  worker's single call site are pinned by other tripwires.
+
