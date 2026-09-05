@@ -141,6 +141,9 @@ TABLE_RUN_MAX_GAP = 2
 TABLE_ALIGN_TOLERANCE_CW = 1.0
 #: The share of a run's lines whose money tokens must share one right edge.
 TABLE_ALIGN_MIN_SHARE = 0.8
+#: The money columns a statement table may spread its rows over (deposits,
+#: withdrawals, balance): the largest clusters that together cover the rows.
+TABLE_ALIGN_MAX_COLUMNS = 3
 
 # --- running balance --------------------------------------------------------
 RUNNING_BALANCE_MIN_PAIRS = 3
@@ -179,7 +182,7 @@ ILLEGIBLE_RATIO = 0.25
 # --- export -----------------------------------------------------------------
 REVERSE_CHRONOLOGY_MIN_DECREASES = 3
 
-_DETAIL_GRAMMAR = re.compile(r"^(?:[a-z_]+=[0-9./-]+(?:;[a-z_]+=[0-9./-]+)*)?$")
+_DETAIL_GRAMMAR = re.compile(r"^(?:[a-z_]+=\d+(?:/\d+)?(?:;[a-z_]+=\d+(?:/\d+)?)*)?$")
 #: Range connectors compared against FOLDED text between two dates.
 _FOLDED_CONNECTORS = {language: tuple(fold(c) for c in connectors) for language, connectors in RANGE_CONNECTORS.items()}
 #: The "from … to" label pair of a period cell, per language (folded words).
@@ -675,8 +678,10 @@ def _period(page: _Page, signals: _Signals, day_first: bool) -> bool:
                     _vote(signals, hit.language)
                 fired = True
                 continue
-        # (b) two dates joined by a range connector
-        if len(dates) >= 2:
+        # (b) two dates joined by a range connector — never on a line that
+        #     carries money (a ledger row's own date range is not the period;
+        #     review MINOR-4)
+        if len(dates) >= 2 and not find_money(text):
             folded = fold(text)
             for first, second in zip(dates, dates[1:]):
                 between = folded[first.end:second.start].strip()
@@ -792,10 +797,12 @@ def _money_right_edge(row: _Row, token: MoneyToken) -> float | None:
 
 
 def _aligned(group: list[_Row], char_width: float | None) -> bool:
-    """Evidence mode: the group's money tokens fall on at most TWO shared
-    right edges (an amount column, or a debit column and a credit column)
-    that together cover `TABLE_ALIGN_MIN_SHARE` of its rows, each edge
-    within `TABLE_ALIGN_TOLERANCE_CW` character widths."""
+    """Evidence mode: the group's money tokens fall on at most
+    `TABLE_ALIGN_MAX_COLUMNS` shared right edges (an amount column; a debit
+    and a credit column; deposits, withdrawals and a daily balance) that
+    together cover `TABLE_ALIGN_MIN_SHARE` of its rows, each edge within
+    `TABLE_ALIGN_TOLERANCE_CW` character widths. A cluster of one row never
+    counts, so prose whose figures drift never aligns."""
     if char_width is None:
         return False
     tolerance = TABLE_ALIGN_TOLERANCE_CW * char_width
@@ -819,7 +826,7 @@ def _aligned(group: list[_Row], char_width: float | None) -> bool:
         i += 1
     clusters.sort(key=len, reverse=True)
     covered: set[int] = set()
-    for cluster in clusters[:2]:
+    for cluster in clusters[:TABLE_ALIGN_MAX_COLUMNS]:
         if len(cluster) >= 2:
             covered |= cluster
     return len(covered) >= max(2, int(-(-TABLE_ALIGN_MIN_SHARE * len(group) // 1)))
@@ -982,15 +989,25 @@ def _discontinuities(doc: _Doc, per_page: list[list[list[_Row]]], signals: _Sign
 
 
 def _markers(doc: _Doc, signals: _Signals) -> None:
+    """One marker per page: of every marker line on the page, the one with
+    the FEWEST other words (a footer's `Page 2 of 3` beats a prose
+    cross-reference such as "see page 2 of 3 for fees" — review MINOR-1);
+    ties go to the last such line, the footer's usual place."""
     for page in doc.pages:
-        for line in page.lines:
+        best: tuple[int, int, _Line, object] | None = None
+        for index, line in enumerate(page.lines):
             marker = find_page_marker(line.text)
             if marker is None:
                 continue
-            signals.markers.append((page.index, marker.number, marker.total))
-            signals.refs.append(_ref(line, marker.start, marker.end, "page_marker"))
-            _vote(signals, marker.language)
-            break
+            other_words = len(_WORD_RE.findall(fold(line.text[:marker.start] + " " + line.text[marker.end:])))
+            if best is None or other_words <= best[0]:
+                best = (other_words, index, line, marker)
+        if best is None:
+            continue
+        _, _, line, marker = best
+        signals.markers.append((page.index, marker.number, marker.total))
+        signals.refs.append(_ref(line, marker.start, marker.end, "page_marker"))
+        _vote(signals, marker.language)
 
 
 def _cheque(doc: _Doc, per_page: list[list[list[_Row]]], signals: _Signals) -> None:
@@ -1203,9 +1220,15 @@ def _page_findings(doc: _Doc, signals: _Signals, profile: DocumentProfileFacts) 
     if numbers[0] > 1 and short:
         findings.append(Finding("missing_first_page", 0, f"declared={declared};first_observed={numbers[0]}"))
         signals.refs.append(EvidenceRef(0, None, None, "first_page_missing"))
-    if gap_after is None and short and numbers[-1] < declared:
-        findings.append(Finding("missing_pages", markers[-1][0], f"declared={declared};observed={n_pages}"))
-        signals.refs.append(EvidenceRef(markers[-1][0], None, None, "page_missing"))
+    # The LAST marked sequence must reach its own declared total: the pages
+    # it still owes may only be covered by unmarked pages after it (review
+    # MINOR-2: a second statement's truncated sequence is a missing page too).
+    last_page, last_number, last_total = markers[-1]
+    owed = last_total - last_number
+    trailing_unmarked = n_pages - 1 - last_page
+    if gap_after is None and owed > trailing_unmarked:
+        findings.append(Finding("missing_pages", last_page, f"declared={last_total};observed={n_pages}"))
+        signals.refs.append(EvidenceRef(last_page, None, None, "page_missing"))
     return findings
 
 
@@ -1320,9 +1343,15 @@ def _decide(doc: _Doc, signals: _Signals, profile: DocumentProfileFacts) -> Docu
             return _verdict("NOT_A_STATEMENT", "brokerage", "lexical", [], signals, profile, doc)
         if signals.screenshot and signals.anchors < 2:
             return _verdict("NOT_A_STATEMENT", "screenshot", "structural", [], signals, profile, doc)
-    elif ("card" in lexical_kinds and signals.single_amount_column and not signals.running_balance
-          and not signals.deposit_account):
-        return _verdict("NOT_A_STATEMENT", "card_statement", "lexical", [], signals, profile, doc)
+    elif "card" in lexical_kinds:
+        # The card lexicon beside deposit-account furniture is the same
+        # conflict on the table branch as on the no-table branch (review
+        # MAJOR-1): two account kinds claim one document and the single
+        # amount column cannot arbitrate — refuse, never fall through.
+        if signals.deposit_account:
+            return uncertain()
+        if signals.single_amount_column and not signals.running_balance:
+            return _verdict("NOT_A_STATEMENT", "card_statement", "lexical", [], signals, profile, doc)
     # 4. activity export
     if signals.table and signals.anchors == 0 and (signals.reverse_chronology or signals.pending):
         return _verdict("ACTIVITY_EXPORT", None, "structural" if signals.aligned else "lexical", [], signals, profile, doc)
@@ -1336,12 +1365,16 @@ def _decide(doc: _Doc, signals: _Signals, profile: DocumentProfileFacts) -> Docu
     if not shaped:
         return uncertain()
     findings = _statement_findings(doc, signals, profile)
-    complete = signals.period and signals.opening and signals.closing and ledger
-    if complete and not findings:
+    # `_statement_findings` names every missing anchor and a missing ledger,
+    # so "no finding" IS period AND opening AND closing AND a printed ledger
+    # (review MAJOR-2: the former restated conjunction was dead code).
+    if not findings:
         return _verdict("STATEMENT_COMPLETE", None, "structural" if signals.aligned else "lexical", [], signals, profile, doc)
     if not ledger:
         floor = ILLEGIBLE_RATIO * ILLEGIBLE_EXPECTED_WORDS_PER_PAGE
-        if signals.words_per_page < floor:
+        # A native text layer cannot be illegible (review MINOR-3): the
+        # E-class placeholder is for scanned / mixed / image-backed pages.
+        if signals.words_per_page < floor and profile.classification != "digital":
             if doc.pages:
                 signals.refs.append(EvidenceRef(doc.pages[0].index, None, None, "illegible_floor"))
             return _verdict("STATEMENT_ILLEGIBLE", None, "lexical", [], signals, profile, doc)

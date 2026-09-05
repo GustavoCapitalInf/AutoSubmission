@@ -1142,6 +1142,152 @@ def statement_stacked_range_with_page_marker() -> LayoutFixture:
     return _fixture("statement_stacked_range_with_page_marker", [page], expect_evidence=ev, expect_text=tx)
 
 
+# ---------------------------------------------------------------------------
+# the adversarial review's findings (PHASE2_P22CLASSIFY_REVIEW.md)
+# ---------------------------------------------------------------------------
+
+def card_statement_with_deposit_word() -> LayoutFixture:
+    """MAJOR-1: the card statement plus one autopay line naming a deposit
+    account — the ruled conflict, `KIND_UNCERTAIN`, never a deposit statement."""
+    rows = _card_rows(running_balance=False)
+    page = make_page(rows)
+    from tests.layout_fixtures.builders import line_at
+
+    autopay = line_at(page.height_pt - 60.0, [tok("Autopay", LEFT), tok("from", LEFT + 55.0), tok("checking", LEFT + 90.0)])
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=page.lines + (autopay,))
+    ex = Expect("KIND_UNCERTAIN", None, "uncertain", frozenset({"card_lexicon", "deposit_lexicon", "table_run"}))
+    return _fixture("card_statement_with_deposit_word", [page], expect_evidence=ex, expect_text=ex)
+
+
+def statement_with_strong_card_phrase_in_loc_box() -> LayoutFixture:
+    """MAJOR-1, the other direction: a chequing statement (withdrawals /
+    deposits columns, no balance column) whose overdraft line-of-credit box
+    prints a STRONG card phrase. The recorded decision: the pair is a
+    conflict and the document is `KIND_UNCERTAIN` for the adjudicator."""
+    pages = statement_pages(n_rows=8, n_pages=1, columns="debit_credit_balance")
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    new_lines = []
+    for line in page.lines:
+        if find_iso(line.words[0].text):
+            new_lines.append(line_at(line.words[0].y1, [Tok(w.text, w.x0) for w in line.words[:-1]]))   # drop the balance
+        else:
+            new_lines.append(line)
+    extra = (
+        line_at(page.height_pt - 120.0, [tok("Overdraft", LEFT), tok("line", LEFT + 65.0), tok("of", LEFT + 95.0), tok("credit", LEFT + 115.0)]),
+        line_at(page.height_pt - 102.0, [tok("Minimum", LEFT), tok("payment", LEFT + 55.0), tok("due", LEFT + 110.0), rtok(cents(2_500), R_BALANCE)]),
+        line_at(page.height_pt - 84.0, [tok("Credit", LEFT), tok("limit", LEFT + 45.0), rtok(cents(100_000), R_BALANCE)]),
+    )
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=tuple(new_lines) + extra)
+    ex = Expect("KIND_UNCERTAIN", None, "uncertain", frozenset({"card_lexicon", "deposit_lexicon", "table_run"}),
+                absent_signals=frozenset({"running_balance"}))
+    return _fixture("statement_with_strong_card_phrase_in_loc_box", [page], expect_evidence=ex, expect_text=ex)
+
+
+def statement_with_page_cross_reference() -> LayoutFixture:
+    """MINOR-1: page 1 of a complete three-page statement prints "See page
+    2 of 3 for fees" ABOVE its footer; the footer marker still wins."""
+    pages = statement_pages(n_rows=12, n_pages=3)
+    first = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    lines = list(first.lines)
+    footer_index = next(i for i, line in enumerate(lines) if line.text.lower().startswith("page "))
+    y = lines[footer_index].words[0].y1 - 9.0
+    prose = line_at(y, [tok("See", LEFT), tok("page", LEFT + 30.0), tok("2", LEFT + 65.0), tok("of", LEFT + 80.0), tok("3", LEFT + 100.0),
+                        tok("for", LEFT + 115.0), tok("fees", LEFT + 140.0)])
+    lines.insert(footer_index, prose)
+    first = SyntheticPage(width_pt=first.width_pt, height_pt=first.height_pt, lines=tuple(lines))
+    ev, tx = _complete()
+    ev = Expect(**{**ev.__dict__, "absent_findings": frozenset({"page_gap", "missing_pages"})})
+    tx = Expect(**{**tx.__dict__, "absent_findings": frozenset({"page_gap", "missing_pages"})})
+    return _fixture("statement_with_page_cross_reference", [first, pages[1], pages[2]], expect_evidence=ev, expect_text=tx)
+
+
+def statement_period_only_in_a_row() -> LayoutFixture:
+    """MINOR-4: no period anywhere except a ledger row's own `<date> -
+    <date>` hold description — that is not the statement period."""
+    pages = statement_pages(lang="en", period=False, n_rows=6)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    lines = list(page.lines)
+    last_row = max(i for i, line in enumerate(lines) if find_iso(line.words[0].text))
+    y = lines[last_row].words[0].y1 + 18.0
+    hold = line_at(y, [tok(_date(9, 3, "en"), X_DATE), tok("HOLD", X_DESC), tok(_date(9, 3, "en"), X_DESC + 40.0), tok("-", X_DESC + 115.0),
+                       tok(_date(12, 3, "en"), X_DESC + 130.0), rtok(cents(1_000), R_AMOUNT), rtok(cents(OPENING_CENTS), R_BALANCE)])
+    lines.insert(last_row + 1, hold)
+    shifted = []
+    for i, line in enumerate(lines):
+        if i > last_row + 1:
+            shifted.append(line_at(line.words[0].y1 + 18.0, [Tok(w.text, w.x0) for w in line.words]))
+        else:
+            shifted.append(line)
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=tuple(shifted))
+    ex = Expect("STATEMENT_PARTIAL", None, "lexical", frozenset({"opening_balance_label", "closing_balance_label", "table_run"}),
+                findings=frozenset({"missing_period"}), absent_signals=frozenset({"period_expression"}))
+    return _fixture("statement_period_only_in_a_row", [page], expect_evidence=ex, expect_text=ex)
+
+
+def statement_thin_digital_summary() -> LayoutFixture:
+    """MINOR-3: the illegible fixture's pages with a DIGITAL profile — a
+    native text layer cannot be illegible; the ledger is simply missing."""
+    thin = statement_illegible()
+    ex = Expect("STATEMENT_PARTIAL", None, "lexical", frozenset({"period_expression", "opening_balance_label", "closing_balance_label"}),
+                findings=frozenset({"table_truncated"}), absent_signals=frozenset({"illegible_floor"}))
+    return _fixture("statement_thin_digital_summary", list(thin.pages), expect_evidence=ex, expect_text=ex, classification="digital")
+
+
+def statement_three_rotating_columns() -> LayoutFixture:
+    """MINOR-7: each row carries ONE money token, rotating over three
+    right-aligned columns (deposits, withdrawals, daily balance)."""
+    pages = statement_pages(n_rows=9, n_pages=1)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    edges = (R_DEBIT, R_CREDIT, R_BALANCE)
+    new_lines = []
+    n = 0
+    for line in page.lines:
+        if find_iso(line.words[0].text):
+            keep = [Tok(w.text, w.x0) for w in line.words[:-2]]
+            amount = line.words[-2].text
+            keep.append(Tok(amount, edges[n % 3] - len(amount) * 6.6))
+            new_lines.append(line_at(line.words[0].y1, keep))
+            n += 1
+        else:
+            new_lines.append(line)
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=tuple(new_lines))
+    ev = Expect("STATEMENT_COMPLETE", None, "structural", frozenset({"table_run", "table_alignment"}), absent_signals=frozenset({"running_balance"}))
+    tx = Expect("STATEMENT_COMPLETE", None, "lexical", frozenset({"table_run"}), absent_signals=frozenset({"running_balance", "table_alignment"}))
+    return _fixture("statement_three_rotating_columns", [page], expect_evidence=ev, expect_text=tx)
+
+
+def statement_hyphen_joined_dates() -> LayoutFixture:
+    """MINOR-11: `STATEMENT DATES <date>-<date>` with no space around the
+    hyphen is the only period form printed."""
+    pages = statement_pages(lang="en", period=False, n_rows=6)
+    page = pages[0]
+    from tests.layout_fixtures.builders import line_at
+
+    header = line_at(TOP_MARGIN - 20.0, [tok("STATEMENT", LEFT), tok("DATES", LEFT + 70.0),
+                                          tok(_date(1, 3, "en") + "-" + _date(31, 3, "en"), LEFT + 115.0)])
+    page = SyntheticPage(width_pt=page.width_pt, height_pt=page.height_pt, lines=(header,) + page.lines)
+    ev, tx = _complete()
+    return _fixture("statement_hyphen_joined_dates", [page], expect_evidence=ev, expect_text=tx)
+
+
+def two_statements_second_truncated() -> LayoutFixture:
+    """MINOR-2: a complete one-page statement followed by page 1 of 3 of a
+    second statement — the second sequence owes two pages."""
+    first = statement_pages(lang="en", n_rows=6, n_pages=1)
+    second = statement_pages(lang="en", n_rows=12, n_pages=3)[:1]
+    ex = Expect("STATEMENT_PARTIAL", None, "structural", frozenset({"page_marker", "page_missing"}),
+                findings=frozenset({"missing_pages"}), absent_findings=frozenset({"page_gap"}))
+    return _fixture("two_statements_second_truncated", first + second, expect_evidence=ex, expect_text=ex)
+
+
 def nothing_fires() -> LayoutFixture:
     rows = [
         [tok("SYNTHETIC", LEFT), tok("MEETING", LEFT + 70.0), tok("NOTES", LEFT + 130.0)],
@@ -1205,6 +1351,14 @@ FIXTURES: dict[str, Callable[[], LayoutFixture]] = {
     "statement_statement_ending_phrase": statement_statement_ending_phrase,
     "statement_last_this_statement_dates": statement_last_this_statement_dates,
     "statement_stacked_range_with_page_marker": statement_stacked_range_with_page_marker,
+    "card_statement_with_deposit_word": card_statement_with_deposit_word,
+    "statement_with_strong_card_phrase_in_loc_box": statement_with_strong_card_phrase_in_loc_box,
+    "statement_with_page_cross_reference": statement_with_page_cross_reference,
+    "statement_period_only_in_a_row": statement_period_only_in_a_row,
+    "statement_thin_digital_summary": statement_thin_digital_summary,
+    "statement_three_rotating_columns": statement_three_rotating_columns,
+    "statement_hyphen_joined_dates": statement_hyphen_joined_dates,
+    "two_statements_second_truncated": two_statements_second_truncated,
     "nothing_fires": nothing_fires,
 }
 

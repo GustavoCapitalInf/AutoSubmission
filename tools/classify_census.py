@@ -60,9 +60,9 @@ def _refuse_tracked_out(out: Path) -> None:
     """The per-sha CSV names documents; it may live only under a git-ignored path."""
     try:
         result = subprocess.run(["git", "check-ignore", "-q", str(out)], capture_output=True, text=True)
-        ignored = result.returncode == 0
-    except OSError:
-        ignored = "discovery_reports" in out.as_posix()
+    except OSError as exc:
+        raise SystemExit(f"refusing --out {out}: git could not be asked whether the path is ignored ({type(exc).__name__})")
+    ignored = result.returncode == 0
     if not ignored:
         raise SystemExit(f"refusing --out {out}: the path is not git-ignored (private per-sha output only)")
 

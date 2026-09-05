@@ -36,7 +36,7 @@ MODES = ("evidence", "text")
 BOX_DEPENDENT_SIGNALS = frozenset({"table_alignment", "micr_band", "cheque_aspect", "screenshot_frame"})
 #: `Finding.detail` is a closed little grammar of `key=number` pairs — it
 #: cannot carry a document word by construction (umbrella §"Classifier").
-DETAIL_GRAMMAR = re.compile(r"^(?:[a-z_]+=[0-9./-]+(?:;[a-z_]+=[0-9./-]+)*)?$")
+DETAIL_GRAMMAR = re.compile(r"^(?:[a-z_]+=\d+(?:/\d+)?(?:;[a-z_]+=\d+(?:/\d+)?)*)?$")
 
 
 @pytest.fixture(scope="module")
@@ -491,6 +491,9 @@ def test_the_contract_refuses_a_value_outside_its_vocabulary():
     with pytest.raises(ValueError):
         Finding(code="missing_pages", page=None, detail="Ending Balance 500.00")
     with pytest.raises(ValueError):
+        Finding(code="table_truncated", page=None, detail="rows=500.00")   # review MINOR-6: money-shaped
+    assert Finding(code="balance_discontinuity_at_page_break", page=1, detail="page_break=0/1").detail == "page_break=0/1"
+    with pytest.raises(ValueError):
         EvidenceRef(page=0, word_ids=None, span=None, signal="a signal that is not closed")
     with pytest.raises(ValueError):
         DocumentProfileFacts(valid_pdf=True, encrypted=False, page_count=1, classification="native",
@@ -594,4 +597,83 @@ def test_the_period_forms_of_the_precision_pass(fixtures):
             verdict = _classify(fixtures[name], mode)
             assert verdict.kind == "STATEMENT_COMPLETE", (name, mode, verdict)
             assert "period_expression" in _signal_names(verdict), (name, mode)
+
+
+# ---------------------------------------------------------------------------
+# the adversarial review's findings (PHASE2_P22CLASSIFY_REVIEW.md), each closed
+# with a fixture in both modes and a named mutant
+# ---------------------------------------------------------------------------
+
+def test_a_card_statement_with_one_deposit_word_is_a_conflict_not_a_deposit_statement(fixtures):
+    """MAJOR-1 / mutant M20: the card lexicon beside deposit-account
+    furniture is the same conflict on the table branch as on the no-table
+    branch. Both directions: the card statement with an autopay line is
+    `KIND_UNCERTAIN` (never `STATEMENT_COMPLETE / deposit`); a deposit
+    statement whose line-of-credit box prints a STRONG card phrase is the
+    recorded decision, `KIND_UNCERTAIN` too; a deposit statement whose box
+    prints only line-of-credit furniture stays complete."""
+    for mode in MODES:
+        card = _classify(fixtures["card_statement_with_deposit_word"], mode)
+        assert card.kind == "KIND_UNCERTAIN", (mode, card)
+        assert {"card_lexicon", "deposit_lexicon"} <= _signal_names(card)
+        loc = _classify(fixtures["statement_with_strong_card_phrase_in_loc_box"], mode)
+        assert loc.kind == "KIND_UNCERTAIN", (mode, loc)
+        weak = _classify(fixtures["statement_with_overdraft_line_box"], mode)
+        assert weak.kind == "STATEMENT_COMPLETE", (mode, weak)
+        control = _classify(fixtures["card_statement"], mode)
+        assert (control.kind, control.sub_kind) == ("NOT_A_STATEMENT", "card_statement")
+
+
+def test_a_prose_page_cross_reference_is_not_the_page_marker(fixtures):
+    """MINOR-1 / mutant M21."""
+    for mode in MODES:
+        verdict = _classify(fixtures["statement_with_page_cross_reference"], mode)
+        assert verdict.kind == "STATEMENT_COMPLETE", (mode, verdict)
+        assert "page_gap" not in _finding_codes(verdict)
+
+
+def test_a_ledger_rows_own_date_range_is_not_the_period(fixtures):
+    """MINOR-4 / mutant M22."""
+    for mode in MODES:
+        verdict = _classify(fixtures["statement_period_only_in_a_row"], mode)
+        assert verdict.kind == "STATEMENT_PARTIAL", (mode, verdict)
+        assert "missing_period" in _finding_codes(verdict)
+
+
+def test_a_thin_digital_page_is_not_illegible(fixtures):
+    """MINOR-3 / mutant M24: a native text layer cannot be illegible."""
+    for mode in MODES:
+        verdict = _classify(fixtures["statement_thin_digital_summary"], mode)
+        assert verdict.kind == "STATEMENT_PARTIAL", (mode, verdict)
+        assert "table_truncated" in _finding_codes(verdict)
+    scanned = _classify(fixtures["statement_illegible"], "text")
+    assert scanned.kind == "STATEMENT_ILLEGIBLE"
+
+
+def test_three_rotating_money_columns_align_in_evidence_mode(fixtures):
+    """MINOR-7 / mutant M25: boxes never make a verdict worse than no boxes."""
+    verdict = _classify(fixtures["statement_three_rotating_columns"], "evidence")
+    assert (verdict.kind, verdict.tier) == ("STATEMENT_COMPLETE", "structural"), verdict
+    assert _classify(fixtures["statement_three_rotating_columns"], "text").kind == "STATEMENT_COMPLETE"
+    letter = _classify(fixtures["letter_with_unaligned_dated_lines"], "evidence")
+    assert letter.kind == "NOT_A_STATEMENT"
+
+
+def test_a_hyphen_joined_statement_dates_line_is_the_period(fixtures):
+    """MINOR-11 / mutant M26."""
+    for mode in MODES:
+        verdict = _classify(fixtures["statement_hyphen_joined_dates"], mode)
+        assert verdict.kind == "STATEMENT_COMPLETE", (mode, verdict)
+        assert "period_expression" in _signal_names(verdict)
+
+
+def test_a_truncated_second_statement_owes_its_pages(fixtures):
+    """MINOR-2 / mutant M27: a clean restart is a second statement, and the
+    second sequence must reach its own total."""
+    for mode in MODES:
+        verdict = _classify(fixtures["two_statements_second_truncated"], mode)
+        assert verdict.kind == "STATEMENT_PARTIAL", (mode, verdict)
+        assert "missing_pages" in _finding_codes(verdict)
+    whole = _classify(fixtures["statement_two_statements_one_file"], "evidence")
+    assert whole.kind == "STATEMENT_COMPLETE"
 

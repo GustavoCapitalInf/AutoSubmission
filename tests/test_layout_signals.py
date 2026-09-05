@@ -240,9 +240,10 @@ def test_non_dates_do_not_parse(text):
 
 @pytest.mark.parametrize("text", [
     "⑆111111111⑆ 2222222222⑈ 1001",
-    "|111111111| 2222222222' 1001",
-    ":111111111: 2222222222\" 1001",
+    "|111111111| 2222222222; 1001",
+    ":111111111: 2222222222: 1001",
     "c111111111c 22222222222c",
+    "a111111111a 2222222222c 1001",
 ])
 def test_micr_shaped_lines(text):
     assert is_micr_shaped(text)
@@ -254,6 +255,11 @@ def test_micr_shaped_lines(text):
     "555 0100 800 1234",
     "1111 2222 3333 4444",
     "111111111 2222222222 1001",    # bare numbers with no MICR symbol: a statement's own reference numbers
+    "2031-03-05 1234567890 123456",  # review MINOR-5: a date beside an account number is not a MICR line
+    "03-05-2031 1234567890 000123",
+    "1234567890 123456 2031-03-05",
+    "12.345.678 1234567890",
+    "123456789-1234567890",
     "2222222222",
     "",
     "Page 1 of 2",

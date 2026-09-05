@@ -172,7 +172,7 @@ LEXICONS: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType({
     # A printed statement period. Fires only beside a date token (see
     # document_class), or as a two-date range with a connector.
     "period_phrase": _lexicon(
-        en=("statement period", "statement date", "for the period", "period covered", "period ending",
+        en=("statement period", "statement dates", "statement date", "for the period", "period covered", "period ending",
             "billing period", "activity period", "statement of account for", "statement from", "statement ending",
             "this statement", "last statement", "statement closing date", "period from"),
         fr=("période du", "période de relevé", "période couverte", "relevé du", "date du relevé",
@@ -447,7 +447,8 @@ _MONTH = "(?:" + "|".join(sorted(_MONTH_STEMS, key=len, reverse=True)) + ")"
 #: three languages' month-name forms (day-month-year and month-day-year).
 DATE_RE: re.Pattern[str] = re.compile(
     r"(?<![\d/.-])(?P<iso_y>\d{4})-(?P<iso_m>\d{2})-(?P<iso_d>\d{2})(?![\d/.-])"
-    r"|(?<![\d/.-])(?P<n3_a>\d{1,2})(?P<sep>[/.-])(?P<n3_b>\d{1,2})(?P=sep)(?P<n3_y>\d{4}|\d{2})(?![\d/.-])"
+    r"|(?<![\d/.])(?P<n3_a>\d{1,2})(?P<sep>[/.-])(?P<n3_b>\d{1,2})(?P=sep)(?P<n3_y>\d{4}|\d{2})"
+    r"(?![\d/.])(?!-(?!\d{1,2}[/.-]\d{1,2}[/.-]\d))"
     r"|(?<![\d/.-])(?P<n2_a>\d{1,2})/(?P<n2_b>\d{1,2})(?![\d/.-])"
     r"|(?<![a-z])(?P<mdy_m>" + _MONTH + r")[a-z]*\.?\s+(?P<mdy_d>\d{1,2})(?:st|nd|rd|th)?,?(?:\s+(?P<mdy_y>\d{4}))?(?![\d])"
     r"|(?<![\d])(?P<dmy_d>\d{1,2})(?:er|o|°|º)?\s+(?:de\s+)?(?P<dmy_m>" + _MONTH + r")[a-z]*\.?"
@@ -538,8 +539,10 @@ def find_dates(text: str, *, day_first: bool = False) -> list[DateToken]:
 # ---------------------------------------------------------------------------
 
 #: The four E-13B symbols (transit, amount, on-us, dash) and the characters
-#: OCR engines commonly read them as.
-MICR_SYMBOLS: frozenset[str] = frozenset("⑆⑇⑈⑉:;|'\".-cCaA")
+#: OCR engines commonly read them as. A dash or a dot is NOT one of them: a
+#: line of digits joined by dashes or dots is a date or a reference number
+#: (review MINOR-5).
+MICR_SYMBOLS: frozenset[str] = frozenset("⑆⑇⑈⑉:;|cCaA")
 _MICR_MIN_GROUPS = 2
 _MICR_MIN_LONGEST_GROUP = 6
 _MICR_MIN_DIGITS = 14
