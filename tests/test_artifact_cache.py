@@ -333,9 +333,35 @@ def test_raster_version_partitions_the_key():
     import ocr.rasterize as rasterize_module
 
     base = ocr_settings_key(ocr_settings=_OcrSettings())
-    with unittest.mock.patch.object(rasterize_module, "RASTER_VERSION", 2):
+    # patched to a value that is never the live default (P22-IDENTITY
+    # closure-2 bumped the live value to 2), so this proves the field
+    # partitions regardless of what that default currently is
+    with unittest.mock.patch.object(rasterize_module, "RASTER_VERSION", 999):
         changed = ocr_settings_key(ocr_settings=_OcrSettings())
     assert base != changed
+
+
+def test_raster_version_is_pinned_at_2():
+    """P22-IDENTITY closure-2 (review F-1): the rasteriser renders the
+    CropBox (`use_cropbox=True`) so a raster and the native display frame
+    share one rectangle; RASTER_VERSION 1 -> 2 lands in the same commit as
+    this pin (key material for every OCR partition at v5+)."""
+    from ocr.rasterize import RASTER_VERSION
+
+    assert RASTER_VERSION == 2
+
+
+def test_a_research_partition_on_a_pre_v5_stage_is_refused_not_dropped():
+    """P22-IDENTITY closure-2 (review F-4): `stage_version=4` has no
+    partition field; a non-empty partition there must RAISE rather than be
+    silently dropped into a production-shaped key. An empty partition on a
+    pre-v5 stage stays the historical key, byte for byte."""
+    baseline_v4 = ocr_settings_key(ocr_settings=_OcrSettings(), stage_version=4)
+    assert ocr_settings_key(ocr_settings=_OcrSettings(), stage_version=4, research_partition="") == baseline_v4
+    with pytest.raises(ValueError):
+        ocr_settings_key(ocr_settings=_OcrSettings(), stage_version=4, research_partition="p23-a")
+    # and at v5+ the same id is accepted as its own partition
+    assert ocr_settings_key(ocr_settings=_OcrSettings(), research_partition="p23-a") != ocr_settings_key(ocr_settings=_OcrSettings())
 
 
 def test_raster_version_fallback_matches_the_source_module():

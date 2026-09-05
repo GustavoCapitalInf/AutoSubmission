@@ -61,6 +61,7 @@ from .canonical import (
 
 __all__ = [
     "FRAME_DISPLAY",
+    "INVALID_ROTATION_NOTE",
     "NATIVE_EXTRACTOR_ID",
     "OUTSIDE_FRAME_NOTE_PREFIX",
     "ROTATION_APPLIED_NOTE",
@@ -123,6 +124,16 @@ OUTSIDE_FRAME_NOTE_PREFIX = "outside_frame:"
 #: `outside_frame:` note. Read it back with `words_outside_frame`.
 WORDS_OUTSIDE_FRAME_NOTE_PREFIX = "words_outside_frame="
 
+#: A `PageEvidence.notes` entry meaning: the page object's RAW `/Rotate`
+#: (its own, or inherited from a parent `Pages` node) is not a multiple of
+#: 90 — a value the PDF standard does not define. PyMuPDF then reports
+#: `page.rotation == 0` with an identity `rotation_matrix` but a swapped
+#: `page.rect` and rotated word coordinates, so any box this reader emitted
+#: would miss the ink of the page a viewer shows (review F-2). The page is
+#: refused whole — zero words, its declared rect as the frame — and named;
+#: the archive carries 0 such pages (the closure-2 census).
+INVALID_ROTATION_NOTE = "invalid_rotation"
+
 #: A `PageEvidence.notes` entry on every page whose `page.rotation` is not 0:
 #: the boxes were transformed by `page.rotation_matrix` into the display
 #: frame (D4). Replaces Phase 2.1's `native_words_unrotated_space`, which
@@ -131,6 +142,29 @@ ROTATION_APPLIED_NOTE = "rotation_applied"
 
 _VALID_ROTATIONS = (0, 90, 180, 270)
 _IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+
+def _raw_rotate(document, page):
+    """The page's RAW `/Rotate` integer — its own key, else the nearest
+    ancestor `Pages` node's (the standard's inheritance) — or `None` when
+    no node carries one or the walk cannot be completed. Read from the
+    objects themselves because PyMuPDF normalises the value before
+    `page.rotation` and silently mis-frames an invalid one (review F-2)."""
+    xref = page.xref
+    for _ in range(64):
+        kind, value = document.xref_get_key(xref, "Rotate")
+        if kind == "int":
+            return int(value)
+        if kind not in ("null", ""):
+            return None
+        kind, value = document.xref_get_key(xref, "Parent")
+        if kind != "xref":
+            return None
+        head = str(value).strip().split(" ", 1)[0]
+        if not head.isdigit():
+            return None
+        xref = int(head)
+    return None
 
 
 def outside_frame_word_ids(notes) -> tuple[str, ...]:
@@ -189,11 +223,13 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
     PyMuPDF unimportable, unparseable bytes, a document with no pages, or a
     document that opens but yields no word this reader can place (the honest
     answer for a scanned page — there are no words, only pixels). Never
-    raises. Two DISTINCT page-level failures are each kept as an empty page
+    raises. Three DISTINCT page-level failures are each kept as an empty page
     (never abort the whole document), named honestly and separately:
     `UNREADABLE_PAGE_NOTE` (no real frame exists — placeholder 1x1 frame),
-    `WORD_REFUSED_NOTE` (a real frame; one PyMuPDF box is inverted or
-    degenerate). A word whose transformed box lies outside the display frame
+    `INVALID_ROTATION_NOTE` (the page's raw `/Rotate`, own or inherited, is
+    not a multiple of 90 — the declared rect, zero words), `WORD_REFUSED_NOTE`
+    (a real frame; one PyMuPDF box is inverted or degenerate). A word whose
+    transformed box lies outside the display frame
     is NOT a failure: it is kept verbatim and noted per word
     (`OUTSIDE_FRAME_NOTE_PREFIX`) with the page's count
     (`WORDS_OUTSIDE_FRAME_NOTE_PREFIX`). Anything else this contract cannot
@@ -238,9 +274,18 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
                     page_index=page_index, width_pt=float(rect.width), height_pt=float(rect.height),
                     rotation_deg=rotation,
                 )
+                raw_rotate = _raw_rotate(document, page)
             except Exception:
                 placeholder = PageFrame.pdf_points(page_index=page_index, width_pt=1.0, height_pt=1.0)
                 pages.append(PageEvidence(frame=placeholder, words=(), notes=(UNREADABLE_PAGE_NOTE,)))
+                continue
+            if raw_rotate is not None and raw_rotate % 90 != 0:
+                # Review F-2: an invalid `/Rotate` (not a multiple of 90).
+                # PyMuPDF has already normalised it away; the boxes it would
+                # give us do not describe the page a viewer shows. Refused
+                # whole, named, with the declared rect so the refusal is
+                # visible — never a guessed frame.
+                pages.append(PageEvidence(frame=frame, words=(), notes=(INVALID_ROTATION_NOTE,)))
                 continue
             rotation_notes = (ROTATION_APPLIED_NOTE,) if rotation else ()
             # The identity is applied AS the identity: an unrotated page's raw

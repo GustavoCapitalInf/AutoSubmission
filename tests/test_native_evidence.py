@@ -39,6 +39,7 @@ import pytest
 
 from evidence import (
     FRAME_DISPLAY,
+    INVALID_ROTATION_NOTE,
     NATIVE_EXTRACTOR_ID,
     OUTSIDE_FRAME_NOTE_PREFIX,
     ROTATION_APPLIED_NOTE,
@@ -482,6 +483,142 @@ def test_the_retired_notes_are_never_emitted():
         fitz.Page.get_text = original
     assert words_outside_frame(evidence.pages[0].notes) == 1
     assert not any(note in RETIRED_NOTES for note in evidence.pages[0].notes)
+
+
+# ---------------------------------------------------------------------------
+# closure-2 (review F-1): the raster renders the CropBox — one rectangle for
+# the native display frame and the Paddle-style pixel frame
+# ---------------------------------------------------------------------------
+
+_CROPBOX = (15.0, 25.0, 560.0, 700.0)  # shifted AND smaller than the letter MediaBox
+
+
+def _cropped(rotate: int = 0) -> bytes:
+    """The upright ledger on a letter MediaBox with a CropBox shifted from it
+    (the reviewer's S3 shape); optionally with a `/Rotate`."""
+    document = fitz.open(stream=_render_upright(), filetype="pdf")
+    page = document[0]
+    page.set_cropbox(fitz.Rect(*_CROPBOX))
+    if rotate:
+        page.set_rotation(rotate)
+    data = document.tobytes()
+    document.close()
+    return data
+
+
+def _ink_fraction(image, words, scale_x: float, scale_y: float) -> float:
+    """The reviewer's overlay measure: the fraction of word boxes (grown one
+    pixel) that contain ink in the raster, at the raster's own scale."""
+    gray = image.convert("L")
+    hits = 0
+    for word in words:
+        left = max(0, int(word.x0 * scale_x) - 1)
+        top = max(0, int(word.y0 * scale_y) - 1)
+        right = min(gray.width, int(word.x1 * scale_x) + 2)
+        bottom = min(gray.height, int(word.y1 * scale_y) + 2)
+        if right > left and bottom > top and min(gray.crop((left, top, right, bottom)).getdata()) < 128:
+            hits += 1
+    return hits / max(1, len(words))
+
+
+@pytest.mark.parametrize("rotate", [0, 90])
+@pytest.mark.parametrize("dpi", [72, 144])
+def test_the_raster_renders_the_cropbox_so_frame_and_raster_share_one_rectangle(rotate, dpi):
+    """Review F-1: on a page whose CropBox is shifted from (and smaller than)
+    its MediaBox, the native display frame is `page.rect` (the CropBox) while
+    Poppler's default raster was the MediaBox — boxes offset from the ink by
+    the CropBox origin, frame size disagreeing with the raster. With
+    `use_cropbox=True` (RASTER_VERSION 2): the raster's pixel size equals the
+    frame × dpi/72 (rounded), a `PageFrame.pixel` built from the raster and
+    the native frame passes the scale check, and the overlay measure — the
+    fraction of word boxes containing ink — is 1.0, which is ≥ the unrotated
+    plain-page baseline (also 1.0). A MediaBox raster (mutant M18) fails the
+    size equality and the scale check."""
+    from ocr.rasterize import rasterize_pdf
+    from evidence import PageFrame
+
+    baseline_pdf = _render_upright()
+    baseline = native_evidence_from_pdf(baseline_pdf)
+    baseline_image = rasterize_pdf(baseline_pdf, dpi=dpi)[0]
+    baseline_fraction = _ink_fraction(baseline_image, baseline.pages[0].words, dpi / 72.0, dpi / 72.0)
+    assert baseline_fraction == 1.0
+
+    pdf_bytes = _cropped(rotate)
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    page = evidence.pages[0]
+    width_pt, height_pt = _CROPBOX[2] - _CROPBOX[0], _CROPBOX[3] - _CROPBOX[1]
+    if rotate == 90:
+        width_pt, height_pt = height_pt, width_pt
+    assert (page.frame.width, page.frame.height) == (width_pt, height_pt)
+    assert page.frame.rotation_deg == rotate
+
+    image = rasterize_pdf(pdf_bytes, dpi=dpi)[0]
+    assert (image.width, image.height) == (round(width_pt * dpi / 72.0), round(height_pt * dpi / 72.0))
+    pixel_frame = PageFrame.pixel(  # the Paddle rung's own frame construction: refuses on a scale mismatch
+        page_index=0, raster_width_px=image.width, raster_height_px=image.height, dpi=float(dpi),
+        pdf_width_pt=page.frame.width, pdf_height_pt=page.frame.height, rotation_deg=rotate,
+    )
+    fraction = _ink_fraction(image, page.words, pixel_frame.scale_x, pixel_frame.scale_y)
+    assert fraction == 1.0 and fraction >= baseline_fraction
+    assert len(page.words) == 12 and words_outside_frame(page.notes) == 0
+
+
+# ---------------------------------------------------------------------------
+# closure-2 (review F-2): an invalid page-level /Rotate is refused by name
+# ---------------------------------------------------------------------------
+
+def _with_raw_rotate(rotate: int, *, inherited: bool = False, extra_pages: int = 1) -> bytes:
+    """The upright ledger with a RAW `/Rotate` value written into the page
+    object (or, `inherited=True`, into the parent `Pages` node with the page's
+    own key removed) — values PyMuPDF normalises before `page.rotation`."""
+    document = fitz.open(stream=_render(extra_pages=extra_pages), filetype="pdf")
+    page = document[0]
+    if extra_pages:
+        # the sibling page carries a word, so a refused first page never
+        # empties the whole document into the reader's honest `None`
+        document[1].insert_text(fitz.Point(40.0, 100.0), "SecondPageWord", fontsize=10.0, fontname="helv")
+    if inherited:
+        kind, value = document.xref_get_key(page.xref, "Parent")
+        parent_xref = int(value.split()[0])
+        document.xref_set_key(page.xref, "Rotate", "null")
+        document.xref_set_key(parent_xref, "Rotate", str(rotate))
+    else:
+        document.xref_set_key(page.xref, "Rotate", str(rotate))
+    data = document.tobytes()
+    document.close()
+    return data
+
+
+@pytest.mark.parametrize("inherited", [False, True])
+def test_an_invalid_page_rotate_refuses_the_page_by_name(inherited):
+    """Review F-2: a raw `/Rotate 45` (not a multiple of 90) makes PyMuPDF
+    report rotation 0 with an identity matrix but a swapped rect and rotated
+    word coordinates — boxes that would miss the ink of the page a viewer
+    shows. The reader refuses the page whole (`invalid_rotation`, zero words,
+    the declared rect), whether the value sits on the page or is inherited
+    from the parent `Pages` node; the sibling page is untouched; the document
+    is not aborted. The archive carries 0 such pages (the closure-2 census)."""
+    pdf_bytes = _with_raw_rotate(45, inherited=inherited)
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    first = evidence.pages[0]
+    assert first.notes == (INVALID_ROTATION_NOTE,)
+    assert first.words == ()
+    assert first.frame.width > 1.0 and first.frame.height > 1.0  # the declared rect, not the placeholder
+    assert UNREADABLE_PAGE_NOTE not in first.notes and WORD_REFUSED_NOTE not in first.notes
+    assert evidence.pages[1].notes == ()
+
+
+@pytest.mark.parametrize("raw,normalised", [(450, 90), (-90, 270), (360, 0), (0, 0)])
+def test_a_raw_rotate_that_is_a_multiple_of_90_is_normalised_not_refused(raw, normalised):
+    """The reviewer's S5 shapes: odd but VALID `/Rotate` values normalise to
+    the display rotation and read every word; nothing is refused."""
+    pdf_bytes = _with_raw_rotate(raw, extra_pages=0)
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes
+    assert page.frame.rotation_deg == normalised
+    assert len(page.words) == 12
 
 
 def test_a_mixed_document_rotated_and_unrotated_pages_each_get_their_own_frame():

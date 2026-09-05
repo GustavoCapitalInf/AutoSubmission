@@ -733,7 +733,7 @@ ADMITTED_POSTPROCESS_DEFAULT: tuple[str, ...] = ()
 #: :func:`ocr_settings_key` tries the real import first and falls back to
 #: this duplicate only on ``ImportError``; ``test_raster_version_fallback_matches_the_source_module``
 #: pins that the two never drift apart.
-_RASTER_VERSION_FALLBACK = 1
+_RASTER_VERSION_FALLBACK = 2
 
 _toolchain_versions_cache: dict[str, str] | None = None
 
@@ -929,6 +929,14 @@ def ocr_settings_key(
         ocr_settings = _load_ocr_settings()
     version = OCR_STAGE_VERSION if stage_version is None else int(stage_version)
     partition = _validate_research_partition(research_partition)
+    if partition and version < 5:
+        # P22-IDENTITY closure-2 (review F-4): a pre-v5 key has no partition
+        # field; silently dropping a research partition there would hand a
+        # research run a production-shaped key. Refuse instead — a pre-v5
+        # run never carried one, so this is unreachable on a real record.
+        raise ValueError(
+            "research_partition requires OCR stage version 5 or later; a pre-v5 key cannot carry one"
+        )
     settings: dict[str, Any] = {
         "stage_version": version,
         "force_ocr": bool(force_ocr),

@@ -44,6 +44,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -65,6 +66,25 @@ ENV_KNOBS = [
     "GEMINI_MODEL", "GEMINI_ESCALATION_MODEL", "PYTHONHASHSEED",
 ]
 SECRET_KNOBS = ["OCR_API_KEY", "GEMINI_API_KEY"]
+
+#: P22-IDENTITY closure-2 (review F-3): the closed shape of a research
+#: partition id — the SAME shape `webapp/artifact_cache.py` enforces (pinned
+#: equal by `tests/test_run_of_record.py`); spelled here so the CALLER
+#: validates before any probe runs, instead of the probe's `ValueError`
+#: being swallowed and the whole `run_of_record` block dropped (which would
+#: let a research run be RECONSTRUCTED as a production-shaped record).
+RESEARCH_PARTITION_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+
+
+def validate_research_partition(value: str | None) -> str:
+    """`""` for production; a matching id verbatim; anything else refuses."""
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or re.fullmatch(RESEARCH_PARTITION_PATTERN, value) is None:
+        raise ValueError(
+            f"--research-partition must match {RESEARCH_PARTITION_PATTERN} (or be empty for a production run); refused"
+        )
+    return value
 
 #: Run inside the checkout: the tree's own constants, keys and inventory.
 _TREE_PROBE = r'''
@@ -264,6 +284,8 @@ def _corpus_hashes(root: Path) -> dict:
 
 def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corpus: bool,
            mode: str | None = None, research_partition: str = "") -> dict:
+    # Review F-3: refused HERE, before the probe subprocess exists.
+    research_partition = validate_research_partition(research_partition)
     python = sys.executable
     tesseract = shutil.which("tesseract")
     pdftoppm = shutil.which("pdftoppm")
@@ -411,6 +433,11 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
+    try:
+        validate_research_partition(args.research_partition)
+    except ValueError as refusal:
+        print(str(refusal))
+        return 2
     record = collect(args.checkout.resolve(), args.root.resolve(), args.data_dir.resolve(),
                      label=args.label, hash_corpus=args.hash_corpus, mode=args.mode,
                      research_partition=args.research_partition)

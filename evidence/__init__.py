@@ -6,6 +6,7 @@ the only third-party import in the package is PyMuPDF, lazily, inside
 coordinate conventions."""
 from .native import (
     FRAME_DISPLAY,
+    INVALID_ROTATION_NOTE,
     NATIVE_EXTRACTOR_ID,
     OUTSIDE_FRAME_NOTE_PREFIX,
     ROTATION_APPLIED_NOTE,
@@ -47,6 +48,7 @@ __all__ = [
     "COORDINATE_SPACES",
     "EVIDENCE_SCHEMA_VERSION",
     "FRAME_DISPLAY",
+    "INVALID_ROTATION_NOTE",
     "NATIVE_EXTRACTOR_ID",
     "OUTSIDE_FRAME_NOTE_PREFIX",
     "PDF_POINT",

@@ -1049,6 +1049,43 @@ def test_cohort_replay_exits_5_on_a_research_run_without_any_change_of_its_own(t
     assert exit_code == 5
 
 
+def test_provenance_validates_the_research_partition_before_any_probe(tmp_path, monkeypatch):
+    """Review F-3 (closure-2): a malformed `--research-partition` used to be
+    caught inside the probe by `attempt`, dropping the whole `run_of_record`
+    block — after which `partitions_for_run` RECONSTRUCTED the run as a
+    production-shaped record. The caller now validates the id up front with
+    the SAME closed shape the cache module enforces and refuses before any
+    subprocess starts; `main` exits 2 and writes nothing."""
+    import tools.train.provenance as provenance
+    import webapp.artifact_cache as cache_module
+
+    assert provenance.RESEARCH_PARTITION_PATTERN == cache_module._RESEARCH_PARTITION_RE.pattern
+    assert provenance.validate_research_partition("") == ""
+    assert provenance.validate_research_partition(None) == ""
+    assert provenance.validate_research_partition("p23-wave.a_1") == "p23-wave.a_1"
+    for bad in ("bad id", "a/b", "-leading", "x" * 65, "nl\n", "tab\t"):
+        with pytest.raises(ValueError):
+            provenance.validate_research_partition(bad)
+
+    def no_subprocess(*args, **kwargs):
+        raise AssertionError("no probe or tool may run for a refused partition")
+
+    monkeypatch.setattr(provenance.subprocess, "run", no_subprocess)
+    root = tmp_path / "root"
+    root.mkdir()
+    with pytest.raises(ValueError):
+        provenance.collect(Path(__file__).resolve().parents[1], root, tmp_path / "data",
+                           label="t", hash_corpus=False, mode="digital", research_partition="bad id")
+    out = tmp_path / "out" / "provenance.json"
+    exit_code = provenance.main([
+        "--checkout", str(Path(__file__).resolve().parents[1]), "--root", str(root),
+        "--data-dir", str(tmp_path / "data"), "--out", str(out), "--mode", "digital",
+        "--research-partition", "bad id",
+    ])
+    assert exit_code == 2
+    assert not out.exists() and not out.with_suffix(".md").exists()
+
+
 def test_provenance_records_the_research_partition_and_folds_it_into_the_keys(tmp_path, monkeypatch):
     """`tools/train/provenance.py --research-partition <id>` records the id in
     `run_of_record.partitions` and computes the OCR keys WITH it, so the
