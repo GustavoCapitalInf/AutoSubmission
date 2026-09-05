@@ -70284,3 +70284,213 @@ Built by `python -m tools.adjudicate queue --rows <run of record>/rows.csv --sli
 Encryption at rest for the store; a `--figures`/`--ledger` exporter from a run's analysis payloads
 for 2.4's evaluation; the digest parser for cell T's runner refusal (three lines over the
 `holdout_sha16_status:` block); extending the OQ2 guard's roots to `tools/holdout/` (cell C's file).
+# §P22HOLDOUT-CLOSURE — the adversarial review's 3 MAJOR / 6 MINOR closed at `635853d`: every finding reproduced with the reviewer's own instruments, fixed, and killed by a named test and a named mutant; 0 coverage movement; one census finding surfaced
+
+Cell H (Phase 2.2, `docs/agent-handoffs/P22-HOLDOUT.md`), worktree `mt22-holdout`, branch
+`wave22-holdout`; the review `docs/moneythumb-replacement/reviews/PHASE2_P22HOLDOUT_REVIEW.md` (verdict
+APPROVE WITH FINDINGS — 0 BLOCK / 3 MAJOR / 6 MINOR, against `7173317`). Closure tip **`635853d`**
+(+ the commit carrying this section). Still a hygiene card: `git diff --stat b23cb50..HEAD` over
+`analysis ocr discovery webapp telemetry evidence layout corpus_gate.py` is EMPTY (`PRODDIFF_LINES=0`);
+newly validated 0; nothing customer-derived in any tracked file; nothing adjudicated by this cell.
+
+## Reproduction before any code changed (`discovery_reports/train12-logs/p22holdout-closure-repro.log`)
+The reviewer's instruments (`attack_chain.py`, `attack_manifest.py`, `attack_cli.py`,
+`attack_digest_eval.py`, `attack_location.py`, `attack_location2.py`, under the shared session
+scratchpad) were run verbatim with `WT` retargeted and `REVIEW_SCRATCH` pointed at a fresh temp dir.
+Honesty note: the first pass's retarget had not taken, so it executed the reviewer's detached worktree
+`rev22-holdout` — the SAME tree `7173317` as this branch then stood at (identical blobs; the review's
+§6 diff proves it) — and is recorded as such; every "after" pass was re-run against THIS worktree with a
+verified retarget. What the instruments printed at `7173317`:
+* **MAJOR-1** (`attack_chain.py`): `E append after truncation: ACCEPTED (no manifest check on the append
+  path)`; `E2 verdict for d0 after tail-delete + append: STATEMENT_COMPLETE | verify_against_manifest:
+  PASSES -> the reversion is sealed`; `F adjudicate.py calls verify_against_manifest: False`;
+  `F append_record calls verify_against_manifest: False`.
+* **MAJOR-2** (`attack_manifest.py`): `2 graduate with a tag OLDER than the evaluation (batch9-final,
+  2026-08-31 vs evaluated 2032): ALLOWED -> graduated`; `2b git_tags() count: 7 … non-freeze-looking
+  tags: [archive/universal-prototype-…, mt9-l1s3-broken-compose]`; `2c CLI graduate at a tag that exists
+  ONLY in a caller-supplied --tags-from file: rc 0 state graduated | tag in git: False`.
+* **MAJOR-3** (`attack_manifest.py`): `3b holdout-add of a RUN-OF-RECORD sha with --dev-rows <run of
+  record>: rc 1 items 0`; `3c holdout-add of the SAME run-of-record sha with --dev-shas <one synthetic
+  sha>: rc 0 items 1 | not_in_dev_corpus recorded as: [True]`.
+* **MINOR-1** (`attack_cli.py`): `5 tampered EVIDENCE.txt shown? True | … run re-verified the packet
+  digest? False`; `6 queue.json digest edited to ff..: record packet_digest == ffffffff`.
+* **MINOR-2** (`attack_location.py`): the repository's parent, a sibling under it and a OneDrive path
+  ACCEPTED (the junction/symlink cases of that script are a harness-ordering artefact in my passes — see
+  Deviations — and REFUSED once genuinely created).
+* **MINOR-3** (`attack_digest_eval.py`): `validated + a MALFORMED system figure ('n/a' closing):
+  false_accept ['closing_balance']`; `only account_count comparable from rows.csv: agree compared 1`.
+
+## Closure per finding (reproduced → fixed at `635853d` → proven)
+* **MAJOR-1 — a truncated tail laundered by the next append.** Fixed: `ChainedJsonl` carries its sidecar
+  manifest; `append()` first calls `verify_against_manifest()` and refuses on any disagreement (the
+  truth chain against `manifest.json`; the holdout chain against a NEW `holdout_manifest.json`, written
+  after every event); every read that yields a verdict or an item (`latest_by_sha`, `counts_by_kind`,
+  `adjudicated_sha16s`, `items`, `by_sha`, `holdout_shas_for_refusal`, `sha16_statuses`) verifies the
+  same way; the CLI's `run` verifies before showing anything, `status`, `export-digest` (`render_digest`)
+  and `evaluate_run` verify on entry; a new `verify [--digest <path>]` command checks both chains and,
+  with `--digest`, anchors the store to a repository digest (the A3 whole-chain-rewrite case the
+  reviewer named). Proven: `test_truth_store.py::test_a_tail_truncation_is_never_resealed_by_the_next_append`
+  (the file and the manifest untouched after the refusal; no verdict readable),
+  `::test_records_without_a_manifest_are_refused`, `test_holdout_manifest.py::test_a_truncated_holdout_file_refuses_every_read_and_write`,
+  `test_adjudicate_cli.py::test_run_refuses_a_store_that_disagrees_with_its_manifest` (run, status,
+  export-digest and verify all non-zero), `::test_verify_checks_both_chains_and_a_digest`,
+  `test_holdout_evaluate.py::test_a_truncated_store_or_manifest_refuses_the_evaluation`; mutant **M13**
+  (both pre-append verifications dropped) KILLED. The reviewer's instrument after the fix: `E append
+  after truncation: refused: manifest.json disagrees with truth.jsonl (truncated or replaced file)` and
+  the script died on the refusal.
+* **MAJOR-2 — a nominal freeze-tag condition.** Fixed: graduation requires (a) the freeze shape
+  `FREEZE_TAG_RE = [a-z0-9][a-z0-9_.-]{0,78}-final` (the repository's `batch8-final`, `batch9-final`,
+  `phase2.0-final`, `phase2.1-final`), (b) membership in a git-RESOLVED tag mapping
+  (`freeze_tags_from_git(repo)` over `git for-each-ref --format=%(refname:short) %(objectname)
+  %(*objectname) %(committerdate:iso-strict) %(*committerdate:iso-strict) refs/tags`; a failure yields an
+  empty mapping and graduation refuses — fail closed), (c) the tag's peeled commit's committer date
+  strictly AFTER the item's `last_evaluated_at` (a SUBSEQUENT freeze; equal is refused); the attestation
+  records `tag_commit` and `tag_committer_date`; `--tags-from` is REMOVED; `holdout-graduate --repo` names
+  the git repository consulted (default: this checkout). Proven:
+  `test_holdout_manifest.py::test_graduation_requires_the_freeze_tag_shape`, `::test_graduation_requires_an_existing_freeze_tag_and_the_attestation`
+  (a bare set is not git-resolved), `::test_graduation_requires_a_subsequent_freeze` (older tag; every
+  tag older than the evaluation; equal date), `::test_freeze_tags_from_git_resolve_this_checkouts_real_tags`,
+  `test_adjudicate_cli.py::test_holdout_graduate_resolves_the_tag_through_a_real_git_repository` (a REAL
+  temporary `git init` repository with a real annotated `synthetic-final` and a real `notfinal`),
+  `::test_holdout_graduate_refuses_a_freeze_older_than_the_evaluation`,
+  `::test_holdout_graduate_has_no_self_attested_tag_list` (`--tags-from` → argparse 2; an invented tag
+  against this checkout → 1); mutants **M14** (shape), **M15** (existence, with a fabricated ref),
+  **M16** (date ordering) each KILLED; M6 re-scoped to the membership check, KILLED. Closure probe in the
+  reviewer's shape (`closure_probe_major23.py`): `2 batch9-final (dated 2026, evaluation 2032): refused`;
+  `2b a non-freeze tag that exists in git: refused (not a freeze tag)`; `2c a tag that exists nowhere:
+  refused`; `2c --tags-from at the CLI: rc 2`; `2d a real annotated *-final tag dated AFTER the
+  evaluation, resolved through git: rc 0 state graduated | attestation names the tag commit: True`.
+* **MAJOR-3 — the attestation asserted against whatever the caller supplied.** Fixed: `DevCorpus` is
+  built ONLY by `dev_corpus_from_rows(<rows.csv>)` (the `content_sha256` column; refuses an absent file,
+  a missing column, an empty population); `HoldoutManifest.add(dev_corpus=…)` refuses anything else;
+  the `added` event records `dev_corpus = {digest, size, rows, source, recipe}` with
+  `DEV_CORPUS_DIGEST_RECIPE = sha256 over the sorted distinct upper-hex content shas joined by LF, no
+  trailing newline`; the CLI's `--dev-rows` is REQUIRED and `--dev-shas` is REMOVED. Proven:
+  `test_holdout_manifest.py::test_the_dev_corpus_comes_from_a_rows_csv_and_is_recorded` (the digest
+  recomputed in-test), `::test_a_development_corpus_sha_is_refused`, `::test_the_dev_corpus_is_required_and_must_come_from_rows`,
+  `test_adjudicate_cli.py::test_holdout_add_refuses_a_run_of_record_sha_and_accepts_a_new_one` (the
+  event's digest/size/rows/source asserted), `::test_holdout_add_takes_the_development_corpus_only_from_rows`
+  (`--dev-rows` absent → 2; `--dev-shas` → 2); mutants **M7** (re-scoped) and **M17** (digest/size not
+  recorded) KILLED. Closure probe: `dev corpus from the run of record: 3380 shas over 3506 rows`;
+  `3b holdout-add of a RUN-OF-RECORD sha with --dev-rows <run of record>: rc 1`; `3c … --dev-shas: rc 2
+  (the flag no longer exists)`; `3d … without any development corpus: rc 2`. The reviewer's suggested
+  numeric population floor (3,380 / `--allow-small-dev-corpus`) was NOT added — see Deviations.
+* **MINOR-1 — an unverified packet digest.** Fixed: `run` recomputes the digest from `packet.json` and
+  the page images it names (`packet_digest_from_dir`), refuses when it differs from the queue's or the
+  packet's own, renders the evidence from `packet.json` (never `EVIDENCE.txt`), and records the
+  RECOMPUTED digest. Proven: `test_adjudicate_cli.py::test_run_recomputes_the_packet_digest_and_refuses_an_edited_packet`
+  (edited `EVIDENCE.txt` not shown; edited evidence in `packet.json`, an edited page image and an edited
+  `queue.json` digest each refused with nothing appended; an untouched packet records exactly the
+  original digest); mutant **M18** KILLED. The reviewer's instrument after: `5 tampered EVIDENCE.txt
+  shown? False`; `6 … record packet_digest == packet.json's real digest`.
+* **MINOR-2 — R3's "on this machine" not encoded.** Fixed: `forbidden_ancestor` additionally refuses
+  any path component starting with `OneDrive`, any path under a root named by an `OneDrive*` environment
+  variable or by the checkout's own ancestry (`onedrive_roots()`), any ancestor of a repository root,
+  and anything under a checkout's parent directory (the project folder and its siblings). Proven:
+  `test_truth_store.py::test_refuses_the_checkout_parent_its_siblings_and_every_ancestor`,
+  `::test_refuses_a_onedrive_root_named_by_the_environment` (and accepted again once the variable is
+  gone), `::test_refuses_a_path_with_a_onedrive_component`, `::test_the_checkouts_own_onedrive_ancestry_is_a_refused_root`;
+  mutant **M19** KILLED. The reviewer's instruments after (genuine junction/symlink, see Deviations):
+  `[REFUSED] junction -> main checkout docs/`, `[REFUSED] junction … + subdir`, `[REFUSED] dir symlink ->
+  worktree tools/`; the CLI packet directory refused `direct`, `via ..`, `via junction`, `via \\?\`
+  (all rc 1, nothing created, both checkouts' porcelain unchanged).
+* **MINOR-3 — evaluate edges.** Fixed (a) an unparseable system value is listed under `unparseable`
+  and never compared, so it can never be a contradiction; an unparseable ledger row is dropped; (b)
+  `agree` requires at least one money identity (opening/closing balance or a sampled row against the
+  ledger); non-money-only agreement is `agree_partial` (a new judgement, reported on its own line; the
+  generalization count includes it); (c) a system `refused` row still classes `unclassified` — documented,
+  not mapped (cell T's vocabulary). Proven: `test_holdout_evaluate.py::test_an_unparseable_system_figure_is_never_a_contradiction`,
+  `::test_agree_requires_a_money_identity`, `::test_false_accept_needs_an_oracle_contradiction_never_the_verdict_alone`
+  (account_count-only → `agree_partial`); mutants **M20**, **M21** KILLED.
+* **MINOR-4 — writer identity by convention.** Documented as the RULED convention, with its reason:
+  the card rules a hashed, append-only store outside the checkout with a firewall on the production
+  roots — no signing; a signing key on the same machine would add no independent trust (the same
+  operator holds both), a remote signer is out of scope and would move truth off the machine (R3's
+  "on this machine"); the chain, the sidecar manifests and the committed digest make any out-of-band
+  write DETECTABLE (a raw append breaks nothing but is visible as an event outside the CLI's shapes and
+  breaks the digest anchor), not impossible. `tools/` and `tests/` remain unfenced by design (they are
+  the store's own tooling and its tests). Recorded so it is never mistaken for enforcement.
+* **MINOR-5 — two honesty items.** (a) The 40-page packet cap: `queue` now prints `truncated: N (page
+  cap M)` and writes it into `QUEUE_DIGEST.txt`; `packet.json` carries `render.truncated`; the
+  `EVIDENCE.txt`/run header says `(cut at the M-page cap)`. In slice 1: **3 of 214 packets are cut** at
+  the 40-page cap (page counts 42, 43, 43); 1,086 page images. Proven:
+  `test_adjudicate_cli.py::test_queue_reports_packets_cut_at_the_page_cap`. (b) The slice sha-list digest
+  `14540440…` is **sha256 over the sorted content shas joined by LF with no trailing newline** (the file
+  itself, with its comment lines, hashes differently); the dev-corpus digest recipe is stated in the
+  record itself.
+* **MINOR-6 — the firewall docstring overclaimed.** Fixed: the docstring names it a static literal /
+  name / import tripwire, lists what it sees and what it cannot; the scanner now FOLDS constant
+  `+`-concatenation, all-constant f-strings, `str.join` over constant lists, `.upper()/.lower()/…` and
+  `.replace()` of constants, reversed constant slices and bytes literals (case-insensitively), and flags
+  any `os.environ[...]`/`.get`/`getenv` whose folded key names SEALED, TRUTH or HOLDOUT (the
+  second-env-var-by-name shape). Proven: seven new injection shapes in
+  `test_truth_firewall.py::test_a_mutant_production_module_is_caught_at_any_depth` (18 in all) and
+  `::test_the_firewall_names_its_limits_truthfully` (a base64 name, an unrelated env var, a hard-coded
+  path are NOT findings — so the stated limits stay true); the 153 production modules still 0 findings.
+
+## The mutation table at `635853d` (`p22holdout-closure-mutation-table.log`, `EXIT=0`; the scratch harness refuses a dirty tree, runs WITHOUT -x, restores in a `finally`, verifies porcelain clean; tree clean after)
+21 / 21 KILLED. M1–M12 re-run (killers as in §P22HOLDOUT, with one change: on this host M1's killer is
+now `test_truth_store.py::test_refuses_the_checkout_parent_its_siblings_and_every_ancestor`, because the
+main checkout sits under a `OneDrive - …` component that the new synced-folder rule refuses first; M6 is
+re-scoped to the membership check, killed by the three graduation tests). New rows:
+| # | mutant (site) | killers |
+|---|---|---|
+| M13 | both pre-append manifest verifications replaced by chain-only verification | `test_truth_store.py::test_a_tail_truncation_is_never_resealed_by_the_next_append`, `::test_records_without_a_manifest_are_refused` |
+| M14 | the freeze-tag shape check removed | `test_holdout_manifest.py::test_graduation_requires_the_freeze_tag_shape`, `test_adjudicate_cli.py::test_holdout_graduate_resolves_the_tag_through_a_real_git_repository` |
+| M15 | the tag-existence check removed (an absent tag fabricated as a far-future ref) | `test_holdout_manifest.py::test_graduation_requires_an_existing_freeze_tag_and_the_attestation`, `test_adjudicate_cli.py::test_holdout_graduate_resolves_the_tag_through_a_real_git_repository`, `::test_holdout_graduate_has_no_self_attested_tag_list` |
+| M16 | the subsequent-freeze date ordering removed | `test_holdout_manifest.py::test_graduation_requires_a_subsequent_freeze`, `test_adjudicate_cli.py::test_holdout_graduate_refuses_a_freeze_older_than_the_evaluation` |
+| M17 | the dev-corpus digest / size / rows not recorded | `test_holdout_manifest.py::test_the_dev_corpus_comes_from_a_rows_csv_and_is_recorded`, `test_adjudicate_cli.py::test_holdout_add_refuses_a_run_of_record_sha_and_accepts_a_new_one` |
+| M18 | `run` trusts `queue.json`'s digest instead of recomputing it | `test_adjudicate_cli.py::test_run_recomputes_the_packet_digest_and_refuses_an_edited_packet` |
+| M19 | the OneDrive / ancestor / parent refusals removed | `test_truth_store.py::test_refuses_the_checkout_parent_its_siblings_and_every_ancestor`, `::test_refuses_a_onedrive_root_named_by_the_environment`, `::test_refuses_a_path_with_a_onedrive_component`, `::test_the_checkouts_own_onedrive_ancestry_is_a_refused_root` |
+| M20 | an unparseable figure counted as a contradiction | `test_holdout_evaluate.py::test_the_synthetic_evaluation_reports_each_judgement`, `::test_an_unparseable_system_figure_is_never_a_contradiction`, `::test_stdout_carries_aggregates_only`, `::test_the_private_report_is_written_outside`, `::test_cli_entry_point_requires_the_store_and_prints_aggregates` |
+| M21 | `agree` granted without a money identity | `test_holdout_evaluate.py::test_the_synthetic_evaluation_reports_each_judgement`, `::test_an_unparseable_system_figure_is_never_a_contradiction`, `::test_false_accept_needs_an_oracle_contradiction_never_the_verdict_alone`, `::test_agree_requires_a_money_identity`, `::test_stdout_carries_aggregates_only` |
+
+## Proof exits at the closure tip (`p22holdout-closure-proofs.log`; one lock-held sequential run)
+Chain `p22holdout_closure_chain.sh` (one waiter; the lock acquired after 79 polls at 22:05:04 on 2026-09-04; released 22:07:14), tree `635853d`, `PRODDIFF_LINES=0`: the five cell test files **165 passed** (`CELLTESTS_EXIT=0`) · canonical guards **275 passed** (`GUARDS_EXIT=0`) · canonical conformance **1,282 passed / 41 skipped** (`CONFORMANCE_EXIT=0`) · the repository-walking tests that see `tools/` (`test_corpus_gate_outcomes`, `test_escalation_tripwires`, `test_evidence_boundary`, `test_privacy3_boundaries`, `test_raise_privacy3`, `test_worker_privacy`) **358 passed / 3 skipped / 10 deselected** (`WALKERS_EXIT=0`) · `cohort_replay --expect-identical` over `member_statement_rollup` + `first_citizens`: **47 of 47 preserved, payload identical, newly validated 0, regressions 0** (`REPLAY_EXIT=0`) · privacy scan `PRIVACY_EXIT=0` · message scan `MSGSCAN_EXIT=1` (one WORDS hit, attributed below) · `EXIT=0`. The full suite, the gate and the corpus slice were not re-run (Deviation 6); their last exits stand at `38d3100` in §P22HOLDOUT. The mutation table ran at `635853d` (`p22holdout-closure-mutation-table.log`, `EXIT=0`, 21/21).
+
+## Privacy count
+`tools/privacy_scan_branch.py --rows <run>/rows.csv --run <run> --data-dir webapp_data_train11_cold --base b23cb50 --ref HEAD` at `635853d` (population 3,380; 3,351 documents read; 29 without cached text): over **5,001 added lines, MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** (50 WORDS occurrences excused by the `words_class` rule; every other rule 0). Message scan (`tools/huntington_msg_privacy_scan.py`, the same population, `git log b23cb50..HEAD`, 5 commits): **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 1** — the one WORDS hit is the closure commit `635853d`'s own English (the two-word sequence 'otherwise agree', from 'agree needs a money identity, otherwise agree_partial'), which coincides with printed words in the population; reported with that attribution under the standing rule (BATCH9-RULES: the WORDS class is reported with its attribution; MONEY / DIGITS / DATES must be 0 — they are). **The scans over this section's own commit run after it lands; their counts are in the closure message to Ocean.**
+
+## A census finding surfaced by the packets (outside this cell's ownership; reported, not acted on)
+All **16** slice-1 documents the batch-9 census calls `PF-INVALID-PDF` ("Java object-serialisation
+magic, 0 pages, not documents"; `valid_pdf = False` in the run of record) RENDERED under PyMuPDF with no
+error — 2 to 9 pages each (page counts 2/3/4/5/7/9). Mechanism: every one of the 16 files begins with the Java object-serialisation magic `AC ED 00 05` and carries its `%PDF-` header at byte offset 27 — a 27-byte serialisation envelope wrapped around a complete 12–26 KB PDF; PyMuPDF scans past the leading bytes to the header, `inspect_pdf` tests offset 0 and stops. The run of
+record's profile (`ocr/inspect.py::inspect_pdf`) refuses a file whose FIRST bytes are not `%PDF-` before
+ever opening it, so these files are `invalid_pdf` to the ladder and `FILE_INVALID`-shaped to the census,
+while an adjudicator handed the packet will see pages. Nothing here changes any verdict — the
+adjudicator decides what the pages are — but the L0 classification of these 16 and the census cluster's
+description are questions for cells C / T and Ocean, recorded here by count only.
+
+## Deviations in this closure (each named)
+1. The first "after" instrument pass ran the reviewer's detached tree (identical blobs); re-run against
+   this worktree with a verified retarget and recorded under a CORRECTION header.
+2. The junction/symlink cases of `attack_location.py` ran AFTER `attack_cli.py` in my loop, which had
+   already created a plain `into_checkout` directory at the probe path, so the location script skipped
+   `mklink` and probed an ordinary temp directory (accepted, correctly); re-run in the reviewer's order on
+   a cleared scratch, the junction is created and REFUSED (`Path.resolve()` follows it into the checkout).
+3. The reviewer's `attack_manifest.py` / `attack_digest_eval.py` cannot run past their first `add()` on
+   the closed API (`dev_corpus_shas` no longer exists); their probes were re-expressed one for one in
+   `closure_probe_major23.py` (its first run died on `WinError 267`: the session scratchpad path plus a
+   temporary git repository exceeds MAX_PATH for `CreateProcess`'s cwd — re-run from a short temp dir).
+4. No numeric population floor for the development corpus (the reviewer's `3,380` /
+   `--allow-small-dev-corpus`): a tracked number would drift with the archive; the recorded digest, size,
+   row count and source make every attestation auditable against the run of record instead.
+5. `holdout-graduate --repo` exists (default: this checkout) so the tests can use a REAL temporary git
+   repository; it must be a git repository — a text file cannot stand in for it.
+6. The full suite, the gate and the corpus slice were NOT re-run at the closure tip: the closure changes
+   `tools/holdout/`, `tools/adjudicate.py` and this cell's tests only (`PRODDIFF_LINES=0`), per the
+   closure instruction; the guards, the conformance files, the repository-walking tests that see
+   `tools/`, the replay and the two scans were.
+7. MINOR-3c (`refused` rows unmapped in `classify_miss`) is documented, not fixed: the reasons are cell
+   T's vocabulary.
+
+## Risks (updated)
+* The synced-folder rule refuses ANY path with a component starting with `OneDrive` — deliberately
+  broad; a machine whose only local root carries such a name needs another directory.
+* The subsequent-freeze ordering uses the tag's peeled commit's committer date (a lightweight tag on an
+  old commit dates old — conservative; an annotated tag's own creation date is not consulted).
+* `git for-each-ref` failing (no git, a broken repository) yields an empty mapping: graduation refuses
+  rather than guessing; `verify --digest` is only as strong as the committed digest's freshness — an
+  export after each session keeps the anchor current.
+* The evaluate skeleton's honesty edges are now explicit (`unparseable`, `agree_partial`), but the
+  first real evaluation (2.4) still needs per-sha figure and ledger exports for any money identity.
