@@ -71,6 +71,7 @@ PIPELINE_SOURCE = ROOT / "analysis" / "pipeline.py"
 OPT_IN_ENV = pipeline.HOSTED_EXTRACTION_OPT_IN_ENV
 OPT_IN_LITERAL = pipeline.HOSTED_EXTRACTION_OPT_IN_LITERAL
 REFUSED_NO_OPT_IN = pipeline.HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
+REFUSAL_SUFFIX = pipeline.HOSTED_EXTRACTION_REFUSAL_SUFFIX
 
 #: The deterministic refusal `webapp/worker.py` allow-lists and
 #: `tests/test_escalation_router.py` pins.
@@ -298,11 +299,27 @@ def test_without_the_literal_auto_mode_takes_the_deterministic_outcome(
 
     assert fake.calls == [], "auto mode reached the hosted extractor with no opt-in"
     assert type(auto.value) is type(deterministic.value)
-    assert str(auto.value) == str(deterministic.value)
+    # Review F3: the deterministic message is the PREFIX, byte for byte, and the
+    # closed suffix names the refusal for any record that keeps the text.
+    assert str(auto.value) == str(deterministic.value) + REFUSAL_SUFFIX
+    assert REFUSAL_SUFFIX not in str(deterministic.value)
     assert auto.value.hosted_extraction == REFUSED_NO_OPT_IN
     assert not hasattr(deterministic.value, "hosted_extraction")
     if outcome == "unclaimed":
-        assert str(auto.value) == NO_PARSER_MATCHED
+        assert str(deterministic.value) == NO_PARSER_MATCHED
+        assert str(auto.value) == NO_PARSER_MATCHED + REFUSAL_SUFFIX
+
+
+def test_the_refusal_suffix_is_the_closed_token_and_nothing_else():
+    """Review F3: the suffix is built from the closed token alone, so it can
+    carry no document text into a message; it is what a durable record that
+    keeps `str(exc)` will show, and what `webapp/worker.py`'s declared-refusal
+    allow-list must name (the suffixed literal below) to publish it."""
+    assert REFUSAL_SUFFIX == f" (hosted extraction {REFUSED_NO_OPT_IN})"
+    assert REFUSED_NO_OPT_IN == "refused_no_opt_in"
+    assert (NO_PARSER_MATCHED + REFUSAL_SUFFIX) == (
+        "no deterministic parser matched this statement (hosted extraction refused_no_opt_in)"
+    )
 
 
 @pytest.mark.parametrize("outcome", list(OUTCOMES))
@@ -973,12 +990,20 @@ def test_webapp_auto_mode_without_the_literal_equals_deterministic_mode_on_an_un
     clean_environment, monkeypatch,
 ):
     """Card item 5: `webapp.worker._analyze_doc` — the seam `run_job` calls in
-    both modes — returns the SAME (markdown, html, analysis, analysis_error)
-    for an unclaimed synthetic in `auto` as in `deterministic`: no payload,
-    the declared refusal `webapp/worker.py` allow-lists, and the extractor
-    never reached. This is the user-facing change: a webapp user in auto mode
-    without the literal now gets the deterministic refusal where the base gave
-    them a hosted extraction."""
+    both modes — returns the same markdown, the same html and NO payload for
+    an unclaimed synthetic in `auto` as in `deterministic`, and the extractor
+    is never reached. This is the user-facing change: a webapp user in auto
+    mode without the literal now gets the deterministic refusal where the base
+    gave them a hosted extraction.
+
+    The `analysis_error` column differs by the worker's OWN rule, pinned here
+    as it stands (review F3): the pipeline raises the deterministic message
+    plus the closed suffix; `webapp/worker.py::_analysis_failure` publishes a
+    message only when it EQUALS a declared literal, so until its allow-list
+    names the suffixed literal (`webapp/` is not this cell's; Ocean adds the
+    one line at composition) the auto-mode record is the class-name reduction
+    while deterministic mode keeps the declared refusal. Neither carries any
+    document text."""
     from webapp import worker
 
     fake = _FakeExtractor({})
@@ -987,11 +1012,17 @@ def test_webapp_auto_mode_without_the_literal_equals_deterministic_mode_on_an_un
     auto = worker._analyze_doc(_document(), "s.pdf", "auto")
     deterministic = worker._analyze_doc(_document(), "s.pdf", "deterministic")
 
-    assert auto == deterministic
-    markdown, html, analysis, analysis_error = auto
+    assert auto[:3] == deterministic[:3]
+    markdown, html, analysis, auto_error = auto
     assert analysis is None
-    assert analysis_error == NO_PARSER_MATCHED
+    assert deterministic[3] == NO_PARSER_MATCHED
+    assert auto_error == worker._stage_failure(worker._PHASE_ANALYSIS, RuntimeError())
     assert fake.calls == []
+    # The pipeline-level message the worker reduced, for the record: the
+    # declared refusal plus the suffix, exactly.
+    with pytest.raises(RuntimeError) as refused:
+        pipeline.analyze_document(_document().to_markdown(), parse_mode="auto")
+    assert str(refused.value) == NO_PARSER_MATCHED + REFUSAL_SUFFIX
 
 
 def test_webapp_auto_mode_with_the_literal_runs_the_single_hosted_extraction(opted_in, monkeypatch):
