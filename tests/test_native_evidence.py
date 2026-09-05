@@ -40,20 +40,28 @@ import pytest
 from evidence import (
     FRAME_DISPLAY,
     NATIVE_EXTRACTOR_ID,
+    OUTSIDE_FRAME_NOTE_PREFIX,
     ROTATION_APPLIED_NOTE,
     UNREADABLE_PAGE_NOTE,
+    WORDS_OUTSIDE_FRAME_NOTE_PREFIX,
     WORD_OUTSIDE_FRAME_NOTE,
     WORD_REFUSED_NOTE,
     ExtractionEvidence,
     from_json,
+    inside_frame,
     native_evidence_from_pdf,
+    outside_frame_word_ids,
     page_text,
     to_json,
+    words_outside_frame,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
 LETTER = (612.0, 792.0)
 RETIRED_NOTE = "native_words_unrotated_space"
+#: Both retired notes: Phase 2.1's unrotated-space note and the closure-retired
+#: whole-page refusal for an out-of-frame word. Neither is ever emitted.
+RETIRED_NOTES = (RETIRED_NOTE, WORD_OUTSIDE_FRAME_NOTE)
 
 _ROWS = [
     [("DATE", 72.0), ("DESCRIPTION", 172.0), ("AMOUNT", 432.0)],
@@ -213,9 +221,9 @@ def test_four_angle_pin_boxes_land_at_the_expected_display_positions(rotation):
     assert page.frame.space == "pdf_point"
     assert page_text(page) == page_text(reference.pages[0])
     assert len(page.words) == len(reference.pages[0].words) == 12
-    assert RETIRED_NOTE not in page.notes
+    assert not any(note in RETIRED_NOTES for note in page.notes)
     assert (ROTATION_APPLIED_NOTE in page.notes) is bool(rotation)
-    assert WORD_OUTSIDE_FRAME_NOTE not in page.notes
+    assert words_outside_frame(page.notes) == 0 and outside_frame_word_ids(page.notes) == ()
 
     unrotated_w, unrotated_h = _unrotated_size(pdf_bytes)
     if rotation in (90, 270):
@@ -358,17 +366,21 @@ def _with_patched_get_text(patch):
 
 
 @pytest.mark.parametrize("rotate", [0, 90])
-def test_a_word_outside_the_display_frame_refuses_the_page_with_its_real_frame(rotate):
-    """Item 1: one PyMuPDF word whose box, once in the display frame, lies
-    outside `[0, width] x [0, height]` refuses the WHOLE page (zero words,
-    `native_word_outside_frame`, the page's REAL frame — never the
-    unreadable placeholder, never a clamp, never just that word dropped);
-    the sibling page is untouched. Exercised on an unrotated and a rotated
-    page: the extra word is injected in PyMuPDF's unrotated space 30 pt past
-    that space's bottom edge, which after a 90-degree transform is 30 pt
-    past the RIGHT edge of the display frame."""
+def test_a_word_outside_the_display_frame_is_kept_verbatim_and_noted(rotate):
+    """The closure ruling (option c): a `pdf_point` frame is a viewport. One
+    PyMuPDF word whose box, once in the display frame, lies outside
+    `[0, width] x [0, height]` is KEPT — its transformed box verbatim, never
+    clamped, never dropped — and the page records `outside_frame:<word_id>`
+    for it plus `words_outside_frame=1`; every other word and the page's
+    REAL frame are untouched; the sibling page carries no such note; the
+    retired whole-page refusal never appears. Exercised on an unrotated and
+    a rotated page: the extra word is injected in PyMuPDF's unrotated space
+    30 pt past that space's bottom edge, which after a 90-degree transform
+    is 30 pt past the LEFT edge of the display frame."""
     pdf_bytes = _two_page_fixture(rotate)
     unrotated_w, unrotated_h = _unrotated_size(pdf_bytes)
+    clean = native_evidence_from_pdf(pdf_bytes)
+    assert clean is not None and clean.pages[0].notes == ((ROTATION_APPLIED_NOTE,) if rotate else ())
 
     def add_far_word(page, words):
         if page.number == 0:
@@ -382,13 +394,31 @@ def test_a_word_outside_the_display_frame_refuses_the_page_with_its_real_frame(r
         fitz.Page.get_text = original
     assert evidence is not None
     first = evidence.pages[0]
-    assert WORD_OUTSIDE_FRAME_NOTE in first.notes
+    far = first.words[-1]
+    assert far.text == "OFFPAGE"
+    assert not inside_frame(first.frame, far.x0, far.y0, far.x1, far.y1)
+    if rotate == 90:
+        # in unrotated space the word sits 30 pt BELOW the landscape page's
+        # bottom edge; the 90-degree display rotation maps that edge to the
+        # display's LEFT edge, so the box lands 30 pt past x = 0 — kept as-is
+        assert far.x1 <= -30.0
+    else:
+        assert far.y0 >= LETTER[1] + 30.0  # past the BOTTOM edge
+    assert first.words[:-1] == clean.pages[0].words  # every other word verbatim
+    assert first.notes == ((ROTATION_APPLIED_NOTE,) if rotate else ()) + (
+        OUTSIDE_FRAME_NOTE_PREFIX + far.word_id, WORDS_OUTSIDE_FRAME_NOTE_PREFIX + "1",
+    )
+    assert outside_frame_word_ids(first.notes) == (far.word_id,)
+    assert words_outside_frame(first.notes) == 1
+    assert not any(note in RETIRED_NOTES for note in first.notes)
     assert UNREADABLE_PAGE_NOTE not in first.notes and WORD_REFUSED_NOTE not in first.notes
-    assert (ROTATION_APPLIED_NOTE in first.notes) is bool(rotate)
-    assert first.words == ()
     assert (first.frame.width, first.frame.height) == LETTER  # the REAL display frame, not 1x1
     assert first.frame.rotation_deg == rotate
     assert evidence.pages[1].words and evidence.pages[1].notes == ()
+    assert outside_frame_word_ids(evidence.pages[1].notes) == () and words_outside_frame(evidence.pages[1].notes) == 0
+    # the notes survive the JSON round-trip with the sha
+    rebuilt = from_json(to_json(evidence))
+    assert rebuilt.pages[0].notes == first.notes and rebuilt.evidence_sha256 == evidence.evidence_sha256
 
 
 def test_an_inverted_word_refuses_the_page_as_word_refused_not_outside_frame():
@@ -407,7 +437,7 @@ def test_an_inverted_word_refuses_the_page_as_word_refused_not_outside_frame():
     finally:
         fitz.Page.get_text = original
     assert WORD_REFUSED_NOTE in evidence.pages[0].notes
-    assert WORD_OUTSIDE_FRAME_NOTE not in evidence.pages[0].notes
+    assert not any(note in RETIRED_NOTES for note in evidence.pages[0].notes)
     assert evidence.pages[0].words == ()
     assert (evidence.pages[0].frame.width, evidence.pages[0].frame.height) == LETTER
     assert evidence.pages[1].words
@@ -432,11 +462,26 @@ def test_an_unreadable_page_keeps_the_placeholder_frame():
     assert evidence.pages[1].words
 
 
-def test_the_retired_phase_2_1_note_is_never_emitted():
+def test_the_retired_notes_are_never_emitted():
+    """Both retired notes — Phase 2.1's `native_words_unrotated_space` and
+    the closure-retired `native_word_outside_frame` — are never emitted, on
+    clean pages and on a page carrying an out-of-frame word alike."""
     for rotate in (0, 90, 180, 270):
         evidence = native_evidence_from_pdf(_render(rotate=rotate, extra_pages=1))
         for page in evidence.pages:
-            assert RETIRED_NOTE not in page.notes
+            assert not any(note in RETIRED_NOTES for note in page.notes)
+    pdf_bytes = _two_page_fixture()
+    _, height = _unrotated_size(pdf_bytes)
+    original = _with_patched_get_text(
+        lambda page, words: list(words) + [(72.0, height + 30.0, 120.0, height + 40.0, "OFFPAGE", 0, 0, 0)]
+        if page.number == 0 else words
+    )
+    try:
+        evidence = native_evidence_from_pdf(pdf_bytes)
+    finally:
+        fitz.Page.get_text = original
+    assert words_outside_frame(evidence.pages[0].notes) == 1
+    assert not any(note in RETIRED_NOTES for note in evidence.pages[0].notes)
 
 
 def test_a_mixed_document_rotated_and_unrotated_pages_each_get_their_own_frame():

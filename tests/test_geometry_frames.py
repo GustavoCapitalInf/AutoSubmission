@@ -327,21 +327,12 @@ _PINNED_CORPUS_SHA16 = (
 )
 
 
-#: Phase 2.2 (P22-IDENTITY item 3): the ONE pinned PDF whose pages the
-#: display-frame bounds rule refuses (see `_PINNED_PAGES_REFUSED_BY_THE_
-#: BOUNDS_RULE` below, measured). The unconditional Phase 2.1 pin keeps
-#: running on the other 11; that document is pinned page-by-page, with its
-#: exact divergence, by `test_unrotated_geometry_is_byte_identical_to_phase_
-#: 2_1_except_pages_the_bounds_rule_refuses`.
-_PINNED_CORPUS_WITH_A_REFUSED_PAGE = ("58FE8A5C3D8760D6",)
-
-
-@pytest.mark.parametrize(
-    "relative_path,expected_sha16",
-    [pair for pair in zip(_PINNED_CORPUS_RELATIVE_PATHS, _PINNED_CORPUS_SHA16)
-     if pair[1] not in _PINNED_CORPUS_WITH_A_REFUSED_PAGE],
-)
+@pytest.mark.parametrize("relative_path,expected_sha16", list(zip(_PINNED_CORPUS_RELATIVE_PATHS, _PINNED_CORPUS_SHA16)))
 def test_geometry_from_pdf_is_byte_identical_on_the_pinned_corpus(relative_path, expected_sha16):
+    """The Phase 2.1 pin, UNCONDITIONAL on all 12 again after the Phase 2.2
+    closure ruling (a `pdf_point` frame is a viewport: an out-of-frame word
+    is kept verbatim and noted, never refused), so the display-frame reader
+    is byte-identical to the Phase 2.0 copy on every unrotated page."""
     data = (CORPUS / relative_path).read_bytes()
     assert hashlib.sha256(data).hexdigest().upper()[:16] == expected_sha16, (
         "the pinned corpus file's content changed since this pin was written"
@@ -1038,83 +1029,76 @@ def test_geometry_constants_equal_their_evidence_native_twins():
     assert WORD_REFUSED_NOTE == native_module.WORD_REFUSED_NOTE
 
 
-def _legacy_pages_with_a_word_outside_the_page_rect(legacy) -> set[int]:
-    """1-based page numbers whose Phase 2.0 geometry holds a word outside
-    `[0, width] x [0, height]` — the words the Phase 2.2 bounds rule refuses."""
-    outside: set[int] = set()
+def _legacy_out_of_frame_words_per_page(legacy) -> dict[int, int]:
+    """1-based page number -> how many words of the Phase 2.0 geometry lie
+    outside `[0, width] x [0, height]` (pages with none are absent) — the
+    words the closure-ruled reader NOTES rather than refuses."""
+    counts: dict[int, int] = {}
     for page in legacy.pages:
         for line in page.lines:
             for word in line.words:
                 if not (0.0 <= word.x0 and word.x1 <= page.width and 0.0 <= word.y0 and word.y1 <= page.height):
-                    outside.add(page.page)
-    return outside
+                    counts[page.page] = counts.get(page.page, 0) + 1
+    return counts
 
 
 #: Measured while writing this cell (read-only census over all 12 pinned
 #: PDFs): exactly ONE of the 12 carries words PyMuPDF places outside
-#: `page.rect` on unrotated pages — sha16 58FE8A5C3D8760D6, one word per page
-#: on all 4 of its pages, each 7.750 pt past an edge. Every other pinned PDF
-#: has none. This is the whole divergence population of the pin below.
-_PINNED_PAGES_REFUSED_BY_THE_BOUNDS_RULE = {"58FE8A5C3D8760D6": {1, 2, 3, 4}}
+#: `page.rect` on unrotated pages — sha16 58FE8A5C3D8760D6, TWO words per
+#: page on all 4 of its pages (8 in all; the page maximum overshoot is
+#: 7.750 pt). Every other pinned PDF has none. Under the closure ruling
+#: these words are KEPT and NOTED.
+_PINNED_OUT_OF_FRAME_WORDS_PER_PAGE = {"58FE8A5C3D8760D6": {1: 2, 2: 2, 3: 2, 4: 2}}
 
 
 @pytest.mark.parametrize("relative_path,expected_sha16", list(zip(_PINNED_CORPUS_RELATIVE_PATHS, _PINNED_CORPUS_SHA16)))
-def test_unrotated_geometry_is_byte_identical_to_phase_2_1_except_pages_the_bounds_rule_refuses(relative_path, expected_sha16):
-    """Item 2's unrotated pin, stated as strongly as the measured data
-    allows. On every unrotated page whose words all lie inside the display
-    frame the new geometry is byte-identical to the Phase 2.0/2.1 reader
-    (the legacy copy above): 11 of the 12 pinned PDFs in full. The one
-    exception is a DOCUMENTED divergence, not a drift: item 3's ruled bounds
-    check refuses a page holding a word outside `page.rect`, and the
-    pinned document named in `_PINNED_PAGES_REFUSED_BY_THE_BOUNDS_RULE`
-    carries one such word on each of its 4 pages, so its Phase 2.2 native
-    evidence is four refused pages (`native_word_outside_frame`, zero
-    words, real frames) and `geometry_from_pdf` answers `None` for it where
-    Phase 2.1 answered a full geometry. The set of refused pages is pinned
-    EXACTLY: any other divergence — on any page of any pinned PDF — fails
-    this test. The ruling this asks for is recorded in the cell's W3."""
-    from evidence import WORD_OUTSIDE_FRAME_NOTE
+def test_unrotated_geometry_is_byte_identical_on_all_12_pinned_pdfs_and_out_of_frame_words_are_noted(relative_path, expected_sha16):
+    """Item 2's unrotated pin, UNCONDITIONAL after the closure ruling: on
+    every unrotated page of all 12 pinned PDFs the new geometry is byte-
+    identical to the Phase 2.0/2.1 reader (the legacy copy above) — every
+    page, every line, every word box — AND the out-of-frame words the legacy
+    reader silently kept are now NOTED per word with the page's count,
+    pinned exactly to the measured population
+    (`_PINNED_OUT_OF_FRAME_WORDS_PER_PAGE`): any change in that population,
+    on any page of any pinned PDF, fails this test."""
+    from evidence import outside_frame_word_ids, words_outside_frame
 
     data = (CORPUS / relative_path).read_bytes()
     assert hashlib.sha256(data).hexdigest().upper()[:16] == expected_sha16
     legacy = _legacy_geometry_from_pdf(data)
-    assert legacy is not None
-    refused = _legacy_pages_with_a_word_outside_the_page_rect(legacy)
-    assert refused == _PINNED_PAGES_REFUSED_BY_THE_BOUNDS_RULE.get(expected_sha16, set()), (
-        "the divergence population moved: re-measure and re-pin, never widen silently"
-    )
     evidence = native_evidence_from_pdf(data)
     new = geometry_from_pdf(data)
-    if refused == set(range(1, len(legacy.pages) + 1)):
-        # every page refused -> zero words -> the reader's honest `None` (the
-        # SAME "zero words -> None" rule as Phase 2.1, reached through the
-        # new refusal class); the refused pages' notes are therefore not
-        # observable on this document, which is recorded as a consequence
-        assert evidence is None and new is None
-        return
-    assert evidence is not None and all(page.frame.rotation_deg == 0 for page in evidence.pages)
-    assert new is not None and len(new.pages) == len(legacy.pages)
-    for lp, np, ep in zip(legacy.pages, new.pages, evidence.pages):
-        assert (lp.page, lp.width, lp.height) == (np.page, np.width, np.height)
-        if lp.page in refused:
-            assert np.lines == () and WORD_OUTSIDE_FRAME_NOTE in ep.notes
-            continue
-        assert WORD_OUTSIDE_FRAME_NOTE not in ep.notes
-        assert len(lp.lines) == len(np.lines)
-        for ll, nl in zip(lp.lines, np.lines):
-            assert (ll.page, ll.text, ll.spans) == (nl.page, nl.text, nl.spans)
-            assert len(ll.words) == len(nl.words)
-            for lw, nw in zip(ll.words, nl.words):
-                assert (lw.text, lw.x0, lw.y0, lw.x1, lw.y1) == (nw.text, nw.x0, nw.y0, nw.x1, nw.y1)
+    assert legacy is not None and evidence is not None and new is not None
+    assert all(page.frame.rotation_deg == 0 for page in evidence.pages)
+    _assert_geometry_equal(legacy, new)  # unconditional byte-identity
+    expected_counts = _PINNED_OUT_OF_FRAME_WORDS_PER_PAGE.get(expected_sha16, {})
+    assert _legacy_out_of_frame_words_per_page(legacy) == expected_counts, (
+        "the out-of-frame population moved: re-measure and re-pin, never widen silently"
+    )
+    noted = {
+        page.page_index + 1: words_outside_frame(page.notes) for page in evidence.pages if words_outside_frame(page.notes)
+    }
+    assert noted == expected_counts
+    for page in evidence.pages:
+        ids = outside_frame_word_ids(page.notes)
+        assert len(ids) == words_outside_frame(page.notes)
+        by_id = {word.word_id: word for word in page.words}
+        for wid in ids:
+            word = by_id[wid]  # the noted word is present, with its box verbatim
+            assert not (0.0 <= word.x0 and word.x1 <= page.frame.width and 0.0 <= word.y0 and word.y1 <= page.frame.height)
 
 
-def test_the_synthetic_fixtures_have_no_word_outside_the_frame_so_the_full_pin_applies():
+def test_the_synthetic_fixtures_have_no_word_outside_the_frame():
     """The structurer fixtures and the two safety fixtures hold no out-of-
-    frame word, so `test_geometry_from_pdf_is_byte_identical_to_phase_2_0_on_
-    synthetic_fixtures` above is the full, unconditional byte-identity pin."""
+    frame word, so their pins above exercise the plain path and the reader
+    emits no out-of-frame note on them."""
+    from evidence import words_outside_frame
+
     for name, data in _fixture_bytes().items():
         legacy = _legacy_geometry_from_pdf(data)
-        assert _legacy_pages_with_a_word_outside_the_page_rect(legacy) == set(), name
+        assert _legacy_out_of_frame_words_per_page(legacy) == {}, name
+        evidence = native_evidence_from_pdf(data)
+        assert all(words_outside_frame(page.notes) == 0 for page in evidence.pages), name
 
 
 # ===========================================================================

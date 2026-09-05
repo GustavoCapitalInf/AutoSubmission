@@ -25,9 +25,13 @@ the boxes where they were; the Paddle raster is display-oriented, so a
 rotated page's two geometries could not be compared. Every word box is now
 transformed by `page.rotation_matrix` into the display frame: the four
 corners are mapped and the axis-aligned box of the mapped corners is taken —
-a TRANSFORM, never a swap of the original coordinates — and the result must
-lie inside the declared frame or the page is refused (`WORD_OUTSIDE_FRAME_NOTE`,
-zero words, real frame). On an unrotated page the rotation matrix is the
+a TRANSFORM, never a swap of the original coordinates. A `pdf_point` frame
+is a VIEWPORT, not a container (the Phase 2.2 closure ruling): a word whose
+transformed box lies outside `page.rect` — a margin header or footer, off-
+canvas text — is kept verbatim and noted (`outside_frame:<word_id>`, plus a
+per-page count), never clamped, never dropped, never a refusal (measured over
+the archive, refusing such pages had cost every page of 102 documents, 89 of
+them validated). On an unrotated page the rotation matrix is the
 identity and the raw boxes ARE the display boxes; they are taken verbatim
 (the identity is applied as the identity), so the Phase 2.1 byte-identity
 pin on unrotated pages holds by construction rather than by floating-point
@@ -48,21 +52,25 @@ import hashlib
 
 from .canonical import (
     ExtractionEvidence,
-    MalformedGeometry,
     PageEvidence,
     PageFrame,
     WordBox,
+    inside_frame,
     word_id,
 )
 
 __all__ = [
     "FRAME_DISPLAY",
     "NATIVE_EXTRACTOR_ID",
+    "OUTSIDE_FRAME_NOTE_PREFIX",
     "ROTATION_APPLIED_NOTE",
     "UNREADABLE_PAGE_NOTE",
+    "WORDS_OUTSIDE_FRAME_NOTE_PREFIX",
     "WORD_OUTSIDE_FRAME_NOTE",
     "WORD_REFUSED_NOTE",
     "native_evidence_from_pdf",
+    "outside_frame_word_ids",
+    "words_outside_frame",
 ]
 
 #: `ExtractionEvidence.extractor_id` / `model_token` for the native PDF
@@ -91,15 +99,29 @@ UNREADABLE_PAGE_NOTE = "native_page_unreadable"
 #: word behaviour (P21-GEOMETRY-CLOSURE F-5).
 WORD_REFUSED_NOTE = "native_page_word_refused"
 
-#: A `PageEvidence.notes` entry meaning: the page read fine and every word
-#: became a valid box, but at least one box, once transformed into the
-#: display frame, lies outside `[0, width] x [0, height]` — refused whole by
-#: the same bounds rule `PageEvidence` enforces for every frame (Phase 2.2
-#: item 3: a `pdf_point` frame gained the check `pixel` frames already had).
-#: Never clamped, never swapped: a word outside the page the reader declared
-#: is a defect of the transform or of the PDF, and the page reports zero
-#: words with its REAL frame so the refusal is visible.
+#: RETIRED (Phase 2.2 closure ruling, option c — never emitted). Between the
+#: cell's first commit and its closure, a word outside the display frame
+#: refused its whole page under this note; measured over the archive that
+#: refused every page of 102 documents (89 validated) for margin headers and
+#: footers, defeating the lineage the evidence exists for. A `pdf_point`
+#: frame is now a VIEWPORT: the reader keeps every box verbatim and notes the
+#: out-of-frame words instead (below). The name is kept so imports resolve.
 WORD_OUTSIDE_FRAME_NOTE = "native_word_outside_frame"
+
+#: A `PageEvidence.notes` entry PER out-of-frame word: `outside_frame:<word_id>`.
+#: The word's box, once transformed into the display frame, lies outside
+#: `[0, width] x [0, height]` (`evidence.canonical.inside_frame`, the ONE
+#: bounds rule) — a margin header/footer or off-canvas text the printed page
+#: does not show. The box is kept VERBATIM (never clamped, never dropped) so
+#: the evidence stays a faithful record; a consumer that wants what a reader
+#: sees (a native-vs-raster comparison, the LayoutModel) treats these ids as
+#: invisible-when-printed. Read them back with `outside_frame_word_ids`.
+OUTSIDE_FRAME_NOTE_PREFIX = "outside_frame:"
+
+#: A `PageEvidence.notes` entry, present only when the count is non-zero:
+#: `words_outside_frame=<n>` — how many of the page's words carry an
+#: `outside_frame:` note. Read it back with `words_outside_frame`.
+WORDS_OUTSIDE_FRAME_NOTE_PREFIX = "words_outside_frame="
 
 #: A `PageEvidence.notes` entry on every page whose `page.rotation` is not 0:
 #: the boxes were transformed by `page.rotation_matrix` into the display
@@ -109,6 +131,23 @@ ROTATION_APPLIED_NOTE = "rotation_applied"
 
 _VALID_ROTATIONS = (0, 90, 180, 270)
 _IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+
+def outside_frame_word_ids(notes) -> tuple[str, ...]:
+    """The word ids a page's notes mark as outside the display frame, in note
+    order (empty when none)."""
+    return tuple(
+        note[len(OUTSIDE_FRAME_NOTE_PREFIX):] for note in notes if str(note).startswith(OUTSIDE_FRAME_NOTE_PREFIX)
+    )
+
+
+def words_outside_frame(notes) -> int:
+    """The page's recorded out-of-frame word count (0 when the count note is
+    absent — the count note exists only when it is non-zero)."""
+    for note in notes:
+        if str(note).startswith(WORDS_OUTSIDE_FRAME_NOTE_PREFIX):
+            return int(note[len(WORDS_OUTSIDE_FRAME_NOTE_PREFIX):])
+    return 0
 
 
 def _matrix_tuple(matrix) -> tuple[float, float, float, float, float, float]:
@@ -150,14 +189,16 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
     PyMuPDF unimportable, unparseable bytes, a document with no pages, or a
     document that opens but yields no word this reader can place (the honest
     answer for a scanned page — there are no words, only pixels). Never
-    raises. Three DISTINCT page-level failures are each kept as an empty page
+    raises. Two DISTINCT page-level failures are each kept as an empty page
     (never abort the whole document), named honestly and separately:
     `UNREADABLE_PAGE_NOTE` (no real frame exists — placeholder 1x1 frame),
     `WORD_REFUSED_NOTE` (a real frame; one PyMuPDF box is inverted or
-    degenerate), `WORD_OUTSIDE_FRAME_NOTE` (a real frame; every box is valid
-    but one lies outside the display frame after the transform). Anything
-    else this contract cannot faithfully represent aborts the whole document
-    to `None` rather than guess.
+    degenerate). A word whose transformed box lies outside the display frame
+    is NOT a failure: it is kept verbatim and noted per word
+    (`OUTSIDE_FRAME_NOTE_PREFIX`) with the page's count
+    (`WORDS_OUTSIDE_FRAME_NOTE_PREFIX`). Anything else this contract cannot
+    faithfully represent aborts the whole document to `None` rather than
+    guess.
 
     `import fitz` is the first statement of this function body and the ONLY
     third-party import anywhere in `evidence/` (D3; pinned by AST in
@@ -222,16 +263,16 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
             except Exception:
                 pages.append(PageEvidence(frame=frame, words=(), notes=(WORD_REFUSED_NOTE,) + rotation_notes))
                 continue
-            # Failure class 3: every box is valid, but one lies outside the
-            # display frame — `PageEvidence`'s own bounds rule refuses it. By
-            # elimination this is the only `MalformedGeometry` a page of valid
-            # same-index, unique-id `WordBox`es can raise here, so no second
-            # copy of the bounds arithmetic is kept in this module.
-            try:
-                page_evidence = PageEvidence(frame=frame, words=tuple(words), notes=rotation_notes)
-            except MalformedGeometry:
-                page_evidence = PageEvidence(frame=frame, words=(), notes=(WORD_OUTSIDE_FRAME_NOTE,) + rotation_notes)
-            pages.append(page_evidence)
+            # The viewport rule (closure ruling, option c): a box outside the
+            # display frame is KEPT verbatim and NOTED — one note per word,
+            # plus the count — through the ONE bounds rule `inside_frame`.
+            outside = tuple(
+                word.word_id for word in words if not inside_frame(frame, word.x0, word.y0, word.x1, word.y1)
+            )
+            outside_notes = tuple(OUTSIDE_FRAME_NOTE_PREFIX + wid for wid in outside)
+            if outside:
+                outside_notes += (WORDS_OUTSIDE_FRAME_NOTE_PREFIX + str(len(outside)),)
+            pages.append(PageEvidence(frame=frame, words=tuple(words), notes=rotation_notes + outside_notes))
     except Exception:
         return None
     finally:

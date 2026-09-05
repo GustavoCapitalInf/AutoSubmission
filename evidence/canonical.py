@@ -29,11 +29,14 @@ Coordinate conventions (explicit, tested — `tests/test_evidence_canonical.py`)
 * A box is ``(x0, y0, x1, y1)`` with ``x0 < x1`` and ``y0 < y1`` — enforced at
   construction, never silently swapped or clamped. A degenerate or inverted
   box is `MalformedGeometry` (the "no guessed structure" direction, CASE 8).
-* A box lies INSIDE its page's frame, ``[0, width] x [0, height]``, in BOTH
-  spaces (Phase 2.2: `pdf_point` frames gained the bounds check `pixel`
-  frames always had, because the native reader — `evidence/native.py` — now
-  places every word in the DISPLAY frame `page.rect` describes). A box
-  outside its frame refuses the page at construction; nothing is clamped.
+* Bounds (`inside_frame`, the ONE rule): a ``pixel`` frame is a CONTAINER —
+  a box outside the raster is malformed by construction and refuses the page;
+  a ``pdf_point`` frame is a VIEWPORT (Phase 2.2 closure ruling) — a PDF
+  legitimately places text outside ``page.rect``, the box is kept verbatim,
+  and the native reader (`evidence/native.py`, which places every word in the
+  DISPLAY frame ``page.rect`` describes) notes each such word
+  (``outside_frame:<word_id>``) and the per-page count. Nothing is ever
+  clamped or dropped.
 * A ``pixel`` frame carries the raster's dimensions and dpi, the PDF page's
   dimensions in points and the page's rotation as the rasteriser applied it;
   ``scale_x`` / ``scale_y`` are pixels-per-point per axis and MUST agree with
@@ -79,6 +82,7 @@ __all__ = [
     "canonical_json",
     "from_json",
     "group_lines",
+    "inside_frame",
     "page_text",
     "sha256_of_json",
     "to_json",
@@ -257,6 +261,15 @@ class PageFrame:
                          pdf_height_pt=float(height_pt), rotation_deg=rotation_deg)
 
 
+def inside_frame(frame: PageFrame, x0: float, y0: float, x1: float, y1: float) -> bool:
+    """THE bounds rule: is the box inside `[0, width] x [0, height]` of its
+    frame (closed interval)? A `pixel` frame refuses a box for which this is
+    false (a raster is a container); a `pdf_point` frame admits it and the
+    native reader notes it (a page rect is a viewport). One function, two
+    call sites, so the two can never disagree about "outside"."""
+    return 0.0 <= x0 and x1 <= frame.width and 0.0 <= y0 and y1 <= frame.height
+
+
 def to_pdf_points(frame: PageFrame, x: float, y: float) -> tuple[float, float]:
     """A point in `frame`'s space -> PDF points (same origin, same axes)."""
     if frame.space == PDF_POINT:
@@ -426,21 +439,20 @@ class PageEvidence:
             if word.word_id in seen:
                 raise EvidenceError(f"duplicate word_id {word.word_id}")
             seen.add(word.word_id)
-            # A box lies INSIDE its frame in BOTH spaces. Pixel frames always
-            # refused a word outside the raster (a raster physically cannot
-            # hold one); since Phase 2.2 (P22-IDENTITY item 3, D4) a
-            # `pdf_point` frame refuses a word outside `[0, width] x
-            # [0, height]` too — the native reader now transforms every box
-            # into the display frame `page.rect` describes, so a box outside
-            # it is a defect of the transform or of the PDF, refused whole,
-            # never clamped, never swapped. The representation is unchanged
-            # (`EVIDENCE_SCHEMA_VERSION` stays 1); only this validation
-            # tightened.
-            if not (
-                0.0 <= word.x0 and word.x1 <= self.frame.width and 0.0 <= word.y0 and word.y1 <= self.frame.height
-            ):
+            # A `pixel` frame is a CONTAINER: a raster physically cannot hold
+            # a box outside itself, so such a box is malformed by construction
+            # and refuses the page. A `pdf_point` frame is a VIEWPORT (Phase
+            # 2.2 closure ruling, option c): PDFs legitimately place text
+            # outside `page.rect` — margin headers and footers, off-canvas
+            # text — and the box is still a faithful record of where the word
+            # is; the native reader keeps it verbatim and notes each such word
+            # (`outside_frame:<word_id>`, plus a per-page count) so a consumer
+            # can treat it as invisible-when-printed. Never clamped, never
+            # dropped, never refused in `pdf_point` space. `inside_frame` is
+            # the ONE bounds rule both this check and the reader's notes use.
+            if self.frame.space == PIXEL and not inside_frame(self.frame, word.x0, word.y0, word.x1, word.y1):
                 raise MalformedGeometry(
-                    f"word {word.word_id} lies outside its {self.frame.space} frame "
+                    f"word {word.word_id} lies outside its raster "
                     f"({self.frame.width:.0f} x {self.frame.height:.0f}): "
                     f"({word.x0}, {word.y0}, {word.x1}, {word.y1})"
                 )

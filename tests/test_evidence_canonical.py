@@ -184,51 +184,59 @@ def test_a_word_outside_its_raster_refuses_the_page():
         PageEvidence(frame=frame, words=(inside, outside))
 
 
-def test_a_word_outside_its_pdf_point_frame_refuses_the_page_no_clamp_no_swap():
-    """CASE 15 (Phase 2.2, P22-IDENTITY item 3; D4). INVERTED from the Phase
-    2.1 pin `test_native_words_slightly_outside_the_page_rect_are_kept`,
-    which kept a bleed word because refusing it would have changed
-    `geometry_from_pdf`'s Phase 2.0 behaviour. Ruled otherwise in 2.2: the
-    native reader now places every box in the DISPLAY frame, so a
-    `pdf_point` frame refuses a box outside `[0, width] x [0, height]`
-    exactly as a `pixel` frame always has — at construction, whole page, no
-    clamp, no swap (the refusing box is left unmodified; nothing is built).
-    The representation is unchanged: `EVIDENCE_SCHEMA_VERSION` stays 1. The
-    measured consequence on the archive (words PyMuPDF places outside
-    `page.rect` on unrotated pages) is recorded in this cell's W3 section."""
+def test_a_pdf_point_frame_is_a_viewport_a_word_outside_it_constructs_unmodified():
+    """CASE 15 as RULED at the Phase 2.2 closure (option c). Between this
+    cell's first commit and its closure a `pdf_point` box outside
+    `[0, width] x [0, height]` refused the page; measured over the archive
+    that refused every page of 102 documents (89 validated) for margin
+    headers and footers — defeating the lineage the evidence exists for. A
+    `pdf_point` frame is a VIEWPORT: a box outside it is a faithful record of
+    where the PDF put the word and CONSTRUCTS, untouched — never clamped,
+    never swapped, never dropped; `inside_frame` (the ONE bounds rule) says
+    it is outside, and the native reader records that as a note. The
+    representation is unchanged: `EVIDENCE_SCHEMA_VERSION` stays 1."""
+    from evidence import inside_frame
+
     frame = PageFrame.pdf_points(page_index=0, width_pt=612.0, height_pt=792.0)
     inside = _word(0, "inside", 10.0, 10.0, 50.0, 20.0, index=0)
-    PageEvidence(frame=frame, words=(inside,))  # the in-frame control constructs
+    assert inside_frame(frame, inside.x0, inside.y0, inside.x1, inside.y1)
     for box in (
-        (-2.0, 10.0, 20.0, 20.0),        # past the left edge (the old "bleed" shape)
+        (-2.0, 10.0, 20.0, 20.0),        # past the left edge (the Phase 2.1 "bleed" shape)
         (600.0, 10.0, 620.0, 20.0),      # past the right edge
         (10.0, -0.5, 50.0, 20.0),        # past the top edge, sub-point
         (10.0, 780.0, 50.0, 800.0),      # past the bottom edge
         (10.0, 792.0 + 30.0, 50.0, 792.0 + 40.0),  # wholly off the page
     ):
         outside = _word(0, "outside", *box, index=1)
-        with pytest.raises(MalformedGeometry):
-            PageEvidence(frame=frame, words=(inside, outside))
-        # never swapped, never clamped: the word object itself is untouched
+        page = PageEvidence(frame=frame, words=(inside, outside))
+        assert page.words == (inside, outside)
         assert (outside.x0, outside.y0, outside.x1, outside.y1) == tuple(float(v) for v in box)
-    # a box exactly ON the edges is inside (closed interval), in both spaces
+        assert not inside_frame(frame, outside.x0, outside.y0, outside.x1, outside.y1)
+    # a box exactly ON the edges is inside (closed interval)
     edge = _word(0, "edge", 0.0, 0.0, 612.0, 792.0, index=2)
-    assert PageEvidence(frame=frame, words=(edge,)).words == (edge,)
+    assert inside_frame(frame, edge.x0, edge.y0, edge.x1, edge.y1)
     assert EVIDENCE_SCHEMA_VERSION == 1
 
 
-def test_the_bounds_rule_is_the_same_in_both_spaces():
-    """One rule, two frames: the same overshoot refuses a pixel frame and a
-    pdf_point frame alike, so a mutant that drops the check for one space
-    (M4) is caught here as well as by CASE 15 above."""
+def test_a_pixel_frame_is_a_container_a_word_outside_it_refuses():
+    """The other half of the rule: a raster physically cannot hold a box
+    outside itself, so the SAME overshoot that a `pdf_point` frame admits
+    refuses a `pixel` frame (M4: the viewport rule re-applied to pixels, or
+    the container rule re-applied to points, fails one of these two)."""
+    from evidence import inside_frame
+
     pixel = _pixel_frame()
     point = PageFrame.pdf_points(page_index=0, width_pt=612.0, height_pt=792.0)
     for frame in (pixel, point):
         spill = _word(0, "spill", frame.width - 5.0, 10.0, frame.width + 5.0, 40.0, index=0)
-        with pytest.raises(MalformedGeometry):
-            PageEvidence(frame=frame, words=(spill,))
-        ok = _word(0, "ok", frame.width - 15.0, 10.0, frame.width, 40.0, index=0)
+        assert not inside_frame(frame, spill.x0, spill.y0, spill.x1, spill.y1)
+        ok = _word(0, "ok", frame.width - 15.0, 10.0, frame.width, 40.0, index=1)
         assert PageEvidence(frame=frame, words=(ok,)).words == (ok,)
+        if frame.space == PIXEL:
+            with pytest.raises(MalformedGeometry):
+                PageEvidence(frame=frame, words=(spill,))
+        else:
+            assert PageEvidence(frame=frame, words=(spill,)).words == (spill,)
 
 
 def test_every_existing_evidence_fixture_in_this_file_still_constructs():
