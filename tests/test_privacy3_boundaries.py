@@ -1691,23 +1691,32 @@ def test_deterministic_mode_never_calls_the_extractor_even_with_the_structurer_o
 def test_the_parse_mode_clause_is_what_stops_the_call_on_the_structurer_branch(
     monkeypatch,
 ):
-    """The clause EXERCISED, not merely asserted on the AST.
+    """The structurer branch EXERCISED in deterministic mode, not merely
+    asserted on the AST.
 
-    The test above cannot reach the escalation guard: an unclaimed document
-    that the structurer declines raises at `pipeline.py`'s
-    "no deterministic parser matched this statement" before the guard is
-    evaluated. And the branch that DOES reach it cannot occur naturally,
-    because the structurer only publishes a statement whose ledger GROUNDS, so
-    `recon.ok` is True and `needs_escalation` is False (§EXTRACTPRIV XP9
-    finding 2 measured that over four constructed variants).
+    HISTORY, kept because the fixture is built for it: until P22-FENCE (Phase
+    2.2, ruling R9) the escalation guard's first clause, `parse_mode !=
+    "deterministic"`, was the one thing stopping a deterministic-mode run from
+    making a hosted-model call on the structurer branch — the structurer only
+    publishes a statement whose ledger GROUNDS, so `recon.ok` was True and the
+    guard's `needs_escalation` was False by coincidence rather than by the
+    MODE (§EXTRACTPRIV XP9 finding 2 measured that over four constructed
+    variants), and this test removed the coincidence: a structurer that
+    publishes a statement which does NOT reconcile, two different models, and
+    a recorder in place of the extractor; without the clause ("mutant M23")
+    the recorder fired.
 
-    That coincidence is the whole finding, so this test removes it: the
-    structurer is replaced by one that publishes a statement which does NOT
-    reconcile, and the settings are given two different models. Every other
-    clause of the guard is then satisfied. With the `parse_mode` clause the
-    extractor is not called; without it — mutant M23 — the recorder fires and
-    this fails. A hosted-model call in deterministic mode is a $0-vendor
-    breach, so it is asserted rather than reasoned about.
+    NOW: the guard, the second extraction and the selection behind it no
+    longer exist (R9), and the ONE hosted call left in `analysis/pipeline.py`
+    sits after the deterministic-mode raises and behind the operator opt-in
+    (`tests/test_pipeline_escalation_fence.py` pins both). This test keeps its
+    fixture and its assertion — no hosted call in deterministic mode with the
+    structurer on and a non-reconciling statement published — because that is
+    the $0-vendor property, whichever mechanism carries it. Note (review F6):
+    with the deterministic raise deleted and no opt-in set, the fence refuses
+    with the identical message, so this test alone no longer distinguishes the
+    two guards; the opted-in deterministic test and the static ordering test in
+    the fence file are the ones that do.
     """
     from analysis import pipeline
     from analysis.config import Settings

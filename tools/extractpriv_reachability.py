@@ -4,6 +4,15 @@ The structural zero-movement claim, probed rather than only read. Two runs —
 the generic structurer opt-in off (production, the gate, discovery) and on —
 over a document no parser claims. Both must report `calls=[]`.
 
+HISTORY (P22-FENCE, Phase 2.2, ruling R9): this probe was written when the
+answer rested on the escalation guard's `parse_mode != "deterministic"` clause
+(§EXTRACTPRIV XP9 finding 2). That guard, the second extraction and the
+reconciliation-based selection behind it no longer exist; the ONE hosted call
+left in `analysis/pipeline.py` sits after the deterministic-mode raises and
+behind the operator opt-in. The probe's question and its answer are unchanged
+— `calls=[]` in both runs — and `tests/test_pipeline_escalation_fence.py` pins
+the mechanism statically and dynamically.
+
     python -m tools.extractpriv_reachability
 
 Offline by construction: `extract_statement` is replaced by a sentinel that
