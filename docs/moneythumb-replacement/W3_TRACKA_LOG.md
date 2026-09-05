@@ -70494,3 +70494,4 @@ description are questions for cells C / T and Ocean, recorded here by count only
   export after each session keeps the anchor current.
 * The evaluate skeleton's honesty edges are now explicit (`unparseable`, `agree_partial`), but the
   first real evaluation (2.4) still needs per-sha figure and ledger exports for any money identity.
+* **Sha remap after a commit-message reword (2026-09-05).** The final-tip message scan found one WORDS hit in the closure fix commit's body (an ordinary two-word English sequence); the message was reworded with `git filter-branch --msg-filter` (trees byte-identical; the four earlier commits keep their shas): `635853d` -> `dd790e6` (the closure fix), `6752e43` -> `6d3810d` (this section's commit). Every `635853d` / `6752e43` above names the same trees under their new shas.
