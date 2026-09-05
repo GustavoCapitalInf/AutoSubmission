@@ -263,3 +263,124 @@ card shape), fixtures in both directions, a mutant, the census re-run with the m
 MAJOR-2: delete or promote the dead conjunction, re-word M4 as applied, attach or commit the harness. The MINORs
 are documented residue unless cheap (MINOR-1/-4/-5 are one-line fixes with a fixture each; MINOR-10 waits for a
 loan shape).
+
+
+## Re-review (closure tip 4a5f381)
+
+```
+REVIEWED      wave22-classify @ 4a5f381   (detached in .claude/worktrees/rerev22-classify; never modified; nothing merged or pushed)
+CODE TREE     473f7d7 == 93f780c except ONE test string (tests/test_layout_signals.py:268, one six-digit run in a MICR negative); 4a5f381 == 473f7d7 + W3 only
+BASE          train12 @ b23cb50 = merge-base(train12, 4a5f381); train12 has since moved by five docs commits touching none of the cell's files
+CLOSURE DIFF  git diff cb15b35...4a5f381: 8 files, +871 / -34 (W3, layout/{document_class,signals}.py, tests/layout_fixtures/kinds.py,
+              tests/test_layout_{document_class,signals}.py, tools/classify_census.py, tools/p22classify_mutation_table.py)
+RE-REVIEWER   independent; wrote none of the code and none of the first review; every number below measured here
+VERDICT       APPROVE WITH FINDINGS   (0 MAJOR; 4 new MINOR from the closure's own rules; every first-review finding CLOSED or allowed residue)
+```
+
+Scratch: `rerev_attacks.py`, `rerev_major1.py`, `rerev_hand_mutants.py`, `rerev_minor8.py` and their logs under the session scratchpad
+(`.../scratchpad/rerev/`); the first reviewer's `rev22_attacks{,2,3}.py` and `rev22_csvstats.py` re-run unchanged. `git status
+--porcelain` was empty in the worktree before every run and after the harness. Archive and caches opened read-only; the private CSVs were
+read for counts only; no archive text appears here. Targeted baseline at the tip: **589 passed / 3 skipped** (6.0 s).
+
+### Per finding
+
+| finding | status | how verified at 4a5f381 (and at cb15b35 where a before/after matters) |
+|---|---|---|
+| **MAJOR-1** | **CLOSED** | `rev22_attacks.py` A1a/A1b and `rev22_attacks2.py` B5 → `KIND_UNCERTAIN` in both modes with `card_lexicon, deposit_lexicon, table_run` listed (at cb15b35, re-run: `STATEMENT_COMPLETE/deposit`); controls A1c/B4 still `NOT_A_STATEMENT/card_statement`. **Both directions:** `statement_with_strong_card_phrase_in_loc_box` → `KIND_UNCERTAIN`; my N7a (running balance + strong card box) → `KIND_UNCERTAIN`; `statement_with_overdraft_line_box` (weak furniture) → `STATEMENT_COMPLETE`. **Mutants:** M20 KILLED (5: `test_a_card_statement_with_one_deposit_word_is_a_conflict_not_a_deposit_statement`, the fixture table); my HM4 (conflict only in evidence mode) KILLED (3, same test). **Movement re-derived** (`rerev_major1.py` over the closure CSVs, counts only): card∧deposit = 71 (54 validated), every one `KIND_UNCERTAIN`, identical in cache and native; the strict shape (table, no running balance) = **34 (24 validated)** in BOTH modes; `STATEMENT_*` with both lexicons = 0. Cache-mode sha16 lists (first section 42 → closure log 66 validated `KIND_UNCERTAIN`): gained **24**, lost **0**, all 24 in the strict shape. Exactly the 34 / 24 the review named. |
+| **MAJOR-2** | **CLOSED** | `grep 'complete = ' layout/document_class.py` → nothing; the gate is `if not findings` and `_statement_findings` emits every missing anchor and `table_truncated`, so the gate equals the ruled conjunction by construction. M4 AS APPLIED (missing-anchor findings skipped at two anchors) KILLED (18 — the W3 row still says 15) by `test_a_removed_anchor_is_a_partial_never_a_complete_statement` (+3). The harness is committed (`tools/p22classify_mutation_table.py`: refuses a dirty tree, `git checkout --` in a `finally`, re-verifies); my run: **28 / 28 killed, baseline 589, final tree clean, EXIT=0**; every killer name matches the closure's table. |
+| MINOR-1 | CLOSED as reported; **see R-2** | `rev22_attacks3.py` C1 (cross-reference above the footer) → complete, no `page_gap`; M21 KILLED (3, `test_a_prose_page_cross_reference_is_not_the_page_marker`). My HM1 ("the LAST marker line wins") **SURVIVES** — the fixture cannot tell the closure's rule from a last-line rule; informational. A boilerplate footer defeats the new rule (R-2). |
+| MINOR-2 | CLOSED as reported; **see R-3** | A9 / A10 → `STATEMENT_PARTIAL{missing_pages}` both modes; `statement_two_statements_one_file` still complete; M27 KILLED (3); HM3 (one owed page tolerated) KILLED (3, `test_missing_last_and_first_pages_are_named_by_the_marker_facts`). The stale W3 risk note is named in §3 residue — allowed (the first section is append-only). A restarted sequence's HEAD is still unchecked (R-3). |
+| MINOR-3 | CLOSED as asked | A4 (thin DIGITAL) → `STATEMENT_PARTIAL{table_truncated}`; `statement_illegible` (scanned) still `STATEMENT_ILLEGIBLE`; M24 KILLED (3); HM7 (refuse only mixed) KILLED (3). Note: A21's prose still earns both stacked labels — it now lands in `PARTIAL{missing_period,table_truncated}`, not ILLEGIBLE; the review's close asked only for the modality guard. A MIXED thin document is still ILLEGIBLE (N8) — the review said "scanned / image-backed"; mixed pages can be scanned; accepted. |
+| MINOR-4 | CLOSED | A16 → `STATEMENT_PARTIAL{missing_period}` both modes; M22 KILLED (3); HM5 (skip only money-before-dates) KILLED (3). Design cost noted (N5): a phrase-less, label-less merged line `<date> - <date>  Total fees <amount>` no longer supplies the period — by the review's own ask. |
+| MINOR-5 | CLOSED as asked; **see R-1** | the five A14 strings → `is_micr_shaped` False; the one-anchor fragment → `KIND_UNCERTAIN` (was a lexical cheque); M23 (dash and dot readmitted) KILLED (5, `test_non_micr_lines`). Over-closed: a dash now disqualifies a line that carries genuine glyphs, and `'` `"` were dropped from the confusion set undocumented (R-1). |
+| MINOR-6 | CLOSED; residue allowed | `rows=1.00`, `rows=500.00;page=1` refused; `page_break=0/1` accepted; HM2 (old grammar restored) KILLED (1, `test_the_contract_refuses_a_value_outside_its_vocabulary`). `page_text_chars` unused: documented in §3 as the review allowed. |
+| MINOR-7 | CLOSED | A27 → `STATEMENT_COMPLETE/structural` in evidence, complete in text; `letter_with_unaligned_dated_lines` still a letter; M25 KILLED (2); HM6 (a one-row cluster counts) KILLED (3, incl. the letter test). Cost measured (N4): a form letter whose six dated fee sentences put amounts on THREE x positions (two each) is now a table in evidence mode → `KIND_UNCERTAIN` (cb15b35: `NOT_A_STATEMENT/letter`); the two-position form was already uncertain. Accepted as the review's trade. |
+| MINOR-8 | CLOSED; residue allowed | `rerev_minor8.py`: `subprocess.run` raising `OSError` → `SystemExit` ("git could not be asked"); git answering 128 → refused; tracked `--out` (`layout/ tools/ docs/`) refused by function and by the CLI before any cache is opened; ignored paths accepted. The CSV location is documented in §3 (the files sit under the CELL's worktree, confirmed) — the review asked for the record, not a move. |
+| MINOR-9 | residue, allowed | the review asked no change of C; §3 carries the note for cell T. |
+| MINOR-10 | residue, allowed | B1 / B3 still `STATEMENT_COMPLETE acct=deposit`, B2 `acct=loan` (unchanged); the review's close was "when a loan shape is designed … document the residue meanwhile" — §3 does, with the R12 consequence stated. Closure CSVs: loan∧table `STATEMENT_*` 114 cache / 168 native (validated 90 / 120), all `account_kind=deposit` but one. |
+| MINOR-11 | CLOSED for the full-date form; **see R-4** | `find_dates("03/01/31-03/31/31")` → 2; `statement_hyphen_joined_dates` and `statement_bare_hyphen_range` complete in both modes; `statement dates` in the lexicon; M26 KILLED (4) by both named tests — the bare-range fixture that isolates it is there (93f780c). The short m/d and ISO forms stay invisible (R-4). |
+| MINOR-12 | residue, allowed | a note for cell T in §3; the census remains labelled cached page text. |
+
+### New findings from the closure (ranked)
+
+**R-1 (MINOR) — MINOR-5 over-closed: a genuine MICR line with the E-13B dash symbol read as `-` is no longer MICR-shaped.**
+`is_micr_shaped("⑆111111111⑆ 22222-22222⑈ 1001")` → **False** (True at cb15b35); `"c111111111c 22222-22222c 1001"` → False (the fixture's
+glyph-only line stays True). A cheque-proportioned
+page carrying that line drops from `NOT_A_STATEMENT{cheque_image}/structural` to `/lexical` when the payee line is present (N3a) and to
+`KIND_UNCERTAIN` without it (N3b; control with the fixture's glyph-only line: structural). The review asked for "at least one of the four
+E-13B glyphs or their OCR confusions … and exclude date shapes"; the closure instead made any dash or dot disqualify the whole line, and also
+dropped `'` and `"` from the confusion set without saying so (the first section's own positives used them; the closure rewrote those test
+strings). Archive cost today 0 (`cheque_image` 1 lexical in both censuses at both tips — the archive's cheque pages are native-read
+enclosures); the cost lands on 2.3's Paddle path, where scanned cheques arrive and ⑉ is routinely read as `-`. Close: require ≥ 1 glyph or
+confusion among the non-digit characters and refuse a date-shaped digit run, rather than banning the dash; a positive fixture with the dash
+beside a glyph; the five A14 negatives stay negative (they carry no glyph), so `test_non_micr_lines` and M23 are unaffected.
+
+**R-2 (MINOR) — the "fewest other words" marker rule is beaten by a boilerplate footer.** Page 1 of a complete three-page statement whose
+footer reads `Member FDIC Equal Housing Lender Page 1 of 3` (5 other words) and whose body prints `See page 2 of 3` (1 other word) →
+`STATEMENT_PARTIAL{page_gap}` at tier **structural** in both modes (N1); the same footer without the prose line → complete (N1c). Identical at
+cb15b35 — the closure did not introduce it, but the MINOR-1 rule as built trades one prose shape for another, and HM1 shows the fixture
+does not pin "fewest words" against "last line". Close: prefer the candidate whose number continues the marker sequence (or equals the
+expected page position) and fall back to the lowest line; a boilerplate-footer fixture beside the existing one.
+
+**R-3 (MINOR) — the last-sequence rule checks a restarted sequence's TAIL but not its HEAD.** A complete statement (`1 of 1`) followed by
+page `2 of 2` of a second statement (its first page missing) → `STATEMENT_COMPLETE`, no finding, both modes (N2); controls N2b / N2c
+complete as they should be. The gap loop reads `1 → 2` as a continuation although the declared total changes (1 → 2); a total change is a
+new sequence, and a new sequence that begins above 1 owes `missing_first_page` — the same guard the closure added for the tail. Close: treat a
+total change as a restart; require a restart to begin at 1; fixture + mutant.
+
+**R-4 (MINOR-low) — the hyphen fix covers only the year-bearing numeric form.** `find_dates("03/01-03/31")` → `[]` and
+`find_dates("2031-03-01-2031-03-31")` → `[]`, while `03/01 - 03/31` yields two dates; `Statement Period 03/01-03/31` as the only period form →
+`STATEMENT_PARTIAL{missing_period}` (N6a), the spaced form complete (N6b). Close: the same lookahead on the short `m/d` alternation (and ISO);
+one fixture.
+
+**Notes (no action asked):** `Page 1 of 2031` and `… page 3 of 3 for account ending …` still parse as markers (pre-existing; C3 / N10). A duplicated
+last page (`2 of 2` twice) → `page_gap` + `balance_discontinuity` (pre-existing, honest). The 900-row timing probe (B9) reads `STATEMENT_PARTIAL`
+in both modes at both tips (the first review reported only its timing).
+
+### Ruled properties — did the closure break any?
+No. Harness at the tip: purity / clock (M8, 121), boundary (M12), degraded mode never structural on a box signal (M7, 59), conflicts never
+by priority (M6a/M6b/M20), `FILE_INVALID` first (M10), issuer strings (M9) — all killed. No production module is in the whole-cell diff
+(`b23cb50...4a5f381` names only `layout/`, `tests/`, `tools/`, the W3), so newly validated = 0 and payload identity hold by construction
+(the cell's replays 47 / 47 identical at base and at 93f780c; the code tree at the tip differs from 93f780c by one test string). R12: the
+24 validated deposit statements now proposed `KIND_UNCERTAIN` shrink the classifier-PROPOSED CCL denominator by 24 — the ruled direction
+(refuse, never guess); adjudication decides them. The MICR narrowing (R-1) weakens a structural signal on an unfixtured OCR confusion; it
+breaks no ruled case (case 3's "without MICR → uncertain or lexical, never structural" still holds).
+
+### Mutation table re-run (`python tools/p22classify_mutation_table.py` at 4a5f381)
+Baseline 589 passed; **28 / 28 KILLED**; survivors `[]`; final tree clean (`git status --porcelain` empty). Per mutant: M1 (7) · M2 (4) ·
+M3 (4) · M4 (18) · M5 (3) · M6a (2) · M6b (4) · M7 (59) · M8 (121) · M9 (1) · M10 (7) · M11 (4) · M12 (1) · M13 (3) · M14 (3) · M15 (3) ·
+M16 (3) · M17 (2) · M18 (3) · M19 (3) · M20 (5) · M21 (3) · M22 (3) · M23 (5) · M24 (3) · M25 (2) · M26 (4) · M27 (3); the first-named
+killer of every closure mutant is the test the W3 names. Hand mutants (same harness functions): HM1 SURVIVED (informational, above);
+HM2 (1) · HM3 (3) · HM4 (3) · HM5 (3) · HM6 (3) · HM7 (3) KILLED.
+
+### Scans (lock `HARNESS.lock` held 10:59:54 – 11:00:48, released with the logs' `EXIT=` lines written)
+* `tools/privacy_scan_branch.py --base b23cb50 --ref 4a5f381` over the run-of-record population (3,380; 3,351 with cached text):
+  `added_lines` **6,258**, `hit_count` **0** (DATES 0 / DIGITS 0 / MONEY 0 / WORDS 0); raw candidates 233 excluded by the shape rules
+  (`words_class` 223, `hex_sha_substring` 10); EXIT=0 → `discovery_reports/train12-logs/rerev22classify-privacy.{log,md}`.
+* `tools/huntington_msg_privacy_scan.py` over `git log b23cb50..4a5f381 --format=%B`: `commits_scanned` **16**, `hit_count` **0**; EXIT=0 →
+  `rerev22classify-msgscan.log`.
+The cell's own post-restatement logs (`p22classify-privacy.log` 02:39, `p22classify-msgscan.log` 02:40) read the same: 0 / 0.
+
+### Numbers, ownership, records
+* **Headline numbers vs the logs** (`p22classify-census-{cache,native}.log`, run at 93f780c): cache 2,518 / 581 / 15 / 23 / 16 / 227 = 3,380
+  and 324 / 217 / 15 / 22 / 16 / 161 = 755, validated exceptions **431**; native 2,534 / 572 / 17 / 23 / 16 / 218 and 369 / 186 / 17 / 22 / 16 /
+  145, **460** — every figure in the closure section matches its log line, and the closure CSVs reproduce them exactly (`rev22_csvstats.py`).
+  Guards 275, conformance 1,282 / 41, gate GREEN 105/3/1, corpus 34, suite 1 failed (the known `test_provenance_paddle_key_note…`) / 9,344,
+  replays 47 / 47 identical at base and closure — all as logged, every log ending in `EXIT=`. I did not re-run the full suite; the code tree
+  at the tip is 93f780c plus one test string, and that file passes here (in the 589).
+* **Ownership:** every closure file is on the card's list except `tools/p22classify_mutation_table.py` — the Ocean-directed widening the
+  closure names. `tests/test_no_statement_hardcodes.py`, `corpus_gate.py` and the production packages are untouched by the closure.
+* **Trailers:** `ce20ba3`, `93f780c`, `473f7d7`, `b487c3e`, `4a5f381` each carry `Co-Authored-By` and `Claude-Session`.
+* **Records defects (for Ocean, not blocking):** (a) the closure §6 says "the first section is append-only (never edited)" and its last
+  paragraph records the in-place restatement of two durations — say one thing; (b) the closure's M4 row keeps the first section's "(15)";
+  at the closure tip M4 kills 18; (c) the harness log lives "in the scratch directory", not under `discovery_reports/train12-logs/` — this
+  re-run is the durable record until the composed-tree run; (d) the W3 says the post-restatement scan counts are "in the closure message" —
+  the `4a5f381` message carries none; they are in the two logs above (0 / 0) and re-derived here; (e) the first review as committed on
+  `train12` still carries four unfilled `[PENDING-*]` placeholders (§1 numbers and scans, §3 phrases, §4 census) — the first reviewer's
+  defect; the numbers and scans are supplied by this section.
+
+### Verdict
+**APPROVE WITH FINDINGS.** Both MAJORs are closed for the right reason and pinned (M20, M4-as-applied, the committed harness); the ten MINORs
+the cell built are closed and each has a killing mutant; the four residues are the ones the first review allowed and are documented. The
+closure introduces one over-narrowing of its own (R-1) and leaves three siblings of the rules it added (R-2, R-3, R-4) — all MINOR, none a
+ruled property, none blocking composition; I would close R-1 before the 2.3 Paddle wave reads scanned cheques.
