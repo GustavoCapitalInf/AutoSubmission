@@ -265,7 +265,7 @@ def test_micr_shaped_lines(text):
     "1111 2222 3333 4444",
     "111111111 2222222222 1001",    # bare numbers with no MICR symbol: a statement's own reference numbers
     "2031-03-05 1234567890 123456",  # review MINOR-5: a date beside an account number is not a MICR line
-    "03-05-2031 1234567890 000123",
+    "03-05-2031 1234567890 123456",
     "1234567890 123456 2031-03-05",
     "12.345.678 1234567890",
     "123456789-1234567890",
