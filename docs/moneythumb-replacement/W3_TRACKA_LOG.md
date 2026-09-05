@@ -70029,3 +70029,258 @@ section's commit and reported in the closure message.
   `except` (none does today — both `_read_*` methods return the class name) would drop it.
 * The re-review's MINOR-5 observation about the probe's generic `attempt()` wrapper writing
   `f"{type(exc).__name__}: {exc}"` for OTHER probed values is pre-existing and outside this closure.
+# §P22HOLDOUT — the sealed truth store, the adjudication CLI, the unseen holdout cage and the leakage firewall built and proven on synthetic fixtures; the slice-1 queue prepared for Gustavo; 0 coverage movement
+
+Cell H (Phase 2.2, `docs/agent-handoffs/P22-HOLDOUT.md`), worktree `mt22-holdout`, branch
+`wave22-holdout`, base `train12` at `b23cb50`. Hygiene card: `newly validated = 0`; nothing under
+`analysis/`, `ocr/`, `layout/`, `evidence/`, `discovery/`, `webapp/`, `telemetry/` or `corpus_gate.py`
+changed (`git diff --stat b23cb50..HEAD` over those paths is empty — PRODDIFF_LINES 0 in the proof
+log); no network; nothing customer-derived in any tracked file; no adjudication performed by this cell.
+
+## Population
+Synthetic store fixtures only: shas are sha256 digests of literal strings; figures are plain example
+numbers; dates are in 2031; the CLI's document is a two-page PDF drawn from literal strings with
+PyMuPDF plus a 204-byte serialised-object blob saved as `.pdf` (the PF-INVALID shape). The slice-1
+queue (item 6) is the only place this cell touched the archive, READ-ONLY, to render packet pages into
+a private directory: **214 distinct documents** — census `NOT-STATEMENT` 117 (the 13
+`NOT-STATEMENT:portal-export` shas are a sub-cluster INSIDE that group, so they add 0 new documents),
+`SCAN-UNCLAIMED` with `text_density = thin` 51, `PF-INVALID-PDF` 16, and 30 of the 322 `FAM:*` shas
+still unresolved in the run of record chosen by `random.Random(20260903).sample` over the sorted pool;
+all 214 are in the run of record; 0 are validated. Replay population: the validated carriers of
+`member_statement_rollup` (the guardian_cu documents; 8 shas) + `first_citizens` (39 shas) from
+`discovery_reports/TRAIN11-4f7d798/2026-09-03T022827.644186-0000-331d9136` against the READ-ONLY cold
+cache `webapp_data_train11_cold`. Privacy population: all 3,380 shas of the run of record.
+
+## Root cause
+No human label exists for ≈ 3,270 of the 3,380; "validated" is the validator's own verdict; a false
+accept is measurable only on the 80 pinned documents inside the denominator; the holdout cage the
+accepted architecture (§12) called operational was never built (`REPO_CORPUS_MEMO.md` §6); and every
+label-shaped artefact in the repository (folder labels, the census, MoneyThumb outputs, parser/OCR
+outputs, the cold-cache payloads) is agent- or machine-derived and reachable from any implementation
+path. R3 makes Gustavo the only adjudicator and requires a sealed, versioned, auditable store outside
+the repository exposing only a non-sensitive manifest; R4 requires a genuinely unseen holdout that
+implementation never inspects before its evaluation event.
+
+## Solution
+* **`tools/holdout/store.py`** — `SEALED_TRUTH_DIR` (required; no default) must be absolute and is
+  refused under this checkout, under the MAIN repository when this is a worktree (parsed from the
+  `.git` file's `gitdir:`), under ANY ancestor carrying a `.git` entry, and under a `.claude` or
+  `Bank Statements` path component; created on first write. `truth.jsonl` is append-only, one record
+  per adjudication EVENT (the latest per sha is the verdict); each record carries `record_id`, `seq`,
+  `store_version`, `content_sha256` (upper hex), `kind` / `sub_kind` / `account_kind` / `modality`
+  (closed vocabularies; sub_kind a lowercase code), `completeness_findings` (closed codes), `legible`,
+  the six oracle figures (each nullable; balances as canonical decimal strings; dates ISO; end never
+  before start), `sampled_rows` (≤ 3; `{date, description_hash, amount}` — the description is hashed
+  over a whitespace-collapsed casefolded form and refused if supplied as any other key), `adjudicator`
+  (a role code; `@` refused), `adjudicated_at` (UTC), `packet_digest`, `notes_hash` (the notes are not
+  stored; `None` when empty), `prev` and `hash` (sha256 over the canonical JSON of every field but
+  `hash`; `prev` is inside the hashed material). `verify_chain()` refuses a rewritten record (hash
+  mismatch), a rewritten-and-rehashed record (the next link breaks), a reorder (seq and prev), and a
+  removed head record (`prev != GENESIS`); `verify_against_manifest()` catches a truncated file.
+  `manifest.json`: `store_version`, `record_count`, `chain_head`, `updated_at`.
+* **`tools/holdout/manifest.py`** — `holdout.jsonl` is a second chain of EVENTS (`added`, `evaluated`,
+  `burned`, `graduated`); an item's state is its latest event. Fields: `holdout_id`, `content_sha256`,
+  `added_at`, `source_batch`, `not_in_dev_corpus` (asserted at add time against a REQUIRED,
+  non-empty development-corpus sha set — a dev sha is refused, an empty set is no attestation), the
+  strata (`modality`, `bank_familiarity ∈ {known_bank, unknown_bank}`, `account_shape ∈ {single,
+  multi_account}`, `table_shape ∈ {table_heavy, summary_only}`, `currency` (ISO code or `unknown`),
+  `page_count_bucket ∈ {1, 2-5, 6-15, 16+}`, `layout_family_code` — a lowercase code; a name-shaped
+  string is refused), `status`, `last_evaluated_at`, `last_engine_version`, `evaluation_run_id`,
+  `burned_by`, `graduated_at_tag`, `graduation_attestation`. Transitions are exactly `{unseen →
+  evaluated, evaluated → evaluated, evaluated → burned, evaluated → graduated}`: evaluation needs an
+  engine version and a run id (only `evaluate.py` supplies one — the CLI has no such command); burning
+  needs the card name; graduation needs a tag present in the caller-supplied freeze-tag set AND the
+  explicit attestation that the engine version did not change because of the item (recorded with the
+  attesting role and the version attested about). There is no generic status setter.
+  `holdout_shas_for_refusal()` returns every holdout sha regardless of status.
+* **`tools/holdout/digest.py`** — `docs/moneythumb-replacement/truth/MANIFEST_DIGEST.txt` carries
+  `store_version`, `record_count`, `chain_head`, `holdout_chain_head`, the sorted sha16 list of
+  adjudicated documents and the holdout sha16 list with statuses; every line must match one of nine
+  patterns (`DIGEST_LINE_GRAMMAR`), so a kind, figure, date, name or path has no line to live in; the
+  renderer itself refuses a line outside the grammar. The committed file is an EMPTY store's digest.
+  **Interface for cell T** (the runner may not import this package): holdout entries are the lines
+  `- <SHA16> <status>` under the `holdout_sha16_status:` header.
+* **`tools/adjudicate.py`** — `queue` refuses a packet directory inside any checkout, verifies the
+  file bytes against the content sha, renders pages LOCALLY with PyMuPDF (lazily imported; the only
+  third-party import) at 100 dpi up to 40 pages into `<packets>/<slice>/<sha16>/page-NNN.png`, and
+  writes `packet.json` + `EVIDENCE.txt` with the run-of-record file facts, the census tag labelled
+  `EVIDENCE (census, agent-derived, not truth)`, the classifier proposal — only when `--classification`
+  is supplied — labelled `EVIDENCE (classifier proposal, tool-derived, not truth)`, a MoneyThumb
+  comparison ONLY when `--moneythumb` is supplied, labelled likewise, and the packet digest (sha256
+  over the canonical JSON of everything shown, page-image shas included); `queue.json` and
+  `QUEUE_DIGEST.txt` (a digest over the sorted (sha, packet digest) pairs) sit beside them. `run`
+  shows the packet path and `EVIDENCE.txt`, asks kind / sub_kind / account_kind / modality / legible /
+  findings / the figures / three rows / notes with NOTHING pre-filled (the kind prompt carries no
+  bracketed value; an empty kind — typed or in `--answers` — appends nothing and leaves the entry
+  pending), appends with the entry's packet digest, verifies the chain, marks the entry adjudicated.
+  `status` prints aggregates only; `export-digest` writes the repository digest; `holdout-add`
+  (development corpus required via `--dev-rows`/`--dev-shas`), `holdout-burn`, `holdout-graduate`
+  (freeze tags from `git tag --list` or `--tags-from`; `--attest` required) and `holdout-list` (no
+  shas) drive the manifest. The system's verdict is deliberately NOT in the packet.
+* **`tools/holdout/evaluate.py`** — the evaluation event as design plus a working skeleton: for every
+  holdout item in `unseen | evaluated` with both an oracle record and a row, the best row on the ladder
+  is compared with the oracle: FALSE ACCEPT only when the system is `validated` AND a figure disagrees
+  or a sampled row is absent from a supplied ledger export; `kind_conflict` (validated, no figure
+  contradiction, oracle kind ≠ STATEMENT_COMPLETE) on its own line; `agree` needs at least one
+  comparison; `not_judgeable` when nothing comparable exists; FALSE REFUSAL when the oracle is a
+  complete legible statement and the system is not validated, classed A/B/C from `failure_class`
+  else from the reason (`deferred_visual_ocr`/`invalid_pdf` → A; `no_parser_matched`/`parser_declined`
+  → B; `withheld_adb`/`integrity_flags` → C; else `unclassified`); `layout_generalization` counts
+  validated, non-contradicted `unknown_bank` items read natively when digital. Compared items are
+  marked `evaluated` with the engine version and run id; stdout carries aggregates only; the private
+  report (sha16, judgement, contradiction NAMES — no figures) refuses the checkout.
+* **`tests/test_truth_firewall.py`** — see Firewall evidence.
+
+## Newly validated
+**0** (hygiene card; no production module changed; the cohort replay reports `newly validated: 0`).
+
+## Other ladder movement
+**0** (cohort replay: `other ladder movement (up, not validated) 0`; `other ladder regressions 0`).
+
+## Previously validated preserved
+**47 of 47** (member_statement_rollup 8 + first_citizens 39), payload IDENTICAL (`cohort_replay --expect-identical`
+at the closure tip; the production tree is byte-identical to base by construction —
+PRODDIFF_LINES 0 — so the base and closure trees are the same tree for every replayed document; see
+Deviations).
+
+## Regressions
+**0** (the replay's validated-regression line: `validated regressions (BLOCKING) 0`; exit 0).
+
+## Correctness evidence (chain, transitions, refusals)
+Tests added: `tests/test_truth_store.py` (43), `tests/test_holdout_manifest.py`
+(34), `tests/test_truth_firewall.py` (19), `tests/test_adjudicate_cli.py`
+(19), `tests/test_holdout_evaluate.py` (19) = **134** tests, all green.
+* **Chain:** append builds `seq`/`prev`/`hash`; the hash covers every field but `hash` (asserted by
+  recomputing it in the test); a rewritten record, a rewritten-and-rehashed record, a reordered file, a
+  removed first record and a truncated file are each refused; a broken chain is never appended to.
+* **Transitions:** every pair outside the ruled four refuses and leaves the status unchanged
+  (parametrised over unseen→burned, unseen→graduated, burned→evaluated, burned→graduated,
+  graduated→evaluated, graduated→burned); graduation refuses an unknown tag, an empty tag set and a
+  missing attestation; `ALLOWED_TRANSITIONS` is asserted equal to the ruled set; the manifest exposes
+  no `set_status`/`transition`.
+* **Refusals:** the store refuses without the variable, with an empty or relative path, under the
+  checkout root, under `.claude/`, under `Bank Statements/`, under every ancestor checkout (the main
+  repository included); the constructor is not a bypass and nothing is created on refusal; a
+  development-corpus sha and a duplicate sha are refused by the manifest; an email-shaped adjudicator,
+  an out-of-vocabulary kind/account kind/modality/finding, a non-boolean `legible`, a negative count, a
+  non-ISO or inverted period, a separator-bearing or non-finite figure, a name-shaped sub_kind and a
+  malformed digest are each refused; the CLI refuses a packet directory inside the checkout, a file
+  whose bytes do not hash to its content sha (queued as `unavailable: pdf_sha_mismatch`), an answer
+  without a kind, a malformed answer (left pending, nothing appended) and an email-shaped role.
+* **The evaluation skeleton** on the synthetic world (8 holdout items, 7 adjudicated): false_accept 2
+  (one closing-balance contradiction, one absent sampled row), false_refusal 1 (class B), agree 1,
+  not_judgeable 1, consistent_refusal 1, kind_conflict 1, not_adjudicated 1, layout_generalization 1;
+  the 7 compared items carry `last_engine_version` and `evaluation_run_id`; the unadjudicated item
+  stays `unseen`; burned items are not evaluated; a second run records the new version.
+
+## Firewall evidence
+Scope: AST at ANY depth over every `*.py` under `analysis/ layout/ ocr/ evidence/ discovery/ webapp/
+telemetry/` (`layout/` is scanned when it exists; the six existing roots are asserted non-empty so the
+scan cannot go vacuous): string constants containing `SEALED_TRUTH_DIR`, `HOLDOUT_STORE_DIR`,
+`tools.holdout`, `tools/holdout`, `tools.adjudicate`, `tools/adjudicate` (docstrings included);
+`import`/`from … import` of `tools.holdout*` or `tools.adjudicate` (and `from tools import holdout`);
+`Name`/`Attribute` nodes named `SEALED_TRUTH_DIR`/`HOLDOUT_STORE_DIR`. At `38d3100`: **0 findings**
+over 153 modules (analysis 107, ocr 20, evidence 2, discovery 9, webapp 6, telemetry 9; `layout/` absent on this branch). Demonstrated catch: (a) inside the test, a scratch copy of
+`discovery/runner.py` with each of eight injections (`os.environ.get`, `os.getenv`, a lazy
+`from tools.holdout import store` inside a function, a lazy `import tools.holdout.store`, `from tools
+import adjudicate`, `importlib.import_module("tools.holdout.store")`, `environ[...]` three scopes deep
+inside a method, a docstring naming the old variable) is caught, and a clean copy produces no finding;
+(b) mutant M8 applied to the REAL `discovery/runner.py` in the working tree fails
+`test_no_production_module_references_the_store` (restored, tree clean). The other direction:
+`tools/holdout` + `tools/adjudicate.py` import only the standard library and themselves (PyMuPDF
+exactly once, lazily, inside `render_pages`), and importing all six modules drags no production module
+into `sys.modules`. The digest: the committed file and a digest rendered from a populated synthetic
+store both satisfy the closed grammar, contain no kind word, no `validated/review/withheld/failed/
+refused/legible`, no money shape, no date shape and only 16-character prefixes; the grammar rejects a
+`kind:` line, a status-bearing line with a verdict, a balance line and a 32-character prefix.
+OQ2 idiom over `tools/holdout` + `tools/adjudicate.py` (the guard's own scanners run ad hoc, since the
+guard file belongs to cell C): 0 pattern hits, 0 issuer-string hits.
+
+## Mutation table (every mutant applied as documented by a scratch harness that refuses a dirty tree, runs WITHOUT -x, restores in a `finally` via `git checkout --` and verifies `git status --porcelain` empty; log `discovery_reports/train12-logs/p22holdout-mutation-table.log`; all 12 KILLED; tree clean after)
+| # | mutant (site) | killers |
+|---|---|---|
+| M1 | `forbidden_ancestor` no longer looks at repository roots or `.git` ancestors | `test_truth_store.py::test_refuses_every_ancestor_checkout_including_the_main_repository`, `::test_the_named_repository_roots_are_all_refused` (the worktree-root cases stay refused by the `.claude` component rule alone — noted) |
+| M2 | `record_hash` excludes `prev` | `test_truth_store.py::test_each_record_hash_covers_every_field_but_hash` |
+| M3 | `verify` skips the first record | `test_truth_store.py::test_a_rewritten_earlier_record_is_detected`, `::test_a_first_record_whose_prev_is_not_genesis_is_refused`, `test_holdout_manifest.py::test_the_holdout_file_is_a_hash_chain_of_events` |
+| M4 | the CLI fills an empty kind from the packet's classifier proposal (answers path) and shows/defaults it in the interactive prompt | `test_adjudicate_cli.py::test_run_never_prefills_the_kind_from_the_proposal`, `::test_run_interactive_asks_the_kind_with_no_default` |
+| M5 | `("unseen", "graduated")` added to the matrix and the engine-version precondition dropped | `test_holdout_manifest.py::test_every_other_transition_refuses[path1]`, `::test_the_transition_matrix_is_exactly_the_ruled_one` |
+| M6 | the existing-freeze-tag check removed | `test_holdout_manifest.py::test_graduation_requires_an_existing_freeze_tag_and_the_attestation`, `test_adjudicate_cli.py::test_holdout_burn_and_graduate_follow_the_matrix`, `::test_holdout_graduate_reads_freeze_tags_from_git_by_default` |
+| M7 | the development-corpus refusal removed | `test_holdout_manifest.py::test_a_development_corpus_sha_is_refused`, `test_adjudicate_cli.py::test_holdout_add_refuses_a_development_corpus_sha_and_accepts_a_new_one` |
+| M8 | `_SEALED_TRUTH_PROBE = os.environ.get("SEALED_TRUTH_DIR")` appended to the REAL `discovery/runner.py` | `test_truth_firewall.py::test_no_production_module_references_the_store` (+ the eight scratch-mutant cases' clean-source precondition and `::test_a_clean_scratch_copy_produces_no_finding`) |
+| M9 | a `kind: <KIND>` line per adjudicated document rendered AND admitted by the grammar | `test_truth_firewall.py::test_a_digest_rendered_from_a_populated_store_is_non_sensitive`, `::test_the_digest_grammar_rejects_a_verdict_line`, `test_adjudicate_cli.py::test_export_digest_writes_the_non_sensitive_digest` |
+| M10 | the sampled-row description stored as text beside its hash | `test_truth_store.py::test_sampled_row_descriptions_are_stored_as_hashes_never_text`, `test_adjudicate_cli.py::test_run_with_answers_appends_records_with_the_packet_digest` |
+| M11 | `evaluate_run` emits the `evaluated` event directly without an engine version | `test_holdout_evaluate.py::test_items_compared_are_marked_evaluated_with_the_engine_version`, `::test_a_second_evaluation_records_the_new_engine_version` |
+| M12 | every validated item is a FALSE ACCEPT regardless of the oracle | `test_holdout_evaluate.py::test_the_synthetic_evaluation_reports_each_judgement`, `::test_false_accept_needs_an_oracle_contradiction_never_the_verdict_alone`, `::test_stdout_carries_aggregates_only`, `::test_the_private_report_is_written_outside`, `::test_cli_entry_point_requires_the_store_and_prints_aggregates` |
+
+## Commits (branch `wave22-holdout` on `b23cb50`)
+* `b68d0cf` — the store, the manifest, the digest, their tests, the empty digest file.
+* `38d3100` — the CLI, the evaluation skeleton, the firewall test, their tests.
+* `aada75a` — the two colliding synthetic figures replaced (see Privacy count).
+* the commit carrying this section (named in the closure message).
+
+## Proof-floor exits (log `discovery_reports/train12-logs/p22holdout-proofs.log`; floor log `p22holdout-floor.log`; run one at a time under the shared host lock)
+Wrapper `p22holdout_proofs.sh` (one detached process under the host lock, 2026-09-04 07:01:13 -> 07:36:12, tree `38d3100`, `PRODDIFF_LINES=0`): `QUEUE_EXIT=0` · `REPLAY_EXIT=0` · `PRIVACY_EXIT=1` (the 5-figure residue, see Privacy count) · `MSGSCAN_EXIT=0` · `floor.sh` (`p22holdout-floor.log`): full default suite **1 failed / 8,889 passed / 45 skipped / 39 deselected** (`SUITE_EXIT=1`) · canonical guards **275 passed** (`GUARDS_EXIT=0`) · canonical conformance **1,282 passed / 41 skipped** (`CONFORMANCE_EXIT=0`) · `python corpus_gate.py` **GREEN 105 PASS / 3 WITHHELD / 1 REFUSED** (`GATE_EXIT=0`) · corpus-marked slice **34 passed** (`CORPUS_EXIT=0`; 1,181 s) · `EXIT=done`; lock released 07:36:12. The one suite failure is `tests/test_run_of_record.py::test_provenance_paddle_key_note_never_leaks_a_raw_exception_message` — a HOST condition outside this cell's ownership, reported as-is: the test strips every `PADDLE_*` variable and expects the provenance probe to record `paddle_ocr_key_note`; on this host `analysis/config.py` / `ocr/config.py` call `load_dotenv()`, python-dotenv searches UPWARD from the worktree and loads the MAIN checkout's gitignored `.env`, which now names the five `PADDLE_*` keys (`PADDLE_PROVIDER`, `PADDLE_EXECUTION_CLASS`, `PADDLE_VAST_HOST`, `PADDLE_VAST_SSH_PORT`, `PADDLE_VAST_SSH_USER`), so the probe's `import ocr` restores them, Paddle settings load and no note is written (`KeyError: 'paddle_ocr_key_note'`). Reproduced targeted at the tip; reproduced with the five variables removed from the shell (`find_dotenv(usecwd=True)` resolves to the main root's `.env`; `import ocr.config` after stripping yields all five keys again); the same single failure is in the other Phase 2.2 cells' suite logs on this host (`p22classify-suite.log` 1 failed / 8,790 passed; a third suite 1 failed / 9,267 passed); CI on `main` (no `.env`) is green. Nothing of this cell touches the test, the probe or the `.env`. Final-tip scans (`p22holdout-finalscans.log`, tree `aada75a`, lock held 20:28:52 -> 20:29:xx, released): `PRIVACY_EXIT=0` · `MSGSCAN_EXIT=0`. Targeted at the tip `aada75a`: the five new test files **134 passed**. Mutation table: `p22holdout-mutation-table.log`, `EXIT=0`, 12/12 killed at `38d3100`.
+
+## Privacy count
+`tools/privacy_scan_branch.py --rows <run>/rows.csv --run <run> --data-dir webapp_data_train11_cold --base b23cb50 --ref HEAD` (population 3,380 shas; 3,351 documents read; 29 without cached text): at `38d3100`, over 3,868 added lines, **MONEY 5 / DIGITS 0 / DATES 0 / WORDS 0** (37 WORDS occurrences excused by the `words_class` rule; `round_money`, `subunit_money`, `hex_sha_substring`, `docs_session_date`, `institution_zip` excused 0). The 5: two synthetic example figures in the new tests coincided with money tokens printed somewhere in the population — the arithmetic closing of the synthetic two-page statement (4 sites in `tests/test_adjudicate_cli.py`) and the deliberately wrong closing in the evaluation fixture (1 site in `tests/test_holdout_evaluate.py`); neither was read from a document (both are literals typed for a PDF this cell renders itself / an inequality the test needs). Fixed at `aada75a` with six-digit-dollar example figures (the synthetic statement's arithmetic kept). Message scan (`tools/huntington_msg_privacy_scan.py`, the same population, `git log b23cb50..HEAD`): **0** over 2 commits at `38d3100` (MONEY / DIGITS / DATES / WORDS all 0). At `aada75a` (`p22holdout-finalscans.log`): **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** over 3,868 added lines (37 WORDS occurrences excused by `words_class`); message scan **0** over 3 commits. **The scans over this section's own commit run after it lands; their counts are in the closure message to Ocean** (a section cannot carry a number measured over itself).
+
+## The slice-1 queue (prepared for Gustavo; adjudication is NOT a gate and none was performed)
+Built by `python -m tools.adjudicate queue --rows <run of record>/rows.csv --slice slice1 --shas <private>/slice1_shas.txt --packets <private>/packets --pdf-root "Bank Statements" --census census_batch9/per_sha.csv` under the host lock (2026-09-04 07:01, tree `38d3100`; `QUEUE_EXIT=0`): **214 shas, 214 packets, 0 unavailable** (every file's bytes hash to its content sha); pages rendered locally at 100 dpi (up to 40 per document) with the census tag as the only labelled evidence (no classifier proposal, Deviation 2; no MoneyThumb); **queue digest `cd841c078f7121ffb9c70decd3c0abcf03c76e23c243333e90c29f51ea365246`** (sha256 over the sorted (sha, packet digest) pairs, `QUEUE_DIGEST.txt`); the slice sha-list digest is `14540440a4f9e803a7d6e4b700927bb73e19ebede02a1102a86fb0a7dc5bccf4`. The packets live in a private directory under the machine's Local AppData (outside every checkout and outside OneDrive; the path is in the closure message to Ocean, not here). Gustavo's session: any `SEALED_TRUTH_DIR` outside the checkout, then `python -m tools.adjudicate run --slice slice1 --packets <private>/packets --adjudicator <role>` (resumable; `--limit N` for a sitting), then `export-digest`. Nothing was adjudicated by this cell.
+
+## Deviations from the card (each named)
+1. **214, not ≈ 227.** The card's arithmetic (117 + 51 + 13 + 16 + 30) counts the 13 portal exports
+   twice: in the census they are the sub-cluster `NOT-STATEMENT:portal-export` of the 117-document
+   `NOT-STATEMENT` group (`per_sha.csv` `cluster` vs `cluster_group`; verified as a subset). The slice
+   is keyed by content sha, so the distinct queue is 184 + 30 = 214 with the composition recorded
+   above. Nothing was dropped; the strata are exactly the named lists.
+2. **No classifier proposal in the slice-1 packets.** `--classification` is optional and cell C's
+   `tools/classify_census.py` does not exist on this branch; the packets carry the census tag and the
+   file facts only. Re-running `queue` with `--classification` after C composes regenerates the
+   packets (and their digests) with the proposal shown as evidence.
+3. **Cohort replay "at base".** No production module changed (`git diff --stat b23cb50..HEAD` over
+   `analysis ocr discovery webapp telemetry evidence layout corpus_gate.py` is empty), so the base
+   and closure production trees are the same tree; the replay was run once, at the closure tip, with
+   `--expect-identical`. The `guardian_cu` cohort is addressed as `--parser member_statement_rollup`
+   (the W3 §L1S4 M-7 finding: `--folder guardian_cu` selects 0 rows on this run of record).
+4. **The mutation harness is a scratch script**, not a `tools/` file: the card's ownership list has no
+   harness slot; the log is durable under `train12-logs` and every mutant is reproducible from the
+   table above.
+5. **The manifest's `modality` uses the store's five-value vocabulary** (`digital | scanned | mixed |
+   image_backed_text | unknown`, the umbrella's classifier contract) rather than §12's three-value
+   `native | scanned | mixed`, so one modality vocabulary spans the store, the manifest and the
+   classifier.
+6. **`git`'s automatic prune** printed `failed to delete .git/worktrees/<stale>: Permission denied`
+   for two dozen stale worktree entries in the MAIN repository during both commits (OneDrive locks);
+   the commits landed and the tree is clean; nothing of mine touches those entries.
+
+7. **The floor ran at `38d3100`, one commit before the tip.** `aada75a` (committed while the floor's suite was already running) changes two synthetic figure literals in two of this cell's own test files and nothing else; the five new test files were re-run targeted at `aada75a` (134 passed) and both scans were re-run at `aada75a` (0 / 0). The mutation table also ran at `38d3100`; every mutant site is unchanged at the tip. The full floor was not re-run at the tip (the resume instruction: completed proofs are not rerun).
+8. **The proof chain waited ~4 h for the contended host lock on 2026-09-03 and timed out without acquiring it; the proofs ran on 2026-09-04 morning** after the session was restored; one waiter at a time throughout.
+
+## Risks (last)
+* **The adjudication bottleneck.** Every record needs Gustavo (or a delegated analyst with the same
+  CLI) to type ~15 fields per document; slice 1 is 214 packets, and the classifier's precision/recall
+  on the slice (truth table v1) cannot exist until the session happens. The queue is resumable
+  (`pending` entries, `--limit`), and D10 keeps the milestone gate independent of it.
+* **What the evaluate tool cannot judge without sampled rows and figures.** `rows.csv` has no
+  balances, periods or ledger rows; until 2.4's evaluation supplies a per-sha figures export and a
+  ledger export, a validated holdout item is `not_judgeable` (never `agree`) unless the row's
+  `account_count` is comparable, and a false accept through a sampled row is invisible. Three sampled
+  rows also bound what a row contradiction can prove: a system ledger can carry every sampled row and
+  still be wrong elsewhere.
+* **`layout_generalization` cannot see "without a new parser"** from `rows.csv`; the private report
+  records `parser_id` per item for a reviewer, and the count is an upper bound.
+* **Packet digests are PyMuPDF-version-bound** (page-image bytes are inside the digest): the same
+  document re-queued under a different PyMuPDF yields a different digest, so a record's
+  `packet_digest` names the rendering an adjudicator saw, not the document alone (the content sha does
+  that).
+* **The store is only as sealed as the machine**: no encryption at rest (the card ruled a hashed,
+  append-only store outside the checkout; §12's "encrypted" is not implemented and is documented here
+  as an opportunity, not built).
+* **Two holdout writers** (the CLI and `evaluate.py`) share one chain without a file lock; a
+  concurrent append would be detected by the chain (the second writer's `prev` no longer matches) but
+  not prevented. Single-adjudicator operation is the ruled use.
+
+## Opportunities exposed (documented, not built)
+Encryption at rest for the store; a `--figures`/`--ledger` exporter from a run's analysis payloads
+for 2.4's evaluation; the digest parser for cell T's runner refusal (three lines over the
+`holdout_sha16_status:` block); extending the OQ2 guard's roots to `tools/holdout/` (cell C's file).
