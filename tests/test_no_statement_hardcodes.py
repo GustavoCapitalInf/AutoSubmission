@@ -1100,13 +1100,18 @@ def test_the_issuer_marker_guard_catches_growth_inside_a_ratcheted_file(tmp_path
 
 EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "evidence"
 PADDLE_VAST_TOOL = Path(__file__).resolve().parent.parent / "tools" / "paddle_vast.py"
+#: P22-CLASSIFY (Phase 2.2 case 24): the neutral `layout/` package joins the
+#: same scans — a roots APPEND only, no new detection logic.
+LAYOUT_DIR = Path(__file__).resolve().parent.parent / "layout"
 
 
 def _paddle_phase21_modules() -> list[Path]:
-    """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope."""
+    """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope —
+    plus `layout/*.py` (Phase 2.2 case 24)."""
     modules = sorted(EVIDENCE_DIR.glob("*.py"))
     if PADDLE_VAST_TOOL.exists():
         modules.append(PADDLE_VAST_TOOL)
+    modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
     return modules
 
 

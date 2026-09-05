@@ -70029,3 +70029,859 @@ section's commit and reported in the closure message.
   `except` (none does today — both `_read_*` methods return the class name) would drop it.
 * The re-review's MINOR-5 observation about the probe's generic `attempt()` wrapper writing
   `f"{type(exc).__name__}: {exc}"` for OTHER probed values is pre-existing and outside this closure.
+
+# §P22CLASSIFY — the deterministic document classifier in the neutral `layout/` package: one disjoint kind with named evidence for every document, `KIND_UNCERTAIN` first-class, no routing, no truth; the disjoint sum proven on the run of record (3,380 archive / 755 unresolved) in the declared degraded text mode and in native word-box mode
+
+**Card:** `docs/agent-handoffs/P22-CLASSIFY.md` (Phase 2.2 cell C; umbrella `PHASE2-2-TRUTH.md` D1, D2, D10, §"Classifier", cases 1–5 and 24). **Base:** `train12` at `b23cb50`. **Branch:** `wave22-classify` (worktree `.claude/worktrees/mt22-classify`). **Code tip:** `450134d` (tree-identical to `53f7efb`, the tree every proof below ran at — see the message-reword remap under Commits). **Hygiene card:** newly validated 0; nothing under `analysis/ ocr/ discovery/ webapp/ telemetry/ evidence/` touched; no network; no customer data in any tracked file; the classifier never routes and never grants anything (R3: every verdict is a proposal for an adjudicator).
+
+## Population
+* **Fixtures (synthetic, `tests/layout_fixtures/`, dates in a synthetic future year, invented names, arithmetic figures):** 52 generators — complete statements EN / FR / ES; the two column archetypes (WITHDRAWALS / DEPOSITS / BALANCE; a signed AMOUNT beside BALANCE); a zero-activity statement (the printed declaration in the sibling-omission vocabulary); a rotated statement (display-frame evidence built by hand, rotation 90 recorded); partials — page removed / last page removed / first page removed / opening removed / closing removed / period removed / a balance discontinuity at a page break; an illegible placeholder; an activity export; cheque image / cheque without MICR / cheque shape with nothing else / MICR on a portrait page / voided cheque; deposit slip / deposit slip on cheque stock; letter / a letter whose dated lines do not align; card statement; loan statement; brokerage page; screenshot; the Java-magic invalid file; two conflict fixtures; a nothing-fires page; and five regression pins for the layout classes the archive taught the rules (stacked summary cells, wrapped rows, a balance printed at intervals, an overdraft line-of-credit box, a MICR line on the table page). Each fixture states the verdict it owes in evidence mode AND in degraded text mode.
+* **Archive:** the run of record `discovery_reports/TRAIN11-4f7d798/2026-09-03T022827.644186-0000-331d9136` (3,506 rows / 3,380 distinct shas; validated 2,625; unresolved 755) read through its own partitions from the cold cache `.claude/recovery/webapp_data_train11_cold` (READ-ONLY). Two evidence sources, both reported: **cache** (the card's measurement: cached page TEXT in the classifier's declared DEGRADED mode — no schema-3 `native_evidence` exists on this branch; cached Paddle evidence exists for 0 documents) and **native-pdf** (word boxes re-read from the archive PDF through the platform's existing Phase 2.1 native reader `analysis/structurer/geometry.py::native_evidence_from_pdf` for the 3,297 native rows; the cache text otherwise). The 16 invalid files and the 13 no-text scans have no cached text: `input_mode = none`.
+
+## Root cause
+No document-type classification existed anywhere in the tree (`REPO_CORPUS_MEMO.md` §5): a voided cheque saved as an image-only PDF was indistinguishable in every recorded column from an unseen-bank statement; 104 of the census's 117 "not-statements" carried no per-document reason; every later coverage claim needed a disjoint, defensible kind per document with the evidence that produced it and a second denominator that is confirmed rather than inferred (R11, R12).
+
+## Solution
+* **`layout/` (new, neutral):** imports only the standard library and `evidence` — pinned by `tests/test_layout_boundary.py` (AST at any depth; no third-party import; no clock / randomness / I/O module; `import layout` drags no platform or third-party module). `layout/refusals.py` is the closed L0/L1 vocabulary (`KINDS`, `SUB_KINDS` with `PRODUCED_SUB_KINDS`, `FINDING_CODES`, `TIERS`, `MODALITIES`, `LANGUAGES`, `ACCOUNT_KINDS`). `layout/signals.py` carries the closed `SIGNALS` names, the EN / FR / ES furniture lexicons (never an issuer string — the OQ2 issuer scan runs over `layout/` with an EMPTY register), its OWN minimal money / date / MICR / page-marker shape grammars (the platform grammars in `analysis/money.py` and `analysis/date_tokens.py` sit behind a pinned boundary; the LayoutModel of 2.4 unifies them) and the zero-activity declaration copied by hand from `analysis/sibling_omission.py::DORMANCY_DECLARATIONS` (a test pins the two pattern lists equal). `layout/document_class.py` holds the contract EXACTLY as the umbrella prints it (`classify_document(*, evidence, page_texts, profile)`, `DocumentProfileFacts`, `DocumentClass`, `Finding`, `EvidenceRef`, `KINDS`, `CLASSIFIER_VERSION = 1`; frozen dataclasses that refuse a value outside their vocabulary; `Finding.detail` is a closed `key=number` grammar that cannot carry document text) and the ruled decision order.
+* **Signals (all with word ids in evidence mode, character spans in degraded mode):** period expression (a phrase with a date within two lines; two dates with a connector; dates beside the opening and closing labels; a stacked start-date / end-date cell); opening / closing balance labels with an adjacent amount (same line, next line, or a STACKED two-to-four-line summary cell followed by a values row); the zero-activity declaration; the table signal — groups of dated money lines summing to ≥ 5 rows whose money tokens right-align within one median character width (evidence mode) or the line-count form (degraded mode); the running-balance chain; a page-break balance discontinuity over money rows (wrapped rows included, only where the layout prints a balance on every row); `Page X of Y` in three languages with gap / missing / first-page facts; MICR E-13B-shaped digit groups (a symbol required) in the bottom 15 % of a page with aspect in [2.0, 2.6]; the VOID / NUL / ANNULÉ lexicon on such a page; deposit-slip, letter, card, loan, brokerage lexicons with a distinct-phrase threshold and a STRONG-phrase requirement; the deposit-account furniture axis; a screenshot frame (far from every paper size, not cheque-shaped, screen-sized, no furniture repetition — evidence mode only); reverse chronology and pending rows; the illegible floor (`ILLEGIBLE_RATIO 0.25 × 120 words per page`, `ILLEGIBLE_FLOOR_VERSION 1`).
+* **Decision:** `FILE_INVALID` from the facts alone, first (invalid PDF, encrypted, zero pages, the Java magic `ACED0005`); conflicts → `KIND_UNCERTAIN` with every signal LISTED (a table beside a cheque; the card lexicon beside a running balance; two sub-kind lexicons, a cheque beside another lexicon, a deposit-slip / letter / screenshot beside two statement anchors, or a card / loan / brokerage lexicon beside deposit-account furniture — the last four only where a lexicon would otherwise decide, i.e. without a table); non-statement sub-kinds without a table (the card statement alone may carry a table, and only a card-shaped one: single amount column, no running balance, no deposit-account furniture); `ACTIVITY_EXPORT` (a table, zero anchors, reverse chronology or pending rows); statements — `STATEMENT_COMPLETE` iff period AND opening AND closing AND (table OR the zero-activity declaration) AND no finding; `STATEMENT_ILLEGIBLE` when anchors exist, no table, and words per page fall below the floor; `STATEMENT_PARTIAL{findings}` otherwise; a table alone, one anchor alone, or nothing → `KIND_UNCERTAIN`. Tier: `structural` when the deciding signal is geometric (an aligned column) or a MICR / aspect / page-marker / file fact; `lexical` for keywords; `uncertain` for `KIND_UNCERTAIN`. Degraded mode is DECLARED: box-dependent signals cannot fire and a structural tier rests only on a page or file fact.
+* **The OQ2 roots append:** `tests/test_no_statement_hardcodes.py::_paddle_phase21_modules` now lists `layout/*.py` (a `LAYOUT_DIR` constant and one `extend`); `train12` carries no other change to the guard file or to `corpus_gate.py` (checked at `b23cb50`); the register `EXCLUDED_ANALYSIS_CALLERS` is untouched (the census tool calls neither `analyze_markdown` nor `cached_analysis`).
+* **`tools/classify_census.py` (read-only):** refuses a per-sha output path git does not ignore; opens the cache `mode=ro`; resolves each sha through `telemetry/run_of_record.py` (never `rows[0]`); prints aggregates and sha16 prefixes only.
+
+## Newly validated: 0 · Other ladder movement: 0 · Previously validated preserved: all, payload identical (no production module changed — `git diff b23cb50..450134d --stat` names only `layout/`, `tests/`, `tools/classify_census.py`; the two cohort replays: 47 of 47 payload identical at base and at closure) · Regressions: 0
+
+## Correctness evidence
+### Per-kind fixture results (both modes; `tests/test_layout_document_class.py`, 6 + 102 + 407 = 515 tests over the three layout files, 512 passed / 3 skipped — the invalid-file fixture has no evidence form; 515 passed with the OQ2 guard file)
+| fixture | evidence mode: kind / sub_kind / tier | findings | text mode: kind / sub_kind / tier | findings |
+|---|---|---|---|---|
+| statement_complete_en | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_complete_fr | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_complete_es | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_two_money_columns | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_single_signed_column | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_zero_activity | `STATEMENT_COMPLETE` / - / lexical | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_rotated | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| partial_page_removed | `STATEMENT_PARTIAL` / - / structural | balance_discontinuity_at_page_break, page_gap | `STATEMENT_PARTIAL` / - / structural | balance_discontinuity_at_page_break, page_gap |
+| partial_last_page_removed | `STATEMENT_PARTIAL` / - / structural | missing_closing, missing_pages | `STATEMENT_PARTIAL` / - / structural | missing_closing, missing_pages |
+| partial_first_page_removed | `STATEMENT_PARTIAL` / - / structural | missing_first_page, missing_opening, missing_period | `STATEMENT_PARTIAL` / - / structural | missing_first_page, missing_opening, missing_period |
+| partial_opening_removed | `STATEMENT_PARTIAL` / - / lexical | missing_opening | `STATEMENT_PARTIAL` / - / lexical | missing_opening |
+| partial_closing_removed | `STATEMENT_PARTIAL` / - / lexical | missing_closing | `STATEMENT_PARTIAL` / - / lexical | missing_closing |
+| partial_period_removed | `STATEMENT_PARTIAL` / - / lexical | missing_period | `STATEMENT_PARTIAL` / - / lexical | missing_period |
+| partial_balance_discontinuity | `STATEMENT_PARTIAL` / - / structural | balance_discontinuity_at_page_break | `STATEMENT_PARTIAL` / - / lexical | balance_discontinuity_at_page_break |
+| statement_illegible | `STATEMENT_ILLEGIBLE` / - / lexical | - | `STATEMENT_ILLEGIBLE` / - / lexical | - |
+| activity_export | `ACTIVITY_EXPORT` / - / structural | - | `ACTIVITY_EXPORT` / - / lexical | - |
+| cheque_image | `NOT_A_STATEMENT` / cheque_image / structural | - | `NOT_A_STATEMENT` / cheque_image / lexical | - |
+| cheque_no_micr | `NOT_A_STATEMENT` / cheque_image / lexical | - | `NOT_A_STATEMENT` / cheque_image / lexical | - |
+| cheque_shape_nothing_else | `KIND_UNCERTAIN` / - / uncertain | - | `KIND_UNCERTAIN` / - / uncertain | - |
+| cheque_portrait_micr | `NOT_A_STATEMENT` / cheque_image / lexical | - | `NOT_A_STATEMENT` / cheque_image / lexical | - |
+| voided_cheque | `NOT_A_STATEMENT` / voided_cheque / structural | - | `NOT_A_STATEMENT` / voided_cheque / lexical | - |
+| deposit_slip | `NOT_A_STATEMENT` / deposit_slip / lexical | - | `NOT_A_STATEMENT` / deposit_slip / lexical | - |
+| deposit_slip_cheque_shaped | `NOT_A_STATEMENT` / deposit_slip / structural | - | `NOT_A_STATEMENT` / deposit_slip / lexical | - |
+| letter_notice | `NOT_A_STATEMENT` / letter_or_notice / lexical | - | `NOT_A_STATEMENT` / letter_or_notice / lexical | - |
+| letter_with_unaligned_dated_lines | `NOT_A_STATEMENT` / letter_or_notice / lexical | - | `KIND_UNCERTAIN` / - / uncertain | - |
+| card_statement | `NOT_A_STATEMENT` / card_statement / lexical | - | `NOT_A_STATEMENT` / card_statement / lexical | - |
+| loan_statement | `NOT_A_STATEMENT` / loan_statement / lexical | - | `NOT_A_STATEMENT` / loan_statement / lexical | - |
+| brokerage_page | `NOT_A_STATEMENT` / brokerage / lexical | - | `NOT_A_STATEMENT` / brokerage / lexical | - |
+| screenshot_image | `NOT_A_STATEMENT` / screenshot / structural | - | `KIND_UNCERTAIN` / - / uncertain | - |
+| file_invalid_java | (no evidence form) | - | `FILE_INVALID` / - / structural | - |
+| conflict_table_and_cheque | `KIND_UNCERTAIN` / - / uncertain | - | `KIND_UNCERTAIN` / - / uncertain | - |
+| conflict_card_and_running_balance | `KIND_UNCERTAIN` / - / uncertain | - | `KIND_UNCERTAIN` / - / uncertain | - |
+| statement_stacked_summary_cells | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_wrapped_rows | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_balance_at_intervals | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_with_overdraft_line_box | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_with_micr_on_table_page | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_from_to_header_line | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_with_cheque_image_page | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_wrapped_rows_everywhere | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_debit_credit_no_balance | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_label_interrupted_by_date | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_short_three_rows | `STATEMENT_COMPLETE` / - / lexical | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_unmarked_middle_page | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_two_statements_one_file | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_balance_pair_no_rows | `STATEMENT_COMPLETE` / - / lexical | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_label_variants | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_dated_labels_after_a_dateless_header | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_statement_ending_phrase | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_last_this_statement_dates | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| statement_stacked_range_with_page_marker | `STATEMENT_COMPLETE` / - / structural | - | `STATEMENT_COMPLETE` / - / lexical | - |
+| nothing_fires | `KIND_UNCERTAIN` / - / uncertain | - | `KIND_UNCERTAIN` / - / uncertain | - |
+
+### Mutation table (harness: exact single-occurrence textual edits; tests run WITHOUT `-x`; `git checkout --` in a `finally`; `git status --porcelain` empty before the run and after every mutant; baseline 512 passed over the three layout files)
+| # | mutant as applied | result | killers (test ids, first three) |
+|---|---|---|---|
+| M1 | drop the MICR rule: the bottom band is never detected | **KILLED** (7) | `test_layout_document_class.py::test_cheque_image_is_structural_only_with_micr_in_the_band_and_a_cheque_aspect`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_voided_cheque_needs_the_void_lexicon_on_a_cheque_page` |
+| M2 | drop the aspect-ratio bound: every page is cheque-shaped | **KILLED** (4) | `test_layout_document_class.py::test_cheque_image_is_structural_only_with_micr_in_the_band_and_a_cheque_aspect`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict` |
+| M3 | drop Page X of Y gap detection | **KILLED** (4) | `test_layout_document_class.py::test_a_page_gap_is_a_partial_with_the_page_gap_finding`; `test_layout_document_class.py::test_an_unmarked_middle_page_and_a_clean_restart_are_not_gaps`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict` |
+| M4 | require only two of the three anchors for STATEMENT_COMPLETE | **KILLED** (15) | `test_layout_document_class.py::test_a_removed_anchor_is_a_partial_never_a_complete_statement`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_missing_last_and_first_pages_are_named_by_the_marker_facts` |
+| M5 | the table signal without the alignment test in evidence mode | **KILLED** (2) | `test_layout_document_class.py::test_a_letter_whose_dated_lines_do_not_align_is_not_a_statement`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict` |
+| M6a | the table-versus-cheque conflict resolved by priority (the cheque wins) | **KILLED** (2) | `test_layout_document_class.py::test_conflicting_signals_refuse_to_guess`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict` |
+| M6b | the card-versus-running-balance conflict resolved by priority (the balance wins) | **KILLED** (4) | `test_layout_document_class.py::test_conflicting_signals_refuse_to_guess`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict` |
+| M7 | degraded mode allowed to emit structural | **KILLED** (51) | `test_layout_document_class.py::test_degraded_mode_never_emits_a_box_dependent_signal_and_never_a_structural_tier_for_one`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_the_text_only_complete_statement_is_lexical_never_structural` |
+| M8 | a time-dependent step inside classify_document | **KILLED** (103) | `test_layout_boundary.py::test_layout_package_never_imports_a_clock_random_source_or_io_module`; `test_layout_document_class.py::test_classify_document_is_pure` |
+| M9 | an issuer string added to a lexicon | **KILLED** (1) | `test_layout_signals.py::test_no_issuer_string_anywhere_in_layout` |
+| M10 | FILE_INVALID decided only when no text is available (after a text signal) | **KILLED** (7) | `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_every_kind_has_a_fixture`; `test_layout_document_class.py::test_file_invalid_derives_from_the_facts_alone` |
+| M11 | the activity-export rule requiring an anchor | **KILLED** (4) | `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_every_kind_has_a_fixture`; `test_layout_document_class.py::test_the_activity_export_rule_never_requires_an_anchor` |
+| M12 | a third-party import under layout/ (lazy, never executed) | **KILLED** (1) | `test_layout_boundary.py::test_layout_package_imports_only_the_standard_library_and_evidence` |
+| M13 | the short ledger dropped: a complete statement must show five rows | **KILLED** (3) | `test_layout_document_class.py::test_a_short_statement_is_complete_on_its_printed_ledger`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict` |
+| M14 | an unmarked page between two marked pages counted as a gap | **KILLED** (3) | `test_layout_document_class.py::test_an_unmarked_middle_page_and_a_clean_restart_are_not_gaps`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict` |
+| M15 | the coinciding balance pair no longer a zero-activity structure | **KILLED** (3) | `test_layout_document_class.py::test_a_coinciding_balance_pair_with_no_rows_is_the_zero_activity_structure`; `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict` |
+| M16 | the statement-balance label forms removed from the lexicon | **KILLED** (3) | `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_the_statement_balance_label_forms_anchor` |
+| M17 | rule (c) reads only the FIRST opening and closing label lines | **KILLED** (2) | `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_the_period_forms_of_the_precision_pass` |
+| M18 | the `statement ending` family removed from the period lexicon | **KILLED** (3) | `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_the_period_forms_of_the_precision_pass` |
+| M19 | a page marker's words counted as words of a stacked date-range cell | **KILLED** (3) | `test_layout_document_class.py::test_every_fixture_owes_its_stated_verdict`; `test_layout_document_class.py::test_the_period_forms_of_the_precision_pass` |
+20 / 20 killed; survivors: []; final tree clean (`git status --porcelain` empty after every mutant); baseline 512 passed over the three layout files at `53f7efb` (= the tree of `450134d`).
+
+### The disjoint sum on the archive (cache mode — the card's measurement)
+Input modes: {'text': 3351, 'none': 29}.
+
+#### kind — archive (3380)
+| kind | n |
+|---|---|
+| STATEMENT_COMPLETE | 2533 |
+| STATEMENT_PARTIAL | 601 |
+| ACTIVITY_EXPORT | 15 |
+| NOT_A_STATEMENT | 23 |
+| FILE_INVALID | 16 |
+| KIND_UNCERTAIN | 192 |
+disjoint sum over archive: 3380 == 3380  OK
+
+#### kind — unresolved (755)
+| kind | n |
+|---|---|
+| STATEMENT_COMPLETE | 330 |
+| STATEMENT_PARTIAL | 222 |
+| ACTIVITY_EXPORT | 15 |
+| NOT_A_STATEMENT | 22 |
+| FILE_INVALID | 16 |
+| KIND_UNCERTAIN | 150 |
+disjoint sum over unresolved: 755 == 755  OK
+
+#### NOT_A_STATEMENT sub_kind x tier — archive
+| sub_kind | tier | n |
+|---|---|---|
+| card_statement | lexical | 2 |
+| cheque_image | lexical | 1 |
+| letter_or_notice | lexical | 2 |
+| loan_statement | lexical | 16 |
+| voided_cheque | lexical | 2 |
+
+#### STATEMENT_PARTIAL findings (a document may carry several) — archive
+| finding | n |
+|---|---|
+| balance_discontinuity_at_page_break | 29 |
+| missing_closing | 361 |
+| missing_first_page | 14 |
+| missing_opening | 112 |
+| missing_pages | 11 |
+| missing_period | 68 |
+| page_gap | 10 |
+| table_truncated | 211 |
+
+#### account_kind — archive
+| account_kind | n |
+|---|---|
+| card | 2 |
+| deposit | 3105 |
+| loan | 17 |
+| unknown | 256 |
+
+#### validated documents not classified STATEMENT_COMPLETE: 422 of 2625 (a named finding)
+
+#### validated exceptions by kind / sub_kind / findings
+| kind | sub_kind | findings | n |
+|---|---|---|---|
+| KIND_UNCERTAIN | - | - | 42 |
+| NOT_A_STATEMENT | loan_statement | - | 1 |
+| STATEMENT_PARTIAL | - | balance_discontinuity_at_page_break | 7 |
+| STATEMENT_PARTIAL | - | balance_discontinuity_at_page_break;balance_discontinuity_at_page_break | 1 |
+| STATEMENT_PARTIAL | - | missing_closing | 155 |
+| STATEMENT_PARTIAL | - | missing_closing;balance_discontinuity_at_page_break | 3 |
+| STATEMENT_PARTIAL | - | missing_closing;table_truncated | 93 |
+| STATEMENT_PARTIAL | - | missing_opening | 20 |
+| STATEMENT_PARTIAL | - | missing_opening;missing_closing | 17 |
+| STATEMENT_PARTIAL | - | missing_period | 20 |
+| STATEMENT_PARTIAL | - | missing_period;table_truncated | 2 |
+| STATEMENT_PARTIAL | - | table_truncated | 61 |
+
+### Validated exceptions (validated documents not classified `STATEMENT_COMPLETE`), by sha16 and kind
+Cache mode (the card's measurement), 422 of 2,625, by kind{sub_kind}{findings}:
+
+* **STATEMENT_PARTIAL{missing_closing}** (155): 4CD3C3DE63B98957 FC9C0E8F8EB3A055 ACBB8C7E3DE04EF7 139D52F85DFAA6E0 41507600FA4402EF C4F814D40E03F4B8 89B5250041B1C2A7 EECAC8C775A45C88 BD96CCE795048A42 7B416A07B3DB57E3 89C5AC6ADD66F7E4 DD84F13EBEE42672 448FE9651E6863F7 295BE8D8659EAE23 50A3CA2DDA84A474 890F7891BEF14093 1B84DEA2AE2E497F E3CC214D7D5745E9 459FB02AD9522EB1 F8B33FAF73B5B338 097A275624D37BC2 B33C8956104918B3 F24E1EADD5C08F43 80A487B440DF8AC2 2D92F76C5E012955 D5AD939C0D1F179F B904B264B7BCF948 00370794DD50513B 179679AA5395CBB1 C457F5ED85550208 DB1DF7F19B4DBA2F 92114C6FF30470A2 D7435982A9F576B8 819477BA3FA5CB0F 41C0F7502600E9F3 89F68ABD5B4B031B 4AB603F067B51BC9 3E85AA1B8985548E 221723BAF7996720 BB95E8071DB62094 B477C0EC1C740CC5 50BD5A90E2EB35FC 6FF845A9EA46986D F3FC902D308D94B1 EAA116C57D27AE1D 4181F58B70A1D0F3 D697D2A223633036 50543EB1E563F414 A5B56E8FE85B8CB2 2FC8DB6010A1B315 702869E1EDB42FEB 4A3F4A7F553345AF 9E89051015D39155 3620F280763AA0B7 B8760CE7729523CB B52CDF2BA874BBB4 B64A0764F5783E7F D00562176BEC0AAE E44872E001F9E9E4 7700F8286C37E53E 90D94C41CA72C01A A5F6422D0272EE63 C217E860C91833A6 7ADD44B89D2C57B0 3D3BF14094935B35 B6F7E2949930E576 4C6E2C56F4EF2118 256553AFCF9FCD82 A596C60C46539520 103B67CD2B8ABEA6 83D3A6DCEB26577E BBC5820590861EE3 ACAECD81F2BFBC5D 6D0050242AC0B207 E7300FAC1AD759E9 811D6591B6FE1852 1131B8910ECF19D7 59BD662C0D4FE1A7 654AB29A910A5DB9 E465C7D5746845B5 71852C69DC45A5A6 C29B79723A4BBCD4 EA7B603E9FC84198 A3A50C108B7F4646 4DE22E685A04F9D7 FA1FDBCA9AF571EE 311A8A44D93F273A A228C4293BFB603F 12819C045D7427E1 9295F7B651794F1A 7315C96795E972AF 6F78F15342E4216E 0C1E4B6F77A87153 F36CC38B31951C32 B616BF47ED8BCE87 DBC06425540B378E F25C525D7BEFB136 CE10B7CB743A8CAC 6967A040B7A2571C 7ED7DC3F955AC8CD 9D1F41CCD513E177 0C100E4EF4D72B7B 3C49A1A6A682B954 711EBEE91D38F9E5 A91074090D5152BB DD07A697411DD854 825812EB42E890C5 C36F63971C7D2C9D CCE6F423AFEE4750 1558AAD5A4FE7C9A 82A040F7F7C7025F 573E222AF3EF1A82 616AFFAFAF4D7E86 9E5758BD596E79CF 94E69794BC095EC1 63CE56CCF744B1D4 B572875930E98DC6 33E67BEDDC4370CD F008A4C82B45E2FE 4C930C5BDA6E15B2 C2470D54D67F3824 8E71DB896D3EFBBB 2ECDB7B332F4979F 284B6B31CEA939F8 0022B7AD844C37CA 12CB962E765A978F 6E589801F4B784F3 78A4F9E9CB479532 9BE2AD7D75215D9B 7CACF879FED04324 5EFFF2C25D61AAC7 05030B9A4E169F06 A0704121446D3428 F265364D90B06E2E 000376618057AE48 37F11E9B3A08D1DD 58856CF6CF61459A 27BEE5A6B3EE095C 0422A01660013067 B101769FE3B5953E 6C7A6D23363E3578 D5E86E072929CB25 371608D7F66D84E7 3AF6C459076B0506 BB64D37A14A5CA98 A0260A7474F48834 3877103481E52D4F 7A33BFA3B9AB470F 05CC941202A4A2FB F1BA6E042C2ABC0A D7E12B140DD5DC06 09904BA046EE09E5 597075B053682E54 094C1B3378BA4216 8C858D4ABF76D7D7
+* **STATEMENT_PARTIAL{missing_closing;table_truncated}** (93): 0A6946CA798257F5 D3613B60C8B8EA22 9FE2F094C250C9AB B5C122E0146C4DB3 1B17776DB36066DF 99811A9E53123083 699846B0E7558351 2FC0E25E64D843BE C86A08CC8D3FA836 81BFA45D71655C1B 9E18C0E5E738158B 08D89A7F74A92FAA 17A6A787742A5467 918CC25CE2D5F5B5 CDF67FD793151862 76FDC1B35FCD94FB 6E2635D8B95E51B0 7DCD8403FB257B12 6E49CAE9D3194E50 8EE1F292A671E8DF 3ADFEB5017F961BB C7B89B7AFFB35D48 6F438ABDF3D2D946 7CE37E5FECFD123F 811E4E49699A5284 CAF18CA5CEA06335 6CE6EB90FC28F03B 780D0E3D3388076A 0677AD7549FD1BF4 B8A8D69CC7FEA421 477E2FD610A1C4A8 B9C92188F53F6827 D76F2467889FF9B4 5E682B9B2C697A80 8A8A1D2E4D550305 E2BBDC4261875399 D42B4023ECDA12B7 90FA502B3AE205F4 F8984A5438649F0A 707C22996EB4A722 F841051765A5ABDB 37FBF0AB59EFE65D F98707E116E401DC 8CD0C3D906399FE0 21C3FFF212E9E61D E991473CA0A72616 DB7E46DD981636BB B37B6E40CF7918B4 6FB494ED6474BFF7 73DD575804DAAE9B 40774EDC78D3B901 8935DC34F0BB9CE9 04CB2AAD43469446 038B262B334DC848 A1A46034B0194137 1C1DA63082C5D724 FCE78B31B4F1AD8B 4C6C4D8835B456B1 FA5014318D740DD8 18F6A6A63206DED1 DF262944F735DD7C C8795F0858315F64 58FE8A5C3D8760D6 AF5F5D56F66ABAD1 797391C72FC79191 960E4D60D4F29C97 F597204ACA410B12 E837BE747374EE1A A3B1B15FF724DB14 F6E8D69404A8F39F D2F72A39AC78A1F1 BEC61E738257AFC3 375B7A2DF1405B7E 6361FBBA92309D81 C116BD38F7D6FC53 34C0C8560F617307 8A48B247B9BFE12F 5059BAE94F047CC8 0F83EAE30A583694 AB1FE98CA1B64F50 7F19A3E37AADCF74 DA1EE362F2795DCB 998EB80CDAAF401C 4A6FEF63A6118DB5 EA5C61862BB8DA56 230E0915D1C78194 497E5B6092A872FD 24783CE93D0BFFAD F5212C677BE80A4E 2F38ECF58A3CE381 D7992A25BD58DF8C 40148E4573E2AA8E 67B69A4DB272D70C
+* **STATEMENT_PARTIAL{table_truncated}** (61): 0AD506620059E94C 36B502B81C5D4BCA 8F5DF9B06BFE4121 19A0E7F50E03E901 462A8E3C757D6FD8 997C9965442A8AB2 B9C68539A934948A 5DE8E5C2BEF97CEF D5BB57BCA420E815 9EC60E040EC04CD2 44180E5425A25888 10B8F9A687A178B5 1FCB1D36CE6A137E 8E56AF89BD8BD16B BBABD1F3718C7CF0 6C78927C77494766 C681EAA2BDF09D32 1BB140EFA0B26269 874F3A4704A876AE C2DCC75E32111A71 F6BBD9BDDB851584 A247C7AD64FC8D4E 6E9EF9E560490BAE 3A168EDB4961553B 6424B8A238D22BCE 4533C1357B4F2219 2E777BDDDB1BE714 C840320A39686243 1124CC1F5B9FC1E5 A600AF7F3179021D 5895EC7D65EB1DD1 F1F36B2F961722AA 58FD466044E0B614 92B161D89019118E 5BDEAC480C50BD57 6E89A8586805241B A88122B84542B4ED B2217059EA40E360 9607A01E00D167F1 DC9AEA0A20004296 2C374E26D9AF6401 6DEB088C43FD32BB 0625F68507B4EF35 63872F7C0BBC7176 C73BAF9541FEB4DC 542FB578C66D5CFF 57EAE60C532A16B8 93D5D2F642E68DBC 8DC5B0D3FD82EB1E E6C0BD2869674ADA 54B6259118044DF4 026EE24630D7A7A2 C80C0CC8CFE47D9D 7B3B8113DA9E7DEE 1ADC8AD7F251FBCE FC385FC2D01A280F 1468D77AF2EBD42C 85474158403F811E 791CBD679260298E 52865E3A6106CB07 AFFD16580ED80801
+* **KIND_UNCERTAIN** (42): AD2B678AC4756E07 63639ACF01418B3F 4B63431DA76107E8 445A57F355EDEB5F 33C8E0FDF2540862 EB6C700D4089E0FF 5F58ADF60077E09B A4E1F3B8567F3754 8B1852CA58C25DB1 841438A58C969CE9 59AEE86EE26235D1 14C90A0AF4EFCC54 946222CF97C1246D D7735F413D0F61ED 9146879D88BF9776 11CF08F9F935891A D3F034BC45AA720B 7F567A6440636590 377EB5B0023697AD 6C86D090BE64E53D 5F779C962F5FB70C 0B9B1116CD6FEAED FD4B797225342B43 25C1D4E169DCCFE5 881EEB9AA64495B0 CC1DB089D295AC39 AAF842B79C8BA41F 4A4B397E02167BF0 AEFD0161608B45EF 9B30C2BE4389A90B B83DD64EAF8E1654 6E075F96ABB23763 2707866CA0EEC357 35416A1CAAC0DA19 1E9DF80905FB675E FA01768C40A1EBFE BA78FCC00181ABB6 7FA968497E015E21 408711BD43262BD2 E41643B6BD4736C6 6F0FA3C79F058703 E32A8C5D6A6683B1
+* **STATEMENT_PARTIAL{missing_period}** (20): 9509FB86276626A2 D9431BB64682D7CE F378A3F5427A654B 3EBE6CF1F5A9A4B0 30F9A3FEA44F2006 2620896FF5BEEE7A 29A4D03ECAFB0574 D5C818CC0BAADC25 4AA76269600A6B85 8DCAB0CF5E3A8160 F8155CC5F2F7A42C 78B930F7FE9A8BDE 6BB2BB7EE8CE443C 160D382A8CDF6898 732DD4B397EA962E B9945604EA91AE46 7413D110AD142631 C5DB096DA4ADE839 8CCAE7DD830DF214 CF3F90A50FEB07F5
+* **STATEMENT_PARTIAL{missing_opening}** (20): ADE55A5BADF4DE8C 19525A2CF2509B27 9E4F25BF1BDD5A91 9FF9528F8F9668D4 7207E33804A51327 C6386F0153AF3F10 CA0823D2597B3741 E1835B9F58A4BFFA 95A1ABE22AE6A511 24A682DB06A7B900 E069F856CA1BECEC 8DB7534133814385 C2DEBD927CAD21DE A30FC5E65BC573AE 6F30F39E152016FC D92C5112EB2B583F D9C32AF4442767A8 21ADE4E2C744F13E D15B05CDE8223B77 07596E91CE6E5FF6
+* **STATEMENT_PARTIAL{missing_opening;missing_closing}** (17): 744D6E04AFCB1B0C 3284B08C17729DA8 8380EE96F3FF9C45 65230C954731A761 A12879001BFFABC6 DAAF035DBB8A1DDF DBD52F98C8E84FEB 3462D7147BD68EE2 4226A1C03A4CA51E 02A056D9102BE6BA 475A2E0393604F7B DE5E438F183D6ACD 5FFE13FA8F7372EB B879E7A01F0BD3B9 261E3CB9CDB12E00 1F8348656CB72953 DF4DA0133CFFC239
+* **STATEMENT_PARTIAL{balance_discontinuity_at_page_break}** (7): B9B0CC7E07E9FB06 20ED454A7201166F 153180D8DE6122BD B0C47AE8DAB9C8AA C2338F910D691E7E 7C605E6B56F081ED 0FDEB7C22CFBADD0
+* **STATEMENT_PARTIAL{missing_closing;balance_discontinuity_at_page_break}** (3): 649D1CFBF28F55DD 9B4C3763C5A01953 21D5FF8E60059BD0
+* **STATEMENT_PARTIAL{missing_period;table_truncated}** (2): F6291BF90BAD9FC4 9EFD01C58E412513
+* **NOT_A_STATEMENT{loan_statement}** (1): BF1C4310EDCCD4F2
+* **STATEMENT_PARTIAL{balance_discontinuity_at_page_break;balance_discontinuity_at_page_break}** (1): 04849F1ECA7A5FB0
+
+Native-pdf mode: 461 of 2,625 (the per-sha list is in the private CSV `discovery_reports/train12-logs/p22classify-census-native.csv`; the grouped counts are in the table below).
+
+## Generalization evidence
+FR and ES complete statements classify `STATEMENT_COMPLETE` with `language` fr / es and `account_kind` deposit in both modes (FR money `1 234,56`, ES `1.234,56`, day-first dates, `Page X de Y` / `Página X de Y`); the two layout archetypes (a WITHDRAWALS / DEPOSITS / BALANCE table; a signed AMOUNT beside BALANCE) both classify complete with the running-balance chain detected; the rendered EN native PDF read back through the platform's own native reader yields the same structural verdict as the hand-built boxes. On the archive: language (cache mode) en 3211, es 9, fr 56, unknown 104.
+
+## Classification evidence
+### kind × modality × tier — cache mode (degraded text), archive (3,380) and unresolved (755)
+#### kind x modality x tier — archive
+| kind | modality | tier | n |
+|---|---|---|---|
+| STATEMENT_COMPLETE | digital | lexical | 2461 |
+| STATEMENT_COMPLETE | mixed | lexical | 2 |
+| STATEMENT_COMPLETE | image_backed_text | lexical | 70 |
+| STATEMENT_PARTIAL | digital | structural | 10 |
+| STATEMENT_PARTIAL | digital | lexical | 546 |
+| STATEMENT_PARTIAL | mixed | structural | 3 |
+| STATEMENT_PARTIAL | mixed | lexical | 1 |
+| STATEMENT_PARTIAL | image_backed_text | structural | 16 |
+| STATEMENT_PARTIAL | image_backed_text | lexical | 25 |
+| ACTIVITY_EXPORT | digital | lexical | 10 |
+| ACTIVITY_EXPORT | image_backed_text | lexical | 5 |
+| NOT_A_STATEMENT | digital | lexical | 21 |
+| NOT_A_STATEMENT | mixed | lexical | 1 |
+| NOT_A_STATEMENT | image_backed_text | lexical | 1 |
+| FILE_INVALID | unknown | structural | 16 |
+| KIND_UNCERTAIN | digital | uncertain | 124 |
+| KIND_UNCERTAIN | scanned | uncertain | 11 |
+| KIND_UNCERTAIN | mixed | uncertain | 9 |
+| KIND_UNCERTAIN | image_backed_text | uncertain | 48 |
+
+#### kind x modality x tier — unresolved
+| kind | modality | tier | n |
+|---|---|---|---|
+| STATEMENT_COMPLETE | digital | lexical | 292 |
+| STATEMENT_COMPLETE | image_backed_text | lexical | 38 |
+| STATEMENT_PARTIAL | digital | structural | 10 |
+| STATEMENT_PARTIAL | digital | lexical | 169 |
+| STATEMENT_PARTIAL | mixed | structural | 3 |
+| STATEMENT_PARTIAL | mixed | lexical | 1 |
+| STATEMENT_PARTIAL | image_backed_text | structural | 16 |
+| STATEMENT_PARTIAL | image_backed_text | lexical | 23 |
+| ACTIVITY_EXPORT | digital | lexical | 10 |
+| ACTIVITY_EXPORT | image_backed_text | lexical | 5 |
+| NOT_A_STATEMENT | digital | lexical | 20 |
+| NOT_A_STATEMENT | mixed | lexical | 1 |
+| NOT_A_STATEMENT | image_backed_text | lexical | 1 |
+| FILE_INVALID | unknown | structural | 16 |
+| KIND_UNCERTAIN | digital | uncertain | 82 |
+| KIND_UNCERTAIN | scanned | uncertain | 11 |
+| KIND_UNCERTAIN | mixed | uncertain | 9 |
+| KIND_UNCERTAIN | image_backed_text | uncertain | 48 |
+### kind × modality × tier — native-pdf mode, archive and unresolved
+Input modes: {'text': 179, 'native_pdf': 3172, 'none': 29}.
+
+#### kind — archive (3380)
+| kind | n |
+|---|---|
+| STATEMENT_COMPLETE | 2534 |
+| STATEMENT_PARTIAL | 605 |
+| ACTIVITY_EXPORT | 17 |
+| NOT_A_STATEMENT | 23 |
+| FILE_INVALID | 16 |
+| KIND_UNCERTAIN | 185 |
+disjoint sum over archive: 3380 == 3380  OK
+
+#### kind — unresolved (755)
+| kind | n |
+|---|---|
+| STATEMENT_COMPLETE | 370 |
+| STATEMENT_PARTIAL | 195 |
+| ACTIVITY_EXPORT | 17 |
+| NOT_A_STATEMENT | 22 |
+| FILE_INVALID | 16 |
+| KIND_UNCERTAIN | 135 |
+disjoint sum over unresolved: 755 == 755  OK
+
+#### NOT_A_STATEMENT sub_kind x tier — archive
+| sub_kind | tier | n |
+|---|---|---|
+| card_statement | lexical | 2 |
+| cheque_image | lexical | 1 |
+| letter_or_notice | lexical | 2 |
+| loan_statement | lexical | 15 |
+| screenshot | structural | 2 |
+| voided_cheque | lexical | 1 |
+
+#### STATEMENT_PARTIAL findings (a document may carry several) — archive
+| finding | n |
+|---|---|
+| balance_discontinuity_at_page_break | 9 |
+| missing_closing | 349 |
+| missing_first_page | 14 |
+| missing_opening | 92 |
+| missing_pages | 11 |
+| missing_period | 150 |
+| page_gap | 10 |
+| table_truncated | 237 |
+
+#### account_kind — archive
+| account_kind | n |
+|---|---|
+| card | 2 |
+| deposit | 3117 |
+| loan | 17 |
+| unknown | 244 |
+
+#### validated documents not classified STATEMENT_COMPLETE: 461 of 2625 (a named finding)
+
+#### validated exceptions by kind / sub_kind / findings
+| kind | sub_kind | findings | n |
+|---|---|---|---|
+| KIND_UNCERTAIN | - | - | 50 |
+| NOT_A_STATEMENT | loan_statement | - | 1 |
+| STATEMENT_PARTIAL | - | balance_discontinuity_at_page_break | 1 |
+| STATEMENT_PARTIAL | - | missing_closing | 86 |
+| STATEMENT_PARTIAL | - | missing_closing;table_truncated | 91 |
+| STATEMENT_PARTIAL | - | missing_opening | 9 |
+| STATEMENT_PARTIAL | - | missing_opening;missing_closing | 17 |
+| STATEMENT_PARTIAL | - | missing_period | 23 |
+| STATEMENT_PARTIAL | - | missing_period;missing_closing | 72 |
+| STATEMENT_PARTIAL | - | missing_period;missing_closing;balance_discontinuity_at_page_break | 5 |
+| STATEMENT_PARTIAL | - | missing_period;table_truncated | 1 |
+| STATEMENT_PARTIAL | - | table_truncated | 105 |
+
+#### kind x modality x tier — archive
+| kind | modality | tier | n |
+|---|---|---|---|
+| STATEMENT_COMPLETE | digital | structural | 2405 |
+| STATEMENT_COMPLETE | digital | lexical | 57 |
+| STATEMENT_COMPLETE | mixed | lexical | 2 |
+| STATEMENT_COMPLETE | image_backed_text | lexical | 70 |
+| STATEMENT_PARTIAL | digital | structural | 19 |
+| STATEMENT_PARTIAL | digital | lexical | 541 |
+| STATEMENT_PARTIAL | mixed | structural | 3 |
+| STATEMENT_PARTIAL | mixed | lexical | 1 |
+| STATEMENT_PARTIAL | image_backed_text | structural | 16 |
+| STATEMENT_PARTIAL | image_backed_text | lexical | 25 |
+| ACTIVITY_EXPORT | digital | structural | 12 |
+| ACTIVITY_EXPORT | image_backed_text | lexical | 5 |
+| NOT_A_STATEMENT | digital | structural | 2 |
+| NOT_A_STATEMENT | digital | lexical | 19 |
+| NOT_A_STATEMENT | mixed | lexical | 1 |
+| NOT_A_STATEMENT | image_backed_text | lexical | 1 |
+| FILE_INVALID | unknown | structural | 16 |
+| KIND_UNCERTAIN | digital | uncertain | 117 |
+| KIND_UNCERTAIN | scanned | uncertain | 11 |
+| KIND_UNCERTAIN | mixed | uncertain | 9 |
+| KIND_UNCERTAIN | image_backed_text | uncertain | 48 |
+
+#### kind x modality x tier — unresolved
+| kind | modality | tier | n |
+|---|---|---|---|
+| STATEMENT_COMPLETE | digital | structural | 315 |
+| STATEMENT_COMPLETE | digital | lexical | 17 |
+| STATEMENT_COMPLETE | image_backed_text | lexical | 38 |
+| STATEMENT_PARTIAL | digital | structural | 13 |
+| STATEMENT_PARTIAL | digital | lexical | 139 |
+| STATEMENT_PARTIAL | mixed | structural | 3 |
+| STATEMENT_PARTIAL | mixed | lexical | 1 |
+| STATEMENT_PARTIAL | image_backed_text | structural | 16 |
+| STATEMENT_PARTIAL | image_backed_text | lexical | 23 |
+| ACTIVITY_EXPORT | digital | structural | 12 |
+| ACTIVITY_EXPORT | image_backed_text | lexical | 5 |
+| NOT_A_STATEMENT | digital | structural | 2 |
+| NOT_A_STATEMENT | digital | lexical | 18 |
+| NOT_A_STATEMENT | mixed | lexical | 1 |
+| NOT_A_STATEMENT | image_backed_text | lexical | 1 |
+| FILE_INVALID | unknown | structural | 16 |
+| KIND_UNCERTAIN | digital | uncertain | 67 |
+| KIND_UNCERTAIN | scanned | uncertain | 11 |
+| KIND_UNCERTAIN | mixed | uncertain | 9 |
+| KIND_UNCERTAIN | image_backed_text | uncertain | 48 |
+### Agreement with the batch-9 census lists (evidence for an adjudicator, never truth — R3)
+**Cache mode**
+
+#### agreement with the batch-9 census lists (evidence for an adjudicator, never truth — R3)
+
+#### census NOT-STATEMENT (117: 104 bare + 13 portal): 117 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 9 |
+| KIND_UNCERTAIN | - | 46 |
+| NOT_A_STATEMENT | card_statement | 1 |
+| NOT_A_STATEMENT | letter_or_notice | 2 |
+| NOT_A_STATEMENT | loan_statement | 14 |
+| NOT_A_STATEMENT | voided_cheque | 2 |
+| STATEMENT_COMPLETE | - | 4 |
+| STATEMENT_PARTIAL | - | 39 |
+agreement (classifier kind in ('NOT_A_STATEMENT', 'FILE_INVALID', 'ACTIVITY_EXPORT')): 28 / 117
+
+#### census not_statement (bare list): 104 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 8 |
+| KIND_UNCERTAIN | - | 44 |
+| NOT_A_STATEMENT | card_statement | 1 |
+| NOT_A_STATEMENT | letter_or_notice | 2 |
+| NOT_A_STATEMENT | loan_statement | 14 |
+| NOT_A_STATEMENT | voided_cheque | 2 |
+| STATEMENT_COMPLETE | - | 3 |
+| STATEMENT_PARTIAL | - | 30 |
+agreement (classifier kind in ('NOT_A_STATEMENT', 'FILE_INVALID', 'ACTIVITY_EXPORT')): 27 / 104
+
+#### census portal_export: 13 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 1 |
+| KIND_UNCERTAIN | - | 2 |
+| STATEMENT_COMPLETE | - | 1 |
+| STATEMENT_PARTIAL | - | 9 |
+agreement (classifier kind in ('ACTIVITY_EXPORT',)): 1 / 13
+
+**Native-pdf mode**
+
+#### agreement with the batch-9 census lists (evidence for an adjudicator, never truth — R3)
+
+#### census NOT-STATEMENT (117: 104 bare + 13 portal): 117 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 11 |
+| KIND_UNCERTAIN | - | 47 |
+| NOT_A_STATEMENT | card_statement | 1 |
+| NOT_A_STATEMENT | letter_or_notice | 2 |
+| NOT_A_STATEMENT | loan_statement | 13 |
+| NOT_A_STATEMENT | screenshot | 2 |
+| NOT_A_STATEMENT | voided_cheque | 1 |
+| STATEMENT_COMPLETE | - | 4 |
+| STATEMENT_PARTIAL | - | 36 |
+agreement (classifier kind in ('NOT_A_STATEMENT', 'FILE_INVALID', 'ACTIVITY_EXPORT')): 30 / 117
+
+#### census not_statement (bare list): 104 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 9 |
+| KIND_UNCERTAIN | - | 44 |
+| NOT_A_STATEMENT | card_statement | 1 |
+| NOT_A_STATEMENT | letter_or_notice | 2 |
+| NOT_A_STATEMENT | loan_statement | 13 |
+| NOT_A_STATEMENT | screenshot | 2 |
+| NOT_A_STATEMENT | voided_cheque | 1 |
+| STATEMENT_COMPLETE | - | 3 |
+| STATEMENT_PARTIAL | - | 29 |
+agreement (classifier kind in ('NOT_A_STATEMENT', 'FILE_INVALID', 'ACTIVITY_EXPORT')): 28 / 104
+
+#### census portal_export: 13 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 2 |
+| KIND_UNCERTAIN | - | 3 |
+| STATEMENT_COMPLETE | - | 1 |
+| STATEMENT_PARTIAL | - | 7 |
+agreement (classifier kind in ('ACTIVITY_EXPORT',)): 2 / 13
+
+## Commits (on `b23cb50`)
+* `66c9b46` test(layout): the synthetic document-kind fixtures and the failing classifier tests written first (TDD order)
+* `787ccee` feat(layout): the neutral document classifier — closed three-language signals, a disjoint kind with named evidence, `KIND_UNCERTAIN` first-class
+* `8216ed4` feat(layout): the read-only classifier census instrument, and the layout classes the archive taught the rules (stacked summary cells, wrapped rows at a page break, a balance printed at intervals, an overdraft line-of-credit box, a MICR line on the table page; the MICR shape needs a symbol; the lexical cheque signal needs a page without a table; the deposit-furniture conflicts)
+* `9ccf6c1` docs(layout): the module docstring names the layout classes the rules read
+* `5edd2a4` test(layout): an unused import dropped
+* `487c245` feat(layout): five more generic layout classes (the FROM / TO header line; a statement's cheque-image enclosure page; rows wrapped everywhere; a withdrawals / deposits layout with no balance column; a label interrupted by a date cell or a merged summary row with its values to the right)
+* `2a48cab` fix(layout): `Finding` validates its detail from the constructor argument, so nothing under `layout/` reads a `.detail` attribute (the full suite's H-3 sensitivity guard pins that attribute's readers to two console-only sites)
+* `0bc1b76` feat(layout): the precision pass Ocean directed on resume — completeness accepts a printed short ledger (one to four dated money rows that are not anchor lines) or a coinciding balance pair with no row; an unmarked page is not a gap and a clean restart is a second statement; two statement-balance label forms; the two-decimal figure removed from a fixture comment (the privacy scan's one hit)
+* `4e36b6b` (was `17b384b` before the message reword) feat(layout): three more period expressions named by the native-evidence census — dates beside ANY opening and closing label line (rule (c) over every label line), the `statement ending` / `this statement` / `last statement` family, a stacked date range that also carries a page marker
+* `450134d` (was `53f7efb`) test(layout): the stacked-range-with-marker fixture that isolates mutant M19 (it survived without it) — the code tip
+* **Message reword remap** (the message scan's one WORDS hit — a two-word sequence in the subject of `17b384b` that also occurs as a printed word pair in the archive): `git filter-branch --msg-filter` over `b23cb50..HEAD`; all 10 tree ids verified identical before and after; `17b384b → 4e36b6b`, `53f7efb → 450134d`, the other eight commits unchanged. Every proof log names `TREE=53f7efb`; that tree is byte-for-byte the tree of `450134d`.
+* the W3 commit that carries this section (named in the closure message)
+
+## Proof floor (host lock held; one proof at a time; every log ends in `EXIT=`)
+All at code tree `53f7efb` (= the tree of the reworded tip `450134d`); the host lock `discovery_reports/train12-logs/HARNESS.lock` held for the whole run; every log under `discovery_reports/train12-logs/p22classify-*.log` ends in `EXIT=`.
+
+| proof | result line | exit |
+|---|---|---|
+| census, cache mode (`tools/classify_census.py --evidence-source cache`) | disjoint sums 3,380 / 755 asserted | **EXIT=0** |
+| census, native-pdf mode | disjoint sums 3,380 / 755 asserted | **EXIT=0** |
+| full default suite | 1 failed, 9267 passed, 48 skipped, 39 deselected, 1 warning in 327.39s (0:05:27) — the one failure is `tests/test_run_of_record.py::test_provenance_paddle_key_note_never_leaks_a_raw_exception_message` (a provenance-probe test outside this card's files; `git diff b23cb50..HEAD` touches nothing under `tools/train`, `telemetry`, `ocr`, `analysis`); it FAILS IDENTICALLY at the untouched base tree `b23cb50` in the detached base worktree at the same hour (`KeyError: 'paddle_ocr_key_note'` — the probe subprocess now records the Paddle key instead of the note), and it PASSED in the same worktree's earlier suite run at `2a48cab` (9,200 passed, 0 failed) — a host-environment change between the two runs, reported for Ocean, not mine to fix | **EXIT=1** (that one test; every other test green) |
+| the 5 canonical guards | 275 passed, 1 warning in 10.9 s | **EXIT=0** |
+| the 7 canonical conformance files | 1282 passed, 41 skipped, 1 warning in 2.92s | **EXIT=0** |
+| `python corpus_gate.py` | RESULT: GREEN | **EXIT=0** |
+| `pytest -m corpus` (corpus-marked slice, run from the worktree beneath `.claude/worktrees/`) | 34 passed, 9321 deselected, 1 warning in 1126.7 s (0:18:46) | **EXIT=0** |
+| cohort replay at closure (`--family guardian_cu_statement_summary --parser first_citizens --expect-identical`) | population 47, replayed 47; newly validated **0**; other ladder movement 0; previously validated preserved **47 of 47**, payload identical 47, payload changed 0; validated regressions **0**; other ladder regressions 0 | **EXIT=0** |
+| cohort replay at base `b23cb50` (detached worktree `.claude/worktrees/mt22-classify-base`) | population 47, replayed 47; newly validated 0; preserved 47 of 47 payload identical; regressions 0 (fidelity) | **EXIT=0** |
+| privacy scan (`tools/privacy_scan_branch.py --rows <run>/rows.csv` = the whole run-of-record population, `--base b23cb50 --ref HEAD`) | added lines 4,884; `hit_count` 0 (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0); 176 raw candidates excluded by the shape rules (all `words_class`) | **EXIT=0** |
+| message scan (`tools/huntington_msg_privacy_scan.py`, same population) | in the detached run: 1 WORDS hit (a two-word sequence in the subject of `17b384b`) → EXIT=1 (`p22classify-msgscan-before-reword.log`); the message reworded by `git filter-branch --msg-filter` (trees byte-identical, remap under Commits) and the scan RE-RUN alone: `commits_scanned` 10, `hit_count` **0** | **EXIT=0** (re-run; `p22classify-msgscan.log`) |
+
+
+## Privacy
+* **Added-line privacy scan** over the run-of-record population (3,380 shas, 3,351 with cached text): `added_lines` 4884; `hit_count` **0** (`hits_by_class` {"DATES": 0, "DIGITS": 0, "MONEY": 0, "WORDS": 0}); raw candidates 176 excluded by the shape rules {"corpus_cache": 0, "docs_session_date": 0, "hex_sha_substring": 0, "institution_zip": 0, "round_money": 0, "subunit_money": 0, "words_class": 176} — every fixture money figure is a `.00` template amount generated from small integers, every fixture date is in the synthetic year; the one earlier hit (a two-decimal aspect figure in a fixture comment) was rewritten as prose at `0bc1b76`.
+* **Commit-message scan** (`git log b23cb50..HEAD --format=%B`, same population): `commits_scanned` 10, `hit_count` **0** ({"DATES": 0, "DIGITS": 0, "MONEY": 0, "WORDS": 0}).
+* No secret, host, port or token in any added line (the classifier and the census tool read no environment variable; the tool's only paths are its arguments).
+* The private per-sha CSVs live under the git-ignored `discovery_reports/train12-logs/` and are never committed; the tool refuses any `--out` path git does not ignore.
+
+## Deviations from the card (each named)
+1. **The OQ2 "roots tuple".** `tests/test_no_statement_hardcodes.py` has no roots tuple; its Phase-2.1 scope is the function `_paddle_phase21_modules()`. The append is a `LAYOUT_DIR` constant and one `modules.extend(sorted(LAYOUT_DIR.glob("*.py")))` — the smallest change that puts `layout/*.py` under the same scans; the not-empty pin for the new root lives in `tests/test_layout_signals.py` rather than in the shared guard file.
+2. **A second evidence source in the census instrument.** The card prescribes the cached page TEXT in degraded mode for this measurement, and that is the primary table above. `--evidence-source native-pdf` additionally re-reads word boxes from the archive PDF through the platform's existing Phase 2.1 native reader (a tool-side import of `analysis`; the classifier never imports it) — reported as a second, labelled table because the structural tier only exists with boxes and cell K's schema-3 artifacts are not on this branch. Both censuses are read-only; the private per-sha CSVs are git-ignored.
+3. **The lexical cheque signal is scoped.** The card names "a table signal AND a cheque signal" as a conflict. As first written it sent 47 validated statements to `KIND_UNCERTAIN` because their cheque-image enclosure pages are rendered as MICR text by the native reader; a bare pair of long numbers on a statement page fired it too. Now: a cheque-proportioned page with a MICR band is a cheque signal whatever the document (the ruled conflict stands); MICR text needs a symbol; MICR text or the payee lexicon on a letter-size page is a cheque signal only on a page without a table AND for a document that is not statement-shaped (fewer than two anchors). The conflict fixture and the M6a mutant still kill a priority resolution.
+4. **The card statement's structural shape is enforced.** The card defines the card statement as the lexicon "with a single amount column and no running-balance signal"; the first version only checked the running balance. Now a card-shaped table is required (≥ 80 % of rows with exactly one money token, no running balance) plus the absence of deposit-account furniture; the STRONG card phrases are the ones an overdraft line-of-credit box does not print ("minimum payment", "cash advance", ...). Without these, deposit statements with an overdraft line-of-credit box were card statements or conflicts.
+5. **Two conflicts added beyond the card's two examples** ("whenever signals conflict"): on the no-table branch, a card / loan / brokerage lexicon beside deposit-account furniture, and two sub-kind lexicons at once, refuse as `KIND_UNCERTAIN`; a deposit-slip / letter / screenshot lexicon beside two statement anchors likewise. A deposit slip printed on cheque stock (MICR band + aspect + the deposit-slip lexicon) is `NOT_A_STATEMENT{deposit_slip}` at tier structural — the lexicon names the sub-kind, the structural facts decide the kind — not a conflict.
+6. **`Finding.page` and `EvidenceRef.page` are 0-based** (the `evidence.canonical` convention); `FILE_INVALID` carries one `EvidenceRef(page=0, word_ids=None, span=None, signal="file_invalid_fact")` for a file that has no page.
+7. **The cohort replays** use `--family guardian_cu_statement_summary` (the census family key; no `guardian_cu` registration id exists in the run of record) and `--parser first_citizens`; the base replay runs from a detached worktree of `b23cb50` at `.claude/worktrees/mt22-classify-base` (the pattern the other Phase 2.2 cells use).
+8. **The mutation harness is a scratch script**, not a committed tool: `tools/` ownership on this card is `tools/classify_census.py` alone. Its table, killers and clean-tree checks are recorded above.
+9. **Completeness on a printed ledger smaller than the table signal (Ocean's resume direction, 2026-09-03).** The card's `STATEMENT_COMPLETE` clause names "a table signal (or a printed zero-activity declaration)"; the table signal's ruled floor is five dated lines, so every complete statement with one to four transactions was `STATEMENT_PARTIAL{table_truncated}` by construction. Now completeness is the three anchors plus a PRINTED LEDGER: the table signal, or `short_ledger` (one to four dated money rows that are not anchor lines), or the zero-activity declaration, or `balance_pair_coincides` (opening equal to closing to the cent with no ledger row — the zero-activity structure without its declaration). The five-row table signal keeps its structural meaning (tier `structural` still needs the aligned column); the short ledger is lexical. Two signal names were added to the closed vocabulary; both are fixtured and mutated (M13, M15).
+10. **The page-marker gap rule counts pages present.** As first written, a page without a marker between `1 of N` and `3 of N` was a gap; now a gap is declared numbers advancing by more than the pages present, or running backwards — and a clean restart (`1 of M` right after a sequence that reached its own total) is a second statement in one file, not a gap (M14).
+11. **Three period forms the native-evidence census named (Ocean's direction: fix every generic rule artefact).** Rule (c) — two dates beside the opening and closing labels — read only the FIRST label line, so a dateless column header that repeats the label hid the dated summary line; it now reads every label line. `statement ending`, `this statement`, `last statement`, `statement closing date`, `period from` join the period lexicon. A stacked date-range cell whose line also prints the page marker no longer counts the marker's words (M17–M19; a mutant that survived — M19 — got the fixture that isolates it, `53f7efb`).
+12. **The one privacy hit** (`tests/layout_fixtures/kinds.py`: the cheque aspect written as a two-decimal figure in a comment, colliding with an archive money token) was rewritten as prose; every fixture money figure is generated from small integers as `.00` amounts (the scanner's `round_money` shape) and every fixture date is in the synthetic year.
+
+## What the validated exceptions ARE — cause classes, before and after the precision pass (cache mode; closed-vocabulary diagnostics, no document text read)
+Ocean's resume direction (2026-09-03): a validated document proposed non-complete is a precision defect unless the cause is a document property the ruled signals cannot read. The table below is the cache-mode census at `2a48cab` (before) and at the code tree of `53f7efb` = `450134d` (after); the per-sha lists are in the private CSVs.
+
+| cause class (kind / findings) | before | after | what it is | fix |
+|---|---:|---:|---|---|
+| `STATEMENT_PARTIAL{table_truncated}` | 124 | 61 | short statements: 1–4 transactions were below the five-row table signal | `short_ledger` (M13); the remaining 61 print no dated money row in the cached block text (date cells and amount cells on lines neither the same nor adjacent — the degraded-mode artefact the native census resolves) |
+| `STATEMENT_PARTIAL{missing_closing;table_truncated}` | 100 | 93 | the same block-text artefact on layouts that also print no closing label | (as above; see the closing row) |
+| `STATEMENT_PARTIAL{missing_closing}` | 147 | 155 | no closing LABEL is printed at all — the closing-candidate scan finds "ending balance" 1, "closing" 2, "new balance" 3 of 147; the closing is the last running balance or a "Totals" row. Analyst folder labels of the class (labels, not identity): Unidentified 75, Mercury 28, Scotiabank 19, TD Bank 11, Desjardins 6 | not a rule artefact: a "closing = last running balance" rule is reconstruction, not furniture (2.4's LayoutModel); +8 came from the page-gap class below |
+| `STATEMENT_PARTIAL{page_gap;…}` | 29 | 0 | a page without a marker between two marked pages, or a clean `1 of M` restart | the gap rule counts pages present (M14) |
+| `STATEMENT_PARTIAL{missing_opening}` / `{missing_opening;missing_closing}` | 46 / 33 | 20 / 17 | `Beginning statement balance` / `Balance last statement` label forms; the rest are opening labels the closed lexicon does not carry | two generic forms added (M16); the residue is named, not tuned |
+| `STATEMENT_PARTIAL{missing_period}` | 19 | 20 | no period phrase, no two-date range, no dates beside any label line (+19 arrived from the page-gap class, 18 of them left again with the period forms of `17b384b`) | rule (c) over every label line; the `statement ending` family; the stacked range beside a page marker (M17–M19); the residue is named |
+| `STATEMENT_PARTIAL{balance_discontinuity_at_page_break}` (with variants) | 11 | 11 | layouts whose page-break chain the rule cannot follow (a carried balance printed without a date, a section change at the page top) | findings for the adjudicator, never a refusal |
+| `KIND_UNCERTAIN` | 46 | 42 | card / loan lexicon beside deposit furniture with no table in text mode (overdraft line-of-credit and interest disclosures on deposit statements whose table is the block-text artefact); one anchor and no table | resolved where the ledger becomes visible (native mode); the rest stay uncertain by the conflict rule |
+| `NOT_A_STATEMENT{loan_statement}` | 1 | 1 | a deposit statement whose text mode shows no ledger and two strong loan phrases | one document; uncertain rather than loan would need a rule the fixtures do not justify |
+| **total validated exceptions** | **562** | **422** | | |
+
+Native-pdf mode moved 601 → 461 over the same commits (its largest remaining class is the same closing-label absence). Before the first census the same measurement read 707 (the first rules: no stacked labels, no wrapped rows, no card-shape guard, the cheque conflict on enclosure pages); the ruled table-signal floor alone accounted for the 124 → 61 movement.
+
+## The residual validated exceptions are signal defects, by cause class (the closure's targets)
+Every validated document passed the validator's own gates — a printed statement period, a printed opening balance and a printed closing balance, reconciled — so a validated document the classifier proposes as anything but `STATEMENT_COMPLETE` is, by construction, a SIGNAL defect (a printed anchor or ledger the closed lexicons and shape rules do not read), never a document defect. Ocean's resume direction (2026-09-04): these are for the review and a closure, not another refinement cycle here. The final counts (code tree `53f7efb` = `450134d`):
+
+| cause class | cache mode (degraded text) | native word-box mode | what a closure would read |
+|---|---:|---:|---|
+| a closing balance printed WITHOUT a label the lexicon carries (`missing_closing` alone or with others) | 268 | 271 | the closing printed as the last running balance, as a "Totals … balance as of" row, or under a label form outside the closed lexicon — a closing-label survey over the adjudicated slice, then lexicon growth or a "closing = last balance of the ledger" structural rule (reconstruction territory, 2.4) |
+| no ledger read (`table_truncated`, alone or with a missing closing / period) | 156 | 197 | rows whose date and money never share a visual line nor adjacent lines (block-text artefact in cache mode; a column-per-block reader in native mode); a row model over aligned x-positions rather than lines (the 2.4 LayoutModel) |
+| no period read (`missing_period` alone or with others) | 22 | 101 | period forms outside the lexicon and the four date-range rules; in native mode the phrase and its dates sit on visual lines more than two apart, or the range is implied by the ledger dates alone |
+| no opening read (`missing_opening` alone or with a missing closing) | 37 | 26 | opening label forms outside the closed lexicon |
+| `KIND_UNCERTAIN` | 42 | 50 | a card / loan lexicon beside deposit furniture with no ledger read (the two classes above), a structural cheque page inside a statement, one anchor and no ledger |
+| a page-break balance discontinuity (alone or with others) | 11 | 6 | a carried balance printed without a date or a section change at the page top |
+| `NOT_A_STATEMENT{loan_statement}` | 1 | 1 | a deposit statement whose text shows no ledger and two strong loan phrases |
+| **total validated exceptions** | **422** | **461** | |
+
+Movement over the branch (validated exceptions, cache / native): 707 / 756 at the first rules → 562 / 601 after the six layout classes of `8216ed4` and `487c245` → 440 / 533 after the short ledger, the balance pair and the gap rule (`0bc1b76`) → 422 / 461 after the period expressions (`4e36b6b`). The per-class "before" rows of the cache table above are read from the `2a48cab` census log; the native per-class "before" table was overwritten by the later runs of the same script and is not restated here — its total (601) is.
+
+## Risks last — what the classifier cannot see without word boxes on scanned pages (the 2.3 dependency)
+* **Degraded text mode is blind to geometry by construction:** no `table_alignment`, no MICR band, no cheque aspect, no screenshot frame; the tier is never structural except on a page-marker or file fact. On the 179 Tesseract-read shas (54 Tesseract-only + 125 whose native read gave no words) every verdict is lexical or uncertain; the 13 no-text scans and the 16 invalid files carry no text at all (`input_mode = none`). A scanned voided cheque, deposit slip or screenshot classifies `KIND_UNCERTAIN` or a lexical sub-kind until Paddle evidence (2.3) supplies boxes and a pixel frame.
+* **Cell K's display-frame boxes:** the rotated fixture's evidence was built by hand in the display frame; a page whose display frame is sideways (case (a): upright content stream, /Rotate set) groups its words into vertical lines and classifies `KIND_UNCERTAIN` — orientation handling is excluded from 2.2 by the umbrella.
+* **The closing-label gap:** ~150 validated layouts print no closing label; a rule "the closing is the last running balance" is reconstruction, not furniture, and was not built (2.4's LayoutModel is the place).
+* **Statements with cheque-image enclosures on OCR paths:** with anchors present they are read as statement-shaped; a fragment with only a cheque page and one anchor stays a lexical cheque — the structural cheque signal needs the cheque-proportioned page.
+* **Multi-statement PDFs:** a restarting `Page X of Y` sequence reads as a page gap (`STATEMENT_PARTIAL{page_gap}`, 74 in the archive), which is the honest description of a file that holds two statements; the adjudicator decides.
+* **The classifier never routes (D2):** none of the above changes any run-of-record outcome; the verdicts are recorded facts for cell T and evidence packets for cell H.
+
+# §P22CLASSIFY-CLOSURE — the adversarial review's 2 MAJOR / 12 MINOR findings reproduced, closed and proven; the card-beside-deposit pair a ruled conflict on the table branch; the dead completeness conjunction deleted; the mutation harness committed; both censuses, the floor and both scans re-run at the closure tip
+
+**Review:** `docs/moneythumb-replacement/reviews/PHASE2_P22CLASSIFY_REVIEW.md` (APPROVE WITH FINDINGS, 2 MAJOR / 12 MINOR, against `cb15b35`). **Closure code tip:** `473f7d7` on `wave22-classify` (`cb15b35` → `ce20ba3` the closure code → `93f780c` the M26-isolating fixture → `473f7d7` a tests-only commit replacing one digit run in a MICR negative after the closure privacy scan); every proof below ran at the code tree `93f780c`, whose `layout/`, `tools/` and fixture files are byte-identical to `473f7d7`'s (the tests-only commit changes one string in `tests/test_layout_signals.py`; that file re-run at `473f7d7`: 109 passed); the W3 commit that carries this section is named in the closure message. **Hygiene:** newly validated 0; nothing under `analysis/ ocr/ discovery/ webapp/ telemetry/ evidence/` touched; the classifier still routes nothing and grants nothing. The first section §P22CLASSIFY is untouched (append-only).
+
+## 1. Reproduction (before any code moved; the reviewer's own scripts, found in the shared scratch directory, run from this worktree at `cb15b35`; and my own equivalents)
+| finding | reviewer's command | output at `cb15b35` |
+|---|---|---|
+| MAJOR-1 | `python rev22_attacks.py` A1a/A1b; `python rev22_attacks2.py` B5 | A1c control → `NOT_A_STATEMENT/card_statement/lexical acct=card`; A1a (card + "checking") and A1b (card + "savings") → `STATEMENT_COMPLETE/-/structural acct=deposit findings=[]` in evidence mode and `…/lexical` in text mode; B5 (neutral-title card + "Autopay from checking") → `STATEMENT_COMPLETE acct=deposit` — reproduced exactly |
+| MAJOR-1 archive footprint | `python rev22_csvstats.py <native csv>` | `STATEMENT_*` with `card_lexicon` AND `deposit_lexicon`: 34 (validated 24); strict shape (card, deposit, table, no running balance): 34 — reproduced exactly |
+| MAJOR-2 | M4 as worded (`complete = signals.anchors >= 2 and ledger`) applied alone and the three layout files run without `-x` | 512 passed, 0 failed → SURVIVES; the conjunction deleted (`complete = ledger`) → 404 passed, 0 failed → SURVIVES (dead code) — reproduced; my own harness's M4 had applied the findings-rule edits as well, which is why its record read KILLED (15) |
+| MINOR-1 | `python rev22_attacks3.py` C1/C2 | C1 ("See page 2 of 3 for fees" above the footer) → `STATEMENT_PARTIAL/-/structural findings=[page_gap]` both modes; C2 (below the footer) → complete — reproduced |
+| MINOR-4 | `rev22_attacks.py` A16 | period removed, a row printing `<date> - <date>` → `STATEMENT_COMPLETE` — reproduced |
+| MINOR-5 | `rev22_attacks.py` A14 | `is_micr_shaped` True for `2031-03-05 1234567890 123456`, `03-05-2031 …`, `1234567890 123456 2031-03-05`, `12.345.678 1234567890`, `123456789-1234567890`; a one-anchor fragment with such a line → `NOT_A_STATEMENT/cheque_image/lexical` — reproduced |
+| MINOR-3 | `rev22_attacks.py` A4/A21 | A21 prose "Opening hours … balance ($)" shapes → `STATEMENT_ILLEGIBLE` — reproduced |
+| MINOR-6 | `rev22_attacks.py` A17 | `Finding.detail` `rows=1.00`, `rows=500.00;page=1` ACCEPTED — reproduced |
+| MINOR-7 | `rev22_attacks.py` A27 | three rotating single-amount columns: evidence `STATEMENT_PARTIAL{table_truncated}`, text `STATEMENT_COMPLETE` — reproduced |
+| MINOR-10 | `python rev22_attacks2.py` B1/B2/B3 | B1 loan + running-balance history → `STATEMENT_COMPLETE acct=deposit`; B2 → `acct=loan`; B3 brokerage → `acct=deposit` — reproduced (residue, see §3) |
+| MINOR-2 | `rev22_attacks.py` A9/A10 | complete statement (1 of 1) + page 1 of 3 of a second → `STATEMENT_COMPLETE` — reproduced |
+| MINOR-11 | `find_dates("03/01/31-03/31/31")` | `[]` — reproduced |
+
+## 2. Findings closed (fixed → proven), all in `ce20ba3` / `93f780c`
+| finding | the rule now | fixture(s), both modes | mutant → killer |
+|---|---|---|---|
+| **MAJOR-1** | on the table branch the card lexicon beside deposit-account furniture is the SAME conflict as on the no-table branch → `KIND_UNCERTAIN` with both signals listed, never a fall-through to a deposit statement; the card sub-kind still needs its card-shaped table (single amount column, no running balance). The recorded decision follows the review's §7 first option: the pair is a ruled conflict; a stronger card shape would have kept 24 validated deposit statements complete on a rule the fixtures could not justify | `card_statement_with_deposit_word` → `KIND_UNCERTAIN`; `statement_with_strong_card_phrase_in_loc_box` (withdrawals / deposits, no balance column, a line-of-credit box printing "minimum payment due") → `KIND_UNCERTAIN` — the other direction, decided the same way; `statement_with_overdraft_line_box` (weak line-of-credit furniture only) → `STATEMENT_COMPLETE`; `card_statement` control unchanged | M20 (the conflict removed → fall-through) → `test_a_card_statement_with_one_deposit_word_is_a_conflict_not_a_deposit_statement` (+ the fixture table); archive movement in §4 |
+| **MAJOR-2** | the restated conjunction is deleted; `not findings` is the completeness gate, with the comment saying why (`_statement_findings` names every missing anchor and a missing ledger); M4 is worded as applied ("the missing-anchor findings are skipped when two of the three anchors are present"); the harness is committed as `tools/p22classify_mutation_table.py` (repository-relative root; refuses a dirty tree; `git checkout --` in a `finally`; re-verifies clean) — an ownership widening Ocean directed at closure | `partial_opening/closing/period_removed` (unchanged) | M4 as applied → `test_a_removed_anchor_is_a_partial_never_a_complete_statement` (15) |
+| MINOR-1 | one marker per page: the marker line with the FEWEST other words wins (ties → the last line) | `statement_with_page_cross_reference` → complete, no `page_gap` | M21 (first marker wins) → `test_a_prose_page_cross_reference_is_not_the_page_marker` |
+| MINOR-2 | the LAST marked sequence must reach its own declared total; the pages it owes may only be covered by unmarked pages after it | `two_statements_second_truncated` → `STATEMENT_PARTIAL{missing_pages}`; `statement_two_statements_one_file` still complete | M27 → `test_a_truncated_second_statement_owes_its_pages` |
+| MINOR-3 | the illegible placeholder requires a non-digital profile (a native text layer cannot be illegible) | `statement_thin_digital_summary` → `STATEMENT_PARTIAL{table_truncated}`; `statement_illegible` (scanned) unchanged | M24 → `test_a_thin_digital_page_is_not_illegible` |
+| MINOR-4 | rule (b) (two dates with a connector) never reads a money-bearing line | `statement_period_only_in_a_row` → `STATEMENT_PARTIAL{missing_period}` | M22 → `test_a_ledger_rows_own_date_range_is_not_the_period` |
+| MINOR-5 | `MICR_SYMBOLS` = the four E-13B glyphs and their OCR confusions `: ; \| c a` only; a dash or a dot disqualifies the line (dates and dotted numbers are not MICR) | the signals tests: the five A14 strings → not MICR; four glyph/confusion forms → MICR | M23 (dash and dot readmitted) → `test_non_micr_lines` |
+| MINOR-6 | `Finding.detail` grammar = `key=<int>` or `key=<int>/<int>` pairs only | contract test: `rows=500.00` refused, `page_break=0/1` accepted | (a grammar; the contract test is the pin) |
+| MINOR-7 | up to `TABLE_ALIGN_MAX_COLUMNS = 3` shared right edges, each covering ≥ 2 rows, may confirm a table (deposits / withdrawals / daily balance); a cluster of one row never counts | `statement_three_rotating_columns` → evidence `STATEMENT_COMPLETE/structural`, text complete; `letter_with_unaligned_dated_lines` still a letter | M25 (two edges) → `test_three_rotating_money_columns_align_in_evidence_mode` |
+| MINOR-8 | `tools/classify_census.py::_refuse_tracked_out` fails CLOSED when git cannot be asked | (tool behaviour; exercised by hand: a tracked `--out` still refused at the door) | — |
+| MINOR-11 | a date touching the hyphen of a compact range parses when what follows the hyphen is itself a full date (`(?![\d/.])(?!-(?!<date shape>))`); `statement dates` joins the period lexicon | `statement_hyphen_joined_dates` (the phrase form) and `statement_bare_hyphen_range` (the grammar alone) → complete; `find_dates("03/01/31-03/31/31")` → 2 | M26 (the old guards) → `test_a_hyphen_joined_date_range_yields_both_dates`, `test_a_hyphen_joined_statement_dates_line_is_the_period` — M26 survived once behind the lexicon entry and got the bare-range fixture (`93f780c`) |
+
+The committed harness: **28 / 28 killed** at `93f780c` (M1–M19 of the first section, M6 split a/b, plus M20–M27), baseline 589 passed, tree clean after every mutant (`tools/p22classify_mutation_table.py`; its log in the scratch directory, the table restated here by count).
+
+## 3. Residue (documented, not built)
+* **MINOR-9** — `classify_document` exists as `layout.classify_document` (a kind) and `telemetry.record.classify_document` (an outcome fold); the umbrella prescribed the name. A note for cell T's wiring; no change.
+* **MINOR-10** — the loan / brokerage lexicons decide nothing beside a table, and a running balance stamps `account_kind = deposit` before the lexicons are weighed. The archive evidence the review measured stands (the loan lexicon fires on 180 table-bearing statements, 130 validated deposit statements; the B1 shape occurs once, unresolved): the lexicon cannot be a conflict signal as it stands; a STRONGER loan shape (several strong phrases, no deposit ledger header, weighed before the chain) is the closure target of the later cycle Ocean will schedule. Until then a loan or brokerage statement with a payment history is proposed `STATEMENT_COMPLETE` with `account_kind` deposit or loan — R12 keeps those classes outside the CCL denominator until admitted, and cell T reports `account_kind`.
+* **MINOR-12** — the cached page text of some documents carries parser-encoded row lines (a postprocess artefact in the OCR record's `pages`), so the cache-mode "degraded text" reads ledgers the native word boxes do not; the label overstates purity. A note for the measurement's consumers (cell T); the cache census remains the card's prescribed measurement and is labelled as cached page text.
+* **MINOR-6, second half** — `DocumentProfileFacts.page_text_chars` is validated and unused by any rule; it mirrors the preflight profile for the record and stays in the contract.
+* **MINOR-8, second half** — the per-sha census CSVs live under the CELL's worktree (`.claude/worktrees/mt22-classify/discovery_reports/train12-logs/`, git-ignored there), not beside the shared logs at the repository root; the first section's path is read that way.
+* **The stale risk note** in the first section ("a restarting `Page X of Y` sequence reads as a page gap … 74") described the pre-M14 rule; the current rule reads a clean restart as a second statement and (now) requires it to finish; `page_gap` findings on the archive: 7 (cache) / 7 (native).
+* **Precision work beyond the findings** was not reopened (Ocean's direction): the residual validated exceptions remain the target of a later cycle; the refreshed counts are in §4.
+
+## 4. Both censuses re-run at the closure tip (`tools/classify_census.py`, read-only; disjoint sums asserted)
+**Cache mode (the card's measurement)** — input modes {'text': 3351, 'none': 29}; validated documents not classified `STATEMENT_COMPLETE`: **431 of 2,625**.
+
+#### kind — archive (3380)
+| kind | n |
+|---|---|
+| STATEMENT_COMPLETE | 2518 |
+| STATEMENT_PARTIAL | 581 |
+| ACTIVITY_EXPORT | 15 |
+| NOT_A_STATEMENT | 23 |
+| FILE_INVALID | 16 |
+| KIND_UNCERTAIN | 227 |
+disjoint sum over archive: 3380 == 3380  OK
+
+#### kind — unresolved (755)
+| kind | n |
+|---|---|
+| STATEMENT_COMPLETE | 324 |
+| STATEMENT_PARTIAL | 217 |
+| ACTIVITY_EXPORT | 15 |
+| NOT_A_STATEMENT | 22 |
+| FILE_INVALID | 16 |
+| KIND_UNCERTAIN | 161 |
+disjoint sum over unresolved: 755 == 755  OK
+
+#### kind x modality x tier — archive
+| kind | modality | tier | n |
+|---|---|---|---|
+| STATEMENT_COMPLETE | digital | lexical | 2458 |
+| STATEMENT_COMPLETE | mixed | lexical | 2 |
+| STATEMENT_COMPLETE | image_backed_text | lexical | 58 |
+| STATEMENT_PARTIAL | digital | structural | 10 |
+| STATEMENT_PARTIAL | digital | lexical | 528 |
+| STATEMENT_PARTIAL | mixed | lexical | 1 |
+| STATEMENT_PARTIAL | image_backed_text | structural | 16 |
+| STATEMENT_PARTIAL | image_backed_text | lexical | 26 |
+| ACTIVITY_EXPORT | digital | lexical | 10 |
+| ACTIVITY_EXPORT | image_backed_text | lexical | 5 |
+| NOT_A_STATEMENT | digital | lexical | 21 |
+| NOT_A_STATEMENT | mixed | lexical | 1 |
+| NOT_A_STATEMENT | image_backed_text | lexical | 1 |
+| FILE_INVALID | unknown | structural | 16 |
+| KIND_UNCERTAIN | digital | uncertain | 145 |
+| KIND_UNCERTAIN | scanned | uncertain | 11 |
+| KIND_UNCERTAIN | mixed | uncertain | 12 |
+| KIND_UNCERTAIN | image_backed_text | uncertain | 59 |
+
+#### NOT_A_STATEMENT sub_kind x tier — archive
+| sub_kind | tier | n |
+|---|---|---|
+| card_statement | lexical | 2 |
+| cheque_image | lexical | 1 |
+| letter_or_notice | lexical | 2 |
+| loan_statement | lexical | 16 |
+| voided_cheque | lexical | 2 |
+
+#### STATEMENT_PARTIAL findings (a document may carry several) — archive
+| finding | n |
+|---|---|
+| balance_discontinuity_at_page_break | 29 |
+| missing_closing | 357 |
+| missing_first_page | 13 |
+| missing_opening | 110 |
+| missing_pages | 10 |
+| missing_period | 51 |
+| page_gap | 7 |
+| table_truncated | 211 |
+
+#### validated exceptions by kind / sub_kind / findings
+| kind | sub_kind | findings | n |
+|---|---|---|---|
+| KIND_UNCERTAIN | - | - | 66 |
+| NOT_A_STATEMENT | loan_statement | - | 1 |
+| STATEMENT_PARTIAL | - | balance_discontinuity_at_page_break | 7 |
+| STATEMENT_PARTIAL | - | balance_discontinuity_at_page_break;balance_discontinuity_at_page_break | 1 |
+| STATEMENT_PARTIAL | - | missing_closing | 154 |
+| STATEMENT_PARTIAL | - | missing_closing;balance_discontinuity_at_page_break | 3 |
+| STATEMENT_PARTIAL | - | missing_closing;table_truncated | 93 |
+| STATEMENT_PARTIAL | - | missing_opening | 20 |
+| STATEMENT_PARTIAL | - | missing_opening;missing_closing | 17 |
+| STATEMENT_PARTIAL | - | missing_period | 6 |
+| STATEMENT_PARTIAL | - | table_truncated | 63 |
+
+#### agreement with the batch-9 census lists (evidence for an adjudicator, never truth — R3)
+
+#### census NOT-STATEMENT (117: 104 bare + 13 portal): 117 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 9 |
+| KIND_UNCERTAIN | - | 49 |
+| NOT_A_STATEMENT | card_statement | 1 |
+| NOT_A_STATEMENT | letter_or_notice | 2 |
+| NOT_A_STATEMENT | loan_statement | 14 |
+| NOT_A_STATEMENT | voided_cheque | 2 |
+| STATEMENT_COMPLETE | - | 2 |
+| STATEMENT_PARTIAL | - | 38 |
+agreement (classifier kind in ('NOT_A_STATEMENT', 'FILE_INVALID', 'ACTIVITY_EXPORT')): 28 / 117
+
+#### census not_statement (bare list): 104 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 8 |
+| KIND_UNCERTAIN | - | 46 |
+| NOT_A_STATEMENT | card_statement | 1 |
+| NOT_A_STATEMENT | letter_or_notice | 2 |
+| NOT_A_STATEMENT | loan_statement | 14 |
+| NOT_A_STATEMENT | voided_cheque | 2 |
+| STATEMENT_COMPLETE | - | 1 |
+| STATEMENT_PARTIAL | - | 30 |
+agreement (classifier kind in ('NOT_A_STATEMENT', 'FILE_INVALID', 'ACTIVITY_EXPORT')): 27 / 104
+
+#### census portal_export: 13 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 1 |
+| KIND_UNCERTAIN | - | 3 |
+| STATEMENT_COMPLETE | - | 1 |
+| STATEMENT_PARTIAL | - | 8 |
+agreement (classifier kind in ('ACTIVITY_EXPORT',)): 1 / 13
+
+**Native-pdf mode** — input modes {'text': 179, 'native_pdf': 3172, 'none': 29}; validated documents not classified `STATEMENT_COMPLETE`: **460 of 2,625**.
+
+#### kind — archive (3380)
+| kind | n |
+|---|---|
+| STATEMENT_COMPLETE | 2534 |
+| STATEMENT_PARTIAL | 572 |
+| ACTIVITY_EXPORT | 17 |
+| NOT_A_STATEMENT | 23 |
+| FILE_INVALID | 16 |
+| KIND_UNCERTAIN | 218 |
+disjoint sum over archive: 3380 == 3380  OK
+
+#### kind — unresolved (755)
+| kind | n |
+|---|---|
+| STATEMENT_COMPLETE | 369 |
+| STATEMENT_PARTIAL | 186 |
+| ACTIVITY_EXPORT | 17 |
+| NOT_A_STATEMENT | 22 |
+| FILE_INVALID | 16 |
+| KIND_UNCERTAIN | 145 |
+disjoint sum over unresolved: 755 == 755  OK
+
+#### kind x modality x tier — archive
+| kind | modality | tier | n |
+|---|---|---|---|
+| STATEMENT_COMPLETE | digital | structural | 2417 |
+| STATEMENT_COMPLETE | digital | lexical | 57 |
+| STATEMENT_COMPLETE | mixed | lexical | 2 |
+| STATEMENT_COMPLETE | image_backed_text | lexical | 58 |
+| STATEMENT_PARTIAL | digital | structural | 19 |
+| STATEMENT_PARTIAL | digital | lexical | 510 |
+| STATEMENT_PARTIAL | mixed | lexical | 1 |
+| STATEMENT_PARTIAL | image_backed_text | structural | 16 |
+| STATEMENT_PARTIAL | image_backed_text | lexical | 26 |
+| ACTIVITY_EXPORT | digital | structural | 12 |
+| ACTIVITY_EXPORT | image_backed_text | lexical | 5 |
+| NOT_A_STATEMENT | digital | structural | 2 |
+| NOT_A_STATEMENT | digital | lexical | 19 |
+| NOT_A_STATEMENT | mixed | lexical | 1 |
+| NOT_A_STATEMENT | image_backed_text | lexical | 1 |
+| FILE_INVALID | unknown | structural | 16 |
+| KIND_UNCERTAIN | digital | uncertain | 136 |
+| KIND_UNCERTAIN | scanned | uncertain | 11 |
+| KIND_UNCERTAIN | mixed | uncertain | 12 |
+| KIND_UNCERTAIN | image_backed_text | uncertain | 59 |
+
+#### NOT_A_STATEMENT sub_kind x tier — archive
+| sub_kind | tier | n |
+|---|---|---|
+| card_statement | lexical | 2 |
+| cheque_image | lexical | 1 |
+| letter_or_notice | lexical | 2 |
+| loan_statement | lexical | 15 |
+| screenshot | structural | 2 |
+| voided_cheque | lexical | 1 |
+
+#### STATEMENT_PARTIAL findings (a document may carry several) — archive
+| finding | n |
+|---|---|
+| balance_discontinuity_at_page_break | 9 |
+| missing_closing | 347 |
+| missing_first_page | 13 |
+| missing_opening | 91 |
+| missing_pages | 10 |
+| missing_period | 133 |
+| page_gap | 7 |
+| table_truncated | 219 |
+
+#### validated exceptions by kind / sub_kind / findings
+| kind | sub_kind | findings | n |
+|---|---|---|---|
+| KIND_UNCERTAIN | - | - | 73 |
+| NOT_A_STATEMENT | loan_statement | - | 1 |
+| STATEMENT_PARTIAL | - | balance_discontinuity_at_page_break | 1 |
+| STATEMENT_PARTIAL | - | missing_closing | 90 |
+| STATEMENT_PARTIAL | - | missing_closing;table_truncated | 88 |
+| STATEMENT_PARTIAL | - | missing_opening | 9 |
+| STATEMENT_PARTIAL | - | missing_opening;missing_closing | 17 |
+| STATEMENT_PARTIAL | - | missing_period | 8 |
+| STATEMENT_PARTIAL | - | missing_period;missing_closing | 72 |
+| STATEMENT_PARTIAL | - | missing_period;missing_closing;balance_discontinuity_at_page_break | 5 |
+| STATEMENT_PARTIAL | - | table_truncated | 96 |
+
+#### agreement with the batch-9 census lists (evidence for an adjudicator, never truth — R3)
+
+#### census NOT-STATEMENT (117: 104 bare + 13 portal): 117 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 11 |
+| KIND_UNCERTAIN | - | 49 |
+| NOT_A_STATEMENT | card_statement | 1 |
+| NOT_A_STATEMENT | letter_or_notice | 2 |
+| NOT_A_STATEMENT | loan_statement | 13 |
+| NOT_A_STATEMENT | screenshot | 2 |
+| NOT_A_STATEMENT | voided_cheque | 1 |
+| STATEMENT_COMPLETE | - | 2 |
+| STATEMENT_PARTIAL | - | 36 |
+agreement (classifier kind in ('NOT_A_STATEMENT', 'FILE_INVALID', 'ACTIVITY_EXPORT')): 30 / 117
+
+#### census not_statement (bare list): 104 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 9 |
+| KIND_UNCERTAIN | - | 46 |
+| NOT_A_STATEMENT | card_statement | 1 |
+| NOT_A_STATEMENT | letter_or_notice | 2 |
+| NOT_A_STATEMENT | loan_statement | 13 |
+| NOT_A_STATEMENT | screenshot | 2 |
+| NOT_A_STATEMENT | voided_cheque | 1 |
+| STATEMENT_COMPLETE | - | 1 |
+| STATEMENT_PARTIAL | - | 29 |
+agreement (classifier kind in ('NOT_A_STATEMENT', 'FILE_INVALID', 'ACTIVITY_EXPORT')): 28 / 104
+
+#### census portal_export: 13 present in this run
+| kind | sub_kind | n |
+|---|---|---|
+| ACTIVITY_EXPORT | - | 2 |
+| KIND_UNCERTAIN | - | 3 |
+| STATEMENT_COMPLETE | - | 1 |
+| STATEMENT_PARTIAL | - | 7 |
+agreement (classifier kind in ('ACTIVITY_EXPORT',)): 2 / 13
+
+**Movement named by count for MAJOR-1** (the review's 34 `STATEMENT_*` documents carrying both `card_lexicon` and `deposit_lexicon`, 24 of them validated): all 34 are now `KIND_UNCERTAIN` — `STATEMENT_*` with both signals: **0** in both censuses. Together with the documents the pair already refused on the no-table branch, 71 documents carry both signals (54 validated), every one `KIND_UNCERTAIN`, identical in cache and native mode. The validated-exception totals move accordingly: cache 422 → 431 (+24 from MAJOR-1, −15 from the closed MINORs — chiefly the hyphen-joined period, the unmarked-page rule and the three-column table), native 461 → 460.
+
+## 5. Proof floor at the closure tip (lock held; one at a time; every log ends in `EXIT=`)
+All at code tree `93f780c`; master log `discovery_reports/train12-logs/p22classify-proofs-master.log`.
+
+| proof | result line | exit |
+|---|---|---|
+| census, cache mode | disjoint sums 3,380 / 755 asserted | **EXIT=0** |
+| census, native-pdf mode | disjoint sums 3,380 / 755 asserted | **EXIT=0** |
+| full default suite | 1 failed, 9344 passed, 48 skipped, 39 deselected, 1 warning | **EXIT=1** |
+| the 5 canonical guards | 275 passed, 1 warning | **EXIT=0** |
+| the 7 canonical conformance files | 1282 passed, 41 skipped, 1 warning | **EXIT=0** |
+| `python corpus_gate.py` | RESULT: GREEN | **EXIT=0** |
+| `pytest -m corpus` | 34 passed, 9398 deselected, 1 warning | **EXIT=0** |
+| cohort replay at closure | population 47, replayed 47; newly validated 0; other ladder movement 0; previously validated preserved 47, payload identical 47, changed 0; validated regressions 0 | **EXIT=0** |
+| cohort replay at base `b23cb50` | population 47, replayed 47; newly validated 0; other ladder movement 0; previously validated preserved 47, payload identical 47, changed 0; validated regressions 0 | **EXIT=0** |
+| privacy scan (added lines vs the whole run-of-record population) | see §6 | **EXIT=1** |
+| message scan | see §6 | **EXIT=0** |
+| mutation table (`tools/p22classify_mutation_table.py`) | 28 / 28 killed at `93f780c`, tree clean | **EXIT=0** |
+
+The suite's failing test(s): `tests/test_run_of_record.py::test_provenance_paddle_key_note_never_leaks_a_raw_exception_message` — the known host-effect failure outside this card's files (it fails identically at the untouched base tree; see the first section).
+
+## 6. Privacy
+* Added-line scan (`--base b23cb50 --ref HEAD`, population 3,380): `added_lines` 5939; `hit_count` **2** ({"DATES": 0, "DIGITS": 0, "MONEY": 2, "WORDS": 0}); raw candidates 220, excluded by the shape rules {"corpus_cache": 0, "docs_session_date": 0, "hex_sha_substring": 10, "institution_zip": 0, "round_money": 0, "subunit_money": 0, "words_class": 208}. **Adjudicated residue (2 MONEY, reported per hit with provenance, never silently):** both hits are in the FIRST W3 section (the guards' and the corpus slice's rows of the first section's proof-floor table, committed at `cb15b35`) and are pytest RUN DURATIONS restated from the proof logs — the guards' `##.##s` and the corpus slice's `####.##s` (shapes; the figures are not restated here) — whose two-decimal shapes coincide with money figures printed somewhere in the 3,351-document universe; no document token, name, date or figure was copied. The first section is append-only (never edited); the closure section restates no runtime with a cents shape, and the one DIGITS hit of the detached run (a six-digit run in a MICR negative of `tests/test_layout_signals.py`) was replaced at `473f7d7` and the scan re-run alone: DIGITS 0, DATES 0, WORDS 0, MONEY 2 (the two adjudicated lines).
+* Commit-message scan (same population): `commits_scanned` 13, `hit_count` **0** ({"DATES": 0, "DIGITS": 0, "MONEY": 0, "WORDS": 0}).
+* No secret, host, port or token in any added line; the private CSVs stay git-ignored under the cell's worktree.
+
+**Privacy restatement (Ocean's direction, 2026-09-05):** the two run durations in the first section's proof-floor table (the guards' and the corpus slice's rows) were restated IN PLACE from two decimals to one (`10.9 s`, `1126.7 s`) — the author's own measured literals, values preserved to the precision the shape allows, no line deleted; the append-only convention yields to this privacy restatement as it did for cell K under the same rule. The added-line privacy scan and the message scan were re-run alone at this tip: their counts are in the closure message.
