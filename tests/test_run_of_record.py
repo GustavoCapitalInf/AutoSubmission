@@ -801,17 +801,55 @@ def test_select_artifact_mutant_rows0_would_have_silently_picked_one():
 # ---------------------------------------------------------------------------
 
 
+#: Every Paddle configuration variable the probe's `load_paddle_settings`
+#: can read. Hermeticity (P22-IDENTITY closure, Gustavo's direction): the
+#: probe runs in a SUBPROCESS whose `ocr.config` import calls `load_dotenv()`
+#: (override=False), and `find_dotenv` walks up from the worktree to the
+#: checkout's gitignored `.env` — which, on this host, carries the REAL Vast
+#: connection variables. Merely DELETING them from `os.environ` therefore
+#: lets the probe re-inject them; a variable that is PRESENT (even empty) is
+#: left alone by dotenv, and `load_paddle_settings` treats an empty value as
+#: unset. So a hermetic test sets every one of these to a value of its own —
+#: the empty string to be unconfigured, `local`/`local_free` to be configured
+#: — and never depends on what the host's `.env` says. The real configuration
+#: stays on this host untouched.
+_PADDLE_ENV_NAMES = (
+    "PADDLE_PROVIDER", "PADDLE_EXECUTION_CLASS", "PADDLE_VAST_HOST", "PADDLE_VAST_SSH_PORT",
+    "PADDLE_VAST_SSH_USER", "PADDLE_REMOTE_OPT_IN", "PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN",
+    "PADDLE_WORKER_URL", "PADDLE_WORKER_PORT", "PADDLE_TUNNEL_LOCAL_PORT", "PADDLE_RUNTIME_DIR",
+)
+
+
+def _unconfigure_paddle(monkeypatch) -> None:
+    """Every `PADDLE_*` variable present-but-empty: unconfigured, hermetically."""
+    for name in list(os.environ):
+        if name.startswith("PADDLE_"):
+            monkeypatch.setenv(name, "")
+    for name in _PADDLE_ENV_NAMES:
+        monkeypatch.setenv(name, "")
+
+
+def _configure_local_paddle(monkeypatch) -> None:
+    """A configured, LOCAL, opt-in-free Paddle environment (no host, no
+    network): `load_paddle_settings` succeeds, so the probe records a key."""
+    _unconfigure_paddle(monkeypatch)
+    monkeypatch.setenv("PADDLE_PROVIDER", "local")
+    monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "local_free")
+
+
 def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path, monkeypatch):
     """A missing Paddle configuration raises `PaddleConfigError` — recorded
     as `paddle_ocr_key_note` inside `run_of_record.partitions`. Before this
     fix the clause wrote `f"...: {exc}"` verbatim and unbounded for ANY
     exception; now only the class name (plus a closed-vocabulary `.reason`,
-    when the exception is a `PaddleRefused`) ever reaches the record."""
+    when the exception is a `PaddleRefused`) ever reaches the record.
+
+    Hermetic (P22-IDENTITY closure): the test CONTROLS the probe's Paddle
+    environment (`_unconfigure_paddle`) instead of deleting variables the
+    host's `.env` would silently put back — see `_PADDLE_ENV_NAMES`."""
     import tools.train.provenance as provenance
 
-    for name in list(os.environ):
-        if name.startswith("PADDLE_"):
-            monkeypatch.delenv(name, raising=False)
+    _unconfigure_paddle(monkeypatch)
 
     root = tmp_path / "root"
     root.mkdir()
@@ -826,10 +864,44 @@ def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path
     # on the CI runner at the Phase 2.1 composed tree) reads as its cause,
     # never as a bare KeyError.
     assert "run_of_record" in record, {"tree": record.get("tree")}
-    note = record["run_of_record"]["partitions"]["paddle_ocr_key_note"]
+    partitions = record["run_of_record"]["partitions"]
+    assert "paddle_ocr_key" not in partitions
+    note = partitions["paddle_ocr_key_note"]
     assert note == "not recorded: PaddleConfigError"
     assert "PADDLE_PROVIDER" not in note  # the variable NAME never crosses either
     assert "not set" not in note  # PaddleConfigError's own message text, absent
+
+
+def test_provenance_records_the_paddle_key_and_a_note_when_paddle_is_configured(tmp_path, monkeypatch):
+    """The inverse case (P22-IDENTITY closure, hermeticity): with a configured
+    LOCAL Paddle environment the probe records `paddle_ocr_key` AND the note
+    `recorded` — the note key is present on BOTH paths, so a reader never
+    infers "configured" from an absence. No host, no port, no token is ever
+    in the record (a local provider has none), and the key is a 64-hex
+    settings fingerprint that differs from the production offline key."""
+    import tools.train.provenance as provenance
+
+    _configure_local_paddle(monkeypatch)
+
+    root = tmp_path / "root"
+    root.mkdir()
+    record = provenance.collect(
+        Path(__file__).resolve().parents[1], root, tmp_path / "data",
+        label="test", hash_corpus=False, mode="digital",
+    )
+    assert "run_of_record" in record, {"tree": record.get("tree")}
+    partitions = record["run_of_record"]["partitions"]
+    assert partitions["paddle_ocr_key_note"] == "recorded"
+    key = partitions["paddle_ocr_key"]
+    assert isinstance(key, str) and len(key) == 64 and all(c in "0123456789ABCDEF" for c in key)
+    assert key != partitions["offline_ocr_key"] and key != partitions["visual_ocr_key"]
+    # the recorded run still selects as a production run (no research partition)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "provenance.json").write_text(json.dumps(record, default=str), encoding="utf-8")
+    partitions_read = partitions_for_run(run_dir)
+    assert partitions_read.ocr_keys_by_source["paddle"] == key
+    assert partitions_read.research_partition == ""
 
 
 def test_provenance_probe_tolerates_stdout_noise_before_its_json(tmp_path, monkeypatch):
@@ -841,9 +913,7 @@ def test_provenance_probe_tolerates_stdout_noise_before_its_json(tmp_path, monke
     is recorded as bounded `stdout_noise`, never a parse failure."""
     import tools.train.provenance as provenance
 
-    for name in list(os.environ):
-        if name.startswith("PADDLE_"):
-            monkeypatch.delenv(name, raising=False)
+    _unconfigure_paddle(monkeypatch)
     noisy = "print('warning: some library printed this on import')\n" + provenance._TREE_PROBE
     monkeypatch.setattr(provenance, "_TREE_PROBE", noisy)
 
@@ -987,9 +1057,7 @@ def test_provenance_records_the_research_partition_and_folds_it_into_the_keys(tm
     import tools.train.provenance as provenance
     from telemetry.run_of_record import ResearchPartitionRefused
 
-    for name in list(os.environ):
-        if name.startswith("PADDLE_"):
-            monkeypatch.delenv(name, raising=False)
+    _unconfigure_paddle(monkeypatch)
     root = tmp_path / "root"
     root.mkdir()
     checkout = Path(__file__).resolve().parents[1]

@@ -135,6 +135,10 @@ def run_of_record_partitions():
             force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False,
             allow_paddle_ocr=True, research_partition=research_partition,
         )
+        # P22-IDENTITY closure (hermeticity): the note exists on BOTH paths, so
+        # a reader of the record never has to infer "configured" from the
+        # ABSENCE of a key.
+        partitions["paddle_ocr_key_note"] = "recorded"
     except Exception as exc:  # PaddleConfigError, most commonly: recorded, never fatal
         # P21-ROUTING closure (MINOR-5): the exception's own message is NEVER
         # written verbatim — only the class name, plus the CLOSED-vocabulary
