@@ -14,6 +14,8 @@ from math import isfinite
 from flask import Flask, request, jsonify, render_template, Response, abort
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthorized
+
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
@@ -2303,12 +2305,25 @@ def download(job_id, fmt):
 
 
 def _server_config() -> tuple[str, int]:
-    """Loopback by default. The app still has no authentication (that is D-2b),
-    so exposing it beyond this machine has to be a deliberate act rather than
-    the default anyone inherits."""
+    """Loopback by default. Exposing beyond this machine is a deliberate act
+    (WEBAPP_HOST) and, off-loopback, requires WEBAPP_AUTH_PASSWORD — a D-2b
+    intern-testing slice, not the full production auth trio."""
     host = os.environ.get("WEBAPP_HOST", "").strip() or "127.0.0.1"
     port = os.environ.get("WEBAPP_PORT", "").strip() or "5000"
     return host, int(port)
+
+
+@app.before_request
+def _gate_intern_auth():
+    if request_is_authorized():
+        return None
+    return unauthorized()
+
+
+@app.route("/healthz")
+def healthz():
+    """Load-balancer / Docker probe. No job, document, or store data."""
+    return jsonify({"ok": True})
 
 
 def main() -> None:
@@ -2318,6 +2333,7 @@ def main() -> None:
     from waitress import serve
 
     host, port = _server_config()
+    refuse_unauthenticated_bind(host)
     serve(app, host=host, port=port, threads=SERVER_THREADS)
 
 
