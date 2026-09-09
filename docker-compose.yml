@@ -1,0 +1,27 @@
+# Intern-testing stack. Not production.
+#
+#   cp .env.intern.example .env
+#   # set WEBAPP_AUTH_PASSWORD in .env
+#   docker compose up --build
+#
+# The compose file fails closed if WEBAPP_AUTH_PASSWORD is unset — the
+# webapp has no per-user accounts, so a shared password is the intern gate.
+
+services:
+  webapp:
+    build: .
+    ports:
+      - "${WEBAPP_PORT:-5000}:5000"
+    environment:
+      WEBAPP_HOST: "0.0.0.0"
+      WEBAPP_PORT: "5000"
+      WEBAPP_AUTH_USER: "${WEBAPP_AUTH_USER:-intern}"
+      WEBAPP_AUTH_PASSWORD: "${WEBAPP_AUTH_PASSWORD:?Set WEBAPP_AUTH_PASSWORD in .env (see .env.intern.example)}"
+      WEBAPP_DATA_DIR: /app/webapp_data
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+    volumes:
+      - intern-data:/app/webapp_data
+    restart: unless-stopped
+
+volumes:
+  intern-data:

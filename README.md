@@ -181,6 +181,22 @@ $env:OCR_REMOTE_OPT_IN = "I_ACCEPT_REMOTE_PAID_OCR"
 Then open `http://localhost:5000`. Uses the same `OCR_*` environment variables as
 the CLI.
 
+## Intern testing host
+
+The webapp still defaults to loopback with no login. To put a **shared intern
+QA URL** on a machine you control, use the password-gated Docker stack — it
+refuses to bind off-loopback without `WEBAPP_AUTH_PASSWORD`:
+
+```bash
+cp .env.intern.example .env
+# set WEBAPP_AUTH_PASSWORD in .env
+docker compose up --build
+```
+
+Browser login is HTTP Basic (username `intern` plus that password). Native-text
+statements of supported banks work without a GPU and without Gemini. Full
+runbook: [`docs/intern-testing.md`](docs/intern-testing.md).
+
 ## Analysis layer — statement → metrics + MCA/lender findings (Gemini)
 
 The `analysis/` package turns the OCR markdown into structured underwriting data.
