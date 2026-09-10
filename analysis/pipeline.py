@@ -729,19 +729,13 @@ class _Analysed:
 #: the exception object as `hosted_extraction`. On the exception because there
 #: is no payload to record it on, and never in the message, which
 #: `webapp/worker.py`'s declared-refusal allow-list and the router tests pin
-#: byte for byte.
+#: byte for byte (a closed suffix on the message was tried and reverted at
+#: the review's N1: it turned the one actionable refusal into a withheld
+#: crash text for the webapp user). A DURABLE record of the refusal is the
+#: worker owner's composition item: publish the attribute when present.
 HOSTED_EXTRACTION_OPT_IN_ENV = "HOSTED_EXTRACTION_OPT_IN"
 HOSTED_EXTRACTION_OPT_IN_LITERAL = "I_ACCEPT_HOSTED_MODEL_EXTRACTION"
 HOSTED_EXTRACTION_REFUSED_NO_OPT_IN = "refused_no_opt_in"
-#: The closed suffix the refusal's MESSAGE carries (review PHASE2_P22FENCE_REVIEW
-#: F3): a consumer that keeps `str(exc)` — the console tracebacks of `analyze.py`
-#: and `batch.py`, `adb_debug.py`'s stderr line, and `webapp/worker.py` once its
-#: declared-refusal allow-list names the suffixed literal — records that the
-#: document was refused for want of the opt-in, not merely that no parser
-#: matched. Built from the constant above and nothing else, so it can carry no
-#: document text. The deterministic-mode text stays the message's prefix, byte
-#: for byte; the attribute stays for programmatic readers.
-HOSTED_EXTRACTION_REFUSAL_SUFFIX = f" (hosted extraction {HOSTED_EXTRACTION_REFUSED_NO_OPT_IN})"
 
 
 def hosted_extraction_opted_in(
@@ -762,13 +756,18 @@ def _hosted_extraction_refused(dispatch: Dispatch) -> RuntimeError:
 
     Built from the dispatch's OUTCOME and the registry's own ids and class
     names — never from the document — exactly as the deterministic raises
-    above the call site build theirs: the same CLASS, and the deterministic
-    message as the PREFIX of this one, followed by the closed suffix
-    `HOSTED_EXTRACTION_REFUSAL_SUFFIX` (review F3) so a record that keeps the
-    text says why the document was refused; the attribute says the same to a
-    reader holding the object. Returned rather than raised so the call site
-    writes `raise _hosted_extraction_refused(dispatch)` from outside any
-    `except`: no `__context__` for a traceback renderer to walk.
+    above the call site build theirs: the same CLASS and the same MESSAGE,
+    byte for byte, so a refused auto-mode document is indistinguishable from a
+    deterministic-mode one everywhere the message is read (the webapp's
+    declared-refusal allow-list publishes it as the one actionable refusal),
+    and distinguishable by the attribute wherever the object is. The message
+    carried a closed suffix between the first and second closure of
+    P22-FENCE's review; re-review N1 measured what that did to the webapp's
+    published error and Ocean reverted it — the durable record of the refusal
+    is the worker owner's, by publishing the attribute when present. Returned
+    rather than raised so the call site writes
+    `raise _hosted_extraction_refused(dispatch)` from outside any `except`:
+    no `__context__` for a traceback renderer to walk.
     """
     if dispatch.outcome == "ambiguous":
         refusal: RuntimeError = AmbiguousParserError(dispatch.candidates)
@@ -776,7 +775,6 @@ def _hosted_extraction_refused(dispatch: Dispatch) -> RuntimeError:
         refusal = ParserCrashError(dispatch.exceptions)
     else:
         refusal = RuntimeError("no deterministic parser matched this statement")
-    refusal.args = (f"{refusal}{HOSTED_EXTRACTION_REFUSAL_SUFFIX}",)
     refusal.hosted_extraction = HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
     return refusal
 

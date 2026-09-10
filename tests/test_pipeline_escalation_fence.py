@@ -71,7 +71,6 @@ PIPELINE_SOURCE = ROOT / "analysis" / "pipeline.py"
 OPT_IN_ENV = pipeline.HOSTED_EXTRACTION_OPT_IN_ENV
 OPT_IN_LITERAL = pipeline.HOSTED_EXTRACTION_OPT_IN_LITERAL
 REFUSED_NO_OPT_IN = pipeline.HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
-REFUSAL_SUFFIX = pipeline.HOSTED_EXTRACTION_REFUSAL_SUFFIX
 
 #: The deterministic refusal `webapp/worker.py` allow-lists and
 #: `tests/test_escalation_router.py` pins.
@@ -299,27 +298,21 @@ def test_without_the_literal_auto_mode_takes_the_deterministic_outcome(
 
     assert fake.calls == [], "auto mode reached the hosted extractor with no opt-in"
     assert type(auto.value) is type(deterministic.value)
-    # Review F3: the deterministic message is the PREFIX, byte for byte, and the
-    # closed suffix names the refusal for any record that keeps the text.
-    assert str(auto.value) == str(deterministic.value) + REFUSAL_SUFFIX
-    assert REFUSAL_SUFFIX not in str(deterministic.value)
+    # Re-review N1: the message is the deterministic message, BYTE FOR BYTE —
+    # a closed suffix was tried between the two closures and reverted because
+    # the webapp's exact-match allow-list then withheld the one actionable
+    # refusal. The attribute is the refusal's only record on the object; a
+    # durable record is the worker owner's (publish the attribute when present).
+    assert str(auto.value) == str(deterministic.value)
     assert auto.value.hosted_extraction == REFUSED_NO_OPT_IN
     assert not hasattr(deterministic.value, "hosted_extraction")
     if outcome == "unclaimed":
-        assert str(deterministic.value) == NO_PARSER_MATCHED
-        assert str(auto.value) == NO_PARSER_MATCHED + REFUSAL_SUFFIX
+        assert str(auto.value) == NO_PARSER_MATCHED
 
 
-def test_the_refusal_suffix_is_the_closed_token_and_nothing_else():
-    """Review F3: the suffix is built from the closed token alone, so it can
-    carry no document text into a message; it is what a durable record that
-    keeps `str(exc)` will show, and what `webapp/worker.py`'s declared-refusal
-    allow-list must name (the suffixed literal below) to publish it."""
-    assert REFUSAL_SUFFIX == f" (hosted extraction {REFUSED_NO_OPT_IN})"
+def test_the_refusal_token_is_closed_and_never_in_the_message():
     assert REFUSED_NO_OPT_IN == "refused_no_opt_in"
-    assert (NO_PARSER_MATCHED + REFUSAL_SUFFIX) == (
-        "no deterministic parser matched this statement (hosted extraction refused_no_opt_in)"
-    )
+    assert not hasattr(pipeline, "HOSTED_EXTRACTION_REFUSAL_SUFFIX")
 
 
 @pytest.mark.parametrize("outcome", list(OUTCOMES))
@@ -542,11 +535,11 @@ def test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence()
 
 # ---------------------------------------------------------------------------
 # Tripwire (b): no comparison of, or selection between, two reconcile results —
-# and (review PHASE2_P22FENCE_REVIEW F1) no way to walk around the check by
-# SCOPE or by NAME
+# and no way to walk around the check by SCOPE, by NAME (review F1), by LOOP,
+# by the sibling exemption, or by re-invoking the analysis (re-review N2)
 # ---------------------------------------------------------------------------
 #
-# THE CHECK, CONCRETELY. Two layers over the whole text of `analysis/pipeline.py`.
+# THE CHECK, CONCRETELY. Three layers over the whole text of `analysis/pipeline.py`.
 #
 # NAME INTEGRITY (`name_integrity_violations`): the identifiers `reconcile` and
 # `extract_statement` are the ONLY handles to the two functions; each is bound
@@ -554,50 +547,59 @@ def test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence()
 #   N1  `from .reconcile import reconcile` and `from .extract import
 #       extract_statement` are the only bindings — exactly one `ImportFrom` per
 #       name, relative level 1, no `asname`, and the modules `reconcile` /
-#       `extract` are named by no other `Import` / `ImportFrom` (any level, any
-#       package, any alias: `from .reconcile import reconcile as verify`,
-#       `from . import extract as _ex`, `import analysis.extract` all refuse);
+#       `extract` are named by no other `Import` / `ImportFrom`;
 #   N2  neither name is ever a Store/Del target, a parameter, a `global` /
 #       `nonlocal`, a walrus, `for`, `with` or comprehension target, or an
-#       import alias (`from .x import y as reconcile`);
-#   N3  a Load of either name is legal ONLY as the `func` of a `Call` —
-#       `_r = reconcile`, `(reconcile,)`, `map(reconcile, …)`,
-#       `_hosted = extract_statement` are refused;
-#   N4  no `Attribute` anywhere has `attr` equal to either name
-#       (`_ex.extract_statement`, `analysis.reconcile.reconcile`);
-#   N5  no string constant anywhere equals either name
-#       (`getattr(x, "extract_statement")`, `globals()["reconcile"]`);
+#       import alias;
+#   N3  a Load of either name is legal ONLY as the `func` of a `Call`;
+#   N4  no `Attribute` anywhere has `attr` equal to either name;
+#   N5  no string constant anywhere equals either name;
 #   N6  the module never calls `getattr` / `setattr` / `globals` / `locals` /
 #       `vars` / `__import__` / `eval` / `exec` / `compile`, never imports
-#       `importlib` or `builtins`, and never reads `sys.modules` — the dynamic
-#       doors are closed as a CLASS, not by name (the module uses none of them).
+#       `importlib` or `builtins`, and never reads `sys.modules`.
+#   The same rules bind the orchestration entry `_analyse` (N2/N3): it is
+#   never rebound, aliased or passed — only called.
 #
-# SELECTION (`reconcile_selection_violations`), over UNITS rather than scopes.
-# A unit is a top-level function TOGETHER WITH every function, lambda and
-# comprehension nested in it (the review's mutant R6 hid the second binding in
-# a closure that read the enclosing `recon`), plus the module body outside
-# functions:
+# SELECTION (`reconcile_selection_violations`), over UNITS — a top-level function
+# TOGETHER WITH every function, lambda and comprehension nested in it, plus the
+# module body outside functions:
 #   B1  at most ONE name is bound from a `reconcile(...)` call anywhere in the unit;
 #   B2  such a name is bound exactly once in the unit — never re-bound, never a
-#       tuple-unpack target (the base's `stmt, recon, model_used, escalated =
-#       alt, alt_recon, …` was that), never shadowed by a nested parameter or
-#       target;
+#       tuple-unpack target, never shadowed by a nested parameter or target;
 #   B3  every `reconcile(...)` call sits in one of exactly two syntactic
-#       positions: the value of a single-target `Name = reconcile(...)`, or a
-#       direct POSITIONAL argument of `_account_report(...)`. Any other parent —
-#       a comparison, an `if` / `while` / conditional-expression test, a boolean
-#       operation, an attribute access on the call, a `return`, another
-#       function's argument list — is refused;
+#       positions: the value of a single-target `Name = reconcile(...)`, or the
+#       SIBLING SHAPE — a direct positional argument of `_account_report(...)`
+#       that is itself the direct argument of `accounts.append(...)`, that
+#       statement standing directly in the body of a `for` loop of the unit
+#       `_analyse`. Any other parent, and any `_account_report(...)` elsewhere
+#       that receives a `reconcile(...)`, is refused (re-review E11);
 #   B4  no `Compare`, `BoolOp` or `IfExp` anywhere in the unit reads attributes
-#       of two DIFFERENT reconcile-bound names of that unit.
-# With N1–N6 holding, every reconciliation result the module can obtain is
-# produced by a call spelled `reconcile(`, so B1–B4 see all of them. What the
-# layers deliberately permit: the one `recon = reconcile(stmt, parser_id=
-# claiming)` per analysis, and the sibling loop's `_account_report(sibling,
-# reconcile(sibling, parser_id=claiming), …)`, where the result is consumed,
-# never compared. What no single-module scan can see: a helper whose body lives
-# in ANOTHER module — which is why `test_no_other_module_under_analysis_imports_
-# reconcile_or_extract_statement` pins that no such module exists.
+#       of two DIFFERENT reconcile-bound names of that unit;
+#   B5  a reconcile-bound name is neither BOUND nor READ inside any loop body —
+#       `for`, `async for`, `while`, or a comprehension / generator — of its
+#       unit (re-review E10: the idiomatic "try candidates until one
+#       reconciles" re-binds one name inside a loop and passed B1–B4);
+#   B6  the attribute `reconciliation` (`Report.reconciliation`, the field a
+#       reconcile result becomes) is READ nowhere in the module — a result
+#       consumed through a `Report` or an `_Analysed` is a result compared
+#       (re-review E8/E11).
+#
+# RE-INVOCATION (`orchestration_shape_violations`): `_analyse`,
+# `analyze_markdown` and `analyze_document` carry NO decorators; `_analyse` is
+# called by name exactly TWICE in the module — once from `analyze_markdown`
+# and once from `analyze_document`, the module's two entry points — each call
+# a plain statement-level call, never inside a loop, a `try`, a lambda or a
+# nested function; no other function or lambda is defined at module level
+# between the three (a wrapper needs a home). Re-review E8b was a decorator
+# on `_analyse` re-invoking it and keeping the result whose `.reconciliation`
+# passed; it is caught here and by B6. (The re-review direction pinned "one
+# caller, `analyze_markdown`"; the module's real shape has two — the document
+# entry calls `_analyse` too — and the pin states the shape as it is.)
+#
+# What no single-module scan can see: a helper whose body lives in ANOTHER
+# module — hence the module-wide guard below over every module under
+# `analysis/`, INCLUDING the two definers (re-review N4: their own `def` is
+# the one binding each may carry).
 
 GUARDED_NAMES = frozenset({"reconcile", "extract_statement"})
 #: guarded name -> (the relative module it is imported from, the names that
@@ -611,6 +613,8 @@ DYNAMIC_DOORS = frozenset({
     "getattr", "setattr", "globals", "locals", "vars", "__import__", "eval", "exec", "compile",
 })
 FORBIDDEN_IMPORTS = frozenset({"importlib", "builtins"})
+ORCHESTRATION = ("_analyse", "analyze_markdown", "analyze_document")
+LOOP_NODES = (ast.For, ast.AsyncFor, ast.While, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 
 
 def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
@@ -625,23 +629,31 @@ def _module_of(node: ast.ImportFrom) -> str:
     return (node.module or "").split(".")[-1]
 
 
+def _ancestors(node: ast.AST, parents: dict[ast.AST, ast.AST], stop: ast.AST | None = None):
+    while node in parents and node is not stop:
+        node = parents[node]
+        yield node
+
+
 def name_integrity_violations(source: str) -> list[str]:
-    """N1–N6 over the whole module: a list of violations, empty when clean."""
+    """N1–N6 over the whole module (plus `_analyse` under N2/N3): a list of
+    violations, empty when clean."""
     tree = ast.parse(source)
     parents = _parents(tree)
     violations: list[str] = []
     canonical_count = {name: 0 for name in GUARDED_NAMES}
+    only_called = GUARDED_NAMES | {"_analyse"}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             module = _module_of(node)
             for alias in node.names:
-                if alias.asname in GUARDED_NAMES:
+                if alias.asname in only_called:
                     violations.append(f"N2 `{alias.name}` imported as guarded name `{alias.asname}`")
                 if alias.name in GUARDED_NAMES:
                     wanted_module, _allowed = CANONICAL_IMPORTS[alias.name]
                     if alias.asname is not None:
                         violations.append(f"N1 `{alias.name}` imported as `{alias.asname}`")
-                    elif node.level == 1 and module == wanted_module and (node.module or "") == wanted_module:
+                    elif node.level == 1 and (node.module or "") == wanted_module:
                         canonical_count[alias.name] += 1
                     else:
                         violations.append(f"N1 `{alias.name}` imported from {'.' * node.level}{node.module}")
@@ -655,7 +667,7 @@ def name_integrity_violations(source: str) -> list[str]:
                         violations.append(f"N1 `from {'.' * node.level}{node.module} import {alias.name}` is not the canonical import")
                 if node.level != 1:
                     violations.append(f"N1 `{node.module}` imported at level {node.level}")
-            if any(alias.name.split(".")[0] in FORBIDDEN_IMPORTS for alias in node.names) or module in FORBIDDEN_IMPORTS or (node.module or "").split(".")[0] in FORBIDDEN_IMPORTS:
+            if any(alias.name.split(".")[0] in FORBIDDEN_IMPORTS for alias in node.names) or (node.module or "").split(".")[0] in FORBIDDEN_IMPORTS:
                 violations.append(f"N6 import of a dynamic door: {ast.unparse(node)}")
         elif isinstance(node, ast.Import):
             for alias in node.names:
@@ -663,24 +675,24 @@ def name_integrity_violations(source: str) -> list[str]:
                 leaf = alias.name.split(".")[-1]
                 if root in FORBIDDEN_IMPORTS:
                     violations.append(f"N6 import of a dynamic door: {ast.unparse(node)}")
-                if leaf in GUARDED_MODULES or alias.asname in GUARDED_NAMES:
+                if leaf in GUARDED_MODULES or alias.asname in only_called:
                     violations.append(f"N1 `{ast.unparse(node)}`")
-        elif isinstance(node, ast.Name) and node.id in GUARDED_NAMES:
+        elif isinstance(node, ast.Name) and node.id in only_called:
             if not isinstance(node.ctx, ast.Load):
                 violations.append(f"N2 `{node.id}` bound: {ast.unparse(parents[node])}")
             else:
                 parent = parents.get(node)
                 if not (isinstance(parent, ast.Call) and parent.func is node):
                     violations.append(f"N3 `{node.id}` used other than as a call: {ast.unparse(parent)}")
-        elif isinstance(node, ast.arg) and node.arg in GUARDED_NAMES:
+        elif isinstance(node, ast.arg) and node.arg in only_called:
             violations.append(f"N2 `{node.arg}` is a parameter")
-        elif isinstance(node, (ast.Global, ast.Nonlocal)) and set(node.names) & GUARDED_NAMES:
+        elif isinstance(node, (ast.Global, ast.Nonlocal)) and set(node.names) & only_called:
             violations.append(f"N2 {ast.unparse(node)}")
-        elif isinstance(node, ast.Attribute) and node.attr in GUARDED_NAMES:
+        elif isinstance(node, ast.Attribute) and node.attr in only_called:
             violations.append(f"N4 attribute access `{ast.unparse(node)}`")
         elif isinstance(node, ast.Attribute) and node.attr == "modules" and isinstance(node.value, ast.Name) and node.value.id == "sys":
             violations.append("N6 `sys.modules` read")
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in GUARDED_NAMES:
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in only_called:
             violations.append(f"N5 string constant {node.value!r}: {ast.unparse(parents[node])}")
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in DYNAMIC_DOORS:
             violations.append(f"N6 dynamic door `{ast.unparse(node)}`")
@@ -729,8 +741,29 @@ def _binding_sites(nodes: list[ast.AST], name: str) -> int:
     return sites
 
 
+def _is_sibling_shape(call: ast.AST, parents: dict[ast.AST, ast.AST], unit_root: ast.AST | None) -> bool:
+    """B3's one exemption, exactly: `reconcile(...)` -> positional arg of
+    `_account_report(...)` -> the sole argument of `accounts.append(...)` ->
+    an expression statement directly in a `for` body of `_analyse`."""
+    report_call = parents.get(call)
+    if not (isinstance(report_call, ast.Call) and isinstance(report_call.func, ast.Name)
+            and report_call.func.id == "_account_report" and call in report_call.args):
+        return False
+    append_call = parents.get(report_call)
+    if not (isinstance(append_call, ast.Call) and isinstance(append_call.func, ast.Attribute)
+            and append_call.func.attr == "append" and isinstance(append_call.func.value, ast.Name)
+            and append_call.func.value.id == "accounts" and append_call.args == [report_call]):
+        return False
+    statement = parents.get(append_call)
+    loop = parents.get(statement)
+    return (
+        isinstance(statement, ast.Expr) and isinstance(loop, ast.For) and statement in loop.body
+        and isinstance(unit_root, ast.FunctionDef) and unit_root.name == "_analyse"
+    )
+
+
 def reconcile_selection_violations(source: str) -> list[str]:
-    """B1–B4 over every UNIT of the module (see the block comment above): a
+    """B1–B6 over every UNIT of the module (see the block comment above): a
     list of violations, empty when the module is clean. A pure function of the
     module text, so the mutation table can call it on a mutant without touching
     the tree."""
@@ -738,11 +771,14 @@ def reconcile_selection_violations(source: str) -> list[str]:
     parents = _parents(tree)
     violations: list[str] = []
     for label, nodes in _units(tree):
+        unit_root = nodes[0] if nodes and isinstance(nodes[0], (ast.FunctionDef, ast.AsyncFunctionDef)) else None
         reconcile_bound: list[str] = []
         for node in nodes:
             if isinstance(node, ast.Assign) and _is_reconcile_call(node.value):
                 for target in node.targets:
                     reconcile_bound.extend(_bound_names(target))
+            elif isinstance(node, ast.NamedExpr) and _is_reconcile_call(node.value):
+                reconcile_bound.extend(_bound_names(node.target))
         if len(reconcile_bound) > 1:
             violations.append(f"B1 {label}: {len(reconcile_bound)} names bound from reconcile(): {reconcile_bound}")
         for name in reconcile_bound:
@@ -757,11 +793,7 @@ def reconcile_selection_violations(source: str) -> list[str]:
                 isinstance(parent, ast.Assign) and parent.value is node
                 and len(parent.targets) == 1 and isinstance(parent.targets[0], ast.Name)
             )
-            account_report_argument = (
-                isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name)
-                and parent.func.id == "_account_report" and node in parent.args
-            )
-            if not (single_assignment or account_report_argument):
+            if not (single_assignment or _is_sibling_shape(node, parents, unit_root)):
                 violations.append(f"B3 {label}: reconcile() in a refused position: {ast.unparse(parent)}")
         bound = set(reconcile_bound)
         for node in nodes:
@@ -773,6 +805,40 @@ def reconcile_selection_violations(source: str) -> list[str]:
                 }
                 if len(roots) > 1:
                     violations.append(f"B4 {label}: two reconcile results read together: {ast.unparse(node)}")
+            if isinstance(node, ast.Name) and node.id in bound:
+                if any(isinstance(a, LOOP_NODES) for a in _ancestors(node, parents, unit_root)):
+                    violations.append(f"B5 {label}: `{node.id}` {'bound' if not isinstance(node.ctx, ast.Load) else 'read'} inside a loop")
+            if isinstance(node, ast.Attribute) and node.attr == "reconciliation":
+                violations.append(f"B6 {label}: a reconciliation result read through an object: {ast.unparse(node)}")
+    return violations
+
+
+def orchestration_shape_violations(source: str) -> list[str]:
+    """The re-invocation pins: no decorators on the three orchestration
+    functions; `_analyse` called by name exactly twice, once each from
+    `analyze_markdown` and `analyze_document`, at statement level."""
+    tree = ast.parse(source)
+    parents = _parents(tree)
+    violations: list[str] = []
+    functions = {node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    for name in ORCHESTRATION:
+        node = functions.get(name)
+        if node is None:
+            violations.append(f"O1 `{name}` is not a top-level function")
+        elif node.decorator_list:
+            violations.append(f"O1 `{name}` is decorated: {[ast.unparse(d) for d in node.decorator_list]}")
+    callers: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_analyse":
+            owner = next((a for a in _ancestors(node, parents) if isinstance(a, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))), None)
+            label = getattr(owner, "name", "<lambda>") if owner is not None else "<module>"
+            callers.append(label)
+            if any(isinstance(a, LOOP_NODES + (ast.Try, ast.Lambda)) for a in _ancestors(node, parents, owner)):
+                violations.append(f"O2 `_analyse` called inside a loop, try or lambda in `{label}`")
+            if owner is not None and owner is not functions.get(label):
+                violations.append(f"O2 `_analyse` called from a nested function `{label}`")
+    if sorted(callers) != ["analyze_document", "analyze_markdown"]:
+        violations.append(f"O2 `_analyse` callers are {sorted(callers)}, expected exactly ['analyze_document', 'analyze_markdown']")
     return violations
 
 
@@ -782,6 +848,10 @@ def test_name_integrity_holds_on_the_module():
 
 def test_no_two_reconcile_results_are_compared_or_selected_between():
     assert reconcile_selection_violations(PIPELINE_SOURCE.read_text(encoding="utf-8")) == []
+
+
+def test_the_orchestration_functions_are_undecorated_and_analyse_has_exactly_its_two_callers():
+    assert orchestration_shape_violations(PIPELINE_SOURCE.read_text(encoding="utf-8")) == []
 
 
 def _mutant(*edits: tuple[str, str]) -> str:
@@ -794,8 +864,10 @@ def _mutant(*edits: tuple[str, str]) -> str:
 
 
 ANCHOR_ESCALATED = "    escalated = False\n"
+ANCHOR_RECON = "    recon = reconcile(stmt, parser_id=claiming)\n"
 ANCHOR_IMPORT_RECONCILE = "from .reconcile import reconcile, ReconResult\n"
 ANCHOR_IMPORT_EXTRACT = "from .extract import extract_statement\n"
+ANCHOR_DEF_ANALYSE = "def _analyse(markdown: str, *, settings: Settings | None = None,\n"
 
 
 def test_the_reconcile_selection_check_catches_the_base_selection_verbatim():
@@ -832,11 +904,8 @@ def test_the_reconcile_selection_check_refuses_every_other_position(mutant_line)
 
 def test_the_reviewers_nested_closure_selection_is_caught_across_scopes():
     """Review F1, mutant R6 verbatim: a closure inside `_analyse` binds its own
-    `reconcile(...)` result and reads the enclosing `recon` — a reconciliation-
-    based selection between two candidates with NO second extraction, invisible
-    to every dynamic test. At c373957 it passed the per-scope check and the
-    whole killer set (402 passed). Over units it trips B1 (two reconcile-bound
-    names in `_analyse`) and B4 (`alt_recon.ok and not recon.ok`)."""
+    `reconcile(...)` result and reads the enclosing `recon`. Over units it
+    trips B1 (two reconcile-bound names in `_analyse`) and B4."""
     closure = (
         "    def _prefer(candidate):\n"
         "        alt_recon = reconcile(candidate, parser_id=claiming)\n"
@@ -858,6 +927,71 @@ def test_a_nested_parameter_shadowing_the_reconcile_result_is_caught():
     assert any(v.startswith("B2 _analyse") and "`recon`" in v for v in violations), violations
 
 
+E10_LOOP = (
+    "    for _candidate in (stmt, normalize_statement(stmt)):\n"
+    "        recon = reconcile(_candidate, parser_id=claiming)\n"
+    "        if recon.ok:\n"
+    "            stmt = _candidate\n"
+    "            break\n"
+)
+E11_SIBLING_ROUTE = (
+    "    _alt = _account_report(\n"
+    "        normalize_statement(stmt), reconcile(normalize_statement(stmt), parser_id=claiming),\n"
+    "        dispatch=dispatch, settings=settings, markdown=markdown, source_markdown=markdown,\n"
+    "        sheets=sheets, repair_failure=repair_failure, model_used=model_used, escalated=False,\n"
+    "    )\n"
+    "    if _alt.reconciliation.ok and not recon.ok:\n"
+    "        stmt = normalize_statement(stmt)\n"
+)
+E8B_DECORATOR = (
+    "def _twice(fn):\n"
+    "    def wrapper(markdown, **kwargs):\n"
+    "        first = fn(markdown, **kwargs)\n"
+    "        if first.accounts[0].model_used.endswith(\"-deterministic\"):\n"
+    "            second = fn(markdown, **kwargs)\n"
+    "            if second.accounts[0].reconciliation.ok and not first.accounts[0].reconciliation.ok:\n"
+    "                return second\n"
+    "        return first\n"
+    "    return wrapper\n"
+    "\n"
+    "\n"
+    "@_twice\n"
+)
+
+
+def test_the_reviewers_loop_form_is_caught_by_b5():
+    """Re-review E10 verbatim: the one `recon = reconcile(...)` line moved into a
+    `for` over candidates with `if recon.ok: stmt = _candidate; break` — one
+    bound name, one textual binding site, a permitted position, one root: it
+    passed B1–B4 and the whole killer set at 5c59524. B5 refuses a
+    reconcile-bound name bound or read inside any loop body."""
+    violations = reconcile_selection_violations(_mutant((ANCHOR_RECON, E10_LOOP)))
+    assert any(v.startswith("B5 _analyse") and "bound" in v for v in violations), violations
+    assert any(v.startswith("B5 _analyse") and "read" in v for v in violations), violations
+
+
+def test_the_reviewers_account_report_route_is_caught_by_b3_and_b6():
+    """Re-review E11 verbatim: a second `reconcile(...)` consumed through
+    `_account_report(...)` outside the sibling loop, its result read as
+    `.reconciliation.ok` beside `recon.ok`. The narrowed B3 refuses the
+    position; B6 refuses the read."""
+    violations = reconcile_selection_violations(_mutant((ANCHOR_ESCALATED, ANCHOR_ESCALATED + E11_SIBLING_ROUTE)))
+    assert any(v.startswith("B3 _analyse") for v in violations), violations
+    assert any(v.startswith("B6 _analyse") for v in violations), violations
+
+
+def test_the_reviewers_decorator_reinvocation_is_caught():
+    """Re-review E8b verbatim: a decorator on `_analyse` re-invoking it only on
+    deterministic results and keeping the one whose `.reconciliation.ok`
+    passes — invisible to every dynamic test. Caught by the decorator pin,
+    by the caller pin (the wrapper's `fn(...)` is not `_analyse` by name, but
+    the decorator is), and by B6 on the module."""
+    mutant = _mutant((ANCHOR_DEF_ANALYSE, E8B_DECORATOR + ANCHOR_DEF_ANALYSE))
+    shape = orchestration_shape_violations(mutant)
+    assert any(v.startswith("O1 `_analyse` is decorated") for v in shape), shape
+    assert any(v.startswith("B6 _twice") for v in reconcile_selection_violations(mutant))
+
+
 @pytest.mark.parametrize("edits,rule", [
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _r = reconcile\n    alt_recon = _r(stmt, parser_id=claiming)\n"),), "N3"),
     (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "from .reconcile import reconcile as verify\n"),), "N1"),
@@ -874,50 +1008,96 @@ def test_a_nested_parameter_shadowing_the_reconcile_result_is_caught():
     (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from .config import Settings as reconcile\n"),), "N2"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    reconcile = None\n"),), "N2"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _m = __import__(\"sys\").modules\n"),), "N6"),
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _run = _analyse\n"),), "N3"),
 ], ids=["alias-reconcile", "import-as-reconcile", "alias-extract", "import-as-extract",
         "module-import-as", "module-attribute", "getattr-string", "getattr-any", "globals-lookup",
-        "importlib", "absolute-module-import", "asname-shadow", "rebinding", "dunder-import"])
+        "importlib", "absolute-module-import", "asname-shadow", "rebinding", "dunder-import",
+        "alias-analyse"])
 def test_every_alias_and_dynamic_door_is_refused(edits, rule):
-    """Review F1: the alias shapes that walked past the name-bound check at
-    c373957 (`_r = reconcile`; `from .reconcile import reconcile as verify`;
-    `_hosted = extract_statement`; `import … as _second`; `getattr`;
-    `globals()`), and the doors they would need, each caught by the named rule."""
     violations = name_integrity_violations(_mutant(*edits))
     assert any(v.startswith(rule) for v in violations), (rule, violations)
 
 
+def test_a_reconcile_inside_a_comprehension_or_while_is_caught():
+    for shape in (
+        "    _oks = [reconcile(s, parser_id=claiming).ok for s in (stmt,)]\n",
+        "    while not (recon := reconcile(stmt, parser_id=claiming)).ok:\n        break\n",
+    ):
+        violations = reconcile_selection_violations(_mutant((ANCHOR_ESCALATED, ANCHOR_ESCALATED + shape)))
+        assert any(v.startswith(("B2", "B3", "B5")) for v in violations), (shape, violations)
+
+
+# --- the module-wide guard: every module under analysis/, the definers included
+
+
 ANALYSIS_ROOT = ROOT / "analysis"
+DEFINERS = {"analysis/reconcile.py": "reconcile", "analysis/extract.py": "extract_statement"}
+
+
+def module_guard_violations(relative: str, source: str) -> list[str]:
+    """For one module under `analysis/` other than `pipeline.py`: it may not
+    import, alias, bind or reach `reconcile` / `extract_statement`. A definer
+    may carry exactly its own `def` (and call itself) and nothing else of
+    either name — re-review N4 closed the wholesale exemption."""
+    tree = ast.parse(source)
+    parents = _parents(tree)
+    own = DEFINERS.get(relative)
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = _module_of(node)
+            if any(alias.name in GUARDED_NAMES or alias.asname in GUARDED_NAMES for alias in node.names):
+                offenders.append(f"{relative}: {ast.unparse(node)}")
+            elif module in GUARDED_MODULES and (node.module or "") in GUARDED_MODULES | {f"analysis.{m}" for m in GUARDED_MODULES}:
+                if any(alias.name != "ReconResult" for alias in node.names):
+                    offenders.append(f"{relative}: {ast.unparse(node)}")
+            elif any(alias.name in GUARDED_MODULES for alias in node.names) and node.module in (None, "", "analysis"):
+                offenders.append(f"{relative}: {ast.unparse(node)}")
+        elif isinstance(node, ast.Import):
+            if any(alias.name in {"analysis.reconcile", "analysis.extract"} for alias in node.names):
+                offenders.append(f"{relative}: {ast.unparse(node)}")
+        elif isinstance(node, ast.Attribute) and node.attr in GUARDED_NAMES:
+            offenders.append(f"{relative}: {ast.unparse(node)}")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in GUARDED_NAMES:
+            if node.name != own or not isinstance(parents.get(node), ast.Module):
+                offenders.append(f"{relative}: defines `{node.name}`")
+        elif isinstance(node, ast.Name) and node.id in GUARDED_NAMES:
+            parent = parents.get(node)
+            called_self = node.id == own and isinstance(node.ctx, ast.Load) and isinstance(parent, ast.Call) and parent.func is node
+            if not called_self:
+                offenders.append(f"{relative}: `{node.id}` {ast.unparse(parent)}")
+        elif isinstance(node, ast.arg) and node.arg in GUARDED_NAMES:
+            offenders.append(f"{relative}: parameter `{node.arg}`")
+    return offenders
 
 
 def test_no_other_module_under_analysis_imports_reconcile_or_extract_statement():
-    """The module-wide import guard (review F1, item 3): a helper whose body
-    lives in another module is the one shape a single-module scan cannot see,
-    so no module under `analysis/` other than `pipeline.py` may bind, import
-    or reach `reconcile` / `extract_statement` — by `ImportFrom`, by an
-    `Import` of their modules, or by attribute. (`reconcile.py` and
-    `extract.py` define them.)"""
+    """The module-wide guard (review F1 item 3; re-review N4): no module under
+    `analysis/` other than `pipeline.py` may bind, import, alias or reach
+    `reconcile` / `extract_statement` — the two definers included, each
+    allowed exactly its own top-level `def`."""
     offenders: list[str] = []
     for path in sorted(ANALYSIS_ROOT.rglob("*.py")):
         relative = path.relative_to(ROOT).as_posix()
-        if relative in ("analysis/pipeline.py", "analysis/reconcile.py", "analysis/extract.py"):
+        if relative == "analysis/pipeline.py":
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                module = _module_of(node)
-                if any(alias.name in GUARDED_NAMES or alias.asname in GUARDED_NAMES for alias in node.names):
-                    offenders.append(f"{relative}: {ast.unparse(node)}")
-                elif module in GUARDED_MODULES and (node.module or "") in GUARDED_MODULES | {f"analysis.{m}" for m in GUARDED_MODULES}:
-                    if any(alias.name not in {"ReconResult"} for alias in node.names):
-                        offenders.append(f"{relative}: {ast.unparse(node)}")
-                elif any(alias.name in GUARDED_MODULES for alias in node.names) and (node.module in (None, "", "analysis")):
-                    offenders.append(f"{relative}: {ast.unparse(node)}")
-            elif isinstance(node, ast.Import):
-                if any(alias.name in {"analysis.reconcile", "analysis.extract"} for alias in node.names):
-                    offenders.append(f"{relative}: {ast.unparse(node)}")
-            elif isinstance(node, ast.Attribute) and node.attr in GUARDED_NAMES:
-                offenders.append(f"{relative}: {ast.unparse(node)}")
+        offenders.extend(module_guard_violations(relative, path.read_text(encoding="utf-8")))
     assert offenders == [], offenders
+
+
+@pytest.mark.parametrize("relative,edit", [
+    ("analysis/extract.py", "from .reconcile import reconcile\n"),
+    ("analysis/extract.py", "from . import reconcile as _rc\n"),
+    ("analysis/reconcile.py", "from .extract import extract_statement\n"),
+    ("analysis/reconcile.py", "_alias = reconcile\n"),
+], ids=["extract-imports-reconcile", "extract-imports-module", "reconcile-imports-extract", "reconcile-aliases-itself"])
+def test_a_definer_reaching_the_other_name_or_aliasing_its_own_is_caught(relative, edit):
+    """Re-review N4's probe: a `reconcile` import added to `extract.py` passed
+    the wholesale exemption. The definers are now scanned like every other
+    module, their own `def` being the one binding allowed."""
+    source = (ROOT / relative).read_text(encoding="utf-8")
+    assert module_guard_violations(relative, source) == []
+    assert module_guard_violations(relative, source + "\n" + edit) != []
 
 
 # ---------------------------------------------------------------------------
@@ -990,20 +1170,20 @@ def test_webapp_auto_mode_without_the_literal_equals_deterministic_mode_on_an_un
     clean_environment, monkeypatch,
 ):
     """Card item 5: `webapp.worker._analyze_doc` — the seam `run_job` calls in
-    both modes — returns the same markdown, the same html and NO payload for
-    an unclaimed synthetic in `auto` as in `deterministic`, and the extractor
-    is never reached. This is the user-facing change: a webapp user in auto
-    mode without the literal now gets the deterministic refusal where the base
-    gave them a hosted extraction.
+    both modes — returns the SAME (markdown, html, analysis, analysis_error)
+    for an unclaimed synthetic in `auto` as in `deterministic`: no payload,
+    the declared refusal `webapp/worker.py` allow-lists (the one analysis
+    error a user can act on), and the extractor never reached. This is the
+    user-facing change: a webapp user in auto mode without the literal now
+    gets the deterministic refusal where the base gave them a hosted
+    extraction.
 
-    The `analysis_error` column differs by the worker's OWN rule, pinned here
-    as it stands (review F3): the pipeline raises the deterministic message
-    plus the closed suffix; `webapp/worker.py::_analysis_failure` publishes a
-    message only when it EQUALS a declared literal, so until its allow-list
-    names the suffixed literal (`webapp/` is not this cell's; Ocean adds the
-    one line at composition) the auto-mode record is the class-name reduction
-    while deterministic mode keeps the declared refusal. Neither carries any
-    document text."""
+    Re-review N1: a closed suffix on the pipeline's message was tried between
+    the two closures; the worker's exact-match allow-list then withheld the
+    refusal as a crash text, so it was reverted and this test pins the
+    declared literal again. A durable "refused for want of the opt-in" record
+    is the worker owner's composition item — publish the exception's
+    `hosted_extraction` attribute when present — never a message change."""
     from webapp import worker
 
     fake = _FakeExtractor({})
@@ -1012,17 +1192,15 @@ def test_webapp_auto_mode_without_the_literal_equals_deterministic_mode_on_an_un
     auto = worker._analyze_doc(_document(), "s.pdf", "auto")
     deterministic = worker._analyze_doc(_document(), "s.pdf", "deterministic")
 
-    assert auto[:3] == deterministic[:3]
-    markdown, html, analysis, auto_error = auto
+    assert auto == deterministic
+    markdown, html, analysis, analysis_error = auto
     assert analysis is None
-    assert deterministic[3] == NO_PARSER_MATCHED
-    assert auto_error == worker._stage_failure(worker._PHASE_ANALYSIS, RuntimeError())
+    assert analysis_error == NO_PARSER_MATCHED
     assert fake.calls == []
-    # The pipeline-level message the worker reduced, for the record: the
-    # declared refusal plus the suffix, exactly.
     with pytest.raises(RuntimeError) as refused:
         pipeline.analyze_document(_document().to_markdown(), parse_mode="auto")
-    assert str(refused.value) == NO_PARSER_MATCHED + REFUSAL_SUFFIX
+    assert str(refused.value) == NO_PARSER_MATCHED
+    assert refused.value.hosted_extraction == REFUSED_NO_OPT_IN
 
 
 def test_webapp_auto_mode_with_the_literal_runs_the_single_hosted_extraction(opted_in, monkeypatch):
