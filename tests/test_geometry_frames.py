@@ -329,6 +329,10 @@ _PINNED_CORPUS_SHA16 = (
 
 @pytest.mark.parametrize("relative_path,expected_sha16", list(zip(_PINNED_CORPUS_RELATIVE_PATHS, _PINNED_CORPUS_SHA16)))
 def test_geometry_from_pdf_is_byte_identical_on_the_pinned_corpus(relative_path, expected_sha16):
+    """The Phase 2.1 pin, UNCONDITIONAL on all 12 again after the Phase 2.2
+    closure ruling (a `pdf_point` frame is a viewport: an out-of-frame word
+    is kept verbatim and noted, never refused), so the display-frame reader
+    is byte-identical to the Phase 2.0 copy on every unrotated page."""
     data = (CORPUS / relative_path).read_bytes()
     assert hashlib.sha256(data).hexdigest().upper()[:16] == expected_sha16, (
         "the pinned corpus file's content changed since this pin was written"
@@ -908,33 +912,62 @@ def test_a_zero_area_rect_is_filed_as_unreadable_not_word_refused():
     assert geometry.pages[1].width > 0.0 and geometry.pages[1].lines
 
 
-def test_rotation_is_recorded_never_corrected():
-    """Item 5, rotation bullet: `rotation_deg` is recorded from `page.rotation`
-    and a rotated native page carries `UNROTATED_WORDS_NOTE` — the byte-
-    identical, un-fixed Phase 2.0 behaviour, documented as a Phase 2.2
-    prerequisite. Measured over the pinned corpus below: 0/830 rotated pages
-    (this cell's read-only measurement, `docs/agent-handoffs/P21-GEOMETRY.md`
-    item 5) — this synthetic case exercises the code path the corpus never
-    triggers."""
+def test_rotation_is_recorded_and_applied_the_phase_2_1_note_is_retired():
+    """Phase 2.2 (P22-IDENTITY item 1, D4) INVERTS the Phase 2.1 pin
+    `test_rotation_is_recorded_never_corrected`: `rotation_deg` is still
+    recorded from `page.rotation`, but a rotated native page now carries
+    `rotation_applied` — its boxes were transformed into the display frame —
+    and the Phase 2.1 note `native_words_unrotated_space` is never emitted.
+    The rotated page's geometry differs from Phase 2.1 BY DESIGN (the
+    four-angle pin in `tests/test_native_evidence.py` says where the boxes
+    went); an unrotated page is unchanged."""
+    from evidence import ROTATION_APPLIED_NOTE
+
+    # This fixture draws the rows upright in UNROTATED space and then sets
+    # `/Rotate 90`, so the DISPLAY shows them sideways (a landscape page
+    # with vertical text) — the shape Phase 2.1's note described. In the
+    # display frame the words are the same words at rotated positions, and
+    # the ONE grouping rule, applied in that frame, groups the display's
+    # horizontal lines (the original columns). An upright rotated statement
+    # is the four-angle pin in `tests/test_native_evidence.py`.
     pdf_bytes = _render_pdf(_MIXED_SOURCE_ROWS, rotate=90)
     evidence = native_evidence_from_pdf(pdf_bytes)
     assert evidence is not None
     frame = evidence.pages[0].frame
     assert frame.rotation_deg == 90
-    assert UNROTATED_WORDS_NOTE in evidence.pages[0].notes
+    assert ROTATION_APPLIED_NOTE in evidence.pages[0].notes
+    assert UNROTATED_WORDS_NOTE not in evidence.pages[0].notes
+    assert (frame.width, frame.height) == (LETTER_PT[1], LETTER_PT[0])
+    for word in evidence.pages[0].words:
+        assert 0.0 <= word.x0 < word.x1 <= frame.width and 0.0 <= word.y0 < word.y1 <= frame.height
+    # the rotated geometry is NOT the Phase 2.0 geometry any more — by design:
+    # same words, different boxes (Phase 2.1 left them where PyMuPDF put
+    # them, outside this frame)
+    legacy = _legacy_geometry_from_pdf(pdf_bytes)
+    new = geometry_from_pdf(pdf_bytes)
+    legacy_words = sorted(w.text for line in legacy.pages[0].lines for w in line.words)
+    new_words = sorted(w.text for line in new.pages[0].lines for w in line.words)
+    assert legacy_words == new_words
+    legacy_boxes = {(w.text, w.x0, w.y0) for line in legacy.pages[0].lines for w in line.words}
+    new_boxes = {(w.text, w.x0, w.y0) for line in new.pages[0].lines for w in line.words}
+    assert legacy_boxes.isdisjoint(new_boxes)
+    # the legacy page reports the SAME display frame but its boxes were never
+    # transformed into it: the legacy reader mixed the two spaces
+    assert (legacy.pages[0].width, legacy.pages[0].height) == (frame.width, frame.height)
 
     unrotated = native_evidence_from_pdf(_render_pdf(_MIXED_SOURCE_ROWS, rotate=0))
     assert unrotated.pages[0].frame.rotation_deg == 0
     assert UNROTATED_WORDS_NOTE not in unrotated.pages[0].notes
+    assert ROTATION_APPLIED_NOTE not in unrotated.pages[0].notes
 
 
 def test_no_page_in_the_pinned_corpus_sample_is_rotated():
-    """The read-only measurement (item 5): of the 12 pinned corpus PDFs
-    (spanning 12 institution folders), 0 pages carry a non-zero rotation —
-    consistent with the full 109-PDF / 830-page measurement recorded in this
-    cell's W3 section. A future rotated corpus document would start failing
-    this count-only assertion, which is exactly the point: it is the signal
-    that the Phase 2.2 rotation prerequisite has become live."""
+    """The read-only measurement (Phase 2.1 item 5, re-asserted in 2.2): of
+    the 12 pinned corpus PDFs (spanning 12 institution folders), 0 pages
+    carry a non-zero rotation. The full-archive /Rotate census (all 3,380,
+    read-only, Phase 2.2 cell K) is recorded in that cell's W3 section; a
+    rotated page among these 12 would start failing this count-only
+    assertion, which is the signal that the pin below must be re-measured."""
     rotated = 0
     total_pages = 0
     for relative_path in _PINNED_CORPUS_RELATIVE_PATHS:
@@ -948,6 +981,124 @@ def test_no_page_in_the_pinned_corpus_sample_is_rotated():
                 rotated += 1
     assert total_pages > 0
     assert rotated == 0
+
+
+# ===========================================================================
+# Phase 2.2 (P22-IDENTITY item 2): the re-export, and the unrotated pin under
+# the display-frame reader
+# ===========================================================================
+
+def test_geometry_module_defines_no_native_reader_it_only_imports_the_one_in_evidence():
+    """M13: `analysis/structurer/geometry.py::native_evidence_from_pdf` is a
+    RE-EXPORT of `evidence.native.native_evidence_from_pdf` — the module
+    defines no function of that name (a local copy of the reader is the
+    mutant), imports it from exactly `evidence.native`, and the two names
+    are the SAME object at runtime."""
+    import evidence.native as native_module
+    import analysis.structurer.geometry as geometry_module
+
+    source = (ROOT / "analysis" / "structurer" / "geometry.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    defined = [
+        node.name for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "native_evidence_from_pdf"
+    ]
+    assert defined == [], "geometry.py must not define its own native reader; it re-exports evidence.native's"
+    imports = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "evidence.native"
+        and any(alias.name == "native_evidence_from_pdf" for alias in node.names)
+    ]
+    assert len(imports) == 1
+    assert geometry_module.native_evidence_from_pdf is native_module.native_evidence_from_pdf
+    fitz_imports = [
+        node for node in ast.walk(tree)
+        if (isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "fitz" for alias in node.names))
+        or (isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "fitz")
+    ]
+    assert fitz_imports == [], "geometry.py must not import PyMuPDF at all any more"
+
+
+def test_geometry_constants_equal_their_evidence_native_twins():
+    """The reader's identity strings are spelled in both modules for import
+    compatibility; they may never drift apart."""
+    import evidence.native as native_module
+
+    assert NATIVE_EXTRACTOR_ID == native_module.NATIVE_EXTRACTOR_ID
+    assert UNREADABLE_PAGE_NOTE == native_module.UNREADABLE_PAGE_NOTE
+    assert WORD_REFUSED_NOTE == native_module.WORD_REFUSED_NOTE
+
+
+def _legacy_out_of_frame_words_per_page(legacy) -> dict[int, int]:
+    """1-based page number -> how many words of the Phase 2.0 geometry lie
+    outside `[0, width] x [0, height]` (pages with none are absent) — the
+    words the closure-ruled reader NOTES rather than refuses."""
+    counts: dict[int, int] = {}
+    for page in legacy.pages:
+        for line in page.lines:
+            for word in line.words:
+                if not (0.0 <= word.x0 and word.x1 <= page.width and 0.0 <= word.y0 and word.y1 <= page.height):
+                    counts[page.page] = counts.get(page.page, 0) + 1
+    return counts
+
+
+#: Measured while writing this cell (read-only census over all 12 pinned
+#: PDFs): exactly ONE of the 12 carries words PyMuPDF places outside
+#: `page.rect` on unrotated pages — sha16 58FE8A5C3D8760D6, TWO words per
+#: page on all 4 of its pages (8 in all; the page maximum overshoot is
+#: 7.750 pt). Every other pinned PDF has none. Under the closure ruling
+#: these words are KEPT and NOTED.
+_PINNED_OUT_OF_FRAME_WORDS_PER_PAGE = {"58FE8A5C3D8760D6": {1: 2, 2: 2, 3: 2, 4: 2}}
+
+
+@pytest.mark.parametrize("relative_path,expected_sha16", list(zip(_PINNED_CORPUS_RELATIVE_PATHS, _PINNED_CORPUS_SHA16)))
+def test_unrotated_geometry_is_byte_identical_on_all_12_pinned_pdfs_and_out_of_frame_words_are_noted(relative_path, expected_sha16):
+    """Item 2's unrotated pin, UNCONDITIONAL after the closure ruling: on
+    every unrotated page of all 12 pinned PDFs the new geometry is byte-
+    identical to the Phase 2.0/2.1 reader (the legacy copy above) — every
+    page, every line, every word box — AND the out-of-frame words the legacy
+    reader silently kept are now NOTED per word with the page's count,
+    pinned exactly to the measured population
+    (`_PINNED_OUT_OF_FRAME_WORDS_PER_PAGE`): any change in that population,
+    on any page of any pinned PDF, fails this test."""
+    from evidence import outside_frame_word_ids, words_outside_frame
+
+    data = (CORPUS / relative_path).read_bytes()
+    assert hashlib.sha256(data).hexdigest().upper()[:16] == expected_sha16
+    legacy = _legacy_geometry_from_pdf(data)
+    evidence = native_evidence_from_pdf(data)
+    new = geometry_from_pdf(data)
+    assert legacy is not None and evidence is not None and new is not None
+    assert all(page.frame.rotation_deg == 0 for page in evidence.pages)
+    _assert_geometry_equal(legacy, new)  # unconditional byte-identity
+    expected_counts = _PINNED_OUT_OF_FRAME_WORDS_PER_PAGE.get(expected_sha16, {})
+    assert _legacy_out_of_frame_words_per_page(legacy) == expected_counts, (
+        "the out-of-frame population moved: re-measure and re-pin, never widen silently"
+    )
+    noted = {
+        page.page_index + 1: words_outside_frame(page.notes) for page in evidence.pages if words_outside_frame(page.notes)
+    }
+    assert noted == expected_counts
+    for page in evidence.pages:
+        ids = outside_frame_word_ids(page.notes)
+        assert len(ids) == words_outside_frame(page.notes)
+        by_id = {word.word_id: word for word in page.words}
+        for wid in ids:
+            word = by_id[wid]  # the noted word is present, with its box verbatim
+            assert not (0.0 <= word.x0 and word.x1 <= page.frame.width and 0.0 <= word.y0 and word.y1 <= page.frame.height)
+
+
+def test_the_synthetic_fixtures_have_no_word_outside_the_frame():
+    """The structurer fixtures and the two safety fixtures hold no out-of-
+    frame word, so their pins above exercise the plain path and the reader
+    emits no out-of-frame note on them."""
+    from evidence import words_outside_frame
+
+    for name, data in _fixture_bytes().items():
+        legacy = _legacy_geometry_from_pdf(data)
+        assert _legacy_out_of_frame_words_per_page(legacy) == {}, name
+        evidence = native_evidence_from_pdf(data)
+        assert all(words_outside_frame(page.notes) == 0 for page in evidence.pages), name
 
 
 # ===========================================================================
@@ -989,9 +1140,14 @@ def test_page_geometry_defaults_keep_every_existing_positional_constructor_call_
 
 
 def test_generic_structurer_stays_disabled_by_default():
-    """`GENERIC_STRUCTURER_ENABLED` stays unset in this cell (Phase 2.1
-    exclusion: no structurer enablement)."""
+    """The reconstruction mode stays `off` in this suite's environment
+    (Phase 2.1/2.2 exclusion: no structurer enablement); the retired
+    `GENERIC_STRUCTURER_ENABLED` is inert either way (P22-IDENTITY, D6)."""
     import os
 
-    assert STRUCTURER_ENV not in os.environ
+    from analysis.config import RECONSTRUCTION_MODE_ENV, load_settings
+
+    assert os.environ.get(RECONSTRUCTION_MODE_ENV, "").strip() in ("", "off")
+    assert load_settings().reconstruction_mode == "off"
+    assert STRUCTURER_ENV == "GENERIC_STRUCTURER_ENABLED"
     assert structurer_enabled() is False

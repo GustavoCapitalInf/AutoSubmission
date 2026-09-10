@@ -1,7 +1,8 @@
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from evidence.native import native_evidence_from_pdf
 from .rasterize import rasterize_pdf, rasterize_page
-from .document import StatementMarkdown
+from .document import StatementMarkdown, native_evidence_describes
 from .config import load_settings
 from .inspect import DocumentProfile, inspect_pdf
 from .local_tesseract import parse_local_tesseract
@@ -71,7 +72,14 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
     declaration (D8); `None` there is a `ValueError`. `ocr.paddle_rung` is
     imported LAZILY, inside this branch, so an offline-only or visual-only
     call never even imports it (mirroring the existing lazy `ocr.ocr_client`
-    import for the visual rung)."""
+    import for the visual rung).
+
+    Native evidence (P22-IDENTITY, Phase 2.2, D5): a read the NATIVE rung
+    produced carries `native_evidence` — `evidence.native.native_evidence_from_pdf`
+    over the same bytes, once per document — so the OCR record persists the
+    native word geometry with its sha beside the page text. The Tesseract,
+    visual and Paddle rungs never set it (`None`); `to_markdown()` is
+    byte-identical with or without it."""
     if page_ocr_fn is None and not force_ocr:
         if profile is None:
             profile = inspect_pdf(pdf_bytes)
@@ -86,6 +94,22 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
         if not no_native_text:
             _notify_stage(on_stage, "native")
             native = _native_statement(pdf_bytes, source_file=source_file)
+            if native is not None:
+                # P22-IDENTITY (Phase 2.2, D5): the native rung — and ONLY the
+                # native rung, never Tesseract's read below — attaches the ONE
+                # native reader's evidence (PyMuPDF word boxes in the display
+                # frame) to the document it returns, once per document. `None`
+                # when the reader answers `None` (no placeable word). Attached
+                # only when `native_evidence_describes` admits it (page counts
+                # agree — the same rule `StatementMarkdown.__post_init__`
+                # refuses on); a read whose page list a reader reshaped past
+                # that rule carries no lineage rather than a wrong one, and the
+                # row's empty `evidence_sha256` is the visible signal. Set by
+                # attribute like `page_integrity` / `page_extractor` below,
+                # because a read is whatever object the rung produced.
+                native_words = native_evidence_from_pdf(pdf_bytes)
+                if native_words is not None and native_evidence_describes(native.pages, native_words):
+                    native.native_evidence = native_words
         if native is None and allow_local_ocr:
             _notify_stage(on_stage, "local_ocr")
             native = parse_local_tesseract(pdf_bytes, source_file=source_file)

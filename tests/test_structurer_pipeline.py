@@ -82,7 +82,11 @@ Date Description Amount Balance
 
 @pytest.fixture
 def rung_on(monkeypatch):
-    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
+    # P22-IDENTITY (Phase 2.2, D6): the rung is switched by
+    # `Settings.reconstruction_mode` (`RECONSTRUCTION_MODE`); the retired
+    # `GENERIC_STRUCTURER_ENABLED` is inert and deliberately NOT set here.
+    monkeypatch.delenv("GENERIC_STRUCTURER_ENABLED", raising=False)
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "research")
 
 
 # ---------------------------------------------------------------------------
@@ -98,9 +102,15 @@ def test_the_document_is_genuinely_unclaimed():
 
 def test_with_the_rung_off_the_pipeline_refuses_exactly_as_before(monkeypatch):
     """Ruling 6: default off. The platform's behaviour is unchanged until
-    Ocean flips the opt-in after measured validation."""
+    the reconstruction mode is flipped after measured validation — and the
+    retired environment variable cannot flip it (P22-IDENTITY, D6)."""
+    monkeypatch.delenv("RECONSTRUCTION_MODE", raising=False)
     monkeypatch.delenv("GENERIC_STRUCTURER_ENABLED", raising=False)
 
+    with pytest.raises(RuntimeError, match="no deterministic parser matched"):
+        analyze_markdown(UNCLAIMED, parse_mode="deterministic")
+
+    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")  # inert since Phase 2.2
     with pytest.raises(RuntimeError, match="no deterministic parser matched"):
         analyze_markdown(UNCLAIMED, parse_mode="deterministic")
 

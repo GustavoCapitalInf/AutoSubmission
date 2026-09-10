@@ -24,10 +24,16 @@ package for the structurer:
 
 * `native_evidence_from_pdf` reads a native PDF into canonical evidence
   (`ExtractionEvidence`) — the same representation Paddle's adapter produces,
-  in `pdf_point` space. It lives HERE, not in `evidence/`, because `evidence/`
-  is pinned standard-library-only (`tests/test_evidence_boundary.py`) and
-  PyMuPDF is not the standard library; the native PDF reader is a consumer of
-  the contract, like the structurer itself.
+  in `pdf_point` space. Since Phase 2.2 (`docs/agent-handoffs/P22-IDENTITY.md`
+  item 2, D3) it is a RE-EXPORT of the ONE native reader,
+  `evidence/native.py::native_evidence_from_pdf`: the intake ladder must
+  attach the same evidence to the artifact it returns and cannot import
+  `analysis`, so the reader moved to the neutral package (whose boundary
+  tripwire now admits exactly one lazy `fitz` import there and nowhere else).
+  This module defines no reader of its own (AST-pinned by
+  `tests/test_geometry_frames.py`). Word boxes are in the DISPLAY frame
+  (D4): unrotated pages are byte-identical to the Phase 2.1 reader; rotated
+  pages differ by design and carry `rotation_applied` in their notes.
 * `geometry_from_evidence` is the one path from ANY `ExtractionEvidence`
   (native or Paddle) to `DocumentGeometry`, converting every word to PDF
   points through its own page's frame and rebuilding the already-grouped
@@ -43,7 +49,6 @@ meet: `page == frame.page_index + 1`, always.
 """
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 
 from evidence import (
@@ -56,6 +61,7 @@ from evidence import (
     to_pdf_points,
     word_id,
 )
+from evidence.native import native_evidence_from_pdf
 
 __all__ = [
     "DocumentGeometry",
@@ -105,14 +111,20 @@ UNREADABLE_PAGE_NOTE = "native_page_unreadable"
 #: COULD be read; one word in it could not be trusted.
 WORD_REFUSED_NOTE = "native_page_word_refused"
 
-#: A `PageEvidence.notes` entry meaning: PyMuPDF's `get_text("words")` boxes
-#: are in the page's UNROTATED coordinate space while `page.rect` (this
-#: frame's width/height) is the ROTATED display rectangle. Phase 2.0's
-#: `geometry_from_pdf` already mixed the two on a rotated page; this cell
-#: PRESERVES that behaviour byte-for-byte rather than silently correcting it
-#: (see `docs/agent-handoffs/P21-GEOMETRY.md` item 5 — a documented Phase 2.2
-#: prerequisite, not fixed here). Measured 0/830 pages on the pinned corpus.
+#: RETIRED (Phase 2.2, P22-IDENTITY item 1 / D4). Phase 2.1's note meant:
+#: PyMuPDF's `get_text("words")` boxes were left in the page's UNROTATED
+#: coordinate space while `page.rect` (the frame's width/height) is the
+#: ROTATED display rectangle. The ONE reader (`evidence/native.py`) now
+#: transforms every box by `page.rotation_matrix` into the display frame and
+#: marks a rotated page `rotation_applied` instead; this string is NEVER
+#: emitted any more (pinned by `tests/test_geometry_frames.py`) and is kept
+#: only so existing imports of the name keep resolving.
 UNROTATED_WORDS_NOTE = "native_words_unrotated_space"
+
+#: The three constants above (`NATIVE_EXTRACTOR_ID`, `UNREADABLE_PAGE_NOTE`,
+#: `WORD_REFUSED_NOTE`) are the reader's own values, spelled here for import
+#: compatibility; `tests/test_geometry_frames.py` pins each equal to its
+#: `evidence.native` twin so the two spellings cannot drift.
 
 _VALID_ROTATIONS = (0, 90, 180, 270)
 
@@ -233,111 +245,10 @@ def _group_lines(page_number: int, words: list[Word]) -> tuple[GeoLine, ...]:
     return tuple(built)
 
 
-def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
-    """Native PDF word geometry, read through the canonical evidence contract.
-
-    One `WordBox` per PyMuPDF word (`page.get_text("words")` items with
-    non-blank text), one `PageFrame.pdf_points` per page (`page.rect` for
-    width/height, `page.rotation` recorded — see `UNROTATED_WORDS_NOTE`),
-    words grouped into lines by the ONE rule. `document_sha256` is computed
-    locally (`hashlib.sha256(pdf_bytes)`), not imported from `ocr.inspect` —
-    this module has no `ocr` import, by design (the analysis -> ocr allowlist
-    stays pinned empty).
-
-    Returns `None` exactly when there are no words to read at all: unparseable
-    bytes, or a document that opens but prints nothing this reader can find
-    (the honest answer for a scanned page — there are no words, only pixels).
-    Never raises. Two DISTINCT page-level failures are both kept as an empty
-    page (never abort the whole document) but named honestly and separately
-    (P21-GEOMETRY-CLOSURE F-5, R-3): a page whose own `get_text`/`rect` read
-    throws (a PyMuPDF failure this project's 109-PDF corpus has never
-    produced), OR whose read succeeds but produces a rect `PageFrame` cannot
-    represent (a zero-area rect being the reachable shape — no real
-    dimensions exist to report either way), gets `UNREADABLE_PAGE_NOTE` and a
-    minimal placeholder frame; a page that reads fine, produces a
-    representable frame, but whose PyMuPDF word list contains a box
-    `evidence/`'s strict `x0 < x1 and y0 < y1` refuses gets `WORD_REFUSED_NOTE`
-    and its REAL frame — the whole page is refused (no guessed structure, no
-    silently dropping just the bad word), a deliberate, documented, latent
-    (0/261,526 words on the pinned corpus) divergence from Phase 2.0's
-    keep-every-word behaviour. Anything else this contract cannot
-    faithfully represent aborts the whole document to `None` rather than
-    guess.
-    """
-    try:
-        import fitz
-    except Exception:
-        return None
-
-    try:
-        document = fitz.open(stream=pdf_bytes, filetype="pdf")
-    except Exception:
-        return None
-
-    document_sha256 = hashlib.sha256(pdf_bytes).hexdigest().upper()
-    runtime = {
-        "pymupdf_version": str(getattr(fitz, "pymupdf_version", getattr(fitz, "__version__", "unknown"))),
-    }
-
-    pages: list[PageEvidence] = []
-    try:
-        for page_index, page in enumerate(document):
-            # Two SEPARATE failure classes (P21-GEOMETRY-CLOSURE F-5, R-3):
-            # no real dimensions exist for this page at all (the read threw,
-            # OR it succeeded but the rect cannot become a valid `PageFrame`
-            # -- a zero-area rect is the reachable shape, still caught here
-            # since a frame is required before any word can be placed in it),
-            # or the page reads fine and gets a real frame but a word PyMuPDF
-            # returned cannot be trusted as a box (`evidence/`'s strict
-            # `x0 < x1 and y0 < y1`). Conflating them under one note
-            # mislabelled a readable page with one bad word as "unreadable";
-            # they now get distinct notes and, for the second, the page's
-            # REAL dimensions.
-            try:
-                raw_words = page.get_text("words")
-                rect = page.rect
-                rotation = int(page.rotation) % 360
-                if rotation not in _VALID_ROTATIONS:
-                    rotation = 0
-                frame = PageFrame.pdf_points(
-                    page_index=page_index, width_pt=float(rect.width), height_pt=float(rect.height),
-                    rotation_deg=rotation,
-                )
-            except Exception:
-                placeholder = PageFrame.pdf_points(page_index=page_index, width_pt=1.0, height_pt=1.0)
-                pages.append(PageEvidence(frame=placeholder, words=(), notes=(UNREADABLE_PAGE_NOTE,)))
-                continue
-            try:
-                words = tuple(
-                    WordBox(word_id=word_id(page_index, None, k), page_index=page_index,
-                            text=str(item[4]), x0=float(item[0]), y0=float(item[1]),
-                            x1=float(item[2]), y1=float(item[3]))
-                    for k, item in enumerate(raw_words) if str(item[4]).strip()
-                )
-                notes = (UNROTATED_WORDS_NOTE,) if rotation else ()
-                page_evidence = PageEvidence(frame=frame, words=words, notes=notes)
-            except Exception:
-                notes = (WORD_REFUSED_NOTE,) + ((UNROTATED_WORDS_NOTE,) if rotation else ())
-                page_evidence = PageEvidence(frame=frame, words=(), notes=notes)
-            pages.append(page_evidence)
-    except Exception:
-        return None
-    finally:
-        try:
-            document.close()
-        except Exception:
-            pass
-
-    if not pages:
-        return None
-    try:
-        evidence = ExtractionEvidence(
-            document_sha256=document_sha256, extractor_id=NATIVE_EXTRACTOR_ID,
-            model_token=NATIVE_EXTRACTOR_ID, pages=tuple(pages), runtime=runtime,
-        )
-    except Exception:
-        return None
-    return evidence if evidence.word_count else None
+# `native_evidence_from_pdf` is imported above from `evidence.native` — the
+# ONE native reader (Phase 2.2, P22-IDENTITY item 2 / D3). This module
+# defines no reader of its own; `tests/test_geometry_frames.py` pins by AST
+# that no function of that name is defined here (mutant M13).
 
 
 def geometry_from_evidence(evidence: ExtractionEvidence | None) -> DocumentGeometry | None:

@@ -1,6 +1,23 @@
-"""Canonical extraction evidence (Phase 2.1). Standard library only — see
+"""Canonical extraction evidence (Phase 2.1) and the ONE native PDF reader
+(Phase 2.2, `evidence/native.py`). No repository package is imported here;
+the only third-party import in the package is PyMuPDF, lazily, inside
+`native_evidence_from_pdf` — so this package imports with PyMuPDF absent. See
 `evidence/canonical.py`'s docstring for the boundary argument and the
 coordinate conventions."""
+from .native import (
+    FRAME_DISPLAY,
+    INVALID_ROTATION_NOTE,
+    NATIVE_EXTRACTOR_ID,
+    OUTSIDE_FRAME_NOTE_PREFIX,
+    ROTATION_APPLIED_NOTE,
+    UNREADABLE_PAGE_NOTE,
+    WORDS_OUTSIDE_FRAME_NOTE_PREFIX,
+    WORD_OUTSIDE_FRAME_NOTE,
+    WORD_REFUSED_NOTE,
+    native_evidence_from_pdf,
+    outside_frame_word_ids,
+    words_outside_frame,
+)
 from .canonical import (
     COORDINATE_SPACES,
     EVIDENCE_SCHEMA_VERSION,
@@ -18,6 +35,7 @@ from .canonical import (
     canonical_json,
     from_json,
     group_lines,
+    inside_frame,
     page_text,
     sha256_of_json,
     to_json,
@@ -29,10 +47,19 @@ from .canonical import (
 __all__ = [
     "COORDINATE_SPACES",
     "EVIDENCE_SCHEMA_VERSION",
+    "FRAME_DISPLAY",
+    "INVALID_ROTATION_NOTE",
+    "NATIVE_EXTRACTOR_ID",
+    "OUTSIDE_FRAME_NOTE_PREFIX",
     "PDF_POINT",
     "PIXEL",
     "POINTS_PER_INCH",
+    "ROTATION_APPLIED_NOTE",
     "SCALE_TOLERANCE",
+    "UNREADABLE_PAGE_NOTE",
+    "WORDS_OUTSIDE_FRAME_NOTE_PREFIX",
+    "WORD_OUTSIDE_FRAME_NOTE",
+    "WORD_REFUSED_NOTE",
     "EvidenceError",
     "ExtractionEvidence",
     "LineBox",
@@ -43,10 +70,14 @@ __all__ = [
     "canonical_json",
     "from_json",
     "group_lines",
+    "inside_frame",
+    "native_evidence_from_pdf",
+    "outside_frame_word_ids",
     "page_text",
     "sha256_of_json",
     "to_json",
     "to_pdf_points",
     "to_pixels",
     "word_id",
+    "words_outside_frame",
 ]

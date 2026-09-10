@@ -44,6 +44,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -54,12 +55,36 @@ from pathlib import Path
 #: Environment knobs that change what a run computes or reads. Values are
 #: recorded verbatim except for the secret-shaped ones, which are set/unset.
 ENV_KNOBS = [
-    "WEBAPP_DATA_DIR", "WITHHOLDING_DENOMINATOR_MODE", "GENERIC_STRUCTURER_ENABLED",
+    "WEBAPP_DATA_DIR", "WITHHOLDING_DENOMINATOR_MODE",
+    # P22-IDENTITY (Phase 2.2, D6): `RECONSTRUCTION_MODE` is the live switch
+    # (`analysis/config.py`); `GENERIC_STRUCTURER_ENABLED` is RETIRED and
+    # inert but stays recorded, so an operator who still exports it can see
+    # in the record that it was set and did nothing.
+    "RECONSTRUCTION_MODE", "GENERIC_STRUCTURER_ENABLED",
     "POPPLER_PATH", "TESSDATA_PREFIX", "OCR_BASE_URL", "OCR_MODEL", "OCR_MAX_WORKERS",
     "OCR_TIMEOUT", "OCR_RETRIES", "OCR_WINDOW_SIZE", "OCR_NGRAM_SIZE",
     "GEMINI_MODEL", "GEMINI_ESCALATION_MODEL", "PYTHONHASHSEED",
 ]
 SECRET_KNOBS = ["OCR_API_KEY", "GEMINI_API_KEY"]
+
+#: P22-IDENTITY closure-2 (review F-3): the closed shape of a research
+#: partition id — the SAME shape `webapp/artifact_cache.py` enforces (pinned
+#: equal by `tests/test_run_of_record.py`); spelled here so the CALLER
+#: validates before any probe runs, instead of the probe's `ValueError`
+#: being swallowed and the whole `run_of_record` block dropped (which would
+#: let a research run be RECONSTRUCTED as a production-shaped record).
+RESEARCH_PARTITION_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+
+
+def validate_research_partition(value: str | None) -> str:
+    """`""` for production; a matching id verbatim; anything else refuses."""
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or re.fullmatch(RESEARCH_PARTITION_PATTERN, value) is None:
+        raise ValueError(
+            f"--research-partition must match {RESEARCH_PARTITION_PATTERN} (or be empty for a production run); refused"
+        )
+    return value
 
 #: Run inside the checkout: the tree's own constants, keys and inventory.
 _TREE_PROBE = r'''
@@ -74,6 +99,13 @@ import webapp.artifact_cache as ac
 attempt("ANALYSIS_STAGE_VERSION", lambda: ac.ANALYSIS_STAGE_VERSION)
 attempt("OCR_STAGE_VERSION", lambda: ac.OCR_STAGE_VERSION)
 attempt("CACHE_FORMAT_VERSION", lambda: getattr(ac, "CACHE_FORMAT_VERSION", None))
+# P22-IDENTITY (Phase 2.2, D5): the OCR record's own shape version and the
+# evidence shape version, recorded beside the stage versions.
+attempt("EXTRACTION_SCHEMA_VERSION", lambda: getattr(ac, "EXTRACTION_SCHEMA_VERSION", None))
+def evidence_schema_version():
+    import evidence
+    return evidence.EVIDENCE_SCHEMA_VERSION
+attempt("EVIDENCE_SCHEMA_VERSION", evidence_schema_version)
 attempt("analysis_settings_key_deterministic", lambda: ac.analysis_settings_key(parse_mode="deterministic"))
 attempt("ocr_settings_key_default", lambda: ac.ocr_settings_key())
 attempt("ocr_settings_key_local", lambda: ac.ocr_settings_key(allow_local_ocr=True))
@@ -95,14 +127,23 @@ def run_of_record_partitions():
     if not mode:
         return {"note": "no --mode given to this provenance call; a run's "
                         "actual partitions were not recorded"}
+    # P22-IDENTITY (Phase 2.2, D7): the research partition id the run was
+    # launched with (`--research-partition`; empty for every production run).
+    # It is KEY MATERIAL of every OCR key below when non-empty, and it is
+    # recorded verbatim in the partitions block so `telemetry/run_of_record.py`
+    # can REFUSE the run as a run of record.
+    research_partition = sys.argv[3] if len(sys.argv) > 3 else ""
     from discovery.runner import LOCAL_OCR_MODES
     allow_local_ocr = mode in LOCAL_OCR_MODES
     partitions = {
         "offline_ocr_key": ac.ocr_settings_key(force_ocr=False, allow_local_ocr=allow_local_ocr,
-                                               allow_visual_ocr=False),
-        "visual_ocr_key": ac.ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
+                                               allow_visual_ocr=False,
+                                               research_partition=research_partition),
+        "visual_ocr_key": ac.ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
+                                              research_partition=research_partition),
         "analysis_key": ac.analysis_settings_key(parse_mode="deterministic"),
         "mode": mode,
+        "research_partition": research_partition,
     }
     # P21-ROUTING (Phase 2.1, design item 7): the Paddle partition, recorded
     # ONLY when Paddle settings actually load from this host's environment —
@@ -112,8 +153,12 @@ def run_of_record_partitions():
     try:
         partitions["paddle_ocr_key"] = ac.ocr_settings_key(
             force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False,
-            allow_paddle_ocr=True,
+            allow_paddle_ocr=True, research_partition=research_partition,
         )
+        # P22-IDENTITY closure (hermeticity): the note exists on BOTH paths, so
+        # a reader of the record never has to infer "configured" from the
+        # ABSENCE of a key.
+        partitions["paddle_ocr_key_note"] = "recorded"
     except Exception as exc:  # PaddleConfigError, most commonly: recorded, never fatal
         # P21-ROUTING closure (MINOR-5): the exception's own message is NEVER
         # written verbatim — only the class name, plus the CLOSED-vocabulary
@@ -238,7 +283,9 @@ def _corpus_hashes(root: Path) -> dict:
 
 
 def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corpus: bool,
-           mode: str | None = None) -> dict:
+           mode: str | None = None, research_partition: str = "") -> dict:
+    # Review F-3: refused HERE, before the probe subprocess exists.
+    research_partition = validate_research_partition(research_partition)
     python = sys.executable
     tesseract = shutil.which("tesseract")
     pdftoppm = shutil.which("pdftoppm")
@@ -249,8 +296,8 @@ def collect(checkout: Path, root: Path, data_dir: Path, *, label: str, hash_corp
     with tempfile.TemporaryDirectory(prefix="provenance-probe-") as throwaway:
         probe_env = {**os.environ, "WEBAPP_DATA_DIR": throwaway}
         try:
-            completed = subprocess.run([python, "-c", _TREE_PROBE, str(root), mode or ""], cwd=checkout,
-                                       capture_output=True, text=True, timeout=900, env=probe_env)
+            completed = subprocess.run([python, "-c", _TREE_PROBE, str(root), mode or "", research_partition or ""],
+                                       cwd=checkout, capture_output=True, text=True, timeout=900, env=probe_env)
             tree_probe = {"exit": completed.returncode, "stdout": completed.stdout.strip(),
                           "stderr": completed.stderr.strip()[-2000:]}
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -376,13 +423,24 @@ def main(argv: list[str] | None = None) -> int:
                              "profile-only/dry-run) — records run_of_record.partitions computed "
                              "from THIS run's flags (P20-ARTIFACTS). Omit to leave partitions "
                              "unrecorded, as every provenance.json before this cell does.")
+    parser.add_argument("--research-partition", default="",
+                        help="P22-IDENTITY (D7): the research partition id the run was launched "
+                             "with (empty for a production run). Recorded in run_of_record."
+                             "partitions and folded into every OCR key there, so "
+                             "telemetry/run_of_record.py refuses the run as historical truth.")
     args = parser.parse_args(argv)
     try:  # the Windows console is cp1252; the files are UTF-8 regardless
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
+    try:
+        validate_research_partition(args.research_partition)
+    except ValueError as refusal:
+        print(str(refusal))
+        return 2
     record = collect(args.checkout.resolve(), args.root.resolve(), args.data_dir.resolve(),
-                     label=args.label, hash_corpus=args.hash_corpus, mode=args.mode)
+                     label=args.label, hash_corpus=args.hash_corpus, mode=args.mode,
+                     research_partition=args.research_partition)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(record, indent=2, sort_keys=True, default=str), encoding="utf-8")
     args.out.with_suffix(".md").write_text(render(record), encoding="utf-8")
