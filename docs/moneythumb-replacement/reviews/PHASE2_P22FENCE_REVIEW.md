@@ -217,3 +217,124 @@ What the layer honestly cannot see: (i) B2 counts textual binding sites, not exe
 
 ### R7. Instruments (scratchpad, untracked; nothing written into the tree but this section)
 `mutants_rerev.py` (+ `.log`, `.json`) · `hunk_check.py` · `f3_check.py` · `rerev_heavy.py` · the extract.py probe (one-liner, restored with `git checkout --`). Worktree `.claude/worktrees/rerev22-fence` (5c59524, detached; this file is its only untracked change). Nothing merged, pushed or committed; `wave22-fence` untouched.
+
+## Re-review 2 (closure-2 tip fc65067)
+
+```
+RE-REVIEWER 2: independent (wrote none of the code, none of the first review, none of the re-review);
+               detached worktree .claude/worktrees/rerev22-fence at fc65067
+CLOSURE-2:     fc65067 (documentation only) over code tip 1c09faa
+               code tree 2be2cd27d799dd7fbeb416ec51fc1c78655eaf9d · fc65067 tree 9edb9c978209ed3821a66f64391230451771f785
+               `git diff --stat 1c09faa fc65067` = W3_TRACKA_LOG.md alone (+172/-0)
+CLOSURE-2 BASE: 5c59524      CELL BASE: b23cb50
+VERDICT:       APPROVE WITH FINDINGS (0 BLOCK · 1 MAJOR · 2 MINOR) — every re-review finding N1–N6 CLOSED
+               and re-proven by me; the MAJOR is a FRESH shape the closure-2 did not name (§RR2.4 P1)
+```
+
+### RR2.1 Per-finding status (N1–N6)
+
+| # | status | how verified (my command, my output) |
+|---|---|---|
+| N1 | **CLOSED** | `n1_check2.py` at fc65067, all three outcomes, 31 assertions, 0 failures: same class, `str(auto).encode() == str(det).encode()` BYTE FOR BYTE, `auto.hosted_extraction == "refused_no_opt_in"`, `hasattr(det,"hosted_extraction") is False`, `auto.__cause__ is auto.__context__ is None`, fake extractor `calls == []`. `worker._analysis_failure(auto) == worker._analysis_failure(det)` for all three; for `unclaimed` both return `'no deterministic parser matched this statement'`, which is in `worker._DECLARED_ANALYSIS_REFUSALS`. `HOSTED_EXTRACTION_REFUSAL_SUFFIX` is absent from the module object AND the module text. Deterministic mode WITH the literal raises with no attribute, still zero calls. `test_the_declared_refusal_still_reaches_the_user` → **1 passed**; the fence file → **64 passed** (seam test included). |
+| N2 | **CLOSED for the shapes it names — the property is not yet whole** | E10 / E11 / E8b re-applied by me as REAL textual mutants at fc65067's code tree against the full killer set: **E10 KILLED 2/429** (`test_no_two_reconcile_results…` B5 + `test_the_reviewers_loop_form_is_caught_by_b5`), **E11 KILLED 1/430** (same test, B3-narrowed + B6), **E8b KILLED 6/425** (`…orchestration_functions_are_undecorated…` O1/O2, B6, + 4 `test_q3_native_only`). Ten of my twelve FRESH shapes die on the static layer; one does not — §RR2.4 **P1 (MAJOR)**. |
+| N3 | **CLOSED** | `git diff 5c59524...1c09faa -- analysis/pipeline.py`: the `#:` clause now reads "…pin byte for byte (a closed suffix on the message was tried and reverted at the review's N1 …). A DURABLE record of the refusal is the worker owner's composition item: publish the attribute when present." True of the code at fc65067 (N1 above). The builder's docstring says the same. `adb_debug.py` untouched by closure-2 and now true of class, outcome AND message. |
+| N4 | **CLOSED** | `module_guard_violations` runs over every `analysis/*.py` except `pipeline.py`, definers included. The cell's probe re-run by me as a REAL mutant: **N4m KILLED 3/428** — `test_a_definer_reaching_the_other_name_or_aliasing_its_own_is_caught[extract-imports-reconcile]`, `[extract-imports-module]`, `test_no_other_module_under_analysis_imports_reconcile_or_extract_statement`; four definer shapes are parametrised in the file (2 per definer), each asserting clean-then-dirty. Honest limit, correctly stated and confirmed: a helper under `tools/` or `webapp/` is OUTSIDE this guard — not new, not closed here. |
+| N5 | **RECORDED** | The `b0b91b4 → 5c59524` reword is in the W3. Not re-derived (tree-identical, outside closure-2's diff). |
+| N6 | **CLOSED as recorded** | The closure declines to reword `2a73e77` because the line it understated is reverted — defensible; the commit stands as history. Both closure-2 commits carry `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` **1/1** and a `Claude-Session:` line **1/1**. N6's other half — the name-based dynamic doors — is stated as an open limit; the compensating property holds (X12, §RR2.3). |
+
+### RR2.2 Mutation table re-run — all 18 canonical rows, my counts vs the cell's `mutants_table.log`
+
+Harness `mutants_rerev2.py` (my copy; `WT` = **my** worktree `rerev22-fence`, never the cell's): exact textual edits, killer set = the fence file + `test_privacy3_boundaries.py` + `test_q3_native_only.py` + `test_analysis.py`, **no `-x`**, `git checkout -- analysis/pipeline.py analysis/extract.py` in a `finally`, and after EVERY mutant `git status --porcelain` asserted empty (the one untracked review file filtered) **and** both files asserted sha256-identical (`pipeline.py d5209942268d5c30`, `extract.py 57ddacb11c6a276e`). Refuses to start on a dirty tree. Baseline 431 passed.
+
+| mutant | mine (failed / passed) | cell's | static rule / killer |
+|---|---:|---:|---|
+| M1 | 10 / 421 | 10 / 421 | tripwire (a) + dynamic |
+| M2 | 12 / 419 | 12 / 419 | B1/B2 + (a) + inverted characterisation |
+| M3 | 10 / 421 | 10 / 421 | exact-literal ×9 + seam |
+| M4 | 9 / 422 | 9 / 422 | read-at-call-site |
+| M5 | 16 / 415 | 16 / 415 | fence ×3, literal ×9, ordering, webapp equality, q3 |
+| M6 | 21 / 410 | 21 / 410 | pinned-False static + dynamic + inverted (the other 18 ARE the anchor artefact — verified: the in-memory shape tests anchored on `escalated = False`) |
+| M7 | 3 / 428 | 3 / 428 | deterministic-never-reaches[unclaimed], ordering, without-the-literal[unclaimed] |
+| R6 | 1 / 430 | 1 / 430 | B1+B4 |
+| R7a | 1 / 430 | 1 / 430 | N3 |
+| R7b | 1 / 430 | 1 / 430 | N1 |
+| R8a | 9 / 422 | 9 / 422 | N3 + dynamic |
+| R8b | 10 / 421 | 10 / 421 | N1 + dynamic |
+| R8c | 10 / 421 | 10 / 421 | N1/N5/N6 + dynamic |
+| R8d | 9 / 422 | 9 / 422 | N5/N6 + dynamic |
+| **E10** | **2 / 429** | 2 / 429 | B5 |
+| **E11** | **1 / 430** | 1 / 430 | B3-narrowed + B6 |
+| **E8b** | **6 / 425** | 6 / 425 | O1/O2 + B6 + 4 q3 |
+| **N4m** | **3 / 428** | 3 / 428 | definer guard ×2 + module-wide guard |
+
+**18 / 18 KILLED. Every count is identical to `mutants_table.log`, row for row.** Named killers match the cell's for every row I spot-checked (E10, E11, E8b, N4m, M6). My table: `discovery_reports/train12-logs/rerev22-fence/closure2/mutants.log` / `mutants_table.log` (elapsed 1,468 s, `EXIT=1` because of X11 below).
+
+### RR2.3 Fresh attack shapes (twelve, each a REAL textual mutant, same harness, same killer set)
+
+| # | shape | static rule | result |
+|---|---|---|---|
+| X1 | a `while` with a walrus reconcile selecting on `.ok` against `recon` | B1, B3, B5 | KILLED 1 / 430 |
+| X2 | a reconcile-bound name read inside a comprehension in a NESTED function | B5 | KILLED 1 / 430 |
+| X3 | a generator expression holding the second `reconcile(...)` | B3 | KILLED 1 / 430 |
+| X4 | a second `_account_report(...)` in a NEW `for` appending to a differently named list | B3, B6 | KILLED 1 / 430 |
+| X5 | a decorator applied by assignment after the def (`_analyse = _wrap(_analyse)`) | N2, N3, B6 | KILLED 14 / 417 |
+| X6 | a class with `__call__` wrapping `_analyse` | O2, B6 | KILLED 2 / 429 |
+| X7 | a `wraps`-free closure inside `analyze_document` re-invoking `_analyse` | O2, B6 | KILLED 8 / 423 |
+| X8 | `try/except` around the one `reconcile(` binding, re-bound in the `except` | B1, B2 | KILLED 2 / 429 |
+| X9 | a `match` statement holding the second reconcile and the selection | B1 | KILLED 1 / 430 |
+| X10 | the sibling `accounts.append(_account_report(...))` moved inside an `if` in the loop | B3 | KILLED 1 / 430 |
+| **X11** | **a fresh `reconcile(...)` bound INSIDE `_account_report` and preferred over the passed-in `recon`** | **none (B=[], N=[], O=[])** | **SURVIVED 431 / 0** |
+| X12 | a SECOND HOSTED CALL through `__builtins__["getattr"]` + `os.sys.modules` + split string constants (the re-review's E9c/E9d class) | none (blind, as the section admits) | KILLED 9 / 422 — **dynamically**: `test_analysis` ×4, the inverted characterisation, pinned-False dynamic, privacy3 ×2, q3 |
+
+X12 settles the section's honest limit in its favour: a shape that makes a SECOND HOSTED CALL through the doors N6 cannot see still dies, and dies in eight independent places, not one.
+
+### RR2.4 New findings, ranked (each reproduced by my own command)
+
+| # | severity | finding |
+|---|---|---|
+| **P1** | **MAJOR** | **The strengthened tripwire (b) is UNIT-scoped in a way that exempts `_account_report`, and a reconciliation-based selection placed there survives everything.** B1/B2/B4/B5 operate on names *bound from a `reconcile(...)` call in the unit*; `_account_report(stmt, recon, …)` receives its `ReconResult` as a **parameter**, so `recon` is not a reconcile-bound name of that unit and nothing compares against it. Mutant X11 — `_alt = normalize_statement(stmt)` / `_alt_recon = reconcile(_alt, parser_id=claiming_parser_id(dispatch))` / `if _alt_recon.ok and not recon.ok: stmt, recon = _alt, _alt_recon`, inserted above `quality = assess_quality(...)` — is verbatim "prefer whichever candidate reconciles" inside the protected module, and it returns `[]` from `name_integrity_violations`, `reconcile_selection_violations` AND `orchestration_shape_violations`, then **SURVIVED the whole killer set 431 / 0**. Two things make it worse than E10/E11/E8b: `_account_report` runs in **every** parse mode, for **every** account (the deterministic path included, where E8b/E10/E11 could only bite in auto mode); and the file already has a test (`test_a_nested_parameter_shadowing_the_reconcile_result_is_caught`) proving the authors knew a parameter can carry a reconcile result — it catches that case only because the parameter sits inside `_analyse`'s unit. The card's tripwire (b) is "no comparison of two `reconcile(...)` results **anywhere in `analysis/pipeline.py`**"; that bar is not met. Closure is small and tests-only: treat a parameter whose annotation is `ReconResult` as a reconcile-bound name of its unit for B1/B4/B5, and/or add B7 — the unit `_account_report` contains no `reconcile(` call at all (it is handed one). |
+| P2 | MINOR | **A number in `§P22FENCE-CLOSURE-2` that names no log and does not reproduce.** The record note says "a number with no log does not exist, and every number below names its log"; the four "Targeted (freely)" numbers name none, and `grep -rlE "243 passed\|540 passed"` over `train12-logs/p22fence/closure2/` returns nothing. Re-derived at fc65067: "the fence file + `test_q3_native_only.py` + `test_analysis.py` + `test_pipeline*.py` + `test_structurer_pipeline.py` **243 passed**" is in fact **307 passed** (64 + 48 + 151 + 6 + 21 + 17); 243 is that set **minus the fence file's own 64**, which the same sentence reports separately. The others reproduce — fence file **64 passed**; the eight-file set **1 failed / 540 passed / 3 skipped** (+2 deselected, unmentioned), the failure being cell T's count guard. "The PRIVACY-3 subset 3 passed" is uncheckable: the file alone is 168 passed and no `-k` is named. A record defect, not a proof defect. |
+| P3 | MINOR | **The tripwire's own block comment claims a rule the tripwire does not implement** — the same class of contradiction N3 was raised for. `tests/test_pipeline_escalation_fence.py`, the RE-INVOCATION paragraph: "no other function or lambda is defined at module level between the three (a wrapper needs a home)". `orchestration_shape_violations` implements O1 (no decorators) and O2 (the two callers) and nothing about module-level definitions. Reproduced: inserting `def _module_level_helper(): return None` — and separately `_module_level_lambda = lambda: None` — between `_analyse` and `analyze_document` yields `orchestration_shape_violations(...) == []`. Either implement the clause or delete it. |
+
+### RR2.5 Hunk-by-hunk check of the protected module (`hunk_check2.py`: AST, docstrings stripped, unparsed, diffed)
+
+`5c59524 → 1c09faa`, code-level diff is **exactly two removed lines and nothing else**:
+`-HOSTED_EXTRACTION_REFUSAL_SUFFIX = f' (hosted extraction {…})'` and `-refusal.args = (f'{refusal}{HOSTED_EXTRACTION_REFUSAL_SUFFIX}',)`. Top-level names removed `['HOSTED_EXTRACTION_REFUSAL_SUFFIX']`, **added: none**. `escalated` bindings at the tip: `['escalated = False']`. `extract_statement` call nodes: **1**, with the ordering test (green) pinning the deterministic raise before it and the fence immediately before it. Textually the hunks also revert one `#:` block, rewrite the builder's docstring and reword one comment clause (N3) — comments and docstrings, disclosed, already covered by F2's rule.
+
+### RR2.6 Ownership, trailers, the literal
+
+`git diff --numstat 5c59524...fc65067` = exactly `analysis/pipeline.py` (16/18), `tests/test_pipeline_escalation_fence.py` (302/124), `W3_TRACKA_LOG.md` (172/0). Nothing under `webapp/**`, `telemetry/**`, `analysis/extract.py`, `analysis/reconcile.py`, `analysis/config.py`. `git diff --stat 1c09faa fc65067` = the W3 alone, so **fc65067's code tree IS 1c09faa's** (`2be2cd27…`, re-derived). The W3 change is a single hunk `@@ -70577,3 +70577,175 @@` and `w3_tip.startswith(w3_base)` is **True** — a pure append; the three earlier `# §P22FENCE` sections are byte-identical (the third after normalising the one trailing newline the split marker consumes). Trailers 1/1 on both commits. `git grep -c I_ACCEPT_HOSTED_MODEL_EXTRACTION fc65067` = `analysis/pipeline.py` 1 + the two docs cards, nothing else. The main checkout's gitignored `.env` has neither the variable nor the literal (`grep -c` = 0); the variable is unset in my environment.
+
+### RR2.7 Scans and heavy proofs (my lock window 2026-09-10 **18:57:18Z → 19:36:20Z**; logs under `discovery_reports/train12-logs/rerev22-fence/closure2/`, each ending `EXIT=`)
+
+| step | mine | Ocean's final (`*-fc65067.log`) | cell's (`closure2/*.log`, at 1c09faa) | EXIT |
+|---|---|---|---|---:|
+| privacy `--base b23cb50 --ref fc65067` | added_lines **2,175** · documents_read 3,351 (29 no_cached_text) · population 3,380 · **hit_count 0** (raw 27, all `words_class`) · residue_files 0 · residue_sites 0 | 2,175 / 3,351 / 0 (raw 27) / 0 / 0 — identical | 2,003 / 3,351 / 0 (raw 27) / 0 / 0 | 0 |
+| messages `b23cb50..fc65067` | commits_scanned **11** · **hit_count 0** · MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0 | 11 · 0 · 0/0/0/0 — identical | 10 commits · 0 · 0/0/0/0 | 0 |
+| no-parser replay at **fc65067** (belt, 25 s) | 685 · replayed 656 · unresolved 29 (expected; the tool exits 3 otherwise) · newly validated 0 · movement 0 · preserved 0 of 0 · regressions 0 / 0 · unchanged non-validated **656 (payload changed on 0)** | — | identical at 1c09faa (25 s) | 0 |
+| mutation table (30 rows) | §RR2.2 / §RR2.3 | — | 18 rows, 926 s | 1 (X11) |
+
+**Chunk 01, the union replay, the full suite, the gate and the corpus slice — NOT re-run, judged ACCEPTABLE.** fc65067 is documentation over 1c09faa (verified), and 1c09faa's code-level delta is the removal of one module constant and one statement inside `_hosted_extraction_refused`, whose single call site is the statement after `if parse_mode == "deterministic": raise`. No deterministic instruction changed. The cell ran chunk 01 at 1c09faa (504 / 504 preserved, payload identical 504, 0 regressions, 586 s, `EXIT=0`); I re-derived the no-parser replay and both scans at fc65067. Guards (275) and conformance (1,282 / 41 skipped) were read from the cell's logs, not re-run — neither exercises a changed line. Cell T's `test_diagnostics` count guard and cell K's `.env`-sensitive run-of-record test fail on this branch as Ocean named; neither is this cell's.
+
+### RR2.8 W3 transcription check (`§P22FENCE-CLOSURE-2` against its logs)
+
+Verified against `MASTER.log`, `mutants.log`, `mutants_table.log`, `guards.log`, `conformance.log`, `replay-noparser-closure.log`, `replay-chunk01-closure.log`, `privacy.log`, `messages.log`:
+lock acquired **09:53:27 after 15 polls of 120 s, first poll 09:23:26**, last step ended **10:20:33**, release `PermissionError` leaving an empty orphan — all four exact; mutation table **926 s, 18/18, survivors []**, and **every one of the 18 failed/passed pairs and every named killer** matches; guards **275**; conformance **1,282 / 41 skipped**; no-parser **685 / 656 / 29 / 0 / 0 / 0 of 0 / 0 / 656 (0), 25 s**; chunk 01 **504 / 504 / 504 identical / 0 / 0, 586 s**; privacy at 1c09faa **added_lines 2003, documents_read 3351, hit 0, raw 27, residue 0 / 0**; messages at 1c09faa **commits_scanned 10, hit 0, 0/0/0/0**. Code tip and tree hashes as written. **One discrepancy, §RR2.4 P2** — the "243 passed" targeted number (and the four targeted numbers' missing logs). Everything else transcribes correctly.
+
+### RR2.9 Properties I attacked and could not break (named)
+
+1. **Message identity after the revert** — same class, same message BYTES, all three outcomes, both entry points; the webapp publishes the declared literal again (31 assertions).
+2. **The attribute is the only distinguishing mark** — on the auto refusal, absent on the deterministic one, in no message and no payload.
+3. **Deterministic mode never constructs the refusal and never calls the extractor** — with the literal set, all three outcomes, zero calls; M7 KILLED 3 / 428.
+4. **Exactly one `extract_statement` call node, behind the deterministic raise and immediately behind the fence** — M1 / M5 / R8a–R8d killed.
+5. **`escalated` is the constant `False`**, the sole binding in the module — M6 KILLED 21 / 410.
+6. **A SECOND HOSTED CALL dies even through doors the name layer cannot see** — X12 KILLED 9 / 422 by eight independent tests.
+7. **The definer exemption is gone** — N4m KILLED 3 / 428.
+8. **Re-invocation of `_analyse` is pinned** — E8b, X5, X6, X7 all killed.
+9. **Ten of twelve fresh selection shapes die on the STATIC layer alone**, seven of them 1 failed / 430 passed — no dynamic help.
+10. **Deterministic-mode identity at the closure-2 tree** — no-parser 656 payload-identical at fc65067 (mine); chunk 01 504 / 504 at 1c09faa (the cell's).
+11. **Ownership, trailers, the literal, the pure W3 append** — §RR2.6.
+
+### RR2.10 Instruments (untracked, in my session scratchpad; nothing written into the tree but this section)
+
+`shapes_rerev2.py` (the twelve fresh shapes) · `static_probe2.py` (in-memory rule classification) · `mutants_rerev2.py` (+ `.log`/`.json`; 30 real mutants) · `hunk_check2.py` · `n1_check2.py` · `rerev2_heavy.py` (lock + heavy driver) · `private/` (replay and privacy-hit outputs). Worktree `.claude/worktrees/rerev22-fence` at fc65067, detached; `git status --porcelain` shows only this review file. Nothing merged, pushed or committed; `wave22-fence`, the main checkout, the archive and the caches untouched. **Lock incident, disclosed:** my release unlinked `holder.txt`, then `os.rmdir` returned `PermissionError` WinError 5 on the now-EMPTY directory for ~12 minutes (the driver's 300 s plus 40 further attempts); Git bash `rmdir HARNESS.lock` succeeded at once. The lock IS released; the host lesson is in my `MASTER.log`.
