@@ -252,7 +252,7 @@ RESEARCH_PARTITION_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
 #: to forbid, one field over. `tests/test_research_mode.py` pins by AST that
 #: every use of the name in this module is on this line or in the import above
 #: it, so a second site cannot appear without failing the build.
-RESEARCH_TRIGGERS: frozenset[str] = frozenset({OPERATOR_FORCED_PADDLE})
+RESEARCH_TRIGGERS = frozenset({OPERATOR_FORCED_PADDLE})
 
 
 # ---------------------------------------------------------------------------

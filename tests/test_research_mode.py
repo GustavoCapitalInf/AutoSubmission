@@ -109,7 +109,15 @@ def synthetic_root(tmp_path: Path) -> dict:
     root = tmp_path / "root"
     (root / "SynthA").mkdir(parents=True)
     (root / "SynthB").mkdir(parents=True)
-    page_a, page_b, page_c = build_ledger_page(6), build_ledger_page(9), build_ledger_page(4)
+    # `page_c` is DELIBERATELY the largest: at 4 rows the rendered PDF carries
+    # 215 characters and profiles `mixed`, so the intake ladder reaches for
+    # Tesseract and the native rung never claims it — which would make the
+    # "a natively-read document is admitted to the research read too" proof
+    # below vacuous (it would take the recovery path like the two scans). At
+    # 12 rows it profiles `digital` and the native rung reads it, so the
+    # research admission is proven on a document Phase 1 handles PERFECTLY,
+    # which is the case D8 is actually about.
+    page_a, page_b, page_c = build_ledger_page(6), build_ledger_page(9), build_ledger_page(12)
     (root / "SynthA" / "scan-a.pdf").write_bytes(render_image_pdf(page_a))
     (root / "SynthA" / "scan-b.pdf").write_bytes(render_image_pdf(page_b))
     (root / "SynthB" / "native-c.pdf").write_bytes(render_native_pdf(page_c))
@@ -538,5 +546,15 @@ def test_cli_end_to_end_writes_a_research_run_that_run_of_record_refuses(synthet
     assert provenance["run_of_record"]["partitions"]["mode"] == MODE_RESEARCH_PADDLE
     with pytest.raises(ResearchPartitionRefused):
         partitions_for_run(run_dir)
-    assert not (fx["tmp"] / "never_used_prod" / "webapp.db").exists()
+    # The research run wrote its artifacts to ITS OWN directory and none to the
+    # production cache. The assertion is about ARTIFACTS, not about the
+    # database file: `python -m discovery` creates an empty
+    # `$WEBAPP_DATA_DIR/webapp.db` at IMPORT time on every run and always has
+    # — `discovery/inventory.py` imports `corpus_gate`, which imports
+    # `adb_forensic_audit`, which imports `webapp.app`, which constructs a
+    # `JobStore()` at module level. That is a pre-existing import-time side
+    # effect of the whole CLI, unrelated to this mode and outside this card's
+    # file ownership; it is recorded as a finding rather than asserted away.
+    assert not (fx["tmp"] / "never_used_prod" / "artifacts").exists()
     assert (fx["data_dir"] / "webapp.db").exists()
+    assert list((fx["data_dir"] / "artifacts").rglob("*.json"))
