@@ -363,12 +363,28 @@ class _Spy:
         return self.real(inputs)
 
 
+#: A synthetic offline read, long enough to clear the extraction gate's
+#: character floor. `None` means "the offline ladder produced nothing".
+#:
+#: Both values are needed and the reason is a mutant that SURVIVED the first
+#: version of this test (M11, reproduced 2026-09-10): with the offline ladder
+#: producing nothing, every document takes the RECOVERY path, and a mutant
+#: that admits the research trigger on the UPGRADE path is live but never
+#: executed. A test named after a gate is not a test of that gate. With a real
+#: offline read the scan reaches the upgrade decision in the two modes that
+#: have an escalation extractor at all, and the mutant dies there.
+_OFFLINE_READS = (None, "SYNTHETIC LEDGER LINE FOR THE OFFLINE READ " * 12)
+
+
+@pytest.mark.parametrize("offline_text", _OFFLINE_READS)
 @pytest.mark.parametrize("mode", [MODE_DIGITAL, MODE_SCANNED, MODE_SCANNED_VISUAL, MODE_SCANNED_PADDLE, MODE_DRY_RUN])
-def test_no_other_mode_can_supply_the_research_trigger(synthetic_root, monkeypatch, mode):
+def test_no_other_mode_can_supply_the_research_trigger(synthetic_root, monkeypatch, mode, offline_text):
     """M11's killer: every router decision made in every other mode over a
-    scan AND a native document carries no `operator_forced_paddle`."""
+    scan AND a native document, on BOTH the recovery path (the offline ladder
+    produced nothing) and the upgrade path (it produced a read no reader
+    claimed), carries no `operator_forced_paddle`."""
     fx = synthetic_root
-    _tesseract(monkeypatch, None)
+    _tesseract(monkeypatch, offline_text)
     spy = _Spy()
     monkeypatch.setattr(EscalationRouter, "decide", staticmethod(spy))
     monkeypatch.setattr("ocr.availability.probe_visual_ocr", lambda: None, raising=False)
