@@ -177,6 +177,25 @@ def freeze_tags_from_git(repo_dir: Path | str) -> dict[str, TagRef]:
     return tags
 
 
+def repository_identity(repo_dir: Path | str) -> dict | None:
+    """Which repository a graduation consulted (review NEW-2): the sha256 of
+    its resolved path and its root commit; None when it is not a git repository."""
+    try:
+        resolved = Path(repo_dir).resolve()
+        completed = subprocess.run(
+            ["git", "rev-list", "--max-parents=0", "HEAD"], cwd=str(resolved),
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    roots = sorted(line.strip() for line in completed.stdout.splitlines() if line.strip())
+    if not roots:
+        return None
+    return {"path_digest": sha256_hex(str(resolved)), "root_commit": roots[0]}
+
+
 def _parse_when(value: str, *, what: str) -> datetime:
     text = str(value).strip()
     if text.endswith("Z"):
@@ -437,6 +456,7 @@ class HoldoutManifest:
         attest_engine_version_unchanged: bool,
         attested_by: str,
         at: str | None = None,
+        consulted_repository: Mapping | None = None,
     ) -> dict:
         """`evaluated -> graduated`, only with (a) a tag of the freeze shape
         `*-final`, (b) present in the repository's git-resolved tag list, (c)
@@ -475,6 +495,11 @@ class HoldoutManifest:
             "engine_version": item["last_engine_version"],
             "tag_commit": ref.commit,
             "tag_committer_date": ref.committer_date,
+            "consulted_repository": (
+                {"path_digest": str(consulted_repository.get("path_digest")),
+                 "root_commit": str(consulted_repository.get("root_commit"))}
+                if isinstance(consulted_repository, Mapping) else None
+            ),
         }
         updated = dict(item, status="graduated", graduated_at_tag=tag,
                        graduation_attestation=attestation)
@@ -502,4 +527,5 @@ __all__ = [
     "dev_corpus_from_rows",
     "freeze_tags_from_git",
     "page_count_bucket",
+    "repository_identity",
 ]

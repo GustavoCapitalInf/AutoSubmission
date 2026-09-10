@@ -285,6 +285,7 @@ def test_graduation_requires_an_existing_freeze_tag_and_the_attestation(manifest
         "engine_version": "engine-v1",
         "tag_commit": "b" * 40,
         "tag_committer_date": "2030-06-01T12:00:00-04:00",
+        "consulted_repository": None,
     }
 
 
@@ -433,3 +434,25 @@ def test_strata_are_closed_vocabularies_and_codes(bad):
 def test_currency_is_an_upper_iso_code_or_unknown():
     assert strata(currency="cad")["currency"] == "CAD"
     assert strata(currency="unknown")["currency"] == "unknown"
+
+
+def test_repository_identity_names_the_consulted_repository(tmp_path):
+    """Review NEW-2: the graduation attestation records WHICH repository the
+    freeze tag was resolved in (its path digest and root commit)."""
+    identity = manifest_mod.repository_identity(ROOT)
+    if identity is None:
+        pytest.skip("git not readable from this checkout")
+    assert identity["path_digest"] == hashlib.sha256(str(ROOT.resolve()).encode()).hexdigest()
+    assert len(identity["root_commit"]) == 40
+    assert manifest_mod.repository_identity(tmp_path / "not_a_repo") is None
+
+
+def test_graduation_records_the_consulted_repository_when_given(manifest, dev_corpus):
+    item = add(manifest, dev_corpus)
+    evaluate(manifest, item)
+    identity = {"path_digest": "ab" * 32, "root_commit": "c" * 40}
+    graduated = graduate(manifest, item["holdout_id"], consulted_repository=identity)
+    assert graduated["graduation_attestation"]["consulted_repository"] == identity
+    other = add(manifest, dev_corpus, "h-b")
+    evaluate(manifest, other)
+    assert graduate(manifest, other["holdout_id"])["graduation_attestation"]["consulted_repository"] is None

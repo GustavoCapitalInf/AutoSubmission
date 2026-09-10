@@ -456,3 +456,28 @@ def test_env_is_read_from_the_process_environment_at_open_time(store_dir):
     assert os.environ["SEALED_TRUTH_DIR"] == str(store_dir)
     store = TruthStore.open()
     assert store.directory == store_dir.resolve()
+
+
+def test_write_manifest_never_reseals_a_store_its_manifest_disagrees_with(store_dir, monkeypatch):
+    """Review NEW-3 (M23's killer): the public re-seal refuses a truncated
+    file and leaves the witness untouched; a consistent store may be re-sealed."""
+    store = TruthStore.open()
+    store.append_record(**minimal_fields("doc-a"))
+    store.append_record(**minimal_fields("doc-b"))
+    store.append_record(**minimal_fields("doc-c"))
+    witness = (store_dir / "manifest.json").read_bytes()
+    truncate_to(store_dir / "truth.jsonl", 2)
+    with pytest.raises(ChainError):
+        store.write_manifest()
+    assert (store_dir / "manifest.json").read_bytes() == witness
+    with pytest.raises(ChainError):
+        store.latest_by_sha()  # still refused: nothing was re-sealed
+    # restore the consistent file: the re-seal is allowed and changes only updated_at
+    store2_dir = store_dir.parent / "sealed2"
+    monkeypatch.setenv("SEALED_TRUTH_DIR", str(store2_dir))
+    store2 = TruthStore.open()
+    store2.append_record(**minimal_fields("doc-a"))
+    before = store2.manifest()
+    after = store2.write_manifest()
+    assert (after["chain_head"], after["record_count"]) == (before["chain_head"], before["record_count"])
+    assert store2.verify_against_manifest() == after["chain_head"]

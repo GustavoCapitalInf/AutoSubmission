@@ -310,3 +310,69 @@ def test_cli_entry_point_requires_the_store_and_prints_aggregates(world, capsys,
     assert "false_accept: 2" in out
     monkeypatch.delenv("SEALED_TRUTH_DIR")
     assert evaluate_mod.main(["--rows", str(world["rows"]), "--engine-version", "e", "--run-id", "r"]) != 0
+
+
+# --- review NEW-1: money is compared by VALUE, never by text -----------------
+
+
+def test_money_is_compared_by_value_never_by_text(tmp_path, monkeypatch):
+    """Review NEW-1 (M22's killer): every formatting variant of one figure
+    compares EQUAL (`100` vs `100.00`, `150.25` vs `150.250`, `0.00` vs
+    `-0.00` / `0`, a ledger amount printed with an extra decimal), and a
+    genuinely different figure still contradicts."""
+    monkeypatch.setenv("SEALED_TRUTH_DIR", str(tmp_path / "sealed"))
+    store = TruthStore.open()
+    manifest = HoldoutManifest.open()
+    shas = {name: sha(f"scale-{name}") for name in ("scale", "negzero", "ledger_scale", "different")}
+    store.append_record(content_sha256=shas["scale"], **complete(opening_balance="100", closing_balance="150.25"))
+    store.append_record(content_sha256=shas["negzero"], **complete(opening_balance="0.00", closing_balance="0.00",
+                                                                    sampled_rows=[]))
+    store.append_record(content_sha256=shas["ledger_scale"], **complete())
+    store.append_record(content_sha256=shas["different"], **complete(closing_balance="150.25"))
+    dev_corpus = dev_corpus_from_rows(write_csv(tmp_path / "dev_rows.csv", ROW_COLUMNS,
+                                                [row(d, "validated") for d in DEV]))
+    for name in shas:
+        manifest.add(content_sha256=shas[name], source_batch="unseen-2031-01", dev_corpus=dev_corpus,
+                     strata=build_strata(modality="digital", bank_familiarity="known_bank",
+                                         account_shape="single", table_shape="table_heavy",
+                                         currency="USD", page_count=2, layout_family_code="fam_x"))
+    rows = write_csv(tmp_path / "rows.csv", ROW_COLUMNS, [row(shas[n], "validated") for n in shas])
+    figures = write_csv(tmp_path / "figures.csv", FIGURE_COLUMNS, [
+        dict(content_sha256=shas["scale"], account_count="1", opening_balance="100.00", closing_balance="150.250"),
+        dict(content_sha256=shas["negzero"], account_count="1", opening_balance="-0.00", closing_balance="0"),
+        dict(content_sha256=shas["ledger_scale"], account_count="1", opening_balance="100.000", closing_balance="150.25"),
+        dict(content_sha256=shas["different"], account_count="1", opening_balance="100.00", closing_balance="150.26"),
+    ])
+    ledger = write_csv(tmp_path / "ledger.csv", LEDGER_COLUMNS, [
+        dict(content_sha256=shas["scale"], date="2031-01-05", description="SYNTHETIC ROW ONE", amount="-12.340"),
+        dict(content_sha256=shas["ledger_scale"], date="2031-01-05", description="synthetic row one", amount="-12.3400"),
+        dict(content_sha256=shas["different"], date="2031-01-05", description="SYNTHETIC ROW ONE", amount="-12.34"),
+    ])
+    result = evaluate_mod.evaluate_run(rows, store=store, manifest=manifest, engine_version="engine-scale",
+                                       run_id="run-scale", figures_csv=figures, ledger_csv=ledger,
+                                       out=lambda *a, **k: None)
+    by = {d["sha16"]: d for d in result["details"]}
+    for name in ("scale", "negzero", "ledger_scale"):
+        assert by[shas[name][:16]]["contradictions"] == [], name
+        assert by[shas[name][:16]]["judgement"] == "agree", name
+    assert by[shas["scale"][:16]]["money_compared"] == 3
+    assert by[shas["different"][:16]]["judgement"] == "false_accept"
+    assert by[shas["different"][:16]]["contradictions"] == ["closing_balance"]
+    assert result["false_accept"] == 1 and result["agree"] == 3
+
+
+@pytest.mark.parametrize(
+    "left,right",
+    [("100", "100.00"), ("100.000", "100"), ("0.00", "-0.00"), ("0", "-0"), ("150.250", "150.25"),
+     ("-12.34", "-12.3400"), ("1E+2", "100.00")],
+)
+def test_money_keys_and_values_agree_across_scale_and_sign_of_zero(left, right):
+    assert evaluate_mod.money_key(left) == evaluate_mod.money_key(right)
+    assert evaluate_mod._canon_money(left) == evaluate_mod._canon_money(right)
+    assert evaluate_mod.money_key("0.00") == "0" and evaluate_mod.money_key("-0.00") == "0"
+
+
+def test_money_values_that_differ_still_differ():
+    assert evaluate_mod.money_key("150.25") != evaluate_mod.money_key("150.26")
+    assert evaluate_mod._canon_money("100.00") != evaluate_mod._canon_money("100.01")
+    assert evaluate_mod.money_key("n/a") is None and evaluate_mod.money_key("") is None

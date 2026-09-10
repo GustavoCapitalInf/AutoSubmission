@@ -56,6 +56,7 @@ from tools.holdout.manifest import (
     build_strata,
     dev_corpus_from_rows,
     freeze_tags_from_git,
+    repository_identity,
 )
 from tools.holdout.store import (
     ACCOUNT_KINDS,
@@ -701,12 +702,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{item['holdout_id']} -> {item['status']} by {item['burned_by']}")
         elif args.command == "holdout-graduate":
             repo = Path(args.repo) if args.repo is not None else _this_checkout_root()
+            identity = repository_identity(repo)
             item = HoldoutManifest.open().graduate(
                 args.id, graduated_at_tag=args.tag, freeze_tags=freeze_tags_from_git(repo),
                 attest_engine_version_unchanged=bool(args.attest), attested_by=args.attested_by,
+                consulted_repository=identity,
             )
+            consulted = item["graduation_attestation"]["consulted_repository"] or {}
             print(f"{item['holdout_id']} -> {item['status']} at {item['graduated_at_tag']} "
-                  f"(commit {item['graduation_attestation']['tag_commit'][:12]})")
+                  f"(commit {item['graduation_attestation']['tag_commit'][:12]}; repository "
+                  f"{str(consulted.get('path_digest'))[:16]} root {str(consulted.get('root_commit'))[:12]})")
         elif args.command == "holdout-list":
             print_holdout_list(HoldoutManifest.open())
         else:  # pragma: no cover - argparse restricts the choices

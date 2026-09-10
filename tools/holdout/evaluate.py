@@ -42,7 +42,9 @@ is; with `rows.csv` alone the only comparable figure is the row's
 not parse (a figure export's `n/a`) is NOT compared — it is listed under
 `unparseable` in the detail and never becomes a contradiction. A system
 `refused` row (R11, cell T) classes as `unclassified` until its reasons are
-mapped here.
+mapped here. Money is compared as `Decimal` VALUES (never as text): `100`,
+`100.00` and `100.000` are one figure, `-0.00` is `0`, and a ledger amount
+matches a sampled row whatever scale either side printed (review NEW-1).
 """
 from __future__ import annotations
 
@@ -131,6 +133,8 @@ def best_row_per_sha(rows_csv: Path) -> dict[str, dict]:
 
 
 def _canon_money(value):
+    """The VALUE of a money figure as a `Decimal` (scale is not meaning: `100`
+    == `100.00` == `100.000`; negative zero is zero) — review NEW-1."""
     text = "" if value is None else str(value).strip()
     if not text:
         return None
@@ -138,7 +142,18 @@ def _canon_money(value):
         figure = Decimal(text)
     except InvalidOperation:
         return _UNPARSEABLE
-    return format(figure, "f") if figure.is_finite() else _UNPARSEABLE
+    if not figure.is_finite():
+        return _UNPARSEABLE
+    return Decimal(0) if figure == 0 else figure
+
+
+def money_key(value) -> str | None:
+    """A scale-free, sign-of-zero-free text key for a money value (the ledger
+    key and the sampled-row key must agree whatever scale each side printed)."""
+    figure = _canon_money(value)
+    if figure is None or figure is _UNPARSEABLE:
+        return None
+    return format(figure.normalize(), "f")
 
 
 def _canon_date(value):
@@ -196,8 +211,8 @@ def load_ledger(path: Path | None) -> dict[str, set[tuple[str, str, str]]] | Non
         if not sha:
             continue
         when = _canon_date(row.get("date"))
-        amount = _canon_money(row.get("amount"))
-        if when in (None, _UNPARSEABLE) or amount in (None, _UNPARSEABLE):
+        amount = money_key(row.get("amount"))
+        if when in (None, _UNPARSEABLE) or amount is None:
             continue  # an unparseable ledger row is never evidence of anything
         key = (when, description_hash(row.get("description") or ""), amount)
         ledger.setdefault(sha, set()).add(key)
@@ -225,7 +240,7 @@ def compare_figures(oracle: Mapping, system: Mapping) -> tuple[list[str], int, i
         compared += 1
         if field in MONEY_FIELDS:
             money_compared += 1
-        if canonical_oracle != canonical_system:
+        if canonical_oracle != canonical_system:  # Decimal vs Decimal for money: a VALUE comparison
             contradictions.append(field)
     return contradictions, compared, money_compared, unparseable
 
@@ -237,7 +252,7 @@ def compare_rows(oracle_rows, ledger_rows) -> tuple[list[str], int]:
     compared = 0
     for sampled in oracle_rows:
         compared += 1
-        key = (sampled["date"], sampled["description_hash"], sampled["amount"])
+        key = (sampled["date"], sampled["description_hash"], money_key(sampled["amount"]))
         if key not in ledger_rows:
             contradictions.append("sampled_row_absent")
     return contradictions, compared

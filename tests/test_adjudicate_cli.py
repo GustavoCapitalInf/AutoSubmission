@@ -603,3 +603,21 @@ def test_the_cli_has_exactly_the_ruled_commands():
         "queue", "run", "status", "verify", "export-digest",
         "holdout-add", "holdout-burn", "holdout-graduate", "holdout-list",
     }
+
+
+def test_holdout_graduate_records_which_repository_was_consulted(world, tmp_path, capsys):
+    """Review NEW-2: the attestation carries the consulted repository's path
+    digest and root commit, so a fabricated repository is auditable."""
+    repo = git_repo_with_tags(tmp_path / "repo")
+    assert adjudicate.main(add_args(world, FRESH)) == 0
+    HoldoutManifest.open().record_evaluation("H000001", engine_version="engine-v1", evaluation_run_id="run-1",
+                                             evaluated_at="2026-01-01T00:00:00+00:00")
+    assert adjudicate.main(["holdout-graduate", "--id", "H000001", "--tag", "synthetic-final", "--attest",
+                            "--attested-by", "principal_adjudicator", "--repo", str(repo)]) == 0
+    consulted = HoldoutManifest.open().items()["H000001"]["graduation_attestation"]["consulted_repository"]
+    assert consulted["path_digest"] == hashlib.sha256(str(repo.resolve()).encode()).hexdigest()
+    root = subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"], cwd=str(repo), capture_output=True,
+                          text=True, check=True).stdout.strip()
+    assert consulted["root_commit"] == root and len(root) == 40
+    out = capsys.readouterr().out
+    assert consulted["path_digest"][:16] in out and root[:12] in out

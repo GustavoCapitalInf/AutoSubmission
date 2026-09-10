@@ -358,11 +358,26 @@ class ChainedJsonl:
             )
         return head
 
-    def write_manifest(self, records: list[dict] | None = None) -> dict:
+    def write_manifest(self, records: list[dict] | None = None, *,
+                       previous: tuple[str, int] | None = None) -> dict:
+        """Write the sidecar — never as a re-seal of a file the existing sidecar
+        disagrees with (review NEW-3). `previous` is the (head, count) the
+        existing manifest must carry: the state before an append. Without it,
+        the existing manifest must already agree with the file (a consistent
+        store may be re-sealed; a truncated one is refused)."""
         if self.manifest_path is None:
             raise ChainError(f"{self.path.name}: no manifest path configured")
         records = self.read() if records is None else records
         head = self.verify(records)
+        existing = self.read_manifest()
+        if existing is not None:
+            expected = previous if previous is not None else (head, len(records))
+            if (existing.get("chain_head"), existing.get("record_count")) != expected:
+                raise ChainError(
+                    f"{self.manifest_path.name} disagrees with {self.path.name}; refusing to re-seal "
+                    f"(manifest {existing.get('record_count')} records / head "
+                    f"{str(existing.get('chain_head'))[:12]}, expected {expected[1]} / {expected[0][:12]})"
+                )
         manifest = {
             "store_version": STORE_VERSION,
             "record_count": len(records),
@@ -404,7 +419,7 @@ class ChainedJsonl:
 
         _retry(_write)
         if self.manifest_path is not None:
-            self.write_manifest(records + [record])
+            self.write_manifest(records + [record], previous=(head, len(records)))
         return record
 
 
