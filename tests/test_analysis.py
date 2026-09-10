@@ -28,6 +28,8 @@ from analysis.linkbank import parse_linkbank_statement
 from analysis.midflorida import parse_midflorida_statement
 from analysis.navy_federal import parse_navy_federal_statement
 from analysis.pipeline import (
+    HOSTED_EXTRACTION_OPT_IN_ENV,
+    HOSTED_EXTRACTION_OPT_IN_LITERAL,
     analyze_markdown,
     apply_statement_repairs,
     assess_document_integrity,
@@ -2714,6 +2716,10 @@ def test_analysis_marks_incomplete_detail_as_manual_review(monkeypatch):
         )
 
     monkeypatch.setattr("analysis.pipeline.extract_statement", fake_extract)
+    # P22-FENCE (Ruling A in code): this test exercises the HOSTED branch on a
+    # fake extractor, and that branch runs only behind the operator's exact
+    # opt-in literal; without it auto mode takes the deterministic refusal.
+    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL)
     report = analyze_markdown("BMO Account Summary")
     assert not report.reconciliation.ok
     assert report.reconciliation.summary_ok is True
