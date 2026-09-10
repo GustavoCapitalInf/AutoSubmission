@@ -55,14 +55,41 @@ TELEMETRY_VERSION = 1
 #: pathological document, not a policy. `scores_capped` records when it bites.
 SCORE_CAP = 12
 
-OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred")
+#: P22-TRUTHTABLE (Phase 2.2, R11): `refused` is a first-class TERMINAL
+#: class — the platform declining a document for a named, defensible reason
+#: (not a statement; an invalid file; insufficient evidence; a document that
+#: contradicts itself; incomplete; unreadable). It is NOT a rung of
+#: `DOCUMENT_LADDER` / `discovery.compare.LADDER`: it is unranked against
+#: failed / withheld / review, and ANY exit from `validated` — to `refused`
+#: included — is a regression (`discovery/compare.py::direction`).
+OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred", "refused")
 
 #: Reasons a document may be DEFERRED — recorded work that a tranche
 #: deliberately did not do. Deferral is always an explicit declaration by the
 #: caller, never inferred from an absent payload: the difference between "we
 #: did not try" and "we tried and it broke" is the whole point of the class,
 #: and inferring it would let a real failure hide as a decision.
-DEFERRED_REASONS = ("deferred_scanned", "deferred_visual_ocr", "profile_only")
+#:
+#: P22-TRUTHTABLE (D7, D8): the two research-mode declarations. A document
+#: the `--research-paddle` run enumerated but whose sha is not in the
+#: operator's population file is `research_skipped_not_in_population`; a
+#: population sha that appears in the holdout digest's list is
+#: `research_refused_holdout` — refused before any read, so a holdout item
+#: can never be studied by a research run (case 21). Both are statements
+#: about the RUN (its population, its cage), which is what `deferred` is for.
+DEFERRED_REASONS = (
+    "deferred_scanned", "deferred_visual_ocr", "profile_only",
+    "research_skipped_not_in_population", "research_refused_holdout",
+)
+
+#: P22-TRUTHTABLE (R11): the CLOSED reasons a `refused` outcome may carry.
+#: RESERVED in Phase 2.2 — nothing in this tree produces one (a test asserts
+#: zero `refused` rows on the run of record's replay); later milestones
+#: declare them through `classify_outcome(..., refused=<reason>)`, exactly
+#: as `deferred=` is declared, never inferred.
+REFUSED_REASONS = (
+    "not_a_statement", "file_invalid", "insufficient_evidence", "contradictory", "incomplete", "unreadable",
+)
 #: P21-ROUTING (Phase 2.1) adds `"paddle"`, between `"local_tesseract"` and
 #: `"visual"` — the same slot PaddleOCR takes in `ocr.escalation.
 #: EXTRACTOR_ORDER`.
@@ -84,6 +111,9 @@ EXTRACTION_TRIGGERS = (
     "extractor_output_unusable",
     "extractor_failed",
     "operator_forced_visual",
+    # P22-TRUTHTABLE (D8): the research run mode's trigger; see
+    # `ocr.escalation.OPERATOR_FORCED_PADDLE`.
+    "operator_forced_paddle",
     "truncation_flagged",
 )
 
@@ -274,6 +304,11 @@ def source_section(doc: Any | None) -> dict:
     `execution_class` are read from `doc.evidence.runtime` when present —
     `None` for every rung that carries no canonical evidence (every read
     before Phase 2.1, and every non-Paddle read since).
+
+    P22-TRUTHTABLE (the one-line change cell K's W3 names): a native read
+    gains its NATIVE evidence sha (`StatementMarkdown.native_evidence_sha256`,
+    D5) when the read carries no extractor evidence — a Paddle read keeps its
+    own evidence sha; every other rung stays `None`.
     """
     if doc is None:
         return {
@@ -305,7 +340,7 @@ def source_section(doc: Any | None) -> dict:
             "truncated_page_indices": truncated,
             "signals": signals,
         },
-        "evidence_sha256": getattr(evidence, "evidence_sha256", None) if evidence is not None else None,
+        "evidence_sha256": (getattr(evidence, "evidence_sha256", None) if evidence is not None else None) or getattr(doc, "native_evidence_sha256", None),
         "provider": (runtime or {}).get("provider") if runtime is not None else None,
         "execution_class": (runtime or {}).get("execution_class") if runtime is not None else None,
     }
@@ -543,6 +578,7 @@ def classify_outcome(
     error_type: str | None = None,
     error_reason: str | None = None,
     deferred: str | None = None,
+    refused: str | None = None,
 ) -> tuple[str, str]:
     """(class, reason) for one document. Precedence order, top down.
 
@@ -550,6 +586,13 @@ def classify_outcome(
     offline tranche, say. It outranks everything because it is a statement
     about the RUN, not about the document, and it is only ever reached by an
     explicit `deferred=` declaration from the caller.
+
+    `refused` (P22-TRUTHTABLE, R11) is the platform DECLINING the document
+    for one of `REFUSED_REASONS` — a terminal verdict about the DOCUMENT, so
+    it ranks below a deferral (the run's statement) and above the payload
+    (a refusal is decided before any figure is published). Like `deferred`
+    it is only ever reached by an explicit `refused=` declaration; nothing in
+    Phase 2.2 makes one.
 
     `failed` therefore means exactly one thing: attempted, and errored.
     `withheld` is the platform refusing to publish an authoritative value —
@@ -561,6 +604,10 @@ def classify_outcome(
         if deferred not in DEFERRED_REASONS:
             raise ValueError(f"unknown deferral reason: {deferred!r}")
         return "deferred", deferred
+    if refused is not None:
+        if refused not in REFUSED_REASONS:
+            raise ValueError(f"unknown refusal reason: {refused!r}")
+        return "refused", refused
     if payload is None:
         return "failed", error_reason or ("exception" if error_type else "no_analysis")
     # This function answers about ONE account, and measured (design §1.4) it
@@ -599,8 +646,14 @@ def classify_document(
     error_type: str | None = None,
     error_reason: str | None = None,
     deferred: str | None = None,
+    refused: str | None = None,
 ) -> tuple[str, str]:
     """(class, reason) for one DOCUMENT: the WEAKEST account's, fail-closed.
+
+    `refused` (P22-TRUTHTABLE, R11) is threaded to `classify_outcome`
+    exactly as `deferred` is: an explicit declaration that outranks the
+    fold, never a value the fold can produce (an account never reaches the
+    fold `refused`, and the ladder check below stays the guard).
 
     One outcome per document is not a convenience. `discovery/compare.py` ranks
     on `LADDER` keyed on `content_sha256` alone, and that ladder is what the
@@ -664,16 +717,16 @@ def classify_document(
     # today's payload), and an omission whose reason is not a ratified evidence
     # class is a publisher defect on ONE account exactly as it is on three. The
     # check runs before the shape branch so neither shape can walk past it.
-    if deferred is None and isinstance(payload, Mapping) and DOCUMENT_KEY in payload:
+    if deferred is None and refused is None and isinstance(payload, Mapping) and DOCUMENT_KEY in payload:
         for omission in payload_document_block(
             payload, surface=surface).get("omitted_sections") or []:
             reason = omission.get("reason") if isinstance(omission, Mapping) else None
             if reason not in RATIFIED_OMISSION_REASONS:
                 return "failed", "document_omission_unratified"
-    if deferred is not None or not is_document_payload(payload):
+    if deferred is not None or refused is not None or not is_document_payload(payload):
         return classify_outcome(
             payload, error_type=error_type, error_reason=error_reason,
-            deferred=deferred,
+            deferred=deferred, refused=refused,
         )
     accounts = (payload.get("accounts") or []) if isinstance(payload, dict) else []
     if not accounts:
@@ -729,13 +782,15 @@ def build_record(
     deferred: str | None = None,
     fallback_reason: str | None = None,
     job_id: str | None = None,
+    refused: str | None = None,
 ) -> dict:
     # The DOCUMENT's outcome. `classify_document` is `classify_outcome` on
     # every payload the tree publishes today (an account payload never reaches
     # the fold), so this record is byte-identical until a document publishes a
     # second account.
     outcome_class, reason = classify_document(
-        payload, error_type=error_type, error_reason=error_reason, deferred=deferred
+        payload, error_type=error_type, error_reason=error_reason, deferred=deferred,
+        refused=refused,
     )
     return {
         "telemetry_version": TELEMETRY_VERSION,
