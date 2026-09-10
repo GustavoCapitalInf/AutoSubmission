@@ -25,11 +25,19 @@ measured the same corpus.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from pathlib import Path
 
 from ocr.availability import probe_visual_ocr
 from ocr.paddle_client import probe as probe_paddle_ocr
+from ocr.paddle_config import (
+    PADDLE_CUSTOMER_DATA_OPT_IN_ENV,
+    PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL,
+    PADDLE_REMOTE_OPT_IN_ENV,
+    PADDLE_REMOTE_OPT_IN_LITERAL,
+)
 from telemetry import JsonlSink, NullSink, new_run_id, telemetry_disabled
 
 from .inventory import (
@@ -44,15 +52,27 @@ from .runner import (
     MODE_DIGITAL,
     MODE_DRY_RUN,
     MODE_PROFILE_ONLY,
+    MODE_RESEARCH_PADDLE,
     MODE_SCANNED,
     MODE_SCANNED_PADDLE,
     MODE_SCANNED_VISUAL,
+    RESEARCH_PARTITION_PATTERN,
     DiscoveryRunner,
     estimate_class_a_population,
+    holdout_sha16s_from_digest,
+    read_population,
+    refuse_production_data_dir,
 )
 
 DEFAULT_ROOT = Path("Bank Statements")
 DEFAULT_OUT = Path("discovery_reports")
+
+#: The ONE holdout artefact runtime code may read (the leakage firewall). See
+#: `discovery.runner.holdout_sha16s_from_digest`.
+DEFAULT_HOLDOUT_DIGEST = (
+    Path(__file__).resolve().parents[1]
+    / "docs" / "moneythumb-replacement" / "truth" / "MANIFEST_DIGEST.txt"
+)
 
 
 def _select(inventory, mode: str) -> list[str]:
