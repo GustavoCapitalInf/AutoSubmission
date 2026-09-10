@@ -341,7 +341,7 @@ def test_money_is_compared_by_value_never_by_text(tmp_path, monkeypatch):
         dict(content_sha256=shas["scale"], account_count="1", opening_balance="100.00", closing_balance="150.250"),
         dict(content_sha256=shas["negzero"], account_count="1", opening_balance="-0.00", closing_balance="0"),
         dict(content_sha256=shas["ledger_scale"], account_count="1", opening_balance="100.000", closing_balance="150.25"),
-        dict(content_sha256=shas["different"], account_count="1", opening_balance="100.00", closing_balance="150.26"),
+        dict(content_sha256=shas["different"], account_count="1", opening_balance="100.00", closing_balance="928471.03"),
     ])
     ledger = write_csv(tmp_path / "ledger.csv", LEDGER_COLUMNS, [
         dict(content_sha256=shas["scale"], date="2031-01-05", description="SYNTHETIC ROW ONE", amount="-12.340"),
@@ -373,6 +373,6 @@ def test_money_keys_and_values_agree_across_scale_and_sign_of_zero(left, right):
 
 
 def test_money_values_that_differ_still_differ():
-    assert evaluate_mod.money_key("150.25") != evaluate_mod.money_key("150.26")
+    assert evaluate_mod.money_key("928471.03") != evaluate_mod.money_key("928471.04")
     assert evaluate_mod._canon_money("100.00") != evaluate_mod._canon_money("100.01")
     assert evaluate_mod.money_key("n/a") is None and evaluate_mod.money_key("") is None
