@@ -299,13 +299,22 @@ def test_the_diagnostics_version_moves_when_the_vocabulary_does():
     """
     import telemetry.diagnostics as diagnostics
 
+    # v5 — P22-TRUTHTABLE (Phase 2.2), the fence cell's consequence. NO code
+    # was added, removed or re-classed: the four vocabulary sizes are
+    # unchanged, and the version moved because the set of codes a LIVE
+    # analysis can still PRODUCE shrank (the escalation-extraction writer was
+    # removed by R9, so its anchor can never fire again while staying in the
+    # vocabulary for the records that already carry it). That is precisely
+    # the case this guard's docstring calls out — the new state fires on zero
+    # documents, so the version is the only observable difference between a
+    # v4 rollup and a v5 one. See `W3_2_TAXONOMY.md` §11 v5.
     assert (
         diagnostics.DIAGNOSTICS_VERSION,
         len(VOCABULARY),
         len(CLASS_OF),
         len(ADVISORY_CODES),
         len(diagnostics.DIAGNOSABLE_CLASSES),
-    ) == (4, 60, 53, 7, 2)
+    ) == (5, 60, 53, 7, 2)
     # 60/7, not 59/6: the batch-5 train composed TWO vocabulary changes into
     # the one v4 bump — this cell's `integrity:repair_exception` and
     # ADB-SPLIT's advisory `adb_state:initialization_event_folded` — the same

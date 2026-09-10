@@ -121,13 +121,21 @@ def _write_research_provenance(run_dir: Path, mode: str, research_partition: str
         "mode": mode,
         "research_partition": research_partition,
     }
-    try:
-        partitions["paddle_ocr_key"] = ocr_settings_key(
-            force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False,
-            allow_paddle_ocr=True, research_partition=research_partition,
-        )
-    except Exception as exc:  # settings that will not load are recorded, never fatal
-        partitions["paddle_ocr_key_note"] = f"not recorded: {type(exc).__name__}"
+    # The Paddle partition key is deliberately NOT computed here.
+    # `tests/test_paddle_routing.py` pins the exact set of call sites that may
+    # name the Paddle capability flag, so that a Paddle READ can never appear
+    # at a site nobody reviewed. This function would only be computing a
+    # partition KEY, not reading anything — but weakening a pin whose whole
+    # value is "this list is short and reviewed" to record one optional field
+    # is a bad trade, and the field IS optional: `telemetry/run_of_record.py`
+    # refuses this run on `research_partition` alone, before it reads any key.
+    # An operator who wants the full provenance of a research run has
+    # `tools/train/provenance.py --research-partition`, which is the reviewed
+    # instrument for exactly that and already carries the pinned call site.
+    partitions["paddle_ocr_key_note"] = (
+        "not recorded here; run tools/train/provenance.py --research-partition for the "
+        "full record (the reviewed instrument for a research run's provenance)"
+    )
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "provenance.json").write_text(
         json.dumps(

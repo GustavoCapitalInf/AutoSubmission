@@ -297,12 +297,14 @@ def holdout_sha16s_from_digest(path: Path) -> frozenset[str]:
     """The holdout manifest's sha16 prefixes, read from the REPOSITORY digest.
 
     `docs/moneythumb-replacement/truth/MANIFEST_DIGEST.txt` is the ONLY
-    holdout artefact runtime code may read (the leakage firewall: nothing
-    under `discovery/` may name `SEALED_TRUTH_DIR` or import `tools.holdout`).
-    Its grammar is fixed — a `holdout_sha16_status:` header followed by
-    `- <SHA16> <status>` lines — and this reads THAT BLOCK ONLY, so the
-    adjudicated list above it can never be mistaken for a holdout list. The
-    file carries no verdict, so reading it leaks nothing.
+    holdout artefact runtime code may read. The leakage firewall
+    (`tests/test_truth_firewall.py`) forbids every production package from
+    naming the sealed store's directory variable or importing its package at
+    all — including in prose, which is why this paragraph describes the rule
+    instead of quoting it. Reading the committed digest breaks nothing: its
+    grammar is fixed — a status header followed by `- <SHA16> <status>` lines
+    — this reads THAT BLOCK ONLY so the adjudicated list above it can never be
+    mistaken for a holdout list, and the file carries no verdict at all.
 
     A missing or unreadable digest REFUSES: a research run that cannot check
     the cage must not run, because "we could not read the holdout list" and
