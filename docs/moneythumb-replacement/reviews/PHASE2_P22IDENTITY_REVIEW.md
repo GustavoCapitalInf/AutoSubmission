@@ -189,3 +189,53 @@ key unchanged by an empty partition · the research-partition refusal by name an
 the native-evidence cache round trip and the three drift directions · `to_markdown()` byte-identity (M14 and the
 committed corpus pin) · the two version pins in one commit · hermetic provenance tests in four environments ·
 previously validated preserved payload-identical (the cell's four chunks, re-verified from logs; my two chunks).
+
+## Re-review (closure-2 tip bc6e7cb)
+
+```
+REVIEWER: the same independent agent; fresh detached worktree `.claude/worktrees/rerev22-identity` at bc6e7cb
+          (code tree f96617e; the only later change is the W3 closure-2 section)
+SCOPE:    the four MINORs of the first review (F-1 .. F-4), each: the cell's reproduction re-run, the fix confirmed,
+          the named mutant applied by me and its kill confirmed, two fresh inputs attacked
+VERDICT:  APPROVE WITH FINDINGS — F-1, F-2, F-3, F-4 CLOSED; two new MINORs (both latent, population 0 in the archive)
+DATE:     2026-09-10
+```
+
+### Per-finding status
+
+| finding | fix (f96617e) | my reproduction + fresh inputs | mutant (applied by me) | status |
+|---|---|---|---|---|
+| F-1 CropBox raster | `use_cropbox=True` in `rasterize_pdf` AND `rasterize_page`; `RASTER_VERSION` 1→2 with `test_raster_version_is_pinned_at_2` and `_RASTER_VERSION_FALLBACK` 2 in the same commit (`test_raster_version_fallback_matches_the_source_module`) | the S3 CropBox-shifted page at 0°/90° × 72/144 dpi: raster = frame×dpi/72 exactly, `rasterize_page` returns the same size, the rung's `PageFrame.pixel` scale check passes, boxes-on-ink 1.000 (baseline plain page 1.000). Fresh: (a) a CropBox LARGER than the MediaBox at 0° — both PyMuPDF and Poppler clamp to the MediaBox, frame = raster, boxes-on-ink 1.000; at 90° see N-1; (b) a CropBox on only the SECOND page of a two-page PDF — page 1 untouched (612×792, 1.000), page 2 cropped (545×675 = raster, 1.000) | M18 (`use_cropbox` dropped in `rasterize_pdf`) — killed by all four parametrised cases | CLOSED |
+| F-2 invalid `/Rotate` | `_raw_rotate` reads the page's own `/Rotate`, else walks `/Parent`; a raw integer not ≡ 0 mod 90 refuses the page with `invalid_rotation` (declared rect, zero words) | own 45, inherited 45 (page key null, `Pages` node 45), 135, −45 and 45 on page 2 only → `invalid_rotation`, zero words, the sibling page untouched; 450 / −90 / 360 / 0 and the fresh `/Rotate -270` normalise (90/270/0/0/90) and read every word; a real `45.0` is coerced to the integer 45 by the writer and refused | M19 (`if False:`) — killed by both parametrisations | CLOSED (see N-2 for an indirect-object residual) |
+| F-3 provenance validation | `validate_research_partition` (the cache module's pattern, pinned equal) as `collect`'s first statement; `main` exits 2 and writes nothing | the six malformed ids plus `.dot`, a non-ASCII id and the 65-char id refused; the 64-char id accepted; `main` with the 65-char id → exit 2, no JSON, no Markdown twin, `subprocess.run` called 0 times (instrumented) | M20 (`collect`'s validation → `or ""`) and M21 (`main`'s refusal → `pass`) — each killed by `test_provenance_validates_the_research_partition_before_any_probe` | CLOSED |
+| F-4 pre-v5 partition | a non-empty partition with `stage_version < 5` raises | stages 4, 3, 1 with a partition → refused; stage 4 with `""` byte-identical to the historical key; stage 5 with `""`/`None`/omitted byte-identical; the live default likewise; a 64-char id at stage 5 is its own partition, a 65-char id refused | M22 (`if False:`) — killed by `test_a_research_partition_on_a_pre_v5_stage_is_refused_not_dropped` | CLOSED |
+
+### New findings (ranked)
+
+| # | severity | finding |
+|---|---|---|
+| N-1 | MINOR (latent, population 0) | On a page whose CropBox OVERHANGS its MediaBox and that carries a `/Rotate`, PyMuPDF's `page.rotation_matrix` translates by the UNCLAMPED CropBox height while `page.rect` and the word coordinates are the CLAMPED rectangle (which Poppler also renders): the reader's display boxes are offset by the overhang — measured 68 pt (CropBox −40/−38 past the edges, matrix e = 860 vs rect 792) and 24 pt (the archive's own same-size shift shape, e = 792 vs rect 768) at 90°, boxes-on-ink 0.000 on every word, while the same pages at 0° are exact. The four-angle pin and the closure-2 F-1 test use a CropBox INSIDE the MediaBox, which cannot see this. Census: of the 82 rotated pages 0 have an overhanging CropBox and 0 have a matrix translation disagreeing with their rect; the 7 overhanging-CropBox pages are all unrotated — no archive page is affected today. Fix: derive the transform from `page.rect` (the independent formula the test already carries), or verify `matrix.e/f` against the rect and refuse on disagreement. |
+| N-2 | MINOR (latent, population harmless) | `_raw_rotate` handles only a direct integer: a `/Rotate` written as an INDIRECT reference to an integer object (kind `xref`) returns `None`, so an indirect 45 is NOT refused and is mis-framed exactly as F-2 was (rotation 0, identity matrix, swapped rect, 5 words at wrong positions — reproduced); an indirect 90 normalises correctly. The archive's 4 non-integer `/Rotate` objects (the cell's disclosed risk) are all indirect references and all resolve to 0 (my census resolves them) — harmless today. Fix: resolve `xref` kinds through `document.xref_object` before the mod-90 test. |
+
+### Re-derived numbers (vs the cell's closure-2 claims)
+
+| item | claimed | re-derived |
+|---|---|---|
+| targeted tests at the closure-2 tree | 711 passed / 0 failed (the cell's set) | my superset (the same files + `test_structurer.py`, `test_truncation.py`, `test_paddle_live.py` with its marker): **803 passed / 2 deselected / 0 failed** (201 s) |
+| CropBox≠MediaBox documents | 7 pages / 7 documents, all native, 3 validated / 3 failed / 1 withheld | **7 / 7; source_path native 7; validated 3, failed 3, withheld 1** — identical |
+| invalid-rotation census | 0 of 25,528 (own or inherited); 4 non-integer `/Rotate` objects | **0 own, 0 inherited of 25,528 pages** (12 unreadable); the 4 non-integer objects are `xref` references resolving to 0 |
+| rotated pages | 82 | 82; 0 with an overhanging CropBox (N-1 population) |
+| corpus-marked slice at the closure-2 tree | 34 passed | **34 passed, 8893 deselected** (1705 s), `CORPUS_EXIT=0` — my run at bc6e7cb from the worktree beneath `.claude/worktrees/`, under the lock |
+| privacy scan | residue 0 at f96617e (3,148 added lines, raw 34 all `words_class`) | at **bc6e7cb** (the closure-2 W3 section included): added lines 3,270, raw 37 all `words_class`, **residue 0** (MONEY/DIGITS/DATES/WORDS 0) |
+| message scan | 0 over 10 commits after the tree-preserving reword | **0/0/0/0 over all 11 commits to bc6e7cb** (my run, under the lock) |
+| mutants | M18–M22 killed | **M18–M22 killed by me** in a scratch worktree (tree clean after every row) |
+
+### The union replay, the offline partition and the host incident
+
+* The replay is not owed: `tools/cohort_replay.py` reads the run of record's CACHED text and re-analyses in-process; the rasteriser is never called. Precisely stated, the offline partition does NOT "never rasterise" — the Tesseract rung (`ocr/local_tesseract.py`) rasterises scans — but the raster change can only move a Tesseract read of a CropBox≠MediaBox scan, and the census shows all 7 such documents were read natively (0 Tesseract, 0 Paddle); `RASTER_VERSION` 2 is key material, so every OCR partition rotates at the train's cold run regardless.
+* The disclosed host incident (a bounded poll timed out, the scan ran without the lock, its `rmdir` removed H's lock): K's message scan reads cached text and `git log` only, so its result is unaffected; I re-ran both scans under the lock myself with identical counts (0 / 0). Nothing of K's is invalidated. What it could have affected is H's concurrent proof, which is H's reviewer's to judge; the corrected runner (unbounded `mkdir` wait, own lock only) is the discipline the rules require.
+
+### Commits and trailers
+`f96617e` (the four fixes with tests and pins; the message reworded tree-preservingly — `git diff --stat f96617e bc6e7cb` touches only the W3 log) and `bc6e7cb` (the W3 closure-2 section) both carry `Co-Authored-By: Claude Fable 5.1 …` and `Claude-Session: …`. Files changed since 301cefd: `evidence/__init__.py`, `evidence/native.py`, `ocr/rasterize.py` (ownership widened by Ocean), `tests/test_artifact_cache.py`, `tests/test_native_evidence.py`, `tests/test_run_of_record.py`, `tools/train/provenance.py`, `webapp/artifact_cache.py`, the W3 log — all within the widened ownership.
+
+**Re-review verdict: APPROVE WITH FINDINGS** — the four first-review findings are closed and pinned; N-1 and N-2 are latent (population 0) and can be taken in the next hygiene cycle or at composition.
