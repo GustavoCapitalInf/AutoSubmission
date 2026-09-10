@@ -433,3 +433,58 @@ outside every synced root), the chains refuse what they could not see before, gr
 the attestation is auditable, no production module changed, the digest is still an empty store's. NEW-1 is the one
 item that must close before the evaluate skeleton is used for a real evaluation; NEW-2 and NEW-3 are small and inside
 the cell's ownership.
+
+## Re-review 2 (closure-2 tip 3464eb4)
+
+```
+VERDICT: APPROVE — 0 BLOCK / 0 MAJOR / 0 MINOR open; 2 residuals recorded (nits, MINOR-4 class)
+RE-REVIEWED: wave22-holdout at 3464eb4 (ec6560f the fix, 0198ce8 a fixture figure, 3464eb4 the W3 §P22HOLDOUT-CLOSURE-2);
+  worktree .claude/worktrees/rerev22-holdout-2 (detached at 3464eb4). Closure-2 diff ed618cb...3464eb4: 9 files, all owned
+  (the W3, four tests, tools/adjudicate.py, tools/holdout/{evaluate,manifest,store}.py); production diff over
+  analysis ocr discovery webapp telemetry evidence layout corpus_gate.py EMPTY; all three commits carry both trailers.
+DATE: 2026-09-10
+```
+
+**NEW-1 (MAJOR) — CLOSED.** My `rr_minor3_fresh.py` retargeted to the closure-2 tree: `scale` (oracle `100` /
+`150.25`, export `100.00` / `150.250`) → `('agree', [], [], 3, 2)`; `negzero` (`0.00` vs `-0.00` / `0`) → `agree`;
+`ledger_scale` (sampled `-12.34`, ledger `-12.340`) → `agree`; the three former `[FAIL]` lines are `[OK]`. Fresh inputs
+against `_canon_money` / `money_key` (`rr2_probe.py`): `1E+2`, `+100`, `100.`, `.5`, ` 100 `, `1e2`, `00100.100`,
+`100.5e-1`, `1E+30`, `-0` each equal their plain form by value AND by key; a rounding export `100.005` against oracle
+`100.01` is NOT equal (`compare_figures` → `['opening_balance']`, a contradiction — correct, and the W3's stated
+risk); `1,234.56` (thousands separators), a unicode minus, `$100`, `(100)`, `100-`, `NaN`, `±Infinity`, `0x10` →
+`UNPARSEABLE`, listed, never compared (a coverage loss for an export that prints separators, never a
+contradiction); `money_key("0.00") == money_key("-0.00") == "0"`. Mutants applied by me at `3464eb4`: **M22**
+(text comparison + unnormalised key restored) KILLED 8 / 170; a subtler **M22b** of my own (value comparison kept,
+only the ledger key left scale-preserving) KILLED 6 / 172 by the same tests; tree clean after.
+
+**NEW-2 (MINOR) — CLOSED as an audit hook (`--repo` intentionally kept).** `repository_identity(repo)` ==
+`{path_digest: sha256(resolved path), root_commit: git rev-list --max-parents=0 HEAD}`; `None` for a non-repository;
+recorded in `graduation_attestation.consulted_repository` by the CLI (`--repo <temp repo>`: recorded and recomputed
+in-test equal; the fabricated repository's root commit and tag commit both absent from the real repository —
+auditable); the default repository records the WORKTREE's path digest and the real root commit. Fresh: a
+subdirectory of a repository resolves (the subdirectory's path digest, the repository's root commit) — recomputable,
+noted.
+
+**NEW-3 (MINOR) — CLOSED.** `write_manifest()` on a tail-truncated store → `ChainError … refusing to re-seal`,
+witness byte-identical, reads still refuse; on a consistent store → re-seals with head/count unchanged; the holdout
+chain's writer refuses likewise; the append path passes the pre-append `(head, count)`. Mutant **M23** (guard
+dropped) KILLED 1 / 177 by `test_write_manifest_never_reseals_a_store_its_manifest_disagrees_with`.
+
+**NEW-4 and the nits — documented as the MINOR-4 writer-identity convention** (accepted; detectable, not enforced,
+per R3's ruled shape).
+
+**Residuals (nits, not blocking):** (a) with the sidecar DELETED first, `write_manifest()` re-seals a truncated file
+(no existing sidecar to disagree) — the A3 class, equivalent to hand-writing `manifest.json`, seen only by
+`verify --digest`; (b) `Decimal` accepts `1_000` and non-ASCII digits (both parse as figures) in `_canon_money` and in
+the store's `_money_or_none` — harmless quirks, recorded.
+
+**Proof exits (read, not re-run):** `p22holdout-closure2-proofs.log` (tree `0198ce8`, `PRODDIFF_LINES=0`): cell tests
+178 (`CELLTESTS_EXIT=0`) · guards 275 · conformance 1,282 / 41 · walkers 358 / 3 / 10 · `REPLAY_EXIT=0` ·
+`PRIVACY_EXIT=0` · `MSGSCAN_EXIT=0` · `EXIT=0`; `-proofs-ec6560f.log` identical but `PRIVACY_EXIT=1` (the two-site
+figure residue fixed at `0198ce8`); `-mutation-table.log` (`ec6560f`) 23/23 KILLED, `EXIT=0`; `-finalscans.log`
+(tree `3464eb4`): privacy 5,505 lines 0/0/0/0 (57 WORDS excused), messages 10 commits 0/0/0/0, `EXIT=0`.
+Re-derived here: the five cell test files **178 passed** at `3464eb4`.
+
+**Scans (mine, `rerev22holdout2-scans.log`, lock acquired 09:22:14, released 09:23:31):** privacy over
+`b23cb50..3464eb4`: **5,505 added lines, MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** (raw 57, all `words_class`;
+residue 0); message scan over **10 commits: 0 / 0 / 0 / 0**.
