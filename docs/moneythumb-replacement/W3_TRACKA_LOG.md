@@ -70540,3 +70540,125 @@ This closure section is appended AFTER those two scans by design (the sequence O
   strings that are never emitted; a future reader must not resurrect either.
 * Hermeticity is proven for `PADDLE_*` only; any other test that deletes a variable the checkout's
   `.env` supplies has the same exposure (none was found failing on this host at the closure tip).
+# §P22IDENTITY-CLOSURE-2 — the four review MINORs closed (the raster renders the CropBox and RASTER_VERSION bumps with its pin; an invalid page rotation is refused by name; the provenance tool validates a research partition before any probe; a partition on a pre-v5 key refuses), each reproduced → fixed → proven; guards, conformance, the corpus slice and both scans green at the closure-2 tip
+
+Cell K (Phase 2.2, `docs/agent-handoffs/P22-IDENTITY.md`), worktree `mt22-identity`, branch
+`wave22-identity`, base `train12` at `b23cb50`. Review: `docs/moneythumb-replacement/reviews/PHASE2_P22IDENTITY_REVIEW.md`
+at `301cefd` — APPROVE WITH FINDINGS, 0 BLOCK / 0 MAJOR / 4 MINOR, K-1/K-2/K-3 verified closed. The two
+earlier sections (`§P22IDENTITY`, `§P22IDENTITY-CLOSURE`) are untouched. Ownership for F-1 widened by Ocean
+to `ocr/rasterize.py` + the `RASTER_VERSION` pin and its test. Hygiene card throughout: newly validated 0;
+every previously validated document preserved (the union replay is deliberately not re-run — below).
+
+## Findings, each reproduced → fixed (commit) → proven
+
+### F-1 — the native display frame is the CropBox; the Poppler raster rendered the MediaBox
+* **Reproduced** (the reviewer's S3 shape, my own build): a letter page with CropBox `(15, 25)–(560, 700)`;
+  the native frame is `545 × 675` (PyMuPDF's `page.rect` is the CropBox and its word coordinates are
+  CropBox-relative) while `ocr.rasterize.rasterize_pdf` (pdf2image / Poppler, default MediaBox) returned a
+  `612 × 792` raster — the frame disagreed with the raster and every box was offset from the ink by the CropBox
+  origin; `PageFrame.pixel` built from that raster and the native frame refused on the scale check.
+  Archive (read-only census, 4.7 s): **7 pages in 7 documents** have CropBox ≠ MediaBox, all the same size
+  and shifted, all UNROTATED, and **all 7 were read natively** in the run of record (3 validated, 3 failed,
+  1 withheld) — so no Tesseract-rasterised document is affected, and no run of record holds a Paddle
+  artifact: the blast radius of the raster-version bump is the Phase 2.3 research partitions only (the
+  OCR cache is rebuilt at the train's cold run regardless, schema 3).
+* **Fixed** (`f96617e`): `ocr/rasterize.py` passes `use_cropbox=True` in both `rasterize_pdf` and
+  `rasterize_page`; **`RASTER_VERSION` 1 → 2** in the same commit as its pin
+  (`test_raster_version_is_pinned_at_2`) and as the cache module's pinned duplicate
+  `_RASTER_VERSION_FALLBACK` (`test_raster_version_fallback_matches_the_source_module` keeps them equal;
+  `test_raster_version_partitions_the_key` now patches to a never-live value). `RASTER_VERSION` is key
+  material for every OCR partition at v5+.
+* **Proven**: `tests/test_native_evidence.py::test_the_raster_renders_the_cropbox_so_frame_and_raster_share_one_rectangle`
+  — `/Rotate` 0 and 90, 72 and 144 dpi: the raster's pixel size equals the frame × dpi/72 (rounded), the
+  Paddle rung's own `PageFrame.pixel` construction passes its scale check, and the reviewer's overlay
+  measure (fraction of word boxes containing ink) is 1.0 on the cropped page, ≥ the unrotated plain-page
+  baseline (1.0). Mutant M18 (the MediaBox rendered again) is killed by that test. The Paddle-path tests
+  (`tests/test_paddle_adapter/client/config/routing/rung/vast_tool/worker.py`, fake worker; the live test
+  excluded by its marker) and the ladder tests re-ran green at the closure-2 tip; the corpus-marked slice
+  re-ran under the lock because the rasteriser changed (exit below).
+* The union replay is NOT re-run: the offline partition never rasterises — the replay reads cached text and
+  the native rung reads PyMuPDF words, not pixels — so the raster change cannot move an analysis input.
+
+### F-2 — an invalid page-level `/Rotate` (not a multiple of 90) was silently mis-framed
+* **Reproduced**: a raw `/Rotate 45` written into the page object makes PyMuPDF report `page.rotation == 0`
+  with an identity `rotation_matrix` but a swapped `page.rect` (792 × 612) and rotated word coordinates —
+  the reader declared a frame whose boxes miss every word's ink; the `_VALID_ROTATIONS` clamp never sees
+  the raw value. Archive: **0 of 25,528 pages** carry a raw non-90 `/Rotate` (own or inherited; my census
+  agrees with the reviewer's); 4 pages carry a non-integer `/Rotate` object, which the raw read treats as
+  unknown and leaves to PyMuPDF's normalised value, exactly as before.
+* **Fixed** (`f96617e`): `evidence/native.py::_raw_rotate` reads the page's own `/Rotate`, else walks
+  `/Parent` to the nearest `Pages` node (the standard's inheritance, bounded); a raw integer not ≡ 0 mod 90
+  refuses the page whole with the named note **`invalid_rotation`** (`INVALID_ROTATION_NOTE`, exported), zero
+  words, the declared rect as the frame — never a guessed frame, never the whole document aborted.
+* **Proven**: `test_an_invalid_page_rotate_refuses_the_page_by_name` (own key and inherited; the sibling page
+  untouched) and `test_a_raw_rotate_that_is_a_multiple_of_90_is_normalised_not_refused` (the reviewer's S5
+  values 450 / −90 / 360 / 0 normalise to 90 / 270 / 0 / 0 and read all 12 words). Mutant M19 killed.
+
+### F-3 — `provenance.py --research-partition <malformed>` dropped the whole `run_of_record` block
+* **Reproduced**: the probe's `ValueError` from the cache module's shape check was swallowed by `attempt`,
+  no `run_of_record` block was written, and `partitions_for_run` then RECONSTRUCTED the run as a
+  production-shaped record (`origin=reconstructed`, `research_partition=""`).
+* **Fixed** (`f96617e`): `tools/train/provenance.py` gains `RESEARCH_PARTITION_PATTERN` (the SAME shape the
+  cache module enforces, pinned equal by test) and `validate_research_partition`; `collect` validates as its
+  first statement, before any subprocess; `main` refuses with exit 2 and writes no output file.
+* **Proven**: `tests/test_run_of_record.py::test_provenance_validates_the_research_partition_before_any_probe`
+  (pattern equality with `webapp.artifact_cache._RESEARCH_PARTITION_RE`; six malformed ids refused;
+  `collect` raises with `subprocess.run` monkeypatched to fail if ever called; `main` exits 2 and neither
+  the JSON nor its Markdown twin exists). Mutants M20 (`collect`'s validation dropped) and M21 (`main`'s
+  refusal dropped) killed.
+
+### F-4 — `ocr_settings_key(stage_version=4, research_partition="x")` silently dropped the partition
+* **Reproduced**: the field is added only at `version >= 5`, so a pre-v5 reconstruction with a partition
+  produced a production-shaped key (latent: no pre-v5 run ever carried one).
+* **Fixed** (`f96617e`): a non-empty partition on a stage below 5 raises `ValueError`; an empty partition on
+  a pre-v5 stage leaves the historical key byte-identical.
+* **Proven**: `test_a_research_partition_on_a_pre_v5_stage_is_refused_not_dropped`; mutant M22 killed.
+
+## Mutation table at the closure-2 tip
+22/22 killed (`p22identity_mutation_table_closure2.py`: the closure table's 17 rows + the four review rows,
+run without `-x`, exact single-occurrence edits, `git checkout --` in a `finally`, the tree verified clean after
+every row; 327.7 s). M1–M17 as recorded in `§P22IDENTITY-CLOSURE` (every row killed again by the same named
+killers; M12 gains `test_a_research_partition_on_a_pre_v5_stage_is_refused_not_dropped`). The new rows:
+
+| mutant | edit (exact, single occurrence) | killers (named) | result |
+|---|---|---|---|
+| M18 | `ocr/rasterize.py::rasterize_pdf`: `use_cropbox=True` dropped (the MediaBox rendered again) | `test_the_raster_renders_the_cropbox_so_frame_and_raster_share_one_rectangle` (all four cases: 0/90 × 72/144 dpi) | killed |
+| M19 | `evidence/native.py`: `if raw_rotate is not None and raw_rotate % 90 != 0:` → `if False:` | `test_an_invalid_page_rotate_refuses_the_page_by_name` (own key and inherited) | killed |
+| M20 | `tools/train/provenance.py::collect`: the up-front validation replaced by `research_partition or ""` | `test_provenance_validates_the_research_partition_before_any_probe` | killed |
+| M21 | `tools/train/provenance.py::main`: the refusal block replaced by `pass` | the same test | killed |
+| M22 | `webapp/artifact_cache.py::ocr_settings_key`: `if partition and version < 5:` → `if False:` | `test_a_research_partition_on_a_pre_v5_stage_is_refused_not_dropped` | killed |
+
+## proof-floor exits at the closure-2 tip (`f96617e`)
+Every heavy proof under the shared host lock (`p22identity_closure2_proofs.sh`; taken and released per step);
+durable logs with `EXIT=` lines under `scratchpad/p22identity_logs/`. Targeted tests at the closure-2 tip (free):
+the reader, canonical, boundary, geometry, cache, run-of-record, escalation-tripwire, ladder, visual-rung and
+the seven Paddle-path test files (fake worker; the live test excluded by its marker) — 647 passed, 0 failed.
+
+| step | command | result | exit |
+|---|---|---|---|
+| canonical guards (5 files) | `python -m pytest -q -p no:cacheprovider tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py` | 275 passed | `GUARDS_EXIT=0` |
+| canonical conformance (7 files) | `python -m pytest -q -p no:cacheprovider tests/test_parser_conformance.py tests/test_parser_registry_entries.py tests/test_parser_detection_markers.py tests/test_parser_registry.py tests/test_parser_crash_shapes.py tests/test_parser_exception_boundary.py tests/test_count_semantics.py` | 1,282 passed, 41 skipped | `CONFORMANCE_EXIT=0` |
+| targeted tests at the closure-2 code tree | the reader, canonical, boundary, geometry, cache, run-of-record, escalation-tripwire, ladder, visual-rung, structurer and fingerprint files plus the seven Paddle-path files (fake worker; the live test excluded by its marker) | **711 passed, 0 failed** (243.450 s) | 0 |
+| corpus-marked slice (the rasteriser changed) | `python -m pytest -q -p no:cacheprovider -m corpus` (from a worktree beneath `.claude/worktrees/`) | 34 passed, 8,893 deselected (1,426.870 s) | `CORPUS_EXIT=0` |
+| privacy scan of ADDED lines vs the whole population | `python tools/privacy_scan_branch.py --data-dir <train11 cold> --base b23cb50 --ref wave22-identity --run <run of record> --shas <all 3,380>` (at the closure-2 code tree; the later reword changed no tree) | added lines 3,148, documents read 3,351; raw hits 34, all 34 excluded by the scanner's `words_class` rule; **residue 0** (MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0) | `EXIT=0` |
+| commit-message scan — FIRST | `python tools/huntington_msg_privacy_scan.py …` (same arguments) | commits scanned 10; **1 WORDS hit** on the closure-2 fix commit's message: a two-word phrase of ordinary English (the rung's scale-validation step) that some statement in the population also prints. Reworded with a TREE-PRESERVING amend (the tree object identical, verified: `acaa89321f516b0136ceb7aa7aa9e79672ba59d0` before and after); sha remap **`edd1efc` → `f96617e`** (one intermediate amend `4f6ef41` carried the unchanged message and was superseded in place — same tree) | `EXIT=1` (1 hit) |
+| **commit-message scan — after the reword (`f96617e`)** | the same command | commits scanned 10; documents read 3,351; **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** | `EXIT=0` |
+
+**Host-discipline incident, recorded as-is:** the runner for this last scan used a BOUNDED lock poll (eight minutes); it timed out while another cell held the lock, and the shell step that followed tested only that the lock DIRECTORY existed — so the scan ran WITHOUT the lock, concurrently with that cell's proof, and its `rmdir` then removed that cell's lock. The scan's own result is unaffected (it reads cached text and commit messages), the other cell's proof was not written to, and the lock was restored for it as soon as the mistake was seen (the report names what was running). Every other heavy proof of this cell ran under an unbounded `mkdir` wait and released only its own lock. This closure section is appended after the scans, pre-checked with the scanner's own regexes (no money-shaped token, no digit run).
+
+## privacy count at the closure-2 tip
+**0** residue sites over the branch's 3,148 added lines against the whole run-of-record population (3,380 shas; 3,351 with cached text) at the closure-2 code tree; **0** message hits over the 10 commits after the tree-preserving reword of one message (the first message scan's single WORDS hit: an ordinary two-word phrase, no figure, no name).
+
+## commits (closure-2)
+* `f96617e` — the four findings with their tests and pins (originally `edd1efc`; the message reworded
+  tree-preservingly after the first commit-message scan, see the proof table).
+* the closure-2 W3 commit — this section appended.
+
+## risks (last)
+* `RASTER_VERSION` 2 rotates every OCR partition's key at v5+ (offline included); harmless today (the cache
+  is cold-rebuilt at the train), but a page-preview raster in the webapp now shows the CropBox — what a
+  viewer shows — which is the intended display.
+* The raw-`/Rotate` read handles integers only; a non-integer `/Rotate` object (4 archive pages) stays on
+  PyMuPDF's normalised value, as before.
+* `validate_research_partition` in the provenance tool is a duplicate of the cache module's shape by
+  design (the caller must not import the checkout's tree); the pin keeps the two equal.
