@@ -31,8 +31,11 @@ commit that removed the edge it characterised:
 The tripwires (card item 4), each named after what it forbids rather than
 after a gate: (a) at most ONE `extract_statement` call in the module, inside
 the body `analyze_markdown` delegates to; (b) no comparison of, or selection
-between, two `reconcile(...)` results — defined CONCRETELY below as four AST
-rules over `analysis/pipeline.py`; (c) the opt-in literal is in no tracked
+between, two `reconcile(...)` results ANYWHERE in `analysis/pipeline.py` —
+defined CONCRETELY below as three layers of AST rules over the module text
+(name integrity N1–N6, selection B1–B7, re-invocation O1–O2), each layer's
+block comment naming what it does and what it deliberately does not;
+(c) the opt-in literal is in no tracked
 file but its definition; (d) deterministic mode cannot reach the hosted call,
 opt-in or not (the dynamic PRIVACY-3 tests in
 `tests/test_privacy3_boundaries.py` stay green beside the static half here).
@@ -562,8 +565,16 @@ def test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence()
 #
 # SELECTION (`reconcile_selection_violations`), over UNITS — a top-level function
 # TOGETHER WITH every function, lambda and comprehension nested in it, plus the
-# module body outside functions:
-#   B1  at most ONE name is bound from a `reconcile(...)` call anywhere in the unit;
+# module body outside functions. A RECONCILE-BOUND NAME of a unit is either a name
+# the unit BINDS from a `reconcile(...)` call (`Name = reconcile(...)`, or a
+# walrus) or a parameter the unit is HANDED one in — annotated `ReconResult` (the
+# annotation is in the tree whatever `from __future__ import annotations` does at
+# runtime) or named `recon`, which is what every such parameter in this module is
+# called today. Re-review 2's P1: `_account_report(stmt, recon, …)` receives its
+# result as a PARAMETER, so before this clause its unit held no reconcile-bound
+# name at all, nothing in it could be compared against, and a second
+# `reconcile(...)` bound there was the unit's first — X11:
+#   B1  at most ONE reconcile-bound name in the unit;
 #   B2  such a name is bound exactly once in the unit — never re-bound, never a
 #       tuple-unpack target, never shadowed by a nested parameter or target;
 #   B3  every `reconcile(...)` call sits in one of exactly two syntactic
@@ -582,19 +593,38 @@ def test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence()
 #   B6  the attribute `reconciliation` (`Report.reconciliation`, the field a
 #       reconcile result becomes) is READ nowhere in the module — a result
 #       consumed through a `Report` or an `_Analysed` is a result compared
-#       (re-review E8/E11).
+#       (re-review E8/E11);
+#   B7  a `reconcile(...)` call may stand ONLY in a unit these rules permit —
+#       today `_analyse` ALONE, which holds both of the module's calls (the one
+#       binding and the sibling loop's positional call). `_account_report` is
+#       handed its result and contains no `reconcile(` at all, and neither does
+#       any other unit (`assess_quality`, `assess_document_integrity`, the module
+#       body). B7 is the general form of re-review 2's P1: the card's tripwire (b)
+#       is "no comparison of two `reconcile(...)` results ANYWHERE in
+#       `analysis/pipeline.py`", and a per-unit rule set can only see a comparison
+#       in a unit where a second result can be MADE.
 #
-# RE-INVOCATION (`orchestration_shape_violations`): `_analyse`,
-# `analyze_markdown` and `analyze_document` carry NO decorators; `_analyse` is
-# called by name exactly TWICE in the module — once from `analyze_markdown`
-# and once from `analyze_document`, the module's two entry points — each call
-# a plain statement-level call, never inside a loop, a `try`, a lambda or a
-# nested function; no other function or lambda is defined at module level
-# between the three (a wrapper needs a home). Re-review E8b was a decorator
-# on `_analyse` re-invoking it and keeping the result whose `.reconciliation`
-# passed; it is caught here and by B6. (The re-review direction pinned "one
-# caller, `analyze_markdown`"; the module's real shape has two — the document
-# entry calls `_analyse` too — and the pin states the shape as it is.)
+# RE-INVOCATION (`orchestration_shape_violations`) — EXACTLY two rules, and this
+# comment names what they do NOT check:
+#   O1  `_analyse`, `analyze_markdown` and `analyze_document` are top-level
+#       functions and carry NO decorators;
+#   O2  `_analyse` is called by name exactly TWICE in the module — once from
+#       `analyze_markdown` and once from `analyze_document`, the module's two
+#       entry points — each call a plain statement-level call, never inside a
+#       loop, a `try`, a lambda or a nested function.
+# NOT checked, deliberately: what else is defined at module level. An earlier
+# draft of this comment claimed "no other function or lambda is defined at module
+# level between the three (a wrapper needs a home)"; nothing implemented it
+# (re-review 2, P3), and Ocean's ruling is that the clause adds nothing — a
+# module-level function or lambda that never calls `_analyse` is INERT (it
+# changes no behaviour of any entry point), and one that does call it is either a
+# THIRD caller, which O2 refuses, or a rebinding / aliasing / passing of the name
+# `_analyse`, which N2/N3 refuse. Both halves are pinned by tests below.
+# Re-review E8b was a decorator on `_analyse` re-invoking it and keeping the
+# result whose `.reconciliation` passed; it is caught by O1 and by B6. (The
+# re-review direction pinned "one caller, `analyze_markdown`"; the module's real
+# shape has two — the document entry calls `_analyse` too — and the pin states
+# the shape as it is.)
 #
 # What no single-module scan can see: a helper whose body lives in ANOTHER
 # module — hence the module-wide guard below over every module under
@@ -615,6 +645,16 @@ DYNAMIC_DOORS = frozenset({
 FORBIDDEN_IMPORTS = frozenset({"importlib", "builtins"})
 ORCHESTRATION = ("_analyse", "analyze_markdown", "analyze_document")
 LOOP_NODES = (ast.For, ast.AsyncFor, ast.While, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+#: The type a `reconcile(...)` result HAS, as `analysis/pipeline.py` annotates it,
+#: and the name every parameter carrying one has in the module today. Either mark
+#: makes a parameter a reconcile-bound name of its unit (B1/B2/B4/B5) — the
+#: annotation because that is what the module writes, the name as well because an
+#: annotation can be dropped, stringified or widened and the walk-around must not
+#: reopen with it (re-review 2, P1).
+RECON_RESULT_TYPE = "ReconResult"
+RECON_RESULT_PARAMETER = "recon"
+#: B7: the units in which a `reconcile(...)` call may stand at all.
+UNITS_THAT_MAY_CALL_RECONCILE = frozenset({"_analyse"})
 
 
 def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
@@ -623,6 +663,24 @@ def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
 
 def _is_reconcile_call(node: ast.AST) -> bool:
     return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "reconcile"
+
+
+def _carries_a_reconcile_result(arg: ast.arg) -> bool:
+    """A PARAMETER handed a `reconcile(...)` result (re-review 2, P1).
+
+    True when the parameter is annotated `ReconResult` — including
+    `ReconResult | None`, and including the string form, since a stringified
+    annotation is still a `Constant` in the tree — or is named `recon`, which is
+    what every such parameter in `analysis/pipeline.py` is called today.
+    """
+    if arg.arg == RECON_RESULT_PARAMETER:
+        return True
+    if arg.annotation is None:
+        return False
+    text = ast.unparse(arg.annotation)
+    return RECON_RESULT_TYPE in {
+        part.strip().strip("'\"") for part in text.replace("|", " ").split()
+    }
 
 
 def _module_of(node: ast.ImportFrom) -> str:
@@ -763,7 +821,7 @@ def _is_sibling_shape(call: ast.AST, parents: dict[ast.AST, ast.AST], unit_root:
 
 
 def reconcile_selection_violations(source: str) -> list[str]:
-    """B1–B6 over every UNIT of the module (see the block comment above): a
+    """B1–B7 over every UNIT of the module (see the block comment above): a
     list of violations, empty when the module is clean. A pure function of the
     module text, so the mutation table can call it on a mutant without touching
     the tree."""
@@ -779,6 +837,12 @@ def reconcile_selection_violations(source: str) -> list[str]:
                     reconcile_bound.extend(_bound_names(target))
             elif isinstance(node, ast.NamedExpr) and _is_reconcile_call(node.value):
                 reconcile_bound.extend(_bound_names(node.target))
+            elif isinstance(node, ast.arg) and _carries_a_reconcile_result(node):
+                # HANDED a result rather than making one: `_account_report`'s
+                # `recon: ReconResult`. Without this the unit held no
+                # reconcile-bound name and B1/B4/B5 had nothing to bind to
+                # (re-review 2, P1 — mutant X11).
+                reconcile_bound.append(node.arg)
         if len(reconcile_bound) > 1:
             violations.append(f"B1 {label}: {len(reconcile_bound)} names bound from reconcile(): {reconcile_bound}")
         for name in reconcile_bound:
@@ -788,6 +852,10 @@ def reconcile_selection_violations(source: str) -> list[str]:
         for node in nodes:
             if not _is_reconcile_call(node):
                 continue
+            if label not in UNITS_THAT_MAY_CALL_RECONCILE:
+                violations.append(
+                    f"B7 {label}: reconcile() called in a unit that may not call it: {ast.unparse(node)}"
+                )
             parent = parents.get(node)
             single_assignment = (
                 isinstance(parent, ast.Assign) and parent.value is node
@@ -990,6 +1058,158 @@ def test_the_reviewers_decorator_reinvocation_is_caught():
     shape = orchestration_shape_violations(mutant)
     assert any(v.startswith("O1 `_analyse` is decorated") for v in shape), shape
     assert any(v.startswith("B6 _twice") for v in reconcile_selection_violations(mutant))
+
+
+# --- re-review 2, P1: the unit that is HANDED a reconcile result
+
+ANCHOR_QUALITY = "    quality = assess_quality(stmt, recon, dispatch=dispatch)\n"
+X11_ACCOUNT_REPORT_UNIT = (
+    "    _alt = normalize_statement(stmt)\n"
+    "    _alt_recon = reconcile(_alt, parser_id=claiming_parser_id(dispatch))\n"
+    "    if _alt_recon.ok and not recon.ok:\n"
+    "        stmt, recon = _alt, _alt_recon\n"
+)
+
+
+def test_a_parameter_handed_a_reconcile_result_is_a_reconcile_bound_name():
+    """The two marks, on synthetic parameters: the module's own annotation
+    (plain, unioned, or stringified — `from __future__ import annotations`
+    changes the runtime, not the tree) and the name `recon`, so that dropping
+    or widening the annotation does not reopen the hole. A parameter carrying
+    anything else is not one."""
+    def _arg(source: str) -> ast.arg:
+        return ast.parse(f"def _f({source}): pass").body[0].args.args[0]
+
+    assert _carries_a_reconcile_result(_arg("recon: ReconResult"))
+    assert _carries_a_reconcile_result(_arg("result: ReconResult"))
+    assert _carries_a_reconcile_result(_arg("result: ReconResult | None"))
+    assert _carries_a_reconcile_result(_arg("result: 'ReconResult'"))
+    assert _carries_a_reconcile_result(_arg("recon"))
+    assert not _carries_a_reconcile_result(_arg("stmt: Statement"))
+    assert not _carries_a_reconcile_result(_arg("markdown: str"))
+
+
+def test_reconcile_is_called_only_in_the_unit_the_rules_permit():
+    """B7 on the real module: both `reconcile(` calls sit in `_analyse` — the
+    one binding and the sibling loop's positional call — and NO other unit
+    contains one. `_account_report` in particular is HANDED its result."""
+    tree = ast.parse(PIPELINE_SOURCE.read_text(encoding="utf-8"))
+    callers = {
+        label: [ast.unparse(node) for node in nodes if _is_reconcile_call(node)]
+        for label, nodes in _units(tree)
+    }
+    assert sorted(label for label, calls in callers.items() if calls) == ["_analyse"], callers
+    assert len(callers["_analyse"]) == 2, callers["_analyse"]
+    assert callers["_account_report"] == []
+
+
+def test_the_re_reviewers_account_report_unit_selection_is_caught():
+    """RE-REVIEW 2, P1, mutant X11 verbatim: a fresh `reconcile(...)` bound
+    INSIDE `_account_report` and preferred over the passed-in `recon` — "prefer
+    whichever candidate reconciles", in the protected module, on a path that
+    runs in EVERY parse mode for EVERY account (deterministic included, where
+    E8b / E10 / E11 could only bite in auto mode). At the closure-2 tree it
+    returned `[]` from all three checkers and SURVIVED the whole killer set
+    (431 / 0).
+
+    Four rules refuse it now: B7 (a `reconcile(` call in a unit that may not
+    call one), B1 (two reconcile-bound names in the unit — the parameter and
+    the new binding), B2 (`recon` bound twice: the parameter and the tuple
+    re-bind) and B4 (a `BoolOp` reading attributes of both)."""
+    violations = reconcile_selection_violations(
+        _mutant((ANCHOR_QUALITY, X11_ACCOUNT_REPORT_UNIT + ANCHOR_QUALITY)),
+    )
+    assert any(v.startswith("B7 _account_report") for v in violations), violations
+    assert any(v.startswith("B1 _account_report") for v in violations), violations
+    assert any(v.startswith("B2 _account_report") and "`recon`" in v for v in violations), violations
+    assert any(v.startswith("B4 _account_report") for v in violations), violations
+
+
+@pytest.mark.parametrize("unit,anchor", [
+    ("_account_report", "    classifications = classify_statement_transactions(stmt)\n"),
+    ("assess_quality",
+     "    aggregate_rows = sum(1 for t in stmt.transactions if \"UNCAPTURED\" in t.description.upper())\n"),
+], ids=["account-report", "assess-quality"])
+def test_a_bare_second_reconcile_in_a_unit_that_may_not_call_one_is_caught_by_b7(unit, anchor):
+    """B7 in its general form: even a `reconcile(...)` that compares nothing —
+    a single-target assignment in a permitted POSITION — is refused outside
+    `_analyse`, because a unit that can make a second result is a unit where
+    the comparison can be added later without a rule seeing it."""
+    violations = reconcile_selection_violations(
+        _mutant((anchor, "    _alt_recon = reconcile(stmt, parser_id='x')\n" + anchor)),
+    )
+    assert any(v.startswith(f"B7 {unit}") for v in violations), violations
+
+
+# --- re-review 2, P3: what the re-invocation layer does NOT check
+
+ANCHOR_DEF_ANALYZE_DOCUMENT = (
+    "def analyze_document(markdown: str, *, settings: Settings | None = None,\n"
+)
+MODULE_LEVEL_HELPER = "def _module_level_helper():\n    return None\n\n\n"
+MODULE_LEVEL_LAMBDA = "_module_level_lambda = lambda: None\n\n\n"
+MODULE_LEVEL_WRAPPER = (
+    "def _module_level_wrapper(markdown, **kwargs):\n"
+    "    return _analyse(markdown, **kwargs)\n\n\n"
+)
+
+
+@pytest.mark.parametrize("definition", [MODULE_LEVEL_HELPER, MODULE_LEVEL_LAMBDA],
+                         ids=["def", "lambda"])
+def test_a_module_level_definition_that_calls_nothing_is_inert_and_deliberately_uncaught(definition):
+    """RE-REVIEW 2, P3 — the premise of Ocean's ruling, proven rather than
+    asserted. A `def` and a lambda inserted at module level between `_analyse`
+    and `analyze_document` that call nothing ADD NOTHING to any of the three
+    layers' verdicts (the deleted comment clause claimed otherwise) — and they
+    are INERT: removing the inserted top-level statement from the mutant's tree
+    gives the module tree back exactly, so nothing else in the module refers to
+    the new name and no entry point can behave differently. A rule against them
+    would forbid a shape that cannot do anything.
+
+    Both halves are stated RELATIVELY, against whatever the module text says
+    now, so that this test reports on the DEFINITION and never on the module: a
+    test whose subject were the module's own cleanliness would fail under every
+    mutant of the module and name the wrong rule in a mutation table. That the
+    pristine module has no violations at all is the three headline tests'
+    claim, not this one's."""
+    source = PIPELINE_SOURCE.read_text(encoding="utf-8")
+    mutant = _mutant((ANCHOR_DEF_ANALYZE_DOCUMENT, definition + ANCHOR_DEF_ANALYZE_DOCUMENT))
+    assert reconcile_selection_violations(mutant) == reconcile_selection_violations(source)
+    assert name_integrity_violations(mutant) == name_integrity_violations(source)
+    assert orchestration_shape_violations(mutant) == orchestration_shape_violations(source)
+
+    original_tree = ast.parse(source)
+    mutant_tree = ast.parse(mutant)
+    inserted = ast.parse(definition).body
+    assert len(inserted) == 1
+    kept = [node for node in mutant_tree.body if ast.dump(node) != ast.dump(inserted[0])]
+    assert len(kept) == len(mutant_tree.body) - 1
+    mutant_tree.body = kept
+    assert ast.dump(mutant_tree) == ast.dump(original_tree), (
+        "the inserted definition changed something else — it is not inert"
+    )
+
+
+def test_a_module_level_wrapper_that_calls_analyse_is_caught_by_o2():
+    """The other half of P3's premise: the same shape becomes a violation the
+    moment it does anything — a module-level wrapper that CALLS `_analyse` is a
+    third caller (O2), whatever it is named and wherever it sits. Nothing has
+    to call the wrapper for the rule to bite."""
+    mutant = _mutant((ANCHOR_DEF_ANALYZE_DOCUMENT, MODULE_LEVEL_WRAPPER + ANCHOR_DEF_ANALYZE_DOCUMENT))
+    violations = orchestration_shape_violations(mutant)
+    assert any(v.startswith("O2 `_analyse` callers are") for v in violations), violations
+    assert "_module_level_wrapper" in " ".join(violations), violations
+
+
+def test_a_module_level_lambda_that_calls_analyse_is_caught_too():
+    """And through a lambda, which has no name to inspect: the caller pin
+    counts the CALL, so `<lambda>` joins the caller list and O2 refuses it."""
+    mutant = _mutant((
+        ANCHOR_DEF_ANALYZE_DOCUMENT,
+        "_module_level_lambda = lambda md, **kw: _analyse(md, **kw)\n\n\n" + ANCHOR_DEF_ANALYZE_DOCUMENT,
+    ))
+    violations = orchestration_shape_violations(mutant)
+    assert any(v.startswith("O2") and "<lambda>" in v for v in violations), violations
 
 
 @pytest.mark.parametrize("edits,rule", [
