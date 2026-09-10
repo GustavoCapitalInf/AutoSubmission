@@ -652,7 +652,7 @@ function integrityLabel(integrity = {}) {
 function friendlyAnalysisError(message) {
   const text = String(message || "");
   if (/no deterministic parser matched/i.test(text)) {
-    return "No deterministic parser matched this statement. Use Auto mode for fallback extraction, or add a bank-specific deterministic parser before using Deterministic only.";
+    return "No deterministic parser matched this statement. Fallback extraction runs only in Auto mode and only when the operator has enabled hosted extraction on the server; otherwise add a bank-specific deterministic parser.";
   }
   if (/native PDF text unavailable|too sparse|no native text/i.test(text)) {
     return "This PDF does not contain usable native text, and local OCR could not produce usable statement text. Turn on visual OCR or use Auto mode to retry with the OCR service.";
