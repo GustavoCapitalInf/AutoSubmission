@@ -1,0 +1,9 @@
+# MANIFEST_DIGEST: the sealed truth store's non-sensitive export (tools/holdout/digest.py).
+# Store version, record count, chain heads and sha16 prefixes only; no verdict lives here.
+# Regenerate: python -m tools.adjudicate export-digest
+store_version: 1
+record_count: 0
+chain_head: GENESIS
+holdout_chain_head: GENESIS
+adjudicated_sha16:
+holdout_sha16_status:
