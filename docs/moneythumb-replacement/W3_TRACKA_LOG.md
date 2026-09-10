@@ -72632,3 +72632,281 @@ triggered; the no-parser replay was re-run anyway as a 19-second belt.
   names would be outside it — today none does (`git grep` at the tip), and the analysis→ocr allowlist and the
   worker's single call site are pinned by other tripwires.
 
+# §P22TRUTHTABLE — the layered unresolved taxonomy L0–L6, the `refused` outcome and the exact transition matrix, both denominators, the classifier and the funnel as recorded facts, the research run mode through the router, and the geometry seam inert behind `reconstruction_mode`; 0 coverage movement, 2,625 preserved payload-identical at base and at closure
+
+**Population.** The UNION of every registration — 2,695 documents, 2,625 of them
+previously validated — replayed from the run of record's own cached text
+through this tree, at the integration BASE `b7af37b` and again at the closure
+tip, chunked exactly as cell F chunked it so the two cells' numbers are
+comparable chunk for chunk. Plus the no-parser population (685 shas, 656 with
+text, the 29 expected unresolved). Plus one SYNTHETIC research run: three
+rendered PDFs in a temp root, two of them named in the population, read by the
+in-process fake worker. No customer page left the machine; no network call of
+any kind was made; `reconstruction_mode` was `off` in every run of record.
+
+**Root cause.** "755 unresolved" was one number with no defensible per-document
+answer behind it. Four different consumers each needed a different half of the
+answer and none of them could get it: the comparison ranked four classes and
+had no name for a platform refusal; the report printed one denominator and had
+no way to say what the second one even was; the row carried the outcome but not
+the KIND of document that produced it; and the reasons the runner emits are a
+flat vocabulary in which "this file is not a statement", "no reader claimed
+it", "the ledger does not reconcile" and "we did not try" are the same shape of
+token. Reporting any of those as if it were the others is how a coverage number
+stops meaning anything.
+
+**Solution.** Seven layers, one code each, the primary reason being the
+highest-RANKED non-empty one — the cause-over-symptom rule `W3_2_TAXONOMY.md`
+§4 already applies WITHIN the financial layer, lifted to the whole ladder. A
+statement missing pages that also fails its detail coverage is reported by the
+missing pages; the arithmetic that noticed them is still on the row, one column
+over. `refused` becomes a terminal class OUTSIDE the ladder, and ANY exit from
+`validated` becomes a regression — including to `deferred`, which it was not
+before. Both denominators are printed everywhere, the raw one first and never
+replaced, with the adjudicated one NAMED as unavailable in the runner's process
+rather than approximated by a proxy under its heading. The classifier's verdict,
+the taxonomy, the funnel stages and the memory reading are RECORDED FACTS
+written at the row's single exit, after the analysis has already finished, so
+none of them can reach a verdict even in principle.
+
+**Newly validated: 0.** **Other ladder movement: 0.** **Previously validated
+preserved: all 2,625, payload identical**, at base and at closure, over the
+union of every registration. **Validated regressions: 0.**
+
+## Correctness evidence
+
+* **Precedence.** The table in `telemetry/unresolved_taxonomy.py`'s docstring is
+  asserted equal to `LAYER_PRECEDENCE` and `LAYER_NAMES`, order and numbering
+  included — the W3-2 doc/code idiom, so the two cannot drift. M1 (the LOWEST
+  layer wins) is killed by
+  `test_the_primary_reason_is_the_most_upstream_non_empty_layer`.
+* **Drift guards, each reading its source.** The outcome-reason literals are
+  extracted from `discovery/runner.py`'s and `telemetry/record.py`'s syntax
+  trees by `runner_reason_literals`, a PURE function over source text —
+  which is why M2 is planted in a scratch copy and the working tree is never
+  touched at all. The guard asserts BOTH directions: a reason the tree can emit
+  and the map does not know fails, and a map entry nothing emits any more fails
+  too. The extraction gate's three reasons are read from `ocr/escalation.py`;
+  the financial layer IS `CLASS_PRECEDENCE`, by identity rather than by copy;
+  the classifier's kinds, sub-kinds and findings are read from
+  `layout/refusals.py`, and a kind grown later lands in `unmapped` at runtime.
+* **The matrix.** Every class a row and every class a column, zeros included,
+  closed over the vocabulary and refusing a class from outside it. "No document
+  reached `refused`" is a measurement, not an absence. M4 dies on the shape
+  before any count is read.
+* **Both denominators.** RAW = validated distinct shas / the corpus, printed
+  first, never replaced (M17 dies for replacing it). The confirmed-complete-
+  legible one is the classifier's PROPOSAL in the runner and the sealed-store
+  JOIN in `tools/truth_report.py`, labelled per document as one or the other, so
+  a proposal never masquerades as truth. A base/candidate pair whose raw
+  denominators differ is REFUSED by name with its own exit code, distinct from
+  the regression exit (M5).
+* **The disjoint sum on the run of record: 755 / 3,380, both OK.** Measured by
+  `tools/p22truthtable_measure.py` over cached evidence and text only — no
+  document analysed, no archive PDF re-read except for its first four magic
+  bytes, `reconstruction_mode` never touched. Archive 3,380 == 3,380; unresolved
+  755 == 755. Primary kind over the 755: `STATEMENT_COMPLETE` 324 ·
+  `STATEMENT_PARTIAL` 217 · `KIND_UNCERTAIN` 161 · `NOT_A_STATEMENT` 22 ·
+  `FILE_INVALID` 16 · `ACTIVITY_EXPORT` 15.
+* **The primary LAYER over the 755**, summing to 755 exactly: l1 KIND 415 · l3
+  STRUCTURE 223 · l5 DOCTRINE 65 · l4 FINANCIAL 35 · l0 FILE 16 · l2 EXTRACTION
+  1. The finest codes behind them are led by `B0_no_reader_claimed` 223,
+  `KIND_UNCERTAIN` 161 and `declined_by_claiming_reader` 65.
+* **Layers PRESENT, which is the number that must never be summed with the
+  above**: l3 537 · l1 415 · l5 126 · l4 70 · l0 16 · l2 15 — 1,179 layer
+  occupancies over 755 documents. The disjoint sum and the overlapping table are
+  the same data counted two ways, and the report prints them under separate
+  headings with no total on the second (M8 dies for printing one).
+* **Validated exceptions (case 7): 431 of 2,625** validated documents do not
+  classify `STATEMENT_COMPLETE` — `STATEMENT_PARTIAL` 364, `KIND_UNCERTAIN` 66,
+  `NOT_A_STATEMENT` 1. Named by sha16 and kind in the private measurement
+  output only. This is a FINDING and it is large: it says the classifier's
+  completeness rules are stricter than the validator's, most often calling a
+  document partial for a missing closing anchor the validator reconstructed
+  from the ledger. It is a classifier calibration question for 2.3's
+  adjudication slice, NOT a coverage question — no classification touches any
+  verdict, which is exactly what the payload-identity proof establishes.
+
+## Classification evidence
+
+`tools/classify_census.py` (cell C's instrument, re-run at this tree) over all
+3,380 from the cached artifacts: kind × modality × tier, archive and unresolved,
+with the disjoint sums asserted by the tool itself. The kind counts at this
+tree's default reading path differ by a handful from cell C's two declared
+modes (2,518 vs 2,534 `STATEMENT_COMPLETE` over the archive) because the census
+picks native evidence, extractor evidence or degraded text per document and the
+two runs declared different modes; the DISJOINTNESS and the sums are identical
+and are the property under test. The diagnostic-label table on the run of
+record: **R 13 · U 123 · failure class A 0 / B 656 / C 70 · truncation flagged 4
+· refused 0**, with R and U reproducing the Phase-2 baseline exactly and B/C
+reproducing the umbrella's own 755 breakdown. The funnel over the archive:
+extract native 3,172 / local_tesseract 179 / none 29; geometry and layout
+`not_attempted` 3,380 of 3,380 (nothing in this tree builds either); verdict
+validated 2,625 / failed 672 / withheld 49 / review 21 / deferred 13. Evidence
+reads `absent` on 3,351 rows because the run of record predates cell K's native
+evidence — an honest artefact of measuring an old run, and it becomes `present`
+on the next cold run by construction.
+
+## Escalation evidence
+
+The research trigger `operator_forced_paddle` is a RUN-MODE fact, admitted by
+the router exactly like every other admitted trigger — the router is not taught
+about it, which is the point. What is proven instead is that only one place can
+supply it: it is spelled once outside the escalation module, in a module-level
+constant of exactly one member, pinned by syntax tree three ways (the constant's
+shape, the single use, and no `decide(` site naming it inline). No B → OCR edge
+and no C → OCR edge is created: the mode reads a NAMED population the operator
+wrote down, never a verdict, never a failure class. `RouterInputs` is unchanged,
+so the D4 tripwire and the `enabled=`-is-a-mode-fact pin both pass untouched;
+M10 dies on the second of those.
+
+**M11 SURVIVED the first mutation run and the hole was in the test.** The mutant
+admits the trigger on the UPGRADE decision in `--scanned-paddle`; the test
+stubbed the offline ladder to produce nothing, so every document took the
+RECOVERY path and the upgrade decision was never reached in that mode at all —
+the mutant was live and unexecuted. The test now runs each mode over BOTH
+offline states, and the mutant dies. No production code changed: the property
+held throughout; a witness for half of it did not exist. This is the mutation
+floor doing exactly the job it exists for, and it is recorded rather than
+tidied away.
+
+## Identity evidence
+
+The geometry seam is wired and INERT. With `reconstruction_mode == "off"` —
+every run of record, the gate, the whole default suite, every replay — the mode
+is read FIRST and nothing about the document is inspected at all: no evidence
+touched, no sha computed, the structurer's geometry module not imported, and the
+two calls made are the two calls that were made before. Proven both ways: the
+analysis receives no `document_geometry` keyword when the mode is off, AND it
+does receive one when the mode is not, so the inertness is a property of the
+MODE and not of a branch nothing can enter (M15). The read whose evidence it
+would consume travels on the instance rather than as a fifth parameter, because
+`_analyse`'s four-argument signature is a contract an existing substitution pin
+already depends on. The union replay is the real proof: 2,695 documents, payload
+identical, at base and at closure.
+
+## Research-mode evidence (synthetic only)
+
+Four refusals at the door, before the corpus is enumerated and before any
+document is read: both opt-in literals (named, never quoted); the three required
+arguments; a `--data-dir` that is or is inside a production or historical cache;
+a population intersecting the holdout manifest (the COUNT is printed, never an
+identity). Two more per document, before any read: a holdout sha (checked FIRST
+— "we refused to" is a stronger statement than "we never looked") and a sha
+outside the population. End to end on synthetic fixtures: 3 documents, 2 in the
+population, **exactly 2 fake-worker requests** (one per page of two one-page
+documents), rows carrying the partition, the research read served from the
+partition's own cache on a second pass, and `run_of_record` REFUSING the
+finished run as historical truth. In research mode the studied read is adopted
+whether or not it produced a verdict — the opposite of the forbidden pattern,
+not an instance of it: nothing compares two reads and keeps whichever
+validates, and quietly keeping the offline read whenever Paddle failed to claim
+would report Phase 1's coverage under Paddle's name.
+
+## Commits (11, on `wave22-truthtable` from `b7af37b`)
+
+`1901201` the failing tests first · `d3304a2` the shared vocabularies and card
+item 8 · `e26d4fa` item 1, the taxonomy · `1379514` item 2, `refused` and the
+matrix · `611184b` items 3/4/5/7 · `7b0926b` item 6, the research mode ·
+`c5e1d79` items 9/10 and the trigger tripwires · `1e0304e` the mutation
+harness · `4e5358d` the four suite consequences · `f4ccb7b` the measurement
+instrument · `60617bd` the M11 closure.
+
+## Proof-floor exits (every log under `discovery_reports/train12-logs/p22truthtable/`)
+
+| proof | result | log |
+|---|---|---|
+| full default suite | **9,799 passed / 48 skipped / 39 deselected, 0 failed** (exit 0) | `p22truthtable-proofs.log` |
+| canonical guards (5 files) | 276 passed (exit 0) | `p22truthtable-suite.log` |
+| canonical conformance (7 files) | 1,282 passed / 41 skipped (exit 0) | `p22truthtable-suite.log` |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED** (exit 0) | `p22truthtable-proofs.log` |
+| `pytest -m corpus` | 34 passed (exit 0), run from within the worktree | `p22truthtable-proofs.log` |
+| mutation table M1–M17 | **17/17 killed**, tree clean after every mutant | `p22truthtable-mutation-table.md`, `p22truthtable-mutation.log` |
+| union replay at BASE `b7af37b` | 2,695 documents, all unchanged, all payload identical, 2,625 preserved (7 chunks, every exit 0) | `replay-base-chunk0*.log` |
+| union replay at CLOSURE | 2,695 documents, all unchanged, all payload identical, 2,625 preserved, 0 newly validated, 0 regressions (7 chunks, every exit 0) | `replay-closure-chunk0*.log` |
+| no-parser population | 685 shas, 656 replayed, **29 unresolved as expected**, 0 movement (exit 0) | `replay-noparser-closure.log` |
+| classifier census + measurement | disjoint sums 3,380 == 3,380 and 755 == 755, both OK (exit 0) | `p22truthtable-measurement.log` |
+
+The lock window and every stage boundary are in `MASTER.log`. The lock
+directory was found EXISTING and holder-less at acquisition time and was left
+alone until its holder released it; this cell never removed another cell's lock.
+
+## Deviations from the card, each named
+
+1. **Four test files outside the ownership list were edited**, every one a
+   mechanical consequence of a change the card authorizes, every one minimal:
+   `tests/test_escalation_router.py` (the trigger tuple is pinned member by
+   member, so appending a trigger to a module the card DOES own necessarily
+   fails it); `tests/test_adjudication.py` (the `validated → deferred`
+   direction pin, SUPERSEDED by R11); `tests/test_repair_guard.py` (the
+   diagnostics-version guard, whose bump item 8 requires); `tests/
+   test_visual_rung.py` (the row-shape pin counted its blocks backward from the
+   end, so an append moved every slice — now anchored on the first name of each
+   block, which states the property more exactly).
+2. **`bytes_up` / `bytes_down` / `inference_ms` / `vram_mb` are declared and
+   permanently empty in 2.2.** The Paddle rung's per-request telemetry stops at
+   `ocr/paddle_rung.py::PaddleRead.telemetry` and never reaches
+   `StatementMarkdown`, so populating them needs a field on `ocr/document.py`
+   and a line in `ocr/pipeline.py` — neither of which this card owns. The
+   columns land with their empty defaults, which is what the card specifies for
+   a row with no Paddle read, and the one-field change is named here for 2.3.
+   Nothing in 2.2 has a real Paddle read on customer data anyway.
+3. **The research provenance does not record the Paddle partition key.** The
+   Paddle-capability call-site pin caught the writer computing one; rather than
+   widen a pin whose whole value is that its list is short and reviewed, the
+   optional field is omitted — the run-of-record reader refuses a research run
+   on its partition id alone, before it reads any key, and
+   `tools/train/provenance.py --research-partition` is the reviewed instrument
+   for a full research provenance.
+4. **The no-hardcodes scan roots gained this card's two NEW modules only.**
+   `discovery/` and `telemetry/` as wholes are NOT added, and the reason is
+   written into the roots rather than left as a silence: adding two large
+   pre-existing packages to a scan that has never covered them is a ratchet
+   decision with its own baseline to establish, and a reporting card is the
+   wrong place to take it.
+
+## Findings for Ocean (neither fixed nor hidden)
+
+* **The discovery CLI creates a database at the default cache location on every
+  run, at IMPORT time.** `discovery/inventory.py` imports `corpus_gate`, which
+  imports `adb_forensic_audit`, which imports `webapp.app`, which constructs a
+  job store at module level. It predates this card entirely and is unrelated to
+  any mode; it means `--data-dir` cannot fully isolate a run's filesystem
+  footprint even though it does fully isolate its ARTIFACTS. The research-mode
+  proof asserts the artifact property, which is the one that matters, and names
+  this as the reason it does not assert the file.
+* **431 validated documents do not classify `STATEMENT_COMPLETE`** (above).
+  Calibration input for the adjudication slice, not a coverage question.
+
+## Privacy
+
+Branch privacy scan and message scan over `b7af37b..<final tip>` — see the
+final report and `p22truthtable-scans.log`. No archive text, figure, date, name
+or path is in any tracked file, fixture, test or commit message this cell
+wrote; every synthetic fixture is rendered from literal strings with dates in
+2031 or later; every document named anywhere in this section is named by a
+count or by a kind, never by a sha and never by a folder.
+
+## Risks, last
+
+* **What the truth table cannot say until adjudication.** Every CCL figure this
+  tree can produce is the CLASSIFIER'S PROPOSAL. The adjudicated denominator is
+  empty because the sealed store is empty, and the report says so by name
+  instead of promoting the proposal — but a reader who takes
+  `ccl_classifier_proposed` for a confirmed figure will be wrong by whatever the
+  431 exceptions turn out to mean. The instrument exists; the verdicts are
+  Gustavo's.
+* **What it cannot say until Paddle evidence exists.** The extraction layer has
+  a producer for E0, E1 and E5 only, and on the run of record it fires once. E2
+  (recognition quality), E3 (frame/orientation) and E4 (cross-engine
+  disagreement) are declared vocabulary with no producer, so "1 extraction
+  failure in 755" means "one truncation flag", not "extraction is solved". 2.3
+  is what populates that layer, and until it does, the 656 documents at
+  `B0_no_reader_claimed` are a structural bucket that has not yet been split.
+* **The transition matrix has no history.** It is exact from now on; every
+  comparison against a run written before this cell has one side that cannot
+  fill it. That is a property of the baseline, not of the instrument.
+* **`refused` is reserved and unproduced.** Zero rows on the run of record, by
+  design and by test. The class's protection value is real; its measurement
+  value begins when a later milestone declares one.
+
