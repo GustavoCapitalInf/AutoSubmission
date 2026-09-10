@@ -70495,3 +70495,103 @@ description are questions for cells C / T and Ocean, recorded here by count only
 * The evaluate skeleton's honesty edges are now explicit (`unparseable`, `agree_partial`), but the
   first real evaluation (2.4) still needs per-sha figure and ledger exports for any money identity.
 * **Sha remap after a commit-message reword (2026-09-05).** The final-tip message scan found one WORDS hit in the closure fix commit's body (an ordinary two-word English sequence); the message was reworded with `git filter-branch --msg-filter` (trees byte-identical; the four earlier commits keep their shas): `635853d` -> `dd790e6` (the closure fix), `6752e43` -> `6d3810d` (this section's commit). Every `635853d` / `6752e43` above names the same trees under their new shas.
+# §P22HOLDOUT-CLOSURE-2 — the re-review's NEW-1 (MAJOR) and NEW-3 closed and killed by named tests and mutants (23/23); NEW-2 recorded in the graduation attestation; NEW-4 and the nits documented as the writer-identity convention; 0 coverage movement
+
+Cell H (Phase 2.2, `docs/agent-handoffs/P22-HOLDOUT.md`), worktree `mt22-holdout`, branch
+`wave22-holdout`; the re-review `docs/moneythumb-replacement/reviews/PHASE2_P22HOLDOUT_REVIEW.md`
+§"Re-review" (verdict APPROVE WITH FINDINGS — 0 BLOCK / 1 MAJOR new / 4 MINOR new / 2 nits, against
+`ed618cb`; every first-review finding CLOSED, 21/21 mutants re-killed, scans 0/0). Closure-2 code tip
+**`0198ce8`** (`ec6560f` the fix, `0198ce8` a fixture-privacy figure; + the commit carrying this
+section). Still a hygiene card: `git diff --stat b23cb50..HEAD` over `analysis ocr discovery webapp
+telemetry evidence layout corpus_gate.py` is EMPTY (`PRODDIFF_LINES=0`); newly validated 0; nothing
+customer-derived in any tracked file; nothing adjudicated by this cell.
+
+## Reproduction before any code changed (`discovery_reports/train12-logs/p22holdout-closure2-repro.log`)
+The re-reviewer's `rr_minor3_fresh.py` (with its `rr_common.py`, retargeted from `rerev22-holdout` to
+this worktree by a verified replacement) run verbatim at `ed618cb`:
+* **NEW-1**: `scale (oracle opening '100' closing '150.25'; system '100.00' / '150.250'): ('false_accept',
+  ['opening_balance', 'closing_balance'], …)`; `negzero (oracle '0.00'/'0.00'; system '-0.00'/'0'):
+  ('false_accept', ['opening_balance', 'closing_balance'], …)`; `ledger_scale (oracle sampled amount
+  '-12.34'; ledger '-12.340'): ('false_accept', ['sampled_row_absent'], …)`; three `[FAIL]` lines —
+  `false_accept manufactured from formatting`.
+* **NEW-3**: `[OK] FRESH: after TruthStore.write_manifest() the truncated store reads and appends again`
+  (the instrument's own OK is the re-reviewer's "confirmed" — the public re-seal laundered a truncated
+  file).
+
+## Closure per finding (reproduced → fixed at `ec6560f` → proven)
+* **NEW-1 (MAJOR) — money compared as scale-preserving text.** Fixed: `_canon_money` returns the
+  `Decimal` VALUE (negative zero mapped to zero; unparseable still listed, never compared);
+  `compare_figures` compares money as `Decimal` vs `Decimal`; the ledger is keyed on `money_key()` — the
+  normalised decimal (`format(d.normalize(), "f")`, `-0` → `0`) — and the sampled row's amount goes
+  through the same key. Proven: `test_holdout_evaluate.py::test_money_is_compared_by_value_never_by_text`
+  (a mixed-scale fixture: `100`/`100.00`, `150.25`/`150.250`, `0.00`/`-0.00`/`0`, sampled `-12.34`
+  against ledger `-12.340` and `-12.3400` each compare EQUAL → `agree`, `money_compared 3`; a genuinely
+  different closing figure still yields `false_accept` with exactly `['closing_balance']`),
+  `::test_money_keys_and_values_agree_across_scale_and_sign_of_zero` (seven variant pairs incl. `1E+2`),
+  `::test_money_values_that_differ_still_differ`; mutant **M22** (the text comparison and the
+  scale-preserving ledger key restored) KILLED by 8 tests. The re-reviewer's instrument after the fix:
+  all three shapes `('agree', [], …)`, `[OK]` × 3.
+* **NEW-3 (MINOR) — the public, unguarded re-seal.** Fixed: `ChainedJsonl.write_manifest(records, *,
+  previous=None)` refuses when an existing sidecar disagrees with the state it must carry — the
+  pre-append `(head, count)` on the append path, the file's current `(head, count)` for a public call —
+  so a consistent store may be re-sealed (only `updated_at` moves) and a truncated one is refused;
+  `TruthStore.write_manifest()` stays public but delegates to the guarded writer. Proven:
+  `test_truth_store.py::test_write_manifest_never_reseals_a_store_its_manifest_disagrees_with` (the
+  witness byte-identical after the refusal; `latest_by_sha` still refused; a consistent store re-seals);
+  mutant **M23** (the guard dropped) KILLED. The re-reviewer's instrument after the fix dies on the
+  refusal at its `s4.write_manifest()` line.
+* **NEW-2 (MINOR) — which repository was consulted.** `repository_identity(repo)` (the sha256 of the
+  resolved path and the root commit, via `git rev-list --max-parents=0 HEAD`; `None` for a
+  non-repository) is recorded in `graduation_attestation.consulted_repository`; the CLI passes the
+  identity of the repository it resolved the tag in and prints its prefixes. Proven:
+  `test_holdout_manifest.py::test_repository_identity_names_the_consulted_repository`,
+  `::test_graduation_records_the_consulted_repository_when_given`,
+  `test_adjudicate_cli.py::test_holdout_graduate_records_which_repository_was_consulted` (a real
+  temporary repository; the digest and the root commit recomputed in-test). This is an audit hook
+  (a fabricated repository remains detectable — its root commit exists nowhere in the real repository —
+  not prevented): the MINOR-4 writer-identity convention, documented, and `--repo` stays what it is so
+  the tests can use a real temporary repository.
+* **NEW-4 (MINOR, API-only) and the nits** — documented as the MINOR-4 writer-identity convention: a
+  hand-built `DevCorpus` with a forged digest and a back-dated `evaluated_at` are API-only shapes with
+  no CLI command; the chain, the sidecars, the recorded digests/identities and the committed digest
+  make them DETECTABLE (a forged corpus digest cannot be recomputed from any `rows.csv`; a back-dated
+  evaluation sits in a hash-chained event with its own `event_at`), not impossible. Not enforced by
+  design (R3: hashed, append-only, outside the checkout — no signing; the same operator holds every key
+  on this machine). The two nits (header decorations outside the packet digest; `parse_digest` skipping
+  `#` lines before the grammar) are recorded as-is: the packet digest covers everything shown, and
+  every committed digest line is checked by the firewall test.
+
+## The mutation table at `ec6560f` (`p22holdout-closure2-mutation-table.log`, `EXIT=0`; the scratch harness refuses a dirty tree, runs WITHOUT -x, restores in a `finally`, verifies porcelain clean; tree clean after)
+**23 / 23 KILLED** — M1–M21 as in §P22HOLDOUT-CLOSURE (same killers; M12 now also killed by the new
+mixed-scale tests: 8 failed), plus:
+| # | mutant (site) | killers |
+|---|---|---|
+| M22 | `_canon_money` returns scale-preserving text and `money_key` returns it unnormalised (NEW-1 reverted) | `test_holdout_evaluate.py::test_money_is_compared_by_value_never_by_text`, `::test_money_keys_and_values_agree_across_scale_and_sign_of_zero[…]` (six of seven pairs), `::test_money_values_that_differ_still_differ` — 8 failed |
+| M23 | the `write_manifest` guard dropped (`if existing is not None` → `if False`) | `test_truth_store.py::test_write_manifest_never_reseals_a_store_its_manifest_disagrees_with` |
+
+## Proof exits at the closure-2 code tip (`p22holdout-closure2-proofs.log`; one lock-held sequential run)
+Wrapper `p22holdout_closure2_proofs.sh` (lock acquired 09:14:04, released 09:16:53 on 2026-09-10), tree `0198ce8`, `PRODDIFF_LINES=0`: the five cell test files **178 passed** (`CELLTESTS_EXIT=0`) · canonical guards **275 passed** (`GUARDS_EXIT=0`) · canonical conformance **1,282 passed / 41 skipped** (`CONFORMANCE_EXIT=0`) · the repository-walking tests that see `tools/` **358 passed / 3 skipped / 10 deselected** (`WALKERS_EXIT=0`) · `cohort_replay --expect-identical` over `member_statement_rollup` + `first_citizens`: **47 of 47 preserved, payload identical, newly validated 0, regressions 0** (`REPLAY_EXIT=0`) · `PRIVACY_EXIT=0` · `MSGSCAN_EXIT=0` · `EXIT=0`. The same wrapper at `ec6560f` (`p22holdout-closure2-proofs-ec6560f.log`) was identical except `PRIVACY_EXIT=1` (the two-site figure residue of Deviation 2). The mutation table ran at `ec6560f` (`p22holdout-closure2-mutation-table.log`, `EXIT=0`, 23/23); the figure commit `0198ce8` changes two test literals and no mutant site.
+
+## Privacy count
+`tools/privacy_scan_branch.py --rows <run>/rows.csv --run <run> --data-dir webapp_data_train11_cold --base b23cb50 --ref HEAD` at `0198ce8` (population 3,380; 3,351 documents read; 29 without cached text): over **5,405 added lines, MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0** (56 WORDS occurrences excused by the `words_class` rule; every other rule 0). Message scan (`tools/huntington_msg_privacy_scan.py`, the same population, `git log b23cb50..HEAD`, 9 commits): **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0**. **The scans over this section's own commit run after it lands; their counts are in the closure-2 message to Ocean.**
+
+## Deviations (each named)
+1. The re-reviewer's `rr_minor3_fresh.py` cannot run to its end on the closed code (it dies on the
+   NEW-3 refusal it was written to expose); its NEW-1 lines complete and are the closure evidence.
+2. At `ec6560f` the branch privacy scan found 2 MONEY hits — the mixed-scale fixture's "genuinely
+   different" closing figure (two sites) coincided with a printed token; replaced by six-digit-dollar
+   example figures at `0198ce8` and the scans re-run at that tip. The re-reviewer's population floor
+   suggestion and NEW-2's "fence `--repo` to tests" were not adopted (`--repo` must be a real git
+   repository; its identity is now recorded).
+3. The full suite, the gate and the corpus slice were not re-run (tools/ + tests/ only;
+   `PRODDIFF_LINES=0`); the guards, the conformance files, the walkers, the replay and the two scans were.
+4. The `mutation_table` harness header now reads CLOSURE-2; M1–M21 are the same mutants as before.
+
+## Risks (updated)
+* The first real evaluation (2.4) still needs per-sha figure and ledger exports; `Decimal` value
+  comparison removes the formatting false accepts, not the missing exports.
+* A `Decimal` comparison is exact: a system export that ROUNDS a figure (`150.246` → `150.25`) will
+  still contradict an oracle typed from the page; that is the correct behaviour (the export must carry
+  the printed figure), recorded so it is not mistaken for NEW-1's class.
+* `repository_identity` records a path digest and a root commit — a copied repository with the same
+  root commit is indistinguishable by root commit alone; the path digest and the tag's commit narrow it.
