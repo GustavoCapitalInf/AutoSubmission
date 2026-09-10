@@ -753,3 +753,100 @@ def test_no_hand_rolled_router_inputs_construction_anywhere_in_the_repo():
         f"RouterInputs(...) constructed outside ocr/escalation.py and tests/: "
         f"{[(str(p.relative_to(ROOT)), n) for p, n in sites]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# P22-TRUTHTABLE (Phase 2.2, D8): the research trigger's pins, APPENDED.
+#
+# `operator_forced_paddle` is a RUN-MODE fact, admitted by the router like
+# every other admitted trigger — so what has to be proved is not that the
+# router treats it specially (it does not, and must not), but that exactly ONE
+# place in the tree can ever supply it, that that place is a mode constant,
+# and that no `decide(` call site anywhere can name it inline.
+# ---------------------------------------------------------------------------
+
+#: The one module allowed to name the research trigger outside
+#: `ocr/escalation.py`, where it is DEFINED, and `tests/`, which asserts on it.
+RESEARCH_TRIGGER_SUPPLIER = "discovery/runner.py"
+
+#: The one NAME in that module that may hold it.
+RESEARCH_TRIGGER_CONSTANT = "RESEARCH_TRIGGERS"
+
+
+def _research_trigger_mentions() -> dict[str, list[int]]:
+    """Every tracked module that names `operator_forced_paddle` — as a string
+    literal or through the escalation module's constant — and where."""
+    mentions: dict[str, list[int]] = {}
+    for relative, source in _tree_sources():
+        if relative.replace("\\", "/").startswith("tests/"):
+            continue
+        lines = [
+            number for number, line in enumerate(source.splitlines(), 1)
+            if "operator_forced_paddle" in line or "OPERATOR_FORCED_PADDLE" in line
+        ]
+        if lines:
+            mentions[relative.replace("\\", "/")] = lines
+    return mentions
+
+
+def test_only_the_escalation_module_and_one_runner_constant_name_the_research_trigger():
+    """D8's structural half. The escalation module DEFINES it; the discovery
+    runner names it once, to build its mode constant; the telemetry record
+    mirrors the vocabulary. Nothing else in the tree may spell it — not the
+    webapp worker (whose `decide(` site would otherwise be one keystroke from
+    a hosted research read), not `analysis/`, not `tools/`."""
+    allowed = {RESEARCH_TRIGGER_SUPPLIER, "telemetry/record.py"}
+    mentions = _research_trigger_mentions()
+    unexpected = {name: lines for name, lines in mentions.items() if name not in allowed}
+    assert unexpected == {}, f"the research trigger is named outside {sorted(allowed)}: {unexpected}"
+    assert RESEARCH_TRIGGER_SUPPLIER in mentions
+    # `_tree_sources()` deliberately excludes `ocr/escalation.py` (the module
+    # where `decide` is DEFINED), so its definition is asserted directly
+    # rather than through the scan — otherwise a vanished definition would
+    # read as a clean scan.
+    escalation = (ROOT / "ocr" / "escalation.py").read_text(encoding="utf-8")
+    assert 'OPERATOR_FORCED_PADDLE = "operator_forced_paddle"' in escalation
+
+
+def test_the_research_trigger_constant_is_a_module_level_frozenset_of_one():
+    """It must be a MODULE-LEVEL constant of exactly one member, assigned
+    once. A per-document expression here would smuggle a document fact into
+    the router through `triggers` — the same attack the `enabled=` pin above
+    closes one field over — and a second member would let one flag admit two
+    extractors at once."""
+    import discovery.runner as runner_module
+
+    tree = ast.parse(inspect.getsource(runner_module))
+    assignments = [
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == RESEARCH_TRIGGER_CONSTANT
+                for t in node.targets)
+    ]
+    assert len(assignments) == 1, (
+        f"{RESEARCH_TRIGGER_CONSTANT} must be assigned exactly once, at module level; "
+        f"found {len(assignments)}"
+    )
+    call = assignments[0].value
+    assert isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+    assert call.func.id == "frozenset", ast.dump(call)
+    assert len(call.args) == 1 and isinstance(call.args[0], ast.Set)
+    assert len(call.args[0].elts) == 1, "one trigger, one extractor"
+    assert getattr(runner_module, RESEARCH_TRIGGER_CONSTANT) == frozenset(
+        {"operator_forced_paddle"})
+
+
+def test_no_decide_call_site_names_the_research_trigger_inline():
+    """A `decide(` site that built `triggers={"operator_forced_paddle"}` in
+    place would satisfy every pin above — the constant would still exist and
+    still be a frozenset of one — while supplying the trigger from somewhere
+    the mode never decided. Every site's `triggers=` argument is therefore
+    checked for the literal, wherever in the expression it sits."""
+    offenders: list[str] = []
+    for relative, call in _decide_call_sites_repo_wide():
+        for node in ast.walk(call):
+            if isinstance(node, ast.Constant) and node.value == "operator_forced_paddle":
+                offenders.append(f"{relative}:{call.lineno}")
+    assert offenders == [], (
+        f"a decide(...) call site names the research trigger inline: {offenders}"
+    )

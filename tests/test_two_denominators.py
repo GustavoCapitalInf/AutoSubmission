@@ -257,3 +257,231 @@ def test_mixed_taxonomy_versions_are_warned_about():
     summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
     assert summary["unresolved_taxonomy_versions"] == {"1": 7, "99": 1}
     assert "WARNING mixed unresolved-taxonomy versions" in render_report(summary)
+
+
+# ---------------------------------------------------------------------------
+# item 4 / case 6 / M6: the classifier is a RECORDED FACT and NOTHING ELSE.
+# item 7 / M15: the geometry seam is INERT while `reconstruction_mode == off`.
+# Both are proved on a real run of the real runner over a SYNTHETIC document —
+# a stubbed pipeline could not tell either of them.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def analysis_spy(monkeypatch):
+    """Every `analyze_document` call the runner makes: the markdown, the
+    keyword arguments, and the RESULT — the serialized payload, or the
+    exception class when the deterministic mode refused (which is what an
+    unclaimed document produces, and is a result like any other).
+
+    The entry is appended BEFORE the call, so a raising analysis is still
+    recorded: an identity proof that only saw the calls that succeeded would
+    be blind to exactly the population this card reports on.
+    """
+    import discovery.runner as runner_module
+    from analysis.serialization import document_report_to_dict
+
+    real = runner_module.analyze_document
+    calls: list[dict] = []
+
+    def spy(markdown, **kwargs):
+        entry = {"markdown": markdown, "kwargs": sorted(kwargs), "result": None}
+        calls.append(entry)
+        try:
+            report = real(markdown, **kwargs)
+        except Exception as exc:
+            entry["result"] = f"raised:{type(exc).__name__}"
+            raise
+        entry["result"] = json.dumps(
+            document_report_to_dict(report), sort_keys=True, default=str)
+        return report
+
+    monkeypatch.setattr(runner_module, "analyze_document", spy)
+    return calls
+
+
+def _synthetic_document(tmp_path):
+    from tests.paddle_synthetic import build_ledger_page, render_native_pdf
+
+    root = tmp_path / "root"
+    (root / "SynthC").mkdir(parents=True)
+    (root / "SynthC" / "ledger.pdf").write_bytes(render_native_pdf(build_ledger_page(12)))
+    return root
+
+
+def _run_one(root, monkeypatch=None):
+    from discovery.inventory import DedupIndex
+    from discovery.runner import DiscoveryRunner
+
+    runner = DiscoveryRunner(root, mode=MODE_DIGITAL, run_id="t", dedup=DedupIndex(),
+                             sink=None, cache=None)
+    return runner.process("SynthC/ledger.pdf", "SynthC")
+
+
+def test_the_classifier_is_never_passed_to_the_analysis_and_changes_no_payload(
+    tmp_path, monkeypatch, analysis_spy,
+):
+    """M6's killer. The same document analysed twice — once with the
+    classifier live, once with it raising on every call — hands
+    `analyze_document` a BYTE-IDENTICAL input and gets a byte-identical result
+    back, and neither run passes a classification, a geometry or anything else
+    new into it.
+
+    The payload leg over REAL payloads is the union cohort replay at closure,
+    which compares the published payload of every document in the archive with
+    the classifier live; this is the mechanism the replay confirms."""
+    import discovery.runner as runner_module
+
+    root = _synthetic_document(tmp_path)
+    live = _run_one(root)
+    assert live.class_version == 1 and live.classifier_exception == ""
+
+    def exploding(**kwargs):
+        raise RuntimeError("the classifier is a reporting consumer")
+
+    monkeypatch.setattr(runner_module, "classify_document_kind", exploding)
+    stubbed = _run_one(root)
+
+    # the classifier's own columns differ (that is the point of stubbing it)
+    assert stubbed.classifier_exception == "RuntimeError"
+    assert stubbed.class_version == 0
+    # ... and NOTHING else does: same outcome, same reason, same payload
+    assert (stubbed.outcome_class, stubbed.outcome_reason) == (live.outcome_class, live.outcome_reason)
+    assert len(analysis_spy) == 2
+    assert analysis_spy[0] == analysis_spy[1], "the classifier changed the analysis"
+    assert analysis_spy[0]["kwargs"] == ["on_dispatch", "parse_mode", "sheets"]
+    # and a defect in a reporting consumer never fails a run
+    assert stubbed.content_sha256 == live.content_sha256
+
+
+def test_the_geometry_seam_passes_nothing_while_the_reconstruction_mode_is_off(
+    tmp_path, monkeypatch, analysis_spy,
+):
+    """M15's killer: with `reconstruction_mode == off` the analysis call is
+    the call it always was — no `document_geometry` keyword, and no evidence
+    sha in the cache key. A mutant that passes geometry unconditionally adds a
+    keyword here and dies."""
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "off")
+    root = _synthetic_document(tmp_path)
+    _run_one(root)
+    assert analysis_spy, "the analysis never ran; the fixture premise moved"
+    for call in analysis_spy:
+        assert call["kwargs"] == ["on_dispatch", "parse_mode", "sheets"], call["kwargs"]
+        assert "document_geometry" not in call["kwargs"]
+
+
+def test_the_geometry_seam_is_reached_when_the_mode_is_not_off(tmp_path, monkeypatch, analysis_spy):
+    """The other half of M15: the seam is WIRED, not dead. With the mode set
+    to `research` the same run passes `document_geometry` — so the inertness
+    above is a property of the MODE and not of a branch nothing can reach."""
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "research")
+    root = _synthetic_document(tmp_path)
+    _run_one(root)
+    assert analysis_spy
+    assert any("document_geometry" in call["kwargs"] for call in analysis_spy), [
+        call["kwargs"] for call in analysis_spy
+    ]
+
+
+def test_peak_rss_is_measured_when_psutil_is_importable_and_a_word_when_it_is_not(monkeypatch):
+    """Case 25, both branches. The degraded value is a WORD, never `0` and
+    never empty: a column that reads as a figure is a measurement somebody
+    made, and nobody made this one."""
+    import builtins
+
+    from discovery.runner import PEAK_RSS_NOT_MEASURED, peak_rss_mb
+
+    try:
+        import psutil  # noqa: F401
+    except ImportError:
+        assert peak_rss_mb() == PEAK_RSS_NOT_MEASURED
+    else:
+        assert float(peak_rss_mb()) > 0.0
+
+    real_import = builtins.__import__
+
+    def without_psutil(name, *args, **kwargs):
+        if name == "psutil":
+            raise ImportError("forced absent for this test")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_psutil)
+    assert peak_rss_mb() == PEAK_RSS_NOT_MEASURED
+    assert PEAK_RSS_NOT_MEASURED == "not measured"
+
+
+# ---------------------------------------------------------------------------
+# item 9: `tools/truth_report.py` — the join across the firewall.
+# ---------------------------------------------------------------------------
+
+
+def _write_rows_csv(path: Path, rows: list) -> Path:
+    write_rows(path, rows)
+    return path
+
+
+def test_truth_report_prints_both_denominators_and_no_sha(tmp_path):
+    """Item 9 / case 11. With no sealed store it still prints the RAW
+    denominator and the classifier's PROPOSAL, labelled as a proposal, and
+    says outright that nothing was adjudicated — D10: adjudication is not a
+    gate. No full content sha reaches stdout."""
+    from tools.truth_report import join, read_rows, render
+
+    rows_csv = _write_rows_csv(tmp_path / "rows.csv", _rows())
+    documents = read_rows(rows_csv)
+    assert len(documents) == 7
+    report = join(documents, None)
+    assert report["raw"] == {"population": 7, "validated": 3, "coverage": pytest.approx(3 / 7)}
+    assert report["ccl_adjudicated"]["population"] == 0
+    assert report["ccl_classifier_proposed"] == {
+        "population": 3, "validated": 3, "coverage": pytest.approx(1.0)}
+    assert report["disjoint_sum"] == 7
+    assert report["by_source"] == {"classifier_proposed": 7}
+    text = render(report, store_note="no sealed store read (test)")
+    assert text.isascii()
+    assert "RAW" in text and "CCL adjudicated" in text and "CCL classifier-proposed" in text
+    assert text.index("RAW") < text.index("CCL adjudicated")
+    for row in _rows():
+        assert row.content_sha256 not in text
+    assert "never replaced" in text
+
+
+def test_truth_report_prefers_the_sealed_verdict_and_labels_every_document(tmp_path):
+    """A sealed record OUTRANKS the classifier's proposal for the same
+    document, and every document says which of the two named it — a proposal
+    never masquerades as truth (D10)."""
+    from tools.truth_report import join, read_rows, render_private
+
+    rows = _rows()
+    documents = read_rows(_write_rows_csv(tmp_path / "rows.csv", rows))
+    sha = _sha(4)  # the row calls it NOT_A_STATEMENT{loan_statement}
+    sealed = {sha: {"kind": "STATEMENT_COMPLETE", "account_kind": "deposit", "legible": True}}
+    report = join(documents, sealed)
+    assert report["by_source"] == {"adjudicated": 1, "classifier_proposed": 6}
+    assert report["ccl_adjudicated"]["population"] == 1
+    assert report["ccl_adjudicated"]["validated"] == 0   # that document failed
+    assert report["disjoint_sum"] == 7                    # still exactly one kind each
+    private = render_private(report)
+    assert sha[:16] in private and sha not in private     # sha16 is the finest grain
+    assert "adjudicated" in private and "classifier_proposed" in private
+
+
+def test_truth_report_refuses_a_tracked_out_path(tmp_path):
+    from tools.truth_report import main
+
+    tracked = Path(__file__).resolve().parents[1] / "docs" / "truth_report_should_never_land_here.md"
+    with pytest.raises(SystemExit, match="not git-ignored"):
+        main(["--rows", str(tmp_path / "rows.csv"), "--out", str(tracked)])
+    assert not tracked.exists()
+
+
+def test_truth_report_carries_no_cost_price_rate_usd_or_billing_key(tmp_path):
+    """M9 again, on the second instrument: the tool that joins the two
+    denominators must not grow a third that nobody asked for."""
+    from tools.truth_report import join, read_rows
+
+    report = join(read_rows(_write_rows_csv(tmp_path / "rows.csv", _rows())), None)
+    keys = set(_keys(report)) | {"per_document"}
+    offenders = sorted(key for key in keys
+                       if FORBIDDEN_TOKENS & set(key.lower().replace(".", "_").split("_")))
+    assert offenders == [], offenders

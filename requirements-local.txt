@@ -16,3 +16,12 @@ addict
 easydict
 matplotlib             # imported by the model's remote deepencoder.py
 requests               # imported by the model's remote code
+
+# P22-TRUTHTABLE (Phase 2.2, case 25): the per-document resident-set reading
+# in `discovery/runner.py::peak_rss_mb`. LOCAL ONLY, deliberately — it is a
+# measurement convenience on the development host, not something the engine
+# needs to produce a verdict, and a native dependency does not belong in the
+# runtime requirements for one telemetry column. The runner degrades to the
+# literal string `not measured` when it is absent, which is what CI sees; both
+# branches are tested.
+psutil
