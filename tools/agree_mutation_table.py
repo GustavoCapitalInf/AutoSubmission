@@ -116,10 +116,10 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "M7", "the projection falls back to the ONE reading a document has",
         RUNNER,
-        "        if native is None or extractor is None:\n            return\n",
-        "        if native is None or extractor is None:\n"
-        "            native = extractor = native or extractor\n"
-        "            if native is None:\n                return\n",
+        "            if native is None or extractor is None:\n                return\n",
+        "            if native is None or extractor is None:\n"
+        "                native = extractor = native or extractor\n"
+        "                if native is None:\n                    return\n",
         [T_AGREE],
         ["test_the_runner_projects_the_columns_only_when_both_evidences_exist"],
     ),
