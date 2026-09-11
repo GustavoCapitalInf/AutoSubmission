@@ -40,6 +40,7 @@ from ocr.extraction_quality import (
     document_quality,
     e_class,
     eq_row_values,
+    lexicon_vocabulary,
     page_quality,
 )
 from tests.paddle_synthetic import (
@@ -325,7 +326,7 @@ def test_the_lexicon_rate_denominator_is_the_alphabetic_tokens():
     # furniture in `layout.signals` (STATEMENT, DATE, AMOUNT, BALANCE) and
     # three are not (SYNTHETIC, DESCRIPTION, ROW) — and the four sit in the
     # header, so they are four occurrences, not four per row.
-    vocabulary = __import__("ocr.extraction_quality", fromlist=["x"]).lexicon_vocabulary()
+    vocabulary = lexicon_vocabulary()
     assert {"statement", "date", "amount", "balance"} <= vocabulary
     assert not ({"synthetic", "description", "row"} & vocabulary)
     assert quality.lexicon_rate == pytest.approx(4 / (6 + 2 * ROWS))
@@ -336,7 +337,6 @@ def test_the_lexicon_vocabulary_is_derived_from_layout_signals_and_is_not_spelle
     lexicon edit reaches this metric with no second list to maintain — and no
     word of statement furniture is hardcoded in `ocr/`."""
     from layout.signals import LEXICONS
-    from ocr.extraction_quality import lexicon_vocabulary
 
     vocabulary = lexicon_vocabulary()
     assert "balance" in vocabulary and "statement" in vocabulary
