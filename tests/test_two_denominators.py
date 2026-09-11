@@ -175,6 +175,11 @@ def test_the_new_columns_are_appended_at_the_end_of_row_fields_in_the_card_order
         "primary_reason_layer", "primary_reason", "unresolved_taxonomy_version",
         "document_class", "class_sub_kind", "class_modality", "class_account_kind", "class_tier",
         "class_signals", "class_version", "completeness_findings", "classifier_exception",
+        # P23-AGREE (Phase 2.3 cell X): the agreement and geometry columns,
+        # appended after cell T's block and never reordered.
+        "agree_version", "agree_pages", "agree_matched_native", "agree_matched_paddle",
+        "agree_char", "agree_amounts", "agree_dates", "agree_unmatched_table_density",
+        "agree_frame_mismatch", "geom_rotation", "geom_skew_deg", "geom_page_size",
     ]
     assert ROW_FIELDS[:ROW_FIELDS.index("stage_extract")][-2:] == ["cache_finding", "paddle_refusal_reason"]
     assert "escalation_trigger" in ROW_FIELDS[:ROW_FIELDS.index("stage_extract")]

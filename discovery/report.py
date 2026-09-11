@@ -827,6 +827,16 @@ ROW_FIELDS = [
     "document_class", "class_sub_kind", "class_modality", "class_account_kind",
     "class_tier", "class_signals", "class_version", "completeness_findings",
     "classifier_exception",
+    # P23-AGREE (Phase 2.3 cell X, card item 2). APPENDED, never reordered,
+    # exactly like the block above: the native<->extractor agreement
+    # statistics and the geometry census of the document, EMPTY on every row
+    # that does not carry both readings. See `discovery/runner.py`'s
+    # `DocumentRow` for what each column carries and how it is folded, and
+    # `layout/agreement.py` for what each measures. Review evidence only —
+    # no threshold, no class, no verdict, and (still) no cost column anywhere.
+    "agree_version", "agree_pages", "agree_matched_native", "agree_matched_paddle",
+    "agree_char", "agree_amounts", "agree_dates", "agree_unmatched_table_density",
+    "agree_frame_mismatch", "geom_rotation", "geom_skew_deg", "geom_page_size",
 ]
 
 
