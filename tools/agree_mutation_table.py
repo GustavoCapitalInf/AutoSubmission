@@ -138,7 +138,8 @@ MUTANTS: list[Mutant] = [
         "        if kind == \"xref\":\n            return None\n",
         [T_NATIVE],
         ["test_an_indirect_invalid_rotate_is_resolved_and_refused_by_name",
-         "test_an_indirect_rotate_written_as_a_real_is_coerced_by_the_writer_and_refused"],
+         "test_an_indirect_rotate_written_as_a_real_is_coerced_by_the_writer_and_refused",
+         "test_an_inherited_indirect_invalid_rotate_through_the_pages_node_is_refused_by_name"],
     ),
     Mutant(
         "M10", "the census prints a word off the page",

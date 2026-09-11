@@ -975,6 +975,67 @@ def test_a_chained_indirect_rotate_inherited_from_the_pages_node_is_read_too(ter
     assert _poppler_ink(pdf_bytes, page) == 1.0
 
 
+@pytest.mark.parametrize("value,normalised", [(90, 90), (270, 270), (180, 180), (0, 0)])
+def test_an_inherited_indirect_rotate_through_the_pages_node_is_resolved_and_read(value, normalised):
+    """The fifth shape of the closure ruling: a SINGLE-hop indirect `/Rotate`
+    that the page does not carry itself but inherits from its parent `/Pages`
+    node — the legal PDF spelling, and the one this reader's `/Parent` walk
+    exists for.
+
+    MEASURED on a real PDF: PyMuPDF resolves the inherited reference itself
+    (`page.rotation` reads the angle, the rect swaps at 90 and 270), the
+    reader's walk resolves the same object, the two corroborate, and every
+    word lands on Poppler's ink in the display frame."""
+    pdf_bytes = _with_objects([str(value)], inherited=True, extra_pages=0)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        page = document[0]
+        # the key is not on the page: it is reached through `/Parent`
+        assert document.xref_get_key(page.xref, "Rotate")[0] in ("null", "")
+        _, parent = document.xref_get_key(page.xref, "Parent")
+        assert document.xref_get_key(int(str(parent).split()[0]), "Rotate")[0] == "xref"
+        assert int(page.rotation) == normalised
+    finally:
+        document.close()
+
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes
+    assert page.frame.rotation_deg == normalised
+    assert len(page.words) == 12
+    assert _poppler_ink(pdf_bytes, page) == 1.0
+
+
+@pytest.mark.parametrize("value", [45, 225])
+def test_an_inherited_indirect_invalid_rotate_through_the_pages_node_is_refused_by_name(value):
+    """The refusal on the same inherited path, and the harm it is for.
+
+    MEASURED: PyMuPDF normalises the inherited 45 away (`page.rotation` 0) and
+    still swaps the declared rect to 792 x 612, while Poppler rasterises the
+    UNSWAPPED 612 x 792 page — the mis-framing signature exactly, so the page
+    is refused by name, whole, with the sibling page untouched. An inherited
+    reference must not be a hole in the refusal the direct value gets."""
+    from ocr.rasterize import rasterize_pdf
+
+    pdf_bytes = _with_objects([str(value)], inherited=True)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        page = document[0]
+        assert int(page.rotation) == 0
+        assert (page.rect.width, page.rect.height) == (LETTER[1], LETTER[0])
+    finally:
+        document.close()
+    assert rasterize_pdf(pdf_bytes, dpi=72)[0].size == (round(LETTER[0]), round(LETTER[1]))
+
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    first = evidence.pages[0]
+    assert first.notes == (INVALID_ROTATION_NOTE,)
+    assert first.words == ()
+    assert evidence.pages[1].words and evidence.pages[1].notes == ()
+
+
 def test_a_two_hop_indirect_rotate_chain_is_read_and_cannot_spin():
     """A longer chain and a self-referencing object: both are read as the
     unrotated pages every renderer shows them to be, and neither can loop —
