@@ -37,6 +37,7 @@ from pathlib import Path
 import fitz
 import pytest
 
+from evidence.native import CLAMPED_TRANSFORM_NOTE, _display_matrix
 from evidence import (
     FRAME_DISPLAY,
     INVALID_ROTATION_NOTE,
@@ -619,6 +620,237 @@ def test_a_raw_rotate_that_is_a_multiple_of_90_is_normalised_not_refused(raw, no
     assert INVALID_ROTATION_NOTE not in page.notes
     assert page.frame.rotation_deg == normalised
     assert len(page.words) == 12
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.3 cell X (P23-AGREE item 4): the two latent defects the closure-2
+# re-review named. Both had population 0 in the archive and both are reachable
+# by a real PDF, so both are closed here and pinned by a synthetic page.
+# ---------------------------------------------------------------------------
+
+#: A CropBox that OVERHANGS the letter MediaBox on every side — the N-1
+#: shape. PyMuPDF clamps `page.rect` and the word coordinates to the
+#: MediaBox (so does Poppler) but builds `rotation_matrix`'s translation from
+#: THIS rectangle, so a rotated page's boxes were offset by the overhang.
+_OVERHANG = (-40.0, -38.0, 652.0, 830.0)
+
+
+def _overhanging_cropbox(rotate: int = 0) -> bytes:
+    """The upright ledger whose CropBox is written directly into the page
+    object so it can exceed the MediaBox (`set_cropbox` will not do it), with
+    an optional `/Rotate`."""
+    document = fitz.open(stream=_render_upright(), filetype="pdf")
+    page = document[0]
+    document.xref_set_key(page.xref, "CropBox",
+                          "[ %g %g %g %g ]" % _OVERHANG)
+    if rotate:
+        document.xref_set_key(page.xref, "Rotate", str(rotate))
+    data = document.tobytes()
+    document.close()
+    return data
+
+
+def _matrix_translation(pdf_bytes: bytes) -> tuple[float, float]:
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        matrix = document[0].rotation_matrix
+        return float(matrix.e), float(matrix.f)
+    finally:
+        document.close()
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_an_overhanging_cropbox_on_a_rotated_page_lands_on_the_rasters_ink(rotation):
+    """Re-review N-1. The page's CropBox extends past its MediaBox on every
+    side. PyMuPDF clamps `page.rect` to the MediaBox — and Poppler renders
+    exactly that rectangle — but its `rotation_matrix` translates by the
+    UNCLAMPED CropBox, so at 90/180/270 every word box the Phase 2.2 reader
+    emitted was offset by the overhang and contained no ink at all. The
+    transform is now derived from `page.rect`: the frame is the clamped
+    rectangle, every box carries ink in the 72-dpi raster, the boxes equal
+    the `/Rotate 0` boxes within the measured cross-angle tolerance, and the
+    page says so with `clamped_display_transform`. The 0-degree page is
+    untouched (its matrix and the rect already agreed) and carries no note.
+
+    Mutant M8 — the transform built from PyMuPDF's matrix regardless — is
+    killed by the ink assertion at all three rotated angles.
+    """
+    from ocr.rasterize import rasterize_pdf
+
+    pdf_bytes = _overhanging_cropbox(rotation)
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    page = evidence.pages[0]
+    expected = LETTER if rotation in (0, 180) else (LETTER[1], LETTER[0])
+    assert (page.frame.width, page.frame.height) == expected
+    assert page.frame.rotation_deg == rotation
+    assert len(page.words) == 12
+    assert words_outside_frame(page.notes) == 0
+
+    # the defect is really present in PyMuPDF at this shape (the pin is not
+    # measuring a page that never had the problem): its matrix translates by
+    # the UNCLAMPED CropBox's sides, the derived one by the display rect's
+    overhang_w = _OVERHANG[2] - _OVERHANG[0]
+    overhang_h = _OVERHANG[3] - _OVERHANG[1]
+    translation = _matrix_translation(pdf_bytes)
+    if rotation:
+        assert translation == {
+            90: (overhang_h, 0.0), 180: (overhang_w, overhang_h), 270: (0.0, overhang_w),
+        }[rotation]
+        assert translation != _display_matrix(rotation, *expected)[4:]
+        assert CLAMPED_TRANSFORM_NOTE in page.notes
+    else:
+        assert translation == (0.0, 0.0)
+        assert CLAMPED_TRANSFORM_NOTE not in page.notes
+
+    image = rasterize_pdf(pdf_bytes, dpi=72)[0]
+    assert image.size == (round(page.frame.width), round(page.frame.height))
+    assert _ink_fraction(image, page.words, 1.0, 1.0) == 1.0
+
+    reference = native_evidence_from_pdf(_overhanging_cropbox(0))
+    for word, other in zip(page.words, reference.pages[0].words):
+        expected_box = _expected_display(rotation, (other.x0, other.y0, other.x1, other.y1), *LETTER)
+        assert (word.x0, word.y0, word.x1, word.y1) == pytest.approx(
+            expected_box, abs=_CROSS_ANGLE_TOLERANCE_PT)
+
+
+def test_a_cropbox_inside_the_mediabox_still_uses_pymupdfs_own_matrix():
+    """The other side of N-1's fix: on every ordinary page — and on the
+    closure-2 CropBox shape, which sits INSIDE the MediaBox — PyMuPDF's
+    matrix and the rectangle-derived one agree, the reader keeps PyMuPDF's,
+    and no page carries the note. That is what makes the fix free of
+    evidence-byte movement on the archive."""
+    for rotation in (0, 90, 180, 270):
+        for pdf_bytes in (_render(rotate=rotation), _cropped(rotation) if rotation in (0, 90) else None):
+            if pdf_bytes is None:
+                continue
+            evidence = native_evidence_from_pdf(pdf_bytes)
+            assert evidence is not None
+            for page in evidence.pages:
+                assert CLAMPED_TRANSFORM_NOTE not in page.notes
+
+
+def _with_indirect_rotate(value, *, extra_pages: int = 1) -> bytes:
+    """The upright ledger whose `/Rotate` is an INDIRECT reference to an
+    object holding `value` (written as its literal source) — the N-2 shape."""
+    document = fitz.open(stream=_render(extra_pages=extra_pages), filetype="pdf")
+    page = document[0]
+    if extra_pages:
+        document[1].insert_text(fitz.Point(40.0, 100.0), "SecondPageWord", fontsize=10.0, fontname="helv")
+    xref = document.get_new_xref()
+    document.update_object(xref, str(value))
+    document.xref_set_key(page.xref, "Rotate", f"{xref} 0 R")
+    data = document.tobytes()
+    document.close()
+    return data
+
+
+@pytest.mark.parametrize("value", [45, 135, -45])
+def test_an_indirect_invalid_rotate_is_resolved_and_refused_by_name(value):
+    """Re-review N-2. A `/Rotate` written as `12 0 R` reads back with kind
+    `xref`, which the Phase 2.2 reader treated as "no value": an indirect 45
+    escaped the invalid-rotation refusal and was mis-framed exactly as a
+    direct 45 had been — PyMuPDF reports rotation 0 with an identity matrix
+    but a SWAPPED rect, so every box missed the page a viewer shows. The
+    reference is now resolved before the mod-90 test and the page is refused
+    by name. Mutant M9 — the `xref` kind treated as absent — is killed here.
+    """
+    pdf_bytes = _with_indirect_rotate(value)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        assert document.xref_get_key(document[0].xref, "Rotate")[0] == "xref"
+        assert document[0].rotation == 0          # PyMuPDF normalised it away
+    finally:
+        document.close()
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    first = evidence.pages[0]
+    assert first.notes == (INVALID_ROTATION_NOTE,)
+    assert first.words == ()
+    assert evidence.pages[1].words and evidence.pages[1].notes == ()
+
+
+@pytest.mark.parametrize("value,normalised", [(90, 90), (270, 270), (0, 0), (-90, 270), (360, 0)])
+def test_an_indirect_valid_rotate_is_resolved_and_read(value, normalised):
+    """The archive's own shape: its four non-integer `/Rotate` objects are
+    indirect references resolving to 0 (the re-reviewer's census). A resolved
+    multiple of 90 normalises and every word is read — resolving the
+    reference must not turn a good page into a refusal."""
+    pdf_bytes = _with_indirect_rotate(value, extra_pages=0)
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes
+    assert page.frame.rotation_deg == normalised
+    assert len(page.words) == 12
+
+
+def test_an_indirect_rotate_written_as_a_real_is_coerced_by_the_writer_and_refused():
+    """The re-reviewer's own observation, now on the indirect path: a PDF
+    writer coerces `45.0` to the integer 45, so the resolved value is an
+    integer and the page is refused like any other invalid rotation. The
+    reader does no coercion of its own."""
+    document = fitz.open(stream=_render(extra_pages=1), filetype="pdf")
+    document[1].insert_text(fitz.Point(40.0, 100.0), "SecondPageWord", fontsize=10.0, fontname="helv")
+    xref = document.get_new_xref()
+    document.update_object(xref, "45.0")
+    document.xref_set_key(document[0].xref, "Rotate", f"{xref} 0 R")
+    pdf_bytes = document.tobytes()
+    document.close()
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    assert evidence.pages[0].notes == (INVALID_ROTATION_NOTE,)
+    assert evidence.pages[1].words
+
+
+@pytest.mark.parametrize("source", ["/Ninety", "(45)", "<</A 1>>"])
+def test_an_indirect_rotate_that_is_not_an_integer_is_no_value_not_a_guess(source):
+    """A resolved object this reader cannot read as an integer is the same
+    fact as an absent key: no raw value, so the page follows PyMuPDF's own
+    normalised rotation — exactly what it did before N-2 was closed. The
+    reader never guesses an angle out of a non-integer."""
+    document = fitz.open(stream=_render(extra_pages=0), filetype="pdf")
+    xref = document.get_new_xref()
+    document.update_object(xref, source)
+    document.xref_set_key(document[0].xref, "Rotate", f"{xref} 0 R")
+    pdf_bytes = document.tobytes()
+    document.close()
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    assert INVALID_ROTATION_NOTE not in evidence.pages[0].notes
+    assert len(evidence.pages[0].words) == 12
+
+
+def test_an_indirect_rotate_reference_chain_is_followed_and_a_cycle_terminates():
+    """A reference that points at another reference is legal and is followed;
+    a cycle, and a chain longer than the bound, answer `None` rather than
+    spin. Exercised against a stub document because MuPDF flattens a
+    self-referencing object at write time, so a real PDF cannot carry the
+    shape this bound exists for — the resolver is pinned directly instead."""
+    from evidence.native import _MAX_INDIRECT_HOPS, _resolved_rotate_int
+
+    class _Stub:
+        def __init__(self, objects):
+            self.objects = objects
+            self.reads = 0
+
+        def xref_object(self, xref):
+            self.reads += 1
+            return self.objects[xref]
+
+    chain = _Stub({1: "2 0 R", 2: "3 0 R", 3: "90"})
+    assert _resolved_rotate_int(chain, "1 0 R") == 90
+
+    cycle = _Stub({1: "2 0 R", 2: "1 0 R"})
+    assert _resolved_rotate_int(cycle, "1 0 R") is None
+    assert cycle.reads <= _MAX_INDIRECT_HOPS
+
+    long_chain = _Stub({index: f"{index + 1} 0 R" for index in range(1, 40)} | {40: "90"})
+    assert _resolved_rotate_int(long_chain, "1 0 R") is None
+    assert long_chain.reads <= _MAX_INDIRECT_HOPS
+
+    missing = _Stub({})
+    assert _resolved_rotate_int(missing, "1 0 R") is None
+    assert _resolved_rotate_int(missing, "not a reference") is None
 
 
 def test_a_mixed_document_rotated_and_unrotated_pages_each_get_their_own_frame():
