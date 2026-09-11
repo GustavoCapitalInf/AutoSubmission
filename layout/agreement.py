@@ -473,11 +473,14 @@ def skew_degrees(page: PageEvidence) -> float | None:
     Two limits, MEASURED (review closure, MINOR-4), because a statistic is
     only as useful as its stated range:
 
-    * past roughly 0.9 degrees on a 500 pt line the ONE grouping rule stops
-      separating the rows and OVER-MERGES the page into a single line — and
-      the statistic stays EXACT through it (0.75 deg -> 20 lines, 0.75
-      measured; 0.90 deg -> 1 line, 0.90; 2.00 deg -> 1 line, 2.00). It is
-      not a fragmentation failure and the angle does not drift;
+    * between 0.80 and 0.85 degrees on a 500 pt line (20 rows, 12 pt pitch,
+      8 pt words) the ONE grouping rule stops separating the rows and
+      OVER-MERGES the page into a single line — and the statistic stays EXACT
+      through it (0.75 deg -> 20 lines, 0.7500 measured; 0.80 -> 20 lines,
+      0.8000; 0.85 -> 1 line, 0.8500; 0.90 -> 1 line, 0.9000; 2.00 -> 1 line,
+      2.0000). It is not a fragmentation failure and the angle does not
+      drift; the merge point moves with the pitch and the span, so the
+      bracket is this fixture's, not a constant of the rule;
     * the page statistic is a plain MEDIAN over line slopes, so a page whose
       blocks are skewed DIFFERENTLY reports an angle no block has (a 0-degree
       and a 5-degree block of equal size report 2.5; two flat rows against
