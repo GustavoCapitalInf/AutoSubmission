@@ -60,6 +60,15 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+# Imported for its ONE side effect: `ocr/config.py` is this tree's single
+# dotenv entry point (`load_dotenv()` at import, `override=False`), and the
+# connection contract lives in the gitignored `.env` and nowhere else. Without
+# it this tool reads whatever the shell happens to carry — which is the same in
+# the main checkout and EMPTY in a worktree, where `find_dotenv` still resolves
+# the one `.env` but nothing had asked it to. `override=False` means an
+# explicit per-command variable (the two opt-in literals) still wins, which is
+# the property that matters: the environment authorizes, the file configures.
+import ocr.config  # noqa: F401
 from ocr.paddle_config import (
     PADDLE_CUSTOMER_DATA_OPT_IN_ENV,
     PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL,
