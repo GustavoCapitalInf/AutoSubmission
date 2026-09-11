@@ -1123,6 +1123,16 @@ P22_TRUTHTABLE_MODULES = [
     Path(__file__).resolve().parent.parent / "tools" / "truth_report.py",
 ]
 
+#: P23-AGREE (Phase 2.3 cell X, card item 6): this card's two instruments
+#: join the same scans. A roots APPEND only, no new detection logic, in the
+#: style of the two blocks above. `layout/agreement.py` needs no entry — the
+#: whole of `layout/*.py` is already globbed below, so it is covered from
+#: birth.
+P23_AGREE_MODULES = [
+    Path(__file__).resolve().parent.parent / "tools" / "agreement_census.py",
+    Path(__file__).resolve().parent.parent / "tools" / "agree_native_census.py",
+]
+
 
 def _paddle_phase21_modules() -> list[Path]:
     """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope —
@@ -1132,7 +1142,20 @@ def _paddle_phase21_modules() -> list[Path]:
         modules.append(PADDLE_VAST_TOOL)
     modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
     modules.extend(path for path in P22_TRUTHTABLE_MODULES if path.exists())
+    modules.extend(path for path in P23_AGREE_MODULES if path.exists())
     return modules
+
+
+def test_the_p23_agree_modules_and_the_agreement_module_are_actually_scanned():
+    """The same guard cell T wrote for its own roots: a named file that does
+    not exist scans nothing and passes. `layout/agreement.py` is asserted
+    here too, because it is covered by a GLOB rather than by name and a glob
+    that stopped matching would be just as silent."""
+    missing = [path.name for path in P23_AGREE_MODULES if not path.exists()]
+    assert not missing, f"named in the scan roots but absent: {missing}"
+    scanned = {path.name for path in _paddle_phase21_modules()}
+    assert {path.name for path in P23_AGREE_MODULES} <= scanned
+    assert "agreement.py" in scanned
 
 
 def test_the_p22_truthtable_modules_are_actually_scanned():

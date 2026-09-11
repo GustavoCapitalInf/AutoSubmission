@@ -652,6 +652,99 @@ def test_no_decision_package_reads_an_agreement_statistic():
     assert offenders == [], offenders
 
 
+# ---------------------------------------------------------------------------
+# the census instrument (card item 3) — counts and percentiles, never a word
+# ---------------------------------------------------------------------------
+
+def _research_cache(tmp_path, ledger, truth):
+    """A synthetic research partition: one PAIRED document (both readings)
+    and one with the native reading only."""
+    from types import SimpleNamespace
+
+    from webapp.artifact_cache import open_cache
+
+    native, extractor = _pair(ledger, truth)
+    key = "B" * 64
+    cache = open_cache(tmp_path)
+    cache.put_ocr("C" * 64, key, SimpleNamespace(
+        model="fake", pages=["page"],
+        evidence=_document(extractor, extractor_id=PADDLE_EXTRACTOR),
+        native_evidence=_document(native, extractor_id=NATIVE_EXTRACTOR)))
+    cache.put_ocr("D" * 64, key, SimpleNamespace(
+        model="fake", pages=["page"], evidence=None,
+        native_evidence=_document(native, extractor_id=NATIVE_EXTRACTOR)))
+    return key
+
+
+def test_the_census_prints_counts_and_percentiles_and_never_a_word(tmp_path, capsys, ledger, truth):
+    """M10's killer. Every token of the fixture page — its headers, its
+    invented description, its generated figures and its synthetic date — is
+    absent from the census output, which carries only counts, percentiles and
+    the labels it was given."""
+    from tools.agreement_census import main
+
+    key = _research_cache(tmp_path, ledger, truth)
+    assert main(["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod",
+                 "--settings-key", key, "--label", "CTRL"]) == 0
+    output = capsys.readouterr().out
+    for token in ("SYNTHETIC", "STATEMENT", "DESCRIPTION", "AMOUNT", "BALANCE", "DATE", "ROW",
+                  "2031-01-01", "510.00", "10.00"):
+        assert token not in output, token
+    assert "documents with BOTH readings (paired)" in output
+    assert "pages compared" in output
+    assert "geometry census" in output
+    # the two documents: one paired, one not
+    numbers = {line.split()[-1] for line in output.splitlines() if line.startswith("  documents")}
+    assert "1" in numbers
+    assert "rotation   0 deg" in output
+
+
+def test_the_census_refuses_a_partition_it_cannot_identify(tmp_path, capsys, ledger, truth):
+    """It never guesses which partition it is reading: a malformed id is
+    refused by the OCR key's own shape rule, and a cache holding TWO
+    evidence-carrying keys is refused with the count rather than resolved by
+    a preference order. A cache with exactly one such key resolves, and the
+    report names the door it came through."""
+    from types import SimpleNamespace
+
+    from webapp.artifact_cache import open_cache
+
+    from tools.agreement_census import CensusRefused, main
+
+    _research_cache(tmp_path, ledger, truth)
+    with pytest.raises(CensusRefused, match="research-partition"):
+        main(["--data-dir", str(tmp_path), "--research-partition", "has a space"])
+
+    # one evidence-carrying key: resolved, and said out loud
+    assert main(["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod"]) == 0
+    assert "the cache scan" in capsys.readouterr().out
+
+    # a second one: refused with the count, never a preference order
+    native, extractor = _pair(ledger, truth)
+    open_cache(tmp_path).put_ocr("C" * 64, "F" * 64, SimpleNamespace(
+        model="fake", pages=["page"], native_evidence=None,
+        evidence=_document(extractor, extractor_id=PADDLE_EXTRACTOR)))
+    with pytest.raises(CensusRefused, match="--run or --settings-key"):
+        main(["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod"])
+
+
+def test_the_census_refuses_a_run_recorded_under_another_partition(tmp_path):
+    """A census of one partition never reads another's artifacts — and a
+    PRODUCTION run (its recorded partition empty) is refused by the same
+    check, which is the run-of-record boundary restated at this door."""
+    import json
+
+    from tools.agreement_census import CensusRefused, _key_from_run
+
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "provenance.json").write_text(json.dumps(
+        {"run_of_record": {"partitions": {"research_partition": "", "paddle_ocr_key": "E" * 64}}}),
+        encoding="utf-8")
+    with pytest.raises(CensusRefused, match="research_partition"):
+        _key_from_run(run, "paddle-v5-prod")
+
+
 def test_the_agreement_module_names_no_verdict_vocabulary():
     """Nothing here decides. The module may not carry a threshold vocabulary
     that reads as a decision — no `trigger`, no `escalate`, no `refuse`, no
