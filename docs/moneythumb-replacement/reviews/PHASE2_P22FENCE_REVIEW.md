@@ -338,3 +338,93 @@ lock acquired **09:53:27 after 15 polls of 120 s, first poll 09:23:26**, last st
 ### RR2.10 Instruments (untracked, in my session scratchpad; nothing written into the tree but this section)
 
 `shapes_rerev2.py` (the twelve fresh shapes) · `static_probe2.py` (in-memory rule classification) · `mutants_rerev2.py` (+ `.log`/`.json`; 30 real mutants) · `hunk_check2.py` · `n1_check2.py` · `rerev2_heavy.py` (lock + heavy driver) · `private/` (replay and privacy-hit outputs). Worktree `.claude/worktrees/rerev22-fence` at fc65067, detached; `git status --porcelain` shows only this review file. Nothing merged, pushed or committed; `wave22-fence`, the main checkout, the archive and the caches untouched. **Lock incident, disclosed:** my release unlinked `holder.txt`, then `os.rmdir` returned `PermissionError` WinError 5 on the now-EMPTY directory for ~12 minutes (the driver's 300 s plus 40 further attempts); Git bash `rmdir HARNESS.lock` succeeded at once. The lock IS released; the host lesson is in my `MASTER.log`.
+
+## Re-review 3 (closure-3 tip 26284bd)
+
+```
+RE-REVIEWER 2 (round 3): independent (wrote none of the code, none of the earlier reviews);
+               detached worktree .claude/worktrees/rerev22-fence at 26284bd
+CLOSURE-3:     26284bd (documentation only) over code tip 55ed07c
+               26284bd tree d366e09f3933a1dc52690e28bb6d14d24c093399 · 55ed07c tree c224a3ad725f6bd7c4579f2d8665e53d10482647
+               `git diff --numstat 55ed07c 26284bd` = W3_TRACKA_LOG.md alone (+237/-0)
+CLOSURE-3 BASE: fc65067      CELL BASE: b23cb50
+VERDICT:       APPROVE WITH FINDINGS (0 BLOCK · 0 MAJOR · 2 MINOR) — P1, P2 and P3 CLOSED and re-proven
+               by me; 39/39 mutants killed, including nine FRESH shapes aimed at the closure-3 rules
+```
+
+### RR3.1 The central claim: the protected module is untouched
+
+`git rev-parse <rev>:analysis/pipeline.py` = **`e7956e9417ae50b7d361750bffb630cfeeaf621c` at `fc65067`, `9909cbf`, `55ed07c` AND `26284bd`** — one blob, byte for byte, across the whole closure. `git diff --numstat fc65067...26284bd` = exactly `tests/test_pipeline_escalation_fence.py` (+237/−17) and `docs/moneythumb-replacement/W3_TRACKA_LOG.md` (+237/−0); nothing else, in particular nothing under `analysis/`, `webapp/`, `telemetry/`, `tools/`. **No replay, gate, corpus slice or suite is owed at this tip and I ran none** — there is no changed instruction for a deterministic path to execute. That is the cell's own reasoning and I checked the blob myself rather than accepting it.
+
+### RR3.2 Per-finding status (P1, P2, P3)
+
+| # | status | how verified (my command, my output) |
+|---|---|---|
+| **P1** | **CLOSED — and closed twice over, as claimed** | `static_probe3.py` at 55ed07c: the UNCHANGED module returns **CLEAN** from all three layers (no false positive from the new parameter mark). Exactly three units hold a marked parameter — `assess_quality`, `assess_document_integrity`, `_account_report`, each one `recon: ReconResult` — and exactly one unit contains a `reconcile(` call: **`_analyse`, with 2**; `UNITS_THAT_MAY_CALL_RECONCILE == {'_analyse'}`. X11 (the re-review-2 mutant, edit text mine, reused verbatim) now trips **B1 + B2 + B4 + B7** in `_account_report` — the four rules the section names — and as a REAL textual mutant is **KILLED 2 / 438** by `test_no_two_reconcile_results_are_compared_or_selected_between` and `test_reconcile_is_called_only_in_the_unit_the_rules_permit`. The "closed twice over" claim is literally true and I separated the two halves: **Y1** (the parameter RENAMED to `r` and UN-ANNOTATED, aliased back, then X11's selection) defeats the parameter mark exactly as the section's own Risks predict — and is still **KILLED 3 / 437**, static rule **B7 alone**. |
+| **P2** | **CLOSED** | The "243" is corrected in the record with the arithmetic and the reason (the set reported without the file it names first). Every targeted set is re-run into its own named log, and I re-derived all of them at 26284bd myself: fence file **73 passed**, `test_privacy3_boundaries.py` **168 passed**, the killer set **440 passed** (= the mutation baseline in my own harness), the corrected pipeline set **316 passed** (= 307 + 9), guards **275 passed**; the eight-file webapp set is **1 failed / 540 passed / 3 skipped / 2 deselected** in `targeted-webapp-set.log`, the failure being cell T's `test_reconciliation_issue_sites_match_the_anchor_count` (`assert 6 == 7`). Each of the five `targeted-*.log` files and `guards.log` ends `EXIT=`. The uncheckable "PRIVACY-3 subset 3 passed" is dropped in favour of the whole file — the right call. |
+| **P3** | **CLOSED** | The false clause is DELETED, not implemented, per Ocean's ruling; the RE-INVOCATION comment now states O1 and O2 and names what is deliberately unchecked. The premise is pinned rather than asserted: `test_a_module_level_definition_that_calls_nothing_is_inert_and_deliberately_uncaught` (def and lambda) plus the wrapper that DOES call `_analyse` → **O2**. The amend `9909cbf → 55ed07c` that restated those pins RELATIVELY (`== reconcile_selection_violations(source)` instead of `== []`) is a genuine fix, disclosed: `git diff 9909cbf 55ed07c` is that test alone (+18/−10). An absolute `== []` pin in a test that other mutants perturb is an anchor artefact killer, and it is right that it was caught and fixed before the table was believed. |
+
+### RR3.3 Mutation table — 39 real textual mutants in MY worktree
+
+`mutants_rerev3.py`: the 18 canonical rows and my twelve X shapes reused verbatim from my round-2 instruments, plus **nine FRESH Y shapes**. Killer set = fence + privacy3 + q3 + `test_analysis`, baseline **440 passed** (re-derived), **no `-x`**, `git checkout -- analysis/pipeline.py analysis/extract.py` in a `finally`, and after EVERY mutant `git status --porcelain` asserted empty (the one untracked review file filtered — I did not need to move it aside) **and** both files asserted sha256-identical. Each mutant's text is also run through the three checkers in memory, so my table names the rule as well as the killer. Unmutated module: **CLEAN**. Elapsed 1,690.8 s, `EXIT=0`, **survivors: none**.
+
+**All 30 of the cell's rows reproduce its `mutants.log` count for count** — M1 10/430 · M2 13/427 · M3 10/430 · M4 9/431 · M5 16/424 · M6 21/419 · M7 3/437 · R6 2/438 · R7a 1/439 · R7b 1/439 · R8a 9/431 · R8b 10/430 · R8c 10/430 · R8d 9/431 · E10 2/438 · E11 2/438 · E8b 6/434 · N4m 3/437 · X1 2/438 · X2 1/439 · X3 2/438 · X4 2/438 · X5 14/426 · X6 2/438 · X7 8/432 · X8 3/437 · X9 2/438 · X10 1/439 · **X11 2/438** · X12 9/431 — and a programmatic diff of the W3 table against `mutants.log` reports **no mismatch on any of the 30 rows**.
+
+### RR3.4 My nine fresh shapes against the closure-3 rules
+
+| # | shape | static rule | result |
+|---|---|---|---|
+| **Y1** | the `ReconResult` parameter RENAMED and UN-ANNOTATED (`r`), aliased back, then X11's selection — the "third spelling" the section names as its own limit | **B7 alone** | KILLED 3 / 437 |
+| Y2 | a helper defined INSIDE `_analyse` taking the result as a parameter (is a nested def part of the unit? yes) | B1, B2, B4 | KILLED 2 / 438 |
+| Y3 | the sibling loop's permitted positional `reconcile(` bound first in a tuple-unpack | B3 | KILLED 1 / 439 |
+| Y4 | the result stored on an OBJECT ATTRIBUTE (`self.value`) and compared in a unit that makes no call | B2, B3 | KILLED 2 / 438 |
+| Y5 | `functools.partial(reconcile, …)` used for the second reconciliation | N3 | KILLED 1 / 439 |
+| Y6 | a NESTED `def _analyse` shadow calling `reconcile` | B3, O2 | KILLED 3 / 437 |
+| **Y7** | a SECOND TOP-LEVEL `def _analyse` before the real one, holding a reconciliation selection | **none — all three layers CLEAN** | KILLED 1 / 439 — by tripwire (a) only (§RR3.5 Q2) |
+| Y8 | a `reconcile(` in the MODULE BODY unit under `if False:` | B7 | KILLED 2 / 438 |
+| Y9 | the two-result delivery across the seam: the sibling loop hands the PRIMARY's `recon` on to `_account_report` beside the sibling's own | B5 | KILLED 1 / 439 |
+
+Y1 and Y9 are the two that matter. **Y1** confirms the section's honest limit and its compensating argument in the same breath: the parameter mark IS defeated by a rename, and B7 alone still refuses the call that would have to make the second result. **Y9** is the shape that needs no call in the comparing unit at all — two results delivered across the `_account_report` seam — and it dies on **B5**, because the only place the module can hand the primary's result to the sibling's is inside the sibling `for` loop, where reading a reconcile-bound name is refused. The layer is genuinely layered: defeat one rule and the next one is already standing.
+
+### RR3.5 New findings, ranked (each reproduced by my own command)
+
+| # | severity | finding |
+|---|---|---|
+| **Q1** | MINOR | **The W3 claims two mutation tables survive in one log; only the second does.** §P22FENCE-CLOSURE-3 says of the superseded window-1 run "both are in `mutants_table.log`'s successive runs and in `MASTER.log`". The harness writes its log with `write_text`, so window 2 OVERWROTE window 1: `grep -c "mutation table" mutants_table.log` = **1** (header `HEAD 55ed07c…`, 30 rows) and `grep -c "^# mutants @" mutants.log` = **1** (`@ 2026-09-11T00:18:28Z`, window 2). The window-1 table — the one whose 20 artefact killers are the reason the amend happened — cannot be inspected by anyone, and `git merge-base --is-ancestor 9909cbf 26284bd` shows its commit is **dangling**, so it cannot be regenerated either. What DOES survive is `MASTER.log`'s `END mutants: EXIT=0 in 1366s` for window 1, which is what the section should have claimed. No proof in the section rests on the missing table (every number I checked is window 2's, at `55ed07c`), so this is a record defect of exactly the class P2 was, not a proof defect. |
+| **Q2** | MINOR | **B7's permitted-unit set is keyed on a duplicable label, and the duplicate is killed only incidentally.** `_units` emits one entry per top-level function and does not refuse duplicate labels; B7 permits any unit labelled `_analyse`. Mutant Y7 — a SECOND top-level `def _analyse(markdown, r)` inserted before the real one, holding `_alt = reconcile(...)` / `if _alt.ok and not r.ok: return _alt` — makes all three layers report **CLEAN** (reproduced: `units labelled _analyse: 2`, `B7 violations: NONE`, `name/selection/orchestration: CLEAN`), and B7's own test still passes because its `callers` dict collapses the duplicate label so `len(callers["_analyse"]) == 2` holds. The mutant is KILLED **1 / 439** — by `test_at_most_one_extract_statement_call_in_the_module_inside_the_analysis_body`, whose helper `_function(tree, "_analyse")` returns the FIRST match and then finds 0 `extract_statement` calls in it. That is tripwire (a) catching a selection-layer shape by an accident of a helper written for another purpose. The hole is closed in both placements — before the real def by that accident, after it because the shadow would REPLACE `_analyse` and die dynamically — so nothing is exploitable today; but a rule whose whole job is "only the permitted unit may call reconcile" should not depend on a coincidence. One line closes it: assert exactly one top-level definition per orchestration name, or make `_units` refuse a duplicate label. |
+
+### RR3.6 Ownership, rewords, trailers, the literal, the W3 append
+
+Two commits on `fc65067`: `55ed07c` (the test file alone) and `26284bd` (the W3 alone). Both carry `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` **1/1** and a `Claude-Session:` line **1/1**. Both disclosed rewrites check out as described: **`9909cbf → 55ed07c`** is an AMEND, trees deliberately DIFFERENT (`2ea21f95…` → `c224a3ad…`), the delta being the P3 pins restated relatively (+18/−10 in the test file) — the section says so; **`bb23678 → 26284bd`** is a pure reword, trees IDENTICAL (`d366e09f…` both) with the same parent `55ed07c`. Both pre-rewrite commits are dangling (`--is-ancestor` false). `9909cbf` is named in the section only as history in the lock narrative; `bb23678` is not named (it could not be); **no proof, table or scan in the section is anchored on a dangling sha** — the table header and the scans name `55ed07c`. The W3 change is one hunk `@@ -70749,3 +70749,240 @@`, `w3_tip.startswith(w3_base)` is **True** (+237 lines), the appended text begins with the heading, and the **four earlier `# §P22FENCE` sections are byte-identical**. `git grep -c I_ACCEPT_HOSTED_MODEL_EXTRACTION 26284bd` = `analysis/pipeline.py` 1 + the two docs cards, nothing else.
+
+### RR3.7 Scans, re-derived at BOTH tips (my lock window 2026-09-11 **01:49:29Z → 02:19:07Z**, 0 polls)
+
+| scan | mine | the cell's | EXIT |
+|---|---|---|---:|
+| privacy `b23cb50..55ed07c` | added_lines **2,395** · documents_read 3,351 · population 3,380 · **hit_count 0** (raw 31) · residue_files 0 · residue_sites 0 | identical (`privacy.log`) | 0 |
+| messages `b23cb50..55ed07c` | commits_scanned **12** · **hit 0** · MONEY/DIGITS/DATES/WORDS 0/0/0/0 | identical (`messages.log`) | 0 |
+| privacy `b23cb50..26284bd` | added_lines **2,632** · **hit_count 0** (raw 35) · residue 0 / 0 | identical (`privacy-final.log`) | 0 |
+| messages `b23cb50..26284bd` | commits_scanned **13** · **hit 0** · 0/0/0/0 | identical (`messages-final.log`) | 0 |
+
+Note for the record, from `MASTER.log`: the cell's final scans ran TWICE — once at `bb23678` (01:01:23Z, messages `EXIT=1`, the WORDS 1 that caused the reword) and again at `26284bd` (01:40:18Z, `EXIT=0`), the second overwriting the first. The surviving `privacy-final.log` / `messages-final.log` are the `26284bd` pair, which is the correct pair, and my independent run at `26284bd` reproduces them. The section promised "a third short window"; there were in fact two more (windows 3 and 4), both after the section's commit and so outside it.
+
+### RR3.8 W3 transcription check (`§P22FENCE-CLOSURE-3` against its logs)
+
+Verified line by line against `MASTER.log`, `mutants.log`, `mutants_table.log`, the five `targeted-*.log`, `guards.log`, `privacy*.log`, `messages*.log`: **all 30 mutation rows** (programmatic diff, no mismatch), the static-rule column spot-checked (X11, E11, M2, X8) against the harness's own `static rules on the mutant text:` lines; targeted 73 / 168 / 440 / 316 / (1f 540p 3s 2d); guards 275; privacy 2,395 raw 31 residue 0 and messages 12 at `55ed07c`; privacy 2,632 raw 35 and messages 13 at `26284bd`; **window 1** 22:36:28Z → 23:00:59Z, first poll 20:00:28Z, **156 polls**, mutants **1,366 s** `EXIT=0`, privacy 24 s, messages 21 s **`EXIT=1`**; **window 2** 23:55:07Z → 00:20:12Z, first poll 23:03:07Z, **52 polls**, mutants **1,402 s** `EXIT=0`, messages **`EXIT=0`**; both releases `LOCK git-bash rmdir exit=0` then `directory present after release: False`; the blob hash and both tree hashes. **One discrepancy: §RR3.5 Q1** — the claim that both mutation tables survive in `mutants_table.log`. Everything else transcribes correctly.
+
+### RR3.9 Properties I attacked and could not break (named)
+
+1. **The protected module is byte-identical across the whole closure** — one blob at four commits, so deterministic behaviour cannot have moved.
+2. **No false positive from the new rules** — the unmutated module is CLEAN from all three layers; exactly three units hold a marked parameter and exactly one unit makes a `reconcile(` call.
+3. **P1's shape is dead** — X11 trips four rules and is killed by two tests; the rename walk-around (Y1) still dies on B7 alone.
+4. **A second result cannot be DELIVERED across the seam either** — Y9 dies on B5; Y4's attribute route dies on B2/B3; Y3's tuple-unpack on B3.
+5. **Nested scopes are part of their unit** — Y2 and Y6 die inside `_analyse`.
+6. **The permitted-unit rule holds over the module body** — Y8 dies on B7 even under `if False:`.
+7. **Name integrity still refuses the indirect handles** — Y5 (`functools.partial`), R7a/R7b, R8a–R8d.
+8. **A second HOSTED call still dies through the doors the name layer cannot see** — X12 KILLED 9 / 431, dynamically, across four files.
+9. **Every earlier round's shape stays dead at this tree** — 30 / 30, count for count.
+10. **Ownership, trailers, the literal, the pure W3 append, both disclosed rewrites** — §RR3.6.
+
+### RR3.10 Instruments (untracked, in my session scratchpad; nothing written into the tree but this section)
+
+`shapes_rerev3.py` (the nine Y shapes) · `static_probe3.py` · `mutants_rerev3.py` (+ `.log`/`.json`; 39 real mutants, reusing `mutants_rerev2.py`'s canonical rows and `shapes_rerev2.py`'s X shapes) · `rerev3_heavy.py` (lock + heavy driver) · `private3/`. Logs under `discovery_reports/train12-logs/rerev22-fence/closure3/`, each ending `EXIT=`. Worktree `.claude/worktrees/rerev22-fence` detached at `26284bd`; `git status --porcelain` shows only this review file. Lock taken by `mkdir` alone, `holder.txt` written inside the directory I created, released by Git bash `rmdir` on the first attempt with the directory's absence confirmed — the round-2 OneDrive lesson applied, and no `PermissionError` loop this time. Nothing merged, pushed or committed; `wave22-fence`, the main checkout, the archive and the caches untouched.
