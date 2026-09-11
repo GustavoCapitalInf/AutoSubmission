@@ -153,10 +153,16 @@ MUTANTS: list[Mutant] = [
         ["test_the_output_carries_counts_and_percentiles_and_no_document_content"],
     ),
     Mutant(
-        "M10", "the metrics module importing `analysis`",
+        # The planted import must SUCCEED. An import of a name that does not
+        # exist is killed by an ImportError that collects the whole test file
+        # as one ERROR — the guard never runs, and the row honestly reads "not
+        # killed by the named killer", which is not the proof the card asks
+        # for. `normalize_sign_glyphs` is a real name in `analysis/money.py`,
+        # so the module still imports and the AST guard is what fails.
+        "M10", "the metrics module importing `analysis` (an import that SUCCEEDS)",
         QUALITY,
         "from layout.signals import LEXICONS, fold, money_cents",
-        "from analysis.money import find_money  # noqa: F401\nfrom layout.signals import LEXICONS, fold, money_cents",
+        "from analysis.money import normalize_sign_glyphs  # noqa: F401\nfrom layout.signals import LEXICONS, fold, money_cents",
         [T_QUALITY],
         ["test_the_module_imports_only_the_standard_library_evidence_and_layout_signals"],
     ),

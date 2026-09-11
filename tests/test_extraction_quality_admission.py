@@ -179,14 +179,28 @@ def test_m6_an_extraction_quality_read_planted_in_a_scratch_router_is_caught(anc
     assert offences(source, "scratch") == []
 
 
-def test_the_runner_is_the_only_place_outside_the_module_that_names_the_columns():
-    """Nothing reads `eq_*` but the report. The runner projects them onto the
-    row, `discovery/report.py` lists them as CSV columns, the census reads
-    them, and the tests name them — no other module in the tree does."""
-    allowed = {
-        "ocr/extraction_quality.py", "discovery/runner.py", "discovery/report.py",
-        "tools/extraction_quality_census.py",
-    }
+#: The only files outside the tests that may name an `eq_*` column, and why.
+#: The first four are the column's own life: the module that computes it, the
+#: row that carries it, the CSV that lists it, the census that reads it. The
+#: last two are this cell's committed PROOF INSTRUMENTS, which name the
+#: columns because naming them is their job — the mutation harness mutates
+#: the column list by spelling it, and the fake-partition builder prints a
+#: row's columns beside the census's figures. Neither is a reader in the
+#: sense that matters: the layers that must never read one
+#: (`ocr/escalation.py`, `analysis/`, `webapp/`) are scanned BY AST in
+#: `test_no_router_analysis_or_webapp_module_reads_an_extraction_quality_figure`,
+#: and this census is the second, coarser net around them.
+ALLOWED_NAMERS = {
+    "ocr/extraction_quality.py", "discovery/runner.py", "discovery/report.py",
+    "tools/extraction_quality_census.py",
+    "tools/p23egate_mutation_table.py", "tools/p23egate_fake_partition.py",
+}
+
+
+def test_the_report_is_the_only_thing_outside_the_module_that_names_the_columns():
+    """Nothing reads `eq_*` but the report and this cell's own instruments —
+    by MEASUREMENT over the tree, not by assertion. The list is closed here,
+    and every guarded layer is separately required to be absent from it."""
     readers: set[str] = set()
     for path in sorted(ROOT.glob("*/*.py")) + sorted(ROOT.glob("*/*/*.py")):
         relative = path.relative_to(ROOT).as_posix()
@@ -195,4 +209,14 @@ def test_the_runner_is_the_only_place_outside_the_module_that_names_the_columns(
         text = path.read_text(encoding="utf-8", errors="ignore")
         if any(column in text for column in EQ_COLUMNS):
             readers.add(relative)
-    assert readers <= allowed, sorted(readers - allowed)
+    assert readers <= ALLOWED_NAMERS, sorted(readers - ALLOWED_NAMERS)
+    # and the direction that matters, stated as its own claim: not one module
+    # of the router's layer, the analysis layer, the webapp, telemetry or the
+    # neutral layout package names a column at all.
+    guarded = {name for name in readers
+               if name.startswith(("analysis/", "webapp/", "telemetry/", "layout/"))
+               or (name.startswith("ocr/") and name != "ocr/extraction_quality.py")}
+    assert guarded == set(), sorted(guarded)
+    # a named allowance that names nothing is an allowlist rotting quietly
+    missing = [name for name in ALLOWED_NAMERS if not (ROOT / name).exists()]
+    assert missing == [], missing
