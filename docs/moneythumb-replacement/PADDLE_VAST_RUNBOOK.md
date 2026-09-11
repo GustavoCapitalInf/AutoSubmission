@@ -195,3 +195,29 @@ re-proved it end to end: `check` (driver 580.105.08; paddleocr 3.7.0 / paddlepad
 (refuses without the opt-in) → live proof 1 passed → `measure` (warm median 1,206 ms / p95 1,214 ms
 end-to-end per synthetic page; inference ≈ 333 ms; VRAM 7,692 MiB) → `stop` + `tunnel-down`. The
 instance's Jupyter still occupies 0.0.0.0:8080, so the port note above stands. No customer page sent.
+
+**Instance re-created (2026-09-11) — the Phase 2.3 wave endpoint.** Gustavo brought up a NEW Secure Cloud
+instance (new host and SSH port; only the gitignored `.env` changed; the old values timed out during the SSH
+banner exchange — the signature of a stale Vast port mapping). Three things differed from the earlier
+instances and are now the documented posture: (1) **SSH key** — a dedicated key pair
+`~/.ssh/vast_5090_ed25519` (ed25519, no passphrase, because the tool runs `ssh` in BatchMode) is wired
+through an `~/.ssh/config` `Host` block generated from the `.env` values (`IdentitiesOnly yes`); the public
+key is registered on the instance by the operator; no key is ever copied into the repository. (2) **The
+image is the plain Vast base image** (Ubuntu 24.04; `/venv/main` Python 3.12.14 with NO Paddle packages; CUDA
+13.0 toolkit, driver 595.84): the pinned stack was installed by Ocean — `paddlepaddle-gpu==3.3.0` from the
+`cu130` index (`https://www.paddlepaddle.org.cn/packages/stable/cu130/`, the only index carrying 3.3.0 for
+CUDA 13) and `paddleocr==3.7.0` from PyPI (paddlex 3.7.2 follows) — and the two PP-OCRv5 models were
+pre-downloaded so `deploy`'s 60-second self-check never pays the first fetch; `check` then reports
+`versions_match_pins: true`. Package installs and model weights are not customer data. On this image
+stop/start preserves the container; **recycle or destroy wipes it** (the stack, the models, any research
+partition kept on the box) — prefer stop/start between waves. (3) **The GPU was shared** with a supervisor
+service (`ocean-qwen-vision`: a vLLM server holding a 27B vision-language model, 29.8 GB of the 32.6 GB),
+which made the worker's first `/ocr` fail with a CUDA allocation error (HTTP 500): not this program's
+service (Phase 3 / Qwen is not authorized); at Gustavo's decision it was stopped and removed from supervisor
+(its unit file backed up under `/root/removed-services-backup/` on the instance). Re-proved end to end
+afterwards with the unchanged lifecycle: `check` (pins) → `deploy` (identity OK) → `start` (loopback 8765) →
+`tunnel-up` (local 18765) → `status` (refuses without the literal) → `tests/test_paddle_live.py -m live`
+**1 passed** (VRAM 7,704 MiB during inference; cold ≈ 4.0 s, warm ≈ 0.93 s end-to-end per 2550×3300
+synthetic page) → `stop` → `tunnel-down`. Jupyter is not running on this image (supervisor shows it EXITED),
+but the 8765 / 18765 defaults stay. No customer page sent by this proof; the Phase 2.3 wave runs
+(`P23-WAVE.md`) follow under the 2026-09-03 authorization with both literals in each run's own environment.
