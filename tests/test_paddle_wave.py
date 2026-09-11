@@ -540,7 +540,8 @@ def test_the_lifecycle_stops_deploys_starts_and_then_RE_READS_the_session_token(
     available = {"value": False}
 
     monkeypatch.setattr(vast, "cmd_check", lambda s, **k: calls.append("check") or
-                        {"versions_match_pins": True})
+                        {"versions_match_pins": True, "gpu": "a GPU",
+                         "remote_paddleocr_version": "3.7.0"})
     monkeypatch.setattr(vast, "_port_listening", lambda port: True)
     monkeypatch.setattr(vast, "cmd_stop", lambda s, **k: calls.append("stop") or {})
     monkeypatch.setattr(vast, "cmd_deploy", lambda s, **k: calls.append("deploy") or
@@ -562,6 +563,30 @@ def test_the_lifecycle_stops_deploys_starts_and_then_RE_READS_the_session_token(
     record = Lifecycle(settings=stale, log=WaveLog(None)).up()
     assert record["retention_declared"] is True
     assert calls == ["check", "status:stale", "stop", "deploy", "start", "status:fresh"]
+
+
+@pytest.mark.parametrize("check,expected", [
+    ({"versions_match_pins": False, "gpu": None, "remote_paddleocr_version": None},
+     "did not answer"),
+    ({"versions_match_pins": False, "gpu": "a GPU", "remote_paddleocr_version": "9.9.9"},
+     "do not match the pins"),
+])
+def test_an_unreachable_instance_and_a_drifted_one_are_different_refusals(
+    monkeypatch, check, expected,
+):
+    """An instance that could not be REACHED and one whose model pins DRIFTED
+    are different facts with different operator actions — start or
+    re-provision the machine, versus review an upgrade that actually happened.
+    `cmd_check` reports both as `versions_match_pins: False`, so the lifecycle
+    tells them apart by whether anything on the instance answered at all.
+    Without this, a stopped instance is reported as a silent PP-OCRv6 hazard
+    and the next operator goes looking for an upgrade that never occurred."""
+    import tools.paddle_vast as vast
+    from tools.paddle_wave import Lifecycle, WaveLog
+
+    monkeypatch.setattr(vast, "cmd_check", lambda s, **k: dict(check))
+    with pytest.raises(WaveRefused, match=expected):
+        Lifecycle(settings=_FakeSettings(), log=WaveLog(None)).up()
 
 
 # ---------------------------------------------------------------------------

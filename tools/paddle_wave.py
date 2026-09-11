@@ -936,7 +936,25 @@ class Lifecycle:
         record: dict[str, Any] = {}
         check = vast.cmd_check(self.settings)
         record["versions_match_pins"] = bool(check.get("versions_match_pins"))
-        self.log("lifecycle.check", versions_match_pins=record["versions_match_pins"])
+        # An instance that answered and an instance that could not be reached
+        # must not produce the same refusal. `cmd_check` reports `None` for the
+        # GPU and for both remote versions when its SSH command did not run at
+        # all, and `versions_match_pins` is then False for a reason that has
+        # nothing to do with a version — so a stopped or re-provisioned
+        # instance would otherwise be reported as a model-pin drift, and the
+        # next operator would go looking for an upgrade that never happened.
+        reached = check.get("gpu") is not None or check.get("remote_paddleocr_version") is not None
+        self.log("lifecycle.check", reached=reached,
+                 versions_match_pins=record["versions_match_pins"])
+        if not reached:
+            raise WaveRefused(
+                "the approved instance did not answer: the lifecycle's own check reached "
+                "neither the GPU nor the remote interpreter. The connection contract comes "
+                "from the gitignored environment file and nothing here may guess another "
+                "host, port or user, and the previous instance is retired for customer data "
+                "— so this is an operator action (start or re-provision the approved "
+                "instance and update that file), not something the wave can work around."
+            )
         if not record["versions_match_pins"]:
             raise WaveRefused(
                 "the instance's PaddleOCR/PaddlePaddle versions do not match the pins; a "
