@@ -72910,3 +72910,202 @@ count or by a kind, never by a sha and never by a folder.
   design and by test. The class's protection value is real; its measurement
   value begins when a later milestone declares one.
 
+# §P22TRUTHTABLE-CLOSURE — the review's 7 MINORs and the reviewer's N9 reproduced, fixed and killed by named mutants (23/23); the extraction stage now tells "never read" from "read and empty" (16/13 on the run of record); two record corrections
+
+`PHASE2_P22TRUTHTABLE_REVIEW.md` — APPROVE WITH FINDINGS, 0 BLOCK / 0 MAJOR /
+7 MINOR, plus the reviewer's own nine fresh mutants of which one (N4) SURVIVED
+and one (N9) escaped both static pins while dying behaviourally. Every finding
+was REPRODUCED with the reviewer's own shape before anything was changed
+(`closure/reproduce-before.log`), and every fix carries a mutant that kills it.
+
+## Per finding: reproduced → fixed → proven
+
+**MINOR-1 — the production-cache door was narrower than its own docstring.**
+*Reproduced:* `webapp_data/research`, `webapp_data/ocr/partition_x` and a
+relocated cold cache's subdirectory were all ACCEPTED, while the docstring
+promised "is (or is INSIDE) a production or historical cache"; containment was
+enforced for the recovery area alone. *Fixed:* the name rule now walks
+`resolved.parents`, and the live-cache identity rule gained the same
+containment. The argument for the fix is not that a research run could corrupt
+a production ENTRY — it is partition-keyed and could not — but that the frozen
+caches are the evidence every replay is measured against, and a run that writes
+into one has changed the tree a later reader walks, whatever key it used.
+*Proven:* `test_a_directory_inside_a_production_cache_is_refused` over the
+reviewer's three surviving shapes plus one variant per axis the resolution must
+normalise away (case, separator, a relative hop), both absolute and relative;
+mutant **M18** (the parents walk removed) is killed by it, and **M13** (the
+name rule disabled outright) still dies.
+
+**MINOR-2 — `telemetry/report.py` counted `refused` and rendered it nowhere.**
+*Reproduced:* a record built with `refused='not_a_statement'` produces
+`summary["outcome"] == {"refused": 1}` and a rendered report in which the word
+does not appear. *Fixed:* the one token, on the card's own ownership list.
+*Proven:* `test_the_telemetry_rollup_renders_the_refused_class`; mutant
+**M19** removes the token and dies. A class that is counted and not rendered is
+worse than one that does not exist — the totals stop adding up and nothing says
+why — and zero population is exactly when such a hole is invisible.
+
+**MINOR-3 — the holdout-before-population ORDER was documented and
+unwitnessed; the reviewer's N4 survived because of it.** *Reproduced:* the only
+test of the branch used a document in BOTH sets, so swapping the two blocks
+changed nothing it observed. *Fixed:* nothing in the code — the order was
+already right. *Proven:* two witnesses, in both directions —
+`test_a_holdout_sha_OUTSIDE_the_population_is_refused_as_a_holdout_not_skipped`
+and `test_a_population_sha_that_is_also_held_out_is_refused_as_a_holdout`. The
+first is the case that matters in a real run: the CLI refuses any population
+intersecting the cage at the door, so the ONLY way the runner's cage branch is
+reached is with a document outside the population. The reviewer's **N4** is
+adopted verbatim into the committed harness and is killed.
+
+**MINOR-4 — "never nulled" rested on a coincidence elsewhere.** *Reproduced:*
+twenty (class, reason) pairs yielded a diagnosis with all seven layers empty
+and an empty primary pair — every non-validated outcome class against every
+reason this module deliberately maps to no layer of its own. The property held
+only because `telemetry/record.py` happens to pair each of those reasons with a
+diagnosable class. *Fixed:* L6 gained its own closed word, `unknown`, and
+`diagnose_unresolved` closes the gap itself. `unknown` is deliberately NOT
+`unmapped`: one means a code the taxonomy has never seen, the other a document
+every layer had nothing to say about, and collapsing them would lose the
+distinction §D.4 draws. *Proven:*
+`test_an_unresolved_row_always_has_a_primary_layer_never_a_nulled_one`
+enumerates all twenty pairs and asserts a primary layer for each, asserts the
+word is the layer's own and not the drift bucket, and asserts a VALIDATED
+document still carries no diagnosis at all — the one deliberate exception.
+Mutant **M20** removes the closing branch and dies.
+
+**MINOR-5 — the extraction stage folded "never read" into "read and empty".**
+*Reproduced:* `DocumentRow.source_path` defaults to the literal `none`, so a
+document refused before the ladder ran and a document the ladder ran for and
+got nothing from carried the same token; the reviewer measured 16 of the run of
+record's 29. *Fixed:* a closed tuple, `NO_READ_ATTEMPTED_REASONS`, read from
+the outcome reason the row ALREADY records — never inferred from anything else
+— with a drift guard holding it against the reason vocabulary. *Proven:*
+`test_the_extraction_stage_tells_never_read_apart_from_read_and_empty` and
+`test_the_no_read_vocabulary_names_only_reasons_the_tree_can_emit`; mutant
+**M21** collapses the distinction and dies.
+
+**The measurement re-run confirms the reviewer's arithmetic exactly.**
+`stage_extract` over the run of record was `native 3,172 · local_tesseract 179
+· none 29`; it is now:
+
+| value | before | after |
+|---|---:|---:|
+| native | 3,172 | 3,172 |
+| local_tesseract | 179 | 179 |
+| `not_attempted` (refused before any read) | — | **16** |
+| `none` (the ladder ran, produced nothing) | 29 | **13** |
+
+The 16 are the invalid files; the 13 are trigger R, where `none` was always the
+right word. Nothing else in the measurement moved: the disjoint sums are still
+`3,380 == 3,380` and `755 == 755`, and every taxonomy, label and kind figure in
+the previous section stands.
+
+**MINOR-6 — the measuring arm of the memory column had run nowhere.**
+*Reproduced:* `psutil` imports on neither this host nor CI (it is on no
+requirements file CI reads), so the arm had never executed in any environment
+that exists. *Fixed:* both arms are now exercised for real, with a stub module
+injected into `sys.modules` rather than a dependency added — including the
+present-but-REFUSING arm, because a library that raises must degrade the column
+and not the document. The requirements note's untrue "both branches are tested"
+sentence is replaced by what is true, and the column's name is declared
+narrower than what the code reads: it is the process's resident set at the
+row's exit, not a per-document peak. A true peak needs sampling; that is 2.3's,
+and it is recorded rather than implied away.
+
+**MINOR-7 — record drifts.** The join instrument advertised a `--digest` option
+its parser never defined; removed, with the reason. The other two are
+corrections to the section ABOVE this one, made here because that section is
+committed and the log is append-only:
+
+* §Risks says "the **656** documents at `B0_no_reader_claimed`". **Wrong, and
+  it conflates three populations.** `B0_no_reader_claimed` is **223** as a
+  primary reason and **537** as an l3 occupancy; **656** is the failure-class-B
+  / `stage_candidate unclaimed` count over the archive. The sentence's POINT
+  stands — the structural bucket has not yet been split, and 2.3 is what splits
+  it — but the figure attached to it was the wrong one of three.
+* The proof-floor table says **9,799 passed**. That run predates the cell's own
+  last code commit (the M11 test fix, which adds a parametrize dimension). The
+  reviewer measured **9,804** at `01ab992`; at this closure tip the figure is
+  **9,817 passed / 48 skipped / 39 deselected / 0 failed**. The guards, the
+  conformance files, the gate and the corpus slice were taken at the same
+  superseded tree and none can move — that commit touched one test file — and
+  the guards and the gate have now been re-run at the closure tip anyway.
+
+**N9 — the trigger as a string LITERAL at a second site.** *Reproduced:* the
+shape escapes both `ast.Name` pins by construction, and died only behaviourally
+— which is the protection that matters, but "a behavioural test happens to
+cover the path this shape lives on" is exactly how M11 survived once already.
+*Fixed:* a static pin —
+`test_no_module_spells_the_research_trigger_as_a_string_constant` — under which
+no module in the two packages may hold the trigger as a string constant except
+the mirrored vocabulary, and `RESEARCH_TRIGGERS` must read the escalation
+module's constant BY NAME. The mutation harness is exempted by name with its
+reason recorded: spelling forbidden shapes verbatim is its job, it executes
+nothing in production, and building the literal by concatenation to dodge the
+scan would be obfuscation. *Proven:* the reviewer's **N9** adopted verbatim and
+killed by the static pin AND the behavioural one.
+
+**The reviewer's caveat 13, closed.** The measurement's docstring claimed every
+derived value comes from the shipping code; that held for the taxonomy and not
+for the funnel, which was re-derived locally. The two agreed on this run —
+which is precisely the condition under which a second implementation drifts
+unnoticed. The instrument now loads the row's facts into a real `DocumentRow`
+and calls `DiscoveryRunner._project_funnel`, so there is one implementation and
+the measurement cannot disagree with what a live run would record.
+
+## Scope of the closure, and why the full union replay was not repeated
+
+`git diff 01ab992..HEAD -- discovery/runner.py` touches four hunks: the
+no-read-attempted vocabulary, the two containment hunks of
+`refuse_production_data_dir`, and `_project_funnel` + `peak_rss_mb`. **No added
+or removed line mentions `_analyse`, `_geometry_for`, `classify_document`,
+`classify_failure`, `analyze_document` or `cached_analysis`** — the analysis
+call and the outcome classifier are untouched by the closure
+(`closure/closure-scope.log`). Under Ocean's ruling the reduced replay applies:
+chunk 01 (the largest, and the one that exercises the analysis call most
+heavily) and the no-parser population, both at the closure tip.
+
+## Proof floor at the closure tip (logs under `discovery_reports/train12-logs/p22truthtable/closure/`)
+
+| proof | result | log |
+|---|---|---|
+| the card's targeted fence (6 files) | 247 passed (exit 0) | run in-session before the lock |
+| mutation table M1–M17 + N4 + N9 + M18–M21 | **23/23 killed, unkilled none, tree clean after every mutant** (exit 0) | `mutation-table.md`, `closure-proofs.log` |
+| canonical guards (5 files) | **276 passed** (exit 0) | `closure-proofs.log` |
+| canonical conformance (7 files) | **1,282 passed / 41 skipped** (exit 0) | `closure-proofs.log` |
+| full default suite | **9,817 passed / 48 skipped / 39 deselected / 0 failed** (exit 0) | `closure-proofs.log` |
+| `python corpus_gate.py` | **GREEN — 105 PASS / 3 WITHHELD / 1 REFUSED** (exit 0) | `closure-proofs.log` |
+| replay chunk 01 (`--parser chase`, `--expect-identical`) | 504 population · **504 of 504 preserved · 504 payload identical** · 0 newly validated · 0 regressions (exit 0) | `replay-closure-chunk01.log` |
+| no-parser replay (`--expect-unresolved 29`) | 685 population · 656 replayed · **29 unresolved as expected** · 0 movement · 0 payload changed (exit 0) | `replay-noparser.log` |
+| measurement re-run | disjoint sums `3,380 == 3,380` and `755 == 755` OK; the new extraction split 16 / 13 (exit 0) | `closure-replays.log` |
+| branch privacy scan `b7af37b..HEAD` | see the closure scan log | `closure-scans.log` |
+| commit-message scan `b7af37b..HEAD` | MONEY / DIGITS / DATES 0; the four WORDS attributions stand | `closure-scans.log` |
+
+Lock window recorded in `closure/MASTER.log`; acquired after waiting on
+P22-FENCE closure-3, released at the end. One step at a time throughout.
+
+## Commits
+
+`063bfff` the seven MINORs and N9, each reproduced before it was fixed · this
+section.
+
+## Risks, last
+
+* **The reviewer's judgement on the five zero-population MINORs was right, and
+  closing them changed no measurement.** Every figure in the section above
+  stands except the extraction split, which got finer rather than different.
+  That is the expected shape of a closure over mechanisms narrower than their
+  prose: nothing moves, and the next cell inherits code that means what it says.
+* **`unknown` at L6 has no population today and should not acquire one.** If a
+  later run starts reporting it, that is not a new class of document — it is a
+  reason the record grew without the taxonomy noticing, and the drift guard
+  should have fired first. Treat a non-zero `unknown` as a guard failure.
+* **The extraction split is now honest about the run of record and still says
+  nothing about extraction quality.** 16 `not_attempted` plus 13 `none` is the
+  whole of what this tree can say; E2, E3 and E4 remain declared vocabulary
+  with no producer until 2.3 gives them one.
+* **The memory column ships inert and now says so in three places.** It will
+  stay inert on the next cold run. Reading it as a per-document peak would be
+  wrong twice over — it is neither per-document nor a peak — and the honest fix
+  is sampling, in the milestone that has a reason to measure.
+
