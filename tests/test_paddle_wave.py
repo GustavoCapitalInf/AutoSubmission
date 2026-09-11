@@ -514,6 +514,57 @@ def test_the_attestation_output_is_masked_before_it_is_parsed(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# The lifecycle: the session token is minted by `start`, so the settings in
+# hand are stale from that moment until they are re-read
+# ---------------------------------------------------------------------------
+
+
+def test_the_lifecycle_stops_deploys_starts_and_then_RE_READS_the_session_token(monkeypatch):
+    """`start` mints the per-session worker token and writes it to the
+    gitignored runtime directory. A lifecycle that kept the settings object it
+    loaded BEFORE that would authenticate as nobody for the rest of the
+    session — every later call 401s and the wave reports an unusable worker it
+    had just started. The re-read is the fix; this pins it, and pins the stop
+    that precedes the deploy (without it a worker still alive from an earlier
+    session keeps the port and answers with the OLD token, so a token rotation
+    would silently not take effect)."""
+    import tools.paddle_vast as vast
+    from tools.paddle_wave import Lifecycle, WaveLog
+
+    calls: list[str] = []
+    stale, fresh = _FakeSettings(), _FakeSettings()
+    stale.worker_token = "stale"
+    fresh.worker_token = "fresh"
+    stale.tunnel_local_port = fresh.tunnel_local_port = 18765
+    stale.worker_port = fresh.worker_port = 8765
+    available = {"value": False}
+
+    monkeypatch.setattr(vast, "cmd_check", lambda s, **k: calls.append("check") or
+                        {"versions_match_pins": True})
+    monkeypatch.setattr(vast, "_port_listening", lambda port: True)
+    monkeypatch.setattr(vast, "cmd_stop", lambda s, **k: calls.append("stop") or {})
+    monkeypatch.setattr(vast, "cmd_deploy", lambda s, **k: calls.append("deploy") or
+                        {"scp_ok": True, "self_check_ok": True})
+
+    def start(settings, **kwargs):
+        calls.append("start")
+        available["value"] = True
+        return {}
+
+    monkeypatch.setattr(vast, "cmd_start", start)
+    monkeypatch.setattr(vast, "cmd_status", lambda s, **k: calls.append(f"status:{s.worker_token}") or
+                        {"probe": {"available": available["value"], "reason": "ok", "error_type": None},
+                         "tunnel_running": True})
+    monkeypatch.setattr("ocr.paddle_config.load_paddle_settings", lambda *a, **k: fresh)
+    monkeypatch.setattr("ocr.paddle_client.PaddleClient",
+                        lambda settings, **k: type("C", (), {"version": lambda self: {"retention": "none"}})())
+
+    record = Lifecycle(settings=stale, log=WaveLog(None)).up()
+    assert record["retention_declared"] is True
+    assert calls == ["check", "status:stale", "stop", "deploy", "start", "status:fresh"]
+
+
+# ---------------------------------------------------------------------------
 # Card item 5: the populations
 # ---------------------------------------------------------------------------
 

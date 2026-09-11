@@ -941,11 +941,27 @@ class Lifecycle:
         self.log("lifecycle.status", available=available, reason=status["probe"]["reason"],
                  tunnel_running=status["tunnel_running"])
         if not available and self.deploy_if_needed:
+            # A worker may still be alive from an earlier session holding an
+            # EARLIER session token — it would answer `start`'s successor with
+            # a 401 and keep the port. Stopping first is a no-op when nothing
+            # is running (`not_running`) and the only way a token ROTATION
+            # actually takes effect.
+            vast.cmd_stop(self.settings)
             deployed = vast.cmd_deploy(self.settings)
             self.log("lifecycle.deploy", scp_ok=deployed.get("scp_ok"),
                      self_check_ok=deployed.get("self_check_ok"))
             vast.cmd_start(self.settings)
             self.log("lifecycle.start", worker_port=self.settings.worker_port)
+            # `start` MINTS the session token and writes it to the gitignored
+            # runtime directory; the settings object in hand was loaded before
+            # that file existed and still carries the old value (or none), so
+            # every later call would authenticate as nobody. Re-read them: the
+            # loader's own fallback is that file. The log's masker is re-bound
+            # to the new object so the new token is masked too.
+            from ocr.paddle_config import load_paddle_settings
+
+            self.settings = load_paddle_settings()
+            self.log.bind(self.settings)
             for _ in range(30):
                 status = vast.cmd_status(self.settings)
                 if status["probe"]["available"]:
