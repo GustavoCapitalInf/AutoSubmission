@@ -184,6 +184,26 @@ def test_the_output_carries_counts_and_percentiles_and_no_document_content(parti
     assert text.isascii()
 
 
+def test_the_rasters_are_opened_one_page_at_a_time(partition, monkeypatch):
+    """A 300-dpi Letter page is ~8 MB of grey and this host has ~2 GB. The
+    census must never hold a whole document's pixels: the mapping it hands
+    the metrics opens one page, and `document_quality` asks for the next only
+    after the previous one has been measured and dropped."""
+    from tools import extraction_quality_census as tool
+
+    live = []
+    real = tool.raster_for
+
+    def counting(root, evidence, page_index):
+        live.append(page_index)
+        return real(root, evidence, page_index)
+
+    monkeypatch.setattr(tool, "raster_for", counting)
+    lazy = tool.LazyRasters(None, object())
+    assert lazy.get(0) is None and lazy.get(0, "fallback") == "fallback"
+    assert live == [0, 0]          # asked twice, cached never
+
+
 def test_the_percentiles_are_nearest_rank_and_need_no_interpolation():
     values = [float(index) for index in range(1, 101)]
     assert percentile(values, 50) == 50.0

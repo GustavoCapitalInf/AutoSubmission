@@ -145,6 +145,25 @@ def ocr_records(data_dir: Path) -> Iterator[dict]:
         yield document if isinstance(document, dict) else {"_negative": True}
 
 
+class LazyRasters:
+    """A page -> `RasterGray` mapping that opens ONE raster at a time.
+
+    `document_quality` only ever calls `.get(page_index)`, so this is all the
+    mapping it needs — and it is the difference between holding one page's
+    pixels and holding a whole document's. A 300-dpi Letter page is ~8 MB of
+    grey; a fifty-page statement measured eagerly would be 400 MB, on a host
+    where that is a quarter of the memory there is. Nothing is cached: each
+    page is decoded, measured and dropped."""
+
+    def __init__(self, root: Path | None, evidence: ExtractionEvidence) -> None:
+        self.root = root
+        self.evidence = evidence
+
+    def get(self, page_index: int, default: Any = None) -> Any:
+        found = raster_for(self.root, self.evidence, page_index)
+        return default if found is None else found
+
+
 def raster_for(root: Path | None, evidence: ExtractionEvidence, page_index: int) -> RasterGray | None:
     """`<rasters>/<document sha>/<page index>.png`, decoded to 8-bit grey, or
     `None` when it is not there. The decode lives HERE, not in the metrics
@@ -303,13 +322,7 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None) -> tuple[dic
             if isinstance(entry, dict) and entry.get("truncated")
         ]
         quality = document_quality(
-            evidence,
-            rasters={
-                page.frame.page_index: raster
-                for page in evidence.pages
-                if (raster := raster_for(rasters, evidence, page.frame.page_index)) is not None
-            },
-            truncated_pages=truncated,
+            evidence, rasters=LazyRasters(rasters, evidence), truncated_pages=truncated,
         )
         censuses.setdefault(configuration_of(evidence), Census()).add(quality)
         skipped["measured"] += 1
