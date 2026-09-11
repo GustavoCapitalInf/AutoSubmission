@@ -25,7 +25,10 @@ M6 is deliberately not a tree edit. Its subject is a STATIC guard whose
 reader is a pure function over source text, so the mutant is planted in a
 scratch copy of the router's source inside the test itself and the working
 tree is never touched at all — a stronger proof of the same property, and the
-row records that rather than pretending an edit happened.
+row records that rather than pretending an edit happened. Its row runs that
+KILLER NODE and nothing else: running the file it lives in made the row
+report the health of every other test beside it, which is how M6 read NOT
+KILLED on the first run while the guard it is about was working perfectly.
 """
 from __future__ import annotations
 
@@ -197,14 +200,21 @@ def _restore(relative: str) -> None:
     raise SystemExit(f"FATAL: could not restore {relative}; the tree may hold a mutant")
 
 
-def _run(suites: list[str]) -> tuple[int, list[str]]:
-    """`(exit code, failing node ids)` — WITHOUT `-x`."""
+def _run(suites: list[str]) -> tuple[int, list[str], int]:
+    """`(exit code, failing node ids, tests that passed)` — WITHOUT `-x`.
+
+    The passed count is what tells a green run apart from a run that selected
+    nothing: an in-process mutant whose killer has been RENAMED would exit
+    non-zero here, but a killer that was quietly deselected would not, and a
+    mutation row that reads KILLED because no test ran is the worst row there
+    is."""
     completed = subprocess.run(
         [sys.executable, "-m", "pytest", *suites, "-q", "--no-header", "-p", "no:cacheprovider"],
         cwd=ROOT, capture_output=True, text=True,
     )
     failures = re.findall(r"^(?:FAILED|ERROR) (\S+)", completed.stdout, re.MULTILINE)
-    return completed.returncode, failures
+    passed = sum(int(count) for count in re.findall(r"(\d+) passed", completed.stdout))
+    return completed.returncode, failures, passed
 
 
 def apply_mutant(mutant: Mutant) -> None:
@@ -237,17 +247,28 @@ def main(argv: list[str] | None = None) -> int:
     unkilled: list[str] = []
     for mutant in selected:
         if mutant.in_process:
-            code, failures = _run(mutant.suites)
-            status = "KILLED (in-process, tree untouched)" if code == 0 and not failures else "NOT KILLED"
+            # The killer NODE, not the file it lives in. Running the whole
+            # suite made this row report the health of every other test
+            # beside it: M6 read NOT KILLED on the first run because the
+            # reader census two files away was red, while the guard M6 is
+            # about was working perfectly. A row that moves for a reason
+            # outside its own mutant is not evidence about that mutant.
+            nodes = [f"{suite}::{killer}"
+                     for suite in mutant.suites for killer in mutant.killers]
+            code, failures, passed = _run(nodes)
+            killed = code == 0 and not failures and passed > 0
+            status = (f"KILLED (in-process, tree untouched; {passed} planted cases caught)"
+                      if killed else "NOT KILLED")
             rows.append(f"| {mutant.ident} | {mutant.what} | (scratch copy, no tree edit) | "
                         f"{mutant.killers[0]} | {status} |")
-            if status == "NOT KILLED":
+            if not killed:
                 unkilled.append(mutant.ident)
-            print(f"{mutant.ident}: {status}", flush=True)
+            print(f"{mutant.ident}: {status} — {', '.join(nodes)} "
+                  f"({passed} passed, {len(failures)} failing, exit {code})", flush=True)
             continue
         try:
             apply_mutant(mutant)
-            code, failures = _run(mutant.suites)
+            code, failures, _ = _run(mutant.suites)
         finally:
             _restore(mutant.path)
         clean = _porcelain()
