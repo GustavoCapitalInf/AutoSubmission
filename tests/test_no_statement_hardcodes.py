@@ -1131,6 +1131,7 @@ P22_TRUTHTABLE_MODULES = [
 P23_AGREE_MODULES = [
     Path(__file__).resolve().parent.parent / "tools" / "agreement_census.py",
     Path(__file__).resolve().parent.parent / "tools" / "agree_native_census.py",
+    Path(__file__).resolve().parent.parent / "tools" / "agree_mutation_table.py",
 ]
 
 

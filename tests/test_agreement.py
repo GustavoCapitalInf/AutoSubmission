@@ -202,6 +202,14 @@ def test_a_known_shift_drops_the_matched_ratio_exactly_as_the_box_arithmetic_say
     # stay perfect on what matched — a shift is a geometry finding, not a
     # recognition one, and the two must not be confused
     assert result.char_agreement == 1.0
+    # M5's killer: the parsed-shape denominators are the MATCHED pairs, not
+    # the words. Every amount token here is too short to survive the shift,
+    # so no matched pair carries money at all and the statistic is
+    # unmeasured — `None`, never a manufactured 1.0; the ten-character dates
+    # do survive and are measured.
+    assert [text for text in expected if text.endswith(".00")] == []
+    assert result.amount_pairs == 0 and result.amount_agreement is None
+    assert result.date_pairs == 8 and result.date_agreement == 1.0
 
 
 def test_perturbed_amounts_drop_the_exact_agreement_by_the_perturbed_count(ledger, truth):
@@ -261,22 +269,32 @@ def test_the_case_and_whitespace_normaliser_is_applied(ledger, truth):
 
 
 def test_alignment_is_greedy_and_uses_every_box_once(ledger):
-    """M2's killer. One native word overlaps TWO extractor words, each above
-    the threshold; the higher IoU wins and the second extractor box stays
-    unmatched — a box is never spent twice."""
-    native = _native_page([("TOTAL", (100.0, 100.0, 160.0, 112.0))],
-                          width_pt=ledger.width_pt, height_pt=ledger.height_pt)
-    extractor = _pixel_page(
-        [("TOTAL", (101.0, 100.0, 161.0, 112.0)), ("TOTAL", (104.0, 100.0, 164.0, 112.0))],
-        width_pt=ledger.width_pt, height_pt=ledger.height_pt,
-    )
-    both = align(display_words(native), display_words(extractor))
-    assert len(both) == 1
-    assert both[0][0] == 0 and both[0][1] == 0
+    """M2's killer, in BOTH directions. One word on one side overlaps TWO on
+    the other, each above the threshold: the higher IoU wins and the loser
+    stays unmatched. A box spent twice would let one reader's single word
+    "cover" two of the other's and inflate the matched ratio, so the property
+    is pinned with the duplicate on the extractor side AND on the native
+    side."""
+    one = [("TOTAL", (100.0, 100.0, 160.0, 112.0))]
+    two = [("TOTAL", (101.0, 100.0, 161.0, 112.0)), ("TOTAL", (104.0, 100.0, 164.0, 112.0))]
+
+    native = _native_page(one, width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    extractor = _pixel_page(two, width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    pairs = align(display_words(native), display_words(extractor))
+    assert len(pairs) == 1 and pairs[0][0] == 0 and pairs[0][1] == 0
     result = page_agreement(native, extractor)
     assert result.matched_pairs == 1
     assert result.matched_native == 1.0
     assert result.matched_extractor == pytest.approx(0.5)
+
+    native = _native_page(two, width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    extractor = _pixel_page(one, width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    pairs = align(display_words(native), display_words(extractor))
+    assert len(pairs) == 1 and pairs[0][0] == 0 and pairs[0][1] == 0
+    result = page_agreement(native, extractor)
+    assert result.matched_pairs == 1
+    assert result.matched_native == pytest.approx(0.5)
+    assert result.matched_extractor == 1.0
 
 
 def test_box_iou_and_the_threshold_behave_as_the_arithmetic_says():
@@ -619,37 +637,66 @@ def test_the_module_imports_only_the_standard_library_evidence_and_layout_signal
 
 
 DECISION_PACKAGES = ("ocr", "analysis")
+_AGREEMENT_IMPORTS = ("agreement", "document_agreement", "page_agreement", "row_columns")
+
+
+def agreement_readers(source: str, name: str) -> list[str]:
+    """Every way a module could read an agreement statistic: importing the
+    module (by any spelling), naming one of its entry points, or naming an
+    `agree_*` column as an attribute, a bare name or a string. A pure
+    function of SOURCE TEXT so the guard can be run over a scratch copy with
+    a mutant planted in it — which is what proves the guard bites."""
+    offenders: list[str] = []
+    for node in ast.walk(ast.parse(source, filename=name)):
+        if isinstance(node, ast.Import):
+            offenders += [f"{name}: import {a.name}" for a in node.names
+                          if a.name.startswith("layout.agreement")]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module.startswith("layout.agreement"):
+                offenders.append(f"{name}: from {node.module}")
+            if node.module == "layout":
+                offenders += [f"{name}: from layout import {a.name}" for a in node.names
+                              if a.name in _AGREEMENT_IMPORTS]
+        elif isinstance(node, ast.Attribute) and node.attr.startswith("agree_"):
+            offenders.append(f"{name}: .{node.attr}")
+        elif isinstance(node, ast.Name) and node.id.startswith("agree_"):
+            offenders.append(f"{name}: {node.id}")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and node.value.startswith("agree_"):
+            offenders.append(f"{name}: {node.value!r}")
+    return offenders
 
 
 def test_no_decision_package_reads_an_agreement_statistic():
-    """M6's killer. `ocr/` (the router and the intake ladder) and `analysis/`
-    (the structurer and the validator) may not import `layout.agreement` and
-    may not name an `agree_*` column: a calibration statistic that reached a
+    """`ocr/` (the router and the intake ladder) and `analysis/` (the
+    structurer and the validator) may not import `layout.agreement` and may
+    not name an `agree_*` column: a calibration statistic that reached a
     trigger or a verdict would be the third engine the anti-optimizer rule
     forbids (E4 is review evidence, recorded on the row, and nothing more)."""
     offenders: list[str] = []
     for package in DECISION_PACKAGES:
         for path in sorted((ROOT / package).rglob("*.py")):
-            source = path.read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    offenders += [f"{path.name}: import {a.name}" for a in node.names
-                                  if a.name.startswith("layout.agreement")]
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    if node.module.startswith("layout.agreement"):
-                        offenders.append(f"{path.name}: from {node.module}")
-                    if node.module == "layout":
-                        offenders += [f"{path.name}: from layout import {a.name}" for a in node.names
-                                      if a.name in ("agreement", "document_agreement", "page_agreement")]
-                elif isinstance(node, ast.Attribute) and node.attr.startswith("agree_"):
-                    offenders.append(f"{path.name}: .{node.attr}")
-                elif isinstance(node, ast.Name) and node.id.startswith("agree_"):
-                    offenders.append(f"{path.name}: {node.id}")
-                elif isinstance(node, ast.Constant) and isinstance(node.value, str) \
-                        and node.value.startswith("agree_"):
-                    offenders.append(f"{path.name}: {node.value!r}")
+            offenders += agreement_readers(path.read_text(encoding="utf-8"), path.name)
     assert offenders == [], offenders
+
+
+def test_m6_the_guard_fires_on_a_scratch_copy_of_the_router_and_the_structurer():
+    """M6's killer, planted rather than committed: the router's and the
+    structurer's real sources are copied IN MEMORY, each mutant is added to
+    the copy, and the guard must name it. The working tree is never touched,
+    which is a stronger proof of the same property than editing it — and it
+    means this mutant can be run on a shared host without a restore."""
+    for relative in ("ocr/escalation.py", "analysis/structurer/geometry.py"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert agreement_readers(source, relative) == []
+        for mutant in (
+            "\nfrom layout.agreement import document_agreement\n",
+            "\nfrom layout import agreement\n",
+            "\nimport layout.agreement\n",
+            "\ndef _peek(row):\n    return row.agree_char\n",
+            "\ndef _peek(row):\n    return row['agree_matched_native']\n",
+        ):
+            assert agreement_readers(source + mutant, relative) != [], (relative, mutant)
 
 
 # ---------------------------------------------------------------------------
