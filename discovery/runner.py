@@ -1683,12 +1683,17 @@ class DiscoveryRunner:
         evidence on the row, they start nothing, and no extractor, router or
         validator may read them.
         """
-        document = facts.get("document")
-        native = getattr(document, "native_evidence", None) if document is not None else None
-        extractor = getattr(document, "evidence", None) if document is not None else None
-        if native is None or extractor is None:
-            return
         try:
+            # The two attribute READS are inside the guard too (review
+            # closure, MINOR-6): `getattr` swallows only `AttributeError`, so
+            # a document object whose `evidence` property raises anything else
+            # would otherwise propagate out of here and out of `_finish` —
+            # the run-failing consumer this method exists not to be.
+            document = facts.get("document")
+            native = getattr(document, "native_evidence", None) if document is not None else None
+            extractor = getattr(document, "evidence", None) if document is not None else None
+            if native is None or extractor is None:
+                return
             columns = agreement_row_columns(document_agreement(native, extractor))
         except Exception:  # as above: a recorded fact never fails a run
             return

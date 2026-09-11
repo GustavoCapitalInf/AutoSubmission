@@ -52,6 +52,7 @@ from layout.agreement import (
     TEXT_NORMALISER_VERSION,
     align,
     box_iou,
+    display_frame_size,
     display_words,
     document_agreement,
     frames_agree,
@@ -295,6 +296,140 @@ def test_alignment_is_greedy_and_uses_every_box_once(ledger):
     assert result.matched_pairs == 1
     assert result.matched_native == pytest.approx(0.5)
     assert result.matched_extractor == 1.0
+
+
+def test_a_negative_amount_never_agrees_with_its_positive_twin(ledger, truth):
+    """Review closure, MINOR-1 / mutant FR3 — the material one. The synthetic
+    ledger carries no negative figure, so nothing pinned that a debit must
+    DISAGREE with a credit. Here the extractor reads every amount with a
+    leading minus: the boxes are untouched, so all 54 pairs still match, and
+    the exact money agreement must fall to ZERO over the sixteen
+    money-bearing pairs. A comparison that dropped the sign — the one thing
+    the statistic 2.5 will read must not be blind to — would report 1.0.
+    """
+    negated = [(("-" + text) if text.endswith(".00") else text, box) for text, box in truth]
+    assert sum(1 for text, _ in negated if text.startswith("-")) == 16
+    native, extractor = _pair(ledger, truth, extractor_words=negated)
+    result = page_agreement(native, extractor)
+    assert result.matched_pairs == len(truth)
+    assert result.amount_pairs == 16
+    assert result.amount_agreement == 0.0
+    # and the parenthesised and trailing-minus spellings of the same debit
+    # agree with each other, because the grammar resolves them to one value
+    for spelling in ("(12.00)", "12.00-", "-12.00"):
+        both = _pair(ledger, [("-12.00", (100.0, 100.0, 160.0, 112.0))],
+                     extractor_words=[(spelling, (100.0, 100.0, 160.0, 112.0))])
+        assert page_agreement(*both).amount_agreement == 1.0, spelling
+    # ... and none of them agrees with the credit
+    both = _pair(ledger, [("-12.00", (100.0, 100.0, 160.0, 112.0))],
+                 extractor_words=[("12.00", (100.0, 100.0, 160.0, 112.0))])
+    assert page_agreement(*both).amount_agreement == 0.0
+
+
+def test_the_skew_statistic_is_the_MEDIAN_over_lines_not_the_mean(ledger):
+    """Review closure, MINOR-1 / mutant FR4. Every skew fixture until now was
+    UNIFORMLY skewed, where the mean and the median coincide, so the
+    published statistic's definition was unpinned. A page of two blocks —
+    six flat lines and two steeply skewed ones — separates them: the median
+    is 0.0 (what most of the page does), the mean is not.
+    """
+    drop_per_column = 5.0                      # gentle enough that no line splits
+    angle = math.degrees(math.atan(drop_per_column / 120.0))
+
+    def two_block_page(flat_rows: int, skewed_rows: int):
+        words: list[tuple[str, tuple[float, float, float, float]]] = []
+        for row in range(flat_rows):
+            y = 100.0 + row * 30.0
+            for column in range(3):
+                x = 72.0 + column * 120.0
+                words.append((f"FLAT{row}{column}", (x, y, x + 60.0, y + 11.0)))
+        for row in range(skewed_rows):
+            y = 400.0 + row * 30.0
+            for column in range(3):
+                x = 72.0 + column * 120.0
+                drop = column * drop_per_column
+                words.append((f"SKEW{row}{column}", (x, y + drop, x + 60.0, y + drop + 11.0)))
+        page = _native_page(words, width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+        return geometry_census(_document(page, extractor_id=NATIVE_EXTRACTOR))[0]
+
+    facts = two_block_page(6, 2)
+    assert facts.measured_lines == 8                            # nothing fragmented
+    assert facts.skew_deg == pytest.approx(0.0, abs=1e-9)       # the MEDIAN: what most of the page does
+    mean = (6 * 0.0 + 2 * angle) / 8
+    assert abs(facts.skew_deg - mean) > 0.4                     # ... and not the mean
+
+    #: The limit MINOR-4 records: one angle per page is the contract, so a
+    #: page of two equal blocks reports an angle NEITHER block has.
+    even = two_block_page(4, 4)
+    assert even.measured_lines == 8
+    assert even.skew_deg == pytest.approx(angle / 2, abs=1e-9)
+    assert 0.0 < even.skew_deg < angle
+
+
+def test_the_iou_threshold_is_inclusive_at_exactly_one_half(ledger):
+    """Review closure, MINOR-1 / mutant FR1. `box_iou`'s arithmetic was pinned
+    at exactly 0.5, but `align`'s COMPARISON was not: a pair sitting exactly
+    on the threshold must MATCH (`>=`), and one a hair below must not."""
+    native = _native_page([("TOTAL", (0.0, 0.0, 30.0, 10.0))],
+                          width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    on = _native_page([("TOTAL", (10.0, 0.0, 40.0, 10.0))],
+                      width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    assert box_iou((0.0, 0.0, 30.0, 10.0), (10.0, 0.0, 40.0, 10.0)) == pytest.approx(0.5)
+    assert len(align(display_words(native), display_words(on))) == 1
+    below = _native_page([("TOTAL", (10.02, 0.0, 40.02, 10.0))],
+                         width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    assert box_iou((0.0, 0.0, 30.0, 10.0), (10.02, 0.0, 40.02, 10.0)) < 0.5
+    assert align(display_words(native), display_words(below)) == ()
+
+
+def test_a_legal_non_uniform_pixel_frame_normalises_to_the_true_points(ledger, truth):
+    """Review closure, MINOR-2 / mutant FR2's neighbour. `PageFrame` validates
+    each axis' scale against `dpi / 72` only to within `SCALE_TOLERANCE`, so a
+    raster rounded to whole pixels can be legally non-uniform. Scaling both
+    axes by one nominal `72 / dpi` then moves a word at the page FOOT by
+    several points and drops the pair — a measurement artefact that reads as
+    the two engines disagreeing about everything, with `frame_mismatch`
+    False. Each axis is scaled by its own factor, so the pair survives."""
+    scale = DPI / 72.0
+    height_px = round(ledger.height_pt * scale) - 25          # a legal, non-uniform raster
+    frame = PageFrame.pixel(page_index=0, raster_width_px=round(ledger.width_pt * scale),
+                            raster_height_px=height_px, dpi=float(DPI),
+                            pdf_width_pt=ledger.width_pt, pdf_height_pt=ledger.height_pt)
+    assert frame.scale_y != frame.scale_x                      # non-uniform ...
+    assert abs(frame.scale_y - DPI / 72.0) <= 0.01 * (DPI / 72.0)   # ... and legal
+    words = tuple(
+        WordBox(word_id=word_id(0, 0, index), page_index=0, text=text,
+                x0=box[0] * frame.scale_x, y0=box[1] * frame.scale_y,
+                x1=box[2] * frame.scale_x, y1=box[3] * frame.scale_y)
+        for index, (text, box) in enumerate(truth)
+    )
+    extractor = PageEvidence(frame=frame, words=words)
+    native = _native_page(truth, width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    result = page_agreement(native, extractor)
+    assert result.frame_mismatch is False
+    assert result.matched_pairs == len(truth)
+    assert result.matched_native == 1.0 and result.char_agreement == 1.0
+
+
+def test_two_frames_that_disagree_about_the_rotation_are_a_frame_mismatch(ledger, truth):
+    """Review closure, MINOR-3. On a SQUARE page the two rectangles match at
+    every rotation, so a rotation mix-up between the readers was invisible as
+    a frame mismatch and surfaced only as a low matched ratio — which the
+    calibration would read as the engines disagreeing about the TEXT."""
+    square = 600.0
+    upright = _native_page([("TOTAL", (100.0, 100.0, 160.0, 112.0))],
+                           width_pt=square, height_pt=square, rotation_deg=0)
+    turned = _native_page([("TOTAL", (100.0, 100.0, 160.0, 112.0))],
+                          width_pt=square, height_pt=square, rotation_deg=90)
+    assert display_frame_size(upright.frame) == display_frame_size(turned.frame)
+    assert frames_agree(upright.frame, turned.frame) is False
+    assert page_agreement(upright, turned).frame_mismatch is True
+    assert frames_agree(upright.frame, upright.frame) is True
+    # 0 versus 180 on a letter page: the same rectangle, the other way up
+    letter_up = _native_page(truth, width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    letter_down = _pixel_page(truth, width_pt=ledger.width_pt, height_pt=ledger.height_pt,
+                              rotation_deg=180)
+    assert page_agreement(letter_up, letter_down).frame_mismatch is True
 
 
 def test_box_iou_and_the_threshold_behave_as_the_arithmetic_says():
@@ -609,6 +744,37 @@ def test_a_broken_agreement_is_a_finding_on_the_row_never_a_lost_document(monkey
     runner_module.DiscoveryRunner._project_agreement(row, {"document": _Doc()})
     for column in AGREE_COLUMNS:
         assert getattr(row, column) == ""
+
+
+def test_a_document_whose_evidence_attribute_raises_is_a_finding_not_an_exception():
+    """Review closure, MINOR-6. `getattr` swallows only `AttributeError`, so a
+    document object whose `evidence` (or `native_evidence`) property raises
+    anything else propagated out of the projection and out of the row's single
+    exit — a reporting consumer failing the run it only describes. Both reads
+    are inside the guard now."""
+    from discovery.runner import DiscoveryRunner, DocumentRow
+
+    class _Exploding:
+        @property
+        def native_evidence(self):
+            raise RuntimeError("reader exploded")
+
+        @property
+        def evidence(self):
+            raise RuntimeError("reader exploded")
+
+    class _HalfExploding:
+        native_evidence = None
+
+        @property
+        def evidence(self):
+            raise RuntimeError("reader exploded")
+
+    for document in (_Exploding(), _HalfExploding()):
+        row = DocumentRow(relative_path="F/a.pdf", folder_label="F", content_sha256=SHA, byte_size=1)
+        DiscoveryRunner._project_agreement(row, {"document": document})   # must not raise
+        for column in AGREE_COLUMNS:
+            assert getattr(row, column) == ""
 
 
 # ---------------------------------------------------------------------------

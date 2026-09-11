@@ -36,14 +36,17 @@ native.py` transforms PyMuPDF's unrotated boxes by the page's rotation
 they are in the same UNITS. Everything here is normalised into POINTS:
 
 * a ``pdf_point`` frame is taken as it stands (it is already points);
-* a ``pixel`` frame is scaled by ``72 / dpi`` — the raster's own declared
-  resolution, which `evidence.canonical.PageFrame` has already checked
-  against the per-axis raster/page ratio within `SCALE_TOLERANCE`.
+* a ``pixel`` frame is scaled by its OWN per-axis scales (``scale_x`` /
+  ``scale_y``, pixels per point), which `evidence.canonical.PageFrame`
+  computes from each axis' raster/page ratio and checks against ``dpi / 72``
+  only to within `SCALE_TOLERANCE`. Using one nominal ``72 / dpi`` for both
+  axes is wrong by up to that tolerance on a legal frame, which is enough to
+  drop a matched pair at the page foot (review closure, MINOR-2).
 
-The two frames are asserted to describe the same rectangle within
-`FRAME_TOLERANCE` (1 %); a disagreement is RECORDED (`frame_mismatch`) and
-never stops the measurement — a mismatch is itself the finding, and the
-numbers beside it are what makes it readable.
+The two frames are asserted to describe the same rectangle — the same size
+within `FRAME_TOLERANCE` (1 %) AND the same page rotation; a disagreement is
+RECORDED (`frame_mismatch`) and never stops the measurement — a mismatch is
+itself the finding, and the numbers beside it are what makes it readable.
 
 Determinism
 -----------
@@ -174,16 +177,44 @@ def display_frame_size(frame: PageFrame) -> tuple[float, float]:
     return float(frame.width), float(frame.height)
 
 
-def _points_scale(frame: PageFrame) -> float:
-    """Points per frame unit: ``72 / dpi`` for a raster, 1 for points."""
-    if frame.space == PIXEL:
-        return POINTS_PER_INCH / float(frame.dpi)
-    return 1.0
+def _points_scale(frame: PageFrame) -> tuple[float, float]:
+    """Points per frame unit, PER AXIS: a raster's own ``scale_x`` / ``scale_y``
+    (pixels per point) inverted, and 1.0 on a `pdf_point` frame.
+
+    The frame's declared scales are the truth, not ``72 / dpi``. The evidence
+    contract computes each axis from that axis' own raster/page ratio and only
+    checks it against ``dpi / 72`` to within `SCALE_TOLERANCE`, so a legal
+    frame can be non-uniform by up to a per cent — a rasteriser rounding a
+    page to whole pixels, for instance. Dividing both axes by one nominal
+    ``72 / dpi`` then moves a word at the page foot by several points, which
+    is enough to drop a matched pair, and `display_frame_size` (which compares
+    the page's declared point dimensions) cannot catch it. Each axis is scaled
+    by its own factor (review closure, MINOR-2).
+    """
+    if frame.space != PIXEL:
+        return 1.0, 1.0
+    # a pixel frame's per-axis scales are positive by construction (the
+    # evidence contract refuses the frame otherwise); `72 / dpi` is the
+    # fallback only if that ever stopped being true
+    nominal = POINTS_PER_INCH / float(frame.dpi)
+    scale_x = 1.0 / float(frame.scale_x) if frame.scale_x else nominal
+    scale_y = 1.0 / float(frame.scale_y) if frame.scale_y else nominal
+    return scale_x, scale_y
 
 
 def frames_agree(left: PageFrame, right: PageFrame) -> bool:
-    """Do the two frames describe the same rectangle within
-    `FRAME_TOLERANCE`, relatively, on both axes?"""
+    """Do the two frames describe the same rectangle — the same size within
+    `FRAME_TOLERANCE` relatively on both axes, AND the same page rotation?
+
+    The rotation is part of the answer (review closure, MINOR-3): on a square
+    page, and on any 0-versus-180 disagreement, two readers can differ about
+    which way up the page is while their rectangles match exactly. Left
+    unchecked that surfaces only as a low matched ratio, which the calibration
+    would read as the two engines disagreeing about the TEXT rather than
+    about the frame — the one confusion `frame_mismatch` exists to prevent.
+    """
+    if int(left.rotation_deg) != int(right.rotation_deg):
+        return False
     left_size = display_frame_size(left)
     right_size = display_frame_size(right)
     for a, b in zip(left_size, right_size):
@@ -212,11 +243,11 @@ class DisplayWord:
 def display_words(page: PageEvidence) -> tuple[DisplayWord, ...]:
     """Every word of `page` in the display frame, in points, in the page's
     own word order."""
-    scale = _points_scale(page.frame)
+    scale_x, scale_y = _points_scale(page.frame)
     return tuple(
         DisplayWord(word_id=word.word_id, text=word.text,
-                    x0=word.x0 * scale, y0=word.y0 * scale,
-                    x1=word.x1 * scale, y1=word.y1 * scale)
+                    x0=word.x0 * scale_x, y0=word.y0 * scale_y,
+                    x1=word.x1 * scale_x, y1=word.y1 * scale_y)
         for word in page.words
     )
 
@@ -224,11 +255,11 @@ def display_words(page: PageEvidence) -> tuple[DisplayWord, ...]:
 def _display_bands(page: PageEvidence) -> tuple[tuple[float, float], ...]:
     """The y-bands, in points, of the page's derived lines whose text carries
     at least `TABLE_REGION_MIN_MONEY` money shapes."""
-    scale = _points_scale(page.frame)
+    _, scale_y = _points_scale(page.frame)
     bands: list[tuple[float, float]] = []
     for line in page.lines:
         if len(find_money(line.text)) >= TABLE_REGION_MIN_MONEY:
-            bands.append((line.y_top * scale, line.y_bottom * scale))
+            bands.append((line.y_top * scale_y, line.y_bottom * scale_y))
     return tuple(bands)
 
 
@@ -438,13 +469,27 @@ def skew_degrees(page: PageEvidence) -> float | None:
     when no line has two words to fit. Deliberately measured from the
     already-derived lines (`evidence.group_lines`, the ONE grouping rule)
     rather than from a grouping of this module's own.
+
+    Two limits, MEASURED (review closure, MINOR-4), because a statistic is
+    only as useful as its stated range:
+
+    * past roughly 0.9 degrees on a 500 pt line the ONE grouping rule stops
+      separating the rows and OVER-MERGES the page into a single line — and
+      the statistic stays EXACT through it (0.75 deg -> 20 lines, 0.75
+      measured; 0.90 deg -> 1 line, 0.90; 2.00 deg -> 1 line, 2.00). It is
+      not a fragmentation failure and the angle does not drift;
+    * the page statistic is a plain MEDIAN over line slopes, so a page whose
+      blocks are skewed DIFFERENTLY reports an angle no block has (a 0-degree
+      and a 5-degree block of equal size report 2.5; two flat rows against
+      four skewed report 5.0). One angle per page is the contract; a page
+      that needs two is a finding for the milestone that reconstructs it.
     """
-    scale = _points_scale(page.frame)
+    scale_x, scale_y = _points_scale(page.frame)
     by_id = {word.word_id: word for word in page.words}
     slopes: list[float] = []
     for line in page.lines:
         points = [
-            (((word.x0 + word.x1) / 2) * scale, ((word.y0 + word.y1) / 2) * scale)
+            (((word.x0 + word.x1) / 2) * scale_x, ((word.y0 + word.y1) / 2) * scale_y)
             for word in (by_id.get(wid) for wid in line.word_ids) if word is not None
         ]
         if len(points) < 2:
