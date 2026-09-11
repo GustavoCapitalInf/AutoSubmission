@@ -70749,3 +70749,240 @@ file tool after a shell-side patch failed to match.
   hosted call, and a selection between non-hosted candidates through those doors is what B1–B6 exist for
   once the result is bound or read by name.
 
+# §P22FENCE-CLOSURE-3 — re-review 2's MAJOR closed where it lived: the unit that is HANDED a reconcile result is fenced (a `ReconResult` parameter is a reconcile-bound name; B7 lets a `reconcile(` call stand only in the unit that may make one), so the cross-unit selection X11 — which ran in EVERY parse mode for EVERY account and survived everything at the closure-2 tree — is now killed by four static rules; the record's targeted numbers corrected and re-run to named logs; the re-invocation comment says what the layer checks and what it deliberately does not; 30/30 mutants killed at the closure-3 tip
+
+Scope: `PHASE2_P22FENCE_REVIEW.md` §"Re-review 2 (closure-2 tip fc65067)" (APPROVE WITH FINDINGS, 0 BLOCK /
+1 MAJOR / 2 MINOR; N1–N6 CLOSED and re-proven by the re-reviewer) under Ocean's closure-3 direction of
+2026-09-10. Findings closed here: **P1 (MAJOR), P2 (MINOR), P3 (MINOR)** — all three tests-and-record only.
+Base `fc65067`; closure-3 code tip **`55ed07c`** (tree `c224a3ad725f6bd7c4579f2d8665e53d10482647`; this
+section's commit is documentation only and does not change it). Files touched: **`tests/test_pipeline_escalation_fence.py`
+ALONE** (+237 / −17) and this section. NOT touched: **`analysis/pipeline.py`** — the protected module's blob
+is `e7956e9417ae50b7d361750bffb630cfeeaf621c` at `fc65067` and at `55ed07c`, byte for byte, so the code tree
+of `analysis/` is unchanged and no replay, gate, corpus slice or full suite is owed at this tip — nor
+`analysis/config.py`, `analysis/extract.py`, `analysis/reconcile.py`, `webapp/**`, `telemetry/**`,
+`tools/**`, or any earlier W3 section. No network; no customer data; the opt-in literal still in exactly one
+tracked file. The cell's earlier agents were terminated by the API spend limit; this closure inherited the
+branch at `fc65067` and the review file at the re-reviewer's worktree.
+
+## P1 (MAJOR) — the unit that is HANDED a reconcile result
+
+REPRODUCED. `_account_report(stmt, recon: ReconResult, …)` receives its reconciliation as a PARAMETER.
+B1/B2/B4/B5 were defined over names *bound from a `reconcile(...)` call in the unit*, so that unit held NO
+reconcile-bound name at all: nothing could be compared against, and a fresh `reconcile(...)` bound there was
+the unit's first and only one. The re-reviewer's mutant X11 — `_alt = normalize_statement(stmt)` /
+`_alt_recon = reconcile(_alt, parser_id=claiming_parser_id(dispatch))` / `if _alt_recon.ok and not recon.ok:
+stmt, recon = _alt, _alt_recon`, inserted above `quality = assess_quality(...)` — is "prefer whichever
+candidate reconciles" verbatim, inside the protected module, and at the closure-2 tree it returned `[]` from
+`name_integrity_violations`, `reconcile_selection_violations` AND `orchestration_shape_violations` and
+SURVIVED the whole killer set 431 / 0. It is worse than E10 / E11 / E8b: `_account_report` runs in EVERY
+parse mode (the deterministic path included, where those three could only bite in auto mode) and for EVERY
+account of every document.
+
+FIXED, tests only, both halves of Ocean's direction:
+
+* **a parameter that CARRIES a reconcile result is a reconcile-bound name of its unit.** `_carries_a_reconcile_result`
+  marks a parameter whose annotation unparses to `ReconResult` — plain, unioned (`ReconResult | None`) or
+  stringified, since `from __future__ import annotations` changes the runtime and not the tree — OR whose
+  name is `recon`, which is what every such parameter in the module is called today. Pinned by BOTH marks
+  deliberately: an annotation can be dropped or widened, and the walk-around must not reopen with it. The
+  parameter then counts for B1 (a second reconcile-bound name in the unit), B2 (a re-bind of the parameter),
+  B4 (a comparison against it) and B5 (a read inside a loop).
+* **B7 — a `reconcile(` call may stand ONLY in a unit the rules permit.** Today that is `_analyse` ALONE,
+  which holds both of the module's calls: the one `recon = reconcile(stmt, parser_id=claiming)` binding and
+  the sibling loop's positional call. `_account_report` is handed its result and contains none; neither does
+  any other unit (`assess_quality`, `assess_document_integrity`, the module body). B7 is the general form of
+  the finding — the card's tripwire (b) is "no comparison of two `reconcile(...)` results ANYWHERE in
+  `analysis/pipeline.py`", and a per-unit rule set can only see a comparison in a unit where a second result
+  can be MADE.
+
+PROVEN IN MEMORY first, on the current module text (`static_probe3.py`, before any mutant was written):
+the UNCHANGED module returns `[]` from all three checkers (no false positive — measured before the rule was
+written: exactly three units carry such a parameter, each exactly one, none read inside a loop, none with a
+second name to compare); X11 trips **B1** (`2 names bound from reconcile(): ['_alt_recon', 'recon']`),
+**B2** (`` `recon` is bound 2 times``), **B4** (`two reconcile results read together: _alt_recon.ok and (not
+recon.ok)`) and **B7** (`reconcile() called in a unit that may not call it`); and a BARE second reconcile
+that compares nothing — a permitted position, nothing to trip B1–B6 on its own — trips B7 in
+`_account_report` and in `assess_quality` alike. Then as a REAL textual mutant against the killer set: X11
+**KILLED 2 failed / 438 passed, by **tripwire (b)**; **B7's own test**** (see the table).
+
+## P2 (MINOR) — the record correction, and every targeted number re-run to a named log
+
+The closure-2 section's "Proofs at the closure-2 tree" reported: *"the fence file + `test_q3_native_only.py`
++ `test_analysis.py` + `test_pipeline*.py` + `test_structurer_pipeline.py` **243 passed**"*. THAT IS WRONG.
+The set is **307 passed** at the closure-2 tree (the re-reviewer re-derived it, and 64 + 48 + 151 + 6 + 21 +
+17 = 307); **243 is the same set MINUS its first member, the fence file's own 64**, which the same sentence
+reports separately — the set was reported without the file it names first. The other three numbers in that
+paragraph reproduce, but NONE of the four named a log, in a section whose own record note says "a number
+with no log does not exist"; and one of them — "the PRIVACY-3 subset 3 passed" — is uncheckable, since no
+`-k` selection is named and the file alone is 168 passed. It is dropped in favour of the named file.
+
+Every targeted set this record cites is RE-RUN at the closure-3 tip, each into its own log under
+`discovery_reports/train12-logs/p22fence/closure3/` ending `EXIT=`:
+
+| targeted set | closure-3 result | log | EXIT |
+|---|---|---|---:|
+| the fence file alone | **73 passed** (64 at closure-2 + the 9 tests this closure adds) | `targeted-fence-file.log` | 0 |
+| `tests/test_privacy3_boundaries.py` (the whole file — replacing the uncheckable "PRIVACY-3 subset") | **168 passed** | `targeted-privacy3-file.log` | 0 |
+| the KILLER SET (fence + privacy3 + q3 + `test_analysis`) — the mutation baseline | **440 passed** | `targeted-killer-set.log` | 0 |
+| the fence file + `test_q3_native_only.py` + `test_analysis.py` + `test_pipeline*.py` (= `test_pipeline.py`, `test_pipeline_registry_dispatch.py`) + `test_structurer_pipeline.py` — the set reported as "243" | **316 passed** (= the corrected 307 + 9) | `targeted-pipeline-set.log` | 0 |
+| `test_privacy3_boundaries.py` + `test_worker_privacy.py` + `test_webapp_worker.py` + `test_escalation_router.py` + `test_escalation_tripwires.py` + `test_extraction_refusal_is_private.py` + `test_raise_privacy3.py` + `test_diagnostics.py` | **1 failed / 540 passed / 3 skipped / 2 deselected** — the failure is `tests/test_diagnostics.py::test_reconciliation_issue_sites_match_the_anchor_count` (cell T's count guard, `assert 6 == 7`), as at closure-2; the 2 deselected went unmentioned there | `targeted-webapp-set.log` | 1 |
+
+## P3 (MINOR) — the comment says what the layer checks, and what it deliberately does not
+
+The RE-INVOCATION block comment claimed a rule the layer never implemented: "no other function or lambda is
+defined at module level between the three (a wrapper needs a home)". `orchestration_shape_violations`
+implements O1 (the three orchestration functions are top-level and undecorated) and O2 (`_analyse` is called
+by name exactly twice, once from each entry point, at statement level, never inside a loop / `try` / lambda /
+nested function) and nothing about module-level definitions. **Ocean's ruling, applied: the clause is
+DELETED, not implemented** — it adds nothing O1/O2 and the name-integrity rules do not already give. The
+comment now lists O1 and O2 exactly and names what is NOT checked and why.
+
+The ruling's premise is PINNED rather than asserted (in memory, on the current module text):
+
+* a module-level `def _module_level_helper(): return None` and a module-level `_module_level_lambda = lambda:
+  None`, each inserted between `_analyse` and `analyze_document`, are reported by NO checker — and are INERT,
+  proven mechanically: removing the inserted top-level statement from the mutant's AST gives back the
+  ORIGINAL module tree exactly (`ast.dump` equality), so nothing else in the module refers to the new name
+  and no entry point can behave differently. A rule against them would forbid a shape that cannot do
+  anything;
+* the same shape the moment it does anything is caught: `def _module_level_wrapper(markdown, **kwargs):
+  return _analyse(markdown, **kwargs)` → **O2** (`callers are ['_module_level_wrapper', 'analyze_document',
+  'analyze_markdown'], expected exactly ['analyze_document', 'analyze_markdown']`), and the same through a
+  lambda, which has no name to inspect → **O2** with `<lambda>` in the caller list. Nothing has to CALL the
+  wrapper for the rule to bite.
+
+The file's own module docstring is corrected with them: "defined CONCRETELY below as four AST rules" was
+stale — the layer is three, N1–N6 / B1–B7 / O1–O2, each with a block comment that now states its own limits.
+
+## The mutation table at the closure-3 tip (30 rows, 1399.4 s)
+
+Harness: the cell's own `mutants_p22fence.py` (18 canonical rows) copied into this session's scratchpad as
+`mutants_p22fence_closure3.py` and EXTENDED with re-reviewer 2's TWELVE fresh shapes, imported from the
+re-reviewer's own `shapes_rerev2.py` so that **X11's edit text is theirs verbatim**. Written and edited with
+the file tool only, byte-checked (no control bytes; every anchor unique; every mutant compiles; every mutant
+textually different from the original). Exact textual edits to `analysis/pipeline.py` (N4m:
+`analysis/extract.py`); killer set = the fence file + `test_privacy3_boundaries.py` + `test_q3_native_only.py`
++ `test_analysis.py`, baseline **440 passed**; run WITHOUT `-x`; every FAILED test id recorded; `git checkout
+--` restore of BOTH files in a `finally`; refuses to start on a dirty tree; after EVERY mutant `git status
+--porcelain` asserted empty AND both files asserted sha256-identical. The three static checkers are also run
+in memory on each mutant's text, so the table names the RULE as well as the killing test.
+
+| mutant | applied | result (failed / passed) | static rule on the mutant text | killers (named) |
+|---|---|---:|---|---|
+| M1 | a second `extract_statement(…escalation_model)` under `not recon.ok` | KILLED 10 / 430 | — (dynamic only) | `test_analysis` dynamic ×3; tripwire (a); pinned-False dynamic; the inverted characterisation; the ordering test; `test_privacy3_boundaries` dynamic ×2; `test_q3_native_only` dynamic |
+| M2 | the selection re-added (`alt_recon = reconcile(alt)`; `if alt_recon.ok: …`) | KILLED 13 / 427 | B1 _analyse, B2 _analyse | `test_analysis` dynamic ×3; tripwire (a); pinned-False static; pinned-False dynamic; **tripwire (b)**; **B7's own test**; the inverted characterisation; the ordering test; `test_privacy3_boundaries` dynamic ×2; `test_q3_native_only` dynamic |
+| M3 | the opt-in compared truthily | KILLED 10 / 430 | — (dynamic only) | exact-literal ×9; the seam test |
+| M4 | the literal read at import instead of the call site | KILLED 9 / 431 | — (dynamic only) | `test_analysis` dynamic; pinned-False dynamic; the inverted characterisation; read-at-call-site; the webapp opted-in test; opted-in ×3; `test_q3_native_only` dynamic |
+| M5 | the two fence lines deleted | KILLED 16 / 424 | — (dynamic only) | exact-literal ×9; read-at-call-site; the ordering test; the webapp equality test; the fence tests ×3; `test_q3_native_only` dynamic |
+| M6 | `escalated = not recon.ok` | KILLED 21 / 419 | — (dynamic only) | the shadowing pin; the comprehension/while pin; pinned-False static; pinned-False dynamic; the alias/door pins ×9; the inverted characterisation; the base-block pin; the position pins ×4; the E11 pin; the R6 pin |
+| M7 | the deterministic-mode raise deleted | KILLED 3 / 437 | — (dynamic only) | deterministic-never-reaches; the ordering test; the fence tests |
+| R6 | REVIEW F1: a nested closure binding its own reconcile and reading the enclosing `recon` | KILLED 2 / 438 | B1 _analyse, B4 _analyse | **tripwire (b)**; **B7's own test** |
+| R7a | REVIEW F1: `_r = reconcile` | KILLED 1 / 439 | N3 `reconcile` | name integrity |
+| R7b | REVIEW F1: `from .reconcile import reconcile as verify` | KILLED 1 / 439 | N1 (a second binding of `reconcile`) | name integrity |
+| R8a | REVIEW F1: `_hosted = extract_statement` for a second hosted call | KILLED 9 / 431 | N3 `extract_statement` | `test_analysis` dynamic ×3; pinned-False dynamic; name integrity; the inverted characterisation; `test_privacy3_boundaries` dynamic ×2; `test_q3_native_only` dynamic |
+| R8b | REVIEW F1: `from .extract import extract_statement as _second` | KILLED 10 / 430 | N1 (a second binding of `extract_statement`) | `test_analysis` dynamic ×4; pinned-False dynamic; name integrity; the inverted characterisation; `test_privacy3_boundaries` dynamic ×2; `test_q3_native_only` dynamic |
+| R8c | REVIEW F1: `getattr(<module>, "extract_statement")` | KILLED 10 / 430 | N1 module, N5 string, N6 dynamic | `test_analysis` dynamic ×4; pinned-False dynamic; name integrity; the inverted characterisation; `test_privacy3_boundaries` dynamic ×2; `test_q3_native_only` dynamic |
+| R8d | REVIEW F1: `globals()["extract_statement"]` | KILLED 9 / 431 | N5 string, N6 dynamic | `test_analysis` dynamic ×3; pinned-False dynamic; name integrity; the inverted characterisation; `test_privacy3_boundaries` dynamic ×2; `test_q3_native_only` dynamic |
+| E10 | RE-REVIEW N2: the one reconcile binding moved into a `for` over candidates | KILLED 2 / 438 | B5 _analyse | **tripwire (b)**; the E10 pin |
+| E11 | RE-REVIEW N2: a second reconcile consumed through `_account_report`, read as `.reconciliation.ok` | KILLED 2 / 438 | B3 _analyse, B6 _analyse | **tripwire (b)**; **B7's own test** |
+| E8b | RE-REVIEW N2: a decorator re-invoking `_analyse` only on deterministic results | KILLED 6 / 434 | B6 _twice, O1 `_analyse` | **tripwire (b)**; O1/O2; `test_q3_native_only` dynamic ×4 |
+| N4m | RE-REVIEW N4: a `reconcile` import added to `analysis/extract.py` (the definer exemption) | KILLED 3 / 437 | module-guard analysis/extract.py | the definer guard ×2; the module-wide guard |
+| X1 | RE-REVIEW 2: a `while` with a walrus reconcile selecting on `.ok` against `recon` | KILLED 2 / 438 | B1 _analyse, B3 _analyse, B5 _analyse | **tripwire (b)**; **B7's own test** |
+| X2 | RE-REVIEW 2: a reconcile-bound name read in a comprehension inside a NESTED function | KILLED 1 / 439 | B5 _analyse | **tripwire (b)** |
+| X3 | RE-REVIEW 2: a generator expression holding the second `reconcile(...)` | KILLED 2 / 438 | B3 _analyse | **tripwire (b)**; **B7's own test** |
+| X4 | RE-REVIEW 2: a second `_account_report(...)` in a NEW `for` appending to another list | KILLED 2 / 438 | B3 _analyse, B6 _analyse | **tripwire (b)**; **B7's own test** |
+| X5 | RE-REVIEW 2: a decorator applied by assignment after the def | KILLED 14 / 426 | B6 _wrap, N2 `_analyse`, N3 `_analyse` | pinned-False dynamic; name integrity; **tripwire (b)**; the inverted characterisation; read-at-call-site; the webapp opted-in test; opted-in ×3; `test_q3_native_only` dynamic ×5 |
+| X6 | RE-REVIEW 2: a class with `__call__` re-invoking `_analyse` | KILLED 2 / 438 | B6 _Twice.__call__, O2 `_analyse` | **tripwire (b)**; O1/O2 |
+| X7 | RE-REVIEW 2: a closure inside `analyze_document` re-invoking `_analyse` | KILLED 8 / 432 | B6 analyze_document, O2 `_analyse` | **tripwire (b)**; O1/O2; the webapp opted-in test; `test_q3_native_only` dynamic ×5 |
+| X8 | RE-REVIEW 2: `try/except` around the one reconcile binding, re-bound in the `except` | KILLED 3 / 437 | B1 _analyse, B2 _analyse | **tripwire (b)**; **B7's own test**; the E10 pin |
+| X9 | RE-REVIEW 2: a `match` statement holding the second reconcile and the selection | KILLED 2 / 438 | B1 _analyse | **tripwire (b)**; **B7's own test** |
+| X10 | RE-REVIEW 2: the sibling `accounts.append(_account_report(...))` moved inside an `if` | KILLED 1 / 439 | B3 _analyse | **tripwire (b)** |
+| X11 | **RE-REVIEW 2, P1: a fresh `reconcile(...)` bound INSIDE `_account_report` and preferred over the passed-in `recon`** | KILLED 2 / 438 | B1 _account_report, B2 _account_report, B4 _account_report, B7 _account_report | **tripwire (b)**; **B7's own test** |
+| X12 | RE-REVIEW 2: a SECOND HOSTED CALL through `__builtins__[…]` + `os.sys.modules` + split string constants | KILLED 9 / 431 | — (dynamic only) | `test_analysis` dynamic ×4; pinned-False dynamic; the inverted characterisation; `test_privacy3_boundaries` dynamic ×2; `test_q3_native_only` dynamic |
+
+Survivors: none. **30 / 30 KILLED.** Logs: `mutants.log` (the step, `EXIT=`) and
+`mutants_table.log` (the harness's own table, every killer named) with `mutants_table.json`.
+
+## Proofs at the closure-3 tip (step · result · log · EXIT)
+
+The code tree of `analysis/` is UNCHANGED from the closure-2 tip (the blob hash above), so no replay, no
+gate, no corpus slice and no full suite is owed; a test file changed, so the canonical guards are.
+
+| step | result | log | EXIT |
+|---|---|---|---:|
+| the fence file | 73 passed | `targeted-fence-file.log` | 0 |
+| the killer set (the mutation baseline) | 440 passed | `targeted-killer-set.log` | 0 |
+| the three other targeted sets (P2) | as the P2 table above | `targeted-*.log` | 0 / 0 / 1 |
+| canonical guards (5 files) | 275 passed | `guards.log` | 0 |
+| mutation table (30 rows) | 30 / 30 killed; tree clean and both files byte-identical after each | `mutants.log` / `mutants_table.log` | 0 |
+| privacy scan `b23cb50..55ed07c` (population = the run of record, 3,380) | `added_lines 2395`, `documents_read 3351` (29 `no_cached_text`), population 3380, **`hit_count 0`** (`raw_hit_count 31`, all `words_class` by rule), `residue_files 0`, `residue_sites 0` | `privacy.log` | 0 |
+| message scan `b23cb50..55ed07c` | `commits_scanned 12`, **`hit_count 0`** — MONEY 0 / DIGITS 0 / DATES 0 / WORDS 0 | `messages.log` | 0 |
+| privacy scan re-run after this section's commit | re-run over `b23cb50..<the W3 commit>` after this section is committed, in a third lock window, and reported in the closure message to Ocean (the section cannot contain a number measured over its own commit) | `privacy-final.log` | — |
+| message scan re-run after this section's commit | re-run over `b23cb50..<the W3 commit>` after this section is committed, in a third lock window, and reported in the closure message to Ocean (the section cannot contain a number measured over its own commit) | `messages-final.log` | — |
+
+The two known failures elsewhere on this branch are unchanged and are not this cell's:
+`tests/test_diagnostics.py::test_reconciliation_issue_sites_match_the_anchor_count` (cell T's count guard,
+the consequence §P22FENCE reported) and
+`tests/test_run_of_record.py::test_provenance_paddle_key_note_never_leaks_a_raw_exception_message` (the host
+`.env` effect; cell K's fix is on `train12`, not on this branch).
+
+## The lock window
+
+TWO windows, both taken with `mkdir` alone and both released with the directory CONFIRMED gone
+(`MASTER.log` carries every line; each step its own log ending `EXIT=`).
+
+* **Window 1 — 2026-09-10 22:36:28Z → 23:00:59Z.** First poll 20:00:28Z; **156 polls of 60 s** behind cell
+  T's `P22-TRUTHTABLE` harness (which had held the lock since ~19:36Z), polled by a python loop in the
+  detached driver, never a shell sleep, and never a write into the holder's directory. Steps: the 30-row
+  mutation table (1,366 s, `EXIT=0`), privacy (24 s, `EXIT=0`), messages (21 s, **`EXIT=1`**).
+* **The message scan of window 1 is why there is a window 2.** It reported **WORDS 2** on the closure-3
+  commit message (`9909cbf`): two archive-printed WORDS tokens produced by ordinary prose — one a two-word
+  adjacency across a sentence break, one a single word. MONEY / DIGITS / DATES were 0 and no hit was in a
+  file. Per the batch-9 rule ("a branch is unpushed until Ocean composes, so a message reword is cheap"), the
+  commit was REWORDED. Because the same pass also had to correct a test defect the first mutation table
+  exposed — the P3 inertness pin was written ABSOLUTELY (`== []`) and therefore fired as a killer on 20 of
+  the 30 mutants, an anchor artefact that named the wrong rule — the reword was taken as an `--amend`:
+  `9909cbf` → **`55ed07c`**, one commit, message reworded and the two P3 pins restated RELATIVELY against
+  the module text. The first mutation table (also 30/30 KILLED, with those artefact killers) is superseded
+  by the second; both are in `mutants_table.log`'s successive runs and in `MASTER.log`.
+* **Window 2 — 2026-09-10 23:55:07Z → 2026-09-11 00:20:12Z.** First poll 23:03:07Z; **52 polls of 60 s**
+  behind `REV22-TRUTHTABLE` (cell T's independent reviewer), which took the lock within seconds of window
+  1's release. Steps: the 30-row mutation table at `55ed07c` (1,402 s, `EXIT=0`, 30/30 KILLED), privacy
+  (23 s, `EXIT=0`), messages (21 s, **`EXIT=0`** — WORDS back to 0, the reword confirmed).
+* **The release, both times, hit the known OneDrive refusal**: `os.rmdir` raised `PermissionError`
+  `[WinError 5]` on the now-EMPTY directory 12 times in a row (5 s apart), and Git bash's `rmdir` succeeded
+  at once (`exit=0`) — the re-reviewer's host lesson, reproduced twice more. `LOCK released; directory
+  present after release: False` is in the log for both windows: NO orphan was left, and no other holder's
+  lock was ever touched or written into.
+
+A third short window is taken AFTER this section's commit for the two final scans (below).
+
+## Commits (on `fc65067`)
+* `55ed07c` test(p22-fence): closure-3 — P1 (the parameter that carries a reconcile result; B7) and P3 (the
+  re-invocation comment) — `tests/test_pipeline_escalation_fence.py` alone
+* this section's commit (documentation only; the code tip stays `55ed07c`, tree
+  `c224a3ad725f6bd7c4579f2d8665e53d10482647`)
+
+## Risks (last) — the honest limits that remain
+* **`tools/` and `webapp/` are outside the module-wide guard.** `test_no_other_module_under_analysis_imports_reconcile_or_extract_statement`
+  scans every module under `analysis/` (the two definers included, since N4). A helper that binds or reaches
+  `reconcile` / `extract_statement` from `tools/` or `webapp/` is seen by nothing here — no such helper
+  exists today, and the guard would have to widen deliberately.
+* **The name-based dynamic doors are covered DYNAMICALLY only for a HOSTED call.** N6 refuses `getattr` /
+  `globals` / `sys.modules` and friends by NAME, so `__builtins__[…]`, an aliased `sys` and split string
+  constants walk past it (the re-review's E9c/E9d class). X12 shows what that costs and does not cost: a
+  SECOND HOSTED CALL through exactly those doors still dies — X12, KILLED 9 / 431 by nine tests across four
+  files, none of them a static rule. A selection between
+  NON-hosted candidates reached through them remains the layer's blind spot — B1–B7 bite the moment the
+  result is bound or read by name, which every shape anyone has yet written does.
+* **B7 pins the call sites to `_analyse`.** A future legitimate `reconcile(` anywhere else — including a
+  refactor that moves the sibling loop — is a deliberate tripwire edit, exactly like B5's loop rule and O2's
+  two callers.
+* The parameter rule keys on the annotation `ReconResult` and the name `recon`. A parameter that carries a
+  reconcile result under a THIRD spelling (renamed and re-annotated in the same edit) would not be marked;
+  B7 still refuses the `reconcile(` call that would have to produce the second result inside that unit, so
+  the shape has to come from ANOTHER unit's result being passed in — which is the `_account_report` seam
+  itself, and it takes exactly one result today.
+* The durable "refused for want of the opt-in" record and the auto-mode cache-key partition on the opt-in
+  remain Ocean's composition items, as §P22FENCE-CLOSURE-2 recorded; nothing in closure-3 touches them.
+
