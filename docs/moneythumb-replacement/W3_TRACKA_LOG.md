@@ -73518,3 +73518,263 @@ section.
   wrong twice over — it is neither per-document nor a peak — and the honest fix
   is sampling, in the milestone that has a reason to measure.
 
+# §P23AGREE — native↔extractor word agreement and the geometry census (AGREEMENT_VERSION 1), the two latent native-reader defects closed with ZERO corpus movement; 0 coverage movement, 2,625 preserved payload-identical
+
+Phase 2.3 cell X (`docs/agent-handoffs/P23-AGREE.md`; umbrella `PHASE2-3-WAVE.md` D3, cases 7 and 13;
+plan §G.2.3 cell X and §H.4). Worktree `.claude/worktrees/mt23-agree`, branch `wave23-agree`, base
+`train13` `26f94f5`. Ocean reviews and composes; this cell never merged and never pushed.
+
+## What this cell is, and what it is not
+
+2.4's LayoutModel will build structure from geometry that comes from two sources — native PDF words and
+PaddleOCR words — and 2.5 will admit Paddle only where it is MEASURED to add evidence. Neither can be
+judged without knowing what agreement between the two sources looks like on known-good documents, and
+where they disagree on the unresolved ones. This cell builds that measurement and nothing else.
+
+It decides nothing. `layout/agreement.py` returns numbers; it names no verdict, no class, no threshold
+breach and no routing hint (an AST test asserts that no function, class or name in it carries
+`trigger`, `escalat`, `verdict`, `validated` or `refuse`). E4 — cross-engine disagreement below
+calibration — is review evidence recorded on the row, exactly as §H.4 rules it: it starts no extractor,
+no escalation and no third engine, and `ocr/` and `analysis/` may not import the module or name one of
+its columns.
+
+## Population
+
+* the synthetic pairs — one `tests/paddle_synthetic.py` ledger page (invented literals, a synthetic
+  year ≥ 2031, arithmetically generated figures), 54 words, read four ways: as ground truth in points,
+  as the same truth in a 300-dpi raster's pixels, by the ONE native reader on the rendered PDF, and by
+  `ocr/paddle_adapter.py` on the fake worker's result for that page;
+* the 3,380 of the run of record (`discovery_reports/TRAIN12-52bd8f2/2026-09-11T040247.502179-0000-fd6b4d7f`,
+  archive read-only) for the N-1 / N-2 census — 25,516 pages measured, 12 unreadable, 25,528 in total,
+  which is the re-reviewer's own page count;
+* the union cohort — every registration's baseline cohort, 2,625 documents in the seven `--parser`
+  chunks cell T used — replayed at base and at closure against the Phase 2.2 cold cache
+  `.claude/recovery/webapp_data_train12_cold` (READ-ONLY);
+* a FAKE-WORKER research partition (3 synthetic documents) for the census instrument's door.
+  **Cell W's real `paddle-v5-prod` partition does not exist yet**, so the CTRL calibration and the U755
+  distribution are NOT measured here; the instrument is ready and the run is owed the moment Ocean says
+  the partition exists (CTRL first, D3).
+
+## Root cause
+
+Three things did not exist. (1) There was no way to compare two readings of one page at all: the two
+geometries live in different units (PDF points and raster pixels) and nothing normalised them. (2) The
+row carried no record of such a comparison, so a wave could produce evidence that nobody could read
+back as a number. (3) The ONE native reader carried two defects its own re-review had named and left
+open — both latent, both reachable by a real PDF, and both of the kind that puts every word box of a
+page in the wrong place while the page still reads as successfully parsed.
+
+## Solution
+
+**`layout/agreement.py` (`AGREEMENT_VERSION` 1).** Pure functions over two `ExtractionEvidence` pages.
+Frame normalisation into the display frame in POINTS — a `pdf_point` frame as it stands, a `pixel`
+frame scaled by `72 / dpi`, the raster's own declared resolution, which the evidence contract has
+already checked against the per-axis raster/page ratio; the two frames are asserted to describe one
+rectangle within 1 % and a disagreement is RECORDED (`frame_mismatch`), never a refusal to measure.
+Greedy one-to-one alignment by descending IoU at 0.5, ties broken by index, each box used at most once.
+Then: the matched ratio each way; normalised character agreement over the matched pairs (case-folded,
+whitespace-collapsed, its own version, summed over pairs rather than averaged per pair); exact
+agreement of the money and date shapes `layout/signals.py` resolves, over the matched pairs that carry
+one; the density of unmatched words inside the candidate table region (a named, versioned counting
+device — the union of the y-bands of derived lines carrying ≥ 2 money shapes — never a structure
+hypothesis); and the page-size, rotation and skew census, skew being the median least-squares angle of
+the derived lines' word midpoints. The module imports the standard library, `evidence` and
+`layout.signals` and nothing else (AST-pinned).
+
+**Twelve row columns**, appended to `ROW_FIELDS` and never reordered — `agree_version`, `agree_pages`,
+`agree_matched_native`, `agree_matched_paddle`, `agree_char`, `agree_amounts`, `agree_dates`,
+`agree_unmatched_table_density`, `agree_frame_mismatch`, `geom_rotation`, `geom_skew_deg`,
+`geom_page_size` — projected at the row's single exit ONLY when the document carries BOTH readings and
+EMPTY otherwise, which is every production row today. The fold is stated per column in the code: every
+ratio is a sum-over-sum across the pages compared (never the mean of per-page ratios, which would weight
+a three-word page like a six-hundred-word one), `agree_pages` and `agree_frame_mismatch` are counts of
+pages, and the `geom_*` columns cover every native page. A defect in the projection is a finding (empty
+columns), never a lost document.
+
+**`tools/agreement_census.py`** — read-only over a research partition, printing the distribution of
+every statistic overall, by modality and by census family, plus the rotation / skew / page-size census.
+Counts, means and NEAREST-RANK percentiles only, so every printed percentile is a value the corpus
+actually produced; no text, no line, no word, no figure, no sha beside a verdict. Which partition it is
+reading is never guessed: an explicit key, or a research run's provenance whose recorded partition must
+be the one asked for (a production run is refused by the same check), or a last-resort scan that finds
+exactly ONE key carrying extractor evidence and says so — zero or several is a refusal that names the
+count.
+
+**The two latent defects, closed in `evidence/native.py`.**
+
+* **N-1** — on a page whose CropBox OVERHANGS its MediaBox and that carries a rotation, PyMuPDF clamps
+  `page.rect` and the word coordinates to the MediaBox (which is also what Poppler renders) but builds
+  `rotation_matrix`'s translation from the UNCLAMPED box. The display transform is now derived from
+  `page.rect` itself (`_display_matrix`, the affine form of the independent formula the four-angle pin
+  already carried) whenever PyMuPDF's matrix disagrees with it, and the page is noted
+  (`clamped_display_transform`). Where the two agree — every page whose CropBox sits inside its
+  MediaBox — PyMuPDF's own matrix is used verbatim, which is what closes the defect WITHOUT moving one
+  byte of any existing page's evidence.
+* **N-2** — a `/Rotate` written as an INDIRECT reference read back as "no value", so an indirect invalid
+  rotation escaped the refusal a direct one gets and was mis-framed exactly as that defect was. The
+  reference is now resolved through the object it names before the mod-90 test, with a bounded walk so
+  a chain is followed and a cycle cannot spin. A resolved value that is not an integer is the same fact
+  as an absent key; the reader never guesses an angle.
+
+## The synthetic pair table (card item 5)
+
+| pair | expectation | measured |
+|---|---|---|
+| identical words, 300-dpi pixel frame vs points | every statistic 1.0 | 54/54 matched each way, char 1.0, money 1.0 over 16 pairs, dates 1.0 over 8 pairs, table density 0.0, frames agree |
+| the same, shifted right by 2.5 character widths | the matched count the box arithmetic predicts (two `w × h` boxes offset by `dx` have IoU `(w−dx)/(w+dx)`, so a box matches iff `w ≥ 3dx`) | 19 of 54, exactly the tokens of ≥ 8 characters; char still 1.0 on what matched; money pairs 0 (unmeasured, `None`, never a manufactured 1.0); date pairs 8 at 1.0 |
+| two amount tokens with one digit changed | the exact-agreement drop equals the perturbed count | 54/54 still matched (geometry untouched), money 14/16, dates 1.0 |
+| one date token with its month changed | the same, on the date statistic only | dates 7/8, money 1.0 |
+| the same words in a different case and spacing | the normaliser makes character agreement 1.0 | 1.0 |
+| a rotated pair at 0 / 90 / 180 / 270 | matched and censused at every angle | 54/54 matched at each angle; the census reports the declared rotation and the display page size |
+| a page skewed by a known 0.6° | within the card's 0.5° | recovered within 0.05° (an unskewed page measures 0.00°) |
+| the REAL pair: the ONE native reader on the rendered PDF beside the adapter's evidence for the fake worker's result | independent geometries (font metrics vs fixed-width arithmetic) must still match | 54/54 matched, char / money / dates 1.0, minimum IoU over the 54 pairs **0.7017** (pinned at ≥ 0.65) |
+
+## The N-1 / N-2 corpus census (card item 4) — and the schema-version decision
+
+`tools/agree_native_census.py` over the 3,380 of the run of record, read-only. Two passes: a structural
+pass on every document (does PyMuPDF's matrix disagree with `page.rect`? is the `/Rotate` indirect, and
+what integer does it resolve to?) and a BYTE pass in which the document's evidence sha is computed twice
+from the same reader — once as it stands, once with the two fixed decisions suppressed (`_matrices_agree`
+forced true, `_resolved_rotate_int` forced to `None`), which is the Phase 2.2 behaviour reproduced
+through the Phase 2.3 code path rather than transcribed.
+
+| fact | measured | the re-reviewer's own census |
+|---|---|---|
+| documents / pages | 3,380 / 25,516 measured + 12 unreadable = 25,528 | 25,528 (12 unreadable) |
+| rotated pages | 82 | 82 |
+| pages whose CropBox overhangs its MediaBox | 7 (all unrotated) | 7, all unrotated |
+| **N-1: pages whose matrix disagrees with `page.rect`** | **0** | 0 |
+| pages with an INDIRECT `/Rotate` | 4, every one resolving to a multiple of 90 | 4 `xref` references, all resolving to 0 |
+| **N-2: pages whose resolved `/Rotate` is not a multiple of 90** | **0** | — |
+| documents flagged by the structural pass | 0 | — |
+| **documents byte-verified / evidence shas MOVED** | **3,380 / 0** | — |
+
+**No real corpus page moves, so `EXTRACTION_SCHEMA_VERSION` stays at 3** — no bump, and therefore no
+STOP to report. The verification is over the WHOLE corpus, not a sample: every one of the 3,380
+documents' evidence shas is identical with and without the fix.
+
+## Agreement evidence
+
+* **The fake-worker partition** (3 synthetic documents built through the real Paddle rung against the
+  in-process fake worker, loopback only): 3 paired, 3 pages compared, 0 frame mismatches; every
+  statistic 1.0 and the unmatched table density 0.0; the geometry census one page size, rotation 0,
+  skew 0.00°. That is the door proven end to end on evidence a rung actually produced.
+* **CTRL and U755 are NOT measured here.** Cell W's `paddle-v5-prod` partition does not exist yet. The
+  calibration (D3: the control sample first) is owed and the instrument is ready; the run is read-only
+  and costs the host one pass per partition.
+* **E4 population: 0.** No production row carries both readings, so every one of the twelve columns is
+  empty on the run of record by construction — which is exactly what the row-projection test pins.
+
+## Identity evidence
+
+* the 12-PDF unrotated pin and the four-angle pin are untouched and green;
+* every unrotated page's boxes are still PyMuPDF's own floats, verbatim (the identity applied as the
+  identity), and a CropBox INSIDE the MediaBox still uses PyMuPDF's own matrix at all four angles —
+  a test asserts the new note is absent there;
+* the two latents' corpus population is 0 and the byte pass proves it over all 3,380;
+* the union replay at base and at closure: population 2,695 documents replayed at each tree; previously validated preserved **2,625 of 2,625, payload identical 2,625**, payload changed 0; newly validated 0; other ladder movement 0; validated regressions **0**; other ladder regressions 0; no text / absent 0 — the SAME numbers at base and at closure, all seven chunks `EXIT=0` both times.
+
+## Mutation table (M1–M10) — 10 of 10 killed, tree clean after every mutant
+
+`tools/agree_mutation_table.py`, run at tree `053717a`; it refuses to start on a dirty tree, restores in
+a `finally`, asserts the tree clean after every row, runs its suites without `-x`, and APPENDS its table
+log rather than overwriting it (the 2.2 fence re-review's residue).
+
+| # | mutant | killer |
+|---|---|---|
+| M1 | the IoU threshold 0.5 → 0.1 without a version bump | the version/threshold pin + the shifted pair |
+| M2 | a box matched twice | the one-use test (pinned in both directions) |
+| M3 | the pixel frame not scaled by 72/dpi | the identical pair at 300 dpi + the real pair |
+| M4 | character agreement without the normaliser | the case/whitespace synthetic |
+| M5 | money and date agreement over UNMATCHED pairs | the shifted pair's money denominator (0, not 16) |
+| M6 | a decision package reading an agreement statistic | the AST guard, planted in an in-memory copy of the router's and the structurer's real sources |
+| M7 | the projection falling back to the ONE reading a document has | the empty-projection test |
+| M8 | N-1's transform taken from PyMuPDF's matrix regardless | the overhanging-CropBox pin, measured against the rasteriser's pixels |
+| M9 | N-2's indirect `/Rotate` treated as absent | the indirect-invalid-rotation pins |
+| M10 | the census printing a word | the census output-shape test |
+
+## Proof floor (every exit from a durable log under `discovery_reports/train13-logs/p23agree/`)
+
+| proof | result |
+|---|---|
+| full default suite | **9,877 passed / 48 skipped / 39 deselected / 0 failed** (616 s), `EXIT=0` — the 2.2 floor was 9,827 passed; +50 are this cell's |
+| the 5 canonical guards | **277 passed** (the 2.2 floor was 276; +1 is this card's roots-existence guard), `GUARDS_EXIT=0` |
+| the 7 canonical conformance files | **1,282 passed / 41 skipped**, `CONFORMANCE_EXIT=0` |
+| `python corpus_gate.py` | **GREEN 105 PASS / 3 WITHHELD / 1 REFUSED**, `GATE_EXIT=0` |
+| `pytest -m corpus` | **34 passed / 9,930 deselected** (1,413 s), `CORPUS_EXIT=0` |
+| N-1 / N-2 corpus census | 3,380 documents, 0 moved, `EXIT=0` |
+| mutation table | 10/10 killed, `unkilled: none` |
+| union cohort replay, base and closure | 7 chunks x 2 trees, every one ; 2,625 preserved payload-identical at both |
+| privacy scan over added lines (`--base 26f94f5 --ref <tip>`, the run-of-record population) | **0 hits, 0 residue sites** — at the code tip over 2,771 added lines, and again with THIS section included over 3,031 added lines, both against the 3,380 (3,351 with cached text); 22 and 23 raw hits, every one excluded by the standing `words_class` rule; MONEY / DIGITS / DATES **0** in both runs |
+| message scan over this branch's commits | **0 hits** — over the 4 code commits and again over all 5; one WORDS hit (a generic English word in a geometry sentence) was removed by a tree-preserving reword before the final runs; MONEY / DIGITS / DATES 0 in every run |
+
+## Report contract
+
+* **population** — the synthetic pairs; the 3,380 for the N-1/N-2 census; the 2,625-document union for
+  the replay; a 3-document fake-worker partition for the census door.
+* **newly validated 0** · **other ladder movement 0** · **previously validated preserved: all, payload
+  identical** · **regressions 0**.
+* **correctness evidence** — the pair table above; the overhanging-CropBox pin measured against
+  Poppler's own pixels; the indirect-`/Rotate` pins; 10/10 mutants killed.
+* **agreement evidence** — the fake-worker distribution; CTRL and U755 owed once cell W's partition
+  exists; E4 population 0.
+* **identity evidence** — unrotated byte-identical by construction and by test; both latents' corpus
+  population 0; 3,380 evidence shas unmoved; the union replay.
+
+## Commits (in order; each ends with the mandated trailer pair)
+
+| sha | what |
+|---|---|
+| `a2be3ca` | `layout/agreement.py` + `tests/test_agreement.py` + the row projection (`discovery/runner.py`), the `ROW_FIELDS` append (`discovery/report.py`) and the row-shape test |
+| `e63cbb1` | `evidence/native.py` N-1 and N-2 with their synthetic pins, and `tools/agree_native_census.py` |
+| `dbfae96` | `tools/agreement_census.py` and the OQ2 scan-roots append |
+| `913e3f4` | `tools/agree_mutation_table.py` (M1–M10) and the two widened tests the mutants die on |
+| this section | the W3 record |
+
+The first four were reworded ONCE, tree-preservingly, to remove a single generic English word the
+message scanner's WORDS class flagged: `git filter-branch --msg-filter` over `26f94f5..HEAD`, the
+resulting tree byte-identical (`8e2f00b`), every trailer intact, and both scans re-run at the new tip.
+The earlier shas (`9f77f5d`, `8f6479b`, `4a973a1`, `053717a`) appear in this cell's own logs — the
+mutation table records tree `053717a`, whose CONTENT is `913e3f4`'s.
+
+## Ownership notes for Ocean (reported, not resolved)
+
+1. **`ROW_FIELDS` lives in `discovery/report.py`, not `discovery/runner.py`.** The card names "the
+   `ROW_FIELDS` append" as this cell's item but attributes it to the runner. The append was made where
+   the list actually is, and NOTHING else in that file was touched.
+2. **The row-shape test is cell T's file** —
+   `tests/test_two_denominators.py::test_the_new_columns_are_appended_at_the_end_of_row_fields_in_the_card_order`.
+   Twelve names were appended to its expected tail and nothing else.
+3. **Cells E and W carry the same two items in their own cards** (`eq_*` columns; the wave's telemetry
+   columns). A composition collision on `ROW_FIELDS`, on `DocumentRow` and on that one test is expected
+   and is Ocean's to resolve; every cell's block is a pure append at the END.
+4. **Two new files under `tools/` beyond the card's named one**: `tools/agree_native_census.py` (the
+   N-1/N-2 corpus census — it produces headline numbers, which the standing rules require to be a
+   committed instrument) and `tools/agree_mutation_table.py` (the harness, as the card's sequence
+   allows). Both joined the OQ2 scan roots with the existence guard the roots convention requires.
+5. **A base worktree** `.claude/worktrees/mt23-agree-base` (detached at `26f94f5`) was created for the
+   base replay, following the 2.2 precedent (`mt22-truthtable-base`).
+6. **No lexicon addition was needed** in `layout/signals.py`; the money and date grammars were imported
+   unchanged.
+7. **The scratchpad directory is SHARED between the cells on this host.** A generic `lock.py` there was
+   rewritten twice by other cells while this cell's window was open; every script of this cell is
+   namespaced `p23agree_*`, and its release refuses unless `holder.txt` names P23-AGREE.
+
+## Risks (last)
+
+* **The skew measure rides on `evidence.group_lines`.** It is exact for a uniformly rotated page — the
+  midpoint of the axis-aligned hull of a rotated box is the rotated midpoint — but the ONE grouping rule
+  splits a line whose vertical drift exceeds 0.6 × the median word height, so a page skewed beyond
+  roughly three quarters of a degree over a 500 pt line produces fragments and the median then mixes
+  them. Measured cleanly at 0.6°; recorded as a known bound for 2.4 rather than fixed here, because the
+  grouping rule is not this cell's to change.
+* **The candidate table region is deliberately crude** (lines carrying two or more money shapes) and
+  versioned as such. It exists to give the unmatched-word density a denominator, not to describe a
+  table; 2.4's LayoutModel is where a real region model belongs.
+* **The census's last-resort key scan** assumes a research cache holds exactly one evidence-carrying OCR
+  key. It refuses rather than guesses when that is not true, but the honest door is `--run` or
+  `--settings-key` and the wave should hand one of those over.
+* **The calibration itself is still owed.** Everything here is instrument and identity; the numbers that
+  matter to 2.4 and 2.5 — what agreement looks like on CTRL, and how it falls on U755 — cannot be
+  produced until cell W's partition exists.
+
