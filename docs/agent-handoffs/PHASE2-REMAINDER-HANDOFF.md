@@ -12,7 +12,9 @@
 > `discovery_reports/TRAIN12-52bd8f2/2026-09-11T040247.502179-0000-fd6b4d7f` vs the Phase 2.1 run of record: 2,625 → 2,625,
 > 3,380 unchanged, the matrix wholly diagonal, refused 0, compare exit 0** (cold cache `.claude/recovery/webapp_data_train12_cold`
 > — READ-ONLY from now on; the run started under `FLOOR_GB=1.5 CAP_GB=4 OCR_MAX_WORKERS=1` because the desktop leaves ≈ 2 GB
-> available). CI on `origin/train12`: run 34567212012. The durable record: `BATCH9_TRANSITION.md` §7 (2026-09-10 / 09-11 entries),
+> available). CI: dispatch run 34567212012 at `52bd8f2` FAILED on one Linux-only test (a Windows-separator
+> variant of T's containment pin; fixed in the test at `d84af95`) → dispatch run 34567935218 SUCCESS at `d84af95`;
+> main fast-forwarded to `d84af95`, tag `phase2.2-final`, main-push run 34569026745 SUCCESS. The durable record: `BATCH9_TRANSITION.md` §7 (2026-09-10 / 09-11 entries),
 > `PHASE2_STATE.md`, `PROJECT_STATUS.md`, `PHASE2-2-TRUTH.md` §Closure, the five reviews. **The next lead reads
 > `docs/agent-handoffs/PHASE2-3-WAVE.md` (the Phase 2.3 umbrella card) and the transition log's last entries; §4–§6 below
 > remain the operating discipline. Lock rule: mkdir-only, holder inside, own-holder release, Git bash `rmdir` when Python's is

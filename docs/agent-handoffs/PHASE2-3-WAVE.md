@@ -34,9 +34,9 @@ payload-identical; **"Paddle helped" is a per-document stage record, never one n
 ## Baseline (verified at the 2.2 closure; every number from its log)
 | fact | value |
 |---|---|
-| `origin/main` = `HEAD` of `train13` | `<phase2.2-final sha>` (code tree `<tree>`) |
-| `phase2.2-final` | `<sha>` (filled at the tag); CI on `origin/train12` at `52bd8f2`: run 34567212012 (dispatch) |
-| train branch | **`train13`** (opened from `origin/main` at `phase2.2-final`) |
+| `origin/main` = `HEAD` of `train13` | `d84af95` (the composed code tree `52bd8f2` — the tree the floor and the cold run measured — plus the closure docs `d591468` and one tests-only portability commit `d84af95`; `git diff 52bd8f2 d84af95 -- . ':!docs' ':!tests'` is empty) |
+| `phase2.2-final` | `d84af95` (annotated, pushed 2026-09-11); CI dispatched on `origin/train12`: run 34567212012 at `52bd8f2` FAILED on one Linux-only test (a Windows-separator variant of T's containment pin, fixed in the test at `d84af95`) → run **34567935218 SUCCESS** at `d84af95`; the main-push run is recorded in `BATCH9_TRANSITION.md` §7 |
+| train branch | **`train13`** (opened 2026-09-11 from `main` at `phase2.2-final` = `d84af95`, checked out in the main checkout) |
 | floor | 2,625 / 3,380 (77.66 %); Phase 2.2 cold run **`discovery_reports/TRAIN12-52bd8f2/<run>`** vs the Phase 2.1 run of record: 2,625 → 2,625, 3,380 unchanged, compare exit 0; its cold cache **`.claude/recovery/webapp_data_train12_cold`** (READ-ONLY; OCR schema 3 / stage 5 / raster 2; analysis stage 18) — THE run of record and cold cache for every 2.3 comparison |
 | versions | OCR_STAGE_VERSION 5 · EXTRACTION_SCHEMA_VERSION 3 · EVIDENCE_SCHEMA_VERSION 1 · RASTER_VERSION 2 · ANALYSIS_STAGE_VERSION 18 · DIAGNOSTICS_VERSION 5 · UNRESOLVED_TAXONOMY_VERSION 1 · CLASSIFIER_VERSION (cell C's) · registry 84 |
 | suite at the composed tree | 9,827 passed / 48 skipped / 39 deselected / 0 failed (with the real Paddle `.env` present); guards 276; conformance 1,282; gate GREEN 105/3/1; corpus slice 34 |
