@@ -250,10 +250,21 @@ def test_an_unknown_configuration_is_refused():
         resolve_configuration("paddle-v9-imaginary")
 
 
+def test_the_research_partition_id_is_the_configuration_block_name():
+    """Ocean's ruling of 2026-09-11. The umbrella card's `research/paddle-v5-prod`
+    was prose the partition shape cannot carry, and a `research-` prefixed
+    rewrite of it — shape-legal — is NOT the ruled id either: the id IS the
+    configuration block's name. One configuration, one partition, one spelling;
+    what makes a partition research is that a run carries one at all, which
+    `telemetry/run_of_record.py` refuses on, never how it is spelled."""
+    for name, block in CONFIGURATIONS.items():
+        assert block["partition"] == name
+
+
 def test_the_partition_id_matches_the_shape_the_research_mode_admits():
     """`research/paddle-v5-prod` cannot be a partition id: the pattern admits
-    no separator. The hyphenated spelling is deliberate and lives in one
-    place."""
+    no separator. The ruled id is the configuration block's own name (pinned
+    just above), and it lives in one place."""
     import re
 
     from discovery.runner import RESEARCH_PARTITION_PATTERN

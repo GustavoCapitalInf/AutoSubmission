@@ -112,12 +112,17 @@ class WaveRefused(RuntimeError):
 PRODUCTION_CONFIG = "paddle-v5-prod"
 
 #: `name -> (research partition id, what it is)`. The partition id is OCR-key
-#: material and must match `RESEARCH_PARTITION_PATTERN`, which admits no `/`
-#: — so the umbrella card's `research/paddle-v5-prod` is spelled with a hyphen
-#: here, deliberately and once.
+#: material and must match `RESEARCH_PARTITION_PATTERN`, which admits no `/`.
+#: RULED (Ocean, 2026-09-11, after the umbrella card's `research/paddle-v5-prod`
+#: was found to be prose the shape cannot carry): the research partition id IS
+#: the configuration block's name — `paddle-v5-prod`, not a `research-` prefixed
+#: variant of it. The prefix would be shape-legal and still wrong: what makes a
+#: partition research is the id being non-empty at all (`telemetry/run_of_record.py`
+#: refuses any run that carries one), never the spelling, and a second spelling
+#: for one configuration is a second name for one partition of evidence.
 CONFIGURATIONS: dict[str, dict[str, str]] = {
     PRODUCTION_CONFIG: {
-        "partition": "research-paddle-v5-prod",
+        "partition": PRODUCTION_CONFIG,
         "what": "the Phase 2.1 production pins, unchanged; the configuration that counts",
     },
 }

@@ -215,6 +215,13 @@ authorized values in the environment of the `run` command; the wave refuses firs
 the missing one, and the research mode refuses again at its own door. Their absence is the
 safe default.
 
+**The configuration and its research partition.** `--config paddle-v5-prod` runs the Phase 2.1
+production pins under a research partition of THE SAME NAME: the partition id is the
+configuration block's name (Ocean's ruling of 2026-09-11 — the umbrella card's
+`research/paddle-v5-prod` was prose the id's shape cannot carry, and a `research-` prefixed
+rewrite is not the ruled id either). Cell V's `paddle-v5-orient` and `paddle-v6` are refused by
+name, with their owner.
+
 **The order is enforced, not remembered.** `CTRL` first, then `U755`, then `SLICE`. A later
 population refuses to start while an earlier one still holds a document nothing has
 attempted under the same configuration — the rule is read off the state files in the
