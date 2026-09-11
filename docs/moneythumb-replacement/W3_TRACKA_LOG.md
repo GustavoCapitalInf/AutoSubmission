@@ -73518,3 +73518,449 @@ section.
   wrong twice over — it is neither per-document nor a peak — and the honest fix
   is sampling, in the milestone that has a reason to measure.
 
+# §P23EGATE — extraction-quality v2: every candidate metric MEASURED on every page and VERSIONED in one threshold table, and every one of them ADMITTED AS NOTHING — the router's module byte-identical, thirteen `eq_*` columns only the report reads, a census that prints counts and percentiles and nothing else
+
+**Population.** Synthetic only. Nine control/defect pages rendered from literal
+strings by `tests/paddle_synthetic.py` (dated 2031, never derived from a
+document) and a seven-document fake-worker research partition built through the
+REAL research run mode. No customer page was read, nothing left this machine, no
+Paddle call was made — the wave is cell W's. `newly validated 0` · `ladder
+movement 0` · `regressions 0`.
+
+**Root cause — why this cell exists.** Phase 2.5 will derive Paddle's production
+triggers from MEASURED extraction-quality conditions, and those measurements did
+not exist. The only extraction-quality gate in the tree is
+`ExtractionQualityGate`'s parameter-free triad (no text produced, below the
+character floor, every page empty), which asks only whether an extractor
+returned *something*. The one criterion anybody proposed beyond it —
+alphanumeric density — was ruled SURFACE-ONLY precisely because it was a round
+number chosen just below the observed minimum of the very population it would
+then have been used to split (Ruling B; `ALNUM_DENSITY_FLOOR`'s own docstring,
+which is the most useful thing in this repository about how not to do this).
+Ruling B's discipline is labelled evidence FIRST, review SECOND, admission
+THIRD. 2.3 is the first step and only the first step.
+
+**Solution.** `ocr/extraction_quality.py` (new, `EXTRACTION_QUALITY_VERSION 1`):
+pure functions over ONE page of canonical `ExtractionEvidence`, plus that page's
+already-decoded grey raster where a metric needs pixels. Word count and density
+in the frame's own space; the rec-score mean and nearest-rank p10; the
+money-shape parse rate over numeric tokens; the lexicon rate over alphabetic
+tokens against a vocabulary DERIVED from `layout.signals.LEXICONS`; the
+garbage-token rate over both halves of the rule; box regularity (line-height CV,
+the numeric right-edge residual in the page's own character widths); the share of
+ink outside every word box; and the orientation votes the words' own boxes cast.
+Then `e_class` over exactly the plan's §H.4 vocabulary. Thirteen `eq_*` columns
+per document at the row's single exit; a census instrument over a research
+partition; and three independent pins that the whole thing is admitted as
+nothing.
+
+## What each metric is, and what it cannot say
+
+| metric | what it measures | what it cannot say |
+|---|---|---|
+| `word_count`, `density` | how much the extractor found, per square unit OF THE FRAME'S OWN SPACE | density is not comparable between a pdf-point frame and a 300-dpi pixel frame (a factor of (300/72)^2); it is described, never classified on, and `frame_space` travels beside it |
+| `rec_mean`, `rec_p10` | the extractor's own recognition scores, nearest-rank p10 | nothing across configurations, and nothing on its own: §H.4's own warning is that the score must be recalibrated per engine setup, so NO threshold names it and the one function that decides classes provably never reads it |
+| `money_rate` | of the tokens carrying a digit, the share that parse as a money figure | it is layout-sensitive as well as recognition-sensitive: a terms page or an address page of a genuine statement carries numeric tokens and no money |
+| `lexicon_rate` | of the tokens carrying letters, the share that are EN/FR/ES statement FURNITURE | the vocabulary is furniture, not a dictionary (224 words), so the rate is low even on a perfect page — which is why its threshold is a floor near zero and never a quality score |
+| `garbage_rate` | tokens over 20 characters OR carrying a repeated-letter run | letters only: a padded numeric field (`00000`) and a rule of dots are not garbage |
+| `line_height_cv`, `right_edge_residual` | whether the boxes are a page's boxes: uniform line heights, a right-aligned column of figures | two account columns on one page put two right edges in one distribution; a page with under 3 money lines is not judged at all |
+| `ink_outside_boxes` | of the page's ink, the share outside every word box (padded one pixel) | it needs pixels, and production keeps only `raster_sha256` — so in practice E1 is a CENSUS class, empty on every row |
+| `orientation_votes` | the share of votable tokens whose box reads down the page rather than across | it is a box fact, not an image fact: an extractor that already rotates its boxes reports horizontal on a rotated page, and the census's vertical-share distribution is the thing 2.5 calibrates on, not this v1 boolean |
+
+## The synthetic defect table (`tools/p23egate_synthetic_table.py`)
+
+Every page is a transform of the SAME clean ledger, so the defect is the only
+difference between it and the control.
+
+| page | metric it targets | measured | threshold | E-class | every class that fired |
+|---|---|---|---|---|---|
+| clean ledger (the control) | (none) | - | - | (none) | (none) |
+| blank | word_count | 0 | - | E0 | E0 |
+| partly covered | ink_outside_boxes | 0.733384 | ink_outside_boxes_ceiling = 0.35 | E1 | E1 |
+| 90 degrees | orientation_votes | vertical share 1.0 of 106 votes | orientation_unanimous_share = 1.0 | E3 | E3 |
+| noise | lexicon_rate | 0 | lexicon_rate_floor = 0.01 | E2 | E2 |
+| digit-glyph substitution | money_rate | 0 | money_rate_floor = 0.02 | E2 | E2 |
+| over-long tokens | garbage_rate | 0.0869565 | garbage_rate_ceiling = 0.05 | E2 | E2 |
+| repeated-letter runs | garbage_rate | 0.0869565 | garbage_rate_ceiling = 0.05 | E2 | E2 |
+| clean ledger + the page-integrity flag | truncated | True | - | E5 | E5 |
+
+And the half that makes "no other class fires" checkable rather than asserted —
+every metric on every page, beside the control's:
+
+| page | word_count | money_rate | lexicon_rate | garbage_rate | line_height_cv | right_edge_residual | ink_outside_boxes |
+|---|---|---|---|---|---|---|---|
+| clean ledger (the control) | 126 | 0.5 | 0.0869565 | 0 | 0 | 0 | unmeasured |
+| blank | 0 | unmeasured | unmeasured | 0 | unmeasured | unmeasured | unmeasured |
+| partly covered | 30 | 0.5 | 0.285714 | 0 | 0 | 0 | 0.733384 |
+| 90 degrees | 126 | 0.5 | 0.0869565 | 0 | 0.532246 | 0 | unmeasured |
+| noise | 72 | unmeasured | 0 | 0 | 0 | unmeasured | unmeasured |
+| digit-glyph substitution | 126 | 0 | 0.0366972 | 0 | 0 | unmeasured | unmeasured |
+| over-long tokens | 138 | 0.5 | 0.0689655 | 0.0869565 | 0 | 0 | unmeasured |
+| repeated-letter runs | 138 | 0.5 | 0.0689655 | 0.0869565 | 0 | 0 | unmeasured |
+| clean ledger + the flag | 126 | 0.5 | 0.0869565 | 0 | 0 | 0 | unmeasured |
+
+Three of those readings are worth naming rather than leaving to be noticed. The
+90-degree page also clears the line-height CV ceiling (0.532 against 0.5) —
+rotating a page turns one visual line into a column of separate ones whose
+heights are the words' own lengths — so it fires E3 twice over and E3 only. The
+digit-glyph page's right-edge residual is UNMEASURED, not zero: once no money
+token parses there is no column of figures to measure, which is the honest
+answer and the reason `None` and `0.0` are different values everywhere here.
+The partly-covered page's ink share outside its boxes is 0.733 while the share
+INSIDE them is 0.267 — deliberately asymmetric, so a gate that measured the
+inside would not land on the same number (M4).
+
+## The thresholds, and the version they are pinned to
+
+`EXTRACTION_QUALITY_VERSION = 1`. The table below is pinned beside that number
+in `tests/test_extraction_quality.py`: a threshold cannot move without the
+literal moving, and the literal cannot move without a reviewer reading the
+version line next to it (M1). A second test asserts every key is READ through
+the module's one accessor, so a table entry nothing consults is a failing build
+rather than documentation.
+
+| threshold | v1 | what it is |
+|---|---|---|
+| `min_words_for_page_metrics` | 12 | below this a page is not classified on its rates at all |
+| `money_rate_floor` | 0.02 | a floor for an anomaly, never a quality score |
+| `money_rate_min_numeric_tokens` | 20 | the denominator below which the rate is measured and NOT classified |
+| `lexicon_rate_floor` | 0.01 | likewise a floor: not one word of furniture in three languages |
+| `lexicon_rate_min_alphabetic_tokens` | 30 | likewise |
+| `lexicon_min_word_letters` | 3 | keeps `of` / `du` / `de` out of the vocabulary |
+| `alphabetic_token_min_letters` | 2 | what makes a token alphabetic |
+| `garbage_rate_ceiling` | 0.05 | |
+| `garbage_token_max_chars` | 20 | the card's own bound |
+| `garbage_repeat_run` | 4 | and the regex is BUILT from it, not echoing it |
+| `line_height_cv_ceiling` | 0.5 | |
+| `line_height_cv_min_lines` | 5 | |
+| `right_edge_residual_ceiling` | 1.5 | character widths |
+| `right_edge_residual_min_lines` | 3 | |
+| `ink_dark_luminance_max` | 128 | a pixel at or below this is ink |
+| `ink_box_pad_px` | 1 | a tight box plus antialiasing puts a rim of ink just outside the glyphs |
+| `ink_blank_page_share` | 0.0005 | below this the page is BLANK, not a coverage gap (§H.4's own guard) |
+| `ink_outside_boxes_ceiling` | 0.35 | |
+| `orientation_min_chars` | 2 | a one-character box votes for nothing |
+| `orientation_min_aspect` | 1.2 | a near-square box is indeterminate and is not in the share |
+| `orientation_min_votes` | 8 | |
+| `orientation_unanimous_share` | 1.0 | §H.4 says UNANIMOUS and v1 keeps it literal |
+| `raster_aspect_tolerance` | 0.02 | a raster whose axes disagree cannot be a raster of this page |
+| `rec_p10_percentile` | 10 | which percentile is REPORTED — not a threshold on the score |
+
+**These are a-priori labels, not corpus-fitted numbers.** No population was used
+to choose any of them, which also means no population has confirmed any of them.
+Each floor sits where the SHAPE of a page stops being a statement page at all,
+not where a corpus happens to sit; the census measures the real distributions per
+configuration and 2.5 recalibrates from them, and a recalibration is a version
+bump by construction.
+
+## The fold, per column
+
+Thirteen columns, appended to `ROW_FIELDS` and never reordered, in the module's
+own `EQ_ROW_COLUMNS` order — which is also the table the row-shape test pins
+against, so a column cannot be added, dropped or moved in one place only.
+
+| column | figure | fold |
+|---|---|---|
+| `eq_version` | `EXTRACTION_QUALITY_VERSION` | - |
+| `eq_word_count` | words on a page | min over pages |
+| `eq_density` | words per square unit of the frame | min over pages |
+| `eq_rec_mean` | mean recognition score | mean of the page means |
+| `eq_rec_p10` | p10 recognition score | min over pages |
+| `eq_money_rate` | money-shape parse rate | min over pages |
+| `eq_lexicon_rate` | lexicon rate | min over pages |
+| `eq_garbage_rate` | garbage-token rate | max over pages |
+| `eq_line_height_cv` | line-height CV | max over pages |
+| `eq_right_edge_residual` | right-edge residual | max over pages |
+| `eq_ink_outside_boxes` | ink outside the boxes | max over pages |
+| `eq_orientation_votes` | vertical share of the votes | max over pages |
+| `eq_class` | the page E-class | the WORST page's, by `E_CLASS_PRIORITY` |
+
+The rule is "name the worst page": the minimum where a low value is the defect,
+the maximum where a high one is. The two exceptions are stated where they live —
+`eq_rec_mean` is a distribution figure, and `eq_class` is a class. A metric no
+page measured is EMPTY at the document level too, never zero.
+
+## Admitted as nothing — three pins and a shape
+
+* **By blob.** `ocr/escalation.py` is byte-identical to its content at this
+  branch's base (SHA-256 over its bytes with line endings normalised, because
+  this repository checks out CRLF here and LF on the CI runner and a pin that
+  fired on a line ending would pin the platform). Deliberately the whole module
+  rather than "`ADMITTED_TRIGGERS` is unchanged": a set can be rebuilt from the
+  same names while the router around it moves.
+* **By vocabulary.** The admitted triggers, the defined-but-refused one,
+  `EXTRACTOR_ORDER` and `RouterInputs`' six fields restated in a second file, so
+  a change has to defeat two. No member of the trigger vocabulary is an E-class
+  or a metric name.
+* **By AST.** No module under `ocr/escalation.py`, `analysis/` or `webapp/`
+  imports `ocr.extraction_quality`, names one of its columns, or reads one off
+  anything; the scan covers `ocr/escalation.py` and every module of `analysis/` and `webapp/`. The guard is a pure function over source
+  TEXT, so M6 is planted in a SCRATCH COPY of the router and killed with the
+  working tree never touched, and the unmutated source is asserted clean in the
+  same test so the kill is not vacuous.
+* **By shape.** The metrics module imports the standard library, `evidence` and
+  `layout.signals` and nothing else (an AST test over its import set, plus
+  `sys.stdlib_module_names` for the rest). This is why the ink metric takes an
+  already-decoded grey buffer instead of PNG bytes: the decode belongs to the
+  caller, because a metrics module that could import an image library could
+  import the analysis layer. And a census of readers, by measurement: the
+  columns are named by the module that computes them, the runner that projects
+  them, the report that lists them and the census that reads them, and by
+  nothing else in the tree.
+
+The projection itself reads `document.evidence` — what an EXTRACTOR produced —
+and never `native_evidence`, and refuses the native reader's id a second time.
+Two independent conditions, because the mutant they exist to kill survives
+either one alone. It runs at the row's single exit after the analysis has
+finished, writes to the ROW and nothing else, takes truncation from the EXISTING
+page-integrity flag rather than re-deriving it, and leaves the columns empty
+rather than failing a run if it ever raises.
+
+## The census (`tools/extraction_quality_census.py`)
+
+READ-ONLY over a research partition's cached OCR artifacts. Counts and
+percentiles ONLY: no page text, no word, no sha, no path, no verdict — proven by
+a grep, since the partition the test measures is built from synthetic pages whose
+own literal strings and document shas are then searched for in the rendered
+tables. The artifacts are read as JSON and the SQLite index is never opened. A
+`--data-dir` that is or is inside the live cache, a `webapp_data*` directory or
+the read-only recovery area is refused by cell T's own
+`refuse_production_data_dir`, IMPORTED rather than re-implemented; a malformed
+partition id is refused before anything is read; an `--out` that is not
+git-ignored is refused; and a test asserts every file's mtime under the data dir
+is unchanged by a run.
+
+**Per configuration, structurally.** The grouping key is the extractor's OWN
+recorded identity — id, model token, detection and recognition models, pipeline
+switches, dpi, provider, execution class, read field by field out of
+`ExtractionEvidence.runtime` — never a label typed on the command line. Two
+configurations are two tables; a rec-score column in one is not the same
+measurement as the one beside it.
+
+**The fake-worker partition** (`tools/p23egate_fake_partition.py`, committed and
+re-runnable; seven synthetic documents through the real research mode, rasters
+retained per D2). One configuration found, 7 documents / 7 pages measured, 7
+cached negative results skipped and named (the offline ladder produced nothing,
+so the directory also holds its negatives — which is why the census counts what
+it could not measure instead of dropping it):
+
+| metric | measured | min | p05 | p25 | p50 | p75 | p95 | max |
+|---|---|---|---|---|---|---|---|---|
+| word_count | 7 | 30 | 30 | 72 | 126 | 138 | 138 | 138 |
+| density | 7 | 3.56506e-06 | 3.56506e-06 | 8.55615e-06 | 1.49733e-05 | 1.63993e-05 | 1.63993e-05 | 1.63993e-05 |
+| rec_mean | 7 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| rec_p10 | 7 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| money_rate | 6 | 0 | 0 | 0.5 | 0.5 | 0.5 | 0.5 | 0.5 |
+| lexicon_rate | 7 | 0 | 0 | 0.0366972 | 0.0689655 | 0.0869565 | 0.285714 | 0.285714 |
+| garbage_rate | 7 | 0 | 0 | 0 | 0 | 0.0869565 | 0.0869565 | 0.0869565 |
+| line_height_cv | 7 | 0 | 0 | 0 | 0 | 0 | 0.533307 | 0.533307 |
+| right_edge_residual | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| ink_share | 7 | 0.00569495 | 0.00569495 | 0.0100858 | 0.0115879 | 0.014574 | 0.0172948 | 0.0172948 |
+| ink_outside_boxes | 7 | 0 | 0 | 0.0160785 | 0.35497 | 0.744944 | 0.744944 | 0.744944 |
+
+pages by E-class (the one precedence reports): (none) 1 · E1 2 · E2 4 · E0/E3/E5
+0. Pages by EVERY class that fired (overlapping, never summed): E1 2 · E2 4 ·
+E3 1.
+
+That difference is a finding about the instrument, not about the pages, and it
+is why the second table exists at all: the rotated document fires E1 as well as
+E3 once a raster is there — the fixture's renderer draws text one way only, so
+that page's tall narrow boxes genuinely do not cover its horizontal ink — and a
+census that kept only the class precedence reports would have shown E3 as a
+class that never fires. 2.5 calibrates from the overlapping table.
+
+The same seven documents' ROWS carry `eq_class` "" / "" / E2 / E3 / E2 / E2 / E2
+and an EMPTY `eq_ink_outside_boxes` on every one of them: no raster reaches a
+row, by construction. E1 is a census class in practice today, and that asymmetry
+between the row and the census is worth carrying forward rather than discovering
+in 2.5.
+
+**The census over cell W's real `paddle-v5-prod` partition has NOT run.** At
+this cell's closure that partition does not exist: cell W was still queued for
+the host lock behind cell X, so no customer page has been read by Paddle and
+there is nothing to census. The instrument is finished, proven on a partition
+of the same shape written by the same code path, and the run is a single
+command whenever Ocean says the partition is there:
+
+```
+python -m tools.extraction_quality_census --data-dir <W's research dir>        --research-partition paddle-v5-prod [--rasters <W's rasters>]
+```
+
+It is READ-ONLY and refuses a production cache at the door, so it can be run by
+whoever holds the partition without coordinating with this branch.
+
+## Commits (in order, each on a clean tree with its targeted tests green)
+
+| sha | what |
+|---|---|
+| `e8b142d` | the metrics module, the synthetic defect pages, the tests (TDD order: pages and expected classes, then the module) |
+| `d72d27d` | the row projection, the `ROW_FIELDS` append, the row-shape pin, the narrow `rate` exemption |
+| `55fbc51` | admitted as nothing: the router's blob pin, the vocabulary pin, the AST guard, M6 in a scratch copy |
+| `ccac230` | the census instrument, its tests, the OQ2 roots append |
+| `520ad74` | the M1-M10 mutation harness |
+| `37e6e75` | tests: the vocabulary helper imported rather than `__import__`ed |
+| `57bdca3` | census: ASCII tables; the raster lookup tolerant of the sha's case |
+| `463333b` | the synthetic-table instrument |
+| `9ef2774` | census: report EVERY class a page fired, not only the one precedence reports |
+| `11d8aa4` | the fake-worker partition builder, committed and re-runnable |
+| `561edf9` | census: rasters opened one page at a time (a document at a time would have been 400 MB) |
+| (the commit that carries this section) | this record |
+
+Four of those eleven are findings this cell made about its OWN instruments by
+running them rather than by reading them — the hidden co-occurring class, the
+document-at-a-time rasters, the non-ASCII tables, the case-sensitive raster
+lookup — and each is recorded as what it was.
+
+## Mutation table
+
+Every mutant is the edit the card words, applied to the working tree by
+`tools/p23egate_mutation_table.py` and run for real, without `-x`, with the tree
+asserted clean after each restore. Two extras beyond the ruled table, because a
+guard with two independent conditions needs a mutant per condition.
+
+| # | mutant | file | killer | first run at `561edf9` |
+|---|---|---|---|---|
+| M1 | a threshold changed without the version | `ocr/extraction_quality.py` | `test_the_threshold_table_and_the_version_are_pinned_together` | KILLED |
+| M2 | the money rate over ALL tokens, not the numeric ones | `ocr/extraction_quality.py` | `test_the_money_rate_denominator_is_the_numeric_tokens_not_every_token` | KILLED |
+| M3 | the garbage rate ignoring repeated letters | `ocr/extraction_quality.py` | `test_a_repeated_letter_page_is_E2_although_every_token_is_short` | KILLED |
+| M4 | ink-versus-box coverage computed INSIDE the boxes | `ocr/extraction_quality.py` | `test_a_partly_covered_page_is_E1_...`, `test_ink_far_from_every_word_box_is_a_coverage_gap` | KILLED |
+| M5 | the E-class set from the rec-score alone | `ocr/extraction_quality.py` | `test_the_rec_score_is_a_proxy_and_never_sets_a_class_on_its_own` | KILLED |
+| M6 | an `eq_*` value read in the router | (scratch copy; the tree is never touched) | `test_m6_an_extraction_quality_read_planted_in_a_scratch_router_is_caught` | NOT KILLED - see above; the guard was working, its suite was red on a different test |
+| M7 | `ROW_FIELDS` reordered | `discovery/report.py` | `test_the_new_columns_are_appended_...`, `test_the_extraction_quality_columns_are_the_modules_own_table_in_its_own_order` | KILLED |
+| M8 | the projection reading native-only rows (both halves of the guard) | `discovery/runner.py` | `test_the_projection_is_empty_on_a_native_only_read` | KILLED |
+| M8b | only the extractor-id half removed (extra) | `discovery/runner.py` | the same test's second assertion | KILLED |
+| M9 | the census printing a per-document identifier | `tools/extraction_quality_census.py` | `test_the_output_carries_counts_and_percentiles_and_no_document_content` | KILLED |
+| M10 | the metrics module importing `analysis` | `ocr/extraction_quality.py` | `test_the_module_imports_only_the_standard_library_evidence_and_layout_signals` | NOT KILLED - see above; the planted import did not exist, so the file errored at collection |
+| M10b | the metrics module importing `ocr.paddle_client` (extra) | `ocr/extraction_quality.py` | the same test | KILLED |
+
+Ten of twelve killed on the first run; the two that were not are analysed above
+and were fixed at `4145efd` (the reader census's allowance; an `analysis` import
+that succeeds). **The re-run at the fixed tip is queued behind cell W's wave and
+is reported to Ocean in this cell's closure message** — a section cannot carry a
+number measured over its own commit, which is the same reason the final scans
+are reported there too.
+
+## Proofs
+
+Every heavy proof ran ONE AT A TIME under
+`discovery_reports/train13-logs/HARNESS.lock` (mkdir-only, own-holder release),
+in two windows, behind cells X and P; every log is under
+`discovery_reports/train13-logs/p23egate/` and ends in an `EXIT=` line.
+
+| proof | result | exit |
+|---|---|---|
+| mutation table (M1-M10 + 2 named extras), first run at `561edf9` | 10 of 12 killed; M6 and M10 NOT killed — both for reasons that were real defects in THIS CELL's own tests, not survivals of the property (below) | 2 |
+| canonical guards (5 files) | **277 passed** | 0 |
+| canonical conformance (7 files) | **1,282 passed / 41 skipped** | 0 |
+| `python corpus_gate.py` | **GREEN - 105 PASS / 3 WITHHELD / 1 REFUSED** | 0 |
+| corpus-marked slice (`pytest -m corpus`) | **34 passed / 9,943 deselected** (23m 50s) | 0 |
+| full default suite at `561edf9` | 1 failed / **9,889 passed** / 48 skipped / 39 deselected - the single failure this cell's own reader census, fixed at `4145efd` | 1 |
+| union replay **BASE** (tree `26f94f5`, all 81 registration ids, 4 chunks of the cohort) | population 2,695 - **previously validated preserved 2,625 of 2,625, payload identical 2,625, payload changed 0** - newly validated 0 - other ladder movement 0 - validated regressions 0 - unchanged non-validated 70 (payload changed on 0) - no text 0 - 2,518s | 0 x4 |
+| union replay **CLOSURE** (tree `561edf9`, the same four chunks) | the SAME numbers, chunk for chunk: 680 / 681 / 679 / 585 preserved payload-identical, 20 / 19 / 21 / 10 unchanged non-validated, every movement counter 0 | 0 x4 |
+| privacy scan of ADDED lines vs the run-of-record population (`--base 26f94f5 --ref HEAD --rows <run>/rows.csv --run <run>`, cold cache `webapp_data_train12_cold`) | added lines 3,189; documents read 3,351 of 3,380 (29 `no_cached_text`, the known no-text shas); raw hits 12, **all 12 excluded by the scanner's `words_class` rule**; **hit_count 0**, residue_files 0, residue_sites 0 | 0 |
+| commit-message scan over this branch's commits | MONEY 0 / DIGITS 0 / DATES 0 / **WORDS 4**, all four adjudicated below | 1 |
+| the fake-worker census (`tools/p23egate_fake_partition.py`) | the partition built and censused | 0 |
+| **still queued behind cell W's wave, reported to Ocean in the closure message** | the mutation re-run and the full suite at the fixed tip `4145efd`, and the FINAL privacy and message scans over the tip that carries this section | - |
+| the synthetic defect table (`tools/p23egate_synthetic_table.py`) | the table above | 0 |
+| Python 3.12 (CI's pin) `py_compile` over every changed file, and an import of the metrics module | OK - 24 thresholds, a 224-word vocabulary | 0 |
+
+**The replayed tree IS the tip's code tree.** The commits after the closure
+replay touch `tests/`, `tools/` and `docs/` only: `git diff 561edf9 <tip> -- .
+':!tests' ':!tools' ':!docs'` is EMPTY. The replay's claim is about `ocr/`,
+`discovery/`, `evidence/` and `layout/`, and not one byte of those moved after
+it ran.
+
+### The two mutants that survived the first run, and what they actually found
+
+Neither was a property that failed to hold. Both were defects in this cell's own
+tests, which is what a mutation table is for.
+
+* **M6** (an `eq_*` read planted in a scratch copy of the router) reported NOT
+  KILLED because its in-process check requires the admission SUITE to pass, and
+  that suite was failing - on a different test, the reader census, which had
+  just caught two instruments this cell committed AFTER the census was written
+  (the mutation harness, which spells the column names in order to mutate them,
+  and the fake-partition builder, which prints a row's columns). The guard
+  itself was working perfectly: it found real namers. Fixed at `4145efd` by
+  naming the two instruments in a closed allowance, and by giving the test the
+  claim that actually matters as its own assertion - no module of the router's
+  layer, the analysis layer, the webapp, telemetry or `layout/` names a column
+  at all - plus a check that every name in the allowance still exists.
+* **M10** (the metrics module importing `analysis`) planted
+  `from analysis.money import find_money`, a name that does not exist. The
+  module then failed to IMPORT, pytest collected the whole file as one ERROR,
+  the AST guard never ran, and the harness honestly reported that the named
+  killer had not fired. The mutant now imports a real name, so the module still
+  imports and the guard is what fails - which is the proof the card asks for.
+  (M10b, the same mutant with `ocr.paddle_client`, was KILLED on the first run,
+  which is why the pair of them is worth having.)
+
+### The four WORDS hits in the commit messages, adjudicated
+
+The message scan compares a branch's commit messages against the run of record's
+cached document text. All four hits are ordinary English in this cell's own
+explanatory prose - no figure, no date, no identifier - and they collide with
+some document's words because 3,351 documents of English is a large vocabulary.
+Recorded rather than reworded: rewriting a published commit message is a worse
+trade than naming the collision.
+
+| commit | token | the sentence it came from |
+|---|---|---|
+| `37e6e75` | WORDS `DRAFTING` | "A **drafting** artefact, not a behaviour change" |
+| `463333b` | WORDS `SHOW THAT` | "a second metric moving on a defect page would **show** up in **that** block" |
+| `e8b142d` | WORDS `CAST` | "the orientation votes the words' own boxes **cast**" |
+| `e8b142d` | WORDS `PAGE ALREADY` | "that **page**'s **already**-decoded grey raster" |
+
+The added-LINE scan - the one that reads files rather than messages - is 0 hits
+with 0 residue over the same population.
+
+## Risks (last)
+
+* **What these metrics cannot say at all is whether the words are RIGHT.** Every
+  figure here is a self-consistency measure of one extractor's own output.
+  Agreement with the native read is cell X's, and it is the only evidence of
+  CORRECTNESS; whether a page Paddle read better ever becomes a validated
+  document is cell B's fallout, and it is the only evidence of USEFULNESS. An
+  E-class is a description of an extractor's output, never a verdict about a
+  document, and this cell deliberately produces no number that could be read as
+  one.
+* **The money and lexicon rates are layout-sensitive.** A terms-and-conditions
+  page, an address page or a cheque-image page of a perfectly good statement can
+  read E2 on either floor. The minimum-denominator guards keep a four-token page
+  from acquiring a class, but they do not make either rate a measure of
+  recognition alone. The census over U755 will show how large that population
+  is; until it does, an E2 count is not a count of bad pages.
+* **E3's orientation criterion is literally unanimous and will rarely fire on
+  real evidence.** PaddleOCR's own detector returns boxes in reading order for a
+  rotated page, so the votes will look horizontal on exactly the pages the
+  criterion is about. The measured vertical-share DISTRIBUTION, not this v1
+  boolean, is what 2.5 should calibrate; and SKEW — §H.4's third E3 criterion —
+  is not implemented here at all: it needs a baseline-angle estimate and belongs
+  with cell X's geometry census. Named, not implied.
+* **E0 here is narrower than E0 in §H.4.** This module sees one page of evidence,
+  so it can only say "no words". A worker error, a raster failure, a timeout or a
+  refusal never produces an evidence page at all; those are cell W's refusals,
+  counted where they happen. A census E0 count is therefore a floor, not the
+  E0 population.
+* **A defect in the metrics is invisible except as a population that should have
+  had columns.** The card's column list is closed, so there is no
+  `eq_exception` to mirror `classifier_exception`; a raising projection leaves
+  thirteen empty cells. That is the right trade for a first measuring cell, and
+  it is the thing to revisit when 2.5 gives these figures consequences.
+* **One collision recorded rather than smoothed over.** Three of the card's ruled
+  column names carry the word `rate` in its statistical sense, and the standing
+  no-cost grep bans that word at the key level (R2 withdrawn: cost is out of
+  scope). The ruling behind that grep is about money CHARGED, so the exemption
+  lifts the one word `rate` for exactly the columns the metric table names —
+  derived from the table, never typed, never widenable — while `cost`, `price`,
+  `usd` and `billing` stay refused on those columns as on every other key, and a
+  `rate` key outside the table still fails. Ocean's to rule otherwise; the
+  alternative is renaming three ruled columns.
+* **Ownership, reported.** The card places the `ROW_FIELDS` append in
+  `discovery/runner.py`; `ROW_FIELDS` lives in `discovery/report.py` (the row
+  DATACLASS is in the runner). The named edit was made where the list actually
+  is, confined to the appended block, and it is reported here rather than
+  skipped, because refusing it would have delivered the columns to no CSV. Cell
+  X's card carries the same sentence, so both cells append to that list; the two
+  blocks are disjoint and append-only, which is the composition Ocean is owed
+  notice of.
