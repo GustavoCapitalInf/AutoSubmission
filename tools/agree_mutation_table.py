@@ -188,9 +188,10 @@ MUTANTS: list[Mutant] = [
         "    return resolved if _rect_is_transposed(page) else None\n",
         "    return resolved\n",
         [T_NATIVE],
-        ["test_a_chained_indirect_rotate_is_an_unrotated_page_in_every_renderer",
-         "test_a_chained_indirect_rotate_inherited_from_the_pages_node_is_read_too",
-         "test_a_two_hop_indirect_rotate_chain_is_read_and_cannot_spin"],
+        ["test_an_indirect_rotate_resolving_to_an_xref_number_is_the_page_every_renderer_shows",
+         "test_an_indirect_rotate_resolving_to_an_xref_number_is_read_through_the_parent_walk_too",
+         "test_the_resolver_makes_one_call_so_no_reference_shape_can_spin",
+         "test_a_genuine_reference_chain_is_resolved_by_the_library_in_the_readers_one_call"],
     ),
     Mutant(
         "M12", "MINOR-2: both axes scaled by one nominal 72 / dpi",

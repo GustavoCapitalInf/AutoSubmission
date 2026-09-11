@@ -925,28 +925,35 @@ def _poppler_ink(pdf_bytes: bytes, page: "object") -> float:
 
 
 @pytest.mark.parametrize("terminal", ["270", "90", "0", "45", "13"])
-def test_a_chained_indirect_rotate_is_an_unrotated_page_in_every_renderer(terminal):
-    """Re-review closure, MAJOR-1 — on REAL PDFs, with Poppler as the oracle.
+def test_an_indirect_rotate_resolving_to_an_xref_number_is_the_page_every_renderer_shows(terminal):
+    """Re-review closure, MAJOR-1 — on REAL PDFs, with Poppler as the oracle,
+    and named for what the BYTES contain rather than for what was built.
 
-    `/Rotate` -> object A -> object B -> `terminal`. MEASURED: PyMuPDF cannot
-    tell object A (a reference to B) from an object holding the integer B —
-    `xref_object` prints both as the bare number — and NO renderer honours
-    the chain: PyMuPDF reports rotation 0 with an UNSWAPPED rect, Poppler
-    rasterises the unswapped page, and every word lands on the ink at 0
-    degrees. So the page is read, unrotated, with every word, whatever the
-    terminal says — including the terminals that are not multiples of 90, and
-    including the `13` that is exactly what the broken resolver mistook for
-    an angle.
+    `_with_objects(["{1} 0 R", terminal])` asks for `/Rotate` -> A -> B ->
+    `terminal`, but PyMuPDF's writer FLATTENS a reference-bodied object:
+    dumped out of the finished file, object A reads `A 0 obj\\n B \\nendobj`.
+    So what every reader of this file sees is a SINGLE indirect `/Rotate`
+    resolving to the integer B — an xref NUMBER, not an angle, and not the
+    terminal. The terminal is parametrised to show it makes no difference,
+    which is itself the evidence for the flattening. (The genuine
+    reference-to-reference, built by byte surgery, is pinned below.)
 
-    This is the shape the first implementation lost the whole document's
-    native reading on (it took the intermediate xref NUMBER for an angle and
-    refused the page), and the shape where an intermediate number that
-    happened to be 90/180/270 silently rotated a page nothing rotates.
+    B is 18 here — not a multiple of 90 — so PyMuPDF normalises it away:
+    rotation 0, an UNSWAPPED rect, Poppler rasterising the same rectangle,
+    every word on the ink at 0 degrees. This is exactly the shape the first
+    implementation lost the whole document's native reading on: it returned
+    18 as an angle and refused the page.
     """
     pdf_bytes = _with_objects(["{1} 0 R", terminal])
     document = fitz.open(stream=pdf_bytes, filetype="pdf")
     try:
-        assert document.xref_get_key(document[0].xref, "Rotate")[0] == "xref"
+        kind, value = document.xref_get_key(document[0].xref, "Rotate")
+        assert kind == "xref"
+        a = int(str(value).split()[0])
+        # THE FLATTENING, pinned in the bytes: object A was written as the
+        # reference `B 0 R` and the file holds the bare integer B
+        assert f"{a} 0 obj\n{a + 1}\nendobj".encode() in pdf_bytes
+        assert str(document.xref_object(a)).strip() == str(a + 1) != terminal
         assert int(document[0].rotation) == 0
         assert (document[0].rect.width, document[0].rect.height) == LETTER
     finally:
@@ -964,8 +971,8 @@ def test_a_chained_indirect_rotate_is_an_unrotated_page_in_every_renderer(termin
 
 
 @pytest.mark.parametrize("terminal", ["45", "13"])
-def test_a_chained_indirect_rotate_inherited_from_the_pages_node_is_read_too(terminal):
-    """The same, reached through the `/Parent` walk."""
+def test_an_indirect_rotate_resolving_to_an_xref_number_is_read_through_the_parent_walk_too(terminal):
+    """The same flattened shape, reached through the `/Parent` walk."""
     pdf_bytes = _with_objects(["{1} 0 R", terminal], inherited=True)
     evidence = native_evidence_from_pdf(pdf_bytes)
     assert evidence is not None
@@ -1036,16 +1043,139 @@ def test_an_inherited_indirect_invalid_rotate_through_the_pages_node_is_refused_
     assert evidence.pages[1].words and evidence.pages[1].notes == ()
 
 
-def test_a_two_hop_indirect_rotate_chain_is_read_and_cannot_spin():
-    """A longer chain and a self-referencing object: both are read as the
-    unrotated pages every renderer shows them to be, and neither can loop —
-    the resolver takes exactly ONE hop, so there is no walk to bound."""
+def test_the_resolver_makes_one_call_so_no_reference_shape_can_spin():
+    """A three-object request, a self-referencing object and a two-object
+    cycle: each is written out flattened (see the pin above), each resolves to
+    an xref number the page does not corroborate, each is read as the
+    unrotated page every renderer shows — and none of them can loop, because
+    the resolver makes exactly ONE `xref_object` call and there is no walk to
+    bound."""
     for bodies in (["{1} 0 R", "{2} 0 R", "270"], ["{0} 0 R"], ["{1} 0 R", "{0} 0 R"]):
         pdf_bytes = _with_objects(bodies)
         evidence = native_evidence_from_pdf(pdf_bytes)
         assert evidence is not None, bodies
         assert len(evidence.pages[0].words) == 12, bodies
         assert _poppler_ink(pdf_bytes, evidence.pages[0]) == 1.0, bodies
+
+
+def _with_genuine_chained_rotate(terminal: str, *, extra_pages: int = 0) -> tuple[bytes, int, int]:
+    """The upright ledger whose `/Rotate` really is a reference to a reference
+    — the shape `Document.tobytes()` flattens away, so it is put back by
+    LENGTH-PRESERVING byte surgery: object A is written as an integer of
+    exactly the same width as `B 0 R` and that run of bytes is replaced in the
+    finished file, leaving every xref offset intact. Returns `(bytes, A, B)`.
+    Every step is asserted, so a PyMuPDF that stopped flattening — or wrote
+    the placeholder differently — fails here loudly instead of silently
+    turning these pins into the other shape."""
+    document = fitz.open(stream=_render(extra_pages=extra_pages), filetype="pdf")
+    if extra_pages:
+        document[1].insert_text(fitz.Point(40.0, 100.0), "SecondPageWord", fontsize=10.0, fontname="helv")
+    b, a = document.get_new_xref(), document.get_new_xref()
+    reference = f"{b} 0 R"
+    placeholder = "9" * len(reference)
+    document.update_object(b, terminal)
+    document.update_object(a, placeholder)
+    document.xref_set_key(document[0].xref, "Rotate", f"{a} 0 R")
+    data = document.tobytes()
+    document.close()
+    assert data.count(placeholder.encode()) == 1
+    assert f"{a} 0 obj\n{placeholder}\nendobj".encode() in data     # the writer wrote it verbatim
+    patched = data.replace(placeholder.encode(), reference.encode())
+    assert len(patched) == len(data)                                # every offset still stands
+    assert f"{a} 0 obj\n{reference}\nendobj".encode() in patched    # a genuine reference body
+    return patched, a, b
+
+
+@pytest.mark.parametrize("terminal,rotation,words", [("0", 0, 12), ("13", 0, 12)])
+def test_a_genuine_reference_chain_is_resolved_by_the_library_in_the_readers_one_call(
+        terminal, rotation, words):
+    """Closure of the closure, MAJOR-1: what a REAL reference-to-reference
+    does, measured in the bytes rather than inferred from a writer that
+    cannot produce one.
+
+    `xref_object(A)` returns the TERMINAL's value — `'0'`, `'13'` — not `B`
+    and not the text `B 0 R`: PyMuPDF resolves the chain itself, so the
+    reader's single call is the whole walk and a bounded loop over
+    `xref_object` would only ever re-read values the library had already
+    followed. `page.rotation` agrees, Poppler rasterises the same rectangle,
+    and every word lands on its ink."""
+    pdf_bytes, a, _ = _with_genuine_chained_rotate(terminal)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        assert document.xref_get_key(document[0].xref, "Rotate")[0] == "xref"
+        assert str(document.xref_object(a)).strip() == terminal     # resolved, in one call
+        assert int(document[0].rotation) == rotation
+    finally:
+        document.close()
+
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes
+    assert page.frame.rotation_deg == rotation
+    assert len(page.words) == words
+    assert _poppler_ink(pdf_bytes, page) == 1.0
+
+
+def test_a_genuine_reference_chain_to_an_invalid_rotation_is_refused_by_name():
+    """The same genuine shape carrying 45. PyMuPDF resolves the chain,
+    normalises the angle away (`page.rotation` 0) and STILL swaps the declared
+    rect to 792 x 612, while Poppler renders the unswapped 612 x 792 page —
+    the mis-framing signature exactly, so the page is refused by name with the
+    sibling page untouched. The Phase 2.2 reader read this page and put every
+    box in a space no renderer shows."""
+    from ocr.rasterize import rasterize_pdf
+
+    pdf_bytes, a, _ = _with_genuine_chained_rotate("45", extra_pages=1)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        assert str(document.xref_object(a)).strip() == "45"
+        assert int(document[0].rotation) == 0
+        assert (document[0].rect.width, document[0].rect.height) == (LETTER[1], LETTER[0])
+    finally:
+        document.close()
+    assert rasterize_pdf(pdf_bytes, dpi=72)[0].size == (round(LETTER[0]), round(LETTER[1]))
+
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    assert evidence.pages[0].notes == (INVALID_ROTATION_NOTE,)
+    assert evidence.pages[0].words == ()
+    assert evidence.pages[1].words and evidence.pages[1].notes == ()
+
+
+@pytest.mark.parametrize("terminal", ["270", "90"])
+def test_a_genuine_reference_chain_the_two_renderers_disagree_about_is_a_RECORDED_RESIDUAL(terminal):
+    """A measured, named latent, pinned so it cannot drift silently.
+
+    On a GENUINE reference-to-reference the two renderers part company:
+    PyMuPDF resolves the chain and honours it (`page.rotation` 270, the rect
+    swapped), while Poppler resolves one level, finds a reference where an
+    integer belongs, and renders the page UNROTATED. There is no signature to
+    branch on — the library's rotation and the resolved value agree — and
+    nothing this reader can see says which renderer the document's author
+    meant. It follows PyMuPDF, exactly as the Phase 2.2 reader did, so this
+    is not a regression; the archive population is 0 (the census finds four
+    indirect `/Rotate` objects, trail length 1, every one resolving to 0).
+    Carried, with its harm measured, for the milestone that owns the reader."""
+    from ocr.rasterize import rasterize_pdf
+
+    pdf_bytes, a, _ = _with_genuine_chained_rotate(terminal)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        assert str(document.xref_object(a)).strip() == terminal
+        assert int(document[0].rotation) == int(terminal)                   # PyMuPDF honours it
+        assert (document[0].rect.width, document[0].rect.height) == (LETTER[1], LETTER[0])
+    finally:
+        document.close()
+    # ... and Poppler does not
+    assert rasterize_pdf(pdf_bytes, dpi=72)[0].size == (round(LETTER[0]), round(LETTER[1]))
+
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes
+    assert page.frame.rotation_deg == int(terminal)                         # the reader follows PyMuPDF
+    assert len(page.words) == 12
 
 
 def test_an_indirect_rotate_the_page_does_not_corroborate_is_no_value():

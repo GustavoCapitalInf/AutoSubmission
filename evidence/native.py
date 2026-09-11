@@ -53,12 +53,12 @@ population of 0 in the archive and both reachable by a real PDF:
   move; where they do not, the page carries `CLAMPED_TRANSFORM_NOTE`.
 * **N-2** — a `/Rotate` written as an INDIRECT reference is RESOLVED
   (`_indirect_rotate`) before the mod-90 test, so an indirect 45 is refused
-  by name like a direct one instead of being silently mis-framed. ONE hop,
+  by name like a direct one instead of being silently mis-framed. ONE call —
+  `xref_object` already resolves a reference chain to its terminal value —
   and the resolved value is acted on only where the page's own geometry
-  corroborates it: `xref_object` cannot tell an integer object from a
-  reference to one (both print as the bare number), and a chained `/Rotate`
-  is honoured by no renderer, so a number reached that way describes no page
-  and moves nothing. Closure of the cell's own review, MAJOR-1.
+  corroborates it, because PyMuPDF's writer flattens a reference-bodied
+  object into the bare object NUMBER, so a resolved integer can be an xref
+  number rather than an angle. Closure of the cell's own review, MAJOR-1.
 
 What is and is not here
 -----------------------
@@ -248,28 +248,30 @@ def _indirect_rotate(document, page, value):
     mis-framed exactly as a direct 45 had been. The reference is resolved
     here, through `xref_object`, before the mod-90 test.
 
-    ONE hop, never a chain, and the reason is a measured property of the
-    library rather than a preference. `xref_object` prints an object holding
-    the integer N and an object holding the reference `N 0 R` IDENTICALLY, as
-    the bare text `N`: the two are indistinguishable through PyMuPDF's object
-    API (`compressed=True`, `xref_is_stream` and `xref_get_keys` do not
-    separate them either). Following the "chain" therefore means guessing,
-    and the guess is never needed: a chained `/Rotate` is honoured by NO
-    renderer — PyMuPDF reports rotation 0 with an unswapped rect, Poppler
-    rasterises the unswapped page, and the words land on the raster's ink at
-    0 degrees (ink fraction 1.000 at 0, 0.000 at every other angle). A page
-    whose `/Rotate` is reached through a chain is an UNROTATED page in every
-    renderer that exists, and this reader says so.
+    ONE call, and it is all there ever is, because `xref_object` ALREADY
+    RESOLVES the chain. Measured on files whose bytes were checked object by
+    object: where object A's body really is the reference `B 0 R` and B holds
+    270, `xref_object(A)` returns `'270'` — the terminal's value, not `B` and
+    not the text `B 0 R`. A bounded walk over `xref_object` would therefore be
+    a walk over values the library has already followed, and its
+    reference-shaped exit (`endswith(" R")`) is unreachable by construction.
 
-    Corroboration, both ways, because a number read out of an object is only
-    worth acting on when the page agrees with it:
+    The number that comes back is NOT trustworthy on its own, and that is the
+    defect this closure fixes. PyMuPDF's own writer FLATTENS an object whose
+    body is a reference: `Document.tobytes()` writes `A 0 obj\\n B \\nendobj`
+    for a body of `B 0 R`, so a document round-tripped through it carries, in
+    its bytes, an indirect `/Rotate` resolving to the arbitrary INTEGER B —
+    an object number, not an angle. Every renderer then reads that integer as
+    the rotation (both PyMuPDF and Poppler swap the page at B = 90), and the
+    reader that returned it unchecked refused the page whenever B was not a
+    multiple of 90 — losing the whole native reading of a document every
+    renderer displays perfectly. Corroboration is what makes an arbitrary
+    resolved integer safe to act on, both ways:
 
     * a resolved multiple of 90 is taken only when `page.rotation` is that
-      same angle — i.e. PyMuPDF resolved the reference the same way. This is
-      what stops the second half of the defect the re-review found: an
-      intermediate object number that happens to be 90, 180 or 270 would
-      otherwise be applied as a rotation to a page no renderer rotates, and
-      every box would leave the ink;
+      same angle — i.e. the library read the same value and applied it. Where
+      they differ, the number describes no page this reader can see and it is
+      refused as no value;
     * a resolved NON-multiple of 90 is taken — and refuses the page by name —
       only when the mis-framing signature is actually present
       (`_rect_is_transposed`). That is exactly the F-2 harm and nothing else:
