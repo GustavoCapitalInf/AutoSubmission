@@ -176,8 +176,10 @@ def test_the_output_carries_counts_and_percentiles_and_no_document_content(parti
     assert str(partition["data_dir"]) not in text
     # what it DOES carry
     assert "extraction-quality census" in text and PARTITION in text
-    assert "documents 2 · pages 2" in text
+    assert "documents 2 | pages 2" in text
     assert "| p50 |" in text and "pages by E-class" in text
+    # and it survives a console that is not UTF-8: the tables are ASCII
+    assert text.isascii()
 
 
 def test_the_percentiles_are_nearest_rank_and_need_no_interpolation():

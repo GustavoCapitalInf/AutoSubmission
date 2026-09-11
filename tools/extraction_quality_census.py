@@ -152,8 +152,12 @@ def raster_for(root: Path | None, evidence: ExtractionEvidence, page_index: int)
     `layout.signals` and nothing else."""
     if root is None:
         return None
-    path = root / evidence.document_sha256 / f"{page_index}.png"
-    if not path.is_file():
+    sha = evidence.document_sha256
+    for name in (sha, sha.upper(), sha.lower()):
+        path = root / name / f"{page_index}.png"
+        if path.is_file():
+            break
+    else:
         return None
     from PIL import Image
 
@@ -193,7 +197,7 @@ class Census:
 
 def render(partition: str, censuses: Mapping[str, Census], *, skipped: Mapping[str, int]) -> str:
     lines = [
-        f"# extraction-quality census — EXTRACTION_QUALITY_VERSION {EXTRACTION_QUALITY_VERSION}",
+        f"# extraction-quality census - EXTRACTION_QUALITY_VERSION {EXTRACTION_QUALITY_VERSION}",
         "",
         f"declared research partition: `{partition}`",
         "",
@@ -212,8 +216,8 @@ def render(partition: str, censuses: Mapping[str, Census], *, skipped: Mapping[s
         lines += [
             f"## configuration: `{label}`",
             "",
-            f"documents {census.documents} · pages {census.pages} · "
-            f"pages with a raster {census.rasters_measured} · without {census.rasters_absent}",
+            f"documents {census.documents} | pages {census.pages} | "
+            f"pages with a raster {census.rasters_measured} | without {census.rasters_absent}",
             "",
             "| metric | measured | min | " + " | ".join(f"p{p:02d}" for p in PERCENTILES) + " | max |",
             "|---|---|---|" + "---|" * (len(PERCENTILES) + 1),
@@ -221,7 +225,7 @@ def render(partition: str, censuses: Mapping[str, Census], *, skipped: Mapping[s
         for name, note in PAGE_METRICS:
             values = census.values[name]
             if not values:
-                lines.append(f"| {name} | 0 | — | " + " | ".join("—" for _ in PERCENTILES) + " | — |")
+                lines.append(f"| {name} | 0 | - | " + " | ".join("-" for _ in PERCENTILES) + " | - |")
                 continue
             cells = " | ".join(f"{percentile(values, p):.6g}" for p in PERCENTILES)
             lines.append(
