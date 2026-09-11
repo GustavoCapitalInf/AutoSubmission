@@ -104,18 +104,40 @@ def _census_by_sha(path: Path | None) -> dict[str, KindFacts]:
 
 
 def _funnel(row: dict) -> dict[str, str]:
-    source = (row.get("source_path") or "none").strip()
-    dispatch = (row.get("dispatch_outcome") or "").strip()
-    return {
-        "stage_extract": source or "none",
-        "stage_evidence": (STAGE_NOT_ATTEMPTED if source == "none"
-                           else "present" if (row.get("evidence_sha256") or "").strip()
-                           else "absent"),
-        "stage_geometry": STAGE_NOT_ATTEMPTED,
-        "stage_layout": STAGE_NOT_ATTEMPTED,
-        "stage_candidate": dispatch or STAGE_NOT_ATTEMPTED,
-        "stage_verdict": (row.get("outcome_class") or "").strip() or STAGE_NOT_ATTEMPTED,
-    }
+    """The funnel columns, computed by the SHIPPING projection.
+
+    Review caveat 13: an earlier version re-derived these locally, so the
+    docstring's claim that every derived value comes from the shipping code
+    held for the taxonomy and not for the funnel — the two agreed on this run,
+    which is exactly the condition under which a second implementation drifts
+    unnoticed. Now the row facts are loaded into a real `DocumentRow` and
+    `DiscoveryRunner._project_funnel` fills it, so there is one implementation
+    and the measurement cannot disagree with what a live run would record.
+    """
+    from discovery.runner import DiscoveryRunner, DocumentRow
+
+    document = DocumentRow(
+        relative_path="", folder_label="",
+        content_sha256=(row.get("content_sha256") or "").strip(), byte_size=0,
+        source_path=(row.get("source_path") or "none").strip() or "none",
+        dispatch_outcome=(row.get("dispatch_outcome") or "").strip() or None,
+        outcome_class=(row.get("outcome_class") or "").strip() or "failed",
+        outcome_reason=(row.get("outcome_reason") or "").strip() or "not_processed",
+        evidence_sha256=(row.get("evidence_sha256") or "").strip(),
+    )
+    # The row's RECORDED dispatch outcome is the dispatch of record for a
+    # historical run — the live `Dispatch` object is long gone, and the column
+    # is what it left behind. Handed over in the shape the projection reads.
+    import types
+
+    outcome = (row.get("dispatch_outcome") or "").strip()
+    DiscoveryRunner._project_funnel(document, {
+        "dispatch": types.SimpleNamespace(outcome=outcome) if outcome else None,
+        "payload": None,
+    })
+    return {name: getattr(document, name) for name in (
+        "stage_extract", "stage_evidence", "stage_geometry", "stage_layout",
+        "stage_candidate", "stage_verdict")}
 
 
 def _table(title: str, counter: collections.Counter, header: tuple[str, ...]) -> list[str]:

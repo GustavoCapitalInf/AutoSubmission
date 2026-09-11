@@ -415,6 +415,44 @@ def test_the_guard_reads_real_return_shapes_not_only_plain_literals():
     assert {"parser_declined", "no_parser_matched", "q3_provenance_refused", "exception", "no_analysis"} <= literals
 
 
+def test_an_unresolved_row_always_has_a_primary_layer_never_a_nulled_one():
+    """Review MINOR-4's killer (M20). The module's stated property — "L6
+    UNKNOWN … itself a finding, never nulled" — must hold BY CONSTRUCTION, not
+    because `telemetry/record.py` happens to pair every layer-less reason with
+    a diagnosable class. This enumerates exactly the pairs the reviewer found
+    nulled: every non-validated outcome class against every reason this module
+    deliberately maps to no layer of its own."""
+    from telemetry.record import OUTCOME_CLASSES
+
+    layerless = sorted(reason for reason, target in REASON_LAYER.items() if target is None)
+    assert layerless, "the fixture premise moved: no reason maps to None any more"
+    pairs = [(outcome_class, reason)
+             for outcome_class in (*OUTCOME_CLASSES, "unknown") if outcome_class != "validated"
+             for reason in layerless]
+    assert len(pairs) >= 20, f"the reviewer found 20 such pairs; this enumerates {len(pairs)}"
+    nulled = []
+    for outcome_class, reason in pairs:
+        diagnosis = diagnose_unresolved(_row(outcome_class=outcome_class, outcome_reason=reason,
+                                             failure_class="", dispatch_outcome=None), None, None)
+        if not diagnosis.primary_layer or not diagnosis.primary_code:
+            nulled.append((outcome_class, reason))
+    assert nulled == [], f"a nulled primary reason for {len(nulled)} pairs: {nulled[:5]}"
+    # and the word it lands on is the layer's OWN one, not the drift bucket
+    lonely = diagnose_unresolved(
+        _row(outcome_class="failed", outcome_reason="withheld_adb", failure_class="",
+             dispatch_outcome=None), None, None)
+    assert (lonely.primary_layer, lonely.primary_code) == ("l6", "unknown")
+    assert "unknown" in L6_CODES and "unknown" != UNMAPPED
+    # a VALIDATED document still carries no diagnosis at all — that path is the
+    # one deliberate exception and it stays exactly as it was
+    validated = diagnose_unresolved(
+        _row(outcome_class="validated", outcome_reason="approved", failure_class="",
+             dispatch_outcome="claimed"), None, None)
+    assert validated == UnresolvedDiagnosis(
+        reason_l0="", reason_l1="", reason_l2="", reason_l3="", reason_l4="", reason_l5="",
+        reason_l6="", primary_layer="", primary_code="", version=UNRESOLVED_TAXONOMY_VERSION)
+
+
 @pytest.mark.parametrize("layer", LAYERS)
 def test_no_layer_vocabulary_carries_a_money_date_or_name_shape(layer):
     for code in VOCABULARY[layer]:

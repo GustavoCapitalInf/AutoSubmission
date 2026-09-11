@@ -174,10 +174,10 @@ MUTANTS: list[Mutant] = [
          "test_research_mode_refuses_a_wrong_literal_value"],
     ),
     Mutant(
-        "M13", "a production --data-dir accepted",
+        "M13", "a production --data-dir accepted (the name rule disabled outright)",
         RUNNER,
-        "    if _PRODUCTION_DATA_DIR_NAMES.fullmatch(resolved.name):",
-        "    if False and _PRODUCTION_DATA_DIR_NAMES.fullmatch(resolved.name):",
+        "        if _PRODUCTION_DATA_DIR_NAMES.fullmatch(candidate.name):",
+        "        if False and _PRODUCTION_DATA_DIR_NAMES.fullmatch(candidate.name):",
         [T_RESEARCH],
         ["test_a_production_data_dir_is_refused"],
     ),
@@ -215,6 +215,67 @@ MUTANTS: list[Mutant] = [
         "{proposed.get('proposed_ccl', 0)}\"",
         [T_DENOM],
         ["test_raw_coverage_is_validated_over_distinct_shas_and_is_printed_first"],
+    ),
+    # ---------------------------------------------------------------------
+    # The closure wave. N4 and N9 are the INDEPENDENT REVIEWER's own mutants,
+    # adopted verbatim: N4 SURVIVED this harness's first run (the property was
+    # documented and unwitnessed) and N9 escaped both name-based pins while
+    # dying behaviourally. M18, M20 and M21 are the mutants the other findings
+    # earn — each one a shape that was live and unexercised until the finding
+    # named it.
+    # ---------------------------------------------------------------------
+    Mutant(
+        "N4", "the holdout refusal applied AFTER the population check (reviewer's mutant)",
+        RUNNER,
+        '            if sha[:16] in self.holdout_sha16:\n'
+        '                row.outcome_class, row.outcome_reason = "deferred", "research_refused_holdout"',
+        '            if sha not in self.population:\n'
+        '                row.outcome_class, row.outcome_reason = (\n'
+        '                    "deferred", "research_skipped_not_in_population")',
+        [T_RESEARCH],
+        ["test_a_holdout_sha_OUTSIDE_the_population_is_refused_as_a_holdout_not_skipped"],
+    ),
+    Mutant(
+        "N9", "the research trigger as a STRING LITERAL at a second site (reviewer's mutant)",
+        RUNNER,
+        "            upgrade_triggers = RESEARCH_TRIGGERS if self.research else (",
+        '            upgrade_triggers = frozenset({"operator_forced_paddle"}) if (\n'
+        "                self.research or self.mode == MODE_SCANNED_PADDLE) else (",
+        [T_RESEARCH, T_TRIPWIRES],
+        ["test_no_module_spells_the_research_trigger_as_a_string_constant",
+         "test_no_other_mode_can_supply_the_research_trigger"],
+    ),
+    Mutant(
+        "M18", "a --data-dir INSIDE a production cache accepted (review MINOR-1)",
+        RUNNER,
+        "    for candidate in (resolved, *resolved.parents):",
+        "    for candidate in (resolved,):",
+        [T_RESEARCH],
+        ["test_a_directory_inside_a_production_cache_is_refused"],
+    ),
+    Mutant(
+        "M19", "the telemetry rollup stops rendering `refused` (review MINOR-2)",
+        "telemetry/report.py",
+        '    for key in ("validated", "review", "withheld", "failed", "deferred", "refused"):',
+        '    for key in ("validated", "review", "withheld", "failed", "deferred"):',
+        [T_REFUSED],
+        ["test_the_telemetry_rollup_renders_the_refused_class"],
+    ),
+    Mutant(
+        "M20", "a nulled primary reason on an unresolved row (review MINOR-4)",
+        TAXONOMY,
+        '        codes["l6"] = "unknown"\n        primary_layer = "l6"',
+        "        pass",
+        [T_TAXONOMY],
+        ["test_an_unresolved_row_always_has_a_primary_layer_never_a_nulled_one"],
+    ),
+    Mutant(
+        "M21", "`stage_extract` folds never-read back into `none` (review MINOR-5)",
+        RUNNER,
+        "        never_read = row.outcome_reason in NO_READ_ATTEMPTED_REASONS",
+        "        never_read = False",
+        [T_DENOM],
+        ["test_the_extraction_stage_tells_never_read_apart_from_read_and_empty"],
     ),
 ]
 

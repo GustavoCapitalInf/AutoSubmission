@@ -239,6 +239,29 @@ def test_the_report_prints_the_raw_denominators_first(tmp_path):
     assert "not available in this tool" in ccl_line
 
 
+def test_the_telemetry_rollup_renders_the_refused_class(capsys):
+    """Review MINOR-2 (reproduced): `refused` was COUNTED in the rollup's
+    outcome block and printed nowhere, so a record carrying it vanished from
+    the one block that says what happened to a document — and the totals
+    stopped adding up with nothing to say why. M19's killer."""
+    from telemetry.record import source_section
+    from telemetry.report import render, summarize
+
+    record = build_record(
+        run_id="r", emitter="t", document={"content_sha256": "A" * 64},
+        source=source_section(None),
+        dispatch={"outcome": None, "parser_id": None, "source": "unavailable", "scores": []},
+        stages={}, model_calls=[], payload=None, refused="not_a_statement",
+    )
+    summary = summarize([record])
+    assert summary["outcome"] == {"refused": 1}
+    text = render(summary, "r")
+    assert "refused" in text
+    outcome_block = text.splitlines()[text.splitlines().index("outcome") + 1]
+    assert "refused" in outcome_block and "1" in outcome_block
+    assert text.isascii()
+
+
 def test_every_class_pair_has_a_direction():
     for before, after in itertools.product(ALL_CLASSES, repeat=2):
         assert direction(before, after) in ("improved", "regressed", "unchanged", "unranked")

@@ -2,7 +2,11 @@
 (Phase 2.2 cell T, card items 3 and 9; R11, R12, D2, D10).
 
     python tools/truth_report.py --rows <run dir>/rows.csv [--out <private>.md]
-        [--digest docs/moneythumb-replacement/truth/MANIFEST_DIGEST.txt]
+
+(Review MINOR-7: an earlier version of this block advertised a `--digest`
+option the parser never defined. The sealed store is located by its own
+environment variable, read by `tools/holdout`, and this tool passes no path to
+it at all — so there is nothing for such a flag to do.)
 
 Why this is a tool and not a report section
 -------------------------------------------

@@ -210,6 +210,25 @@ _PADDLE_RUNG_VOCABULARY = frozenset({
 #: that defaulted to the empty string would fold the two together.
 STAGE_NOT_ATTEMPTED = "not_attempted"
 
+#: Review MINOR-5 (reproduced): the outcome reasons that mean NO READ WAS EVER
+#: ATTEMPTED for this document. `DocumentRow.source_path` defaults to the
+#: literal `"none"`, so without this the extraction stage folded "the ladder
+#: ran and produced nothing" together with "the ladder never ran" — 16 of the
+#: run of record's 29 `none` rows are invalid files refused before any read,
+#: and every row of a `--profile-only` run would be mislabelled the same way.
+#: `stage_evidence` already draws the distinction; this is the same fact,
+#: taken from the same place: the reason the row ALREADY records, never
+#: inferred from anything else. A closed tuple, guarded against drift by
+#: `tests/test_two_denominators.py` reading it against `DEFERRED_REASONS` and
+#: the runner's own literals.
+NO_READ_ATTEMPTED_REASONS: frozenset[str] = frozenset({
+    "profile_only",                        # the mode does not read at all
+    "invalid_pdf", "encrypted",            # refused at the door, before the ladder
+    "research_skipped_not_in_population",  # outside the operator's named set
+    "research_refused_holdout",            # refused by the cage, before any read
+    "not_processed",                       # the row's own default: nothing ran
+})
+
 #: The literal `peak_rss_mb` carries when `psutil` is not importable. A string,
 #: not `None` and not `0`: an unmeasured figure that renders as a number is a
 #: measurement nobody made.
@@ -362,11 +381,21 @@ def refuse_production_data_dir(path: Path) -> None:
 
     resolved = Path(path).expanduser().resolve()
     parts_lower = [part.lower() for part in resolved.parts]
-    if _PRODUCTION_DATA_DIR_NAMES.fullmatch(resolved.name):
-        raise ValueError(
-            f"--data-dir {path} names a production or historical cache "
-            f"({resolved.name}); a research run writes to its own directory"
-        )
+    # The directory ITSELF, and every directory it sits under. Review MINOR-1
+    # (reproduced): containment was enforced for the recovery area only, so
+    # `webapp_data/research` and a relocated cold cache's subdirectory were
+    # ACCEPTED while the docstring above promised otherwise. Walking the
+    # parents is what makes "is (or is inside)" true of the code and not only
+    # of the prose — and it is the direction that matters, because a research
+    # run given a subdirectory of a frozen cache writes INTO that cache's tree
+    # whatever key it uses.
+    for candidate in (resolved, *resolved.parents):
+        if _PRODUCTION_DATA_DIR_NAMES.fullmatch(candidate.name):
+            where = "names" if candidate == resolved else "is inside"
+            raise ValueError(
+                f"--data-dir {path} {where} a production or historical cache "
+                f"({candidate.name}); a research run writes to its own directory"
+            )
     for index in range(len(parts_lower) - 1):
         if parts_lower[index] == ".claude" and parts_lower[index + 1] == "recovery":
             raise ValueError(
@@ -374,16 +403,24 @@ def refuse_production_data_dir(path: Path) -> None:
                 "the production cold caches; a research run writes to its own directory"
             )
     live = Path(os.environ.get("WEBAPP_DATA_DIR") or "webapp_data").expanduser().resolve()
-    if resolved == live:
+    if resolved == live or live in resolved.parents:
         raise ValueError(
-            f"--data-dir {path} is the live production cache; a research run writes to "
-            "its own directory"
+            f"--data-dir {path} is the live production cache (or inside it); a research "
+            "run writes to its own directory"
         )
 
 
 def peak_rss_mb() -> str:
-    """This process's resident set, in MiB, as a string — or the LITERAL
+    """This PROCESS's resident set, in MiB, as a string — or the LITERAL
     `not measured` when `psutil` is not importable.
+
+    Named for the card's column and narrower than that name (review MINOR-6):
+    this is the process RSS read at the row's exit, not a per-document PEAK. A
+    true peak needs sampling across the document's work, which is 2.3's to
+    build; until then the honest reading of this column is "how large the
+    process was when this row finished", and it is stated here, in
+    `requirements-local.txt`, and in the closure record rather than implied by
+    the name.
 
     `psutil` is in `requirements-local.txt` only: it is a measurement
     convenience on the development host, not something the engine needs to
@@ -1516,11 +1553,20 @@ class DiscoveryRunner:
         analysis never ran keeps `stage_candidate = not_attempted` rather than
         being filed as `unclaimed`, because "no reader was asked" and "readers
         were asked and none claimed" are the two facts this funnel exists to
-        keep apart. Geometry and layout stay `not_attempted` for every row in
-        2.2 by construction — nothing in this tree builds either.
+        keep apart. The SAME distinction is now drawn on the extraction stage
+        (review MINOR-5): a document refused before the ladder ever ran reads
+        `not_attempted`, and only a document the ladder ran for and got nothing
+        from reads `none`. Both come from the outcome reason the row already
+        records — `NO_READ_ATTEMPTED_REASONS`, a closed tuple — never from an
+        inference about what probably happened. Geometry and layout stay
+        `not_attempted` for every row in 2.2 by construction: nothing in this
+        tree builds either.
         """
+        never_read = row.outcome_reason in NO_READ_ATTEMPTED_REASONS
         row.stage_extract = (
-            row.source_path if row.source_path in STAGE_VOCABULARY["stage_extract"] else "none"
+            STAGE_NOT_ATTEMPTED if never_read
+            else row.source_path if row.source_path in STAGE_VOCABULARY["stage_extract"]
+            else "none"
         )
         row.stage_evidence = (
             STAGE_NOT_ATTEMPTED if row.source_path == "none"

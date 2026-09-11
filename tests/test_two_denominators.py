@@ -383,29 +383,79 @@ def test_the_geometry_seam_is_reached_when_the_mode_is_not_off(tmp_path, monkeyp
     ]
 
 
+def test_the_extraction_stage_tells_never_read_apart_from_read_and_empty(monkeypatch):
+    """Review MINOR-5's killer (M21). `source_path` defaults to the literal
+    `none`, so before this a document refused BEFORE the ladder ran and one the
+    ladder ran for and got nothing from were the same token. On the run of
+    record that mislabelled 16 of 29, and every row of a profile-only run."""
+    from discovery.runner import NO_READ_ATTEMPTED_REASONS, STAGE_VOCABULARY, DiscoveryRunner
+
+    def stage_extract(**overrides) -> str:
+        row = DocumentRow(relative_path="F/a.pdf", folder_label="F", content_sha256="A" * 64,
+                          byte_size=1, **overrides)
+        DiscoveryRunner._project_funnel(row, {})
+        return row.stage_extract
+
+    # refused before the ladder ever ran -> not_attempted, every reason
+    for reason in sorted(NO_READ_ATTEMPTED_REASONS):
+        assert stage_extract(source_path="none", outcome_reason=reason) == "not_attempted", reason
+    # the ladder RAN and produced nothing -> none, which is the honest word
+    assert stage_extract(source_path="none", outcome_reason="deferred_visual_ocr") == "none"
+    assert stage_extract(source_path="none", outcome_reason="ocr_failed") == "none"
+    # and a real read still reports its own extractor
+    assert stage_extract(source_path="native", outcome_reason="approved") == "native"
+    assert stage_extract(source_path="local_tesseract", outcome_reason="no_parser_matched") == "local_tesseract"
+    # the vocabulary the two facts live in is closed and holds both words
+    assert {"not_attempted", "none"} <= STAGE_VOCABULARY["stage_extract"]
+
+
+def test_the_no_read_vocabulary_names_only_reasons_the_tree_can_emit():
+    """A closed tuple that drifts out of the reason vocabulary would silently
+    stop firing. Every member must be a reason something in this tree emits."""
+    from discovery.runner import NO_READ_ATTEMPTED_REASONS
+    from telemetry.unresolved_taxonomy import REASON_LAYER
+
+    unknown = sorted(NO_READ_ATTEMPTED_REASONS - set(REASON_LAYER))
+    assert unknown == [], f"reasons no emitter produces: {unknown}"
+
+
 def test_peak_rss_is_measured_when_psutil_is_importable_and_a_word_when_it_is_not(monkeypatch):
     """Case 25, both branches. The degraded value is a WORD, never `0` and
     never empty: a column that reads as a figure is a measurement somebody
     made, and nobody made this one."""
-    import builtins
+    import sys
+    import types
 
     from discovery.runner import PEAK_RSS_NOT_MEASURED, peak_rss_mb
 
-    try:
-        import psutil  # noqa: F401
-    except ImportError:
-        assert peak_rss_mb() == PEAK_RSS_NOT_MEASURED
-    else:
-        assert float(peak_rss_mb()) > 0.0
+    # Review MINOR-6 (reproduced): `psutil` is installed nowhere — not on this
+    # host, not in `requirements.txt`, so not in CI — and the measuring arm had
+    # therefore never executed anywhere. Injecting a STUB module exercises it
+    # for real without installing anything and without making the suite depend
+    # on an optional native package.
+    stub = types.ModuleType("psutil")
 
-    real_import = builtins.__import__
+    class _Process:
+        def memory_info(self):
+            return types.SimpleNamespace(rss=123 * 1024 * 1024)
 
-    def without_psutil(name, *args, **kwargs):
-        if name == "psutil":
-            raise ImportError("forced absent for this test")
-        return real_import(name, *args, **kwargs)
+    stub.Process = _Process
+    monkeypatch.setitem(sys.modules, "psutil", stub)
+    assert peak_rss_mb() == "123.0"
+    assert float(peak_rss_mb()) > 0.0
 
-    monkeypatch.setattr(builtins, "__import__", without_psutil)
+    # a library present but refusing (a permission or platform failure) is not
+    # a run failure: the column degrades, the document does not
+    class _Refusing:
+        def memory_info(self):
+            raise OSError("access denied")
+
+    stub.Process = _Refusing
+    assert peak_rss_mb() == PEAK_RSS_NOT_MEASURED
+
+    # and the absent arm: `None` in sys.modules makes `import psutil` raise
+    # ImportError exactly as a missing distribution does
+    monkeypatch.setitem(sys.modules, "psutil", None)
     assert peak_rss_mb() == PEAK_RSS_NOT_MEASURED
     assert PEAK_RSS_NOT_MEASURED == "not measured"
 

@@ -297,7 +297,36 @@ def test_the_default_webapp_data_dir_is_refused_by_identity(monkeypatch, tmp_pat
     monkeypatch.setenv("WEBAPP_DATA_DIR", str(tmp_path / "prod_cache"))
     with pytest.raises(ValueError, match="production"):
         refuse_production_data_dir(tmp_path / "prod_cache")
+    with pytest.raises(ValueError, match="production"):
+        # review MINOR-1: INSIDE the live cache, not only the live cache itself
+        refuse_production_data_dir(tmp_path / "prod_cache" / "research")
     refuse_production_data_dir(tmp_path / "research_cache")  # a sibling is fine
+
+
+@pytest.mark.parametrize("inside", [
+    # the reviewer's three surviving shapes (MINOR-1, reproduced 2026-09-10):
+    # the door promised "is (or is INSIDE) a production or historical cache"
+    # and enforced containment only for the recovery area.
+    "webapp_data/research",
+    "webapp_data/ocr/partition_x",
+    "somewhere/webapp_data_train9_cold/sub",
+    # plus one variant per axis the resolution has to normalise away, so the
+    # rule cannot be evaded by spelling: case, separator, and a relative hop.
+    "WEBAPP_DATA/research",
+    "webapp_data\\ocr\\partition_x",
+    "webapp_data/ocr/../artifacts/deeper",
+])
+def test_a_directory_inside_a_production_cache_is_refused(monkeypatch, tmp_path, inside):
+    """M18's killer. A research run keys its artifacts under its own partition
+    and so could not overwrite a production ENTRY — but the frozen caches are
+    the evidence every replay is measured against, and a run that writes into
+    one has changed the tree a later reader walks, whatever key it used. The
+    containment is the property; the key is not a substitute for it."""
+    monkeypatch.setenv("WEBAPP_DATA_DIR", str(tmp_path / "never_the_one_under_test"))
+    with pytest.raises(ValueError, match="production or historical cache"):
+        refuse_production_data_dir(ROOT / inside)
+    with pytest.raises(ValueError, match="production or historical cache"):
+        refuse_production_data_dir(Path(inside))
 
 
 def test_a_population_that_names_a_holdout_sha_is_refused_at_the_door(synthetic_root, monkeypatch, capsys):
@@ -331,6 +360,57 @@ def test_the_runner_refuses_a_holdout_sha_before_any_read(synthetic_root, monkey
     assert (row.outcome_class, row.outcome_reason) == ("deferred", "research_refused_holdout")
     assert row.research_partition == PARTITION
     assert row.escalation_trigger == "" and row.paddle_rung == "not_attempted"
+
+
+def test_a_holdout_sha_OUTSIDE_the_population_is_refused_as_a_holdout_not_skipped(
+    synthetic_root, monkeypatch,
+):
+    """Review MINOR-3's killer (the reviewer's N4 SURVIVED without it). The two
+    per-document doors are ORDERED — the cage first — and the only test of the
+    branch used a sha in BOTH sets, so swapping the blocks changed nothing it
+    observed.
+
+    The order matters more than "population zero" suggests, and the reason is
+    the CLI: it refuses any population that intersects the holdout digest at
+    the door, so the ONLY way the runner's holdout branch is reached in a real
+    run is with a sha OUTSIDE the population — precisely this case. "We refused
+    to look at it" and "we never looked at it" are different findings, and the
+    weaker one must not be able to swallow the stronger.
+    """
+    fx = synthetic_root
+    held = fx["shas"]["scan-a.pdf"]
+    runner = DiscoveryRunner(fx["root"], mode=MODE_RESEARCH_PADDLE, run_id="t", dedup=DedupIndex(),
+                             # the population names a DIFFERENT document
+                             population=frozenset({fx["shas"]["scan-b.pdf"]}),
+                             research_partition=PARTITION,
+                             holdout_sha16=frozenset({held[:16]}))
+
+    def never(*args, **kwargs):
+        raise AssertionError("a holdout document must never be read")
+
+    monkeypatch.setattr(runner, "_read", never)
+    monkeypatch.setattr(runner, "_read_paddle", never)
+    row = runner.process("SynthA/scan-a.pdf", "SynthA")
+    assert (row.outcome_class, row.outcome_reason) == ("deferred", "research_refused_holdout")
+    assert row.outcome_reason != "research_skipped_not_in_population"
+    assert row.research_partition == PARTITION
+    assert row.escalation_trigger == "" and row.paddle_rung == "not_attempted"
+    # and the funnel says no read was attempted, not that a read found nothing
+    assert row.stage_extract == "not_attempted"
+
+
+def test_a_population_sha_that_is_also_held_out_is_refused_as_a_holdout(
+    synthetic_root, monkeypatch,
+):
+    """The other half of the order: in BOTH sets, the cage still wins."""
+    fx = synthetic_root
+    held = fx["shas"]["scan-a.pdf"]
+    runner = DiscoveryRunner(fx["root"], mode=MODE_RESEARCH_PADDLE, run_id="t", dedup=DedupIndex(),
+                             population=frozenset({held}), research_partition=PARTITION,
+                             holdout_sha16=frozenset({held[:16]}))
+    monkeypatch.setattr(runner, "_read", lambda *a, **k: pytest.fail("never read"))
+    row = runner.process("SynthA/scan-a.pdf", "SynthA")
+    assert (row.outcome_class, row.outcome_reason) == ("deferred", "research_refused_holdout")
 
 
 def test_a_sha_outside_the_population_is_skipped_without_a_read(synthetic_root, monkeypatch):

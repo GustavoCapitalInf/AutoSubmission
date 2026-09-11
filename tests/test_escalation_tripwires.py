@@ -795,7 +795,20 @@ def test_only_the_escalation_module_and_one_runner_constant_name_the_research_tr
     mirrors the vocabulary. Nothing else in the tree may spell it — not the
     webapp worker (whose `decide(` site would otherwise be one keystroke from
     a hosted research read), not `analysis/`, not `tools/`."""
-    allowed = {RESEARCH_TRIGGER_SUPPLIER, "telemetry/record.py"}
+    allowed = {
+        RESEARCH_TRIGGER_SUPPLIER,
+        "telemetry/record.py",
+        # The mutation harness's JOB is to spell forbidden shapes verbatim: it
+        # carries the reviewer's N9 as a real textual edit, which is the
+        # literal. It is a `tools/` instrument that executes nothing in
+        # production, it is never imported by any production module, and the
+        # narrower pin below (`test_no_module_spells_the_research_trigger_as_a
+        # _string_constant`, scoped to `discovery/` and `telemetry/`) does not
+        # exempt it at all. Building the literal by concatenation to dodge this
+        # scan would be obfuscation, which is worse than an exemption with a
+        # reason attached.
+        "tools/p22truthtable_mutation_table.py",
+    }
     mentions = _research_trigger_mentions()
     unexpected = {name: lines for name, lines in mentions.items() if name not in allowed}
     assert unexpected == {}, f"the research trigger is named outside {sorted(allowed)}: {unexpected}"
@@ -834,6 +847,63 @@ def test_the_research_trigger_constant_is_a_module_level_frozenset_of_one():
     assert len(call.args[0].elts) == 1, "one trigger, one extractor"
     assert getattr(runner_module, RESEARCH_TRIGGER_CONSTANT) == frozenset(
         {"operator_forced_paddle"})
+
+
+#: The ONE file allowed to hold the trigger as a STRING CONSTANT outside
+#: `ocr/escalation.py`: the telemetry record's mirrored vocabulary, which is a
+#: tuple of literals by construction and is held equal to `ALL_TRIGGERS` by its
+#: own test.
+RESEARCH_TRIGGER_LITERAL_ALLOWED = "telemetry/record.py"
+
+
+def test_no_module_spells_the_research_trigger_as_a_string_constant():
+    """The reviewer's N9, closed statically.
+
+    N9 escaped every pin above by spelling the trigger as a STRING LITERAL at a
+    second site inside the one module the name-based pins allow — the AST pins
+    look for `ast.Name` nodes, and a literal is not one. It died behaviourally,
+    which is the protection that matters; this is the static half, so the shape
+    cannot come back and rely on a behavioural test happening to cover the path
+    it lives on (which is exactly how M11 survived once already).
+
+    The rule: no module under `discovery/` or `telemetry/` may hold the trigger
+    as a string constant, except the telemetry record's mirrored vocabulary.
+    `RESEARCH_TRIGGERS` must therefore read `ocr.escalation`'s constant BY
+    NAME, which is asserted alongside — a constant built from a literal would
+    satisfy the shape pin and fail this one.
+    """
+    offenders: dict[str, list[int]] = {}
+    for relative, source in _tree_sources():
+        normalised = relative.replace("\\", "/")
+        if not (normalised.startswith("discovery/") or normalised.startswith("telemetry/")):
+            continue
+        if normalised == RESEARCH_TRIGGER_LITERAL_ALLOWED:
+            continue
+        for tree in _all_asts_for_source(source):
+            lines = [node.lineno for node in ast.walk(tree)
+                     if isinstance(node, ast.Constant) and node.value == "operator_forced_paddle"]
+            if lines:
+                offenders.setdefault(normalised, []).extend(lines)
+    assert offenders == {}, (
+        "the research trigger is spelled as a string constant outside "
+        f"{RESEARCH_TRIGGER_LITERAL_ALLOWED}: {offenders} — it must be read from "
+        "ocr.escalation by NAME, so that the name-based pins can see every use"
+    )
+
+    import discovery.runner as runner_module
+
+    tree = ast.parse(inspect.getsource(runner_module))
+    assignment = next(
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == RESEARCH_TRIGGER_CONSTANT for t in node.targets)
+    )
+    members = assignment.value.args[0].elts
+    assert all(isinstance(member, ast.Name) and member.id == "OPERATOR_FORCED_PADDLE"
+               for member in members), (
+        f"{RESEARCH_TRIGGER_CONSTANT} must be built from ocr.escalation's constant by NAME, "
+        f"not from a literal: {ast.dump(assignment.value)}"
+    )
 
 
 def test_no_decide_call_site_names_the_research_trigger_inline():

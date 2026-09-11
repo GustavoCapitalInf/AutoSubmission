@@ -205,6 +205,15 @@ L6_CODES: tuple[str, ...] = (
     "not_attempted_by_run",
     "platform_exception",
     "platform_defect",
+    #: The layer's own meaning, §D.4 verbatim: "the taxonomy saw nothing — itself
+    #: a finding, never nulled". Distinct from `unmapped`, and the distinction
+    #: is the point: `unmapped` means the taxonomy met a code it has never seen,
+    #: `unknown` means it met a document every layer had nothing to say about.
+    #: Review MINOR-4 (reproduced on 20 class/reason pairs): without this the
+    #: "never nulled" property rested on a coincidence in `telemetry/record.py`
+    #: — that every reason mapped to `None` happens to be paired with a
+    #: diagnosable class — rather than on this module closing the gap itself.
+    "unknown",
 )
 
 VOCABULARY: dict[str, tuple[str, ...]] = {
@@ -545,6 +554,18 @@ def diagnose_unresolved(
                 codes[layer] = code
 
     primary_layer = next((layer for layer in LAYER_PRECEDENCE if codes[layer]), "")
+    if not primary_layer:
+        # Review MINOR-4. An UNRESOLVED document always has a primary reason,
+        # by construction rather than by luck: if no layer spoke, L6 says so in
+        # its own closed word. A row reaching here carries an outcome reason
+        # this module deliberately mapped to no layer (the financial classes,
+        # whose layer comes from the withheld diagnosis) on a class that
+        # carries no diagnosis — so there is genuinely nothing to report, and
+        # "nothing to report" is a finding with a name, never an empty column.
+        # The validated early-return above is the one path that yields no
+        # diagnosis at all, and it yields no diagnosis on purpose.
+        codes["l6"] = "unknown"
+        primary_layer = "l6"
     return UnresolvedDiagnosis(
         reason_l0=codes["l0"], reason_l1=codes["l1"], reason_l2=codes["l2"],
         reason_l3=codes["l3"], reason_l4=codes["l4"], reason_l5=codes["l5"],
