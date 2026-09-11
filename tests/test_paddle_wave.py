@@ -700,6 +700,37 @@ def test_the_synthetic_wave_reads_every_page_once_resumes_and_then_hits_the_cach
     assert hits == 2
 
 
+@pytest.mark.skipif(shutil.which("tesseract") is None,
+                    reason="the research mode's offline ladder needs tesseract on PATH")
+def test_d4_every_document_is_attempted_or_refused_when_the_worker_fails(
+    synthetic_wave, monkeypatch,
+):
+    """M1's killer, and D4's whole statement. The worker answers every request
+    with an error; not one document produces evidence; and the population count
+    still equals attempted, which equals evidence plus refused. A wave that
+    SKIPPED a document on an exception would report a smaller population than
+    the one it named — the difference between "we read 755" and "we read the
+    ones that worked"."""
+    fixture = synthetic_wave
+    with FakeWorker(fail_mode="http_500") as fake:
+        _remote_paid_env(monkeypatch, fake.url)
+        monkeypatch.setenv("WEBAPP_DATA_DIR", str(fixture["tmp"] / "never_used_prod"))
+        _wave(fixture)
+    state = WaveState.load(WaveState.path_for(fixture["data_dir"], PARTITION, "CTRL"))
+    counts = state.counts()
+    assert counts["attempted"] == 2, "a document was skipped rather than recorded"
+    assert counts["attempted"] == counts["evidence"] + counts["refused"]
+    assert counts["evidence"] == 0 and counts["refused"] == 2
+    # every refusal carries a reason from the row's own closed vocabulary
+    reasons = state.refusals_by_reason()
+    assert sum(reasons.values()) == 2
+    assert "unrecorded" not in reasons, reasons
+    # and the whole population is pending again, because nothing was learned
+    population = {sha.upper() for sha in fixture["shas"].values()}
+    assert set(state.pending(population)) == population
+    assert state.unattempted(population) == []
+
+
 def _evidence_shas(data_dir: Path, shas) -> dict[str, str]:
     from webapp.artifact_cache import ocr_settings_key, open_cache
 
