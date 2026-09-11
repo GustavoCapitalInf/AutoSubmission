@@ -1,5 +1,26 @@
 # PHASE 2 REMAINDER — HANDOFF TO THE NEXT LEAD ORCHESTRATOR (written 2026-09-10 by Ocean, Fable 5.1)
 
+> **UPDATE 2026-09-11 (Ocean, the session that resumed from this file): PHASE 2.2 IS COMPLETE.** Everything in §2–§3 below
+> happened as planned and is now history: F closure-2's W3 section was completed from its logs (`fc65067`), F went through
+> re-review 2 → closure-3 → re-review 3 (APPROVE WITH FINDINGS; Q1/Q2 carried) and COMPOSED at `b49bbc2`; Ocean's item 2 landed
+> at `4a9ba53`; T was re-dispatched from its dirty state, delivered `01ab992`, review → closure `0273626` → re-review → the
+> MINOR-8 comment `59a3b3b`, COMPOSED at `72269f4` (the W3 rebuilt EXPLICITLY — the helper would have duplicated F's sections
+> because of two merge bases); one composed-tree integration fix `52bd8f2` (the Paddle-config token pin made hermetic — it
+> read the host's minted `.paddle_runtime/worker.token`). Closure proofs at `52bd8f2`: suite 9,827 / 0 failed with the real
+> `.env`; guards 276; conformance 1,282; gate GREEN 105/3/1; corpus slice 34; privacy 4 residue sites all adjudicated
+> (pytest durations / a synthetic probe in review prose); messages WORDS 8 (own prose); **cold run
+> `discovery_reports/TRAIN12-52bd8f2/2026-09-11T040247.502179-0000-fd6b4d7f` vs the Phase 2.1 run of record: 2,625 → 2,625,
+> 3,380 unchanged, the matrix wholly diagonal, refused 0, compare exit 0** (cold cache `.claude/recovery/webapp_data_train12_cold`
+> — READ-ONLY from now on; the run started under `FLOOR_GB=1.5 CAP_GB=4 OCR_MAX_WORKERS=1` because the desktop leaves ≈ 2 GB
+> available). CI on `origin/train12`: run 34567212012. The durable record: `BATCH9_TRANSITION.md` §7 (2026-09-10 / 09-11 entries),
+> `PHASE2_STATE.md`, `PROJECT_STATUS.md`, `PHASE2-2-TRUTH.md` §Closure, the five reviews. **The next lead reads
+> `docs/agent-handoffs/PHASE2-3-WAVE.md` (the Phase 2.3 umbrella card) and the transition log's last entries; §4–§6 below
+> remain the operating discipline. Lock rule: mkdir-only, holder inside, own-holder release, Git bash `rmdir` when Python's is
+> refused, unbounded waits. Open items for Gustavo: slice-1 adjudication (214 packets); the untracked
+> `docs/moneythumb-replacement/superpowers/` directory (an old copy found on disk 2026-09-10, left in place); rotating
+> `.paddle_runtime/worker.token` before the first 2.3 wave run (its value was printed into a gitignored local log, redacted).**
+
+
 You are taking over as **Ocean**, the lead orchestrator of the Capital Infusion bank-statement engine, in the
 middle of **Phase 2.2 (Truth Instruments)** of the Phase 2 remainder program. This file tells you exactly
 what the program is, what has been implemented, what is in flight (and where it stopped), and what is left.

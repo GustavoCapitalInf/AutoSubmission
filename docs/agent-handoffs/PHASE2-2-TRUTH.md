@@ -338,3 +338,35 @@ machine · proof floor green · adversarial reviews complete, findings reproduce
 green · cold run / replay green · CI green · docs durable (`BATCH9_TRANSITION.md` §7, `PHASE2_STATE.md`,
 `PROJECT_STATUS.md`, this card's §Closure, the reviews) · worktree clean → **Phase 2.3 opens
 (`PHASE2-3-WAVE.md`) without a user approval.**
+
+## Closure (Ocean, 2026-09-11) — PHASE 2.2 COMPLETE; the completion criteria checked line by line
+
+Composed code tree on `train12`: **`52bd8f2`** (K `87b5474` → C `40f619f` → H `e32c1a4` → F `b49bbc2` → Ocean's items `0f83190` / `4a9ba53` → T `72269f4` → the hermetic Paddle-config test pin `52bd8f2`, the one composed-tree integration fix — the first floor run's single red test read the host's minted worker token through the loader's reviewed fallback); every cell reviewed → closed → re-reviewed in the Fable 5.1 environment (K: APPROVE WITH FINDINGS twice; C: APPROVE WITH FINDINGS twice; H: APPROVE WITH FINDINGS → APPROVE; F: APPROVE WITH FINDINGS three times, the last with two MINORs carried; T: APPROVE WITH FINDINGS twice, the last item closed by a comment). Reviews under `reviews/PHASE2_P22{IDENTITY,CLASSIFY,HOLDOUT,FENCE,TRUTHTABLE}_REVIEW.md`. Fifteen `§P22*` W3 sections.
+
+| criterion | held by | evidence |
+|---|---|---|
+| classifier delivered; disjoint sum 755 / 3,380 proven on the run of record; every validated exception named | C + T | `tools/classify_census.py`, `tools/p22truthtable_measure.py`: 3,380 == 3,380, 755 == 755; 431 validated exceptions by sha16 and kind (signal defects → the 2.3 precision cycle) |
+| taxonomy L0–L6 with drift guards | T | `telemetry/unresolved_taxonomy.py`; precedence doc/code pin; L6 `unknown` structurally never empty |
+| `refused` + transition matrix + both denominators in the report | T | `discovery/compare.py`, `discovery/report.py`, `tools/train8_compare.py`, `tools/truth_report.py` |
+| sealed store + adjudication CLI + holdout manifest + firewall | H | `tools/holdout/`, `tools/adjudicate.py`, the firewall test; `truth/MANIFEST_DIGEST.txt` |
+| slice-1 queue prepared (adjudication NOT a gate) | H | 214 packets under the private on-machine directory; nothing adjudicated |
+| native evidence persisted (schema 3) with sha | K | `EXTRACTION_SCHEMA_VERSION` 3; `evidence_sha256` on native rows (T) |
+| display-frame geometry pinned | K | unrotated byte-identical on the 12 pinned PDFs; rotated by design; the CropBox raster (RASTER_VERSION 2) |
+| geometry-aware analysis key (stage 18) | K (+ Ocean item 2) | `ANALYSIS_STAGE_VERSION` 18; `reconstruction_mode` and `hosted_extraction_opt_in` in the settings key |
+| research partitions refused by `run_of_record` | K + T | `research_partition` in the OCR key; the refusal; the research `--data-dir` fenced |
+| research mode proven end to end on synthetic fixtures with the fake worker | T | one fake-worker request per page; rows carry the partition; auto mode has no path to the trigger |
+| R9 removed and the hosted edge fenced; deterministic mode byte-identical | F | the union of every registration identical at base and closure; 30/30 mutants at the closure-3 tip |
+| funnel / telemetry columns | T | `ROW_FIELDS` appended; `stage_extract` native 3,172 / tesseract 179 / not_attempted 16 / none 13; the Paddle telemetry columns declared and empty (the one-field change named for 2.3) |
+| every case green; mutation tables complete | all | per cell: K 22/22 · C 28/28 · H 23/23 · F 30/30 · T 23/23 |
+| 2,625 preserved payload-identical; newly validated 0; OCR-fed validated 0 | train | the cold run `TRAIN12-52bd8f2/2026-09-11T040247.502179-0000-fd6b4d7f` vs the Phase 2.1 run of record: 2,625 → 2,625; 3,380 unchanged (shared 3,380 = comparable 3,172 + quarantined 208; every class on the matrix diagonal; movers none; refused 0); compare exit 0; peak 1,261 MB; 5,966 s |
+| no customer page left the machine | all | Paddle attempted 0; the two literals set in no run; the fake worker in-process |
+| proof floor green | train | floor.log: suite 9,827 passed / 48 skipped / 39 deselected / 0 failed; guards 276; conformance 1,282; gate GREEN 105/3/1; corpus slice 34 |
+| adversarial reviews complete, findings reproduced and closed, re-reviews green | all | the five review files |
+| cold run / replay green | train | above |
+| CI green | train | run 34567212012 (workflow_dispatch on `origin/train12` at `52bd8f2`; the conclusion recorded in the transition log's ON MAIN entry) |
+| docs durable | Ocean | `BATCH9_TRANSITION.md` §7 (2026-09-10/11 entries), `PHASE2_STATE.md`, `PROJECT_STATUS.md`, this section, the reviews, the handoff |
+| worktree clean | Ocean | `git status --short` empty but for the untracked `docs/moneythumb-replacement/superpowers/` left for Gustavo |
+
+Carried to 2.3 (recorded residue, none blocking): K re-review N-1 / N-2 (population 0); C re-review R-1..R-4 and the 431 validated-exception residue (the precision cycle); F re-review-3 Q1 / Q2; T's Paddle-telemetry field; Ocean's optional item 3 (a durable worker record of the hosted-extraction refusal attribute); the lock rule; the `psutil` column's declared scope.
+
+→ **Phase 2.3 opens (`PHASE2-3-WAVE.md`) without a user approval.**
