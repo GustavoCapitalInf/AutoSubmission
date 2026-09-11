@@ -22,6 +22,45 @@
 > `docs/moneythumb-replacement/superpowers/` directory (an old copy found on disk 2026-09-10, left in place); rotating
 > `.paddle_runtime/worker.token` before the first 2.3 wave run (its value was printed into a gitignored local log, redacted).**
 
+> **UPDATE 2026-09-11 12:20 (Ocean): PHASE 2.3 IN FLIGHT — FOUR CELLS TERMINATED BY THE MONTHLY SPEND LIMIT (the seventh
+> termination; it "resets 11:40 America/New_York"). Recover from disk; never restart a cell; never rerun a completed proof.**
+> `train13` = `0ae4017` (pushed): the umbrella `PHASE2-3-WAVE.md` (partition ids RULED = the configuration block names,
+> `paddle-v5-prod` / `paddle-v5-orient` / `paddle-v6`, no slash — K's shape), the six cell cards `P23-{WAVE,EGATE,AGREE,CONFIG,
+> FALLOUT,PRECISION}.md`, and cell X's review `reviews/PHASE2_P23AGREE_REVIEW.md` (APPROVE WITH FINDINGS: 1 MAJOR — the indirect
+> `/Rotate` chain resolver was pinned against a fabricated PyMuPDF contract and would refuse a legal chained rotation; 6 latent
+> MINORs). Worktrees `.claude/worktrees/mt23-<cell>` on `wave23-<cell>` from `26f94f5` (P from `08704aa`), ALL CLEAN at:
+> * **W `wave23-wave` `c5c5829`** (7 commits): the runner, the populations (`discovery_reports/train13-logs/populations/{CTRL,U755,SLICE}.shas`),
+>   the telemetry field, the attestation; the worker token ROTATED (the file is gone; `start` mints a fresh one); floor logs under
+>   `discovery_reports/train13-logs/p23wave/`: guards / conformance / gate / corpus EXIT=0, **suite EXIT=1 (one failure W called
+>   "one other fix the floor surfaced" — read `p23wave-suite.log`)**, `replay-base` EXIT=0, `replay-closure` RUNNING detached
+>   at termination (full archive; its driver holds `train13-logs/HARNESS.lock` as `P23-WAVE pid 28456` — let it finish; it
+>   releases by itself; if the directory is orphaned EMPTY after `EXIT=` appears, remove it by hand). **The CTRL live run was
+>   BLOCKED** (`p23wave-run-CTRL-blocked.log`): `lifecycle.check reached=False` — the Vast instance did not answer (stopped or
+>   unreachable), the attestation's remote inspection failed, tunnel closed; W's last commit made "an instance that did not
+>   answer" a distinct refusal. W had used the partition id `research-paddle-v5-prod` BEFORE Ocean's ruling and acknowledged it
+>   would switch to `paddle-v5-prod` "together with one other fix" after the replays. NEXT for W: apply the ruling + the suite
+>   fix, re-run the suite, then the live runs — which need the INSTANCE REACHABLE (Gustavo starts it; `python -m tools.paddle_vast
+>   check` must report `reached=True versions_match_pins=True`), both literals in the run's environment only.
+> * **E `wave23-egate` `c83502e`** (13 commits incl. its W3 section `§P23EGATE`): module, projection, census tool, mutants,
+>   proofs logged under `p23egate/` (suite / guards / conformance / gate / corpus / replays / scans — read the EXIT lines); its
+>   lock poller was still waiting behind W at termination (an unattended driver may run E's queued proofs when the lock frees —
+>   read the logs before re-running anything). E was "writing the W3 section's remaining sections, honestly about what is still
+>   queued". NEXT: verify what is proven vs queued from the logs, finish the W3, final scans, report → review.
+> * **X `wave23-agree` `c946fb6`** (5 delivery + 4 closure commits): closure of the review IN PROGRESS — MAJOR-1 (the real-PDF
+>   chain resolver) committed? check `git log 1ee8b31..c946fb6`; X was at "the MINOR-1 fixtures and the MINOR-2/3/6 pins". NEXT:
+>   finish the closure per Ocean's rulings in the review-closure message (recorded in the transition log at composition:
+>   real-PDF chain pins, FR1/FR3/FR4 as real mutants, `scale_x/scale_y`, rotation in `frames_agree`, the skew limit restated,
+>   the harness M6 row honest, the guarded `getattr` reads), the census + sha re-derivation re-run, suite, scans, the
+>   `§P23AGREE-CLOSURE` section → re-review (a fresh reviewer at the closure tip; worktree `rev23-agree` is detached at
+>   `1ee8b31` with the review file untracked — move it).
+> * **P `wave23-precision` `3cb913b`** (14 commits): R-1..R-4 done with before/after censuses (`census-*.log`), the ceremony
+>   instrument and per-repair reproduction logs (`ceremony-*.log`); P was at "the six classification docstrings" (the R10
+>   records' consequence step). NEXT: finish the six records (classification + tripwire or STOP item), Q1/Q2, mutants, the
+>   proof floor with the UNION replay, scans, `§P23PRECISION` → review.
+> * V and B: NOT launched (after W composes). Reviews for W, E, P not yet dispatched.
+> Ocean's rule for the resume: one message (or a fresh dispatch carrying these facts) per cell; the cell reads its own logs
+> first; a proof with an `EXIT=0` log is never rerun.
+
 
 You are taking over as **Ocean**, the lead orchestrator of the Capital Infusion bank-statement engine, in the
 middle of **Phase 2.2 (Truth Instruments)** of the Phase 2 remainder program. This file tells you exactly
