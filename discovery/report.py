@@ -114,15 +114,93 @@ class Rollups:
         return render_report(self.payload)
 
 
+#: P22-TRUTHTABLE. The two labels that are DERIVED rather than carried: R is
+#: the deferral the offline ladder records when it produced no text at all,
+#: and U is a Tesseract read no reader claimed. Both are the definitions the
+#: Phase-2 baseline was measured with (`PHASE2-RULES.md` §"Baseline triggers"),
+#: restated here so the report and that baseline cannot drift apart.
+R_LABEL_REASON = "deferred_visual_ocr"
+U_LABEL_SOURCE = "local_tesseract"
+
+#: The funnel stage columns, in `ROW_FIELDS` order. One list, read by the
+#: research table and by nothing else in this module.
+STAGE_FIELDS = ("stage_extract", "stage_evidence", "stage_geometry",
+                "stage_layout", "stage_candidate", "stage_verdict")
+
+
+def _sha_index(rows: list) -> tuple[list[str], dict[str, list]]:
+    """`(shas in run order, sha -> its rows)`.
+
+    The archive's denominator is DOCUMENTS, not rows: one document that
+    appears twice under two paths is one sha and one document, and counting
+    its rows would inflate every denominator this module prints. The first row
+    of a sha (run order) is the one whose recorded facts are reported, which
+    is the same rule `tools/classify_census.py` uses.
+    """
+    order: list[str] = []
+    groups: dict[str, list] = {}
+    for row in rows:
+        sha = row.content_sha256
+        if sha not in groups:
+            groups[sha] = []
+            order.append(sha)
+        groups[sha].append(row)
+    return order, groups
+
+
+def _classification_block(shas: list[str], groups: dict[str, list]) -> dict:
+    """The DISJOINT primary classification over a set of documents (D2, case 8).
+
+    `sum` is printed BESIDE `population` rather than instead of it, so the
+    claim "these buckets account for exactly this population" is a visible
+    arithmetic identity in the report and not a promise in a docstring.
+    `disjoint` is False the moment two rows of one document disagree about its
+    kind — the way a disjointness claim actually dies.
+    """
+    by_kind: Counter = Counter()
+    triples: Counter = Counter()
+    disjoint = True
+    for sha in shas:
+        rows = groups[sha]
+        if len({row.document_class for row in rows}) != 1:
+            disjoint = False
+        first = rows[0]
+        by_kind[first.document_class] += 1
+        triples[(first.document_class, first.class_modality, first.class_tier)] += 1
+    return {
+        "population": len(shas),
+        "sum": sum(by_kind.values()),
+        "disjoint": disjoint,
+        "by_kind": dict(by_kind.most_common()),
+        "kind_modality_tier": [[kind, modality, tier, count]
+                               for (kind, modality, tier), count in sorted(triples.items())],
+    }
+
+
 def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
               cache_stats: dict | None = None,
               escalation_budget: int | None = None,
-              escalations_used: int = 0) -> dict:
+              escalations_used: int = 0,
+              research_partition: str = "") -> dict:
     # Imported here, not at module scope: the runner owns the row vocabulary
     # (as it owns `visual_rung`'s), and pulling `analysis.pipeline` in behind
     # every `import discovery.report` to read one string constant is a cost the
     # rollups do not need to impose on their readers.
-    from .runner import PARSER_ID_LIVE_DETECT, PARSER_ID_UNAVAILABLE
+    from layout.refusals import ACCOUNT_KINDS
+
+    from .runner import PARSER_ID_LIVE_DETECT, PARSER_ID_UNAVAILABLE, RESEARCH_TRIGGERS
+
+    # P22-TRUTHTABLE (D7). The HEADLINE population excludes research rows BY
+    # CONSTRUCTION — not by a filter an operator can forget, and not by a flag
+    # on the row that a rollup might not read: a research read is an artifact
+    # the run of record can never select, so a coverage figure that counted it
+    # would be a number about a partition that is not historical truth. In
+    # every production run `research_partition` is empty on every row and this
+    # partition is the identity, which is why the union replay is
+    # byte-identical.
+    all_rows = list(rows)
+    research_rows = [r for r in all_rows if getattr(r, "research_partition", "")]
+    rows = [r for r in all_rows if not getattr(r, "research_partition", "")]
 
     total = len(rows)
     processed = [r for r in rows if r.outcome_class != DEFERRED_CLASS]
@@ -242,10 +320,141 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         for (folder, parser), count in template_pairs.most_common()
     ]
 
+    # ----------------------------------------------------------------------
+    # P22-TRUTHTABLE items 3, 4, 5: the two denominators, the disjoint primary
+    # classification, and the overlapping diagnostic labels beside it.
+    # ----------------------------------------------------------------------
+    shas, groups = _sha_index(rows)
+    validated_shas = {
+        sha for sha in shas
+        if any(row.outcome_class == "validated" for row in groups[sha])
+    }
+    unresolved_shas = [sha for sha in shas if sha not in validated_shas]
+
+    #: R11's FIRST denominator: validated documents over the corpus itself.
+    #: Printed first, everywhere, and never replaced by the one below it.
+    raw_coverage = {
+        "validated": len(validated_shas),
+        "denominator": len(shas),
+        "coverage": (len(validated_shas) / len(shas)) if shas else 0.0,
+    }
+
+    #: R12's CCL, in the only form this process can honestly produce: the
+    #: classifier's PROPOSAL. The adjudicated form is read from the sealed
+    #: truth store, which no module under `discovery/` may touch (the leakage
+    #: firewall), so the runner says so by name rather than printing a proxy
+    #: under the adjudicated heading. `tools/truth_report.py` does the join.
+    #: The primary CCL is the DEPOSIT-account complete statements — the kinds
+    #: this engine targets; card, loan and brokerage are their own rows and
+    #: are never folded in (R12).
+    by_account_kind = {kind: {"proposed_complete": 0, "validated": 0} for kind in ACCOUNT_KINDS}
+    for sha in shas:
+        first = groups[sha][0]
+        if first.document_class != "STATEMENT_COMPLETE":
+            continue
+        bucket = by_account_kind.setdefault(
+            first.class_account_kind, {"proposed_complete": 0, "validated": 0})
+        bucket["proposed_complete"] += 1
+        if sha in validated_shas:
+            bucket["validated"] += 1
+    deposit = by_account_kind["deposit"]
+    ccl_classifier_proposed = {
+        "proposed_ccl": deposit["proposed_complete"],
+        "validated_in_proposed_ccl": deposit["validated"],
+        "coverage": (deposit["validated"] / deposit["proposed_complete"])
+                    if deposit["proposed_complete"] else 0.0,
+        "by_account_kind": by_account_kind,
+    }
+
+    #: Case 7. A validated document that did NOT classify `STATEMENT_COMPLETE`
+    #: is either a classifier defect or a finding, and either way it must be
+    #: NAMED. Counted by KIND here — a summary a report reader shares must not
+    #: carry document identities; the per-sha list is the private census
+    #: (`tools/classify_census.py --out`) and the closure record.
+    exception_kinds = Counter(
+        groups[sha][0].document_class for sha in validated_shas
+        if groups[sha][0].document_class != "STATEMENT_COMPLETE"
+    )
+
+    #: Case 8. The OVERLAPPING labels, in their own table, with no total. A
+    #: document may carry several at once (a Tesseract read that no reader
+    #: claimed, is Class B, and is truncation-flagged is all three), so a sum
+    #: of this table would over-count the population it describes — which is
+    #: precisely the arithmetic "755 unresolved" existed to prevent. There is
+    #: no `sum` key and no `total` key here on purpose, and a test asserts the
+    #: rendered block prints neither word.
+    failure_class_labels = Counter(
+        groups[sha][0].failure_class for sha in shas if groups[sha][0].failure_class
+    )
+    diagnostic_labels = {
+        "note": "overlapping; never summed",
+        "R": sum(1 for sha in shas
+                 if any(r.outcome_reason == R_LABEL_REASON for r in groups[sha])),
+        "U": sum(1 for sha in shas
+                 if any(r.source_path == U_LABEL_SOURCE and r.dispatch_outcome != "claimed"
+                        for r in groups[sha])),
+        "failure_class": {name: failure_class_labels.get(name, 0) for name in ("A", "B", "C")},
+        "truncation_flagged": sum(1 for sha in shas
+                                  if any(r.truncated_pages for r in groups[sha])),
+        "refused": sum(1 for sha in shas
+                       if any(r.outcome_class == "refused" for r in groups[sha])),
+        # Surfaced by the extraction gate as an advisory SIGNAL, never as a
+        # row column (Ruling B keeps it surface-only), so this table says
+        # where to look instead of printing a number it cannot compute.
+        "density_surfaced": "not carried on rows",
+    }
+
+    #: D7. The research partition's own table, beside the headline and never
+    #: inside it. `attempted` counts the documents the router actually admitted
+    #: the research trigger for; a population miss and a holdout refusal are
+    #: their own lines, because "we did not study this" and "we studied it and
+    #: it produced nothing" are different findings.
+    attempted = [r for r in research_rows if r.escalation_trigger in RESEARCH_TRIGGERS]
+    research = None
+    if research_partition or research_rows:
+        research = {
+            "partition": research_partition or (
+                research_rows[0].research_partition if research_rows else ""),
+            "rows": len(research_rows),
+            "attempted": len(attempted),
+            "skipped_not_in_population": sum(
+                1 for r in research_rows
+                if r.outcome_reason == "research_skipped_not_in_population"),
+            "refused_holdout": sum(
+                1 for r in research_rows if r.outcome_reason == "research_refused_holdout"),
+            "evidence": dict(Counter(
+                r.stage_evidence for r in attempted if r.stage_evidence != "not_attempted")),
+            "e_gate": dict(Counter(
+                r.evidence_quality for r in attempted if r.evidence_quality != "none")),
+            "stages": {name: dict(Counter(getattr(r, name) for r in attempted))
+                       for name in STAGE_FIELDS},
+            "outcome": dict(Counter(r.outcome_class for r in research_rows)),
+        }
+
     return {
         "run_id": run_id,
         "mode": mode,
         "documents": total,
+        "raw_coverage": raw_coverage,
+        # R11: named, not computed. The sealed store is behind the firewall.
+        "ccl_adjudicated": "not available in this process",
+        "ccl_classifier_proposed": ccl_classifier_proposed,
+        "document_class": {
+            "archive": _classification_block(shas, groups),
+            "unresolved": _classification_block(unresolved_shas, groups),
+        },
+        "validated_exceptions": {
+            "count": sum(exception_kinds.values()),
+            "by_kind": dict(exception_kinds.most_common()),
+        },
+        "diagnostic_labels": diagnostic_labels,
+        "research": research,
+        "research_rows": len(research_rows),
+        # A report spanning a vocabulary change is not comparing like with
+        # like; `render_report` warns when it sees more than one.
+        "unresolved_taxonomy_versions": dict(sorted(
+            Counter(str(getattr(r, "unresolved_taxonomy_version", "")) for r in all_rows).items()
+        )),
         "processed": len(processed),
         "deferred": len(deferred),
         "deferred_reasons": dict(Counter(r.outcome_reason for r in deferred)),
@@ -379,9 +588,43 @@ def render_report(summary: dict) -> str:
         if key in summary["dispatch"]:
             lines.append(_bar(key, summary["dispatch"][key], summary["dispatched"]))
 
+    # P22-TRUTHTABLE (R11/R12): BOTH denominators, the raw one FIRST and never
+    # replaced. `ccl_adjudicated` is named as unavailable rather than
+    # approximated: the adjudicated set lives in the sealed truth store and no
+    # module under `discovery/` may read it.
+    raw = summary.get("raw_coverage") or {"validated": 0, "denominator": 0, "coverage": 0.0}
+    proposed = summary.get("ccl_classifier_proposed") or {}
+    lines.append("")
+    lines.append(
+        f"raw coverage              {raw['validated']} / {raw['denominator']}"
+        f"   {raw['coverage']:.1%}   (validated documents / the corpus; never replaced)"
+    )
+    lines.append(f"  ccl_adjudicated         {summary.get('ccl_adjudicated', '')}"
+                 "   (tools/truth_report.py joins the sealed store)")
+    if proposed:
+        lines.append(
+            f"  ccl_classifier_proposed {proposed['validated_in_proposed_ccl']} / "
+            f"{proposed['proposed_ccl']}   {proposed['coverage']:.1%}"
+            "   (deposit-account complete statements, classifier-proposed)"
+        )
+        for kind, bucket in sorted(proposed["by_account_kind"].items()):
+            if kind == "deposit":
+                continue
+            lines.append(
+                f"    account kind {kind:<12}{bucket['validated']:>7} / "
+                f"{bucket['proposed_complete']}   (reported separately, never folded in)"
+            )
+    if summary.get("research_rows"):
+        lines.append(
+            f"  research rows excluded  {summary['research_rows']:>7}"
+            "   (a research partition is never historical truth)"
+        )
+
     if summary["outcome"]:
         lines.append("outcome")
-        for key in ("validated", "review", "withheld", "failed"):  # deferred is counted above
+        # deferred is counted above; `refused` (R11) is a terminal class and
+        # belongs on this list, unranked though it is.
+        for key in ("validated", "review", "withheld", "failed", "refused"):
             if key in summary["outcome"]:
                 lines.append(_bar(key, summary["outcome"][key], processed))
 
@@ -467,6 +710,58 @@ def render_report(summary: dict) -> str:
             body = " ".join(f"{k} {v}" for k, v in sorted(stats.items()))
             lines.append(f"  {stage:<26}{body}")
 
+    # P22-TRUTHTABLE (D2, case 8): the DISJOINT primary classification, with
+    # its arithmetic identity printed rather than promised.
+    classes = summary.get("document_class") or {}
+    if classes:
+        lines.append("")
+        lines.append("document classification (disjoint: exactly one kind per document)")
+        for scope in ("archive", "unresolved"):
+            block = classes[scope]
+            lines.append(
+                f"  disjoint sum over {scope}: {block['sum']} == {block['population']}"
+                + ("" if block["disjoint"] else "   WARNING two rows of one document disagree")
+            )
+            for kind, count in block["by_kind"].items():
+                lines.append(_bar(f"  {scope[:3]} {kind}", count, block["population"]))
+        lines.append("  kind x modality x tier (archive)")
+        for kind, modality, tier, count in classes["archive"]["kind_modality_tier"]:
+            lines.append(f"    {kind:<22}{modality:<20}{tier:<12}{count:>7}")
+        exceptions = summary.get("validated_exceptions") or {}
+        if exceptions.get("count"):
+            lines.append(
+                f"  validated documents NOT classified STATEMENT_COMPLETE: {exceptions['count']}"
+                "   (a finding or a classifier defect; named by sha16 in the private census)"
+            )
+            for kind, count in exceptions["by_kind"].items():
+                lines.append(f"    {kind:<30}{count:>7}")
+
+    research = summary.get("research")
+    if research:
+        lines.append("")
+        lines.append(f"research partition {research['partition']}"
+                     "   (excluded from every headline figure above, by construction)")
+        lines.append(_bar("rows", research["rows"], research["rows"]))
+        lines.append(_bar("attempted", research["attempted"], research["rows"]))
+        lines.append(_bar("skipped, not in population",
+                          research["skipped_not_in_population"], research["rows"]))
+        lines.append(_bar("refused, holdout", research["refused_holdout"], research["rows"]))
+        for name in STAGE_FIELDS:
+            body = " ".join(f"{k} {v}" for k, v in sorted(research["stages"][name].items()))
+            lines.append(f"    {name:<24}{body}")
+        for label in ("evidence", "e_gate"):
+            body = " ".join(f"{k} {v}" for k, v in sorted(research[label].items()))
+            lines.append(f"    {label:<24}{body}")
+
+    versions = summary.get("unresolved_taxonomy_versions") or {}
+    if len(versions) > 1:
+        lines.append("")
+        lines.append(
+            "WARNING mixed unresolved-taxonomy versions: "
+            + ", ".join(f"v{k} {v}" for k, v in sorted(versions.items()))
+            + " — class counts either side of a vocabulary change are not comparable"
+        )
+
     inventory = summary.get("inventory") or {}
     if inventory:
         lines += [
@@ -475,6 +770,22 @@ def render_report(summary: dict) -> str:
             f"{inventory['total_bytes']:,} bytes | "
             f"{inventory['pinned']} pinned + {inventory['discovery']} discovery",
         ]
+
+    # LAST, deliberately. These labels OVERLAP — one document may carry
+    # several — so the block prints no total of any kind, and printing it last
+    # keeps a neighbouring section's total from being read as this table's.
+    labels = summary.get("diagnostic_labels") or {}
+    if labels:
+        lines.append("")
+        lines.append("diagnostic labels (overlapping; never summed)")
+        lines.append(f"  R  offline ladder produced no text     {labels['R']:>7}")
+        lines.append(f"  U  tesseract read, no reader claimed   {labels['U']:>7}")
+        for name in ("A", "B", "C"):
+            lines.append(f"  failure class {name}                        "
+                         f"{labels['failure_class'][name]:>7}")
+        lines.append(f"  truncation flagged                     {labels['truncation_flagged']:>7}")
+        lines.append(f"  refused                                {labels['refused']:>7}")
+        lines.append(f"  density surfaced                       {labels['density_surfaced']}")
     return "\n".join(lines)
 
 
@@ -500,6 +811,22 @@ ROW_FIELDS = [
     "paddle_provider", "paddle_execution_class", "offline_source_model",
     # P21-ROUTING closure (MAJOR-1, MINOR-2). Likewise appended at the END.
     "cache_finding", "paddle_refusal_reason",
+    # P22-TRUTHTABLE (Phase 2.2, case 25). APPENDED, never reordered: a reader
+    # that selects columns by name is unaffected, and one that reads by
+    # position keeps every position it had. Six funnel stages, four technical
+    # telemetry columns plus the per-document peak RSS, the research
+    # partition, the seven taxonomy layers with their primary pair and
+    # version, and the classifier's verdict as a recorded fact. No cost, rate,
+    # price or billing column anywhere — out of scope by ruling, and grepped.
+    "stage_extract", "stage_evidence", "stage_geometry", "stage_layout",
+    "stage_candidate", "stage_verdict",
+    "bytes_up", "bytes_down", "inference_ms", "vram_mb", "peak_rss_mb",
+    "research_partition",
+    "reason_l0", "reason_l1", "reason_l2", "reason_l3", "reason_l4", "reason_l5",
+    "reason_l6", "primary_reason_layer", "primary_reason", "unresolved_taxonomy_version",
+    "document_class", "class_sub_kind", "class_modality", "class_account_kind",
+    "class_tier", "class_signals", "class_version", "completeness_findings",
+    "classifier_exception",
 ]
 
 

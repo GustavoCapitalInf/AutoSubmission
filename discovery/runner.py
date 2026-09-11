@@ -55,6 +55,7 @@ silently.
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -67,6 +68,8 @@ from analysis.payload_shape import (
 from analysis.pipeline import analyze_document
 from analysis.serialization import document_report_to_dict
 from corpus_artifacts import cached_markdown, cached_pages
+from layout import DocumentProfileFacts, classify_document as classify_document_kind
+from layout.refusals import ACCOUNT_KINDS, KINDS, MODALITIES, TIERS
 from ocr.escalation import (
     ADMITTED_TRIGGERS,
     A_EXTRACTION,
@@ -77,6 +80,7 @@ from ocr.escalation import (
     MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
     NO_FAILURE,
     OFFLINE_RUNGS_PRODUCED_NO_TEXT,
+    OPERATOR_FORCED_PADDLE,
     OPERATOR_FORCED_VISUAL,
     Escalation,
     EscalationRouter,
@@ -90,8 +94,11 @@ from telemetry import (
     DispatchCollector,
     EXTRACTION_TRIGGERS,
     FAILURE_CLASSES,
+    OUTCOME_CLASSES,
+    UNRESOLVED_TAXONOMY_VERSION,
     StageTimer,
     build_record,
+    diagnose_unresolved,
     dispatch_section,
     document_section,
     model_calls_for,
@@ -111,10 +118,23 @@ MODE_SCANNED_VISUAL = "scanned-visual"
 #: the Paddle escalation rung in place of the visual one. Mutually exclusive
 #: with every other mode (the CLI's mode group enforces it).
 MODE_SCANNED_PADDLE = "scanned-paddle"
+#: P22-TRUTHTABLE (Phase 2.2, D7/D8). The RESEARCH mode: the operator's NAMED
+#: population is read by Paddle through the router, regardless of profile, into
+#: a partition the run of record can never select. It is not a coverage mode
+#: and it is not a production mode — research admission and production
+#: admission are different concepts (R1) — and everything it writes is
+#: labelled with its partition id so that no replay, no provenance record and
+#: no historical-truth reader can pick it up by accident.
+MODE_RESEARCH_PADDLE = "research-paddle"
 MODE_DRY_RUN = "dry-run"
 
-#: Modes that run the local Tesseract rung.
-LOCAL_OCR_MODES = frozenset({MODE_SCANNED, MODE_SCANNED_VISUAL, MODE_SCANNED_PADDLE})
+#: Modes that run the local Tesseract rung. Research mode is one: the OFFLINE
+#: ladder still runs first, so a research row records what the deterministic
+#: read produced BEFORE Paddle replaced it (`offline_source_model`), which is
+#: the only way 2.3 can measure agreement between the two.
+LOCAL_OCR_MODES = frozenset({
+    MODE_SCANNED, MODE_SCANNED_VISUAL, MODE_SCANNED_PADDLE, MODE_RESEARCH_PADDLE,
+})
 
 #: What the visual rung did for one document. Row-level vocabulary (the
 #: adjudication artifact); it reaches telemetry as `outcome.fallback_reason`
@@ -135,6 +155,13 @@ PADDLE_UPGRADED = "upgraded"
 PADDLE_NO_UPGRADE = "no_upgrade"
 PADDLE_FAILED = "failed"
 PADDLE_REFUSED_CUSTOMER_DATA = "refused_customer_data"
+#: P22-TRUTHTABLE (D8): the RESEARCH read. Not `recovered` and not `upgraded`
+#: — neither word is true of it. A research read is not a rescue of a document
+#: nothing could read and not a replacement of an unclaimed one: it is the
+#: operator's named population being read by Paddle regardless of profile,
+#: which is the research admission Gustavo authorized, and it earns its own
+#: token so a rollup can never mistake it for either production shape.
+PADDLE_RESEARCH = "research"
 
 #: Committed OCR artifacts exist for the six image-only PINNED statements only.
 #: They are what lets the dry run cover all 109 with zero OCR; no archive
@@ -171,7 +198,245 @@ CACHE_FINDING_EVIDENCE_DRIFT = "cached_evidence_drift"
 _PADDLE_RUNG_VOCABULARY = frozenset({
     PADDLE_NOT_ATTEMPTED, PADDLE_RECOVERED, PADDLE_UPGRADED,
     PADDLE_NO_UPGRADE, PADDLE_FAILED, PADDLE_REFUSED_CUSTOMER_DATA,
+    PADDLE_RESEARCH,
 })
+
+# ---------------------------------------------------------------------------
+# P22-TRUTHTABLE (case 25): the funnel stages and the technical telemetry.
+# ---------------------------------------------------------------------------
+
+#: The default of every funnel stage. "This document did not reach this stage"
+#: is a different fact from "it reached it and produced nothing", and a column
+#: that defaulted to the empty string would fold the two together.
+STAGE_NOT_ATTEMPTED = "not_attempted"
+
+#: Review MINOR-5 (reproduced): the outcome reasons that mean NO READ WAS EVER
+#: ATTEMPTED for this document. `DocumentRow.source_path` defaults to the
+#: literal `"none"`, so without this the extraction stage folded "the ladder
+#: ran and produced nothing" together with "the ladder never ran" — 16 of the
+#: run of record's 29 `none` rows are invalid files refused before any read,
+#: and every row of a `--profile-only` run would be mislabelled the same way.
+#: `stage_evidence` already draws the distinction; this is the same fact,
+#: taken from the same place: the reason the row ALREADY records, never
+#: inferred from anything else. A closed tuple, guarded against drift by
+#: `tests/test_two_denominators.py` reading it against `DEFERRED_REASONS` and
+#: the runner's own literals.
+NO_READ_ATTEMPTED_REASONS: frozenset[str] = frozenset({
+    "profile_only",                        # the mode does not read at all
+    "invalid_pdf", "encrypted",            # refused at the door, before the ladder
+    "research_skipped_not_in_population",  # outside the operator's named set
+    "research_refused_holdout",            # refused by the cage, before any read
+    "not_processed",                       # the row's own default: nothing ran
+})
+
+#: The literal `peak_rss_mb` carries when `psutil` is not importable. A string,
+#: not `None` and not `0`: an unmeasured figure that renders as a number is a
+#: measurement nobody made.
+PEAK_RSS_NOT_MEASURED = "not measured"
+
+#: Closed per stage, enforced at the row projection exactly as `failure_class`
+#: and `paddle_rung` already are. Each vocabulary is the set of states the
+#: stage can be in — including the ones no producer reaches yet (2.3 fills
+#: geometry, 2.4 fills layout), declared now so a report's columns do not
+#: change shape underneath a reader when they do.
+STAGE_VOCABULARY: dict[str, frozenset[str]] = {
+    # which extractor produced the text of record for this document
+    "stage_extract": frozenset({STAGE_NOT_ATTEMPTED, "native", "local_tesseract",
+                                "paddle", "visual", "committed_artifact", "none"}),
+    # whether canonical extraction evidence exists beside that text
+    "stage_evidence": frozenset({STAGE_NOT_ATTEMPTED, "present", "absent"}),
+    # whether a DocumentGeometry was built from it (2.3+)
+    "stage_geometry": frozenset({STAGE_NOT_ATTEMPTED, "present", "absent"}),
+    # whether a layout model resolved a structure over that geometry (2.4+)
+    "stage_layout": frozenset({STAGE_NOT_ATTEMPTED, "resolved", "unresolved"}),
+    # whether a financial candidate was produced, and by what route
+    "stage_candidate": frozenset({STAGE_NOT_ATTEMPTED, "claimed", "unclaimed",
+                                  "ambiguous", "parser_exception", "error"}),
+    # the deterministic validator's verdict: the row's own outcome class
+    "stage_verdict": frozenset({STAGE_NOT_ATTEMPTED, *OUTCOME_CLASSES}),
+}
+
+#: The closed shape of a research partition id — a LITERAL mirror of
+#: `webapp.artifact_cache._RESEARCH_PARTITION_RE` and of
+#: `tools/train/provenance.py::RESEARCH_PARTITION_PATTERN`, for the same
+#: reason `CACHE_FINDING_EVIDENCE_DRIFT` above is a literal mirror: this
+#: module imports `webapp.artifact_cache` lazily on purpose, and a
+#: module-level import for one regex would defeat that. Held equal by test.
+RESEARCH_PARTITION_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+
+#: P22-TRUTHTABLE (D8): the triggers the RESEARCH mode supplies, and the ONE
+#: place `operator_forced_paddle` is spelled outside `ocr/escalation.py`. It is
+#: a module-level MODE constant, not an expression: a per-document computation
+#: here would be exactly the smuggled per-document fact the D4 tripwire exists
+#: to forbid, one field over. `tests/test_research_mode.py` pins by AST that
+#: every use of the name in this module is on this line or in the import above
+#: it, so a second site cannot appear without failing the build.
+RESEARCH_TRIGGERS = frozenset({OPERATOR_FORCED_PADDLE})
+
+
+# ---------------------------------------------------------------------------
+# P22-TRUTHTABLE (D7/D8): the research mode's three doors, as pure functions so
+# the CLI can refuse at the door and the runner can refuse per document with
+# ONE definition of each rule.
+# ---------------------------------------------------------------------------
+
+def read_population(path: Path) -> frozenset[str]:
+    """The operator's named population: one 64-hex content sha per line.
+
+    `#` comments and blank lines are ignored, an inline `# ...` tail is
+    stripped, and case is normalised UP (the archive's shas are upper-cased
+    everywhere in this tree). A line that is not a content sha REFUSES the
+    whole file rather than being skipped: a population is the operator's
+    statement of what will be studied, and silently dropping a malformed line
+    would study a different set than the one they named. An EMPTY population
+    refuses too — a research run with nothing to research is a mistake, not a
+    no-op.
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"population file {path}: cannot be read ({type(exc).__name__})") from exc
+    shas: set[str] = set()
+    for number, raw_line in enumerate(text.splitlines(), 1):
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if re.fullmatch(r"[0-9A-Fa-f]{64}", line) is None:
+            raise ValueError(
+                f"population file {path} line {number}: not a 64-hex content sha; refused "
+                "rather than skipped"
+            )
+        shas.add(line.upper())
+    if not shas:
+        raise ValueError(f"population file {path} is empty; a research run needs a population")
+    return frozenset(shas)
+
+
+def holdout_sha16s_from_digest(path: Path) -> frozenset[str]:
+    """The holdout manifest's sha16 prefixes, read from the REPOSITORY digest.
+
+    `docs/moneythumb-replacement/truth/MANIFEST_DIGEST.txt` is the ONLY
+    holdout artefact runtime code may read. The leakage firewall
+    (`tests/test_truth_firewall.py`) forbids every production package from
+    naming the sealed store's directory variable or importing its package at
+    all — including in prose, which is why this paragraph describes the rule
+    instead of quoting it. Reading the committed digest breaks nothing: its
+    grammar is fixed — a status header followed by `- <SHA16> <status>` lines
+    — this reads THAT BLOCK ONLY so the adjudicated list above it can never be
+    mistaken for a holdout list, and the file carries no verdict at all.
+
+    A missing or unreadable digest REFUSES: a research run that cannot check
+    the cage must not run, because "we could not read the holdout list" and
+    "the holdout list is empty" are the same silence and only one of them is
+    safe.
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(
+            f"holdout digest {path}: cannot be read ({type(exc).__name__}); a research run "
+            "may not proceed without the holdout list"
+        ) from exc
+    inside = False
+    shas: set[str] = set()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith(":"):
+            inside = line == "holdout_sha16_status:"
+            continue
+        if not inside or not line.startswith("- "):
+            continue
+        member = line[2:].split()
+        if member and re.fullmatch(r"[0-9A-F]{16}", member[0]):
+            shas.add(member[0])
+    return frozenset(shas)
+
+
+#: Directory NAMES that are a production or historical cache by construction:
+#: the live webapp cache and every frozen cold cache of a past train.
+_PRODUCTION_DATA_DIR_NAMES = re.compile(r"webapp_data(_train\d+_cold)?", re.IGNORECASE)
+
+
+def refuse_production_data_dir(path: Path) -> None:
+    """Refuse a research `--data-dir` that is (or is inside) a production or
+    historical cache.
+
+    A research run writes OCR artifacts under its own partition key, so it
+    could not corrupt a production entry even if it shared a directory — but
+    "could not corrupt" is not the standard here. The frozen cold caches are
+    the evidence every replay and every historical measurement is taken
+    against, and a run that WRITES into one has changed the artefact a later
+    reader will find, whatever key it used. So the shape and the location are
+    both refused, by name, before the cache is opened:
+
+    * the live cache (`WEBAPP_DATA_DIR`, or `webapp_data` by default);
+    * anything named `webapp_data` or `webapp_data_train<N>_cold`, wherever
+      it sits — a copy of a cold cache under another parent is still one;
+    * anything under `.claude/recovery/`, which is where this host keeps the
+      cold caches and is read-only by standing rule.
+    """
+    import os
+
+    resolved = Path(path).expanduser().resolve()
+    parts_lower = [part.lower() for part in resolved.parts]
+    # The directory ITSELF, and every directory it sits under. Review MINOR-1
+    # (reproduced): containment was enforced for the recovery area only, so
+    # `webapp_data/research` and a relocated cold cache's subdirectory were
+    # ACCEPTED while the docstring above promised otherwise. Walking the
+    # parents is what makes "is (or is inside)" true of the code and not only
+    # of the prose — and it is the direction that matters, because a research
+    # run given a subdirectory of a frozen cache writes INTO that cache's tree
+    # whatever key it uses.
+    for candidate in (resolved, *resolved.parents):
+        if _PRODUCTION_DATA_DIR_NAMES.fullmatch(candidate.name):
+            where = "names" if candidate == resolved else "is inside"
+            raise ValueError(
+                f"--data-dir {path} {where} a production or historical cache "
+                f"({candidate.name}); a research run writes to its own directory"
+            )
+    for index in range(len(parts_lower) - 1):
+        if parts_lower[index] == ".claude" and parts_lower[index + 1] == "recovery":
+            raise ValueError(
+                f"--data-dir {path} is inside the read-only recovery area, which holds "
+                "the production cold caches; a research run writes to its own directory"
+            )
+    live = Path(os.environ.get("WEBAPP_DATA_DIR") or "webapp_data").expanduser().resolve()
+    if resolved == live or live in resolved.parents:
+        raise ValueError(
+            f"--data-dir {path} is the live production cache (or inside it); a research "
+            "run writes to its own directory"
+        )
+
+
+def peak_rss_mb() -> str:
+    """This PROCESS's resident set, in MiB, as a string — or the LITERAL
+    `not measured` when `psutil` is not importable.
+
+    Named for the card's column and narrower than that name (review MINOR-6):
+    this is the process RSS read at the row's exit, not a per-document PEAK. A
+    true peak needs sampling across the document's work, which is 2.3's to
+    build; until then the honest reading of this column is "how large the
+    process was when this row finished", and it is stated here, in
+    `requirements-local.txt`, and in the closure record rather than implied by
+    the name.
+
+    `psutil` is in `requirements-local.txt` only: it is a measurement
+    convenience on the development host, not something the engine needs to
+    produce a verdict, and adding a native dependency to the runtime
+    requirements for one column would be the wrong trade. The degraded value
+    is a WORD rather than `0` or an empty number precisely because a column
+    that reads as a figure is a measurement somebody made.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return PEAK_RSS_NOT_MEASURED
+    try:
+        return f"{psutil.Process().memory_info().rss / (1024 * 1024):.1f}"
+    except Exception:  # a permission or platform failure is not a run failure
+        return PEAK_RSS_NOT_MEASURED
 
 
 @dataclass
@@ -285,6 +550,62 @@ class DocumentRow:
     # because that vocabulary is deliberately coarser than `REFUSAL_REASONS`.
     cache_finding: str = ""
     paddle_refusal_reason: str = ""
+    # P22-TRUTHTABLE (Phase 2.2, case 25). Appended at the END, mirroring every
+    # block above. Six FUNNEL stages with closed vocabularies and a
+    # `not_attempted` default, so a stage nothing has reached yet reads as
+    # "not reached" rather than as a zero; four technical-telemetry columns
+    # (empty for every non-Paddle row, because a figure a row never measured
+    # must not read as a measured zero); the per-document peak RSS, which is
+    # the literal `not measured` when `psutil` is not importable; the research
+    # partition (D7, empty for every production row); the seven taxonomy
+    # layers with the primary pair and the taxonomy version; and the
+    # classifier's verdict as a RECORDED FACT (D2) — nine columns that are
+    # written to the row and NEVER passed to `analyze_document`.
+    #
+    # There is deliberately NO cost, rate, price, billing or currency column
+    # anywhere in this block: cost accounting is out of scope by Gustavo's
+    # ruling of 2026-09-03, and `tests/test_two_denominators.py` greps both
+    # `ROW_FIELDS` and every `summary.json` key for those tokens.
+    stage_extract: str = STAGE_NOT_ATTEMPTED
+    stage_evidence: str = STAGE_NOT_ATTEMPTED
+    stage_geometry: str = STAGE_NOT_ATTEMPTED
+    stage_layout: str = STAGE_NOT_ATTEMPTED
+    stage_candidate: str = STAGE_NOT_ATTEMPTED
+    stage_verdict: str = STAGE_NOT_ATTEMPTED
+    bytes_up: str = ""
+    bytes_down: str = ""
+    inference_ms: str = ""
+    vram_mb: str = ""
+    peak_rss_mb: str = PEAK_RSS_NOT_MEASURED
+    research_partition: str = ""
+    reason_l0: str = ""
+    reason_l1: str = ""
+    reason_l2: str = ""
+    reason_l3: str = ""
+    reason_l4: str = ""
+    reason_l5: str = ""
+    reason_l6: str = ""
+    primary_reason_layer: str = ""
+    primary_reason: str = ""
+    unresolved_taxonomy_version: int = UNRESOLVED_TAXONOMY_VERSION
+    #: The classifier's verdict (`layout.document_class.classify_document`).
+    #: `KIND_UNCERTAIN` at tier `uncertain` with `class_version = 0` is the
+    #: honest default of a row NO classifier ran for — a bare row, a row from
+    #: a mode that never reads a document — and it is distinguishable from a
+    #: real `KIND_UNCERTAIN` verdict by exactly that version number.
+    document_class: str = "KIND_UNCERTAIN"
+    class_sub_kind: str = ""
+    class_modality: str = "unknown"
+    class_account_kind: str = "unknown"
+    class_tier: str = "uncertain"
+    class_signals: str = ""
+    class_version: int = 0
+    completeness_findings: str = ""
+    #: The exception CLASS NAME if the classifier raised on this document.
+    #: A recorded fact must never fail a run: the classifier is a reporting
+    #: consumer, and a defect in it is a finding on the row, not a lost
+    #: document.
+    classifier_exception: str = ""
 
     def as_dict(self) -> dict:
         # P20-ROUTER review, MAJOR-3. The closed vocabularies are enforced
@@ -323,6 +644,35 @@ class DocumentRow:
             raise ValueError(
                 f"paddle_refusal_reason {self.paddle_refusal_reason!r} is not '' or "
                 f"in the closed vocabulary {PADDLE_REFUSAL_REASONS}"
+            )
+        # P22-TRUTHTABLE. The SAME enforcement pattern, extended to this
+        # card's columns. `document_class` in particular: the primary
+        # classification is DISJOINT — exactly ONE kind per row — and the way
+        # a disjointness claim actually dies is a column quietly learning to
+        # hold two names joined by a separator, so the row refuses anything
+        # that is not one member of the closed vocabulary.
+        for field_name, vocabulary in STAGE_VOCABULARY.items():
+            value = getattr(self, field_name)
+            if value not in vocabulary:
+                raise ValueError(
+                    f"{field_name} {value!r} is not in the closed vocabulary "
+                    f"{tuple(sorted(vocabulary))}"
+                )
+        for field_name, vocabulary in (
+            ("document_class", KINDS), ("class_modality", MODALITIES),
+            ("class_account_kind", ACCOUNT_KINDS), ("class_tier", TIERS),
+        ):
+            value = getattr(self, field_name)
+            if value not in vocabulary:
+                raise ValueError(
+                    f"{field_name} {value!r} is not ONE member of the closed "
+                    f"vocabulary {vocabulary}"
+                )
+        if self.research_partition and re.fullmatch(
+                RESEARCH_PARTITION_PATTERN, self.research_partition) is None:
+            raise ValueError(
+                f"research_partition {self.research_partition!r} must be '' (a production "
+                f"row) or match {RESEARCH_PARTITION_PATTERN}"
             )
         row = asdict(self)
         row["candidates"] = "; ".join(self.candidates)
@@ -643,6 +993,13 @@ class DiscoveryRunner:
     #: `_read_paddle` caught, or `""` when its last call did not refuse.
     #: Projected onto `row.paddle_refusal_reason` right after each call.
     _last_paddle_refusal_reason: str = ""
+    #: P22-TRUTHTABLE. The per-document facts `_finish` projects onto the row,
+    #: and the read whose evidence the geometry seam would consume. NOT
+    #: `_last_*` names: that prefix is pinned by AST to the cache dispositions
+    #: and their reset, and these two are neither. `process()` resets both at
+    #: its top, for the same reason those are reset there.
+    _doc_facts: dict = {}
+    _geometry_source = None
 
     def __init__(
         self,
@@ -655,6 +1012,9 @@ class DiscoveryRunner:
         dedup: DedupIndex | None = None,
         visual_escalation: bool = True,
         escalation_budget: int | None = None,
+        population: frozenset[str] | None = None,
+        research_partition: str = "",
+        holdout_sha16: frozenset[str] = frozenset(),
     ) -> None:
         self.root = root
         self.mode = mode
@@ -664,6 +1024,44 @@ class DiscoveryRunner:
         self.dedup = dedup if dedup is not None else DedupIndex.with_pinned_corpus()
         self.allow_local_ocr = mode in LOCAL_OCR_MODES
         self.allow_visual_ocr = mode == MODE_SCANNED_VISUAL
+        # D7/D8. The research inputs are refused at CONSTRUCTION, in both
+        # directions: research mode without them cannot run (an unpopulated
+        # research run would read the whole archive with Paddle, which is the
+        # opposite of a NAMED population), and every other mode carrying them
+        # cannot run either (a partition on a production run would make that
+        # run unselectable as historical truth, silently).
+        self.research = mode == MODE_RESEARCH_PADDLE
+        if self.research:
+            if not population:
+                raise ValueError(
+                    f"{MODE_RESEARCH_PADDLE} needs an explicit population of content shas; "
+                    "a research run studies a NAMED set, never 'everything'"
+                )
+            if not research_partition or re.fullmatch(
+                    RESEARCH_PARTITION_PATTERN, research_partition) is None:
+                raise ValueError(
+                    f"{MODE_RESEARCH_PADDLE} needs a research_partition matching "
+                    f"{RESEARCH_PARTITION_PATTERN}; its artifacts must be unselectable "
+                    "by any run of record"
+                )
+        else:
+            if research_partition:
+                raise ValueError(
+                    f"research_partition is for {MODE_RESEARCH_PADDLE} only; mode {mode!r} "
+                    "writes production artifacts"
+                )
+            if population:
+                raise ValueError(
+                    f"a population is for {MODE_RESEARCH_PADDLE} only; mode {mode!r} "
+                    "processes the tranche its selection names"
+                )
+        self.population = frozenset(population or ())
+        self.research_partition = research_partition
+        #: The holdout manifest's sha16 prefixes (`holdout_sha16s_from_digest`).
+        #: A population sha that appears here is refused BEFORE any read: an
+        #: opened holdout item is no longer unseen (R4), and a research run
+        #: that studied one would burn it without anyone deciding to.
+        self.holdout_sha16 = frozenset(holdout_sha16)
         #: D4: the ONE mode constant `router_inputs(enabled=...)` is ever
         #: built from at this class's two `decide(` call sites — never a
         #: per-document expression (the AST tripwire in
@@ -673,7 +1071,7 @@ class DiscoveryRunner:
         #: phase (design item 8).
         self.enabled_extractors: frozenset[str] = (
             frozenset({"visual"}) if mode == MODE_SCANNED_VISUAL
-            else frozenset({"paddle"}) if mode == MODE_SCANNED_PADDLE
+            else frozenset({"paddle"}) if mode in (MODE_SCANNED_PADDLE, MODE_RESEARCH_PADDLE)
             else frozenset()
         )
         # Escalation is a policy knob ON TOP of the rung: `--no-visual-escalation`
@@ -895,6 +1293,13 @@ class DiscoveryRunner:
                     allow_local_ocr=False,
                     allow_visual_ocr=False,
                     allow_paddle_ocr=True,
+                    # D7: EMPTY on every production run, and then not in the
+                    # key material at all — the production Paddle partition is
+                    # byte-identical to a call that never heard of the field.
+                    # A research run's id partitions its artifacts away from
+                    # production's AND makes `telemetry/run_of_record.py`
+                    # refuse the run as historical truth.
+                    research_partition=self.research_partition,
                 )
                 document, cached = result.value, result.cached
                 self._last_paddle_finding = result.finding
@@ -971,11 +1376,43 @@ class DiscoveryRunner:
         pipeline another would store an answer under a key that does not
         describe it. None fail-closes, exactly as this call site did before the
         page-declaration check was activated.
+
+        **The geometry seam (P22-TRUTHTABLE item 7, D6), INERT in 2.2.** When
+        `Settings.reconstruction_mode` is anything but `off`, the read's own
+        evidence becomes a `DocumentGeometry` and is passed to
+        `analyze_document` beside the sha that identifies it — and that sha is
+        key material, so a geometry-fed analysis and a text-only one of the
+        same markdown never share a cache entry (cell K's `analysis_input_sha`).
+        When the mode is `off` — which is EVERY run of record, the corpus
+        gate, the whole default suite and every cohort replay — this function
+        makes the SAME two calls it made before, with the same arguments, in
+        the same order: `_geometry_for` returns `(None, None)` without reading
+        the setting twice, without touching the evidence, and without
+        importing the structurer. The union replay is what proves it rather
+        than this paragraph.
+
+        The seam does NOT enable the structurer: reconstruction is 2.4's
+        subject and the mode's other two values have no producer in this
+        tree. What lands here is the WIRING, so that 2.3 can turn it on for a
+        research partition without touching the runner's call shape again.
+
+        The read whose evidence would feed it arrives as `self._geometry_source`,
+        set by `process()` immediately before each call, rather than as a
+        fifth parameter — this method's four-argument signature is a contract
+        that `tests/test_paddle_routing.py` already substitutes against
+        (`_upgrade_eligible`'s one refusing shape is proven with a replacement
+        `_analyse`), and widening it would break a pin that has nothing to do
+        with geometry.
         """
+        geometry, evidence_sha = self._geometry_for(getattr(self, "_geometry_source", None))
+
         def analyse():
             return document_report_to_dict(analyze_document(
                 markdown, parse_mode="deterministic", on_dispatch=collector,
                 sheets=sheets,
+            ) if geometry is None else analyze_document(
+                markdown, parse_mode="deterministic", on_dispatch=collector,
+                sheets=sheets, document_geometry=geometry,
             ))
 
         try:
@@ -986,10 +1423,38 @@ class DiscoveryRunner:
             result = cached_analysis(
                 markdown, compute=analyse, cache=self.cache,
                 parse_mode="deterministic", sheets=sheets,
+            ) if evidence_sha is None else cached_analysis(
+                markdown, compute=analyse, cache=self.cache,
+                parse_mode="deterministic", sheets=sheets, evidence_sha256=evidence_sha,
             )
             return result.value, None, result.cached
         except Exception as exc:
             return None, type(exc).__name__, False
+
+    @staticmethod
+    def _geometry_for(document) -> tuple[object | None, str | None]:
+        """`(DocumentGeometry, evidence sha)` when the reconstruction mode is
+        ON and the read carries evidence; `(None, None)` otherwise.
+
+        The mode is read from `analysis.config` (cell K's `Settings.
+        reconstruction_mode`, default `off`) and is checked FIRST, so on the
+        `off` path nothing about the read is inspected at all — not the
+        evidence, not its sha, and the structurer's geometry module is not
+        imported. That ordering is the inertness: an `off` run does not merely
+        discard the geometry, it never builds one.
+        """
+        if document is None:
+            return None, None
+        from analysis.config import load_settings as _load_analysis_settings
+
+        if getattr(_load_analysis_settings(), "reconstruction_mode", "off") == "off":
+            return None, None
+        evidence = getattr(document, "evidence", None) or getattr(document, "native_evidence", None)
+        if evidence is None:
+            return None, None
+        from analysis.structurer.geometry import geometry_from_evidence
+
+        return geometry_from_evidence(evidence), getattr(evidence, "evidence_sha256", None)
 
     def _upgrade_eligible(self, collector, payload) -> bool:
         """Is this document even a CANDIDATE for the upgrade path?
@@ -1014,6 +1479,16 @@ class DiscoveryRunner:
         Class-B (usable, unclaimed) candidate reaches this gate and is still
         refused, because the router never admitted a trigger for it.
         """
+        if self.research:
+            # D8. A research run is not looking for a document that failed:
+            # it is producing Paddle evidence for a NAMED population, and
+            # "this one already claimed" is not a reason to skip it — the
+            # agreement between the two reads on a document Phase 1 handles
+            # well is exactly what 2.3 needs to calibrate against. The
+            # historical exclusions above are about whether an ESCALATION is
+            # warranted; in research mode there is no escalation question,
+            # because the operator already answered it.
+            return True
         if collector.seen:
             return collector.dispatch.outcome != "claimed"
         return payload is None
@@ -1038,6 +1513,155 @@ class DiscoveryRunner:
 
     # -- one document -------------------------------------------------------
 
+    # -- the recorded facts (never an input to anything) --------------------
+
+    def _finish(self, row: "DocumentRow", started: float) -> "DocumentRow":
+        """The ONE exit of `process()`: project the RECORDED FACTS, stamp the
+        elapsed time, hand the row back.
+
+        P22-TRUTHTABLE (D2, case 6). Everything projected here DESCRIBES what
+        the intake ladder decided and changes nothing about it — the document
+        classification, the layered unresolved reason, the funnel stages, the
+        per-document memory reading. Every one is written to the ROW and to
+        nothing else: none is passed to `analyze_document`, none reaches a
+        router input, none is consulted by any decision above. It runs at
+        every exit, including the early ones, so a deferred or refused row
+        carries the same columns as a validated one rather than a ragged
+        subset.
+
+        That separation is proven rather than asserted:
+        `tests/test_two_denominators.py` runs the same document with the
+        classifier present and with it stubbed out and asserts the analysis
+        payload is byte-identical. A classification that could change a
+        verdict would be a routing decision wearing a column's name (D2), and
+        the classifier is a proposal for an adjudicator (R3), never truth and
+        never an input.
+        """
+        facts = getattr(self, "_doc_facts", None) or {}
+        row.peak_rss_mb = peak_rss_mb()
+        self._project_funnel(row, facts)
+        self._project_classification(row, facts)
+        self._project_taxonomy(row, facts)
+        row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        return row
+
+    @staticmethod
+    def _project_funnel(row: "DocumentRow", facts: dict) -> None:
+        """Case 25. Six stages, each read off a fact the row already carries.
+
+        `not_attempted` is never overwritten by a guess: a document whose
+        analysis never ran keeps `stage_candidate = not_attempted` rather than
+        being filed as `unclaimed`, because "no reader was asked" and "readers
+        were asked and none claimed" are the two facts this funnel exists to
+        keep apart. The SAME distinction is now drawn on the extraction stage
+        (review MINOR-5): a document refused before the ladder ever ran reads
+        `not_attempted`, and only a document the ladder ran for and got nothing
+        from reads `none`. Both come from the outcome reason the row already
+        records — `NO_READ_ATTEMPTED_REASONS`, a closed tuple — never from an
+        inference about what probably happened. Geometry and layout stay
+        `not_attempted` for every row in 2.2 by construction: nothing in this
+        tree builds either.
+        """
+        never_read = row.outcome_reason in NO_READ_ATTEMPTED_REASONS
+        row.stage_extract = (
+            STAGE_NOT_ATTEMPTED if never_read
+            else row.source_path if row.source_path in STAGE_VOCABULARY["stage_extract"]
+            else "none"
+        )
+        row.stage_evidence = (
+            STAGE_NOT_ATTEMPTED if row.source_path == "none"
+            else "present" if row.evidence_sha256 else "absent"
+        )
+        row.stage_geometry = STAGE_NOT_ATTEMPTED   # 2.3 fills this
+        row.stage_layout = STAGE_NOT_ATTEMPTED     # 2.4 fills this
+        dispatch = facts.get("dispatch")
+        if dispatch is not None:
+            row.stage_candidate = (
+                dispatch.outcome if dispatch.outcome in STAGE_VOCABULARY["stage_candidate"]
+                else "error"
+            )
+        elif facts.get("payload") is not None:
+            # A payload with no observed dispatch is an analysis-cache hit: a
+            # parser claimed it, on the run that filled the cache.
+            row.stage_candidate = "claimed"
+        elif facts.get("analysed"):
+            row.stage_candidate = "error"
+        if row.outcome_class in STAGE_VOCABULARY["stage_verdict"]:
+            row.stage_verdict = row.outcome_class
+
+    @staticmethod
+    def _project_classification(row: "DocumentRow", facts: dict) -> None:
+        """D2: the classifier's verdict as a RECORDED FACT.
+
+        Called after the read and before nothing — the analysis has already
+        happened by the time this runs, which is a stronger guarantee than the
+        card's "before analysis": the verdict cannot reach `analyze_document`
+        because `analyze_document` is already finished.
+
+        A classifier defect is a FINDING on the row, never a lost document:
+        the exception's class name is recorded and the row keeps its honest
+        `KIND_UNCERTAIN` default at `class_version = 0`. A reporting consumer
+        must not be able to fail a run.
+        """
+        profile = facts.get("profile")
+        if profile is None or not facts.get("classify"):
+            return
+        pages = tuple(facts.get("pages") or ())
+        document = facts.get("document")
+        evidence = (getattr(document, "evidence", None)
+                    or getattr(document, "native_evidence", None)) if document is not None else None
+        try:
+            verdict = classify_document_kind(
+                evidence=evidence,
+                page_texts=None if evidence is not None else pages,
+                profile=DocumentProfileFacts(
+                    valid_pdf=profile.valid_pdf, encrypted=profile.encrypted,
+                    page_count=profile.page_count, classification=profile.classification,
+                    page_text_chars=tuple(len(page.strip()) for page in pages),
+                    magic=facts.get("magic"),
+                ),
+            )
+        except Exception as exc:  # a recorded fact never fails a run
+            row.classifier_exception = type(exc).__name__
+            return
+        row.document_class = verdict.kind
+        row.class_sub_kind = verdict.sub_kind or ""
+        row.class_modality = verdict.modality
+        row.class_account_kind = verdict.account_kind
+        row.class_tier = verdict.tier
+        row.class_version = verdict.version
+        row.class_signals = "|".join(sorted({ref.signal for ref in verdict.evidence}))
+        row.completeness_findings = ";".join(sorted({f.code for f in verdict.completeness}))
+        facts["verdict"] = verdict
+
+    @staticmethod
+    def _project_taxonomy(row: "DocumentRow", facts: dict) -> None:
+        """The seven layers and the primary pair (item 1).
+
+        The W3-2 diagnostics are recomputed here from the payload the row
+        already produced rather than read back out of the emitted record: the
+        record is written by `_emit`, which is allowed to be a no-op (a
+        `NullSink` run, a sink that raised), and a row must not lose its
+        financial layer because telemetry was off. `diagnose_document` is a
+        pure projection over the payload — the same one `build_record` calls —
+        so the two cannot disagree.
+        """
+        from telemetry.diagnostics import diagnose_document
+
+        diagnostics = None
+        try:
+            diagnostics = diagnose_document(facts.get("payload"), row.outcome_class)
+        except Exception:  # as above: a reporting consumer never fails a run
+            diagnostics = None
+        diagnosis = diagnose_unresolved(
+            row, diagnostics, facts.get("verdict"),
+            evidence_reasons=tuple(facts.get("evidence_reasons") or ()),
+        )
+        for name, value in diagnosis.as_row_fields().items():
+            setattr(row, name, value)
+
+    # -- one document -------------------------------------------------------
+
     def process(
         self, relative_path: str, folder_label: str,
         *, disk_relative_path: str | None = None,
@@ -1048,6 +1672,15 @@ class DiscoveryRunner:
         # (Inventory.disk_spelling). Only the read uses the disk spelling.
         started = time.perf_counter()
         self._reset_per_document_state()  # MAJOR-A: before ANY read, every document
+        # P22-TRUTHTABLE: the per-document facts the recorded-fact projection
+        # reads at `_finish`, and the read whose evidence the geometry seam
+        # would use. Reset here for the same reason the `_last_*` attributes
+        # are: one runner drives a whole run, and a previous document's facts
+        # projected onto this row would be a defect of exactly the shape
+        # MAJOR-A found. They are NOT `_last_*` attributes — the AST pin over
+        # that prefix is about cache dispositions and stays exact.
+        self._doc_facts = {}
+        self._geometry_source = None
         path = self.root / (disk_relative_path or relative_path)
         raw = path.read_bytes()
         timer, collector = StageTimer(), DispatchCollector()
@@ -1068,19 +1701,46 @@ class DiscoveryRunner:
         )
         status, first_seen = self.dedup.classify(profile.content_sha256, relative_path)
         row.dedup_status, row.duplicate_of = status, first_seen
+        self._doc_facts.update({"profile": profile, "magic": raw[:4].hex().upper()})
+
+        if self.research:
+            # D7/D8, the two doors, BOTH before any read of this document's
+            # content. The order is deliberate: the holdout cage is checked
+            # FIRST, because a holdout sha that also happens to be outside the
+            # population must still be refused as a holdout rather than
+            # dismissed as an omission — the row must say why, and "we never
+            # looked at it" is a weaker statement than "we refused to".
+            row.research_partition = self.research_partition
+            sha = profile.content_sha256.upper()
+            if sha[:16] in self.holdout_sha16:
+                row.outcome_class, row.outcome_reason = "deferred", "research_refused_holdout"
+                row.source_path = "none"
+                self._emit(row, profile, None, None, None, collector, timer,
+                           deferred=row.outcome_reason)
+                return self._finish(row, started)
+            if sha not in self.population:
+                row.outcome_class, row.outcome_reason = (
+                    "deferred", "research_skipped_not_in_population")
+                row.source_path = "none"
+                self._emit(row, profile, None, None, None, collector, timer,
+                           deferred=row.outcome_reason)
+                return self._finish(row, started)
 
         if self.mode == MODE_PROFILE_ONLY:
             row.outcome_class, row.outcome_reason = "deferred", "profile_only"
-            row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-            return row
+            return self._finish(row, started)
 
         if not profile.valid_pdf or profile.encrypted:
+            # The classifier decides `FILE_INVALID` from the profile FACTS
+            # alone, before any text exists — so this path is classified too,
+            # and the L0 layer of these rows carries the classifier's verdict
+            # rather than a second opinion derived from a row column.
+            self._doc_facts["classify"] = True
             row.outcome_class = "failed"
             row.outcome_reason = "encrypted" if profile.encrypted else "invalid_pdf"
             self._emit(row, profile, None, None, None, collector, timer,
                        error_reason=row.outcome_reason)
-            row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-            return row
+            return self._finish(row, started)
 
         name = Path(relative_path).name
         with timer.time("ocr"):
@@ -1105,8 +1765,7 @@ class DiscoveryRunner:
             row.source_path = "none"
             self._emit(row, profile, None, None, None, collector, timer,
                        deferred=row.outcome_reason)
-            row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-            return row
+            return self._finish(row, started)
 
         if markdown is None:
             # RECOVERY: exactly the `deferred_visual_ocr` class of tranche 2.
@@ -1122,7 +1781,7 @@ class DiscoveryRunner:
             # unreachable, structurally guarded) "visual already attempted"
             # refusal live.
             recovery_evidence = ExtractionQualityGate.assess(None, profile)
-            recovery_triggers = (
+            recovery_triggers = RESEARCH_TRIGGERS if self.research else (
                 frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT, OPERATOR_FORCED_VISUAL})
                 | _profile_triggers(profile)
             )
@@ -1163,8 +1822,7 @@ class DiscoveryRunner:
                 row.source_path = "none"
                 self._emit(row, profile, None, None, None, collector, timer,
                            error_reason="escalation_refused")
-                row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-                return row
+                return self._finish(row, started)
             row.escalation_extractor = recovery_decision.extractor
             if recovery_decision.extractor == "visual":
                 with timer.time("visual_ocr"):
@@ -1184,8 +1842,7 @@ class DiscoveryRunner:
                     self._emit(row, profile, None, None, None, collector, timer,
                                error_type=visual_error, error_reason="ocr_failed",
                                fallback_reason=_fallback_reason(row.visual_rung))
-                    row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-                    return row
+                    return self._finish(row, started)
                 row.visual_rung = VISUAL_RECOVERED
                 note = None
             else:  # "paddle" — P21-ROUTING
@@ -1213,13 +1870,18 @@ class DiscoveryRunner:
                     self._emit(row, profile, None, None, None, collector, timer,
                                error_type=row.error_type, error_reason=row.outcome_reason,
                                fallback_reason=_fallback_reason(row.visual_rung, row.paddle_rung))
-                    row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-                    return row
-                row.paddle_rung = PADDLE_RECOVERED
+                    return self._finish(row, started)
+                row.paddle_rung = PADDLE_RESEARCH if self.research else PADDLE_RECOVERED
                 note = None
 
         source = source_section(document)
         _project_source(row, source, committed_artifact=(note == "committed_artifact"))
+        # The read of record for this document, recorded for the classifier and
+        # the taxonomy. Rebound below if an escalation is adopted.
+        self._doc_facts.update({
+            "classify": True, "document": document,
+            "pages": list(document.pages) if document is not None else list(sheets or ()),
+        })
 
         # P20-ROUTER item 2c. The extraction-quality verdict — and, for a
         # Tesseract-sourced candidate, the router's UPGRADE decision — are
@@ -1247,9 +1909,17 @@ class DiscoveryRunner:
             row.visual_rung == VISUAL_NOT_ATTEMPTED
             and row.paddle_rung == PADDLE_NOT_ATTEMPTED
             and self.visual_escalation
-            and source_path_for(document.model) == "local_tesseract"
+            and document is not None
+            # D8: in RESEARCH mode every document of the named population is
+            # read by Paddle regardless of what produced its offline text —
+            # that IS the research admission (a native document's agreement
+            # with Paddle is the calibration 2.3 needs). In every production
+            # mode the historical rule is unchanged: only a Tesseract read is
+            # a candidate for re-reading, because re-reading perfect native
+            # text with a GPU cannot invent a parser.
+            and (self.research or source_path_for(document.model) == "local_tesseract")
         ):
-            upgrade_triggers = (
+            upgrade_triggers = RESEARCH_TRIGGERS if self.research else (
                 frozenset({EXTRACTOR_OUTPUT_UNUSABLE}) if not evidence.usable else frozenset()
             )
             upgrade_candidate = EscalationRouter.decide(router_inputs(
@@ -1257,8 +1927,10 @@ class DiscoveryRunner:
                 attempted=("local_tesseract",), stop=False, enabled=self.enabled_extractors,
             ))
 
+        self._geometry_source = document
         with timer.time("analysis"):
             payload, error_type, analysis_cached = self._analyse(markdown, collector, sheets)
+        self._doc_facts["analysed"] = True
 
         if upgrade_candidate is not None:
             # P20-ROUTER review, MINOR-9. The candidate's own verdict is
@@ -1292,6 +1964,7 @@ class DiscoveryRunner:
                 if visual_md is not None:
                     visual_collector = DispatchCollector()
                     visual_sheets = list(visual_doc.pages) if visual_doc is not None else None
+                    self._geometry_source = visual_doc
                     with timer.time("visual_analysis"):
                         visual_payload, visual_error_type, visual_cached = self._analyse(
                             visual_md, visual_collector, visual_sheets
@@ -1311,6 +1984,10 @@ class DiscoveryRunner:
                         )
                         source = source_section(document)
                         _project_source(row, source)
+                        self._doc_facts.update({
+                            "document": document,
+                            "pages": list(document.pages) if document is not None else [],
+                        })
                         evidence = _evidence_for_row(document, profile, row.source_path)
                         row.evidence_quality = (
                             "usable" if evidence.usable else "unusable"
@@ -1329,17 +2006,29 @@ class DiscoveryRunner:
                 if paddle_md is not None:
                     paddle_collector = DispatchCollector()
                     paddle_sheets = list(paddle_doc.pages) if paddle_doc is not None else None
+                    self._geometry_source = paddle_doc
                     with timer.time("paddle_analysis"):
                         paddle_payload, paddle_error_type, paddle_cached = self._analyse(
                             paddle_md, paddle_collector, paddle_sheets
                         )
-                    if paddle_payload is not None:
+                    # D8. In RESEARCH mode the Paddle read is the read of
+                    # record BY CONSTRUCTION — adopted whether or not it
+                    # produced a payload. That is the OPPOSITE of the
+                    # forbidden pattern, not an instance of it: nothing here
+                    # compares two reads and keeps whichever validates. The
+                    # operator declared which extractor this run studies, and
+                    # a run that silently kept the offline read whenever
+                    # Paddle failed to claim would report Phase 1's coverage
+                    # under Paddle's name. The offline read's own model is
+                    # preserved on the row either way, so the disagreement is
+                    # never lost.
+                    if paddle_payload is not None or self.research:
                         # CASE 9: the SAME validator produced a payload from
                         # the Paddle read — no fusion, no choice by which read
                         # reconciles: the offline read's model is recorded and
                         # the Paddle read is the one adopted, full stop.
                         row.offline_source_model = document.model
-                        row.paddle_rung = PADDLE_UPGRADED
+                        row.paddle_rung = PADDLE_RESEARCH if self.research else PADDLE_UPGRADED
                         document, markdown, collector = paddle_doc, paddle_md, paddle_collector
                         sheets = paddle_sheets
                         payload, error_type, analysis_cached = (
@@ -1347,6 +2036,10 @@ class DiscoveryRunner:
                         )
                         source = source_section(document)
                         _project_source(row, source)
+                        self._doc_facts.update({
+                            "document": document,
+                            "pages": list(document.pages) if document is not None else [],
+                        })
                         evidence = _evidence_for_row(document, profile, row.source_path)
                         row.evidence_quality = (
                             "usable" if evidence.usable else "unusable"
@@ -1409,6 +2102,17 @@ class DiscoveryRunner:
         row.failure_class = classify_failure(
             evidence, claimed=payload is not None, validated=row.outcome_class == "validated",
         )
+        # The facts the recorded-fact projection reads. `evidence.reasons` is
+        # the ONE input the taxonomy's extraction layer needs that no row
+        # column carries: the row records the gate's VERDICT
+        # (`evidence_quality`), and the reasons behind an `unusable` verdict
+        # are what tell E0 from E1. Handing them over here — rather than
+        # letting the taxonomy re-derive them — is what keeps that layer
+        # populated only from facts, never from inference.
+        self._doc_facts.update({
+            "payload": payload, "dispatch": dispatch,
+            "evidence_reasons": tuple(evidence.reasons),
+        })
 
         # Cache disposition comes from CacheResult.cached, the same source
         # H-3 uses, so the CLI reports it identically to the webapp.
@@ -1425,8 +2129,7 @@ class DiscoveryRunner:
             escalated=bool(payload.get("escalated")) if payload else False,
             fallback_reason=_fallback_reason(row.visual_rung, row.paddle_rung),
         )
-        row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-        return row
+        return self._finish(row, started)
 
     # -- telemetry ----------------------------------------------------------
 

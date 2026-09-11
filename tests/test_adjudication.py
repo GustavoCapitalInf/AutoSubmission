@@ -704,7 +704,14 @@ def test_the_workspace_renders_ascii_only(tmp_path: Path):
         ("review", "failed", "regressed"),
         ("validated", "validated", "unchanged"),
         ("deferred", "validated", "unranked"),
-        ("validated", "deferred", "unranked"),
+        # P22-TRUTHTABLE (R11, 2026-09-03): SUPERSEDED. `validated -> deferred`
+        # scored `unranked` on the argument that deferral is a statement about
+        # the run. That argument is right about ENTERING deferral and wrong
+        # about LEAVING `validated`: every previously validated document is
+        # protected, and an unranked exit is invisible to
+        # `--fail-on-regression`. ANY exit from `validated` is now a
+        # regression. `deferred` is still outside the ladder (the test below).
+        ("validated", "deferred", "regressed"),
     ],
 )
 def test_direction_ranks_the_outcome_ladder(before, after, expected):

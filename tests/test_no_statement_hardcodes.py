@@ -1104,15 +1104,44 @@ PADDLE_VAST_TOOL = Path(__file__).resolve().parent.parent / "tools" / "paddle_va
 #: same scans — a roots APPEND only, no new detection logic.
 LAYOUT_DIR = Path(__file__).resolve().parent.parent / "layout"
 
+#: P22-TRUTHTABLE (Phase 2.2 case 24, card item 10): the two NEW modules this
+#: card adds — the layered unresolved-reason vocabulary and the sealed-store
+#: join — join the same scans. A roots APPEND only, no new detection logic,
+#: in cell C's style one line above.
+#:
+#: `discovery/` and `telemetry/` as WHOLES are deliberately NOT added here,
+#: and that is reported rather than done quietly: both are large pre-existing
+#: packages that these scans have never covered, so adding them is a ratchet
+#: decision with its own baseline to establish (the scans are not "does this
+#: file look clean", they are "no statement-specific literal, no literal year,
+#: no account-shaped digit run, no exact amount"), and a card whose job is
+#: reporting plumbing is the wrong place to take it. The two files this card
+#: AUTHORS are covered from birth, which is the part that is genuinely a clean
+#: append.
+P22_TRUTHTABLE_MODULES = [
+    Path(__file__).resolve().parent.parent / "telemetry" / "unresolved_taxonomy.py",
+    Path(__file__).resolve().parent.parent / "tools" / "truth_report.py",
+]
+
 
 def _paddle_phase21_modules() -> list[Path]:
     """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope —
-    plus `layout/*.py` (Phase 2.2 case 24)."""
+    plus `layout/*.py` (Phase 2.2 case 24) plus this card's two new modules."""
     modules = sorted(EVIDENCE_DIR.glob("*.py"))
     if PADDLE_VAST_TOOL.exists():
         modules.append(PADDLE_VAST_TOOL)
     modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
+    modules.extend(path for path in P22_TRUTHTABLE_MODULES if path.exists())
     return modules
+
+
+def test_the_p22_truthtable_modules_are_actually_scanned():
+    """A roots append that names a file which does not exist scans nothing and
+    passes, which is the failure mode of every allowlist. Both must be here."""
+    missing = [path.name for path in P22_TRUTHTABLE_MODULES if not path.exists()]
+    assert not missing, f"named in the scan roots but absent: {missing}"
+    scanned = {path.name for path in _paddle_phase21_modules()}
+    assert {path.name for path in P22_TRUTHTABLE_MODULES} <= scanned
 
 
 def test_no_removed_literals_in_evidence_and_paddle_vast():
