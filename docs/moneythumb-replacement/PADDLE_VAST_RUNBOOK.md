@@ -246,6 +246,16 @@ bytes under the worker's directory. The attestation COUNTS; it never lists a rem
 inspection that could not run fails the attestation, and `run` exits 3 rather than reporting
 a clean instance it did not look at.
 
+Two things the FIRST live session taught the attestation, both now in the instrument. The worker
+process is given a bounded grace to finish dying before it is called alive (looked at every 5 s for
+30 s; the record carries `probes`, so "it died on the second look" and "it was never alive" stay
+different facts) — the CTRL run inspected about two seconds after `stop`, counted a process that was
+already exiting, and reported a retention failure the instance did not have. And the `/tmp` image
+count is scoped to files NEWER than the session start, because `/tmp` belongs to the whole image:
+the same run counted one synthetic PNG an operator's own live test had left there two hours earlier.
+That count is RECORDED, never gated — every gated count is inside the worker's own directory, which
+this pipeline is the only writer of.
+
 **Rasters.** Under the research partition the PNG of every page sent is kept at
 `<research dir>/rasters/<content sha>/pNNNN.png`, and only when its sha256 reproduces the
 `raster_sha256` the immutable evidence already records for that page — so a retained image is

@@ -554,11 +554,57 @@ def test_the_attestation_passes_only_on_a_clean_stopped_instance():
 ])
 def test_m8_a_fake_ssh_runner_that_lists_a_leftover_fails_the_attestation(output, why):
     """M8's killer. An attestation that reported `none` because the worker
-    said so, without looking, would pass every one of these."""
+    said so, without looking, would pass every one of these. The process case
+    is looked at repeatedly and STILL fails: the grace below is bounded, not a
+    way out."""
     attestation = attest_retention(_FakeSettings(), runner=_ssh_runner(output),
-                                   retention_declared=True)
+                                   retention_declared=True, sleep=lambda _seconds: None)
     assert not attestation.passed, why
     assert attestation.inspected
+
+
+def test_a_worker_still_exiting_is_given_a_bounded_grace_and_then_believed():
+    """The CTRL run's own finding, as a test. The inspection ran about two
+    seconds after `stop` and counted a process that was already exiting; half
+    an hour later the same probe answered `PROC=0` with nothing whatever under
+    the worker's directory. That was a race in the INSTRUMENT reported as a
+    retention failure on the instance — the worst kind of false alarm, because
+    it makes a real one easier to wave away. So the process is given a bounded
+    grace to die and the record says how many looks it took; a process that
+    outlives the grace still fails (the case above)."""
+    answers = iter([
+        "PROC=1\nPIDFILE=0\nIMAGES=0\nREQUESTS=0\nOTHER=0\nTMPIMG=0\n",
+        CLEAN_INSTANCE,
+    ])
+    slept: list[float] = []
+
+    def runner(args, **kwargs):
+        return _FakeCompleted(next(answers))
+
+    attestation = attest_retention(_FakeSettings(), runner=runner, retention_declared=True,
+                                   sleep=slept.append)
+    assert attestation.passed and attestation.probes == 2
+    assert slept == [5.0]
+
+
+def test_the_temp_image_count_is_scoped_to_this_session(tmp_path):
+    """`/tmp` belongs to the whole image, not to this worker. The CTRL run
+    found one synthetic PNG there, written by the operator's own live test two
+    hours before the session started, and counted it beside our work. The
+    count now asks the instance for files NEWER than the session, so the
+    number means "left by this session" — which is the only reading anyone can
+    act on. It stays RECORDED rather than gated, because a file in a shared
+    directory is an observation, not a verdict on this worker."""
+    runner = _ssh_runner(CLEAN_INSTANCE)
+    attest_retention(_FakeSettings(), runner=runner, retention_declared=True,
+                     since_epoch=1_757_600_000.9)
+    command = runner.seen[0][-1]
+    assert "-newermt '@1757600000'" in command
+    assert "/tmp" in command
+
+    default = _ssh_runner(CLEAN_INSTANCE)
+    attest_retention(_FakeSettings(), runner=default, retention_declared=True)
+    assert "-newermt '@0'" in default.seen[0][-1]  # no session start given: count everything
 
 
 def test_m8_an_inspection_that_could_not_run_fails_closed():
@@ -593,7 +639,7 @@ def test_the_attestation_record_is_closed_and_names_no_path():
     assert set(record) == {
         "retention_declared", "inspected", "worker_process_alive", "pidfile_present",
         "request_artefacts", "page_byte_files", "unexpected_files", "temp_image_files",
-        "error", "passed",
+        "probes", "error", "passed",
     }
     for value in record.values():
         assert isinstance(value, (bool, int, str))

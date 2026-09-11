@@ -204,6 +204,27 @@ MUTANTS: list[Mutant] = [
         ["test_m12_a_refused_sha_stays_pending_so_a_resume_never_reads_past_it",
          "test_a_refused_document_counts_as_attempted_for_the_order_rule"],
     ),
+    # M13 and M14 are the CTRL run's two findings about the attestation itself,
+    # mutated back in: the gate this cell touched after the live evidence
+    # arrived gets a mutant of its own, like every other gate here.
+    Mutant(
+        "M13", "the exit grace believes a process that is still alive (breaks on the first look)",
+        WAVE,
+        "        if values[\"PROC\"] <= 0 or probes >= budget:\n"
+        "            break",
+        "        break",
+        [T_WAVE],
+        ["test_m8_a_fake_ssh_runner_that_lists_a_leftover_fails_the_attestation",
+         "test_a_worker_still_exiting_is_given_a_bounded_grace_and_then_believed"],
+    ),
+    Mutant(
+        "M14", "the temp-image count drops its session scope and counts the whole /tmp again",
+        WAVE,
+        "    \"\\\\( -name '*.png' -o -name '*.pdf' \\\\) -newermt '@{since}' 2>/dev/null | wc -l)\"",
+        "    \"\\\\( -name '*.png' -o -name '*.pdf' \\\\) 2>/dev/null | wc -l)\"",
+        [T_WAVE],
+        ["test_the_temp_image_count_is_scoped_to_this_session"],
+    ),
 ]
 
 

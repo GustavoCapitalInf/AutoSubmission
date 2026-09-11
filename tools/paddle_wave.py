@@ -651,8 +651,14 @@ class RetentionAttestation:
     #: Recorded, NOT gated. The instance's `/tmp` is shared with whatever else
     #: the image runs, so a file there is an observation to read, not a verdict
     #: on this worker. The gated fields above are all inside the worker's own
-    #: directory, which this pipeline is the only writer of.
+    #: directory, which this pipeline is the only writer of. Counted since the
+    #: session began, so a file that was already there is not read as ours.
     temp_image_files: int = 0
+    #: How many times the instance was inspected before this record was made.
+    #: 1 is the ordinary answer; more means the worker process was still
+    #: exiting on the earlier looks, which is a fact about the STOP, not about
+    #: retention, and is recorded rather than smoothed away.
+    probes: int = 1
     error: str = ""
 
     @property
@@ -690,8 +696,18 @@ _ATTESTATION_COMMAND = (
     "echo OTHER=$(find $D -maxdepth 1 -type f ! -name 'paddle_worker.py' ! -name 'worker.log' "
     "2>/dev/null | wc -l); "
     "echo TMPIMG=$(find /tmp -maxdepth 2 -type f "
-    "\\( -name '*.png' -o -name '*.pdf' \\) 2>/dev/null | wc -l)"
+    "\\( -name '*.png' -o -name '*.pdf' \\) -newermt '@{since}' 2>/dev/null | wc -l)"
 )
+
+#: How long the attestation lets the worker process finish DYING before it
+#: calls it alive, and how often it looks. Found on the real instance during
+#: the CTRL run: the inspection ran ~2 s after `stop` and counted a process
+#: that was already exiting (30 minutes later the same probe answered `PROC=0`,
+#: with no artefact of any kind under the worker's directory). Waiting is not
+#: a weakening — a process still alive after the whole grace period still
+#: FAILS the attestation, and the record says how many probes it took.
+_ATTESTATION_EXIT_GRACE_S = 30.0
+_ATTESTATION_PROBE_INTERVAL_S = 5.0
 
 
 def _parse_attestation_output(text: str) -> dict[str, int]:
@@ -705,6 +721,7 @@ def _parse_attestation_output(text: str) -> dict[str, int]:
 
 def attest_retention(
     settings: Any, *, runner: Callable[..., Any] | None = None, retention_declared: bool,
+    since_epoch: float = 0.0, sleep: Callable[[float], None] = time.sleep,
 ) -> RetentionAttestation:
     """Inspect the instance AFTER `stop`, over the lifecycle tool's own masked
     SSH command builder.
@@ -716,37 +733,63 @@ def attest_retention(
     False and the attestation FAILING, because "we could not check" and
     "there was nothing there" are the same silence and only one of them is
     safe.
+
+    `since_epoch` is the moment this session began: `/tmp` is shared with
+    whatever else the image runs, so a file there is this session's business
+    only if this session could have written it. The CTRL run found the other
+    case on the real instance — one synthetic PNG left in `/tmp` by the
+    operator's own live test two hours BEFORE the session — and counted it
+    beside our own work. Omit it (default 0) and every matching file counts,
+    which is the conservative reading for a caller that cannot say when it
+    started.
+
+    The worker process gets a bounded GRACE to finish dying
+    (`_ATTESTATION_EXIT_GRACE_S`, probed every `_ATTESTATION_PROBE_INTERVAL_S`).
+    The same CTRL run found that too: the inspection ran about two seconds
+    after `stop` and counted a process that was already exiting — a race in the
+    INSTRUMENT, reported as a retention failure on the instance. A process that
+    is still there when the grace expires still fails the attestation; the
+    record carries how many probes it took, so "it died on the second look" and
+    "it was never alive" are different facts in the log.
     """
     import tools.paddle_vast as vast
 
     if runner is None:
         runner = subprocess.run
-    command = _ATTESTATION_COMMAND.format(directory=vast.REMOTE_WORKER_DIR)
-    try:
-        completed = vast._run(
-            runner, vast._ssh_command(settings, command),
-            capture_output=True, text=True, timeout=60,
-        )
-    except Exception as exc:  # noqa: BLE001 - the class name only; never the message
+    command = _ATTESTATION_COMMAND.format(
+        directory=vast.REMOTE_WORKER_DIR, since=int(since_epoch),
+    )
+
+    def refused(error: str) -> RetentionAttestation:
         return RetentionAttestation(
             retention_declared=retention_declared, inspected=False, worker_process_alive=True,
             pidfile_present=True, request_artefacts=-1, page_byte_files=-1, unexpected_files=-1,
-            error=type(exc).__name__,
+            error=error, probes=probes,
         )
-    if getattr(completed, "returncode", 1) != 0:
-        return RetentionAttestation(
-            retention_declared=retention_declared, inspected=False, worker_process_alive=True,
-            pidfile_present=True, request_artefacts=-1, page_byte_files=-1, unexpected_files=-1,
-            error="remote_inspection_failed",
-        )
-    values = _parse_attestation_output(vast.mask_text(completed.stdout or "", settings))
-    required = ("PROC", "PIDFILE", "IMAGES", "REQUESTS", "OTHER")
-    if any(name not in values for name in required):
-        return RetentionAttestation(
-            retention_declared=retention_declared, inspected=False, worker_process_alive=True,
-            pidfile_present=True, request_artefacts=-1, page_byte_files=-1, unexpected_files=-1,
-            error="remote_inspection_incomplete",
-        )
+
+    probes = 0
+    # A BUDGET of looks, not a wall-clock deadline: the waiting is the caller's
+    # `sleep`, so a test that passes a no-op sleep must finish immediately
+    # rather than spin through the grace period issuing probes.
+    budget = max(1, int(_ATTESTATION_EXIT_GRACE_S // _ATTESTATION_PROBE_INTERVAL_S) + 1)
+    while True:
+        probes += 1
+        try:
+            completed = vast._run(
+                runner, vast._ssh_command(settings, command),
+                capture_output=True, text=True, timeout=60,
+            )
+        except Exception as exc:  # noqa: BLE001 - the class name only; never the message
+            return refused(type(exc).__name__)
+        if getattr(completed, "returncode", 1) != 0:
+            return refused("remote_inspection_failed")
+        values = _parse_attestation_output(vast.mask_text(completed.stdout or "", settings))
+        required = ("PROC", "PIDFILE", "IMAGES", "REQUESTS", "OTHER")
+        if any(name not in values for name in required):
+            return refused("remote_inspection_incomplete")
+        if values["PROC"] <= 0 or probes >= budget:
+            break
+        sleep(_ATTESTATION_PROBE_INTERVAL_S)
     return RetentionAttestation(
         retention_declared=retention_declared,
         inspected=True,
@@ -756,6 +799,7 @@ def attest_retention(
         page_byte_files=values["IMAGES"],
         unexpected_files=values["OTHER"],
         temp_image_files=values.get("TMPIMG", 0),
+        probes=probes,
     )
 
 
@@ -1067,12 +1111,14 @@ class Lifecycle:
         version = PaddleClient(self.settings).version()
         return retention_declaration(version) is not None
 
-    def down(self, *, retention_declared: bool) -> RetentionAttestation:
+    def down(self, *, retention_declared: bool, since_epoch: float = 0.0) -> RetentionAttestation:
         import tools.paddle_vast as vast
 
         vast.cmd_stop(self.settings)
         self.log("lifecycle.stop")
-        attestation = attest_retention(self.settings, retention_declared=retention_declared)
+        attestation = attest_retention(
+            self.settings, retention_declared=retention_declared, since_epoch=since_epoch,
+        )
         self.log("lifecycle.attestation", **attestation.as_record())
         vast.cmd_tunnel_down(self.settings)
         self.log("lifecycle.tunnel_down")
@@ -1144,6 +1190,11 @@ def run_wave(
     }
     attestation: RetentionAttestation | None = None
     retention_declared = False
+    # The wall-clock moment this session began, handed to the attestation so a
+    # file that was already in the instance's shared `/tmp` before we touched
+    # it is not counted as something this session left behind (the CTRL run
+    # found exactly one such file, the operator's own live-test fixture).
+    session_epoch = time.time()
     try:
         if pending and lifecycle is not None:
             up = lifecycle.up()
@@ -1166,7 +1217,9 @@ def run_wave(
             chunk_index += 1
     finally:
         if lifecycle is not None:
-            attestation = lifecycle.down(retention_declared=retention_declared)
+            attestation = lifecycle.down(
+                retention_declared=retention_declared, since_epoch=session_epoch,
+            )
             session["attestation"] = attestation.as_record()
         session["ended"] = _now()
         session.update(state.counts())
