@@ -52,8 +52,13 @@ population of 0 in the archive and both reachable by a real PDF:
   PyMuPDF's matrix is used verbatim, so no existing page's evidence bytes
   move; where they do not, the page carries `CLAMPED_TRANSFORM_NOTE`.
 * **N-2** — a `/Rotate` written as an INDIRECT reference is RESOLVED
-  (`_resolved_rotate_int`) before the mod-90 test, so an indirect 45 is
-  refused by name like a direct one instead of being silently mis-framed.
+  (`_indirect_rotate`) before the mod-90 test, so an indirect 45 is refused
+  by name like a direct one instead of being silently mis-framed. ONE hop,
+  and the resolved value is acted on only where the page's own geometry
+  corroborates it: `xref_object` cannot tell an integer object from a
+  reference to one (both print as the bare number), and a chained `/Rotate`
+  is honoured by no renderer, so a number reached that way describes no page
+  and moves nothing. Closure of the cell's own review, MAJOR-1.
 
 What is and is not here
 -----------------------
@@ -183,47 +188,116 @@ _IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 #: floating-point last bit; preferring PyMuPDF's matrix wherever the two
 #: agree is what keeps every existing page's evidence bytes unchanged.
 _MATRIX_TOLERANCE = 1e-6
-#: How many indirect references `_resolved_rotate_int` follows before giving
-#: up (a `/Rotate` object that points at another indirect object is legal and
-#: vanishingly rare; a cycle must not hang the reader).
-_MAX_INDIRECT_HOPS = 8
+#: How far `page.rect` may differ from the transpose of the rectangle the page
+#: crops to before the two are no longer "the same rectangle, swapped". Page
+#: sides are whole or near-whole points; half a point is far below any real
+#: difference and far above float noise.
+_TRANSPOSE_TOLERANCE = 0.5
 
 
-def _resolved_rotate_int(document, value):
-    """The integer an INDIRECT `/Rotate` reference resolves to, or `None`.
+def _clamped_box(page) -> tuple[float, float] | None:
+    """The width and height of the rectangle the page actually crops to — its
+    CropBox INTERSECTED with its MediaBox, which is what PyMuPDF reports as
+    `page.rect` (up to the display rotation) and what the rasteriser renders
+    (N-1). `None` when either box cannot be read."""
+    try:
+        crop, media = page.cropbox, page.mediabox
+        x0, y0 = max(float(crop.x0), float(media.x0)), max(float(crop.y0), float(media.y0))
+        x1, y1 = min(float(crop.x1), float(media.x1)), min(float(crop.y1), float(media.y1))
+    except Exception:
+        return None
+    return abs(x1 - x0), abs(y1 - y0)
+
+
+def _rect_is_transposed(page) -> bool:
+    """THE observable signature of the F-2 harm: PyMuPDF reports NO rotation,
+    yet the rectangle it declares (`page.rect`) is the TRANSPOSE of the
+    rectangle the page crops to.
+
+    That combination means PyMuPDF has normalised a rotation away while still
+    swapping the frame, so the boxes it hands back are in a space no renderer
+    displays — measured: on such a page Poppler's raster has the UNSWAPPED
+    dimensions and NO display transform, at any of the four angles, puts ink
+    under a single word box (ink fraction 0.000 at 0/90/180/270). A square
+    page is excluded because on it the transpose is the rectangle itself and
+    the signature would carry no information."""
+    try:
+        if int(page.rotation) % 360 != 0:
+            return False
+        width, height = float(page.rect.width), float(page.rect.height)
+    except Exception:
+        return False
+    box = _clamped_box(page)
+    if box is None:
+        return False
+    box_width, box_height = box
+    return (
+        abs(width - box_height) <= _TRANSPOSE_TOLERANCE
+        and abs(height - box_width) <= _TRANSPOSE_TOLERANCE
+        and abs(box_width - box_height) > _TRANSPOSE_TOLERANCE
+    )
+
+
+def _indirect_rotate(document, page, value):
+    """The integer an INDIRECT `/Rotate` resolves to — used ONLY where the
+    page's own geometry corroborates it — or `None`.
 
     P22-IDENTITY re-review N-2: `xref_get_key` reports a `/Rotate` written as
     `12 0 R` with kind `xref`, and the Phase 2.2 reader treated that as "no
-    value" — so an indirect 45 escaped the invalid-rotation refusal and was
-    mis-framed exactly as a direct 45 had been (PyMuPDF reports rotation 0
-    with an identity matrix but a SWAPPED rect). The object is resolved here,
-    through `xref_object`, before the mod-90 test; a reference chain is
-    followed to `_MAX_INDIRECT_HOPS` and a cycle ends it. Anything that is
-    not an integer literal — a real number, a name, a missing object — is
-    `None`, the same "no value this reader can trust" answer the walk gives
-    for an absent key: the page then follows PyMuPDF's normalised rotation,
-    which is exactly what it did before this fix.
+    value", so an indirect 45 escaped the invalid-rotation refusal and was
+    mis-framed exactly as a direct 45 had been. The reference is resolved
+    here, through `xref_object`, before the mod-90 test.
+
+    ONE hop, never a chain, and the reason is a measured property of the
+    library rather than a preference. `xref_object` prints an object holding
+    the integer N and an object holding the reference `N 0 R` IDENTICALLY, as
+    the bare text `N`: the two are indistinguishable through PyMuPDF's object
+    API (`compressed=True`, `xref_is_stream` and `xref_get_keys` do not
+    separate them either). Following the "chain" therefore means guessing,
+    and the guess is never needed: a chained `/Rotate` is honoured by NO
+    renderer — PyMuPDF reports rotation 0 with an unswapped rect, Poppler
+    rasterises the unswapped page, and the words land on the raster's ink at
+    0 degrees (ink fraction 1.000 at 0, 0.000 at every other angle). A page
+    whose `/Rotate` is reached through a chain is an UNROTATED page in every
+    renderer that exists, and this reader says so.
+
+    Corroboration, both ways, because a number read out of an object is only
+    worth acting on when the page agrees with it:
+
+    * a resolved multiple of 90 is taken only when `page.rotation` is that
+      same angle — i.e. PyMuPDF resolved the reference the same way. This is
+      what stops the second half of the defect the re-review found: an
+      intermediate object number that happens to be 90, 180 or 270 would
+      otherwise be applied as a rotation to a page no renderer rotates, and
+      every box would leave the ink;
+    * a resolved NON-multiple of 90 is taken — and refuses the page by name —
+      only when the mis-framing signature is actually present
+      (`_rect_is_transposed`). That is exactly the F-2 harm and nothing else:
+      a page that renders correctly is never refused for a number in an
+      object no renderer reads.
+
+    Anything else — a name, a dictionary, a real, a missing object, an
+    uncorroborated integer — is `None`, the same "no value this reader can
+    trust" answer the walk gives for an absent key, and the page then follows
+    PyMuPDF's own rotation exactly as it did before this fix.
     """
-    seen: set[int] = set()
-    for _ in range(_MAX_INDIRECT_HOPS):
-        head = str(value).strip().split(" ", 1)[0]
-        if not head.isdigit():
-            return None
-        target = int(head)
-        if target in seen:
-            return None
-        seen.add(target)
-        try:
-            source = str(document.xref_object(target)).strip()
-        except Exception:
-            return None
-        if source.lstrip("+-").isdigit():
-            return int(source)
-        if source.endswith(" R"):
-            value = source
-            continue
+    head = str(value).strip().split(" ", 1)[0]
+    if not head.isdigit():
         return None
-    return None
+    try:
+        source = str(document.xref_object(int(head))).strip()
+    except Exception:
+        return None
+    if not source.lstrip("+-").isdigit():
+        return None
+    resolved = int(source)
+    try:
+        rotation = int(page.rotation) % 360
+    except Exception:
+        return None
+    if resolved % 90 == 0:
+        return resolved if rotation == resolved % 360 else None
+    return resolved if _rect_is_transposed(page) else None
 
 
 def _raw_rotate(document, page):
@@ -232,14 +306,15 @@ def _raw_rotate(document, page):
     no node carries one or the walk cannot be completed. Read from the
     objects themselves because PyMuPDF normalises the value before
     `page.rotation` and silently mis-frames an invalid one (review F-2). An
-    INDIRECT value is resolved through the object it names (re-review N-2)."""
+    INDIRECT value is resolved through the object it names, and used only
+    where the page's own geometry corroborates it (re-review N-2)."""
     xref = page.xref
     for _ in range(64):
         kind, value = document.xref_get_key(xref, "Rotate")
         if kind == "int":
             return int(value)
         if kind == "xref":
-            return _resolved_rotate_int(document, value)
+            return _indirect_rotate(document, page, value)
         if kind not in ("null", ""):
             return None
         kind, value = document.xref_get_key(xref, "Parent")

@@ -745,7 +745,7 @@ def _with_indirect_rotate(value, *, extra_pages: int = 1) -> bytes:
     return data
 
 
-@pytest.mark.parametrize("value", [45, 135, -45])
+@pytest.mark.parametrize("value", [45, 225, 46, 89, 91])
 def test_an_indirect_invalid_rotate_is_resolved_and_refused_by_name(value):
     """Re-review N-2. A `/Rotate` written as `12 0 R` reads back with kind
     `xref`, which the Phase 2.2 reader treated as "no value": an indirect 45
@@ -754,20 +754,86 @@ def test_an_indirect_invalid_rotate_is_resolved_and_refused_by_name(value):
     but a SWAPPED rect, so every box missed the page a viewer shows. The
     reference is now resolved before the mod-90 test and the page is refused
     by name. Mutant M9 — the `xref` kind treated as absent — is killed here.
+
+    The values are the ones whose harm is OBSERVABLE (closure, MAJOR-1):
+    PyMuPDF rounds an invalid rotation to the nearest multiple of 90, and for
+    this family it rounds to 90 or 270, which shows as a TRANSPOSED
+    `page.rect` while `page.rotation` reads 0 — measured, with Poppler
+    rasterising the UNSWAPPED page and no display transform at any of the four
+    angles putting ink under a single box. That is the mis-framing, and it is
+    what the refusal is for.
     """
     pdf_bytes = _with_indirect_rotate(value)
     document = fitz.open(stream=pdf_bytes, filetype="pdf")
     try:
-        assert document.xref_get_key(document[0].xref, "Rotate")[0] == "xref"
-        assert document[0].rotation == 0          # PyMuPDF normalised it away
+        page = document[0]
+        assert document.xref_get_key(page.xref, "Rotate")[0] == "xref"
+        assert page.rotation == 0          # PyMuPDF normalised it away
+        assert (page.rect.width, page.rect.height) == (LETTER[1], LETTER[0])   # ... but swapped the rect
     finally:
         document.close()
+    from ocr.rasterize import rasterize_pdf
+    assert rasterize_pdf(pdf_bytes, dpi=72)[0].size == (round(LETTER[0]), round(LETTER[1]))
+
     evidence = native_evidence_from_pdf(pdf_bytes)
     assert evidence is not None
     first = evidence.pages[0]
     assert first.notes == (INVALID_ROTATION_NOTE,)
     assert first.words == ()
     assert evidence.pages[1].words and evidence.pages[1].notes == ()
+
+
+@pytest.mark.parametrize("value", [-45, 315])
+def test_an_indirect_rotate_pymupdf_rounds_to_zero_reads_every_word(value):
+    """The other half of the same measurement, and the reason the indirect
+    refusal is tied to the observable harm rather than to the mod-90
+    arithmetic alone: PyMuPDF rounds these to 0, the rect is NOT swapped,
+    Poppler renders the same rectangle and every word box carries ink. The
+    page is fine; refusing it would lose a document for a number that changed
+    nothing."""
+    pdf_bytes = _with_indirect_rotate(value, extra_pages=0)
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes
+    assert page.frame.rotation_deg == 0
+    assert len(page.words) == 12
+    assert _poppler_ink(pdf_bytes, page) == 1.0
+
+
+@pytest.mark.parametrize("value", [135])
+def test_an_indirect_rotate_pymupdf_rounds_to_180_is_a_RECORDED_RESIDUAL(value):
+    """A measured, named latent — pinned so it cannot drift silently.
+
+    PyMuPDF rounds this family to 180: `page.rotation` reads 0 and the rect is
+    NOT swapped, so the mis-framing leaves no geometric signature, yet the
+    word coordinates are in the 180-rotated space and miss the raster's ink.
+    The indirect path therefore does NOT refuse it, and this test records
+    exactly that, with the harm measured.
+
+    It is not a regression: the Phase 2.2 reader did the same (it resolved no
+    indirect reference at all), the archive population is 0 (the corpus census
+    finds four indirect `/Rotate` objects, every one resolving to 0), and the
+    alternative — refusing on any resolved non-multiple of 90 — refuses a
+    page whenever the reference is a CHAIN whose intermediate object number
+    happens to land in this family, which is the regression MAJOR-1 was.
+    Object numbers are small integers; rotations are not. Carried for the
+    milestone that owns the reader.
+    """
+    pdf_bytes = _with_indirect_rotate(value, extra_pages=0)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        page = document[0]
+        assert page.rotation == 0
+        assert (page.rect.width, page.rect.height) == LETTER      # NOT swapped: no signature
+    finally:
+        document.close()
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes                # recorded: not refused
+    assert len(page.words) == 12
+    assert _poppler_ink(pdf_bytes, page) == 0.0                   # recorded: the boxes miss the ink
 
 
 @pytest.mark.parametrize("value,normalised", [(90, 90), (270, 270), (0, 0), (-90, 270), (360, 0)])
@@ -820,37 +886,128 @@ def test_an_indirect_rotate_that_is_not_an_integer_is_no_value_not_a_guess(sourc
     assert len(evidence.pages[0].words) == 12
 
 
-def test_an_indirect_rotate_reference_chain_is_followed_and_a_cycle_terminates():
-    """A reference that points at another reference is legal and is followed;
-    a cycle, and a chain longer than the bound, answer `None` rather than
-    spin. Exercised against a stub document because MuPDF flattens a
-    self-referencing object at write time, so a real PDF cannot carry the
-    shape this bound exists for — the resolver is pinned directly instead."""
-    from evidence.native import _MAX_INDIRECT_HOPS, _resolved_rotate_int
+def _with_objects(bodies, *, inherited: bool = False, extra_pages: int = 1) -> bytes:
+    """The upright ledger plus real PDF objects: `bodies[i]` is written into
+    the i-th newly allocated xref (`{0}`, `{1}` ... interpolate the allocated
+    numbers, so a body can be a reference to a sibling), and the page's — or
+    the parent `Pages` node's — `/Rotate` is set to a reference to the FIRST
+    of them. Real objects in a real document; no stub anywhere."""
+    document = fitz.open(stream=_render(extra_pages=extra_pages), filetype="pdf")
+    if extra_pages:
+        document[1].insert_text(fitz.Point(40.0, 100.0), "SecondPageWord", fontsize=10.0, fontname="helv")
+    xrefs = [document.get_new_xref() for _ in bodies]
+    for xref, body in zip(xrefs, bodies):
+        document.update_object(xref, body.format(*xrefs))
+    page = document[0]
+    if inherited:
+        _, value = document.xref_get_key(page.xref, "Parent")
+        parent = int(str(value).split()[0])
+        document.xref_set_key(page.xref, "Rotate", "null")
+        document.xref_set_key(parent, "Rotate", f"{xrefs[0]} 0 R")
+    else:
+        document.xref_set_key(page.xref, "Rotate", f"{xrefs[0]} 0 R")
+    data = document.tobytes()
+    document.close()
+    return data
 
-    class _Stub:
-        def __init__(self, objects):
-            self.objects = objects
-            self.reads = 0
 
-        def xref_object(self, xref):
-            self.reads += 1
-            return self.objects[xref]
+def _poppler_ink(pdf_bytes: bytes, page: "object") -> float:
+    """The fraction of the page's word boxes that contain ink in Poppler's own
+    72-dpi raster — the independent renderer, the same oracle the four-angle
+    pin uses."""
+    from ocr.rasterize import rasterize_pdf
 
-    chain = _Stub({1: "2 0 R", 2: "3 0 R", 3: "90"})
-    assert _resolved_rotate_int(chain, "1 0 R") == 90
+    image = rasterize_pdf(pdf_bytes, dpi=72)[0]
+    assert image.size == (round(page.frame.width), round(page.frame.height)), (
+        "the reader's frame and Poppler's raster describe different rectangles"
+    )
+    return _ink_fraction(image, page.words, 1.0, 1.0)
 
-    cycle = _Stub({1: "2 0 R", 2: "1 0 R"})
-    assert _resolved_rotate_int(cycle, "1 0 R") is None
-    assert cycle.reads <= _MAX_INDIRECT_HOPS
 
-    long_chain = _Stub({index: f"{index + 1} 0 R" for index in range(1, 40)} | {40: "90"})
-    assert _resolved_rotate_int(long_chain, "1 0 R") is None
-    assert long_chain.reads <= _MAX_INDIRECT_HOPS
+@pytest.mark.parametrize("terminal", ["270", "90", "0", "45", "13"])
+def test_a_chained_indirect_rotate_is_an_unrotated_page_in_every_renderer(terminal):
+    """Re-review closure, MAJOR-1 — on REAL PDFs, with Poppler as the oracle.
 
-    missing = _Stub({})
-    assert _resolved_rotate_int(missing, "1 0 R") is None
-    assert _resolved_rotate_int(missing, "not a reference") is None
+    `/Rotate` -> object A -> object B -> `terminal`. MEASURED: PyMuPDF cannot
+    tell object A (a reference to B) from an object holding the integer B —
+    `xref_object` prints both as the bare number — and NO renderer honours
+    the chain: PyMuPDF reports rotation 0 with an UNSWAPPED rect, Poppler
+    rasterises the unswapped page, and every word lands on the ink at 0
+    degrees. So the page is read, unrotated, with every word, whatever the
+    terminal says — including the terminals that are not multiples of 90, and
+    including the `13` that is exactly what the broken resolver mistook for
+    an angle.
+
+    This is the shape the first implementation lost the whole document's
+    native reading on (it took the intermediate xref NUMBER for an angle and
+    refused the page), and the shape where an intermediate number that
+    happened to be 90/180/270 silently rotated a page nothing rotates.
+    """
+    pdf_bytes = _with_objects(["{1} 0 R", terminal])
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        assert document.xref_get_key(document[0].xref, "Rotate")[0] == "xref"
+        assert int(document[0].rotation) == 0
+        assert (document[0].rect.width, document[0].rect.height) == LETTER
+    finally:
+        document.close()
+
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None, "the document's native reading was lost"
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes
+    assert page.frame.rotation_deg == 0
+    assert (page.frame.width, page.frame.height) == LETTER
+    assert len(page.words) == 12
+    assert _poppler_ink(pdf_bytes, page) == 1.0
+    assert evidence.pages[1].words
+
+
+@pytest.mark.parametrize("terminal", ["45", "13"])
+def test_a_chained_indirect_rotate_inherited_from_the_pages_node_is_read_too(terminal):
+    """The same, reached through the `/Parent` walk."""
+    pdf_bytes = _with_objects(["{1} 0 R", terminal], inherited=True)
+    evidence = native_evidence_from_pdf(pdf_bytes)
+    assert evidence is not None
+    page = evidence.pages[0]
+    assert INVALID_ROTATION_NOTE not in page.notes
+    assert len(page.words) == 12
+    assert _poppler_ink(pdf_bytes, page) == 1.0
+
+
+def test_a_two_hop_indirect_rotate_chain_is_read_and_cannot_spin():
+    """A longer chain and a self-referencing object: both are read as the
+    unrotated pages every renderer shows them to be, and neither can loop —
+    the resolver takes exactly ONE hop, so there is no walk to bound."""
+    for bodies in (["{1} 0 R", "{2} 0 R", "270"], ["{0} 0 R"], ["{1} 0 R", "{0} 0 R"]):
+        pdf_bytes = _with_objects(bodies)
+        evidence = native_evidence_from_pdf(pdf_bytes)
+        assert evidence is not None, bodies
+        assert len(evidence.pages[0].words) == 12, bodies
+        assert _poppler_ink(pdf_bytes, evidence.pages[0]) == 1.0, bodies
+
+
+def test_an_indirect_rotate_the_page_does_not_corroborate_is_no_value():
+    """The corroboration rule, both ways, on real PDFs.
+
+    A resolved multiple of 90 is acted on ONLY when PyMuPDF resolved the
+    reference the same way (`page.rotation` agrees); a resolved non-multiple
+    ONLY when the mis-framing signature is actually present. Here the page's
+    `/Rotate` is a DIRECT 0 while a stray object holds 90: nothing refers to
+    it, nothing is corroborated, and the page reads unrotated."""
+    from evidence.native import _indirect_rotate
+
+    pdf_bytes = _with_objects(["{1} 0 R", "90"])
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        page = document[0]
+        assert int(page.rotation) == 0
+        # the chain resolves to the intermediate object's NUMBER; the page
+        # does not corroborate it, so the reader takes no value from it
+        _, value = document.xref_get_key(page.xref, "Rotate")
+        assert _indirect_rotate(document, page, value) is None
+    finally:
+        document.close()
 
 
 def test_a_mixed_document_rotated_and_unrotated_pages_each_get_their_own_frame():
