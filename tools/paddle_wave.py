@@ -92,6 +92,7 @@ __all__ = [
     "main",
     "missing_opt_in_literals",
     "population_digests",
+    "recorded_evidence_for",
     "retain_rasters_for",
     "wave_report",
 ]
@@ -762,6 +763,58 @@ def attest_retention(
 # Rasters (D2, card item 6)
 # ---------------------------------------------------------------------------
 
+def recorded_evidence_for(cache, sha: str):
+    """The geometry evidence this research cache already holds for `sha`, found
+    through the cache's OWN INDEX — or `None` when it holds none.
+
+    Why the index and not a settings key: the key of a Paddle read can only be
+    spelled by naming the Paddle capability flag, and `tests/test_paddle_routing.py`
+    pins the exact, reviewed set of call sites that may name it — the boundary
+    that keeps "a document was read by Paddle" a thing somebody reviewed rather
+    than a thing anybody can spell. This tool never reads a page and must not
+    become such a site merely to LOOK UP what the run it drove already wrote;
+    `discovery/cli.py` refused the same trade for the same reason (a research
+    run's `provenance.json` deliberately records no Paddle key). The cache
+    stores `settings_key` beside every entry it holds, so the key is READ from
+    the run that actually made it. That is also the stronger property: a
+    reconstructed key is a second copy of the call shape, and a second copy can
+    drift from the first (a DPI default, a stage version, an environment that
+    loads different pins) and then silently retain nothing.
+
+    Ambiguity is refused, never guessed. If this research directory holds more
+    than one evidence-bearing read of one document — a second configuration
+    under a second partition (cell V's A/B) pointed at the same `--data-dir` —
+    the reads are accepted only while they record the SAME `raster_sha256` for
+    the same page, in which case the bytes to retain are the same bytes
+    whichever read is meant. When they disagree the function refuses: writing
+    one configuration's pixels under the other's name is the one error a
+    sha-named archive cannot show later.
+    """
+    from evidence.canonical import from_json
+    from webapp.artifact_cache import STAGE_OCR
+
+    candidates = []
+    for entry in cache.storage.cache_entries(STAGE_OCR, input_sha256=sha.upper()):
+        hit, record = cache.get_ocr(sha.upper(), entry["settings_key"])
+        if not hit or not record or not record.get("evidence"):
+            continue
+        candidates.append(from_json(record["evidence"]))
+    if not candidates:
+        return None
+    fingerprints = {
+        tuple((page.frame.page_index, page.frame.raster_sha256) for page in evidence.pages)
+        for evidence in candidates
+    }
+    if len(fingerprints) > 1:
+        raise WaveRefused(
+            f"retain_rasters_for refuses an ambiguous research data directory: it holds "
+            f"{len(candidates)} evidence-bearing reads of one document that record different "
+            f"page rasters (more than one configuration under one --data-dir); give each "
+            f"configuration its own research data directory"
+        )
+    return candidates[0]
+
+
 def retain_rasters_for(
     sha: str, *, pdf_bytes: bytes, data_dir: Path, partition: str, dpi: int = PADDLE_RASTER_DPI,
 ) -> dict[str, int]:
@@ -781,24 +834,22 @@ def retain_rasters_for(
     Production partitions are unaffected: this function is only ever called
     with a research partition, it writes under `<data-dir>/rasters/`, and the
     production path keeps `raster_sha256` and no file (proven by test).
+    `partition` is exactly that assertion — a non-empty research id, refused
+    when absent — and not a lookup argument: WHICH read to retain the pages of
+    is answered by :func:`recorded_evidence_for` from the cache's own index,
+    for the reasons written there.
     """
     from io import BytesIO
 
-    from evidence.canonical import from_json
     from ocr.rasterize import rasterize_page
-    from webapp.artifact_cache import ocr_settings_key, open_cache
+    from webapp.artifact_cache import open_cache
 
     if not partition:
         raise WaveRefused("retain_rasters_for refuses an empty research partition")
     cache = open_cache(Path(data_dir))
-    key = ocr_settings_key(
-        force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True,
-        research_partition=partition,
-    )
-    hit, record = cache.get_ocr(sha.upper(), key)
-    if not hit or not record or not record.get("evidence"):
+    evidence = recorded_evidence_for(cache, sha)
+    if evidence is None:
         return {"written": 0, "mismatched": 0, "pages": 0, "skipped_no_evidence": 1}
-    evidence = from_json(record["evidence"])
     out_dir = Path(data_dir) / "rasters" / sha.upper()
     written = mismatched = 0
     for page in evidence.pages:

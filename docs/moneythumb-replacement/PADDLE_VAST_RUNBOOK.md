@@ -249,7 +249,11 @@ a clean instance it did not look at.
 **Rasters.** Under the research partition the PNG of every page sent is kept at
 `<research dir>/rasters/<content sha>/pNNNN.png`, and only when its sha256 reproduces the
 `raster_sha256` the immutable evidence already records for that page — so a retained image is
-provably the one the worker saw. Production partitions keep `raster_sha256` and no file.
+provably the one the worker saw. Production partitions keep `raster_sha256` and no file. WHICH
+read's pages are retained is answered by the cache's own index (the settings key the run
+recorded), never by rebuilding a Paddle settings key here — so **give each configuration its own
+`--data-dir`:** a research directory holding evidence-bearing reads of one document that record
+DIFFERENT page rasters is refused, not guessed at.
 These are customer page images: they live under the gitignored on-machine research area and
 the archive's retention rule, and are never committed.
 

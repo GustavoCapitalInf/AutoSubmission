@@ -132,6 +132,92 @@ def test_m10_the_wave_runner_never_imports_the_rung_or_calls_read_document():
     assert "paddle_rung" not in source
 
 
+def test_the_wave_tool_never_names_the_paddle_capability_flag():
+    """The other half of M10, and the reason `recorded_evidence_for` reads the
+    cache's index instead of recomputing a settings key.
+
+    `tests/test_paddle_routing.py::test_case12_...` pins, repo-wide, the exact
+    set of call sites that may name `allow_paddle_ocr` — the boundary that
+    keeps "this call can cause a Paddle read" a reviewed property rather than a
+    spelling anyone may reach for. `discovery/cli.py` already declined to join
+    that set for a PROVENANCE field; an orchestrator that reads no page has
+    even less claim to it. Scanned here as well as there so the reason travels
+    with the tool: the repo pin says WHAT the set is, this says why this file
+    is not in it."""
+    tree = ast.parse(WAVE_TOOL.read_text(encoding="utf-8"))
+    named = [
+        node.lineno for node in ast.walk(tree) if isinstance(node, ast.Call)
+        for keyword in node.keywords if keyword.arg == "allow_paddle_ocr"
+    ]
+    assert named == [], f"allow_paddle_ocr= named at lines {named} of {WAVE_TOOL.name}"
+    called = {
+        node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+        for node in ast.walk(tree) if isinstance(node, ast.Call)
+    }
+    assert "ocr_settings_key" not in called
+
+
+def _stored_evidence_record(cache, sha: str, settings_key: str, raster_sha: str) -> None:
+    """Write ONE OCR cache record for `sha` under `settings_key` whose document
+    carries evidence recording `raster_sha` for page 0. Written through the
+    cache's own `put` so the INDEX row (`input_sha256`, `settings_key`) is the
+    real one `recorded_evidence_for` reads."""
+    from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame, to_json
+    from webapp.artifact_cache import STAGE_OCR
+
+    frame = PageFrame.pixel(page_index=0, raster_width_px=2550, raster_height_px=3300,
+                            dpi=300.0, pdf_width_pt=612.0, pdf_height_pt=792.0,
+                            raster_sha256=raster_sha)
+    evidence = ExtractionEvidence(
+        document_sha256=sha.lower(), extractor_id="paddle-ocr", model_token="paddle-ocr+ppocrv5",
+        pages=(PageEvidence(frame=frame, words=()),),
+    )
+    cache.put(STAGE_OCR, sha.upper(), settings_key,
+              {"document": {"model": "paddle-ocr+ppocrv5", "pages": [""],
+                            "page_integrity": [], "page_extractor": ["paddle-ocr+ppocrv5"],
+                            "evidence": to_json(evidence), "native_evidence": None,
+                            "native_evidence_sha256": None}})
+
+
+def test_the_retained_raster_is_found_through_the_caches_index_not_a_rebuilt_key(tmp_path):
+    """The record is located by the key the RUN recorded, whatever that key is
+    — proven by storing it under a settings key this tool could not possibly
+    reconstruct. A reconstructed key is a second copy of the read's call shape
+    and can drift from it (a DPI default, a stage version, a host whose pins
+    load differently); the index cannot."""
+    from webapp.artifact_cache import open_cache
+    from tools.paddle_wave import recorded_evidence_for
+
+    sha = "B" * 64
+    cache = open_cache(tmp_path)
+    _stored_evidence_record(cache, sha, "a-settings-key-no-caller-would-guess", "c" * 64)
+    evidence = recorded_evidence_for(cache, sha)
+    assert evidence is not None
+    assert [page.frame.raster_sha256 for page in evidence.pages] == ["c" * 64]
+    assert recorded_evidence_for(cache, "D" * 64) is None
+
+
+def test_two_configurations_in_one_research_directory_are_refused_not_guessed(tmp_path):
+    """A second configuration under a second partition pointed at the same
+    `--data-dir` makes "which read is this page's raster" ambiguous. Identical
+    recorded rasters are not ambiguous — the bytes are the same bytes — and are
+    allowed; DIFFERENT ones are refused, because a sha-named archive cannot
+    show later that one configuration's pixels were written under the other's
+    name."""
+    from webapp.artifact_cache import open_cache
+    from tools.paddle_wave import recorded_evidence_for
+
+    sha = "E" * 64
+    cache = open_cache(tmp_path)
+    _stored_evidence_record(cache, sha, "key-of-configuration-one", "c" * 64)
+    _stored_evidence_record(cache, sha, "key-of-configuration-two", "c" * 64)
+    assert recorded_evidence_for(cache, sha) is not None  # same bytes, no ambiguity
+
+    _stored_evidence_record(cache, sha, "key-of-configuration-three", "d" * 64)
+    with pytest.raises(WaveRefused, match="ambiguous research data directory"):
+        recorded_evidence_for(cache, sha)
+
+
 def test_m9_no_cost_rate_price_or_billing_token_anywhere_in_the_tool():
     """D5: cost is out of scope. The tool's CODE is scanned, not only its
     report keys, because a cost column starts life as a variable name — over
