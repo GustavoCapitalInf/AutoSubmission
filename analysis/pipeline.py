@@ -1,7 +1,14 @@
-"""Orchestrates the analysis stages: extract -> reconcile -> (escalate) ->
-metrics -> detect. Extraction runs on the cheap flash-lite model; only a
-statement that fails reconciliation is re-extracted with the stronger model."""
+"""Orchestrates the analysis stages: extract -> reconcile -> metrics -> detect.
+
+No statement is ever re-extracted because it failed reconciliation. The
+reconciliation-based selection between two hosted extractions that used to sit
+between `reconcile` and `metrics` was REMOVED under ruling R9
+(`docs/moneythumb-replacement/PHASE2_RULINGS.md`, 2026-09-03; card P22-FENCE):
+the validator is a verifier, never an optimizer, and
+`tests/test_pipeline_escalation_fence.py` characterised the removed behaviour
+at the base tree and pins its absence."""
 from __future__ import annotations
+import os
 import re
 from dataclasses import dataclass, field
 from collections.abc import Sequence
@@ -698,6 +705,80 @@ class _Analysed:
     partition: MultiAccountPartition | None = None
 
 
+#: THE HOSTED-EXTRACTION OPT-IN (P22-FENCE — Ruling A in code, `PHASE2_RULINGS.md`
+#: 2026-09-02; the OQ3 idiom of `ocr/endpoint_policy.py`).
+#:
+#: Auto mode used to hop from a dispatch that produced no statement —
+#: `unclaimed`, `parser_exception`, `ambiguous` — straight to the hosted
+#: extractor: a Class-B (structure) failure routed to another extractor, the
+#: "parser failure -> hosted model" hop Ruling A refuses as doctrine. The hop
+#: now exists ONLY behind this variable, compared to its literal EXACTLY (`==`,
+#: never truthiness: "1", "true", the literal in another case or with a
+#: trailing newline all refuse) and READ AT THE CALL SITE from the live process
+#: environment, never at import — a process that sets it after this module
+#: loaded is opted in, one that unsets it is not. `Settings` gains no field: an
+#: environment literal is a deliberate operator act, exactly like the OCR and
+#: Paddle opt-ins, and it is documented here because this is the only place it
+#: is read. The literal appears in no tracked file but this definition
+#: (`tests/test_pipeline_escalation_fence.py` scans the tree); an operator sets
+#: it in the environment or a gitignored `.env`.
+#:
+#: Absent, a document that reaches the hosted branch takes the deterministic-
+#: mode outcome for its dispatch — the SAME exception class and message
+#: `parse_mode="deterministic"` raises for it — with the refusal recorded on
+#: the exception object as `hosted_extraction`. On the exception because there
+#: is no payload to record it on, and never in the message, which
+#: `webapp/worker.py`'s declared-refusal allow-list and the router tests pin
+#: byte for byte (a closed suffix on the message was tried and reverted at
+#: the review's N1: it turned the one actionable refusal into a withheld
+#: crash text for the webapp user). A DURABLE record of the refusal is the
+#: worker owner's composition item: publish the attribute when present.
+HOSTED_EXTRACTION_OPT_IN_ENV = "HOSTED_EXTRACTION_OPT_IN"
+HOSTED_EXTRACTION_OPT_IN_LITERAL = "I_ACCEPT_HOSTED_MODEL_EXTRACTION"
+HOSTED_EXTRACTION_REFUSED_NO_OPT_IN = "refused_no_opt_in"
+
+
+def hosted_extraction_opted_in(
+    environ: "os._Environ[str] | dict[str, str] | None" = None,
+) -> bool:
+    """True only when the opt-in variable is EXACTLY the literal — never truthy.
+
+    A plain `==` on the string, as `ocr.endpoint_policy.remote_opt_in_from_env`
+    does it. `environ` is an injection seam for tests; production callers pass
+    nothing and get `os.environ`, read when THIS call runs.
+    """
+    source = os.environ if environ is None else environ
+    return source.get(HOSTED_EXTRACTION_OPT_IN_ENV) == HOSTED_EXTRACTION_OPT_IN_LITERAL
+
+
+def _hosted_extraction_refused(dispatch: Dispatch) -> RuntimeError:
+    """The deterministic-mode outcome for `dispatch`, with the refusal recorded.
+
+    Built from the dispatch's OUTCOME and the registry's own ids and class
+    names — never from the document — exactly as the deterministic raises
+    above the call site build theirs: the same CLASS and the same MESSAGE,
+    byte for byte, so a refused auto-mode document is indistinguishable from a
+    deterministic-mode one everywhere the message is read (the webapp's
+    declared-refusal allow-list publishes it as the one actionable refusal),
+    and distinguishable by the attribute wherever the object is. The message
+    carried a closed suffix between the first and second closure of
+    P22-FENCE's review; re-review N1 measured what that did to the webapp's
+    published error and Ocean reverted it — the durable record of the refusal
+    is the worker owner's, by publishing the attribute when present. Returned
+    rather than raised so the call site writes
+    `raise _hosted_extraction_refused(dispatch)` from outside any `except`:
+    no `__context__` for a traceback renderer to walk.
+    """
+    if dispatch.outcome == "ambiguous":
+        refusal: RuntimeError = AmbiguousParserError(dispatch.candidates)
+    elif dispatch.outcome == "parser_exception":
+        refusal = ParserCrashError(dispatch.exceptions)
+    else:
+        refusal = RuntimeError("no deterministic parser matched this statement")
+    refusal.hosted_extraction = HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
+    return refusal
+
+
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
                      parse_mode: str = "auto",
                      document_geometry: object | None = None,
@@ -862,12 +943,13 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # the nine unconditional repairs' crashes would be exactly the
         # misattribution this seam exists to prevent.
         #
-        # NOT applied to the two LLM-branch repair calls below, and that is a
-        # boundary rather than an omission: `extract_statement` on those
-        # branches is itself an unguarded call that raises out of this
+        # NOT applied to the LLM-branch repair call below, and that is a
+        # boundary rather than an omission: `extract_statement` on that
+        # branch is itself an unguarded call that raises out of this
         # function, so guarding one line inside a branch that makes no
-        # totality promise would buy nothing. The escalation call already
-        # reduces any crash to `type(e).__name__` in its own `except`.
+        # totality promise would buy nothing. (A second such call — the
+        # escalation extraction, with its own `except` — stood after
+        # `reconcile` until R9 removed it; see the pinned `escalated` below.)
         try:
             stmt = apply_statement_repairs(markdown, normalized, dispatch=dispatch)
         except Exception as exc:
@@ -930,11 +1012,11 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # (`PHASE2-0-SAFETY.md` §Objective), so this checks the recorded
         # exception's CLASS NAME ONLY — never a message, exactly as
         # `analysis.parser_registry.ParserFailure` already stores it — and
-        # refuses in EVERY mode. This does not widen the pre-existing
-        # `unclaimed` asymmetry (BLOCK-2's own finding: an `unclaimed`
-        # dispatch still falls through to `extract_statement` outside
-        # deterministic mode exactly as it always did; that is a separate,
-        # pre-existing edge this fix does not touch).
+        # refuses in EVERY mode. BLOCK-2 also named, and did not touch, the
+        # pre-existing `unclaimed` asymmetry — an `unclaimed` dispatch fell
+        # through to `extract_statement` outside deterministic mode with no
+        # opt-in of any kind. Ruling A refused that edge as doctrine and
+        # P22-FENCE fenced it below (`hosted_extraction_opted_in`).
         if dispatch.outcome == "parser_exception" and any(
             failure.exception == Q3ProvenanceRefused.__name__
             for failure in dispatch.exceptions
@@ -946,6 +1028,17 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
             raise ParserCrashError(dispatch.exceptions)
         if parse_mode == "deterministic":
             raise RuntimeError("no deterministic parser matched this statement")
+        # THE FENCE (P22-FENCE; Ruling A in code). Everything that reaches this
+        # line is a dispatch that produced no statement, in a mode that may
+        # make a hosted call — the Class-B -> hosted hop. It runs ONLY behind
+        # the operator's exact opt-in literal, read from the process
+        # environment HERE, at the call, never at import; otherwise the
+        # document takes precisely the outcome deterministic mode gave it
+        # above, with the refusal recorded on the exception. What follows is
+        # the ONE hosted extraction this module makes: no second call, no
+        # selection (R9).
+        if not hosted_extraction_opted_in():
+            raise _hosted_extraction_refused(dispatch)
         stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
         stmt = apply_statement_repairs(markdown, stmt, dispatch=dispatch)
     # One key for both halves of the count check: the mapping `reconcile`
@@ -955,51 +1048,23 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     claiming = claiming_parser_id(dispatch)
     recon = reconcile(stmt, parser_id=claiming)
 
-    escalated = False
-    # Cheap model's mistakes surface as reconciliation failures — re-extract those
-    # with the stronger model before trusting the numbers. On small-bank / image
-    # statements the line items are often incomplete (coverage always fails), so
-    # what matters most is a SELF-RECONCILING SUMMARY: escalate whenever the summary
-    # is inconsistent (or fully clean), and prefer whichever extraction's summary
-    # reconciles, falling back to fewer overall issues.
-    needs_escalation = not recon.ok and (recon.summary_ok is not True)
-    # `parse_mode != "deterministic"` is the FIRST clause, and it is the only
-    # one of the four that is a statement about the CALLER'S CONTRACT rather
-    # than about this document (#PRIVACY3, closing W3 §EXTRACTPRIV XP9 finding
-    # 2). Deterministic mode promises no hosted-model call, and until this line
-    # the promise rested on a coincidence: `deterministic_stmt is None` is true
-    # on the structurer branch (`GENERIC_STRUCTURER_ENABLED`), where
-    # `structured_stmt` is not None, so nothing above stopped a
-    # deterministic-mode run from reaching `extract_statement` below — except
-    # that the structurer only publishes a statement whose ledger GROUNDS, so
-    # `recon.ok` is True and `needs_escalation` is False. That is a property of
-    # the structurer, not of the mode, and one widened grounding rule would have
-    # turned an offline guarantee into a vendor call with no test failing.
+    # R9 (`PHASE2_RULINGS.md`, 2026-09-03; card P22-FENCE): PINNED FALSE.
     #
-    # Fail-closed and free: in deterministic mode the branch above has already
-    # raised (`no deterministic parser matched this statement`) for every
-    # document that has no `deterministic_stmt` and no `structured_stmt`, so the
-    # only documents this clause can reach are structurer-published ones, which
-    # measure `needs_escalation is False` today. Zero movement by construction;
-    # the clause exists so it stays zero.
-    if (
-        parse_mode != "deterministic"
-        and deterministic_stmt is None
-        and needs_escalation
-        and settings.escalation_model != settings.model
-    ):
-        try:
-            alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
-            alt = apply_statement_repairs(markdown, alt, dispatch=dispatch)
-            alt_recon = reconcile(alt, parser_id=claiming)
-            better_summary = bool(alt_recon.summary_ok) and not recon.summary_ok
-            fewer_issues = alt_recon.summary_ok == recon.summary_ok and len(alt_recon.issues) < len(recon.issues)
-            if alt_recon.ok or better_summary or fewer_issues:
-                stmt, recon, model_used, escalated = alt, alt_recon, settings.escalation_model, True
-        except Exception as e:
-            recon.issues.append(
-                f"escalation extraction failed ({type(e).__name__}); using primary extraction with review guards"
-            )
+    # Until this cell the block that stood here ran a SECOND hosted extraction
+    # with `settings.escalation_model` whenever `recon` failed, reconciled the
+    # alternate, and kept whichever extraction reconciled — "falling back to
+    # fewer overall issues" — which is, verbatim, the "multiple extractions ->
+    # compare financial reconciliation -> prefer whichever reconciles" pattern
+    # the anti-optimizer rule forbids. It is REMOVED, not fenced: this module
+    # makes at most one `extract_statement` call, binds at most one `reconcile`
+    # result per scope, and derives this flag from nothing. The field stays on
+    # `Report`, and so in every payload, for shape stability only.
+    # `tests/test_pipeline_escalation_fence.py` characterised the removed
+    # behaviour at the base tree and pins its absence with AST tripwires. (The
+    # #PRIVACY3 guarantee the removed guard's first clause carried — no hosted
+    # call in deterministic mode — is now structural: the one call left is in
+    # the branch above, after the deterministic-mode raises.)
+    escalated = False
 
     published = list(partition.accounts) if partition is not None else []
     source_scope = published[0].section_text if published else markdown
