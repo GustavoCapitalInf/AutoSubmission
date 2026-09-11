@@ -662,3 +662,101 @@ def test_cli_end_to_end_writes_a_research_run_that_run_of_record_refuses(synthet
     assert not (fx["tmp"] / "never_used_prod" / "artifacts").exists()
     assert (fx["data_dir"] / "webapp.db").exists()
     assert list((fx["data_dir"] / "artifacts").rglob("*.json"))
+
+
+# ---------------------------------------------------------------------------
+# P23-WAVE (Phase 2.3, case 14): the four technical-telemetry columns, an
+# APPEND to this file because the research row is where they are populated.
+# Cell T's named STOP, closed: the rung measured the figures and nothing
+# carried them to the row.
+# ---------------------------------------------------------------------------
+
+
+def test_the_telemetry_columns_are_populated_on_a_live_research_read_and_empty_on_a_cache_hit(
+    synthetic_root, monkeypatch,
+):
+    """The whole ruling in one test. A LIVE read measured four figures and the
+    row carries them; the SAME document read again is a cache hit that made no
+    request, measured nothing, and reports nothing — because the telemetry is
+    transient and never entered the artifact. A hit that reported the previous
+    run's numbers would be a measurement nobody made on that run."""
+    from webapp.artifact_cache import open_cache
+
+    fx = synthetic_root
+    _tesseract(monkeypatch, None)
+    cache = open_cache(fx["data_dir"])
+    with FakeWorker(result_for=lambda i, b: synthetic_paddle_result(fx["pages"]["scan-a.pdf"])) as fake:
+        _remote_paid_env(monkeypatch, fake.url)
+        runner = DiscoveryRunner(fx["root"], mode=MODE_RESEARCH_PADDLE, run_id="t", dedup=DedupIndex(),
+                                 cache=cache, population=frozenset({fx["shas"]["scan-a.pdf"]}),
+                                 research_partition=PARTITION)
+        live = runner.process("SynthA/scan-a.pdf", "SynthA")
+        hit = runner.process("SynthA/scan-a.pdf", "SynthA")
+    assert live.cache_paddle == "miss" and hit.cache_paddle == "hit"
+    assert int(live.bytes_up) > 0 and int(live.bytes_down) > 0
+    assert float(live.inference_ms) >= 0.0
+    assert live.vram_mb == "512"  # the fake worker's own sample, reported verbatim
+    assert (hit.bytes_up, hit.bytes_down, hit.inference_ms, hit.vram_mb) == ("", "", "", "")
+    # and the figures are the extractor's, not a derived or rounded invention
+    assert live.bytes_up.isdigit() and live.bytes_down.isdigit()
+
+
+def test_no_row_outside_a_live_paddle_read_carries_a_telemetry_figure(synthetic_root, monkeypatch):
+    """Every non-Paddle rung leaves the field unset, so the columns stay
+    empty: an unmeasured figure must never render as a measured zero."""
+    fx = synthetic_root
+    _tesseract(monkeypatch, "SYNTHETIC LEDGER LINE FOR THE OFFLINE READ " * 12)
+    _remote_paid_env(monkeypatch, "http://127.0.0.1:1", remote=False, customer=False)
+    runner = DiscoveryRunner(fx["root"], mode=MODE_SCANNED, run_id="t", dedup=DedupIndex(),
+                             sink=None, cache=None)
+    for folder, name in (("SynthA", "scan-a.pdf"), ("SynthB", "native-c.pdf")):
+        row = runner.process(f"{folder}/{name}", folder)
+        assert (row.bytes_up, row.bytes_down, row.inference_ms, row.vram_mb) == ("", "", "", "")
+
+
+def test_a_document_whose_worker_reports_no_vram_sample_leaves_that_column_empty(
+    synthetic_root, monkeypatch,
+):
+    """The VRAM column is the ONE of the four that depends on a field the
+    worker may not carry. A worker that reports none leaves it empty — the
+    card's "if it does not, `vram_mb` stays empty and you say so" — while the
+    other three still report."""
+    fx = synthetic_root
+    _tesseract(monkeypatch, None)
+
+    class _NoGpuClient:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def ocr_page(self, png_bytes, *, page_index, request_id):
+            response = dict(self._inner.ocr_page(png_bytes, page_index=page_index,
+                                                 request_id=request_id))
+            response.pop("gpu", None)
+            return response
+
+    from ocr import paddle_rung
+
+    real_read = paddle_rung.read_document
+
+    def read_without_gpu(pdf_bytes, **kwargs):
+        from ocr.paddle_client import PaddleClient
+        from ocr.paddle_config import load_paddle_settings
+
+        settings = kwargs.pop("settings", None) or load_paddle_settings()
+        kwargs["settings"] = settings
+        kwargs["client"] = _NoGpuClient(PaddleClient(settings))
+        return real_read(pdf_bytes, **kwargs)
+
+    with FakeWorker(result_for=lambda i, b: synthetic_paddle_result(fx["pages"]["scan-a.pdf"])) as fake:
+        _remote_paid_env(monkeypatch, fake.url)
+        monkeypatch.setattr("ocr.paddle_rung.read_document", read_without_gpu)
+        runner = DiscoveryRunner(fx["root"], mode=MODE_RESEARCH_PADDLE, run_id="t", dedup=DedupIndex(),
+                                 population=frozenset({fx["shas"]["scan-a.pdf"]}),
+                                 research_partition=PARTITION)
+        row = runner.process("SynthA/scan-a.pdf", "SynthA")
+    assert row.paddle_rung == PADDLE_RESEARCH
+    assert row.vram_mb == ""
+    assert int(row.bytes_up) > 0 and int(row.bytes_down) > 0

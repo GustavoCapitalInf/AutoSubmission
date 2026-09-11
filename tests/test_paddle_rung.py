@@ -383,3 +383,114 @@ def test_minor5_mismatched_page_index_refuses(ledger_fixture):
             read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
                           settings=settings, client=bad_client, dpi=dpi, environ=VAST_ENV)
         assert excinfo.value.error_type == "MalformedEnvelope"
+
+
+# ---------------------------------------------------------------------------
+# P23-WAVE (Phase 2.3, case 14): the technical-telemetry field — an APPEND to
+# this file, because the figures it carries are the ones THIS rung measures.
+# Cell T named the missing field as its STOP: the rung had the numbers and
+# nothing carried them to the row. The field is one optional attribute on
+# `StatementMarkdown`, set by `ocr/pipeline.py` from `PaddleRead.telemetry`,
+# TRANSIENT by ruling (never persisted; a cache hit carries none).
+# ---------------------------------------------------------------------------
+
+
+def test_the_rung_measures_exactly_the_figures_the_row_columns_need(ledger_fixture):
+    """The four row columns are projections of these keys and of nothing else.
+    Pinning the SHAPE here means a rung that stopped measuring one of them
+    fails at its own source rather than silently emptying a report column."""
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+        settings = _settings(fake.url)
+        result = read_document(pdf_bytes, document_sha256=document_sha, data_scope="synthetic",
+                                settings=settings, client=PaddleClient(settings, environ=VAST_ENV),
+                                dpi=dpi, environ=VAST_ENV)
+    totals = result.telemetry["totals"]
+    assert set(totals) == {"pages", "inference_ms_total", "bytes_sent_total", "bytes_received_total"}
+    assert totals["pages"] == 1 and totals["bytes_sent_total"] > 0 and totals["bytes_received_total"] > 0
+    page_row = result.telemetry["pages"][0]
+    for name in ("page_index", "inference_ms", "bytes_sent", "bytes_received", "gpu_memory_used_mib"):
+        assert name in page_row, name
+    # figures only: nothing derived from the document's content is in here
+    serialized = json.dumps(result.telemetry)
+    assert page.text.split("\n")[0] not in serialized
+
+
+def test_the_pipeline_attaches_the_rung_telemetry_verbatim_and_markdown_is_byte_identical(
+    ledger_fixture, monkeypatch,
+):
+    """The one line in `ocr/pipeline.py`. `to_markdown()` is the extraction
+    input for every parser and the corpus artifacts are pinned to it, so the
+    field must not add a byte to it — the same rule O-3's flags follow.
+
+    Hermetic in this file's house style: every `PADDLE_*` name in the real
+    environment (the gitignored `.env` of a developer machine carries real
+    ones) is blanked first, then exactly this test's values are set."""
+    import os
+
+    from ocr.document import StatementMarkdown
+    from ocr.pipeline import parse_statement
+
+    page, pdf_bytes, document_sha, dpi = ledger_fixture
+    with FakeWorker(result_for=lambda idx, img: synthetic_paddle_result(page, dpi=dpi)) as fake:
+        for name in list(os.environ):
+            if name.startswith("PADDLE_"):
+                monkeypatch.setenv(name, "")
+        for name, value in dict(VAST_ENV, PADDLE_WORKER_URL=fake.url).items():
+            monkeypatch.setenv(name, value)
+        document = parse_statement(
+            pdf_bytes, source_file="synthetic.pdf", dpi=dpi, force_ocr=True,
+            allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True,
+            paddle_data_scope="synthetic",
+        )
+    assert document is not None
+    assert document.extraction_telemetry is not None
+    assert document.extraction_telemetry["totals"]["pages"] == len(document.pages)
+    bare = StatementMarkdown(
+        source_file=document.source_file, model=document.model, pages=list(document.pages),
+        page_integrity=list(document.page_integrity), page_extractor=list(document.page_extractor),
+        evidence=document.evidence,
+    )
+    assert bare.to_markdown() == document.to_markdown()
+    assert bare.extraction_telemetry is None
+
+
+def test_every_other_rung_leaves_the_telemetry_field_unset():
+    """`None` means "this read measured no request", and it must stay the
+    honest default of every rung that makes none."""
+    from ocr.document import StatementMarkdown
+
+    assert StatementMarkdown(source_file="x.pdf", model="native-pdf-text").extraction_telemetry is None
+
+
+def test_the_telemetry_field_refuses_a_wrong_shape():
+    from ocr.config import ProvenanceTokenError
+    from ocr.document import StatementMarkdown
+
+    with pytest.raises(ProvenanceTokenError, match="extraction_telemetry"):
+        StatementMarkdown(source_file="x.pdf", model="native-pdf-text",
+                          extraction_telemetry="not a dict")
+
+
+# ---------------------------------------------------------------------------
+# P23-WAVE (case 12): the worker's retention DECLARATION, read by the client.
+# ---------------------------------------------------------------------------
+
+
+def test_the_worker_declares_retention_none_on_version():
+    from ocr.paddle_client import RETENTION_NONE, retention_declaration
+    from ocr.paddle_worker import RETENTION_POLICY, version_payload
+
+    payload = version_payload({"provider": "vast.ai", "execution_class": "remote_paid"})
+    assert payload["retention"] == RETENTION_POLICY == RETENTION_NONE
+    assert retention_declaration(payload) == RETENTION_NONE
+
+
+@pytest.mark.parametrize("value", [None, "", "none-ish", "we keep nothing", True, 0, {"policy": "none"}])
+def test_a_worker_that_does_not_declare_retention_none_reads_as_undeclared(value):
+    """The shape bound is total: only the exact string passes, so a worker
+    cannot satisfy the attestation with a value that merely looks reassuring."""
+    from ocr.paddle_client import retention_declaration
+
+    payload = {} if value is None else {"retention": value}
+    assert retention_declaration(payload) is None
