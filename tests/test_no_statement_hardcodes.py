@@ -1123,6 +1123,17 @@ P22_TRUTHTABLE_MODULES = [
     Path(__file__).resolve().parent.parent / "tools" / "truth_report.py",
 ]
 
+#: P23-EGATE (Phase 2.3 cell E, card item 6): the census instrument joins the
+#: same scans — a roots APPEND only, in the two lines of precedent above. Its
+#: module, `ocr/extraction_quality.py`, needs no append at all: `_ocr_modules`
+#: already covers every file in `ocr/`, and
+#: `test_the_p23_egate_scan_roots_cover_the_module_and_the_tool` asserts that
+#: rather than assuming it — an allowlist whose members are covered by
+#: accident is one rename away from covering nothing.
+P23_EGATE_MODULES = [
+    Path(__file__).resolve().parent.parent / "tools" / "extraction_quality_census.py",
+]
+
 
 def _paddle_phase21_modules() -> list[Path]:
     """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope —
@@ -1132,6 +1143,7 @@ def _paddle_phase21_modules() -> list[Path]:
         modules.append(PADDLE_VAST_TOOL)
     modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
     modules.extend(path for path in P22_TRUTHTABLE_MODULES if path.exists())
+    modules.extend(path for path in P23_EGATE_MODULES if path.exists())
     return modules
 
 
@@ -1142,6 +1154,17 @@ def test_the_p22_truthtable_modules_are_actually_scanned():
     assert not missing, f"named in the scan roots but absent: {missing}"
     scanned = {path.name for path in _paddle_phase21_modules()}
     assert {path.name for path in P22_TRUTHTABLE_MODULES} <= scanned
+
+
+def test_the_p23_egate_scan_roots_cover_the_module_and_the_tool():
+    """Card item 6: the metrics module AND the census instrument are in the
+    OQ2 scan roots. The module is covered by the `ocr/` layer scan and the
+    tool by this card's append; both are asserted, because a named root that
+    does not exist scans nothing and passes."""
+    missing = [path.name for path in P23_EGATE_MODULES if not path.exists()]
+    assert not missing, f"named in the scan roots but absent: {missing}"
+    assert {path.name for path in P23_EGATE_MODULES} <= {p.name for p in _paddle_phase21_modules()}
+    assert "extraction_quality.py" in {path.name for path in _ocr_modules()}
 
 
 def test_no_removed_literals_in_evidence_and_paddle_vast():
