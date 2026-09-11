@@ -176,6 +176,11 @@ class Census:
         self.values: dict[str, list[float]] = {name: [] for name, _ in PAGE_METRICS}
         self.page_classes: Counter[str] = Counter()
         self.document_classes: Counter[str] = Counter()
+        #: every class each page fired, not only the one precedence reports.
+        #: OVERLAPPING by construction and never summed: a page whose boxes
+        #: do not cover its ink AND read down the sheet is two findings, and
+        #: a census that kept only the reported one would hide the second.
+        self.page_classes_any: Counter[str] = Counter()
         self.rasters_measured = 0
         self.rasters_absent = 0
 
@@ -192,6 +197,8 @@ class Census:
             else:
                 self.rasters_measured += 1
             self.page_classes[page.e_class or "(none)"] += 1
+            for name in page.classes:
+                self.page_classes_any[name] += 1
         self.document_classes[quality.e_class or "(none)"] += 1
 
 
@@ -233,7 +240,9 @@ def render(partition: str, censuses: Mapping[str, Census], *, skipped: Mapping[s
             )
         lines += ["", "metric notes: " + "; ".join(f"{name} = {note}" for name, note in PAGE_METRICS), ""]
         for title, counter, total in (
-            ("pages by E-class", census.page_classes, census.pages),
+            ("pages by E-class (the one precedence reports)", census.page_classes, census.pages),
+            ("pages by EVERY class that fired (overlapping; never summed)",
+             census.page_classes_any, census.pages),
             ("documents by worst-page E-class", census.document_classes, census.documents),
         ):
             lines += [f"{title} (of {total})", "", "| class | count | share |", "|---|---|---|"]

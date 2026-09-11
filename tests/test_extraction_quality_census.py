@@ -126,6 +126,7 @@ def test_the_census_measures_every_page_of_the_partition_per_configuration(parti
     assert len(one.values["word_count"]) == 2
     assert one.page_classes["(none)"] == 2
     assert one.document_classes["(none)"] == 2
+    assert one.page_classes_any == {}  # a clean page fires nothing at all
     # no raster was supplied: the ink metric is UNMEASURED, and counted
     assert one.rasters_absent == 2 and one.rasters_measured == 0
     assert one.values["ink_outside_boxes"] == []
@@ -178,6 +179,7 @@ def test_the_output_carries_counts_and_percentiles_and_no_document_content(parti
     assert "extraction-quality census" in text and PARTITION in text
     assert "documents 2 | pages 2" in text
     assert "| p50 |" in text and "pages by E-class" in text
+    assert "pages by EVERY class that fired (overlapping; never summed)" in text
     # and it survives a console that is not UTF-8: the tables are ASCII
     assert text.isascii()
 
