@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 
 from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame, WordBox, word_id
+from evidence.native import NATIVE_EXTRACTOR_ID
 from ocr.extraction_quality import (
     EQ_ROW_COLUMNS,
     E_CLASSES,
@@ -447,6 +448,107 @@ def test_a_raster_whose_aspect_disagrees_with_the_frame_is_refused():
 def test_a_raster_whose_pixel_count_disagrees_with_its_dimensions_is_refused():
     with pytest.raises(QualityInputError, match="pixels"):
         RasterGray(width=10, height=10, pixels=b"\xff" * 99)
+
+
+# ---------------------------------------------------------------------------
+# 4b. the row projection: extractor evidence only (M8), at the row's one exit
+# ---------------------------------------------------------------------------
+
+class _Read:
+    """A `StatementMarkdown`-shaped stand-in carrying whichever evidence the
+    case is about. The projection reads exactly three attributes."""
+
+    def __init__(self, *, evidence=None, native_evidence=None, truncated_pages=()):
+        self.evidence = evidence
+        self.native_evidence = native_evidence
+        self.truncated_pages = list(truncated_pages)
+
+
+def _bare_row():
+    from discovery.runner import DocumentRow
+
+    return DocumentRow(relative_path="F/a.pdf", folder_label="F", content_sha256="A" * 64, byte_size=1)
+
+
+def _project(document):
+    from discovery.runner import DiscoveryRunner
+
+    row = _bare_row()
+    DiscoveryRunner._project_extraction_quality(row, {"document": document})
+    return row
+
+
+def _eq_cells(row) -> dict[str, str]:
+    return {column: getattr(row, column) for column, _, _ in EQ_ROW_COLUMNS}
+
+
+def test_the_projection_fills_the_columns_from_extractor_evidence():
+    row = _project(_Read(evidence=document_of(build_ledger_page(ROWS))))
+    cells = _eq_cells(row)
+    assert cells["eq_version"] == str(EXTRACTION_QUALITY_VERSION)
+    assert cells["eq_word_count"] == str(6 + ROWS * 6)
+    assert cells["eq_money_rate"] == repr(round(0.5, 6))
+    assert cells["eq_class"] == ""
+    # the ink columns stay EMPTY without a raster, which is the production
+    # case: outside a research partition only `raster_sha256` is kept
+    assert cells["eq_ink_outside_boxes"] == ""
+    assert row.as_dict()["eq_word_count"] == cells["eq_word_count"]
+
+
+def test_the_projection_is_empty_on_a_native_only_read():
+    """M8's killer. A native read carries `native_evidence`, never
+    `evidence`: the extraction-quality question is not asked of text the
+    document already carried (an unclaimed native document is a layout
+    problem, never a Class-A extraction failure), and a projection that read
+    it would put figures on 2,500 production rows."""
+    native = ExtractionEvidence(
+        document_sha256="B" * 64, extractor_id=NATIVE_EXTRACTOR_ID, model_token=NATIVE_EXTRACTOR_ID,
+        pages=(evidence_page(build_ledger_page(ROWS)),),
+    )
+    assert _eq_cells(_project(_Read(native_evidence=native))) == {
+        column: "" for column, _, _ in EQ_ROW_COLUMNS
+    }
+    # and the second condition holds alone: native evidence attached to the
+    # EXTRACTOR field is still refused by its extractor id
+    assert _eq_cells(_project(_Read(evidence=native))) == {
+        column: "" for column, _, _ in EQ_ROW_COLUMNS
+    }
+
+
+def test_the_projection_is_empty_when_no_read_exists_at_all():
+    assert _eq_cells(_project(None)) == {column: "" for column, _, _ in EQ_ROW_COLUMNS}
+    assert _eq_cells(_project(_Read())) == {column: "" for column, _, _ in EQ_ROW_COLUMNS}
+
+
+def test_the_projection_takes_truncation_from_the_existing_page_integrity_flag():
+    document = _Read(evidence=document_of(build_ledger_page(ROWS), build_ledger_page(ROWS)),
+                     truncated_pages=[1])
+    assert _project(document).eq_class == "E5"
+
+
+def test_a_defect_in_the_metrics_leaves_the_columns_empty_and_never_fails_a_run():
+    class _Exploding:
+        @property
+        def evidence(self):
+            return self
+
+        extractor_id = "paddle-synthetic"
+        truncated_pages = ()
+
+        @property
+        def pages(self):
+            raise RuntimeError("a reporting consumer must not be able to fail a run")
+
+    assert _eq_cells(_project(_Exploding())) == {column: "" for column, _, _ in EQ_ROW_COLUMNS}
+
+
+def test_the_row_refuses_an_e_class_outside_the_closed_vocabulary():
+    row = _bare_row()
+    row.eq_class = "E9"
+    with pytest.raises(ValueError, match="eq_class"):
+        row.as_dict()
+    row.eq_class = "E2"
+    assert row.as_dict()["eq_class"] == "E2"
 
 
 # ---------------------------------------------------------------------------
