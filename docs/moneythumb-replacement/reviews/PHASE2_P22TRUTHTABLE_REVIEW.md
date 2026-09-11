@@ -514,3 +514,289 @@ both are cheap and both are named deliverables of this card. **MINOR-1**, **MINO
 and **MINOR-5** are one-line hardenings Ocean may reasonably carry to the 2.3 wave
 cell as recorded latents. **MINOR-6** and **MINOR-7** are corrections to the durable
 record: the W3's `656` and `9,799` should be fixed in place.
+
+---
+
+# Re-review (closure tip `0273626`)
+
+```
+REVIEWER    REV22-TRUTHTABLE — the same independent reviewer; wrote none of this code
+CLOSURE BASE 01ab992   (the tip this review's first half examined)
+CODE TIP     063bfff   tree 3f26a6870ee93100cf9db1f55c51ff08a6e577ab
+CLOSURE TIP  0273626   tree 6c77b5d78cec3f023e9da4b56dba9bef2edcfc82; 2 commits; 13 files, +682 / -50
+CELL BASE    b7af37b
+WORKTREE     .claude/worktrees/rev22-truthtable  (moved with `git checkout --detach 0273626`)
+LOCK         acquired 21:06:05 -> released 21:39:31 (2026-09-10); Git bash `rmdir` on release
+             (python `os.rmdir` refused, WinError 5); confirmed GONE
+LOGS         discovery_reports/train12-logs/rev22-truthtable/  (rev22-closure-*.log, each ending EXIT=)
+VERDICT      APPROVE WITH FINDINGS  (1 new MINOR; 0 BLOCK; 0 MAJOR; all 7 original MINORs CLOSED)
+```
+
+## Verdict
+
+**APPROVE WITH FINDINGS.** All seven MINORs and both of my mutants (N4, N9) are
+closed, each with a mechanism I reproduced myself and a mutant that kills it.
+The load-bearing claim of this closure — that the reduced replay suffices — I
+verified **by AST rather than by reading**, and it holds. I raise **one new
+MINOR** (the taxonomy vocabulary grew a member without its own documented
+version bump), which is arguable in the cell's favour and which I report with
+both readings so Ocean can rule. Nothing else I attacked moved.
+
+## The closure-scope ground — checked line by line, by AST
+
+This is the claim that would have made the reduced replay insufficient, so I did
+not take the cell's grep for it. I extracted each named function's exact source
+segment at `01ab992` and at `0273626` and compared bytes
+(`<scratchpad>/probe_closure_scope.py`):
+
+```
+A. discovery/runner.py — the named functions, byte-compared
+  DiscoveryRunner.__init__                IDENTICAL     DiscoveryRunner._read        IDENTICAL
+  DiscoveryRunner._analyse                IDENTICAL     DiscoveryRunner._read_paddle IDENTICAL
+  DiscoveryRunner._geometry_for           IDENTICAL     DiscoveryRunner._emit        IDENTICAL
+  DiscoveryRunner._project_classification IDENTICAL     DiscoveryRunner.process      IDENTICAL
+  DiscoveryRunner._project_taxonomy       IDENTICAL     classify_failure             IDENTICAL
+  DiscoveryRunner._upgrade_eligible       IDENTICAL     DiscoveryRunner._finish      IDENTICAL
+  DiscoveryRunner._project_funnel         *** CHANGED ***   <- the only one
+B. every analyze_document / cached_analysis CALL SITE, repo-wide, byte-compared
+  discovery/runner.py: IDENTICAL (4 -> 4 sites)
+C. module-level constants the analysis path reads
+  LOCAL_OCR_MODES · RESEARCH_PARTITION_PATTERN · RESEARCH_TRIGGERS ·
+  STAGE_VOCABULARY · _PADDLE_RUNG_VOCABULARY          all IDENTICAL
+D. telemetry.unresolved_taxonomy imported by analysis/ ocr/ layout/ evidence/ : NOT imported
+```
+
+The one changed function, `_project_funnel`, runs at `_finish` and writes only
+`row.stage_*` columns — row facts, never payload. `telemetry/unresolved_taxonomy.py`
+and `telemetry/report.py` are consumed by the row projection and the rollup
+renderer respectively, neither on the analysis path. **The ground holds; the
+reduced replay is sufficient.** I re-ran chunk 01 anyway and it is identical.
+
+## Per finding: reproduced → status
+
+| # | my verification command | output | status |
+|---|---|---|---|
+| **MINOR-1** | `refuse_production_data_dir` over 16 shapes incl. my three survivors | `webapp_data/research`, `webapp_data/ocr/partition_x`, `D:/…/webapp_data_train9_cold/sub` all now **refused** ("is inside a production or historical cache"); `webapp_data`, cold caches, `./`, `..` still refused | **CLOSED** |
+| | Ocean's fresh shapes: case, separator, `..` hop, drive-letter case, UNC, extended-length, **junction** | every one refused; the junction is followed by `resolve()` to `…/webapp_data/research` and refused there | **CLOSED** |
+| | the controls that must still pass | `research_data_2031`, `webapp_data_research`, `my_webapp_data/x` all **ACCEPTED** — no over-refusal | ok |
+| **MINOR-2** | a record built with `refused='not_a_statement'`, then `render(summarize([r]))` | `summary[outcome] {'refused': 1}`; rendered block now `['outcome', '  refused   1   100.0%', 'reason']`; the word appears: **True** | **CLOSED** |
+| **MINOR-3** | a runner with the sha held out and **outside** the population, `_read`/`_read_paddle` raising | `('deferred', 'research_refused_holdout', 'not_attempted')` — the cage, not the omission | **CLOSED** |
+| | the sha in **both** sets / in neither | `research_refused_holdout` / `research_skipped_not_in_population` — both directions witnessed | **CLOSED** |
+| | Ocean's population-file shapes: sha twice · trailing `# comment` · mixed case · `#`-only lines and blanks | each normalises to **1 sha**, membership intact | ok |
+| | a malformed line among good ones · empty after comments | both **REFUSE the whole file** | ok |
+| | the CLI door on an intersecting population | exit 2; message carries the **count**, names no sha | ok |
+| **MINOR-4** | every non-validated class (incl. `unknown` and `a_class_nobody_declared`) × every `None`-mapped reason | NULLED primary: **`[]`**; words used `[('l4','undiagnosed'), ('l6','unknown')]` | **CLOSED** |
+| | is the word the layer's own, not the drift bucket? | `'unknown' in L6_CODES` True, in `VOCABULARY['l6']` True, `!= 'unmapped'` True | **CLOSED** |
+| | does a validated row still carry no diagnosis? | `('', '', '')` — the one deliberate exception survives | ok |
+| **MINOR-5** | `_project_funnel` over each `NO_READ_ATTEMPTED_REASONS` member and over trigger R | `profile_only`/`invalid_pdf`/`encrypted`/`research_*`/`not_processed` → **`not_attempted`**; `deferred_visual_ocr` → **`none`**; a native read → `native` | **CLOSED** |
+| | measurement re-run on the run of record | `native 3,172 · local_tesseract 179 · not_attempted 16 · none 13` (16+13 = the old 29) | **CLOSED** |
+| **MINOR-6** | `peak_rss_mb()` with psutil absent / a working stub / a **raising** stub | `'not measured'` / `'123.0'` (float > 0) / `'not measured'` — all three arms | **CLOSED** |
+| | the requirements note | the untrue "both branches are tested" replaced by what is true; the column declared narrower than its name in three places | **CLOSED** |
+| **MINOR-7** | `tools/truth_report.py --rows x --digest y` | `SystemExit(2)`, "unrecognized arguments: --digest"; the docstring line is gone | **CLOSED** |
+| | the two W3 numbers | corrected in the APPENDED section, which names 223/537/656 and 9,799→9,804→9,817 explicitly | **CLOSED** (see the observation below) |
+| **N4** | adopted into the committed harness | `N4: KILLED — test_a_holdout_sha_OUTSIDE_the_population_is_refused_as_a_holdout_not_skipped` | **CLOSED** |
+| **N9** | adopted into the committed harness | `N9: KILLED — test_no_module_spells_the_research_trigger_as_a_string_constant, test_no_other_mode_can_supply_the_research_trigger` — both the new static pin and the behavioural one | **CLOSED** |
+| **caveat 13** | the measurement's funnel | now loads a real `DocumentRow` and calls `DiscoveryRunner._project_funnel` — one implementation | **CLOSED** |
+
+## New finding
+
+### MINOR-8 — a layer's vocabulary grew and `UNRESOLVED_TAXONOMY_VERSION` did not move
+
+`L6_CODES` gained the member `"unknown"` at this closure. The constant's own
+comment, written by this cell, says:
+
+```
+#: v1 — P22-TRUTHTABLE, as shipped. Bumped whenever a layer's vocabulary or
+#: the precedence changes, for the reason `DIAGNOSTICS_VERSION` is bumped.
+UNRESOLVED_TAXONOMY_VERSION = 1
+```
+
+It is still `1`, and `tests/test_unresolved_taxonomy.py:91` still pins `== 1`.
+
+```
+$ git show 01ab992:telemetry/unresolved_taxonomy.py | grep -A4 '^L6_CODES'
+    "not_attempted_by_run", "platform_exception", "platform_defect",
+$ git show 0273626:telemetry/unresolved_taxonomy.py | grep -A5 '^L6_CODES'
+    "not_attempted_by_run", "platform_exception", "platform_defect", "unknown",
+$ grep -n 'UNRESOLVED_TAXONOMY_VERSION = ' telemetry/unresolved_taxonomy.py
+104:UNRESOLVED_TAXONOMY_VERSION = 1
+```
+
+**Both readings, stated fairly.** *Against the cell:* this is the same discipline
+it applied to `DIAGNOSTICS_VERSION` in its own item 8, where it bumped v4→v5 on a
+**strictly weaker** trigger — no code added, removed or re-classed, only the set a
+live analysis can still produce. Adding a code is the stronger trigger, and
+`discovery/report.py` prints a "WARNING mixed unresolved-taxonomy versions" line
+whose entire purpose is to catch a comparison across a vocabulary change; it
+would stay silent across this one. *For the cell:* the original work and this
+closure are **one unmerged delivery**. v1 has never been written to any artifact —
+I verified the run of record's `rows.csv` has no `unresolved_taxonomy_version`
+column at all, and no run anywhere carries one — so there is no v1 corpus to
+mis-compare against, and "v1 = the vocabulary as delivered" is a coherent reading
+that the `DIAGNOSTICS_VERSION` case could not use, because v4 had shipped.
+
+```
+$ head -1 <run of record>/rows.csv | tr ',' '\n' | grep -c unresolved_taxonomy_version
+0
+$ grep -rl unresolved_taxonomy_version discovery_reports/*/*/rows.csv | wc -l
+0
+```
+
+Population **0**, so nothing is mis-measured today either way. My ask is not that
+Ocean pick my reading — it is that **whichever reading is taken be RECORDED in the
+constant's comment**, because a future cell reading "Bumped whenever a layer's
+vocabulary changes" next to a closure that changed a layer's vocabulary without
+bumping will draw the wrong conclusion about how strong that rule is. Two tokens
+either way.
+
+## Mutation table — my independent re-run at the closure tip
+
+`python tools/p22truthtable_mutation_table.py` in **my** worktree: **23/23 KILLED,
+unkilled none, tree clean after every mutant** (exit 0,
+`rev22-closure-mutation.log`). M1–M17 and M2 reproduce their earlier killers
+exactly. The six rows that are new or changed:
+
+| # | mutant | killer I observed | vs the cell |
+|---|---|---|---|
+| N4 | the two research doors swapped | `test_a_holdout_sha_OUTSIDE_the_population_is_refused_as_a_holdout_not_skipped` (3 failing) | agree — **survived at `01ab992`, dies here** |
+| N9 | the trigger as a string literal at a second runner site | `test_no_module_spells_the_research_trigger_as_a_string_constant` **and** `test_no_other_mode_can_supply_the_research_trigger` (2) | agree — static **and** behavioural |
+| M13 | the `--data-dir` name rule disabled | `test_a_production_data_dir_is_refused` (8 failing, was 2) | agree — the re-target reaches the new containment tests |
+| M18 | the parents walk removed | `test_a_directory_inside_a_production_cache_is_refused` (6) | agree |
+| M19 | the `refused` render token removed | `test_the_telemetry_rollup_renders_the_refused_class` (1) | agree |
+| M20 | the L6 closing branch removed | `test_an_unresolved_row_always_has_a_primary_layer_never_a_nulled_one` (1) | agree |
+| M21 | the never-read distinction collapsed | `test_the_extraction_stage_tells_never_read_apart_from_read_and_empty` (1) | agree |
+
+*Operational note:* the harness refuses to start on a dirty tree and counts
+**untracked** files, so my own untracked review file blocked it. I copied the file
+to my scratchpad, ran the harness on a clean tree, and restored it byte-for-byte
+(32,629 bytes). The check is correctly conservative; Ocean may want to know that a
+reviewer running it needs that step.
+
+## My fresh shapes against the closure's own rules
+
+| shape | result |
+|---|---|
+| a real NTFS **junction** whose innocuous name points into `webapp_data/research` | **refused** — `resolve()` follows it before the name rules run, so the containment is on the real path, not the spelling |
+| UNC (`//server/share/webapp_data_train9_cold/sub`) and extended-length (`//?/D:/…`) | **refused** |
+| drive-letter case (`d:/…/WEBAPP_DATA_TRAIN9_COLD/sub`), separator, `..` hops | **refused** |
+| near-miss controls (`webapp_data_research`, `my_webapp_data/x`) | **accepted** — the segment rule is `fullmatch`, so it does not over-refuse |
+| a row with a class name nobody declared (`a_class_nobody_declared`) | carries `('l6','unknown')` — the closing branch is not keyed to the known classes |
+| population file: the sha twice · with a `# comment` · mixed case · blanks | all normalise to one sha; a malformed line refuses the whole file; empty refuses |
+| **N9 by CONCATENATION** (`"operator" + "_forced_paddle"`) | static constant-pin **MISSES**, name-pin misses, text-scan misses |
+| **N9 by f-string** / **by `str.join`** | static pins **MISS** |
+| **N9 by `getattr(e, 'OPERATOR_FORCED_PADDLE')`** | constant-pin misses; the tree-wide **text scan CATCHES** it |
+
+The last three are the honest residual limit of a static pin, and the cell did not
+overclaim: its stated rule is "no string **constant** of the trigger", which is
+exactly what it enforces, and `RESEARCH_TRIGGERS` is verified to be built from an
+`ast.Name` (`Name(id='OPERATOR_FORCED_PADDLE')`). Every one of these shapes still
+dies behaviourally on `test_no_other_mode_can_supply_the_research_trigger`, which
+now runs 5 modes × 2 offline states and therefore reaches both the recovery and the
+upgrade paths — the hole that let M11 survive once is closed. **Not a finding; a
+named limit.** Likewise `test_the_no_read_vocabulary_names_only_reasons_the_tree_can_emit`
+is one-directional (it catches a member no emitter produces, not a new no-read
+reason left out of the tuple); the other direction is not mechanically derivable
+from a reason literal, so one direction is the right call.
+
+## Ownership, the W3 append, trailers
+
+```
+$ git diff --name-only 01ab992...0273626      # 13 files
+discovery/runner.py · requirements-local.txt · telemetry/report.py ·
+telemetry/unresolved_taxonomy.py · tools/truth_report.py ·
+tools/p22truthtable_{measure,mutation_table}.py · docs/…/W3_TRACKA_LOG.md ·
+tests/test_{escalation_tripwires,refused_outcome,research_mode,two_denominators,unresolved_taxonomy}.py
+```
+
+Every one is on the card's ownership list or is a committed instrument; **none of
+the four ratified deviation files needed touching again**, and nothing under
+`layout/`, `evidence/`, `webapp/**`, `analysis/**` or `telemetry/run_of_record.py`
+moved. The W3 change is a **pure append** — 199 insertions, **0 deletions**, and
+`tip[:closure heading] == base` byte for byte, so the earlier `§P22TRUTHTABLE`
+section is untouched. Both commits carry `Co-Authored-By: Claude Fable 5.1` and a
+`Claude-Session:` line.
+
+*Observation, not a finding:* because the log is append-only, the original section
+still reads `656` and `9,799` and the correction lives 300 lines below it. That is
+the right handling of an append-only record, and the closure says so explicitly —
+but a reader of the earlier section alone gets the wrong figures. I would have the
+`BATCH9_TRANSITION` §7 composition entry carry the corrected numbers so the
+composed record points at the correction rather than at the error.
+
+## Heavy proofs — mine versus the cell's
+
+| step | mine | the cell's | EXIT |
+|---|---|---|---|
+| mutation table M1–M17 + N4 + N9 + M18–M21 | **23/23 killed, unkilled none, tree clean** | 23/23 | 0 |
+| canonical guards (5 files) | **276 passed** | 276 | 0 |
+| full default suite | **9,817 passed / 48 skipped / 39 deselected / 0 failed** (489s) | 9,817 / 48 / 39 / 0 | 0 |
+| replay chunk 01 (`--parser chase`, `--expect-identical`) | **504 pop · 0 newly validated · 504 of 504 preserved · 504 payload identical · 0 changed · 0 regressions** | identical | 0 |
+| measurement re-run | see below | identical | 0 |
+| branch privacy scan `b7af37b..0273626` | **hit 0 / residue 0** over **5,927** added lines | hit 0 / residue 0 over 5,927 | 0 |
+| commit-message scan `b7af37b..0273626` | **MONEY 0 / DIGITS 0 / DATES 0 / WORDS 6**, 14 commits | same 6 | 1 (WORDS) |
+| `corpus_gate.py` | not re-run — no finding needs it; the closure's only non-test code change outside the research door is a row projection, and the AST scope check plus the green suite cover it | GREEN 105/3/1 | — |
+| full union replay | not re-run — the scope ground is verified above | not re-run (same ground) | — |
+
+**The two new WORDS hits, attributed.** `OCCUPANCY` ← `0273626`, "a primary-reason
+count, a layer **occupancy**, and a …" (the very correction this review asked for);
+`REQUIREMENTS FILE` ← `063bfff`, "is on no **requirements file** CI reads". Both
+ordinary English in the cell's own prose, neither a document token; the original
+four stand as attributed in the first half of this review.
+
+## The measurement, re-derived — and what moved
+
+I re-ran `tools/p22truthtable_measure.py` at the closure tip against my own census
+CSV and **diffed it against my `01ab992` measurement**. The entire difference is
+one line becoming two:
+
+```
+$ diff <my 01ab992 measurement> <my 0273626 measurement>
+98c98,99
+< | none | 29 |
+---
+> | not_attempted | 16 |
+> | none | 13 |
+```
+
+Everything else is byte-identical: `3,380 == 3,380 OK` · `755 == 755 OK` · primary
+layer `l1 415 · l3 223 · l5 65 · l4 35 · l0 16 · l2 1` · layers present `l3 537 ·
+l1 415 · l5 126 · l4 70 · l0 16 · l2 15` · `R 13 · U 123 · A 0 / B 656 / C 70 ·
+truncation 4 · refused 0` · 431 exceptions (364 / 66 / 1). Note **`l6 UNKNOWN`
+does not appear in the primary-layer table at all** — zero documents landed on the
+new code, which is what the cell's own risk note says should be true and is the
+strongest evidence that MINOR-4's fix closed a hole rather than opened a bucket.
+
+## Properties I attacked at the closure and could not break
+
+The analysis call and the outcome classifier byte-identical across the closure
+(AST, not grep) · all four `analyze_document`/`cached_analysis` call sites
+unchanged · chunk 01 payload identity · the containment walk against junctions,
+UNC, extended-length, drive-letter case, separators and `..`, with no over-refusal
+on near-miss names · the ruled holdout-before-population order in both directions ·
+the population reader against duplicates, comments, mixed case, malformed lines and
+emptiness · the CLI door printing a count and never an identity · every
+non-validated (class, reason) pair carrying a primary layer, including an undeclared
+class · a validated row still carrying no diagnosis · the never-read/read-and-empty
+split across all six reasons with trigger R correctly left at `none` · all three
+`psutil` arms including present-but-raising · `RESEARCH_TRIGGERS` built from an
+`ast.Name` · the W3 append's purity · the untouched state of the four ratified
+deviation files and of every forbidden tree.
+
+## My re-review instruments (scratchpad)
+
+```
+<scratchpad>/probe_closure_scope.py   the AST scope check (functions, call sites, constants, imports)
+<scratchpad>/probe_rereview.py        MINOR-1/2/4/5/6/7 reproduced, incl. the junction and 16 path shapes
+<scratchpad>/probe_rereview2.py       MINOR-3 both directions + Ocean's population shapes; N9 by concat/f-string/join/getattr
+<scratchpad>/REVIEW_SAFEKEEPING.md    this file, held while the harness required a clean tree
+discovery_reports/train12-logs/rev22-truthtable/rev22-closure-*.log   all re-review logs, each ending EXIT=
+```
+
+## Recommendation
+
+**Compose.** All seven MINORs and both of my mutants are closed with mechanisms I
+reproduced and mutants that kill them; the reduced-replay ground is sound; the
+measurement moved in exactly the one place it should have and nowhere else.
+MINOR-8 is a two-token record question with zero population — it does not gate
+composition, and Ocean may rule either way so long as the ruling lands in the
+constant's comment.
