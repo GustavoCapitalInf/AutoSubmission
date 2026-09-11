@@ -73964,3 +73964,203 @@ with 0 residue over the same population.
   X's card carries the same sentence, so both cells append to that list; the two
   blocks are disjoint and append-only, which is the composition Ocean is owed
   notice of.
+# §P23EGATE-2 — the resumed cell: three red exits closed (a suite failure already fixed, a mutation row that measured the wrong thing, four commit-message collisions reworded on Ocean's ruling), every sha remapped, and the one thing still owed named as owed
+
+**What this section is.** The cell that wrote `§P23EGATE` was terminated by the
+monthly spend limit on 2026-09-11 at about 12:10 local, with three proofs red in
+its own logs and the section written — as it says — "honestly about what is still
+queued". This section is the resumed cell's, and it records only what was
+completed after that point. **The first section is not edited**: it is appended
+to by a script that asserts, byte for byte, that every byte before the append is
+unchanged and that `§P23EGATE` in particular has not moved. Where this section
+supersedes a claim there, it says so in those words.
+
+`newly validated 0` · `ladder movement 0` · `regressions 0` · nothing left this
+machine, no page reached Paddle, no metric was given a consequence, and the one
+reader of customer text anywhere in this work is the privacy scanner itself,
+which reads the cold cache in process and prints counts.
+
+## The three red exits, and what each one actually was
+
+| log | exit as it stood | what it was | what closed it |
+|---|---|---|---|
+| `p23egate-suite.log` | 1 | ONE failing test — this cell's own reader census, which the floor caught naming two instruments this cell had committed after the census was written | already fixed, before the termination, at the commit now `c8524ae`; the failing run PREDATES that fix |
+| `p23egate-mutants.log` | 2 | M10 planted an import of a name that does not exist, so the file errored at collection and the guard never ran; M6's row ran the whole SUITE its killer lives in and so reported that file's health rather than its own mutant | M10 at `c8524ae`; M6's row at `d232520`, which runs the killer NODE and counts what passed |
+| `p23egate-msgscan.log` | 1 | four WORDS-class collisions between this cell's explanatory prose and the run of record's cached document text | reworded at Ocean's ruling; the four sentences and the sha remap are below |
+
+**The suite failure was not a live failure, and one clock is all it takes to
+see that.** The suite ran at `2026-09-11T10:13:52Z`; the fix landed at
+`2026-09-11T11:50:22Z`, an hour and a half later. Read in TWO clocks — the logs
+stamp UTC, `git log` prints local — the fix appears to come first, at `07:50`,
+and the red exit reads as a standing failure of the tip. It is worth stating
+because a resumed cell's first instinct is to debug what is already fixed. The
+re-run at the resumed tip is below: nothing was re-fixed, a proof was re-run
+because the tree had moved under it.
+
+### M6's row now measures M6
+
+An in-process mutant is proven by a test that plants it in a scratch copy, so
+there is no tree edit to make a suite go red — the harness instead called the
+mutant KILLED when the suite the killer lives in was green. That made the row a
+report on every test beside it: M6 read NOT KILLED because the reader census two
+screens away was red, while the guard M6 exists to prove was working perfectly
+and had in fact just caught two real namers. The row now runs the killer node
+ids and nothing else, and counts what passed — an exit code alone cannot tell a
+green run from a run that selected nothing, and a mutation row that reads KILLED
+because no test ran is the worst row in a table. A renamed killer exits
+non-zero; a deselected one passes nothing; either reads NOT KILLED. No mutant,
+no killer and no threshold changed: this changes how one row is MEASURED, not
+what any row claims.
+
+### The four commit-message collisions, reworded
+
+**This supersedes** the first section's paragraph "Recorded rather than
+reworded: rewriting a published commit message is a worse trade than naming the
+collision", and the adjudication table under it. Ocean ruled the other way on
+the resume: reword by `git filter-branch --msg-filter`, trees byte-identical,
+and remap the shas in the records. That table therefore quotes three messages as
+they WERE and no longer as they are; the four sentences now read:
+
+| token class | the sentence now |
+|---|---|
+| WORDS | "A tidiness fix, not a behaviour change: the lexicon-vocabulary test ..." |
+| WORDS | "... a second metric moving on a defect page surfaces in the same block as a number out of line with the control's" |
+| WORDS | "... where a metric needs pixels, the grey raster its caller has already decoded" |
+| WORDS | "... and the orientation votes implied by the words' own boxes" |
+
+Each is an EXACT string replacement — the filter refuses a message where its
+target appears more than once rather than guessing which occurrence was meant —
+and the filter reads and writes BYTES: text mode on this host translated every
+`\n` it wrote into `\r\n` on the first attempt, which rewrote the line endings of
+all fourteen messages instead of the three sentences the ruling was about. That
+rewrite was rolled back to its backup ref and redone; the check below is what
+found it and is the reason it is worth stating.
+
+**Every tree is byte-identical and every subject is unchanged**: the fourteen
+commits before and after the rewrite carry the same fourteen tree objects in the
+same order, the same fourteen subject lines, and exactly three changed bodies.
+The working tree was clean before the rewrite and after it.
+
+| the sha in the first section | the sha now | body |
+|---|---|---|
+| `e8b142d` | `1fb8cf3` | reworded — two sentences |
+| `d72d27d` | `c11b663` | unchanged |
+| `55fbc51` | `419d053` | unchanged |
+| `ccac230` | `6e33033` | unchanged |
+| `520ad74` | `2325164` | unchanged |
+| `37e6e75` | `52e1d04` | reworded — one sentence |
+| `57bdca3` | `e5daa15` | unchanged |
+| `463333b` | `ab185b1` | reworded — one sentence |
+| `9ef2774` | `9e70411` | unchanged |
+| `11d8aa4` | `f89d66f` | unchanged |
+| `561edf9` | `342c7d9` | unchanged |
+| `4145efd` | `c8524ae` | unchanged |
+| `c83502e` | `0aafc16` | unchanged |
+| `4a26892` | `d232520` | unchanged (committed after the first section: the M6 row) |
+
+The first section's commit table, its mutation table header and its proof table
+name the OLD shas of this branch. They are the left column above. Nothing else
+about them changed.
+
+### A fifth collision, which only a scan at the true tip could find
+
+The message scan that reported four hits ran at a tip four commits back, so the
+commit that fixed the reader census had never been scanned at all. The scan
+over the whole branch found one more WORDS collision inside it — an ordinary
+English pair in a sentence about allowlists — reworded the same way: one exact
+string, bytes in and bytes out, the filter refusing rather than guessing. That
+second rewrite moved the last four commits and nothing before them, which is
+why three rows of the table above carry spellings that themselves replaced
+earlier ones (`e56ca3c`, `9ac7dcf`, `dff4223` — the table shows what they are
+now). The cheap lesson for the next cell: a scan that ran at anything but the
+tip has not scanned the branch.
+
+## One privacy-scan hit this cell cannot close, put to Ocean
+
+The final scan of ADDED LINES over the whole branch returns exactly **one**
+hit, and it is in the FIRST section: a DIGITS token inside the
+`ink_outside_boxes` row of the fake-worker census table — the cell holding that
+row's median. The scan is right that those digits are printed somewhere in the
+run of record's population. It is also true that the figure was MEASURED over
+seven synthetic documents built by a committed instrument out of literal
+strings, and that anyone can re-derive it from the committed fixtures without
+reading a document at all. Nothing from a customer page is in that table: a
+six-figure decimal and some document's digit run have the same digits in them.
+
+**This cell cannot close it.** There are three ways to close such a hit and
+this cell owns none of them. Editing the committed first section is what the
+resume forbade in those words. Adding an exclusion rule to
+`tools/privacy_scan_branch.py` is a standing change to the program's sharpest
+instrument and that file is not this cell's. Ruling the collision adjudicated
+and recorded is what the WORDS collisions had until this same resume reversed
+it. The recommendation is the third, with a fourth behind it if a rule is
+wanted later: the honest shape of such a rule is "a DIGITS token inside a
+figure that a committed instrument re-derives from committed fixtures", which
+a reviewer checks by RE-RUNNING the instrument rather than by believing the
+sentence — and it is a card, not a patch.
+
+Every other counter of that scan is clean: no MONEY, no DATES, and no WORDS
+token survives its standing class rule. The exact counts, measured over the
+commit that carries this paragraph, are in the closure message.
+
+## What was re-run, what was not, and why
+
+A proof is re-run when the tree it measured has moved under it, and not
+otherwise.
+
+| proof | re-run | why |
+|---|---|---|
+| the mutation table | YES | M10's mutant and M6's row both changed after the first run |
+| the full default suite | YES | its one failure was fixed after the run |
+| the privacy scan of added lines | YES | the first W3 section's 446 added lines were committed AFTER the scan that reported on this branch, and had never been scanned |
+| the commit-message scan | YES | it is the thing the rewording is for |
+| the union replay, base and closure | **no** | the runner projection they prove has not moved: `git diff <the closure replay's tree> HEAD -- . ':!tests' ':!tools' ':!docs'` is EMPTY, so not one byte of `ocr/`, `discovery/`, `evidence/` or `layout/` changed after they ran |
+| the 5 canonical guards, the 7 conformance files, `corpus_gate.py`, `pytest -m corpus` | **no** | each has an `EXIT=0` log, and every commit since touches `tests/`, `tools/` and `docs/` only — and the full-suite re-run above re-executes the guard and conformance files in any case |
+
+## Proofs at the resumed tip
+
+| proof | result | exit |
+|---|---|---|
+| mutation table (M1–M10 and the two named extras), re-run at `d232520` | **12 of 12 KILLED**, unkilled none, the tree asserted clean after every restore | **0** |
+| full default suite, re-run at `d232520` | **9,890 passed** / 48 skipped / 39 deselected (12m 19s) | **0** |
+
+Both are the same instruments, the same mutants and the same killers as the
+first run. The two rows that read NOT KILLED then read KILLED now for the two
+reasons above, and no other row moved: ten killed then, twelve killed now.
+
+The final privacy and message scans run over the tip that carries THIS section
+and are reported to Ocean in the closure message — a section cannot carry a
+number measured over its own commit, which is the reason the first section gave
+for the same thing.
+
+**One operational finding, recorded because it nearly became a proof.** At the
+resume, four lock waiters of this cell were still alive from before the
+termination, two of them queued DRIVERS — the same mutation table and the same
+full suite, twice, from two scripts that would both have acquired the lock the
+moment it freed (the helper returns success to a second waiter that finds the
+lock already held by its own name) and run concurrently on a memory-tight host,
+writing the same log files, at a tip that predates these fixes. They were
+terminated before anything else was started. A lock that is correct against
+other cells can still be wrong against a second copy of yourself.
+
+## Still owed, and owed is the right word
+
+**The census over cell W's real `paddle-v5-prod` partition has still not run,
+and cannot yet.** At this cell's closure the partition holds one bookkeeping
+file and not one evidence artifact: cell W's live control run was refused before
+it read anything, with `lifecycle.check reached=False versions_match_pins=False`
+— the approved instance did not answer — and its attestation failed remote
+inspection. No customer page has been read by Paddle by anyone. The instrument
+is finished and proven on a partition of the same shape written by the same code
+path, and the run remains one read-only command whenever Ocean says the
+partition is there. Two details for whoever runs it: the directory on disk
+carries the PRE-ruling partition id (`research-paddle-v5-prod`), and the ruled
+id is `paddle-v5-prod`; and the census reports per configuration, so a wave that
+ran more than one configuration produces more than one table and the rec-score
+columns of two tables are not the same measurement.
+
+Everything else in the first section stands as written: the metrics, the
+thresholds and their version, the thirteen columns and their folds, the three
+admission pins, the synthetic defect table, the fake-worker census, and the
+risks — of which the first is still the one that matters, that none of this says
+whether the words are RIGHT.
