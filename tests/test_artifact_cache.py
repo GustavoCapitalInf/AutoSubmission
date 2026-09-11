@@ -1760,6 +1760,24 @@ def test_reconstruction_mode_partitions_the_analysis_settings_key():
         analysis_settings_key(parse_mode="deterministic", analysis_settings=off)
 
 
+
+def test_hosted_extraction_opt_in_partitions_the_analysis_settings_key(monkeypatch):
+    """P22-FENCE review F3 (Ocean's composition item): a payload produced
+    with the hosted-extraction opt-in literal in the environment must not be
+    served to a process without it. The key reads the fence's own predicate
+    (`analysis.pipeline.hosted_extraction_opted_in`), so the two cannot
+    disagree about what "opted in" means."""
+    from analysis.pipeline import HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL
+
+    monkeypatch.delenv(HOSTED_EXTRACTION_OPT_IN_ENV, raising=False)
+    without = analysis_settings_key(analysis_settings=_AnalysisSettings())
+    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL)
+    with_literal = analysis_settings_key(analysis_settings=_AnalysisSettings())
+    assert with_literal != without
+    # Any other value is NOT the opt-in: same key as absent (the fence's rule).
+    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, "yes")
+    assert analysis_settings_key(analysis_settings=_AnalysisSettings()) == without
+
 def test_the_retired_environment_variable_does_not_touch_the_analysis_key(monkeypatch):
     """M10 at the key: `GENERIC_STRUCTURER_ENABLED` is inert."""
     monkeypatch.delenv("RECONSTRUCTION_MODE", raising=False)

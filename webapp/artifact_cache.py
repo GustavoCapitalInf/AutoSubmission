@@ -1029,6 +1029,13 @@ def analysis_settings_key(
     "enabled" means, and reading the mode here and the flag there from two
     different sources would let the key and the rung disagree. The retired
     ``GENERIC_STRUCTURER_ENABLED`` variable is not consulted at all.
+
+    ``hosted_extraction_opt_in`` (P22-FENCE review F3, Ocean's composition
+    item) is the fence's own predicate ``hosted_extraction_opted_in()`` read
+    from the process environment: an auto-mode payload produced under the
+    opt-in literal must never be served later to a process without it (a
+    cache hit is not a call, but it is the same payload). The boolean is
+    derived by the fence, never recomposed here.
     """
     if analysis_settings is None:
         from analysis.config import load_settings as _load_analysis_settings
@@ -1037,6 +1044,7 @@ def analysis_settings_key(
     # Function-local, like ``analysis.config``: importing this module must stay
     # cheap, and the structurer package is only needed when a key is derived.
     from analysis.structurer import structurer_enabled
+    from analysis.pipeline import hosted_extraction_opted_in
     return _fingerprint(
         {
             "stage_version": ANALYSIS_STAGE_VERSION,
@@ -1049,6 +1057,7 @@ def analysis_settings_key(
             "parser_registry": registry_fingerprint(),
             "reconstruction_mode": str(getattr(analysis_settings, "reconstruction_mode", "off")),
             "generic_structurer": bool(structurer_enabled(analysis_settings)),
+            "hosted_extraction_opt_in": bool(hosted_extraction_opted_in()),
         }
     )
 
