@@ -313,7 +313,15 @@ def test_the_default_webapp_data_dir_is_refused_by_identity(monkeypatch, tmp_pat
     # plus one variant per axis the resolution has to normalise away, so the
     # rule cannot be evaded by spelling: case, separator, and a relative hop.
     "WEBAPP_DATA/research",
-    "webapp_data\\ocr\\partition_x",
+    # A backslash is a path separator on Windows ONLY; on a POSIX host (CI's
+    # Linux runner) `webapp_data\ocr\partition_x` is one directory whose NAME
+    # contains backslashes, sits inside no cache, and is rightly accepted —
+    # the Phase 2.2 closure's one red CI test. The separator axis is therefore
+    # pinned where separators are normalised, and skipped where they are not.
+    pytest.param(
+        "webapp_data\\ocr\\partition_x",
+        marks=pytest.mark.skipif(os.name != "nt", reason="a backslash is a separator only on Windows"),
+    ),
     "webapp_data/ocr/../artifacts/deeper",
 ])
 def test_a_directory_inside_a_production_cache_is_refused(monkeypatch, tmp_path, inside):
