@@ -1,5 +1,6 @@
-"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M10),
-applied as real textual edits and run for real.
+"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M14 plus
+the review's own FR1 / FR3 / FR4), applied as real textual edits and run for
+real.
 
     python tools/agree_mutation_table.py [--only M3 M8] [--out <private>.md]
 
@@ -80,10 +81,10 @@ MUTANTS: list[Mutant] = [
         ["test_alignment_is_greedy_and_uses_every_box_once"],
     ),
     Mutant(
-        "M3", "a pixel frame is not scaled by 72 / dpi",
+        "M3", "a pixel frame is not scaled into points at all",
         AGREEMENT,
-        "        return POINTS_PER_INCH / float(frame.dpi)",
-        "        return 1.0",
+        "    if frame.space != PIXEL:\n        return 1.0, 1.0\n",
+        "    if True:\n        return 1.0, 1.0\n",
         [T_AGREE],
         ["test_identical_words_at_300_dpi_agree_completely",
          "test_the_real_native_reader_agrees_with_the_fake_workers_evidence"],
@@ -133,7 +134,7 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "M9", "N-2: an indirect /Rotate is treated as absent",
         NATIVE,
-        "        if kind == \"xref\":\n            return _resolved_rotate_int(document, value)\n",
+        "        if kind == \"xref\":\n            return _indirect_rotate(document, page, value)\n",
         "        if kind == \"xref\":\n            return None\n",
         [T_NATIVE],
         ["test_an_indirect_invalid_rotate_is_resolved_and_refused_by_name",
@@ -147,6 +148,78 @@ MUTANTS: list[Mutant] = [
         "            print('  sample:', ' '.join(w.text for w in page.words[:3]))\n",
         [T_AGREE],
         ["test_the_census_prints_counts_and_percentiles_and_never_a_word"],
+    ),
+    # ---- the review's closure: the reviewer's three surviving fresh mutants,
+    # a real-PDF mutant for the MAJOR, and one for each remaining MINOR fix.
+    Mutant(
+        "FR1", "the IoU threshold applied as `>` instead of `>=`",
+        AGREEMENT,
+        "            if score >= threshold:\n",
+        "            if score > threshold:\n",
+        [T_AGREE],
+        ["test_the_iou_threshold_is_inclusive_at_exactly_one_half"],
+    ),
+    Mutant(
+        "FR3", "the money comparison drops the SIGN (a debit agrees with a credit)",
+        AGREEMENT,
+        "    return tuple(token.cents for token in find_money(text))",
+        "    return tuple(abs(token.cents) for token in find_money(text))",
+        [T_AGREE],
+        ["test_a_negative_amount_never_agrees_with_its_positive_twin"],
+    ),
+    Mutant(
+        "FR4", "the skew statistic is the MEAN of the line slopes, not the median",
+        AGREEMENT,
+        "    slopes.sort()\n"
+        "    middle = len(slopes) // 2\n"
+        "    if len(slopes) % 2:\n"
+        "        return slopes[middle]\n"
+        "    return (slopes[middle - 1] + slopes[middle]) / 2\n",
+        "    return sum(slopes) / len(slopes)\n",
+        [T_AGREE],
+        ["test_the_skew_statistic_is_the_MEDIAN_over_lines_not_the_mean"],
+    ),
+    Mutant(
+        "M11", "MAJOR-1: an indirect /Rotate is acted on WITHOUT the page corroborating it",
+        NATIVE,
+        "    if resolved % 90 == 0:\n"
+        "        return resolved if rotation == resolved % 360 else None\n"
+        "    return resolved if _rect_is_transposed(page) else None\n",
+        "    return resolved\n",
+        [T_NATIVE],
+        ["test_a_chained_indirect_rotate_is_an_unrotated_page_in_every_renderer",
+         "test_a_chained_indirect_rotate_inherited_from_the_pages_node_is_read_too",
+         "test_a_two_hop_indirect_rotate_chain_is_read_and_cannot_spin"],
+    ),
+    Mutant(
+        "M12", "MINOR-2: both axes scaled by one nominal 72 / dpi",
+        AGREEMENT,
+        "    scale_x = 1.0 / float(frame.scale_x) if frame.scale_x else nominal\n"
+        "    scale_y = 1.0 / float(frame.scale_y) if frame.scale_y else nominal\n",
+        "    scale_x = nominal\n    scale_y = nominal\n",
+        [T_AGREE],
+        ["test_a_legal_non_uniform_pixel_frame_normalises_to_the_true_points"],
+    ),
+    Mutant(
+        "M13", "MINOR-3: `frames_agree` stops comparing the rotation",
+        AGREEMENT,
+        "    if int(left.rotation_deg) != int(right.rotation_deg):\n        return False\n",
+        "",
+        [T_AGREE],
+        ["test_two_frames_that_disagree_about_the_rotation_are_a_frame_mismatch"],
+    ),
+    Mutant(
+        "M14", "MINOR-6: the two evidence reads move back outside the guard",
+        RUNNER,
+        "        try:\n"
+        "            # The two attribute READS are inside the guard too (review\n",
+        "        document = facts.get(\"document\")\n"
+        "        native = getattr(document, \"native_evidence\", None) if document is not None else None\n"
+        "        extractor = getattr(document, \"evidence\", None) if document is not None else None\n"
+        "        try:\n"
+        "            # The two attribute READS are inside the guard too (review\n",
+        [T_AGREE],
+        ["test_a_document_whose_evidence_attribute_raises_is_a_finding_not_an_exception"],
     ),
 ]
 
@@ -169,14 +242,20 @@ def _restore(relative: str) -> None:
     raise SystemExit(f"FATAL: could not restore {relative}; the tree may hold a mutant")
 
 
-def _run(suites: list[str]) -> tuple[int, list[str]]:
-    """`(exit code, failing node ids)` — WITHOUT `-x`."""
-    completed = subprocess.run(
-        [sys.executable, "-m", "pytest", *suites, "-q", "--no-header", "-p", "no:cacheprovider"],
-        cwd=ROOT, capture_output=True, text=True,
-    )
+def _run(suites: list[str], *, select: str | None = None) -> tuple[int, list[str], int]:
+    """`(exit code, failing node ids, tests that PASSED)` — WITHOUT `-x`.
+
+    `select` adds a `-k` expression, which is how the in-process row proves
+    that its killer was COLLECTED (a `-k` that matches nothing reports zero
+    passed, and pytest exits 5).
+    """
+    command = [sys.executable, "-m", "pytest", *suites, "-q", "--no-header", "-p", "no:cacheprovider"]
+    if select is not None:
+        command += ["-k", select]
+    completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     failures = re.findall(r"^(?:FAILED|ERROR) (\S+)", completed.stdout, re.MULTILINE)
-    return completed.returncode, failures
+    match = re.search(r"(\d+) passed", completed.stdout)
+    return completed.returncode, failures, int(match.group(1)) if match else 0
 
 
 def apply_mutant(mutant: Mutant) -> None:
@@ -210,18 +289,26 @@ def main(argv: list[str] | None = None) -> int:
     unkilled: list[str] = []
     for mutant in selected:
         if mutant.in_process:
-            code, failures = _run(mutant.suites)
-            named = [k for k in mutant.killers if any(k in failure for failure in failures)]
-            status = "KILLED (in-process, tree untouched)" if code == 0 and not named else "NOT KILLED"
+            # Review closure, MINOR-5: the row must score THE KILLER, not
+            # "the suite is green". The killer is run BY NAME and must be
+            # collected and pass; a renamed, deleted or never-collected killer
+            # reports zero passed and the row reads NOT KILLED — which is what
+            # the old scorer (exit 0 and no named failure) could not tell from
+            # a real kill.
+            code, failures, _ = _run(mutant.suites)
+            killer_code, killer_failures, killer_passed = _run(mutant.suites, select=mutant.killers[0])
+            collected = killer_passed >= 1 and killer_code == 0 and not killer_failures
+            status = ("KILLED (in-process, tree untouched)"
+                      if code == 0 and not failures and collected else "NOT KILLED")
             rows.append(f"| {mutant.ident} | {mutant.what} | (scratch copy, no tree edit) | "
-                        f"{mutant.killers[0]} | {status} |")
+                        f"{mutant.killers[0]} ({killer_passed} collected and passed) | {status} |")
             if status == "NOT KILLED":
                 unkilled.append(mutant.ident)
-            print(f"{mutant.ident}: {status}", flush=True)
+            print(f"{mutant.ident}: {status} — killer collected and passed: {killer_passed}", flush=True)
             continue
         try:
             apply_mutant(mutant)
-            code, failures = _run(mutant.suites)
+            code, failures, _ = _run(mutant.suites)
         finally:
             _restore(mutant.path)
         clean = _porcelain()
@@ -241,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     table = "\n".join([
-        f"# P23-AGREE mutation table (M1-M10) — tree {tree}, {stamp}", "",
+        f"# P23-AGREE mutation table (M1-M14, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
         "| # | mutant | file | killer | result |", "|---|---|---|---|---|",
         *rows, "",
         f"unkilled: {', '.join(unkilled) if unkilled else 'none'}",
