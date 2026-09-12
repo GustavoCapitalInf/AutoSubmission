@@ -153,7 +153,8 @@ def test_the_threshold_table_and_the_version_are_pinned_together():
         "orientation_min_chars": 2,
         "orientation_min_aspect": 1.2,
         "orientation_min_votes": 8,
-        "orientation_unanimous_share": 1.0,
+        "orientation_majority_share": 0.8,
+        "frame_square_aspect_tolerance": 0.02,
         "raster_aspect_tolerance": 0.02,
         "rec_p10_percentile": 10,
     }
@@ -739,3 +740,95 @@ def test_the_cluster_tolerance_sits_above_the_residual_ceiling():
     two tidy halves and the defect would measure zero — the metric would hide
     exactly what it exists to report."""
     assert THRESHOLDS["right_edge_cluster_tolerance"] > THRESHOLDS["right_edge_residual_ceiling"]
+
+
+# ---------------------------------------------------------------------------
+# 10. E3's orientation criterion reads the FRAME (P23-EGATE review MINOR-2)
+# ---------------------------------------------------------------------------
+
+def rotated_page_with_wide_boxes(count: int) -> PageEvidence:
+    """The quarter-turned ledger plus `count` WIDE two-character boxes — the
+    page number, rule fragment or stamp that every real rotated scan carries,
+    and that at v1's literal unanimity disarmed E3 completely."""
+    rotated = evidence_page(rotate_page_90(build_ledger_page(ROWS)))
+    words = list(rotated.words)
+    for index in range(count):
+        y = 40.0 + index * 20.0
+        words.append(WordBox(
+            word_id=word_id(0, 900 + index, len(words)), page_index=0, text="PG",
+            x0=20.0, y0=y, x1=80.0, y1=y + 12.0, line_ref=900 + index,
+        ))
+    return PageEvidence(frame=rotated.frame, words=tuple(words))
+
+
+def test_a_rotated_page_carrying_one_wide_box_still_fires_E3():
+    """MINOR-2, as a pin. One horizontal vote among a hundred vertical ones is
+    an artefact box, not evidence that the page is upright."""
+    quality = page_quality(rotated_page_with_wide_boxes(1))
+    assert quality.orientation_votes.horizontal == 1
+    assert quality.orientation_votes.vertical_share < 1.0
+    assert quality.orientation_votes.vertical_share >= THRESHOLDS["orientation_majority_share"]
+    assert "E3" in quality.classes
+
+
+def test_a_page_whose_boxes_are_a_bare_majority_vertical_does_not_fire_E3():
+    """The threshold is a majority, not "more than half": a page whose boxes
+    are only three-quarters vertical is not a rotated page, it is a page with
+    a tall panel on it."""
+    rotated = rotated_page_with_wide_boxes(0)
+    words = list(rotated.words)
+    vertical = sum(1 for word in words
+                   if (word.y1 - word.y0) > (word.x1 - word.x0) * THRESHOLDS["orientation_min_aspect"]
+                   and len(word.text.strip()) >= THRESHOLDS["orientation_min_chars"])
+    for index in range(vertical // 3):
+        y = 40.0 + index * 12.0
+        words.append(WordBox(
+            word_id=word_id(0, 800 + index, len(words)), page_index=0, text="PG",
+            x0=20.0, y0=y, x1=80.0, y1=y + 10.0, line_ref=800 + index,
+        ))
+    quality = page_quality(PageEvidence(frame=rotated.frame, words=tuple(words)))
+    assert quality.orientation_votes.vertical_share < THRESHOLDS["orientation_majority_share"]
+    assert "E3" not in quality.classes
+
+
+def vertical_box_page(*, width: float, height: float, boxes: int = 12) -> PageEvidence:
+    """A page whose ONLY possible class is the orientation one: `boxes` tall
+    two-character boxes, one per line, all the same height (so the line-height
+    CV is zero) and not one money token (so the residual is unmeasured)."""
+    words = tuple(
+        WordBox(word_id=word_id(0, index, index), page_index=0, text="PG",
+                x0=100.0, y0=index * 30.0, x1=120.0, y1=index * 30.0 + 60.0,
+                line_ref=index)
+        for index in range(boxes)
+    )
+    return PageEvidence(
+        frame=PageFrame.pdf_points(page_index=0, width_pt=width, height_pt=height),
+        words=words,
+    )
+
+
+def test_a_square_frame_has_no_reading_direction_to_disagree_with():
+    """The FRAME half of §H.4's E3, and the reason `frame_reading` exists: a
+    square page says nothing about which way it is read, so no arrangement of
+    its boxes disagrees with it. The same boxes in a frame that HAS a long
+    side are a rotated page."""
+    upright = page_quality(vertical_box_page(width=612.0, height=792.0))
+    assert upright.frame_reading == "horizontal"
+    assert upright.orientation_votes.vertical_share == pytest.approx(1.0)
+    assert upright.classes == ("E3",)
+
+    square = page_quality(vertical_box_page(width=612.0, height=612.0))
+    assert square.frame_reading is None
+    assert square.orientation_votes.vertical_share == pytest.approx(1.0)
+    assert square.classes == (), square.classes
+
+
+def test_the_square_tolerance_is_a_tolerance_not_an_equality():
+    """A scanned page is never exactly square, and a frame a hair off square
+    still has no reading direction worth the name."""
+    nearly = page_quality(vertical_box_page(width=612.0, height=618.0))
+    assert nearly.frame_reading is None
+    assert nearly.classes == ()
+    clearly = page_quality(vertical_box_page(width=612.0, height=700.0))
+    assert clearly.frame_reading == "horizontal"
+    assert clearly.classes == ("E3",)

@@ -87,7 +87,7 @@ from statistics import fmean, median, pstdev
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
-from evidence.canonical import ExtractionEvidence, PageEvidence, WordBox
+from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame, WordBox
 from layout.signals import LEXICONS, fold, money_cents
 
 __all__ = [
@@ -137,9 +137,10 @@ E1_COVERAGE_GAP = "E1"
 #: lexicon rate over alphabetic tokens, or the garbage-token rate fails its
 #: threshold. The rec-score p10 is a proxy here and never a gate.
 E2_RECOGNITION = "E2"
-#: Frame / orientation: the orientation votes are unanimously against the
-#: frame, or box regularity (line-height CV, numeric right-edge residual) is
-#: outside its threshold.
+#: Frame / orientation: a MAJORITY of the orientation votes disagree with the
+#: frame's own reading direction, or box regularity (line-height CV, or the
+#: right-edge residual of the page's WORST money column) is outside its
+#: threshold.
 E3_FRAME_ORIENTATION = "E3"
 #: Truncation / bleed: the EXISTING page-integrity flag, supplied by the
 #: caller (`ocr.truncation.PageIntegrity.truncated`). This module does not
@@ -216,12 +217,19 @@ THRESHOLDS: Mapping[str, float] = MappingProxyType({
     # E3 / orientation. A token of at least this many characters votes; it
     # votes vertical or horizontal only when one side exceeds the other by
     # this factor (a near-square box is indeterminate and does not vote); the
-    # votes decide only with at least this many of them, and only when they
-    # are UNANIMOUS — §H.4's own word, kept literal in v1.
+    # votes decide only with at least this many of them.
+    #
+    # v2: a MAJORITY, not unanimity. v1 kept §H.4's word "unanimous" literal
+    # at 1.0, and one horizontal box — a page number, a rule fragment, a stamp
+    # — disarmed the criterion completely on a page whose only defect was a
+    # quarter turn (review MINOR-2, reproduced at a share of 0.99). A frame
+    # whose two sides differ by no more than the square tolerance has no
+    # reading direction to disagree WITH, and fires nothing.
     "orientation_min_chars": 2,
     "orientation_min_aspect": 1.2,
     "orientation_min_votes": 8,
-    "orientation_unanimous_share": 1.0,
+    "orientation_majority_share": 0.8,
+    "frame_square_aspect_tolerance": 0.02,
     # A raster whose per-axis scales disagree by more than this cannot be a
     # raster OF this page.
     "raster_aspect_tolerance": 0.02,
@@ -347,6 +355,12 @@ class PageQuality:
 
     page_index: int
     frame_space: str
+    #: The direction this page is READ, from its frame alone: `"horizontal"`
+    #: for any frame with a long and a short side, `None` for a frame square
+    #: within the versioned tolerance — which has no reading direction, so
+    #: nothing about its boxes can disagree with it. §H.4 words E3 as the
+    #: votes disagreeing with THE FRAME, and v1 never read the frame at all.
+    frame_reading: str | None
     word_count: int
     density: float
     rec_mean: float | None
@@ -543,6 +557,24 @@ def _right_edge_residual(page: PageEvidence) -> tuple[int, float | None]:
     return worst_count, worst_residual
 
 
+def _frame_reading(frame: PageFrame) -> str | None:
+    """`"horizontal"` — the direction a page with a long and a short side is
+    read across — or `None` for a frame square within the versioned tolerance.
+
+    This is the FRAME half of §H.4's E3: "the orientation votes disagree with
+    the frame". A square page states no reading direction, so its boxes cannot
+    disagree with one and it is not judged on orientation at all. What this
+    cannot see is a 180-degree page: its boxes are as horizontal as an upright
+    page's, and no box geometry distinguishes the two. Named, not implied."""
+    width, height = float(frame.width), float(frame.height)
+    longest = max(width, height)
+    if not longest:
+        return None
+    if abs(width - height) / longest <= float(_t("frame_square_aspect_tolerance")):
+        return None
+    return "horizontal"
+
+
 def _orientation_votes(words: Sequence[WordBox]) -> OrientationVotes | None:
     minimum = int(_t("orientation_min_chars"))
     aspect = float(_t("orientation_min_aspect"))
@@ -668,6 +700,7 @@ def page_quality(page: PageEvidence, *, raster: RasterGray | None = None,
     quality = PageQuality(
         page_index=frame.page_index,
         frame_space=frame.space,
+        frame_reading=_frame_reading(frame),
         word_count=word_count,
         density=word_count / area if area else 0.0,
         rec_mean=rec_mean,
@@ -730,10 +763,17 @@ def _with_classes(quality: PageQuality) -> PageQuality:
     votes = quality.orientation_votes
     frame_or_boxes = (
         (
+            # §H.4: the votes disagree with THE FRAME. The frame says the page
+            # is read across it; a majority of the boxes running DOWN it is
+            # the disagreement. A frame with no reading direction (square
+            # within tolerance) is not judged on orientation — v2, review
+            # MINOR-2: at v1's literal unanimity one wide artefact box on a
+            # rotated page disarmed the criterion completely.
             votes is not None
+            and quality.frame_reading is not None
             and votes.decided >= int(_t("orientation_min_votes"))
             and votes.vertical_share is not None
-            and votes.vertical_share >= float(_t("orientation_unanimous_share"))
+            and votes.vertical_share >= float(_t("orientation_majority_share"))
         )
         or (
             quality.line_height_cv is not None

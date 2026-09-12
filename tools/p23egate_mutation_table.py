@@ -202,6 +202,24 @@ MUTANTS: list[Mutant] = [
         ["test_a_single_column_that_really_wanders_still_fires_E3",
          "test_the_cluster_tolerance_sits_above_the_residual_ceiling"],
     ),
+    # --- the review's MINOR-2: E3's orientation reads the frame, by majority -
+    Mutant(
+        "M12", "the orientation criterion back to literal unanimity (one artefact box disarms it)",
+        QUALITY,
+        '    "orientation_majority_share": 0.8,',
+        '    "orientation_majority_share": 1.0,',
+        [T_QUALITY],
+        ["test_a_rotated_page_carrying_one_wide_box_still_fires_E3"],
+    ),
+    Mutant(
+        "M12b", "the frame never read: the votes disagree with nothing in particular",
+        QUALITY,
+        "            and quality.frame_reading is not None\n",
+        "",
+        [T_QUALITY],
+        ["test_a_square_frame_has_no_reading_direction_to_disagree_with",
+         "test_the_square_tolerance_is_a_tolerance_not_an_equality"],
+    ),
 ]
 
 
