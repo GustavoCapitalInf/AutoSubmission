@@ -64,6 +64,12 @@ class Mutant:
     #: set when the mutant is proven by a test that plants it in a scratch
     #: copy rather than by editing the tree.
     in_process: bool = False
+    #: a SECOND `(path, old, new)` edit applied and restored with the first.
+    #: A mutant that has to change two files to be interesting is a mutant
+    #: about the relationship between them — F9 moves a threshold AND the test
+    #: literal that pins it, which is exactly how the review defeated the v1
+    #: pin, and a one-file harness cannot express it.
+    also: tuple[str, str, str] | None = None
     observed: list[str] = field(default_factory=list)
 
 
@@ -104,8 +110,12 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "M5", "the E-class set from the rec-score alone",
         QUALITY,
-        "        or quality.garbage_rate > float(_t(\"garbage_rate_ceiling\"))\n    )",
-        "        or quality.garbage_rate > float(_t(\"garbage_rate_ceiling\"))\n"
+        # Re-anchored at the review closure: MINOR-1 gave the garbage
+        # criterion a denominator guard, so the line this mutant hangs on
+        # moved. The harness refused to guess and stopped, which is the whole
+        # point of the "exactly one occurrence" rule.
+        "            and quality.garbage_rate > float(_t(\"garbage_rate_ceiling\"))\n        )\n    )",
+        "            and quality.garbage_rate > float(_t(\"garbage_rate_ceiling\"))\n        )\n"
         "        or (quality.rec_p10 is not None and quality.rec_p10 < 0.5)\n    )",
         [T_QUALITY],
         ["test_the_rec_score_is_a_proxy_and_never_sets_a_class_on_its_own"],
@@ -248,6 +258,51 @@ MUTANTS: list[Mutant] = [
         [T_QUALITY],
         ["test_the_named_shapes_do_not_excuse_the_runs_they_resemble"],
     ),
+    # --- the review's MAJOR-2: the reviewer's own fold mutants, F2-F6 and F8.
+    # Each swaps ONE fold for its opposite. Every one of them survived the
+    # first fixture, because three pages that agree about a column make "min"
+    # and "max" the same number and the assertion vacuous.
+    *[
+        Mutant(
+            ident, f"the {column} fold replaced by {opposite.__name__}",
+            QUALITY,
+            f"        {column}=_fold(({expression} for page in pages), {fold}),",
+            f"        {column}=_fold(({expression} for page in pages), {opposite.__name__}),",
+            [T_QUALITY],
+            ["test_every_folded_column_is_pinned_by_pages_that_disagree"],
+        )
+        for ident, column, expression, fold, opposite in [
+            ("F2", "garbage_rate_max", "page.garbage_rate", "max", min),
+            ("F3", "line_height_cv_max", "page.line_height_cv", "max", min),
+            ("F4", "money_rate_min", "page.money_rate", "min", max),
+            ("F5", "right_edge_residual_max", "page.right_edge_residual", "max", min),
+            ("F8", "ink_outside_boxes_max", "page.ink_outside_boxes", "max", min),
+        ]
+    ],
+    Mutant(
+        # F6 is spelled differently in the source (the share is reached through
+        # the votes object), so it cannot be generated with the five above.
+        "F6", "the orientation-share fold replaced by min",
+        QUALITY,
+        "             for page in pages), max,\n        ),",
+        "             for page in pages), min,\n        ),",
+        [T_QUALITY],
+        ["test_every_folded_column_is_pinned_by_pages_that_disagree"],
+    ),
+    Mutant(
+        # F9: the way the review DEFEATED the v1 pin — move a threshold and
+        # move the test literal that pins it, leaving the version where it is.
+        # Two files, one mutant; the digest keyed by the version is what fails.
+        "F9", "a threshold moved WITH its test literal, the version left alone",
+        QUALITY,
+        '    "garbage_rate_ceiling": 0.05,',
+        '    "garbage_rate_ceiling": 0.15,',
+        [T_QUALITY],
+        ["test_the_calibration_surface_is_pinned_by_a_digest_against_the_version"],
+        also=(T_QUALITY,
+              '        "garbage_rate_ceiling": 0.05,',
+              '        "garbage_rate_ceiling": 0.15,'),
+    ),
 ]
 
 
@@ -288,16 +343,22 @@ def _run(suites: list[str]) -> tuple[int, list[str], int]:
     return completed.returncode, failures, passed
 
 
-def apply_mutant(mutant: Mutant) -> None:
-    path = ROOT / mutant.path
+def apply_edit(ident: str, relative: str, old: str, new: str) -> None:
+    path = ROOT / relative
     source = path.read_text(encoding="utf-8")
-    occurrences = source.count(mutant.old)
+    occurrences = source.count(old)
     if occurrences != 1:
         raise SystemExit(
-            f"{mutant.ident}: the mutation target appears {occurrences} times in "
-            f"{mutant.path}; the harness refuses to guess which one"
+            f"{ident}: the mutation target appears {occurrences} times in "
+            f"{relative}; the harness refuses to guess which one"
         )
-    path.write_text(source.replace(mutant.old, mutant.new, 1), encoding="utf-8")
+    path.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+
+def apply_mutant(mutant: Mutant) -> None:
+    apply_edit(mutant.ident, mutant.path, mutant.old, mutant.new)
+    if mutant.also is not None:
+        apply_edit(mutant.ident, *mutant.also)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -342,6 +403,8 @@ def main(argv: list[str] | None = None) -> int:
             code, failures, _ = _run(mutant.suites)
         finally:
             _restore(mutant.path)
+            if mutant.also is not None:
+                _restore(mutant.also[0])
         clean = _porcelain()
         if clean:
             raise SystemExit(f"FATAL after {mutant.ident}: the tree is not clean after the restore.\n{clean}")

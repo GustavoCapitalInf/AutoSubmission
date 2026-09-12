@@ -80,6 +80,8 @@ none of this and why the census reports distributions rather than verdicts.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 from dataclasses import dataclass, replace
@@ -96,15 +98,19 @@ __all__ = [
     "E_CLASSES",
     "E_CLASS_PRIORITY",
     "THRESHOLDS",
+    "CALIBRATION_DIGESTS",
+    "NON_GARBAGE_SHAPES",
     "DocumentQuality",
     "OrientationVotes",
     "PageQuality",
     "QualityInputError",
     "RasterGray",
     "document_quality",
+    "calibration_digest",
     "e_class",
     "eq_row_values",
     "lexicon_vocabulary",
+    "non_garbage_shape",
     "page_quality",
 ]
 
@@ -249,6 +255,45 @@ def _t(name: str) -> Any:
     but the table above is a fork waiting to happen
     (`test_no_threshold_is_dead_and_none_is_spelled_twice`)."""
     return THRESHOLDS[name]
+
+
+def calibration_digest() -> str:
+    """A digest of this module's whole CALIBRATION SURFACE: every threshold
+    and every named token shape, in sorted order.
+
+    DERIVED, never spelled: change any value in either table and this changes
+    with it."""
+    payload = json.dumps(
+        {
+            "thresholds": {name: THRESHOLDS[name] for name in sorted(THRESHOLDS)},
+            "shapes": {name: NON_GARBAGE_SHAPES[name] for name in sorted(NON_GARBAGE_SHAPES)},
+        },
+        sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+#: The calibration surface's digest, RECORDED PER VERSION.
+#:
+#: v1 pinned the thresholds by a literal in a test, and the review defeated
+#: that in two lines: move a threshold, move the test's literal with it, and
+#: the version stays where it was (F9). The claim "a threshold cannot move
+#: without a reviewed version edit" then rested on the diff being read, not on
+#: anything structural.
+#:
+#: A version's digest is a RECORD. Once a figure has been measured and
+#: censused under v2, what v2 MEANT cannot change — so an edit to either table
+#: fails this pin until it arrives with a new version and its own entry here,
+#: which is precisely the reviewed edit the version line asks for. Editing an
+#: existing row is rewriting what a recorded number meant, and it looks like
+#: what it is in a diff.
+#:
+#: There is no v1 row: v1's surface is not in this module any longer, and a
+#: digest of a table nothing here can recompute would be a number no reviewer
+#: could check. The v1 surface is `git show`-able at this cell's earlier tips.
+CALIBRATION_DIGESTS: Mapping[int, str] = MappingProxyType({
+    2: "2e2b0263b9ade1d0a474d0d6a45aeccb3334202daa785060c3957c0b911fd3d3",
+})
 
 
 #: A run of the SAME LETTER, `garbage_repeat_run` long or longer — built from

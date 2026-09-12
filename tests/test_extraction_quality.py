@@ -24,12 +24,14 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from statistics import fmean
 
 import pytest
 
 from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame, WordBox, word_id
 from evidence.native import NATIVE_EXTRACTOR_ID
 from ocr.extraction_quality import (
+    CALIBRATION_DIGESTS,
     EQ_ROW_COLUMNS,
     NON_GARBAGE_SHAPES,
     E_CLASSES,
@@ -42,6 +44,7 @@ from ocr.extraction_quality import (
     e_class,
     eq_row_values,
     _is_garbage_token,
+    calibration_digest,
     lexicon_vocabulary,
     non_garbage_shape,
     page_quality,
@@ -915,3 +918,200 @@ def test_the_garbage_denominator_guard_measures_and_refuses_to_classify():
     assert long.word_count >= THRESHOLDS["garbage_rate_min_tokens"]
     assert long.garbage_rate == pytest.approx(short.garbage_rate)
     assert long.classes == ("E2",), long.classes
+
+
+# ---------------------------------------------------------------------------
+# 12. the fold, proven per column (P23-EGATE review MAJOR-2)
+#
+# The first fold fixture was three pages that AGREED on seven of the eleven
+# folded figures, so "min over pages" and "max over pages" were the same
+# number and the assertion held whichever fold the module used. The review
+# killed nothing with six mutants that swap one fold for its opposite. This
+# fixture makes every column's three page values DISTINCT, so each fold is
+# the only answer that passes.
+# ---------------------------------------------------------------------------
+
+def fold_page(index: int, *, money_ok: int, wobble: float, money_bad: int,
+              lexicon_words: int, other_words: int, garbage_words: int,
+              narrow_boxes: int, heights: tuple[float, ...],
+              confidence_high: float, confidence_low: float) -> PageEvidence:
+    """One page of the discriminating fold fixture, every metric dialled.
+
+    A NARROW box is how a vertical vote is cast without disturbing anything
+    else: it keeps its line's own height, so the line-height CV is untouched,
+    and it is five points wide, so it votes vertical."""
+    vocabulary = sorted(lexicon_vocabulary())
+    tokens: list[tuple[str, str]] = []
+    tokens += [("10.00", "money")] * money_ok
+    tokens += [("12X45", "plain")] * money_bad
+    tokens += [(vocabulary[position % len(vocabulary)].upper(), "plain")
+               for position in range(lexicon_words)]
+    tokens += [("SYNTHETIC", "plain")] * other_words
+    tokens += [("SYNTHETICCCCCCC", "plain")] * garbage_words
+    tokens += [("PG", "narrow")] * narrow_boxes
+
+    words: list[WordBox] = []
+    for position, (text, kind) in enumerate(tokens):
+        line = position % len(heights)
+        height = heights[line]
+        y0 = 72.0 + line * 90.0
+        if kind == "money":
+            x1 = 400.0 + (wobble if position % 2 else 0.0)
+            x0 = x1 - len(text) * 6.6
+        elif kind == "narrow":
+            x0 = 60.0 + position
+            x1 = x0 + 5.0
+        else:
+            x0 = 60.0 + (position % 4) * 70.0
+            x1 = x0 + len(text) * 6.6
+        words.append(WordBox(
+            word_id=word_id(index, line, position), page_index=index, text=text,
+            x0=x0, y0=y0, x1=x1, y1=y0 + height,
+            confidence=confidence_low if position % 10 == 0 else confidence_high,
+            line_ref=line,
+        ))
+    return PageEvidence(
+        frame=PageFrame.pdf_points(page_index=index, width_pt=612.0, height_pt=792.0),
+        words=tuple(words),
+    )
+
+
+#: Three pages that disagree about EVERYTHING. Page 1 clears the line-height
+#: ceiling (so it is the E3 page), page 2 is flagged truncated by the caller
+#: (E5), page 0 is clean — so the worst page by priority is the MIDDLE one,
+#: which neither "the first page's class" nor "the last page's" can produce.
+FOLD_PAGES = (
+    dict(money_ok=10, wobble=0.0, money_bad=0, lexicon_words=12, other_words=8,
+         garbage_words=0, narrow_boxes=0, heights=(10.0, 10.0, 10.0, 10.0, 10.0, 10.0),
+         confidence_high=0.95, confidence_low=0.90),
+    dict(money_ok=12, wobble=6.6, money_bad=4, lexicon_words=10, other_words=14,
+         garbage_words=1, narrow_boxes=6, heights=(10.0, 40.0, 10.0, 40.0, 10.0, 40.0),
+         confidence_high=0.85, confidence_low=0.70),
+    dict(money_ok=14, wobble=13.2, money_bad=14, lexicon_words=6, other_words=20,
+         garbage_words=2, narrow_boxes=16, heights=(10.0, 15.0, 10.0, 15.0, 10.0, 15.0),
+         confidence_high=0.60, confidence_low=0.40),
+)
+
+
+def fold_document() -> ExtractionEvidence:
+    return ExtractionEvidence(
+        document_sha256="B" * 64, extractor_id="paddle-synthetic",
+        model_token="synthetic-model",
+        pages=tuple(fold_page(index, **spec) for index, spec in enumerate(FOLD_PAGES)),
+    )
+
+
+#: A raster for one fold page: `inside` dark pixels inside the money column's
+#: first box, `outside` dark pixels in a corner no box reaches. The share of
+#: ink outside every box is then exactly `outside / (inside + outside)`, which
+#: is how this fixture states an ink figure instead of discovering one.
+FOLD_RASTER_WIDTH, FOLD_RASTER_HEIGHT = 61, 79
+FOLD_INSIDE_PIXELS = [(x, y) for y in (7, 8) for x in range(36, 41)]
+FOLD_OUTSIDE_PIXELS = [(x, 75) for x in range(50, 60)]
+
+
+def fold_raster(*, inside: int, outside: int) -> RasterGray:
+    return grey(FOLD_RASTER_WIDTH, FOLD_RASTER_HEIGHT,
+                FOLD_INSIDE_PIXELS[:inside] + FOLD_OUTSIDE_PIXELS[:outside])
+
+
+#: One per fold page, chosen so the three ink shares differ and none of them
+#: reaches `ink_outside_boxes_ceiling` — the ink column must discriminate the
+#: FOLD without firing a class, or the fixture would be proving two things.
+FOLD_RASTERS = {0: fold_raster(inside=9, outside=1),
+                1: fold_raster(inside=8, outside=2),
+                2: fold_raster(inside=7, outside=3)}
+
+
+def test_every_folded_column_is_pinned_by_pages_that_disagree():
+    """MAJOR-2's killer, and the card's "state AND pin the fold per column".
+
+    For each folded column the three pages carry three DIFFERENT values, so
+    the fold the table names is the only one that produces the document's
+    figure — the opposite fold is asserted to be a different number, which is
+    what makes each of the review's six swap mutants die."""
+    quality = document_quality(fold_document(), rasters=FOLD_RASTERS, truncated_pages=(2,))
+    pages = quality.pages
+    folded = {
+        "word_count_min": ([page.word_count for page in pages], min),
+        "density_min": ([page.density for page in pages], min),
+        "rec_p10_min": ([page.rec_p10 for page in pages], min),
+        "money_rate_min": ([page.money_rate for page in pages], min),
+        "lexicon_rate_min": ([page.lexicon_rate for page in pages], min),
+        "garbage_rate_max": ([page.garbage_rate for page in pages], max),
+        "line_height_cv_max": ([page.line_height_cv for page in pages], max),
+        "right_edge_residual_max": ([page.right_edge_residual for page in pages], max),
+        "ink_outside_boxes_max": ([page.ink_outside_boxes for page in pages], max),
+        "orientation_vertical_share_max": (
+            [page.orientation_votes.vertical_share for page in pages], max),
+    }
+    for name, (values, fold) in folded.items():
+        assert None not in values, (name, values)
+        assert len(set(values)) == len(pages), (name, values, "the fixture must discriminate")
+        assert getattr(quality, name) == fold(values), (name, values)
+        opposite = max if fold is min else min
+        assert getattr(quality, name) != opposite(values), (name, values, "the swap survives")
+
+    # `rec_mean` is the one distribution figure: the mean of the page means,
+    # which on a discriminating fixture is neither the smallest nor the largest.
+    means = [page.rec_mean for page in pages]
+    assert quality.rec_mean == pytest.approx(fmean(means))
+    assert quality.rec_mean not in (min(means), max(means))
+
+    # and the class fold names the WORST page by priority — here the MIDDLE
+    # page, which neither "the first page's class" nor "the last page's" gives.
+    assert [page.e_class for page in pages] == ["", "E3", "E5"]
+    assert quality.e_class == "E3"
+
+
+def test_the_fold_fixture_covers_every_column_the_row_carries():
+    """The pin above is only worth what it COVERS. Every column of
+    `EQ_ROW_COLUMNS` is either folded and pinned there, the version, or the
+    class — so a fourteenth column cannot arrive with no fold pinned."""
+    pinned = {
+        "word_count_min", "density_min", "rec_p10_min", "money_rate_min",
+        "lexicon_rate_min", "garbage_rate_max", "line_height_cv_max",
+        "right_edge_residual_max", "ink_outside_boxes_max",
+        "orientation_vertical_share_max", "rec_mean",
+    }
+    carried = {attribute for _, attribute, _ in EQ_ROW_COLUMNS}
+    assert carried - pinned == {"version", "e_class"}, sorted(carried - pinned - {"version", "e_class"})
+    assert pinned <= carried, sorted(pinned - carried)
+
+
+def test_the_calibration_surface_is_pinned_by_a_digest_against_the_version():
+    """F9's killer. v1 pinned the thresholds by a literal in THIS file, and
+    the review defeated it in two lines: move a threshold, move the literal
+    with it, leave the version at 1. The digest is keyed by the version, so a
+    threshold edit now fails until it arrives with a new version and its own
+    recorded digest — and editing a recorded version's row is rewriting what
+    an already-censused number meant."""
+    assert calibration_digest() == CALIBRATION_DIGESTS[EXTRACTION_QUALITY_VERSION]
+    assert EXTRACTION_QUALITY_VERSION in CALIBRATION_DIGESTS
+    assert all(isinstance(key, int) for key in CALIBRATION_DIGESTS)
+
+
+def test_the_digest_is_derived_from_both_tables_and_not_decorative():
+    """A digest that does not move when a value moves is a constant with a
+    long name. Every threshold and every shape is shown to change it — in a
+    COPY of each table, so the module under test is never mutated."""
+    import hashlib
+    import json
+
+    def digest_of(thresholds, shapes):
+        payload = json.dumps(
+            {"thresholds": {name: thresholds[name] for name in sorted(thresholds)},
+             "shapes": {name: shapes[name] for name in sorted(shapes)}},
+            sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    base = dict(THRESHOLDS), dict(NON_GARBAGE_SHAPES)
+    assert digest_of(*base) == calibration_digest()
+    for name in THRESHOLDS:
+        moved = dict(THRESHOLDS)
+        moved[name] = float(moved[name]) + 1.0
+        assert digest_of(moved, base[1]) != calibration_digest(), name
+    for name in NON_GARBAGE_SHAPES:
+        widened = dict(NON_GARBAGE_SHAPES)
+        widened[name] = widened[name] + "?"
+        assert digest_of(base[0], widened) != calibration_digest(), name
