@@ -31,6 +31,7 @@ from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame, Word
 from evidence.native import NATIVE_EXTRACTOR_ID
 from ocr.extraction_quality import (
     EQ_ROW_COLUMNS,
+    NON_GARBAGE_SHAPES,
     E_CLASSES,
     E_CLASS_PRIORITY,
     EXTRACTION_QUALITY_VERSION,
@@ -40,16 +41,20 @@ from ocr.extraction_quality import (
     document_quality,
     e_class,
     eq_row_values,
+    _is_garbage_token,
     lexicon_vocabulary,
+    non_garbage_shape,
     page_quality,
 )
 from tests.paddle_synthetic import (
+    FURNITURE_TOKENS,
     build_blank_page,
     build_column_page,
     build_garbage_token_page,
     build_ledger_page,
     build_noise_page,
     build_repeated_letter_page,
+    build_sparse_furniture_page,
     keep_first_lines,
     rotate_page_90,
     substitute_digit_glyphs,
@@ -139,6 +144,7 @@ def test_the_threshold_table_and_the_version_are_pinned_together():
         "lexicon_min_word_letters": 3,
         "alphabetic_token_min_letters": 2,
         "garbage_rate_ceiling": 0.05,
+        "garbage_rate_min_tokens": 30,
         "garbage_token_max_chars": 20,
         "garbage_repeat_run": 4,
         "line_height_cv_ceiling": 0.5,
@@ -832,3 +838,80 @@ def test_the_square_tolerance_is_a_tolerance_not_an_equality():
     clearly = page_quality(vertical_box_page(width=612.0, height=700.0))
     assert clearly.frame_reading == "horizontal"
     assert clearly.classes == ("E3",)
+
+
+# ---------------------------------------------------------------------------
+# 11. the garbage rule: furniture, and a denominator (review MINOR-1)
+# ---------------------------------------------------------------------------
+
+def test_statement_furniture_is_not_garbage_and_says_which_shape_it_is():
+    """A masked account number, a fully masked field, an IBAN and a footer URL
+    are what a page READ PERFECTLY looks like. Each is excused by a NAMED
+    shape, so a reviewer can ask which one and an unused shape is visible."""
+    shapes = [non_garbage_shape(token) for token in FURNITURE_TOKENS]
+    assert shapes == ["masked_account", "masked_field", "iban", "url"]
+    assert not any(_is_garbage_token(token) for token in FURNITURE_TOKENS)
+
+
+def test_the_named_shapes_do_not_excuse_the_runs_they_resemble():
+    """The bound lives inside each shape, so a shape cannot quietly widen into
+    an excuse for the defect it sits next to."""
+    assert non_garbage_shape("X" * 30) is None and _is_garbage_token("X" * 30)
+    assert non_garbage_shape("XX") is None
+    assert non_garbage_shape("GB29" + "N" * 40) is None
+    # and the tokens v1 correctly did NOT call garbage are still not garbage
+    assert not _is_garbage_token("00000000") and not _is_garbage_token("-" * 11)
+
+
+def test_every_named_shape_is_read_and_none_is_dead():
+    """A shape table nothing matches is documentation, and a shape spelled
+    twice is a fork — the same two claims the threshold table carries."""
+    matched = {non_garbage_shape(token) for token in FURNITURE_TOKENS}
+    assert matched == set(NON_GARBAGE_SHAPES), sorted(set(NON_GARBAGE_SHAPES) - matched)
+    source = MODULE.read_text(encoding="utf-8")
+    for pattern in NON_GARBAGE_SHAPES.values():
+        assert source.count(pattern) == 1, f"the shape {pattern!r} is spelled more than once"
+
+
+def test_a_sparse_furniture_page_is_measured_and_not_classified():
+    """Both halves of MINOR-1 on one page: the furniture is not garbage, and
+    even if it were, fourteen tokens is not a denominator for a rate."""
+    quality = page_quality(evidence_page(build_sparse_furniture_page()))
+    assert quality.word_count < THRESHOLDS["garbage_rate_min_tokens"]
+    assert quality.garbage_rate == pytest.approx(0.0)
+    assert quality.classes == (), quality.classes
+
+
+def garbage_rate_page(*, money: int, garbage: int) -> PageEvidence:
+    """A page built to isolate the GARBAGE criterion and nothing else: one
+    tidy money column (so the residual is zero and the money rate is 1.0),
+    too few alphabetic tokens for the lexicon criterion to have a denominator,
+    uniform line heights, and `garbage` repeated-letter tokens."""
+    tokens = ["10.00"] * money + ["SYNTHETICCCCCCC"] * garbage
+    words = tuple(
+        WordBox(word_id=word_id(0, index, index), page_index=0, text=token,
+                x0=400.0 - len(token) * 6.6, y0=72.0 + index * 18.0,
+                x1=400.0, y1=72.0 + index * 18.0 + 11.0, line_ref=index)
+        for index, token in enumerate(tokens)
+    )
+    return PageEvidence(
+        frame=PageFrame.pdf_points(page_index=0, width_pt=612.0, height_pt=792.0),
+        words=words,
+    )
+
+
+def test_the_garbage_denominator_guard_measures_and_refuses_to_classify():
+    """The guard is on CLASSIFICATION, never on measurement: a short page's
+    rate is still reported, it just does not acquire a class from it. Both
+    pages carry the same defect at the same rate; only the denominator
+    differs."""
+    short = page_quality(garbage_rate_page(money=18, garbage=2))
+    assert short.word_count >= THRESHOLDS["min_words_for_page_metrics"]
+    assert short.word_count < THRESHOLDS["garbage_rate_min_tokens"]
+    assert short.garbage_rate > THRESHOLDS["garbage_rate_ceiling"]
+    assert short.classes == (), short.classes
+
+    long = page_quality(garbage_rate_page(money=27, garbage=3))
+    assert long.word_count >= THRESHOLDS["garbage_rate_min_tokens"]
+    assert long.garbage_rate == pytest.approx(short.garbage_rate)
+    assert long.classes == ("E2",), long.classes

@@ -191,8 +191,13 @@ THRESHOLDS: Mapping[str, float] = MappingProxyType({
     "lexicon_min_word_letters": 3,
     # A token counts as ALPHABETIC once it carries this many letters.
     "alphabetic_token_min_letters": 2,
-    # E2 / garbage: over-long tokens and repeated-letter runs.
+    # E2 / garbage: over-long tokens and repeated-letter runs, over a page
+    # with enough tokens to have a rate at all. v2 (review MINOR-1): the
+    # minimum denominator its two siblings always had — without it a
+    # legitimate sparse page (a continuation page, a summary page, a "page 2
+    # of 4" header) was classified on a rate over as few as twelve tokens.
     "garbage_rate_ceiling": 0.05,
+    "garbage_rate_min_tokens": 30,
     "garbage_token_max_chars": 20,
     "garbage_repeat_run": 4,
     # E3 / box regularity.
@@ -254,6 +259,46 @@ _REPEATED_LETTER_RE = re.compile(r"([^\W\d_])\1{" + str(int(_t("garbage_repeat_r
 #: Non-letters, for reducing a token to its alphabetic core before a
 #: vocabulary lookup (`Balance:` -> `balance`).
 _NON_LETTER_RE = re.compile(r"[\W\d_]+")
+
+#: THE table of token shapes that are long or repetitive BY DESIGN, and are
+#: therefore not garbage however the length-and-repeats rule reads them. Named
+#: shapes, one table, versioned beside the thresholds — because "which tokens
+#: are furniture" is exactly as much a calibration decision as "how many of
+#: them are too many", and a figure recorded under one answer must not be
+#: compared with a figure recorded under another.
+#:
+#: Every bound is INSIDE its own pattern, so a shape cannot quietly widen to
+#: excuse a genuine run: a masked field of more than twenty X's is garbage
+#: again, and an IBAN is a real IBAN's length or it is not an IBAN. These are
+#: this module's own shapes deliberately — `layout/signals.py` is another
+#: cell's file, and a shared statement-furniture vocabulary is a card, not an
+#: edit made in passing (review MINOR-1).
+NON_GARBAGE_SHAPES: Mapping[str, str] = MappingProxyType({
+    # a masked account or card number: XXXXXXXX4821, ****-1234
+    "masked_account": r"[X*•·]{2,20}[\s-]?\d{2,6}",
+    # a fully masked field: XXXX
+    "masked_field": r"[X*•·]{3,20}",
+    # an IBAN: two letters, two check digits, up to thirty more
+    "iban": r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}",
+    # a statement footer's URL
+    "url": r"(?:https?://|www\.)\S{1,200}",
+})
+
+_NON_GARBAGE_RE: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (name, re.compile(pattern, re.IGNORECASE)) for name, pattern in NON_GARBAGE_SHAPES.items()
+)
+
+
+def non_garbage_shape(text: str) -> str | None:
+    """The NAME of the furniture shape this token has, or `None`.
+
+    Named rather than boolean so the census and a reviewer can ask WHICH shape
+    excused a token, and so a shape that never matches anything is visible as
+    a shape that never matches anything."""
+    for name, pattern in _NON_GARBAGE_RE:
+        if pattern.fullmatch(text):
+            return name
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -457,9 +502,17 @@ def _is_alphabetic_token(text: str) -> bool:
 
 
 def _is_garbage_token(text: str) -> bool:
-    """Over-long, or carrying a repeated-letter run. BOTH halves, always: a
-    rule that only measured length reads 0.0 on a page of `lllll` runs
-    (P23-EGATE M3)."""
+    """Over-long, or carrying a repeated-letter run — unless the token has one
+    of the named furniture shapes.
+
+    BOTH halves of the rule, always: a rule that only measured length reads
+    0.0 on a page of `lllll` runs (P23-EGATE M3). And the shapes first,
+    because a masked account number, an IBAN and a footer URL are what a
+    correctly-read statement looks like, and counting them as garbage made the
+    rate a measure of the LAYOUT rather than of the recognition (review
+    MINOR-1)."""
+    if non_garbage_shape(text) is not None:
+        return False
     return len(text) > int(_t("garbage_token_max_chars")) or bool(_REPEATED_LETTER_RE.search(text))
 
 
@@ -755,7 +808,11 @@ def _with_classes(quality: PageQuality) -> PageQuality:
             and quality.alphabetic_tokens >= int(_t("lexicon_rate_min_alphabetic_tokens"))
             and quality.lexicon_rate < float(_t("lexicon_rate_floor"))
         )
-        or quality.garbage_rate > float(_t("garbage_rate_ceiling"))
+        or (
+            # v2: the denominator guard its two siblings always had.
+            quality.word_count >= int(_t("garbage_rate_min_tokens"))
+            and quality.garbage_rate > float(_t("garbage_rate_ceiling"))
+        )
     )
     if recognition:
         fired.append(E2_RECOGNITION)

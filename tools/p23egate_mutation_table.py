@@ -220,6 +220,34 @@ MUTANTS: list[Mutant] = [
         ["test_a_square_frame_has_no_reading_direction_to_disagree_with",
          "test_the_square_tolerance_is_a_tolerance_not_an_equality"],
     ),
+    # --- the review's MINOR-1: furniture, and a denominator ------------------
+    Mutant(
+        "M13", "statement furniture counted as garbage again (the shape check removed)",
+        QUALITY,
+        "    if non_garbage_shape(text) is not None:\n        return False\n",
+        "",
+        [T_QUALITY],
+        ["test_statement_furniture_is_not_garbage_and_says_which_shape_it_is",
+         "test_a_sparse_furniture_page_is_measured_and_not_classified"],
+    ),
+    Mutant(
+        "M13b", "the garbage rate classified with no minimum denominator",
+        QUALITY,
+        '            quality.word_count >= int(_t("garbage_rate_min_tokens"))\n            and ',
+        "            ",
+        [T_QUALITY],
+        ["test_the_garbage_denominator_guard_measures_and_refuses_to_classify"],
+    ),
+    Mutant(
+        # A shape that widens is an excuse for the defect beside it, which is
+        # the way an exemption table goes wrong.
+        "M13c", "a named shape widened until it excuses the run it resembles",
+        QUALITY,
+        '    "masked_field": r"[X*•·]{3,20}",',
+        '    "masked_field": r"[X*•·]{3,200}",',
+        [T_QUALITY],
+        ["test_the_named_shapes_do_not_excuse_the_runs_they_resemble"],
+    ),
 ]
 
 

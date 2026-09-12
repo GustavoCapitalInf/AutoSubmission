@@ -457,3 +457,40 @@ def build_column_page(*, columns: int = 2, n_rows: int = 12) -> SyntheticPage:
 
     height = max(PAGE_HEIGHT_PT, y + TOP_MARGIN)
     return SyntheticPage(width_pt=PAGE_WIDTH_PT, height_pt=height, lines=tuple(lines))
+
+
+#: Statement FURNITURE that is long or repetitive by design: a masked account
+#: number, a fully masked field, an IBAN and a footer URL. Every one of them
+#: is what a page that was read PERFECTLY looks like, and v1's garbage rule
+#: counted all four as garbage (P23-EGATE review MINOR-1).
+FURNITURE_TOKENS = ("XXXXXXXX4821", "XXXX", "GB29NWBK60161331926819",
+                    "HTTPS://WWW.SYNTHETIC.EXAMPLE/STATEMENTS")
+
+
+def build_sparse_furniture_page() -> SyntheticPage:
+    """A legitimate SPARSE page — a continuation page, a summary page, the
+    "page 2 of 4" that every multi-page statement carries — whose few tokens
+    include the furniture above.
+
+    Two separate defects met on this page: four furniture tokens counted as
+    garbage, over a denominator of fifteen tokens with no minimum of its own.
+    It is a fixture for both, and nothing on it is misread."""
+    lines: list[SyntheticLine] = []
+    y = TOP_MARGIN
+
+    def add_line(tokens: list[str]) -> None:
+        nonlocal y
+        x = LEFT_MARGIN
+        words: list[SyntheticWord] = []
+        for token in tokens:
+            words.append(_word(token, x, y))
+            x += (len(token) + 2) * CHAR_WIDTH
+        lines.append(SyntheticLine(words=tuple(words)))
+        y += LINE_HEIGHT
+
+    add_line(["SYNTHETIC", "STATEMENT", "PAGE", "TWO"])
+    add_line(["ACCOUNT", FURNITURE_TOKENS[0], "MASKED", FURNITURE_TOKENS[1]])
+    add_line(["IBAN", FURNITURE_TOKENS[2]])
+    add_line(["SEE", FURNITURE_TOKENS[3]])
+    add_line(["CONTINUED", "OVERLEAF"])
+    return SyntheticPage(width_pt=PAGE_WIDTH_PT, height_pt=PAGE_HEIGHT_PT, lines=tuple(lines))
