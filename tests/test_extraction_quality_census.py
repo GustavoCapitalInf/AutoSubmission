@@ -217,11 +217,34 @@ def test_the_percentiles_are_nearest_rank_and_need_no_interpolation():
 # ---------------------------------------------------------------------------
 
 def test_a_production_or_historical_data_dir_is_refused_by_cell_ts_own_refusal(tmp_path, monkeypatch):
+    """The door is cell T's `refuse_production_data_dir`, imported rather than
+    re-implemented — and the refusal LEAVES this tool as a named refusal with
+    an exit code, not as a traceback (review MINOR-5). A refusal that reads
+    like a crash is the one shape an operator retries around."""
     monkeypatch.setenv("WEBAPP_DATA_DIR", str(tmp_path / "prod_cache"))
     for bad in (tmp_path / "webapp_data", tmp_path / "webapp_data_train12_cold",
                 tmp_path / "webapp_data_train12_cold" / "inner", tmp_path / "prod_cache"):
-        with pytest.raises(ValueError):
+        with pytest.raises(SystemExit, match="REFUSED") as refusal:
             census(bad, partition=PARTITION, rasters=None)
+        # the door's own words survive the translation, and the cause is not
+        # re-raised as a traceback behind it
+        assert "a research run writes to its own directory" in str(refusal.value)
+        assert refusal.value.__cause__ is None
+
+
+def test_the_door_refusal_is_the_same_exit_code_as_every_other_refusal(tmp_path, monkeypatch):
+    """Every refusal in this instrument leaves by the same door: `SystemExit`
+    with a message, which `python -m` reports as rc=1."""
+    monkeypatch.setenv("WEBAPP_DATA_DIR", str(tmp_path / "prod_cache"))
+    refusals = []
+    for call in (
+        lambda: census(tmp_path / "webapp_data", partition=PARTITION, rasters=None),
+        lambda: census(tmp_path / "nowhere", partition="has a space", rasters=None),
+    ):
+        with pytest.raises(SystemExit) as refusal:
+            call()
+        refusals.append(refusal.value)
+    assert all(isinstance(value.code, str) and value.code for value in refusals)
 
 
 def test_a_malformed_partition_id_is_refused_before_anything_is_read(tmp_path):

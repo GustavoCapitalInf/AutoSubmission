@@ -296,7 +296,14 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None) -> tuple[dic
             f"--research-partition {partition!r} must match {RESEARCH_PARTITION_PATTERN}: "
             "this instrument reads research partitions, never a production cache"
         )
-    refuse_production_data_dir(data_dir)
+    try:
+        refuse_production_data_dir(data_dir)
+    except ValueError as refusal:
+        # The DOOR is cell T's and works; the presentation was this tool's
+        # (review MINOR-5). A refusal that escapes as a traceback reads like a
+        # crash — the one shape an operator is most likely to retry around —
+        # while every other refusal here is a named message and an exit code.
+        raise SystemExit(f"REFUSED: {refusal}") from None
 
     censuses: dict[str, Census] = {}
     skipped: Counter[str] = Counter()

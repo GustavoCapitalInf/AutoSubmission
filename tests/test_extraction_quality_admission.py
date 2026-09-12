@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -179,6 +180,19 @@ def test_m6_an_extraction_quality_read_planted_in_a_scratch_router_is_caught(anc
     assert offences(source, "scratch") == []
 
 
+def tracked_python_files() -> list[str]:
+    """Every `.py` file GIT knows about, repository-relative and sorted.
+
+    The tree's own answer to "what is in it", so a net built on it cannot
+    drift from the repository as the repository grows — and it excludes the
+    untracked scratch and worktree directories for free."""
+    listing = subprocess.run(
+        ["git", "ls-files", "--", "*.py"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    ).stdout
+    return sorted(line.strip() for line in listing.splitlines() if line.strip())
+
+
 #: The only files outside the tests that may name an `eq_*` column, and why.
 #: The first four are the column's own life: the module that computes it, the
 #: row that carries it, the CSV that lists it, the census that reads it. The
@@ -201,12 +215,20 @@ def test_the_report_is_the_only_thing_outside_the_module_that_names_the_columns(
     """Nothing reads `eq_*` but the report and this cell's own instruments —
     by MEASUREMENT over the tree, not by assertion. The list is closed here,
     and every guarded layer is separately required to be absent from it."""
+    tracked = tracked_python_files()
+    # A depth-limited glob is a net with a hole in it: the previous spelling
+    # (`*/*.py` and `*/*/*.py`) missed all eleven modules at the repository
+    # ROOT — `corpus_gate.py`, `parse.py`, `analyze.py`, `batch.py` and the
+    # rest — and any module four directories deep (review MINOR-4). `git
+    # ls-files` is the tree's own answer to "what is in it", so the net cannot
+    # drift from the repository as it grows.
+    assert len(tracked) > 200, "the census scans the tree, not a handful of files"
+    assert "corpus_gate.py" in tracked, "the repository root is inside the net"
     readers: set[str] = set()
-    for path in sorted(ROOT.glob("*/*.py")) + sorted(ROOT.glob("*/*/*.py")):
-        relative = path.relative_to(ROOT).as_posix()
+    for relative in tracked:
         if relative.startswith("tests/") or relative.startswith(".claude/"):
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        text = (ROOT / relative).read_text(encoding="utf-8", errors="ignore")
         if any(column in text for column in EQ_COLUMNS):
             readers.add(relative)
     assert readers <= ALLOWED_NAMERS, sorted(readers - ALLOWED_NAMERS)
