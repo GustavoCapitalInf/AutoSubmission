@@ -398,3 +398,62 @@ def build_repeated_letter_page(*, n_rows: int = 20, tokens: int = 12, run: int =
     if any(len(token) > 20 for token in grown):
         raise ValueError("a repeated-letter fixture must stay under the length bound")
     return _defect_lines(build_ledger_page(n_rows), grown)
+
+
+#: The right edge of each money column on a multi-column page, rightmost
+#: first. 120 points apart is ~18 character widths at this font size: far
+#: wider than `right_edge_cluster_tolerance`, so two columns are two columns,
+#: and nothing like the sub-character wobble the residual is about.
+COLUMN_SPACING_PT = 120.0
+RIGHTMOST_COLUMN_EDGE = 540.0
+
+
+def build_column_page(*, columns: int = 2, n_rows: int = 12) -> SyntheticPage:
+    """A FLAWLESS statement page whose figures sit in `columns` right-aligned
+    money columns — withdrawals and deposits, or debit / credit / fees — with
+    NO running balance, so consecutive lines end in DIFFERENT columns.
+
+    Nothing on this page is a defect: every token is clean, every amount
+    parses, the line heights are uniform, the lexicon rate is the clean
+    ledger's. It exists because a residual measured over "the last money token
+    of each line" reads the distance BETWEEN these columns as one column's own
+    wobble, and fired E3 on exactly this layout at five times the ceiling
+    (P23-EGATE review MAJOR-1). Every amount is a round figure, as everywhere
+    else in this module, so no synthetic figure can coincide with a real one.
+    """
+    if columns < 1:
+        raise ValueError("a column page needs at least one money column")
+    edges = tuple(RIGHTMOST_COLUMN_EDGE - COLUMN_SPACING_PT * index
+                  for index in reversed(range(columns)))
+    lines: list[SyntheticLine] = []
+    y = TOP_MARGIN
+
+    def add_line(tokens: list[tuple[str, float]]) -> None:
+        nonlocal y
+        lines.append(SyntheticLine(words=tuple(_word(text, x, y) for text, x in tokens)))
+        y += LINE_HEIGHT
+
+    def right_aligned(text: str, edge: float) -> tuple[str, float]:
+        """The x at which `text` ENDS on `edge` — the only way to build a
+        right-aligned column with a fixed-width font."""
+        return text, edge - max(len(text), 1) * CHAR_WIDTH
+
+    headings = ["WITHDRAWAL", "DEPOSIT", "FEES", "INTEREST"]
+    add_line([("SYNTHETIC", LEFT_MARGIN), ("STATEMENT", LEFT_MARGIN + 110.0)])
+    add_line(
+        [("DATE", COLUMN_X["date"]), ("DESCRIPTION", COLUMN_X["description"])]
+        + [right_aligned(headings[index % len(headings)], edge)
+           for index, edge in enumerate(edges)]
+    )
+
+    for row in range(1, n_rows + 1):
+        amount = float(row * 10)
+        add_line([
+            (f"{SYNTHETIC_YEAR}-01-{row:02d}", COLUMN_X["date"]),
+            ("SYNTHETIC", COLUMN_X["description"]),
+            ("ROW", COLUMN_X["description"] + 100.0),
+            right_aligned(f"{amount:.2f}", edges[(row - 1) % columns]),
+        ])
+
+    height = max(PAGE_HEIGHT_PT, y + TOP_MARGIN)
+    return SyntheticPage(width_pt=PAGE_WIDTH_PT, height_pt=height, lines=tuple(lines))

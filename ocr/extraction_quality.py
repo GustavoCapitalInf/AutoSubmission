@@ -113,7 +113,14 @@ __all__ = [
 #: recorded under v1 must mean exactly what v1 measured, because the census
 #: of one configuration and the census of the next are compared only through
 #: this number.
-EXTRACTION_QUALITY_VERSION = 1
+#:
+#: v2 (P23-EGATE review closure): the right-edge residual is measured PER
+#: MONEY COLUMN rather than over the last token of each line (MAJOR-1); the
+#: garbage rate carries a minimum-denominator guard and four named token
+#: shapes are not garbage (MINOR-1); E3's orientation criterion reads the
+#: frame and takes a majority rather than unanimity (MINOR-2). Every one of
+#: those changes what a figure MEANS, so none of them may travel under v1.
+EXTRACTION_QUALITY_VERSION = 2
 
 # ---------------------------------------------------------------------------
 # the E-class vocabulary (plan §H.4, exactly)
@@ -192,6 +199,12 @@ THRESHOLDS: Mapping[str, float] = MappingProxyType({
     "line_height_cv_min_lines": 5,
     "right_edge_residual_ceiling": 1.5,
     "right_edge_residual_min_lines": 3,
+    # v2: the gap, in character widths, at which two money right-edges stop
+    # being the same COLUMN. It must sit ABOVE `right_edge_residual_ceiling`
+    # or a column wobbling up to its ceiling would split into two tidy halves
+    # and the defect would measure zero; and far BELOW a real column gap (the
+    # two-column fixture's columns are 20 character widths apart).
+    "right_edge_cluster_tolerance": 3.0,
     # E1 / ink. A pixel at or below this luminance is ink; a box is padded by
     # this many pixels before the ink inside it is counted (a tight box plus
     # antialiasing puts a rim of ink just outside the glyphs); a page with a
@@ -464,28 +477,70 @@ def _line_height_cv(page: PageEvidence) -> float | None:
     return None if mean <= 0 else pstdev(heights) / mean
 
 
-def _right_edge_residual(page: PageEvidence) -> tuple[int, float | None]:
-    """`(lines measured, residual in character widths)`.
+def _money_edges(page: PageEvidence) -> list[float]:
+    """The right edge of EVERY money token on the page, in the frame's units.
 
-    A statement's figures sit in a right-aligned column: the LAST money token
-    of each line that has one should share a right edge with its neighbours.
-    The residual is the median absolute deviation of those edges from their
-    median, divided by the page's own character width — a column of figures
-    whose last edge wanders by more than a character or so is not a column."""
+    Every one, not the last of each line: the last token of a line belongs to
+    whichever column that line happened to end in, which is the defect below."""
     by_id = {word.word_id: word for word in page.words}
     edges: list[float] = []
     for line in page.lines:
-        money = [by_id[wid] for wid in line.word_ids
-                 if wid in by_id and money_cents(by_id[wid].text) is not None]
-        if money:
-            edges.append(max(word.x1 for word in money))
-    if len(edges) < 2:
-        return len(edges), None
+        for word_id in line.word_ids:
+            word = by_id.get(word_id)
+            if word is not None and money_cents(word.text) is not None:
+                edges.append(word.x1)
+    return edges
+
+
+def _edge_clusters(edges: Sequence[float], unit: float) -> list[list[float]]:
+    """The edges grouped into COLUMNS by single linkage: a new column begins
+    wherever the gap to the previous edge is wider than the versioned
+    tolerance, expressed — like the residual itself — in the page's own
+    character widths, so the split means the same thing at any font size.
+
+    The tolerance sits deliberately above `right_edge_residual_ceiling`: a
+    column that wobbles right up to its ceiling must stay ONE column, or the
+    metric would hide the very defect it exists to report by splitting it."""
+    tolerance = float(_t("right_edge_cluster_tolerance")) * unit
+    clusters: list[list[float]] = []
+    for edge in sorted(edges):
+        if clusters and edge - clusters[-1][-1] <= tolerance:
+            clusters[-1].append(edge)
+        else:
+            clusters.append([edge])
+    return clusters
+
+
+def _right_edge_residual(page: PageEvidence) -> tuple[int, float | None]:
+    """`(edges in the worst column, that column's residual in character widths)`.
+
+    A statement's figures sit in right-aligned COLUMNS — plural, on most real
+    layouts. Measuring the dispersion of "the last money token of each line"
+    measures the distance BETWEEN two columns on any page that has two
+    (withdrawals and deposits, debit and credit, an amount beside a running
+    balance printed on only some lines), so a FLAWLESS two-column page read
+    five times the ceiling and fired E3 (P23-EGATE review MAJOR-1, reproduced
+    at 8.0 against 1.5).
+
+    So the edges are clustered into columns first, each column is measured on
+    its own, and the page is reported by its WORST column. "Is this a column
+    of figures?" is a question that only means something asked of ONE column,
+    and a column with fewer than `right_edge_residual_min_lines` edges is not
+    judged at all — it is unmeasured, never a measured zero."""
+    edges = _money_edges(page)
     unit = _char_width(page.words)
-    if not unit:
+    if len(edges) < 2 or not unit:
         return len(edges), None
-    centre = median(edges)
-    return len(edges), median([abs(edge - centre) for edge in edges]) / unit
+    minimum = int(_t("right_edge_residual_min_lines"))
+    worst_count, worst_residual = len(edges), None
+    for cluster in _edge_clusters(edges, unit):
+        if len(cluster) < minimum:
+            continue
+        centre = median(cluster)
+        residual = median([abs(edge - centre) for edge in cluster]) / unit
+        if worst_residual is None or residual > worst_residual:
+            worst_count, worst_residual = len(cluster), residual
+    return worst_count, worst_residual
 
 
 def _orientation_votes(words: Sequence[WordBox]) -> OrientationVotes | None:

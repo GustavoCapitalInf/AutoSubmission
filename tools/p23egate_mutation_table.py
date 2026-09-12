@@ -177,6 +177,31 @@ MUTANTS: list[Mutant] = [
         [T_QUALITY],
         ["test_the_module_imports_only_the_standard_library_evidence_and_layout_signals"],
     ),
+    # --- the review's MAJOR-1: the residual is measured PER MONEY COLUMN -----
+    Mutant(
+        # The pre-review behaviour, reached by making every edge one cluster:
+        # the residual becomes the distance BETWEEN a page's money columns.
+        "M11", "the right-edge residual measured over every column at once (the pre-review behaviour)",
+        QUALITY,
+        '    tolerance = float(_t("right_edge_cluster_tolerance")) * unit',
+        "    tolerance = float('inf')",
+        [T_QUALITY],
+        ["test_a_flawless_two_column_page_is_not_a_wandering_column",
+         "test_two_tidy_columns_of_the_same_page_are_two_columns_not_one_wide_one"],
+    ),
+    Mutant(
+        # The opposite failure of the same fix, and the reason the tolerance
+        # has an invariant of its own: a tolerance at or below the ceiling
+        # splits a wandering column into tidy halves, and the defect the
+        # metric exists to report measures zero.
+        "M11b", "the cluster tolerance dropped below the residual ceiling (a column splits into tidy halves)",
+        QUALITY,
+        '    "right_edge_cluster_tolerance": 3.0,',
+        '    "right_edge_cluster_tolerance": 0.5,',
+        [T_QUALITY],
+        ["test_a_single_column_that_really_wanders_still_fires_E3",
+         "test_the_cluster_tolerance_sits_above_the_residual_ceiling"],
+    ),
 ]
 
 

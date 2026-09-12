@@ -45,6 +45,7 @@ from ocr.extraction_quality import (
 )
 from tests.paddle_synthetic import (
     build_blank_page,
+    build_column_page,
     build_garbage_token_page,
     build_ledger_page,
     build_noise_page,
@@ -128,7 +129,7 @@ def test_the_threshold_table_and_the_version_are_pinned_together():
     module docstring. 2.5 recalibrates them PER CONFIGURATION from the
     census; that recalibration is a version bump by construction.
     """
-    assert EXTRACTION_QUALITY_VERSION == 1
+    assert EXTRACTION_QUALITY_VERSION == 2
     assert dict(THRESHOLDS) == {
         "min_words_for_page_metrics": 12,
         "money_rate_floor": 0.02,
@@ -144,6 +145,7 @@ def test_the_threshold_table_and_the_version_are_pinned_together():
         "line_height_cv_min_lines": 5,
         "right_edge_residual_ceiling": 1.5,
         "right_edge_residual_min_lines": 3,
+        "right_edge_cluster_tolerance": 3.0,
         "ink_dark_luminance_max": 128,
         "ink_box_pad_px": 1,
         "ink_blank_page_share": 0.0005,
@@ -652,3 +654,88 @@ def test_the_module_names_no_document_and_no_issuer():
     source = MODULE.read_text(encoding="utf-8")
     for token in ("Bank Statements", "corpus_cache", "webapp_data", ".pdf"):
         assert token not in source, token
+
+
+# ---------------------------------------------------------------------------
+# 9. the money COLUMNS (P23-EGATE review MAJOR-1)
+#
+# The residual asks "is this a column of figures?" — a question that only
+# means something asked of ONE column. Measuring the last money token of each
+# line measured the distance BETWEEN columns on every layout that has two, and
+# fired E3 on a page with no defect at all.
+# ---------------------------------------------------------------------------
+
+def money_column_page(edges, *, text: str = "10.00", token_width: float = 33.0) -> PageEvidence:
+    """The smallest page that can say what the residual does: one money token
+    per line, each ENDING at the given edge. `token_width / len(text)` is the
+    page's own character width, so an edge expressed in points converts to
+    character widths by a number the test can state."""
+    words = tuple(
+        WordBox(word_id=word_id(0, index, index), page_index=0, text=text,
+                x0=edge - token_width, y0=72.0 + index * 18.0,
+                x1=edge, y1=72.0 + index * 18.0 + 11.0, line_ref=index)
+        for index, edge in enumerate(edges)
+    )
+    return PageEvidence(
+        frame=PageFrame.pdf_points(page_index=0, width_pt=612.0, height_pt=792.0),
+        words=words,
+    )
+
+
+def test_a_flawless_two_column_page_is_not_a_wandering_column():
+    """The review's MAJOR-1, as a pin. Withdrawals and deposits, no running
+    balance, every token clean — the residual is each column's OWN wobble
+    (zero), not the 120 points between them, and nothing fires."""
+    quality = page_quality(evidence_page(build_column_page(columns=2)))
+    assert quality.right_edge_residual == pytest.approx(0.0)
+    assert quality.classes == (), quality.classes
+    assert quality.e_class == ""
+
+
+def test_a_three_column_page_is_measured_by_its_worst_column():
+    quality = page_quality(evidence_page(build_column_page(columns=3)))
+    assert quality.right_edge_residual == pytest.approx(0.0)
+    assert quality.classes == ()
+    # and the count reported is the worst COLUMN's, never every edge on the page
+    assert 0 < quality.right_edge_lines < 12
+
+
+def test_a_single_column_that_really_wanders_still_fires_E3():
+    """The other half of MAJOR-1: the metric must still do its job. Six edges
+    ten points apart — every gap well inside the clustering tolerance, so this
+    is ONE column — scatter by 2.27 character widths against a 1.5 ceiling."""
+    page = money_column_page([400.0, 410.0, 420.0, 430.0, 440.0, 450.0])
+    quality = page_quality(page)
+    assert quality.right_edge_lines == 6
+    assert quality.right_edge_residual == pytest.approx(15.0 / 6.6)
+    assert quality.right_edge_residual > THRESHOLDS["right_edge_residual_ceiling"]
+    assert "E3" in quality.classes
+
+
+def test_two_tidy_columns_of_the_same_page_are_two_columns_not_one_wide_one():
+    """The clustering itself, at the smallest scale: two groups 100 points
+    apart, each perfectly aligned. Measured as one distribution the residual
+    would be 50 points — 7.6 character widths, five times the ceiling."""
+    page = money_column_page([400.0, 400.0, 400.0, 500.0, 500.0, 500.0])
+    quality = page_quality(page)
+    assert quality.right_edge_residual == pytest.approx(0.0)
+    assert quality.right_edge_lines == 3
+    assert "E3" not in quality.classes
+
+
+def test_a_column_with_too_few_edges_is_unmeasured_never_a_measured_zero():
+    """`right_edge_residual_min_lines` applies PER COLUMN. Two edges in one
+    column and two in another is not two columns of figures; it is a page
+    this metric has nothing to say about."""
+    page = money_column_page([400.0, 400.0, 500.0, 500.0])
+    quality = page_quality(page)
+    assert quality.right_edge_residual is None
+    assert "E3" not in quality.classes
+
+
+def test_the_cluster_tolerance_sits_above_the_residual_ceiling():
+    """A structural invariant, not a value judgement: if the tolerance were at
+    or below the ceiling, a column wobbling up to its ceiling would split into
+    two tidy halves and the defect would measure zero — the metric would hide
+    exactly what it exists to report."""
+    assert THRESHOLDS["right_edge_cluster_tolerance"] > THRESHOLDS["right_edge_residual_ceiling"]
