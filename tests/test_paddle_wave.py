@@ -128,8 +128,15 @@ def test_m10_the_wave_runner_never_imports_the_rung_or_calls_read_document():
     }
     assert "read_document" not in called
     assert "parse_statement" not in called
+    # …and the MODULE PATH never appears as text either, which is what kills
+    # the `importlib.import_module("ocr.paddle_rung")` dodge the AST checks
+    # above cannot see. It is the module that is forbidden, not the word: the
+    # discovery row has a COLUMN called `paddle_rung` (the rung's disposition
+    # for that document) and reading a column is not importing a module — the
+    # refusal-reason mapping reads exactly that column, and must.
     source = WAVE_TOOL.read_text(encoding="utf-8")
-    assert "paddle_rung" not in source
+    assert "ocr.paddle_rung" not in source
+    assert "import paddle_rung" not in source
 
 
 def test_the_wave_tool_never_names_the_paddle_capability_flag():
@@ -216,6 +223,34 @@ def test_two_configurations_in_one_research_directory_are_refused_not_guessed(tm
     _stored_evidence_record(cache, sha, "key-of-configuration-three", "d" * 64)
     with pytest.raises(WaveRefused, match="ambiguous research data directory"):
         recorded_evidence_for(cache, sha)
+
+
+@pytest.mark.parametrize("row,expected,why", [
+    ({"paddle_refusal_reason": "paddle_evidence_malformed", "paddle_rung": "failed",
+      "source_path": "native", "error_type": "RuntimeError"},
+     "paddle_evidence_malformed", "the rung's own closed reason wins over everything"),
+    ({"paddle_rung": "failed", "source_path": "local_tesseract", "error_type": "RuntimeError"},
+     "paddle_rung_failed_unnamed",
+     "another rung read the document, so error_type is the DOCUMENT's outcome, not Paddle's"),
+    ({"paddle_rung": "failed", "source_path": "none", "error_type": "PaddleTransportError"},
+     "PaddleTransportError", "the rung's failure WAS the document's: error_type is the cause"),
+    ({"paddle_rung": "", "source_path": "native", "error_type": "RuntimeError"},
+     "paddle_not_attempted", "no trigger reached the rung: not a Paddle outcome at all"),
+    ({"paddle_rung": "research", "source_path": "paddle", "outcome_reason": "withheld_adb"},
+     "withheld_adb", "the rung ran and left no evidence: the row's own outcome"),
+    ({"paddle_rung": "research", "source_path": "paddle"}, "unrecorded", "nothing known, said so"),
+])
+def test_the_refusal_reason_is_a_paddle_reason_not_the_documents_outcome(row, expected, why):
+    """The U755 run's finding, as a test. `error_type` is not a Paddle column:
+    when the rung fails and the ladder falls closed to another rung, the runner
+    rebinds it to the DOCUMENT's outcome — for an unresolved statement,
+    `RuntimeError` ("no deterministic parser matched"). Reading it as the
+    Paddle cause reported 318 unresolved documents as a `RuntimeError` bucket
+    that said nothing whatever about Paddle. It IS the cause in exactly one
+    shape: the rung's failure was also the document's, so nothing rebound it."""
+    from tools.paddle_wave import _refusal_reason
+
+    assert _refusal_reason(row) == expected, why
 
 
 def test_m9_no_cost_rate_price_or_billing_token_anywhere_in_the_tool():

@@ -956,13 +956,44 @@ class WaveLog:
 
 
 def _refusal_reason(row: Mapping[str, str]) -> str:
-    """The reason THIS document produced no evidence, from the row's own
-    closed vocabularies, most specific first. Never a message, never a path."""
-    for name in ("paddle_refusal_reason", "error_type", "outcome_reason"):
-        value = (row.get(name) or "").strip()
-        if value:
-            return value
-    return "unrecorded"
+    """The reason THIS document produced no PADDLE evidence, from the row's own
+    closed vocabularies. Never a message, never a path.
+
+    The U755 run taught this function what a row actually means. `error_type`
+    is NOT a Paddle column: when the rung fails and the ladder falls closed to
+    another rung, `discovery/runner.py` rebinds `error_type` to the DOCUMENT's
+    own outcome further down (for an unresolved statement, typically
+    `RuntimeError`, i.e. "no deterministic parser matched"). Reading it as the
+    Paddle cause turned 318 unresolved documents into a `RuntimeError` bucket
+    that said nothing about Paddle at all. `error_type` IS the Paddle cause in
+    exactly one shape — when the rung's failure was also the document's, so no
+    other rung produced a read (`source_path` is `none`) and nothing rebinds
+    it. Anywhere else a failed rung without its own closed reason is named for
+    what is actually known: it failed, and the row kept no reason for it.
+
+    The vocabulary, most specific first:
+    * the rung's own `paddle_refusal_reason` (`paddle_evidence_malformed`,
+      `remote_customer_data_refused`, `paddle_runtime_mismatch`, …);
+    * `paddle_rung_failed_unnamed` — it failed, another rung read the
+      document, and the failure's class did not survive on the row;
+    * the terminal `error_type` when the document failed with the rung;
+    * `paddle_not_attempted` — no research trigger ever reached the rung, so
+      "no evidence" is not a Paddle outcome at all;
+    * the row's `outcome_reason`, then `unrecorded`, for a rung that ran and
+      still left no evidence.
+    """
+    reason = (row.get("paddle_refusal_reason") or "").strip()
+    if reason:
+        return reason
+    rung = (row.get("paddle_rung") or "").strip()
+    error = (row.get("error_type") or "").strip()
+    if not rung:
+        return "paddle_not_attempted"
+    if rung.endswith("failed") or "refused" in rung:
+        if (row.get("source_path") or "").strip() in ("", "none"):
+            return error or "paddle_rung_failed_unnamed"
+        return "paddle_rung_failed_unnamed"
+    return error or (row.get("outcome_reason") or "").strip() or "unrecorded"
 
 
 def _discovery_argv(
