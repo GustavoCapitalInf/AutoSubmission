@@ -1115,3 +1115,33 @@ def test_the_digest_is_derived_from_both_tables_and_not_decorative():
         widened = dict(NON_GARBAGE_SHAPES)
         widened[name] = widened[name] + "?"
         assert digest_of(base[0], widened) != calibration_digest(), name
+
+
+# ---------------------------------------------------------------------------
+# 13. E1's known false positive, recorded rather than tuned (review MINOR-3)
+# ---------------------------------------------------------------------------
+
+def test_a_logo_block_fires_E1_and_that_is_a_recorded_calibration_limit():
+    """MINOR-3. E1 is a share of INK — the plan's own definition — so ordinary
+    non-text ink dominates it on a sparse page: a logo, a shaded header band, a
+    signature panel, ink every real statement carries and no word box covers.
+
+    This is pinned as a KNOWN false positive rather than fixed. The threshold
+    is not moved, because moving a threshold without real evidence is exactly
+    the mistake Ruling B exists to prevent and exactly what `ALNUM_DENSITY_
+    FLOOR` documents; the owed census over real evidence is what says where
+    this ceiling belongs. If this test ever fails, the calibration changed and
+    the record must change with it."""
+    from tools.p23egate_synthetic_table import with_logo
+
+    page = build_ledger_page(ROWS)
+    clean = page_quality(evidence_page(page), raster=rendered_raster(page))
+    assert clean.ink_outside_boxes < THRESHOLDS["ink_outside_boxes_ceiling"]
+    assert clean.classes == ()
+
+    logo = page_quality(evidence_page(page), raster=with_logo(rendered_raster(page)))
+    assert logo.ink_outside_boxes > THRESHOLDS["ink_outside_boxes_ceiling"]
+    assert logo.classes == ("E1",)
+    # the page's WORDS are identical: nothing about the extraction changed
+    assert logo.word_count == clean.word_count
+    assert logo.money_rate == clean.money_rate and logo.lexicon_rate == clean.lexicon_rate

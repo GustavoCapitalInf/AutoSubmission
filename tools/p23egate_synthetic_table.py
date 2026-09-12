@@ -32,10 +32,12 @@ from ocr.extraction_quality import (  # noqa: E402
 )
 from tests.paddle_synthetic import (  # noqa: E402
     build_blank_page,
+    build_column_page,
     build_garbage_token_page,
     build_ledger_page,
     build_noise_page,
     build_repeated_letter_page,
+    build_sparse_furniture_page,
     keep_first_lines,
     rotate_page_90,
     substitute_digit_glyphs,
@@ -66,6 +68,24 @@ def raster_of(page, *, dpi: int = 100) -> RasterGray:
     return RasterGray(width=image.width, height=image.height, pixels=image.tobytes())
 
 
+def with_logo(raster: RasterGray, *, size: int = 90, x: int = 20, y: int = 20) -> RasterGray:
+    """A raster plus one solid block of ink that carries no word box — a logo,
+    a shaded header band, a signature panel: ink every real statement has."""
+    pixels = bytearray(raster.pixels)
+    for row in range(y, min(y + size, raster.height)):
+        start = row * raster.width
+        for column in range(x, min(x + size, raster.width)):
+            pixels[start + column] = 0
+    return RasterGray(width=raster.width, height=raster.height, pixels=bytes(pixels))
+
+
+def case_raster(rendered):
+    """`None`, a page to rasterise, or a callable that builds the raster."""
+    if rendered is None:
+        return None
+    return rendered() if callable(rendered) else raster_of(rendered)
+
+
 def main() -> int:
     clean = build_ledger_page(ROWS)
     cases = [
@@ -74,7 +94,7 @@ def main() -> int:
         ("blank", build_blank_page(), build_blank_page(), "word_count", None, "== 0"),
         ("partly covered", keep_first_lines(clean, 6), clean, "ink_outside_boxes",
          "ink_outside_boxes_ceiling", "above"),
-        ("90 degrees", rotate_page_90(clean), None, "orientation_votes", "orientation_unanimous_share", "above"),
+        ("90 degrees", rotate_page_90(clean), None, "orientation_votes", "orientation_majority_share", "above"),
         ("noise", build_noise_page(), None, "lexicon_rate", "lexicon_rate_floor", "below"),
         ("digit-glyph substitution", substitute_digit_glyphs(clean), None, "money_rate",
          "money_rate_floor", "below"),
@@ -82,6 +102,25 @@ def main() -> int:
         ("repeated-letter runs", build_repeated_letter_page(), None, "garbage_rate",
          "garbage_rate_ceiling", "above"),
         ("clean ledger, page-integrity flag set", clean, None, "truncated", None, "True"),
+        # --- pages that are NOT defects, carried in the same table ----------
+        # Two layouts the review found firing E3 with nothing wrong with them,
+        # now measured per money column (MAJOR-1), and a sparse page whose
+        # furniture v1 counted as garbage (MINOR-1). They belong here because
+        # a defect table that only shows defects cannot show a FALSE POSITIVE
+        # being closed.
+        ("two money columns (no defect)", build_column_page(columns=2), None,
+         "right_edge_residual", "right_edge_residual_ceiling", "above"),
+        ("three money columns (no defect)", build_column_page(columns=3), None,
+         "right_edge_residual", "right_edge_residual_ceiling", "above"),
+        ("sparse page of furniture (no defect)", build_sparse_furniture_page(), None,
+         "garbage_rate", "garbage_rate_ceiling", "above"),
+        # And one this cell does NOT close: E1 is a share of INK, so ordinary
+        # non-text ink dominates it on a sparse page. Named, measured, and
+        # left alone — a threshold moved without real evidence is the mistake
+        # Ruling B exists to prevent (review MINOR-3).
+        ("clean ledger + a logo block (KNOWN FALSE POSITIVE)", clean,
+         lambda: with_logo(raster_of(build_ledger_page(ROWS))),
+         "ink_outside_boxes", "ink_outside_boxes_ceiling", "above"),
     ]
 
     print(f"# P23-EGATE synthetic defect table (EXTRACTION_QUALITY_VERSION {EXTRACTION_QUALITY_VERSION})")
@@ -89,7 +128,7 @@ def main() -> int:
     print("| page | metric it targets | measured | threshold | E-class | every class that fired |")
     print("|---|---|---|---|---|---|")
     for name, page, rendered, metric, key, direction in cases:
-        raster = raster_of(rendered) if rendered is not None else None
+        raster = case_raster(rendered)
         quality = page_quality(evidence_page(page), raster=raster,
                                truncated=name.endswith("page-integrity flag set"))
         if metric is None:
@@ -106,14 +145,16 @@ def main() -> int:
               f"{quality.e_class or '(none)'} | {', '.join(quality.classes) or '(none)'} |")
 
     print()
-    print("Every other metric on every defect page stays inside its threshold: the pages are")
-    print("transforms of the same clean ledger, so the defect is the only difference.")
+    print("Every other metric on every DEFECT page stays inside its threshold: the pages are")
+    print("transforms of the same clean ledger, so the defect is the only difference. The rows")
+    print("marked (no defect) fire nothing at all, which is what closes the review's MAJOR-1 and")
+    print("MINOR-1; the row marked KNOWN FALSE POSITIVE fires E1 and is recorded, not fixed.")
     print()
     print("| page | word_count | money_rate | lexicon_rate | garbage_rate | line_height_cv "
           "| right_edge_residual | ink_outside_boxes |")
     print("|---|---|---|---|---|---|---|---|")
     for name, page, rendered, *_ in cases:
-        raster = raster_of(rendered) if rendered is not None else None
+        raster = case_raster(rendered)
         quality = page_quality(evidence_page(page), raster=raster)
         cells = []
         for metric in ("word_count", "money_rate", "lexicon_rate", "garbage_rate",
