@@ -45,7 +45,8 @@ attached it, and otherwise — ``--native-data-dir`` with ``--native-run`` —
 from the production run of record's own partition, read-only. A document
 with only one reading is COUNTED as unpaired and contributes to the geometry
 census alone.
-Artifact envelopes and evidence document identities must agree with the
+The shared exact-tuple selector refuses duplicate indexed candidates before
+reading an artifact. Artifact envelopes and evidence document identities must agree with the
 selected cache record, and one settings key cannot combine conflicting
 extractor/model/runtime identities. A population with no canonical evidence
 pages refuses rather than presenting an empty measurement as a success.
@@ -63,6 +64,7 @@ from pathlib import Path
 
 from evidence.canonical import EvidenceError, from_json, to_json
 from evidence.native import NATIVE_EXTRACTOR_ID
+from telemetry.run_of_record import RunOfRecordError, select_artifact
 from layout.agreement import (
     AGREEMENT_VERSION,
     IOU_THRESHOLD,
@@ -124,14 +126,14 @@ class _Partition:
         return [str(row[0]).upper() for row in rows]
 
     def document(self, sha: str) -> dict | None:
-        row = self.conn.execute(
-            "SELECT artifact_path FROM artifact_cache WHERE stage='ocr' AND settings_key=? "
-            "AND input_sha256=?", (self.key, sha),
-        ).fetchone()
-        if row is None:
+        try:
+            artifact_path = select_artifact(self.conn, "ocr", sha, self.key)
+        except RunOfRecordError:
+            raise CensusRefused("refusing ambiguous indexed artifacts for one document and settings key") from None
+        if artifact_path is None:
             return None
         try:
-            payload = json.loads((self.root / str(row[0])).read_text(encoding="utf-8"))
+            payload = json.loads((self.root / artifact_path).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
         return _document_from_payload(payload, sha, self.key)

@@ -1080,6 +1080,58 @@ def test_the_census_refuses_empty_or_misidentified_evidence(tmp_path, ledger, tr
               "--settings-key", key, "--shas", str(population)])
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_the_census_refuses_duplicate_index_rows_in_either_order(tmp_path, reverse):
+    """The cache index's primary key does not make its selection tuple unique.
+    A malformed index must refuse even when either candidate is readable."""
+    import hashlib
+    import json
+    import sqlite3
+
+    from tools.agreement_census import CensusRefused, _Partition
+
+    sha, key = "A" * 64, "B" * 64
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    candidates = [("left", {"side": "left"}), ("right", {"side": "right"})]
+    if reverse:
+        candidates.reverse()
+    for name, document in candidates:
+        (root / (name + ".json")).write_text(json.dumps({
+            "stage": "ocr", "input_sha256": sha, "settings_key": key,
+            "artifact": {"document": document},
+        }), encoding="utf-8")
+    database = tmp_path / "webapp.db"
+    with sqlite3.connect(database) as conn:
+        conn.execute("CREATE TABLE artifact_cache (stage TEXT, cache_key TEXT, "
+                     "input_sha256 TEXT, settings_key TEXT, artifact_path TEXT, "
+                     "PRIMARY KEY(stage, cache_key))")
+        conn.execute("INSERT INTO artifact_cache VALUES (?, ?, ?, ?, ?)",
+                     ("ocr", candidates[0][0], sha, key, candidates[0][0] + ".json"))
+    conn.close()
+    partition = _Partition(tmp_path, key)
+    try:
+        assert partition.document(sha) == candidates[0][1]
+        assert partition.document("C" * 64) is None
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            partition.conn.execute("DELETE FROM artifact_cache")
+    finally:
+        partition.close()
+    with sqlite3.connect(database) as conn:
+        conn.execute("INSERT INTO artifact_cache VALUES (?, ?, ?, ?, ?)",
+                     ("ocr", candidates[1][0], sha, key, candidates[1][0] + ".json"))
+    conn.close()
+    before = hashlib.sha256(database.read_bytes()).hexdigest()
+    partition = _Partition(tmp_path, key)
+    try:
+        with pytest.raises(CensusRefused, match="ambiguous indexed artifacts") as refusal:
+            partition.document(sha)
+        assert sha not in str(refusal.value) and key not in str(refusal.value)
+    finally:
+        partition.close()
+    assert hashlib.sha256(database.read_bytes()).hexdigest() == before
+
+
 def test_the_census_checks_for_another_evidence_key_beyond_the_first_twenty_five_records(tmp_path, ledger, truth):
     from types import SimpleNamespace
     from tools.agreement_census import CensusRefused, _key_by_scan

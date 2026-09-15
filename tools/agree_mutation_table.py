@@ -1,4 +1,4 @@
-"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M24 plus
+"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M25 plus
 the review's own FR1 / FR3 / FR4), applied as real textual edits and run for
 real.
 
@@ -306,6 +306,15 @@ MUTANTS: list[Mutant] = [
         [T_AGREE],
         ["test_the_census_checks_for_another_evidence_key_beyond_the_first_twenty_five_records"],
     ),
+    Mutant(
+        "M25", "the census chooses the first of two indexed artifacts for one exact tuple",
+        CENSUS,
+        '            artifact_path = select_artifact(self.conn, "ocr", sha, self.key)\n',
+        '            row = self.conn.execute("SELECT artifact_path FROM artifact_cache WHERE stage=\'ocr\' AND input_sha256=? AND settings_key=?", (sha, self.key)).fetchone()\n'
+        '            artifact_path = str(row[0]) if row is not None else None\n',
+        [T_AGREE],
+        ["test_the_census_refuses_duplicate_index_rows_in_either_order"],
+    ),
 ]
 
 
@@ -413,7 +422,7 @@ def main(argv: list[str] | None = None) -> int:
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     table = "\n".join([
-        f"# P23-AGREE mutation table (M1-M24, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
+        f"# P23-AGREE mutation table (M1-M25, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
         "| # | mutant | file | killer | result |", "|---|---|---|---|---|",
         *rows, "",
         f"unkilled: {', '.join(unkilled) if unkilled else 'none'}",
