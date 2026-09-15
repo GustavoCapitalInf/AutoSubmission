@@ -225,6 +225,23 @@ MUTANTS: list[Mutant] = [
         [T_WAVE],
         ["test_the_temp_image_count_is_scoped_to_this_session"],
     ),
+    Mutant(
+        "M15", "process inspection counts its shell command as a worker",
+        WAVE,
+        "    '$1 ~ /^python([0-9]+([.][0-9]+)*)?$/ && $3 == \"{worker}\" '\n"
+        "    '{{n++}} END {{print n+0}}'",
+        "    '/paddle_worker[.]py/ {{n++}} END {{print n+0}}'",
+        [T_WAVE],
+        ["test_retention_process_count_distinguishes_the_inspector_from_the_worker"],
+    ),
+    Mutant(
+        "M16", "process inspection ignores a real live worker",
+        WAVE,
+        "    '{{n++}} END {{print n+0}}'",
+        "    '{{n++}} END {{print 0}}'",
+        [T_WAVE],
+        ["test_retention_process_count_distinguishes_the_inspector_from_the_worker"],
+    ),
 ]
 
 

@@ -580,6 +580,33 @@ def test_the_attestation_passes_only_on_a_clean_stopped_instance():
     assert "paddle_worker.py" in runner.seen[0][-1]
 
 
+@pytest.mark.parametrize("running", [False, True])
+def test_retention_process_count_distinguishes_the_inspector_from_the_worker(running):
+    from tools.paddle_wave import _WORKER_PROCESS_AWK
+    from tools.paddle_vast import REMOTE_WORKER_PATH
+
+    awk = shutil.which("awk")
+    if awk is None and os.name == "nt":
+        candidate = Path("C:/Program Files/Git/usr/bin/awk.exe")
+        if candidate.exists():
+            awk = str(candidate)
+    if awk is None:
+        pytest.skip("the remote inspection uses POSIX awk")
+    # Shell command text and an unrelated Python script are not worker processes.
+    processes = (
+        f"sh sh -c find /runtime ! -name paddle_worker.py {REMOTE_WORKER_PATH}\n"
+        f"bash bash -c echo {REMOTE_WORKER_PATH}\n"
+        "python python /runtime/unrelated.py\n"
+    )
+    if running:
+        processes += f"python3.12 /runtime/bin/python3.12 {REMOTE_WORKER_PATH}\n"
+    result = subprocess.run(
+        [awk, _WORKER_PROCESS_AWK.format(worker=REMOTE_WORKER_PATH)],
+        input=processes, text=True, capture_output=True, check=True,
+    )
+    assert int(result.stdout.strip()) == int(running)
+
+
 @pytest.mark.parametrize("output,why", [
     ("PROC=1\nPIDFILE=0\nIMAGES=0\nREQUESTS=0\nOTHER=0\n", "a worker still running"),
     ("PROC=0\nPIDFILE=1\nIMAGES=0\nREQUESTS=0\nOTHER=0\n", "a pidfile left behind"),

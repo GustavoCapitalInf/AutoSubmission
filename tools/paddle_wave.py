@@ -679,13 +679,22 @@ class RetentionAttestation:
         return record
 
 
+# Match the executable and script argument, not arbitrary text in an argv.
+# The inspection shell itself contains the worker filename in its find command;
+# grepping ps args therefore counts the inspector as a worker even when idle.
+# cmd_start launches the interpreter followed directly by REMOTE_WORKER_PATH.
+_WORKER_PROCESS_AWK = (
+    '$1 ~ /^python([0-9]+([.][0-9]+)*)?$/ && $3 == "{worker}" '
+    '{{n++}} END {{print n+0}}'
+)
+
 #: The remote inspection, as ONE `sh` command producing `KEY=<integer>` lines.
 #: It counts; it never lists. A name from the instance's filesystem must not
 #: reach a log on this machine, and a count answers the question the
 #: attestation actually asks.
 _ATTESTATION_COMMAND = (
     "D={directory}; "
-    "echo PROC=$(ps -eo args 2>/dev/null | grep -c '[p]addle_worker.py'); "
+    "echo PROC=$(ps -eo comm=,args= 2>/dev/null | awk '" + _WORKER_PROCESS_AWK + "'); "
     "echo PIDFILE=$([ -f $D/worker.pid ] && echo 1 || echo 0); "
     "echo IMAGES=$(find $D -type f "
     "\\( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.pdf' -o -name '*.b64' "
@@ -757,7 +766,7 @@ def attest_retention(
     if runner is None:
         runner = subprocess.run
     command = _ATTESTATION_COMMAND.format(
-        directory=vast.REMOTE_WORKER_DIR, since=int(since_epoch),
+        directory=vast.REMOTE_WORKER_DIR, worker=vast.REMOTE_WORKER_PATH, since=int(since_epoch),
     )
 
     def refused(error: str) -> RetentionAttestation:
