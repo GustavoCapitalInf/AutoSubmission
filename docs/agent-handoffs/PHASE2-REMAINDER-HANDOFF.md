@@ -16,9 +16,9 @@ the population files were reproduced read-only and ratified unchanged (train `c7
 | cell | current frozen source | recovered / completed this continuation | still owed |
 |---|---|---|---|
 | W | `7897518` | retention and report findings closed independently; optional lossless SSH compression; 123 targeted tests; all 24 mutants killed; suite 9,929 passed / 48 skipped / 39 deselected / zero failed; guards 277; preserved conformance, gate, corpus and full-population replay; first live SLICE session and passing retention attestation | remaining SLICE, final report/W3/scans/review |
-| E | test tip `4bed171`, implementation `a44de13` | source findings closed independently; 119 targeted tests / 1 platform skip; synthetic/fake v2; 36 mutants killed; CTRL census | U755 refused a cross-runtime duplicate: bind the original recorded settings key without weakening guards; changed reader proof, U755 census, suite, W3/scans/final review |
-| X | `43958ab`, reader closure being prepared | actual Phase 2.2 native reader re-derived all 3,380 hashes, zero moved; independent source probes green; suite at unchanged production source 9,911 passed / 48 skipped / 39 deselected / zero failed | exact original research key after SLICE added a second key; duplicate-index refusal; affected tests/mutants, real census, W3/scans/final review |
-| P | `57cc715`, executable `e149719` | all five approved callers fenced, original definitions preserved; independent source review green; historical four-fence chunks retained with their original scope | NEW seven-chunk five-fence union, changed classifier census, remaining mutants/floor, W3/scans/final review |
+| E | executable `9371781`; guard-only closure in progress | original-key reader independently reviewed; 136 targeted tests / 1 platform skip; all 45 distinct mutations killed; corrected CTRL and U755 censuses; preserved production proofs | suite had one checksum-related hardcode-guard false positive and 9,939 passing tests; narrow guard correction, affected proof, W3/scans/final review |
+| X | `cfb4943`, executable `9b10d8c` | actual Phase 2.2 native reader re-derived all 3,380 hashes, zero moved; independent source probes green; preserved suite 9,911 passed / 48 skipped / 39 deselected / zero failed; corrected 126 targeted tests and 11 affected mutants pass; original-key CTRL census passes | original-key U755 census active, guards, W3/scans/final review |
+| P | `57cc715`, executable `e149719` | all five approved callers fenced, original definitions preserved; independent source review green; targeted 754 passed / 3 skipped; NEW five-fence chunk 1 preserves all 504 validated payloads identically, zero movement | six remaining NEW five-fence chunks, changed classifier census, remaining mutants/floor, W3/scans/final review |
 
 The initial X real-evidence census resolved zero Paddle records because research provenance omits
 the production Paddle key. Its exit-zero output is **not calibration evidence**. The closure requires
@@ -31,12 +31,26 @@ unnamed rung failure 349, invalid PDF 16, transport error 10. Lost historical ex
 unnamed. Earlier failed attestations remain in the record; an idle clean probe is not a live session
 attestation.
 
-**Active work at 18:22 UTC:** P's bounded five-fence driver PID 25456 started at 18:19:48: targeted
-tests then new union chunk 1 only, followed by release and persistent pause. E's metadata diagnostic
-has completed and released; E/X are investigating the recorded-key boundary without a competing
-heavy waiter. W's live session is complete and its worker/tunnel are down. After the bounded P window,
-root schedules E/X's changed closure proofs, then the remaining SLICE. Read the current private logs
-and lock holder before acting; never infer a process state solely from this snapshot.
+**Active work at 19:04 UTC:** X driver PID 27424 owns the proof window and is running its corrected
+U755 census. Its first targeted attempt failed in three new fixture constructors before exercising
+the reader; the test-only canonical-digest resets are committed at `cfb4943`, and the fresh targeted
+run passes all 126 tests. No failed baseline was scored as a mutation kill. E is preparing a narrow
+test-only correction: the account-number guard matched digits inside the recorded calibration
+checksum. The correction must verify that named digest and mask only its AST string span, with
+negative controls for forged digests and neighboring account-like literals. Production metrics and
+the recorded checksum stay unchanged. Preserve the suite's 9,939 passing tests and the failed log;
+prove the changed guard instead of repeating unrelated green tests. E has no competing waiter.
+After X's final release comes E's short guard/scans window, then W's remaining live SLICE session.
+P remains persistently paused after its successful first five-fence chunk. W's worker and tunnel are
+down. Read current private logs and the lock holder before acting; this snapshot is not process proof.
+
+The recorded-key boundary is resolved without discarding either runtime. Original CTRL and U755
+rows bind respectively 90 and 341 distinct evidence documents to the same exact indexed key;
+later SLICE provenance remains separate. E's corrected CTRL measures 90 documents / 668 pages,
+with all 64 numerical table/header/count rows exactly equal to its preserved baseline. It has 664
+hash-verified rasters and four absent rasters. E's U755 measures 341 documents / 2,331 pages, all
+rasters hash-verified; 414 selected documents have no measurable evidence under that original key.
+Missing pixels are unmeasured, never zero coverage. Both censuses exit zero.
 
 Compression tests preserved every original byte. Shared-tunnel HTTP concurrency improved by only
 4.55%. A balanced two-tunnel follow-up then measured serial 48.653 / 88.626 seconds versus parallel
