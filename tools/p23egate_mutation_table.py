@@ -50,6 +50,7 @@ T_QUALITY = "tests/test_extraction_quality.py"
 T_ADMISSION = "tests/test_extraction_quality_admission.py"
 T_CENSUS = "tests/test_extraction_quality_census.py"
 T_DENOM = "tests/test_two_denominators.py"
+T_GUARD = "tests/test_no_statement_hardcodes.py"
 
 
 @dataclass
@@ -454,6 +455,38 @@ MUTANTS: list[Mutant] = [
         '    if not censuses:',
         [T_CENSUS],
         ["test_indexed_cli_refuses_wrong_key_and_empty_canonical_pages"],
+    ),
+    Mutant(
+        "C20", "the account guard accepts a forged calibration digest",
+        T_GUARD,
+        '            or value.value != expected):',
+        '            or False):',
+        [T_GUARD],
+        ["test_ocr_account_guard_rejects_forged_or_malformed_digest_values"],
+    ),
+    Mutant(
+        "C21", "the account guard hides neighboring literals on a digest line",
+        T_GUARD,
+        '            line = line[:start] + " " * (stop - start) + line[stop:]',
+        '            line = ""',
+        [T_GUARD],
+        ["test_ocr_account_guard_preserves_neighboring_literals_on_the_same_line"],
+    ),
+    Mutant(
+        "C22", "the account guard classifies an inactive version digest",
+        T_GUARD,
+        '              and key.value == EXTRACTION_QUALITY_VERSION]',
+        '              and True]',
+        [T_GUARD],
+        ["test_ocr_account_guard_keeps_inactive_version_values_scanned"],
+    ),
+    Mutant(
+        "C23", "the account guard classifies the digest in an unrelated module",
+        T_GUARD,
+        '    if path.resolve() != (OCR_DIR / "extraction_quality.py").resolve():',
+        '    if False:',
+        [T_GUARD],
+        ["test_ocr_account_guard_keeps_wrong_location_values_scanned"],
     ),
 ]
 
