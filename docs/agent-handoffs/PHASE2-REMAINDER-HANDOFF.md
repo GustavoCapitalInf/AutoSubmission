@@ -31,14 +31,15 @@ unnamed rung failure 349, invalid PDF 16, transport error 10. Lost historical ex
 unnamed. Earlier failed attestations remain in the record; an idle clean probe is not a live session
 attestation.
 
-**Active work at 19:52 UTC:** W's hidden driver PID 24972 owns the proof window, acquired at
+**Active work at 20:42 UTC:** W's hidden driver PID 24972 owns the proof window, acquired at
 19:25:40. Endpoint identity, deployment and availability checks passed; the worker declared retention
 disabled. The final live SLICE chunk started at 19:26:19 with **72 pending documents** (70 unattempted
 plus two earlier refusals), using lossless SSH compression. It is one pass, not a loop to force every
 refusal into evidence. Do not restart it. The explicitly associated child directory is
 `research_runs/SLICE/2026-09-15T192623.292399-0000-60a4782c` under the private logs root. A bounded,
-read-only telemetry snapshot at 19:44 observed 10 distinct selected members; this is provisional,
-not final state or retention evidence. Final `chunk.end`, actual child exit and session attestation
+read-only telemetry snapshot at 20:37 observed 43 distinct selected members: 36 with Paddle evidence
+identity and seven other observations. This is provisional, not final state or retention evidence.
+Final `chunk.end`, actual child exit and session attestation
 remain owed. E/X have released and have no waiter; P stays paused after its first five-fence chunk.
 Read current logs and the lock holder before acting; this snapshot is not process proof.
 
@@ -58,6 +59,21 @@ cache-only source-bound inputs, a separate research analysis sink, an observer o
 structurer call, and a blind two-process CTRL comparison. It names exact ownership and permits only
 three supported raw-reason B mappings; absent LayoutModel stages remain unmeasured. This does not
 launch B. Its implementation still starts only at root's named tip after W/E/X compose.
+
+The `P23-CONFIG.md` card's bounded clarification was adopted in `e59521e`: explicitly threaded
+research configuration identity, production key/pin preservation, static-backend verification,
+source-bound study subsets, and limited orientation geometry with closed refusal outside the
+independently proved subset. Its required inverse order restores the crop/line association before
+inverting document rotation. V is not launched; synthetic, mutation and live proofs remain owed.
+
+Final W report/scan orchestration is prepared and source-reviewed under the private logs root.
+It remains unexecuted while W owns the window. The sequence is live cleanup and actual exit, one
+final report at the frozen executable tip, one W3 append commit, an explicit frozen output manifest,
+then the three final scans and independent review at the actual final W tip. Encoding conversion is
+lossless and BOM-directed; original bytes remain preserved and hash-bound. No scanner exclusion or
+population changes. The output inventory includes historical CTRL/U755 derived outputs as well as
+the current SLICE outputs; earlier partial scans do not attest later changed bytes. Final scan
+counts belong in the root review, avoiding a circular W3 edit and repeated scan solely for its text.
 
 The recorded-key boundary is resolved without discarding either runtime. Original CTRL and U755
 rows bind respectively 90 and 341 distinct evidence documents to the same exact indexed key;
