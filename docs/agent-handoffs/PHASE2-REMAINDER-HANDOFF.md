@@ -1,5 +1,59 @@
 # PHASE 2 REMAINDER — THE HANDOFF TO THE NEXT LEAD ORCHESTRATOR (handoff #2, written 2026-09-15 by Ocean)
 
+## Current execution update — 2026-09-15 continuation
+
+**This update supersedes the historical tips, proof debts and idle-process snapshot below.** The
+original handoff remains as the evidence of where execution resumed. Recover current process and
+log state before starting a driver. The private checkpoint is
+`discovery_reports/train13-logs/ROOT-RESUME-20260915.md`; cell drivers and durable child exits are
+under the sibling `p23wave`, `p23egate`, `p23agree` and `p23precision` directories.
+
+Gustavo approved the configured instance and then requested faster document transfer. CTRL and U755
+remain the original completed sessions. SLICE is **80 documents / 626 pages**, not 34 documents;
+the population files were reproduced read-only and ratified unchanged (train `c75322a`). The earlier
+33-hour projection was for a full population set, not the outstanding continuation.
+
+| cell | current frozen source | recovered / completed this continuation | still owed |
+|---|---|---|---|
+| W | `7897518` | retention and report findings closed independently; optional lossless SSH compression; 123 targeted tests; all 24 mutants killed with unaffected historical kills retained; full suite 9,929 passed / 48 skipped / 39 deselected / zero failed; guards 277; preserved conformance, gate, corpus and full-population replay | live SLICE completion, new passing session attestation, final report/W3/scans/review |
+| E | `a44de13` | historical percentile erratum, correct retained-raster/hash binding, duplicate truncation conflict refusal, output containment; root's independent source probes green | changed tests, synthetic/fake v2, 36 mutants, real CTRL/U755 census, suite, W3/scans/final review |
+| X | `43958ab` | actual Phase 2.2 native reader re-derived all 3,380 hashes, zero moved; source fixes and independent review probes green; suite at unchanged production source 9,911 passed / 48 skipped / 39 deselected / zero failed | changed census tests/mutants, corrected real CTRL/U755 census, W3/scans/final review |
+| P | `ea615b8` | all four unsafe repairs fenced with definitions preserved; first three union chunks: 1,343 documents / 1,331 validated, zero movement; independent missing-head and alias-guard findings closed and rechecked | remaining four union chunks, changed classifier census, remaining mutants/floor, W3/scans/final review |
+
+The initial X real-evidence census resolved zero Paddle records because research provenance omits
+the production Paddle key. Its exit-zero output is **not calibration evidence**. The closure requires
+the exact recorded research key, rejects empty or conflicting identities, and scans all matching
+records. Native reader/production proofs remain valid because that later change is census-only.
+
+W's recovered CTRL/U755 refusal report used all 438 original recorded rows without rewriting either
+state file. CTRL: malformed evidence 20, unnamed rung failure 4. U755: malformed evidence 39,
+unnamed rung failure 349, invalid PDF 16, transport error 10. Lost historical exception details stay
+unnamed. Earlier failed attestations remain in the record; an idle clean probe is not a live session
+attestation.
+
+**Active work at this update:** W's bounded live SLICE session 1 started at 17:16 UTC, 10 documents /
+87 pages, driver PID 18880. Its child environment enables SSH compression and both already-authorized
+Paddle opt-ins. The lifecycle verified the approved pins, deployed/started the worker and began chunk
+0. Check `p23wave/closure-20260915/MASTER.log` and `slice-live-01.log` for the actual result before
+acting; never infer completion from this snapshot. After this session fully tears down and releases
+the shared lock, E receives the next heavy proof window, then X's short changed-proof/census window.
+E/X/P are paused with no competing waiter. Subsequent SLICE sessions resume saved state.
+
+Compression tests preserved every original byte. Separate compressed SSH uploads improved with two
+connections, but two HTTP uploads on the application's one persistent tunnel improved by only 4.55%
+in the synthetic test. No concurrent OCR scheduling was added. The first shared-tunnel diagnostic
+was invalid because its own verbose stderr pipe filled; the continuously drained rerun completed and
+reaped its temporary tunnel/server. Exact observations and limitations are in
+`PADDLE_MEASUREMENTS.md` (train `ea2232b`). There is no measured wave completion-time forecast yet.
+
+Root independently reviews E; E reviews X; X reviews P; P independently reviews W. The untracked
+`reviews/PHASE2_P23WAVE_REVIEW.md` is a pending review draft, not a final approval. W3's private draft
+is `p23wave/closure-20260915/closure-section-draft.txt`, explicitly pending live results and scans.
+No cell has composed. Composition remains **W → E → X → V → B → P**; launch V after W and B after
+W/E/X. Every original authorization, floor, STOP condition and Phase 3 exclusion below remains binding.
+
+---
+
 **This file always holds the CURRENT handoff.** Its name does not change; earlier handoffs are archived
 beside it under a dated name, so "read `docs/agent-handoffs/PHASE2-REMAINDER-HANDOFF.md`" is correct today
 and after the next handover. The previous one is
