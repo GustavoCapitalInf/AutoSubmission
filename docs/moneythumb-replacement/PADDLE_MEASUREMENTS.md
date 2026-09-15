@@ -325,7 +325,10 @@ Seventy SLICE documents / 539 pages remain unattempted. The runner's existing re
 retries the two refusals, giving a next pending set of 72 documents / 550 pages. A larger subsequent
 chunk will cover that set once and reduce repeated lifecycle overhead. CTRL and U755's original
 completed sessions are preserved. The old 33-hour projection described all three full populations,
-not this remaining set. Later configuration A/B work is a separate measurement obligation.
+not this remaining set. Its historical 6,360-page estimate also predates the population correction:
+the ratified totals are 800 + 5,110 + 626 = 6,536 population-page occurrences. Overlap and cache hits
+mean that sum is not a count of distinct uploads. Later configuration A/B work is a separate
+measurement obligation.
 
 Evidence: `discovery_reports/train13-logs/p23wave/closure-20260915/slice-live-01.log`,
 `slice-session-01.log` and `report-after-live-01.json/.log`. Final SLICE completion and W's final
