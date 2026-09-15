@@ -141,14 +141,15 @@ def test_the_row_and_the_census_agree_about_the_same_document(partition):
     assert {row.eq_class for row in partition["rows"]} == {""}
 
 
-def test_a_retained_raster_is_measured_and_a_missing_one_is_counted(partition):
+@pytest.mark.parametrize("filename", ["0.png", "p0000.png"])
+def test_a_retained_raster_is_measured_and_a_missing_one_is_counted(partition, filename):
     from ocr.rasterize import rasterize_pdf
 
     rasters = partition["tmp"] / "rasters"
     sha = partition["shas"]["scan-a.pdf"]
     (rasters / sha).mkdir(parents=True)
     image = rasterize_pdf(render_native_pdf(partition["pages"]["scan-a.pdf"]), dpi=100)[0]
-    image.save(rasters / sha / "0.png")
+    image.save(rasters / sha / filename)
 
     censuses, _ = census(partition["data_dir"], partition=PARTITION, rasters=rasters)
     one = next(iter(censuses.values()))
@@ -156,6 +157,79 @@ def test_a_retained_raster_is_measured_and_a_missing_one_is_counted(partition):
     assert len(one.values["ink_outside_boxes"]) == 1
     # the evidence describes the page, so almost all of its ink is inside a box
     assert one.values["ink_outside_boxes"][0] < 0.35
+
+
+def test_document_distributions_and_orientation_are_measured_separately():
+    from ocr.extraction_quality import document_quality
+    from tests.test_extraction_quality import fold_document, FOLD_RASTERS
+    from tools.extraction_quality_census import Census, DOCUMENT_METRICS
+
+    quality = document_quality(fold_document(), rasters=FOLD_RASTERS)
+    counted = Census()
+    counted.add(quality)
+    assert len(counted.values["word_count"]) == 3
+    assert counted.document_values["word_count_min"] == [min(counted.values["word_count"])]
+    assert counted.document_values["ink_outside_boxes_max"] == [max(counted.values["ink_outside_boxes"])]
+    for name, _ in DOCUMENT_METRICS:
+        assert counted.document_values[name] == [getattr(quality, name)]
+    assert counted.values["orientation_horizontal"] == [page.orientation_votes.horizontal for page in quality.pages]
+    assert counted.values["orientation_vertical"] == [page.orientation_votes.vertical for page in quality.pages]
+    assert counted.values["orientation_indeterminate"] == [page.orientation_votes.indeterminate for page in quality.pages]
+    assert counted.values["orientation_vertical_share"] == [page.orientation_votes.vertical_share for page in quality.pages]
+    text = render(PARTITION, {"synthetic": counted}, skipped={})
+    assert "Document metrics (one folded value per document)" in text
+    assert "| ink_outside_boxes_max | 1 |" in text
+
+
+def test_population_selection_and_duplicate_artifacts_do_not_inflate_the_census(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from evidence.canonical import to_json
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    evidence = fold_document()
+    other = replace(evidence, document_sha256="C" * 64, evidence_sha256="")
+    records = [{"evidence": to_json(item)} for item in (evidence, evidence, other)]
+    monkeypatch.setattr(tool, "ocr_records", lambda _: iter(records))
+    selected = frozenset({evidence.document_sha256.upper(), "D" * 64})
+    censuses, skipped = tool.census(tmp_path / "research", partition=PARTITION, rasters=None, shas=selected)
+    one = next(iter(censuses.values()))
+    assert one.documents == 1 and one.pages == 3
+    assert skipped["duplicate evidence artifact"] == 1
+    assert skipped["extractor evidence outside selected population"] == 1
+    assert skipped["selected documents"] == 2
+    assert skipped["selected documents without measurable evidence"] == 1
+    assert evidence.document_sha256 not in tool.render(PARTITION, censuses, skipped=skipped)
+
+
+def test_conflicting_evidence_is_refused_instead_of_selecting_an_artifact(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from evidence.canonical import to_json
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    evidence = fold_document()
+    other = replace(evidence, runtime={"synthetic_probe": True}, evidence_sha256="")
+    assert tool.configuration_of(evidence) == tool.configuration_of(other)
+    records = [{"evidence": to_json(item)} for item in (evidence, other)]
+    monkeypatch.setattr(tool, "ocr_records", lambda _: iter(records))
+    with pytest.raises(SystemExit, match="conflicting evidence"):
+        tool.census(tmp_path / "research", partition=PARTITION, rasters=None)
+
+
+def test_population_file_is_sha_only_and_never_echoed(tmp_path):
+    from tools.extraction_quality_census import read_population
+
+    path = tmp_path / "population.shas"
+    path.write_text("# synthetic population\n" + "b" * 64 + " # selected\n", encoding="utf-8")
+    assert read_population(path) == frozenset({"B" * 64})
+    path.write_text("synthetic-sensitive-marker", encoding="utf-8")
+    with pytest.raises(SystemExit, match="full content hashes") as refusal:
+        read_population(path)
+    assert "synthetic-sensitive-marker" not in str(refusal.value)
+    path.write_text("# empty", encoding="utf-8")
+    with pytest.raises(SystemExit, match="empty"):
+        read_population(path)
 
 
 # ---------------------------------------------------------------------------

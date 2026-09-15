@@ -74164,3 +74164,34 @@ thresholds and their version, the thirteen columns and their folds, the three
 admission pins, the synthetic defect table, the fake-worker census, and the
 risks — of which the first is still the one that matters, that none of this says
 whether the words are RIGHT.
+
+# §P23EGATE-3 — review closure and the first real-evidence census
+
+## MAJOR-3: correction to the historical synthetic census
+
+The `ink_outside_boxes` row in §P23EGATE dropped the p25 zero and shifted the
+remaining percentile cells. The committed instrument's durable
+`p23egate-census-fakeworker.log` and the independent reviewer's reproduction agree:
+
+| metric | measured | min | p05 | p25 | p50 | p75 | p95 | max |
+|---|---|---|---|---|---|---|---|---|
+| ink_outside_boxes | 7 | 0 | 0 | 0 | 0.0160785 | 0.35497 | 0.744944 | 0.744944 |
+
+The figure called the median in §P23EGATE-2 is **p75**; the median is the p50
+cell above. This append-only correction supersedes the historical row and prose.
+It changes no measurement. The review re-derived the entire row from committed
+synthetic fixtures without reading a customer document; Ocean's recorded
+non-document-provenance adjudication stands. That completed proof was recovered,
+not repeated.
+
+## Integration findings before the real census
+
+Cell W retains the wave's rasters as `<sha>/pNNNN.png`; the initial census expected
+the fake partition's `<sha>/<index>.png`. The reader now accepts W's canonical
+name first and the legacy synthetic name second. Both shapes have synthetic pins.
+The census also exposes the named CTRL/U755 population selection, measures
+orientation votes and the document folds as distributions, and distinguishes
+identical cached evidence duplicates from conflicting evidence. Identical
+duplicates count once; conflicting evidence for one document/configuration is a
+named refusal. All processing is local and read-only; reports retain counts and
+percentiles only. No production projection, router, validator or cache changes.

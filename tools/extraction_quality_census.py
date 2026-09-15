@@ -40,7 +40,8 @@ numbers themselves are grouped by the configurations actually found.
 Rasters
 -------
 The ink metric needs pixels. A research partition retains them (Phase 2.3
-D2) at `<data-dir>/rasters/<document sha>/<page index>.png`; `--rasters`
+D2) at `<data-dir>/rasters/<document sha>/pNNNN.png`; the original synthetic
+partition's `<page index>.png` spelling remains readable. `--rasters`
 points somewhere else. Where a page's raster is absent the ink metric is
 UNMEASURED for that page and the census says how many pages that was — never
 zero, which would read as a page with no ink outside its boxes.
@@ -65,6 +66,7 @@ from discovery.runner import RESEARCH_PARTITION_PATTERN, refuse_production_data_
 from evidence.canonical import EvidenceError, ExtractionEvidence, from_json  # noqa: E402
 from ocr.extraction_quality import (  # noqa: E402
     EXTRACTION_QUALITY_VERSION,
+    EQ_ROW_COLUMNS,
     E_CLASS_PRIORITY,
     RasterGray,
     document_quality,
@@ -86,6 +88,15 @@ PAGE_METRICS: tuple[tuple[str, str], ...] = (
     ("right_edge_residual", "numeric right-edge residual, in character widths"),
     ("ink_share", "share of the raster that is ink"),
     ("ink_outside_boxes", "share of that ink outside every word box"),
+    ("orientation_horizontal", "horizontal word-geometry votes"),
+    ("orientation_vertical", "vertical word-geometry votes"),
+    ("orientation_indeterminate", "indeterminate word-geometry votes"),
+    ("orientation_vertical_share", "vertical share of decided geometry votes"),
+)
+
+DOCUMENT_METRICS: tuple[tuple[str, str], ...] = tuple(
+    (attribute, note) for _, attribute, note in EQ_ROW_COLUMNS
+    if attribute not in {"version", "e_class"}
 )
 
 #: The percentiles printed for every metric. Nearest-rank, no interpolation.
@@ -165,18 +176,20 @@ class LazyRasters:
 
 
 def raster_for(root: Path | None, evidence: ExtractionEvidence, page_index: int) -> RasterGray | None:
-    """`<rasters>/<document sha>/<page index>.png`, decoded to 8-bit grey, or
+    """The wave's `pNNNN.png` (or legacy synthetic `<index>.png`), decoded to grey, or
     `None` when it is not there. The decode lives HERE, not in the metrics
     module, whose import set is the standard library, `evidence` and
     `layout.signals` and nothing else."""
     if root is None:
         return None
     sha = evidence.document_sha256
-    for name in (sha, sha.upper(), sha.lower()):
-        path = root / name / f"{page_index}.png"
-        if path.is_file():
-            break
-    else:
+    candidates = (
+        root / name / filename
+        for filename in (f"p{page_index:04d}.png", f"{page_index}.png")
+        for name in dict.fromkeys((sha, sha.upper(), sha.lower()))
+    )
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None:
         return None
     from PIL import Image
 
@@ -193,6 +206,7 @@ class Census:
         self.documents = 0
         self.pages = 0
         self.values: dict[str, list[float]] = {name: [] for name, _ in PAGE_METRICS}
+        self.document_values: dict[str, list[float]] = {name: [] for name, _ in DOCUMENT_METRICS}
         self.page_classes: Counter[str] = Counter()
         self.document_classes: Counter[str] = Counter()
         #: every class each page fired, not only the one precedence reports.
@@ -205,10 +219,18 @@ class Census:
 
     def add(self, quality) -> None:
         self.documents += 1
+        for name, _ in DOCUMENT_METRICS:
+            value = getattr(quality, name)
+            if value is not None:
+                self.document_values[name].append(float(value))
         for page in quality.pages:
             self.pages += 1
             for name, _ in PAGE_METRICS:
-                value = getattr(page, name)
+                if name.startswith("orientation_"):
+                    votes = page.orientation_votes
+                    value = None if votes is None else getattr(votes, name.removeprefix("orientation_"))
+                else:
+                    value = getattr(page, name)
                 if value is not None:
                     self.values[name].append(float(value))
             if page.ink_outside_boxes is None and page.ink_share is None:
@@ -258,6 +280,19 @@ def render(partition: str, censuses: Mapping[str, Census], *, skipped: Mapping[s
                 f"| {name} | {len(values)} | {min(values):.6g} | {cells} | {max(values):.6g} |"
             )
         lines += ["", "metric notes: " + "; ".join(f"{name} = {note}" for name, note in PAGE_METRICS), ""]
+        lines += [
+            "Document metrics (one folded value per document)", "",
+            "| metric | measured | min | " + " | ".join(f"p{p:02d}" for p in PERCENTILES) + " | max |",
+            "|---|---|---|" + "---|" * (len(PERCENTILES) + 1),
+        ]
+        for name, _ in DOCUMENT_METRICS:
+            values = census.document_values[name]
+            if not values:
+                lines.append(f"| {name} | 0 | - | " + " | ".join("-" for _ in PERCENTILES) + " | - |")
+                continue
+            cells = " | ".join(f"{percentile(values, p):.6g}" for p in PERCENTILES)
+            lines.append(f"| {name} | {len(values)} | {min(values):.6g} | {cells} | {max(values):.6g} |")
+        lines += ["", "document folds: " + "; ".join(f"{name} = {note}" for name, note in DOCUMENT_METRICS), ""]
         for title, counter, total in (
             ("pages by E-class (the one precedence reports)", census.page_classes, census.pages),
             ("pages by EVERY class that fired (overlapping; never summed)",
@@ -290,7 +325,8 @@ def _refuse_tracked_out(out: Path) -> None:
         )
 
 
-def census(data_dir: Path, *, partition: str, rasters: Path | None) -> tuple[dict[str, Census], Counter[str]]:
+def census(data_dir: Path, *, partition: str, rasters: Path | None,
+           shas: frozenset[str] | None = None) -> tuple[dict[str, Census], Counter[str]]:
     if re.fullmatch(RESEARCH_PARTITION_PATTERN, partition) is None:
         raise SystemExit(
             f"--research-partition {partition!r} must match {RESEARCH_PARTITION_PATTERN}: "
@@ -307,6 +343,8 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None) -> tuple[dic
 
     censuses: dict[str, Census] = {}
     skipped: Counter[str] = Counter()
+    seen: dict[tuple[str, str], str] = {}
+    measured_shas: set[str] = set()
     for document in ocr_records(data_dir):
         if document.get("_unreadable"):
             skipped["unreadable artifact"] += 1
@@ -323,6 +361,18 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None) -> tuple[dic
         except EvidenceError:
             skipped["evidence that does not reproduce its own sha"] += 1
             continue
+        sha = evidence.document_sha256.upper()
+        if shas is not None and sha not in shas:
+            skipped["extractor evidence outside selected population"] += 1
+            continue
+        identity = (configuration_of(evidence), sha)
+        if identity in seen:
+            if seen[identity] != evidence.evidence_sha256:
+                raise SystemExit("REFUSED: conflicting evidence for one document and configuration")
+            skipped["duplicate evidence artifact"] += 1
+            continue
+        seen[identity] = evidence.evidence_sha256
+        measured_shas.add(sha)
         truncated = [
             int(entry.get("page_index", index))
             for index, entry in enumerate(document.get("page_integrity") or [])
@@ -333,7 +383,25 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None) -> tuple[dic
         )
         censuses.setdefault(configuration_of(evidence), Census()).add(quality)
         skipped["measured"] += 1
+    if shas is not None:
+        skipped["selected documents"] = len(shas)
+        skipped["selected documents without measurable evidence"] = len(shas - measured_shas)
     return censuses, skipped
+
+
+def read_population(path: Path) -> frozenset[str]:
+    """Read the wave's SHA-only population file, without echoing its contents."""
+    values = []
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        value = line.split("#", 1)[0].strip().upper()
+        if not value:
+            continue
+        if re.fullmatch(r"[A-F0-9]{64}", value) is None:
+            raise SystemExit("REFUSED: population file must contain full content hashes only")
+        values.append(value)
+    if not values:
+        raise SystemExit("REFUSED: population file is empty")
+    return frozenset(values)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -345,13 +413,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rasters", type=Path, default=None,
                         help="retained page rasters (default: <data-dir>/rasters)")
     parser.add_argument("--out", type=Path, default=None, help="write the tables here too (git-ignored)")
+    parser.add_argument("--shas", type=Path, default=None,
+                        help="optional wave population file; identifiers are never printed")
     args = parser.parse_args(argv)
 
     if args.out is not None:
         _refuse_tracked_out(args.out)
     rasters = args.rasters if args.rasters is not None else args.data_dir / "rasters"
     censuses, skipped = census(args.data_dir, partition=args.research_partition,
-                               rasters=rasters if rasters.is_dir() else None)
+                               rasters=rasters if rasters.is_dir() else None,
+                               shas=None if args.shas is None else read_population(args.shas))
     if not censuses:
         raise SystemExit(
             "no extractor evidence found: this directory holds no page this instrument can measure"
