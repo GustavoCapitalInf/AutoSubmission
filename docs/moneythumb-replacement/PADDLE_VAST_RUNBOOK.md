@@ -54,10 +54,12 @@ population (§"The 13-document remote-data ruling" below).
   gitignored `.env` (copy `.env.paddle.example` and fill in real values there — never
   edit the example file itself). `PADDLE_PROVIDER=vast.ai` and
   `PADDLE_EXECUTION_CLASS=remote_paid`.
-* The remote host's `/venv/main` already has `paddleocr==3.7.0`, `paddlepaddle-gpu`,
-  Pillow and numpy installed, and the two PP-OCRv5 models cached
-  (`PP-OCRv5_server_det`, `en_PP-OCRv5_mobile_rec`). `tools/paddle_vast.py check`
-  verifies this without starting anything.
+* The remote interpreter named by `PADDLE_VAST_PYTHON` (default `/venv/main/bin/python`)
+  already has `paddleocr==3.7.0`, `paddlepaddle-gpu`, Pillow and numpy installed, and the
+  two PP-OCRv5 models cached (`PP-OCRv5_server_det`, `en_PP-OCRv5_mobile_rec`).
+  `tools/paddle_vast.py check` verifies this without starting anything. **Install into an
+  environment that belongs to another framework and you will break it** — see the
+  2026-09-15 entry at the end of this runbook; that is what the variable exists for.
 * Nothing binds to `0.0.0.0` on the remote host, ever. The worker refuses to start
   bound to anything but `127.0.0.1` (`ocr.paddle_worker.WorkerConfigError`). Never
   register the worker's port as a Vast "open port" and never front it with Caddy —
@@ -221,3 +223,43 @@ afterwards with the unchanged lifecycle: `check` (pins) → `deploy` (identity O
 synthetic page) → `stop` → `tunnel-down`. Jupyter is not running on this image (supervisor shows it EXITED),
 but the 8765 / 18765 defaults stay. No customer page sent by this proof; the Phase 2.3 wave runs
 (`P23-WAVE.md`) follow under the 2026-09-03 authorization with both literals in each run's own environment.
+
+**Instance replaced again (2026-09-15) — the Paddle-only wave endpoint, and two lessons worth more than the machine.**
+The 2026-09-11 machine was gone (its port answered TCP and then timed out during the SSH banner exchange —
+the signature of a stale Vast port mapping); Gustavo created a new one and registered a key. Only the
+gitignored `.env` changed: host, port, user, and two NEW optional variables described below. What this
+machine taught:
+
+*1. Never install our pins into an image's shared environment without reading what already lives there.*
+This image is a vLLM template: `/venv/main` carries torch 2.13.0+cu130 and vLLM 0.29.0, and the venv has
+system-site-packages. Installing `paddlepaddle-gpu==3.3.0` there pulled `nvidia-cudnn-cu13 9.13.0.50` and
+`nvidia-nccl-cu13 2.28.3` INTO the venv, where they shadowed the system versions torch needs (9.20.0.48 /
+2.29.7) and broke it outright: `ImportError: … libtorch_cuda.so: undefined symbol: ncclCommResume`. The
+install was stopped, every package it had added was uninstalled, and torch was verified working again
+(`cuda available: True`) before anything else proceeded. **The lifecycle tool now names its interpreter**:
+`tools/paddle_vast.py::remote_python()` reads `PADDLE_VAST_PYTHON` at the call site and falls back to
+`/venv/main/bin/python`, so every earlier instance behaves exactly as before while an image like this one
+keeps our stack in its own virtualenv (here: `/workspace/paddle-env`, which already carried the exact pins —
+paddleocr 3.7.0, paddlepaddle-gpu 3.3.0, paddlex 3.7.2, CUDA 13.0, `run_check` green).
+*Windows footnote:* Git bash rewrites POSIX-looking environment values into Windows paths when it spawns a
+native process, which silently turned the remote path into `C:/Program Files/Git/workspace/...`. Setting
+`MSYS2_ENV_CONV_EXCL=PADDLE_VAST_PYTHON` (both are documented in `.env.paddle.example`) keeps it intact.
+
+*2. Choose the machine on its UPLOAD figure, not only its GPU.* The lifecycle proved green here — `check`
+(pins match), `deploy` (self-check identity OK), `start` (loopback 8765), `tunnel-up` (local 18765),
+`status` (refuses without the literal), `tests/test_paddle_live.py -m live` **1 passed** on the real GPU,
+`measure`, `stop`, `tunnel-down` — but inference is 341 ms while a page takes **18.7 s end to end**.
+Measured with incompressible bytes and no worker: **upload 46–77 KB/s**, download 1,361 KB/s, SSH session
+setup 2.7–4.5 s, on an otherwise idle box (load 0.15 / 16 cores). Our per-page traffic is 338 KB up and
+12 KB down, so the asymmetry lands entirely on the wave: ≈ **33 h** for the three populations here against
+≈ **2 h** on the 2026-09-11 machine. `PADDLE_MEASUREMENTS.md` carries the full table.
+
+*The machine is Paddle-only (Gustavo, 2026-09-15).* The 18 GB of Qwen weights under `/workspace/models`
+were deleted and the vLLM template's services (`vllm`, `ray`, `model-ui`) stopped with their supervisor
+units moved to `/root/removed-services-backup/` — reversible: copy a unit back, then `supervisorctl reread
+&& supervisorctl update`. The instance's own management surface (`caddy`, `instance_portal`,
+`tunnel_manager`, `cron`) is untouched, as its agent guide requires. Disk went 75% → **19% used (27 GB
+free)**; GPU idle at 2 MiB of 32,607. `/workspace` is NOT a mounted volume here either: stop/start
+preserves the container, recycle/destroy wipes it — including `/workspace/paddle-env`, so a recycled
+instance needs the stack installed again (into its own virtualenv, per lesson 1). No customer page was sent
+by any of this; the live proof used the synthetic fixture only.

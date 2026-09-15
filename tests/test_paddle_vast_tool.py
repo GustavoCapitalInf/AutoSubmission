@@ -482,3 +482,66 @@ def test_minor8_measure_report_carries_local_peak_rss(tmp_path):
         report = vast.cmd_measure(settings, client=client, n_rows=1, warm_requests=1, dpi=150,
                                   environ=VAST_ENV, gpu_sampler=lambda: None)
     assert "local_peak_rss_mib" in report
+
+# ---------------------------------------------------------------------------
+# WHICH remote interpreter carries the pinned stack (the 2026-09-15 instance:
+# its `/venv/main` belongs to torch, and installing our pins there downgraded
+# torch's CUDA libraries and broke it — so the path is a connection fact that
+# travels with the host, the port and the user).
+# ---------------------------------------------------------------------------
+
+def test_the_remote_interpreter_defaults_to_the_historical_path(monkeypatch):
+    """A run that says nothing behaves exactly as every Phase 2.1/2.2 run did."""
+    monkeypatch.delenv(vast.REMOTE_PYTHON_ENV, raising=False)
+    assert vast.remote_python() == vast.DEFAULT_REMOTE_PYTHON == "/venv/main/bin/python"
+    assert vast.remote_python({}) == "/venv/main/bin/python"
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
+def test_a_blank_interpreter_is_unset_not_an_empty_path(blank):
+    assert vast.remote_python({vast.REMOTE_PYTHON_ENV: blank}) == vast.DEFAULT_REMOTE_PYTHON
+
+
+def test_the_interpreter_is_read_at_the_call_site_not_at_import(monkeypatch):
+    """The same rule the opt-in literals follow: a second command in one
+    process, or a test, must be able to change it after import."""
+    monkeypatch.setenv(vast.REMOTE_PYTHON_ENV, "/workspace/paddle-env/bin/python")
+    assert vast.remote_python() == "/workspace/paddle-env/bin/python"
+    monkeypatch.delenv(vast.REMOTE_PYTHON_ENV)
+    assert vast.remote_python() == vast.DEFAULT_REMOTE_PYTHON
+
+
+def test_check_and_deploy_and_start_all_use_the_named_interpreter(monkeypatch, tmp_path):
+    """Every remote command that runs python — the version probe, the
+    self-check and the worker launch — names the SAME interpreter, and the
+    activation prefix comes from that interpreter's own directory."""
+    monkeypatch.setenv(vast.REMOTE_PYTHON_ENV, "/workspace/paddle-env/bin/python")
+    settings = _settings()
+
+    check_runner = _RunnerLog(stdout="3.7.0\n3.3.0\n")
+    vast.cmd_check(settings, runner=check_runner)
+    worker = tmp_path / "paddle_worker.py"
+    worker.write_text("# worker", encoding="utf-8")
+    deploy_runner = _RunnerLog(stdout="{}")
+    vast.cmd_deploy(settings, runner=deploy_runner, local_worker_path=str(worker))
+    start_runner = _RunnerLog(stdout="started")
+    vast.cmd_start(_settings(PADDLE_RUNTIME_DIR=str(tmp_path)), runner=start_runner)
+
+    for runner in (check_runner, deploy_runner, start_runner):
+        remote = " ".join(" ".join(call) for call in runner.calls)
+        assert "/workspace/paddle-env/bin/python" in remote
+        assert "/venv/main/bin/python" not in remote
+        assert "/venv/main/bin/activate" not in remote
+    assert "/workspace/paddle-env/bin/activate" in " ".join(" ".join(c) for c in start_runner.calls)
+
+
+def test_the_default_interpreter_reproduces_the_phase21_command_text(monkeypatch, tmp_path):
+    """The byte-for-byte guard on the default path: with the variable unset,
+    the launch command still activates `/venv/main` and runs its python, so
+    every earlier instance behaves exactly as it did before this seam."""
+    monkeypatch.delenv(vast.REMOTE_PYTHON_ENV, raising=False)
+    runner = _RunnerLog(stdout="started")
+    vast.cmd_start(_settings(PADDLE_RUNTIME_DIR=str(tmp_path)), runner=runner)
+    remote = " ".join(" ".join(call) for call in runner.calls)
+    assert "source /venv/main/bin/activate >/dev/null 2>&1; " in remote
+    assert "/venv/main/bin/python " in remote

@@ -171,3 +171,37 @@ Fail-closed probe on the same machine (synthetic bytes): `data_scope="customer"`
 `PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` → `PaddleRefused: remote_customer_data_refused` before any
 connection; `data_scope="synthetic"` with the tunnel down → `PaddleTransportError:
 paddle_worker_unreachable`. Worker stopped and tunnel torn down afterwards (`tunnel_running: false`).
+
+## Paddle-only machine (2026-09-15) — `tools.paddle_vast measure`, synthetic fixture only
+
+The Phase 2.3 wave endpoint after the 2026-09-11 machine was lost. Same pins, same lifecycle, same
+synthetic fixture; the numbers are NOT comparable to the earlier machines on end-to-end timing, and the
+reason is the point of this section.
+
+| measure | value |
+|---|---|
+| GPU | NVIDIA GeForce RTX 5090, 32,607 MiB, driver 580.105.08, CUDA 13.0 |
+| remote stack | paddleocr 3.7.0 · paddlepaddle-gpu 3.3.0 · paddlex 3.7.2 · Python 3.12.3, in the image's own `/workspace/paddle-env` (see the runbook: `/venv/main` belongs to torch on this image) |
+| **inference** | **340.9 ms** (cold), i.e. the GPU itself performs as on every earlier machine (~333 ms) |
+| cold end-to-end | 22,965 ms |
+| **warm end-to-end, median** | **18,656 ms** · p95 24,733 ms |
+| VRAM peak | 7,692 MiB of 32,607 |
+| bytes per page | raw PNG 253,799 · on the wire 338,489 up · 12,263 down |
+| local peak RSS | not measured (`psutil` not installed) |
+| cost | not measured — cost accounting is Gustavo's by the 2026-09-03 ruling; no rate is recorded |
+
+**The end-to-end figure is the LINK, not the engine.** Inference is 0.34 s and the page takes 18.7 s.
+Measured directly, three times, with incompressible bytes and no worker involved:
+
+| direction | measurement |
+|---|---|
+| upload, 10 MiB by `scp` | 132.9 s → **77 KB/s** |
+| upload, 2 MiB by `scp`, twice | 44.7 s and 41.2 s → **46 and 50 KB/s** |
+| download, 10 MiB by `scp` | 7.5 s → 1,361 KB/s |
+| bare SSH session setup | 2.7 s · 3.0 s · 4.5 s |
+
+The workload is upload-heavy (338 KB up, 12 KB down per page), so the asymmetry falls entirely on us. The
+machine was otherwise idle when measured (load average 0.15 across 16 cores, GPU at 2 MiB, every other
+service stopped), so this is the path, not contention. Projected over the three Phase 2.3 populations
+(6,360 pages): **≈ 33 h wall clock here against ≈ 2 h on the 2026-09-11 machine**. Recorded so that the
+next wave session picks an instance on its published UPLOAD figure, not only on its GPU.

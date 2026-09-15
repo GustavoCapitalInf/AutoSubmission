@@ -93,6 +93,9 @@ checkout is on `train13` and is clean except one untracked directory (§6).
 | `a066171` | cell P's adversarial review |
 | `c18ca39` | cell E's adversarial review |
 | `2b5e2c9` | **`tools/train/harness_lock.py`** — the one committed host-lock helper (§5) |
+| `c3582fe` | HANDOFF #2 itself (this file), and the first handoff marked superseded |
+| `f15e376` | Gustavo's ruling on S-1..S-3 recorded as approved (§4.3) |
+| (this commit) | `tools/paddle_vast.py::remote_python()` + 5 tests — the remote interpreter is a connection fact (§5); `.env.paddle.example`, the runbook's and the measurements' 2026-09-15 records |
 
 ---
 
@@ -258,9 +261,21 @@ composition.** Git blobs are LF, working copies CRLF — a rebuild instrument mu
   was stopped and removed at Gustavo's decision (unit file backed up under `/root/removed-services-backup/`).
   Stop/start preserves the container; **recycle or destroy wipes it** (the stack, the models, the research
   partition if it were kept there — it is not; the partition is local).
-  **AS OF 2026-09-15 09:10 THE INSTANCE IS DOWN AGAIN** (`python -m tools.paddle_vast check` → `gpu: null`,
-  `versions_match_pins: false`). SLICE, the attestation re-proof and every 2.3 live step need Gustavo to start
-  it; if it is re-created rather than restarted, `.env` needs the new host/port and the key must be re-added.
+  **That machine was GONE by 2026-09-15 and has been REPLACED — read `PADDLE_VAST_RUNBOOK.md`'s
+  "Instance replaced again (2026-09-15)" paragraph before you touch the wave.** The current endpoint is a
+  Paddle-only machine (Gustavo deleted its 18 GB of Qwen weights and Ocean stopped the vLLM template's
+  services, units backed up on the instance); `.env` carries its host, port and user plus two NEW optional
+  variables — `PADDLE_VAST_PYTHON=/workspace/paddle-env/bin/python` (this image's `/venv/main` belongs to
+  torch: installing our pins there broke it, so the tool now names its interpreter) and, for Git bash,
+  `MSYS2_ENV_CONV_EXCL=PADDLE_VAST_PYTHON`. The lifecycle is PROVEN green on it end to end (pins, deploy
+  self-check, worker, tunnel, the opt-in refusal, `tests/test_paddle_live.py -m live` 1 passed on the real
+  GPU, measure, stop, tunnel-down) and it is idle now.
+  **But its UPLINK is 46–77 KB/s** (measured three times with incompressible bytes; download 1,361 KB/s;
+  SSH session setup 2.7–4.5 s; the box otherwise idle). Inference is 341 ms and a page still takes 18.7 s
+  end to end, because each page sends 338 KB and receives 12 KB. Over the three populations (6,360 pages)
+  that is **≈ 33 h wall clock against ≈ 2 h on the 2026-09-11 machine**. The wave is chunked and resumable,
+  so it CAN run here across two overnight sessions — but the cheaper fix is an instance chosen on its
+  published UPLOAD figure. **Gustavo has the numbers and the decision (§6.1).**
 * **Spend limits terminate agents without warning** (this program has seen eight). Detached runners survive;
   pollers die. Recovery = read the disk (branch tips, worktree status, `discovery_reports/train13-logs/**`,
   W3 section counts), then re-dispatch with the exact on-disk facts. Never rerun a completed proof.
@@ -274,8 +289,12 @@ composition.** Git blobs are LF, working copies CRLF — a rebuild instrument mu
 
 ## 6. Open items for Gustavo (do not decide these yourself)
 
-1. **Start the Vast instance** (or provide a new connection line) so SLICE, the retention attestation re-proof
-   and the 2.3 A/B runs can finish.
+1. **Decide the wave endpoint.** The current instance is up, Paddle-only and proven, but its uplink
+   (46–77 KB/s) makes the three populations ≈ 33 h instead of ≈ 2 h — a 5090 paid for while it waits on the
+   network. Either supply an instance with a decent upload figure (Ocean can provision one in minutes now
+   that the interpreter path is configurable) or say "run it here", and the wave goes across two overnight
+   sessions. Nothing else in 2.3 is blocked by this: SLICE, the retention attestation re-proof and the A/B
+   configurations are the only live-instance work, and CTRL and U755 already have their evidence on disk.
 2. **The slice-1 adjudication queue** (214 packets from Phase 2.2, cell H) is still unadjudicated. Adjudication
    is never a gate, but truth-table v1 waits on it; **adjudication slice 2** will be prepared by cell B.
 3. **An untracked `docs/moneythumb-replacement/superpowers/` directory** (an older pre-supersession copy of six
