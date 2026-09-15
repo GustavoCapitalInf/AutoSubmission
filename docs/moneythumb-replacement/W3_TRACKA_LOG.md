@@ -73769,3 +73769,203 @@ cache hits; retained row timings are document totals or per-document page means,
 latency distribution. Transport byte totals are not wire measurements. Synthetic compression and
 concurrency experiments do not establish a wave completion time. No production pin, admission rule,
 validator or escalation edge changed.
+
+
+# §P23WAVE-PRIVACY-CLOSURE — Private custody and typed ordinary exports
+
+## Original finding and preserved history
+
+The final output scan exposed a reporting boundary defect: the generic discovery
+artifacts written beneath the ordinary wave output root retained archive-derived
+paths and row fields. The original 225-file snapshot and its **41,119 raw scan
+findings** remain immutable private evidence. The occurrence accounting matched
+those findings to **71,423 complete producing occurrences**; 11,151 hit records
+had a path, folder, duplicate-path or statement-field origin. These are historical
+findings, not a zero-result scan and not a statement that every scanner match was
+a customer disclosure.
+
+The root clarification in `docs/agent-handoffs/P23-WAVE.md` separates research
+custody, permitted by R1/H3, from ordinary wave publication. This section appends
+to the original §P23WAVE and preserves its measured populations, original output
+bytes, live sessions, failed historical attestations and original scan record.
+A new export does not change the disposition of an old raw artifact.
+
+## Implemented boundary
+
+Commits `7b5546abf74a7600a73fe9f0f7b8378729492107` and
+`5c8e86d9f8f5d3bf252f491376f22ff2911bc9ce` put future discovery child outputs
+under the research directory's derived `.wave/<partition>/discovery-runs/`
+population directory. Resolved private and ordinary roots must be disjoint.
+Exactly one newly created child is accepted. Raster retention, refusal recovery
+and technical aggregates use its original rows through the recorded storage
+identity; they do not depend on an ordinary export.
+
+The ordinary publication contains only `wave_technical_rows.csv` and the final
+`wave_export.json` marker. Its positive 14-field schema retains fingerprints,
+page counts, closed source/cache statuses, a derived `wave_refusal_reason`, and
+finite technical measurements. Alias order and missing readings are preserved.
+Raw relative paths, folder labels, duplicate paths, issuer/account fields,
+generic reports, hash maps, unrestricted objects and billing data are excluded.
+Unknown field values and derived reason codes refuse without echoing the value.
+The reader requires independently trusted source rows and provenance hashes plus
+the session identity, as well as the export's schema, row count and byte hash.
+Original lexical paths are checked again through reading and publication so a
+retargeted path cannot silently acquire the identity of the original source.
+
+New state format 2 carries the storage marker and source hashes. Legacy format 1
+remains readable; active continuation advances it, while a no-work legacy resume
+keeps format 1 and its existing zero-work session audit. New-format storage in a
+format-1 state is refused. Markerless historical chunks retain the exact explicit
+legacy-root lookup, including mixed old/new state. Missing private custody never
+falls back to a public or different historical run.
+
+Document outcomes are staged until the final private source-byte and path checks
+pass. Completed private extraction is then saved before publication. Publication
+failure has a separate status and offline retry path; it does not undo completed
+evidence or enter pending-document selection. The final audit counts only newly
+appended complete chunks, including the case where an initial state save failed
+and the final audit save succeeds. Failed children and no-work sessions contribute
+zero completed work. Lifecycle cleanup retains its existing ordering.
+
+Ordinary report/event validation also preserves the source-defined failed
+inspection shape: only its three unavailable counters may retain `-1`, with the
+corresponding failed inspection fields. An unavailable reading is not converted
+to zero. Arbitrary negative values, unbounded error text and extra nested fields
+are refused. Generic discovery, OCR, routing, canonical evidence, raster behavior
+and cache-key construction are unchanged by this correction.
+
+## Completed focused proofs at the corrected source
+
+Both following runs used reviewed driver
+`p23wave/export_proof_driver_v2.py`, SHA-256
+`f645f1a70df13d3324dcc4751ff550cebbbaa8809d0178f5ea02281aa4b2114d`,
+against clean source `5c8e86d9f8f5d3bf252f491376f22ff2911bc9ce`.
+Each held the committed root harness lock, used one OCR worker, a 1.5 GiB launch
+floor and a 4 GiB job cap, then recorded the actual child exit and its own release.
+The mutation invocation required the hash-bound successful baseline result.
+
+| proof | observed result | resource observation | durable evidence under `discovery_reports/train13-logs/p23wave/` |
+|---|---|---|---|
+| Focused wave baseline | 139 passed, zero failed; child/driver/release EXIT=0 | 51.3 s; 372.1 MiB peak job | `export-proof-baseline-custody-01/{child.log,resources.jsonl,result.json}` |
+| Affected mutation proof | 22/22 killed by named failures; restored clean source after every edit; child/driver/release EXIT=0 | 55.1 s; 380.5 MiB peak job | `export-proof-mutants-custody-01/{child.log,resources.jsonl,result.json,mutation-table.md}` |
+
+The affected set is **M1, M17, M21, M22 and M25–M42**: four updated historical
+mutations and eighteen new ones. These expose unsafe path/report copying,
+unvalidated field values or refusal keys, missing source/provenance bindings,
+storage overlap and format confusion, ambiguous children, publication/state
+ordering, false session counts, loss of unavailable readings, implicit export
+reuse, offline extraction entry and outcomes folded before custody checks.
+The twenty other historical mutation results remain recorded in the original
+§P23WAVE; the combined catalogue has forty-two distinct mutation identities.
+
+The synthetic baseline includes actual discovery artifact/field names with
+sensitive sentinels, missing measurement and alias controls, mixed-storage
+numeric/refusal equivalence, same-byte path retargeting, independent provenance
+binding, failed publication and offline retry, persistent and transient private
+save faults, rejected custody without changed outcomes, active legacy migration
+and no-work legacy audit behavior. The preserved full suite and production replay
+results in the original §P23WAVE remain accepted for their unchanged source scope.
+
+## Independent paired runtime closure
+
+The independent probe executed the same synthetic fixtures against preserved
+`7b5546a` and corrected `5c8e86d`, under one exclusive root-controlled window.
+Its old-source EXIT=0 means the expected defects were reproduced. Its corrected
+EXIT=0 means the corrected contract and controls passed.
+
+| trigger | preserved source | corrected source |
+|---|---|---|
+| Normal mixed evidence/refusal control | One completed chunk, two audited documents, one refusal pending, valid export | Same |
+| First completed-chunk state save fails once | Final save records completed mixed work with audit 0 chunks / 0 documents | Completed work remains recorded with truthful audit 1 / 2 |
+| Final rows-byte or multi-path check rejects custody | Outcomes change without a new completed chunk; one member remains pending | Prior outcomes/chunks preserved; both members pending; zero new audited work |
+
+All fault cases published no completion marker and each observed exactly one
+lifecycle cleanup. The actual preserved version-1 reader at `7897518` accepted
+format 1 and refused format 2; the corrected reader accepted both without
+rewriting state bytes. Independent CSV temporary-file open and marker rename
+faults produced rejected partial destinations. Same-destination retry refused
+without altering existing bytes; fresh offline retry preserved one evidence and
+one refusal row, with extraction, state-write, raster, subprocess and socket
+tripwires untouched.
+
+Evidence is under
+`discovery_reports/train13-logs/p23wave/closure-20260915/privacy-correction/recovery-01-paired/`:
+`old.log`, `fixed.log`, their resource records, both per-mode `result.json` files,
+and controller `results.json`. Old/fixed runs took 0.9 / 1.3 seconds and peaked at
+59.3 / 59.4 MiB. Both actual children and the controller returned 0; own-holder
+release completed at 23:33:13 UTC. The independent runtime review is
+`discovery_reports/train13-logs/p23composition-prep/W-SEQUENCING-PAIRED-RUNTIME-REVIEW.md`.
+These extracted synthetic probes do not establish customer-raster or holdout-door
+coverage; the unchanged real-raster and holdout controls retain their existing
+proof scope.
+
+## Historical exports and exact comparison
+
+The read-only historical operation processed the fifteen explicitly bound runs
+(five CTRL, eight U755, two SLICE), verified their recorded state/session and
+research-mode/partition identity, and produced thirty fresh ordinary files. All
+**97 input identities** remained unchanged: ninety original discovery artifacts,
+the accepted report, three state files and three population manifests. There
+were zero changed or unverified inputs and zero attempted audit-boundary denials.
+
+Every projected row matched an independently constructed positive-field
+projection, in original order. Per-run alias, evidence, timed-row, page, cache-hit
+and technical-sum checks matched exactly. The following sums retain historical
+row semantics:
+
+| population | recorded runs | exported rows | Paddle-present rows | evidence-row pages | timed rows | timed pages |
+|---|---:|---:|---:|---:|---:|---:|
+| CTRL | 5 | 17,530 | 90 | 668 | 90 | 668 |
+| U755 | 8 | 28,048 | 361 | 2,378 | 341 | 2,331 |
+| SLICE | 2 | 7,012 | 69 | 566 | 67 | 554 |
+
+The 52,590 exported rows include aliases, repeated historical runs and rows
+outside the active chunk. The named wave populations remain **114 / 755 / 80**
+documents, with zero unattempted members in each. Missing cache-hit telemetry is
+preserved; a Paddle-present row does not imply a timed row.
+The two SLICE runs retain 9 / 60 evidence-row observations for 8 / 59 distinct
+evidence documents within those respective runs, and 8 / 59 timed rows spanning
+76 / 478 pages. Each run has one cache-hit alias with all four Paddle telemetry
+fields empty. These are archived observations per run, without a new cross-run
+distinct-document union.
+
+The unmodified authoritative `wave_report(populations_dir=None)` result matched
+the accepted final report exactly after separating three population fields:
+`population_documents`, `unattempted` and `complete`. Those three fields were
+independently verified against the hash-bound original manifests and state for
+each population. This is an offline report equivalence proof, not a CLI rerun or
+a new extraction/production-admission result.
+
+The controller's actual child, controller and release exits are 0. The operation
+took 7.4 seconds, peaked at 161.0 MiB, and completed at 23:33:58 UTC. Evidence is
+under `discovery_reports/train13-logs/p23wave/closure-20260915/privacy-correction/`:
+`exports-01-controller/{child.log,resources.jsonl,results.json}` and
+`exports-01/{equivalence.json,authoritative-report.json,exports/}`.
+The equivalence record SHA-256 is
+`6f1e0cc5b27be10dd45f04c5fd193755b7cc9e21ff3b15802fea5e25633ddf91`.
+The independent export/equivalence runtime review is
+`discovery_reports/train13-logs/p23composition-prep/W-EXPORT-EQUIVALENCE-RUNTIME-REVIEW-E.md`.
+
+## Final documentation and scan boundary
+
+At this documentation commit, fresh added-line, real-message and ordinary-output
+scans remain outstanding. Their reserved result directory is
+`discovery_reports/train13-logs/p23wave/closure-20260915/final-scans-custody-01/`,
+with `added-lines.raw.log`, `real-messages.raw.log`, `outputs.raw.log`, resource
+records and `results.json`. The exact input list is
+`discovery_reports/train13-logs/p23wave/custody-original-inputs-01.txt`; its closed
+manifest and original-to-snapshot mapping belong under
+`discovery_reports/train13-logs/p23wave/frozen-output-custody-01/`.
+No count, exit or disposition for those future scans is claimed here. Root's
+subsequent orchestration attestation and independent final review will bind the
+actual final tip and record raw counts and any allowed source attribution.
+
+## Risks and limits
+
+The reporting correction preserves extraction and state evidence; it does not
+establish OCR accuracy, produce new validated documents or alter production
+admission. Original scan findings remain visible, and historical unnamed
+exceptions, failed attestations and absent readings remain explicit. Technical
+row totals include historical aliases and repeated runs; wave membership and
+document-level outcomes retain their original denominators. Final privacy
+disposition and independent approval precede root-owned composition.
