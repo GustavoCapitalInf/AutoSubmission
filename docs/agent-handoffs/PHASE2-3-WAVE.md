@@ -118,9 +118,13 @@ the directory is gone; wave runs are resumable by sha and every runner writes a 
 * **Populations** (`discovery_reports/train13-logs/populations/`, gitignored; digests in the W3):
   `CTRL.shas` = all Tesseract-validated scans (36 at the run of record) + native-validated documents
   stratified by census family and page-count bucket (≈ 114); `U755.shas` = every unresolved sha at the
-  run of record (755 / 5,110 pages); `SLICE.shas` = the 34-document corpus slice; `HOLD` = never in any
+  run of record (755 / 5,110 pages); `SLICE.shas` = the 80 reachable manifest documents / 626 pages; `HOLD` = never in any
   research population (refused by the digest, cell H/T). Every population file is content shas with `#`
   comments; a sha in two populations is read once per configuration.
+  **2026-09-15 population correction:** CTRL totals 114 documents / 800 pages (36 Tesseract-validated
+  plus 78 native-validated). SLICE is the intersection of the 109-document audited manifest with
+  the run of record, ratified unchanged; 34 is the corpus-marked test count. See P23-WAVE's correction
+  and the preserved population digest. No population file or completed session is redrawn.
 * **Partitions:** `paddle-v5-prod` (the one that counts), `paddle-v5-orient`,
   `paddle-v6` — ids validated by K's shape; each under its own `--data-dir`.
 * **Rows:** the Phase 2.2 funnel columns populated (`stage_extract = paddle`, `stage_evidence`,

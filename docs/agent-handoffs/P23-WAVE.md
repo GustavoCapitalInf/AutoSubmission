@@ -74,10 +74,17 @@ and with the instance left holding nothing. This cell is the runner and the reco
    local_tesseract` row that is `validated` — 36 at the run of record — plus native-validated documents
    stratified by `folder_label` family and page-count bucket to ≈ 114, chosen deterministically from a
    recorded seed so the file reproduces), `U755.shas` (every non-validated distinct sha — 755), `SLICE.shas`
-   (the 34-document corpus slice from `corpus_gate.py`'s manifest); content shas one per line with `#`
+   (the 80 manifest documents reachable from the run of record, 626 pages); content shas one per line with `#`
    comments; the sha256 digest of each file is printed and goes in your W3; a sha in the holdout digest is
    refused by T's door at run time (you also assert at derivation that none is in
    `docs/moneythumb-replacement/truth/MANIFEST_DIGEST.txt`'s list).
+   **Population correction, Ocean, 2026-09-15:** the manifest has 109 distinct documents, of which 80
+   occur in the discovery run of record. The old "34-document" wording confused the corpus-marked
+   test count with the manifest population. The existing derived `SLICE.shas` is ratified unchanged;
+   its set digest is `8c94e12173f0758b10c37617e13467f1342853ac55336f75a6f420c5340c7d89`.
+   CTRL is 114 documents / 800 pages in total (36 Tesseract-validated plus 78 native-validated).
+   Read-only re-derivation matched every saved population exactly; evidence is
+   `discovery_reports/train13-logs/p23wave/closure-20260915/population-facts.log`, `EXIT=0`.
 6. **Rasters (D2).** Under `--retain-rasters` (ON for the research runs), the PNG each page sent is kept
    sha-named under the research data dir (`<data-dir>/rasters/<content sha>/<page>.png`, gitignored, the
    archive's retention rule); production partitions keep only `raster_sha256` — a test proves the production
