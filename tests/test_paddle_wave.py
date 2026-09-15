@@ -1311,7 +1311,8 @@ def _export_row(**changes):
         "paddle_rung": "research", "paddle_refusal_reason": "", "error_type": "",
         "outcome_reason": "approved", "relative_path": "synthetic-private-name/document.pdf",
         "folder_label": "synthetic-private-folder", "duplicate_of": "synthetic-private-alias",
-        "statement_account": "synthetic-private-account", "source_model": "synthetic-private-model",
+        "statement_bank": "synthetic-private-bank", "account_last4": "synthetic-private-account",
+        "source_model": "synthetic-private-model",
         "future_customer_field": "synthetic-private-future",
     }
     row.update(changes)
@@ -1331,7 +1332,9 @@ def _export_custody(parent, rows=None, *, session=EXPORT_SESSION):
     }}, "private_extra": "synthetic-private-provenance"}
     (directory / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
     (directory / "hash_map.csv").write_text("synthetic-private-hash-map", encoding="utf-8")
-    (directory / "report.json").write_text('{"billing":"synthetic-private-cost"}', encoding="utf-8")
+    (directory / "report.txt").write_text("synthetic-private-report", encoding="utf-8")
+    (directory / "summary.json").write_text('{"billing":"synthetic-private-cost"}', encoding="utf-8")
+    (directory / "telemetry.jsonl").write_text('{"private":"synthetic-private-telemetry"}\n', encoding="utf-8")
     kwargs = {
         "configuration": PRODUCTION_CONFIG, "partition": PARTITION, "population_name": "CTRL",
         "expected_source_rows_sha256": hashlib.sha256((directory / "rows.csv").read_bytes()).hexdigest(),
@@ -1853,11 +1856,21 @@ def test_active_legacy_continuation_advances_before_child_and_keeps_old_chunks(t
 
 
 def test_failed_private_state_persistence_never_reaches_export_and_stops_lifecycle(tmp_path, monkeypatch):
+    _exercise_private_save_failure(tmp_path, monkeypatch, transient=False)
+
+
+def test_transient_private_save_failure_preserves_truthful_final_session(tmp_path, monkeypatch):
+    _exercise_private_save_failure(tmp_path, monkeypatch, transient=True)
+
+
+def _exercise_private_save_failure(tmp_path, monkeypatch, *, transient):
     import tools.paddle_wave as wave
 
     args = _small_wave_args(tmp_path)
+    args["population_file"].write_text("A" * 64 + "\n" + "C" * 64 + "\n", encoding="utf-8")
     events = []
     save = WaveState.save
+    failures = []
 
     class Lifecycle:
         def up(self):
@@ -1868,7 +1881,8 @@ def test_failed_private_state_persistence_never_reaches_export_and_stops_lifecyc
             return RetentionAttestation(True, True, False, False, 0, 0, 0)
 
     def fail_completed_save(state, path):
-        if any(chunk.get("status") == "complete" for chunk in state.chunks):
+        if any(chunk.get("status") == "complete" for chunk in state.chunks) and (not transient or not failures):
+            failures.append(True)
             raise OSError("synthetic state write failure")
         return save(state, path)
 
@@ -1877,7 +1891,9 @@ def test_failed_private_state_persistence_never_reaches_export_and_stops_lifecyc
         raise AssertionError("export ran before private state persisted")
 
     def runner(argv, **kwargs):
-        _export_custody(Path(argv[argv.index("--out") + 1]))
+        _export_custody(Path(argv[argv.index("--out") + 1]), [_export_row(),
+            _export_row(content_sha256="C" * 64, source_path="local_tesseract",
+                        stage_evidence="absent", paddle_rung="failed")])
         return subprocess.CompletedProcess(argv, 0)
 
     monkeypatch.setattr(WaveState, "save", fail_completed_save)
@@ -1886,6 +1902,65 @@ def test_failed_private_state_persistence_never_reaches_export_and_stops_lifecyc
         run_wave(**args, subprocess_runner=runner, lifecycle=Lifecycle())
     assert events == ["down"]
     assert not list(args["out_dir"].glob("*/wave_export.json"))
+    saved = WaveState.load(WaveState.path_for(args["data_dir"], PARTITION, "CTRL"))
+    if transient:
+        assert failures == [True] and saved.counts()["evidence"] == saved.counts()["refused"] == 1
+        assert saved.sessions[-1]["chunks"] == 1 and saved.sessions[-1]["documents"] == 2
+        assert saved.pending(["A" * 64, "C" * 64]) == ["C" * 64]
+    else:
+        assert saved.counts()["attempted"] == 0 and not saved.chunks
+
+
+@pytest.mark.parametrize("fault", ["bytes", "binding"])
+def test_rejected_custody_never_commits_staged_outcomes(tmp_path, monkeypatch, fault):
+    import tools.paddle_wave as wave
+
+    args = _small_wave_args(tmp_path)
+    args["population_file"].write_text("A" * 64 + "\n" + "C" * 64 + "\n", encoding="utf-8")
+    prior = WaveState(version=1, config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    prior.record("C" * 64, DocumentOutcome(OUTCOME_REFUSED, "paddle_evidence_malformed", pages=1, chunk=0))
+    prior.chunks = [{"index": 0, "run_dir": "synthetic-legacy", "status": "complete", "documents": 1}]
+    path = WaveState.path_for(args["data_dir"], PARTITION, "CTRL")
+    prior.save(path)
+    closed, bindings = wave._closed_bytes, wave._assert_bindings
+    reads, events = [], []
+
+    class Lifecycle:
+        def up(self):
+            return {"retention_declared": True}
+
+        def down(self, **kwargs):
+            events.append("down")
+            return RetentionAttestation(True, True, False, False, 0, 0, 0)
+
+    def runner(argv, **kwargs):
+        _export_custody(Path(argv[argv.index("--out") + 1]), [_export_row(),
+            _export_row(content_sha256="C" * 64, source_path="local_tesseract",
+                        stage_evidence="absent", paddle_rung="failed")])
+        return subprocess.CompletedProcess(argv, 0)
+
+    def changed_bytes(item, **kwargs):
+        raw = closed(item, **kwargs)
+        if item.name == "rows.csv":
+            reads.append(True)
+            if fault == "bytes" and len(reads) == 2:
+                return raw + b"\n"
+        return raw
+
+    def changed_binding(items):
+        if fault == "binding" and any(item.name == "rows.csv" for item in items) and len(items) > 1:
+            raise WaveRefused("wave_path_binding_changed")
+        return bindings(items)
+
+    monkeypatch.setattr(wave, "_closed_bytes", changed_bytes)
+    monkeypatch.setattr(wave, "_assert_bindings", changed_binding)
+    with pytest.raises(WaveRefused, match="source_changed|binding_changed"):
+        run_wave(**args, subprocess_runner=runner, lifecycle=Lifecycle())
+    saved = WaveState.load(path)
+    assert saved.documents == prior.documents and saved.chunks == prior.chunks
+    assert saved.pending(["A" * 64, "C" * 64]) == ["A" * 64, "C" * 64]
+    assert saved.sessions[-1]["chunks"] == saved.sessions[-1]["documents"] == 0
+    assert events == ["down"]
 
 
 @pytest.mark.parametrize("error", ["remote_inspection_failed", "remote_inspection_incomplete", "PaddleVastError"])

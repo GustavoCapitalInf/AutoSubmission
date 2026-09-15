@@ -1660,6 +1660,7 @@ def run_wave(
     # it is not counted as something this session left behind (the CTRL run
     # found exactly one such file, the operator's own live-test fixture).
     session_epoch = time.time()
+    session_chunk_start = len(state.chunks)
     try:
         if pending and lifecycle is not None:
             up = lifecycle.up()
@@ -1693,6 +1694,13 @@ def run_wave(
             )
             session["attestation"] = attestation.as_record()
         session["ended"] = _now()
+        # A first private save can fail while this final audit save succeeds.
+        # Count completed chunks persisted here, including that case; failed
+        # children and no-work sessions contribute no completed work.
+        completed_here = [chunk for chunk in state.chunks[session_chunk_start:]
+                          if chunk.get("status") == "complete"]
+        session["chunks"] = len(completed_here)
+        session["documents"] = sum(chunk["documents"] for chunk in completed_here)
         session.update(state.counts())
         state.sessions.append(session)
         state.save(state_path)
@@ -1761,6 +1769,7 @@ def _run_one_chunk(
     source_provenance = _closed_bytes(provenance_path)
     rows = {row["content_sha256"].upper(): row for row in _csv_records(source_rows)}
     wanted = {sha.upper() for sha in chunk}
+    staged_outcomes: dict[str, DocumentOutcome] = {}
     processed = 0
     rasters = {"written": 0, "mismatched": 0}
     for sha in sorted(wanted):
@@ -1768,16 +1777,16 @@ def _run_one_chunk(
         if row is None:
             # D4: a document of the named population that produced no row at
             # all is a REFUSAL with its own reason, never a silent hole.
-            state.record(sha, DocumentOutcome(
+            staged_outcomes[sha] = DocumentOutcome(
                 outcome=OUTCOME_REFUSED, reason="no_row_produced", pages=0,
                 chunk=chunk_index, at=_now(),
-            ))
+            )
             processed += 1
             continue
         pages = int(row.get("page_count") or 0)
         if row.get("stage_evidence") == "present" and row.get("source_path") == "paddle":
-            state.record(sha, DocumentOutcome(outcome=OUTCOME_EVIDENCE, reason="", pages=pages,
-                                              chunk=chunk_index, at=_now()))
+            staged_outcomes[sha] = DocumentOutcome(outcome=OUTCOME_EVIDENCE, reason="", pages=pages,
+                                                   chunk=chunk_index, at=_now())
             if retain_rasters:
                 counts = retain_rasters_for(
                     sha, pdf_bytes=(Path(root) / row["relative_path"]).read_bytes(),
@@ -1786,8 +1795,8 @@ def _run_one_chunk(
                 rasters["written"] += counts["written"]
                 rasters["mismatched"] += counts["mismatched"]
         else:
-            state.record(sha, DocumentOutcome(outcome=OUTCOME_REFUSED, reason=_refusal_reason(row),
-                                              pages=pages, chunk=chunk_index, at=_now()))
+            staged_outcomes[sha] = DocumentOutcome(outcome=OUTCOME_REFUSED, reason=_refusal_reason(row),
+                                                   pages=pages, chunk=chunk_index, at=_now())
         processed += 1
     cache_hits = sum(1 for sha in wanted
                      if rows.get(sha, {}).get("cache_paddle") == "hit")
@@ -1797,6 +1806,10 @@ def _run_one_chunk(
     _assert_bindings(run_bindings)
     _export_require(_custody_run_parent(data_dir, partition, state.population_name, out_dir)
                     == custody_parent, "wave_custody_parent_retargeted")
+    # Only byte- and path-bound custody can change resume outcomes. The final
+    # session save must not persist records from a rejected custody read.
+    for sha, outcome in staged_outcomes.items():
+        state.record(sha, outcome)
     state.chunks.append({
         "index": chunk_index, "documents": len(chunk), "status": "complete",
         "run_dir": run_dir.name, "elapsed_ms": elapsed_ms, "cache_hits": cache_hits,

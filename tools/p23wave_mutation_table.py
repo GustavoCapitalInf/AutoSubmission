@@ -73,7 +73,7 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "M26", "raw generic report is copied into the ordinary export", WAVE,
         '    return target\n\n\ndef read_wave_technical_export(',
-        '    (target / "report.json").write_bytes((source / "report.json").read_bytes())\n'
+        '    (target / "report.txt").write_bytes((source / "report.txt").read_bytes())\n'
         '    return target\n\n\ndef read_wave_technical_export(',
         [T_WAVE + "::test_export_positive_allowlist_preserves_aliases_missing_values_and_originals"],
         ["test_export_positive_allowlist_preserves_aliases_missing_values_and_originals"],
@@ -131,10 +131,13 @@ MUTANTS: list[Mutant] = [
     ),
     Mutant(
         "M34", "an export failure reports zero completed work in the session", WAVE,
-        '                session["chunks"] += 1\n                session["documents"] += exc.processed\n',
-        '',
-        [T_WAVE + "::test_completed_private_chunk_survives_export_failure_with_truthful_session"],
-        ["test_completed_private_chunk_survives_export_failure_with_truthful_session"],
+        '        session["chunks"] = len(completed_here)\n'
+        '        session["documents"] = sum(chunk["documents"] for chunk in completed_here)',
+        '        session["chunks"] = 0\n        session["documents"] = 0',
+        [T_WAVE + "::test_completed_private_chunk_survives_export_failure_with_truthful_session",
+         T_WAVE + "::test_transient_private_save_failure_preserves_truthful_final_session"],
+        ["test_completed_private_chunk_survives_export_failure_with_truthful_session",
+         "test_transient_private_save_failure_preserves_truthful_final_session"],
     ),
     Mutant(
         "M35", "an offline export enters the pending-document loop", WAVE,
@@ -187,6 +190,15 @@ MUTANTS: list[Mutant] = [
         ["test_private_and_legacy_report_equivalence_and_mixed_authority"],
     ),
     Mutant(
+        "M42", "resume outcomes are folded before the final custody binding checks", WAVE,
+        '    _export_require(_closed_bytes(rows_path) == source_rows\n',
+        '    for staged_sha, staged_outcome in staged_outcomes.items():\n'
+        '        state.record(staged_sha, staged_outcome)\n'
+        '    _export_require(_closed_bytes(rows_path) == source_rows\n',
+        [T_WAVE + "::test_rejected_custody_never_commits_staged_outcomes"],
+        ["test_rejected_custody_never_commits_staged_outcomes"],
+    ),
+    Mutant(
         "M24", "the requested tunnel compression is silently omitted",
         "tools/paddle_vast.py",
         "        *options,\n",
@@ -198,13 +210,13 @@ MUTANTS: list[Mutant] = [
         "M1", "a document that produced no evidence is SKIPPED instead of recorded as refused",
         WAVE,
         "        else:\n"
-        "            state.record(sha, DocumentOutcome(outcome=OUTCOME_REFUSED, reason=_refusal_reason(row),\n"
-        "                                              pages=pages, chunk=chunk_index, at=_now()))\n"
+        "            staged_outcomes[sha] = DocumentOutcome(outcome=OUTCOME_REFUSED, reason=_refusal_reason(row),\n"
+        "                                                   pages=pages, chunk=chunk_index, at=_now())\n"
         "        processed += 1",
         "        else:\n"
         "            pass\n"
         "        processed += 1",
-        [T_WAVE],
+        [T_WAVE + "::test_d4_every_document_is_attempted_or_refused_when_the_worker_fails"],
         ["test_d4_every_document_is_attempted_or_refused_when_the_worker_fails"],
     ),
     Mutant(
