@@ -1,4 +1,4 @@
-"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M16 plus
+"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M19 plus
 the review's own FR1 / FR3 / FR4), applied as real textual edits and run for
 real.
 
@@ -240,6 +240,31 @@ MUTANTS: list[Mutant] = [
         [T_NATIVE],
         ["test_the_native_census_exits_nonzero_on_movement_or_an_absent_population"],
     ),
+    Mutant(
+        "M17", "research provenance silently substitutes the offline OCR key",
+        CENSUS,
+        '    key = block.get("paddle_ocr_key")\n',
+        '    key = block.get("paddle_ocr_key") or block.get("offline_ocr_key")\n',
+        [T_AGREE],
+        ["test_the_census_never_substitutes_an_offline_key_for_an_unrecorded_paddle_key"],
+    ),
+    Mutant(
+        "M18", "the census permits a selected population with no canonical evidence pages",
+        CENSUS,
+        "    if not any(geometry_by_source.values()):\n",
+        "    if False:\n",
+        [T_AGREE],
+        ["test_the_census_refuses_an_empty_measurement_under_the_selected_key",
+         "test_the_census_refuses_empty_or_misidentified_evidence"],
+    ),
+    Mutant(
+        "M19", "the census combines conflicting extractor identities under one settings key",
+        CENSUS,
+        "            if len(identities) > 1:\n",
+        "            if False:\n",
+        [T_AGREE],
+        ["test_the_census_refuses_conflicting_extractor_identities_under_one_key"],
+    ),
 ]
 
 
@@ -347,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     table = "\n".join([
-        f"# P23-AGREE mutation table (M1-M16, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
+        f"# P23-AGREE mutation table (M1-M19, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
         "| # | mutant | file | killer | result |", "|---|---|---|---|---|",
         *rows, "",
         f"unkilled: {', '.join(unkilled) if unkilled else 'none'}",

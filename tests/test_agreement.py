@@ -121,8 +121,8 @@ def _pixel_page(words, *, width_pt: float, height_pt: float, dpi: int = DPI, pag
     return PageEvidence(frame=frame, words=boxes)
 
 
-def _document(page: PageEvidence, *, extractor_id: str) -> ExtractionEvidence:
-    return ExtractionEvidence(document_sha256=SHA, extractor_id=extractor_id,
+def _document(page: PageEvidence, *, extractor_id: str, document_sha: str = SHA) -> ExtractionEvidence:
+    return ExtractionEvidence(document_sha256=document_sha, extractor_id=extractor_id,
                               model_token=extractor_id, pages=(page,))
 
 
@@ -889,11 +889,11 @@ def _research_cache(tmp_path, ledger, truth):
     cache = open_cache(tmp_path)
     cache.put_ocr("C" * 64, key, SimpleNamespace(
         model="fake", pages=["page"],
-        evidence=_document(extractor, extractor_id=PADDLE_EXTRACTOR),
-        native_evidence=_document(native, extractor_id=NATIVE_EXTRACTOR)))
+        evidence=_document(extractor, extractor_id=PADDLE_EXTRACTOR, document_sha="C" * 64),
+        native_evidence=_document(native, extractor_id=NATIVE_EXTRACTOR, document_sha="C" * 64)))
     cache.put_ocr("D" * 64, key, SimpleNamespace(
         model="fake", pages=["page"], evidence=None,
-        native_evidence=_document(native, extractor_id=NATIVE_EXTRACTOR)))
+        native_evidence=_document(native, extractor_id=NATIVE_EXTRACTOR, document_sha="D" * 64)))
     return key
 
 
@@ -991,6 +991,90 @@ def test_the_census_refuses_a_run_recorded_under_another_partition(tmp_path):
         encoding="utf-8")
     with pytest.raises(CensusRefused, match="research_partition"):
         _key_from_run(run, "paddle-v5-prod")
+
+
+def test_the_census_never_substitutes_an_offline_key_for_an_unrecorded_paddle_key(tmp_path):
+    import json
+    from tools.agreement_census import CensusRefused, _key_from_run
+
+    (tmp_path / "provenance.json").write_text(json.dumps({"run_of_record": {"partitions": {
+        "research_partition": "paddle-v5-prod", "offline_ocr_key": "B" * 64,
+        "paddle_ocr_key_note": "not recorded here",
+    }}}), encoding="utf-8")
+    with pytest.raises(CensusRefused, match="without paddle_ocr_key"):
+        _key_from_run(tmp_path, "paddle-v5-prod")
+
+
+def test_the_census_refuses_an_empty_measurement_under_the_selected_key(tmp_path, ledger, truth):
+    from tools.agreement_census import CensusRefused, main
+
+    _research_cache(tmp_path, ledger, truth)
+    population = tmp_path / "selected.shas"
+    population.write_text("C" * 64 + "\n", encoding="utf-8")
+    with pytest.raises(CensusRefused, match="empty measurement"):
+        main(["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod",
+              "--settings-key", "E" * 64, "--shas", str(population)])
+
+
+def test_the_census_refuses_conflicting_extractor_identities_under_one_key(tmp_path, ledger, truth):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from tools.agreement_census import CensusRefused, main
+    from webapp.artifact_cache import open_cache
+
+    key = _research_cache(tmp_path, ledger, truth)
+    native, extractor = _pair(ledger, truth)
+    alternative = replace(_document(extractor, extractor_id=PADDLE_EXTRACTOR, document_sha="D" * 64),
+                          runtime={"pipeline_switches": {"orientation": True}})
+    open_cache(tmp_path).put_ocr("D" * 64, key, SimpleNamespace(
+        model="fake", pages=["page"], evidence=alternative,
+        native_evidence=_document(native, extractor_id=NATIVE_EXTRACTOR, document_sha="D" * 64)))
+    with pytest.raises(CensusRefused, match="conflicting extractor identities"):
+        main(["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod",
+              "--settings-key", key])
+
+
+@pytest.mark.parametrize("corruption", [
+    "missing_evidence", "malformed_evidence", "no_pages", "native_in_extractor",
+    "extractor_in_native", "evidence_sha", "envelope_sha", "envelope_key", "envelope_stage",
+])
+def test_the_census_refuses_empty_or_misidentified_evidence(tmp_path, ledger, truth, corruption):
+    import json
+    import sqlite3
+    from dataclasses import replace
+    from evidence.canonical import from_json, to_json
+    from tools.agreement_census import CensusRefused, main
+
+    key = _research_cache(tmp_path, ledger, truth)
+    selected = "C" * 64
+    population = tmp_path / "selected.shas"
+    population.write_text(selected + "\n", encoding="utf-8")
+    with sqlite3.connect(tmp_path / "webapp.db") as conn:
+        artifact = conn.execute("SELECT artifact_path FROM artifact_cache WHERE input_sha256=?",
+                                (selected,)).fetchone()[0]
+    path = tmp_path / "artifacts" / artifact
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    record = payload["artifact"]["document"]
+    if corruption in {"missing_evidence", "malformed_evidence"}:
+        record["evidence"] = record["native_evidence"] = (
+            None if corruption == "missing_evidence" else {"invalid": True})
+    elif corruption == "no_pages":
+        for slot in ("evidence", "native_evidence"):
+            record[slot] = to_json(replace(from_json(record[slot]), pages=()))
+    elif corruption == "native_in_extractor":
+        record["evidence"] = record["native_evidence"]
+    elif corruption == "extractor_in_native":
+        record["native_evidence"] = record["evidence"]
+    elif corruption == "evidence_sha":
+        record["evidence"] = to_json(replace(from_json(record["evidence"]), document_sha256="E" * 64))
+    else:
+        field = {"envelope_sha": "input_sha256", "envelope_key": "settings_key",
+                 "envelope_stage": "stage"}[corruption]
+        payload[field] = "E" * 64 if corruption != "envelope_stage" else "other"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(CensusRefused):
+        main(["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod",
+              "--settings-key", key, "--shas", str(population)])
 
 
 def test_the_agreement_module_names_no_verdict_vocabulary():

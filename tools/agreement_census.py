@@ -27,18 +27,17 @@ evidence (plan §H.4, E4), never a trigger, never a third engine.
 
 Which partition, and how it is found
 ------------------------------------
-A research partition is identified by the OCR settings key its artifacts
-were written under, and the key is not recoverable from an artifact (the
-partition id is key material, not payload). So the key is taken, in this
-order and never by guessing:
+A research partition is identified by the recorded OCR settings key its
+artifacts were written under. The key is taken in this order:
 
 1. ``--settings-key`` — given explicitly;
 2. ``--run`` — the research run's ``provenance.json``, whose
    ``run_of_record.partitions.research_partition`` must equal
    ``--research-partition`` (a production run, or another partition, is
-   refused) and whose ``paddle_ocr_key`` is the key;
+   refused) and whose ``paddle_ocr_key`` is the key. A missing Paddle key
+   refuses; an offline key cannot substitute for it;
 3. otherwise the cache is scanned for OCR keys whose artifacts carry
-   extractor evidence. Exactly one such key is used and named; zero or more
+   canonical non-native extractor evidence. Exactly one such key is used and named; zero or more
    than one is a refusal that says so.
 
 Native evidence is read from the SAME artifact record when the research read
@@ -46,6 +45,10 @@ attached it, and otherwise — ``--native-data-dir`` with ``--native-run`` —
 from the production run of record's own partition, read-only. A document
 with only one reading is COUNTED as unpaired and contributes to the geometry
 census alone.
+Artifact envelopes and evidence document identities must agree with the
+selected cache record, and one settings key cannot combine conflicting
+extractor/model/runtime identities. A population with no canonical evidence
+pages refuses rather than presenting an empty measurement as a success.
 """
 from __future__ import annotations
 
@@ -58,7 +61,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from evidence.canonical import EvidenceError, from_json
+from evidence.canonical import EvidenceError, from_json, to_json
+from evidence.native import NATIVE_EXTRACTOR_ID
 from layout.agreement import (
     AGREEMENT_VERSION,
     IOU_THRESHOLD,
@@ -119,7 +123,11 @@ class _Partition:
             payload = json.loads((self.root / str(row[0])).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        document = (payload.get("artifact") or {}).get("document")
+        if (not isinstance(payload, dict) or payload.get("input_sha256") != sha or payload.get("settings_key") != self.key
+                or payload.get("stage") != "ocr"):
+            return None
+        artifact = payload.get("artifact")
+        document = artifact.get("document") if isinstance(artifact, dict) else None
         return document if isinstance(document, dict) else None
 
 
@@ -132,9 +140,12 @@ def _key_from_run(run: Path, partition: str) -> str:
             f"refusing {run}: its recorded research_partition is {recorded!r}, not {partition!r} — "
             "a census of one partition never reads another's artifacts"
         )
-    key = block.get("paddle_ocr_key") or block.get("offline_ocr_key")
+    key = block.get("paddle_ocr_key")
     if not key:
-        raise CensusRefused(f"refusing {run}: provenance.json records no OCR settings key")
+        raise CensusRefused(
+            "refusing research provenance without paddle_ocr_key: pass the recorded "
+            "Paddle --settings-key explicitly; offline_ocr_key is never a substitute"
+        )
     return str(key)
 
 
@@ -149,7 +160,7 @@ def _key_by_scan(data_dir: Path) -> str:
         with_evidence: list[str] = []
         for key in keys:
             rows = conn.execute(
-                "SELECT artifact_path FROM artifact_cache WHERE stage='ocr' AND settings_key=? LIMIT 25",
+                "SELECT artifact_path FROM artifact_cache WHERE stage='ocr' AND settings_key=?",
                 (key,),
             ).fetchall()
             for row in rows:
@@ -157,8 +168,12 @@ def _key_by_scan(data_dir: Path) -> str:
                     payload = json.loads((root / str(row[0])).read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     continue
-                document = (payload.get("artifact") or {}).get("document") or {}
-                if isinstance(document, dict) and isinstance(document.get("evidence"), dict):
+                if not isinstance(payload, dict) or payload.get("settings_key") != key or payload.get("stage") != "ocr":
+                    continue
+                artifact = payload.get("artifact")
+                document = artifact.get("document") if isinstance(artifact, dict) else None
+                evidence = _evidence(document.get("evidence")) if isinstance(document, dict) else None
+                if evidence is not None and evidence.extractor_id != NATIVE_EXTRACTOR_ID:
                     with_evidence.append(key)
                     break
     finally:
@@ -305,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     by_modality: dict[str, list] = collections.defaultdict(list)
     by_family: dict[str, list] = collections.defaultdict(list)
     geometry_by_source: dict[str, list] = {"native": [], "extractor": []}
+    identities: set[str] = set()
     paired = unpaired = unreadable = 0
     frame_mismatch_pages = 0
 
@@ -318,9 +334,27 @@ def main(argv: list[str] | None = None) -> int:
         if native is None and native_partition is not None:
             other = native_partition.document(sha)
             if other is not None:
-                native = _evidence(other.get("native_evidence")) or _evidence(other.get("evidence"))
+                native = _evidence(other.get("native_evidence"))
+                if native is None:
+                    candidate = _evidence(other.get("evidence"))
+                    if candidate is not None and candidate.extractor_id == NATIVE_EXTRACTOR_ID:
+                        native = candidate
+        if native is not None and native.extractor_id != NATIVE_EXTRACTOR_ID:
+            raise CensusRefused("refusing a native evidence slot that identifies another extractor")
+        if extractor is not None:
+            if extractor.extractor_id == NATIVE_EXTRACTOR_ID:
+                raise CensusRefused("refusing an extractor evidence slot that identifies native text")
+            identities.add(json.dumps({
+                "extractor_id": extractor.extractor_id,
+                "model_token": extractor.model_token,
+                "runtime": to_json(extractor)["runtime"],
+            }, sort_keys=True, separators=(",", ":")))
+            if len(identities) > 1:
+                raise CensusRefused("refusing conflicting extractor identities under one settings key")
         for source_name, source in (("native", native), ("extractor", extractor)):
             if source is not None:
+                if source.document_sha256.upper() != sha:
+                    raise CensusRefused("refusing evidence whose document identity differs from its artifact")
                 geometry_by_source[source_name].extend(geometry_census(source))
         if native is None or extractor is None:
             unpaired += 1
@@ -337,6 +371,11 @@ def main(argv: list[str] | None = None) -> int:
             by_modality[modalities.get(sha, "unknown")].append(result)
             by_family[families.get(sha, "validated_or_unlisted")].append(result)
 
+    if not any(geometry_by_source.values()):
+        raise CensusRefused(
+            "refusing empty measurement: no canonical evidence pages under the selected settings key"
+        )
+
     print(f"\n# agreement census — population {args.label}, partition {args.research_partition}")
     print(f"  cache                 {args.data_dir}")
     print(f"  settings key via      {door}")
@@ -348,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  documents with BOTH readings (paired)       {paired:>9}")
     print(f"  documents with one reading (unpaired)       {unpaired:>9}")
     print(f"  documents whose record could not be read    {unreadable:>9}")
+    print(f"  extractor identities measured              {len(identities):>9}")
     print(f"  pages compared                              {len(all_pages):>9}")
     print(f"  pages whose two frames disagree             {frame_mismatch_pages:>9}")
 
