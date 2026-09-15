@@ -74228,3 +74228,36 @@ source is refused too; a sibling log directory remains valid. The CLI checks
 this before reading artifacts. Direct, sibling, alias and call-site tests pin
 the boundary, and C9/C10 remove its check or its CLI call. No queued command ever
 targeted an input directory; the configured outputs stay in sibling logs.
+
+## Recovered production proofs and their exact scope
+
+Ocean accepted the completed production proofs after a source comparison:
+`discovery/runner.py`, `discovery/report.py`, `analysis/`, `ocr/escalation.py`,
+`evidence/`, `layout/` and `webapp/` are byte-identical between this closure and
+`342c7d9`, the implementation state those proofs exercised. The new edits are
+to the read-only census and its synthetic proof instruments. The earlier
+metric-definition closure remains `EXTRACTION_QUALITY_VERSION = 2`; the
+historical v1 synthetic report is retained as history, not relabeled as v2.
+
+| recovered proof | result | durable log prefix |
+|---|---|---|
+| canonical guards | 277 passed, exit zero | `p23egate-guards` |
+| canonical conformance | 1,282 passed, 41 skipped, exit zero | `p23egate-conformance` |
+| corpus gate | GREEN: 105 PASS, 3 WITHHELD, 1 REFUSED, exit zero | `p23egate-gate` |
+| corpus tests | 34 passed, exit zero | `p23egate-corpus` |
+| union replay at base and closure | all eight chunk logs end exit zero | `p23egate-replay-base-*`, `p23egate-replay-closure-*` |
+
+The replay population was 2,695 documents in four chunks: 700, 700, 700 and
+595. Their protected validated populations were 680, 681, 679 and 585,
+respectively: **2,625 preserved payload-identical, zero changed, zero
+regressions, zero newly validated**, with 70 unchanged nonvalidated documents.
+No completed chunk was repeated. This is evidence of unchanged production
+behavior; it is not a real-evidence calibration of the quality metrics.
+
+The closure still requires its affected tests, current synthetic table and
+fake-worker census, 36 mutation rows, first real CTRL/U755 census, full default
+suite and final privacy/message scans. Those results are recorded below when
+their durable runs complete. All heavy runs use the main checkout's committed
+lock helper and shared absolute lock, one OCR worker, and the Windows runner's
+1.5 GiB start floor with a 4 GiB job cap. Logs retain their exact tip and exit;
+failed or refused attempts remain separate from successful proofs.
