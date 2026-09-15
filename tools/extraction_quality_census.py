@@ -2,7 +2,8 @@
 RESEARCH partition's cached OCR artifacts (P23-EGATE item 5).
 
     python -m tools.extraction_quality_census --data-dir <research dir>
-           --research-partition <id> [--rasters <dir>] [--out <git-ignored>.md]
+           --research-partition <id> [--settings-key <recorded key>]
+           [--rasters <dir>] [--out <git-ignored>.md]
 
 What it does
 ------------
@@ -10,8 +11,8 @@ Reads the cached OCR artifacts under a research `--data-dir`, measures every
 page of every EXTRACTOR evidence it finds with `ocr.extraction_quality`, and
 prints the distribution of each metric and the E-class counts **per
 configuration** — the configuration being the extractor's OWN recorded
-identity (its id, its model token, the detection and recognition models, the
-pipeline switches and the dpi from `ExtractionEvidence.runtime`), never a
+identity (its id, its model token and every closed runtime identity field,
+including versions, GPU and Python provenance), never a
 label passed on the command line. That is what makes "never compared across
 configurations" a property of the instrument rather than a discipline: two
 configurations are two tables, and a rec-score column in one of them is not
@@ -27,8 +28,18 @@ partition built from synthetic pages whose literal strings it then greps for.
 
 Read-only, and refused at the door
 ----------------------------------
-Nothing is written under `--data-dir`: the artifacts are read as JSON and the
-SQLite index is never opened. A `--data-dir` that is, or is inside, the live
+Nothing is written under `--data-dir`. With `--settings-key`, the SQLite index
+is opened in read-only mode and the canonical exact-tuple selector resolves
+each selected artifact. Its envelope and canonical document identity must
+agree with that selection; ambiguity refuses. The key must come from the
+recorded run or an artifact bound to that run's recorded evidence hash. It is
+never reconstructed, guessed or printed. This pins an original calibration
+when a later run adds another settings key to the same directory.
+
+Without a settings key the tool audits every OCR JSON artifact in the directory,
+including unindexed files, and groups the readings by complete closed runtime
+identity. That mode supports the synthetic instrument and explicit whole-cache
+audits; it does not choose a run of record. A `--data-dir` that is, or is inside, the live
 cache, a `webapp_data*` directory or the read-only recovery area is refused
 by `discovery.runner.refuse_production_data_dir` — cell T's door, imported
 rather than re-implemented, so this tool and the research runner cannot
@@ -53,9 +64,11 @@ import hashlib
 import json
 import math
 import re
+import sqlite3
 import subprocess
 import sys
 from collections import Counter
+from contextlib import closing
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
@@ -66,6 +79,9 @@ if str(ROOT) not in sys.path:
 
 from discovery.runner import RESEARCH_PARTITION_PATTERN, refuse_production_data_dir  # noqa: E402
 from evidence.canonical import EvidenceError, ExtractionEvidence, from_json  # noqa: E402
+from evidence.native import NATIVE_EXTRACTOR_ID  # noqa: E402
+from ocr.paddle_rung import RUNTIME_FIELDS  # noqa: E402
+from telemetry.run_of_record import RunOfRecordError, select_artifact  # noqa: E402
 from ocr.extraction_quality import (  # noqa: E402
     EXTRACTION_QUALITY_VERSION,
     EQ_ROW_COLUMNS,
@@ -120,8 +136,7 @@ def configuration_of(evidence: ExtractionEvidence) -> str:
     nothing shows as `unrecorded` rather than silently joining another."""
     runtime = evidence.runtime or {}
     parts = [f"extractor={evidence.extractor_id}", f"model={evidence.model_token}"]
-    for name in ("text_detection_model_name", "text_recognition_model_name",
-                 "pipeline_switches", "dpi", "provider", "execution_class"):
+    for name in sorted(RUNTIME_FIELDS):
         value = runtime.get(name)
         if value is not None:
             parts.append(f"{name}={_flat(value)}")
@@ -156,6 +171,59 @@ def ocr_records(data_dir: Path) -> Iterator[dict]:
         artifact = payload.get("artifact") if isinstance(payload, dict) else None
         document = artifact.get("document") if isinstance(artifact, dict) else None
         yield document if isinstance(document, dict) else {"_negative": True}
+
+
+def indexed_ocr_records(data_dir: Path, settings_key: str,
+                        shas: frozenset[str] | None) -> Iterator[dict]:
+    """One explicit recorded key, with the shared exact-tuple refusal policy.
+
+    Orphan JSON files cannot substitute for an indexed reading. Missing or
+    unreadable records remain counted separately; conflicting identities refuse
+    the whole census even if another selected record could be measured.
+    """
+    root = (data_dir / "artifacts").resolve()
+    uri = (data_dir / "webapp.db").resolve().as_uri() + "?mode=ro"
+    try:
+        with closing(sqlite3.connect(uri, uri=True)) as conn:
+            entries = conn.execute(
+                "SELECT DISTINCT input_sha256 FROM artifact_cache "
+                "WHERE stage='ocr' AND settings_key=? ORDER BY input_sha256",
+                (settings_key,),
+            ).fetchall()
+            for (sha,) in entries:
+                if not isinstance(sha, str) or re.fullmatch(r"[A-F0-9]{64}", sha) is None:
+                    raise SystemExit("REFUSED: indexed document identity is malformed")
+                if shas is not None and sha not in shas:
+                    continue
+                try:
+                    relative = select_artifact(conn, "ocr", sha, settings_key)
+                except RunOfRecordError:
+                    raise SystemExit("REFUSED: ambiguous indexed OCR artifact") from None
+                if relative is None:
+                    yield {"_unreadable": True}
+                    continue
+                path = (root / relative).resolve()
+                if not path.is_relative_to(root):
+                    raise SystemExit("REFUSED: indexed artifact is outside the research source")
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    yield {"_unreadable": True}
+                    continue
+                if not isinstance(payload, dict):
+                    yield {"_unreadable": True}
+                    continue
+                if (payload.get("stage") != "ocr" or payload.get("settings_key") != settings_key
+                        or payload.get("input_sha256") != sha):
+                    raise SystemExit("REFUSED: artifact envelope conflicts with indexed selection")
+                artifact = payload.get("artifact")
+                document = artifact.get("document") if isinstance(artifact, dict) else None
+                if not isinstance(document, dict):
+                    yield {"_negative": True}
+                    continue
+                yield {**document, "_selected_sha": sha}
+    except sqlite3.Error:
+        raise SystemExit("REFUSED: research artifact index cannot be read") from None
 
 
 class LazyRasters:
@@ -367,7 +435,8 @@ def _refuse_source_out(out: Path, *, data_dir: Path, rasters: Path) -> None:
 
 
 def census(data_dir: Path, *, partition: str, rasters: Path | None,
-           shas: frozenset[str] | None = None) -> tuple[dict[str, Census], Counter[str]]:
+           shas: frozenset[str] | None = None,
+           settings_key: str | None = None) -> tuple[dict[str, Census], Counter[str]]:
     if re.fullmatch(RESEARCH_PARTITION_PATTERN, partition) is None:
         raise SystemExit(
             f"--research-partition {partition!r} must match {RESEARCH_PARTITION_PATTERN}: "
@@ -381,12 +450,16 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None,
         # crash — the one shape an operator is most likely to retry around —
         # while every other refusal here is a named message and an exit code.
         raise SystemExit(f"REFUSED: {refusal}") from None
+    if settings_key is not None and re.fullmatch(r"[a-fA-F0-9]{64}", settings_key) is None:
+        raise SystemExit("REFUSED: settings key must be a recorded full hash")
 
     censuses: dict[str, Census] = {}
     skipped: Counter[str] = Counter()
     seen: dict[tuple[str, str], tuple[str, tuple[int, ...]]] = {}
     measured_shas: set[str] = set()
-    for document in ocr_records(data_dir):
+    records = (ocr_records(data_dir) if settings_key is None
+               else indexed_ocr_records(data_dir, settings_key, shas))
+    for document in records:
         if document.get("_unreadable"):
             skipped["unreadable artifact"] += 1
             continue
@@ -403,6 +476,11 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None,
             skipped["evidence that does not reproduce its own sha"] += 1
             continue
         sha = evidence.document_sha256.upper()
+        if "_selected_sha" in document:
+            if sha != document["_selected_sha"]:
+                raise SystemExit("REFUSED: canonical document identity conflicts with indexed selection")
+            if evidence.extractor_id == NATIVE_EXTRACTOR_ID:
+                raise SystemExit("REFUSED: selected extractor slot contains native evidence")
         if shas is not None and sha not in shas:
             skipped["extractor evidence outside selected population"] += 1
             continue
@@ -462,6 +540,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None, help="write the tables here too (git-ignored)")
     parser.add_argument("--shas", type=Path, default=None,
                         help="optional wave population file; identifiers are never printed")
+    parser.add_argument("--settings-key", default=None,
+                        help="explicit recorded research OCR key; never reconstructed or printed")
     args = parser.parse_args(argv)
 
     rasters = args.rasters if args.rasters is not None else args.data_dir / "rasters"
@@ -470,8 +550,9 @@ def main(argv: list[str] | None = None) -> int:
         _refuse_tracked_out(args.out)
     censuses, skipped = census(args.data_dir, partition=args.research_partition,
                                rasters=rasters if rasters.is_dir() else None,
-                               shas=None if args.shas is None else read_population(args.shas))
-    if not censuses:
+                               shas=None if args.shas is None else read_population(args.shas),
+                               settings_key=args.settings_key)
+    if not censuses or not any(value.pages for value in censuses.values()):
         raise SystemExit(
             "no extractor evidence found: this directory holds no page this instrument can measure"
         )

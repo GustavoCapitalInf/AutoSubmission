@@ -367,6 +367,194 @@ def test_cli_refuses_source_output_before_reading_any_artifact(tmp_path, monkeyp
                    "--out", str(data / "report.md")])
 
 
+@pytest.mark.parametrize("field,value", [
+    ("gpu", {"name": "synthetic second GPU"}), ("python_version", "synthetic second Python"),
+    ("paddleocr_version", "synthetic second OCR"), ("paddlepaddle_version", "synthetic second Paddle"),
+    ("ocr_version", "synthetic second model family"), ("cuda_compiled", False),
+    ("worker_contract", "synthetic second contract"), ("data_scope", "synthetic second scope"),
+])
+def test_complete_closed_runtime_identity_separates_equal_page_readings(tmp_path, monkeypatch, field, value):
+    from dataclasses import replace
+    from evidence.canonical import to_json
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    first = replace(fold_document(), evidence_sha256="", runtime={"gpu": {"name": "synthetic first GPU"},
+        "python_version": "synthetic first Python", "cuda_compiled": True})
+    second = replace(first, evidence_sha256="", runtime={**first.runtime, field: value})
+    assert first.pages == second.pages
+    assert first.evidence_sha256 != second.evidence_sha256
+    assert tool.configuration_of(first) != tool.configuration_of(second)
+    records = [{"evidence": to_json(reading)} for reading in (first, second)]
+    monkeypatch.setattr(tool, "ocr_records", lambda _: iter(records))
+    measured, skipped = tool.census(tmp_path / "research", partition=PARTITION, rasters=None)
+    assert len(measured) == 2 and skipped["measured"] == 2
+    assert [value.documents for value in measured.values()] == [1, 1]
+    unknown = replace(first, evidence_sha256="", runtime={**first.runtime, "untrusted_extra": "must-not-be-printed"})
+    assert tool.configuration_of(unknown) == tool.configuration_of(first)
+    assert "must-not-be-printed" not in tool.configuration_of(unknown)
+
+
+_INDEX_KEY_A = "1" * 64
+_INDEX_KEY_B = "2" * 64
+
+
+def _write_indexed_synthetic(data, readings):
+    """Minimal real SQLite index with valid synthetic canonical artifacts.
+
+    Each reading is (name, settings key, indexed SHA, evidence, envelope patch).
+    The distinct cache keys intentionally allow corrupt duplicate tuple fixtures.
+    """
+    import json
+    import sqlite3
+    from evidence.canonical import to_json
+
+    data.mkdir()
+    root = data / "artifacts"
+    root.mkdir()
+    with sqlite3.connect(data / "webapp.db") as conn:
+        conn.execute("CREATE TABLE artifact_cache (stage TEXT, cache_key TEXT, "
+                     "input_sha256 TEXT, settings_key TEXT, artifact_path TEXT, "
+                     "PRIMARY KEY(stage,cache_key))")
+        for name, key, sha, evidence, patch in readings:
+            path = root / "ocr" / (name + ".json")
+            path.parent.mkdir(exist_ok=True)
+            payload = {"stage": "ocr", "settings_key": key, "input_sha256": sha,
+                       "artifact": {"document": {"evidence": to_json(evidence)}}}
+            payload.update(patch)
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            conn.execute("INSERT INTO artifact_cache VALUES (?,?,?,?,?)",
+                         ("ocr", name, sha, key, "ocr/" + path.name))
+
+
+def test_exact_settings_key_excludes_other_runs_and_orphans_read_only(tmp_path, capsys):
+    import json
+    from dataclasses import replace
+    from evidence.canonical import to_json
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    first = replace(fold_document(), evidence_sha256="", document_sha256="A" * 64, runtime={"python_version": "synthetic original"})
+    later = replace(first, evidence_sha256="", runtime={"python_version": "synthetic later"})
+    data = tmp_path / "research"
+    _write_indexed_synthetic(data, [
+        ("original", _INDEX_KEY_A, first.document_sha256, first, {}),
+        ("later", _INDEX_KEY_B, later.document_sha256, later, {}),
+    ])
+    # An unindexed file conflicts with the selected original's effective E5.
+    orphan = {"artifact": {"document": {"evidence": to_json(first),
+              "page_integrity": [{"page_index": 0, "truncated": True}]}}}
+    (data / "artifacts/ocr/orphan.json").write_text(json.dumps(orphan), encoding="utf-8")
+    snapshot = {p.relative_to(data): p.read_bytes() for p in data.rglob("*") if p.is_file()}
+    selected = frozenset({first.document_sha256, "B" * 64})
+    measured, skipped = tool.census(data, partition=PARTITION, rasters=None,
+                                    settings_key=_INDEX_KEY_A, shas=selected)
+    assert len(measured) == 1 and next(iter(measured.values())).documents == 1
+    assert "synthetic original" in next(iter(measured))
+    assert skipped == {"measured": 1, "selected documents": 2,
+                       "selected documents without measurable evidence": 1}
+    population = tmp_path / "population.shas"
+    population.write_text("\n".join(sorted(selected)), encoding="utf-8")
+    assert tool.main(["--data-dir", str(data), "--research-partition", PARTITION,
+                      "--settings-key", _INDEX_KEY_A, "--shas", str(population)]) == 0
+    output = capsys.readouterr().out
+    assert "documents 1 | pages 3" in output
+    assert _INDEX_KEY_A not in output and first.document_sha256 not in output
+    assert "synthetic later" not in output
+    assert snapshot == {p.relative_to(data): p.read_bytes() for p in data.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_indexed_duplicate_tuple_refuses_both_orders_without_identity_output(tmp_path, reverse):
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    evidence = fold_document()
+    readings = [(name, _INDEX_KEY_A, evidence.document_sha256, evidence, {})
+                for name in ("first", "second")]
+    data = tmp_path / "research"
+    _write_indexed_synthetic(data, readings[::-1] if reverse else readings)
+    with pytest.raises(SystemExit, match="ambiguous indexed") as error:
+        tool.census(data, partition=PARTITION, rasters=None, settings_key=_INDEX_KEY_A)
+    assert evidence.document_sha256 not in str(error.value)
+    assert _INDEX_KEY_A not in str(error.value)
+    assert error.value.__suppress_context__
+
+
+@pytest.mark.parametrize("field,value", [("stage", "analysis"),
+    ("settings_key", _INDEX_KEY_B), ("input_sha256", "C" * 64)])
+def test_indexed_envelope_conflicts_refuse_with_valid_companion(tmp_path, field, value):
+    from dataclasses import replace
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    first = replace(fold_document(), evidence_sha256="", document_sha256="A" * 64)
+    second = replace(first, evidence_sha256="", document_sha256="B" * 64)
+    data = tmp_path / "research"
+    _write_indexed_synthetic(data, [("valid", _INDEX_KEY_A, first.document_sha256, first, {}),
+        ("conflict", _INDEX_KEY_A, second.document_sha256, second, {field: value})])
+    with pytest.raises(SystemExit, match="envelope conflicts"):
+        tool.census(data, partition=PARTITION, rasters=None, settings_key=_INDEX_KEY_A)
+
+
+def test_indexed_canonical_document_and_native_slot_conflicts_refuse(tmp_path):
+    from dataclasses import replace
+    from evidence.native import NATIVE_EXTRACTOR_ID
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    evidence = fold_document()
+    wrong_document = tmp_path / "wrong-document"
+    _write_indexed_synthetic(wrong_document, [("wrong", _INDEX_KEY_A, "A" * 64,
+        replace(evidence, evidence_sha256="", document_sha256="B" * 64), {})])
+    with pytest.raises(SystemExit, match="canonical document identity"):
+        tool.census(wrong_document, partition=PARTITION, rasters=None, settings_key=_INDEX_KEY_A)
+    wrong_slot = tmp_path / "wrong-slot"
+    _write_indexed_synthetic(wrong_slot, [("wrong", _INDEX_KEY_A, evidence.document_sha256,
+        replace(evidence, evidence_sha256="", extractor_id=NATIVE_EXTRACTOR_ID), {})])
+    with pytest.raises(SystemExit, match="extractor slot contains native"):
+        tool.census(wrong_slot, partition=PARTITION, rasters=None, settings_key=_INDEX_KEY_A)
+
+
+def test_indexed_source_path_cannot_escape_and_missing_index_is_not_created(tmp_path):
+    import sqlite3
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    data = tmp_path / "research"
+    evidence = fold_document()
+    _write_indexed_synthetic(data, [("escape", _INDEX_KEY_A, evidence.document_sha256, evidence, {})])
+    outside = data / "outside.json"
+    outside.write_bytes((data / "artifacts/ocr/escape.json").read_bytes())
+    with sqlite3.connect(data / "webapp.db") as conn:
+        conn.execute("UPDATE artifact_cache SET artifact_path='../outside.json'")
+    with pytest.raises(SystemExit, match="outside the research source"):
+        tool.census(data, partition=PARTITION, rasters=None, settings_key=_INDEX_KEY_A)
+    missing = tmp_path / "missing"
+    missing.mkdir()
+    with pytest.raises(SystemExit, match="index cannot be read"):
+        tool.census(missing, partition=PARTITION, rasters=None, settings_key=_INDEX_KEY_A)
+    assert not (missing / "webapp.db").exists()
+
+
+def test_indexed_cli_refuses_wrong_key_and_empty_canonical_pages(tmp_path):
+    from dataclasses import replace
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    data = tmp_path / "research"
+    evidence = fold_document()
+    _write_indexed_synthetic(data, [("empty", _INDEX_KEY_A, evidence.document_sha256,
+                                    replace(evidence, evidence_sha256="", pages=()), {})])
+    for key in (_INDEX_KEY_A, _INDEX_KEY_B):
+        with pytest.raises(SystemExit, match="no extractor evidence found"):
+            tool.main(["--data-dir", str(data), "--research-partition", PARTITION,
+                       "--settings-key", key])
+    with pytest.raises(SystemExit, match="recorded full hash") as error:
+        tool.census(data, partition=PARTITION, rasters=None, settings_key="synthetic-invalid-key")
+    assert "synthetic-invalid-key" not in str(error.value)
+
+
 # ---------------------------------------------------------------------------
 # what it must never print (M9)
 # ---------------------------------------------------------------------------
