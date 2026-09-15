@@ -237,8 +237,10 @@ def test_two_configurations_in_one_research_directory_are_refused_not_guessed(tm
     ({"paddle_rung": "", "source_path": "native", "error_type": "RuntimeError"},
      "paddle_not_attempted", "no trigger reached the rung: not a Paddle outcome at all"),
     ({"paddle_rung": "research", "source_path": "paddle", "outcome_reason": "withheld_adb"},
-     "withheld_adb", "the rung ran and left no evidence: the row's own outcome"),
-    ({"paddle_rung": "research", "source_path": "paddle"}, "unrecorded", "nothing known, said so"),
+     "paddle_evidence_missing", "a financial outcome is not an extractor failure"),
+    ({"paddle_rung": "research", "source_path": "paddle"}, "paddle_evidence_missing", "no evidence recorded"),
+    ({"paddle_rung": "not_attempted", "outcome_reason": "approved"},
+     "paddle_not_attempted", "a skipped rung does not inherit an analysis verdict"),
 ])
 def test_the_refusal_reason_is_a_paddle_reason_not_the_documents_outcome(row, expected, why):
     """The U755 run's finding, as a test. `error_type` is not a Paddle column:
@@ -605,6 +607,41 @@ def test_retention_process_count_distinguishes_the_inspector_from_the_worker(run
         input=processes, text=True, capture_output=True, check=True,
     )
     assert int(result.stdout.strip()) == int(running)
+
+
+@pytest.mark.parametrize("case", ["clean", "missing", "ps_failure", "find_failure", "nested"])
+def test_retention_executes_the_shell_and_refuses_incomplete_inspection(tmp_path, case):
+    from tools import paddle_wave as wave
+
+    bash = shutil.which("bash")
+    if os.name == "nt":
+        candidate = Path("C:/Program Files/Git/bin/bash.exe")
+        bash = str(candidate) if candidate.exists() else None
+    if bash is None:
+        pytest.skip("the remote inspection uses a POSIX shell")
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    (runtime / "paddle_worker.py").write_text("# synthetic worker\n", encoding="utf-8")
+    (runtime / "worker.log").write_text("", encoding="utf-8")
+    if case == "nested":
+        (runtime / "spool").mkdir()
+        (runtime / "spool" / "page.bin").write_bytes(b"synthetic retained bytes")
+    inspected = runtime / "missing" if case == "missing" else runtime
+    command = wave._ATTESTATION_COMMAND.format(
+        directory=inspected.as_posix(), worker=(runtime / "paddle_worker.py").as_posix(), since=0,
+    ).replace("find /tmp", f'find "{runtime.as_posix()}"')
+    prefix = "ps() { return 1; }; " if case == "ps_failure" else "ps() { return 0; }; "
+    if case == "find_failure":
+        prefix += "find() { return 1; }; "
+    completed = subprocess.run([bash, "-c", prefix + command], capture_output=True, text=True)
+    result = attest_retention(
+        _FakeSettings(), runner=lambda *args, **kwargs: completed,
+        retention_declared=True, sleep=lambda seconds: None,
+    )
+    assert result.passed is (case == "clean")
+    assert result.inspected is (case in {"clean", "nested"})
+    if case == "nested":
+        assert result.unexpected_files == 1
 
 
 @pytest.mark.parametrize("output,why", [
@@ -1190,3 +1227,58 @@ def test_report_reads_each_populations_nested_run_directory(tmp_path):
     shutil.copytree(runs / "CTRL" / "synthetic-session", duplicate)
     with pytest.raises(WaveRefused, match="ambiguous population run directory"):
         wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=runs)
+
+
+def test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state(tmp_path):
+    data, runs = tmp_path / "research", tmp_path / "runs"
+    state = WaveState(config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    sha = "F" * 64
+    state.record(sha, DocumentOutcome(outcome=OUTCOME_REFUSED, reason="approved", pages=1, chunk=1))
+    fields = ["content_sha256", "paddle_rung", "source_path", "paddle_refusal_reason", "outcome_reason"]
+    for index, reason in ((0, "paddle_evidence_malformed"), (1, "")):
+        directory = runs / "CTRL" / f"synthetic-{index}"
+        directory.mkdir(parents=True)
+        state.chunks.append({"index": index, "run_dir": directory.name})
+        with (directory / "rows.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerow(dict(zip(fields, [sha, "failed", "local_tesseract", reason, "approved"])))
+    state_path = WaveState.path_for(data, PARTITION, "CTRL")
+    state.save(state_path)
+    original = state_path.read_bytes()
+    measured = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=runs)["populations"]["CTRL"]
+    assert measured["refused_by_reason"] == {"paddle_rung_failed_unnamed": 1}
+    assert measured["refusal_reason_source"] == "recorded_rows"
+    assert measured["refusals_rederived"] == 1 and measured["refusals_without_rows"] == 0
+    assert state_path.read_bytes() == original
+    historical = wave_report(data_dir=data, config=PRODUCTION_CONFIG)["populations"]["CTRL"]
+    assert historical["refusal_reason_source"] == "historical_state"
+    missing = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=tmp_path / "missing")["populations"]["CTRL"]
+    assert missing["refused_by_reason"] == {"paddle_refusal_row_unavailable": 1}
+    assert missing["refusals_without_rows"] == 1
+
+
+def test_completed_population_resume_has_no_remote_lifecycle(tmp_path):
+    population = _populations_dir(tmp_path, CTRL=["B" * 64])
+    data = tmp_path / "research"
+    state = _state_with(data, "CTRL", ["B" * 64], OUTCOME_EVIDENCE)
+    from tools.paddle_wave import population_digests
+    state.population_set_sha256 = population_digests(population / "CTRL.shas")["set_sha256"]
+    state.save(WaveState.path_for(data, PARTITION, "CTRL"))
+
+    class UnusedLifecycle:
+        def up(self):
+            raise AssertionError("a completed population must not start a worker")
+
+        def down(self, **kwargs):
+            raise AssertionError("a no-work resume has no worker session to attest")
+
+    result = run_wave(
+        population_file=population / "CTRL.shas", population_name="CTRL",
+        populations_dir=population, config=PRODUCTION_CONFIG, data_dir=data,
+        out_dir=tmp_path / "runs", root=tmp_path / "archive", lifecycle=UnusedLifecycle(),
+        environ={PADDLE_REMOTE_OPT_IN_ENV: PADDLE_REMOTE_OPT_IN_LITERAL,
+                 PADDLE_CUSTOMER_DATA_OPT_IN_ENV: PADDLE_CUSTOMER_DATA_OPT_IN_LITERAL},
+    )
+    assert result["session"]["chunks"] == 0
+    assert result["attestation"] is None

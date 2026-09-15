@@ -693,19 +693,22 @@ _WORKER_PROCESS_AWK = (
 #: reach a log on this machine, and a count answers the question the
 #: attestation actually asks.
 _ATTESTATION_COMMAND = (
-    "D={directory}; "
-    "echo PROC=$(ps -eo comm=,args= 2>/dev/null | awk '" + _WORKER_PROCESS_AWK + "'); "
+    'D="{directory}"; [ -d "$D" ] && [ -r "$D" ] && [ -x "$D" ] || exit 1; '
+    "PROCESSES=$(ps -eo comm=,args= 2>/dev/null) || exit 1; "
+    "PROC=$(printf '%s\\n' \"$PROCESSES\" | awk '" + _WORKER_PROCESS_AWK + "') || exit 1; "
+    'echo PROC="$PROC"; '
     "echo PIDFILE=$([ -f $D/worker.pid ] && echo 1 || echo 0); "
-    "echo IMAGES=$(find $D -type f "
+    'IMAGES=$(find "$D" -type f '
     "\\( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.pdf' -o -name '*.b64' "
-    "-o -name '*.npy' \\) 2>/dev/null | wc -l); "
-    "echo REQUESTS=$(find $D -type f "
+    "-o -name '*.npy' \\) -printf x 2>/dev/null) || exit 1; echo IMAGES=${{#IMAGES}}; "
+    'REQUESTS=$(find "$D" -type f '
     "\\( -name '*.json' -o -name 'request*' -o -name '*.tmp' -o -name '*.part' \\) "
-    "2>/dev/null | wc -l); "
-    "echo OTHER=$(find $D -maxdepth 1 -type f ! -name 'paddle_worker.py' ! -name 'worker.log' "
-    "2>/dev/null | wc -l); "
-    "echo TMPIMG=$(find /tmp -maxdepth 2 -type f "
-    "\\( -name '*.png' -o -name '*.pdf' \\) -newermt '@{since}' 2>/dev/null | wc -l)"
+    "-printf x 2>/dev/null) || exit 1; echo REQUESTS=${{#REQUESTS}}; "
+    'OTHER=$(find "$D" -mindepth 1 ! -type d ! -path "$D/paddle_worker.py" '
+    '! -path "$D/worker.log" -printf x 2>/dev/null) || exit 1; echo OTHER=${{#OTHER}}; '
+    "TMPIMG=$(find /tmp -maxdepth 2 -type f "
+    "\\( -name '*.png' -o -name '*.pdf' \\) -newermt '@{since}' "
+    "-printf x 2>/dev/null) || exit 1; echo TMPIMG=${{#TMPIMG}}"
 )
 
 #: How long the attestation lets the worker process finish DYING before it
@@ -988,21 +991,21 @@ def _refusal_reason(row: Mapping[str, str]) -> str:
     * the terminal `error_type` when the document failed with the rung;
     * `paddle_not_attempted` — no research trigger ever reached the rung, so
       "no evidence" is not a Paddle outcome at all;
-    * the row's `outcome_reason`, then `unrecorded`, for a rung that ran and
-      still left no evidence.
+    * `paddle_evidence_missing` for a rung that ran but left no evidence;
+      a financial outcome is never an extractor refusal reason.
     """
     reason = (row.get("paddle_refusal_reason") or "").strip()
     if reason:
         return reason
     rung = (row.get("paddle_rung") or "").strip()
     error = (row.get("error_type") or "").strip()
-    if not rung:
-        return "paddle_not_attempted"
+    if rung in ("", "not_attempted"):
+        return "invalid_pdf" if row.get("outcome_reason") == "invalid_pdf" else "paddle_not_attempted"
     if rung.endswith("failed") or "refused" in rung:
         if (row.get("source_path") or "").strip() in ("", "none"):
             return error or "paddle_rung_failed_unnamed"
         return "paddle_rung_failed_unnamed"
-    return error or (row.get("outcome_reason") or "").strip() or "unrecorded"
+    return "paddle_evidence_missing"
 
 
 def _discovery_argv(
@@ -1256,7 +1259,7 @@ def run_wave(
             session["documents"] += processed
             chunk_index += 1
     finally:
-        if lifecycle is not None:
+        if lifecycle is not None and pending:
             attestation = lifecycle.down(
                 retention_declared=retention_declared, since_epoch=session_epoch,
             )
@@ -1411,7 +1414,6 @@ def wave_report(
             "pages_evidence": counts["pages_evidence"],
             "pages_refused": counts["pages_refused"],
             "pages_attempted": counts["pages_evidence"] + counts["pages_refused"],
-            "refused_by_reason": state.refusals_by_reason(),
             "cache_hits": sum(int(chunk.get("cache_hits") or 0) for chunk in state.chunks),
             "rasters_written": sum(int(chunk.get("rasters_written") or 0) for chunk in state.chunks),
             "rasters_mismatched": sum(int(chunk.get("rasters_mismatched") or 0)
@@ -1419,6 +1421,7 @@ def wave_report(
             "chunks": len(state.chunks),
             "sessions": len(state.sessions),
         }
+        entry.update(_reported_refusals(state, out_dir))
         entry["count_identity_holds"] = (
             counts["attempted"] == counts["evidence"] + counts["refused"]
         )
@@ -1435,6 +1438,50 @@ def wave_report(
                 report["attestations"].append({"population": name, **session["attestation"]})
         report["populations"][name] = entry
     return report
+
+
+def _recorded_run_directory(state: WaveState, out_dir: Path, name: str) -> Path | None:
+    candidates = {
+        path.resolve() for path in (
+            Path(out_dir) / state.population_name / name,
+            Path(out_dir) / name,
+        ) if (path / "rows.csv").exists()
+    }
+    if len(candidates) > 1:
+        raise WaveRefused("ambiguous population run directory for technical measurements")
+    return candidates.pop() if candidates else None
+
+
+def _reported_refusals(state: WaveState, out_dir: Path | None) -> dict[str, Any]:
+    # Preserve historical state. Read the exact chunk that wrote each outcome,
+    # never a different population row or an earlier attempt.
+    if out_dir is None:
+        return {"refused_by_reason": state.refusals_by_reason(),
+                "refusal_reason_source": "historical_state"}
+    by_chunk = {chunk["index"]: chunk for chunk in state.chunks if "index" in chunk}
+    rows_by_chunk: dict[int, dict[str, dict[str, str]]] = {}
+    reasons: dict[str, int] = {}
+    recovered = unavailable = 0
+    for sha, outcome in state.documents.items():
+        if outcome.outcome != OUTCOME_REFUSED:
+            continue
+        if outcome.chunk not in rows_by_chunk:
+            name = by_chunk.get(outcome.chunk, {}).get("run_dir")
+            path = _recorded_run_directory(state, out_dir, name) if name else None
+            rows_by_chunk[outcome.chunk] = {} if path is None else {
+                row["content_sha256"].upper(): row for row in _rows_of(path)
+            }
+        row = rows_by_chunk[outcome.chunk].get(sha.upper())
+        if row is None:
+            reason = "paddle_refusal_row_unavailable"
+            unavailable += 1
+        else:
+            reason = _refusal_reason(row)
+            recovered += 1
+        reasons[reason] = reasons.get(reason, 0) + 1
+    return {"refused_by_reason": dict(sorted(reasons.items())),
+            "refusal_reason_source": "recorded_rows", "refusals_rederived": recovered,
+            "refusals_without_rows": unavailable}
 
 
 def _technical_measurements(state: WaveState, out_dir: Path | None) -> dict[str, Any]:
@@ -1454,17 +1501,9 @@ def _technical_measurements(state: WaveState, out_dir: Path | None) -> dict[str,
         name = chunk.get("run_dir")
         if not name:
             continue
-        candidates = {
-            path.resolve() for path in (
-                Path(out_dir) / state.population_name / name,
-                Path(out_dir) / name,
-            ) if (path / "rows.csv").exists()
-        }
-        if len(candidates) > 1:
-            raise WaveRefused("ambiguous population run directory for technical measurements")
-        if not candidates:
+        run_dir = _recorded_run_directory(state, out_dir, name)
+        if run_dir is None:
             continue
-        run_dir = candidates.pop()
         for row in _rows_of(run_dir):
             if not (row.get("inference_ms") or "").strip():
                 continue
