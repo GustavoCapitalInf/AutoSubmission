@@ -152,3 +152,59 @@ outputs) · risks last (what the evidence cannot say until E, X and B read it).
 No E-metric (cell E) · no agreement (cell X) · no configuration block (cell V) · no structurer run (cell B) ·
 no classifier change (cell P) · no production routing · no cost · no page to any endpoint but the approved
 instance through the loopback tunnel · no HOLD sha in any population.
+
+# Closure correction — private custody and ordinary wave exports
+
+The continuation's full output scan reproduced archive identities in the generic discovery
+artifacts written directly beneath the wave's ordinary output directory. This is a reporting
+boundary defect, not a claim that OCR paragraphs reached the remote worker's logs. Preserve the
+original artifacts and nonzero scan findings as private historical evidence. A new projection
+does not retroactively make those original bytes pass the privacy gate.
+
+R1 permits local research custody. `H3_SCHEMA.md` separately permits private adjudication rows
+and hash-to-path maps; these include fields intentionally excluded from ordinary telemetry.
+The correction therefore belongs to W's output orchestration and serialization. Generic
+discovery rows, OCR, analysis, routing, production keys and canonical evidence remain outside
+this correction's scope.
+
+Required contract:
+
+1. Future child discovery runs write their complete original artifacts directly inside a private
+   directory derived from the validated research data directory and partition. Ordinary `--out`
+   receives only a separate, versioned technical export. Resolve both roots and refuse overlap
+   in either direction before starting work. Select exactly one newly created child run; never
+   select the latest of several candidates.
+2. Raster retention, refusal recovery and aggregate measurements read the exact original rows
+   for the recorded chunk. New chunks carry an explicit storage marker. The resolver derives
+   their private directory from the research root; absent legacy markers use only the existing
+   layouts beneath the explicitly supplied historical root. Reject unknown markers, unsafe run
+   names, traversal, changed containment and ambiguous identities. No fallback from missing new
+   custody to a different or public run.
+3. Newly written active state uses a new state-format version so old readers refuse layouts
+   they do not understand. New readers accept legacy state for read-only reporting/export.
+   An authorized active continuation may advance legacy state while retaining its old chunks.
+   A legacy no-work resume preserves its old version and existing zero-chunk audit behavior;
+   report/export never rewrites historical state. This does not change an OCR or analysis version.
+4. Construct ordinary exports from a positive field-and-value schema: fingerprints, source and
+   cache codes, counts, finite technical measurements and explicitly validated refusal codes.
+   Preserve aliases, order and honest absent values. No raw path, folder label, duplicate path,
+   statement issuer, account fragment, generic folder-grouped report, hash map, unrestricted nested
+   object or legacy billing schema crosses this boundary. Unknown values refuse without echoing
+   them. A derived export refusal code must be named as derived, not as the original rung field.
+5. Persist completed private extraction and its chunk before the separate export attempt.
+   Export failure is recorded separately and cannot turn successful extraction into a refusal.
+   Publish exports atomically with source-byte/schema bindings. Offline export retry reads that
+   exact closed run; it never calls the wave's pending-document loop or an extractor. Validate
+   ordinary aggregate/event fields as well as CSV fields.
+6. Historical closure creates fresh exports from the explicitly bound completed runs, preserving
+   every original source and state byte. Compare refusal counts, all technical aggregate cells,
+   measured-row and alias denominators against the preserved final report. No customer OCR or
+   retained-raster replay is needed to regenerate this reporting surface.
+
+Required focused proofs cover sensitive sentinels in excluded fields and hostile values in
+allowed fields; new/legacy/mixed storage and old-reader refusal; exact source preservation;
+missing, ambiguous, traversal and retargeted paths; private raster lookup; missing measurements
+and aliases; atomic export failure and offline retry without worker calls. Mutations must expose
+raw-path/report copying and bypassed schema/storage checks. Scan the actual new exports and final
+source/messages without changing scanner patterns or discarding the historical findings. Final
+independent W approval and root composition remain pending this closure.
