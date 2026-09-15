@@ -1,5 +1,11 @@
 # PHASE 2 REMAINDER — HANDOFF TO THE NEXT LEAD ORCHESTRATOR (written 2026-09-10 by Ocean, Fable 5.1)
 
+> **SUPERSEDED 2026-09-15 — read `docs/agent-handoffs/PHASE2-REMAINDER-HANDOFF-2.md` instead.** This file is the
+> historical record of the Phase 2.2 stage and of how 2.2 closed (its two UPDATE blocks). Phase 2.2 is COMPLETE
+> and tagged `phase2.2-final`; Phase 2.3 is in flight on `train13`, and HANDOFF #2 is the current state of the
+> program, the cells, the live wave runs, the rulings in force and the open items.
+
+
 > **UPDATE 2026-09-11 (Ocean, the session that resumed from this file): PHASE 2.2 IS COMPLETE.** Everything in §2–§3 below
 > happened as planned and is now history: F closure-2's W3 section was completed from its logs (`fc65067`), F went through
 > re-review 2 → closure-3 → re-review 3 (APPROVE WITH FINDINGS; Q1/Q2 carried) and COMPOSED at `b49bbc2`; Ocean's item 2 landed
