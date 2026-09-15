@@ -1161,3 +1161,32 @@ def test_the_report_names_an_incomplete_population_rather_than_rounding_it_off(t
                         populations_dir=directory)["populations"]["CTRL"]
     assert entry["population_documents"] == 3 and entry["unattempted"] == 2
     assert entry["complete"] is False
+
+
+def test_report_reads_each_populations_nested_run_directory(tmp_path):
+    data = tmp_path / "research"
+    runs = tmp_path / "runs"
+    for name, elapsed in (("CTRL", 17), ("U755", 23)):
+        state = WaveState(config=PRODUCTION_CONFIG, partition=PARTITION, population_name=name)
+        state.chunks.append({"run_dir": "synthetic-session"})
+        state.save(WaveState.path_for(data, PARTITION, name))
+        directory = runs / name / "synthetic-session"
+        directory.mkdir(parents=True)
+        with (directory / "rows.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["inference_ms", "page_count"])
+            writer.writeheader()
+            writer.writerow({"inference_ms": elapsed, "page_count": 1})
+    report = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=runs)
+    for name, elapsed in (("CTRL", 17), ("U755", 23)):
+        measured = report["populations"][name]["telemetry"]
+        assert measured["documents_measured"] == 1
+        assert measured["inference_ms_per_document"]["p50"] == elapsed
+
+    # A caller may also pass one population's run root, the original flat shape.
+    flat = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=runs / "CTRL")
+    assert flat["populations"]["CTRL"]["telemetry"]["documents_measured"] == 1
+
+    duplicate = runs / "synthetic-session"
+    shutil.copytree(runs / "CTRL" / "synthetic-session", duplicate)
+    with pytest.raises(WaveRefused, match="ambiguous population run directory"):
+        wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=runs)

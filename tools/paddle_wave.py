@@ -1454,9 +1454,17 @@ def _technical_measurements(state: WaveState, out_dir: Path | None) -> dict[str,
         name = chunk.get("run_dir")
         if not name:
             continue
-        run_dir = Path(out_dir) / name
-        if not (run_dir / "rows.csv").exists():
+        candidates = {
+            path.resolve() for path in (
+                Path(out_dir) / state.population_name / name,
+                Path(out_dir) / name,
+            ) if (path / "rows.csv").exists()
+        }
+        if len(candidates) > 1:
+            raise WaveRefused("ambiguous population run directory for technical measurements")
+        if not candidates:
             continue
+        run_dir = candidates.pop()
         for row in _rows_of(run_dir):
             if not (row.get("inference_ms") or "").strip():
                 continue

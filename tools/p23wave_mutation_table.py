@@ -235,6 +235,23 @@ MUTANTS: list[Mutant] = [
         ["test_retention_process_count_distinguishes_the_inspector_from_the_worker"],
     ),
     Mutant(
+        "M17", "telemetry searches only the flat directory and omits population runs",
+        WAVE,
+        "                Path(out_dir) / state.population_name / name,\n",
+        "",
+        [T_WAVE],
+        ["test_report_reads_each_populations_nested_run_directory"],
+    ),
+    Mutant(
+        "M18", "telemetry silently chooses one of two matching run directories",
+        WAVE,
+        "        if len(candidates) > 1:\n"
+        "            raise WaveRefused(\"ambiguous population run directory for technical measurements\")\n",
+        "",
+        [T_WAVE],
+        ["test_report_reads_each_populations_nested_run_directory"],
+    ),
+    Mutant(
         "M16", "process inspection ignores a real live worker",
         WAVE,
         "    '{{n++}} END {{print n+0}}'",
