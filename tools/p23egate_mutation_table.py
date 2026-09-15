@@ -329,7 +329,7 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "C4", "conflicting evidence silently selected",
         CENSUS,
-        "            if seen[identity] != evidence.evidence_sha256:",
+        "            if seen[identity] != metric_identity:",
         "            if False:",
         [T_CENSUS],
         ["test_conflicting_evidence_is_refused_instead_of_selecting_an_artifact"],
@@ -357,6 +357,14 @@ MUTANTS: list[Mutant] = [
         "        if False:",
         [T_CENSUS],
         ["test_retained_pixels_are_bound_to_the_recorded_raster_hash"],
+    ),
+    Mutant(
+        "C8", "duplicate evidence ignores conflicting effective truncation flags",
+        CENSUS,
+        "        metric_identity = (evidence.evidence_sha256, truncated)",
+        "        metric_identity = (evidence.evidence_sha256, ())",
+        [T_CENSUS],
+        ["test_duplicate_truncation_conflict_is_refused_in_both_orders"],
     ),
 ]
 

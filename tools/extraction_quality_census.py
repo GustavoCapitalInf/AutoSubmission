@@ -376,7 +376,7 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None,
 
     censuses: dict[str, Census] = {}
     skipped: Counter[str] = Counter()
-    seen: dict[tuple[str, str], str] = {}
+    seen: dict[tuple[str, str], tuple[str, tuple[int, ...]]] = {}
     measured_shas: set[str] = set()
     for document in ocr_records(data_dir):
         if document.get("_unreadable"):
@@ -398,19 +398,24 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None,
         if shas is not None and sha not in shas:
             skipped["extractor evidence outside selected population"] += 1
             continue
-        identity = (configuration_of(evidence), sha)
-        if identity in seen:
-            if seen[identity] != evidence.evidence_sha256:
-                raise SystemExit("REFUSED: conflicting evidence for one document and configuration")
-            skipped["duplicate evidence artifact"] += 1
-            continue
-        seen[identity] = evidence.evidence_sha256
-        measured_shas.add(sha)
-        truncated = [
+        # The page-integrity sidecar is outside evidence_sha256 but affects
+        # E5. Compare its effective set too, so duplicate traversal order
+        # cannot silently choose a different metric result. Ordering and
+        # repeated flags do not change the set document_quality consumes.
+        truncated = tuple(sorted({
             int(entry.get("page_index", index))
             for index, entry in enumerate(document.get("page_integrity") or [])
             if isinstance(entry, dict) and entry.get("truncated")
-        ]
+        } & {page.frame.page_index for page in evidence.pages}))
+        metric_identity = (evidence.evidence_sha256, truncated)
+        identity = (configuration_of(evidence), sha)
+        if identity in seen:
+            if seen[identity] != metric_identity:
+                raise SystemExit("REFUSED: conflicting evidence or truncation metadata for one document and configuration")
+            skipped["duplicate evidence artifact"] += 1
+            continue
+        seen[identity] = metric_identity
+        measured_shas.add(sha)
         page_rasters = LazyRasters(rasters, evidence)
         quality = document_quality(evidence, rasters=page_rasters, truncated_pages=truncated)
         counted = censuses.setdefault(configuration_of(evidence), Census())

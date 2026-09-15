@@ -219,6 +219,39 @@ def test_conflicting_evidence_is_refused_instead_of_selecting_an_artifact(tmp_pa
         tool.census(tmp_path / "research", partition=PARTITION, rasters=None)
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_duplicate_truncation_conflict_is_refused_in_both_orders(tmp_path, monkeypatch, reverse):
+    from evidence.canonical import to_json
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    payload = to_json(fold_document())
+    records = [
+        {"evidence": payload, "page_integrity": [{"page_index": 0, "truncated": flag}]}
+        for flag in (False, True)
+    ]
+    monkeypatch.setattr(tool, "ocr_records", lambda _: iter(records[::-1] if reverse else records))
+    with pytest.raises(SystemExit, match="conflicting evidence or truncation metadata"):
+        tool.census(tmp_path / "research", partition=PARTITION, rasters=None)
+
+
+def test_duplicate_truncation_sets_are_normalized_before_comparison(tmp_path, monkeypatch):
+    from evidence.canonical import to_json
+    from tests.test_extraction_quality import fold_document
+    from tools import extraction_quality_census as tool
+
+    payload = to_json(fold_document())
+    records = [
+        {"evidence": payload, "page_integrity": [
+            {"page_index": page, "truncated": True} for page in indices]}
+        for indices in ((0, 1), (1, 0, 0, 99))
+    ]
+    monkeypatch.setattr(tool, "ocr_records", lambda _: iter(records))
+    censuses, skipped = tool.census(tmp_path / "research", partition=PARTITION, rasters=None)
+    assert skipped["measured"] == 1 and skipped["duplicate evidence artifact"] == 1
+    assert next(iter(censuses.values())).document_classes == {"E5": 1}
+
+
 def test_population_file_is_sha_only_and_never_echoed(tmp_path):
     from tools.extraction_quality_census import read_population
 

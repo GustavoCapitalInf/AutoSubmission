@@ -74209,3 +74209,14 @@ its previous fresh native render looked similar but did not bind to the recorded
 input pixels. These changes precede the first real census and alter no customer
 artifact. The valid/mismatch, hashless and corrupt cases have synthetic pins; C7
 removes the hash comparison and must be killed by the mismatch pin.
+
+The re-review also found that the page-integrity sidecar lies outside the
+canonical evidence hash while still affecting E5. Reproduced with identical
+synthetic evidence: false/true truncation metadata in one traversal order
+reported no E-class; the reversed order reported E5. Both called the second
+artifact a duplicate. Duplicate identity now includes the normalized effective
+set of truncated evidence pages. Conflicting flags refuse in both orders;
+repeated/reordered flags and flags for pages absent from the evidence normalize
+to the same metric input. C8 drops that sidecar from the identity; its two-order
+pin must fail. This is a census selection correction, with no metric-version
+change and no change to the immutable cache.
