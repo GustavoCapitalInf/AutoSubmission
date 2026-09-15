@@ -477,3 +477,20 @@ findings are closed with source, discriminating tests, actual mutation kills and
 independent probes. The historical review and unsuccessful attempts remain intact.
 The measurements support this instrument's stated scope; they do not approve a
 new production admission rule or substitute for the train's composed-tree floor.
+
+## Attribution-method clarification: exact word-pair membership
+
+The follow-up source-only attribution check consumes the complete printed
+Python-literal subject before reading the exact token. It uses the original
+scanner's `tokens_of` function to verify full token membership in each recorded
+technical message, excluding author/session metadata. This explicitly covers
+two single words and two two-word tokens among X's four retained WORDS hits;
+it does not reduce a pair to its final word.
+
+`rev23-agree-closure/final-message-attribution.log` records the value-free result,
+exit zero, with exact values and paragraph contexts retained privately in
+`message-attribution-private.json`. The attribution remains three hits at
+`77d88bd` and one at `43958ab`, all ordinary technical prose under handoff §4
+item 6. MONEY/DIGITS/DATES remain zero and the actual message-scan exit remains
+one. No scanner or corpus proof was rerun. The APPROVE verdict and its stated
+measurement-only scope are unchanged.

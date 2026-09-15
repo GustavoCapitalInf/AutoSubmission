@@ -409,3 +409,160 @@ REFUSES the same-name branch OPERATIONAL-1 is about). Logs under
 5. The real-evidence census remains **OWED** — the cell says so itself, and MAJOR-1 and
    MINOR-1/2/3 are precisely the reasons that census must be read with care when it lands.
 
+
+# Closure re-review — measured quality, recorded identities and final proofs
+
+**APPROVE** at final cell tip `f8c9257f30d0963e9557ae1fa3884ef998f6b02a`.
+The root orchestrator wrote none of E's implementation, tests or W3 sections.
+Independent source probes ran in the clean detached `rev23-egate-closure`
+worktree, most recently at `b70cbc3`. The final tip changes only documentation.
+The historical review and every failed or interrupted attempt remain preserved.
+The train's composed-tree floor is still a separate requirement.
+
+## Original findings and additional closures
+
+| finding | closure and independent evidence |
+|---|---|
+| MAJOR-1, multiple money columns | Residuals are measured within columns and the worst column is reported; the clean withdrawal/deposit fixture no longer measures the distance between columns as an error. |
+| MAJOR-2, vacuous folds | The fixture's protected page values disagree, making each fold discriminating. Version 2 and its recorded calibration digest bind the changed thresholds and furniture predicates. |
+| MAJOR-3, percentile transcription | The historical median/p75 error has an append-only correction. The current fake partition is separately identified as a new version-2 measurement. |
+| MINOR-1, furniture and small denominators | Masked fields, IBANs and footer URLs have named generic shapes; the versioned minimum denominator is explicit and tested. |
+| MINOR-2/3, orientation and non-text ink | Frame-aware orientation and its versioned majority are pinned. The remaining 180-degree limitation and logo-driven ink false positive are explicitly retained. |
+| MINOR-4/5, readers and refusal presentation | The census of readers covers every tracked Python file; the protected source boundaries remain enforced. Cache-door failures are named refusals. |
+| MINOR-6, ownership | The actual row-field module and necessary proof instruments were ratified in the handoff. No production routing ownership was acquired. |
+| OPERATIONAL-1, lock ownership | Closure drivers use the committed root helper and exact own-holder release, with one heavy process window. The unsafe historical private helper is not used. |
+
+Independent re-review also reproduced and closed three new defects. Retained
+rasters must match the frame's hash before their pixels can affect a metric;
+a same-sized replacement is unmeasured. Duplicate artifacts must agree on both
+canonical evidence and normalized effective truncation flags, in either traversal
+order. Census output cannot target the source cache or raster directory, including
+resolved aliases; a sibling directory with a shared textual prefix is allowed.
+The direct containment tests run; the symlink-specific test has an explicit
+Windows capability skip. The independent reproduction and closure logs are in
+`discovery_reports/train13-logs/rev23-egate/`.
+
+## The original runtime and exact recorded key
+
+The first U755 census refused one conflicting group rather than choosing an
+artifact. Independent inspection found two individually indexed readings under
+different keys: four complete page objects, raster hashes and effective truncation
+sets were identical, while GPU/Python provenance and the canonical evidence hash
+differed. The earlier configuration label collapsed those runtime distinctions.
+Both artifacts and the failed census remain preserved.
+
+At `9371781`, explicit key selection uses read-only SQLite and the existing
+exact-tuple selector. Duplicate tuples, wrong envelopes, conflicting canonical
+document identities, native evidence in the extractor slot and path escapes refuse
+without revealing values. Configuration grouping includes every closed runtime
+field; arbitrary extra fields do not create configurations. Empty canonical-page
+censuses refuse. The whole-JSON audit remains an explicitly different mode.
+Metric formulas, thresholds and quality version did not change in this closure.
+
+The private binder associates the original five CTRL sessions and eight U755
+sessions with one exact key through recorded evidence hashes and indexed canonical
+artifacts. It does not choose a key by date, filename or current environment.
+Each corrected census rechecks those source rows and artifact bytes. Later SLICE
+provenance stays separate. My independent 19-check indexed-reader probe passed,
+including both duplicate insertion orders, mixed valid/conflicting records,
+read-only bytes, missing readings, containment and full-runtime grouping.
+See `verify_runtime_pair.log` and `indexed_reader_review.log` with their scripts.
+
+## Completed proof scope
+
+| proof | actual result and scope |
+|---|---|
+| affected quality/census tests | 136 passed, one Windows symlink skip, exit zero at `9371781` |
+| synthetic defect table and fake partition | Exit zero; seven measured fake pages with all retained rasters hash-verified; the known logo false positive remains |
+| mutation closure | 49 distinct kills: 35 unaffected original rows, changed C2 plus nine new reader rows, then four new guard rows; all restorations clean |
+| full default suite | At `9371781`: 9,939 passed, one failed, 49 skipped, 39 deselected, **exit one**; 518.3 seconds, 3,009.5 MiB peak |
+| narrow guard closure | At `b70cbc3`: all five canonical guard files, including nine new self-test cases, pass 286 tests, exit zero; C20–C23 all killed, exit zero |
+| conformance and corpus | Preserved 1,282 passed / 41 skipped conformance and 34 corpus-marked tests, both exit zero; gate and original production replay retain their verified unchanged-source scope |
+
+The suite failure was the account-literal guard matching digits inside the
+recorded calibration checksum. The checksum must stay recorded, not split or
+replaced by an automatically changing value. The test-only correction masks just
+the active, recomputed checksum's AST string span in its exact named module and
+assignment. Its account-number pattern is unchanged. Other values and neighboring
+code remain scanned, including after multibyte source text.
+
+I independently recomputed the digest from both calibration tables, verified that
+the production `ocr`, `discovery` and `analysis` paths did not change, and passed
+22 synthetic attacks on the actual correction. These include forged and malformed
+values, extra/inactive/duplicate versions, wrong locations and constructors,
+dictionary unpacking, duplicate assignments, adjacent literals, Unicode prefixes
+and multiline joined strings. See `calibration_guard_review.py/.log`, exit zero.
+The 9,939 passing suite cases keep their scope; the failed suite is not relabeled
+green or repeated after a test-only correction. The changed checks close that
+specific failure. The final composed train still requires its full suite.
+
+## Real measurements and transcription verification
+
+| population | selected | measured documents | without measurable evidence | measured pages | hash-verified rasters | absent rasters |
+|---|---|---|---|---|---|---|
+| CTRL | 114 | 90 | 24 | 668 | 664 | 4 |
+| U755 | 755 | 341 | 414 | 2,331 | 2,331 | 0 |
+
+Both corrected censuses exit zero. My independent log-only comparison found all
+64 numerical CTRL table/header/count rows exactly equal to the preserved earlier
+CTRL result. Global skipped counters and the expanded runtime label changed with
+explicit selection; they are not included in that identity claim.
+
+I read the final W3 narrative and verified its 439-line LF append against the
+prior Git blob. Separate independent log-only checks matched all 52 page/document
+metric rows, 12 raster-count rows, 36 E-class count/share rows and 49 named mutation
+rows to their actual source logs. Both precedence totals match the stated page and
+document populations. Overlapping classes are never summed; the one U755 E5
+overlap is outranked in the precedence table. See `ctrl-table-identity.log`,
+`census_table_review.py/.log` and `class_table_review.py/.log`, all exit zero.
+
+Per-metric denominators remain visible. Missing pixels, insufficient tokens or
+undefined geometry remain unmeasured, not zero. These observations do not establish
+word truth, financial correctness or a new production trigger.
+
+## Final scanner results and explicit provenance attribution
+
+The exact final documentation tip was scanned against the frozen 3,380-document
+population; 3,351 cached texts were readable.
+
+| scanner | observed result | actual exit |
+|---|---|---|
+| added lines | 6,337 lines; 52 raw candidates; 40 excluded by the existing words-class rule and one by the hex rule; 11 retained W3 matches: three DIGITS and eight MONEY | 1 |
+| actual commit messages | 30 commits; eight WORDS matches; MONEY/DIGITS/DATES all zero | 1 |
+
+The two historical DIGITS occurrences are the previously reviewed synthetic
+calibration value and its transcription erratum. The nine new matches belong to
+technical aggregate cells: seven scientific-notation coefficients for density or
+minimum density, one garbage-token fraction and one line-height dispersion.
+I reviewed each metric/column/denominator mapping and the source formulas; these
+cells are within the 52 independently verified rows above. They are computed
+token/geometry measurements, not reused customer financial literals. Their exact
+values and source mapping remain in the private `final-privacy-mapping-private.json`
+and its aggregate-only log. This attribution preserves measured provenance; it
+does not modify the scanner or pretend that its retained count is zero.
+
+I also read the six historical technical commit contexts carrying the eight WORDS
+matches. They describe synthetic folds, source-reader guards, fixture pages,
+furniture predicates, orientation votes and column residuals. Exact word and
+word-pair membership is checked with the scanner's original tokenization, excluding
+author/session metadata. The handoff's ordinary-English ruling applies. The eight
+matches and exit one remain explicit; no history rewrite is needed.
+
+The underlying logs are `p23egate/closure-20260915-privacy.log` and
+`closure-20260915-messages.log`; the private attribution records are beside them.
+The driver released its holder at 19:24:00Z and exited; no E waiter remains.
+No scan was repeated simply to include its result in an earlier W3 commit.
+
+## Limits and verdict
+
+Recognition scores remain configuration-specific. Word-box geometry cannot prove
+a page is upright at 180 degrees, and a logo can trigger the ink-coverage metric.
+E-classes are observational; no metric reaches a route, trigger, financial verdict
+or admission decision. The original protected production payloads retain their
+zero-change proof; newly validated and ladder movement remain zero.
+
+**APPROVE.** The original and additional source findings are closed. Actual
+measurements, discriminating mutations, independent probes and precise retained
+proof scopes support this closure. The non-document scanner matches are explicitly
+attributed above, with all raw counts and exits preserved. Composition and the
+full train floor remain the root orchestrator's next gates.
