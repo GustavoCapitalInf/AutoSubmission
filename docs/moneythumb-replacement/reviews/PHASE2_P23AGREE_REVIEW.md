@@ -321,3 +321,159 @@ percentiles only).
 `rev23agree_a67_proj_boundary.py` · `rev23agree_pairtable.py` · `rev23agree_census.py` ·
 `rev23agree_fresh_mutants.py` · `rev23agree_m6_check2.py` · `rev23agree_lock.py` ·
 `rev23agree_heavy.sh` / `_heavy2.sh` / `_heavy3.sh`.
+
+# Closure re-review — original findings and real agreement census
+
+Review status: **APPROVE** at final cell tip
+`f1276b5851e3e1e81b5183a3272380be38b79365`. No remaining actionable finding
+against this measurement-only closure. The composed-tree checks remain a
+separate train requirement.
+
+The closure reviewer implemented cell E and wrote none of cell X's source or
+tests. The independent detached review advanced through `521642d`, `43958ab`,
+`9b10d8c` and the fixture-only `cfb4943`. The historical review above remains
+unchanged. Its original findings are resolved as follows.
+
+| historical finding | closure and independent check |
+|---|---|
+| MAJOR-1, indirect Rotate | The reader uses one actual library xref-object read and corroborates right-angle results against the page rotation; it does not interpret an intermediate xref number as an angle. Independently generated raw indirect-reference PDFs cover own and inherited chains, including invalid angles with a readable sibling. The renderer-disagreement limitation below remains explicit. |
+| MINOR-1, surviving numerical mutants | Exact inclusive IoU, signed money and unequal-block median have discriminating pins. Independent controls distinguish each former mutant. |
+| MINOR-2, per-axis scales | Word boxes, line bands and skew normalize with both declared axis scales; independent anisotropic controls pass. |
+| MINOR-3, rotation agreement | Frame agreement now includes rotation, including square-frame and 180-degree disagreement. |
+| MINOR-4, skew limits | Documentation records the measured splitting/overmerging behavior and equal-weight block-median limit. No unproved general skew bound is substituted. |
+| MINOR-5, M6 scorer | Its named killer must be collected and pass. A renamed/missing killer cannot inherit unrelated green tests; the independent negative and positive controls pass. |
+| MINOR-6, projection | The document lookup and both evidence attribute reads are inside the nonfatal guard. Independent probes of the actual committed AST method exercise all three throwing accessors and leave the row untouched. |
+
+## Additional selection defects closed
+
+The first research census fallback selected an unrelated key and emitted empty
+reports with exit zero. Those reports are retained as invalid calibration. The
+final reader requires an explicitly supplied or recorded Paddle key, refuses an
+empty canonical-page population, checks document and native/extractor identity,
+and examines every canonical extractor candidate when key discovery is needed.
+It does not fall back to the offline key or stop after the first 25 artifacts.
+
+Independent mixed-population reproduction found that treating a conflicting
+envelope as merely unreadable could still produce a successful partial census.
+At `43958ab`, input/key/stage conflicts raise a value-free whole-census refusal,
+even with a valid companion record. Missing or unreadable records retain their
+separate availability count. The independent reproduction and closure logs are
+both preserved.
+
+The implementer also identified that the index primary key does not enforce a
+unique selection tuple. At `9b10d8c`, the reader reuses canonical `select_artifact`
+instead of `fetchone`. Two indexed candidates refuse in both insertion orders;
+unique and absent controls work, source bytes stay identical, the SQLite
+connection is read-only, and the refusal suppresses key/document values and its
+original exception context. This is an independently verified synthetic boundary
+issue; no actual X corpus ambiguity failure is claimed.
+
+The three `cfb4943` fixture changes clear a stale evidence hash before replacing
+runtime, page population or document identity. They let canonical construction
+rehash the modified fixture before the census is exercised. The preceding
+123-passed/three-fixture-failure attempt is preserved and counts as no mutation
+kill. Production source is unchanged by that correction.
+
+## Independent proof scope
+
+Ninety-eight independently specified assertions passed in the clean detached
+review: 40 metric/native-reader checks, 40 census checks, four actual-method
+projection checks and 14 exact-index-tuple checks. The mixed-envelope refusal
+also passed its separate reproduction/closure probe. Durable instruments and
+logs are under `discovery_reports/train13-logs/rev23-agree-closure/`:
+`metrics-probe-attempt3.log`, `census-probe-final.log`, `projection-probe.log`,
+`exact-tuple-probe-attempt2.log`, and the mixed-envelope logs. Initial private
+probe failures were fixture/cleanup errors, remain archived, and are not source
+failures or mutation kills. These bounded synthetic probes read no customer
+cache and repeat no completed native/corpus/cohort proof.
+
+The actual completed implementer logs were inspected directly:
+
+| proof | source scope | observed result |
+|---|---|---|
+| full default suite | `f969079`, preserved before the later tool/test closure | 9,911 passed, 48 skipped, 39 deselected, exit zero |
+| native re-derivation against the actual `d84af95` baseline module | `f969079`, native reader unchanged afterward | 3,380 documents byte-verified, zero changed; 25,516 readable and 12 unreadable pages; exit zero |
+| affected tests | `cfb4943` | 126 passed, exit zero |
+| affected mutations | `cfb4943` | all 11 selected rows killed by named tests, clean restoration after every row; 28 distinct rows with retained original proofs |
+| five canonical guards | `cfb4943` | 277 passed, exit zero |
+| recorded-key CTRL and U755 census | `cfb4943` | both exit zero; availability and measurement counts below |
+
+These are `resume-suite.log`, `resume-native-census.log`,
+`resume-fix-targeted-after-fixtures.log`, `resume-fix-mutations.log`,
+`resume-guards.log` and `resume-fix-census-{CTRL,U755}.log` in the private
+`p23agree/closure/` folder. Heavy runs retain the shared committed lock, one OCR
+worker, 1.5 GiB start floor and 4 GiB job cap. The preserved full suite is not
+claimed to have run at the later reader tip; its unchanged source scope is
+composed with the affected checks. The original zero-change production replay,
+gate and conformance evidence keep their recorded scope and were not repeated.
+
+## First real agreement measurements
+
+The exact original settings key is bound by archived row evidence identity and
+indexed canonical artifact identity, not by date or current environment. The
+binder covers all five CTRL sessions and eight U755 sessions: 90 and 341 distinct
+recorded Paddle documents respectively, with one exact match each under one
+shared recorded key. Each final census rechecks those source rows, mappings and
+artifact bytes. Later SLICE provenance remains separate.
+
+| population | selected | both readings | one reading | unavailable | pages compared | native geometry pages | extractor geometry pages | frame mismatches |
+|---|---|---|---|---|---|---|---|---|
+| CTRL | 114 | 72 | 18 | 24 | 535 | 535 | 668 | 0 |
+| U755 | 755 | 281 | 60 | 414 | 2,124 | 2,124 | 2,331 | 0 |
+
+The availability columns sum to each selected population. One-reading and
+unavailable documents contribute no paired agreement measurement. Geometry
+counts are per available reading, so they need not equal paired counts. Each
+individual statistic has its own measured count; empty denominators remain
+unmeasured rather than becoming zero. For example, exact money agreement has
+463 measured CTRL pages and 1,831 measured U755 pages, while dates have 30 and
+239. These are research calibration observations, never truth labels or grounds
+for validation.
+
+## Final documentation and privacy verification
+
+The detached review advanced cleanly to `f1276b5`. All 300 W3 appended lines were
+read; the prior document blob is a byte-for-byte prefix and no other file changed
+from `cfb4943`. A separate log-only verifier matched all 34 published numeric
+distribution rows and 28 named mutation rows to their cited durable logs
+(`final-tables-review-attempt2.log`, exit zero). Its first path-lookup error is
+retained separately; no proof was claimed from that attempt.
+
+Final scans were inspected at the exact documentation tip, over the 3,380-document
+population with 3,351 cached-text records read:
+
+| scanner | observed result | actual exit |
+|---|---|---|
+| added lines | 4,477 lines; 40 raw candidates, all excluded by the existing words-class rule; zero retained hits and zero residue sites | 0 |
+| real commit messages | 20 commits; four retained WORDS hits, MONEY/DIGITS/DATES all zero | 1 |
+
+The four message hits are independently attributable to ordinary source-description
+prose: three at `77d88bd` in its library-contract/PDF-reference explanation and one
+at `43958ab` in its census-selection description. Exact alphabetic values were
+checked against the recorded technical prose, excluding author/session metadata;
+no token value is reproduced here. The existing handoff §4 item 6 accepts this
+attribution without rewording history. The count four and exit one remain explicit;
+the message scan is not relabeled zero. This is recorded in
+`message-attribution-review.log`, exit zero. The underlying final scanner logs are
+`p23agree/closure/resume-final-privacy.log` and `resume-final-messages.log`.
+
+The own-holder release completed at 19:17:52Z, driver 5484 exited, and no X waiter
+remained. No final scan was repeated merely to put its result into an earlier
+documentation commit.
+
+## Residual limits and verdict
+
+The native archive has zero observed genuine indirect-chain pages, so its
+zero-change result cannot establish correctness for every malformed PDF. Genuine
+right-angle indirect references can disagree with the renderer's page geometry;
+that pre-existing library limitation remains documented and is not hidden by a
+cached replay. Skew can split lines or merge nearby blocks, and an equal-weight
+median over blocks is not a general deskew guarantee. Two readers can agree on
+wrong text. Agreement and geometry remain measurement-only: no route, trigger,
+validation or admission policy changes.
+
+**APPROVE.** Original MAJOR/MINOR findings and the additional census-selection
+findings are closed with source, discriminating tests, actual mutation kills and
+independent probes. The historical review and unsuccessful attempts remain intact.
+The measurements support this instrument's stated scope; they do not approve a
+new production admission rule or substitute for the train's composed-tree floor.
