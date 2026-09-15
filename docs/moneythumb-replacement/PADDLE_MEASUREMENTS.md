@@ -243,3 +243,34 @@ this record was written. No production OCR identity changed.
 **Telemetry units:** the historical wave `bytes_up` field records raw PNG lengths before Base64 and
 transport compression. `bytes_down` is a JSON reserialization estimate. W's report now labels these
 bases explicitly and sets `transport_bytes_measured=False`; neither total is an encrypted-wire counter.
+
+### Concurrent transfer follow-up (same day)
+
+Two bounded, synthetic-only experiments used the same 850,136-byte request and serial/parallel/
+parallel/serial batches, two requests per batch. Exact length and SHA-256 were verified for every
+request. Neither experiment invoked OCR, sent customer data or wrote remote files.
+
+| transport | serial seconds, four requests | parallel seconds, four requests | observed reduction |
+|---|---:|---:|---:|
+| Separate compressed SSH command connections | 116.991 | 59.459 | 49.18% |
+| HTTP over one persistent compressed SSH tunnel | 43.043 | 41.084 | 4.55% |
+
+The first result includes separate connection setup and congestion state. It does not transfer to
+the application's shared tunnel. The second used an ephemeral loopback HTTP checksum server and
+the committed tunnel command, with one full-size warm-up (10.861 seconds) excluded from both totals.
+All nine payloads in that experiment were exact. Compression negotiation was confirmed; the tunnel
+and remote server controller were stopped and reaped. The first HTTP attempt was invalid: the
+diagnostic did not drain verbose SSH stderr and filled its Windows pipe. It timed out before the
+warm-up completed. That failed log is preserved; continuous draining fixed the instrument.
+
+The shared-tunnel result does not justify adding concurrent requests to the OCR rung. The worker
+already serializes inference, but request overlap would require new ordering, failure-drain, retry
+and image-decoding concurrency proofs. The bounded live SLICE continuation therefore enables only
+lossless SSH compression in its child environment and retains serial page processing. This comparison
+measures synthetic transfer, not production OCR throughput or a remaining-wave completion time.
+
+Evidence: `discovery_reports/train13-logs/p23transport-prep/parallel-upload-probe.log` and
+`discovery_reports/train13-logs/p23wave/closure-20260915/persistent-http-transfer-drained.log`, both
+`EXIT=0`. W at `7897518` has now passed 123 targeted tests, all 24 mutation rows (11 unaffected
+historical kills retained), the full suite (9,929 passed, 48 skipped, 39 deselected, zero failed),
+and 277 guards. Its live retention proof and final report remain outstanding.
