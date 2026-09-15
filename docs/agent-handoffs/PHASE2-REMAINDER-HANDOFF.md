@@ -60,6 +60,24 @@ function body and classifying it `legacy_needing_replacement`. The final five-fe
 seven-chunk proof; preserve the three completed four-fence chunks as historical evidence. Root owns
 independent S-5 review because X authored its proposed patch. W/E/X scheduling remains unchanged.
 
+**Live/proof checkpoint at 17:59 UTC:** W's first bounded SLICE session finished normally at 17:46:46,
+`EXIT=0`: 10 documents / 87 pages; evidence 8 documents / 76 pages; refused 2 documents / 11 pages,
+both `paddle_evidence_malformed`. All 76 retained rasters match. The new live retention attestation
+passes with all file/process counts zero, and the worker/tunnel were stopped. Winrun measured
+1,834.4 seconds and 1,341 MB peak job memory. `report-after-live-01.json/.log` under W's closure
+directory re-derive these results, `EXIT=0`. Seventy documents are unattempted; the runner's explicit
+resume rule also retries the two refusals, so its next pending set contains 72 documents. Use a
+large enough subsequent chunk to reach the new documents without repeatedly cycling early refusals.
+
+The earlier "active PID18880" snapshot is now historical. E owns the current heavy window at test
+tip `4bed171` (implementation still `a44de13`): targeted 119 passed / 1 platform skip, synthetic and
+fake census all `EXIT=0`; 36 mutants are running, followed by real census/suite/scans. Failed launch
+attempts hit the unchanged 1.5 GB floor and are preserved; a targeted positive-control expectation
+was corrected to honor existing E3 precedence while checking both overlapping E5 flags. X remains
+paused for the next short window. P is now `57cc715` (executable `e149719`), with S-5 applied and
+root's independent source review green; its new five-fence seven-chunk proof is prepared and paused.
+Both old four-fence results and all original repair bodies remain preserved.
+
 ---
 
 **This file always holds the CURRENT handoff.** Its name does not change; earlier handoffs are archived
