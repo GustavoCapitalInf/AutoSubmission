@@ -249,7 +249,11 @@ def test_duplicate_truncation_sets_are_normalized_before_comparison(tmp_path, mo
     monkeypatch.setattr(tool, "ocr_records", lambda _: iter(records))
     censuses, skipped = tool.census(tmp_path / "research", partition=PARTITION, rasters=None)
     assert skipped["measured"] == 1 and skipped["duplicate evidence artifact"] == 1
-    assert next(iter(censuses.values())).document_classes == {"E5": 1}
+    measured = next(iter(censuses.values()))
+    # The fold fixture already carries E3, which outranks E5. Both effective
+    # truncation flags must still be measured in the overlapping class counts.
+    assert measured.document_classes == {"E3": 1}
+    assert measured.page_classes_any["E5"] == 2
 
 
 def test_population_file_is_sha_only_and_never_echoed(tmp_path):
