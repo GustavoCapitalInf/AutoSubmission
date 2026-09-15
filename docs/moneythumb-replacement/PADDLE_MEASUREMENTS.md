@@ -274,3 +274,59 @@ Evidence: `discovery_reports/train13-logs/p23transport-prep/parallel-upload-prob
 `EXIT=0`. W at `7897518` has now passed 123 targeted tests, all 24 mutation rows (11 unaffected
 historical kills retained), the full suite (9,929 passed, 48 skipped, 39 deselected, zero failed),
 and 277 guards. Its live retention proof and final report remain outstanding.
+
+### Controlled comparison of two persistent connections
+
+The first two-tunnel experiment measured 96.811 seconds for four serial requests on connection 1
+and 52.351 seconds for four parallel requests split across connections 1 and 2. Connection 2 was
+consistently faster, but had no serial baseline. That comparison cannot isolate a concurrency gain.
+
+A second experiment measured both serial connections, using the same compressed HTTP request and
+one ephemeral checksum server. Its mirrored batch order was serial 1, serial 2, parallel, parallel,
+serial 2, serial 1. Each mode sent four requests totaling 3,400,544 bytes; setup and the two warm-up
+requests were excluded. All fourteen payloads matched exactly. Both compressed tunnels, their
+diagnostic readers and the remote server controller were stopped and reaped, `EXIT=0`.
+
+| mode | seconds for four measured requests |
+|---|---:|
+| Serial on connection 1 | 48.653 |
+| Serial on connection 2 | 88.626 |
+| Parallel across both connections | 54.428 |
+
+Parallel transfers took **11.87% longer than the faster serial connection**, although they were
+38.59% shorter than the slower one. The connection-to-connection variation explains why a comparison
+against only one serial route can mislead. Two batches per mode do not establish future reliability,
+but this result does not justify adding concurrency to the OCR rung. The continuation retains serial
+pages and lossless SSH compression. These are payload-transfer timings, not encrypted-wire counters
+or a wave completion-time forecast.
+
+Private evidence: `discovery_reports/train13-logs/p23transport-prep/two-tunnel-transfer.log` and
+`two-tunnel-balanced.log`, with their reproducible scripts in the same directory. Both completed
+with `EXIT=0`; no customer content, OCR request or remote data file was involved.
+
+### First live SLICE continuation with compression
+
+Session 1 completed on 2026-09-15 with `EXIT=0`: 10 distinct documents / 87 pages, comprising
+8 documents / 76 pages with evidence and 2 documents / 11 pages refused as malformed evidence.
+All 76 retained rasters match their recorded hashes. The live retention attestation passes with
+all file/process counts zero; worker shutdown and tunnel teardown completed. Earlier failed
+attestations remain in the report as historical results.
+
+Winrun measured 1,834.4 seconds for the complete session and 1,341 MB peak job memory. Eight
+telemetry observations cover eight distinct documents and 76 successful pages: 37,521.5 ms summed
+inference (about 0.49 seconds per page) and 1,441,405.6 ms summed document elapsed time (about
+18.97 seconds per page). The latter includes transfer and local processing; it is not a pure network
+measurement. Raw PNG lengths total 57,074,316 bytes and the response reserialization estimate is
+3,932,254 bytes. A ninth evidence row is a cache hit with no inference telemetry, so it is not counted
+again in these timings. The report generally aggregates measured rows across recorded attempts;
+distinctness was checked separately for this session.
+
+Seventy SLICE documents / 539 pages remain unattempted. The runner's existing resume policy also
+retries the two refusals, giving a next pending set of 72 documents / 550 pages. A larger subsequent
+chunk will cover that set once and reduce repeated lifecycle overhead. CTRL and U755's original
+completed sessions are preserved. The old 33-hour projection described all three full populations,
+not this remaining set. Later configuration A/B work is a separate measurement obligation.
+
+Evidence: `discovery_reports/train13-logs/p23wave/closure-20260915/slice-live-01.log`,
+`slice-session-01.log` and `report-after-live-01.json/.log`. Final SLICE completion and W's final
+report, scans and review remain outstanding.

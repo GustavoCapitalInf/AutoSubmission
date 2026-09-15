@@ -15,10 +15,10 @@ the population files were reproduced read-only and ratified unchanged (train `c7
 
 | cell | current frozen source | recovered / completed this continuation | still owed |
 |---|---|---|---|
-| W | `7897518` | retention and report findings closed independently; optional lossless SSH compression; 123 targeted tests; all 24 mutants killed with unaffected historical kills retained; full suite 9,929 passed / 48 skipped / 39 deselected / zero failed; guards 277; preserved conformance, gate, corpus and full-population replay | live SLICE completion, new passing session attestation, final report/W3/scans/review |
-| E | `a44de13` | historical percentile erratum, correct retained-raster/hash binding, duplicate truncation conflict refusal, output containment; root's independent source probes green | changed tests, synthetic/fake v2, 36 mutants, real CTRL/U755 census, suite, W3/scans/final review |
-| X | `43958ab` | actual Phase 2.2 native reader re-derived all 3,380 hashes, zero moved; source fixes and independent review probes green; suite at unchanged production source 9,911 passed / 48 skipped / 39 deselected / zero failed | changed census tests/mutants, corrected real CTRL/U755 census, W3/scans/final review |
-| P | `ea615b8` | all four unsafe repairs fenced with definitions preserved; first three union chunks: 1,343 documents / 1,331 validated, zero movement; independent missing-head and alias-guard findings closed and rechecked | remaining four union chunks, changed classifier census, remaining mutants/floor, W3/scans/final review |
+| W | `7897518` | retention and report findings closed independently; optional lossless SSH compression; 123 targeted tests; all 24 mutants killed; suite 9,929 passed / 48 skipped / 39 deselected / zero failed; guards 277; preserved conformance, gate, corpus and full-population replay; first live SLICE session and passing retention attestation | remaining SLICE, final report/W3/scans/review |
+| E | test tip `4bed171`, implementation `a44de13` | source findings closed independently; 119 targeted tests / 1 platform skip; synthetic/fake v2; 36 mutants killed; CTRL census | U755 refused a cross-runtime duplicate: bind the original recorded settings key without weakening guards; changed reader proof, U755 census, suite, W3/scans/final review |
+| X | `43958ab`, reader closure being prepared | actual Phase 2.2 native reader re-derived all 3,380 hashes, zero moved; independent source probes green; suite at unchanged production source 9,911 passed / 48 skipped / 39 deselected / zero failed | exact original research key after SLICE added a second key; duplicate-index refusal; affected tests/mutants, real census, W3/scans/final review |
+| P | `57cc715`, executable `e149719` | all five approved callers fenced, original definitions preserved; independent source review green; historical four-fence chunks retained with their original scope | NEW seven-chunk five-fence union, changed classifier census, remaining mutants/floor, W3/scans/final review |
 
 The initial X real-evidence census resolved zero Paddle records because research provenance omits
 the production Paddle key. Its exit-zero output is **not calibration evidence**. The closure requires
@@ -31,20 +31,19 @@ unnamed rung failure 349, invalid PDF 16, transport error 10. Lost historical ex
 unnamed. Earlier failed attestations remain in the record; an idle clean probe is not a live session
 attestation.
 
-**Active work at this update:** W's bounded live SLICE session 1 started at 17:16 UTC, 10 documents /
-87 pages, driver PID 18880. Its child environment enables SSH compression and both already-authorized
-Paddle opt-ins. The lifecycle verified the approved pins, deployed/started the worker and began chunk
-0. Check `p23wave/closure-20260915/MASTER.log` and `slice-live-01.log` for the actual result before
-acting; never infer completion from this snapshot. After this session fully tears down and releases
-the shared lock, E receives the next heavy proof window, then X's short changed-proof/census window.
-E/X/P are paused with no competing waiter. Subsequent SLICE sessions resume saved state.
+**Active work at 18:22 UTC:** P's bounded five-fence driver PID 25456 started at 18:19:48: targeted
+tests then new union chunk 1 only, followed by release and persistent pause. E's metadata diagnostic
+has completed and released; E/X are investigating the recorded-key boundary without a competing
+heavy waiter. W's live session is complete and its worker/tunnel are down. After the bounded P window,
+root schedules E/X's changed closure proofs, then the remaining SLICE. Read the current private logs
+and lock holder before acting; never infer a process state solely from this snapshot.
 
-Compression tests preserved every original byte. Separate compressed SSH uploads improved with two
-connections, but two HTTP uploads on the application's one persistent tunnel improved by only 4.55%
-in the synthetic test. No concurrent OCR scheduling was added. The first shared-tunnel diagnostic
-was invalid because its own verbose stderr pipe filled; the continuously drained rerun completed and
-reaped its temporary tunnel/server. Exact observations and limitations are in
-`PADDLE_MEASUREMENTS.md` (train `ea2232b`). There is no measured wave completion-time forecast yet.
+Compression tests preserved every original byte. Shared-tunnel HTTP concurrency improved by only
+4.55%. A balanced two-tunnel follow-up then measured serial 48.653 / 88.626 seconds versus parallel
+54.428 seconds for equal data: parallel was 11.87% slower than the faster single connection. The
+earlier apparent gain against only the slower connection was confounded. All diagnostic processes
+were reaped; no concurrent OCR scheduling was added. `PADDLE_MEASUREMENTS.md` records the observations,
+the preserved invalid first shared-tunnel attempt and the limits. No reliable wave forecast is claimed.
 
 Root independently reviews E; E reviews X; X reviews P; P independently reviews W. The untracked
 `reviews/PHASE2_P23WAVE_REVIEW.md` is a pending review draft, not a final approval. W3's private draft
@@ -55,7 +54,7 @@ W/E/X. Every original authorization, floor, STOP condition and Phase 3 exclusion
 **Subsequent S-5 ruling, same continuation:** independent review found that the retained Truist repair
 can remove a lone converted-check row by treating it as its own duplicate. Gustavo explicitly approved
 the prepared fifth caller fence and zero-change verification. `PHASE2_RULINGS.md` now records the
-binding scope. P is implementing it from `f4c8eb5` (doc-only successor to `ea615b8`), retaining the
+binding scope. P implemented it from `f4c8eb5` (doc-only successor to `ea615b8`), retaining the
 function body and classifying it `legacy_needing_replacement`. The final five-fence union needs a new
 seven-chunk proof; preserve the three completed four-fence chunks as historical evidence. Root owns
 independent S-5 review because X authored its proposed patch. W/E/X scheduling remains unchanged.
@@ -77,6 +76,16 @@ was corrected to honor existing E3 precedence while checking both overlapping E5
 paused for the next short window. P is now `57cc715` (executable `e149719`), with S-5 applied and
 root's independent source review green; its new five-fence seven-chunk proof is prepared and paused.
 Both old four-fence results and all original repair bodies remain preserved.
+
+**Subsequent census boundary:** E's U755 census refused after 298.2 seconds, `EXIT=1`, and released
+at 18:10:53 before suite/scans. A metadata-only diagnostic completed with `EXIT=0` and released at
+18:16:11. Of 342 selected evidence artifacts, one document has two indexed readings under different
+settings keys. Their page objects, raster hashes and effective truncation sets are identical; only
+recorded GPU and Python runtime provenance differs, which changes the canonical evidence hash.
+Both records remain preserved. E/X must bind CTRL/U755 calibration to its exact original recorded
+key and distinguish later SLICE provenance; neither may choose the first available artifact or weaken
+conflict refusal. Root also authorized X to use the existing exact-tuple artifact selector and refuse
+duplicate index rows with a value-free error. These source closures and final reviews are pending.
 
 ---
 
