@@ -12,8 +12,8 @@ What it prints
 --------------
 The DISTRIBUTION of every statistic `layout/agreement.py` measures, over the
 pages of the partition that carry BOTH a native reading and an extractor
-reading — overall, by census family and by modality — plus the rotation,
-skew and page-size census over every native page. On the control sample that
+reading — overall, by census family and by modality — plus separate rotation,
+skew and page-size censuses for native and extractor pages. On the control sample that
 distribution IS the calibration ("what agreement looks like on known-good
 documents", D3); on the unresolved set it is the thing the calibration is
 read against.
@@ -304,12 +304,9 @@ def main(argv: list[str] | None = None) -> int:
     all_pages: list = []
     by_modality: dict[str, list] = collections.defaultdict(list)
     by_family: dict[str, list] = collections.defaultdict(list)
-    geometry: list = []
+    geometry_by_source: dict[str, list] = {"native": [], "extractor": []}
     paired = unpaired = unreadable = 0
     frame_mismatch_pages = 0
-    rotations: collections.Counter = collections.Counter()
-    sizes: collections.Counter = collections.Counter()
-    skews: list[float] = []
 
     for sha in documents:
         record = partition.document(sha)
@@ -322,14 +319,9 @@ def main(argv: list[str] | None = None) -> int:
             other = native_partition.document(sha)
             if other is not None:
                 native = _evidence(other.get("native_evidence")) or _evidence(other.get("evidence"))
-        source = native or extractor
-        if source is not None:
-            for facts in geometry_census(source):
-                geometry.append(facts)
-                rotations[facts.rotation_deg] += 1
-                sizes[facts.page_size] += 1
-                if facts.skew_deg is not None:
-                    skews.append(facts.skew_deg)
+        for source_name, source in (("native", native), ("extractor", extractor)):
+            if source is not None:
+                geometry_by_source[source_name].extend(geometry_census(source))
         if native is None or extractor is None:
             unpaired += 1
             continue
@@ -365,15 +357,19 @@ def main(argv: list[str] | None = None) -> int:
     for family in sorted(by_family):
         _report(f"by census family: {family}", by_family[family])
 
-    print(f"\n## geometry census ({args.label}; every page of the native reading)")
-    print(f"  pages                                       {len(geometry):>9}")
-    for rotation, count in sorted(rotations.items()):
-        print(f"  rotation {rotation:>3} deg                             {count:>9}")
-    _header("skew")
-    _distribution_line("skew, degrees", skews)
-    print(f"\n  page sizes (points, most common first; {len(sizes)} distinct)")
-    for (width, height), count in sizes.most_common(12):
-        print(f"    {width:>8.1f} x {height:<8.1f}{count:>9}")
+    for source_name, geometry in geometry_by_source.items():
+        rotations = collections.Counter(facts.rotation_deg for facts in geometry)
+        sizes = collections.Counter(facts.page_size for facts in geometry)
+        skews = [facts.skew_deg for facts in geometry if facts.skew_deg is not None]
+        print(f"\n## geometry census ({args.label}; {source_name} reading)")
+        print(f"  pages                                       {len(geometry):>9}")
+        for rotation, count in sorted(rotations.items()):
+            print(f"  rotation {rotation:>3} deg                             {count:>9}")
+        _header(f"skew ({source_name})")
+        _distribution_line("skew, degrees", skews)
+        print(f"\n  page sizes (points, most common first; {len(sizes)} distinct)")
+        for (width, height), count in sizes.most_common(12):
+            print(f"    {width:>8.1f} x {height:<8.1f}{count:>9}")
 
     partition.close()
     if native_partition is not None:

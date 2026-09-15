@@ -914,6 +914,12 @@ def test_the_census_prints_counts_and_percentiles_and_never_a_word(tmp_path, cap
     assert "documents with BOTH readings (paired)" in output
     assert "pages compared" in output
     assert "geometry census" in output
+    assert "geometry census (CTRL; native reading)" in output
+    assert "geometry census (CTRL; extractor reading)" in output
+    native_geometry = output.split("geometry census (CTRL; native reading)", 1)[1]
+    extractor_geometry = output.split("geometry census (CTRL; extractor reading)", 1)[1]
+    assert int(native_geometry.split("pages", 1)[1].split()[0]) == 2
+    assert int(extractor_geometry.split("pages", 1)[1].split()[0]) == 1
     # the two documents: one paired, one not
     numbers = {line.split()[-1] for line in output.splitlines() if line.startswith("  documents")}
     assert "1" in numbers
