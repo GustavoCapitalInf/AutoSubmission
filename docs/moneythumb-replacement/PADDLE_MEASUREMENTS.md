@@ -205,3 +205,41 @@ machine was otherwise idle when measured (load average 0.15 across 16 cores, GPU
 service stopped), so this is the path, not contention. Projected over the three Phase 2.3 populations
 (6,360 pages): **≈ 33 h wall clock here against ≈ 2 h on the 2026-09-11 machine**. Recorded so that the
 next wave session picks an instance on its published UPLOAD figure, not only on its GPU.
+
+## Lossless transport experiment (2026-09-15)
+
+Gustavo requested transfer optimization while retaining the configured instance. Its effective SSH
+compression was `no`; the configured host is reached by IP. No customer bytes left the computer in
+this experiment, no OCR ran, and the remote process wrote no files.
+
+**Local sizing:** eight retained successful pages per modality, selected in hash/path order, were
+wrapped in the client's Base64/JSON shape and compressed with gzip level 6. Decompression restored
+the complete original JSON and PNG bytes in every case. Request bytes decreased by 29.89% for digital,
+29.16% for mixed, and 26.36% for scanned pages. This selected sample is a sizing proxy for SSH's zlib,
+not a measurement of network time or of pages whose earlier extraction failed.
+
+**Synthetic link A/B:** one generated ledger page produced a PNG of 637,530 bytes and a JSON request
+of 850,136 bytes. Four separate SSH command/stdin transfers used the same payload in off/on/on/off
+order. The remote process returned only length, hash and read duration; all four payloads matched.
+Both compressed trials negotiated `zlib@openssh.com`.
+
+| trial | SSH compression | end-to-end seconds | remote stream-read seconds |
+|---|---|---:|---:|
+| 1 | off | 22.692 | 17.067 |
+| 2 | on | 31.985 | 25.432 |
+| 3 | on | 19.370 | 15.283 |
+| 4 | off | 41.546 | 36.601 |
+
+Mean end-to-end duration was 32.119 seconds without compression and 25.678 seconds with it, about
+20% shorter in this small experiment. The large spread limits the conclusion: each trial includes a
+fresh SSH setup, whereas the wave uses a persistent tunnel and forwarded HTTP. This does not establish
+a 20% wave improvement or a reliable completion-time forecast. Real session wall time remains the test.
+
+Durable private evidence: `discovery_reports/train13-logs/p23wave/closure-20260915/transport-size-audit.log`
+and `synthetic-ssh-transfer.log`, both `EXIT=0`; the corresponding reproducible Python drivers are in
+the parent `p23wave` directory. The implementation is W `7897518`; its targeted tests passed before
+this record was written. No production OCR identity changed.
+
+**Telemetry units:** the historical wave `bytes_up` field records raw PNG lengths before Base64 and
+transport compression. `bytes_down` is a JSON reserialization estimate. W's report now labels these
+bases explicitly and sets `transport_bytes_measured=False`; neither total is an encrypted-wire counter.

@@ -263,3 +263,24 @@ free)**; GPU idle at 2 MiB of 32,607. `/workspace` is NOT a mounted volume here 
 preserves the container, recycle/destroy wipes it — including `/workspace/paddle-env`, so a recycled
 instance needs the stack installed again (into its own virtualenv, per lesson 1). No customer page was sent
 by any of this; the live proof used the synthetic fixture only.
+
+### Lossless transfer tuning (2026-09-15, requested by Gustavo)
+
+Gustavo selected the configured instance and then requested faster document transfers. Cell W's
+`7897518` adds the optional connection setting `PADDLE_VAST_SSH_COMPRESSION=yes` (or `no`). Unset or
+blank preserves the existing SSH configuration. The option applies when a new tunnel opens; an
+already-running tunnel must complete its normal stop/attestation/tunnel-down lifecycle first.
+The option changes only SSH transport. The receiver obtains the identical HTTP and PNG bytes; the
+worker contract, OCR pins, image resolution, evidence hashes and cache keys are unchanged.
+[OpenSSH documents compression of forwarded TCP data](https://man.openbsd.org/ssh).
+
+The preliminary synthetic transfer experiment measured a shorter mean transfer with compression,
+with substantial variation between trials. See the new measurements section for the sample, limits
+and exact observations. This is not yet a measured improvement for the persistent HTTP wave.
+The updated wave/vast targeted checks passed (123 tests); final branch proofs and the live SLICE
+retention attestation are still required before W composes.
+
+The earlier 33-hour projection covered a full set of populations. CTRL and U755 have already finished
+their attempt records and are preserved. The current SLICE file has 80 documents / 626 pages; 46 pages
+have prior successful evidence, 33 have prior refusals and 547 have never been attempted. The later
+configuration A/B reads are separate work. Do not restart completed CTRL/U755 sessions for this tuning.
