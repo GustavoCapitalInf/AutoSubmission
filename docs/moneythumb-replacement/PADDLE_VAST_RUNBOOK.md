@@ -190,6 +190,49 @@ tunnel down after each wave.
 
 ## The Phase 2.3 wave (P23-WAVE, cell W) — operating `tools/paddle_wave.py`
 
+### Private custody and ordinary exports
+
+New wave runs store original discovery artifacts under
+`<research dir>/.wave/<partition>/discovery-runs/<population>/<session>/`.
+The ordinary `run --out` root must be disjoint from the research root. It receives
+only `wave_technical_rows.csv` and the completion marker `wave_export.json` in a
+fresh session directory. No generic discovery report, path map, folder label,
+statement field or billing object is copied there.
+
+The versioned CSV preserves original row order and aliases, fingerprints, page
+counts, closed source/cache statuses, a derived `wave_refusal_reason`, and technical
+measurements. Missing measurements remain empty; `peak_rss_mb` may retain the
+source-defined `not measured` sentinel. The marker binds the source session, both
+original rows/provenance hashes, export hash, schema and row count. A consumer must
+also supply the independently trusted source hashes/session; marker consistency
+alone does not authenticate its source. Unknown fields/status values refuse.
+
+State format 2 records each new chunk's custody marker and original hashes. The
+loader also accepts format 1. Active legacy continuation advances to format 2;
+a completed legacy resume retains format 1 and its existing zero-work session
+audit. Reporting and offline export never rewrite historical state. Reports and
+raster retention use the exact original custody rows. `report --out` identifies
+the explicit historical raw root only for old markerless chunks, including mixed
+old/new state; missing new custody never falls back to that root.
+
+Successful extraction is saved before publication. A publication failure records
+`export_status=failed` while retaining completed document outcomes and truthful
+session counts. Retry that reporting operation offline into a fresh output root:
+
+```text
+python -m tools.paddle_wave export --run <exact closed custody session> \
+  --out <fresh ordinary root> --data-dir <research dir> --config paddle-v5-prod \
+  --population-name CTRL --session <recorded session basename> \
+  --source-rows-sha256 <independently recorded original rows hash> \
+  --source-provenance-sha256 <independently recorded original provenance hash>
+```
+
+This command does not call pending-document selection, an extractor, lifecycle
+operations or state persistence. A directory without its completion marker is
+incomplete; preserve it and use a fresh destination. Historical ordinary artifacts
+and their scan findings remain private evidence. New safe exports do not change
+the disposition of those original bytes.
+
 This section is operational. The authority for running real customer statements on this
 instance is `PHASE2_RULINGS.md` §"Customer-data authorization — Paddle" (2026-09-03, R1);
 if anything here conflicts with that, the rulings file wins.

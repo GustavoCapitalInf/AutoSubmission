@@ -1254,8 +1254,11 @@ def test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_sta
     assert measured["refusal_reason_source"] == "recorded_rows"
     assert measured["refusals_rederived"] == 1 and measured["refusals_without_rows"] == 0
     assert state_path.read_bytes() == original
-    historical = wave_report(data_dir=data, config=PRODUCTION_CONFIG)["populations"]["CTRL"]
-    assert historical["refusal_reason_source"] == "historical_state"
+    # The old financial reason remains in private state, but cannot become an
+    # ordinary report key. Reading recorded rows above still preserves history.
+    with pytest.raises(WaveRefused, match="wave_refusal_code_unknown"):
+        wave_report(data_dir=data, config=PRODUCTION_CONFIG)
+    assert state_path.read_bytes() == original
     missing = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=tmp_path / "missing")["populations"]["CTRL"]
     assert missing["refused_by_reason"] == {"paddle_refusal_row_unavailable": 1}
     assert missing["refusals_without_rows"] == 1
@@ -1265,6 +1268,7 @@ def test_completed_population_resume_has_no_remote_lifecycle(tmp_path):
     population = _populations_dir(tmp_path, CTRL=["B" * 64])
     data = tmp_path / "research"
     state = _state_with(data, "CTRL", ["B" * 64], OUTCOME_EVIDENCE)
+    state.version = 1
     from tools.paddle_wave import population_digests
     state.population_set_sha256 = population_digests(population / "CTRL.shas")["set_sha256"]
     state.save(WaveState.path_for(data, PARTITION, "CTRL"))
@@ -1285,3 +1289,617 @@ def test_completed_population_resume_has_no_remote_lifecycle(tmp_path):
     )
     assert result["session"]["chunks"] == 0
     assert result["attestation"] is None
+    resumed = WaveState.load(WaveState.path_for(data, PARTITION, "CTRL"))
+    assert resumed.version == 1
+    assert len(resumed.sessions) == 1 and resumed.sessions[0]["documents"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Research custody and the versioned ordinary export (synthetic bytes only)
+# ---------------------------------------------------------------------------
+
+EXPORT_SESSION = "2035-01-02T030405.000000-0000-abcdef12"
+
+
+def _export_row(**changes):
+    row = {
+        "content_sha256": "A" * 64, "evidence_sha256": "b" * 64,
+        "page_count": "2", "stage_evidence": "present", "source_path": "paddle",
+        "cache_paddle": "miss", "bytes_up": "17", "bytes_down": "19",
+        "inference_ms": "6.5", "vram_mb": "0", "peak_rss_mb": "not measured",
+        "elapsed_ms": "9.5", "research_partition": PARTITION,
+        "paddle_rung": "research", "paddle_refusal_reason": "", "error_type": "",
+        "outcome_reason": "approved", "relative_path": "synthetic-private-name/document.pdf",
+        "folder_label": "synthetic-private-folder", "duplicate_of": "synthetic-private-alias",
+        "statement_account": "synthetic-private-account", "source_model": "synthetic-private-model",
+        "future_customer_field": "synthetic-private-future",
+    }
+    row.update(changes)
+    return row
+
+
+def _export_custody(parent, rows=None, *, session=EXPORT_SESSION):
+    directory = parent / session
+    directory.mkdir(parents=True)
+    rows = [_export_row()] if rows is None else rows
+    with (directory / "rows.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    provenance = {"run_of_record": {"partitions": {
+        "mode": "research-paddle", "research_partition": PARTITION,
+    }}, "private_extra": "synthetic-private-provenance"}
+    (directory / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
+    (directory / "hash_map.csv").write_text("synthetic-private-hash-map", encoding="utf-8")
+    (directory / "report.json").write_text('{"billing":"synthetic-private-cost"}', encoding="utf-8")
+    kwargs = {
+        "configuration": PRODUCTION_CONFIG, "partition": PARTITION, "population_name": "CTRL",
+        "expected_source_rows_sha256": hashlib.sha256((directory / "rows.csv").read_bytes()).hexdigest(),
+        "expected_source_provenance_sha256": hashlib.sha256((directory / "provenance.json").read_bytes()).hexdigest(),
+        "expected_session": session,
+    }
+    return directory, kwargs
+
+
+def _read_export(directory, kwargs):
+    from tools.paddle_wave import read_wave_technical_export
+
+    return read_wave_technical_export(
+        directory, expected_configuration=kwargs["configuration"], expected_partition=kwargs["partition"],
+        expected_population=kwargs["population_name"], expected_session=kwargs["expected_session"],
+        expected_source_rows_sha256=kwargs["expected_source_rows_sha256"],
+        expected_source_provenance_sha256=kwargs["expected_source_provenance_sha256"],
+    )
+
+
+def test_export_positive_allowlist_preserves_aliases_missing_values_and_originals(tmp_path):
+    from tools.paddle_wave import EXPORT_MARKER, EXPORT_ROWS, TECHNICAL_FIELDS, write_wave_technical_export
+
+    rows = [_export_row(), _export_row(cache_paddle="hit", bytes_up="", bytes_down="",
+                                     inference_ms="", vram_mb="", elapsed_ms="0.0")]
+    source, kwargs = _export_custody(tmp_path / "private", rows)
+    before = {item.name: item.read_bytes() for item in source.iterdir()}
+    destination = write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+    assert {item.name for item in destination.iterdir()} == {EXPORT_MARKER, EXPORT_ROWS}
+    projected = _read_export(destination, kwargs)
+    assert len(projected) == 2 and all(tuple(row) == TECHNICAL_FIELDS for row in projected)
+    for original, exported in zip(rows, projected):
+        assert exported == {key: "" if key == "wave_refusal_reason" else original[key] for key in TECHNICAL_FIELDS}
+    assert projected[1]["bytes_up"] == "" and projected[1]["inference_ms"] == ""
+    assert projected[0]["vram_mb"] == "0" and projected[0]["peak_rss_mb"] == "not measured"
+    assert all(b"synthetic-private" not in item.read_bytes() for item in destination.iterdir())
+    assert before == {item.name: item.read_bytes() for item in source.iterdir()}
+    with pytest.raises(WaveRefused, match="destination_exists"):
+        write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("source_path", "synthetic-private-source"), ("stage_evidence", "synthetic-private-status"),
+    ("cache_paddle", "synthetic-private-cache"), ("research_partition", "synthetic-private-partition"),
+    ("content_sha256", "synthetic-private-hash"), ("evidence_sha256", "synthetic-private-evidence"),
+    ("page_count", "-1"), ("bytes_up", "3.0"), ("bytes_down", "synthetic-private-count"),
+    ("inference_ms", "nan"), ("inference_ms", "1e9999"), ("vram_mb", "-1"),
+    ("peak_rss_mb", "synthetic-private-memory"), ("elapsed_ms", "synthetic-private-time"),
+])
+def test_export_rejects_unsafe_values_before_publication(tmp_path, field, value):
+    from tools.paddle_wave import write_wave_technical_export
+
+    source, kwargs = _export_custody(tmp_path / "private", [_export_row(**{field: value})])
+    with pytest.raises(WaveRefused) as caught:
+        write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+    assert value not in str(caught.value)
+    assert not (tmp_path / "ordinary" / EXPORT_SESSION / "wave_export.json").exists()
+
+
+@pytest.mark.parametrize("field", ["paddle_refusal_reason", "error_type"])
+def test_export_and_report_refuse_unknown_derived_refusal_keys(tmp_path, field):
+    from tools.paddle_wave import _project_wave_technical_rows, _reported_refusals
+
+    row = _export_row(source_path="local_tesseract", stage_evidence="absent", paddle_rung="failed",
+                      **{field: "synthetic-private-reason"})
+    # error_type is used only for a row whose rung has no explicit failure code.
+    if field == "error_type":
+        row["source_path"] = "none"
+    with pytest.raises(WaveRefused, match="wave_refusal_code_unknown"):
+        _project_wave_technical_rows([row], PARTITION)
+    state = WaveState(config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    state.record("A" * 64, DocumentOutcome(OUTCOME_REFUSED, "synthetic-private-reason"))
+    with pytest.raises(WaveRefused, match="wave_refusal_code_unknown"):
+        _reported_refusals(state, None)
+    state.documents["A" * 64].reason = ""
+    assert _reported_refusals(state, None)["refused_by_reason"] == {"unrecorded": 1}
+
+
+def test_export_requires_independent_rows_provenance_and_session_bindings(tmp_path):
+    from tools.paddle_wave import write_wave_technical_export
+
+    source, kwargs = _export_custody(tmp_path / "private")
+    for key in ("expected_source_rows_sha256", "expected_source_provenance_sha256"):
+        with pytest.raises(WaveRefused, match="binding_mismatch"):
+            write_wave_technical_export(source, tmp_path / "ordinary", **{**kwargs, key: "0" * 64})
+    with pytest.raises(WaveRefused, match="session_mismatch"):
+        write_wave_technical_export(source, tmp_path / "ordinary", **{
+            **kwargs, "expected_session": "2035-01-02T030405.000000-0000-abcdef13"})
+    original = (source / "provenance.json").read_bytes()
+    # Same research mode/partition is insufficient to authenticate a replacement.
+    (source / "provenance.json").write_bytes(original + b"\n")
+    with pytest.raises(WaveRefused, match="provenance_binding_mismatch"):
+        write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("source_rows_sha256", "0" * 64), ("source_provenance_sha256", "0" * 64),
+    ("source_session", "2035-01-02T030405.000000-0000-abcdef13"),
+    ("row_count", 2), ("schema_version", 99), ("fields", ["relative_path"]),
+    ("configuration", "synthetic-private-configuration"), ("partition", "synthetic-private-partition"),
+])
+def test_export_reader_refuses_forged_or_corrupt_marker(tmp_path, field, value):
+    from tools.paddle_wave import write_wave_technical_export
+
+    source, kwargs = _export_custody(tmp_path / "private")
+    destination = write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+    path = destination / "wave_export.json"
+    marker = json.loads(path.read_text(encoding="utf-8"))
+    marker[field] = value
+    path.write_text(json.dumps(marker), encoding="utf-8")
+    with pytest.raises(WaveRefused):
+        _read_export(destination, kwargs)
+
+
+def test_export_reader_refuses_extra_files_changed_rows_and_missing_marker(tmp_path):
+    from tools.paddle_wave import write_wave_technical_export
+
+    source, kwargs = _export_custody(tmp_path / "private")
+    destination = write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+    extra = destination / "hash_map.csv"
+    extra.write_text("synthetic-private-name", encoding="utf-8")
+    with pytest.raises(WaveRefused, match="files_invalid"):
+        _read_export(destination, kwargs)
+    extra.unlink()
+    rows_path = destination / "wave_technical_rows.csv"
+    rows_path.write_bytes(rows_path.read_bytes() + b"\n")
+    with pytest.raises(WaveRefused, match="rows_hash_mismatch"):
+        _read_export(destination, kwargs)
+    (destination / "wave_export.json").unlink()
+    with pytest.raises(WaveRefused):
+        _read_export(destination, kwargs)
+
+
+@pytest.mark.parametrize("kind", ["source_rows", "source_directory", "output_directory"])
+def test_export_rechecks_lexical_bindings_before_completion_marker(tmp_path, monkeypatch, kind):
+    import tools.paddle_wave as wave
+
+    source, kwargs = _export_custody(tmp_path / "private")
+    output = tmp_path / "ordinary"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "rows.csv").write_bytes((source / "rows.csv").read_bytes())
+    (outside / "provenance.json").write_bytes((source / "provenance.json").read_bytes())
+    resolve, atomic = Path.resolve, wave._atomic_export_file
+    retargeted = False
+    watched = {"source_rows": source / "rows.csv", "source_directory": source,
+               "output_directory": output}[kind]
+
+    def changed_resolve(path, *args, **kwargs):
+        if retargeted and path == watched:
+            return outside / "rows.csv" if kind == "source_rows" else outside
+        return resolve(path, *args, **kwargs)
+
+    def after_rows(path, raw, *, validate):
+        nonlocal retargeted
+        atomic(path, raw, validate=validate)
+        if path.name == wave.EXPORT_ROWS:
+            retargeted = True
+
+    monkeypatch.setattr(Path, "resolve", changed_resolve)
+    monkeypatch.setattr(wave, "_atomic_export_file", after_rows)
+    with pytest.raises(WaveRefused, match="binding_changed|path_escaped"):
+        wave.write_wave_technical_export(source, output, **kwargs)
+    assert not (output / EXPORT_SESSION / wave.EXPORT_MARKER).exists()
+    assert not (outside / wave.EXPORT_MARKER).exists()
+
+
+def test_export_reader_detects_same_byte_leaf_retarget(tmp_path, monkeypatch):
+    import tools.paddle_wave as wave
+
+    source, kwargs = _export_custody(tmp_path / "private")
+    destination = wave.write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+    watched = destination / wave.EXPORT_ROWS
+    outside = tmp_path / "outside.csv"
+    outside.write_bytes(watched.read_bytes())
+    resolve, closed = Path.resolve, wave._closed_bytes
+    retargeted = False
+
+    def changed_resolve(path, *args, **kwargs):
+        return outside if retargeted and path == watched else resolve(path, *args, **kwargs)
+
+    def after_first_read(path, **kwargs):
+        nonlocal retargeted
+        raw = closed(path, **kwargs)
+        if path == watched:
+            retargeted = True
+        return raw
+
+    monkeypatch.setattr(Path, "resolve", changed_resolve)
+    monkeypatch.setattr(wave, "_closed_bytes", after_first_read)
+    with pytest.raises(WaveRefused, match="binding_changed|source_changed"):
+        _read_export(destination, kwargs)
+
+
+@pytest.mark.parametrize("version", [True, "synthetic-private-version", 99, None])
+def test_new_state_version_refusal_is_value_free(tmp_path, capsys, version):
+    data = tmp_path / "research"
+    path = WaveState.path_for(data, PARTITION, "CTRL")
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"version": version}), encoding="utf-8")
+    assert main(["report", "--config", PRODUCTION_CONFIG, "--data-dir", str(data)]) == 2
+    error = capsys.readouterr().err
+    assert "wave_state_version_unknown" in error
+    assert "synthetic-private-version" not in error and str(path) not in error
+
+
+@pytest.mark.parametrize("version,storage", [(1, "research-private-v1"), (1, None), (2, None), (2, "unknown")])
+def test_state_rejects_new_storage_in_old_format_and_unknown_markers(tmp_path, version, storage):
+    import tools.paddle_wave as wave
+
+    state = WaveState(version=version, config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    state.chunks = [{"storage": storage}]
+    path = tmp_path / "state.json"
+    state.save(path)
+    with pytest.raises(WaveRefused, match="storage_unknown"):
+        WaveState.load(path)
+    with pytest.raises(WaveRefused, match="storage_unknown"):
+        wave._recorded_chunk_rows(state, state.chunks[0], data_dir=tmp_path, out_dir=None)
+
+
+def test_new_state_writes_version_two_and_loader_preserves_legacy_version(tmp_path):
+    # Serialization control only. The independent closure review runs the
+    # actual preserved version-one loader against new state bytes.
+    state = WaveState()
+    path = tmp_path / "state.json"
+    state.save(path)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] != 1
+    legacy = WaveState(version=1)
+    legacy.save(path)
+    assert WaveState.load(path).version == 1
+
+
+def test_private_and_legacy_report_equivalence_and_mixed_authority(tmp_path):
+    import tools.paddle_wave as wave
+
+    data, legacy_root = tmp_path / "research", tmp_path / "legacy"
+    source, kwargs = _export_custody(legacy_root / "CTRL", [
+        _export_row(), _export_row(content_sha256="C" * 64, source_path="local_tesseract",
+            stage_evidence="absent", paddle_rung="failed", paddle_refusal_reason="paddle_evidence_malformed",
+            inference_ms="", bytes_up="", bytes_down="", vram_mb=""),
+    ])
+    state = WaveState(version=1, config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    state.chunks = [{"index": 0, "run_dir": source.name}]
+    state.record("A" * 64, DocumentOutcome(OUTCOME_EVIDENCE, pages=2, chunk=0))
+    state.record("C" * 64, DocumentOutcome(OUTCOME_REFUSED, "ocr_failed", pages=2, chunk=0))
+    path = WaveState.path_for(data, PARTITION, "CTRL")
+    state.save(path)
+    original = path.read_bytes()
+    before = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=legacy_root)
+    assert path.read_bytes() == original
+    private_parent = wave._custody_run_parent(data, PARTITION, "CTRL")
+    private = private_parent / source.name
+    shutil.copytree(source, private)
+    state.version = 2
+    state.chunks[0].update(storage=wave.PRIVATE_RUN_STORAGE,
+        rows_sha256=kwargs["expected_source_rows_sha256"],
+        provenance_sha256=kwargs["expected_source_provenance_sha256"])
+    state.save(path)
+    assert wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=legacy_root) == before
+    # Public tampering cannot alter authoritative report numerics.
+    exported = wave.write_wave_technical_export(private, tmp_path / "ordinary", **kwargs)
+    (exported / wave.EXPORT_ROWS).write_text("synthetic-private-corrupt", encoding="utf-8")
+    assert wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=tmp_path / "ordinary") == before
+    # A v2 state may retain an old markerless chunk beside the new custody chunk.
+    old, _ = _export_custody(legacy_root / "CTRL", session="2035-01-02T030405.000000-0000-abcdef13")
+    state.chunks.append({"index": 1, "run_dir": old.name})
+    state.save(path)
+    mixed = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=legacy_root)
+    assert mixed["populations"]["CTRL"]["telemetry"]["documents_measured"] == 2
+    # Missing custody is a refusal even if a legacy-looking copy exists.
+    (private / "rows.csv").unlink()
+    with pytest.raises(WaveRefused):
+        wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=legacy_root)
+
+
+def _small_wave_args(tmp_path):
+    populations = _populations_dir(tmp_path, CTRL=["A" * 64])
+    return dict(population_file=populations / "CTRL.shas", population_name="CTRL",
+        populations_dir=populations, config=PRODUCTION_CONFIG, data_dir=tmp_path / "research",
+        out_dir=tmp_path / "ordinary", root=tmp_path / "archive", environ=BOTH_LITERALS,
+        retain_rasters=False)
+
+
+def test_completed_private_chunk_survives_export_failure_with_truthful_session(tmp_path, monkeypatch):
+    import tools.paddle_wave as wave
+
+    args = _small_wave_args(tmp_path)
+    args["population_file"].write_text("A" * 64 + "\n" + "C" * 64 + "\n", encoding="utf-8")
+    events = []
+    persisted_before_export = []
+
+    class Lifecycle:
+        def up(self):
+            events.append("up")
+            return {"retention_declared": True}
+
+        def down(self, **kwargs):
+            events.append("down")
+            return RetentionAttestation(True, True, False, False, 0, 0, 0)
+
+    def runner(argv, **kwargs):
+        events.append("child")
+        private = Path(argv[argv.index("--out") + 1])
+        assert private.is_relative_to(args["data_dir"])
+        assert not private.is_relative_to(args["out_dir"])
+        _export_custody(private, [_export_row(), _export_row(content_sha256="C" * 64,
+            stage_evidence="absent", source_path="local_tesseract", paddle_rung="failed")])
+        return subprocess.CompletedProcess(argv, 0)
+
+    def refused_export(*unused, **kwargs):
+        events.append("export")
+        state = WaveState.load(WaveState.path_for(args["data_dir"], PARTITION, "CTRL"))
+        assert state.version == 2 and state.counts()["evidence"] == 1
+        assert state.chunks[0]["status"] == "complete"
+        assert state.chunks[0]["storage"] == wave.PRIVATE_RUN_STORAGE
+        assert state.counts()["refused"] == 1
+        assert state.documents["C" * 64].reason == "paddle_rung_failed_unnamed"
+        assert state.documents["C" * 64].chunk == state.documents["A" * 64].chunk == 0
+        persisted_before_export.append(True)
+        raise WaveRefused("synthetic-private-rejected-output")
+
+    monkeypatch.setattr(wave, "write_wave_technical_export", refused_export)
+    with pytest.raises(wave.WaveExportFailed, match="offline_retry_required") as caught:
+        run_wave(**args, subprocess_runner=runner, lifecycle=Lifecycle())
+    assert "synthetic-private" not in str(caught.value)
+    state = WaveState.load(WaveState.path_for(args["data_dir"], PARTITION, "CTRL"))
+    assert state.chunks[0]["export_status"] == "failed"
+    assert state.sessions[-1]["chunks"] == 1 and state.sessions[-1]["documents"] == 2
+    assert state.sessions[-1]["export_status"] == "failed" and state.counts()["evidence"] == 1
+    assert events == ["up", "child", "export", "down"]
+    assert persisted_before_export == [True]
+    assert state.pending(["A" * 64, "C" * 64]) == ["C" * 64]
+    assert not list(args["out_dir"].glob("*/wave_export.json"))
+
+
+def test_offline_export_never_resumes_refused_documents_or_mutates_state(tmp_path, monkeypatch):
+    import tools.paddle_wave as wave
+
+    source, kwargs = _export_custody(tmp_path / "private", [_export_row(
+        stage_evidence="absent", source_path="local_tesseract", paddle_rung="failed")])
+    state = WaveState(config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    state.record("A" * 64, DocumentOutcome(OUTCOME_REFUSED, "ocr_failed"))
+    path = tmp_path / "state.json"
+    state.save(path)
+    before = path.read_bytes()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("offline export attempted extraction or state mutation")
+
+    monkeypatch.setattr(WaveState, "pending", forbidden)
+    monkeypatch.setattr(WaveState, "save", forbidden)
+    monkeypatch.setattr(wave, "run_wave", forbidden)
+    monkeypatch.setattr(wave.Lifecycle, "up", forbidden)
+    monkeypatch.setattr(wave.Lifecycle, "down", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    result = wave.write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+    assert _read_export(result, kwargs)[0]["wave_refusal_reason"] == "paddle_rung_failed_unnamed"
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("shape", ["same", "inside", "outside"])
+def test_wave_refuses_overlapping_storage_before_discovery(tmp_path, shape):
+    args = _small_wave_args(tmp_path)
+    data = args["data_dir"]
+    args["out_dir"] = {"same": data, "inside": data / "ordinary", "outside": data.parent}[shape]
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("overlap reached discovery")
+
+    with pytest.raises(WaveRefused, match="storage_roots_overlap"):
+        run_wave(**args, subprocess_runner=forbidden)
+
+
+def test_wave_refuses_multiple_new_custody_children_before_recording(tmp_path):
+    args = _small_wave_args(tmp_path)
+
+    def runner(argv, **kwargs):
+        parent = Path(argv[argv.index("--out") + 1])
+        _export_custody(parent)
+        _export_custody(parent, session="2035-01-02T030405.000000-0000-abcdef13")
+        return subprocess.CompletedProcess(argv, 0)
+
+    with pytest.raises(WaveRefused, match="wave_child_run_ambiguous"):
+        run_wave(**args, subprocess_runner=runner)
+    state = WaveState.load(WaveState.path_for(args["data_dir"], PARTITION, "CTRL"))
+    assert not state.documents and not state.chunks
+
+
+def test_wave_log_and_report_attestation_refuse_unbounded_fields(tmp_path, capsys):
+    from tools.paddle_wave import WaveLog, _validate_attestation
+
+    with pytest.raises(WaveRefused, match="wave_event_fields_invalid"):
+        WaveLog(None)("chunk.end", relative_path="synthetic-private-path")
+    assert "synthetic-private" not in capsys.readouterr().out
+    valid = RetentionAttestation(True, True, False, False, 0, 0, 0).as_record()
+    _validate_attestation(valid)
+    for poisoned in ({**valid, "cost": "synthetic-private-cost"}, {**valid, "error": "synthetic-private-error"}):
+        with pytest.raises(WaveRefused):
+            _validate_attestation(poisoned)
+
+
+@pytest.mark.parametrize("target", ["provenance", "marker"])
+def test_non_object_export_metadata_refuses_without_echo(tmp_path, target):
+    import tools.paddle_wave as wave
+
+    source, kwargs = _export_custody(tmp_path / "private")
+    if target == "provenance":
+        path = source / "provenance.json"
+        path.write_text('["synthetic-private-object"]', encoding="utf-8")
+        kwargs["expected_source_provenance_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        operation = lambda: wave.write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+    else:
+        destination = wave.write_wave_technical_export(source, tmp_path / "ordinary", **kwargs)
+        (destination / wave.EXPORT_MARKER).write_text('["synthetic-private-object"]', encoding="utf-8")
+        operation = lambda: _read_export(destination, kwargs)
+    with pytest.raises(WaveRefused) as caught:
+        operation()
+    assert "synthetic-private-object" not in str(caught.value)
+
+
+def test_recorded_private_reader_detects_same_byte_leaf_retarget(tmp_path, monkeypatch):
+    import tools.paddle_wave as wave
+
+    data = tmp_path / "research"
+    source, kwargs = _export_custody(wave._custody_run_parent(data, PARTITION, "CTRL"))
+    state = WaveState(config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    chunk = {"storage": wave.PRIVATE_RUN_STORAGE, "run_dir": source.name,
+             "rows_sha256": kwargs["expected_source_rows_sha256"],
+             "provenance_sha256": kwargs["expected_source_provenance_sha256"]}
+    watched = source / "rows.csv"
+    outside = tmp_path / "outside.csv"
+    outside.write_bytes(watched.read_bytes())
+    resolve, closed = Path.resolve, wave._closed_bytes
+    changed = False
+
+    def changed_resolve(path, *args, **kwargs):
+        return outside if changed and path == watched else resolve(path, *args, **kwargs)
+
+    def changed_after_read(path, **kwargs):
+        nonlocal changed
+        raw = closed(path, **kwargs)
+        if path == watched:
+            changed = True
+        return raw
+
+    monkeypatch.setattr(Path, "resolve", changed_resolve)
+    monkeypatch.setattr(wave, "_closed_bytes", changed_after_read)
+    with pytest.raises(WaveRefused, match="binding_changed"):
+        wave._recorded_chunk_rows(state, chunk, data_dir=data, out_dir=None)
+
+
+@pytest.mark.parametrize("name", ["../escape", "folder/run", "folder\\run", "..", "/outside"])
+def test_recorded_run_names_cannot_escape_the_selected_root(tmp_path, name):
+    import tools.paddle_wave as wave
+
+    state = WaveState(config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    with pytest.raises(WaveRefused, match="run_name_invalid"):
+        wave._recorded_run_directory(state, tmp_path, name)
+
+
+def test_mixed_chunks_bind_latest_refusal_and_exact_technical_denominators(tmp_path):
+    import tools.paddle_wave as wave
+
+    data, legacy = tmp_path / "research", tmp_path / "legacy"
+    old, _ = _export_custody(legacy / "CTRL", [
+        _export_row(page_count="1", inference_ms="10"),
+        _export_row(content_sha256="C" * 64, source_path="local_tesseract", stage_evidence="absent",
+                    paddle_rung="failed", paddle_refusal_reason="paddle_evidence_malformed", inference_ms=""),
+    ])
+    new, kwargs = _export_custody(wave._custody_run_parent(data, PARTITION, "CTRL"), [
+        _export_row(page_count="2", inference_ms="30", bytes_up="31", bytes_down="37"),
+        _export_row(content_sha256="C" * 64, source_path="local_tesseract", stage_evidence="absent",
+                    paddle_rung="failed", inference_ms=""),
+        _export_row(cache_paddle="hit", inference_ms="", bytes_up="", bytes_down="", vram_mb="",
+                    peak_rss_mb="200", elapsed_ms="7"),
+    ], session="2035-01-02T030405.000000-0000-abcdef13")
+    state = WaveState(config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    state.chunks = [{"index": 0, "run_dir": old.name},
+                    {"index": 1, "run_dir": new.name, "storage": wave.PRIVATE_RUN_STORAGE,
+                     "rows_sha256": kwargs["expected_source_rows_sha256"],
+                     "provenance_sha256": kwargs["expected_source_provenance_sha256"]}]
+    state.record("A" * 64, DocumentOutcome(OUTCOME_EVIDENCE, pages=2, chunk=1))
+    state.record("C" * 64, DocumentOutcome(OUTCOME_REFUSED, "ocr_failed", pages=2, chunk=1))
+    path = WaveState.path_for(data, PARTITION, "CTRL")
+    state.save(path)
+    before = path.read_bytes()
+    result = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=legacy)["populations"]["CTRL"]
+    assert result["refused_by_reason"] == {"paddle_rung_failed_unnamed": 1}
+    telemetry = result["telemetry"]
+    assert telemetry["documents_measured"] == 2
+    assert telemetry["inference_ms_per_document"] == {"p50": 20.0, "p95": 30.0, "max": 30.0}
+    assert telemetry["inference_ms_per_page_mean"] == {"p50": 12.5, "p95": 15.0, "max": 15.0}
+    assert telemetry["bytes_up_total"] == 48 and telemetry["bytes_down_total"] == 56
+    assert telemetry["peak_rss_mb"] == {}  # the cache alias is not a measured Paddle row
+    assert path.read_bytes() == before
+
+
+def test_active_legacy_continuation_advances_before_child_and_keeps_old_chunks(tmp_path):
+    args = _small_wave_args(tmp_path)
+    state = WaveState(version=1, config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    old_chunk = {"index": 0, "run_dir": "legacy-synthetic", "status": "complete"}
+    state.chunks = [old_chunk]
+    path = WaveState.path_for(args["data_dir"], PARTITION, "CTRL")
+    state.save(path)
+    observations = []
+
+    def runner(argv, **kwargs):
+        current = WaveState.load(path)
+        assert current.version == 2 and current.chunks == [old_chunk]
+        observations.append(True)
+        _export_custody(Path(argv[argv.index("--out") + 1]))
+        return subprocess.CompletedProcess(argv, 0)
+
+    result = run_wave(**args, subprocess_runner=runner)
+    assert observations == [True]
+    assert result["state"].version == 2
+    assert result["state"].chunks[0] == old_chunk
+    assert result["state"].chunks[1]["storage"] == "research-private-v1"
+
+
+def test_failed_private_state_persistence_never_reaches_export_and_stops_lifecycle(tmp_path, monkeypatch):
+    import tools.paddle_wave as wave
+
+    args = _small_wave_args(tmp_path)
+    events = []
+    save = WaveState.save
+
+    class Lifecycle:
+        def up(self):
+            return {"retention_declared": True}
+
+        def down(self, **kwargs):
+            events.append("down")
+            return RetentionAttestation(True, True, False, False, 0, 0, 0)
+
+    def fail_completed_save(state, path):
+        if any(chunk.get("status") == "complete" for chunk in state.chunks):
+            raise OSError("synthetic state write failure")
+        return save(state, path)
+
+    def forbidden(*args, **kwargs):
+        events.append("export")
+        raise AssertionError("export ran before private state persisted")
+
+    def runner(argv, **kwargs):
+        _export_custody(Path(argv[argv.index("--out") + 1]))
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(WaveState, "save", fail_completed_save)
+    monkeypatch.setattr(wave, "write_wave_technical_export", forbidden)
+    with pytest.raises(OSError, match="synthetic state write failure"):
+        run_wave(**args, subprocess_runner=runner, lifecycle=Lifecycle())
+    assert events == ["down"]
+    assert not list(args["out_dir"].glob("*/wave_export.json"))
+
+
+@pytest.mark.parametrize("error", ["remote_inspection_failed", "remote_inspection_incomplete", "PaddleVastError"])
+def test_failed_attestation_preserves_only_the_defined_unavailable_sentinels(tmp_path, error):
+    from tools.paddle_wave import _validate_attestation
+
+    record = RetentionAttestation(True, False, True, True, -1, -1, -1, error=error).as_record()
+    _validate_attestation(record)
+    state = WaveState(version=1, config=PRODUCTION_CONFIG, partition=PARTITION, population_name="CTRL")
+    state.sessions = [{"attestation": record}]
+    state.save(WaveState.path_for(tmp_path, PARTITION, "CTRL"))
+    published = wave_report(data_dir=tmp_path, config=PRODUCTION_CONFIG)["attestations"][0]
+    assert published == {"population": "CTRL", **record}
+    for key, value in (("request_artefacts", -2), ("page_byte_files", -3), ("temp_image_files", -1),
+                       ("probes", -1), ("inspected", True), ("error", "synthetic-private-error")):
+        with pytest.raises(WaveRefused):
+            _validate_attestation({**record, key: value})

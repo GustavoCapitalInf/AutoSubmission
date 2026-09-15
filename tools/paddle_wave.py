@@ -49,7 +49,9 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
+import math
 import os
 import re
 import statistics
@@ -75,6 +77,7 @@ from ocr.paddle_config import (
     PADDLE_RASTER_DPI,
     PADDLE_REMOTE_OPT_IN_ENV,
     PADDLE_REMOTE_OPT_IN_LITERAL,
+    REFUSAL_REASONS,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +104,12 @@ __all__ = [
 class WaveRefused(RuntimeError):
     """Every refusal this tool makes. Carries a reason a human can act on and
     never a connection value, a document's contents or a sha with a verdict."""
+
+
+class WaveExportFailed(WaveRefused):
+    def __init__(self, processed: int):
+        super().__init__("wave_export_failed_offline_retry_required")
+        self.processed = processed
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +152,25 @@ DEFERRED_CONFIGURATIONS: dict[str, str] = {
 #: it is enforced here rather than left to an operator's running order.
 POPULATION_ORDER: tuple[str, ...] = ("CTRL", "U755", "SLICE")
 
-STATE_VERSION = 1
+STATE_VERSION = 2
+PRIVATE_RUN_STORAGE = "research-private-v1"
+EXPORT_SCHEMA_VERSION = 1
+EXPORT_KIND = "paddle-wave-technical"
+EXPORT_ROWS = "wave_technical_rows.csv"
+EXPORT_MARKER = "wave_export.json"
+TECHNICAL_FIELDS = (
+    "content_sha256", "evidence_sha256", "page_count", "stage_evidence",
+    "source_path", "cache_paddle", "wave_refusal_reason", "bytes_up", "bytes_down",
+    "inference_ms", "vram_mb", "peak_rss_mb", "elapsed_ms", "research_partition",
+)
+# These are software reasons, including the legacy state's coarse OCR reason.
+# Exception class names are individually named, never arbitrary messages/types.
+WAVE_REFUSAL_REASONS = frozenset(REFUSAL_REASONS) | frozenset({
+    "invalid_pdf", "ocr_failed", "unrecorded", "no_row_produced", "paddle_not_attempted",
+    "paddle_evidence_missing", "paddle_rung_failed_unnamed", "paddle_refusal_row_unavailable",
+    "PaddleRefused", "PaddleTransportError", "PaddleConfigError", "PaddleAdapterError",
+    "RuntimeError", "ValueError", "TypeError", "OSError",
+})
 
 #: The outcome vocabulary of one document in the state file. Closed, and
 #: enforced where it is written: a third state would let "we do not know" hide
@@ -313,11 +340,10 @@ class WaveState:
         if not Path(path).exists():
             return cls()
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        if payload.get("version") != STATE_VERSION:
-            raise WaveRefused(
-                f"wave state {path} is version {payload.get('version')!r}, this tool writes "
-                f"{STATE_VERSION}; refusing to resume a state it may not understand"
-            )
+        if not isinstance(payload, dict) or type(payload.get("version")) is not int \
+                or payload["version"] not in (1, STATE_VERSION):
+            raise WaveRefused("wave_state_version_unknown; refusing to resume")
+        _validate_storage_chunks(payload.get("chunks", []), payload["version"])
         state = cls(**{key: value for key, value in payload.items() if key != "documents"})
         state.documents = {
             sha: DocumentOutcome(**outcome) for sha, outcome in (payload.get("documents") or {}).items()
@@ -955,6 +981,7 @@ class WaveLog:
         self._settings = settings
 
     def __call__(self, event: str, **fields: Any) -> None:
+        _validate_wave_event(event, fields)
         rendered = " ".join(f"{name}={value}" for name, value in sorted(fields.items()))
         line = f"{_now()} {event} {rendered}".rstrip()
         if self._settings is not None:
@@ -1006,6 +1033,399 @@ def _refusal_reason(row: Mapping[str, str]) -> str:
             return error or "paddle_rung_failed_unnamed"
         return "paddle_rung_failed_unnamed"
     return "paddle_evidence_missing"
+
+
+def _export_require(value: bool, code: str) -> None:
+    if not value:
+        raise WaveRefused(code)
+
+
+def _closed_refusal(reason: str, *, empty: bool = False) -> str:
+    _export_require(isinstance(reason, str) and (reason in WAVE_REFUSAL_REASONS or (empty and reason == "")),
+                    "wave_refusal_code_unknown")
+    return reason
+
+
+def _finite_number(value: Any, *, nullable: bool = False) -> bool:
+    return (nullable and value is None) or (
+        type(value) in (int, float) and math.isfinite(value) and value >= 0)
+
+
+def _validate_attestation(record: Mapping[str, Any]) -> None:
+    booleans = {"retention_declared", "inspected", "worker_process_alive", "pidfile_present", "passed"}
+    counts = {"request_artefacts", "page_byte_files", "unexpected_files", "temp_image_files", "probes"}
+    required = booleans | {"request_artefacts", "page_byte_files", "unexpected_files"}
+    _export_require(isinstance(record, dict) and required <= set(record)
+                    and set(record) <= booleans | counts | {"error"}, "wave_attestation_fields_invalid")
+    unavailable_counts = {"request_artefacts", "page_byte_files", "unexpected_files"}
+    failed_inspection = (
+        record.get("inspected") is False and record.get("worker_process_alive") is True
+        and record.get("pidfile_present") is True and record.get("passed") is False
+        and record.get("error") in ("remote_inspection_failed", "remote_inspection_incomplete", "PaddleVastError")
+        and all(type(record.get(key)) is int and record[key] == -1 for key in unavailable_counts)
+    )
+    for key, value in record.items():
+        if key in booleans:
+            _export_require(type(value) is bool, "wave_attestation_value_invalid")
+        elif key in counts:
+            _export_require(type(value) is int and (value >= 0 or
+                            (failed_inspection and key in unavailable_counts and value == -1)),
+                            "wave_attestation_value_invalid")
+        else:
+            _export_require(value in ("", "remote_inspection_failed", "remote_inspection_incomplete", "PaddleVastError"),
+                            "wave_attestation_error_unknown")
+
+
+def _validate_wave_event(event: str, fields: Mapping[str, Any]) -> None:
+    """The ordinary log is a closed software event, not a free-form message."""
+    schemas = {
+        "lifecycle.check": {"reached", "versions_match_pins"},
+        "lifecycle.tunnel_up": {"local_port"}, "lifecycle.start": {"worker_port"},
+        "lifecycle.status": {"available", "reason", "tunnel_running"},
+        "lifecycle.deploy": {"scp_ok", "self_check_ok"},
+        "lifecycle.retention": {"declared"}, "lifecycle.stop": set(), "lifecycle.tunnel_down": set(),
+        "wave.preflight": {"population", "documents", "set_sha256", "partition", "config", "predecessors"},
+        "wave.pending": {"population", "pending", "already_evidence"},
+        "wave.chunk_budget_spent": {"chunks"},
+        "chunk.start": {"chunk", "documents"}, "chunk.failed": {"chunk", "returncode", "run_dir"},
+        "chunk.end": {"chunk", "documents", "cache_hits", "rasters_written", "rasters_mismatched",
+                      "elapsed_ms", "run_dir"},
+        "chunk.export": {"chunk", "status"},
+        "wave.session_end": {"started", "ended", "population", "config", "partition", "chunks",
+                             "documents", "retention_declared", "attempted", "evidence", "refused",
+                             "pages_evidence", "pages_refused", "export_status"},
+    }
+    if event == "lifecycle.attestation":
+        _validate_attestation(dict(fields))
+        return
+    _export_require(event in schemas and set(fields) <= schemas[event], "wave_event_fields_invalid")
+    bools = {"reached", "versions_match_pins", "available", "tunnel_running", "scp_ok", "self_check_ok",
+             "declared", "retention_declared"}
+    for key, value in fields.items():
+        if key in bools:
+            _export_require(type(value) is bool, "wave_event_value_invalid")
+        elif key == "population":
+            _export_require(value in POPULATION_ORDER, "wave_event_population_invalid")
+        elif key in ("config", "partition"):
+            _export_require(value in CONFIGURATIONS, "wave_event_configuration_invalid")
+        elif key == "predecessors":
+            _export_require(value in ("none", "CTRL", "CTRL,U755"), "wave_event_predecessors_invalid")
+        elif key == "reason":
+            _export_require(value == "ok" or value in REFUSAL_REASONS, "wave_event_reason_unknown")
+        elif key in ("status", "export_status"):
+            _export_require(value in ("failed", "complete"), "wave_event_status_unknown")
+        elif key == "set_sha256":
+            _export_require(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None,
+                            "wave_event_hash_invalid")
+        elif key == "run_dir":
+            if value != "none":
+                _export_session(value)
+        elif key in ("started", "ended"):
+            _export_require(isinstance(value, str) and re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}", value) is not None,
+                "wave_event_timestamp_invalid")
+        elif key == "returncode":
+            _export_require(value is None or type(value) is int, "wave_event_returncode_invalid")
+        else:
+            _export_require(_finite_number(value), "wave_event_measurement_invalid")
+
+
+def _safe_run_name(name: str) -> str:
+    _export_require(isinstance(name, str) and name not in (".", "..")
+                    and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,159}", name) is not None,
+                    "wave_run_name_invalid")
+    return name
+
+
+def _export_session(name: str) -> str:
+    _safe_run_name(name)
+    _export_require(re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}(?:\.[0-9]{6})?-0000-[0-9a-f]{8}",
+        name) is not None, "wave_export_session_invalid")
+    return name
+
+
+def _inside(path: Path, parent: Path, *, exists: bool = False) -> Path:
+    try:
+        base = Path(parent).resolve(strict=exists)
+        resolved = Path(path).resolve(strict=exists)
+    except (OSError, RuntimeError):
+        raise WaveRefused("wave_path_unavailable") from None
+    _export_require(resolved != base and resolved.is_relative_to(base), "wave_path_escaped")
+    return resolved
+
+
+def _assert_bindings(bindings: Mapping[Path, Path]) -> None:
+    """Keep the supplied lexical paths bound, including their parent symlinks."""
+    try:
+        valid = all(path.resolve(strict=True) == resolved for path, resolved in bindings.items())
+    except (OSError, RuntimeError):
+        raise WaveRefused("wave_path_binding_changed") from None
+    _export_require(valid, "wave_path_binding_changed")
+
+
+def _validate_storage_chunks(chunks: Any, version: int) -> None:
+    _export_require(isinstance(chunks, list), "wave_state_chunks_invalid")
+    for chunk in chunks:
+        _export_require(isinstance(chunk, dict), "wave_state_chunk_invalid")
+        if "storage" in chunk:
+            _export_require(version == STATE_VERSION and chunk["storage"] == PRIVATE_RUN_STORAGE,
+                            "wave_custody_storage_unknown")
+
+
+def _disjoint(left: Path, right: Path) -> None:
+    left, right = Path(left).resolve(), Path(right).resolve()
+    _export_require(left != right and not left.is_relative_to(right)
+                    and not right.is_relative_to(left), "wave_storage_roots_overlap")
+
+
+def _custody_run_parent(data_dir: Path, partition: str, population_name: str,
+                        out_dir: Path | None = None) -> Path:
+    _export_require(partition in {block["partition"] for block in CONFIGURATIONS.values()}
+                    and population_name in POPULATION_ORDER, "wave_custody_identity_invalid")
+    data = Path(data_dir).resolve()
+    parent = _inside(data / ".wave" / partition / "discovery-runs" / population_name, data)
+    if out_dir is not None:
+        _disjoint(data, Path(out_dir))
+        _disjoint(parent, Path(out_dir))
+    return parent
+
+
+def _closed_bytes(path: Path, *, maximum: int = 32 * 1024 * 1024) -> bytes:
+    """Bounded stable read of a closed producer file; never print its path/value."""
+    original = Path(path)
+    try:
+        resolved = original.resolve(strict=True)
+        _export_require(resolved.is_file(), "wave_source_not_file")
+        with resolved.open("rb") as handle:
+            before = os.fstat(handle.fileno())
+            _export_require(before.st_size <= maximum, "wave_source_byte_limit")
+            raw = handle.read(maximum + 1)
+            after = os.fstat(handle.fileno())
+        current = original.stat()
+        _assert_bindings({original: resolved})
+    except (OSError, RuntimeError):
+        raise WaveRefused("wave_source_unavailable") from None
+    identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+    _export_require(len(raw) == before.st_size and identity(before) == identity(after) == identity(current),
+                    "wave_source_changed")
+    return raw
+
+
+def _csv_records(raw: bytes, *, fields: Sequence[str] | None = None) -> list[dict[str, str]]:
+    try:
+        decoded = raw.decode("utf-8", errors="strict")
+        table = list(csv.reader(io.StringIO(decoded, newline=""), strict=True))
+    except (UnicodeError, csv.Error):
+        raise WaveRefused("wave_rows_encoding_invalid") from None
+    reader = iter(table)
+    header = next(reader, [])
+    _export_require(bool(header) and len(header) == len(set(header)), "wave_rows_header_invalid")
+    if fields is not None:
+        _export_require(header == list(fields), "wave_export_schema_mismatch")
+    records = []
+    for values in reader:
+        _export_require(len(values) == len(header), "wave_rows_width_invalid")
+        records.append(dict(zip(header, values)))
+    return records
+
+
+def _technical_row(row: Mapping[str, str], partition: str) -> dict[str, str]:
+    _export_require(tuple(row) == TECHNICAL_FIELDS, "wave_export_fields_invalid")
+    _export_require(all(isinstance(value, str) for value in row.values()), "wave_export_value_type")
+    for name in ("content_sha256", "evidence_sha256"):
+        _export_require((name == "evidence_sha256" and row[name] == "")
+                        or re.fullmatch(r"[0-9A-Fa-f]{64}", row[name]) is not None,
+                        "wave_export_hash_invalid")
+    _export_require(row["research_partition"] == partition, "wave_export_partition_mismatch")
+    for name, choices in (
+        ("stage_evidence", {"not_attempted", "present", "absent"}),
+        ("source_path", {"none", "native", "local_tesseract", "paddle", "visual", "committed_artifact"}),
+        ("cache_paddle", {"", "hit", "miss", "bypass"}),
+    ):
+        _export_require(row[name] in choices, "wave_export_status_unknown")
+    _closed_refusal(row["wave_refusal_reason"], empty=True)
+    evidence = row["stage_evidence"] == "present" and row["source_path"] == "paddle"
+    _export_require((row["wave_refusal_reason"] == "") == evidence,
+                    "wave_export_refusal_shape_invalid")
+    for name in ("page_count", "bytes_up", "bytes_down"):
+        value = row[name]
+        _export_require((name != "page_count" and value == "")
+                        or re.fullmatch(r"(?:0|[1-9][0-9]*)", value) is not None,
+                        "wave_export_count_invalid")
+    for name in ("inference_ms", "vram_mb", "peak_rss_mb", "elapsed_ms"):
+        value = row[name]
+        if value == "" or (name == "peak_rss_mb" and value == "not measured"):
+            continue
+        _export_require(re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", value)
+                        is not None, "wave_export_measurement_invalid")
+        _export_require(math.isfinite(float(value)) and float(value) >= 0,
+                        "wave_export_measurement_invalid")
+    return dict(row)
+
+
+def _project_wave_technical_rows(raw_rows: Sequence[Mapping[str, str]], partition: str) -> list[dict[str, str]]:
+    result = []
+    for raw in raw_rows:
+        _export_require(all(name in raw for name in TECHNICAL_FIELDS if name != "wave_refusal_reason"),
+                        "wave_source_columns_missing")
+        reason = "" if raw.get("stage_evidence") == "present" and raw.get("source_path") == "paddle" \
+            else _closed_refusal(_refusal_reason(raw))
+        projected = {name: reason if name == "wave_refusal_reason" else raw[name]
+                     for name in TECHNICAL_FIELDS}
+        result.append(_technical_row(projected, partition))
+    return result
+
+
+def _export_identity(configuration: str, partition: str, population_name: str,
+                     session: str, source_sha256: str, provenance_sha256: str) -> None:
+    _export_require(configuration in CONFIGURATIONS
+                    and CONFIGURATIONS[configuration]["partition"] == partition
+                    and population_name in POPULATION_ORDER, "wave_export_identity_invalid")
+    _export_session(session)
+    _export_require(all(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+                        for value in (source_sha256, provenance_sha256)),
+                    "wave_source_binding_invalid")
+
+
+def _atomic_export_file(path: Path, raw: bytes, *, validate: Callable[[], None]) -> None:
+    temporary = path.with_name(path.name + ".writing")
+    with temporary.open("xb") as handle:
+        handle.write(raw)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary_binding = {temporary: path.parent.resolve(strict=True) / temporary.name}
+    _export_require(not path.exists(), "wave_export_destination_exists")
+    validate()
+    _assert_bindings(temporary_binding)
+    _export_require(_closed_bytes(temporary) == raw and not path.exists(), "wave_export_file_changed")
+    temporary.rename(path)
+
+
+def write_wave_technical_export(
+    custody_run: Path, out_dir: Path, *, configuration: str, partition: str,
+    population_name: str, expected_source_rows_sha256: str,
+    expected_source_provenance_sha256: str, expected_session: str,
+) -> Path:
+    """Offline-only projection of an explicitly bound, closed custody run.
+
+    No pending-document loop, state write, lifecycle or extractor is called.
+    Both expected source hashes/session come from the caller's private record.
+    Partial destinations remain without a completion marker after failure.
+    """
+    _export_identity(configuration, partition, population_name, expected_session,
+                     expected_source_rows_sha256, expected_source_provenance_sha256)
+    supplied_source, supplied_output = Path(custody_run), Path(out_dir)
+    source = supplied_source.resolve(strict=True)
+    output = supplied_output.resolve()
+    _export_require(source.is_dir() and source.name == expected_session, "wave_source_session_mismatch")
+    _disjoint(source, output)
+    rows_path = supplied_source / "rows.csv"
+    provenance_path = supplied_source / "provenance.json"
+    bindings = {supplied_source: source,
+                rows_path: _inside(rows_path, source, exists=True),
+                provenance_path: _inside(provenance_path, source, exists=True)}
+    raw, provenance_raw = _closed_bytes(rows_path), _closed_bytes(provenance_path)
+    _export_require(hashlib.sha256(raw).hexdigest() == expected_source_rows_sha256,
+                    "wave_source_rows_binding_mismatch")
+    _export_require(hashlib.sha256(provenance_raw).hexdigest() == expected_source_provenance_sha256,
+                    "wave_source_provenance_binding_mismatch")
+    provenance = json.loads(provenance_raw.decode("utf-8", errors="strict"))
+    _export_require(isinstance(provenance, dict), "wave_source_provenance_shape")
+    run_record = provenance.get("run_of_record")
+    _export_require(isinstance(run_record, dict), "wave_source_provenance_shape")
+    identity = run_record.get("partitions")
+    _export_require(isinstance(identity, dict), "wave_source_provenance_shape")
+    _export_require(identity.get("mode") == "research-paddle"
+                    and identity.get("research_partition") == partition,
+                    "wave_source_provenance_mismatch")
+    records = _project_wave_technical_rows(_csv_records(raw), partition)
+    stream = io.StringIO(newline="")
+    writer = csv.DictWriter(stream, fieldnames=TECHNICAL_FIELDS)
+    writer.writeheader()
+    writer.writerows(records)
+    scan_raw = stream.getvalue().encode("utf-8", errors="strict")
+    marker = {
+        "kind": EXPORT_KIND, "schema_version": EXPORT_SCHEMA_VERSION,
+        "configuration": configuration, "partition": partition, "population": population_name,
+        "source_session": expected_session, "source_rows_sha256": expected_source_rows_sha256,
+        "source_provenance_sha256": expected_source_provenance_sha256,
+        "rows_sha256": hashlib.sha256(scan_raw).hexdigest(),
+        "fields": list(TECHNICAL_FIELDS), "row_count": len(records),
+    }
+    _assert_bindings(bindings)
+    _export_require(supplied_output.resolve() == output, "wave_export_path_retargeted")
+    output.mkdir(parents=True, exist_ok=True)
+    target = supplied_output / expected_session
+    resolved_target = _inside(target, output)
+    _export_require(not target.exists(), "wave_export_destination_exists")
+    target.mkdir(exist_ok=False)
+    bindings.update({supplied_output: output, target: resolved_target})
+
+    def validate() -> None:
+        _assert_bindings(bindings)
+        _disjoint(supplied_source, supplied_output)
+        _export_require(_closed_bytes(rows_path) == raw and _closed_bytes(provenance_path) == provenance_raw,
+                        "wave_source_changed")
+        if target / EXPORT_ROWS in bindings:
+            _export_require(_closed_bytes(target / EXPORT_ROWS) == scan_raw, "wave_export_file_changed")
+        _assert_bindings(bindings)
+
+    _atomic_export_file(target / EXPORT_ROWS, scan_raw, validate=validate)
+    bindings[target / EXPORT_ROWS] = _inside(target / EXPORT_ROWS, resolved_target, exists=True)
+    validate()
+    _atomic_export_file(target / EXPORT_MARKER,
+                       (json.dumps(marker, indent=2, sort_keys=True) + "\n").encode("utf-8"), validate=validate)
+    return target
+
+
+def read_wave_technical_export(
+    run_dir: Path, *, expected_configuration: str, expected_partition: str,
+    expected_population: str, expected_source_rows_sha256: str,
+    expected_source_provenance_sha256: str, expected_session: str,
+) -> list[dict[str, str]]:
+    """Validate an export against an independently trusted private source binding."""
+    _export_identity(expected_configuration, expected_partition, expected_population,
+                     expected_session, expected_source_rows_sha256, expected_source_provenance_sha256)
+    supplied = Path(run_dir)
+    directory = supplied.resolve(strict=True)
+    _export_require(directory.name == expected_session, "wave_export_session_mismatch")
+    marker_path, rows_path = supplied / EXPORT_MARKER, supplied / EXPORT_ROWS
+    bindings = {supplied: directory,
+                marker_path: _inside(marker_path, directory, exists=True),
+                rows_path: _inside(rows_path, directory, exists=True)}
+    _export_require({item.name for item in supplied.iterdir()} == {EXPORT_ROWS, EXPORT_MARKER},
+                    "wave_export_files_invalid")
+    marker_raw = _closed_bytes(marker_path)
+    marker = json.loads(marker_raw.decode("utf-8", errors="strict"))
+    _export_require(isinstance(marker, dict) and set(marker) == {"kind", "schema_version", "configuration", "partition", "population",
+                                    "source_session", "source_rows_sha256", "source_provenance_sha256",
+                                    "rows_sha256", "fields", "row_count"}, "wave_export_marker_fields")
+    _export_require(marker["kind"] == EXPORT_KIND and type(marker["schema_version"]) is int
+                    and marker["schema_version"] == EXPORT_SCHEMA_VERSION, "wave_export_marker_version")
+    for key, value in (("configuration", expected_configuration), ("partition", expected_partition),
+                       ("population", expected_population), ("source_session", expected_session),
+                       ("source_provenance_sha256", expected_source_provenance_sha256),
+                       ("source_rows_sha256", expected_source_rows_sha256), ("fields", list(TECHNICAL_FIELDS))):
+        _export_require(marker[key] == value, "wave_export_marker_binding_mismatch")
+    for key in ("source_provenance_sha256", "rows_sha256"):
+        _export_require(isinstance(marker[key], str) and re.fullmatch(r"[0-9a-f]{64}", marker[key]) is not None,
+                        "wave_export_marker_hash_invalid")
+    rows_raw = _closed_bytes(rows_path)
+    _export_require(hashlib.sha256(rows_raw).hexdigest() == marker["rows_sha256"],
+                    "wave_export_rows_hash_mismatch")
+    records = _csv_records(rows_raw, fields=TECHNICAL_FIELDS)
+    _export_require(type(marker["row_count"]) is int and marker["row_count"] == len(records),
+                    "wave_export_row_count_mismatch")
+    for record in records:
+        _technical_row(record, expected_partition)
+    _export_require(_closed_bytes(marker_path) == marker_raw
+                    and _closed_bytes(rows_path) == rows_raw,
+                    "wave_export_changed_during_read")
+    _assert_bindings(bindings)
+    _export_require({item.name for item in supplied.iterdir()} == {EXPORT_ROWS, EXPORT_MARKER},
+                    "wave_export_files_invalid")
+    return records
 
 
 def _discovery_argv(
@@ -1060,7 +1480,8 @@ def _chunk_environment(data_dir: Path) -> dict[str, str]:
 def _new_run_dir(out_dir: Path, before: set[Path]) -> Path | None:
     after = {path for path in Path(out_dir).iterdir() if path.is_dir()} if Path(out_dir).exists() else set()
     fresh = sorted(after - before)
-    return fresh[-1] if fresh else None
+    _export_require(len(fresh) <= 1, "wave_child_run_ambiguous")
+    return fresh[0] if fresh else None
 
 
 @dataclass
@@ -1198,6 +1619,7 @@ def run_wave(
     partition = block["partition"]
     data_dir = Path(data_dir)
     refuse_a_production_data_dir(data_dir)
+    _custody_run_parent(data_dir, partition, population_name, out_dir)
     population = read_population_file(Path(population_file))
     refuse_holdout_members(population)
     digests = population_digests(Path(population_file))
@@ -1217,13 +1639,13 @@ def run_wave(
             "population (its set digest disagrees). A wave never silently studies a different "
             "set than the one it resumed"
         )
-    state.version = STATE_VERSION
     state.config, state.partition, state.population_name = config, partition, population_name
     state.population_file_sha256 = digests["file_sha256"]
     state.population_set_sha256 = digests["set_sha256"]
-    state.save(state_path)
-
     pending = state.pending(population)
+    if pending:
+        state.version = STATE_VERSION
+    state.save(state_path)
     log("wave.pending", population=population_name, pending=len(pending),
         already_evidence=state.counts()["evidence"])
 
@@ -1249,12 +1671,18 @@ def run_wave(
                 log("wave.chunk_budget_spent", chunks=session["chunks"])
                 break
             chunk = pending[offset: offset + chunk_size]
-            processed = _run_one_chunk(
-                chunk=chunk, chunk_index=chunk_index, state=state, state_path=state_path,
-                partition=partition, data_dir=data_dir, out_dir=Path(out_dir), root=Path(root),
-                retain_rasters=retain_rasters, log=log, runner=runner,
-                skip_baseline=skip_baseline,
-            )
+            try:
+                processed = _run_one_chunk(
+                    chunk=chunk, chunk_index=chunk_index, state=state, state_path=state_path,
+                    partition=partition, data_dir=data_dir, out_dir=Path(out_dir), root=Path(root),
+                    retain_rasters=retain_rasters, log=log, runner=runner,
+                    skip_baseline=skip_baseline,
+                )
+            except WaveExportFailed as exc:
+                session["chunks"] += 1
+                session["documents"] += exc.processed
+                session["export_status"] = "failed"
+                raise
             session["chunks"] += 1
             session["documents"] += processed
             chunk_index += 1
@@ -1293,16 +1721,23 @@ def _run_one_chunk(
         f"# chunk {chunk_index} of the wave; {len(chunk)} documents\n" + "\n".join(chunk) + "\n",
         encoding="utf-8",
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    before = {path for path in out_dir.iterdir() if path.is_dir()}
+    custody_parent = _custody_run_parent(data_dir, partition, state.population_name, out_dir)
+    custody_parent.mkdir(parents=True, exist_ok=True)
+    before = {path for path in custody_parent.iterdir() if path.is_dir()}
     argv = _discovery_argv(population_file=chunk_file, partition=partition, data_dir=data_dir,
-                            out_dir=out_dir, root=root, skip_baseline=skip_baseline)
+                            out_dir=custody_parent, root=root, skip_baseline=skip_baseline)
     started = time.perf_counter()
     log("chunk.start", chunk=chunk_index, documents=len(chunk))
     completed = runner(argv, cwd=str(ROOT), capture_output=True, text=True,
                        env=_chunk_environment(data_dir))
     elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-    run_dir = _new_run_dir(out_dir, before)
+    _export_require(_custody_run_parent(data_dir, partition, state.population_name, out_dir)
+                    == custody_parent, "wave_custody_parent_retargeted")
+    run_dir = _new_run_dir(custody_parent, before)
+    run_bindings = {Path(data_dir): Path(data_dir).resolve(), custody_parent: custody_parent}
+    if run_dir is not None:
+        run_bindings[run_dir] = _inside(run_dir, custody_parent, exists=True)
+        _export_session(run_dir.name)
     if getattr(completed, "returncode", 1) != 0 or run_dir is None:
         # The chunk failed as a WHOLE (a door refused, the process died). No
         # document of it is recorded: nothing was learned about any of them,
@@ -1318,7 +1753,13 @@ def _run_one_chunk(
             "a population it did not read"
         )
 
-    rows = {row["content_sha256"].upper(): row for row in _rows_of(run_dir)}
+    rows_path, provenance_path = run_dir / "rows.csv", run_dir / "provenance.json"
+    run_bindings[rows_path] = _inside(rows_path, run_dir, exists=True)
+    run_bindings[provenance_path] = _inside(provenance_path, run_dir, exists=True)
+    source_rows = _closed_bytes(rows_path)
+    rows_sha256 = hashlib.sha256(source_rows).hexdigest()
+    source_provenance = _closed_bytes(provenance_path)
+    rows = {row["content_sha256"].upper(): row for row in _csv_records(source_rows)}
     wanted = {sha.upper() for sha in chunk}
     processed = 0
     rasters = {"written": 0, "mismatched": 0}
@@ -1350,15 +1791,40 @@ def _run_one_chunk(
         processed += 1
     cache_hits = sum(1 for sha in wanted
                      if rows.get(sha, {}).get("cache_paddle") == "hit")
+    _export_require(_closed_bytes(rows_path) == source_rows
+                    and _closed_bytes(provenance_path) == source_provenance,
+                    "wave_custody_source_changed")
+    _assert_bindings(run_bindings)
+    _export_require(_custody_run_parent(data_dir, partition, state.population_name, out_dir)
+                    == custody_parent, "wave_custody_parent_retargeted")
     state.chunks.append({
         "index": chunk_index, "documents": len(chunk), "status": "complete",
         "run_dir": run_dir.name, "elapsed_ms": elapsed_ms, "cache_hits": cache_hits,
         "rasters_written": rasters["written"], "rasters_mismatched": rasters["mismatched"],
+        "storage": PRIVATE_RUN_STORAGE, "rows_sha256": rows_sha256,
+        "provenance_sha256": hashlib.sha256(source_provenance).hexdigest(),
     })
     state.save(state_path)
     log("chunk.end", chunk=chunk_index, documents=processed, cache_hits=cache_hits,
         rasters_written=rasters["written"], rasters_mismatched=rasters["mismatched"],
         elapsed_ms=elapsed_ms, run_dir=run_dir.name)
+    # Extraction/state is authoritative and complete before a reporting attempt.
+    # A failed export is recovered offline, never by calling pending() again.
+    try:
+        write_wave_technical_export(
+            run_dir, out_dir, configuration=state.config, partition=partition,
+            population_name=state.population_name, expected_source_rows_sha256=rows_sha256,
+            expected_source_provenance_sha256=hashlib.sha256(source_provenance).hexdigest(),
+            expected_session=run_dir.name,
+        )
+    except Exception:
+        state.chunks[-1]["export_status"] = "failed"
+        state.save(state_path)
+        log("chunk.export", chunk=chunk_index, status="failed")
+        raise WaveExportFailed(processed) from None
+    state.chunks[-1]["export_status"] = "complete"
+    state.save(state_path)
+    log("chunk.export", chunk=chunk_index, status="complete")
     return processed
 
 
@@ -1405,6 +1871,10 @@ def wave_report(
         if not state_path.exists():
             continue
         state = WaveState.load(state_path)
+        _export_require(state.config == config and state.partition == partition
+                        and state.population_name == name, "wave_report_state_identity_mismatch")
+        _export_require(state.population_set_sha256 == "" or re.fullmatch(
+            r"[0-9a-f]{64}", state.population_set_sha256) is not None, "wave_report_digest_invalid")
         counts = state.counts()
         entry: dict[str, Any] = {
             "population_set_sha256": state.population_set_sha256,
@@ -1421,7 +1891,7 @@ def wave_report(
             "chunks": len(state.chunks),
             "sessions": len(state.sessions),
         }
-        entry.update(_reported_refusals(state, out_dir))
+        entry.update(_reported_refusals(state, out_dir, data_dir=Path(data_dir)))
         entry["count_identity_holds"] = (
             counts["attempted"] == counts["evidence"] + counts["refused"]
         )
@@ -1432,31 +1902,79 @@ def wave_report(
                 entry["population_documents"] = len(population)
                 entry["unattempted"] = len(state.unattempted(population))
                 entry["complete"] = not state.unattempted(population)
-        entry.update(_technical_measurements(state, out_dir))
+        entry.update(_technical_measurements(state, out_dir, data_dir=Path(data_dir)))
         for session in state.sessions:
             if session.get("attestation"):
+                _validate_attestation(session["attestation"])
                 report["attestations"].append({"population": name, **session["attestation"]})
         report["populations"][name] = entry
     return report
 
 
 def _recorded_run_directory(state: WaveState, out_dir: Path, name: str) -> Path | None:
+    _safe_run_name(name)
+    _export_require(state.population_name in POPULATION_ORDER, "wave_custody_identity_invalid")
+    root = Path(out_dir).resolve()
+    supplied = (root / state.population_name / name, root / name)
+    for path in supplied:
+        _inside(path, root)
     candidates = {
-        path.resolve() for path in (
-            Path(out_dir) / state.population_name / name,
-            Path(out_dir) / name,
-        ) if (path / "rows.csv").exists()
+        path.resolve() for path in supplied if (path / "rows.csv").exists()
     }
     if len(candidates) > 1:
         raise WaveRefused("ambiguous population run directory for technical measurements")
     return candidates.pop() if candidates else None
 
 
-def _reported_refusals(state: WaveState, out_dir: Path | None) -> dict[str, Any]:
+def _recorded_chunk_rows(state: WaveState, chunk: Mapping[str, Any], *,
+                         data_dir: Path | None, out_dir: Path | None) -> list[dict[str, str]] | None:
+    """Original custody alone is authoritative; never read an ordinary export."""
+    name = chunk.get("run_dir")
+    _validate_storage_chunks([dict(chunk)], state.version)
+    storage = chunk.get("storage")
+    if "storage" in chunk:
+        _export_require(state.version == STATE_VERSION and storage == PRIVATE_RUN_STORAGE and data_dir is not None,
+                        "wave_custody_storage_unknown")
+        _export_session(name)
+        parent = _custody_run_parent(data_dir, state.partition, state.population_name)
+        directory = parent / name
+        resolved_directory = _inside(directory, parent, exists=True)
+        rows_path, provenance_path = directory / "rows.csv", directory / "provenance.json"
+        bindings = {Path(data_dir): Path(data_dir).resolve(strict=True), parent: parent,
+                    directory: resolved_directory,
+                    rows_path: _inside(rows_path, resolved_directory, exists=True),
+                    provenance_path: _inside(provenance_path, resolved_directory, exists=True)}
+        raw, provenance_raw = _closed_bytes(rows_path), _closed_bytes(provenance_path)
+        _export_require(hashlib.sha256(raw).hexdigest() == chunk.get("rows_sha256")
+                        and hashlib.sha256(provenance_raw).hexdigest() == chunk.get("provenance_sha256"),
+                        "wave_recorded_custody_hash_mismatch")
+        _export_require(_custody_run_parent(data_dir, state.partition, state.population_name) == parent,
+                        "wave_custody_parent_retargeted")
+        _assert_bindings(bindings)
+        return _csv_records(raw)
+    if not name or out_dir is None:
+        return None
+    directory = _recorded_run_directory(state, out_dir, name)
+    if directory is None:
+        return None
+    rows_path = directory / "rows.csv"
+    bindings = {Path(out_dir): Path(out_dir).resolve(strict=True), directory: directory,
+                rows_path: _inside(rows_path, directory, exists=True)}
+    raw = _closed_bytes(rows_path)
+    _export_require(_recorded_run_directory(state, out_dir, name) == directory,
+                    "wave_legacy_source_retargeted")
+    _assert_bindings(bindings)
+    return _csv_records(raw)
+
+
+def _reported_refusals(state: WaveState, out_dir: Path | None, *, data_dir: Path | None = None) -> dict[str, Any]:
     # Preserve historical state. Read the exact chunk that wrote each outcome,
     # never a different population row or an earlier attempt.
-    if out_dir is None:
-        return {"refused_by_reason": state.refusals_by_reason(),
+    if out_dir is None and not any("storage" in chunk for chunk in state.chunks):
+        historical = state.refusals_by_reason()
+        for reason in historical:
+            _closed_refusal(reason)
+        return {"refused_by_reason": historical,
                 "refusal_reason_source": "historical_state"}
     by_chunk = {chunk["index"]: chunk for chunk in state.chunks if "index" in chunk}
     rows_by_chunk: dict[int, dict[str, dict[str, str]]] = {}
@@ -1466,17 +1984,17 @@ def _reported_refusals(state: WaveState, out_dir: Path | None) -> dict[str, Any]
         if outcome.outcome != OUTCOME_REFUSED:
             continue
         if outcome.chunk not in rows_by_chunk:
-            name = by_chunk.get(outcome.chunk, {}).get("run_dir")
-            path = _recorded_run_directory(state, out_dir, name) if name else None
-            rows_by_chunk[outcome.chunk] = {} if path is None else {
-                row["content_sha256"].upper(): row for row in _rows_of(path)
+            source_rows = _recorded_chunk_rows(state, by_chunk.get(outcome.chunk, {}),
+                                               data_dir=data_dir, out_dir=out_dir)
+            rows_by_chunk[outcome.chunk] = {} if source_rows is None else {
+                row["content_sha256"].upper(): row for row in source_rows
             }
         row = rows_by_chunk[outcome.chunk].get(sha.upper())
         if row is None:
             reason = "paddle_refusal_row_unavailable"
             unavailable += 1
         else:
-            reason = _refusal_reason(row)
+            reason = _closed_refusal(_refusal_reason(row))
             recovered += 1
         reasons[reason] = reasons.get(reason, 0) + 1
     return {"refused_by_reason": dict(sorted(reasons.items())),
@@ -1484,12 +2002,12 @@ def _reported_refusals(state: WaveState, out_dir: Path | None) -> dict[str, Any]
             "refusals_without_rows": unavailable}
 
 
-def _technical_measurements(state: WaveState, out_dir: Path | None) -> dict[str, Any]:
+def _technical_measurements(state: WaveState, out_dir: Path | None, *, data_dir: Path | None = None) -> dict[str, Any]:
     """The four telemetry columns plus the local memory reading, gathered from
     the rows the chunks produced. Empty when the run directories are not
     available to this call — a measurement nobody can re-read is not reported
     as one."""
-    if out_dir is None:
+    if out_dir is None and not any("storage" in chunk for chunk in state.chunks):
         return {"telemetry": {}}
     document_ms: list[float] = []
     per_page_mean_ms: list[float] = []
@@ -1498,15 +2016,20 @@ def _technical_measurements(state: WaveState, out_dir: Path | None) -> dict[str,
     rss: list[float] = []
     wall_ms: list[float] = []
     for chunk in state.chunks:
-        name = chunk.get("run_dir")
-        if not name:
+        source_rows = _recorded_chunk_rows(state, chunk, data_dir=data_dir, out_dir=out_dir)
+        if source_rows is None:
             continue
-        run_dir = _recorded_run_directory(state, out_dir, name)
-        if run_dir is None:
-            continue
-        for row in _rows_of(run_dir):
+        for row in source_rows:
             if not (row.get("inference_ms") or "").strip():
                 continue
+            for field_name in ("inference_ms", "page_count", "bytes_up", "bytes_down",
+                               "vram_mb", "peak_rss_mb", "elapsed_ms"):
+                value = row.get(field_name) or ""
+                if value == "" or (field_name == "peak_rss_mb" and value == "not measured"):
+                    continue
+                _export_require(re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", value)
+                                is not None and math.isfinite(float(value)),
+                                "wave_report_measurement_invalid")
             total = float(row["inference_ms"])
             document_ms.append(total)
             pages = int(row.get("page_count") or 0)
@@ -1577,7 +2100,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--population", required=True)
     run.add_argument("--population-name", default=None)
     run.add_argument("--populations-dir", default=None)
-    run.add_argument("--out", required=True, help="where each chunk's discovery run lands")
+    run.add_argument("--out", required=True, help="fresh ordinary technical exports; original runs stay in research custody")
     run.add_argument("--root", required=True, help="the archive root")
     run.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
     run.add_argument("--max-chunks", type=int, default=None)
@@ -1589,9 +2112,18 @@ def main(argv: list[str] | None = None) -> int:
 
     report = sub.add_parser("report", help="what the wave produced")
     report.add_argument("--populations-dir", default=None)
-    report.add_argument("--out", default=None, help="the run directory the chunks wrote into")
+    report.add_argument("--out", default=None, help="explicit historical raw run root for markerless legacy chunks")
     report.add_argument("--json", dest="json_out", default=None)
     _add_common(report)
+
+    export = sub.add_parser("export", help="project one explicitly bound closed run, without OCR")
+    export.add_argument("--run", required=True)
+    export.add_argument("--out", required=True)
+    export.add_argument("--population-name", required=True, choices=POPULATION_ORDER)
+    export.add_argument("--source-rows-sha256", required=True)
+    export.add_argument("--source-provenance-sha256", required=True)
+    export.add_argument("--session", required=True)
+    _add_common(export)
 
     args = parser.parse_args(argv)
     try:
@@ -1599,9 +2131,28 @@ def main(argv: list[str] | None = None) -> int:
     except WaveRefused as exc:
         print(f"paddle_wave: {exc}", file=sys.stderr)
         return 2
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError):
+        if args.command not in ("export", "report"):
+            raise
+        print("paddle_wave: wave_export_or_report_invalid", file=sys.stderr)
+        return 2
 
 
 def _dispatch(args: argparse.Namespace) -> int:
+    if args.command == "export":
+        _export_require(args.config in CONFIGURATIONS, "wave_export_configuration_invalid")
+        partition = CONFIGURATIONS[args.config]["partition"]
+        refuse_a_production_data_dir(Path(args.data_dir))
+        _disjoint(Path(args.data_dir), Path(args.out))
+        write_wave_technical_export(
+            Path(args.run), Path(args.out), configuration=args.config, partition=partition,
+            population_name=args.population_name, expected_source_rows_sha256=args.source_rows_sha256,
+            expected_source_provenance_sha256=args.source_provenance_sha256,
+            expected_session=args.session,
+        )
+        print(json.dumps({"status": "complete", "population": args.population_name,
+                          "configuration": args.config, "schema_version": EXPORT_SCHEMA_VERSION}))
+        return 0
     if args.command == "populations":
         derived = derive_populations(Path(args.run), seed=args.seed, ctrl_target=args.ctrl_target)
         for name in POPULATION_ORDER:

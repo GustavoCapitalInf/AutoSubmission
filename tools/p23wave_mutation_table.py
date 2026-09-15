@@ -64,6 +64,129 @@ class Mutant:
 
 MUTANTS: list[Mutant] = [
     Mutant(
+        "M25", "raw source path is added to the ordinary row allowlist", WAVE,
+        '    "source_path", "cache_paddle", "wave_refusal_reason", "bytes_up", "bytes_down",\n',
+        '    "source_path", "cache_paddle", "wave_refusal_reason", "bytes_up", "bytes_down", "relative_path",\n',
+        [T_WAVE + "::test_export_positive_allowlist_preserves_aliases_missing_values_and_originals"],
+        ["test_export_positive_allowlist_preserves_aliases_missing_values_and_originals"],
+    ),
+    Mutant(
+        "M26", "raw generic report is copied into the ordinary export", WAVE,
+        '    return target\n\n\ndef read_wave_technical_export(',
+        '    (target / "report.json").write_bytes((source / "report.json").read_bytes())\n'
+        '    return target\n\n\ndef read_wave_technical_export(',
+        [T_WAVE + "::test_export_positive_allowlist_preserves_aliases_missing_values_and_originals"],
+        ["test_export_positive_allowlist_preserves_aliases_missing_values_and_originals"],
+    ),
+    Mutant(
+        "M27", "allowed status fields accept arbitrary source values", WAVE,
+        '        _export_require(row[name] in choices, "wave_export_status_unknown")',
+        '        _export_require(True, "wave_export_status_unknown")',
+        [T_WAVE + "::test_export_rejects_unsafe_values_before_publication"],
+        ["test_export_rejects_unsafe_values_before_publication"],
+    ),
+    Mutant(
+        "M28", "the writer ignores the trusted original provenance digest", WAVE,
+        '    _export_require(hashlib.sha256(provenance_raw).hexdigest() == expected_source_provenance_sha256,\n'
+        '                    "wave_source_provenance_binding_mismatch")',
+        '    _export_require(True, "wave_source_provenance_binding_mismatch")',
+        [T_WAVE + "::test_export_requires_independent_rows_provenance_and_session_bindings"],
+        ["test_export_requires_independent_rows_provenance_and_session_bindings"],
+    ),
+    Mutant(
+        "M29", "a self-consistent export marker replaces trusted provenance", WAVE,
+        '                       ("source_provenance_sha256", expected_source_provenance_sha256),\n',
+        '',
+        [T_WAVE + "::test_export_reader_refuses_forged_or_corrupt_marker"],
+        ["test_export_reader_refuses_forged_or_corrupt_marker"],
+    ),
+    Mutant(
+        "M30", "a legacy state loader accepts a new or unknown storage marker", WAVE,
+        '        _validate_storage_chunks(payload.get("chunks", []), payload["version"])\n',
+        '',
+        [T_WAVE + "::test_state_rejects_new_storage_in_old_format_and_unknown_markers"],
+        ["test_state_rejects_new_storage_in_old_format_and_unknown_markers"],
+    ),
+    Mutant(
+        "M31", "ordinary and private output roots may overlap", WAVE,
+        '    _export_require(left != right and not left.is_relative_to(right)\n'
+        '                    and not right.is_relative_to(left), "wave_storage_roots_overlap")',
+        '    _export_require(True, "wave_storage_roots_overlap")',
+        [T_WAVE + "::test_wave_refuses_overlapping_storage_before_discovery"],
+        ["test_wave_refuses_overlapping_storage_before_discovery"],
+    ),
+    Mutant(
+        "M32", "multiple new custody children silently select the first", WAVE,
+        '    _export_require(len(fresh) <= 1, "wave_child_run_ambiguous")',
+        '    _export_require(True, "wave_child_run_ambiguous")',
+        [T_WAVE + "::test_wave_refuses_multiple_new_custody_children_before_recording"],
+        ["test_wave_refuses_multiple_new_custody_children_before_recording"],
+    ),
+    Mutant(
+        "M33", "completed extraction is not persisted until after export", WAVE,
+        '    state.save(state_path)\n    log("chunk.end",',
+        '    log("chunk.end",',
+        [T_WAVE + "::test_completed_private_chunk_survives_export_failure_with_truthful_session"],
+        ["test_completed_private_chunk_survives_export_failure_with_truthful_session"],
+    ),
+    Mutant(
+        "M34", "an export failure reports zero completed work in the session", WAVE,
+        '                session["chunks"] += 1\n                session["documents"] += exc.processed\n',
+        '',
+        [T_WAVE + "::test_completed_private_chunk_survives_export_failure_with_truthful_session"],
+        ["test_completed_private_chunk_survives_export_failure_with_truthful_session"],
+    ),
+    Mutant(
+        "M35", "an offline export enters the pending-document loop", WAVE,
+        '    supplied_source, supplied_output = Path(custody_run), Path(out_dir)\n',
+        '    WaveState().pending([])\n    supplied_source, supplied_output = Path(custody_run), Path(out_dir)\n',
+        [T_WAVE + "::test_offline_export_never_resumes_refused_documents_or_mutates_state"],
+        ["test_offline_export_never_resumes_refused_documents_or_mutates_state"],
+    ),
+    Mutant(
+        "M36", "lexical source and output paths may retarget during publication", WAVE,
+        '    _export_require(valid, "wave_path_binding_changed")',
+        '    _export_require(True, "wave_path_binding_changed")',
+        [T_WAVE + "::test_export_rechecks_lexical_bindings_before_completion_marker"],
+        ["test_export_rechecks_lexical_bindings_before_completion_marker"],
+    ),
+    Mutant(
+        "M37", "arbitrary derived refusal strings become ordinary report keys", WAVE,
+        '    _export_require(isinstance(reason, str) and (reason in WAVE_REFUSAL_REASONS or (empty and reason == "")),\n'
+        '                    "wave_refusal_code_unknown")',
+        '    _export_require(True, "wave_refusal_code_unknown")',
+        [T_WAVE + "::test_export_and_report_refuse_unknown_derived_refusal_keys"],
+        ["test_export_and_report_refuse_unknown_derived_refusal_keys"],
+    ),
+    Mutant(
+        "M38", "software-defined failed-inspection sentinels are lost", WAVE,
+        '    failed_inspection = (\n', '    failed_inspection = False and (\n',
+        [T_WAVE + "::test_failed_attestation_preserves_only_the_defined_unavailable_sentinels"],
+        ["test_failed_attestation_preserves_only_the_defined_unavailable_sentinels"],
+    ),
+    Mutant(
+        "M39", "an existing export is silently reused instead of a fresh publication", WAVE,
+        '    _export_require(not target.exists(), "wave_export_destination_exists")\n',
+        '    if target.exists():\n        return target\n',
+        [T_WAVE + "::test_export_positive_allowlist_preserves_aliases_missing_values_and_originals"],
+        ["test_export_positive_allowlist_preserves_aliases_missing_values_and_originals"],
+    ),
+    Mutant(
+        "M40", "a no-work legacy resume rewrites the storage format version", WAVE,
+        '    if pending:\n        state.version = STATE_VERSION\n',
+        '    state.version = STATE_VERSION\n',
+        [T_WAVE + "::test_completed_population_resume_has_no_remote_lifecycle"],
+        ["test_completed_population_resume_has_no_remote_lifecycle"],
+    ),
+    Mutant(
+        "M41", "missing private custody becomes a missing measurement", WAVE,
+        '        resolved_directory = _inside(directory, parent, exists=True)\n',
+        '        if not (directory / "rows.csv").exists():\n            return None\n'
+        '        resolved_directory = _inside(directory, parent, exists=True)\n',
+        [T_WAVE + "::test_private_and_legacy_report_equivalence_and_mixed_authority"],
+        ["test_private_and_legacy_report_equivalence_and_mixed_authority"],
+    ),
+    Mutant(
         "M24", "the requested tunnel compression is silently omitted",
         "tools/paddle_vast.py",
         "        *options,\n",
@@ -261,17 +384,19 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "M21", "a recovered report trusts stale state refusal vocabulary",
         WAVE,
-        "    if out_dir is None:\n        return {\"refused_by_reason\": state.refusals_by_reason(),",
-        "    if True:\n        return {\"refused_by_reason\": state.refusals_by_reason(),",
-        [T_WAVE],
+        '    if out_dir is None and not any("storage" in chunk for chunk in state.chunks):\n'
+        '        historical = state.refusals_by_reason()',
+        '    if True:\n        historical = state.refusals_by_reason()',
+        [T_WAVE + "::test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state"],
         ["test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state"],
     ),
     Mutant(
         "M22", "a recovered report reads the first chunk instead of the recorded attempt",
         WAVE,
-        '            name = by_chunk.get(outcome.chunk, {}).get("run_dir")',
-        '            name = by_chunk.get(0, {}).get("run_dir")',
-        [T_WAVE],
+        '            source_rows = _recorded_chunk_rows(state, by_chunk.get(outcome.chunk, {}),',
+        '            source_rows = _recorded_chunk_rows(state, by_chunk.get(0, {}),',
+        [T_WAVE + "::test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state",
+         T_WAVE + "::test_mixed_chunks_bind_latest_refusal_and_exact_technical_denominators"],
         ["test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state"],
     ),
     Mutant(
@@ -285,9 +410,9 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "M17", "telemetry searches only the flat directory and omits population runs",
         WAVE,
-        "            Path(out_dir) / state.population_name / name,\n",
-        "",
-        [T_WAVE],
+        '    supplied = (root / state.population_name / name, root / name)',
+        '    supplied = (root / name,)',
+        [T_WAVE + "::test_report_reads_each_populations_nested_run_directory"],
         ["test_report_reads_each_populations_nested_run_directory"],
     ),
     Mutant(
