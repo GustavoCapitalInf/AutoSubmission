@@ -64,6 +64,14 @@ class Mutant:
 
 MUTANTS: list[Mutant] = [
     Mutant(
+        "M24", "the requested tunnel compression is silently omitted",
+        "tools/paddle_vast.py",
+        "        *options,\n",
+        "",
+        ["tests/test_paddle_vast_tool.py"],
+        ["test_tunnel_compression_is_read_at_launch_without_changing_the_endpoint"],
+    ),
+    Mutant(
         "M1", "a document that produced no evidence is SKIPPED instead of recorded as refused",
         WAVE,
         "        else:\n"

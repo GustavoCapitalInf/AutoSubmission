@@ -235,6 +235,52 @@ def test_tunnel_up_refuses_when_the_local_port_is_already_listening(tmp_path):
         server.close()
 
 
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_unset_tunnel_compression_preserves_historical_command(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv(vast.SSH_COMPRESSION_ENV, raising=False)
+    else:
+        monkeypatch.setenv(vast.SSH_COMPRESSION_ENV, value)
+    settings = _settings()
+    assert vast._tunnel_command(settings) == [
+        "ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "BatchMode=yes",
+        "-L", f"127.0.0.1:{settings.tunnel_local_port}:127.0.0.1:{settings.worker_port}",
+        "-p", str(settings.vast_ssh_port), f"{settings.vast_ssh_user}@{settings.vast_host}",
+    ]
+
+
+def test_tunnel_compression_is_read_at_launch_without_changing_the_endpoint(monkeypatch, tmp_path):
+    settings = _settings(PADDLE_RUNTIME_DIR=str(tmp_path))
+    monkeypatch.delenv(vast.SSH_COMPRESSION_ENV, raising=False)
+    original = vast._tunnel_command(settings)
+    launched = []
+
+    def popen(argv, **kwargs):
+        launched.append(argv)
+        return _FakePopen(argv, **kwargs)
+
+    monkeypatch.setattr(vast, "_port_listening", lambda _: False)
+    for value in ("yes", "no"):
+        monkeypatch.setenv(vast.SSH_COMPRESSION_ENV, value)
+        vast.cmd_tunnel_up(settings, popen=popen)
+        expected = original[:6] + ["-o", f"Compression={value}"] + original[6:]
+        assert launched[-1] == expected
+    assert (tmp_path / "tunnel.pid").read_text() == str(_FakePopen().pid)
+    monkeypatch.delenv(vast.SSH_COMPRESSION_ENV)
+    assert vast._tunnel_command(settings) == original
+
+
+def test_invalid_tunnel_compression_is_refused_before_launch_without_echo(monkeypatch, tmp_path):
+    marker = "synthetic-private-connection-marker"
+    monkeypatch.setenv(vast.SSH_COMPRESSION_ENV, marker)
+    monkeypatch.setattr(vast, "_port_listening", lambda _: False)
+    with pytest.raises(vast.PaddleVastError, match="must be yes, no, or unset") as refused:
+        vast.cmd_tunnel_up(_settings(PADDLE_RUNTIME_DIR=str(tmp_path)),
+                           popen=lambda *a, **k: pytest.fail("invalid option reached launch"))
+    assert marker not in str(refused.value)
+    assert not (tmp_path / "tunnel.pid").exists()
+
+
 class _FakePopen:
     def __init__(self, *args, **kwargs):
         self.pid = 424242

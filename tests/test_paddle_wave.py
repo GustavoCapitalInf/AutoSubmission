@@ -1218,6 +1218,9 @@ def test_report_reads_each_populations_nested_run_directory(tmp_path):
         measured = report["populations"][name]["telemetry"]
         assert measured["documents_measured"] == 1
         assert measured["inference_ms_per_document"]["p50"] == elapsed
+        assert measured["bytes_up_basis"] == "raw_png_payload_before_base64_and_transport_compression"
+        assert measured["bytes_down_basis"] == "json_reserialization_estimate_before_transport_compression"
+        assert measured["transport_bytes_measured"] is False
 
     # A caller may also pass one population's run root, the original flat shape.
     flat = wave_report(data_dir=data, config=PRODUCTION_CONFIG, out_dir=runs / "CTRL")
