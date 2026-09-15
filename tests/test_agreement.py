@@ -1025,7 +1025,7 @@ def test_the_census_refuses_conflicting_extractor_identities_under_one_key(tmp_p
     key = _research_cache(tmp_path, ledger, truth)
     native, extractor = _pair(ledger, truth)
     alternative = replace(_document(extractor, extractor_id=PADDLE_EXTRACTOR, document_sha="D" * 64),
-                          runtime={"pipeline_switches": {"orientation": True}})
+                          runtime={"pipeline_switches": {"orientation": True}}, evidence_sha256="")
     open_cache(tmp_path).put_ocr("D" * 64, key, SimpleNamespace(
         model="fake", pages=["page"], evidence=alternative,
         native_evidence=_document(native, extractor_id=NATIVE_EXTRACTOR, document_sha="D" * 64)))
@@ -1060,13 +1060,14 @@ def test_the_census_refuses_empty_or_misidentified_evidence(tmp_path, ledger, tr
             None if corruption == "missing_evidence" else {"invalid": True})
     elif corruption == "no_pages":
         for slot in ("evidence", "native_evidence"):
-            record[slot] = to_json(replace(from_json(record[slot]), pages=()))
+            record[slot] = to_json(replace(from_json(record[slot]), pages=(), evidence_sha256=""))
     elif corruption == "native_in_extractor":
         record["evidence"] = record["native_evidence"]
     elif corruption == "extractor_in_native":
         record["native_evidence"] = record["evidence"]
     elif corruption == "evidence_sha":
-        record["evidence"] = to_json(replace(from_json(record["evidence"]), document_sha256="E" * 64))
+        record["evidence"] = to_json(replace(from_json(record["evidence"]), document_sha256="E" * 64,
+                                           evidence_sha256=""))
     else:
         field = {"envelope_sha": "input_sha256", "envelope_key": "settings_key",
                  "envelope_stage": "stage"}[corruption]
