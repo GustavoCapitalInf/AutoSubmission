@@ -1,4 +1,4 @@
-"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M19 plus
+"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M24 plus
 the review's own FR1 / FR3 / FR4), applied as real textual edits and run for
 real.
 
@@ -265,6 +265,47 @@ MUTANTS: list[Mutant] = [
         [T_AGREE],
         ["test_the_census_refuses_conflicting_extractor_identities_under_one_key"],
     ),
+    Mutant(
+        "M20", "the census trusts an envelope that conflicts with its cache record",
+        CENSUS,
+        '    if (payload.get("input_sha256") != sha or payload.get("settings_key") != key\n'
+        '            or payload.get("stage") != "ocr"):\n',
+        "    if False:\n",
+        [T_AGREE],
+        ["test_the_census_refuses_empty_or_misidentified_evidence"],
+    ),
+    Mutant(
+        "M21", "the native census slot can contain extractor geometry",
+        CENSUS,
+        "        if native is not None and native.extractor_id != NATIVE_EXTRACTOR_ID:\n",
+        "        if False:\n",
+        [T_AGREE],
+        ["test_the_census_refuses_empty_or_misidentified_evidence"],
+    ),
+    Mutant(
+        "M22", "the extractor census slot can contain native geometry",
+        CENSUS,
+        "            if extractor.extractor_id == NATIVE_EXTRACTOR_ID:\n",
+        "            if False:\n",
+        [T_AGREE],
+        ["test_the_census_refuses_empty_or_misidentified_evidence"],
+    ),
+    Mutant(
+        "M23", "the census accepts evidence for a different document",
+        CENSUS,
+        "                if source.document_sha256.upper() != sha:\n",
+        "                if False:\n",
+        [T_AGREE],
+        ["test_the_census_refuses_empty_or_misidentified_evidence"],
+    ),
+    Mutant(
+        "M24", "the census searches only the first twenty-five records of another key",
+        CENSUS,
+        '                "SELECT input_sha256,artifact_path FROM artifact_cache WHERE stage=\'ocr\' AND settings_key=? ORDER BY input_sha256",\n',
+        '                "SELECT input_sha256,artifact_path FROM artifact_cache WHERE stage=\'ocr\' AND settings_key=? ORDER BY input_sha256 LIMIT 25",\n',
+        [T_AGREE],
+        ["test_the_census_checks_for_another_evidence_key_beyond_the_first_twenty_five_records"],
+    ),
 ]
 
 
@@ -372,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     table = "\n".join([
-        f"# P23-AGREE mutation table (M1-M19, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
+        f"# P23-AGREE mutation table (M1-M24, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
         "| # | mutant | file | killer | result |", "|---|---|---|---|---|",
         *rows, "",
         f"unkilled: {', '.join(unkilled) if unkilled else 'none'}",

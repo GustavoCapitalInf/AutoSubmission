@@ -1071,10 +1071,32 @@ def test_the_census_refuses_empty_or_misidentified_evidence(tmp_path, ledger, tr
         field = {"envelope_sha": "input_sha256", "envelope_key": "settings_key",
                  "envelope_stage": "stage"}[corruption]
         payload[field] = "E" * 64 if corruption != "envelope_stage" else "other"
+        # A readable companion has native geometry. Envelope conflict must
+        # refuse in its own right, not merely reach the empty-measurement guard.
+        population.write_text(selected + "\n" + "D" * 64 + "\n", encoding="utf-8")
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(CensusRefused):
         main(["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod",
               "--settings-key", key, "--shas", str(population)])
+
+
+def test_the_census_checks_for_another_evidence_key_beyond_the_first_twenty_five_records(tmp_path, ledger, truth):
+    from types import SimpleNamespace
+    from tools.agreement_census import CensusRefused, _key_by_scan
+    from webapp.artifact_cache import open_cache
+
+    _research_cache(tmp_path, ledger, truth)
+    cache = open_cache(tmp_path)
+    other_key = "F" * 64
+    for ordinal in range(1, 26):
+        cache.put_ocr(f"{ordinal:064X}", other_key,
+                      SimpleNamespace(model="fake", pages=["page"], evidence=None, native_evidence=None))
+    native, extractor = _pair(ledger, truth)
+    cache.put_ocr("E" * 64, other_key, SimpleNamespace(
+        model="fake", pages=["page"], native_evidence=None,
+        evidence=_document(extractor, extractor_id=PADDLE_EXTRACTOR, document_sha="E" * 64)))
+    with pytest.raises(CensusRefused, match="2 of the cache's 2"):
+        _key_by_scan(tmp_path)
 
 
 def test_the_agreement_module_names_no_verdict_vocabulary():

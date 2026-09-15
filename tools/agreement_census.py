@@ -90,6 +90,17 @@ class CensusRefused(SystemExit):
     """Anything this tool will not guess about."""
 
 
+def _document_from_payload(payload, sha: str, key: str) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    if (payload.get("input_sha256") != sha or payload.get("settings_key") != key
+            or payload.get("stage") != "ocr"):
+        raise CensusRefused("refusing an artifact envelope that conflicts with the selected cache record")
+    artifact = payload.get("artifact")
+    document = artifact.get("document") if isinstance(artifact, dict) else None
+    return document if isinstance(document, dict) else None
+
+
 # ---------------------------------------------------------------------------
 # the door: a research partition's artifacts
 # ---------------------------------------------------------------------------
@@ -123,12 +134,7 @@ class _Partition:
             payload = json.loads((self.root / str(row[0])).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        if (not isinstance(payload, dict) or payload.get("input_sha256") != sha or payload.get("settings_key") != self.key
-                or payload.get("stage") != "ocr"):
-            return None
-        artifact = payload.get("artifact")
-        document = artifact.get("document") if isinstance(artifact, dict) else None
-        return document if isinstance(document, dict) else None
+        return _document_from_payload(payload, sha, self.key)
 
 
 def _key_from_run(run: Path, partition: str) -> str:
@@ -160,18 +166,15 @@ def _key_by_scan(data_dir: Path) -> str:
         with_evidence: list[str] = []
         for key in keys:
             rows = conn.execute(
-                "SELECT artifact_path FROM artifact_cache WHERE stage='ocr' AND settings_key=?",
+                "SELECT input_sha256,artifact_path FROM artifact_cache WHERE stage='ocr' AND settings_key=? ORDER BY input_sha256",
                 (key,),
             ).fetchall()
             for row in rows:
                 try:
-                    payload = json.loads((root / str(row[0])).read_text(encoding="utf-8"))
+                    payload = json.loads((root / str(row[1])).read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     continue
-                if not isinstance(payload, dict) or payload.get("settings_key") != key or payload.get("stage") != "ocr":
-                    continue
-                artifact = payload.get("artifact")
-                document = artifact.get("document") if isinstance(artifact, dict) else None
+                document = _document_from_payload(payload, str(row[0]), key)
                 evidence = _evidence(document.get("evidence")) if isinstance(document, dict) else None
                 if evidence is not None and evidence.extractor_id != NATIVE_EXTRACTOR_ID:
                     with_evidence.append(key)
