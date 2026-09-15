@@ -321,6 +321,48 @@ def test_hashless_native_rasters_are_explicitly_unverified_and_corrupt_rasters_u
     assert statuses == {"unreadable (unmeasured)": 1}
 
 
+def test_output_cannot_write_into_either_read_only_source(tmp_path):
+    from tools.extraction_quality_census import _refuse_source_out
+
+    data = tmp_path / "research"
+    rasters = tmp_path / "separate-rasters"
+    for output in (data, data / "report.md", rasters, rasters / "report.md"):
+        with pytest.raises(SystemExit, match="read-only data and raster"):
+            _refuse_source_out(output, data_dir=data, rasters=rasters)
+    # A sibling name sharing the source's string prefix is still outside it.
+    _refuse_source_out(tmp_path / "research-logs" / "report.md", data_dir=data, rasters=rasters)
+
+
+def test_output_symlink_alias_cannot_escape_the_source_boundary(tmp_path):
+    from tools.extraction_quality_census import _refuse_source_out
+
+    data = tmp_path / "research"
+    data.mkdir()
+    alias = tmp_path / "outside-alias"
+    try:
+        alias.symlink_to(data, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"directory symlinks unavailable: {type(error).__name__}")
+    with pytest.raises(SystemExit, match="read-only data and raster"):
+        _refuse_source_out(alias / "report.md", data_dir=data, rasters=tmp_path / "rasters")
+    with pytest.raises(SystemExit, match="read-only data and raster"):
+        _refuse_source_out(data / "report.md", data_dir=alias, rasters=tmp_path / "rasters")
+
+
+def test_cli_refuses_source_output_before_reading_any_artifact(tmp_path, monkeypatch):
+    from tools import extraction_quality_census as tool
+
+    def cannot_read(*args, **kwargs):
+        pytest.fail("source read before output containment refusal")
+
+    monkeypatch.setattr(tool, "census", cannot_read)
+    monkeypatch.setattr(tool, "_refuse_tracked_out", lambda _: None)
+    data = tmp_path / "research"
+    with pytest.raises(SystemExit, match="read-only data and raster"):
+        tool.main(["--data-dir", str(data), "--research-partition", PARTITION,
+                   "--out", str(data / "report.md")])
+
+
 # ---------------------------------------------------------------------------
 # what it must never print (M9)
 # ---------------------------------------------------------------------------

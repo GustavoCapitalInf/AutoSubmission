@@ -358,6 +358,14 @@ def _refuse_tracked_out(out: Path) -> None:
         )
 
 
+def _refuse_source_out(out: Path, *, data_dir: Path, rasters: Path) -> None:
+    """Keep output outside both read-only sources, resolving symlink aliases."""
+    resolved_out = out.resolve()
+    for source in (data_dir.resolve(), rasters.resolve()):
+        if resolved_out.is_relative_to(source):
+            raise SystemExit("REFUSED: --out must be outside the read-only data and raster directories")
+
+
 def census(data_dir: Path, *, partition: str, rasters: Path | None,
            shas: frozenset[str] | None = None) -> tuple[dict[str, Census], Counter[str]]:
     if re.fullmatch(RESEARCH_PARTITION_PATTERN, partition) is None:
@@ -456,9 +464,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="optional wave population file; identifiers are never printed")
     args = parser.parse_args(argv)
 
-    if args.out is not None:
-        _refuse_tracked_out(args.out)
     rasters = args.rasters if args.rasters is not None else args.data_dir / "rasters"
+    if args.out is not None:
+        _refuse_source_out(args.out, data_dir=args.data_dir, rasters=rasters)
+        _refuse_tracked_out(args.out)
     censuses, skipped = census(args.data_dir, partition=args.research_partition,
                                rasters=rasters if rasters.is_dir() else None,
                                shas=None if args.shas is None else read_population(args.shas))

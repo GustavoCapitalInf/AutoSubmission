@@ -366,6 +366,22 @@ MUTANTS: list[Mutant] = [
         [T_CENSUS],
         ["test_duplicate_truncation_conflict_is_refused_in_both_orders"],
     ),
+    Mutant(
+        "C9", "output allowed inside a read-only source",
+        CENSUS,
+        "        if resolved_out.is_relative_to(source):",
+        "        if False:",
+        [T_CENSUS],
+        ["test_output_cannot_write_into_either_read_only_source"],
+    ),
+    Mutant(
+        "C10", "the CLI bypasses output containment refusal",
+        CENSUS,
+        "        _refuse_source_out(args.out, data_dir=args.data_dir, rasters=rasters)\n",
+        "",
+        [T_CENSUS],
+        ["test_cli_refuses_source_output_before_reading_any_artifact"],
+    ),
 ]
 
 

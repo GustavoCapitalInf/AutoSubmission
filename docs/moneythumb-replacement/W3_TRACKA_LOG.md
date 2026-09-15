@@ -74220,3 +74220,11 @@ repeated/reordered flags and flags for pages absent from the evidence normalize
 to the same metric input. C8 drops that sidecar from the identity; its two-order
 pin must fail. This is a census selection correction, with no metric-version
 change and no change to the immutable cache.
+
+The output door now also rejects `--out` inside either input data or raster
+directory, resolving symlink aliases before checking containment. Git-ignored
+output alone did not enforce the promised read-only boundary. Equality with a
+source is refused too; a sibling log directory remains valid. The CLI checks
+this before reading artifacts. Direct, sibling, alias and call-site tests pin
+the boundary, and C9/C10 remove its check or its CLI call. No queued command ever
+targeted an input directory; the configured outputs stay in sibling logs.
