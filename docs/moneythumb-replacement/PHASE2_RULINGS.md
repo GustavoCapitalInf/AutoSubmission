@@ -369,3 +369,37 @@ live proof needs the separate Unlimited computer and it is unavailable. Otherwis
 Privacy-scan the untracked planning package → commit it durably if clean → record this authorization
 (this section) → open `train12` from `main` at `phase2.1-final` → the Phase 2.2 umbrella card in the
 house format → begin Phase 2.2 → continue through 2.3–2.7 on GREEN gates without waiting for approval.
+
+## R10 item S-5 — Truist legacy caller fence APPROVED (Gustavo, 2026-09-15)
+
+Gustavo approved the concrete proposal with: **"Approve the fence and zero-change verification."**
+This adds `repair_truist_converted_checks` to the four previously ruled caller fences.
+
+Independent synthetic reproduction showed that the repair's duplicate-witness set includes the
+same tilde-marked row it removes: a sole converted-check row can become an empty ledger. The paired
+duplicate control remains evidence-preserving; that control does not justify the orphan deletion.
+Classify the retained function as `legacy_needing_replacement`, not as an optimizer or a safe
+normalization. Its original executable body stays as the historical record.
+
+**Authorized change:** remove its analysis import and caller, extend the no-reference tripwire to
+this fifth definition (including aliases/callbacks), pin its exact legacy classification, and retain
+the paired, transfer-direction, orphan and unrelated-bank characterizations. Add the corresponding
+caller-restoration and misclassification mutants. No replacement bank-keyed correction is authorized
+by this ruling.
+
+Existing completed evidence: disabling the repair on all 48 identified candidates preserved all 48
+validated payloads identically; the independent 900-document instrument reached the Truist stage on
+every document and observed no payload change. A deliberate perturbation control moved all 48
+candidates, proving the instrument was sensitive. These are dormant-corpus observations, not a
+claim that the retained function is safe on unseen inputs.
+
+**Gate:** prove the final five-fence combination on the whole union before composition. Any payload
+or outcome movement is a STOP. Preserve the earlier three completed four-fence chunks with their
+original scope; they are not the five-fence proof. The root orchestrator independently reviews S-5
+because the earlier P reviewer prepared its proposed patch; that reviewer's prior findings and
+closures retain their stated independent scope.
+
+Private proposal and exact patch: `discovery_reports/train13-logs/rev23-precision-closure/`
+`TRUIST-FENCE-PROPOSAL.md` and `TRUIST-FENCE-PROPOSAL.patch`. The patch passed both index and worktree
+apply checks before this approval. Existing dormancy, positive-control and counterexample logs are
+linked in the proposal and remain preserved.

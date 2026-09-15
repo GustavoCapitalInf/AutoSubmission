@@ -52,6 +52,14 @@ is `p23wave/closure-20260915/closure-section-draft.txt`, explicitly pending live
 No cell has composed. Composition remains **W → E → X → V → B → P**; launch V after W and B after
 W/E/X. Every original authorization, floor, STOP condition and Phase 3 exclusion below remains binding.
 
+**Subsequent S-5 ruling, same continuation:** independent review found that the retained Truist repair
+can remove a lone converted-check row by treating it as its own duplicate. Gustavo explicitly approved
+the prepared fifth caller fence and zero-change verification. `PHASE2_RULINGS.md` now records the
+binding scope. P is implementing it from `f4c8eb5` (doc-only successor to `ea615b8`), retaining the
+function body and classifying it `legacy_needing_replacement`. The final five-fence union needs a new
+seven-chunk proof; preserve the three completed four-fence chunks as historical evidence. Root owns
+independent S-5 review because X authored its proposed patch. W/E/X scheduling remains unchanged.
+
 ---
 
 **This file always holds the CURRENT handoff.** Its name does not change; earlier handoffs are archived

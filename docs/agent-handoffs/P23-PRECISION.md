@@ -4,6 +4,14 @@
 Worktree `.claude/worktrees/mt23-precision`, branch `wave23-precision`. Everything here runs offline over the
 run-of-record cache; nothing is sent anywhere.
 
+**2026-09-15 ruling update:** Gustavo has now approved the S-5 Truist caller fence in addition to
+S-1..S-4. Retain the exact executable function, classify it `legacy_needing_replacement`, remove its
+analysis import/caller, extend the exact classification and no-reference tripwires, and preserve the
+paired/orphan characterization. `PHASE2_RULINGS.md`'s S-5 section is binding and widens the ownership
+below only for this specific caller removal and its proofs. The final five-fence whole-union replay
+must show zero movement; earlier four-fence evidence keeps its original scope. Root independently
+reviews the S-5 patch; the existing P reviewer retains its earlier independent review scope.
+
 Read `docs/agent-handoffs/BATCH9-RULES.md`, `PHASE2-RULES.md`, `docs/moneythumb-replacement/PHASE2_RULINGS.md`
 (R10 verbatim; the anti-optimizer rule; R3 — nothing is a label but Gustavo's adjudication; the repair
 doctrine as ruled in batch 9: a parser never writes an amount or a date the paper did not print), the
