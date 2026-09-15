@@ -49,12 +49,14 @@ zero, which would read as a page with no ink outside its boxes.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
 import subprocess
 import sys
 from collections import Counter
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
@@ -169,18 +171,25 @@ class LazyRasters:
     def __init__(self, root: Path | None, evidence: ExtractionEvidence) -> None:
         self.root = root
         self.evidence = evidence
+        self.statuses: Counter[str] = Counter()
 
     def get(self, page_index: int, default: Any = None) -> Any:
-        found = raster_for(self.root, self.evidence, page_index)
+        found = raster_for(self.root, self.evidence, page_index, statuses=self.statuses)
         return default if found is None else found
 
 
-def raster_for(root: Path | None, evidence: ExtractionEvidence, page_index: int) -> RasterGray | None:
+def raster_for(root: Path | None, evidence: ExtractionEvidence, page_index: int,
+               *, statuses: Counter[str] | None = None) -> RasterGray | None:
     """The wave's `pNNNN.png` (or legacy synthetic `<index>.png`), decoded to grey, or
     `None` when it is not there. The decode lives HERE, not in the metrics
     module, whose import set is the standard library, `evidence` and
     `layout.signals` and nothing else."""
+    def record(status: str) -> None:
+        if statuses is not None:
+            statuses[status] += 1
+
     if root is None:
+        record("absent")
         return None
     sha = evidence.document_sha256
     candidates = (
@@ -190,12 +199,30 @@ def raster_for(root: Path | None, evidence: ExtractionEvidence, page_index: int)
     )
     path = next((candidate for candidate in candidates if candidate.is_file()), None)
     if path is None:
+        record("absent")
         return None
     from PIL import Image
 
-    with Image.open(path) as image:
-        grey = image.convert("L")
-        return RasterGray(width=grey.width, height=grey.height, pixels=grey.tobytes())
+    frame = next((page.frame for page in evidence.pages if page.frame.page_index == page_index), None)
+    if frame is None:
+        record("frame absent")
+        return None
+    try:
+        payload = path.read_bytes()
+        expected = frame.raster_sha256
+        if expected is not None and hashlib.sha256(payload).hexdigest().upper() != expected.upper():
+            record("hash mismatch (unmeasured)")
+            return None
+        with Image.open(BytesIO(payload)) as image:
+            grey = image.convert("L")
+            raster = RasterGray(width=grey.width, height=grey.height, pixels=grey.tobytes())
+    except (OSError, ValueError):
+        record("unreadable (unmeasured)")
+        return None
+    # A native synthetic frame can legitimately carry no raster hash. It is
+    # measured but explicitly distinguished from evidence-bound pixels.
+    record("hash verified" if expected is not None else "no recorded hash (unverified)")
+    return raster
 
 
 class Census:
@@ -216,6 +243,7 @@ class Census:
         self.page_classes_any: Counter[str] = Counter()
         self.rasters_measured = 0
         self.rasters_absent = 0
+        self.raster_statuses: Counter[str] = Counter()
 
     def add(self, quality) -> None:
         self.documents += 1
@@ -280,6 +308,11 @@ def render(partition: str, censuses: Mapping[str, Census], *, skipped: Mapping[s
                 f"| {name} | {len(values)} | {min(values):.6g} | {cells} | {max(values):.6g} |"
             )
         lines += ["", "metric notes: " + "; ".join(f"{name} = {note}" for name, note in PAGE_METRICS), ""]
+        lines += ["Raster provenance", "", "| status | pages |", "|---|---|"]
+        for status in ("hash verified", "no recorded hash (unverified)", "absent",
+                       "hash mismatch (unmeasured)", "unreadable (unmeasured)", "frame absent"):
+            lines.append(f"| {status} | {census.raster_statuses[status]} |")
+        lines.append("")
         lines += [
             "Document metrics (one folded value per document)", "",
             "| metric | measured | min | " + " | ".join(f"p{p:02d}" for p in PERCENTILES) + " | max |",
@@ -378,10 +411,11 @@ def census(data_dir: Path, *, partition: str, rasters: Path | None,
             for index, entry in enumerate(document.get("page_integrity") or [])
             if isinstance(entry, dict) and entry.get("truncated")
         ]
-        quality = document_quality(
-            evidence, rasters=LazyRasters(rasters, evidence), truncated_pages=truncated,
-        )
-        censuses.setdefault(configuration_of(evidence), Census()).add(quality)
+        page_rasters = LazyRasters(rasters, evidence)
+        quality = document_quality(evidence, rasters=page_rasters, truncated_pages=truncated)
+        counted = censuses.setdefault(configuration_of(evidence), Census())
+        counted.add(quality)
+        counted.raster_statuses.update(page_rasters.statuses)
         skipped["measured"] += 1
     if shas is not None:
         skipped["selected documents"] = len(shas)

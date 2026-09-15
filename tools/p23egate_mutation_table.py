@@ -159,9 +159,8 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "M9", "the census printing a per-document identifier",
         CENSUS,
-        "        censuses.setdefault(configuration_of(evidence), Census()).add(quality)",
-        '        censuses.setdefault(configuration_of(evidence) + f" sha={evidence.document_sha256}",\n'
-        "                            Census()).add(quality)",
+        "        counted = censuses.setdefault(configuration_of(evidence), Census())",
+        '        counted = censuses.setdefault(configuration_of(evidence) + f" sha={evidence.document_sha256}", Census())',
         [T_CENSUS],
         ["test_the_output_carries_counts_and_percentiles_and_no_document_content"],
     ),
@@ -350,6 +349,14 @@ MUTANTS: list[Mutant] = [
         "        if False:",
         [T_CENSUS],
         ["test_population_file_is_sha_only_and_never_echoed"],
+    ),
+    Mutant(
+        "C7", "retained pixels used despite a different recorded raster hash",
+        CENSUS,
+        "        if expected is not None and hashlib.sha256(payload).hexdigest().upper() != expected.upper():",
+        "        if False:",
+        [T_CENSUS],
+        ["test_retained_pixels_are_bound_to_the_recorded_raster_hash"],
     ),
 ]
 

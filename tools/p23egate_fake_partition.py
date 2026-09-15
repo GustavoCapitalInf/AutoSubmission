@@ -137,7 +137,10 @@ def main(argv: list[str] | None = None) -> int:
     rasters = data_dir / "rasters"      # D2: a research partition retains them
     for name, sha in shas.items():
         (rasters / sha).mkdir(parents=True, exist_ok=True)
-        rasterize_pdf(render_native_pdf(built[name][0]), dpi=DPI)[0].save(rasters / sha / "0.png")
+        # Retain the actual input PDF's raster, as W does. Rendering a fresh
+        # native PDF was visually similar but could not reproduce the hash
+        # recorded by the extraction rung for the image PDF it consumed.
+        rasterize_pdf((root / "Synth" / f"{name}.pdf").read_bytes(), dpi=DPI)[0].save(rasters / sha / "0.png")
 
     print("\n=== the committed instrument, over that partition ===\n", flush=True)
     return census_main(["--data-dir", str(data_dir), "--research-partition", PARTITION])

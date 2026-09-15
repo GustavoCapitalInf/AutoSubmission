@@ -74195,3 +74195,17 @@ identical cached evidence duplicates from conflicting evidence. Identical
 duplicates count once; conflicting evidence for one document/configuration is a
 named refusal. All processing is local and read-only; reports retain counts and
 percentiles only. No production projection, router, validator or cache changes.
+
+The independent re-review then found a second raster integration defect: replacing
+a retained white PNG with a same-size black PNG still produced a measurement,
+despite the frame recording the white PNG's hash. The implementer reproduced all
+three boolean findings from the reviewer's synthetic probe before changing code.
+The reader now hashes the retained bytes before decoding them; a mismatch is
+unmeasured and counted explicitly. Missing, unreadable, hash-verified and
+hashless-unverified rasters have separate counts. A native synthetic frame can
+carry no raster hash, so that case remains measurable with its unverified status
+visible. The fake-partition instrument now retains the actual image PDF's raster;
+its previous fresh native render looked similar but did not bind to the recorded
+input pixels. These changes precede the first real census and alter no customer
+artifact. The valid/mismatch, hashless and corrupt cases have synthetic pins; C7
+removes the hash comparison and must be killed by the mismatch pin.

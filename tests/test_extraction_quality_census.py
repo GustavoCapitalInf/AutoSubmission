@@ -148,13 +148,15 @@ def test_a_retained_raster_is_measured_and_a_missing_one_is_counted(partition, f
     rasters = partition["tmp"] / "rasters"
     sha = partition["shas"]["scan-a.pdf"]
     (rasters / sha).mkdir(parents=True)
-    image = rasterize_pdf(render_native_pdf(partition["pages"]["scan-a.pdf"]), dpi=100)[0]
+    pdf_bytes = (partition["tmp"] / "root" / "SynthA" / "scan-a.pdf").read_bytes()
+    image = rasterize_pdf(pdf_bytes, dpi=300)[0]
     image.save(rasters / sha / filename)
 
     censuses, _ = census(partition["data_dir"], partition=PARTITION, rasters=rasters)
     one = next(iter(censuses.values()))
     assert one.rasters_measured == 1 and one.rasters_absent == 1
     assert len(one.values["ink_outside_boxes"]) == 1
+    assert one.raster_statuses["hash verified"] == 1
     # the evidence describes the page, so almost all of its ink is inside a box
     assert one.values["ink_outside_boxes"][0] < 0.35
 
@@ -232,6 +234,60 @@ def test_population_file_is_sha_only_and_never_echoed(tmp_path):
         read_population(path)
 
 
+def test_retained_pixels_are_bound_to_the_recorded_raster_hash(tmp_path):
+    import hashlib
+    from collections import Counter
+    from io import BytesIO
+    from PIL import Image
+    from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame
+    from tools.extraction_quality_census import raster_for
+
+    def png(color):
+        output = BytesIO()
+        Image.new("RGB", (32, 64), color).save(output, format="PNG")
+        return output.getvalue()
+
+    expected = png("white")
+    replacement = png("black")
+    frame = PageFrame.pixel(page_index=0, raster_width_px=32, raster_height_px=64,
+                            dpi=72, pdf_width_pt=32, pdf_height_pt=64,
+                            raster_sha256=hashlib.sha256(expected).hexdigest().upper())
+    evidence = ExtractionEvidence(document_sha256="A" * 64, extractor_id="synthetic",
+                                  model_token="synthetic", pages=(PageEvidence(frame=frame, words=()),))
+    target = tmp_path / evidence.document_sha256 / "p0000.png"
+    target.parent.mkdir()
+    target.write_bytes(expected)
+    statuses = Counter()
+    good = raster_for(tmp_path, evidence, 0, statuses=statuses)
+    assert good is not None and set(good.pixels) == {255}
+    assert statuses == {"hash verified": 1}
+    target.write_bytes(replacement)
+    statuses.clear()
+    assert raster_for(tmp_path, evidence, 0, statuses=statuses) is None
+    assert statuses == {"hash mismatch (unmeasured)": 1}
+
+
+def test_hashless_native_rasters_are_explicitly_unverified_and_corrupt_rasters_unmeasured(tmp_path):
+    from collections import Counter
+    from PIL import Image
+    from evidence.canonical import ExtractionEvidence, PageEvidence, PageFrame
+    from tools.extraction_quality_census import raster_for
+
+    frame = PageFrame.pdf_points(page_index=0, width_pt=32, height_pt=64)
+    evidence = ExtractionEvidence(document_sha256="A" * 64, extractor_id="synthetic",
+                                  model_token="synthetic", pages=(PageEvidence(frame=frame, words=()),))
+    target = tmp_path / evidence.document_sha256 / "p0000.png"
+    target.parent.mkdir()
+    Image.new("RGB", (32, 64), "white").save(target)
+    statuses = Counter()
+    assert raster_for(tmp_path, evidence, 0, statuses=statuses) is not None
+    assert statuses == {"no recorded hash (unverified)": 1}
+    target.write_bytes(b"synthetic invalid image")
+    statuses.clear()
+    assert raster_for(tmp_path, evidence, 0, statuses=statuses) is None
+    assert statuses == {"unreadable (unmeasured)": 1}
+
+
 # ---------------------------------------------------------------------------
 # what it must never print (M9)
 # ---------------------------------------------------------------------------
@@ -268,9 +324,9 @@ def test_the_rasters_are_opened_one_page_at_a_time(partition, monkeypatch):
     live = []
     real = tool.raster_for
 
-    def counting(root, evidence, page_index):
+    def counting(root, evidence, page_index, **kwargs):
         live.append(page_index)
-        return real(root, evidence, page_index)
+        return real(root, evidence, page_index, **kwargs)
 
     monkeypatch.setattr(tool, "raster_for", counting)
     lazy = tool.LazyRasters(None, object())
