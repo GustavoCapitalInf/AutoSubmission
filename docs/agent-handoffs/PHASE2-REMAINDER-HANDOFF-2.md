@@ -169,9 +169,12 @@ advanced: the deep-wrap fix, the widened invention guard, the folded-constant ki
 positive controls, the eleven-step stage inventory, and — the one behaviour change Ocean authorized —
 **S-4: `repair_single_row_signs_from_balances` FENCED off the analysis path (`a9d11b6`)** because it selects
 whichever interpretation reconciles (the anti-optimizer pattern) and fires on 0 of its 201 candidates.
-**OWED: the `# §P23PRECISION-CLOSURE — …` section, the mutation table at the closure tip, the full suite, and
-above all THE UNION REPLAY AT CLOSURE — the S-4 fence is admissible only if it moves 0 documents; any movement
-is a STOP. Then the re-review.**
+**OWED: the three S-1..S-3 fences Gustavo ruled on 2026-09-15 (§4.3 — same shape as S-4: the definition
+kept, the call removed, a tripwire, the classification docstring; they are dormant, so the cost is a tripwire
+and a test), the `# §P23PRECISION-CLOSURE — …` section, the mutation table at the closure tip, the full suite,
+and above all THE UNION REPLAY AT CLOSURE — the four fences together are admissible only if they move 0
+documents; any movement is a STOP. Then the re-review (the reviewer must re-read the ruling: four fences now,
+not one).**
 
 ### 3.5 Cells V (P23-CONFIG) and B (P23-FALLOUT) — cards committed, NOT launched
 V (the R5 PP-OCRv6 and R6 orientation A/B configurations, each its own pinned block and partition) launches
@@ -199,10 +202,26 @@ composition.** Git blobs are LF, working copies CRLF — a rebuild instrument mu
 2. **S-4 (anti-optimizer)**: `repair_single_row_signs_from_balances` is fenced off the analysis path, its
    definition kept, a tripwire pinning no caller under `analysis/`, its docstring recording
    `unsafe_rewrite (anti-optimizer selection)`. Admissible only with 0 replay movement.
-3. **S-1..S-3 stay untouched STOP items for Gustavo**: `repair_capital_one_running_amount` (22 documents /
-   21 validated), `repair_regions_transactions` (24 / 23), `repair_chase_remote_deposit_count_column`
-   (518 / 514) are classified `unsafe_rewrite` under the repair doctrine. Changing them would move validated
-   documents — that is a correctness ruling, not hygiene. **Report; do not act.**
+3. **S-1..S-3 are FENCED — RULED BY GUSTAVO 2026-09-15, on the same terms as S-4.** The three bank-keyed
+   repairs classified `unsafe_rewrite` — `repair_capital_one_running_amount` (22 candidates; it writes
+   `inferred`, the difference of two printed running balances, a figure the paper never printed, onto a row
+   SELECTED because that row makes the arithmetic work), `repair_regions_transactions` (24; its second half
+   writes `needed_delta`, the amount by which the printed summary fails to balance, into a zero-amount row)
+   and `repair_chase_remote_deposit_count_column` (518; it rewrites an amount by undoing a digit merge) —
+   are removed from the analysis path exactly as S-4 was: **the definitions stay** (deleting them would
+   delete the record of what once ran), **a tripwire pins that nothing under `analysis/` calls them**, the
+   docstring carries `R10-CLASSIFICATION: unsafe_rewrite` and the doctrine reason, and **the union replay at
+   closure must show 0 movement — any movement is a STOP before composition.**
+   *The correction that makes this cheap:* an earlier note in this program said "changing them would move
+   validated documents". **The measurement says otherwise and the measurement governs.** Cell P's instrument
+   and its reviewer's independent re-run both instrumented the live analysis path over 900 candidate
+   documents: every one of the eight repairs is REACHED on all 900 and RETURNS THE STATEMENT UNCHANGED on all
+   900 — payload changed 0, outcome moved 0, previously validated moved 0, for each repair separately
+   (`discovery_reports/train13-logs/p23precision/ceremony-repair_*.log`;
+   `train13-logs/rev23-precision/ceremony-instrumented2.log`). The instrument is not blind: the reviewer's
+   positive control, a deliberately altered Truist repair, moved 48 of 48 documents from validated to
+   withheld and named each. So these three are DORMANT unsafe rewrites — unsafe in what their code would do
+   if its conditions were met, doing nothing on this corpus today — and fencing them costs nothing.
 4. **The three keyed repairs outside `bank_repairs.py`** (cell P's MINOR-9) are INVENTORIED, not classified —
    a hygiene item for 2.4.
 5. **Cell E's ownership widening is ratified** (`discovery/report.py` for `ROW_FIELDS`; its three proof tools).
@@ -257,14 +276,12 @@ composition.** Git blobs are LF, working copies CRLF — a rebuild instrument mu
 
 1. **Start the Vast instance** (or provide a new connection line) so SLICE, the retention attestation re-proof
    and the 2.3 A/B runs can finish.
-2. **S-1..S-3** — the three bank-keyed repairs classified `unsafe_rewrite`: about 560 documents, nearly all
-   validated. A correctness ruling is owed; nothing was changed.
-3. **The slice-1 adjudication queue** (214 packets from Phase 2.2, cell H) is still unadjudicated. Adjudication
+2. **The slice-1 adjudication queue** (214 packets from Phase 2.2, cell H) is still unadjudicated. Adjudication
    is never a gate, but truth-table v1 waits on it; **adjudication slice 2** will be prepared by cell B.
-4. **An untracked `docs/moneythumb-replacement/superpowers/` directory** (an older pre-supersession copy of six
+3. **An untracked `docs/moneythumb-replacement/superpowers/` directory** (an older pre-supersession copy of six
    design docs found on disk on 2026-09-10) is left in place for Gustavo's decision; the tracked originals were
    restored.
-5. **The worker session token** was rotated before the first live run; its earlier value had been printed into
+4. **The worker session token** was rotated before the first live run; its earlier value had been printed into
    a gitignored local log and redacted there.
 
 ---
