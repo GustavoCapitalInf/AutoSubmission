@@ -111,3 +111,203 @@ request) · commits · proof exits · privacy count · risks last (what 2.4 must
 # Exclusions
 No structurer change (2.4) · no routing (2.5) · no admission · no adjudication (R3) · no Paddle call · no
 declined-branch run (R13 is 2.4's) · no cost.
+
+---
+
+# Bounded orchestration clarification — 2026-09-15
+
+Root-authorized clarification after independent source/design review. This does not launch B. Its launch
+base remains the actual train tip after W, E and X compose. The original card's
+financial, routing, privacy, truth and regression constraints remain binding.
+
+## Why a tools-only entry point is needed
+
+Source inspection shows that the normal research CLI can compute an OCR cache
+miss, and its geometry seam automatically prefers extractor evidence. The
+current structurer wrapper also discards its diagnostic result. Those interfaces
+cannot by themselves produce the card's cache-only, separately observed native
+and Paddle baseline. A dedicated tools entry point can use the existing reader,
+cache-key and analysis APIs while preserving the protected production source.
+
+## Added ownership
+
+Allow `tools/fallout_run.py` and `tests/test_fallout_run.py` as B's cache-only
+analysis/observation instrument and its tests. `tools/fallout_report.py` remains
+a read-only reporter. Permit edits only to
+`tests/test_extraction_quality_admission.py`'s `ALLOWED_NAMERS` and directly
+related report-reader pins, adding only `tools/fallout_report.py` and/or
+`tools/fallout_run.py` where each actually consumes E columns. Preserve full-tree
+discovery, existence checks and protected-package bans. X's decision-package
+guard already permits tools; no X guard change or protected reader is authorized.
+The original card's hardcode-root append remains required. If a committed
+mutation driver is needed, its only added owned name is
+`tools/p23fallout_mutation_table.py`, with the same report-only boundary.
+Permit that exact mutation-driver filename in E's `ALLOWED_NAMERS` only if its
+proof strings or reporting actually name E columns. Omit unused entries;
+full-tree scanning, existence checks and protected-package bans stay intact.
+
+No edit to the structurer, validator, router, OCR engine, canonical evidence or
+cache-key implementation is authorized by this clarification. B uses their
+existing public behavior. Any actual identity collision or unavailable interface
+must be reported before widening that scope.
+
+## Inputs, identity and offline execution
+
+- Open existing OCR indexes read-only and use one explicitly bound historical
+  key per reading. Reuse the exact-tuple selector, canonical evidence and envelope
+  checks, resolved-path containment, and missing-versus-conflicting distinctions
+  established by E/X. Never enter a compute-on-OCR-miss function.
+- Supply each source's own stored text/page partition and associated canonical
+  geometry. The source is selected explicitly before analysis, not by agreement,
+  quality scores, reconciliation or any final outcome. Preserve the original
+  native versus Tesseract-text distinction where the baseline has no native
+  geometry; label the actual reading instead of silently substituting one.
+  A native sidecar in a Paddle artifact does not authorize pairing its boxes
+  with Paddle text. Resolve the matching stored native text/page partition
+  through the exact historical native source and verify its sidecar hash and
+  canonical document/extractor identity. If a coherent bundle is unavailable,
+  report that requested reading unavailable; do not borrow another source's
+  text, reconstruct substitute text or reopen the PDF to complete it.
+- Use the existing evidence-bound analysis input hash and research-mode settings
+  key. Write new analyses only into a dedicated B research sink. Input caches,
+  their indexes, retained images and W's run records stay immutable.
+  Resolve output paths before creating them and reject aliasing/overlap with
+  every input cache, index, raster directory and protected run output. Record
+  before/after integrity checks on the exact input/index manifests.
+- Require the research environment and consistent explicit analysis settings.
+  Use the real document analysis, serialization and diagnostic classification;
+  a historical reduced structurer verifier cannot replace the validator.
+  Pass `parse_mode="deterministic"` to both analysis and key derivation and keep
+  hosted/Paddle opt-in literals absent. Off/missing mode gives no geometry and
+  no forced generic invocation; it cannot produce an accepted research run.
+- Enforce and measure zero OCR/hosted/network attempts at their boundaries,
+  including calls whose exceptions would otherwise be swallowed. A missing or
+  malformed input stays unavailable or refuses according to the existing reader
+  contract; it cannot trigger another extraction.
+  Any counted attempt invalidates B measurement completion, even when caught
+  by another layer. Keep per-boundary counters distinct from request totals.
+- A cache hit without a matching observation sidecar provides no new stage trace.
+  Keep that diagnostic unavailable; do not infer it from a candidate or verdict,
+  or rerun reconstruction merely to make the report look complete.
+
+## Observe the actual existing structurer call
+
+In a dedicated serial B process, a narrowly scoped observer may temporarily wrap
+the `analysis.structurer.core.structure_document` global used by the unchanged
+`structure_unclaimed` function. This observes calls the real pipeline makes.
+It must not invoke the structurer separately, admit a new route, or make a call
+when the existing pipeline does not make one.
+
+The wrapper calls the original exactly once with the same arguments, returns
+the same result object, and rethrows the same original exception. It captures
+only an immutable whitelist of diagnostic facts with document/source/call
+ordinals. It never changes the candidate or records an exception message.
+The whitelist contains copied, bounded scalar/count facts, never live outcomes,
+statements, raw text, free-form grounding notes or generic `asdict`/`repr` output.
+No caller-provided callback, baseline lookup, routing predicate or financial
+comparison runs in this hot path.
+
+Recording failures must not escape into the production wrapper, where they
+would otherwise turn a valid candidate into `None`. Contain ordinary observer
+errors separately, preserve the analysis behavior, restore the original binding
+in `finally`, and then refuse or explicitly mark the observation incomplete.
+Do not report success from an incomplete observer. Assert original binding and
+exact restoration, reject concurrent/nested observer installation, and keep
+request/observation counts distinct from file aliases or analysis cache hits.
+Preserve cancellation, `SystemExit` and other `BaseException` control flow;
+interrupted runs remain incomplete. Verify restoration on supported Python
+exits; process termination cannot execute `finally` and cannot close a run.
+An original analysis exception must not be replaced by a completion error.
+
+Inside the tools compute closure, finish actual analysis, restore and verify the
+observer, and check observation completeness and zero-attempt counters before
+returning a dictionary to `cached_analysis`. A failed measurement must not be
+cached or published as a completed observed analysis. Preserve the financial
+result/exception; fail only the outer B measurement. A reusable sidecar binds
+the exact analysis identity, selected reading/source artifact, source commit,
+and observation schema/mapping version. If persistence fails after a valid
+financial artifact is stored, retain it and mark observation incomplete. A
+later hit without that complete sidecar stays observation-unavailable; no
+deletion or diagnostic rerun is justified.
+
+Proofs must distinguish transparent forwarding from a successful-looking
+replacement: argument identity, one call, same result object, unchanged result
+contents, same original exception, recorder failure, restoration on every exit,
+research/off behavior, and claimed/declined/ambiguous/parser-exception routes.
+The published document/account payload must be identical with the observer on
+and off on synthetic cases. No duplicate reconstruction is a live proof shortcut.
+
+## Facts and the limits of the current baseline
+
+The returned `StructureOutcome` exposes raw reason, rows, row-line count, sign
+sources, chaining, period provenance and grounding. Record actual returned facts
+and the exception class where applicable. An absent call is not a structurer
+failure; an exception is not an invented detailed refusal reason.
+
+The current baseline has no complete public furniture-removal, table-region,
+column-model, cross-page-continuity or account-partition trace. Those stage cells
+remain explicitly unmeasured. A B-class mapping may include only reviewed
+implications of actual raw reasons/facts. Preserve the raw reason alongside it;
+do not derive a structural cause from reconciliation or missing candidate output.
+Future LayoutModel taxonomy declarations do not establish that those stages ran.
+
+The bounded baseline mappings permitted by this clarification are:
+
+| Actual observed fact | B projection | Limit |
+|---|---|---|
+| `ungrounded` with a present grounding result whose `ok` is false | `B7_grounding_failed` | This actual grounding refusal only |
+| `no_signable_rows` with zero assembled rows | `B8_sign_undeterminable` | No invented per-row sign diagnosis |
+| `no_dated_rows` with zero assembled rows | `B3_records_unassembled` | No inference about tables, columns or furniture |
+
+Other raw reasons remain visible and unmapped. In particular `no_printed_period`
+does not establish that all summary anchors are absent, `ledger_incomplete`
+does not establish broken cross-page continuity, and a period contradiction
+does not establish ambiguous account partitioning. No production taxonomy is
+changed. Recheck these implications against the frozen composed launch source.
+
+The “Paddle helped” report compares supported observed stage facts for the same
+document across requested sources. B-code numbers are not an ordinal progress
+score. Missing sources, unavailable observations, unchanged reached stages and
+financial refusals remain distinct. The report never selects a production source.
+
+## Blind control comparison and truth boundaries
+
+Freeze the CTRL candidate record in a first process before a separate comparison
+process gains access to validated baseline payloads. The first pass receives only
+the population and permitted OCR input descriptors; it must not open financial
+baseline artifacts or read sealed truth. Record candidate identity, account
+shape, required key fields and the frozen file digest. Reject tampering and
+incomplete records rather than silently comparing zeros.
+
+Only the second process opens historical baseline analyses using their exact
+run-of-record identity. Preserve document/account shape and compare debit and
+credit sums separately. Disagreement produces an adjudication candidate, never
+a truth label, a repair or another candidate-generation attempt.
+
+Truth-table/report and adjudication-queue work retain R3 and the existing sealed
+store firewall. The implementation path sees no sealed labels. Report proposed
+versus adjudicated statuses explicitly, use the existing raw/CCL denominator
+rules, and keep research-validated identities outside headline coverage.
+
+## Proof and release
+
+Retain all original B card proofs and mutations, with additional discriminating
+mutants for source/key substitution, OCR miss computation, observer suppression
+or repeated invocation, argument/result mutation, recorder-error leakage,
+restoration failure, fabricated stage facts, and pre-freeze baseline access.
+Each new selection or observation rule has a named behavioral killer.
+
+Use the shared root lock/floor/cap for heavy tests and all corpus runs. Record
+actual input immutability and zero-request counts, run the full B floor, review
+independently, preserve failed attempts and scanner counts, and compose only
+after the cell's gate is green. Implementation begins only at the composed launch tip named by root.
+
+## Independent design review
+
+The E implementer independently inspected the core call binding, pipeline eligibility,
+cache-write boundary, native evidence restoration, E/X reader guards and all three
+raw-reason mappings. Root incorporated the review's five bounded tightenings and
+the exact conditional mutation-driver allowance. The reviewer wrote no B code.
+Source basis: train `f8d130f`, E `f8c9257`, X `f1276b5`; verify the seams again at
+the actual composed launch commit. This is design approval, not an executed B proof.
+The private preparation and review are under `discovery_reports/train13-logs/p23fallout-prep/`.

@@ -16,8 +16,8 @@ the population files were reproduced read-only and ratified unchanged (train `c7
 | cell | current frozen source | recovered / completed this continuation | still owed |
 |---|---|---|---|
 | W | `7897518` | retention and report findings closed independently; optional lossless SSH compression; 123 targeted tests; all 24 mutants killed; suite 9,929 passed / 48 skipped / 39 deselected / zero failed; guards 277; preserved conformance, gate, corpus and full-population replay; first live SLICE session and passing retention attestation | remaining SLICE, final report/W3/scans/review |
-| E | executable `9371781`; guard-only closure in progress | original-key reader independently reviewed; 136 targeted tests / 1 platform skip; all 45 distinct mutations killed; corrected CTRL and U755 censuses; preserved production proofs | suite had one checksum-related hardcode-guard false positive and 9,939 passing tests; narrow guard correction, affected proof, W3/scans/final review |
-| X | `cfb4943`, executable `9b10d8c` | actual Phase 2.2 native reader re-derived all 3,380 hashes, zero moved; independent source probes green; preserved suite 9,911 passed / 48 skipped / 39 deselected / zero failed; corrected 126 targeted tests and 11 affected mutants pass; original-key CTRL census passes | original-key U755 census active, guards, W3/scans/final review |
+| E | final `f8c9257`; executable `9371781`, guard-only `b70cbc3` | original-key censuses, all 49 distinct mutations, 286 guards/self-tests, W3 and scans complete; independent final review approved and recorded on root | compose after W; preserve suite's 9,939 passing tests and historical checksum-guard failure; scanner provenance and raw nonzero exits remain explicit in the review |
+| X | final `f1276b5`, executable `9b10d8c` | all 3,380 native hashes unchanged; preserved suite 9,911 passed; 126 targeted tests, all 28 distinct mutants, 277 guards, original-key CTRL/U755 censuses, W3 and scans complete; independent final review approved and recorded on root | compose after W/E; historical commit-message word matches remain explicitly attributed in the review |
 | P | `57cc715`, executable `e149719` | all five approved callers fenced, original definitions preserved; independent source review green; targeted 754 passed / 3 skipped; NEW five-fence chunk 1 preserves all 504 validated payloads identically, zero movement | six remaining NEW five-fence chunks, changed classifier census, remaining mutants/floor, W3/scans/final review |
 
 The initial X real-evidence census resolved zero Paddle records because research provenance omits
@@ -31,18 +31,33 @@ unnamed rung failure 349, invalid PDF 16, transport error 10. Lost historical ex
 unnamed. Earlier failed attestations remain in the record; an idle clean probe is not a live session
 attestation.
 
-**Active work at 19:04 UTC:** X driver PID 27424 owns the proof window and is running its corrected
-U755 census. Its first targeted attempt failed in three new fixture constructors before exercising
-the reader; the test-only canonical-digest resets are committed at `cfb4943`, and the fresh targeted
-run passes all 126 tests. No failed baseline was scored as a mutation kill. E is preparing a narrow
-test-only correction: the account-number guard matched digits inside the recorded calibration
-checksum. The correction must verify that named digest and mask only its AST string span, with
-negative controls for forged digests and neighboring account-like literals. Production metrics and
-the recorded checksum stay unchanged. Preserve the suite's 9,939 passing tests and the failed log;
-prove the changed guard instead of repeating unrelated green tests. E has no competing waiter.
-After X's final release comes E's short guard/scans window, then W's remaining live SLICE session.
-P remains persistently paused after its successful first five-fence chunk. W's worker and tunnel are
-down. Read current private logs and the lock holder before acting; this snapshot is not process proof.
+**Active work at 19:52 UTC:** W's hidden driver PID 24972 owns the proof window, acquired at
+19:25:40. Endpoint identity, deployment and availability checks passed; the worker declared retention
+disabled. The final live SLICE chunk started at 19:26:19 with **72 pending documents** (70 unattempted
+plus two earlier refusals), using lossless SSH compression. It is one pass, not a loop to force every
+refusal into evidence. Do not restart it. The explicitly associated child directory is
+`research_runs/SLICE/2026-09-15T192623.292399-0000-60a4782c` under the private logs root. A bounded,
+read-only telemetry snapshot at 19:44 observed 10 distinct selected members; this is provisional,
+not final state or retention evidence. Final `chunk.end`, actual child exit and session attestation
+remain owed. E/X have released and have no waiter; P stays paused after its first five-fence chunk.
+Read current logs and the lock holder before acting; this snapshot is not process proof.
+
+E's narrow guard correction verifies the active calibration digest and masks only its AST value
+span. Forged, neighboring, inactive and wrong-module values remain scanned; production metrics and
+the digest are unchanged. The changed guard, self-tests and mutations pass. X's earlier three fixture
+constructor failures remain preserved, followed by the passing corrected target run; no failed
+baseline was scored as a mutant kill. Neither cell repeated unrelated completed production proofs.
+
+Root recorded E/X final approvals in `7fdcd1b` and `f8d130f`. E's raw scan findings include technical
+metric cells with independently verified numeric provenance; E/X commit-message word matches are
+ordinary technical prose under the standing ruling. Their raw counts and nonzero scanner exits are
+preserved in the reviews, not relabeled zero. No cell has composed.
+
+The `P23-FALLOUT.md` card now includes an independently reviewed, bounded tools-only clarification:
+cache-only source-bound inputs, a separate research analysis sink, an observer of the actual existing
+structurer call, and a blind two-process CTRL comparison. It names exact ownership and permits only
+three supported raw-reason B mappings; absent LayoutModel stages remain unmeasured. This does not
+launch B. Its implementation still starts only at root's named tip after W/E/X compose.
 
 The recorded-key boundary is resolved without discarding either runtime. Original CTRL and U755
 rows bind respectively 90 and 341 distinct evidence documents to the same exact indexed key;
