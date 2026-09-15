@@ -376,13 +376,14 @@ def test_the_iou_threshold_is_inclusive_at_exactly_one_half(ledger):
                       width_pt=ledger.width_pt, height_pt=ledger.height_pt)
     assert box_iou((0.0, 0.0, 30.0, 10.0), (10.0, 0.0, 40.0, 10.0)) == pytest.approx(0.5)
     assert len(align(display_words(native), display_words(on))) == 1
-    below = _native_page([("TOTAL", (10.02, 0.0, 40.02, 10.0))],
+    below_box = (10.0 + 1 / 50, 0.0, 40.0 + 1 / 50, 10.0)
+    below = _native_page([("TOTAL", below_box)],
                          width_pt=ledger.width_pt, height_pt=ledger.height_pt)
-    assert box_iou((0.0, 0.0, 30.0, 10.0), (10.02, 0.0, 40.02, 10.0)) < 0.5
+    assert box_iou((0.0, 0.0, 30.0, 10.0), below_box) < 0.5
     assert align(display_words(native), display_words(below)) == ()
 
 
-def test_a_legal_non_uniform_pixel_frame_normalises_to_the_true_points(ledger, truth):
+def test_a_legal_non_uniform_pixel_frame_normalises_to_the_true_points(ledger):
     """Review closure, MINOR-2 / mutant FR2's neighbour. `PageFrame` validates
     each axis' scale against `dpi / 72` only to within `SCALE_TOLERANCE`, so a
     raster rounded to whole pixels can be legally non-uniform. Scaling both
@@ -390,6 +391,11 @@ def test_a_legal_non_uniform_pixel_frame_normalises_to_the_true_points(ledger, t
     several points and drops the pair — a measurement artefact that reads as
     the two engines disagreeing about everything, with `frame_mismatch`
     False. Each axis is scaled by its own factor, so the pair survives."""
+    # Place short words at the page foot, where a legal scale discrepancy
+    # exceeds their IoU matching margin. The earlier ledger-only control
+    # lived too high on the page and could not kill the nominal-scale mutant.
+    truth = [("FOOT", (72.0, 740.0, 112.0, 750.0)),
+             ("EDGE", (200.0, 760.0, 240.0, 770.0))]
     scale = DPI / 72.0
     height_px = round(ledger.height_pt * scale) - 25          # a legal, non-uniform raster
     frame = PageFrame.pixel(page_index=0, raster_width_px=round(ledger.width_pt * scale),
@@ -405,6 +411,8 @@ def test_a_legal_non_uniform_pixel_frame_normalises_to_the_true_points(ledger, t
     )
     extractor = PageEvidence(frame=frame, words=words)
     native = _native_page(truth, width_pt=ledger.width_pt, height_pt=ledger.height_pt)
+    for expected, observed in zip(display_words(native), display_words(extractor)):
+        assert observed.box == pytest.approx(expected.box)
     result = page_agreement(native, extractor)
     assert result.frame_mismatch is False
     assert result.matched_pairs == len(truth)
@@ -939,6 +947,27 @@ def test_the_census_refuses_a_partition_it_cannot_identify(tmp_path, capsys, led
         evidence=_document(extractor, extractor_id=PADDLE_EXTRACTOR)))
     with pytest.raises(CensusRefused, match="--run or --settings-key"):
         main(["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod"])
+
+
+def test_the_census_separates_populations_in_one_shared_partition(tmp_path, capsys, ledger, truth):
+    from tools.agreement_census import CensusRefused, main
+
+    key = _research_cache(tmp_path, ledger, truth)
+    population = tmp_path / "population.shas"
+    population.write_text("D" * 64 + "\n" + "E" * 64 + "\n", encoding="utf-8")
+    arguments = ["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod",
+                 "--settings-key", key, "--shas", str(population)]
+    assert main(arguments) == 0
+    output = capsys.readouterr().out
+    counts = {line.rsplit(maxsplit=1)[0].strip(): int(line.rsplit(maxsplit=1)[1])
+              for line in output.splitlines() if line.startswith("  documents")}
+    assert counts["documents in the selected population"] == 2
+    assert counts["documents with BOTH readings (paired)"] == 0
+    assert counts["documents with one reading (unpaired)"] == 1
+    assert counts["documents whose record could not be read"] == 1
+    population.write_text("", encoding="utf-8")
+    with pytest.raises(CensusRefused, match="nonempty"):
+        main(arguments)
 
 
 def test_the_census_refuses_a_run_recorded_under_another_partition(tmp_path):

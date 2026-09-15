@@ -5,7 +5,8 @@ item 3; umbrella D3).
     python -m tools.agreement_census --data-dir <research cache> --research-partition <id>
         [--run <research run dir> | --settings-key <64 hex>]
         [--native-data-dir <cache> --native-run <run dir>]
-        [--rows <rows.csv>] [--census <per_sha.csv>] [--label CTRL] [--limit N]
+        [--rows <rows.csv>] [--census <per_sha.csv>] [--label CTRL] [--shas <population>]
+        [--limit N]
 
 What it prints
 --------------
@@ -202,6 +203,17 @@ def _families(census: Path | None) -> dict[str, str]:
     return facts
 
 
+def _population(path: Path) -> list[str]:
+    """An explicit population is exact; empty or malformed lists refuse."""
+    values = [line.strip().upper() for line in path.read_text(encoding="utf-8").splitlines()
+              if line.strip()]
+    if not values or any(re.fullmatch(r"[0-9A-F]{64}", value) is None for value in values):
+        raise CensusRefused("refusing --shas: expected a nonempty list of full content hashes")
+    if len(set(values)) != len(values):
+        raise CensusRefused("refusing --shas: the population contains duplicates")
+    return sorted(values)
+
+
 # ---------------------------------------------------------------------------
 # distributions
 # ---------------------------------------------------------------------------
@@ -255,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rows", type=Path, help="a run's rows.csv, for the modality of each sha")
     parser.add_argument("--census", type=Path, help="census_batch9/per_sha.csv, for the census family")
     parser.add_argument("--label", default="partition", help="the population's name (CTRL, U755, ...)")
+    parser.add_argument("--shas", type=Path, help="exact population; absent records are counted")
     parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args(argv)
 
@@ -283,7 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     modalities = _modalities(args.rows)
     families = _families(args.census)
 
-    documents = partition.shas()
+    partition_documents = partition.shas()
+    documents = _population(args.shas) if args.shas else partition_documents
     if args.limit:
         documents = documents[: args.limit]
 
@@ -337,7 +351,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  agreement version {AGREEMENT_VERSION} · IoU {IOU_THRESHOLD} · normaliser "
           f"{TEXT_NORMALISER_VERSION} · table region {TABLE_REGION_VERSION}"
           f" (>= {TABLE_REGION_MIN_MONEY} money shapes)")
-    print(f"  documents in the partition                  {len(documents):>9}")
+    print(f"  documents in the partition                  {len(partition_documents):>9}")
+    print(f"  documents in the selected population        {len(documents):>9}")
     print(f"  documents with BOTH readings (paired)       {paired:>9}")
     print(f"  documents with one reading (unpaired)       {unpaired:>9}")
     print(f"  documents whose record could not be read    {unreadable:>9}")

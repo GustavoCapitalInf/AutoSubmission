@@ -1,4 +1,4 @@
-"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M14 plus
+"""tools/agree_mutation_table.py — the P23-AGREE mutation table (M1-M16 plus
 the review's own FR1 / FR3 / FR4), applied as real textual edits and run for
 real.
 
@@ -191,7 +191,8 @@ MUTANTS: list[Mutant] = [
         ["test_an_indirect_rotate_resolving_to_an_xref_number_is_the_page_every_renderer_shows",
          "test_an_indirect_rotate_resolving_to_an_xref_number_is_read_through_the_parent_walk_too",
          "test_the_resolver_makes_one_call_so_no_reference_shape_can_spin",
-         "test_a_genuine_reference_chain_is_resolved_by_the_library_in_the_readers_one_call"],
+         "test_a_genuine_reference_chain_is_resolved_by_the_library_in_the_readers_one_call",
+         "test_an_indirect_rotate_the_page_does_not_corroborate_is_no_value"],
     ),
     Mutant(
         "M12", "MINOR-2: both axes scaled by one nominal 72 / dpi",
@@ -222,6 +223,22 @@ MUTANTS: list[Mutant] = [
         "            # The two attribute READS are inside the guard too (review\n",
         [T_AGREE],
         ["test_a_document_whose_evidence_attribute_raises_is_a_finding_not_an_exception"],
+    ),
+    Mutant(
+        "M15", "the census ignores the selected population in a shared partition",
+        CENSUS,
+        "    documents = _population(args.shas) if args.shas else partition_documents\n",
+        "    documents = partition_documents\n",
+        [T_AGREE],
+        ["test_the_census_separates_populations_in_one_shared_partition"],
+    ),
+    Mutant(
+        "M16", "the sha census compares the current reader against itself",
+        "tools/agree_native_census.py",
+        "            if _evidence_sha(pdf_bytes) != _evidence_sha(pdf_bytes, baseline_reader):\n",
+        "            if _evidence_sha(pdf_bytes) != _evidence_sha(pdf_bytes):\n",
+        [T_NATIVE],
+        ["test_the_native_census_exits_nonzero_on_movement_or_an_absent_population"],
     ),
 ]
 
@@ -330,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     table = "\n".join([
-        f"# P23-AGREE mutation table (M1-M14, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
+        f"# P23-AGREE mutation table (M1-M16, FR1, FR3, FR4) — tree {tree}, {stamp}", "",
         "| # | mutant | file | killer | result |", "|---|---|---|---|---|",
         *rows, "",
         f"unkilled: {', '.join(unkilled) if unkilled else 'none'}",

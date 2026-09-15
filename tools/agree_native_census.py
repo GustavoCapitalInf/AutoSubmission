@@ -3,7 +3,7 @@ latent native-reader defects Phase 2.3 cell X closes (P23-AGREE item 4; the
 P22-IDENTITY re-review's N-1 and N-2).
 
     python -m tools.agree_native_census --run <run dir> [--archive-root "Bank Statements"]
-        [--limit N] [--verify-every K | --verify-all]
+        [--limit N] [--verify-every K | --verify-all] [--baseline-ref phase2.2-final]
 
 The question this answers, and nothing else: **does any real page of the
 3,380 move?** `EXTRACTION_SCHEMA_VERSION` is cache-key material, so it must
@@ -29,14 +29,11 @@ Two passes, the second only where the first says it can matter.
 2. **Byte pass, on the documents the first flags plus a deterministic
    control sample** (`--verify-every K`, default 50; `--verify-all` for the
    whole archive). The document's `ExtractionEvidence` sha is computed twice
-   from the SAME reader: once as it stands, and once with the two fixed
-   decisions suppressed — `_matrices_agree` forced true (so PyMuPDF's matrix
-   is always taken, the Phase 2.2 behaviour) and `_resolved_rotate_int`
-   forced to `None` (so an indirect `/Rotate` reads as absent, the Phase 2.2
-   behaviour). Two shas that differ are a page that MOVED. Emulating the old
-   behaviour through the new code path — rather than re-implementing it —
-   is what makes the comparison a comparison of the fix and not of two
-   transcriptions.
+   from the SAME PDF bytes: with the current reader and the actual baseline
+   module loaded from the named Git ref. No current helper is monkeypatched
+   to emulate old behaviour. A helper rename therefore cannot silently
+   invalidate the baseline comparison. Both modules use the same canonical
+   evidence contract and runtime; the baseline source never writes a file.
 
 Output is COUNTS ONLY, plus the sha16 of any document that moved (a named
 finding, never beside a verdict, never beside a value). Nothing is written
@@ -47,8 +44,10 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import evidence.native as native_module
@@ -56,6 +55,7 @@ from evidence.native import _display_matrix, _matrices_agree, native_evidence_fr
 
 DEFAULT_ARCHIVE_ROOT = Path("Bank Statements")
 DEFAULT_VERIFY_EVERY = 50
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _rows(run: Path) -> list[tuple[str, str]]:
@@ -93,6 +93,25 @@ class _Counts:
         return f"  {name:<44}{value:>9}"
 
 
+def _rotate_entry(document, page) -> tuple[str, str]:
+    """The nearest effective Rotate entry, including an inherited key."""
+    xref = page.xref
+    seen: set[int] = set()
+    for _ in range(64):
+        if xref in seen:
+            break
+        seen.add(xref)
+        kind, value = document.xref_get_key(xref, "Rotate")
+        if kind not in ("null", ""):
+            return kind, value
+        kind, value = document.xref_get_key(xref, "Parent")
+        head = str(value).strip().split(" ", 1)[0]
+        if kind != "xref" or not head.isdigit():
+            break
+        xref = int(head)
+    return "null", ""
+
+
 def _page_facts(document, page, counts: _Counts) -> bool:
     """Measure one page; return True when this document can move."""
     moved = False
@@ -119,14 +138,14 @@ def _page_facts(document, page, counts: _Counts) -> bool:
         counts.matrix_disagrees += 1
         moved = True
     try:
-        kind, value = document.xref_get_key(page.xref, "Rotate")
+        kind, value = _rotate_entry(document, page)
     except Exception:
         kind, value = "", ""
     if kind == "int":
         counts.rotate_direct += 1
     elif kind == "xref":
         counts.rotate_indirect += 1
-        resolved = native_module._resolved_rotate_int(document, value)
+        resolved = native_module._indirect_rotate(document, page, value)
         if resolved is None:
             counts.rotate_indirect_unresolved += 1
         elif resolved % 90 != 0:
@@ -159,23 +178,25 @@ def _structural(pdf_bytes: bytes, counts: _Counts) -> bool:
     return moved
 
 
-def _evidence_sha(pdf_bytes: bytes) -> str | None:
-    evidence = native_evidence_from_pdf(pdf_bytes)
+def _evidence_sha(pdf_bytes: bytes, reader=native_evidence_from_pdf) -> str | None:
+    evidence = reader(pdf_bytes)
     return None if evidence is None else evidence.evidence_sha256
 
 
-def _base_evidence_sha(pdf_bytes: bytes) -> str | None:
-    """The SAME reader with the two fixed decisions suppressed — the Phase
-    2.2 behaviour, reproduced through the Phase 2.3 code path."""
-    agree = native_module._matrices_agree
-    resolve = native_module._resolved_rotate_int
-    native_module._matrices_agree = lambda left, right: True
-    native_module._resolved_rotate_int = lambda document, value: None
-    try:
-        return _evidence_sha(pdf_bytes)
-    finally:
-        native_module._matrices_agree = agree
-        native_module._resolved_rotate_int = resolve
+def _baseline_reader(ref: str):
+    """Load the committed baseline reader in an isolated module namespace."""
+    resolved = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=ROOT,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    source = subprocess.run(
+        ["git", "show", f"{resolved}:evidence/native.py"], cwd=ROOT,
+        capture_output=True, text=True, encoding="utf-8", check=True,
+    ).stdout
+    module = types.ModuleType("evidence._agreement_census_baseline")
+    module.__package__ = "evidence"
+    exec(compile(source, f"{resolved}:evidence/native.py", "exec"), module.__dict__)
+    return resolved, module.native_evidence_from_pdf
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -186,7 +207,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verify-every", type=int, default=DEFAULT_VERIFY_EVERY,
                         help="also compare evidence shas for every Kth document (0 = only the flagged)")
     parser.add_argument("--verify-all", action="store_true")
+    parser.add_argument("--baseline-ref", default="phase2.2-final")
     args = parser.parse_args(argv)
+    baseline_ref, baseline_reader = _baseline_reader(args.baseline_ref)
 
     documents = _rows(args.run)
     if args.limit:
@@ -217,13 +240,14 @@ def main(argv: list[str] | None = None) -> int:
             flagged.append(sha)
         if can_move or args.verify_all or (args.verify_every and index % args.verify_every == 0):
             verified += 1
-            if _evidence_sha(pdf_bytes) != _base_evidence_sha(pdf_bytes):
+            if _evidence_sha(pdf_bytes) != _evidence_sha(pdf_bytes, baseline_reader):
                 moved_shas.append(sha)
         if index and index % 250 == 0:
             print(f"  ... {index}/{len(documents)} ({time.perf_counter() - started:.0f} s)", flush=True)
 
     print("\n# N-1 / N-2 corpus census (read-only; counts only)")
     print(f"  run                                         {args.run}")
+    print(f"  baseline reader commit                      {baseline_ref}")
     print(counts.line("documents censused", counts.documents))
     print(counts.line("documents not readable as PDF", counts.unreadable_documents))
     print(counts.line("documents absent or sha-mismatched", missing))
@@ -244,11 +268,13 @@ def main(argv: list[str] | None = None) -> int:
     for sha in moved_shas:
         print(f"    moved: {sha[:16]}")
     print(f"  elapsed {time.perf_counter() - started:.0f} s")
-    print("\nVERDICT: " + (
-        "no real corpus page moves — EXTRACTION_SCHEMA_VERSION stays"
-        if not moved_shas and not flagged
-        else "AT LEAST ONE PAGE MOVES — STOP and report before any schema bump"
-    ))
+    if missing or not counts.documents:
+        print("\nVERDICT: INCOMPLETE population — no identity conclusion")
+        return 3
+    if moved_shas:
+        print("\nVERDICT: AT LEAST ONE DOCUMENT MOVES — STOP before any schema bump")
+        return 2
+    print("\nVERDICT: no verified evidence sha moves — EXTRACTION_SCHEMA_VERSION stays")
     return 0
 
 

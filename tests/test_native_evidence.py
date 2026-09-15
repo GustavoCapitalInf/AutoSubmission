@@ -1222,3 +1222,48 @@ def test_a_mixed_document_rotated_and_unrotated_pages_each_get_their_own_frame()
     assert len(first.words) == len(second.words) == 12
     for a, b in zip(first.words, second.words):
         assert (a.x0, a.y0, a.x1, a.y1) == pytest.approx((b.x0, b.y0, b.x1, b.y1), abs=_CROSS_ANGLE_TOLERANCE_PT)
+
+
+def test_the_native_census_loads_a_committed_reader_without_patching_the_current_one(monkeypatch):
+    from tools.agree_native_census import _baseline_reader, _evidence_sha
+    import evidence.native as current
+
+    ref, reader = _baseline_reader("HEAD")
+    assert len(ref) == 40
+    pdf_bytes = _render_upright()
+    expected = _evidence_sha(pdf_bytes)
+    assert _evidence_sha(pdf_bytes, reader) == expected
+    monkeypatch.setattr(current, "_raw_rotate", lambda *_: 45)
+    assert _evidence_sha(pdf_bytes) != expected
+    assert _evidence_sha(pdf_bytes, reader) == expected
+
+
+def test_the_native_census_counts_an_inherited_indirect_rotation():
+    from tools.agree_native_census import _Counts, _structural
+
+    counts = _Counts()
+    pdf_bytes = _with_objects(["45"], inherited=True, extra_pages=0)
+    assert _structural(pdf_bytes, counts) is True
+    assert counts.rotate_indirect == 1
+    assert counts.rotate_indirect_invalid == 1
+
+
+def test_the_native_census_exits_nonzero_on_movement_or_an_absent_population(tmp_path, monkeypatch, capsys):
+    import csv
+    import hashlib
+    from tools import agree_native_census as census
+
+    pdf_bytes = _render_upright()
+    (tmp_path / "synthetic.pdf").write_bytes(pdf_bytes)
+    with (tmp_path / "rows.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["content_sha256", "relative_path"])
+        writer.writeheader()
+        writer.writerow({"content_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+                         "relative_path": "synthetic.pdf"})
+    monkeypatch.setattr(census, "_baseline_reader", lambda _: ("synthetic-control", lambda _: None))
+    args = ["--run", str(tmp_path), "--archive-root", str(tmp_path), "--verify-all"]
+    assert census.main(args) == 2
+    assert "STOP" in capsys.readouterr().out
+    (tmp_path / "synthetic.pdf").unlink()
+    assert census.main(args) == 3
+    assert "INCOMPLETE" in capsys.readouterr().out
