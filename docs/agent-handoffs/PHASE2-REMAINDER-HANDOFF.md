@@ -18,9 +18,9 @@ the population files were reproduced read-only and ratified unchanged (train `c7
 | W | executable `7897518`, reviewed documentation `e377c858` | retention/report/timing complete; optional lossless SSH compression; 123 targeted tests; all 24 mutants killed; suite 9,929 passed / 48 skipped / 39 deselected / zero failed; guards 277; preserved conformance, gate, corpus and full-population replay; SLICE complete, both live attestations passing; final W3 and three scans completed | real archive-identity findings block approval; implement private custody / technical export correction in the appended W card, then focused proof, fresh exports and final scans/review |
 | E | final `f8c9257`; executable `9371781`, guard-only `b70cbc3` | original-key censuses, all 49 distinct mutations, 286 guards/self-tests, W3 and scans complete; independent final review approved and recorded on root | compose after W; preserve suite's 9,939 passing tests and historical checksum-guard failure; scanner provenance and raw nonzero exits remain explicit in the review |
 | X | final `f1276b5`, executable `9b10d8c` | all 3,380 native hashes unchanged; preserved suite 9,911 passed; 126 targeted tests, all 28 distinct mutants, 277 guards, original-key CTRL/U755 censuses, W3 and scans complete; independent final review approved and recorded on root | compose after W/E; historical commit-message word matches remain explicitly attributed in the review |
-| P | `57cc715`, executable `e149719` | all five approved callers fenced, original definitions preserved; independent source review green; targeted 754 passed / 3 skipped; first two NEW five-fence chunks preserve all 929 validated payloads identically; two review outcomes also unchanged | five remaining NEW five-fence chunks (chunk 3 active at the checkpoint below), changed classifier census, remaining mutants/floor, W3/scans/final review |
+| P | `57cc715`, executable `e149719` | all five approved callers fenced, original definitions preserved; independent source review green; targeted 754 passed / 3 skipped; all seven NEW five-fence chunks and independent accounting passed: 2,695 selected payloads identical, including every 2,625 previously validated document, zero outcome/reason/parser movement | changed classifier census, remaining mutants/floor, W3/scans/final review; six changed mutants active at the checkpoint below |
 
-**Latest closure update, 22:34 UTC:** W's final scans at `e377c858` completed at 22:10:54.
+**Latest closure update, 23:02 UTC:** W's final scans at `e377c858` completed at 22:10:54.
 Added lines retained nine operational numeric matches; real messages retained five technical-word
 matches, individually attributed. The 225-output scan reported 41,119 matches with actual exit 1.
 A separate read-only occurrence inventory accounted for every match and all 71,423 producing
@@ -36,12 +36,22 @@ typed export excludes identifying text. Original artifacts and state files remai
 historical exports and measurement equivalence require no new GPU extraction. No generic discovery,
 OCR, analysis, production key or canonical evidence change is authorized by this correction.
 
-P's second five-fence chunk completed with actual exit 0 and released at 22:30:29: 427 documents,
-425 validated and two review, all outcomes/payloads unchanged. Root launched **chunk 3 only** at
-22:33:08, PID 10328, through the unchanged bounded driver. It owns the heavy window and restores
-PAUSE after release. Read current lock/log state before scheduling; no other heavy waiter is allowed.
-No cell has composed; V/B remain unlaunched. The unseen holdout remains unopened in reserved custody.
-Older live/timing/final-scan status paragraphs below are historical and superseded by this update.
+P's final five-fence chunk completed with actual exit 0 at 22:59:37; the driver released and restored
+PAUSE at 22:59:39. Root's separately reviewed accounting window completed at 23:00:51, exit 0:
+the seven parser groups cover exactly 2,695 unique documents with no missing, extra or overlapping
+identities. All payloads are identical: 2,625 validated, 21 review and 49 withheld, all unchanged.
+The other 685 run-of-record documents remain an explicitly reported complement; this is not a
+3,380-document replay, and their cache presence was not remeasured. Root launched the bounded
+**six changed mutants only** at 23:01:25, PID 29012. It owns the heavy window and restores PAUSE
+after release. Read current lock/log state before scheduling; no other heavy waiter is allowed.
+
+W's correction is in progress in the existing W worktree, without imports or tests yet. Source
+review caught path-binding, provenance-binding and version-compatibility gaps; X is closing them
+and adding focused tests and mutations. Historical failed retention inspections retain their exact
+`-1` unavailable counters. E prepares the bounded offline export/report-equivalence proof; P reviews
+state persistence and retry ordering independently. No cell has composed; V/B remain unlaunched.
+The unseen holdout remains unopened in reserved custody. Older live/timing/final-scan status
+paragraphs below are historical and superseded by this update.
 
 The initial X real-evidence census resolved zero Paddle records because research provenance omits
 the production Paddle key. Its exit-zero output is **not calibration evidence**. The closure requires
