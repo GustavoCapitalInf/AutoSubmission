@@ -293,7 +293,10 @@ composition.** Git blobs are LF, working copies CRLF — a rebuild instrument mu
 
 ## 6. Open items for Gustavo (do not decide these yourself)
 
-1. **Decide the wave endpoint.** The current instance is up, Paddle-only and proven, but its uplink
+1. **RESOLVED 2026-09-15: use the configured instance.** Gustavo explicitly selected "Use the configured
+   instance" when execution resumed from this handoff. The remaining SLICE, retention proof and A/B runs
+   proceed on the configured endpoint, resumably; completed CTRL/U755 sessions are preserved.
+   Historical context: the current instance is up, Paddle-only and proven, but its uplink
    (46–77 KB/s) makes the three populations ≈ 33 h instead of ≈ 2 h — a 5090 paid for while it waits on the
    network. Either supply an instance with a decent upload figure (Ocean can provision one in minutes now
    that the interpreter path is configurable) or say "run it here", and the wave goes across two overnight
