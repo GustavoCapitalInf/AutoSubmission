@@ -15,7 +15,7 @@ the population files were reproduced read-only and ratified unchanged (train `c7
 
 | cell | current frozen source | recovered / completed this continuation | still owed |
 |---|---|---|---|
-| W | `7897518` | retention and report findings closed independently; optional lossless SSH compression; 123 targeted tests; all 24 mutants killed; suite 9,929 passed / 48 skipped / 39 deselected / zero failed; guards 277; preserved conformance, gate, corpus and full-population replay; first live SLICE session and passing retention attestation | remaining SLICE, final report/W3/scans/review |
+| W | `7897518` | retention and report findings closed independently; optional lossless SSH compression; 123 targeted tests; all 24 mutants killed; suite 9,929 passed / 48 skipped / 39 deselected / zero failed; guards 277; preserved conformance, gate, corpus and full-population replay; SLICE complete, both live attestations passing, final report derived without state changes | timing binding, final W3/scans/review |
 | E | final `f8c9257`; executable `9371781`, guard-only `b70cbc3` | original-key censuses, all 49 distinct mutations, 286 guards/self-tests, W3 and scans complete; independent final review approved and recorded on root | compose after W; preserve suite's 9,939 passing tests and historical checksum-guard failure; scanner provenance and raw nonzero exits remain explicit in the review |
 | X | final `f1276b5`, executable `9b10d8c` | all 3,380 native hashes unchanged; preserved suite 9,911 passed; 126 targeted tests, all 28 distinct mutants, 277 guards, original-key CTRL/U755 censuses, W3 and scans complete; independent final review approved and recorded on root | compose after W/E; historical commit-message word matches remain explicitly attributed in the review |
 | P | `57cc715`, executable `e149719` | all five approved callers fenced, original definitions preserved; independent source review green; targeted 754 passed / 3 skipped; NEW five-fence chunk 1 preserves all 504 validated payloads identically, zero movement | six remaining NEW five-fence chunks, changed classifier census, remaining mutants/floor, W3/scans/final review |
@@ -31,17 +31,33 @@ unnamed rung failure 349, invalid PDF 16, transport error 10. Lost historical ex
 unnamed. Earlier failed attestations remain in the record; an idle clean probe is not a live session
 attestation.
 
-**Active work at 20:42 UTC:** W's hidden driver PID 24972 owns the proof window, acquired at
-19:25:40. Endpoint identity, deployment and availability checks passed; the worker declared retention
-disabled. The final live SLICE chunk started at 19:26:19 with **72 pending documents** (70 unattempted
-plus two earlier refusals), using lossless SSH compression. It is one pass, not a loop to force every
-refusal into evidence. Do not restart it. The explicitly associated child directory is
-`research_runs/SLICE/2026-09-15T192623.292399-0000-60a4782c` under the private logs root. A bounded,
-read-only telemetry snapshot at 20:37 observed 43 distinct selected members: 36 with Paddle evidence
-identity and seven other observations. This is provisional, not final state or retention evidence.
-Final `chunk.end`, actual child exit and session attestation
-remain owed. E/X have released and have no waiter; P stays paused after its first five-fence chunk.
-Read current logs and the lock holder before acting; this snapshot is not process proof.
+**Live wave completed at 21:31:44 UTC:** W's final SLICE chunk finished with actual `EXIT=0`,
+released its lock and stopped the worker/tunnel. PID 24972 is gone. The chunk processed 72 pending
+documents in one pass, using lossless SSH compression; no retry loop is owed. Final SLICE is
+**80 attempted = 67 evidence / 554 pages + 13 refused / 72 pages**, zero unattempted. All thirteen
+final refusals are `paddle_evidence_malformed`, re-derived from recorded rows. The chunk retained
+478 raster observations with zero mismatches; both continuation sessions total 554. Both corrected
+live attestations pass, with worker/pidfile absent and all recorded file counts zero. Historical
+CTRL/U755 failed attestations remain preserved. The associated child directory is
+`research_runs/SLICE/2026-09-15T192623.292399-0000-60a4782c` under the private logs root.
+
+The unchanged report driver derived `report-final-v2.json` at 21:38:53, `EXIT=0`; all three state
+hashes stayed unchanged. Its first `final` attempt failed before derivation because inherited
+PowerShell 7 module paths hid `Get-FileHash` from Windows PowerShell. The failed output and exit remain
+preserved. Removing `PSModulePath` only in the disposable launch environment fixed command discovery;
+no pinned script changed. Timing-denominator binding, final W3, scans and review remain owed. E/X
+have no waiter; P stays paused after its first five-fence chunk. Read current logs and the lock holder
+before starting the next scheduled proof.
+
+**Unseen holdout custody, 21:37 UTC:** Gustavo designated the newly uploaded `Bank Statements/new`
+folder as never-before-seen statements. It was created after live02 materialized its one-chunk input
+list. Root moved the intact directory outside the checkout and OneDrive to
+`C:\Users\GustavoPrietodePaula\CapitalInfusionHoldout\bankStatementAnalysis\batch_20260915`, verifying
+exact native directory-handle paths before and after the same-volume rename. No child names or file
+contents were read. The private custody record is `HOLDOUT-CUSTODY-20260915.json` under the logs root.
+This is reserved input, not a populated truth store: counts, content hashes, strata and adjudication
+remain unmeasured until sanctioned evaluation intake. Keep it unavailable to development/tuning.
+Future SHA filtering alone is insufficient because discovery reads/profiles PDFs before that filter.
 
 E's narrow guard correction verifies the active calibration digest and masks only its AST value
 span. Forged, neighboring, inactive and wrong-module values remain scanned; production metrics and
@@ -67,9 +83,9 @@ independently proved subset. Its required inverse order restores the crop/line a
 inverting document rotation. V is not launched; synthetic, mutation and live proofs remain owed.
 
 Final W report/scan orchestration is prepared and source-reviewed under the private logs root.
-It remains unexecuted while W owns the window. The sequence is live cleanup and actual exit, one
-final report at the frozen executable tip, one W3 append commit, an explicit frozen output manifest,
-then the three final scans and independent review at the actual final W tip. Encoding conversion is
+Live cleanup, actual exit and final report are now complete. Next are the separately bound timing
+denominators, one W3 append commit, an explicit frozen output manifest, then the three final scans
+and independent review at the actual final W tip. Encoding conversion is
 lossless and BOM-directed; original bytes remain preserved and hash-bound. No scanner exclusion or
 population changes. The output inventory includes historical CTRL/U755 derived outputs as well as
 the current SLICE outputs; earlier partial scans do not attest later changed bytes. Final scan
