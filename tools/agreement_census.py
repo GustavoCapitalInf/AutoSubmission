@@ -206,7 +206,7 @@ def _families(census: Path | None) -> dict[str, str]:
 def _population(path: Path) -> list[str]:
     """An explicit population is exact; empty or malformed lists refuse."""
     values = [line.strip().upper() for line in path.read_text(encoding="utf-8").splitlines()
-              if line.strip()]
+              if line.strip() and not line.lstrip().startswith("#")]
     if not values or any(re.fullmatch(r"[0-9A-F]{64}", value) is None for value in values):
         raise CensusRefused("refusing --shas: expected a nonempty list of full content hashes")
     if len(set(values)) != len(values):

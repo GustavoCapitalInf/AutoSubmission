@@ -954,7 +954,7 @@ def test_the_census_separates_populations_in_one_shared_partition(tmp_path, caps
 
     key = _research_cache(tmp_path, ledger, truth)
     population = tmp_path / "population.shas"
-    population.write_text("D" * 64 + "\n" + "E" * 64 + "\n", encoding="utf-8")
+    population.write_text("# named population\n" + "D" * 64 + "\n" + "E" * 64 + "\n", encoding="utf-8")
     arguments = ["--data-dir", str(tmp_path), "--research-partition", "paddle-v5-prod",
                  "--settings-key", key, "--shas", str(population)]
     assert main(arguments) == 0
