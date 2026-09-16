@@ -23,7 +23,7 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. Its synthetic capability evaluation is complete; development comparison is in progress.
 
-### Latest state — 2026-09-16 21:15 UTC
+### Latest state — 2026-09-16 21:28 UTC
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -55,8 +55,9 @@ remain explicitly unavailable. Preserve that failed record and consumed slots.
 The first VL attempt had an SSH timeout before any page or worker startup.
 Its cleanup check and release passed. The next attempt stopped before inference
 because its supervisor still required synthetic scope. All 40 eligible VL calls
-remain unconsumed; source, input and cleanup checks closed. A development-specific
-supervisor correction is under focused review, preserving the recipe and budget.
+were unconsumed; source, input and cleanup checks closed. The development-specific
+supervisor correction passed all 12 focused controls, preserving the recipe and
+budget. The fresh VL window started at 21:25:07 with 27 pages and 13 fixed repeats.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.
@@ -68,8 +69,10 @@ covers three documents / 13 pages; missing strata must remain explicit. B and P 
 independently approved; V alternative compatibility/comparisons, final closure
 and V/B/P composition remain pending. The separate orientation diagnostic also
 stopped before OCR: its transport wrapper rejected nonempty SSH stderr after a
-successful command. Its original failed cleanup record remains preserved;
-independent cleanup verification is pending before another GPU window.
+successful command. Its original failed cleanup record remains preserved.
+Independent zero-call cleanup verification passed at 21:24:34: original worker,
+bootstrap, helper directory and tunnel absent, with sources unchanged. The native
+VL development window is active; no other heavy window may start until it closes.
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
