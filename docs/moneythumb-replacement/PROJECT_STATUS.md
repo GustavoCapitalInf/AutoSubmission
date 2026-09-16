@@ -16,7 +16,7 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
 The comparison remains unimplemented; no production switch follows automatically.
 
-**Latest execution snapshot, 14:33 UTC (supersedes earlier in-flight counts below):**
+**Latest execution snapshot, 14:27 UTC (supersedes earlier in-flight counts below):**
 V's 78 distinct mutations are accounted for. Its full suite recorded 10,440 passes
 and two stale test failures; reviewed test-only `d5dc8fa` awaits focused recovery.
 B's 65 mutations and bound empty-WAL proof are closed; its metadata freeze kept
