@@ -5,12 +5,35 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T18:22:00Z
+  modified: 2026-09-16T18:43:00Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 18:22 UTC:**
+**Latest execution snapshot, 18:43 UTC:**
+
+All 32 scheduled synthetic fixture calls are complete: 16 native VL calls and
+16 v5 calls, with no retries or extra warmups. The v5 continuation closed at
+18:34:45 with nine responses admitted, all exits/release zero and retention
+checks passed. The original seven-call failure remains preserved; its saved
+blank response was admitted separately without another model call. Restart
+warmup timing is excluded and the two v5 sessions remain explicit.
+
+The offline measurement and reader checks passed 18 and 16 controls. Actual
+scoring against the frozen invented references is next; customer accuracy and
+any broad model ranking remain unmeasured. VL supplies region geometry but no
+word geometry. The 12-document / 33-page development sample remains frozen.
+Blind visual-reference preparation is source-only; no development model calls
+or statement-page reads have occurred in this preparation.
+
+V base replay chunks 3 and 4 preserved 412 and 418 payloads respectively, with
+402 and 409 validated outcomes unchanged. Ten replay legs remain. B and P are
+independently approved; V closure and V/B/P composition remain pending. No heavy
+window is active at this snapshot. The unseen batch remains sealed, and Phase
+2.4 and production admission have not started. Current private checkpoint:
+`discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
+
+**Historical execution snapshot, 18:22 UTC:**
 
 Native VL synthetic capability closed18:12:35:16/16 responses accepted,70 observed
 terminations before the decoding cap,0 unknown/capped observations,0 retries and
