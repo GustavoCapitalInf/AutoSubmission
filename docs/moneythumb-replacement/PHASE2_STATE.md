@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T02:13:00.000Z
+  modified: 2026-09-16T13:04:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
@@ -41,8 +41,20 @@ projection-to-report round-trip passed 65 focused recovery tests; the failed res
 B's truth-report window passed 51 tests and failed one existing test's synthetic-store location;
 that single test passed with its temporary directory outside OneDrive, without changing the guard.
 V's early synthetic window passed 367 tests and failed one fixture's temporary-path precondition;
-that single test passed with a fresh local temporary directory. Actual upstream crop/CTC/helper
-integration remains owed.
+that single test passed with a fresh local temporary directory. The actual pinned upstream
+crop/CTC/helper proof subsequently passed 16 exact-coordinate cases, four unsupported refusals
+and three scratch mutation kills; its earlier scalar floating-point failure is preserved.
+V's actual synthetic cache/index/raster/W integration passed four cases. Root's controller
+and actual W-inspector proof passed all 36 named cases, with zero boundary denials and all
+exits zero, after preserving and correcting an initial collection syntax error. No live model
+result is implied. Comparison source review is closing settings-key, alias and matched-timing
+findings before execution. Five historical sessions lack the recorded warm-up/model contract
+required for controlled pairing and remain historical primary observations.
+B's queue baseline passed 188 tests. Its 51-identity mutation campaign exposed one test gap;
+the test-only successor `c4d52f2` passed five focused baseline cases and killed the unchanged
+M24 mutation through the new same-document substitution case. All 51 identities are now
+accounted for with the original survivor preserved. B's full default suite started at
+13:03:30 UTC; consult the actual private result and lock before scheduling another window.
 Each cell's remaining synthetic, review and live gates precedes execution. No alternative
 configuration has processed customer pages, and no production routing or Paddle pin has changed.
 The new statement batch stays sealed outside the archive until evaluation after design freeze.

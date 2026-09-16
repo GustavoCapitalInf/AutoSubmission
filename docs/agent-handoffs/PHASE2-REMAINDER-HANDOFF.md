@@ -13,7 +13,38 @@ remain the original completed sessions. SLICE is **80 documents / 626 pages**, n
 the population files were reproduced read-only and ratified unchanged (train `c75322a`). The earlier
 33-hour projection was for a full population set, not the outstanding continuation.
 
-### Latest state — 2026-09-16 02:13 UTC
+### Latest state — 2026-09-16 13:04 UTC
+
+Usage resumed and all prior completed proofs were recovered without rerunning them.
+W/E/X remain composed at `b4fe667`; P remains finally approved at `778be7f`, awaiting
+composition after V/B. The actual pinned upstream geometry integration closed with
+16 exact-coordinate cases, four unsupported-shape refusals and three scratch mutation
+kills. Its earlier scalar floating-point failure remains preserved; the recovery changes
+only that scalar comparison tolerance. V's actual synthetic cache/index/raster/W export
+integration passed four cases at `5676921`. Root's live-controller and actual W-inspector
+proof then passed all 36 named cases with zero boundary denials and child/controller/release
+exits zero. The initial controller collection failure is preserved beside its one-character
+syntax correction and successful recovery. These are synthetic proofs, not live model results.
+
+B's 51-identity mutation campaign initially accepted 50 and exposed one fixture gap.
+The test-only successor `c4d52f2` adds same-document, different-evidence substitution;
+all five baseline cases pass, and the unchanged M24 mutation now fails only that new
+case. The original survivor and failed group remain unchanged. Root read all closed
+results, resources and the recovery assertion. B's full default suite is active as of
+13:03:30 UTC, PID 10400, using `p23fallout-prep/floor_synthetic_driver_v2.py`; inspect
+`floor-suite-closure-01` and the actual lock before scheduling another heavy window.
+
+V's comparison implementation is under source review. Findings being closed are exact
+settings-key matching across repeated observations, separation of cache reuse from aliases,
+and explicitly matched timing denominators. No alternative customer run has started.
+The three historical state files contain five sessions without the required recorded
+synthetic warm-up/loaded-model contract; they cannot supply the controlled paired observations.
+Their primary evidence remains available for historical comparison. B's actual input freeze
+and cache-only corpus work remain owed. The sealed unseen batch remains unopened.
+The private checkpoint contains exact source hashes and proof paths. Phase 2.3 through 2.7
+remains authorized on green gates; Phase 3 remains excluded.
+
+### Historical state — 2026-09-16 02:13 UTC
 
 W/E/X are reviewed and composed on `train13`: W merge `2c0bfc2`, E merge `eb33d31`, X merge
 `b4fe667`. W final independent approval is committed at `8f302f9`. Their complete W3 suffixes and
