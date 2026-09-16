@@ -5,12 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T22:00:00Z
+  modified: 2026-09-16T22:19:00Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 22:00 UTC:**
+**Latest execution snapshot, 22:19 UTC:**
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -53,8 +53,13 @@ five admitted, three polygon refusals, one transport refusal and eight untouched
 slots. A monitor SSH connection reset stopped the ninth request before sending.
 The fetched remote resource record confirms a clean worker exit; cleanup, emergency
 verification and release passed at 21:56:37. The original failed status and one
-unexplained blocked input access remain preserved. Offline custody verification
-and an exact eight-slot continuation are being prepared; no consumed slot is replayed.
+unexplained blocked input access remain preserved. Independent offline custody
+verification passed: 165 retained bindings, including 17 PNGs and 13 baseline
+response-file hashes, and the fetched owned-worker resource record. It does not
+establish historical zero denials. Six exact-tail controls and sixteen combined
+scoring-join controls passed. The eight untouched requests are now running in
+remaining02, started at 22:18:20; no consumed slot is replayed. Final v5 repeats,
+scoring and the comparison report remain pending.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.

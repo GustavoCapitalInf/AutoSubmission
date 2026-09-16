@@ -14,9 +14,9 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 **Approved sequencing update, 2026-09-16:** follow the amendment and §G.2.3A of
 `phase2_remainder/PHASE2_REMAINDER_PLAN.md`: bounded VL-1.6 versus v5 research
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
-Synthetic frame and output support passed; development preparation is in progress. No production switch follows automatically.
+Synthetic frame and output support passed; development comparison is in progress. No production switch follows automatically.
 
-**Latest execution snapshot, 22:00 UTC:**
+**Latest execution snapshot, 22:19 UTC:**
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -59,8 +59,13 @@ five admitted, three polygon refusals, one transport refusal and eight untouched
 slots. A monitor SSH connection reset stopped the ninth request before sending.
 The fetched remote resource record confirms a clean worker exit; cleanup, emergency
 verification and release passed at 21:56:37. The original failed status and one
-unexplained blocked input access remain preserved. Offline custody verification
-and an exact eight-slot continuation are being prepared; no consumed slot is replayed.
+unexplained blocked input access remain preserved. Independent offline custody
+verification passed: 165 retained bindings, including 17 PNGs and 13 baseline
+response-file hashes, and the fetched owned-worker resource record. It does not
+establish historical zero denials. Six exact-tail controls and sixteen combined
+scoring-join controls passed. The eight untouched requests are now running in
+remaining02, started at 22:18:20; no consumed slot is replayed. Final v5 repeats,
+scoring and the comparison report remain pending.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.
