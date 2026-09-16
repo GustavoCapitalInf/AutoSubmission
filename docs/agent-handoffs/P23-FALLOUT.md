@@ -270,6 +270,36 @@ document across requested sources. B-code numbers are not an ordinal progress
 score. Missing sources, unavailable observations, unchanged reached stages and
 financial refusals remain distinct. The report never selects a production source.
 
+### Bound extraction and agreement measurements — 2026-09-16 clarification
+
+Historical W runs can lack the later E/X columns, and the completed E/X census
+CLIs retain aggregate distributions rather than per-document metric tables.
+Those totals cannot establish a per-document join. Keep a hash-bound original
+measurement when its document, configuration key and evidence identities match;
+otherwise do not claim that historical row measured E/X.
+
+The owned `tools/fallout_run.py` may produce new measurement facts **after its
+actual financial analysis finishes**, using the existing composed public E/X
+functions. Call `ocr.extraction_quality.eq_row_values` on the bound extractor
+evidence and its actual truncated-page facts. No raster is read for this
+projection, so ink measurements stay unmeasured. Call
+`layout.agreement.document_agreement` and its `row_columns` only when that same
+bound document carries both validated native and extractor evidence. Native-only
+and Tesseract-text readings do not acquire invented extractor measurements.
+
+Bind these private facts to the actual OCR artifact, settings key, both canonical
+evidence digests where present, measurement source versions and source commit.
+Missing evidence or a projection error remains explicitly unmeasured; preserve
+available independent measurements and a closed error class. Projection failure
+must not alter the financial payload, cache entry, candidate choice or observed
+structurer calls. It must not trigger an analysis rerun, OCR, network request or
+PDF read. Keep these facts outside the financial payload and analysis cache.
+The read-only report consumes frozen facts and never recomputes them. No change
+to E/X algorithms, calibration, production taxonomy or protected packages is
+authorized. Add synthetic controls for binding substitution, missing evidence,
+projection failure, unchanged financial results and zero additional structurer
+calls before executing this added measurement path on cached data.
+
 ## Blind control comparison and truth boundaries
 
 Freeze the CTRL candidate record in a first process before a separate comparison
