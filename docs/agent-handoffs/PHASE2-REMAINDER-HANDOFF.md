@@ -23,7 +23,31 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. It remains unimplemented.
 
-### Latest state — 2026-09-16 13:55 UTC
+### Latest state — 2026-09-16 14:33 UTC
+
+V's focused mutation recovery is complete: all 78 distinct identities are now
+accounted for, with the original failures and survivors preserved. Its full suite
+at `a3eb2a26` closed with 10,440 passes and two stale test expectations, actual
+child/controller exit 1 and release 0. Independently reviewed test-only `d5dc8fa`
+retains exact runtime-field equality and exercises predecessor isolation through
+a registered configuration; its two-node recovery remains owed. Production code
+and mutation harness are unchanged.
+
+B's bound empty-WAL proof passed 28 tests and 17 freezer cases; all nine new
+mutations were killed, bringing the distinct total to 65. Actual metadata freeze
+closed with all 467 input bindings unchanged and no financial artifact reads.
+The candidate-first campaign controller has independent source approval but has
+not run. Final B full suite is active at `9fd45077`, PID 30272, under
+`p23fallout-prep/floor-suite-closure-02`; recover the actual result and own release
+before scheduling another heavy window. The private checkpoint has exact pins.
+
+The post-live comparison compiler's journal, directory-identity and legacy
+population controls have been source-reviewed; synthetic execution remains owed.
+No alternative customer run has started. The VL amendment is being prepared from
+official release documentation; its sample has not been selected and the unseen
+batch remains sealed.
+
+### Historical state — 2026-09-16 13:55 UTC
 
 The original V mutation campaign is closed at `f18f7dc`: 65 of 78 identities
 were attempted, with 56 accepted assertion kills, nine test gaps and 13 identities

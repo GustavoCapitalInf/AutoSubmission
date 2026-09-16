@@ -5,10 +5,22 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T13:55:00.000Z
+  modified: 2026-09-16T14:33:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
+
+**Latest execution snapshot, 14:33 UTC (supersedes the detailed earlier counts below):**
+V now accounts for all 78 distinct mutations. Its full suite closed with 10,440
+passes and two stale test expectations (actual exit 1, preserved); independently
+reviewed test-only `d5dc8fa` corrects them, with a two-node recovery still owed.
+B now accounts for 65 distinct mutations; bound empty-WAL handling passed 28 tests
+plus 17 freezer cases and the actual metadata freeze preserved all 467 input
+bindings. Final B suite is active at `9fd45077`, PID 30272. The cache-only campaign
+has source approval but no financial run yet. Read actual private results and lock
+before scheduling. No alternative customer run, VL sample selection or Phase 2.4
+work has begun; the unseen batch remains sealed. The approved bounded VL-1.6/v5
+comparison follows the Phase 2.3 baseline.
 
 Reviewed W/E/X are composed at `b4fe667` on `train13`; their complete W3 histories and reviewed
 source remain intact. W's live wave, custody/export boundary, equivalent historical exports and
