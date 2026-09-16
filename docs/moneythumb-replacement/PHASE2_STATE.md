@@ -5,12 +5,36 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T16:46:00.000Z
+  modified: 2026-09-16T17:19:27.311Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 16:46 UTC:** The VL development sample is frozen at 12 documents / 33 pages, with two
+**Latest execution snapshot, 17:19 UTC:** The VL sample remains frozen at 12 development documents / 33 pages, with six
+repeat documents / 17 pages and an 84-call development ceiling. Eight synthetic
+fixtures are frozen; no VL inference has run. The unseen batch stays sealed.
+
+The configured GPU received all 15 pinned public model assets (2,062,282,301 bytes),
+with every hash verified. Acquisition closed at 17:10:55 UTC with all exits and
+lock release zero (620.7 seconds, 60.4 MiB local peak). Dependency resolution
+identified 26 exact missing wheels and preserved all 87 installed distribution
+metadata records. Their isolated research-overlay installation is active under
+PID 16708/session 68163, started 17:15:50. Read its actual result and release
+before another heavy window.
+
+The observer recovery passed 35 checks with zero audit denials; the comparison
+passed 32. Both closed with all exits and release zero. The original observer
+boundary failure is preserved. Adapter/lifecycle source is reviewed; a narrow
+test-loader correction precedes its 26 model-free checks. Actual native fixture
+capability, resource custody and campaign execution remain pending.
+
+B corpus passed 34 tests, completing its recorded floors; final W3/scans remain.
+V base replay chunk 1 preserved 504 payloads, with thirteen replay legs remaining.
+Orientation diagnostic 02 failed before OCR after the SSH tunnel stopped; a
+reviewed successor adds bounded stderr and actual local exit capture. It is unrun.
+Production compatibility remains green. Phase 2.4 has not started.
+
+**Historical execution snapshot, 16:46 UTC:** The VL development sample is frozen at 12 documents / 33 pages, with two
 examples in each of six modality/evidence groups. Six documents / 17 pages are
 reserved for repeats; the development ceiling is 84 page-model calls including
 v5 controls. Eight non-sensitive fixtures are frozen. No VL model call has run.
