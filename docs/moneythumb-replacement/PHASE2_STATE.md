@@ -5,12 +5,24 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T15:12:00.000Z
+  modified: 2026-09-16T15:40:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 15:12 UTC:** V's Paddle floor passed 639 tests
+**Latest execution snapshot, 15:40 UTC:** Production GPU compatibility passed;
+orientation compatibility remains failed. The diagnostic rerun stopped before
+warm-up because the worker was unreachable; cleanup completed. Existing-log
+inspection is being prepared before further startup. V's recorded gate passed
+105/3/1 with all 14 checks true. B guards passed 289 and conformance passed
+1,282 (41 skipped). The review queue contains 245 packets, including 50 random
+controls; three hit the 40-page cap. No labels or adjudication were produced.
+VL selector tests passed seven; actual membership and model execution remain
+pending. V corpus is active at PID 24572/session 81220. Read actual release
+before another heavy window. The unseen batch stays sealed. Exact scope,
+source pins and remaining obligations are in the current private checkpoint.
+
+**Historical execution snapshot, 15:12 UTC:** V's Paddle floor passed 639 tests
 (one deselected), guards passed 288, and conformance passed 1,282 (41 skipped).
 U755 cache analysis and all four report/proposal windows completed. Truth-proposal
 reports retain 57 proposed changes across 192 scoped documents, 76 paired

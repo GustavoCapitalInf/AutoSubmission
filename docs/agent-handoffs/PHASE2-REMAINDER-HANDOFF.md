@@ -23,7 +23,29 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. It remains unimplemented.
 
-### Latest state — 2026-09-16 15:12 UTC
+### Latest state — 2026-09-16 15:40 UTC
+
+Production GPU compatibility passed with the real installed v5 runtime. The
+orientation check and its diagnostic rerun failed; the latter stopped before
+warm-up because the worker never became reachable. Both failures are preserved,
+and emergency cleanup completed. A bounded existing-log inspection is being
+prepared before any further startup; alternative customer runs remain gated.
+
+V's recorded gate passed all 14 checks with 105 pass / 3 withheld / 1 refused.
+B's guards passed 289 tests and conformance passed 1,282 (41 skipped). The
+review queue contains 245 packets from 869 documents, including 50 random
+controls; three packets hit the 40-page cap. No adjudication or truth-label
+writing occurred. VL's seven selector tests passed; actual membership remains
+unselected and its installed-source inspection is prepared, unrun.
+
+V corpus tests are active at PID 24572/session 81220, started 15:37:45 under
+`p23config-prep/floor-corpus-closure-01`. Read actual result/resources/release
+before another heavy window. The private checkpoint records the explicit
+B replay-scope disposition: its later card's runner-change condition is false,
+so no separate B head replay is required. V and composed-train proof obligations
+remain. The unseen batch stays sealed; the amended plan remains untouched.
+
+### Historical state — 2026-09-16 15:12 UTC
 
 The V Paddle floor closed: 639 passed, one deselected, all exits zero at
 15:06:21. V guards passed 288 and conformance passed 1,282 (41 skipped);

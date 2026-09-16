@@ -16,7 +16,19 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
 The comparison remains unimplemented; no production switch follows automatically.
 
-**Latest execution snapshot, 15:12 UTC:** V passed 639 Paddle tests, 288 guards
+**Latest execution snapshot, 15:40 UTC:** Production GPU compatibility passed.
+Orientation's diagnostic rerun failed before warm-up with an unreachable worker;
+cleanup completed, and existing-log inspection is being prepared. V's recorded
+gate passed 105/3/1 and all 14 checks. B guards passed 289 and conformance passed
+1,282 (41 skipped). The queue contains 245 review packets from 869 documents,
+including 50 random controls; three hit the 40-page cap. No adjudication or
+truth-label writing occurred. VL's seven selector tests passed; actual selection
+and model execution remain pending. V corpus is active at PID 24572/session
+81220; recover its actual result and release before scheduling another window.
+The unseen batch remains sealed. See the private checkpoint for exact bindings
+and the explicit tools-only B replay-scope disposition; V/composed proofs remain.
+
+**Historical execution snapshot, 15:12 UTC:** V passed 639 Paddle tests, 288 guards
 and 1,282 conformance tests (41 skipped). U755 cache analysis and all four
 report/proposal windows closed. The proposals retain 57 classification changes,
 76 paired measurements across 192 scoped documents and zero labels written.
