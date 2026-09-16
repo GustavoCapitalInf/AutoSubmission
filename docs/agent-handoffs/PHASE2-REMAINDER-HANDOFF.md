@@ -23,7 +23,29 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. It remains unimplemented.
 
-### Latest state — 2026-09-16 15:40 UTC
+### Latest state — 2026-09-16 16:46 UTC
+
+The VL development sample is frozen at 12 documents / 33 pages, with two
+examples in each of six modality/evidence groups. Six documents / 17 pages are
+reserved for repeats; the development ceiling is 84 page-model calls including
+v5 controls. Eight non-sensitive fixtures are frozen. No VL model call has run.
+The corrected metadata projection and selector closed successfully; their original
+failed UTC projection remains retained. Installed dependency metadata found fourteen
+missing extras; an exact wheel-only dry-run plan is prepared for review.
+
+V corpus passed 34 tests. V base replay chunk 1 preserved all 504 selected validated
+payloads; thirteen replay legs and accounting remain. B's recorded gate passed all
+14 checks (105 pass / 3 withheld / 1 refused). B corpus is active at PID 28784,
+session 79201, started 16:36:05 under floor-corpus-closure-01. Read actual results,
+resources and own release before another heavy window.
+
+Orientation diagnostic 02 failed before OCR: its first status saw a connection reset,
+and subsequent checks reported the tunnel stopped. All 31 observations are retained;
+zero OCR/customer requests ran, emergency cleanup and lock release completed. The
+production compatibility proof remains green. Alternative customer studies remain
+gated. The unseen batch is sealed; Phase 2.4 has not started.
+
+### Historical state — 2026-09-16 15:40 UTC
 
 Production GPU compatibility passed with the real installed v5 runtime. The
 orientation check and its diagnostic rerun failed; the latter stopped before

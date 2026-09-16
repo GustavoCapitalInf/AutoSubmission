@@ -5,12 +5,32 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T15:40:00.000Z
+  modified: 2026-09-16T16:46:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 15:40 UTC:** Production GPU compatibility passed;
+**Latest execution snapshot, 16:46 UTC:** The VL development sample is frozen at 12 documents / 33 pages, with two
+examples in each of six modality/evidence groups. Six documents / 17 pages are
+reserved for repeats; the development ceiling is 84 page-model calls including
+v5 controls. Eight non-sensitive fixtures are frozen. No VL model call has run.
+The corrected metadata projection and selector closed successfully; their original
+failed UTC projection remains retained. Installed dependency metadata found fourteen
+missing extras; an exact wheel-only dry-run plan is prepared for review.
+
+V corpus passed 34 tests. V base replay chunk 1 preserved all 504 selected validated
+payloads; thirteen replay legs and accounting remain. B's recorded gate passed all
+14 checks (105 pass / 3 withheld / 1 refused). B corpus is active at PID 28784,
+session 79201, started 16:36:05 under floor-corpus-closure-01. Read actual results,
+resources and own release before another heavy window.
+
+Orientation diagnostic 02 failed before OCR: its first status saw a connection reset,
+and subsequent checks reported the tunnel stopped. All 31 observations are retained;
+zero OCR/customer requests ran, emergency cleanup and lock release completed. The
+production compatibility proof remains green. Alternative customer studies remain
+gated. The unseen batch is sealed; Phase 2.4 has not started.
+
+**Historical execution snapshot, 15:40 UTC:** Production GPU compatibility passed;
 orientation compatibility remains failed. The diagnostic rerun stopped before
 warm-up because the worker was unreachable; cleanup completed. Existing-log
 inspection is being prepared before further startup. V's recorded gate passed
