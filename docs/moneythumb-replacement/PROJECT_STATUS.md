@@ -16,7 +16,7 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
 Synthetic frame and output support passed; development preparation is in progress. No production switch follows automatically.
 
-**Latest execution snapshot, 19:03 UTC:**
+**Latest execution snapshot, 19:36 UTC:**
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -29,15 +29,19 @@ The frozen ordered-token measurements favor VL on these invented fixtures,
 but reading-order differences confound recognition-error counts. Customer
 accuracy, transaction reconstruction and a broad model ranking remain
 unmeasured. The 12-document / 33-page development sample and 84-slot ceiling
-remain frozen. Local image and blind reference preparation is source-only;
-no development model calls or statement-page reads have occurred in this
-preparation. References and a statement-kind gate must close before inference.
+remain frozen. All 33 development images rendered, but the final audit refused
+publication after a blocked socket-related event. A synthetic diagnostic reproduced
+only a local hostname lookup inside the PDF dependency, with no connection or
+original-page reads. The failed attempt is preserved; exact image verification
+precedes acceptance. No development model calls, visual labels or Phase 2.4 work
+have started. The unseen batch remains sealed.
 
-V base replay chunk 5 preserved all 426 payloads and 423 validated outcomes,
-with zero movement and all exits/release zero. Base chunk 6 is active at
-PID 26172/session 69976 since 18:59:39 UTC; read its actual closure before
-another heavy window. Nine legs remain including that active leg. B and P
-are independently approved; V closure and V/B/P composition remain pending.
+All seven V baseline replay chunks and head chunks 6–7 passed with zero
+movement. Head chunk 5 is active at PID 6748/session 89929 since 19:35:33 UTC;
+read its actual closure before another heavy window. Head chunks 1–5 and final
+accounting remain. The reference, schedule and v5 interface/transport controls
+passed (14, 12, 18 and 8 checks respectively). B and P are independently
+approved; V closure and V/B/P composition remain pending.
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
