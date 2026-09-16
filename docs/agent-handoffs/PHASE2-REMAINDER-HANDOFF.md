@@ -13,7 +13,35 @@ remain the original completed sessions. SLICE is **80 documents / 626 pages**, n
 the population files were reproduced read-only and ratified unchanged (train `c75322a`). The earlier
 33-hour projection was for a full population set, not the outstanding continuation.
 
-### Latest state — 2026-09-16 13:30 UTC
+### Approved sequencing amendment — 2026-09-16
+
+Gustavo explicitly directed this continuation to follow the approved amendment and
+§G.2.3A in `docs/moneythumb-replacement/phase2_remainder/PHASE2_REMAINDER_PLAN.md`.
+After the Phase 2.3 baseline, run the bounded PaddleOCR-VL-1.6 comparison against
+PP-OCRv5 before starting Phase 2.4. Freeze the development sample and criteria
+before outcomes, verify the supported release and synthetic output contract, keep
+the unseen batch sealed, and retain the production extractor. This research step
+is distinct from the existing v6 A/B and Unlimited OCR. It remains unimplemented.
+
+### Latest state — 2026-09-16 13:55 UTC
+
+The original V mutation campaign is closed at `f18f7dc`: 65 of 78 identities
+were attempted, with 56 accepted assertion kills, nine test gaps and 13 identities
+left unattempted when groups stopped. A focused test-only recovery covers exactly
+those 22 identities; original logs and failures remain intact. No alternative
+customer run has started. Full floors and production replay follow source closure.
+
+B's 178 passing tests are now reconciled with the exact selected test scope;
+the ten corpus cases were intentionally deselected, and no test was rerun for
+reconciliation. Seven affected cache-key mutations passed independent review,
+with M23 explicitly classified as a typed positive-contract refusal rather than
+an assertion failure. The original controller refusal remains preserved. Reviewed
+`9fd4507` adds stable, bound empty-WAL handling to the research readers; its
+focused synthetic proof and actual input-freeze retry remain owed. It does not
+modify, delete or checkpoint original cache files. Read the private checkpoint
+and actual lock before scheduling. The unseen batch remains sealed.
+
+### Historical state — 2026-09-16 13:30 UTC
 
 B's full default suite closed with 10,397 passed and two inventory failures;
 the original child/controller exits are 1 and release is zero. Root authorized

@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T13:30:00.000Z
+  modified: 2026-09-16T13:55:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
@@ -51,7 +51,10 @@ result is implied. Comparison source findings closed at `d7344db`; the affected 
 passed 163 tests and failed one expectation. Test-only `f18f7dc` preserves the existing
 frame-mismatch measurement contract and passed the single affected node. The initial
 mutation controller refused before launching because its catalogue validation omitted
-existing identifiers; that private instrument correction is in preparation. Five historical sessions lack the recorded warm-up/model contract
+existing identifiers; its correction passed the baseline. The ten original mutation
+groups attempted 65 of 78 identities: 56 accepted assertion kills, nine test gaps,
+and 13 unattempted after groups stopped. Exactly 22 identities enter a focused
+test-only recovery, preserving original results. Five historical sessions lack the recorded warm-up/model contract
 required for controlled pairing and remain historical primary observations.
 B's queue baseline passed 188 tests. Its 51-identity mutation campaign exposed one test gap;
 the test-only successor `c4d52f2` passed five focused baseline cases and killed the unchanged
@@ -59,13 +62,20 @@ M24 mutation through the new same-document substitution case. All 51 identities 
 accounted for with the original survivor preserved. B's full default suite closed with
 10,397 passes and two inventory failures. Reviewed `bf982fc` adds the exact inventory
 entries and fixes exact cache-key spelling; its affected runtime passed 178 tests.
-The controller's refusal over ten intentionally deselected corpus cases is undergoing
-exact-scope reconciliation. Input metadata freeze refused a zero-byte WAL sidecar;
-original files stay unchanged while bound empty-sidecar handling is reviewed. Consult
+The controller's refusal over ten intentionally deselected corpus cases is preserved;
+exact-scope reconciliation is complete with zero tests reexecuted. Seven affected
+cache-key mutations passed independent review; M23 is explicitly a typed positive-contract
+refusal. Input metadata freeze refused a zero-byte WAL sidecar. Reviewed `9fd4507`
+adds bound empty-sidecar handling; its focused proof and freeze retry remain owed.
+Original cache files stay unchanged. Consult
 the actual private result and lock before scheduling another window.
 Each cell's remaining synthetic, review and live gates precedes execution. No alternative
 configuration has processed customer pages, and no production routing or Paddle pin has changed.
 The new statement batch stays sealed outside the archive until evaluation after design freeze.
+Gustavo's approved §G.2.3A amendment now requires a bounded development-only
+PaddleOCR-VL-1.6 comparison against v5 after the 2.3 baseline and before Phase 2.4.
+Read its full sample, evidence and measurement requirements before implementation;
+the unseen batch stays sealed and the production extractor remains unchanged.
 Continue Phase 2.3 through 2.7 on green gates under the existing authorization; do not begin Phase 3.
 
 The durable transition log records each merge. The current handoff and private
