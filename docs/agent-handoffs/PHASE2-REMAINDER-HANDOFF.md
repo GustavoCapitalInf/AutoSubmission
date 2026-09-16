@@ -15,10 +15,33 @@ the population files were reproduced read-only and ratified unchanged (train `c7
 
 | cell | current frozen source | recovered / completed this continuation | still owed |
 |---|---|---|---|
-| W | custody correction executable `5c8e86d`; prior final documentation `e377c858` | live extraction, retention, report and timing complete; original suite/replay/floor preserved; corrected custody/export baseline 139 passed; all 22 affected mutants killed with clean restoration | independent paired recovery probes, historical offline exports/equivalence, new W3 and final scans/review; original archive-identity findings remain preserved |
-| E | final `f8c9257`; executable `9371781`, guard-only `b70cbc3` | original-key censuses, all 49 distinct mutations, 286 guards/self-tests, W3 and scans complete; independent final review approved and recorded on root | compose after W; preserve suite's 9,939 passing tests and historical checksum-guard failure; scanner provenance and raw nonzero exits remain explicit in the review |
-| X | final `f1276b5`, executable `9b10d8c` | all 3,380 native hashes unchanged; preserved suite 9,911 passed; 126 targeted tests, all 28 distinct mutants, 277 guards, original-key CTRL/U755 censuses, W3 and scans complete; independent final review approved and recorded on root | compose after W/E; historical commit-message word matches remain explicitly attributed in the review |
-| P | `57cc715`, executable `e149719` | all five approved callers fenced; targeted 754 passed / 3 skipped; all seven NEW five-fence chunks: 2,695 selected payloads identical, including every 2,625 previously validated document; fresh classifier census byte-identical; six changed mutants killed | remaining mutation groups/floor, W3/scans/final review; first remaining group active at the checkpoint below |
+| W | final `0594827`; executable `5c8e86d` | live extraction/retention/report/timing; original floor/replay; custody/export baseline 139 passed, 42 distinct mutants accounted; paired recovery and 15-run/30-export equivalence; W3 and final scans complete; every corrected output finding attributed | independent final review being recorded, then compose; historical archive-identity findings remain preserved |
+| E | final `f8c9257`; executable `9371781`, guard-only `b70cbc3` | original-key censuses, 49 mutations, 286 guards/self-tests, W3/scans and independent final approval recorded on root | compose after W; preserve historical suite checksum-guard failure and narrow recovery scope |
+| X | final `f1276b5`; executable `9b10d8c` | native-byte proof, suite 9,911 passed, 126 targeted, 28 mutants, 277 guards, original-key censuses, W3/scans and independent final approval recorded on root | compose after W/E |
+| P | comment-only `20d23b5`; executable proof `57cc715` / `e149719` | five approved callers fenced; 754 targeted / 3 skipped; exact seven-chunk union 2,695 identical including all 2,625 validated; classifier census byte-identical; all 77 mutants; guards 276; conformance 1,282 / 41 skipped; comment recovery 116 passed | remaining corpus gate/slice/inventory, W3/scans/final review; full suite raw 9,992 passed / 1 comment-guard failure is preserved, not relabeled green |
+
+**Current closure update, 2026-09-16 00:10 UTC:** W's corrected 243-file ordinary-output scan
+retains its actual 8,935 matches and exit 1. All 11,858 producing occurrences now have source-qualified
+dispositions: exact historical reuse, typed exports, structured proof metadata and authored proof prose.
+There are no unresolved findings in this corrected scope. The original 225-file scan's 41,119 matches,
+including 11,151 archive-origin defects, remain unchanged. The private final ledger and reviewer notes
+are under `p23wave-output-triage/custody-disposition01` and `rev23-wave`; the final W review is being
+recorded before composition. This does not assert a zero-hit scan.
+
+P's full suite stopped at 00:00:45 with one failure: the unchanged bank-name architecture guard
+matched the new explanatory comments in `analysis/pipeline.py`. Root replaced only three comment
+lines with generic repair descriptions at `20d23b5`; executable AST and non-comment tokens are
+identical. The independent reviewer accepted a bounded recovery, preserving the failed full-suite
+result. Root recovery PID 20788 (`comment_recovery_driver.py`, SHA256
+`d78bc51f055b10ab249d7bfc1610da98e2285b4da9f8ccc6dee363e9c10518f2`) has completed all 116 affected tests
+and is running the remaining gate, corpus slice and ceremony inventory in a fresh window. Read its
+actual `comment-recovery-01/driver.log` and result before scheduling another proof. No repeated
+full-suite, replay, census or mutation campaign is justified by this comment-only correction.
+
+W/E/X are still uncomposed at this timestamp. V and B have source-based implementation plans and
+await root's named composed W/E/X tip and bounded integration check. No new corpus intake or holdout
+inspection occurred. The following 23:32 update is historical and superseded by these facts.
+
 
 **Latest closure update, 23:32 UTC:** W's original final scans at `e377c858` completed at 22:10:54.
 Added lines retained nine operational numeric matches; real messages retained five technical-word
