@@ -14,89 +14,45 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 **Approved sequencing update, 2026-09-16:** follow the amendment and §G.2.3A of
 `phase2_remainder/PHASE2_REMAINDER_PLAN.md`: bounded VL-1.6 versus v5 research
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
-Synthetic frame and output support passed; development comparison is in progress. No production switch follows automatically.
+The bounded comparison and independently reviewed report are complete. No production switch follows automatically.
 
-**Latest execution snapshot, 22:55 UTC:**
+**Latest execution snapshot, 23:08 UTC:**
 
-All 32 scheduled synthetic fixture calls and offline scoring are complete,
-with no retries or extra warmups. The synthetic coordinate-frame and output
-support gate passed. Both models reproduced their predefined stable evidence
-on all eight repeat pairs. VL supplies region geometry; word geometry remains
-unsupported. The original v5 blank-inspector failure and separate offline
-recovery remain preserved.
+The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.
+See [the comparison report](phase2_remainder/VL16_V5_COMPARISON_REPORT.md) for the configuration, frozen sample, per-modality denominators,
+refusals, measurements and limitations. All 32 synthetic fixture requests and all
+66 eligible development attempt slots have a disposition. Development retained
+65 responses and 59 accepted page observations; seven attempts were refused,
+including one without a response. No failed slot was retried.
 
-The frozen ordered-token measurements favor VL on these invented fixtures,
-but reading-order differences confound recognition-error counts. Customer
-accuracy, transaction reconstruction and a broad model ranking remain unmeasured.
-The 12-document / 33-page development sample and 84-slot ceiling remain frozen.
-Recovery verified all 33 PNGs against freshly rendered bytes, preserving the
-original failed attempt. Independent visual kind reviews agree on seven statements
-and five non-statements; only the statements may be sent. All 33 reference pages
-have agent author and reviewer acceptance, covering 104 amount occurrences and
-12 selected rows/captions. These partial references are not human ground truth
-and cannot establish whole-page omission/addition rates. Final reference publication
-passed at 20:20:04 after correcting five scalar metadata fields to singleton arrays.
-All visual decisions, timestamps and reference annotations remain unchanged; both
-failed publications remain preserved. The first development launch failed locally
-before any upload because a raw configuration hash was compared with reformatted
-JSON. The corrected check passed eight focused controls; original settings and
-the failed attempt remain retained. The fresh v5 pass consumed all 13 requests:
-12 pages passed the adapter and one was refused. Cleanup and owned release passed.
-Offline diagnosis reproduced four word boxes outside the raster. Known inputs
-and sources were reverified unchanged; the original missing final audit counters
-remain explicitly unavailable. Preserve that failed record and consumed slots.
-The first VL attempt had an SSH timeout before any page or worker startup.
-Its cleanup check and release passed. The next attempt stopped before inference
-because its supervisor still required synthetic scope. All 40 eligible VL calls
-were unconsumed; source, input and cleanup checks closed. The development-specific
-supervisor correction passed all 12 focused controls, preserving the recipe and
-budget. The fresh VL window closed at 21:35:13 after 23 requests: 22 admitted
-responses and one runtime refusal for an out-of-frame polygon. Cleanup, resource
-monitoring, source/input checks and owned release passed. Seventeen slots remain
-untouched, including the 13 fixed repeats. That continuation passed ten focused
-controls, then stopped after nine local attempts and eight retained responses:
-five admitted, three polygon refusals, one transport refusal and eight untouched
-slots. A monitor SSH connection reset stopped the ninth request before sending.
-The fetched remote resource record confirms a clean worker exit; cleanup, emergency
-verification and release passed at 21:56:37. The original failed status and one
-unexplained blocked input access remain preserved. Independent offline custody
-verification passed: 165 retained bindings, including 17 PNGs and 13 baseline
-response-file hashes, and the fetched owned-worker resource record. It does not
-establish historical zero denials. Six exact-tail controls and sixteen combined
-scoring-join controls passed. All eight final requests produced admitted responses.
-The worker, resource monitor, cleanup and release closed at 22:26:48. The wrapper
-retains exit 2 because its closing audit recorded another unexplained blocked
-input access; all current source and input byte checks had completed. Across the
-three VL segments, all 40 eligible attempt slots are disposed: 39 responses,
-35 admitted, four polygon refusals and one transport refusal. None is replayed.
-Independent final-segment custody verification passed at 22:31:48, covering
-166 retained bindings with no new model calls. Three focused recovery-gate checks
-passed. The final v5 repeat closed at 22:47:04: 13 responses, 12 admitted pages,
-one adapter refusal and no unattempted slots. Its source/input audit closed with
-zero denials. The main cleanup flag is false despite a passing worker-absence
-attestation; emergency verification and owned release passed. That discrepancy
-is under source review and the failed status is preserved. All 66 eligible attempt
-slots are disposed, with 65 retained responses and 59 admitted page observations.
-Scoring and the report remain pending; both historical VL audit denials stay explicit.
+Only one printed amount on one scanned page is measurable in both models under
+the frozen rules. VL recovered its literal exactly in both passes; v5 did not.
+Both preserved its sign. This is one repeated finding, with no digital or mixed
+common-amount measurement. Each model reproduced its defined evidence on all
+12 measurable repeat pages, but the cohorts and equality definitions differ.
+There is no broad model ranking, production switch or admitted coverage gain.
+The recommendation is separately reviewed further VL research while retaining
+v5 in production. Region-only VL evidence does not satisfy the current word
+consumer; rows, full-page completeness and downstream false accepts remain
+unmeasured.
 
-All fourteen V production replay windows and final accounting passed: 2,695
-evaluated documents remain identical, including all 2,625 validated documents.
-The 685 documents outside that replay union remain unmeasured. Amount-association,
-campaign-control and candidate/scoring interface checks passed (14, 11 and 11).
-The fixed 84-slot schedule admits 66 calls after the blind statement gate: v5
-13 pages twice, VL 27 pages plus a 13-page repeat. The common fresh comparison
-covers three documents / 13 pages; missing strata must remain explicit. B and P are
-independently approved; V alternative compatibility/comparisons, final closure
-and V/B/P composition remain pending. The separate orientation diagnostic also
-stopped before OCR after a successful SSH command. Its overly strict empty-stderr
-requirement was corrected; the original stderr was not retained. Its failed record
-remains preserved.
-Independent zero-call cleanup verification passed at 21:24:34: original worker,
-bootstrap, helper directory and tunnel absent, with sources unchanged. Six focused
-transport controls passed. The fresh one-page synthetic orientation diagnostic
-closed at 21:39:58 with all exits, cleanup and release passing. Its single request
-was refused by the existing rectangular/integer crop-geometry restriction;
-configuration compatibility remains unsupported. No customer request was sent.
+Offline scoring closed at 23:01:35 with all 162 bound files unchanged, zero
+read-boundary denials and no new model, original-document or image reads. The
+report retains the first v5 pass's missing audit counters, both unexplained VL
+audit denials, the interrupted monitor stream and the final v5 cleanup flag.
+Separate custody and cleanup checks establish only their recorded later facts;
+failed runs remain failed. All worker/monitor/tunnel work and owned locks are closed.
+
+Phase 2.3 remains open. All fourteen V production replay windows and final
+accounting passed: 2,695 evaluated documents are identical, including all 2,625
+validated documents; 685 outside the replay union remain unmeasured. B and P are
+independently approved. V alternative compatibility/comparisons, final closure
+and V/B/P composition remain pending. The orientation synthetic diagnostic
+closed at 21:39:58 but its single page was refused by the existing integer,
+rectangular crop-geometry restriction; compatibility remains unsupported.
+The twelve alternative customer stages (311 documents / 1,626 pages) remain unrun.
+The bounded VL study does not waive those obligations.
+
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
