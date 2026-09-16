@@ -5,12 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T21:28:00Z
+  modified: 2026-09-16T21:51:00Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 21:28 UTC:**
+**Latest execution snapshot, 21:51 UTC:**
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -44,7 +44,12 @@ Its cleanup check and release passed. The next attempt stopped before inference
 because its supervisor still required synthetic scope. All 40 eligible VL calls
 were unconsumed; source, input and cleanup checks closed. The development-specific
 supervisor correction passed all 12 focused controls, preserving the recipe and
-budget. The fresh VL window started at 21:25:07 with 27 pages and 13 fixed repeats.
+budget. The fresh VL window closed at 21:35:13 after 23 requests: 22 admitted
+responses and one runtime refusal for an out-of-frame polygon. Cleanup, resource
+monitoring, source/input checks and owned release passed. Seventeen slots remain
+untouched, including the 13 fixed repeats. The exact continuation passed ten
+focused controls and is active since 21:49:11 under independent custody review.
+No consumed request or refused page may be replayed.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.
@@ -55,11 +60,15 @@ The fixed 84-slot schedule admits 66 calls after the blind statement gate: v5
 covers three documents / 13 pages; missing strata must remain explicit. B and P are
 independently approved; V alternative compatibility/comparisons, final closure
 and V/B/P composition remain pending. The separate orientation diagnostic also
-stopped before OCR: its transport wrapper rejected nonempty SSH stderr after a
-successful command. Its original failed cleanup record remains preserved.
+stopped before OCR after a successful SSH command. Its overly strict empty-stderr
+requirement was corrected; the original stderr was not retained. Its failed record
+remains preserved.
 Independent zero-call cleanup verification passed at 21:24:34: original worker,
-bootstrap, helper directory and tunnel absent, with sources unchanged. The native
-VL development window is active; no other heavy window may start until it closes.
+bootstrap, helper directory and tunnel absent, with sources unchanged. Six focused
+transport controls passed. The fresh one-page synthetic orientation diagnostic
+closed at 21:39:58 with all exits, cleanup and release passing. Its single request
+was refused by the existing rectangular/integer crop-geometry restriction;
+configuration compatibility remains unsupported. No customer request was sent.
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
