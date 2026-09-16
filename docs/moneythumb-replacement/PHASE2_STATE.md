@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T00:44:00.000Z
+  modified: 2026-09-16T01:12:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
@@ -14,16 +14,23 @@ Reviewed W/E/X are composed at `b4fe667` on `train13`; their complete W3 histori
 source remain intact. W's live wave, custody/export boundary, equivalent historical exports and
 source-qualified final privacy review are complete. Raw historical failures and scanner counts stay
 visible. The five-fence P replay preserves all 2,695 selected payloads, including all 2,625 validated
-results; classifier census is unchanged and all 77 completed mutations are accounted for. Its full
+results; classifier census is unchanged and all 82 completed mutations are accounted for. Its full
 suite's sole comment-guard failure is preserved; the generic-comment correction passed 116 affected
 tests, the 105/3/1 corpus gate, all 34 corpus tests and the ceremony inventory. The ceremony-console
-privacy correction is committed at `ee0234e`; its focused baseline passed 46 tests. Five new
-instrument-only mutations, independent paired proof, W3 and final privacy review remain open.
+privacy correction is committed at `ee0234e`; its focused baseline passed 46 tests, five new
+instrument-only mutations were killed, and independent paired proof is closed. W3 is frozen at
+`778be7f` with its 82-row join reviewed. The strict output freeze refused a legacy text encoding;
+the originals and actual exit 2 remain preserved. A byte-only diagnostic found 19 affected files
+among 240. Source-qualified encoding review precedes the final 243-file freeze, scans and attribution.
 
 V and B now implement in separate worktrees based on `b4fe667`. Root deliberately permits this
 independent source work during serialized proof windows. The composed integration passed 74 tests,
 the exact two expected M7 mutation failures and two restoration checks, with a clean final tree.
-Each cell's synthetic, review, manifest and live gates still precedes execution. No alternative
+V's metadata-only compiler passed synthetic proof and froze six study manifests. The V6 sample is
+48 documents / 220 known pages; the orientation subset retains its explicit unknown-profile
+disposition and unchanged held-metadata compiler result. B's observer passed 45 synthetic tests with
+no unintended application store; the blind comparison is source-reviewed and awaits proof.
+Each cell's remaining synthetic, review and live gates precedes execution. No alternative
 configuration has processed customer pages, and no production routing or Paddle pin has changed.
 The new statement batch stays sealed outside the archive until evaluation after design freeze.
 Continue Phase 2.3 through 2.7 on green gates under the existing authorization; do not begin Phase 3.
