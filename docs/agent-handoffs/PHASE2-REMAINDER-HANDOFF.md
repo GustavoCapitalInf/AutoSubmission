@@ -21,9 +21,9 @@ After the Phase 2.3 baseline, run the bounded PaddleOCR-VL-1.6 comparison agains
 PP-OCRv5 before starting Phase 2.4. Freeze the development sample and criteria
 before outcomes, verify the supported release and synthetic output contract, keep
 the unseen batch sealed, and retain the production extractor. This research step
-is distinct from the existing v6 A/B and Unlimited OCR. Its synthetic capability evaluation is in progress.
+is distinct from the existing v6 A/B and Unlimited OCR. Its synthetic capability evaluation is complete; development comparison is in progress.
 
-### Latest state — 2026-09-16 20:43 UTC
+### Latest state — 2026-09-16 21:04 UTC
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -47,7 +47,14 @@ All visual decisions, timestamps and reference annotations remain unchanged; bot
 failed publications remain preserved. The first development launch failed locally
 before any upload because a raw configuration hash was compared with reformatted
 JSON. The corrected check passed eight focused controls; original settings and
-the failed attempt remain retained. The fresh v5 baseline pass is now active.
+the failed attempt remain retained. The fresh v5 pass consumed all 13 requests:
+12 pages passed the adapter and one was refused. Cleanup and owned release passed.
+Offline diagnosis reproduced four word boxes outside the raster. Known inputs
+and sources were reverified unchanged; the original missing final audit counters
+remain explicitly unavailable. Preserve that failed record and consumed slots.
+The first VL attempt had an SSH timeout before any page or worker startup.
+Its cleanup check and release passed; a fresh, independently reviewed attempt
+is active with the original request budget.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.
@@ -57,7 +64,7 @@ The fixed 84-slot schedule admits 66 calls after the blind statement gate: v5
 13 pages twice, VL 27 pages plus a 13-page repeat. The common fresh comparison
 covers three documents / 13 pages; missing strata must remain explicit. B and P are
 independently approved; V alternative compatibility/comparisons, final closure
-and V/B/P composition remain pending. One v5 development window is active.
+and V/B/P composition remain pending. One native VL development window is active.
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
