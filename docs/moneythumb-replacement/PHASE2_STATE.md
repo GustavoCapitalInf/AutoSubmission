@@ -5,12 +5,24 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T14:50:00.000Z
+  modified: 2026-09-16T15:12:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 14:50 UTC:** B's final suite passed 10,435 tests
+**Latest execution snapshot, 15:12 UTC:** V's Paddle floor passed 639 tests
+(one deselected), guards passed 288, and conformance passed 1,282 (41 skipped).
+U755 cache analysis and all four report/proposal windows completed. Truth-proposal
+reports retain 57 proposed changes across 192 scoped documents, 76 paired
+measurements and zero truth labels written. CTRL false-accept accuracy remains
+unmeasured with zero eligible Paddle payloads compared. SLICE binding and its
+independent review closed: 67 successes, 13 refusals, two aliases, originals
+unchanged. Actual GPU synthetic compatibility is active at PID 29172/session
+39457, `backend-prod-closure-01`, started 15:12:16; read actual cleanup/release
+before another window. VL selector source is approved; no actual sample selection
+or Phase 2.4 work has begun. The unseen batch remains sealed.
+
+**Historical execution snapshot, 14:50 UTC:** B's final suite passed 10,435 tests
 (49 skipped, 39 deselected); V's two test-only recoveries passed with zero audit
 denials. Original failures remain preserved. Shared replay-accounting controls
 passed 24 cases and B's additional bindings passed 26. CTRL analysis, candidate

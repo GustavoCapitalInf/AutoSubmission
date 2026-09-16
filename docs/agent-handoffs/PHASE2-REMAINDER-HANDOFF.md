@@ -23,7 +23,28 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. It remains unimplemented.
 
-### Latest state — 2026-09-16 14:50 UTC
+### Latest state — 2026-09-16 15:12 UTC
+
+The V Paddle floor closed: 639 passed, one deselected, all exits zero at
+15:06:21. V guards passed 288 and conformance passed 1,282 (41 skipped);
+the earlier memory-floor refusal is preserved. U755 cache analysis completed
+with 1,067 available readings and 1,198 unavailable readings. Both fallout
+reports and both truth-proposal reports closed successfully. The latter retain
+57 proposed classification changes across 192 scoped documents, with 76 paired
+measurements and no truth labels written. CTRL's false-accept comparison remains
+unmeasured: zero eligible Paddle payloads compared.
+
+SLICE historical binding passed and received independent review: 67 successes,
+13 refusals and two aliases, with original inputs unchanged. The actual GPU
+synthetic compatibility window is active at PID 29172/session 39457, started
+15:12:16, under `p23config-prep/backend-prod-closure-01`. Read its actual result,
+cleanup and own-release receipt before scheduling another heavy window.
+
+The bounded VL selector has source approval; its tests and actual selection have
+not run. Remaining baseline studies and gates precede VL execution. The unseen
+batch stays sealed. The user's amended planning file remains untouched.
+
+### Historical state — 2026-09-16 14:50 UTC
 
 B's final full suite closed green at `9fd45077`: 10,435 passed, 49 skipped,
 39 deselected. V's two test-only corrections at `d5dc8fa` passed their focused

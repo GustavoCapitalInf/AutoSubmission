@@ -16,7 +16,18 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
 The comparison remains unimplemented; no production switch follows automatically.
 
-**Latest execution snapshot, 14:50 UTC:** B's final full suite passed 10,435 tests;
+**Latest execution snapshot, 15:12 UTC:** V passed 639 Paddle tests, 288 guards
+and 1,282 conformance tests (41 skipped). U755 cache analysis and all four
+report/proposal windows closed. The proposals retain 57 classification changes,
+76 paired measurements across 192 scoped documents and zero labels written.
+CTRL false-accept accuracy is unmeasured: zero eligible Paddle payloads compared.
+SLICE binding is independently approved with 67 successes, 13 refusals and two
+aliases; original inputs unchanged. GPU synthetic compatibility is active at
+PID 29172/session 39457, `backend-prod-closure-01`, started 15:12:16. Read actual
+cleanup and release before scheduling. VL selector source is approved, with no
+actual selection or VL outcome yet; the unseen batch remains sealed.
+
+**Historical execution snapshot, 14:50 UTC:** B's final full suite passed 10,435 tests;
 V's two test-only recoveries passed. Replay-accounting controls passed 24 shared
 and 26 B-specific cases. CTRL cache-only analysis, candidate freeze and separate
 baseline comparison closed successfully with frozen inputs unchanged. Compiler
