@@ -5,12 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T22:31:00Z
+  modified: 2026-09-16T22:55:00Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 22:31 UTC:**
+**Latest execution snapshot, 22:55 UTC:**
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -64,8 +64,14 @@ input access; all current source and input byte checks had completed. Across the
 three VL segments, all 40 eligible attempt slots are disposed: 39 responses,
 35 admitted, four polygon refusals and one transport refusal. None is replayed.
 Independent final-segment custody verification passed at 22:31:48, covering
-166 retained bindings with no new model calls. Final v5 repeats, scoring and the
-report remain pending; both historical audit denials stay explicit.
+166 retained bindings with no new model calls. Three focused recovery-gate checks
+passed. The final v5 repeat closed at 22:47:04: 13 responses, 12 admitted pages,
+one adapter refusal and no unattempted slots. Its source/input audit closed with
+zero denials. The main cleanup flag is false despite a passing worker-absence
+attestation; emergency verification and owned release passed. That discrepancy
+is under source review and the failed status is preserved. All 66 eligible attempt
+slots are disposed, with 65 retained responses and 59 admitted page observations.
+Scoring and the report remain pending; both historical VL audit denials stay explicit.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.
