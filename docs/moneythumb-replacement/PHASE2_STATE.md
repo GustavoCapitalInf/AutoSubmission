@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T00:25:00.000Z
+  modified: 2026-09-16T00:44:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
@@ -16,12 +16,14 @@ source-qualified final privacy review are complete. Raw historical failures and 
 visible. The five-fence P replay preserves all 2,695 selected payloads, including all 2,625 validated
 results; classifier census is unchanged and all 77 completed mutations are accounted for. Its full
 suite's sole comment-guard failure is preserved; the generic-comment correction passed 116 affected
-tests and the 105/3/1 corpus gate. Corpus/inventory, a bounded ceremony-console privacy correction,
-W3 and final review remain open.
+tests, the 105/3/1 corpus gate, all 34 corpus tests and the ceremony inventory. The ceremony-console
+privacy correction is committed at `ee0234e`; its focused baseline passed 46 tests. Five new
+instrument-only mutations, independent paired proof, W3 and final privacy review remain open.
 
 V and B now implement in separate worktrees based on `b4fe667`. Root deliberately permits this
-independent source work while the serialized P corpus slice runs; the pending composed integration
-check and each cell's synthetic, review, manifest and live gates still precede execution. No alternative
+independent source work during serialized proof windows. The composed integration passed 74 tests,
+the exact two expected M7 mutation failures and two restoration checks, with a clean final tree.
+Each cell's synthetic, review, manifest and live gates still precedes execution. No alternative
 configuration has processed customer pages, and no production routing or Paddle pin has changed.
 The new statement batch stays sealed outside the archive until evaluation after design freeze.
 Continue Phase 2.3 through 2.7 on green gates under the existing authorization; do not begin Phase 3.

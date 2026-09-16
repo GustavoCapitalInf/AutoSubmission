@@ -13,7 +13,33 @@ remain the original completed sessions. SLICE is **80 documents / 626 pages**, n
 the population files were reproduced read-only and ratified unchanged (train `c75322a`). The earlier
 33-hour projection was for a full population set, not the outstanding continuation.
 
-| cell | current frozen source | recovered / completed this continuation | still owed |
+### Latest state — 2026-09-16 00:44 UTC
+
+W/E/X are reviewed and composed on `train13`: W merge `2c0bfc2`, E merge `eb33d31`, X merge
+`b4fe667`. W final independent approval is committed at `8f302f9`. Their complete W3 suffixes and
+source contracts are preserved. The bounded integration at clean `b4fe667` completed at 00:34:19:
+74 baseline tests passed; M7 produced exactly its two expected failing tests and the harness exited
+zero; both restored tests passed. Controller/release exits are zero and the detached integration tree
+is clean. Fresh composed full floors, union replay, cold run and remote CI remain later gates.
+
+P's comment recovery completed at 00:32:41: 116 affected tests, gate 105/3/1, 34 corpus tests and
+inventory all passed. Its original full-suite one-failure result remains preserved. The separate
+ceremony-console correction at `ee0234e` captures replay reports/diagnostics in private custody and
+emits only fixed status/exits/counts. Its focused baseline passed 46 tests at 00:41:41. Five new
+instrument-only mutations and independent old/new synthetic proof are pending; no financial replay
+is repeated for that tool-only correction. Final P W3, output scope, scans and review remain owed.
+
+V and B actively implement in isolated worktrees from `b4fe667`, with source-only milestones and
+no alternative live execution yet. Root is preparing the metadata-only V study selector and synthetic
+proof; the seed and whole-document selection rule were fixed before reading study metadata. The
+new statement batch remains sealed outside the archive. The private checkpoint names current
+drivers and exact proof paths; inspect its latest entry and the actual lock before scheduling work.
+
+### Historical closure snapshot — 2026-09-16 00:10 UTC
+
+The following table and closure notes retain their original timestamp; the latest state above supersedes them.
+
+| cell | frozen source at this timestamp | recovered / completed this continuation | still owed at this timestamp |
 |---|---|---|---|
 | W | final `0594827`; executable `5c8e86d` | live extraction/retention/report/timing; original floor/replay; custody/export baseline 139 passed, 42 distinct mutants accounted; paired recovery and 15-run/30-export equivalence; W3 and final scans complete; every corrected output finding attributed | independent final review being recorded, then compose; historical archive-identity findings remain preserved |
 | E | final `f8c9257`; executable `9371781`, guard-only `b70cbc3` | original-key censuses, 49 mutations, 286 guards/self-tests, W3/scans and independent final approval recorded on root | compose after W; preserve historical suite checksum-guard failure and narrow recovery scope |
