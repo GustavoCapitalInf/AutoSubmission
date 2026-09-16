@@ -23,7 +23,28 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. It remains unimplemented.
 
-### Latest state — 2026-09-16 14:27 UTC
+### Latest state — 2026-09-16 14:50 UTC
+
+B's final full suite closed green at `9fd45077`: 10,435 passed, 49 skipped,
+39 deselected. V's two test-only corrections at `d5dc8fa` passed their focused
+recovery; the original 10,440-pass/two-failure suite remains preserved. Shared
+replay-accounting controls passed 24 cases and B's additional bindings passed 26.
+
+The actual CTRL cache-only analysis, candidate freeze and separate baseline
+comparison closed with all exits zero and original inputs unchanged. Analysis
+processed 204 available readings across 114 documents, with 138 unavailable
+readings retained. U755 analysis is active under PID 24184/session 16158, started
+14:48:44 UTC. The post-live input compiler passed
+35 tests and failed one expectation about intentionally empty fallback groups;
+its test-only, one-node recovery passed with all exits and audit counts zero at
+14:46:48. Read U755's actual result and release before another heavy window.
+
+The bounded VL design and official-source notes are prepared and adopted, but
+sample membership and runtime are not yet frozen. No alternative customer run
+or Phase 2.4 work has started. The unseen batch remains sealed. Exact source pins,
+results and next steps are in the private checkpoint and execution queue.
+
+### Historical state — 2026-09-16 14:27 UTC
 
 V's focused mutation recovery is complete: all 78 distinct identities are now
 accounted for, with the original failures and survivors preserved. Its full suite

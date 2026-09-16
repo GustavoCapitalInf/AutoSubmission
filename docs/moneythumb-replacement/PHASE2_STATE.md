@@ -5,12 +5,24 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T14:27:00.000Z
+  modified: 2026-09-16T14:50:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 14:27 UTC (supersedes the detailed earlier counts below):**
+**Latest execution snapshot, 14:50 UTC:** B's final suite passed 10,435 tests
+(49 skipped, 39 deselected); V's two test-only recoveries passed with zero audit
+denials. Original failures remain preserved. Shared replay-accounting controls
+passed 24 cases and B's additional bindings passed 26. CTRL analysis, candidate
+freeze and separate baseline comparison closed with all exits zero and inputs
+unchanged. Compiler proof retained 35 passes and one test-expectation failure;
+its one-node recovery passed at 14:46:48 with all exits and audit counts zero.
+U755 analysis is active, PID 24184/session 16158, started 14:48:44.
+Recover the actual result and own release before scheduling. VL design is prepared;
+no sample selection, alternative customer study or Phase 2.4 work has begun.
+The unseen batch remains sealed.
+
+**Historical execution snapshot, 14:27 UTC:**
 V now accounts for all 78 distinct mutations. Its full suite closed with 10,440
 passes and two stale test expectations (actual exit 1, preserved); independently
 reviewed test-only `d5dc8fa` corrects them, with a two-node recovery still owed.

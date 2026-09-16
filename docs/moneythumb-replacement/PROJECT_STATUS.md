@@ -16,7 +16,16 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
 The comparison remains unimplemented; no production switch follows automatically.
 
-**Latest execution snapshot, 14:27 UTC (supersedes earlier in-flight counts below):**
+**Latest execution snapshot, 14:50 UTC:** B's final full suite passed 10,435 tests;
+V's two test-only recoveries passed. Replay-accounting controls passed 24 shared
+and 26 B-specific cases. CTRL cache-only analysis, candidate freeze and separate
+baseline comparison closed successfully with frozen inputs unchanged. Compiler
+proof retained 35 passes and one test-expectation failure; its one-node recovery
+passed. U755 analysis is active at PID 24184/session 16158. Read its actual result and
+release before scheduling. VL design is prepared; membership/runtime remain
+unfrozen, and the unseen batch stays sealed. No Phase 2.4 work has begun.
+
+**Historical execution snapshot, 14:27 UTC:**
 V's 78 distinct mutations are accounted for. Its full suite recorded 10,440 passes
 and two stale test failures; reviewed test-only `d5dc8fa` awaits focused recovery.
 B's 65 mutations and bound empty-WAL proof are closed; its metadata freeze kept
