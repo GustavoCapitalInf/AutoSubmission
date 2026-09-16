@@ -5,12 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T21:04:00Z
+  modified: 2026-09-16T21:15:00Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 21:04 UTC:**
+**Latest execution snapshot, 21:15 UTC:**
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -40,8 +40,10 @@ Offline diagnosis reproduced four word boxes outside the raster. Known inputs
 and sources were reverified unchanged; the original missing final audit counters
 remain explicitly unavailable. Preserve that failed record and consumed slots.
 The first VL attempt had an SSH timeout before any page or worker startup.
-Its cleanup check and release passed; a fresh, independently reviewed attempt
-is active with the original request budget.
+Its cleanup check and release passed. The next attempt stopped before inference
+because its supervisor still required synthetic scope. All 40 eligible VL calls
+remain unconsumed; source, input and cleanup checks closed. A development-specific
+supervisor correction is under focused review, preserving the recipe and budget.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.
@@ -51,7 +53,10 @@ The fixed 84-slot schedule admits 66 calls after the blind statement gate: v5
 13 pages twice, VL 27 pages plus a 13-page repeat. The common fresh comparison
 covers three documents / 13 pages; missing strata must remain explicit. B and P are
 independently approved; V alternative compatibility/comparisons, final closure
-and V/B/P composition remain pending. One native VL development window is active.
+and V/B/P composition remain pending. The separate orientation diagnostic also
+stopped before OCR: its transport wrapper rejected nonempty SSH stderr after a
+successful command. Its original failed cleanup record remains preserved;
+independent cleanup verification is pending before another GPU window.
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
