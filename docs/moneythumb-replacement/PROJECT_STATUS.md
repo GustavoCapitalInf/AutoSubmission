@@ -14,29 +14,32 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 **Approved sequencing update, 2026-09-16:** follow the amendment and §G.2.3A of
 `phase2_remainder/PHASE2_REMAINDER_PLAN.md`: bounded VL-1.6 versus v5 research
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
-Synthetic capability evaluation is in progress; no production switch follows automatically.
+Synthetic frame and output support passed; development preparation is in progress. No production switch follows automatically.
 
-**Latest execution snapshot, 18:43 UTC:**
+**Latest execution snapshot, 19:03 UTC:**
 
-All 32 scheduled synthetic fixture calls are complete: 16 native VL calls and
-16 v5 calls, with no retries or extra warmups. The v5 continuation closed at
-18:34:45 with nine responses admitted, all exits/release zero and retention
-checks passed. The original seven-call failure remains preserved; its saved
-blank response was admitted separately without another model call. Restart
-warmup timing is excluded and the two v5 sessions remain explicit.
+All 32 scheduled synthetic fixture calls and offline scoring are complete,
+with no retries or extra warmups. The synthetic coordinate-frame and output
+support gate passed. Both models reproduced their predefined stable evidence
+on all eight repeat pairs. VL supplies region geometry; word geometry remains
+unsupported. The original v5 blank-inspector failure and separate offline
+recovery remain preserved.
 
-The offline measurement and reader checks passed 18 and 16 controls. Actual
-scoring against the frozen invented references is next; customer accuracy and
-any broad model ranking remain unmeasured. VL supplies region geometry but no
-word geometry. The 12-document / 33-page development sample remains frozen.
-Blind visual-reference preparation is source-only; no development model calls
-or statement-page reads have occurred in this preparation.
+The frozen ordered-token measurements favor VL on these invented fixtures,
+but reading-order differences confound recognition-error counts. Customer
+accuracy, transaction reconstruction and a broad model ranking remain
+unmeasured. The 12-document / 33-page development sample and 84-slot ceiling
+remain frozen. Local image and blind reference preparation is source-only;
+no development model calls or statement-page reads have occurred in this
+preparation. References and a statement-kind gate must close before inference.
 
-V base replay chunks 3 and 4 preserved 412 and 418 payloads respectively, with
-402 and 409 validated outcomes unchanged. Ten replay legs remain. B and P are
-independently approved; V closure and V/B/P composition remain pending. No heavy
-window is active at this snapshot. The unseen batch remains sealed, and Phase
-2.4 and production admission have not started. Current private checkpoint:
+V base replay chunk 5 preserved all 426 payloads and 423 validated outcomes,
+with zero movement and all exits/release zero. Base chunk 6 is active at
+PID 26172/session 69976 since 18:59:39 UTC; read its actual closure before
+another heavy window. Nine legs remain including that active leg. B and P
+are independently approved; V closure and V/B/P composition remain pending.
+The unseen batch remains sealed. Phase 2.4 and production admission have not
+started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
 
 **Historical execution snapshot, 18:22 UTC:**
