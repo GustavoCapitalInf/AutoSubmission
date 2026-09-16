@@ -23,7 +23,7 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. Its synthetic capability evaluation is in progress.
 
-### Latest state — 2026-09-16 19:36 UTC
+### Latest state — 2026-09-16 20:10 UTC
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -34,21 +34,22 @@ recovery remain preserved.
 
 The frozen ordered-token measurements favor VL on these invented fixtures,
 but reading-order differences confound recognition-error counts. Customer
-accuracy, transaction reconstruction and a broad model ranking remain
-unmeasured. The 12-document / 33-page development sample and 84-slot ceiling
-remain frozen. All 33 development images rendered, but the final audit refused
-publication after a blocked socket-related event. A synthetic diagnostic reproduced
-only a local hostname lookup inside the PDF dependency, with no connection or
-original-page reads. The failed attempt is preserved; exact image verification
-precedes acceptance. No development model calls, visual labels or Phase 2.4 work
-have started. The unseen batch remains sealed.
+accuracy, transaction reconstruction and a broad model ranking remain unmeasured.
+The 12-document / 33-page development sample and 84-slot ceiling remain frozen.
+Recovery verified all 33 PNGs against freshly rendered bytes, preserving the
+original failed attempt. Independent visual kind reviews agree on seven statements
+and five non-statements; only the statements may be sent. All 33 reference pages
+have agent author and reviewer acceptance, covering 104 amount occurrences and
+12 selected rows/captions. These partial references are not human ground truth
+and cannot establish whole-page omission/addition rates. Final reference publication
+failed a local verification check at 20:08:22; the failure and clean lock release
+are preserved while its cause is investigated. No development model calls have run.
 
-All seven V baseline replay chunks and head chunks 6–7 passed with zero
-movement. Head chunk 5 is active at PID 6748/session 89929 since 19:35:33 UTC;
-read its actual closure before another heavy window. Head chunks 1–5 and final
-accounting remain. The reference, schedule and v5 interface/transport controls
-passed (14, 12, 18 and 8 checks respectively). B and P are independently
-approved; V closure and V/B/P composition remain pending.
+All seven V baseline replay chunks and head chunks 2–7 passed with zero movement.
+Head chunk 1 is active at PID 10568/session 47016 since 20:09:07 UTC; read its actual
+closure before another heavy window. This chunk and final accounting remain.
+Amount-association and campaign-control checks also passed (14 and 11).
+B and P are independently approved; V closure and V/B/P composition remain pending.
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
