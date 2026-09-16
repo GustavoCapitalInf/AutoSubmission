@@ -211,6 +211,11 @@ def test_the_new_columns_are_appended_at_the_end_of_row_fields_in_the_card_order
         "eq_version", "eq_word_count", "eq_density", "eq_rec_mean", "eq_rec_p10",
         "eq_money_rate", "eq_lexicon_rate", "eq_garbage_rate", "eq_line_height_cv",
         "eq_right_edge_residual", "eq_ink_outside_boxes", "eq_orientation_votes", "eq_class",
+        # P23-AGREE (Phase 2.3 cell X): the agreement and geometry columns,
+        # appended after the extraction-quality block and never reordered.
+        "agree_version", "agree_pages", "agree_matched_native", "agree_matched_paddle",
+        "agree_char", "agree_amounts", "agree_dates", "agree_unmatched_table_density",
+        "agree_frame_mismatch", "geom_rotation", "geom_skew_deg", "geom_page_size",
     ]
     assert ROW_FIELDS[:ROW_FIELDS.index("stage_extract")][-2:] == ["cache_finding", "paddle_refusal_reason"]
     assert "escalation_trigger" in ROW_FIELDS[:ROW_FIELDS.index("stage_extract")]
@@ -240,7 +245,9 @@ def test_the_extraction_quality_columns_are_the_modules_own_table_in_its_own_ord
     column cannot be added, dropped or moved in one place only."""
     from ocr.extraction_quality import EQ_ROW_COLUMNS
 
-    assert ROW_FIELDS[-len(EQ_ROW_COLUMNS):] == [column for column, _, _ in EQ_ROW_COLUMNS]
+    assert ROW_FIELDS.count("eq_version") == 1
+    start = ROW_FIELDS.index("eq_version")
+    assert ROW_FIELDS[start:start + len(EQ_ROW_COLUMNS)] == [column for column, _, _ in EQ_ROW_COLUMNS]
 
 
 def test_the_defaults_are_not_attempted_and_empty(tmp_path):

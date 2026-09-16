@@ -842,6 +842,16 @@ ROW_FIELDS = [
     "eq_version", "eq_word_count", "eq_density", "eq_rec_mean", "eq_rec_p10",
     "eq_money_rate", "eq_lexicon_rate", "eq_garbage_rate", "eq_line_height_cv",
     "eq_right_edge_residual", "eq_ink_outside_boxes", "eq_orientation_votes", "eq_class",
+    # P23-AGREE (Phase 2.3 cell X, card item 2). APPENDED, never reordered,
+    # exactly like the block above: the native<->extractor agreement
+    # statistics and the geometry census of the document, EMPTY on every row
+    # that does not carry both readings. See `discovery/runner.py`'s
+    # `DocumentRow` for what each column carries and how it is folded, and
+    # `layout/agreement.py` for what each measures. Review evidence only —
+    # no threshold, no class, no verdict, and (still) no cost column anywhere.
+    "agree_version", "agree_pages", "agree_matched_native", "agree_matched_paddle",
+    "agree_char", "agree_amounts", "agree_dates", "agree_unmatched_table_density",
+    "agree_frame_mismatch", "geom_rotation", "geom_skew_deg", "geom_page_size",
 ]
 
 

@@ -70,6 +70,7 @@ from analysis.serialization import document_report_to_dict
 from corpus_artifacts import cached_markdown, cached_pages
 from evidence.native import NATIVE_EXTRACTOR_ID
 from layout import DocumentProfileFacts, classify_document as classify_document_kind
+from layout.agreement import AGREE_COLUMNS, document_agreement, row_columns as agreement_row_columns
 from layout.refusals import ACCOUNT_KINDS, KINDS, MODALITIES, TIERS
 from ocr.escalation import (
     ADMITTED_TRIGGERS,
@@ -639,6 +640,33 @@ class DocumentRow:
     eq_ink_outside_boxes: str = ""
     eq_orientation_votes: str = ""
     eq_class: str = ""
+    # P23-AGREE (Phase 2.3 cell X, card item 2). Appended at the END, like
+    # every block above. The native<->extractor agreement statistics and the
+    # geometry census of ONE document, folded as `layout/agreement.py`'s
+    # `DocumentAgreement` declares (every ratio a sum-over-sum across the
+    # pages compared; `agree_pages` and `agree_frame_mismatch` counts of
+    # pages; `geom_*` over every native page). EMPTY on every row whose
+    # document does not carry BOTH a native reading and an extractor reading
+    # — a half-measured agreement must never read as a measured one, and
+    # today that is every production row, because no production partition
+    # holds extractor evidence.
+    #
+    # These are REVIEW EVIDENCE (plan §H.4, E4) and nothing else: they are
+    # written to the row and to nothing else, they reach no router input, no
+    # analysis call and no verdict, and `tests/test_agreement.py` pins by AST
+    # that neither `ocr/` nor `analysis/` may even name them.
+    agree_version: str = ""
+    agree_pages: str = ""
+    agree_matched_native: str = ""
+    agree_matched_paddle: str = ""
+    agree_char: str = ""
+    agree_amounts: str = ""
+    agree_dates: str = ""
+    agree_unmatched_table_density: str = ""
+    agree_frame_mismatch: str = ""
+    geom_rotation: str = ""
+    geom_skew_deg: str = ""
+    geom_page_size: str = ""
 
     def as_dict(self) -> dict:
         # P20-ROUTER review, MAJOR-3. The closed vocabularies are enforced
@@ -1583,6 +1611,7 @@ class DiscoveryRunner:
         self._project_funnel(row, facts)
         self._project_extraction_quality(row, facts)
         self._project_classification(row, facts)
+        self._project_agreement(row, facts)
         self._project_taxonomy(row, facts)
         row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
         return row
@@ -1766,6 +1795,43 @@ class DiscoveryRunner:
         row.class_signals = "|".join(sorted({ref.signal for ref in verdict.evidence}))
         row.completeness_findings = ";".join(sorted({f.code for f in verdict.completeness}))
         facts["verdict"] = verdict
+
+    @staticmethod
+    def _project_agreement(row: "DocumentRow", facts: dict) -> None:
+        """P23-AGREE item 2: the agreement statistics and the geometry census
+        as RECORDED FACTS, at the row's single exit.
+
+        Projected ONLY when the document carries BOTH readings — the native
+        reader's `native_evidence` AND an extractor's `evidence` — and EMPTY
+        otherwise, which is every row of every production run today. There is
+        deliberately no fallback to one source: the columns describe a
+        comparison, and a comparison with one side missing is not a weaker
+        comparison, it is no comparison at all.
+
+        Like the classification above, this runs AFTER the analysis has
+        already finished, so the numbers cannot reach `analyze_document` even
+        in principle; and like it, a defect here is a FINDING (empty columns)
+        rather than a lost document — a reporting consumer must never fail a
+        run. The E4 discipline (plan §H.4) in one sentence: these are review
+        evidence on the row, they start nothing, and no extractor, router or
+        validator may read them.
+        """
+        try:
+            # The two attribute READS are inside the guard too (review
+            # closure, MINOR-6): `getattr` swallows only `AttributeError`, so
+            # a document object whose `evidence` property raises anything else
+            # would otherwise propagate out of here and out of `_finish` —
+            # the run-failing consumer this method exists not to be.
+            document = facts.get("document")
+            native = getattr(document, "native_evidence", None) if document is not None else None
+            extractor = getattr(document, "evidence", None) if document is not None else None
+            if native is None or extractor is None:
+                return
+            columns = agreement_row_columns(document_agreement(native, extractor))
+        except Exception:  # as above: a recorded fact never fails a run
+            return
+        for name in AGREE_COLUMNS:
+            setattr(row, name, columns[name])
 
     @staticmethod
     def _project_taxonomy(row: "DocumentRow", facts: dict) -> None:
