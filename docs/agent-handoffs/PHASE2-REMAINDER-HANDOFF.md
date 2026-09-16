@@ -23,7 +23,7 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. Its synthetic capability evaluation is complete; development comparison is in progress.
 
-### Latest state — 2026-09-16 21:51 UTC
+### Latest state — 2026-09-16 22:00 UTC
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -60,9 +60,14 @@ supervisor correction passed all 12 focused controls, preserving the recipe and
 budget. The fresh VL window closed at 21:35:13 after 23 requests: 22 admitted
 responses and one runtime refusal for an out-of-frame polygon. Cleanup, resource
 monitoring, source/input checks and owned release passed. Seventeen slots remain
-untouched, including the 13 fixed repeats. The exact continuation passed ten
-focused controls and is active since 21:49:11 under independent custody review.
-No consumed request or refused page may be replayed.
+untouched, including the 13 fixed repeats. That continuation passed ten focused
+controls, then stopped after nine local attempts and eight retained responses:
+five admitted, three polygon refusals, one transport refusal and eight untouched
+slots. A monitor SSH connection reset stopped the ninth request before sending.
+The fetched remote resource record confirms a clean worker exit; cleanup, emergency
+verification and release passed at 21:56:37. The original failed status and one
+unexplained blocked input access remain preserved. Offline custody verification
+and an exact eight-slot continuation are being prepared; no consumed slot is replayed.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.
