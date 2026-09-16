@@ -5,12 +5,37 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T17:47:00Z
+  modified: 2026-09-16T18:22:00Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 17:47 UTC:** VL assets and isolated dependencies are
+**Latest execution snapshot, 18:22 UTC:**
+
+Native VL synthetic capability closed18:12:35:16/16 responses accepted,70 observed
+terminations before the decoding cap,0 unknown/capped observations,0 retries and
+0 extra warmups. All eight repeat pairs have identical predefined stable projections;
+raw responses differ. Region geometry is supported; word geometry is not. Accuracy
+has not yet been scored. Child/controller/release0,323.7s total; sampled peak GPU
+memory12,006,195,200 bytes. Owned worker exit0 and source restoration/retention passed.
+
+The v5 original campaign remains failed after7POST opens, with six admissions and
+F07 blank refused by the comparison inspector. A separately reviewed offline
+recovery admitted the saved F07 response through the real adapter at18:16:55,
+using0 new model calls and preserving all original bytes/statuses. The exact nine
+never-attempted slots are being prepared under the unchanged total16-call ceiling.
+
+B final tip403f231 is independently approved, including424privacy matches/892
+producing occurrences attributed with0unresolved. Original scanner exits1/0/1 and
+the first join's newline-accounting failure remain preserved; corrected join closed
+all-zero. Scope limits3351read/29missing and unscanned custody bodies remain explicit.
+V base replay chunk2 preserved427 payloads/425validated with0movement. Chunk3 is
+active atPID5968/session9090 since18:17:44; read its actual result/resources/release
+before the next proof or GPU window. V/B/P composition remains pending V closure.
+The unseen batch is sealed; no development VL calls, Phase2.4 or production admission.
+Current private checkpoint: discovery_reports/train13-logs/ROOT-RESUME-20260916.md.
+
+**Historical execution snapshot, 17:47 UTC:** VL assets and isolated dependencies are
 ready: 26 overlay packages installed with the 87 base metadata records unchanged.
 The corrected adapter passed 28 checks; root's observer-lifetime finding and the
 original proof remain retained. Native/v5 fixture runners are under final source
