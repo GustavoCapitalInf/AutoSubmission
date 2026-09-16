@@ -116,6 +116,20 @@ declined-branch run (R13 is 2.4's) · no cost.
 
 # Bounded orchestration clarification — 2026-09-15
 
+## Exact integration inventory additions — 2026-09-16
+
+Root authorizes two narrow ownership additions after the first full B suite
+reported the corresponding omissions. In `tests/test_adjudicate_cli.py`, add
+the already-authorized `queue-slice2` command to the exact expected command set;
+keep the closed-set assertion and every existing command. In `corpus_gate.py`,
+add only `tools/fallout_run.py` to `EXCLUDED_ANALYSIS_CALLERS`, with its actual
+role: reads existing OCR artifacts, performs research-only analysis into a private
+research sink, and never publishes an official run-of-record verdict. This is an
+inventory classification, not an exemption from mode, source, financial or
+admission checks. Preserve the repository-wide caller census and all production
+call-site declarations. The focused recovery includes both affected test modules.
+The original full-suite result (10,397 passed, two failed) remains preserved.
+
 Root-authorized clarification after independent source/design review. This does not launch B. Its launch
 base remains the actual train tip after W, E and X compose. The original card's
 financial, routing, privacy, truth and regression constraints remain binding.

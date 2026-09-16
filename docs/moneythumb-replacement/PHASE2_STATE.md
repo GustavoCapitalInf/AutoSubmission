@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T13:04:00.000Z
+  modified: 2026-09-16T13:30:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
@@ -47,14 +47,22 @@ and three scratch mutation kills; its earlier scalar floating-point failure is p
 V's actual synthetic cache/index/raster/W integration passed four cases. Root's controller
 and actual W-inspector proof passed all 36 named cases, with zero boundary denials and all
 exits zero, after preserving and correcting an initial collection syntax error. No live model
-result is implied. Comparison source review is closing settings-key, alias and matched-timing
-findings before execution. Five historical sessions lack the recorded warm-up/model contract
+result is implied. Comparison source findings closed at `d7344db`; the affected run
+passed 163 tests and failed one expectation. Test-only `f18f7dc` preserves the existing
+frame-mismatch measurement contract and passed the single affected node. The initial
+mutation controller refused before launching because its catalogue validation omitted
+existing identifiers; that private instrument correction is in preparation. Five historical sessions lack the recorded warm-up/model contract
 required for controlled pairing and remain historical primary observations.
 B's queue baseline passed 188 tests. Its 51-identity mutation campaign exposed one test gap;
 the test-only successor `c4d52f2` passed five focused baseline cases and killed the unchanged
 M24 mutation through the new same-document substitution case. All 51 identities are now
-accounted for with the original survivor preserved. B's full default suite started at
-13:03:30 UTC; consult the actual private result and lock before scheduling another window.
+accounted for with the original survivor preserved. B's full default suite closed with
+10,397 passes and two inventory failures. Reviewed `bf982fc` adds the exact inventory
+entries and fixes exact cache-key spelling; its affected runtime passed 178 tests.
+The controller's refusal over ten intentionally deselected corpus cases is undergoing
+exact-scope reconciliation. Input metadata freeze refused a zero-byte WAL sidecar;
+original files stay unchanged while bound empty-sidecar handling is reviewed. Consult
+the actual private result and lock before scheduling another window.
 Each cell's remaining synthetic, review and live gates precedes execution. No alternative
 configuration has processed customer pages, and no production routing or Paddle pin has changed.
 The new statement batch stays sealed outside the archive until evaluation after design freeze.

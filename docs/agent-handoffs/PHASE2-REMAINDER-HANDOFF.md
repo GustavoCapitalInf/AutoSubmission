@@ -13,7 +13,30 @@ remain the original completed sessions. SLICE is **80 documents / 626 pages**, n
 the population files were reproduced read-only and ratified unchanged (train `c75322a`). The earlier
 33-hour projection was for a full population set, not the outstanding continuation.
 
-### Latest state — 2026-09-16 13:04 UTC
+### Latest state — 2026-09-16 13:30 UTC
+
+B's full default suite closed with 10,397 passed and two inventory failures;
+the original child/controller exits are 1 and release is zero. Root authorized
+exact additions for the new CLI command and research-only analysis caller.
+The reviewed successor `bf982fc` also corrects an independently found cache-key
+case-normalization bug without changing financial analysis. Its affected runtime
+passed 178 tests; the controller refused because ten corpus-marked cases were
+intentionally deselected by pytest defaults. Exact-scope reconciliation is being
+prepared, preserving both the successful child and refused controller. The actual
+input freeze refused the original cache's zero-byte WAL sidecar; originals remain
+unchanged while a bound empty-sidecar design is reviewed.
+
+V comparison source closed three findings at `d7344db`. Its affected run passed
+163 tests and failed one test expectation: the unchanged agreement contract retains
+text measurements alongside a frame mismatch. Test-only `f18f7dc` corrects that
+expectation and passed the single affected node with all exits and boundary-denial
+counts zero. The initial mutation baseline then refused before any child or lock
+because its identifier validation omitted the existing S family and uppercase test
+name. The private controller correction is being prepared; no mutation kill is
+claimed. No alternative customer run has started. Read the private checkpoint and
+actual lock/result before scheduling. The unseen batch remains sealed.
+
+### Historical state — 2026-09-16 13:04 UTC
 
 Usage resumed and all prior completed proofs were recovered without rerunning them.
 W/E/X remain composed at `b4fe667`; P remains finally approved at `778be7f`, awaiting
