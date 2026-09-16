@@ -16,7 +16,7 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
 Synthetic frame and output support passed; development preparation is in progress. No production switch follows automatically.
 
-**Latest execution snapshot, 20:24 UTC:**
+**Latest execution snapshot, 20:43 UTC:**
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -37,15 +37,20 @@ have agent author and reviewer acceptance, covering 104 amount occurrences and
 and cannot establish whole-page omission/addition rates. Final reference publication
 passed at 20:20:04 after correcting five scalar metadata fields to singleton arrays.
 All visual decisions, timestamps and reference annotations remain unchanged; both
-failed publications remain preserved. No development model calls have run.
+failed publications remain preserved. The first development launch failed locally
+before any upload because a raw configuration hash was compared with reformatted
+JSON. The corrected check passed eight focused controls; original settings and
+the failed attempt remain retained. The fresh v5 baseline pass is now active.
 
 All fourteen V production replay windows and final accounting passed: 2,695
 evaluated documents remain identical, including all 2,625 validated documents.
 The 685 documents outside that replay union remain unmeasured. Amount-association,
-campaign-control and actual request-inventory checks passed (14, 11 and 4).
-The bounded VL runner and scoring interfaces are under final review. B and P are
+campaign-control and candidate/scoring interface checks passed (14, 11 and 11).
+The fixed 84-slot schedule admits 66 calls after the blind statement gate: v5
+13 pages twice, VL 27 pages plus a 13-page repeat. The common fresh comparison
+covers three documents / 13 pages; missing strata must remain explicit. B and P are
 independently approved; V alternative compatibility/comparisons, final closure
-and V/B/P composition remain pending. No heavy window is active in this snapshot.
+and V/B/P composition remain pending. One v5 development window is active.
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
