@@ -21,9 +21,37 @@ After the Phase 2.3 baseline, run the bounded PaddleOCR-VL-1.6 comparison agains
 PP-OCRv5 before starting Phase 2.4. Freeze the development sample and criteria
 before outcomes, verify the supported release and synthetic output contract, keep
 the unseen batch sealed, and retain the production extractor. This research step
-is distinct from the existing v6 A/B and Unlimited OCR. It remains unimplemented.
+is distinct from the existing v6 A/B and Unlimited OCR. Its execution is pending.
 
-### Latest state — 2026-09-16 17:19 UTC
+### Latest state — 2026-09-16 17:47 UTC
+
+The isolated VL dependency overlay completed with all exits and release zero:
+26 packages, 3,534 files, 183,283,041 bytes; all 87 base distribution metadata
+records remained unchanged. Model assets and the frozen sample remain bound.
+No native VL inference or comparison-fixture inference has run.
+
+Root found an observer-lifetime error after the original 26-check adapter proof.
+The preserved successor moves completeness checking after observer restoration;
+28 checks passed with zero audit denials and all exits/release zero. Original
+results remain retained. The native supervisor and fixture campaign are under
+review, including owned-process cleanup and honest failure/resource accounting.
+The v5 fixture runner has an explicit one-send limit per slot. Each model has
+16 scheduled synthetic calls, with F01/first timing excluded and no extra warmup.
+
+B's W3-only final tip is `403f231`; its strict output freeze closed with 350
+ordinary outputs and 20 explicit custody files unchanged. All three final scans
+completed at 17:40:36: added lines found two DIGITS matches, real messages zero,
+and outputs 424 matches. Scanner exits remain 1/0/1, controller 1/release 0;
+exhaustive attribution is pending, so the privacy gate is not yet closed.
+
+V production replay base chunk 2 is active at PID 24764/session 93302, started
+17:41:02. Read its actual result/resources/release before any next heavy window.
+Orientation diagnostic 03 reached the worker but its one synthetic warmup was
+refused by the existing geometry contract; cleanup and release completed. It
+made zero customer calls. The earlier production compatibility proof stays green.
+The unseen batch is sealed; Phase 2.4 and production admission have not started.
+
+### Historical state — 2026-09-16 17:19 UTC
 
 The VL sample remains frozen at 12 development documents / 33 pages, with six
 repeat documents / 17 pages and an 84-call development ceiling. Eight synthetic

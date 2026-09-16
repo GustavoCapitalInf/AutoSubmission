@@ -14,9 +14,26 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 **Approved sequencing update, 2026-09-16:** follow the amendment and §G.2.3A of
 `phase2_remainder/PHASE2_REMAINDER_PLAN.md`: bounded VL-1.6 versus v5 research
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
-The comparison remains unimplemented; no production switch follows automatically.
+The comparison has not run yet; no production switch follows automatically.
 
-**Latest execution snapshot, 17:19 UTC:** The VL sample remains frozen at 12 development documents / 33 pages, with six
+**Latest execution snapshot, 17:47 UTC:** VL assets and isolated dependencies are
+ready: 26 overlay packages installed with the 87 base metadata records unchanged.
+The corrected adapter passed 28 checks; root's observer-lifetime finding and the
+original proof remain retained. Native/v5 fixture runners are under final source
+review, each limited to 16 calls with no extra warmup. No native VL or comparison
+fixture inference has run. The 12-document / 33-page development sample is frozen.
+
+B final tip `403f231` contains only the approved W3 append above executable `9fd`.
+Its 350-output freeze completed with 20 custody files unchanged. Final scans closed
+17:40:36: two added-line matches, zero real-message matches and 424 output matches;
+exhaustive attribution remains pending. Actual scan exits 1/0/1 and release 0 are
+preserved. V base replay chunk 2 is active at PID 24764/session 93302 since 17:41:02;
+read its actual result/resources/release before another heavy window. Orientation
+diagnostic 03 reached the worker but its synthetic warmup hit the geometry refusal;
+cleanup completed, zero customer calls. Production compatibility remains green.
+The unseen batch stays sealed. Phase 2.4 and production admission have not started.
+
+**Historical execution snapshot, 17:19 UTC:** The VL sample remains frozen at 12 development documents / 33 pages, with six
 repeat documents / 17 pages and an 84-call development ceiling. Eight synthetic
 fixtures are frozen; no VL inference has run. The unseen batch stays sealed.
 
