@@ -173,6 +173,12 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
             page_integrity=assess_pages(read.pages),
             page_extractor=list(read.page_extractor),
             evidence=read.evidence,
+            # P23-WAVE (Phase 2.3): the rung's per-request technical figures,
+            # carried on the read that measured them and nowhere else. TRANSIENT
+            # by ruling — never persisted into the OCR artifact, so a cache hit
+            # for this same document carries none and the row's four telemetry
+            # columns stay empty. See `ocr/document.py`'s field comment.
+            extraction_telemetry=dict(read.telemetry),
         )
 
     if not allow_visual_ocr:

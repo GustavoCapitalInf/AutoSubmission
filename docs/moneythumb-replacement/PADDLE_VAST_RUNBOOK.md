@@ -190,6 +190,133 @@ research-mode command, under the 2026-09-03 authorization recorded in `PHASE2_RU
 §"Customer-data authorization — Paddle"; the worker retains nothing; stop the worker and tear the
 tunnel down after each wave.
 
+## The Phase 2.3 wave (P23-WAVE, cell W) — operating `tools/paddle_wave.py`
+
+### Private custody and ordinary exports
+
+New wave runs store original discovery artifacts under
+`<research dir>/.wave/<partition>/discovery-runs/<population>/<session>/`.
+The ordinary `run --out` root must be disjoint from the research root. It receives
+only `wave_technical_rows.csv` and the completion marker `wave_export.json` in a
+fresh session directory. No generic discovery report, path map, folder label,
+statement field or billing object is copied there.
+
+The versioned CSV preserves original row order and aliases, fingerprints, page
+counts, closed source/cache statuses, a derived `wave_refusal_reason`, and technical
+measurements. Missing measurements remain empty; `peak_rss_mb` may retain the
+source-defined `not measured` sentinel. The marker binds the source session, both
+original rows/provenance hashes, export hash, schema and row count. A consumer must
+also supply the independently trusted source hashes/session; marker consistency
+alone does not authenticate its source. Unknown fields/status values refuse.
+
+State format 2 records each new chunk's custody marker and original hashes. The
+loader also accepts format 1. Active legacy continuation advances to format 2;
+a completed legacy resume retains format 1 and its existing zero-work session
+audit. Reporting and offline export never rewrite historical state. Reports and
+raster retention use the exact original custody rows. `report --out` identifies
+the explicit historical raw root only for old markerless chunks, including mixed
+old/new state; missing new custody never falls back to that root.
+
+Successful extraction is saved before publication. A publication failure records
+`export_status=failed` while retaining completed document outcomes and truthful
+session counts. Retry that reporting operation offline into a fresh output root:
+
+```text
+python -m tools.paddle_wave export --run <exact closed custody session> \
+  --out <fresh ordinary root> --data-dir <research dir> --config paddle-v5-prod \
+  --population-name CTRL --session <recorded session basename> \
+  --source-rows-sha256 <independently recorded original rows hash> \
+  --source-provenance-sha256 <independently recorded original provenance hash>
+```
+
+This command does not call pending-document selection, an extractor, lifecycle
+operations or state persistence. A directory without its completion marker is
+incomplete; preserve it and use a fresh destination. Historical ordinary artifacts
+and their scan findings remain private evidence. New safe exports do not change
+the disposition of those original bytes.
+
+This section is operational. The authority for running real customer statements on this
+instance is `PHASE2_RULINGS.md` §"Customer-data authorization — Paddle" (2026-09-03, R1);
+if anything here conflicts with that, the rulings file wins.
+
+`tools/paddle_wave.py` is a thin orchestrator around the Phase 2.2 research mode. It never
+reads a page: every page it causes to be read is read by `python -m discovery
+--research-paddle`, through the same router, ladder and cache. It owns which documents are
+studied, whether a study may start, and what the study produced.
+
+```
+python -m tools.paddle_wave populations --run <run-of-record dir> --out <populations dir>
+python -m tools.paddle_wave preflight  --population <dir>/CTRL.shas --data-dir <research dir>
+python -m tools.paddle_wave run        --population <dir>/CTRL.shas --data-dir <research dir> \
+                                        --out <wave run dir> --root "<archive root>" \
+                                        --chunk-size 50 --log <log path>
+python -m tools.paddle_wave report     --data-dir <research dir> --populations-dir <dir> \
+                                        --out <wave run dir>
+```
+
+**Set the two literals on the command itself, never in a shell profile, never in `.env`.**
+`PADDLE_REMOTE_OPT_IN` and `PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN` must both carry their exact
+authorized values in the environment of the `run` command; the wave refuses first and names
+the missing one, and the research mode refuses again at its own door. Their absence is the
+safe default.
+
+**The configuration and its research partition.** `--config paddle-v5-prod` runs the Phase 2.1
+production pins under a research partition of THE SAME NAME: the partition id is the
+configuration block's name (Ocean's ruling of 2026-09-11 — the umbrella card's
+`research/paddle-v5-prod` was prose the id's shape cannot carry, and a `research-` prefixed
+rewrite is not the ruled id either). Cell V's `paddle-v5-orient` and `paddle-v6` are refused by
+name, with their owner.
+
+**The order is enforced, not remembered.** `CTRL` first, then `U755`, then `SLICE`. A later
+population refuses to start while an earlier one still holds a document nothing has
+attempted under the same configuration — the rule is read off the state files in the
+research directory, so it survives a restart, a different shell and a different operator.
+
+**Resuming.** Progress lives in `<research dir>/.wave/<partition>/<POPULATION>.json`, keyed by
+content sha and written after every chunk. Re-run the same `run` command: documents that
+produced evidence are skipped, documents that were REFUSED are attempted again (a refusal is
+a counted finding, not a closed one), and any document the killed chunk had already finished
+comes back as a cache hit under the same partition key. Nothing else needs to be told what
+happened.
+
+**Rotate the worker token before the first live session of a wave.** Delete the gitignored
+`<runtime dir>/worker.token`; the next `start` mints a fresh one. Record the fact of the
+rotation, never the value.
+
+**Every session ends with the instance stopped and the tunnel closed**, and with the
+retention attestation in the log: the worker's `/version` declares `retention: none` (read
+BEFORE the stop — there is nothing to ask afterwards), and after the stop the instance is
+inspected over SSH for a live worker process, a leftover pidfile, request artefacts and page
+bytes under the worker's directory. The attestation COUNTS; it never lists a remote path. An
+inspection that could not run fails the attestation, and `run` exits 3 rather than reporting
+a clean instance it did not look at.
+
+Two things the FIRST live session taught the attestation, both now in the instrument. The worker
+process is given a bounded grace to finish dying before it is called alive (looked at every 5 s for
+30 s; the record carries `probes`, so "it died on the second look" and "it was never alive" stay
+different facts) — the CTRL run inspected about two seconds after `stop`, counted a process that was
+already exiting, and reported a retention failure the instance did not have. And the `/tmp` image
+count is scoped to files NEWER than the session start, because `/tmp` belongs to the whole image:
+the same run counted one synthetic PNG an operator's own live test had left there two hours earlier.
+That count is RECORDED, never gated — every gated count is inside the worker's own directory, which
+this pipeline is the only writer of.
+
+**Rasters.** Under the research partition the PNG of every page sent is kept at
+`<research dir>/rasters/<content sha>/pNNNN.png`, and only when its sha256 reproduces the
+`raster_sha256` the immutable evidence already records for that page — so a retained image is
+provably the one the worker saw. Production partitions keep `raster_sha256` and no file. WHICH
+read's pages are retained is answered by the cache's own index (the settings key the run
+recorded), never by rebuilding a Paddle settings key here — so **give each configuration its own
+`--data-dir`:** a research directory holding evidence-bearing reads of one document that record
+DIFFERENT page rasters is refused, not guessed at.
+These are customer page images: they live under the gitignored on-machine research area and
+the archive's retention rule, and are never committed.
+
+**What the report will not tell you.** No cost, rate, price or billing figure appears
+anywhere in this tool: cost accounting is out of scope by Gustavo's ruling of 2026-09-03 and
+the charges are his to track. The report's technical figures are latency (per document, and
+the per-page mean), bytes up and down, VRAM as the worker sampled it, and the local peak RSS.
+
 **Instance re-provisioned (2026-09-04).** The Secure Cloud machine was re-provisioned by Gustavo with a
 new SSH port (same connection contract; only the gitignored `.env` changed). The unchanged lifecycle
 re-proved it end to end: `check` (driver 580.105.08; paddleocr 3.7.0 / paddlepaddle 3.3.0 / Python

@@ -81,6 +81,7 @@ REMOTE_LOG_PATH = f"{REMOTE_WORKER_DIR}/worker.log"
 #: the opt-in literals are: a test, or a second command in one process, must be able to change it.
 REMOTE_PYTHON_ENV = "PADDLE_VAST_PYTHON"
 DEFAULT_REMOTE_PYTHON = "/venv/main/bin/python"
+SSH_COMPRESSION_ENV = "PADDLE_VAST_SSH_COMPRESSION"
 
 
 def remote_python(environ: Mapping[str, str] | None = None) -> str:
@@ -169,8 +170,16 @@ def _scp_command(settings: PaddleSettings, local_path: str, remote_path: str) ->
 
 
 def _tunnel_command(settings: PaddleSettings) -> list[str]:
+    # A connection setting only: SSH restores the exact HTTP/PNG bytes.
+    # Unset preserves the user's existing ssh configuration; an explicit
+    # value takes effect when the next tunnel is opened, never on a live one.
+    compression = (os.environ.get(SSH_COMPRESSION_ENV) or "").strip()
+    if compression not in {"", "yes", "no"}:
+        raise PaddleVastError("PADDLE_VAST_SSH_COMPRESSION must be yes, no, or unset")
+    options = ["-o", f"Compression={compression}"] if compression else []
     return [
         "ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "BatchMode=yes",
+        *options,
         "-L", f"127.0.0.1:{settings.tunnel_local_port}:127.0.0.1:{settings.worker_port}",
         "-p", str(settings.vast_ssh_port), f"{settings.vast_ssh_user}@{settings.vast_host}",
     ]

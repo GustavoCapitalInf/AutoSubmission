@@ -73518,3 +73518,454 @@ section.
   wrong twice over — it is neither per-document nor a peak — and the honest fix
   is sampling, in the milestone that has a reason to measure.
 
+
+# §P23WAVE — Resumable research evidence, retention closure and lossless transport
+
+## Scope and outcome boundary
+
+Phase 2.3 cell W connects the existing research door to the approved Paddle instance. The wave records
+terminal evidence/refusal outcomes by document, keeps the original page rasters privately, and projects
+transient technical telemetry without changing markdown, analysis input, cache identity or routing.
+Official newly validated: **0**. The preserved base and closure production replays each cover the 3,380
+document population, resolve 3,351 cached texts, preserve all **2,625 previously validated payloads
+byte-identically**, and report zero regressions or other ladder movement. Twenty-nine documents have
+no replayable cached text. The frozen Phase 2.2 cache is read-only.
+
+The completed CTRL and U755 sessions were recovered from their original state and exact recorded
+chunk directories. Neither inference session was restarted. The user chose the configured instance
+and requested faster transfers on 2026-09-15. SLICE continuation uses the same approved production
+configuration in the research partition, with optional lossless SSH compression and serial OCR.
+
+## Populations
+
+| population | documents | pages | file SHA-256 | set SHA-256 |
+|---|---:|---:|---|---|
+| CTRL | 114 | 800 | `a9692cf073d53f4d25965488adc9a186e6abdb532a824fd4f9f52b4780c4ee38` | `b8627206ffd69ec6e51d0d6fe6b46647e613a1f6e3f0f7a72589b8536d9da9ed` |
+| U755 | 755 | 5110 | `e9f7a19547eafdb5dcb0e06a86dea35d8746c5dc5d5db28c15f71d4cdc09df83` | `4a71735468a8b3adab2fac736828b9e91421bffdd2ec61f76e69fd04f5265956` |
+| SLICE | 80 | 626 | `bcdfbd110efb10c7667562cd9bdcb04286e4f5e5cd01c179503047117629b36c` | `8c94e12173f0758b10c37617e13467f1342853ac55336f75a6f420c5340c7d89` |
+
+CTRL contains 36 validated local-Tesseract documents and 78 native-validated documents, selected
+deterministically from the recorded seed and family/page-count strata. U755 is the non-validated
+complement of the frozen run. SLICE is the 80 reachable manifest documents, 626 pages; the earlier
+34-document wording confused the corpus-test count with the population. Ocean ratified the original
+population file unchanged. Read-only derivation matched all three original files, `EXIT=0`.
+
+## Implemented closures
+
+The initial retention probe mistook its own command text for a live worker and did not cover all
+nested retained files. The closure checks real Python worker arguments, refuses missing runtime or
+failed enumeration, and rejects every non-directory runtime entry except the exact allowed worker
+and log paths. A completed no-work resume starts no lifecycle and reports no new attestation.
+
+The report now locates population-nested run directories and refuses ambiguous matches. It recovers
+refusal reasons from the specific state-recorded chunk rather than substituting the document's later
+analysis verdict. CTRL's recovered refusals are malformed evidence 20 and unnamed rung failure 4;
+U755's are malformed evidence 39, unnamed rung failure 349, invalid PDF 16 and transport error 10.
+All 438 refusal rows were found; neither historical state file changed. The original unnamed
+exceptions cannot be reconstructed from the saved records and remain explicitly unnamed.
+
+The remote interpreter path is a connection setting, preserving the image's separate Paddle
+environment. Optional SSH compression is also a connection setting: blank preserves the old command,
+yes/no is read at call time, and invalid values are refused without echoing them. Original HTTP/PNG
+bytes, pins and cache identities are preserved. The option takes effect only on a new tunnel.
+
+## Required branch proof floor
+
+| proof | observed result | evidence |
+|---|---|---|
+| Changed wave/vast targeted checks at `7897518` | 123 passed, EXIT=0 | `closure-20260915/targeted.log` |
+| Full suite at `7897518` | 9,929 passed, 48 skipped, 39 deselected, zero failed; EXIT=0 | `closure-20260915/suite.log` |
+| Canonical guards | 277 passed, EXIT=0 | `closure-20260915/guards.log` |
+| Preserved conformance | 1,282 passed, 41 skipped, EXIT=0 | `p23wave-conformance.log` |
+| Preserved corpus gate | GREEN, 105 PASS / 3 WITHHELD / 1 REFUSED; EXIT=0 | `p23wave-gate.log` |
+| Preserved corpus-marked tests | 34 passed, EXIT=0 | `p23wave-corpus.log` |
+| Base and closure whole-population replay | all 2,625 validated payloads identical, zero movement; both EXIT=0 | `p23wave-replay-{base,closure}.log` |
+
+The current suite used the committed host lock and a single OCR worker, with the 1.5 GB launch floor
+and 4 GB job cap. Measured suite wall time was 609.8 seconds and peak job memory 3,007.2 MB. The final
+tree was clean after the mutation harness restored each edit. Earlier unaffected proofs are retained
+because their source paths and semantics did not change; they were not rerun to duplicate evidence.
+
+## Mutation table
+
+The table below combines 11 unaffected historical kills with the 13 affected/new closure rows.
+M8's later result replaces its earlier observation. All 24 mutations were killed by the named tests;
+both harnesses report no survivor and a clean restored worktree.
+
+| # | mutant | file | killer | result |
+|---|---|---|---|---|
+| M1 | a document that produced no evidence is SKIPPED instead of recorded as refused | `tools/paddle_wave.py` | test_d4_every_document_is_attempted_or_refused_when_the_worker_fails | KILLED (1 failing) |
+| M2 | the research partition dropped from the runner's cached_ocr call | `discovery/runner.py` | test_research_reads_are_keyed_under_the_partition_in_their_own_cache | KILLED (1 failing) |
+| M3 | the preflight accepts one literal (only the remote opt-in is checked) | `tools/paddle_wave.py` | test_m3_each_literal_alone_refuses_and_names_the_other | KILLED (4 failing) |
+| M4 | the technical telemetry persisted into the OCR artifact | `webapp/artifact_cache.py` | test_m4_the_telemetry_never_enters_the_artifact_or_a_cache_key | KILLED (1 failing) |
+| M5 | raster retention accepts an empty (production) partition | `tools/paddle_wave.py` | test_m5_the_production_path_writes_no_raster_file | KILLED (1 failing) |
+| M6 | the Paddle read bypasses the cache, so a population sha is read twice | `discovery/runner.py` | test_research_reads_are_keyed_under_the_partition_in_their_own_cache, test_the_synthetic_wave_reads_every_page_once_resumes_and_then_hits_the_cache | KILLED (4 failing) |
+| M7 | the unresolved corpus may start while the control sample is incomplete | `tools/paddle_wave.py` | test_a_predecessor_run_under_a_different_partition_does_not_satisfy_the_order, test_m7_u755_refuses_to_start_while_the_control_sample_has_an_unattempted_document, test_the_slice_waits_for_both_earlier_populations | KILLED (3 failing) |
+| M8 | the attestation passes on the worker's declaration without inspecting | `tools/paddle_wave.py` | test_m8_a_fake_ssh_runner_that_lists_a_leftover_fails_the_attestation, test_m8_an_inspection_that_could_not_run_fails_closed | KILLED (10 failing) |
+| M9 | a cost key in the report | `tools/paddle_wave.py` | test_m9_no_cost_rate_price_or_billing_token_anywhere_in_the_tool | KILLED (1 failing) |
+| M10 | the wave runner imports the Paddle rung | `tools/paddle_wave.py` | test_m10_the_wave_runner_never_imports_the_rung_or_calls_read_document | KILLED (1 failing) |
+| M11 | the wave accepts a --data-dir inside a cold cache | `tools/paddle_wave.py` | test_m11_a_production_or_cold_cache_data_dir_is_refused_through_the_wave | KILLED (5 failing) |
+| M12 | the state resumes PAST a sha whose row was refused | `tools/paddle_wave.py` | test_a_refused_document_counts_as_attempted_for_the_order_rule, test_m12_a_refused_sha_stays_pending_so_a_resume_never_reads_past_it | KILLED (3 failing) |
+| M13 | the exit grace believes a process that is still alive (breaks on the first look) | `tools/paddle_wave.py` | test_a_worker_still_exiting_is_given_a_bounded_grace_and_then_believed | KILLED (1 failing) |
+| M14 | the temp-image count drops its session scope and counts the whole /tmp again | `tools/paddle_wave.py` | test_the_temp_image_count_is_scoped_to_this_session | KILLED (1 failing) |
+| M15 | process inspection counts its shell command as a worker | `tools/paddle_wave.py` | test_retention_process_count_distinguishes_the_inspector_from_the_worker | KILLED (2 failing) |
+| M16 | process inspection ignores a real live worker | `tools/paddle_wave.py` | test_retention_process_count_distinguishes_the_inspector_from_the_worker | KILLED (1 failing) |
+| M17 | telemetry searches only the flat directory and omits population runs | `tools/paddle_wave.py` | test_report_reads_each_populations_nested_run_directory | KILLED (2 failing) |
+| M18 | telemetry silently chooses one of two matching run directories | `tools/paddle_wave.py` | test_report_reads_each_populations_nested_run_directory | KILLED (1 failing) |
+| M19 | a failed process listing is reported as no worker | `tools/paddle_wave.py` | test_retention_executes_the_shell_and_refuses_incomplete_inspection | KILLED (1 failing) |
+| M20 | retention ignores unexpected nested files | `tools/paddle_wave.py` | test_retention_executes_the_shell_and_refuses_incomplete_inspection | KILLED (1 failing) |
+| M21 | a recovered report trusts stale state refusal vocabulary | `tools/paddle_wave.py` | test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state | KILLED (1 failing) |
+| M22 | a recovered report reads the first chunk instead of the recorded attempt | `tools/paddle_wave.py` | test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state | KILLED (1 failing) |
+| M23 | a no-work resume performs an unstarted remote teardown | `tools/paddle_wave.py` | test_completed_population_resume_has_no_remote_lifecycle | KILLED (1 failing) |
+| M24 | the requested tunnel compression is silently omitted | `tools/paddle_vast.py` | test_tunnel_compression_is_read_at_launch_without_changing_the_endpoint | KILLED (1 failing) |
+
+## Live results, telemetry, retention and rasters
+
+The final read-only report `report-final-v2.json` completed at 21:38:53 UTC with EXIT=0 and all three
+state-file hashes unchanged. Its SHA-256 is `dd7ca16368f48989da87a261af2ef7d815abc4e93af2a6144fd4c480c86715ec`.
+All populations are complete with zero unattempted documents; every document/page count identity
+holds and every refusal is re-derived from its exact recorded rows, with zero missing rows.
+Complete means every population member has been attempted, not that all refusals eventually succeed.
+
+The first final-report attempt failed before report derivation because Windows PowerShell inherited
+a PowerShell7 module path and could not resolve its built-in file-hash command. Its EXIT=1 logs and
+resource record are preserved; it produced no report JSON. The unchanged pinned script succeeded in
+a disposable parent environment with that inherited path removed. Successful report winrun measured
+5.7 seconds and 258.1 MB peak job memory. No population inference was repeated for this correction.
+
+### Preserved completed populations
+
+The final report's complete CTRL and U755 entries match the immutable `report-after-live-01.json`
+entries exactly. They recover the original recorded runs; no OCR was repeated to obtain this table.
+The SLICE row is the final latest-outcome state after both live continuations. Accounted pages belong
+to document outcomes and are not HTTP-request counts or a count of successfully transmitted pages.
+
+| population | attempted documents | evidence documents / pages | refused documents / pages | successful raster-retention observations | original runner `rasters_mismatched` counter |
+|---|---:|---:|---:|---:|---:|
+| CTRL | 114 | 90 / 668 | 24 / 132 | 664 | 4 |
+| U755 | 755 | 341 / 2331 | 414 / 2779 | 2331 | 0 |
+| SLICE | 80 | 67 / 554 | 13 / 72 | 554 | 0 |
+
+The final SLICE refusals are 13 malformed-evidence documents accounting for 72 pages. The two live
+chunks attempted 10 and 72 documents: 82 attempt occurrences include two retried refusals; final
+state still counts 80 distinct population members. The report records two cache-hit occurrences,
+two chunks and three SLICE session records, including the historical unsuccessful preflight.
+Cache-hit and raster-retention totals are cumulative observations, not cross-population unique files.
+
+The four historical CTRL events counted by `rasters_mismatched` remain recorded unchanged. Separately,
+E's later exact-key CTRL census verifies 664 retained PNGs, finds four absent PNGs and zero present-file
+hash mismatches. That later observation does not establish the cause of each historical runner event.
+Neither observation asserts a distinct physical-file count across overlapping populations, and missing
+rasters are unmeasured.
+
+| population | measured document observations | inference ms/document p50 / p95 | document-average inference ms/page p50 / p95 | elapsed ms/document p50 / p95 | VRAM MB p50 / maximum |
+|---|---:|---:|---:|---:|---:|
+| CTRL | 90 | 3640.2 / 10859.3 | 598.3 / 824.9 | 17174.4 / 55822.2 | 16602 / 18133 |
+| U755 | 341 | 3633.3 / 13426.2 | 649.2 / 1032.8 | 13246.0 / 48733.2 | 21700 / 24251 |
+| SLICE | 67 | 3306.6 / 8709.8 | 463.1 / 594.8 | 80219.9 / 357892.9 | 12018 / 16590 |
+
+The page figures are percentiles of each measured document's mean, not a distribution of individual
+page requests. VRAM is the reported GPU observation, not memory newly attributed to the OCR process.
+Per-document peak RSS is unavailable. CTRL's raw PNG payload total is 318843995 bytes and its JSON
+response reserialization estimate is 26490308 bytes; U755's are 1437647641 and 100763406 bytes;
+SLICE's are 338531938 and 25651993 bytes.
+Neither measures encrypted network traffic; `transport_bytes_measured=false` remains explicit.
+These historical host/runtime timings are not a controlled speed baseline for the later SLICE host.
+
+### First bounded continuation (historical live01)
+
+The first continuation completed at 17:46:46 UTC, EXIT=0: 10 documents / 87 accounted pages,
+8 evidence / 76 pages, 2 malformed-evidence refusals / 11 pages. All 76 raster observations match.
+The corrected live retention attestation passes: declared and inspected, worker/pidfile absent,
+all recorded file counts zero, one probe, then tunnel-down. Winrun measured 1834.4 seconds and
+1341 MB peak job memory. Historical failed attestations remain visible and are not replaced by it.
+
+Eight measured document observations correspond to eight distinct documents. One later cached alias
+adds an evidence row with no new timing; it is not a second measured inference. Across these eight,
+inference totals 37521.5 ms, about 493.7 ms per accounted evidence page. Document elapsed totals
+1441405.6 ms, about 18965.9 ms per page; this includes local work and transfer, not pure network time.
+The separate aggregate timing binder binds these historical sums exactly to the completed rows file.
+Its first EXIT=1 is preserved: seven of eight checks passed, while the cache-alias check incorrectly
+required the independent RSS column to be empty. The source contract leaves four Paddle telemetry
+fields empty on cache hits; RSS uses its own measurement or explicit unavailability. A minimal v2
+measurement correction removed RSS from that four-field emptiness check while retaining the required
+RSS column. On the same exact rows hashes and byte lengths, all eight historical checks pass,
+EXIT=0; every summed measurement is unchanged. Each run has one cached evidence alias with all four
+Paddle fields empty and the same document identity as a measured row. The five-field count remains
+zero in the preserved first result, binding the mismatch to the independent RSS field.
+
+Evidence: `rev23-wave/slice-timing-denominators-v2.json`, SHA-256
+`2c1e85e88463363f5ceba6e6a0ad8a0df621bbdc59e93576ee7ef0a189a393e7`; winrun 1.3 seconds,
+88.6 MB peak job memory, EXIT=0. This corrects a private measurement predicate, not W code or data.
+
+| SLICE run | measured rows / distinct documents within the run | accounted measured pages | summed inference ms | summed document elapsed ms |
+|---|---:|---:|---:|---:|
+| live01 | 8 / 8 | 76 | 37521.5 | 1441405.6 |
+| live02 | 59 / 59 | 478 | 223074.6 | 6399706.4 |
+
+All measured rows have both elapsed and byte observations; no silent deduplication is applied to
+these sums. Across the two runs, the 67 measured observations total 260596.1 inference ms and
+7841112.0 document elapsed ms. The latter includes transfer and local work; neither sum measures
+pure network time. Evidence occurrence rows are 9/8 distinct in live01 and 60/59 in live02.
+
+### Final continuation (live02)
+
+The final continuation began at 19:25:40 UTC and completed at 21:31:44 UTC, EXIT=0. Its one chunk
+covered the authorized 72 pending documents and recorded 478 matching raster-retention observations with zero
+mismatches. The final cumulative latest outcomes are the SLICE row above; they are not a count of
+new outcomes in this chunk. No further retry campaign was launched to force the 13 refusals to pass.
+
+The corrected inspection again passed after worker stop: retention declared and inspected true,
+worker and pidfile absent, request artifacts/page-byte files/unexpected files all zero, one probe,
+then tunnel-down and session-end. The shared-temp image observation was also zero. Historical failed
+CTRL/U755 and preflight-SLICE attestations remain in the final report alongside both passing live
+SLICE attestations. Winrun measured 7564.3 seconds and 2416.8 MB peak whole-job memory; that value
+does not fill the unavailable per-document RSS field. Own-holder release is recorded at 21:31:44 UTC.
+
+Original CTRL/U755 evidence uses its original exact recorded settings key. A later SLICE overlap
+has four identical page objects under a different GPU/Python runtime and settings key; that single
+comparison neither proves general reading equivalence nor creates a controlled same-host model
+speed baseline. Downstream censuses bind each original population to its recorded reading version.
+
+## Lossless transfer measurements
+
+On 24 retained successful pages (eight per modality), gzip sizing of the base64 JSON representation
+preserved the exact original PNG bytes while reducing payload size by 29.89% digital, 29.16% mixed
+and 26.36% scanned. This is a sizing proxy, not measured encrypted-wire volume or a completion forecast.
+
+The synthetic SSH off/on/on/off comparison sent the same 850136-byte body each time. Off took
+22.692 and 41.546 seconds; on took 31.985 and 19.370. The means were 32.119 versus 25.678 seconds,
+about 20% shorter with compression, with substantial connection variation and fresh setup included.
+Every length/hash check passed; the live child uses optional SSH compression on its fresh tunnel.
+
+Concurrency did not establish a dependable gain. One persistent tunnel's serial/parallel HTTP
+checks measured 43.043 versus 41.084 seconds (4.55% shorter). The first undrained SSH-debug attempt
+timed out and remains preserved; only its drained successor is a valid timing observation. A later
+two-tunnel comparison was confounded by differing tunnel speeds. The balanced follow-up used equal
+3400544-byte workloads: serial tunnel 1 took 48.653 seconds, serial tunnel 2 took 88.626, and parallel
+took 54.428 — 11.87% longer than the faster serial connection. All twelve measured and two warm-up
+payloads matched, and all diagnostic processes were reaped. No parallel OCR scheduling was added.
+
+The earlier 33-hour projection covered a full population set and is not the remaining continuation
+time. These measurements justify trying lossless compression but do not establish its full-wave
+speedup without a matched live uncompressed control. No such extra customer rerun was performed.
+
+## Final scan evidence
+
+Final privacy closure requires added-line and real commit-message scans at the actual final W3
+documentation tip, against base `26f94f5`, plus the complete frozen output scan using the full
+3,380-document run-of-record population and frozen cache. Actual final tip, input hashes, exits,
+raw counts, approved exclusions and source-backed dispositions are recorded in
+`docs/moneythumb-replacement/reviews/PHASE2_P23WAVE_REVIEW.md`. Its independent approval is required
+before composition. A scanner's nonzero raw result remains visible alongside any accepted
+disposition; this section makes no advance claim that the final scans passed.
+
+## Risks and limits
+
+Evidence availability is not extraction accuracy or production admission. E and X's separate
+quality/agreement reviews are complete; B's reconstruction fallout remains outstanding. Historical refusals with lost exception details
+remain unnamed. Historical failed attestations remain in the record. Transient timing is absent on
+cache hits; retained row timings are document totals or per-document page means, not a full raw-page
+latency distribution. Transport byte totals are not wire measurements. Synthetic compression and
+concurrency experiments do not establish a wave completion time. No production pin, admission rule,
+validator or escalation edge changed.
+
+
+# §P23WAVE-PRIVACY-CLOSURE — Private custody and typed ordinary exports
+
+## Original finding and preserved history
+
+The final output scan exposed a reporting boundary defect: the generic discovery
+artifacts written beneath the ordinary wave output root retained archive-derived
+paths and row fields. The original 225-file snapshot and its **41,119 raw scan
+findings** remain immutable private evidence. The occurrence accounting matched
+those findings to **71,423 complete producing occurrences**; 11,151 hit records
+had a path, folder, duplicate-path or statement-field origin. These are historical
+findings, not a zero-result scan and not a statement that every scanner match was
+a customer disclosure.
+
+The root clarification in `docs/agent-handoffs/P23-WAVE.md` separates research
+custody, permitted by R1/H3, from ordinary wave publication. This section appends
+to the original §P23WAVE and preserves its measured populations, original output
+bytes, live sessions, failed historical attestations and original scan record.
+A new export does not change the disposition of an old raw artifact.
+
+## Implemented boundary
+
+Commits `7b5546abf74a7600a73fe9f0f7b8378729492107` and
+`5c8e86d9f8f5d3bf252f491376f22ff2911bc9ce` put future discovery child outputs
+under the research directory's derived `.wave/<partition>/discovery-runs/`
+population directory. Resolved private and ordinary roots must be disjoint.
+Exactly one newly created child is accepted. Raster retention, refusal recovery
+and technical aggregates use its original rows through the recorded storage
+identity; they do not depend on an ordinary export.
+
+The ordinary publication contains only `wave_technical_rows.csv` and the final
+`wave_export.json` marker. Its positive 14-field schema retains fingerprints,
+page counts, closed source/cache statuses, a derived `wave_refusal_reason`, and
+finite technical measurements. Alias order and missing readings are preserved.
+Raw relative paths, folder labels, duplicate paths, issuer/account fields,
+generic reports, hash maps, unrestricted objects and billing data are excluded.
+Unknown field values and derived reason codes refuse without echoing the value.
+The reader requires independently trusted source rows and provenance hashes plus
+the session identity, as well as the export's schema, row count and byte hash.
+Original lexical paths are checked again through reading and publication so a
+retargeted path cannot silently acquire the identity of the original source.
+
+New state format 2 carries the storage marker and source hashes. Legacy format 1
+remains readable; active continuation advances it, while a no-work legacy resume
+keeps format 1 and its existing zero-work session audit. New-format storage in a
+format-1 state is refused. Markerless historical chunks retain the exact explicit
+legacy-root lookup, including mixed old/new state. Missing private custody never
+falls back to a public or different historical run.
+
+Document outcomes are staged until the final private source-byte and path checks
+pass. Completed private extraction is then saved before publication. Publication
+failure has a separate status and offline retry path; it does not undo completed
+evidence or enter pending-document selection. The final audit counts only newly
+appended complete chunks, including the case where an initial state save failed
+and the final audit save succeeds. Failed children and no-work sessions contribute
+zero completed work. Lifecycle cleanup retains its existing ordering.
+
+Ordinary report/event validation also preserves the source-defined failed
+inspection shape: only its three unavailable counters may retain `-1`, with the
+corresponding failed inspection fields. An unavailable reading is not converted
+to zero. Arbitrary negative values, unbounded error text and extra nested fields
+are refused. Generic discovery, OCR, routing, canonical evidence, raster behavior
+and cache-key construction are unchanged by this correction.
+
+## Completed focused proofs at the corrected source
+
+Both following runs used reviewed driver
+`p23wave/export_proof_driver_v2.py`, SHA-256
+`f645f1a70df13d3324dcc4751ff550cebbbaa8809d0178f5ea02281aa4b2114d`,
+against clean source `5c8e86d9f8f5d3bf252f491376f22ff2911bc9ce`.
+Each held the committed root harness lock, used one OCR worker, a 1.5 GiB launch
+floor and a 4 GiB job cap, then recorded the actual child exit and its own release.
+The mutation invocation required the hash-bound successful baseline result.
+
+| proof | observed result | resource observation | durable evidence under `discovery_reports/train13-logs/p23wave/` |
+|---|---|---|---|
+| Focused wave baseline | 139 passed, zero failed; child/driver/release EXIT=0 | 51.3 s; 372.1 MiB peak job | `export-proof-baseline-custody-01/{child.log,resources.jsonl,result.json}` |
+| Affected mutation proof | 22/22 killed by named failures; restored clean source after every edit; child/driver/release EXIT=0 | 55.1 s; 380.5 MiB peak job | `export-proof-mutants-custody-01/{child.log,resources.jsonl,result.json,mutation-table.md}` |
+
+The affected set is **M1, M17, M21, M22 and M25–M42**: four updated historical
+mutations and eighteen new ones. These expose unsafe path/report copying,
+unvalidated field values or refusal keys, missing source/provenance bindings,
+storage overlap and format confusion, ambiguous children, publication/state
+ordering, false session counts, loss of unavailable readings, implicit export
+reuse, offline extraction entry and outcomes folded before custody checks.
+The twenty other historical mutation results remain recorded in the original
+§P23WAVE; the combined catalogue has forty-two distinct mutation identities.
+
+The synthetic baseline includes actual discovery artifact/field names with
+sensitive sentinels, missing measurement and alias controls, mixed-storage
+numeric/refusal equivalence, same-byte path retargeting, independent provenance
+binding, failed publication and offline retry, persistent and transient private
+save faults, rejected custody without changed outcomes, active legacy migration
+and no-work legacy audit behavior. The preserved full suite and production replay
+results in the original §P23WAVE remain accepted for their unchanged source scope.
+
+## Independent paired runtime closure
+
+The independent probe executed the same synthetic fixtures against preserved
+`7b5546a` and corrected `5c8e86d`, under one exclusive root-controlled window.
+Its old-source EXIT=0 means the expected defects were reproduced. Its corrected
+EXIT=0 means the corrected contract and controls passed.
+
+| trigger | preserved source | corrected source |
+|---|---|---|
+| Normal mixed evidence/refusal control | One completed chunk, two audited documents, one refusal pending, valid export | Same |
+| First completed-chunk state save fails once | Final save records completed mixed work with audit 0 chunks / 0 documents | Completed work remains recorded with truthful audit 1 / 2 |
+| Final rows-byte or multi-path check rejects custody | Outcomes change without a new completed chunk; one member remains pending | Prior outcomes/chunks preserved; both members pending; zero new audited work |
+
+All fault cases published no completion marker and each observed exactly one
+lifecycle cleanup. The actual preserved version-1 reader at `7897518` accepted
+format 1 and refused format 2; the corrected reader accepted both without
+rewriting state bytes. Independent CSV temporary-file open and marker rename
+faults produced rejected partial destinations. Same-destination retry refused
+without altering existing bytes; fresh offline retry preserved one evidence and
+one refusal row, with extraction, state-write, raster, subprocess and socket
+tripwires untouched.
+
+Evidence is under
+`discovery_reports/train13-logs/p23wave/closure-20260915/privacy-correction/recovery-01-paired/`:
+`old.log`, `fixed.log`, their resource records, both per-mode `result.json` files,
+and controller `results.json`. Old/fixed runs took 0.9 / 1.3 seconds and peaked at
+59.3 / 59.4 MiB. Both actual children and the controller returned 0; own-holder
+release completed at 23:33:13 UTC. The independent runtime review is
+`discovery_reports/train13-logs/p23composition-prep/W-SEQUENCING-PAIRED-RUNTIME-REVIEW.md`.
+These extracted synthetic probes do not establish customer-raster or holdout-door
+coverage; the unchanged real-raster and holdout controls retain their existing
+proof scope.
+
+## Historical exports and exact comparison
+
+The read-only historical operation processed the fifteen explicitly bound runs
+(five CTRL, eight U755, two SLICE), verified their recorded state/session and
+research-mode/partition identity, and produced thirty fresh ordinary files. All
+**97 input identities** remained unchanged: ninety original discovery artifacts,
+the accepted report, three state files and three population manifests. There
+were zero changed or unverified inputs and zero attempted audit-boundary denials.
+
+Every projected row matched an independently constructed positive-field
+projection, in original order. Per-run alias, evidence, timed-row, page, cache-hit
+and technical-sum checks matched exactly. The following sums retain historical
+row semantics:
+
+| population | recorded runs | exported rows | Paddle-present rows | evidence-row pages | timed rows | timed pages |
+|---|---:|---:|---:|---:|---:|---:|
+| CTRL | 5 | 17,530 | 90 | 668 | 90 | 668 |
+| U755 | 8 | 28,048 | 361 | 2,378 | 341 | 2,331 |
+| SLICE | 2 | 7,012 | 69 | 566 | 67 | 554 |
+
+The 52,590 exported rows include aliases, repeated historical runs and rows
+outside the active chunk. The named wave populations remain **114 / 755 / 80**
+documents, with zero unattempted members in each. Missing cache-hit telemetry is
+preserved; a Paddle-present row does not imply a timed row.
+The two SLICE runs retain 9 / 60 evidence-row observations for 8 / 59 distinct
+evidence documents within those respective runs, and 8 / 59 timed rows spanning
+76 / 478 pages. Each run has one cache-hit alias with all four Paddle telemetry
+fields empty. These are archived observations per run, without a new cross-run
+distinct-document union.
+
+The unmodified authoritative `wave_report(populations_dir=None)` result matched
+the accepted final report exactly after separating three population fields:
+`population_documents`, `unattempted` and `complete`. Those three fields were
+independently verified against the hash-bound original manifests and state for
+each population. This is an offline report equivalence proof, not a CLI rerun or
+a new extraction/production-admission result.
+
+The controller's actual child, controller and release exits are 0. The operation
+took 7.4 seconds, peaked at 161.0 MiB, and completed at 23:33:58 UTC. Evidence is
+under `discovery_reports/train13-logs/p23wave/closure-20260915/privacy-correction/`:
+`exports-01-controller/{child.log,resources.jsonl,results.json}` and
+`exports-01/{equivalence.json,authoritative-report.json,exports/}`.
+The equivalence record SHA-256 is
+`6f1e0cc5b27be10dd45f04c5fd193755b7cc9e21ff3b15802fea5e25633ddf91`.
+The independent export/equivalence runtime review is
+`discovery_reports/train13-logs/p23composition-prep/W-EXPORT-EQUIVALENCE-RUNTIME-REVIEW-E.md`.
+
+## Final documentation and scan boundary
+
+At this documentation commit, fresh added-line, real-message and ordinary-output
+scans remain outstanding. Their reserved result directory is
+`discovery_reports/train13-logs/p23wave/closure-20260915/final-scans-custody-01/`,
+with `added-lines.raw.log`, `real-messages.raw.log`, `outputs.raw.log`, resource
+records and `results.json`. The exact input list is
+`discovery_reports/train13-logs/p23wave/custody-original-inputs-01.txt`; its closed
+manifest and original-to-snapshot mapping belong under
+`discovery_reports/train13-logs/p23wave/frozen-output-custody-01/`.
+No count, exit or disposition for those future scans is claimed here. Root's
+subsequent orchestration attestation and independent final review will bind the
+actual final tip and record raw counts and any allowed source attribution.
+
+## Risks and limits
+
+The reporting correction preserves extraction and state evidence; it does not
+establish OCR accuracy, produce new validated documents or alter production
+admission. Original scan findings remain visible, and historical unnamed
+exceptions, failed attestations and absent readings remain explicit. Technical
+row totals include historical aliases and repeated runs; wave membership and
+document-level outcomes retain their original denominators. Final privacy
+disposition and independent approval precede root-owned composition.

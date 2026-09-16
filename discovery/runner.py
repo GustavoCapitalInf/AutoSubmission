@@ -1574,6 +1574,47 @@ class DiscoveryRunner:
         )
         row.stage_geometry = STAGE_NOT_ATTEMPTED   # 2.3 fills this
         row.stage_layout = STAGE_NOT_ATTEMPTED     # 2.4 fills this
+        # P23-WAVE (Phase 2.3, case 14): the four technical-telemetry columns,
+        # projected from the read of record's OWN `extraction_telemetry` — the
+        # figures `ocr.paddle_rung` measured for THIS document's requests and
+        # `ocr/pipeline.py` carried onto the document. Nothing is computed here
+        # and nothing is inferred: a column a request did not measure stays
+        # EMPTY, because an unmeasured figure that renders as a number is a
+        # measurement nobody made (the same rule `peak_rss_mb` follows).
+        #
+        # So these are populated on a LIVE Paddle read and on nothing else:
+        # every non-Paddle rung leaves the field `None`, and a `cache_paddle =
+        # hit` restores a document without it (the telemetry is transient by
+        # ruling and never enters the artifact). Totals per document — the
+        # summed inference time and the bytes in each direction — plus the
+        # LARGEST per-page VRAM sample the worker reported, which is the only
+        # one of the four that is a maximum rather than a sum.
+        #
+        # There is deliberately no cost, rate, price or billing column here or
+        # anywhere near it: cost accounting is out of scope by Gustavo's ruling
+        # of 2026-09-03, and `tests/test_two_denominators.py` greps `ROW_FIELDS`
+        # and every `summary.json` key for those tokens.
+        telemetry = getattr(facts.get("document"), "extraction_telemetry", None)
+        if isinstance(telemetry, dict):
+            totals = telemetry.get("totals")
+            if isinstance(totals, dict):
+                sent, received = totals.get("bytes_sent_total"), totals.get("bytes_received_total")
+                inference = totals.get("inference_ms_total")
+                if isinstance(sent, int) and not isinstance(sent, bool):
+                    row.bytes_up = str(sent)
+                if isinstance(received, int) and not isinstance(received, bool):
+                    row.bytes_down = str(received)
+                if isinstance(inference, (int, float)) and not isinstance(inference, bool):
+                    row.inference_ms = f"{float(inference):.1f}"
+            samples = [
+                page.get("gpu_memory_used_mib")
+                for page in (telemetry.get("pages") or [])
+                if isinstance(page, dict)
+            ]
+            measured = [value for value in samples
+                        if isinstance(value, int) and not isinstance(value, bool)]
+            if measured:
+                row.vram_mb = str(max(measured))
         dispatch = facts.get("dispatch")
         if dispatch is not None:
             row.stage_candidate = (

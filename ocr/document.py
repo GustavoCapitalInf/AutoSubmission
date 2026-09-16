@@ -64,6 +64,31 @@ class StatementMarkdown:
     # every rung that is not the native rung, and for a native read whose
     # PDF yields no placeable word.
     native_evidence: ExtractionEvidence | None = None
+    # P23-WAVE (Phase 2.3, cell T's named STOP). The per-request TECHNICAL
+    # telemetry of the read that produced `pages` — exactly what
+    # `ocr.paddle_rung.PaddleRead.telemetry` already carries: a `pages` list of
+    # per-page `inference_ms` / `total_ms` / `bytes_sent` / `bytes_received` /
+    # raster size / `cold_load` / `gpu_memory_used_mib`, and a `totals` block.
+    # Figures only: this field never holds a word, a line, a box or anything
+    # else derived from the document's CONTENT, and the row projection that
+    # reads it (`discovery/runner.py::_project_funnel`) writes four numeric
+    # columns and nothing else.
+    #
+    # RULED TRANSIENT. It is deliberately NOT part of the persisted OCR record:
+    # `webapp.artifact_cache.ArtifactCache.put_ocr` stores a named field list
+    # and this is not in it, so a cached read restores with
+    # `extraction_telemetry=None` and the four columns stay EMPTY on a
+    # `cache_paddle = hit` row. That is the honest reading — a hit made no
+    # request, so it measured no request — and it is why this field forces no
+    # `EXTRACTION_SCHEMA_VERSION` bump and cannot move a cache key:
+    # `to_markdown()` does not mention it, `ocr_settings_key` does not mention
+    # it, and `analysis_input_sha` keys on the markdown, the sheets and the
+    # evidence sha, none of which this touches. `tests/test_paddle_wave.py`
+    # proves the payload and both keys are identical with it set and unset.
+    #
+    # `None` for every rung that measured nothing (native, Tesseract, visual,
+    # a committed artifact, a restored cache entry).
+    extraction_telemetry: dict | None = None
 
     def __post_init__(self) -> None:
         """Close F-4(b) / MAJOR-2 at the point both fields are SET.
@@ -161,6 +186,15 @@ class StatementMarkdown:
                     f"native_evidence carries {len(self.native_evidence.pages)} pages but "
                     f"pages has {len(self.pages)}: they must describe the same document"
                 )
+        # P23-WAVE: a dict of figures, or nothing. The type is checked here for
+        # the same reason every other field's is — a wrong-shaped value must
+        # not become a `StatementMarkdown` and then a malformed row column
+        # three layers away — and NOT its contents, which are the extractor's
+        # own measurements and belong to whoever produced them.
+        if self.extraction_telemetry is not None and not isinstance(self.extraction_telemetry, dict):
+            raise ProvenanceTokenError(
+                "extraction_telemetry must be a dict of technical figures or None"
+            )
 
     @property
     def native_evidence_sha256(self) -> str | None:

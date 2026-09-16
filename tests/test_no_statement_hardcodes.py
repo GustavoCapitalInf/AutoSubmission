@@ -1123,15 +1123,25 @@ P22_TRUTHTABLE_MODULES = [
     Path(__file__).resolve().parent.parent / "tools" / "truth_report.py",
 ]
 
+#: P23-WAVE (Phase 2.3, card item 9): the wave runner joins the same scans, in
+#: cell T's style one line above — a roots APPEND only, no new detection logic.
+#: It is covered from birth, which is the part that is genuinely a clean append;
+#: `discovery/` and `telemetry/` as WHOLES stay out for the reason T recorded.
+P23_WAVE_MODULES = [
+    Path(__file__).resolve().parent.parent / "tools" / "paddle_wave.py",
+]
+
 
 def _paddle_phase21_modules() -> list[Path]:
     """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope —
-    plus `layout/*.py` (Phase 2.2 case 24) plus this card's two new modules."""
+    plus `layout/*.py` (Phase 2.2 case 24), cell T's two new modules, and cell
+    W's wave runner (Phase 2.3)."""
     modules = sorted(EVIDENCE_DIR.glob("*.py"))
     if PADDLE_VAST_TOOL.exists():
         modules.append(PADDLE_VAST_TOOL)
     modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
     modules.extend(path for path in P22_TRUTHTABLE_MODULES if path.exists())
+    modules.extend(path for path in P23_WAVE_MODULES if path.exists())
     return modules
 
 
@@ -1142,6 +1152,14 @@ def test_the_p22_truthtable_modules_are_actually_scanned():
     assert not missing, f"named in the scan roots but absent: {missing}"
     scanned = {path.name for path in _paddle_phase21_modules()}
     assert {path.name for path in P22_TRUTHTABLE_MODULES} <= scanned
+
+
+def test_the_p23_wave_module_is_actually_scanned():
+    """The same guard for this card's append, for the same reason."""
+    missing = [path.name for path in P23_WAVE_MODULES if not path.exists()]
+    assert not missing, f"named in the scan roots but absent: {missing}"
+    scanned = {path.name for path in _paddle_phase21_modules()}
+    assert {path.name for path in P23_WAVE_MODULES} <= scanned
 
 
 def test_no_removed_literals_in_evidence_and_paddle_vast():
