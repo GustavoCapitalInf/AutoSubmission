@@ -13,7 +13,7 @@ remain the original completed sessions. SLICE is **80 documents / 626 pages**, n
 the population files were reproduced read-only and ratified unchanged (train `c75322a`). The earlier
 33-hour projection was for a full population set, not the outstanding continuation.
 
-### Latest state — 2026-09-16 01:12 UTC
+### Latest state — 2026-09-16 01:50 UTC
 
 W/E/X are reviewed and composed on `train13`: W merge `2c0bfc2`, E merge `eb33d31`, X merge
 `b4fe667`. W final independent approval is committed at `8f302f9`. Their complete W3 suffixes and
@@ -29,19 +29,26 @@ emits only fixed status/exits/counts. Its focused baseline passed 46 tests at 00
 instrument-only mutations were killed, making 82 accepted distinct mutations. Independent old/new
 synthetic proof confirmed the console correction and restoration. Final P W3 is frozen at `778be7f`
 and its 82-row proof join is reviewed. The first strict output freeze refused a legacy encoding with
-actual exit 2; originals and that failure are preserved. The byte-only diagnostic completed with 19
-affected files among 240, including mixed encodings; source qualification precedes any conversion.
-The revised 243-file scope adds exactly three closed W3 review records
-to the original 240; no original record was removed. Final scans and attribution remain owed.
+actual exit 2; originals and that failure are preserved. Narrow, source-bound reversible scan views
+resolved 19 affected files. The fresh 243-file freeze and three scans completed: added lines retained
+zero findings; messages retained 16 attributed technical-word findings; outputs retained 232 findings
+with actual exit 1. Complete occurrence review confirmed 15 historical defect findings across three
+logs: document identities beside classifier facts, and vocabulary extracted from statements. The
+original files and findings remain unchanged. A reviewed publication-boundary correction will retain
+those logs in explicit private custody and replace their report slots with three strict aggregate
+summaries. Its source review, output-only scan and independent final P approval remain owed.
 
-V and B actively implement in isolated worktrees from `b4fe667`, with source-only milestones and
-no alternative live execution yet. The metadata-only V study selector passed its synthetic proof and
-produced six fixed study manifests. V6 selects 48 documents / 220 known pages under the previously
-fixed rule. The orientation subset retains a separate root disposition for 16 unknown profiles in
-the parent population; the original held-metadata result is unchanged. B's cache-only observer passed
-45 synthetic tests with no unintended application store. The blind two-process comparison is
-source-reviewed and awaits runtime proof. The new
-statement batch remains sealed outside the archive. The private checkpoint names current
+V and B actively implement in isolated worktrees from `b4fe667`, with no alternative live execution.
+V's metadata selector passed its synthetic proof and produced six fixed study manifests. V6 selects
+48 documents / 220 known pages. The orientation subset retains a separate disposition for 16 unknown
+profiles; the original held-metadata result is unchanged. The existing synthetic warm-up fixture was
+rendered twice identically, and four study definitions and both read-order schedules are frozen and
+independently reviewed. V's model/geometry/lifecycle source is under review before bounded tests.
+B's cache-only observer passed 45 synthetic tests; its blind two-process comparison passed 20.
+The new measurement/report proof passed 158 tests and failed one, exposing a canonical-digest case
+mismatch. The reviewed source correction and actual projection-to-report round-trip passed all
+65 focused recovery tests; the original failure remains recorded. The new statement batch remains
+sealed outside the archive. The private checkpoint names current
 drivers and exact proof paths; inspect its latest entry and the actual lock before scheduling work.
 
 ### Historical closure snapshot — 2026-09-16 00:10 UTC

@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T01:12:00.000Z
+  modified: 2026-09-16T01:50:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
@@ -19,17 +19,23 @@ suite's sole comment-guard failure is preserved; the generic-comment correction 
 tests, the 105/3/1 corpus gate, all 34 corpus tests and the ceremony inventory. The ceremony-console
 privacy correction is committed at `ee0234e`; its focused baseline passed 46 tests, five new
 instrument-only mutations were killed, and independent paired proof is closed. W3 is frozen at
-`778be7f` with its 82-row join reviewed. The strict output freeze refused a legacy text encoding;
-the originals and actual exit 2 remain preserved. A byte-only diagnostic found 19 affected files
-among 240. Source-qualified encoding review precedes the final 243-file freeze, scans and attribution.
+`778be7f` with its 82-row join reviewed. The strict freeze's encoding refusal remains preserved;
+source-bound reversible views resolved 19 affected files. The 243-file freeze and final scans are
+complete: added lines have zero retained findings; all 16 message findings are attributed; the
+232 output findings include 15 historical emission defects across three logs. Original files and
+actual exits remain unchanged. Three strict aggregate summaries and explicit custody bindings are
+being prepared for a fresh publication output scan and independent final P approval.
 
 V and B now implement in separate worktrees based on `b4fe667`. Root deliberately permits this
 independent source work during serialized proof windows. The composed integration passed 74 tests,
 the exact two expected M7 mutation failures and two restoration checks, with a clean final tree.
 V's metadata-only compiler passed synthetic proof and froze six study manifests. The V6 sample is
 48 documents / 220 known pages; the orientation subset retains its explicit unknown-profile
-disposition and unchanged held-metadata compiler result. B's observer passed 45 synthetic tests with
-no unintended application store; the blind comparison is source-reviewed and awaits proof.
+disposition and unchanged held-metadata compiler result. Its synthetic warm-up fixture, two schedules
+and four study definitions are frozen and independently reviewed. B's observer passed 45 synthetic
+tests with no unintended application store; its blind comparison passed 20. The measurement/report
+proof passed 158 and failed one, revealing a digest case mismatch. The reviewed fix and actual
+projection-to-report round-trip passed 65 focused recovery tests; the failed result is preserved.
 Each cell's remaining synthetic, review and live gates precedes execution. No alternative
 configuration has processed customer pages, and no production routing or Paddle pin has changed.
 The new statement batch stays sealed outside the archive until evaluation after design freeze.
