@@ -13,7 +13,7 @@ remain the original completed sessions. SLICE is **80 documents / 626 pages**, n
 the population files were reproduced read-only and ratified unchanged (train `c75322a`). The earlier
 33-hour projection was for a full population set, not the outstanding continuation.
 
-### Latest state — 2026-09-16 01:50 UTC
+### Latest state — 2026-09-16 02:13 UTC
 
 W/E/X are reviewed and composed on `train13`: W merge `2c0bfc2`, E merge `eb33d31`, X merge
 `b4fe667`. W final independent approval is committed at `8f302f9`. Their complete W3 suffixes and
@@ -34,20 +34,29 @@ resolved 19 affected files. The fresh 243-file freeze and three scans completed:
 zero findings; messages retained 16 attributed technical-word findings; outputs retained 232 findings
 with actual exit 1. Complete occurrence review confirmed 15 historical defect findings across three
 logs: document identities beside classifier facts, and vocabulary extracted from statements. The
-original files and findings remain unchanged. A reviewed publication-boundary correction will retain
-those logs in explicit private custody and replace their report slots with three strict aggregate
-summaries. Its source review, output-only scan and independent final P approval remain owed.
+original files and findings remain unchanged. The reviewed publication-boundary correction retains
+those logs in explicit private custody and replaces their report slots with three strict aggregate
+summaries. Its fresh 243-record scan completed with 217 technical matches / 534 occurrences and
+actual exit 1; all match previously reviewed sites in unchanged views, with no new-summary or
+unresolved match. Independent non-S5 approval and root's separate S5 approval are recorded in
+`docs/moneythumb-replacement/reviews/PHASE2_P23PRECISION_FINAL_REVIEW.md`. P is approved for
+composition after V and B; the historical 15 disclosure findings remain preserved defects.
 
 V and B actively implement in isolated worktrees from `b4fe667`, with no alternative live execution.
 V's metadata selector passed its synthetic proof and produced six fixed study manifests. V6 selects
 48 documents / 220 known pages. The orientation subset retains a separate disposition for 16 unknown
 profiles; the original held-metadata result is unchanged. The existing synthetic warm-up fixture was
 rendered twice identically, and four study definitions and both read-order schedules are frozen and
-independently reviewed. V's model/geometry/lifecycle source is under review before bounded tests.
+independently reviewed. V's reviewed model/geometry/lifecycle source passed 367 early synthetic
+tests; one unchanged fixture test failed its temporary-path precondition. That single test passed
+with a fresh local temporary directory. The actual upstream crop/CTC/helper integration proof is still owed.
 B's cache-only observer passed 45 synthetic tests; its blind two-process comparison passed 20.
 The new measurement/report proof passed 158 tests and failed one, exposing a canonical-digest case
 mismatch. The reviewed source correction and actual projection-to-report round-trip passed all
-65 focused recovery tests; the original failure remains recorded. The new statement batch remains
+65 focused recovery tests; the original failure remains recorded. B's truth-report window passed
+51 tests and failed one existing firewall test because its synthetic store was under OneDrive.
+That one test passed after moving its temporary directory outside OneDrive; guards were unchanged.
+The new statement batch remains
 sealed outside the archive. The private checkpoint names current
 drivers and exact proof paths; inspect its latest entry and the actual lock before scheduling work.
 

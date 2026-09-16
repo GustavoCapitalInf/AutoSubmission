@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T01:50:00.000Z
+  modified: 2026-09-16T02:13:00.000Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
@@ -24,7 +24,9 @@ source-bound reversible views resolved 19 affected files. The 243-file freeze an
 complete: added lines have zero retained findings; all 16 message findings are attributed; the
 232 output findings include 15 historical emission defects across three logs. Original files and
 actual exits remain unchanged. Three strict aggregate summaries and explicit custody bindings are
-being prepared for a fresh publication output scan and independent final P approval.
+closed. The fresh publication scan retains 217 already reviewed technical matches / 534 occurrences,
+actual exit 1, with no new-summary or unresolved match. Final non-S5 review and root's independent
+S5 approval are recorded in `reviews/PHASE2_P23PRECISION_FINAL_REVIEW.md`. P composition follows V/B.
 
 V and B now implement in separate worktrees based on `b4fe667`. Root deliberately permits this
 independent source work during serialized proof windows. The composed integration passed 74 tests,
@@ -36,6 +38,11 @@ and four study definitions are frozen and independently reviewed. B's observer p
 tests with no unintended application store; its blind comparison passed 20. The measurement/report
 proof passed 158 and failed one, revealing a digest case mismatch. The reviewed fix and actual
 projection-to-report round-trip passed 65 focused recovery tests; the failed result is preserved.
+B's truth-report window passed 51 tests and failed one existing test's synthetic-store location;
+that single test passed with its temporary directory outside OneDrive, without changing the guard.
+V's early synthetic window passed 367 tests and failed one fixture's temporary-path precondition;
+that single test passed with a fresh local temporary directory. Actual upstream crop/CTC/helper
+integration remains owed.
 Each cell's remaining synthetic, review and live gates precedes execution. No alternative
 configuration has processed customer pages, and no production routing or Paddle pin has changed.
 The new statement batch stays sealed outside the archive until evaluation after design freeze.
