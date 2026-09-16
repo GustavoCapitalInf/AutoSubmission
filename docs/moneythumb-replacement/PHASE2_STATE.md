@@ -5,12 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-16T20:10:00Z
+  modified: 2026-09-16T20:24:00Z
 ---
 
 ## Current continuation — 2026-09-16 UTC
 
-**Latest execution snapshot, 20:10 UTC:**
+**Latest execution snapshot, 20:24 UTC:**
 
 All 32 scheduled synthetic fixture calls and offline scoring are complete,
 with no retries or extra warmups. The synthetic coordinate-frame and output
@@ -29,14 +29,17 @@ and five non-statements; only the statements may be sent. All 33 reference pages
 have agent author and reviewer acceptance, covering 104 amount occurrences and
 12 selected rows/captions. These partial references are not human ground truth
 and cannot establish whole-page omission/addition rates. Final reference publication
-failed a local verification check at 20:08:22; the failure and clean lock release
-are preserved while its cause is investigated. No development model calls have run.
+passed at 20:20:04 after correcting five scalar metadata fields to singleton arrays.
+All visual decisions, timestamps and reference annotations remain unchanged; both
+failed publications remain preserved. No development model calls have run.
 
-All seven V baseline replay chunks and head chunks 2–7 passed with zero movement.
-Head chunk 1 is active at PID 10568/session 47016 since 20:09:07 UTC; read its actual
-closure before another heavy window. This chunk and final accounting remain.
-Amount-association and campaign-control checks also passed (14 and 11).
-B and P are independently approved; V closure and V/B/P composition remain pending.
+All fourteen V production replay windows and final accounting passed: 2,695
+evaluated documents remain identical, including all 2,625 validated documents.
+The 685 documents outside that replay union remain unmeasured. Amount-association,
+campaign-control and actual request-inventory checks passed (14, 11 and 4).
+The bounded VL runner and scoring interfaces are under final review. B and P are
+independently approved; V alternative compatibility/comparisons, final closure
+and V/B/P composition remain pending. No heavy window is active in this snapshot.
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
 `discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
