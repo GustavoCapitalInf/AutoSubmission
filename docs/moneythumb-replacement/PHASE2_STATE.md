@@ -1,12 +1,35 @@
 ---
 name: phase2-state
-description: "PHASE 2.1 COMPLETE (2026-09-03, gate met, STOPPED pending Gustavo's approval of the closure report; composed code tree 4f7d798 on train11; cold run 2,625 -> 2,625; Paddle-eligible 13 / attempted 0 by the privacy boundary; two rulings requested: the 13-document remote-data run and the Vast hourly rate). Opening record: (opened 2026-09-02 on train11 from 9a54952; Ruling A / Ruling B / the Vast.ai remote_paid authorization recorded; cells G and P launched, R after P; privacy boundary: no customer documents to Vast). PHASE 2.0 COMPLETE (2026-09-02, gate met, approved by Gustavo): composed train10 941918f (docs tip on train); OQ1-OQ11 RULED (PHASE2_RULINGS.md); five cells + P20-REPLAY-SHAPE reviewed/closed/re-reviewed; floor 2,625 preserved by full-archive replay AND cold run (2,625 -> 2,625, 3,380 unchanged); OCR_STAGE_VERSION 5; OCR-fed validated 0; legal escalation population 13; Phase 2.1 (PaddleOCR) NOT authorized until Gustavo approves"
+description: "Phase 2.2 complete; Phase 2.3 in flight on train13. Reviewed W/E/X composed at b4fe667; P final closure and V/B implementation in progress. Full Phase 2.3-2.7 execution authorized on green gates; Phase 3 excluded. Read current status below; historical milestone records retain their original dated scope."
 metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-02T00:00:00.000Z
+  modified: 2026-09-16T00:25:00.000Z
 ---
+
+## Current continuation — 2026-09-16 UTC
+
+Reviewed W/E/X are composed at `b4fe667` on `train13`; their complete W3 histories and reviewed
+source remain intact. W's live wave, custody/export boundary, equivalent historical exports and
+source-qualified final privacy review are complete. Raw historical failures and scanner counts stay
+visible. The five-fence P replay preserves all 2,695 selected payloads, including all 2,625 validated
+results; classifier census is unchanged and all 77 completed mutations are accounted for. Its full
+suite's sole comment-guard failure is preserved; the generic-comment correction passed 116 affected
+tests and the 105/3/1 corpus gate. Corpus/inventory, a bounded ceremony-console privacy correction,
+W3 and final review remain open.
+
+V and B now implement in separate worktrees based on `b4fe667`. Root deliberately permits this
+independent source work while the serialized P corpus slice runs; the pending composed integration
+check and each cell's synthetic, review, manifest and live gates still precede execution. No alternative
+configuration has processed customer pages, and no production routing or Paddle pin has changed.
+The new statement batch stays sealed outside the archive until evaluation after design freeze.
+Continue Phase 2.3 through 2.7 on green gates under the existing authorization; do not begin Phase 3.
+
+The durable transition log records each merge. The current handoff and private
+`discovery_reports/train13-logs/ROOT-RESUME-20260915.md` name active processes and proof paths.
+Historical records below describe earlier milestones and do not revoke the later authorization.
+
 
 **Baseline (unchanged)**: batch 9 FROZEN at `batch9-final` = `819d97d` (2,625 / 3,380 = 77.66%).
 Phase 2.0 base `train10` opened from `origin/main` `746e1e9` (the freeze tree + the read-only census
