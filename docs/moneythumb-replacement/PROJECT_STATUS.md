@@ -16,7 +16,7 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
 The bounded comparison and independently reviewed report are complete. No production switch follows automatically.
 
-**Latest execution snapshot, 23:08 UTC:**
+**Latest execution snapshot, 23:24 UTC:**
 
 The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.
 See [the comparison report](phase2_remainder/VL16_V5_COMPARISON_REPORT.md) for the configuration, frozen sample, per-modality denominators,
@@ -46,8 +46,13 @@ failed runs remain failed. All worker/monitor/tunnel work and owned locks are cl
 Phase 2.3 remains open. All fourteen V production replay windows and final
 accounting passed: 2,695 evaluated documents are identical, including all 2,625
 validated documents; 685 outside the replay union remain unmeasured. B and P are
-independently approved. V alternative compatibility/comparisons, final closure
-and V/B/P composition remain pending. The orientation synthetic diagnostic
+independently approved. v6 synthetic compatibility closed at 23:24:21: the
+verified medium models and static backend produced 54 canonical words / 10 lines,
+with in-frame round-trip checks, unchanged sources, zero boundary denials and
+passed cleanup/retention. Child, controller and owned-release exits are zero.
+This is one logical warmup; wire attempts and model accuracy were not measured.
+V customer comparisons, final closure and V/B/P composition remain pending.
+The orientation synthetic diagnostic
 closed at 21:39:58 but its single page was refused by the existing integer,
 rectangular crop-geometry restriction; compatibility remains unsupported.
 The twelve alternative customer stages (311 documents / 1,626 pages) remain unrun.
