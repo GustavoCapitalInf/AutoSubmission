@@ -827,6 +827,21 @@ ROW_FIELDS = [
     "document_class", "class_sub_kind", "class_modality", "class_account_kind",
     "class_tier", "class_signals", "class_version", "completeness_findings",
     "classifier_exception",
+    # P23-EGATE (Phase 2.3, cell E). APPENDED, never reordered, for the same
+    # reason every block above was: a reader that selects columns by name is
+    # unaffected and one that reads by position keeps every position it had.
+    # Thirteen extraction-quality columns, in `ocr.extraction_quality.
+    # EQ_ROW_COLUMNS` order — which is the one table that says which figure
+    # and which per-document fold each column carries, so the row and the
+    # census cannot disagree about what a column means. MEASURED and
+    # VERSIONED (`eq_version`), admitted as NOTHING: no trigger, no verdict,
+    # no router input reads any of them (Ruling B's discipline; the router's
+    # own module does not import the one that computes them). Empty on every
+    # production row by construction — no production partition carries
+    # extractor evidence. No cost, rate, price or billing column here either.
+    "eq_version", "eq_word_count", "eq_density", "eq_rec_mean", "eq_rec_p10",
+    "eq_money_rate", "eq_lexicon_rate", "eq_garbage_rate", "eq_line_height_cv",
+    "eq_right_edge_residual", "eq_ink_outside_boxes", "eq_orientation_votes", "eq_class",
 ]
 
 

@@ -68,6 +68,7 @@ from analysis.payload_shape import (
 from analysis.pipeline import analyze_document
 from analysis.serialization import document_report_to_dict
 from corpus_artifacts import cached_markdown, cached_pages
+from evidence.native import NATIVE_EXTRACTOR_ID
 from layout import DocumentProfileFacts, classify_document as classify_document_kind
 from layout.refusals import ACCOUNT_KINDS, KINDS, MODALITIES, TIERS
 from ocr.escalation import (
@@ -88,6 +89,7 @@ from ocr.escalation import (
     ExtractionQualityGate,
     router_inputs,
 )
+from ocr.extraction_quality import EQ_ROW_COLUMNS, E_CLASSES, eq_row_values
 from ocr.inspect import inspect_pdf
 from ocr.paddle_config import REFUSAL_REASONS as PADDLE_REFUSAL_REASONS
 from telemetry import (
@@ -606,6 +608,37 @@ class DocumentRow:
     #: consumer, and a defect in it is a finding on the row, not a lost
     #: document.
     classifier_exception: str = ""
+    # P23-EGATE (Phase 2.3, cell E). Appended at the END, mirroring every
+    # block above. Thirteen extraction-quality columns projected at this
+    # row's single exit from the document's EXTRACTOR evidence — never from
+    # the native reader's, which is a different thing measured under a
+    # different name (see `_project_extraction_quality`). Every one is a
+    # RECORDED FACT in the strictest sense this programme uses: nothing reads
+    # them but the report and the census, `ocr/escalation.py` does not import
+    # the module that computes them, and no trigger, verdict or router input
+    # exists that could. Ruling B's discipline is labelled evidence first,
+    # review second, admission third; 2.3 is the first step only.
+    #
+    # Empty on every production row today by construction: no production
+    # partition carries Paddle evidence, so the offline replay is
+    # byte-identical with these columns present. The fold behind each column
+    # is stated in `ocr.extraction_quality.EQ_ROW_COLUMNS` and in
+    # `DocumentQuality`'s docstring — the minimum where a LOW value is the
+    # defect, the maximum where a HIGH one is, the mean for the rec-score
+    # distribution, and the worst page's class for `eq_class`.
+    eq_version: str = ""
+    eq_word_count: str = ""
+    eq_density: str = ""
+    eq_rec_mean: str = ""
+    eq_rec_p10: str = ""
+    eq_money_rate: str = ""
+    eq_lexicon_rate: str = ""
+    eq_garbage_rate: str = ""
+    eq_line_height_cv: str = ""
+    eq_right_edge_residual: str = ""
+    eq_ink_outside_boxes: str = ""
+    eq_orientation_votes: str = ""
+    eq_class: str = ""
 
     def as_dict(self) -> dict:
         # P20-ROUTER review, MAJOR-3. The closed vocabularies are enforced
@@ -673,6 +706,14 @@ class DocumentRow:
             raise ValueError(
                 f"research_partition {self.research_partition!r} must be '' (a production "
                 f"row) or match {RESEARCH_PARTITION_PATTERN}"
+            )
+        # P23-EGATE. The SAME enforcement pattern for the one eq_ column that
+        # carries a vocabulary rather than a number: `eq_class` is one member
+        # of `ocr.extraction_quality.E_CLASSES` — `""` on every row the
+        # projection did not run for, which is every production row.
+        if self.eq_class not in E_CLASSES:
+            raise ValueError(
+                f"eq_class {self.eq_class!r} is not in the closed vocabulary {E_CLASSES}"
             )
         row = asdict(self)
         row["candidates"] = "; ".join(self.candidates)
@@ -1540,6 +1581,7 @@ class DiscoveryRunner:
         facts = getattr(self, "_doc_facts", None) or {}
         row.peak_rss_mb = peak_rss_mb()
         self._project_funnel(row, facts)
+        self._project_extraction_quality(row, facts)
         self._project_classification(row, facts)
         self._project_taxonomy(row, facts)
         row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
@@ -1629,6 +1671,56 @@ class DiscoveryRunner:
             row.stage_candidate = "error"
         if row.outcome_class in STAGE_VOCABULARY["stage_verdict"]:
             row.stage_verdict = row.outcome_class
+
+    @staticmethod
+    def _project_extraction_quality(row: "DocumentRow", facts: dict) -> None:
+        """P23-EGATE: the thirteen `eq_*` columns, from the document's
+        EXTRACTOR evidence and from nothing else.
+
+        **Only an extractor's evidence is measured.** `StatementMarkdown`
+        carries two evidence fields and they are not the same kind of thing:
+        `evidence` is what an EXTRACTOR produced (today, the Paddle rung) and
+        `native_evidence` is the native reader's record of text the document
+        already carried. The extraction-quality question — did this
+        extractor's own output come out usable — is not asked of a native
+        read, exactly as `ExtractionQualityGate` is not called on one
+        (`GATE_ASSESSED_SOURCES`); an unclaimed native document is a layout
+        problem, never a Class-A extraction failure. So this reads
+        `document.evidence`, never `native_evidence`, and refuses the native
+        reader's id a second time in case some later rung ever attaches one
+        there. Two independent conditions, because the mutant this kills
+        (measure the native rows too) survives either one alone.
+
+        **It is a projection, not a decision.** It runs at the row's single
+        exit, after the analysis has already finished, and writes to the ROW
+        and to nothing else. Nothing above reads an `eq_*` value; nothing can,
+        because `ocr/escalation.py` does not import the module that computes
+        them and `RouterInputs` has nowhere to put one.
+
+        The ink columns are empty in production by construction: a page's
+        pixels are not retained outside a research partition (`raster_sha256`
+        only), and the census — which has the retained rasters — is where the
+        ink metric is measured.
+
+        A defect here is a FINDING, never a lost document: the same rule
+        `_project_classification` follows for the same reason — a reporting
+        consumer must not be able to fail a run. There is deliberately no
+        `eq_exception` column (the card's column list is closed); a defect
+        leaves the columns empty and shows up as a population that should
+        have had them.
+        """
+        document = facts.get("document")
+        evidence = getattr(document, "evidence", None) if document is not None else None
+        if evidence is None or getattr(evidence, "extractor_id", "") == NATIVE_EXTRACTOR_ID:
+            return
+        try:
+            values = eq_row_values(
+                evidence, truncated_pages=tuple(getattr(document, "truncated_pages", ()) or ()),
+            )
+        except Exception:  # a recorded fact never fails a run
+            return
+        for column, _, _ in EQ_ROW_COLUMNS:
+            setattr(row, column, values[column])
 
     @staticmethod
     def _project_classification(row: "DocumentRow", facts: dict) -> None:
