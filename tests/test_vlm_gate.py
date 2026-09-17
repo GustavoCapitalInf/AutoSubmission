@@ -132,3 +132,23 @@ def test_printed_totals_and_counts_decide():
 def test_no_rows():
     verdict = gate([], _meta())
     assert not verdict.admitted and verdict.reasons == ("no_rows",)
+
+
+def test_reverse_chronological_statements_are_oriented():
+    from vlm.gate import orient
+    rows = list(reversed(_rows()))
+    oriented, reversed_order = orient(rows)
+    assert reversed_order and [r.date for r in oriented] == [r.date for r in _rows()]
+    verdict = gate(rows, _meta())
+    assert verdict.admitted and verdict.checks["reversed_order"] is True and verdict.continuity_breaks == 0
+
+
+def test_repeated_daily_balances_collapse_to_the_last_row_of_the_day():
+    from vlm.gate import collapse_daily_balances
+    same_day = [CandidateRow("2031-01-05", "01/05", "A", Decimal("10.00"), "credit", Decimal("530.00"), 0, "stage_b", "a"),
+                CandidateRow("2031-01-05", "01/05", "B", Decimal("20.00"), "credit", Decimal("530.00"), 0, "stage_b", "b"),
+                CandidateRow("2031-01-06", "01/06", "C", Decimal("5.00"), "debit", Decimal("525.00"), 0, "stage_b", "c")]
+    collapsed, n = collapse_daily_balances(same_day)
+    assert n == 1 and collapsed[0].balance is None and collapsed[1].balance == Decimal("530.00") and collapsed[2].balance == Decimal("525.00")
+    verdict = gate(same_day, _meta(begin="500.00", end="525.00"))
+    assert verdict.admitted and verdict.checks["collapsed_daily_balances"] == 1 and verdict.continuity_breaks == 0

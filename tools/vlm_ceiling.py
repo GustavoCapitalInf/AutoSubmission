@@ -177,8 +177,17 @@ def main(argv: list[str] | None = None) -> int:
     q = sub.add_parser("report")
     q.add_argument("--wave", required=True)
     q.add_argument("--exclude-manifest", default=None, help="private manifest whose members are reported as an excluded slice")
+    g = sub.add_parser("regate", help="re-gate a completed wave's proposals under the current gate (no model calls)")
+    g.add_argument("--wave", required=True)
+    g.add_argument("--out", required=True)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
+        if args.command == "regate":
+            from vlm.regate import regate_wave
+
+            result = regate_wave(Path(args.wave), Path(args.out))
+            print(json.dumps({"status": result["status"], "counts": result["counts"], "gate_version": result["gate_version"]}))
+            return 0
         if args.command == "partitions":
             summary = partitions.write_manifests(Path(args.out))
             print(json.dumps({name: {"documents": s["documents"], "pages": s["pages"]} for name, s in summary.items()}))

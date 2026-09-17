@@ -23,7 +23,7 @@ from vlm.assemble import CandidateRow
 from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
-GATE_VERSION = 3
+GATE_VERSION = 4
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
@@ -84,6 +84,37 @@ def statement_from(rows: list[CandidateRow], meta: AccountMeta) -> Statement:
     )
 
 
+def orient(rows: list[CandidateRow]) -> tuple[list[CandidateRow], bool]:
+    """Statements that list newest first are reversed into chronological order (a deterministic rule keyed
+    on the printed dates: more descending than ascending steps). Returns (rows, reversed)."""
+    dates = [row.date for row in rows if row.date]
+    down = sum(1 for a, b in zip(dates, dates[1:]) if b < a)
+    up = sum(1 for a, b in zip(dates, dates[1:]) if b > a)
+    if down > up:
+        return list(reversed(rows)), True
+    return list(rows), False
+
+
+def collapse_daily_balances(rows: list[CandidateRow]) -> tuple[list[CandidateRow], int]:
+    """Banks that print one end-of-day balance repeat it on every row of that day. Keep it on the LAST
+    row of each same-date run of identical balances (the reader's continuity check accumulates the
+    day's amounts up to a printed balance). Returns (rows, collapsed_count)."""
+    out = list(rows)
+    collapsed = 0
+    index = 0
+    while index < len(out):
+        run_end = index
+        while (run_end + 1 < len(out) and out[run_end + 1].date == out[index].date
+               and out[run_end + 1].balance is not None and out[run_end + 1].balance == out[index].balance):
+            run_end += 1
+        if run_end > index and out[index].balance is not None:
+            for position in range(index, run_end):
+                out[position] = replace(out[position], balance=None)
+                collapsed += 1
+        index = run_end + 1
+    return out, collapsed
+
+
 def _duplicates(rows: list[CandidateRow]) -> tuple[int, int]:
     """(distinguished_repeats, unverifiable_repeats): a repeat of (date, description, amount, direction)
     is distinguished when both rows print balances and they differ."""
@@ -108,6 +139,10 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         return GateVerdict(False, ("no_rows",), 0, (), None, 0, 0, checks)
     if any(row.amount <= 0 for row in rows):
         reasons.append("proposal_invalid")
+    rows, reversed_order = orient(rows)
+    rows, collapsed = collapse_daily_balances(rows)
+    checks["reversed_order"] = reversed_order
+    checks["collapsed_daily_balances"] = collapsed
     printed_beginning, printed_ending = meta.beginning_balance is not None, meta.ending_balance is not None
     anchored = "both" if printed_beginning and printed_ending else ("one" if printed_beginning or printed_ending else "none")
     checks["anchored"] = anchored
