@@ -410,3 +410,36 @@ linked in the proposal and remain preserved.
 Context: the continuation segment of the v6 primary stage (48 V6-U755 documents; 10 dispatched-unqualified by the interrupted original run, 38 read in the continuation on the replacement endpoint) produced six documents read twice by the same pinned paddle-v6 pipeline (paired stage on the retired host, continuation on the replacement host; byte-identical page rasters, different cache partition key). Design, independent design review and independent source review are in `discovery_reports/train13-logs/p23config-prep/` (STEP05-DOUBLE-READ-DISPOSITION-DESIGN-ROOT.md and reviews; package `v6-step05-v2-source-01`).
 
 Gustavo ruled: **"report the primary stage as 38/48 using the segment readings with the six flagged as double reads. Continue with phase 2.3."** The joined disposition v2 is frozen with `compilation_rule = "primary=segment; paired=step-02; double_read surfaced"`; the reader reports the primary metric over the 38 AND over the 32 non-double-read documents, surfaces the six with both bindings, and produces the content-level comparison of the six pairs as a required diagnostic before any cross-host comparability statement. The refused first inspection stays the permanent closure of its window; nothing is re-dispatched. Every consumer resolves readings by artifact binding (two paddle-v6 reads now exist for the six in store v6-2).
+
+
+## R16 — Phase 3 ceiling experiment APPROVED with a USD 250 budget (Gustavo, 2026-09-17)
+
+Gustavo, verbatim, after reading `docs/moneythumb-replacement/phase3/PHASE3-VLM-PROGRAM-PLAN-v1.md`:
+"you are in control. I approve the $250 cost. Please proceed with implementation. Let me know what you
+start with." His earlier message the same day (also verbatim, still in force): "Until I explicitly
+approve otherwise, customer documents and derived training records must remain inside infrastructure
+we control and must not be sent to third-party model APIs." and "Do not train anything or begin a
+large-scale language migration until the ceiling experiment has been completed, reviewed, and
+separately approved."
+
+Root's reading of the scope (recorded so it can be vetoed before any customer page moves):
+* Authorized: the two-week ceiling experiment of plan §11 — off-the-shelf models only, no fine-tuning,
+  no training spend — on the SAME rented environment already authorized above for Paddle (provider
+  Vast.ai, execution class `remote_paid`, the RTX 5090 host named in the private connection file),
+  under the SAME protections (protected SSH transport, loopback-bound servers, bounded payloads, no
+  public endpoint, no customer contents in ordinary logs, nothing customer-derived in Git, complete
+  provenance, remote request artefacts removed after processing). Model weights are downloaded from
+  Hugging Face to the host; downloading weights is not transmitting customer data.
+* Populations: CTRL (validated control) and U755 (the unresolved corpus), exactly the populations the
+  Paddle authorization names; plus synthetic pages and non-sensitive fixtures. The sealed holdout is
+  never read. The 200-document calibration set of plan §11 is REPLACED by CTRL so no new population
+  leaves the machine. The customer-data opt-in stays explicit per run, never in a tracked file.
+* Extractors on that host now include PaddleOCR-VL-1.6 and a Qwen3.5 checkpoint served by vLLM
+  (self-hosted on the rented GPU, not a third-party API). The Paddle authorization above named
+  "extractor = PaddleOCR"; this ruling extends the extractor set for the ceiling experiment only.
+* Budget: USD 250 of instance time for the experiment; hours recorded in every receipt; the hourly
+  rate is still "rate not measured" until Gustavo supplies it.
+* Not authorized by this ruling: training of any kind, data export to any other machine or vendor,
+  any production change, any native-language rewrite, and any run on the holdout.
+* Order of execution: synthetic-only live proof first, then independent review of the code that
+  touches the boundary, then CTRL, then U755. Customer pages move only after the first two steps.
