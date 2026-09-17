@@ -12,7 +12,6 @@ from decimal import Decimal
 
 from vlm.assemble import CandidateRow
 from vlm.metadata import EMPTY_META, AccountMeta, merge_meta
-from vlm.receipts import canonical_json, sha256_bytes
 from vlm.textparse import parse_date, to_decimal
 
 
@@ -122,8 +121,7 @@ def merge_pages(pages: list[PageProposal]) -> tuple[list[CandidateRow], AccountM
         "pages_by_role": dict(sorted(roles.items())),
         "invalid_pages": roles.get("invalid", 0),
         "currency_conflict": len(currencies) > 1,
-        "account_last4_count": len(last4s),
-        "account_last4_set_sha256": sha256_bytes(canonical_json(sorted(last4s)).encode("utf-8")) if last4s else None,
+        "account_last4_count": len(last4s),   # RR-5: a count only; a digest of four digits is brute-forceable
         "rows_dropped_nonpositive": drops.get("nonpositive", 0),
         "continuation_rows_merged": drops.get("continuation_merged", 0),
         "continuation_rows_with_amount": drops.get("continuation_with_amount", 0),

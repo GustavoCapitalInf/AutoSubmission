@@ -32,8 +32,13 @@ def _load_results(wave: Path) -> list[dict]:
 
 
 def _is_false_accept(doc: dict) -> bool:
+    """An admitted document whose rows contradict the reader's validated rows: a missing or extra row, a
+    printed balance that differs on a matched row, or a matched row whose description differs (RR-3)."""
     match = doc.get("match")
-    return bool(doc.get("gate", {}).get("admitted")) and bool(match) and (match.get("missing", 0) > 0 or match.get("extra", 0) > 0)
+    if not (doc.get("gate", {}).get("admitted") and match):
+        return False
+    return (match.get("missing", 0) > 0 or match.get("extra", 0) > 0 or match.get("balance_mismatch", 0) > 0
+            or match.get("exact_description", 0) < match.get("matched", 0))
 
 
 def _metrics(docs: list[dict], counts: dict, wall_s: float | None) -> dict:
@@ -47,7 +52,8 @@ def _metrics(docs: list[dict], counts: dict, wall_s: float | None) -> dict:
     derived: Counter = Counter()
     rows = {"proposed": 0, "truth": 0, "matched": 0, "exact_balance": 0, "exact_description": 0, "missing": 0, "extra": 0}
     validated_rows = {"truth": 0, "matched": 0}
-    matched_docs = chain_docs = strict = one_side = 0
+    matched_docs = chain_docs = strict = one_side = repeats_admitted = description_mismatch_docs = 0
+    corroboration: Counter = Counter()
     false_accepts: list[str] = []
     for doc in ok:
         gate = doc["gate"]
@@ -60,6 +66,12 @@ def _metrics(docs: list[dict], counts: dict, wall_s: float | None) -> dict:
             strict += 1   # every admission is strict: a derived anchor is never admitted (gate reason anchor_derived)
             if gate.get("chain_derived_directions", 0):
                 chain_docs += 1
+            if (gate.get("repeats") or {}).get("unverifiable", 0):
+                repeats_admitted += 1   # RR-2: must stay 0; the gate refuses unverifiable repeats
+            corroboration[(doc.get("stats") or {}).get("anchor_corroboration") or "n/a"] += 1
+            match = doc.get("match") or {}
+            if match and match.get("exact_description", 0) < match.get("matched", 0):
+                description_mismatch_docs += 1
         elif tuple(gate.get("reasons", [])) == ("anchor_derived",):
             one_side += 1   # would have reconciled with one printed anchor; reported apart, never admitted
         for bucket, key in ((by_family, doc.get("family", "")), (by_outcome, doc.get("reader_outcome", ""))):
@@ -91,6 +103,9 @@ def _metrics(docs: list[dict], counts: dict, wall_s: float | None) -> dict:
         "admitted_strict": strict,
         "would_admit_with_derived_anchor": one_side,
         "admitted_with_chain_directions": chain_docs,
+        "admitted_with_unverifiable_repeats": repeats_admitted,
+        "admitted_by_anchor_corroboration": dict(sorted(corroboration.items())),
+        "admitted_with_description_mismatches": description_mismatch_docs,
         "strict_admission_rate": (strict / attempted) if attempted else None,
         "false_accepts": {"count": len(false_accepts), "documents": false_accepts},
         "derived_anchors": dict(sorted(derived.items())),

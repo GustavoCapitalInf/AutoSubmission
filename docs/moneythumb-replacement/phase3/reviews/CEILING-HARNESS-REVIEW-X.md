@@ -530,3 +530,405 @@ Mapping from finding to test in `tests/test_vlm_review_findings.py`:
 | MAJOR-10 | `test_stop_all_never_stops_the_b9_server` |
 | MINOR-7 | `test_limit_is_counted_as_skipped_existing` |
 | MINOR-15 | `test_beginning_balance_takes_the_last_money_on_a_shared_summary_line` |
+
+---
+
+# Re-review 1
+
+**VERDICT: APPROVE-WITH-FINDINGS**
+
+The boundary is closed. BLOCK-1, BLOCK-2 and BLOCK-3 are all closed and I could not construct a
+bypass of any of them, so the block on CTRL and U755 waves is **lifted**: customer pages may move.
+
+Two MAJOR findings remain, both about whether the gate's admission means what the §11 thresholds
+assume — not about the boundary. Neither is visible in the report, and each can admit a ledger that
+is wrong in content:
+
+* **MAJOR-2 STILL OPEN (narrowed)** — a matching printed count is a statement-wide amnesty for an
+  unverifiable repeat, which is exactly the signature of one-row-dropped-one-row-duplicated.
+* **RR-1 (new, MAJOR)** — the hybrid arm silently prefers the model's *claimed* anchor over the
+  Stage A rule reading and records no disagreement, so an invented anchor reproduces MAJOR-1's
+  tautology one level up.
+
+Both are small fixes. They gate the **go/revise/stop recommendation**, not the runs: the §11
+recommendation should not be written from a wave whose `admitted` figure still contains those two
+classes uncounted.
+
+Scope of this re-review: `git diff 8b0744c..5654bca` (23 files, +1573/-268), read against the same
+constraints as the first pass. Tests: `tests/test_vlm_*.py` + `tests/test_truth_firewall.py` ->
+**153 passed** (147 theirs + my 6 new re-review counterexamples). New tests added by this pass:
+`tests/test_vlm_review_rereview1.py` (same characterisation convention: each asserts today's
+behaviour, each docstring names the id and the assertion to invert). No non-test source file
+modified; no customer document opened; no host detail printed.
+
+## Per finding
+
+| id | state |
+|---|---|
+| BLOCK-1 | CLOSED (residual MINOR RR-5) |
+| BLOCK-2 | CLOSED |
+| BLOCK-3 | CLOSED |
+| MAJOR-1 | CLOSED (residual MAJOR RR-1) |
+| GATE-3 | CLOSED |
+| MAJOR-2 | **STILL OPEN (narrowed)** -> RR-2 |
+| MAJOR-3 | CLOSED (residual MINOR RR-3) |
+| MAJOR-4 | CLOSED (residual MINOR RR-6) |
+| MAJOR-5 | CLOSED |
+| MAJOR-6 | CLOSED |
+| MAJOR-7 | CLOSED (residual MINOR RR-4) |
+| MAJOR-8 | CLOSED |
+| MAJOR-9 | CLOSED |
+| MAJOR-10 | CLOSED |
+| MINOR-1 | CLOSED |
+| MINOR-2 | CLOSED |
+| MINOR-3 | STILL OPEN |
+| MINOR-4 | STILL OPEN |
+| MINOR-5 | STILL OPEN |
+| MINOR-6 | CLOSED |
+| MINOR-7 | CLOSED |
+| MINOR-8 | STILL OPEN in part (b closed; a and c open) |
+| MINOR-9 | CLOSED in part (renamed; instance uptime still not recorded) |
+| MINOR-10 | STILL OPEN |
+| MINOR-11 | STILL OPEN |
+| MINOR-12 | STILL OPEN in part (improved) |
+| MINOR-13 | STILL OPEN |
+| MINOR-14 | STILL OPEN |
+| MINOR-15 / META-1 | CLOSED |
+| NITs | STILL OPEN (all five; the `ps` one accepted as parity with the reference) |
+
+### BLOCK-1 — CLOSED
+
+`vlm/proposals.py:118-128`. `stats` now carries `account_last4_count` and
+`account_last4_set_sha256`; `account_last4_values` is gone from the module, and the values remain in
+the private receipt only. `_money` also now rejects `bool`, which stops `True` becoming `1.00`.
+Verified: `test_public_stats_never_carry_the_extracted_account_last4` asserts the key is absent and
+that the digits do not appear in the serialised stats. Residual: RR-5 below — hashing a four-digit
+value is not de-identification.
+
+### BLOCK-2 — CLOSED
+
+`vlm/runner.py:81-97` (`verify_identity`), `:317-325` (called before `out.mkdir`),
+`vlm/stage_a_worker.py:128-136` (`/version` echoes `PADDLE_PROVIDER` / `PADDLE_EXECUTION_CLASS`),
+`tools/vlm_vast.py:155-158` (`cmd_start` exports them to the worker).
+
+Bypasses I tried, all refused:
+
+1. **Local declaration.** `PADDLE_PROVIDER=local` (`PROVIDER_CLASS` forces `local_free`, so
+   `is_remote` is False) with the three loopback model endpoints ->
+   `need(settings.is_remote, "local_declaration_with_model_endpoints")` refuses every model arm
+   before `out.mkdir`. This was the live bypass in the first pass and it is gone. Pinned by
+   `tests/test_vlm_runner.py::test_identity_refusals`.
+2. **Spoofed echo.** A worker (or any loopback service) whose `/version` returns a different
+   provider/execution_class -> `vlm_identity_mismatch`. A service that echoes `vast.ai`/`remote_paid`
+   while actually being local *over*-declares, which is the conservative direction and still requires
+   the operator to hold both real env literals to pass `check_remote_authorization`.
+3. **`stage_b_only` with no worker.** `ctx.stage_a` is None for that arm, so the probe falls to
+   `ctx.identity_client`; with neither, `identity_probe_missing` refuses. The CLI builds
+   `identity_client` for every arm but `reader_baseline` (`tools/vlm_ceiling.py:52`), so the arm that
+   sends pages to Stage B only still cannot run without an attested Stage A worker.
+4. **Non-loopback endpoint.** Unchanged and still refused at `HttpJson.__init__`.
+
+Accepted limitation, stated plainly because it is the same one the reference path has: the echo is
+fed from the declaration `cmd_start` exported, so it proves "this is the worker I deployed under that
+declaration", not "this process runs on the rented host". `cmd_attest` now also records
+`provider` / `execution_class` (`tools/vlm_vast.py:232-234`), which is the independent-ish leg.
+Parity with `ocr.paddle_client.verify_identity` is the right bar and it is met.
+
+### BLOCK-3 — CLOSED
+
+`vlm/partitions.py:119` and `:128-134` (`data_scope` stamped `customer` on every manifest built from
+a population file; `manifest_scope()` refuses `manifest_scope_missing` rather than defaulting),
+`tools/vlm_ceiling.py:56` (the scope is read from the manifest), `vlm/runner.py:315`
+(`data_scope_disagrees_with_manifest`). **The `--data-scope` flag no longer exists**, which is what
+made the first-pass bypass a one-word typo;
+`tests/test_vlm_ceiling_cli.py::test_data_scope_flag_no_longer_exists` pins its absence and the
+inverted `test_cli_scope_comes_from_the_manifest` shows a CTRL manifest now runs as `customer` with
+`launch.manifest_scope == "customer"`.
+
+Attempted: running a customer manifest under the synthetic scope. There is no CLI path to it. The
+only route left is hand-editing `data_scope` in a private manifest — which `dump_new`'s exclusive
+create prevents from happening by regeneration, and which the `manifest_binding` sha256 in
+`launch.json` records. Cheap hardening worth taking anyway (NIT): refuse a `synthetic` manifest whose
+`archive_root` resolves inside `DEFAULT_ARCHIVE_ROOT`, or whose members appear in a population file.
+
+### MAJOR-1 — CLOSED
+
+`vlm/gate.py:111-132`. With neither balance printed the gate refuses `anchors_underdetermined`; with
+one printed the other may be derived but the verdict carries `anchor_derived` and is never admitted.
+Admission now requires both anchors printed, which makes reconcile's sum check independent of the
+row chain. Verified directly:
+
+| proposal | verdict |
+|---|---|
+| rows 1-3 of a 6-row chain, no printed anchors | `('anchors_underdetermined',)` |
+| rows 1-3, beginning printed only | `('anchor_derived',)` |
+| rows 1-3, printed 500.00 / 710.00 (a real truncation) | `('sum_mismatch',)` — the first-pass hole |
+| rows 1-6, printed 500.00 / 710.00 | admitted, `anchored == "both"` |
+
+The first-pass counterexample (a statement and its own first half both admitted) is gone.
+
+### GATE-3 — CLOSED
+
+`vlm/gate.py:136-137`. Chain-derived directions are refused (`chain_direction_unanchored`) unless
+both anchors are printed, and with both printed the sum check constrains the signs independently: the
+transposed-balance counterexample now yields `('sum_mismatch',)` against the printed ending, and
+`('anchors_underdetermined', 'chain_direction_unanchored')` with no anchors.
+
+### MAJOR-2 — STILL OPEN (narrowed) -> RR-2 (MAJOR)
+
+`vlm/gate.py:173-175`, `vlm/report.py:39-117`.
+
+The first-pass counterexample is closed: `_duplicates` no longer skips balance-free rows, and a
+repeat with no printed counts refuses (`duplicate_row`) — verified, and pinned by the inverted
+`test_duplicate_row_masking_a_missing_row_is_refused_when_no_balances_are_printed`.
+
+But `counts_vouch` is a **statement-wide amnesty**: `if unverifiable and not counts_vouch`. A printed
+count that matches *because* one row was dropped and another duplicated is precisely the signature
+the check should catch — had the model duplicated a row without dropping one, the count would be one
+too high and `count_mismatch` would fire. So the condition under which the amnesty applies is the
+condition under which the defect is most likely.
+
+Reproduction (`test_counts_vouch_amnesties_an_unverifiable_repeat_and_the_report_never_sees_it`):
+printed beginning 1000.00, ending 750.00, `stated_total_debits` 250.00, `stated_debit_count` 3,
+`stated_credit_count` 0; the truth is RENT -100, INSURANCE -100, FEE -50; the model emits RENT twice
+and FEE once. `gate(...)` returns `admitted=True`, `reasons=()`, and
+`checks["repeats"] == {"distinguished": 0, "unverifiable": 1}`. The gate *knows* and admits.
+
+Worse: `vlm/report.py` never reads `gate.repeats` (the string does not occur in the module), so the
+class is admitted silently **and** reported silently. On CTRL, `false_accepts` does catch this
+particular instance (the dates differ, so `match_rows` reports missing 1 / extra 1) — but only where
+reader truth exists, i.e. never on U755, the population the GO threshold is defined on.
+
+**Fix:** (a) never let a count match amnesty an *unexplained* repeat — require the repeat to be
+explained structurally (adjacent locators on the same page, or a distinct `section_index`) and keep
+`duplicate_row` otherwise; or (b) if the amnesty stays, admit with a recorded class and have
+`report._metrics` count `admitted_with_unverifiable_repeat` and surface it in `REPORT-*.md`, so the
+number is at least visible to whoever reviews the recommendation.
+
+### RR-1 (new, MAJOR) — the model's claimed anchor silently overrides the rule-read one
+
+`vlm/metadata.py::merge_meta`, `vlm/runner.py` hybrid branch (`meta = merge_meta(meta, a_meta)`).
+
+MAJOR-1's closure stops the *harness* deriving an anchor from the rows. It does not stop the *model*
+from emitting one: `meta.beginning_balance` is only *claimed* to be printed, and a model that reports
+an anchor consistent with its own rows gets `anchored == "both"` and admission — the same tautology,
+one level up. The prompt asks for null when the value is not on the page, which is the right
+instruction and no check at all.
+
+The hybrid arm already holds the independent second reading — the Stage A rule extraction — and
+throws it away: `merge_meta` takes the first non-None, so Stage B's claim wins, the rule-read value
+is discarded, and the union of `sources` shows *both* `meta:stage_b` and `beginning:rule` with
+nothing saying they disagreed.
+
+Reproduction (`test_hybrid_prefers_the_models_claimed_anchor_and_records_no_disagreement`): claimed
+beginning 490.00 against rule-read 500.00 gives merged 490.00, `sources` contains both tokens, and
+neither `anchor_disagreement` nor `meta_conflict` exists anywhere in `vlm/runner.py`.
+
+**Fix:** in `merge_meta` (or a new `reconcile_meta`), record every field where two sources both hold
+a value and disagree; make an anchor disagreement a gate reason for the hybrid arm, and count it in
+the report. Cheap companion tripwire worth adding in the same edit: set
+`checks["anchor_equals_row_derived"]` when a *claimed* beginning equals
+`first.balance -/+ first.amount` exactly, so the report can count admissions whose claimed anchor
+looks computed rather than read.
+
+### MAJOR-3 — CLOSED
+
+`vlm/report.py:34-36`, `:88-117`, `:120-134`. `false_accepts` (count plus a SHA list — content SHAs
+only, no customer content), `admitted_strict`, `strict_admission_rate`,
+`would_admit_with_derived_anchor`, `admitted_with_chain_directions`, `derived_anchors`,
+`rows.validated_match_rate`, `primary_without_excluded` plus `excluded_documents`, and the markdown
+table now prints strict admissions and false accepts on the front row. `--exclude-manifest` wires the
+DEV slice in from the CLI, which also closes MINOR-6. Residual: RR-3 below.
+
+### MAJOR-4 — CLOSED
+
+`vlm/schema.py:45-62` (schema 2: `stated_total_credits`, `stated_total_debits`,
+`stated_credit_count`, `stated_debit_count`, all required-and-nullable), `vlm/prompts.py:18`
+(prompt 2 asks for them as printed-only values), `vlm/metadata.py:17-20` and `:56-95` (rule
+extraction for the Stage A arm), `vlm/proposals.py:85-93`, `vlm/gate.py:78-79` and `:161-173`.
+Verified end to end: `statement_from` now carries the four fields into `reconcile`, `summary_ok` and
+both count-match fields come back non-None, and `summary_mismatch` / `count_mismatch` fire. The
+inverted `test_the_gate_gives_reconcile_the_banks_printed_totals_and_counts` pins it.
+
+Observation, not a finding: the protection is opt-in by the model — a proposal that leaves the four
+fields null gets the weaker check (both printed balances and the sum identity). That is the honest
+behaviour for statements that print no summary, and `meta_sources` shows which documents supplied
+them. Residual: RR-6 below.
+
+### MAJOR-5 — CLOSED
+
+`vlm/runner.py:283-295` (`_completed_shas` parses each receipt and counts only those with
+`failure is None` and a `sha`). Verified: a wave that aborts with three transport failures now resumes
+with `skipped_existing == 0` (the inverted
+`test_resume_retries_documents_that_only_have_a_failure_receipt`). Gate refusals are still treated as
+done, which is correct.
+
+### MAJOR-6 — CLOSED
+
+`vlm/runner.py:380-384`: `except BaseException` sets `status="aborted"` with `failure_code`
+`interrupted` / `controller_failure` and the exception class, then re-raises; the `finally` writes
+`result.json` with that status and `release.json` with `controller_exit: 1`.
+
+### MAJOR-7 — CLOSED
+
+`vlm/prompts.py:43-53` (`prompt_manifest` hashes the `STAGE_B_PROMPT` and `HYBRID_PREFIX`
+**templates**, so every rendering is covered), `tools/vlm_ceiling.py:33-45` (`_weights_bindings`
+binds the latest non-FAILED fetch receipt per key with `receipts.bound` plus the recorded
+`sha256sum` lines), `vlm/runner.py:330` (`"weights": weights or {}`). Residual: RR-4 below.
+
+### MAJOR-8 — CLOSED
+
+`vlm/proposals.py:46-63`: a `continues_previous` row that carries a positive amount is kept as a row,
+the flag is ignored and counted as `continuation_rows_with_amount`; the drop ledger now separates
+`nonpositive` / `continuation_merged` / `continuation_with_amount`, and the prompt tells the model
+never to mark an amount-bearing line as a continuation. The inverted
+`test_continues_previous_with_an_amount_keeps_the_row_and_counts_it` pins both the kept row and the
+counter.
+
+### MAJOR-9 — CLOSED
+
+`tests/test_truth_firewall.py:48-50`: `"vlm"` is in both `PRODUCTION_ROOTS` and `REQUIRED_ROOTS`, and
+the firewall passes with it (green in the 153).
+
+### MAJOR-10 — CLOSED
+
+`tools/vlm_vast.py:31-32` (`PORTS["b9"] = 18004`, `SERVER_KEYS`), `:164` (`stop all` becomes
+`("worker", "b9", "b", "a")`), `:181-186` (`status` loops `a b b9 worker` and probes all four local
+ports), `:64-68` (four tunnel forwards), `:186` and `:191` (the `ss` greps include 18004), `:196-198`
+(the port-in-use check covers all four).
+
+### MINOR closures
+
+* **MINOR-1 CLOSED** — `tools/vlm_vast.py:84-91` adds a local `_mask` that also replaces the contents
+  of the harness token file; every `cmd_*` returns through it, `cmd_start` masks `remote_pid`, and
+  `main` prints `_mask(json.dumps(out), settings)` — so the whole printed surface, not just the parts
+  someone remembered, is masked.
+* **MINOR-2 CLOSED** — `vlm/stage_a_worker.py:50-55` uses `hmac.compare_digest` and type-checks the
+  header; `:195-198` refuses to start without a token unless `--allow-no-token` is passed explicitly.
+* **MINOR-6 CLOSED** — see MAJOR-3.
+* **MINOR-7 CLOSED** — `vlm/runner.py:333-337`: `skipped_existing` is `len(members) - len(remaining)`
+  and the limit is reported separately as `limited_out`.
+* **MINOR-9 CLOSED in part** — the field is now `wave_wall_hours` everywhere (runner, report, CLI),
+  which makes the receipt honest about what it measures. Instance uptime for the USD 250 budget is
+  still not recorded, and `cost_usd` still flips between a float and the string
+  `"rate not measured"`.
+* **MINOR-15 / META-1 CLOSED** — `vlm/metadata.py:45-54`: `_money_after` takes the first money token
+  at or after the label's own end offset. A summary line printing both labels now yields 500.00 and
+  600.00 in the right fields.
+* **MINOR-12 improved** — `verify_identity` probes `/version` before `out.mkdir`, so an unreachable
+  Stage A worker no longer burns the wave directory. Still open for Stage B: `_model_identity(ctx)`
+  calls `stage_b.models()` inside the `launch` dict, after `mkdir`, so a Stage B transport failure
+  still leaves a directory with no receipts and `wave_already_attempted` forever.
+
+### MINOR / NIT still open (unchanged from the first pass unless noted)
+
+MINOR-3 (`vlm/stage_a_worker.py:213` still prints the port) · MINOR-4 (`vlm/assemble.py:78`,
+`SKIP_DESCRIPTION` still consulted only on the description cell) · MINOR-5 (multi-account still not a
+gate reason; `vlm/runner.py:232` promotes only `currency_conflict`, and `stats` now publishes
+`account_last4_count`, which is exactly the signal that would drive it) · MINOR-8a
+(`vlm/render.py:107`, `_fit` still sits between the two timing windows) and MINOR-8c (the §11
+transfer / queue / prefill / decode split is still absent, and the worker's own `timing` block is
+still discarded by `blocks_from_worker`) — MINOR-8b is closed (`stage_b_wall_ms` recorded and
+reported per page) · MINOR-10 (`vlm/runner.py:114-117`, the 12000-character parser-context truncation
+is still silent) · MINOR-11 (`vlm/report.py:165`, `REPORT-*.md` still uses `write_text`) · MINOR-13
+(`tools/vlm_ceiling.py:180-186` still catches only `Refused` and `PaddleRefused`, so a missing
+holdout digest is a traceback) · MINOR-14 (the Pillow version is still absent from
+`render_settings()`) · the five NITs (the public `family` label; `consecutive_transport` not reset by
+a non-transport failure; a single zero-amount row still refusing the whole statement; the producer
+thread; `cmd_tunnel_up` still not confirming the forwards).
+
+### New findings from this pass
+
+* **RR-1 (MAJOR)** — above.
+* **RR-2 (MAJOR)** — above, under MAJOR-2.
+* **RR-3 (MINOR)** `vlm/report.py:34-36`. `_is_false_accept` reads only `missing` and `extra`, which
+  `truth.match_rows` keys on (date, amount, direction), so an admitted statement carrying the wrong
+  descriptions at the right dates and amounts is not counted as a false accept even though
+  `exact_description < matched` says it is. Reproduction:
+  `test_false_accept_test_ignores_a_same_date_same_amount_description_swap`. *Fix:* add
+  `exact_description < matched` (or a `description_mismatches` figure) to the test. This is the one
+  remaining row-content error that neither the gate nor the report sees, and it composes with RR-2.
+* **RR-4 (MINOR)** `tools/vlm_ceiling.py:33-45` and `:62-63`. The weight pin is keyed on the **arm**
+  (`"a"` if Stage A, `"b"` if Stage B), not on the served model, so a wave served by the 9B
+  second-opinion model (key `b9`) binds the **4B** fetch receipt, and `launch.json` then contains a
+  `models.stage_b_model` and a `weights.b.repo` naming different models with nothing refusing. And
+  when no fetch receipt exists the key is silently omitted, so a wave can still run with
+  `weights: {}`. `_weights_bindings` has no test. *Fix:* map the key from `ctx.stage_b_model` through
+  `tools.vlm_vast.MODELS[*]["served"]`, refuse when the bound receipt disagrees with the served name,
+  and refuse a model arm with no weight binding at all.
+* **RR-5 (MINOR)** `vlm/proposals.py:124`. `account_last4_set_sha256` is a bare SHA-256 over a
+  canonical list of four-digit strings: 10000 pre-images for one account. Reproduction
+  (`test_account_last4_digest_is_brute_forceable`) recovers the digits from the published digest by
+  exhaustive search in milliseconds. A hash of a low-entropy identifier is not de-identification.
+  *Fix:* publish only `account_last4_count`, or HMAC the set with a per-wave secret kept out of the
+  public receipt.
+* **RR-6 (MINOR)** `vlm/metadata.py:58-64`. `_count_after` searches the whole tail (and then the whole
+  line) for a parenthesised number, so a count belonging to a different column of the same joined
+  summary row is attached to the total — and under MAJOR-4 a wrong printed count now **refuses** the
+  statement. Reproduction (`test_printed_count_fallback_attaches_an_unrelated_paren_count`): a line
+  printing a deposits total followed by a checks-paid count yields that count as
+  `stated_credit_count`, and the gate then returns `count_mismatch`. Fail-closed, but it converts a
+  metadata misread into a false reject and will depress the Stage A arm's measured ceiling. *Fix:*
+  bound the count search to the label's own field — stop at the total's money token. The
+  label-anchored path itself is right: a properly joined deposits/withdrawals summary row extracts
+  both totals and both counts correctly; only the fallback over-reaches.
+* **RR-7 (NIT)** `vlm/gate.py:165-166`. `not result.ok` folds every reconcile issue into
+  `sum_mismatch`, including the informational credit/debit **coverage** issues, so the failure
+  taxonomy attributes a coverage shortfall to the sum check. Reproduction
+  (`test_coverage_shortfall_is_reported_as_sum_mismatch`). The refusal is right; the label is not.
+  *Fix:* add a `coverage_mismatch` reason and key `sum_mismatch` on `sum_delta` alone.
+* **RR-8 (NIT)** `vlm/report.py:128-131`. `primary_without_excluded`'s `attempted` counts successes
+  only, while the main slice's `attempted` (from `result.json`) includes failures, so the two
+  `strict_admission_rate` figures use different denominators and the excluded slice reads optimistic.
+
+### Residual risk I am not filing as a finding
+
+An error that is symmetric under sum, coverage and count is arithmetically undetectable, and the gate
+is right not to pretend otherwise. Verified: two rows of **equal amount** with their directions
+swapped — printed anchors, printed totals and printed counts all present and all matching — is
+admitted, because the sum, the per-direction totals and the per-direction counts are identical either
+way. The same holds for a dropped row replaced by an invented row of the same amount and direction.
+Both are caught on CTRL by MAJOR-3's `false_accepts` (the match keys change, so missing and extra
+rise) and by nothing on U755. This is the honest limit of a gate with no printed running balances to
+check against, and it is why the report's `false_accepts` figure — and RR-3's blind spot in it —
+matters.
+
+### What I re-verified and found sound
+
+* `verify_identity` runs before `out.mkdir`, after the authorization call, and its four refusal codes
+  (`local_declaration_with_model_endpoints`, `identity_probe_missing`, `vlm_identity_echo_shape`,
+  `vlm_identity_mismatch`) are closed tokens with tests.
+* `manifest_scope` refuses a manifest with no declared scope rather than defaulting, and
+  `data_scope_disagrees_with_manifest` is checked before the wave directory is even looked at
+  (`tests/test_vlm_runner.py:150-151` asserts the directory is not created).
+* The public receipt's new fields are all counts, hashes, closed codes or booleans: `gate.anchored`,
+  `gate.repeats`, `gate.summary_ok`, `stats.account_last4_count`,
+  `stats.continuation_rows_merged` / `..._with_amount`, `timings.stage_b_wall_ms`. Nothing new leaks.
+* The report's `false_accepts.documents` lists content SHAs only; `render_markdown` still contains no
+  SHA or description; `REPORT-*.md` carries no customer content.
+* `tools/vlm_vast.py` still routes every printed value through masking (now including the harness
+  token), `_run` / `_popen` still reduce subprocess exceptions to a class name, servers are still
+  bound to `--host 127.0.0.1`, and `cmd_attest` still counts residue files and temporary images and
+  now records the declaration alongside.
+* `vlm/` passes the leakage firewall with `vlm` in both root tuples; `dump_new` is still the only
+  JSON receipt writer; wave directories are still never reused.
+* Schema 2 stays inside the grammar-safe subset (nullable unions, `additionalProperties: false`,
+  `required` listing every property), so the structured-decoding contract is unchanged in kind.
+
+### Reproducing this re-review
+
+```
+python -m pytest tests/test_vlm_review_rereview1.py -q -p no:cacheprovider
+python -m pytest tests/test_vlm_*.py tests/test_truth_firewall.py -q -p no:cacheprovider
+```
+
+6 passed and 153 passed respectively.
+
+| finding | test in `tests/test_vlm_review_rereview1.py` |
+|---|---|
+| MAJOR-2 residual / RR-2 | `test_counts_vouch_amnesties_an_unverifiable_repeat_and_the_report_never_sees_it` |
+| RR-1 | `test_hybrid_prefers_the_models_claimed_anchor_and_records_no_disagreement` |
+| RR-3 | `test_false_accept_test_ignores_a_same_date_same_amount_description_swap` |
+| RR-5 | `test_account_last4_digest_is_brute_forceable` |
+| RR-6 | `test_printed_count_fallback_attaches_an_unrelated_paren_count` |
+| RR-7 | `test_coverage_shortfall_is_reported_as_sum_mismatch` |

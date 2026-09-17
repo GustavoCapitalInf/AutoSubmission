@@ -57,11 +57,15 @@ def _money_after(lines: list[str], index: int, label_end: int) -> Decimal | None
 
 
 def _count_after(line: str, label_end: int) -> int | None:
+    """RR-6: the printed count belongs to the label's own field — the text between the label and its money
+    token — never to a later column of a joined summary row and never to an earlier one."""
     tail = line[label_end:]
-    match = COUNT_PAREN_RE.search(tail) or COUNT_PAREN_RE.search(line)
+    money = MONEY_TOKEN.search(tail)
+    field = tail[: money.start()] if money else tail
+    match = COUNT_PAREN_RE.search(field)
     if match:
         return int(match.group(1))
-    match = COUNT_WORD_RE.search(line)
+    match = COUNT_WORD_RE.search(field)
     return int(match.group(1)) if match else None
 
 

@@ -86,6 +86,7 @@ class RowMatch:
     exact_description: int
     missing: int
     extra: int
+    balance_mismatch: int = 0   # matched rows where both sides print a balance and they differ
 
 
 def match_rows(candidates: list[CandidateRow], truth: TruthAccount) -> RowMatch:
@@ -93,7 +94,7 @@ def match_rows(candidates: list[CandidateRow], truth: TruthAccount) -> RowMatch:
     by_key: dict[tuple, list[TruthRow]] = {}
     for t in truth.rows:
         by_key.setdefault((t.date, t.amount, t.direction), []).append(t)
-    matched = exact_balance = exact_description = 0
+    matched = exact_balance = exact_description = balance_mismatch = 0
     for candidate in candidates:
         key = (candidate.date, candidate.amount, candidate.direction)
         if pool.get(key, 0) <= 0:
@@ -101,10 +102,13 @@ def match_rows(candidates: list[CandidateRow], truth: TruthAccount) -> RowMatch:
         pool[key] -= 1
         matched += 1
         twin = by_key[key].pop(0)
-        if candidate.balance is not None and twin.balance is not None and candidate.balance == twin.balance:
-            exact_balance += 1
+        if candidate.balance is not None and twin.balance is not None:
+            if candidate.balance == twin.balance:
+                exact_balance += 1
+            else:
+                balance_mismatch += 1
         if normalise_description(candidate.description) == normalise_description(twin.description):
             exact_description += 1
     return RowMatch(truth_rows=len(truth.rows), candidate_rows=len(candidates), matched=matched,
                     exact_balance=exact_balance, exact_description=exact_description,
-                    missing=len(truth.rows) - matched, extra=len(candidates) - matched)
+                    missing=len(truth.rows) - matched, extra=len(candidates) - matched, balance_mismatch=balance_mismatch)

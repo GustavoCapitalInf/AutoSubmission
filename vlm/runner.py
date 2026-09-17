@@ -178,6 +178,40 @@ def _stage_b_pages(doc: DocumentInput, pages: list[RenderedPage], ctx: RunContex
     return proposals
 
 
+ANCHOR_FIELDS = ("beginning_balance", "ending_balance", "stated_total_credits", "stated_total_debits")
+
+
+def _corroborate(model_meta: AccountMeta, rule_meta: AccountMeta) -> dict:
+    """Per anchor field: agree | disagree | model_only | rules_only | absent. Summary: 'disagreement' if
+    any field disagrees; 'corroborated' if beginning and ending both agree; 'partial' if one of them
+    agrees; 'model_only' if the rules read neither; 'rules_only' if the model read neither; else 'absent'."""
+    fields: dict[str, str] = {}
+    for name in ANCHOR_FIELDS:
+        a, b = getattr(model_meta, name), getattr(rule_meta, name)
+        if a is None and b is None:
+            fields[name] = "absent"
+        elif a is None:
+            fields[name] = "rules_only"
+        elif b is None:
+            fields[name] = "model_only"
+        else:
+            fields[name] = "agree" if abs(a) == abs(b) else "disagree"
+    anchors = (fields["beginning_balance"], fields["ending_balance"])
+    if "disagree" in fields.values():
+        summary = "disagreement"
+    elif anchors == ("agree", "agree"):
+        summary = "corroborated"
+    elif "agree" in anchors:
+        summary = "partial"
+    elif all(v in ("model_only", "absent") for v in anchors) and "model_only" in anchors:
+        summary = "model_only"
+    elif all(v in ("rules_only", "absent") for v in anchors) and "rules_only" in anchors:
+        summary = "rules_only"
+    else:
+        summary = "absent"
+    return {"summary": summary, "fields": fields}
+
+
 def _truth_account(accounts: list[TruthAccount], meta: AccountMeta) -> TruthAccount | None:
     if not accounts:
         return None
@@ -221,16 +255,30 @@ def process_document(doc: DocumentInput, ctx: RunContext) -> tuple[dict, dict]:
         rows, meta, stats = merge_pages(proposals)
         private["proposals"] = [asdict(p) for p in proposals]
         a_rows, a_meta = _stage_a_rows(blocks_by_page)
+        # RR-1: the rule reading is the independent witness for the model's claimed anchors. Agreement is
+        # recorded per field; a disagreement refuses; a model-only anchor is admitted but counted apart.
+        corroboration = _corroborate(meta, a_meta)
+        stats["anchor_corroboration"] = corroboration["summary"]
+        stats["anchor_fields"] = corroboration["fields"]
+        private["meta_stage_b"] = _jsonable(meta)
+        private["meta_rules"] = _jsonable(a_meta)
         meta = merge_meta(meta, a_meta)
         keys = {(r.date, r.amount, r.direction) for r in rows}
         agreement = {"stage_a_rows": len(a_rows), "stage_b_rows": len(rows),
                      "matched": sum(1 for r in a_rows if (r.date, r.amount, r.direction) in keys)}
     else:
         raise Refused("arm_unknown")
+    if ctx.arm == "stage_b_only":
+        stats["anchor_corroboration"] = "model_only"
     gate_started = time.perf_counter()
     verdict: GateVerdict = gate(rows, meta)
+    extra_reasons = []
     if stats.get("currency_conflict") and "currency_conflict" not in verdict.reasons:
-        verdict = GateVerdict(False, verdict.reasons + ("currency_conflict",), verdict.row_count, (), verdict.computed_ending,
+        extra_reasons.append("currency_conflict")
+    if stats.get("anchor_corroboration") == "disagreement" and "anchor_disagreement" not in verdict.reasons:
+        extra_reasons.append("anchor_disagreement")
+    if extra_reasons:
+        verdict = GateVerdict(False, verdict.reasons + tuple(extra_reasons), verdict.row_count, (), verdict.computed_ending,
                               verdict.continuity_breaks, verdict.chain_derived_directions, verdict.checks, verdict.anchored)
     timings["gate_ms"] = (time.perf_counter() - gate_started) * 1000.0
     match = None

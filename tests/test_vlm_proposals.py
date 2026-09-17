@@ -46,6 +46,6 @@ def test_merge_pages_roles_meta_and_conflicts_without_digits_in_stats():
     assert meta.beginning_balance == Decimal("500.00") and meta.ending_balance == Decimal("520.00") and meta.currency == "USD"
     assert stats["pages_by_role"] == {"cover_or_notice": 1, "invalid": 1, "statement_page": 2}
     assert stats["currency_conflict"] is True and stats["invalid_pages"] == 1
-    assert stats["account_last4_count"] == 2 and len(stats["account_last4_set_sha256"]) == 64
+    assert stats["account_last4_count"] == 2 and "account_last4_set_sha256" not in stats
     assert "0001" not in str(stats) and "4821" not in str(stats)
     assert stats["rows_dropped_nonpositive"] == 0 and stats["continuation_rows_with_amount"] == 0

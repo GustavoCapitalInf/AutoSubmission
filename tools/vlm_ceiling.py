@@ -30,13 +30,24 @@ def _worker_token(runtime_dir: Path) -> str | None:
     return path.read_text(encoding="utf-8").strip() if path.exists() else None
 
 
+def _stage_b_key(served_model: str) -> str:
+    """RR-4: the weights pin is keyed on the SERVED model, not on the arm."""
+    from tools.vlm_vast import MODELS
+
+    for key, model in MODELS.items():
+        if key != "a" and model["served"] == served_model:
+            return key
+    raise Refused("stage_b_model_unknown")
+
+
 def _weights_bindings(receipts_dir: Path, keys: tuple[str, ...]) -> dict:
-    """MAJOR-7: bind the latest successful fetch receipt per model key (path + sha256 + the recorded hashes)."""
+    """MAJOR-7 / RR-4: bind the latest successful fetch receipt per served model (path + sha256 + the
+    recorded hashes); a model without a fetch receipt refuses — the pin is never silently empty."""
     out: dict = {}
     for key in keys:
         candidates = sorted(p for p in Path(receipts_dir).glob(f"fetch-{key}-*.json") if "FAILED" not in p.name)
         if not candidates:
-            continue
+            raise Refused("weights_receipt_missing")
         latest = candidates[-1]
         data = json.loads(latest.read_text(encoding="utf-8"))
         out[key] = {"receipt": bound(latest), "repo": data.get("repo"), "local_dir": data.get("local_dir"),
@@ -58,7 +69,11 @@ def _run(args: argparse.Namespace) -> int:
     ctx = RunContext(arm=args.arm, stage_a=stage_a, stage_b=stage_b, stage_b_model=args.stage_b_model, truth=truth,
                      long_edge=args.long_edge, quality=args.jpeg_quality, seed=0, data_scope=scope,
                      hourly_rate=args.hourly_rate, concurrency=args.concurrency, identity_client=identity_client)
-    weight_keys = tuple(k for k, needed in (("a", stage_a is not None), ("b", stage_b is not None)) if needed)
+    weight_keys: tuple[str, ...] = ()
+    if stage_a is not None:
+        weight_keys += ("a",)
+    if stage_b is not None:
+        weight_keys += (_stage_b_key(args.stage_b_model),)
     weights = _weights_bindings(Path(args.receipts_dir), weight_keys) if weight_keys else {}
     try:
         result = run_wave(members, ctx, Path(args.out), archive_root=archive_root, manifest_binding=bound(manifest_path),

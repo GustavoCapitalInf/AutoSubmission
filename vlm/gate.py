@@ -27,7 +27,7 @@ GATE_VERSION = 2
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "date_out_of_period", "date_not_monotonic", "duplicate_row", "sum_mismatch", "continuity_break",
-           "summary_mismatch", "count_mismatch", "currency_conflict")
+           "summary_mismatch", "count_mismatch", "coverage_mismatch", "currency_conflict", "anchor_disagreement")
 PERIOD_GRACE_DAYS = 5
 
 
@@ -162,7 +162,7 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         checks["credit_count_matches"] = result.stated_credit_count_matches
         checks["debit_count_matches"] = result.stated_debit_count_matches
         delta = abs(Decimal(str(result.sum_delta))) if result.sum_delta is not None else None
-        if not result.ok or delta is None or delta > tolerance:
+        if delta is None or delta > tolerance:
             reasons.append("sum_mismatch")
         if continuity_breaks:
             reasons.append("continuity_break")
@@ -170,9 +170,10 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
             reasons.append("summary_mismatch")
         if result.stated_credit_count_matches is False or result.stated_debit_count_matches is False:
             reasons.append("count_mismatch")
-        counts_vouch = (result.stated_credit_count_matches is True and result.stated_debit_count_matches is True)
-    if unverifiable and not counts_vouch:
-        reasons.append("duplicate_row")
+        if not result.ok and not any(r in reasons for r in ("sum_mismatch", "summary_mismatch")):
+            reasons.append("coverage_mismatch")   # RR-7: a reconcile issue that is neither the sum nor the summary
+    if unverifiable:
+        reasons.append("duplicate_row")   # RR-2: an unverifiable repeat is never amnestied by a matching count
     ordered = tuple(dict.fromkeys(reasons))
     admitted = not ordered
     return GateVerdict(admitted, ordered, len(resolved), tuple(resolved) if admitted else (), computed_ending,

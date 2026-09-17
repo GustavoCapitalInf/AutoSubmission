@@ -103,13 +103,19 @@ def test_duplicate_rows_with_balances_and_without():
     repeat = [CandidateRow("2031-01-05", "01/05", "ATM FEE", Decimal("3.00"), "debit", Decimal("497.00"), 0, "stage_a", "a"),
               CandidateRow("2031-01-05", "01/05", "ATM FEE", Decimal("3.00"), "debit", Decimal("494.00"), 0, "stage_a", "b")]
     assert gate(repeat, _meta(begin="500.00", end="494.00")).admitted
-    # without balances a repeat is unverifiable → refused, unless the bank's printed count vouches
+    # without balances a repeat is unverifiable → refused, and a matching printed count never amnesties it (RR-2)
     meta = _meta(begin="1000.00", end="800.00")
     dup = [CandidateRow("2031-01-05", "01/05", "RENT", Decimal("100.00"), "debit", None, 0, "stage_b", "a"),
            CandidateRow("2031-01-05", "01/05", "RENT", Decimal("100.00"), "debit", None, 0, "stage_b", "b")]
     assert "duplicate_row" in gate(dup, meta).reasons
-    vouched = gate(dup, _meta(begin="1000.00", end="800.00", stated_credit_count=0, stated_debit_count=2))
-    assert vouched.admitted and vouched.checks["debit_count_matches"] is True
+    counted = gate(dup, _meta(begin="1000.00", end="800.00", stated_credit_count=0, stated_debit_count=2))
+    assert not counted.admitted and "duplicate_row" in counted.reasons and counted.checks["debit_count_matches"] is True
+
+
+def test_coverage_shortfall_has_its_own_reason():
+    rows = [CandidateRow("2031-01-03", "01/03", "DEPOSIT", Decimal("100.00"), "credit", None, 0, "stage_b", "a")]
+    verdict = gate(rows, _meta(begin="500.00", end="600.00", stated_total_credits=Decimal("400.00")))
+    assert not verdict.admitted and "coverage_mismatch" in verdict.reasons and "sum_mismatch" not in verdict.reasons
 
 
 def test_printed_totals_and_counts_decide():
