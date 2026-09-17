@@ -23,7 +23,7 @@ before outcomes, verify the supported release and synthetic output contract, kee
 the unseen batch sealed, and retain the production extractor. This research step
 is distinct from the existing v6 A/B and Unlimited OCR. Its bounded synthetic and development comparison is complete; the report preserves missing measurements and failed requests.
 
-### Latest state — 2026-09-17 01:08 UTC
+### Latest state — 2026-09-17 01:28 UTC
 
 The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.
 See [the comparison report](../moneythumb-replacement/phase2_remainder/VL16_V5_COMPARISON_REPORT.md) for the configuration, frozen sample, per-modality denominators,
@@ -79,11 +79,22 @@ the original seven evidence outcomes / one refusal preserved. No new OCR ran
 during recovery. Child, controller and owned-release exits were zero.
 
 The frozen continuation descriptor binds 87 inputs and preserves the original
-failed first-stage result as its predecessor. Stage two started at 01:07:13:
-v6's first reading of the eight-document / 20-known-page paired sample in a
-fresh store. It is active, not yet a completed observation. Ten later stages
-remain unrun. The selected union remains 311 documents / 1,626 known pages;
-stage totals overlap. The unseen batch remains sealed.
+failed first-stage result as its predecessor. Stage two closed at 01:16:37:
+v6's first paired reading attempted eight documents, with fresh evidence for
+seven / 17 pages and one refusal / three pages. Child, controller and owned
+release exited zero; cleanup and retention passed. The run took 559.5 seconds.
+Equal outcome counts do not establish equal evidence or model accuracy.
+Stage three started at 01:28:32: v6's second reading of the same eight-document /
+20-known-page sample in a fresh store. Nine later stages remain unrun. The
+selected union remains 311 documents / 1,626 known pages; stage totals overlap.
+The unseen batch remains sealed.
+
+All nine orientation transition controls passed with zero audit denials and
+successful child, controller and owned release. The comparison compiler's nine
+tests also passed, but its first wrapper failed after blocking two package
+metadata scans of the private source directory. That failed proof remains
+preserved. A narrow source-path correction is under independent review; the
+comparison compiler is not yet cleared for actual execution.
 
 The earlier orientation diagnostic remains a failed compatibility observation.
 The reviewed class-0 extension in `973af29` passed 81 focused tests, eight actual
