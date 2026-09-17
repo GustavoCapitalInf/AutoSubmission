@@ -3,8 +3,7 @@ from vlm import schema
 
 def _row(**overrides):
     row = {"date": "2031-01-02", "date_text": "01/02", "description": "SYNTHETIC ROW 02", "amount": 20.0,
-           "direction": "credit", "balance": 530.0, "section_index": 0, "continues_previous": False,
-           "box": [0.1, 0.2, 0.9, 0.22]}
+           "direction": "credit", "balance": 530.0, "continues_previous": False}
     row.update(overrides)
     return row
 
@@ -45,7 +44,7 @@ def test_bad_direction_and_missing_field_are_rejected():
 
 def test_nullables_allowed():
     ok = _proposal()
-    ok["rows"][0].update({"date": None, "balance": None, "section_index": None, "box": None})
+    ok["rows"][0].update({"date": None, "balance": None})
     ok["account"] = {k: None for k in ok["account"]}
     assert schema.validate_page_proposal(ok) == []
 

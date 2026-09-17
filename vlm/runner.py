@@ -59,6 +59,7 @@ class RunContext:
     hourly_rate: float | None
     concurrency: int = 1
     identity_client: Any | None = None   # a Stage A worker client used only for /version (defaults to stage_a)
+    max_tokens: int = 12000   # DEV wave: dense pages exceeded 4,096 output tokens and were lost as invalid JSON
 
 
 @dataclass(frozen=True)
@@ -140,7 +141,8 @@ def _stage_a_rows(blocks_by_page) -> tuple[list[CandidateRow], AccountMeta]:
 
 def _stage_b_call(ctx: RunContext, page: RenderedPage, prompt: str):
     started = time.perf_counter()
-    result = ctx.stage_b.chat(ctx.stage_b_model, prompt, image_jpeg=page.jpeg, schema=PAGE_PROPOSAL_SCHEMA, seed=ctx.seed)
+    result = ctx.stage_b.chat(ctx.stage_b_model, prompt, image_jpeg=page.jpeg, schema=PAGE_PROPOSAL_SCHEMA, seed=ctx.seed,
+                              max_tokens=getattr(ctx, 'max_tokens', 12000))
     return result, (time.perf_counter() - started) * 1000.0
 
 
@@ -364,6 +366,7 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
         "schema": {"version": SCHEMA_VERSION, "sha256": schema_sha256()},
         "prompt": prompt_manifest(),
         "gate_version": GATE_VERSION, "seed": ctx.seed, "data_scope": ctx.data_scope, "concurrency": ctx.concurrency,
+        "max_tokens": getattr(ctx, "max_tokens", 12000),
         "executing_tip": git_tip or _executing_tip(), "started_at": utc_now(), "requested": len(members),
         "limit": limit, "resume_from": str(resume_from) if resume_from else None,
     }

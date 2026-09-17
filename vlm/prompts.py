@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from vlm.receipts import sha256_bytes
 
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 STAGE_A_TABLE_PROMPT = "Table Recognition:"
 STAGE_A_SPOTTING_PROMPT = "Spotting:"
 
@@ -17,9 +17,9 @@ Rules:
 - account: beginning_balance and ending_balance exactly as printed on this page (null if not on this page); period_start and period_end from the statement period; currency as an ISO code when printed or unambiguous from the bank's country; account_number_last4 as the last four digits printed.
 - stated_total_credits and stated_total_debits: the bank's own printed totals for the period (for example "Total deposits and credits", "Total withdrawals and debits"), as positive numbers, null unless printed on this page. stated_credit_count and stated_debit_count: the printed number of such transactions (for example "Deposits (12)"), null unless printed.
 - page_role: "statement_page" if the page lists transactions; "summary_page" if it holds only totals or summaries; "cheque_images" for check image pages; "cover_or_notice" for letters, notices and disclosures; "blank_or_other" otherwise.
-- sections: the printed section headings in order (for example Deposits, Withdrawals, Checks, Fees, Daily balance). Each row's section_index points to its section, or null.
+- sections: the printed section headings in order (for example Deposits, Withdrawals, Checks, Fees, Daily balance).
 - daily_balances: rows of a printed daily balance table, if any.
-- box: the row's bounding box as [x0, y0, x1, y1] fractions of the page width and height, or null.
+- Keep descriptions as printed but do not repeat a field; the page may hold many rows, emit all of them.
 Return only JSON matching the schema."""
 
 HYBRID_PREFIX = """A document parser read this page first. Its tables (HTML) and text follow. Use them to read cell values precisely; the page image is the authority whenever they disagree.

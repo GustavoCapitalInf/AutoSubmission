@@ -14,7 +14,7 @@ def _page(role="statement_page", rows=(), currency="USD", begin=500.0, end=None,
 
 def _row(date="2031-01-01", amount=10.0, direction="credit", balance=510.0, text="01/01", cont=False, desc="SYNTHETIC ROW 01"):
     return {"date": date, "date_text": text, "description": desc, "amount": amount, "direction": direction,
-            "balance": balance, "section_index": None, "continues_previous": cont, "box": None}
+            "balance": balance, "continues_previous": cont}
 
 
 def test_rows_from_proposal_parses_and_reparses_dates():

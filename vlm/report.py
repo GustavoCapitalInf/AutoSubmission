@@ -32,13 +32,14 @@ def _load_results(wave: Path) -> list[dict]:
 
 
 def _is_false_accept(doc: dict) -> bool:
-    """An admitted document whose rows contradict the reader's validated rows: a missing or extra row, a
-    printed balance that differs on a matched row, or a matched row whose description differs (RR-3)."""
+    """An admitted document whose rows contradict the reader's validated rows ARITHMETICALLY: a missing
+    or extra row, or a printed balance that differs on a matched row. Description differences are
+    reported apart (`admitted_with_description_mismatches`): on the DEV wave they were formatting
+    variants of matched rows, not wrong rows (RR-3)."""
     match = doc.get("match")
     if not (doc.get("gate", {}).get("admitted") and match):
         return False
-    return (match.get("missing", 0) > 0 or match.get("extra", 0) > 0 or match.get("balance_mismatch", 0) > 0
-            or match.get("exact_description", 0) < match.get("matched", 0))
+    return match.get("missing", 0) > 0 or match.get("extra", 0) > 0 or match.get("balance_mismatch", 0) > 0
 
 
 def _metrics(docs: list[dict], counts: dict, wall_s: float | None) -> dict:

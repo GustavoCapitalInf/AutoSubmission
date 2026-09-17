@@ -55,15 +55,15 @@ def test_hybrid_records_anchor_corroboration_and_refuses_a_disagreement():
     assert "anchor_disagreement" in source and "anchor_corroboration" in source
 
 
-# RR-3 — closed: a same-date/amount description swap and a balance mismatch are false accepts
-def test_false_accept_sees_description_and_balance_mismatches():
+# RR-3 — closed: a balance mismatch on a matched row is a false accept; a description difference is
+# reported apart (admitted_with_description_mismatches): on real pages it is formatting, not a wrong row
+def test_false_accept_sees_balance_mismatches_and_reports_descriptions_apart():
     doc = {"sha": "A" * 64, "gate": {"admitted": True},
            "match": {"truth_rows": 2, "candidate_rows": 2, "matched": 2, "exact_balance": 2, "exact_description": 1, "missing": 0, "extra": 0}}
-    assert _is_false_accept(doc) is True
-    clean = {"sha": "A" * 64, "gate": {"admitted": True},
-             "match": {"truth_rows": 2, "candidate_rows": 2, "matched": 2, "exact_balance": 2, "exact_description": 2, "missing": 0, "extra": 0, "balance_mismatch": 0}}
-    assert _is_false_accept(clean) is False
-    assert _is_false_accept({**clean, "match": {**clean["match"], "balance_mismatch": 1}}) is True
+    assert _is_false_accept(doc) is False
+    assert _is_false_accept({**doc, "match": {**doc["match"], "balance_mismatch": 1}}) is True
+    assert _is_false_accept({**doc, "match": {**doc["match"], "missing": 1}}) is True
+    assert "admitted_with_description_mismatches" in Path("vlm/report.py").read_text(encoding="utf-8")
 
 
 # RR-5 — closed: no digest of the account digits in the public stats

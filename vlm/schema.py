@@ -3,7 +3,8 @@
 Grammar-safe subset only (vLLM structured outputs, xgrammar backend): type, properties, required,
 additionalProperties=false, enum, items, nullable unions. Source-level fields only; never a metric.
 
-Schema 2 (review MAJOR-4): the account block asks for the bank's OWN printed totals and counts, so the
+Schema 3 (DEV wave: `box` and `section_index` dropped — unused by the gate and ~15 percent of the
+output tokens on dense pages; review MAJOR-4): the account block asks for the bank's OWN printed totals and counts, so the
 reader's summary identity and per-direction count coverage can decide admission independently of the
 proposal's own arithmetic.
 """
@@ -13,7 +14,7 @@ import jsonschema
 
 from vlm.receipts import canonical_json, sha256_bytes
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 PAGE_ROLES = ("statement_page", "summary_page", "cheque_images", "cover_or_notice", "blank_or_other")
 DIRECTIONS = ("credit", "debit", "unknown")
 SECTION_KINDS = ("deposits", "withdrawals", "checks", "fees", "mixed", "daily_balances", "other")
@@ -26,8 +27,7 @@ def _nullable(kind: str) -> dict:
 _ROW = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["date", "date_text", "description", "amount", "direction", "balance",
-                 "section_index", "continues_previous", "box"],
+    "required": ["date", "date_text", "description", "amount", "direction", "balance", "continues_previous"],
     "properties": {
         "date": _nullable("string"),
         "date_text": {"type": "string"},
@@ -35,9 +35,7 @@ _ROW = {
         "amount": {"type": "number"},
         "direction": {"type": "string", "enum": list(DIRECTIONS)},
         "balance": _nullable("number"),
-        "section_index": _nullable("integer"),
         "continues_previous": {"type": "boolean"},
-        "box": {"type": ["array", "null"], "items": {"type": "number"}},
     },
 }
 

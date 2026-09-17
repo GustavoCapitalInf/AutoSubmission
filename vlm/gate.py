@@ -23,10 +23,10 @@ from vlm.assemble import CandidateRow
 from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
-GATE_VERSION = 2
+GATE_VERSION = 3
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
-           "date_out_of_period", "date_not_monotonic", "duplicate_row", "sum_mismatch", "continuity_break",
+           "duplicate_row", "sum_mismatch", "continuity_break",
            "summary_mismatch", "count_mismatch", "coverage_mismatch", "currency_conflict", "anchor_disagreement")
 PERIOD_GRACE_DAYS = 5
 
@@ -139,13 +139,15 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
     if any(value is None for value in dates):
         reasons.append("date_unparsed")
     parsed = [date.fromisoformat(value) for value in dates if value]
+    # Date order and period membership are RECORDED, not refusal reasons: sectioned statements restart
+    # dates per section and banks list checks by number; the reader's own arithmetic decides admission.
+    outside = 0
     if meta.period_start and meta.period_end and parsed:
         lower = date.fromisoformat(meta.period_start) - timedelta(days=PERIOD_GRACE_DAYS)
         upper = date.fromisoformat(meta.period_end) + timedelta(days=PERIOD_GRACE_DAYS)
-        if any(value < lower or value > upper for value in parsed):
-            reasons.append("date_out_of_period")
-    if any(later < earlier for earlier, later in zip(parsed, parsed[1:])):
-        reasons.append("date_not_monotonic")
+        outside = sum(1 for value in parsed if value < lower or value > upper)
+    checks["dates_outside_period"] = outside
+    checks["date_order_breaks"] = sum(1 for earlier, later in zip(parsed, parsed[1:]) if later < earlier)
     distinguished, unverifiable = _duplicates(resolved)
     checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}
     computed_ending: Decimal | None = None

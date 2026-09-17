@@ -91,8 +91,9 @@ def test_date_checks():
     assert "date_unparsed" in gate(rows, _meta()).reasons
     rows = _rows()
     rows[1] = CandidateRow("2031-03-05", "03/05", rows[1].description, rows[1].amount, "credit", rows[1].balance, 0, "stage_a", "x")
-    reasons = gate(rows, _meta()).reasons
-    assert "date_out_of_period" in reasons and "date_not_monotonic" in reasons
+    verdict = gate(rows, _meta())
+    # recorded, never refused: sectioned statements restart dates and banks list checks by number
+    assert verdict.admitted and verdict.checks["dates_outside_period"] == 1 and verdict.checks["date_order_breaks"] == 1
 
 
 def test_duplicate_rows_with_balances_and_without():

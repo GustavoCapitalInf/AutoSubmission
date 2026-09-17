@@ -90,9 +90,9 @@ def test_continues_previous_with_an_amount_keeps_the_row_and_counts_it():
     proposal["account"].update({"beginning_balance": 500.0, "ending_balance": 560.0})
     proposal["rows"] = [
         {"date": "2031-01-01", "date_text": "01/01", "description": "DEPOSIT", "amount": 10.0,
-         "direction": "credit", "balance": 510.0, "section_index": None, "continues_previous": False, "box": None},
+         "direction": "credit", "balance": 510.0, "continues_previous": False},
         {"date": "2031-01-02", "date_text": "01/02", "description": "DEPOSIT TWO", "amount": 50.0,
-         "direction": "credit", "balance": 560.0, "section_index": None, "continues_previous": True, "box": None},
+         "direction": "credit", "balance": 560.0, "continues_previous": True},
     ]
     rows, meta, stats = merge_pages([PageProposal(0, proposal, ())])
     assert len(rows) == 2 and rows[1].amount == Decimal("50.00")

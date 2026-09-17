@@ -57,8 +57,8 @@ class FakeStageB:
         for i in range(1, 5):
             balance += i * 10
             proposal["rows"].append({"date": f"2031-01-{i:02d}", "date_text": f"01/{i:02d}", "description": f"SYNTHETIC ROW {i:02d}",
-                                     "amount": float(i * 10), "direction": "credit", "balance": balance, "section_index": None,
-                                     "continues_previous": False, "box": None})
+                                     "amount": float(i * 10), "direction": "credit", "balance": balance,
+                                     "continues_previous": False})
         text = json.dumps(proposal)
         return ChatResult(text=text, parsed=proposal, parse_error=None, finish_reason="stop", prompt_tokens=100,
                           completion_tokens=50, total_ms=3.0, request_sha256="a" * 64, response_sha256="b" * 64,
