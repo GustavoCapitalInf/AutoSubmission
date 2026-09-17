@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+from ocr.paddle_config import PaddleRefused
 from vlm import partitions, report
 from vlm.client import StageAWorkerClient, VlmClient
 from vlm.receipts import Refused, bound
@@ -127,6 +128,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     except Refused as exc:
         print(json.dumps({"error": exc.code}))
+        return 2
+    except PaddleRefused as exc:
+        # The reviewed authorization gate refused (opt-in literal absent, scope not authorized): closed code only.
+        print(json.dumps({"error": str(exc).split(":", 1)[0]}))
         return 2
     return 1
 
