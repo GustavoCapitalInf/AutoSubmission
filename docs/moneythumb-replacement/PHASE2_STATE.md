@@ -5,12 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-17T00:04:00Z
+  modified: 2026-09-17T00:27:00Z
 ---
 
 ## Current continuation — 2026-09-16–17 UTC
 
-**Latest execution snapshot, 2026-09-17 00:04 UTC:**
+**Latest execution snapshot, 2026-09-17 00:27 UTC:**
 
 The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.
 See [the comparison report](phase2_remainder/VL16_V5_COMPARISON_REPORT.md) for the configuration, frozen sample, per-modality denominators,
@@ -46,24 +46,32 @@ with in-frame round-trip checks, unchanged sources, zero boundary denials and
 passed cleanup/retention. Child, controller and owned-release exits are zero.
 This is one logical warmup; wire attempts and model accuracy were not measured.
 V customer comparisons, final closure and V/B/P composition remain pending.
-The v6-first rehearsal closed at 23:54:49 with nine passes and five setup errors:
-the actual discovery CLI study-name grammar rejected `v6` and `paired-v6`.
-Its audit counters are zero and owned release passed; the failed proof is retained.
-A reviewed one-character grammar repair and regression test are committed in
-isolated `ff633a6`; their focused proof is pending. The historical compatibility
-source stays unchanged, and unchanged files in the new checkout have been restored
-to its exact bytes after Windows line-ending conversion.
+The reviewed study-name grammar repair in isolated `ff633a6` now passes all
+15 focused runner checks. The two earlier failed proof envelopes are preserved.
+Historical compatibility sources and unchanged runtime files retain their exact bytes.
+The frozen descriptor binds 69 inputs and the original twelve-stage schedule.
+
+The first customer stage closed at 00:23:27 in 508.2 seconds: production v5 on
+the paired v6 sample attempted eight documents, with evidence for seven / 17 pages
+and one refusal / three pages. The child exited zero and retention/cleanup passed.
+The final inspector failed on legitimate outside-population rows in the full
+custody CSV. Its failed result and successful owned release remain immutable.
+A strict source-defined exclusion check and separate offline qualification are
+being prepared; no customer retry or second stage has run. Eleven stages remain
+unrun, and the first still needs qualified custody. The selected union remains
+311 documents / 1,626 known pages; stage totals overlap.
 
 The earlier orientation diagnostic remains a failed compatibility observation.
-The separately reviewed class-0 extension in `973af29` passed 81 focused tests,
-eight actual upstream geometry cases, five refusals and four deliberate faults.
-G11/G12 closed at 00:00:41 with a 31-case baseline, both named assertion failures
-and exact source restoration; child, controller and owned-release exits are zero.
-These synthetic checks preserve approximate upstream boxes and page-frame handling;
-they do not establish localization accuracy or live compatibility. The bounded
-upright/rotated synthetic compatibility successor is being prepared.
-All twelve alternative customer stages (311 documents / 1,626 pages) remain unrun.
-The completed VL study does not waive those obligations.
+The reviewed class-0 extension in `973af29` passed 81 focused tests, eight actual
+upstream cases, five refusals, four deliberate faults, and the G11/G12 checks.
+Eight compatibility-validator controls then passed. Live synthetic compatibility
+closed at 00:27:00: upright and rotated180 each produced 54 words / 10 lines,
+with class-0 provenance observed and page angles zero / 180. Both passed in-frame
+canonical roundtrip checks. Sources were unchanged, audit denials were zero,
+cleanup/retention passed, and child/controller/owned-release exits were zero.
+These are two logical synthetic calls; wire attempts and localization accuracy
+remain unmeasured. Approximate upstream boxes are preserved in the original frame.
+The completed VL study does not waive the remaining configuration obligations.
 
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
