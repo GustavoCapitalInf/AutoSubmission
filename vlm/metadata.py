@@ -1,4 +1,9 @@
-"""Rule-based statement metadata from printed text lines (Stage A arm); merged with Stage B."""
+"""Rule-based statement metadata from printed text lines (Stage A arm); merged with Stage B.
+
+Review closures: META-1 (the money token is the first one AFTER the label on its line, not the last
+one on the line); MAJOR-4 (the bank's printed totals and counts are extracted so the reader's summary
+identity and count coverage can decide).
+"""
 from __future__ import annotations
 
 import re
@@ -9,6 +14,10 @@ from vlm.textparse import parse_date, parse_money
 
 BEGIN_RE = re.compile(r"\b(beginning balance|opening balance|previous balance|balance forward|starting balance|balance brought forward|previous statement balance)\b", re.I)
 END_RE = re.compile(r"\b(ending balance|closing balance|new balance|balance at end|current balance|statement balance|ending ledger balance|closing ledger balance)\b", re.I)
+TOTAL_CREDITS_RE = re.compile(r"\b(total deposits and (?:other )?credits|deposits and (?:other )?credits|total deposits|total credits|deposits/credits|total additions|credits total|deposits total)\b", re.I)
+TOTAL_DEBITS_RE = re.compile(r"\b(total withdrawals and (?:other )?debits|withdrawals and (?:other )?debits|total withdrawals|total debits|checks and (?:other )?debits|withdrawals/debits|total subtractions|total payments|debits total|withdrawals total)\b", re.I)
+COUNT_PAREN_RE = re.compile(r"\((\d{1,4})\)")
+COUNT_WORD_RE = re.compile(r"\b(\d{1,4})\s+(deposits?|credits?|withdrawals?|debits?|checks?|items?|transactions?)\b", re.I)
 MONEY_TOKEN = re.compile(r"\(?-?[$€£]?\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})\)?-?|\(?-?[$€£]?\s?\d+\.\d{2}\)?-?")
 DATE_TOKEN = r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|[A-Za-z]{3,9}\.? \d{1,2},? \d{4}|\d{1,2} [A-Za-z]{3,9},? \d{4})"
 PERIOD_RE = re.compile(rf"({DATE_TOKEN})\s*(?:to|-|–|—|through|thru)\s*({DATE_TOKEN})", re.I)
@@ -26,34 +35,76 @@ class AccountMeta:
     account_last4: str | None
     bank: str | None
     sources: tuple[str, ...]
+    stated_total_credits: Decimal | None = None
+    stated_total_debits: Decimal | None = None
+    stated_credit_count: int | None = None
+    stated_debit_count: int | None = None
 
 
 EMPTY_META = AccountMeta(None, None, None, None, None, None, None, ())
 
 
-def _money_after(lines: list[str], index: int) -> Decimal | None:
-    for candidate in (lines[index], lines[index + 1] if index + 1 < len(lines) else ""):
-        tokens = MONEY_TOKEN.findall(candidate)
-        for token in reversed(tokens):
-            value = parse_money(token.strip())
+def _money_after(lines: list[str], index: int, label_end: int) -> Decimal | None:
+    """The first money token printed AFTER the label on its own line; else the first on the next line."""
+    for text, start in ((lines[index], label_end), (lines[index + 1] if index + 1 < len(lines) else "", 0)):
+        for match in MONEY_TOKEN.finditer(text):
+            if match.start() < start:
+                continue
+            value = parse_money(match.group(0).strip())
             if value is not None:
                 return value
     return None
 
 
+def _count_after(line: str, label_end: int) -> int | None:
+    tail = line[label_end:]
+    match = COUNT_PAREN_RE.search(tail) or COUNT_PAREN_RE.search(line)
+    if match:
+        return int(match.group(1))
+    match = COUNT_WORD_RE.search(line)
+    return int(match.group(1)) if match else None
+
+
 def extract_meta(lines: list[str], *, year_hint: int | None = None) -> AccountMeta:
-    beginning = ending = None
+    beginning = ending = credits_total = debits_total = None
+    credit_count = debit_count = None
     start = end = currency = last4 = None
     sources: list[str] = []
     for index, line in enumerate(lines):
-        if beginning is None and BEGIN_RE.search(line):
-            beginning = _money_after(lines, index)
-            if beginning is not None:
-                sources.append("beginning:rule")
-        if ending is None and END_RE.search(line):
-            ending = _money_after(lines, index)
-            if ending is not None:
-                sources.append("ending:rule")
+        if beginning is None:
+            match = BEGIN_RE.search(line)
+            if match:
+                beginning = _money_after(lines, index, match.end())
+                if beginning is not None:
+                    sources.append("beginning:rule")
+        if ending is None:
+            match = END_RE.search(line)
+            if match:
+                ending = _money_after(lines, index, match.end())
+                if ending is not None:
+                    sources.append("ending:rule")
+        if credits_total is None:
+            match = TOTAL_CREDITS_RE.search(line)
+            if match:
+                value = _money_after(lines, index, match.end())
+                if value is not None:
+                    credits_total = abs(value)
+                    sources.append("total_credits:rule")
+                count = _count_after(line, match.end())
+                if count is not None and credit_count is None:
+                    credit_count = count
+                    sources.append("credit_count:rule")
+        if debits_total is None:
+            match = TOTAL_DEBITS_RE.search(line)
+            if match:
+                value = _money_after(lines, index, match.end())
+                if value is not None:
+                    debits_total = abs(value)
+                    sources.append("total_debits:rule")
+                count = _count_after(line, match.end())
+                if count is not None and debit_count is None:
+                    debit_count = count
+                    sources.append("debit_count:rule")
         if start is None:
             match = PERIOD_RE.search(line)
             if match:
@@ -77,7 +128,8 @@ def extract_meta(lines: list[str], *, year_hint: int | None = None) -> AccountMe
             if match:
                 last4 = match[1]
                 sources.append("last4:rule")
-    return AccountMeta(beginning, ending, start, end, currency, last4, None, tuple(sources))
+    return AccountMeta(beginning, ending, start, end, currency, last4, None, tuple(sources),
+                       credits_total, debits_total, credit_count, debit_count)
 
 
 def merge_meta(first: AccountMeta, second: AccountMeta) -> AccountMeta:

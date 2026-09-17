@@ -1,5 +1,7 @@
+import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +11,9 @@ from vlm.partitions import Member
 from vlm.schema import empty_proposal
 
 SHA = "F" * 64
+REMOTE = SimpleNamespace(provider="vast.ai", execution_class="remote_paid", is_remote=True)
+LOCAL = SimpleNamespace(provider="local", execution_class="local_free", is_remote=False)
+BINDING = {"path": "m", "sha256": "0" * 64}
 
 
 def _table_html(n=4):
@@ -19,11 +24,12 @@ def _table_html(n=4):
 
 
 class FakeStageA:
-    def __init__(self):
+    def __init__(self, provider="vast.ai", execution_class="remote_paid"):
         self.calls = 0
+        self.identity = {"provider": provider, "execution_class": execution_class}
 
     def version(self):
-        return {"model": "fake-parser", "pipeline_version": "v1.6"}
+        return {"model": "fake-parser", "pipeline_version": "v1.6", "retention": "none", **self.identity}
 
     def parse_page(self, jpeg, *, request_id, page_index):
         self.calls += 1
@@ -55,7 +61,8 @@ class FakeStageB:
                                      "continues_previous": False, "box": None})
         text = json.dumps(proposal)
         return ChatResult(text=text, parsed=proposal, parse_error=None, finish_reason="stop", prompt_tokens=100,
-                          completion_tokens=50, total_ms=3.0, request_sha256="a" * 64, response_sha256="b" * 64)
+                          completion_tokens=50, total_ms=3.0, request_sha256="a" * 64, response_sha256="b" * 64,
+                          content_sha256="c" * 64)
 
 
 def _member(tmp_path) -> tuple[Member, Path]:
@@ -65,96 +72,134 @@ def _member(tmp_path) -> tuple[Member, Path]:
     return Member(SHA, "fam/doc.pdf", 100, 1, "fam", "digital", "validated", 1), archive
 
 
-def _ctx(arm, stage_a=None, stage_b=None):
-    return runner.RunContext(arm=arm, stage_a=stage_a, stage_b=stage_b, stage_b_model="fake-vlm", truth=None,
-                             long_edge=800, quality=85, seed=0, data_scope="synthetic", hourly_rate=None)
+def _ctx(arm, stage_a=None, stage_b=None, identity=None, **kw):
+    base = dict(arm=arm, stage_a=stage_a, stage_b=stage_b, stage_b_model="fake-vlm", truth=None, long_edge=800, quality=85,
+                seed=0, data_scope="synthetic", hourly_rate=None, identity_client=identity)
+    base.update(kw)
+    return runner.RunContext(**base)
 
 
-BINDING = {"path": "m", "sha256": "0" * 64}
+def _wave(members, ctx, out, archive, **kw):
+    params = dict(archive_root=archive, manifest_binding=BINDING, manifest_scope="synthetic", authorize=lambda s: None,
+                  git_tip="x", settings=REMOTE)
+    params.update(kw)
+    return runner.run_wave(members, ctx, out, **params)
 
 
 def test_stage_a_rules_arm_admits_synthetic_ledger(tmp_path):
     member, archive = _member(tmp_path)
-    ctx = _ctx("stage_a_rules", stage_a=FakeStageA())
-    result = runner.run_wave([member], ctx, tmp_path / "wave", archive_root=archive, manifest_binding=BINDING,
-                             authorize=lambda scope: None, git_tip="deadbeef")
+    result = _wave([member], _ctx("stage_a_rules", stage_a=FakeStageA()), tmp_path / "wave", archive)
     assert result["status"] == "complete" and result["counts"]["admitted"] == 1 and result["counts"]["attempted"] == 1
     public = json.loads((tmp_path / "wave" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
-    assert public["gate"]["admitted"] and public["rows_proposed"] == 4 and public["pages"] == 1
+    assert public["gate"]["admitted"] and public["gate"]["anchored"] == "both" and public["rows_proposed"] == 4 and public["pages"] == 1
     assert public["timings"]["stage_a_ms"] >= 0 and len(public["page_hashes"]) == 1
     assert "fam/doc.pdf" not in json.dumps(public)
     private = json.loads((tmp_path / "wave" / "results" / f"{SHA}.private.json").read_text(encoding="utf-8"))
     assert private["rows"][0]["amount"] == "10.00" and private["meta"]["beginning_balance"] == "500.00"
-    assert (tmp_path / "wave" / "release.json").exists() and (tmp_path / "wave" / "launch.json").exists()
+    launch = json.loads((tmp_path / "wave" / "launch.json").read_text(encoding="utf-8"))
+    assert launch["identity"]["checked"] and launch["identity"]["echo"]["execution_class"] == "remote_paid"
+    assert launch["prompt"]["stage_b_template_sha256"] and launch["prompt"]["hybrid_prefix_template_sha256"]
+    assert launch["manifest_scope"] == "synthetic" and (tmp_path / "wave" / "release.json").exists()
 
 
 def test_stage_b_and_hybrid_arms(tmp_path):
     member, archive = _member(tmp_path)
     b = FakeStageB()
-    result = runner.run_wave([member], _ctx("stage_b_only", stage_b=b), tmp_path / "w1", archive_root=archive,
-                             manifest_binding=BINDING, authorize=lambda s: None, git_tip="x")
+    result = _wave([member], _ctx("stage_b_only", stage_b=b, identity=FakeStageA()), tmp_path / "w1", archive)
     assert result["counts"]["admitted"] == 1 and b.calls == 1
     a = FakeStageA()
-    result = runner.run_wave([member], _ctx("hybrid", stage_a=a, stage_b=FakeStageB()), tmp_path / "w2", archive_root=archive,
-                             manifest_binding=BINDING, authorize=lambda s: None, git_tip="x")
+    result = _wave([member], _ctx("hybrid", stage_a=a, stage_b=FakeStageB()), tmp_path / "w2", archive)
     assert result["counts"]["admitted"] == 1 and a.calls == 1
     public = json.loads((tmp_path / "w2" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
     assert public["agreement"]["stage_a_rows"] == 4 and public["agreement"]["matched"] == 4
+    assert "account_last4_values" not in json.dumps(public) and public["stage_b_content_hashes"] == ["c" * 64]
 
 
 def test_gate_refusal_is_recorded_not_raised(tmp_path):
     member, archive = _member(tmp_path)
-    result = runner.run_wave([member], _ctx("stage_b_only", stage_b=FakeStageB(good=False)), tmp_path / "w", archive_root=archive,
-                             manifest_binding=BINDING, authorize=lambda s: None, git_tip="x")
+    result = _wave([member], _ctx("stage_b_only", stage_b=FakeStageB(good=False), identity=FakeStageA()), tmp_path / "w", archive)
     assert result["counts"]["admitted"] == 0 and result["counts"]["refused_by_gate"] == 1
     public = json.loads((tmp_path / "w" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
     assert "sum_mismatch" in public["gate"]["reasons"]
 
 
-def test_reader_baseline_arm_needs_no_models(tmp_path):
+def test_reader_baseline_arm_needs_no_models_or_settings(tmp_path):
     member, archive = _member(tmp_path)
-    result = runner.run_wave([member], _ctx("reader_baseline"), tmp_path / "w", archive_root=archive,
-                             manifest_binding=BINDING, authorize=lambda s: None, git_tip="x")
+    result = _wave([member], _ctx("reader_baseline"), tmp_path / "w", archive, settings=None)
     public = json.loads((tmp_path / "w" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
     assert public["reader_outcome"] == "validated" and result["counts"]["reader_validated"] == 1
 
 
-def test_resume_skips_existing_and_wave_dir_is_never_reused(tmp_path):
+def test_identity_refusals(tmp_path):
+    member, archive = _member(tmp_path)
+    with pytest.raises(runner.Refused) as exc:
+        _wave([member], _ctx("stage_a_rules", stage_a=FakeStageA()), tmp_path / "w1", archive, settings=LOCAL)
+    assert exc.value.code == "local_declaration_with_model_endpoints"
+    with pytest.raises(runner.Refused) as exc:
+        _wave([member], _ctx("stage_a_rules", stage_a=FakeStageA(provider="local", execution_class="local_free")), tmp_path / "w2", archive)
+    assert exc.value.code == "vlm_identity_mismatch"
+    with pytest.raises(runner.Refused) as exc:
+        _wave([member], _ctx("stage_b_only", stage_b=FakeStageB()), tmp_path / "w3", archive)
+    assert exc.value.code == "identity_probe_missing"
+    assert not (tmp_path / "w1").exists() and not (tmp_path / "w2").exists()
+
+
+def test_scope_bound_to_manifest(tmp_path):
+    member, archive = _member(tmp_path)
+    with pytest.raises(runner.Refused) as exc:
+        _wave([member], _ctx("reader_baseline"), tmp_path / "w", archive, manifest_scope="customer", settings=None)
+    assert exc.value.code == "data_scope_disagrees_with_manifest" and not (tmp_path / "w").exists()
+
+
+def test_resume_retries_failures_and_wave_dir_is_never_reused(tmp_path):
     member, archive = _member(tmp_path)
     ctx = _ctx("stage_a_rules", stage_a=FakeStageA())
-    runner.run_wave([member], ctx, tmp_path / "w", archive_root=archive, manifest_binding=BINDING,
-                    authorize=lambda s: None, git_tip="x")
+    _wave([member], ctx, tmp_path / "w", archive)
     with pytest.raises(runner.Refused) as exc:
-        runner.run_wave([member], ctx, tmp_path / "w", archive_root=archive, manifest_binding=BINDING,
-                        authorize=lambda s: None, git_tip="x")
+        _wave([member], ctx, tmp_path / "w", archive)
     assert exc.value.code == "wave_already_attempted"
-    result = runner.run_wave([member], ctx, tmp_path / "w2", archive_root=archive, manifest_binding=BINDING,
-                             authorize=lambda s: None, git_tip="x", resume_from=tmp_path / "w")
+    result = _wave([member], ctx, tmp_path / "w2", archive, resume_from=tmp_path / "w")
     assert result["counts"]["skipped_existing"] == 1 and result["counts"]["attempted"] == 0
 
-
-def test_transport_failure_recorded_and_aborts_after_three(tmp_path):
     from vlm.client import TransportError
 
-    class Broken:
-        def version(self):
-            return {}
-
+    class Broken(FakeStageA):
         def parse_page(self, *a, **k):
             raise TransportError("connection_failed:ConnectionRefusedError")
 
     members = [Member(f"{i:064X}", "fam/doc.pdf", 100, 1, "fam", "digital", "failed", 1) for i in range(5)]
+    first = _wave(members, _ctx("stage_a_rules", stage_a=Broken()), tmp_path / "f1", archive)
+    assert first["status"] == "failed" and first["failure_code"] == "transport_failing" and first["counts"]["failed"] == 3
+    second = _wave(members, _ctx("stage_a_rules", stage_a=FakeStageA()), tmp_path / "f2", archive, resume_from=tmp_path / "f1")
+    assert second["counts"]["skipped_existing"] == 0 and second["counts"]["attempted"] == 5
+
+
+def test_limit_is_reported_separately(tmp_path):
     _, archive = _member(tmp_path)
-    result = runner.run_wave(members, _ctx("stage_a_rules", stage_a=Broken()), tmp_path / "w", archive_root=archive,
-                             manifest_binding=BINDING, authorize=lambda s: None, git_tip="x")
-    assert result["status"] == "failed" and result["failure_code"] == "transport_failing" and result["counts"]["failed"] == 3
+    members = [Member(f"{i:064X}", "fam/doc.pdf", 100, 1, "fam", "digital", "failed", 1) for i in range(4)]
+    result = _wave(members, _ctx("reader_baseline"), tmp_path / "w", archive, limit=1, settings=None)
+    assert result["counts"]["attempted"] == 1 and result["counts"]["skipped_existing"] == 0 and result["counts"]["limited_out"] == 3
+
+
+def test_interrupted_wave_is_receipted_as_aborted(tmp_path):
+    _, archive = _member(tmp_path)
+
+    class Interrupting(FakeStageA):
+        def parse_page(self, *a, **k):
+            raise KeyboardInterrupt
+
+    members = [Member(f"{i:064X}", "fam/doc.pdf", 100, 1, "fam", "digital", "failed", 1) for i in range(2)]
+    with pytest.raises(KeyboardInterrupt):
+        _wave(members, _ctx("stage_a_rules", stage_a=Interrupting()), tmp_path / "w", archive)
+    result = json.loads((tmp_path / "w" / "result.json").read_text(encoding="utf-8"))
+    release = json.loads((tmp_path / "w" / "release.json").read_text(encoding="utf-8"))
+    assert result["status"] == "aborted" and result["failure_code"] == "interrupted" and release["controller_exit"] == 1
 
 
 def test_authorize_is_called_with_scope(tmp_path):
     member, archive = _member(tmp_path)
     seen = []
-    runner.run_wave([member], _ctx("stage_a_rules", stage_a=FakeStageA()), tmp_path / "w", archive_root=archive,
-                    manifest_binding=BINDING, authorize=lambda s: seen.append(s), git_tip="x")
+    _wave([member], _ctx("stage_a_rules", stage_a=FakeStageA()), tmp_path / "w", archive, authorize=lambda s: seen.append(s))
     assert seen == ["synthetic"]
 
 
@@ -167,21 +212,14 @@ def test_stage_b_concurrency_keeps_page_order(tmp_path):
     merged = pdfium.PdfDocument.new()
     for _ in range(3):
         merged.import_pages(doc)
-    (archive / "fam" / "three.pdf").write_bytes(merged.save_to_bytes() if hasattr(merged, "save_to_bytes") else _save(merged))
+    buf = io.BytesIO()
+    merged.save(buf)
+    (archive / "fam" / "three.pdf").write_bytes(buf.getvalue())
     member = Member(SHA, "fam/three.pdf", 100, 3, "fam", "digital", "validated", 1)
-    ctx = runner.RunContext(arm="stage_b_only", stage_a=None, stage_b=FakeStageB(), stage_b_model="fake-vlm", truth=None,
-                            long_edge=600, quality=80, seed=0, data_scope="synthetic", hourly_rate=None, concurrency=3)
-    result = runner.run_wave([member], ctx, tmp_path / "w", archive_root=archive, manifest_binding=BINDING,
-                             authorize=lambda s: None, git_tip="x")
+    ctx = _ctx("stage_b_only", stage_b=FakeStageB(), identity=FakeStageA(), long_edge=600, quality=80, concurrency=3)
+    result = _wave([member], ctx, tmp_path / "w", archive)
     assert result["counts"]["attempted"] == 1
     private = json.loads((tmp_path / "w" / "results" / f"{SHA}.private.json").read_text(encoding="utf-8"))
     assert [t["page"] for t in private["stage_b"]] == [0, 1, 2]
     public = json.loads((tmp_path / "w" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
-    assert public["pages"] == 3 and public["timings"]["prompt_tokens"] == 300
-
-
-def _save(doc):
-    import io
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
+    assert public["pages"] == 3 and public["timings"]["prompt_tokens"] == 300 and public["timings"]["stage_b_wall_ms"] >= 0

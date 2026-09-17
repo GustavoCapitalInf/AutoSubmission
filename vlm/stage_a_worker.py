@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hmac
 import io
 import json
 import os
@@ -48,7 +49,8 @@ def resolve_token(environ: dict | None = None) -> str | None:
 def check_bearer_token(token: str | None, auth_header: str | None) -> None:
     if token is None:
         return
-    if auth_header != f"Bearer {token}":
+    expected = f"Bearer {token}"
+    if not isinstance(auth_header, str) or not hmac.compare_digest(auth_header.encode("utf-8"), expected.encode("utf-8")):
         raise WorkerRefused("unauthorized", 401)
 
 
@@ -126,8 +128,11 @@ def version_payload(environ: dict | None = None, *, versions: dict | None = None
                 versions[name] = md.version(name)
             except md.PackageNotFoundError:
                 versions[name] = "absent"
+    # BLOCK-2: echo the declaration this worker was started under, so the caller can refuse a mismatch
+    # before any page byte moves (the same contract as `ocr/paddle_worker.py`'s /version).
     return {"contract": CONTRACT, "pipeline_version": PIPELINE_VERSION, "served_model_name": SERVED_MODEL_NAME,
             "backend": source.get("VLM_A_BACKEND", "vllm-server"), "retention": RETENTION_POLICY,
+            "provider": source.get("PADDLE_PROVIDER", ""), "execution_class": source.get("PADDLE_EXECUTION_CLASS", ""),
             "predict_kwargs": PREDICT_KWARGS, **{f"{k}_version": v for k, v in versions.items()}}
 
 
@@ -184,10 +189,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stage_a_worker")
     parser.add_argument("--port", type=int, default=int(os.environ.get("VLM_A_WORKER_PORT", DEFAULT_PORT)))
     parser.add_argument("--self-check", action="store_true")
+    parser.add_argument("--allow-no-token", action="store_true", help="loopback-only diagnostics; never for a wave")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     if args.self_check:
         print(json.dumps(version_payload()))
         return 0
+    token = resolve_token()
+    if token is None and not args.allow_no_token:
+        print(json.dumps({"error": "token_required"}), flush=True)
+        return 2
     from paddleocr import PaddleOCRVL
 
     pipeline = PaddleOCRVL(
@@ -199,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         use_chart_recognition=False, use_seal_recognition=False, use_ocr_for_image_block=False,
         format_block_content=False, merge_layout_blocks=True,
     )
-    server = build_server(LOOPBACK_BIND, args.port, pipeline, resolve_token())
+    server = build_server(LOOPBACK_BIND, args.port, pipeline, token)
     print(json.dumps({"listening": True, "port": args.port}), flush=True)
     server.serve_forever()
     return 0

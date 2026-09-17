@@ -38,3 +38,15 @@ def test_merge_meta_first_non_null_wins():
 def test_year_from_meta():
     assert md.year_from_meta(md.extract_meta(LINES)) == 2031
     assert md.year_from_meta(md.extract_meta([])) is None
+
+
+def test_shared_summary_line_assigns_each_label_its_own_money():
+    meta = md.extract_meta(["Beginning balance 500.00 Ending balance 600.00"])
+    assert meta.beginning_balance == Decimal("500.00") and meta.ending_balance == Decimal("600.00")
+
+
+def test_printed_totals_and_counts_are_extracted():
+    meta = md.extract_meta(["Deposits and Other Credits (12) 3,450.00", "Total Withdrawals and Debits 1,200.50", "5 checks"])
+    assert meta.stated_total_credits == Decimal("3450.00") and meta.stated_credit_count == 12
+    assert meta.stated_total_debits == Decimal("1200.50")
+    assert "total_credits:rule" in meta.sources and "credit_count:rule" in meta.sources

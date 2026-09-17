@@ -23,6 +23,8 @@ DEFAULT_ARCHIVE_ROOT = Path("Bank Statements")
 DEV_SEED = "p3-ceiling-dev-v1"
 DEV_SIZE = 20
 MANIFEST_VERSION = 1
+CUSTOMER_SCOPE = "customer"
+SYNTHETIC_SCOPE = "synthetic"
 POPULATION_FILES = {"CTRL": "CTRL.shas", "U755": "U755.shas"}
 
 
@@ -114,11 +116,21 @@ def build_manifest(name: str, shas: Iterable[str], *, run_dir: Path = DEFAULT_RU
     private = {
         "manifest_version": MANIFEST_VERSION,
         "name": name,
+        "data_scope": CUSTOMER_SCOPE,   # BLOCK-3: every manifest built from a population file is customer data
         "set_sha256": public["set_sha256"],
         "archive_root": str(Path(archive_root)),
         "members": [asdict(m) for m in members],
     }
+    public["data_scope"] = CUSTOMER_SCOPE
     return public, private
+
+
+def manifest_scope(path: Path) -> str:
+    """The data scope a private manifest declares; a manifest without one refuses (never a default)."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    scope = data.get("data_scope")
+    need(scope in (CUSTOMER_SCOPE, SYNTHETIC_SCOPE), "manifest_scope_missing")
+    return scope
 
 
 def write_manifests(out_dir: Path, *, populations_dir: Path = DEFAULT_POPULATIONS_DIR,

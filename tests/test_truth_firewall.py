@@ -45,9 +45,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PRODUCTION_ROOTS = ("analysis", "layout", "ocr", "evidence", "discovery", "webapp", "telemetry")
+PRODUCTION_ROOTS = ("analysis", "layout", "ocr", "evidence", "discovery", "webapp", "telemetry", "vlm")
 #: Roots that must exist for the scan to be non-vacuous (`layout/` lands with cell C).
-REQUIRED_ROOTS = ("analysis", "ocr", "evidence", "discovery", "webapp", "telemetry")
+REQUIRED_ROOTS = ("analysis", "ocr", "evidence", "discovery", "webapp", "telemetry", "vlm")
 
 FORBIDDEN_LITERAL_FRAGMENTS = ("SEALED_TRUTH_DIR", "HOLDOUT_STORE_DIR", "tools.holdout",
                                "tools/holdout", "tools.adjudicate", "tools/adjudicate")

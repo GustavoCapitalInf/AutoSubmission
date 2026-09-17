@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from vlm.assemble import CandidateRow
 from vlm.gate import GATE_VERSION, gate, resolve_directions
-from vlm.metadata import AccountMeta
+from vlm.metadata import EMPTY_META, AccountMeta
 
 
 def _rows(n=4, start=Decimal("500.00"), direction="credit"):
@@ -15,16 +15,16 @@ def _rows(n=4, start=Decimal("500.00"), direction="credit"):
     return rows
 
 
-def _meta(begin="500.00", end="600.00"):
+def _meta(begin="500.00", end="600.00", **extra):
     return AccountMeta(Decimal(begin) if begin else None, Decimal(end) if end else None, "2031-01-01", "2031-01-31",
-                       "USD", "0001", "SYNTHETIC BANK", ("test",))
+                       "USD", "0001", "SYNTHETIC BANK", ("test",), **extra)
 
 
-def test_reconciled_ledger_is_admitted():
+def test_reconciled_ledger_is_admitted_strictly():
     verdict = gate(_rows(), _meta())
-    assert verdict.admitted and verdict.reasons == () and verdict.row_count == 4
+    assert verdict.admitted and verdict.reasons == () and verdict.row_count == 4 and verdict.anchored == "both"
     assert verdict.computed_ending == Decimal("600.00") and verdict.continuity_breaks == 0
-    assert verdict.checks["gate_version"] == GATE_VERSION
+    assert verdict.checks["gate_version"] == GATE_VERSION and verdict.checks["derived"] == []
 
 
 def test_tampered_amount_is_refused_with_codes():
@@ -39,29 +39,50 @@ def test_tampered_amount_is_refused_with_codes():
 def test_missing_row_is_refused():
     rows = _rows()
     del rows[1]
-    verdict = gate(rows, _meta())
-    assert not verdict.admitted and "sum_mismatch" in verdict.reasons
+    assert "sum_mismatch" in gate(rows, _meta()).reasons
 
 
-def test_unknown_direction_resolved_by_chain_and_flagged():
+def test_both_anchors_derived_is_refused_and_truncation_cannot_pass():
+    full, short = _rows(6), _rows(6)[:3]
+    for rows in (full, short):
+        verdict = gate(rows, EMPTY_META)
+        assert not verdict.admitted and verdict.reasons == ("anchors_underdetermined",) and verdict.anchored == "none"
+
+
+def test_one_printed_anchor_is_recorded_but_never_admitted():
+    verdict = gate(_rows(), _meta(begin=None, end="600.00"))
+    assert not verdict.admitted and verdict.reasons == ("anchor_derived",)
+    assert verdict.anchored == "one" and verdict.checks["derived"] == ["beginning_balance"]
+    verdict = gate(_rows(), _meta(begin="500.00", end=None))
+    assert not verdict.admitted and verdict.reasons == ("anchor_derived",) and verdict.checks["derived"] == ["ending_balance"]
+    # a truncated read with the ending derived from the last row reconciles trivially: that is WHY it is not admitted
+    truncated = gate(_rows(6)[:3], _meta(begin="500.00", end=None))
+    assert not truncated.admitted and "anchor_derived" in truncated.reasons
+
+
+def test_chain_directions_need_both_printed_anchors():
     rows = [CandidateRow(r.date, r.date_text, r.description, r.amount, "unknown", r.balance, 0, "stage_a", r.locator)
             for r in _rows()]
     resolved, flagged = resolve_directions(rows, Decimal("500.00"))
     assert flagged == 4 and all(r.direction == "credit" and r.direction_source == "chain" for r in resolved)
     verdict = gate(rows, _meta())
     assert verdict.admitted and verdict.chain_derived_directions == 4
+    unanchored = gate(rows, _meta(begin=None, end="600.00"))
+    assert not unanchored.admitted and "chain_direction_unanchored" in unanchored.reasons
+
+
+def test_misread_balance_with_chain_direction_is_refused_when_unanchored():
+    rows = [CandidateRow("2031-01-01", "01/01", "A", Decimal("100.00"), "credit", Decimal("600.00"), 0, "stage_b", "p0r1"),
+            CandidateRow("2031-01-02", "01/02", "B", Decimal("50.00"), "unknown", Decimal("650.00"), 0, "stage_b", "p0r2")]
+    assert not gate(rows, EMPTY_META).admitted
+    verdict = gate(rows, _meta(begin="500.00", end=None))
+    assert not verdict.admitted and "chain_direction_unanchored" in verdict.reasons
 
 
 def test_unknown_direction_without_balance_is_refused():
     rows = [CandidateRow(r.date, r.date_text, r.description, r.amount, "unknown", None, 0, "stage_a", r.locator)
             for r in _rows()]
-    verdict = gate(rows, _meta())
-    assert not verdict.admitted and "direction_unknown" in verdict.reasons
-
-
-def test_missing_balances_are_derived_from_chain():
-    verdict = gate(_rows(), AccountMeta(None, None, None, None, None, None, None, ()))
-    assert verdict.admitted and verdict.checks["derived"] == ["beginning_balance", "ending_balance"]
+    assert "direction_unknown" in gate(rows, _meta()).reasons
 
 
 def test_date_checks():
@@ -74,9 +95,33 @@ def test_date_checks():
     assert "date_out_of_period" in reasons and "date_not_monotonic" in reasons
 
 
-def test_duplicate_row_refused_and_no_rows():
+def test_duplicate_rows_with_balances_and_without():
     rows = _rows()
     rows.append(rows[-1])
     assert "duplicate_row" in gate(rows, _meta()).reasons
+    # a genuine repeat distinguished by balances is not a duplicate
+    repeat = [CandidateRow("2031-01-05", "01/05", "ATM FEE", Decimal("3.00"), "debit", Decimal("497.00"), 0, "stage_a", "a"),
+              CandidateRow("2031-01-05", "01/05", "ATM FEE", Decimal("3.00"), "debit", Decimal("494.00"), 0, "stage_a", "b")]
+    assert gate(repeat, _meta(begin="500.00", end="494.00")).admitted
+    # without balances a repeat is unverifiable → refused, unless the bank's printed count vouches
+    meta = _meta(begin="1000.00", end="800.00")
+    dup = [CandidateRow("2031-01-05", "01/05", "RENT", Decimal("100.00"), "debit", None, 0, "stage_b", "a"),
+           CandidateRow("2031-01-05", "01/05", "RENT", Decimal("100.00"), "debit", None, 0, "stage_b", "b")]
+    assert "duplicate_row" in gate(dup, meta).reasons
+    vouched = gate(dup, _meta(begin="1000.00", end="800.00", stated_credit_count=0, stated_debit_count=2))
+    assert vouched.admitted and vouched.checks["debit_count_matches"] is True
+
+
+def test_printed_totals_and_counts_decide():
+    meta = _meta(stated_total_credits=Decimal("100.00"), stated_total_debits=Decimal("0.00"), stated_credit_count=4, stated_debit_count=0)
+    verdict = gate(_rows(), meta)
+    assert verdict.admitted and verdict.checks["summary_ok"] is True and verdict.checks["credit_count_matches"] is True
+    wrong_total = _meta(stated_total_credits=Decimal("150.00"), stated_total_debits=Decimal("0.00"))
+    assert "summary_mismatch" in gate(_rows(), wrong_total).reasons
+    wrong_count = _meta(stated_credit_count=5, stated_debit_count=0)
+    assert "count_mismatch" in gate(_rows(), wrong_count).reasons
+
+
+def test_no_rows():
     verdict = gate([], _meta())
     assert not verdict.admitted and verdict.reasons == ("no_rows",)

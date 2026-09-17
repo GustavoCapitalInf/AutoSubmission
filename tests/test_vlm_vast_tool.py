@@ -24,6 +24,7 @@ def test_serve_command_pins_flags_and_loopback():
     assert "--max-num-seqs 4" in cmd and "--structured-outputs-config.backend xgrammar" in cmd and "--speculative-config" not in cmd
     a = vlm_vast.serve_command("a")
     assert "--served-model-name PaddleOCR-VL-1.6-0.9B" in a and "--trust-remote-code" in a and "--port 18001" in a
+    assert "--port 18004" in vlm_vast.serve_command("b9") and vlm_vast.PORTS["b9"] != vlm_vast.PORTS["b"]
 
 
 def test_fetch_refuses_when_disk_is_short(tmp_path):
@@ -49,25 +50,27 @@ def test_check_masks_host(tmp_path):
     assert "203.0.113.9" not in json.dumps(out)
 
 
-def test_tunnel_command_forwards_three_ports(tmp_path):
+def test_tunnel_command_forwards_four_ports(tmp_path):
     cmd = vlm_vast.tunnel_command(_settings(tmp_path))
     forwards = [cmd[i + 1] for i, part in enumerate(cmd) if part == "-L"]
-    assert forwards == ["127.0.0.1:18001:127.0.0.1:18001", "127.0.0.1:18002:127.0.0.1:18002", "127.0.0.1:18003:127.0.0.1:18003"]
+    assert forwards == ["127.0.0.1:18001:127.0.0.1:18001", "127.0.0.1:18002:127.0.0.1:18002",
+                        "127.0.0.1:18004:127.0.0.1:18004", "127.0.0.1:18003:127.0.0.1:18003"]
     assert "-N" in cmd and "BatchMode=yes" in " ".join(cmd)
 
 
-def test_attest_parses_counts(tmp_path):
+def test_attest_parses_counts_and_declares_identity(tmp_path):
     def runner(args, **kwargs):
         return Proc("SERVER_PROCESSES=0\nNEW_FILES=0\nTMP_IMAGES=0\n")
     att = vlm_vast.cmd_attest(_settings(tmp_path), runner=runner, since_epoch=0.0)
     assert att["passed"] is True and att["counts"] == {"SERVER_PROCESSES": 0, "NEW_FILES": 0, "TMP_IMAGES": 0}
+    assert att["provider"] == "vast.ai" and att["execution_class"] == "remote_paid"
 
     def bad(args, **kwargs):
         return Proc("SERVER_PROCESSES=1\nNEW_FILES=0\nTMP_IMAGES=2\n")
     assert vlm_vast.cmd_attest(_settings(tmp_path), runner=bad, since_epoch=0.0)["passed"] is False
 
 
-def test_start_worker_uses_token_and_never_prints_it(tmp_path):
+def test_start_worker_exports_declaration_and_masks_token(tmp_path):
     seen = []
 
     def runner(args, **kwargs):
@@ -77,4 +80,20 @@ def test_start_worker_uses_token_and_never_prints_it(tmp_path):
     out = vlm_vast.cmd_start(settings, "worker", runner=runner)
     token = (tmp_path / "rt" / "vlm_worker.token").read_text(encoding="utf-8").strip()
     assert token and f"VLM_A_WORKER_TOKEN={token}" in seen[-1]
+    assert "PADDLE_PROVIDER=vast.ai" in seen[-1] and "PADDLE_EXECUTION_CLASS=remote_paid" in seen[-1]
     assert out == {"started": "worker", "remote_pid": "4242", "port": 18003} and token not in json.dumps(out)
+    assert vlm_vast._mask(f"leak {token} here", settings) == f"leak {vlm_vast.TOKEN_PLACEHOLDER} here"
+
+
+def test_stop_all_and_status_cover_b9(tmp_path):
+    seen = []
+
+    def runner(args, **kwargs):
+        seen.append(" ".join(args))
+        return Proc("stopped\n")
+    settings = _settings(tmp_path)
+    out = vlm_vast.cmd_stop(settings, "all", runner=runner)
+    assert set(out) == {"worker", "b9", "b", "a"} and any("b9.pid" in c for c in seen)
+    seen.clear()
+    vlm_vast.cmd_status(settings, runner=runner)
+    assert "for k in a b b9 worker" in seen[-1] and "18004" in seen[-1]

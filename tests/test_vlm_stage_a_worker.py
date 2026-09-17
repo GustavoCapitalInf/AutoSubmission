@@ -61,5 +61,19 @@ def test_parse_bounded_json_and_version():
     assert w.parse_bounded_json(b'{"a": 1}') == {"a": 1}
     with pytest.raises(w.WorkerRefused):
         w.parse_bounded_json(b"[1]")
-    version = w.version_payload({"VLM_A_BACKEND": "vllm-server"}, versions={"paddleocr": "3.7.0", "paddlex": "3.7.2"})
+    version = w.version_payload({"VLM_A_BACKEND": "vllm-server", "PADDLE_PROVIDER": "vast.ai", "PADDLE_EXECUTION_CLASS": "remote_paid"},
+                                versions={"paddleocr": "3.7.0", "paddlex": "3.7.2"})
     assert version["retention"] == "none" and version["backend"] == "vllm-server" and version["pipeline_version"] == "v1.6"
+    assert version["provider"] == "vast.ai" and version["execution_class"] == "remote_paid"
+    bare = w.version_payload({}, versions={"paddleocr": "3.7.0", "paddlex": "3.7.2"})
+    assert bare["provider"] == "" and bare["execution_class"] == ""
+
+
+def test_token_check_is_constant_time_and_required_to_start(tmp_path):
+    w.check_bearer_token("t", "Bearer t")
+    with pytest.raises(w.WorkerRefused):
+        w.check_bearer_token("t", None)
+    with pytest.raises(w.WorkerRefused):
+        w.check_bearer_token("t", "Bearer tt")
+    assert w.main(["--self-check"]) == 0
+    assert w.main([]) == 2  # no VLM_A_WORKER_TOKEN in this environment → token_required, before any import of paddleocr

@@ -1,6 +1,20 @@
-"""The per-document pipeline and the wave controller: render → models → assemble → gate → receipts."""
+"""The per-document pipeline and the wave controller: render → models → assemble → gate → receipts.
+
+Review closures (CEILING-HARNESS-REVIEW-X):
+* BLOCK-1  public receipts carry counts/hashes only (the proposals module no longer emits digits).
+* BLOCK-2  a wave with model endpoints refuses unless the declaration is remote (this experiment has
+           no local serving path) AND the Stage A worker echoes the same provider/execution_class as
+           the local declaration, before the first page.
+* BLOCK-3  the data scope is bound to the manifest (`manifest_scope`) and must equal the context's.
+* MAJOR-5  resume skips only receipts without a failure.
+* MAJOR-6  an interrupted wave is receipted as `aborted` with controller_exit 1.
+* MAJOR-7  weights (fetch receipts) and the prompt TEMPLATES are pinned in launch.json.
+* RES-2    `skipped_existing` counts only resumed receipts; `--limit` is reported as `limited_out`.
+* MINOR    Stage B wall span recorded beside the per-call sum; the wall time is named wave_wall_hours.
+"""
 from __future__ import annotations
 
+import json
 import os
 import queue
 import subprocess
@@ -17,7 +31,7 @@ from vlm.client import TransportError
 from vlm.gate import GATE_VERSION, GateVerdict, gate
 from vlm.metadata import EMPTY_META, AccountMeta, extract_meta, merge_meta, year_from_meta
 from vlm.partitions import Member
-from vlm.prompts import PROMPT_VERSION, prompt_sha256, stage_b_prompt
+from vlm.prompts import prompt_manifest, stage_b_prompt
 from vlm.proposals import PageProposal, merge_pages
 from vlm.receipts import Refused, dump_new, need, sha256_file, utc_now
 from vlm.render import RenderedPage, render_document, render_settings
@@ -25,6 +39,7 @@ from vlm.schema import PAGE_PROPOSAL_SCHEMA, SCHEMA_VERSION, schema_sha256, vali
 from vlm.truth import ReaderTruth, TruthAccount, match_rows
 
 ARMS = ("reader_baseline", "stage_a_rules", "stage_b_only", "hybrid")
+MODEL_ARMS = ("stage_a_rules", "stage_b_only", "hybrid")
 MAX_PARSER_CONTEXT_CHARS = 12000
 MAX_CONSECUTIVE_TRANSPORT_FAILURES = 3
 PREFETCH_DEPTH = 2
@@ -43,6 +58,7 @@ class RunContext:
     data_scope: str
     hourly_rate: float | None
     concurrency: int = 1
+    identity_client: Any | None = None   # a Stage A worker client used only for /version (defaults to stage_a)
 
 
 @dataclass(frozen=True)
@@ -55,6 +71,30 @@ def default_authorize(data_scope: str) -> None:
     from ocr.paddle_config import check_remote_authorization, load_paddle_settings
 
     check_remote_authorization(load_paddle_settings(), data_scope)
+
+
+def default_settings():
+    from ocr.paddle_config import load_paddle_settings
+
+    return load_paddle_settings()
+
+
+def verify_identity(ctx: RunContext, settings) -> dict:
+    """BLOCK-2: before any page moves, the declaration must be checkable. Model arms require a remote
+    declaration (there is no local serving path in this experiment) and a worker echo equal to it."""
+    declared = {"provider": str(getattr(settings, "provider", "")), "execution_class": str(getattr(settings, "execution_class", ""))}
+    if ctx.arm not in MODEL_ARMS:
+        return {"declared": declared, "checked": False}
+    need(bool(getattr(settings, "is_remote", False)), "local_declaration_with_model_endpoints")
+    probe = ctx.identity_client or ctx.stage_a
+    need(probe is not None, "identity_probe_missing")
+    echo = probe.version()
+    need(isinstance(echo, dict), "vlm_identity_echo_shape")
+    need(echo.get("provider") == declared["provider"] and echo.get("execution_class") == declared["execution_class"],
+         "vlm_identity_mismatch")
+    return {"declared": declared, "echo": {"provider": echo.get("provider"), "execution_class": echo.get("execution_class"),
+                                           "retention": echo.get("retention"), "pipeline_version": echo.get("pipeline_version")},
+            "checked": True}
 
 
 def _jsonable(value: Any) -> Any:
@@ -113,6 +153,7 @@ def _stage_b_pages(doc: DocumentInput, pages: list[RenderedPage], ctx: RunContex
     prompts = [stage_b_prompt(parser_context=contexts[position] if contexts else None,
                               page_number=position + 1, page_total=len(pages)) for position in range(len(pages))]
     workers = max(1, int(getattr(ctx, "concurrency", 1) or 1))
+    span_started = time.perf_counter()
     if workers > 1 and len(pages) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
@@ -120,6 +161,7 @@ def _stage_b_pages(doc: DocumentInput, pages: list[RenderedPage], ctx: RunContex
             calls = list(pool.map(lambda pair: _stage_b_call(ctx, pair[0], pair[1]), zip(pages, prompts)))
     else:
         calls = [_stage_b_call(ctx, page, prompt) for page, prompt in zip(pages, prompts)]
+    timings["stage_b_wall_ms"] += (time.perf_counter() - span_started) * 1000.0
     for page, (result, call_ms) in zip(pages, calls):
         timings["stage_b_ms"] += call_ms
         timings["prompt_tokens"] += result.prompt_tokens
@@ -148,8 +190,8 @@ def _truth_account(accounts: list[TruthAccount], meta: AccountMeta) -> TruthAcco
 
 def process_document(doc: DocumentInput, ctx: RunContext) -> tuple[dict, dict]:
     started = time.perf_counter()
-    timings = {"render_ms": 0.0, "encode_ms": 0.0, "stage_a_ms": 0.0, "stage_b_ms": 0.0, "gate_ms": 0.0,
-               "prompt_tokens": 0, "completion_tokens": 0}
+    timings = {"render_ms": 0.0, "encode_ms": 0.0, "stage_a_ms": 0.0, "stage_b_ms": 0.0, "stage_b_wall_ms": 0.0,
+               "gate_ms": 0.0, "prompt_tokens": 0, "completion_tokens": 0}
     public: dict[str, Any] = {"sha": doc.member.sha, "arm": ctx.arm, "harness_version": HARNESS_VERSION,
                               "reader_outcome": doc.member.outcome_class, "family": doc.member.folder_label}
     private: dict[str, Any] = {"sha": doc.member.sha, "arm": ctx.arm}
@@ -189,7 +231,7 @@ def process_document(doc: DocumentInput, ctx: RunContext) -> tuple[dict, dict]:
     verdict: GateVerdict = gate(rows, meta)
     if stats.get("currency_conflict") and "currency_conflict" not in verdict.reasons:
         verdict = GateVerdict(False, verdict.reasons + ("currency_conflict",), verdict.row_count, (), verdict.computed_ending,
-                              verdict.continuity_breaks, verdict.chain_derived_directions, verdict.checks)
+                              verdict.continuity_breaks, verdict.chain_derived_directions, verdict.checks, verdict.anchored)
     timings["gate_ms"] = (time.perf_counter() - gate_started) * 1000.0
     match = None
     if ctx.truth is not None:
@@ -203,7 +245,9 @@ def process_document(doc: DocumentInput, ctx: RunContext) -> tuple[dict, dict]:
         "rows_proposed": len(rows),
         "gate": {"admitted": verdict.admitted, "reasons": list(verdict.reasons), "row_count": verdict.row_count,
                  "continuity_breaks": verdict.continuity_breaks, "chain_derived_directions": verdict.chain_derived_directions,
-                 "derived": verdict.checks.get("derived", []), "gate_version": GATE_VERSION},
+                 "derived": verdict.checks.get("derived", []), "anchored": verdict.anchored,
+                 "repeats": verdict.checks.get("repeats"), "summary_ok": verdict.checks.get("summary_ok"),
+                 "gate_version": GATE_VERSION},
         "meta_sources": list(meta.sources), "timings": timings, "stats": stats, "match": match, "agreement": agreement,
         "stage_b_content_hashes": private.get("stage_b_content_hashes", []),
         "failure": None,
@@ -236,34 +280,53 @@ def _failure_receipt(out: Path, sha: str, arm: str, klass: str, code: str) -> No
     dump_new(out / "results" / f"{sha}.json", {"sha": sha, "arm": arm, "failure": {"class": klass, "code": code}})
 
 
+def _completed_shas(resume_from: Path) -> set[str]:
+    """MAJOR-5: only receipts WITHOUT a failure count as done."""
+    done: set[str] = set()
+    for path in (Path(resume_from) / "results").glob("*.json"):
+        if path.name.endswith(".private.json"):
+            continue
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if receipt.get("failure") is None and receipt.get("sha"):
+            done.add(receipt["sha"])
+    return done
+
+
 def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_root: Path, manifest_binding: dict,
-             limit: int | None = None, authorize: Callable[[str], None] | None = None, git_tip: str | None = None,
-             resume_from: Path | None = None) -> dict:
+             manifest_scope: str, limit: int | None = None, authorize: Callable[[str], None] | None = None,
+             git_tip: str | None = None, resume_from: Path | None = None, settings=None, weights: dict | None = None) -> dict:
     need(ctx.arm in ARMS, "arm_unknown")
+    need(manifest_scope == ctx.data_scope, "data_scope_disagrees_with_manifest")
     out = Path(out_dir)
     need(not os.path.lexists(out), "wave_already_attempted")
     (authorize or default_authorize)(ctx.data_scope)
+    if settings is None and ctx.arm in MODEL_ARMS:
+        settings = default_settings()
+    identity = verify_identity(ctx, settings)
     out.mkdir(parents=True)
     (out / "results").mkdir()
-    existing: set[str] = set()
-    if resume_from is not None:
-        existing = {p.name[:-5] for p in (Path(resume_from) / "results").glob("*.json") if not p.name.endswith(".private.json")}
+    existing: set[str] = _completed_shas(resume_from) if resume_from is not None else set()
     launch = {
-        "arm": ctx.arm, "harness_version": HARNESS_VERSION, "manifest": manifest_binding, "models": _model_identity(ctx),
+        "arm": ctx.arm, "harness_version": HARNESS_VERSION, "manifest": manifest_binding, "manifest_scope": manifest_scope,
+        "models": _model_identity(ctx), "weights": weights or {}, "identity": identity,
         "render": {**render_settings(), "long_edge": ctx.long_edge, "jpeg_quality": ctx.quality},
         "schema": {"version": SCHEMA_VERSION, "sha256": schema_sha256()},
-        "prompt": {"version": PROMPT_VERSION, "sha256": prompt_sha256(stage_b_prompt(page_number=1, page_total=1))},
-        "gate_version": GATE_VERSION, "seed": ctx.seed, "data_scope": ctx.data_scope,
+        "prompt": prompt_manifest(),
+        "gate_version": GATE_VERSION, "seed": ctx.seed, "data_scope": ctx.data_scope, "concurrency": ctx.concurrency,
         "executing_tip": git_tip or _executing_tip(), "started_at": utc_now(), "requested": len(members),
         "limit": limit, "resume_from": str(resume_from) if resume_from else None,
     }
     dump_new(out / "launch.json", launch)
+    remaining = [m for m in members if m.sha not in existing]
+    todo = remaining[: limit if limit is not None else None]
     counts = {"requested": len(members), "attempted": 0, "admitted": 0, "refused_by_gate": 0, "failed": 0,
-              "skipped_existing": 0, "reader_validated": sum(1 for m in members if m.outcome_class == "validated")}
-    totals = {"render_ms": 0.0, "encode_ms": 0.0, "stage_a_ms": 0.0, "stage_b_ms": 0.0, "gate_ms": 0.0, "total_ms": 0.0,
-              "pages": 0, "upload_bytes": 0, "prompt_tokens": 0, "completion_tokens": 0}
-    todo = [m for m in members if m.sha not in existing][: limit if limit is not None else None]
-    counts["skipped_existing"] = len(members) - len(todo)
+              "skipped_existing": len(members) - len(remaining), "limited_out": len(remaining) - len(todo),
+              "reader_validated": sum(1 for m in members if m.outcome_class == "validated")}
+    totals = {"render_ms": 0.0, "encode_ms": 0.0, "stage_a_ms": 0.0, "stage_b_ms": 0.0, "stage_b_wall_ms": 0.0, "gate_ms": 0.0,
+              "total_ms": 0.0, "pages": 0, "upload_bytes": 0, "prompt_tokens": 0, "completion_tokens": 0}
     loaded: queue.Queue = queue.Queue(maxsize=PREFETCH_DEPTH)
 
     def producer() -> None:
@@ -314,11 +377,16 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
                     totals[key] += public.get(key, 0) or 0
                 else:
                     totals[key] += public["timings"].get(key, 0) or 0
+    except BaseException as exc:  # MAJOR-6: an interrupted or crashed controller is receipted as aborted
+        status = "aborted"
+        failure_code = "interrupted" if isinstance(exc, KeyboardInterrupt) else "controller_failure"
+        failure_class = type(exc).__name__
+        raise
     finally:
         wall_s = time.perf_counter() - wall_started
         hours = wall_s / 3600.0
         result = {**launch, "status": status, "failure_code": failure_code, "failure_class": failure_class, "counts": counts,
-                  "timings": totals, "wall_s": wall_s, "instance_hours": hours,
+                  "timings": totals, "wall_s": wall_s, "wave_wall_hours": hours,
                   "cost_usd": (hours * ctx.hourly_rate) if ctx.hourly_rate else "rate not measured", "finished_at": utc_now()}
         dump_new(out / "result.json", result)
         dump_new(out / "release.json", {"arm": ctx.arm, "controller_exit": 0 if status == "complete" else 1,

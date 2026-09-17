@@ -1,4 +1,9 @@
-"""CLI for the Phase 3 ceiling experiment: partitions, run, report. See plan v1 §11 and R16."""
+"""CLI for the Phase 3 ceiling experiment: partitions, preflight, run, report. See plan v1 §11 and R16.
+
+Review closures: BLOCK-3 (the data scope comes from the manifest, never from a flag), MAJOR-7 (the fetch
+receipts are bound into launch.json as the weights pin), MINOR-6 (`report --exclude-manifest` reports the
+slice without the DEV documents).
+"""
 from __future__ import annotations
 
 import argparse
@@ -25,31 +30,50 @@ def _worker_token(runtime_dir: Path) -> str | None:
     return path.read_text(encoding="utf-8").strip() if path.exists() else None
 
 
+def _weights_bindings(receipts_dir: Path, keys: tuple[str, ...]) -> dict:
+    """MAJOR-7: bind the latest successful fetch receipt per model key (path + sha256 + the recorded hashes)."""
+    out: dict = {}
+    for key in keys:
+        candidates = sorted(p for p in Path(receipts_dir).glob(f"fetch-{key}-*.json") if "FAILED" not in p.name)
+        if not candidates:
+            continue
+        latest = candidates[-1]
+        data = json.loads(latest.read_text(encoding="utf-8"))
+        out[key] = {"receipt": bound(latest), "repo": data.get("repo"), "local_dir": data.get("local_dir"),
+                    "hashes": [h for h in data.get("hashes", []) if h and " " in h]}
+    return out
+
+
 def _run(args: argparse.Namespace) -> int:
     manifest_path = Path(args.manifest)
     members = partitions.load_private_manifest(manifest_path)
+    scope = partitions.manifest_scope(manifest_path)
     archive_root = Path(json.loads(manifest_path.read_text(encoding="utf-8"))["archive_root"])
-    stage_a = None
-    if args.arm in ("stage_a_rules", "hybrid"):
-        stage_a = StageAWorkerClient(args.stage_a_url, token=_worker_token(Path(args.runtime_dir)))
+    runtime_dir = Path(args.runtime_dir)
+    token = _worker_token(runtime_dir)
+    identity_client = StageAWorkerClient(args.stage_a_url, token=token) if args.arm != "reader_baseline" else None
+    stage_a = identity_client if args.arm in ("stage_a_rules", "hybrid") else None
     stage_b = VlmClient(args.stage_b_url) if args.arm in ("stage_b_only", "hybrid") else None
     truth = ReaderTruth(Path(args.truth_cache), partitions.DEFAULT_RUN_OF_RECORD) if args.truth else None
     ctx = RunContext(arm=args.arm, stage_a=stage_a, stage_b=stage_b, stage_b_model=args.stage_b_model, truth=truth,
-                     long_edge=args.long_edge, quality=args.jpeg_quality, seed=0, data_scope=args.data_scope,
-                     hourly_rate=args.hourly_rate, concurrency=args.concurrency)
+                     long_edge=args.long_edge, quality=args.jpeg_quality, seed=0, data_scope=scope,
+                     hourly_rate=args.hourly_rate, concurrency=args.concurrency, identity_client=identity_client)
+    weight_keys = tuple(k for k, needed in (("a", stage_a is not None), ("b", stage_b is not None)) if needed)
+    weights = _weights_bindings(Path(args.receipts_dir), weight_keys) if weight_keys else {}
     try:
         result = run_wave(members, ctx, Path(args.out), archive_root=archive_root, manifest_binding=bound(manifest_path),
-                          limit=args.limit, authorize=default_authorize,
-                          resume_from=Path(args.resume_from) if args.resume_from else None)
+                          manifest_scope=scope, limit=args.limit, authorize=default_authorize,
+                          resume_from=Path(args.resume_from) if args.resume_from else None, weights=weights)
     finally:
         if truth is not None:
             truth.close()
-    print(json.dumps({"status": result["status"], "counts": result["counts"], "instance_hours": result["instance_hours"]}))
+    print(json.dumps({"status": result["status"], "counts": result["counts"], "wave_wall_hours": result["wave_wall_hours"]}))
     return 0 if result["status"] == "complete" else 3
 
 
 def _preflight(args: argparse.Namespace) -> int:
-    """Synthetic pages only (no customer bytes): every arm, one wave each, under the synthetic scope."""
+    """Synthetic pages only (no customer bytes): every model arm, one wave each, under the synthetic scope."""
+    import hashlib
     from datetime import datetime, timezone
 
     from tests.paddle_synthetic import build_ledger_page, render_image_pdf, render_native_pdf, rotate_page_90
@@ -65,17 +89,17 @@ def _preflight(args: argparse.Namespace) -> int:
     members = []
     for name, raw in docs.items():
         (archive / f"{name}.pdf").write_bytes(raw)
-        import hashlib
         members.append({"sha": hashlib.sha256(raw).hexdigest().upper(), "relative_path": f"{name}.pdf", "byte_size": len(raw),
                         "page_count": 1, "folder_label": "synthetic", "classification": "digital", "outcome_class": "synthetic",
                         "account_count": 1})
     manifest = root / "SYNTH.manifest.private.json"
-    dump_new(manifest, {"manifest_version": 1, "name": "SYNTH", "set_sha256": "synthetic", "archive_root": str(archive), "members": members})
+    dump_new(manifest, {"manifest_version": 1, "name": "SYNTH", "data_scope": partitions.SYNTHETIC_SCOPE, "set_sha256": "synthetic",
+                        "archive_root": str(archive), "members": members})
     codes = {}
     for arm in [a for a in ARMS if a != "reader_baseline"]:
-        argv = ["run", "--arm", arm, "--manifest", str(manifest), "--out", str(root / arm), "--data-scope", "synthetic",
+        argv = ["run", "--arm", arm, "--manifest", str(manifest), "--out", str(root / arm),
                 "--stage-a-url", args.stage_a_url, "--stage-b-url", args.stage_b_url, "--stage-b-model", args.stage_b_model,
-                "--runtime-dir", args.runtime_dir]
+                "--runtime-dir", args.runtime_dir, "--receipts-dir", args.receipts_dir]
         codes[arm] = main(argv)
         if codes[arm] == 0:
             main(["report", "--wave", str(root / arm)])
@@ -94,12 +118,12 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--stage-b-url", default=DEFAULT_STAGE_B_URL)
     f.add_argument("--stage-b-model", default=DEFAULT_STAGE_B_MODEL)
     f.add_argument("--runtime-dir", default=".paddle_runtime")
+    f.add_argument("--receipts-dir", default=str(DEFAULT_OUT))
     r = sub.add_parser("run")
     r.add_argument("--arm", choices=ARMS, required=True)
     r.add_argument("--manifest", required=True)
     r.add_argument("--out", required=True)
     r.add_argument("--limit", type=int, default=None)
-    r.add_argument("--data-scope", choices=("customer", "synthetic"), default="customer")
     r.add_argument("--stage-a-url", default=DEFAULT_STAGE_A_URL)
     r.add_argument("--stage-b-url", default=DEFAULT_STAGE_B_URL)
     r.add_argument("--stage-b-model", default=DEFAULT_STAGE_B_MODEL)
@@ -110,9 +134,11 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--long-edge", type=int, default=1540)
     r.add_argument("--jpeg-quality", type=int, default=90)
     r.add_argument("--runtime-dir", default=".paddle_runtime")
+    r.add_argument("--receipts-dir", default=str(DEFAULT_OUT))
     r.add_argument("--concurrency", type=int, default=1, help="Stage B pages in flight per document (server --max-num-seqs bound)")
     q = sub.add_parser("report")
     q.add_argument("--wave", required=True)
+    q.add_argument("--exclude-manifest", default=None, help="private manifest whose members are reported as an excluded slice")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         if args.command == "partitions":
@@ -124,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             return _run(args)
         if args.command == "report":
-            path = report.write_report(Path(args.wave))
+            exclude = frozenset(m.sha for m in partitions.load_private_manifest(Path(args.exclude_manifest))) if args.exclude_manifest else frozenset()
+            path = report.write_report(Path(args.wave), exclude_shas=exclude)
             print(json.dumps({"report": str(path)}))
             return 0
     except Refused as exc:
