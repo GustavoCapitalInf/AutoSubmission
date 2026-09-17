@@ -5,12 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-17T01:48:00Z
+  modified: 2026-09-17T02:08:00Z
 ---
 
 ## Current continuation — 2026-09-16–17 UTC
 
-**Latest execution snapshot, 2026-09-17 01:48 UTC:**
+**Latest execution snapshot, 2026-09-17 02:08 UTC:**
 
 The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.
 See [the comparison report](phase2_remainder/VL16_V5_COMPARISON_REPORT.md) for the configuration, frozen sample, per-modality denominators,
@@ -72,9 +72,14 @@ three pages. The three successful continuation stages took 559.5, 465.1 and
 443.7 seconds; their child, controller and owned release exited zero, with
 cleanup and retention passed. Equal counts do not establish equal evidence or
 model accuracy; comparison measurements remain pending.
-Stage five started at 01:48:06: the frozen v6 subset of U755, 48 documents /
-220 known pages, reusing the first v6 store where eligible. Seven later stages
-remain unrun. The selected union remains 311 documents / 1,626 known pages;
+Stage five, the frozen v6 U755 subset of 48 documents / 220 known pages, failed
+at 02:01:43 after 816.6 seconds. The post-chunk worker identity request encountered
+a refused connection. Child/controller exits were one/two; cleanup and retention
+passed and the owned release exited zero. No completed chunk or document was
+published to wave state; this does not establish that no customer requests ran.
+The failed receipts remain unchanged. Recovery requires checking the saved
+custody and preserving the missing identity check. No retry or later customer
+stage has started. The selected union remains 311 documents / 1,626 known pages;
 stage totals overlap. The unseen batch remains sealed.
 
 All nine orientation transition controls passed with zero audit denials and
@@ -87,6 +92,16 @@ key and fifteen historical run bindings are mapped and independently reviewed.
 A separate clean checkout combines the reviewed CLI, orientation and UTF-8
 fixes; its exact source composition is reviewed, with final composed validation
 still pending. Active producer and measurement source versions remain separate.
+
+The final measurement wrapper passed all seven focused controls at 02:08:06,
+including the synthetic compiler-to-module report path: zero audit denials,
+23.0 seconds, and successful child/controller/owned release. Actual measurements
+still require the complete customer-stage chain. The actual comparator has a
+3,600-second limit; this is scheduling headroom, not a runtime estimate.
+Three downstream alternative B cohorts remain: orientation CTRL/U755 and v6
+U755. Reusing the closed historical baseline requires a reviewed per-producer
+report join. SLICE remains in the V OCR study; its downstream B funnel is outside
+the current CTRL/U755 scope and remains unmeasured.
 
 The earlier orientation diagnostic remains a failed compatibility observation.
 The reviewed class-0 extension in `973af29` passed 81 focused tests, eight actual
