@@ -42,6 +42,7 @@ class RunContext:
     seed: int
     data_scope: str
     hourly_rate: float | None
+    concurrency: int = 1
 
 
 @dataclass(frozen=True)
@@ -97,16 +98,30 @@ def _stage_a_rows(blocks_by_page) -> tuple[list[CandidateRow], AccountMeta]:
     return rows, meta
 
 
+def _stage_b_call(ctx: RunContext, page: RenderedPage, prompt: str):
+    started = time.perf_counter()
+    result = ctx.stage_b.chat(ctx.stage_b_model, prompt, image_jpeg=page.jpeg, schema=PAGE_PROPOSAL_SCHEMA, seed=ctx.seed)
+    return result, (time.perf_counter() - started) * 1000.0
+
+
 def _stage_b_pages(doc: DocumentInput, pages: list[RenderedPage], ctx: RunContext, timings: dict, private: dict,
                    contexts: list[str] | None) -> list[PageProposal]:
+    """One structured call per page. Pages of a document are sent concurrently up to `ctx.concurrency`
+    (vLLM batches them); results are consumed in page order so receipts stay deterministic."""
     proposals: list[PageProposal] = []
     texts = []
-    for position, page in enumerate(pages):
-        prompt = stage_b_prompt(parser_context=contexts[position] if contexts else None,
-                                page_number=position + 1, page_total=len(pages))
-        started = time.perf_counter()
-        result = ctx.stage_b.chat(ctx.stage_b_model, prompt, image_jpeg=page.jpeg, schema=PAGE_PROPOSAL_SCHEMA, seed=ctx.seed)
-        timings["stage_b_ms"] += (time.perf_counter() - started) * 1000.0
+    prompts = [stage_b_prompt(parser_context=contexts[position] if contexts else None,
+                              page_number=position + 1, page_total=len(pages)) for position in range(len(pages))]
+    workers = max(1, int(getattr(ctx, "concurrency", 1) or 1))
+    if workers > 1 and len(pages) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(workers, len(pages))) as pool:
+            calls = list(pool.map(lambda pair: _stage_b_call(ctx, pair[0], pair[1]), zip(pages, prompts)))
+    else:
+        calls = [_stage_b_call(ctx, page, prompt) for page, prompt in zip(pages, prompts)]
+    for page, (result, call_ms) in zip(pages, calls):
+        timings["stage_b_ms"] += call_ms
         timings["prompt_tokens"] += result.prompt_tokens
         timings["completion_tokens"] += result.completion_tokens
         if result.parsed is None:

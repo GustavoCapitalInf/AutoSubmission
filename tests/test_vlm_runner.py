@@ -156,3 +156,32 @@ def test_authorize_is_called_with_scope(tmp_path):
     runner.run_wave([member], _ctx("stage_a_rules", stage_a=FakeStageA()), tmp_path / "w", archive_root=archive,
                     manifest_binding=BINDING, authorize=lambda s: seen.append(s), git_tip="x")
     assert seen == ["synthetic"]
+
+
+def test_stage_b_concurrency_keeps_page_order(tmp_path):
+    archive = tmp_path / "archive"
+    (archive / "fam").mkdir(parents=True)
+    import pypdfium2 as pdfium
+    one = render_native_pdf(build_ledger_page(n_rows=4))
+    doc = pdfium.PdfDocument(one)
+    merged = pdfium.PdfDocument.new()
+    for _ in range(3):
+        merged.import_pages(doc)
+    (archive / "fam" / "three.pdf").write_bytes(merged.save_to_bytes() if hasattr(merged, "save_to_bytes") else _save(merged))
+    member = Member(SHA, "fam/three.pdf", 100, 3, "fam", "digital", "validated", 1)
+    ctx = runner.RunContext(arm="stage_b_only", stage_a=None, stage_b=FakeStageB(), stage_b_model="fake-vlm", truth=None,
+                            long_edge=600, quality=80, seed=0, data_scope="synthetic", hourly_rate=None, concurrency=3)
+    result = runner.run_wave([member], ctx, tmp_path / "w", archive_root=archive, manifest_binding=BINDING,
+                             authorize=lambda s: None, git_tip="x")
+    assert result["counts"]["attempted"] == 1
+    private = json.loads((tmp_path / "w" / "results" / f"{SHA}.private.json").read_text(encoding="utf-8"))
+    assert [t["page"] for t in private["stage_b"]] == [0, 1, 2]
+    public = json.loads((tmp_path / "w" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
+    assert public["pages"] == 3 and public["timings"]["prompt_tokens"] == 300
+
+
+def _save(doc):
+    import io
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()

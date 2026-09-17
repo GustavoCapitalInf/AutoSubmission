@@ -36,7 +36,7 @@ def _run(args: argparse.Namespace) -> int:
     truth = ReaderTruth(Path(args.truth_cache), partitions.DEFAULT_RUN_OF_RECORD) if args.truth else None
     ctx = RunContext(arm=args.arm, stage_a=stage_a, stage_b=stage_b, stage_b_model=args.stage_b_model, truth=truth,
                      long_edge=args.long_edge, quality=args.jpeg_quality, seed=0, data_scope=args.data_scope,
-                     hourly_rate=args.hourly_rate)
+                     hourly_rate=args.hourly_rate, concurrency=args.concurrency)
     try:
         result = run_wave(members, ctx, Path(args.out), archive_root=archive_root, manifest_binding=bound(manifest_path),
                           limit=args.limit, authorize=default_authorize,
@@ -110,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--long-edge", type=int, default=1540)
     r.add_argument("--jpeg-quality", type=int, default=90)
     r.add_argument("--runtime-dir", default=".paddle_runtime")
+    r.add_argument("--concurrency", type=int, default=1, help="Stage B pages in flight per document (server --max-num-seqs bound)")
     q = sub.add_parser("report")
     q.add_argument("--wave", required=True)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
