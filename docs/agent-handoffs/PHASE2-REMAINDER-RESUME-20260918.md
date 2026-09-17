@@ -46,10 +46,12 @@ force unchanged. Nothing here launches a GPU job, publishes, merges, pushes, tag
 * The orientation family (steps 7–12) is ON HOLD: Gustavo stopped its design review. The design note
   `p23config-prep/ORIENTATION-RECOVERY-CHAIN-DESIGN-ROOT.md` is a proposal; the package directory
   `orientation-recovery-source-01` holds byte copies only, nothing pinned, reviewed or run.
-* Gustavo is considering a Phase 3 pivot: a self-hosted vision-language model fine-tuned as a structure
-  proposer under a deterministic reconciliation gate. Proposal: `docs/moneythumb-replacement/phase3/
-  CI-STATEMENT-VLM-PLAN.md`. Four rulings are needed before anything starts (unlock Phase 3,
-  training-data boundary, base model and license policy, fate of the 2.3 remainder).
+* Phase 3 is UNLOCKED FOR PLANNING ONLY (Gustavo, 2026-09-17: no implementation, training, data
+  export, paid compute or production integration). Proposal v0: `docs/moneythumb-replacement/phase3/
+  CI-STATEMENT-VLM-PLAN.md` (preserved). Program plan v1 (the governing draft, 23 sections incl. the
+  language/performance study, licensing review, two-week ceiling experiment and the five owner
+  decisions): `docs/moneythumb-replacement/phase3/PHASE3-VLM-PROGRAM-PLAN-v1.md`. Nothing in it
+  executes until Gustavo approves the ceiling-experiment budget (its section 21).
 * Root's process assessment (ledger, 2026-09-17): ceremony out of proportion to evidence; fix the cache
   partition key's environment dependence at the root; one generic step instrument instead of a package
   per interruption; review scaled to risk; half-day time box per recovery; reorder toward the layout
