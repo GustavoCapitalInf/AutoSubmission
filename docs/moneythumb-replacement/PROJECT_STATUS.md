@@ -5,7 +5,7 @@ session. Trust it over conversational memory; trust the repository over it if th
 ever disagree, and then fix this file. Update it at every wave close and at any
 material state change.
 
-Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state below; historical milestone rows retain their dated scope).
+Last verified: **2026-09-17 UTC** (Phase 2.3 composition and active proof state below; historical milestone rows retain their dated scope).
 
 ---
 
@@ -16,7 +16,7 @@ Last verified: **2026-09-16 UTC** (Phase 2.3 composition and active proof state 
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
 The bounded comparison and independently reviewed report are complete. No production switch follows automatically.
 
-**Latest execution snapshot, 23:24 UTC:**
+**Latest execution snapshot, 2026-09-17 00:04 UTC:**
 
 The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.
 See [the comparison report](phase2_remainder/VL16_V5_COMPARISON_REPORT.md) for the configuration, frozen sample, per-modality denominators,
@@ -52,11 +52,24 @@ with in-frame round-trip checks, unchanged sources, zero boundary denials and
 passed cleanup/retention. Child, controller and owned-release exits are zero.
 This is one logical warmup; wire attempts and model accuracy were not measured.
 V customer comparisons, final closure and V/B/P composition remain pending.
-The orientation synthetic diagnostic
-closed at 21:39:58 but its single page was refused by the existing integer,
-rectangular crop-geometry restriction; compatibility remains unsupported.
-The twelve alternative customer stages (311 documents / 1,626 pages) remain unrun.
-The bounded VL study does not waive those obligations.
+The v6-first rehearsal closed at 23:54:49 with nine passes and five setup errors:
+the actual discovery CLI study-name grammar rejected `v6` and `paired-v6`.
+Its audit counters are zero and owned release passed; the failed proof is retained.
+A reviewed one-character grammar repair and regression test are committed in
+isolated `ff633a6`; their focused proof is pending. The historical compatibility
+source stays unchanged, and unchanged files in the new checkout have been restored
+to its exact bytes after Windows line-ending conversion.
+
+The earlier orientation diagnostic remains a failed compatibility observation.
+The separately reviewed class-0 extension in `973af29` passed 81 focused tests,
+eight actual upstream geometry cases, five refusals and four deliberate faults.
+G11/G12 closed at 00:00:41 with a 31-case baseline, both named assertion failures
+and exact source restoration; child, controller and owned-release exits are zero.
+These synthetic checks preserve approximate upstream boxes and page-frame handling;
+they do not establish localization accuracy or live compatibility. The bounded
+upright/rotated synthetic compatibility successor is being prepared.
+All twelve alternative customer stages (311 documents / 1,626 pages) remain unrun.
+The completed VL study does not waive those obligations.
 
 The unseen batch remains sealed. Phase 2.4 and production admission have not
 started. Current private checkpoint:
