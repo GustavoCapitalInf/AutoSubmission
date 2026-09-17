@@ -5,12 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 71746312-b66b-440b-a510-c04ff00bcdd2
-  modified: 2026-09-17T00:27:00Z
+  modified: 2026-09-17T01:08:00Z
 ---
 
 ## Current continuation — 2026-09-16–17 UTC
 
-**Latest execution snapshot, 2026-09-17 00:27 UTC:**
+**Latest execution snapshot, 2026-09-17 01:08 UTC:**
 
 The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.
 See [the comparison report](phase2_remainder/VL16_V5_COMPARISON_REPORT.md) for the configuration, frozen sample, per-modality denominators,
@@ -56,10 +56,21 @@ the paired v6 sample attempted eight documents, with evidence for seven / 17 pag
 and one refusal / three pages. The child exited zero and retention/cleanup passed.
 The final inspector failed on legitimate outside-population rows in the full
 custody CSV. Its failed result and successful owned release remain immutable.
-A strict source-defined exclusion check and separate offline qualification are
-being prepared; no customer retry or second stage has run. Eleven stages remain
-unrun, and the first still needs qualified custody. The selected union remains
-311 documents / 1,626 known pages; stage totals overlap.
+The strict exclusion check and continuation protocol passed fourteen focused
+checks. The first offline qualification then failed on a blocked import-time
+socket creation; that failure remains preserved. A reviewed offline dependency
+probe suppression passed three controls without weakening the network guard.
+Fresh qualification closed at 01:05:51 with zero audit denials, all 654 original
+and source inputs unchanged, seven immutable read-only index connections, and
+the original seven evidence outcomes / one refusal preserved. No new OCR ran
+during recovery. Child, controller and owned-release exits were zero.
+
+The frozen continuation descriptor binds 87 inputs and preserves the original
+failed first-stage result as its predecessor. Stage two started at 01:07:13:
+v6's first reading of the eight-document / 20-known-page paired sample in a
+fresh store. It is active, not yet a completed observation. Ten later stages
+remain unrun. The selected union remains 311 documents / 1,626 known pages;
+stage totals overlap. The unseen batch remains sealed.
 
 The earlier orientation diagnostic remains a failed compatibility observation.
 The reviewed class-0 extension in `973af29` passed 81 focused tests, eight actual
