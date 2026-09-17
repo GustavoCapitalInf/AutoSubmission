@@ -71,6 +71,27 @@ def _run(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "complete" else 3
 
 
+def _with_summary_block(page):
+    """The synthetic ledger page plus the printed anchors a real statement carries: beginning and ending
+    balances, the period, and the bank's own totals/counts. Arithmetic derives from the ledger itself."""
+    from tests.paddle_synthetic import LEFT_MARGIN, LINE_HEIGHT, STARTING_BALANCE, SYNTHETIC_YEAR, SyntheticLine, SyntheticPage, _word
+
+    rows = sum(1 for line in page.lines if line.words and line.words[0].text.startswith(f"{SYNTHETIC_YEAR}-"))
+    total = sum(10 * i for i in range(1, rows + 1))
+    y = max(word.y1 for line in page.lines for word in line.words) + 2 * LINE_HEIGHT
+    extra = []
+    for tokens in (
+        (("STATEMENT", LEFT_MARGIN), ("PERIOD", LEFT_MARGIN + 70), (f"{SYNTHETIC_YEAR}-01-01", LEFT_MARGIN + 130), ("TO", LEFT_MARGIN + 210), (f"{SYNTHETIC_YEAR}-01-31", LEFT_MARGIN + 235)),
+        (("BEGINNING", LEFT_MARGIN), ("BALANCE", LEFT_MARGIN + 70), (f"{STARTING_BALANCE:.2f}", LEFT_MARGIN + 330)),
+        (("TOTAL", LEFT_MARGIN), ("DEPOSITS", LEFT_MARGIN + 45), (f"({rows})", LEFT_MARGIN + 115), (f"{total:.2f}", LEFT_MARGIN + 330)),
+        (("TOTAL", LEFT_MARGIN), ("WITHDRAWALS", LEFT_MARGIN + 45), ("(0)", LEFT_MARGIN + 130), ("0.00", LEFT_MARGIN + 330)),
+        (("ENDING", LEFT_MARGIN), ("BALANCE", LEFT_MARGIN + 55), (f"{STARTING_BALANCE + total:.2f}", LEFT_MARGIN + 330)),
+    ):
+        extra.append(SyntheticLine(words=tuple(_word(text, x, y) for text, x in tokens)))
+        y += LINE_HEIGHT
+    return SyntheticPage(width_pt=page.width_pt, height_pt=max(page.height_pt, y + 72.0), lines=page.lines + tuple(extra))
+
+
 def _preflight(args: argparse.Namespace) -> int:
     """Synthetic pages only (no customer bytes): every model arm, one wave each, under the synthetic scope."""
     import hashlib
@@ -84,8 +105,10 @@ def _preflight(args: argparse.Namespace) -> int:
     archive = root / "synthetic-archive"
     archive.mkdir(parents=True)
     page = build_ledger_page(n_rows=8)
-    docs = {"native": render_native_pdf(page), "image": render_image_pdf(page, dpi=200),
-            "rotated": render_native_pdf(rotate_page_90(page))}
+    anchored = _with_summary_block(page)
+    # anchored pages must be admitted strictly; the unanchored page is the refusal control (anchors_underdetermined)
+    docs = {"native_anchored": render_native_pdf(anchored), "image_anchored": render_image_pdf(anchored, dpi=200),
+            "native_unanchored": render_native_pdf(page), "rotated": render_native_pdf(rotate_page_90(anchored))}
     members = []
     for name, raw in docs.items():
         (archive / f"{name}.pdf").write_bytes(raw)
