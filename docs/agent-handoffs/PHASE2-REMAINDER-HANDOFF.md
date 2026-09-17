@@ -1,5 +1,7 @@
 # PHASE 2 REMAINDER — THE HANDOFF TO THE NEXT LEAD ORCHESTRATOR (handoff #2, written 2026-09-15 by Ocean)
 
+> **Current restart guide, 2026-09-17:** read [PHASE2-REMAINDER-RESUME-20260917.md](PHASE2-REMAINDER-RESUME-20260917.md) first. It maps completed and remaining plan milestones, the reviewed but unimplemented stage-five recovery, unfinished source drafts, and the newly supplied replacement GPU. The snapshots below retain their historical scope.
+
 ## Current execution update — 2026-09-15 continuation
 
 **This update supersedes the historical tips, proof debts and idle-process snapshot below.** The

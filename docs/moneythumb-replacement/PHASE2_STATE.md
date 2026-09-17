@@ -10,6 +10,8 @@ metadata:
 
 ## Current continuation — 2026-09-16–17 UTC
 
+**Handoff update, 2026-09-17:** read [the new-agent restart guide](../agent-handoffs/PHASE2-REMAINDER-RESUME-20260917.md) before execution. It supersedes the restart instructions below, records the reviewed but unimplemented stage-five recovery and private replacement-GPU connection, and maps remaining milestones. No GPU work was resumed while preparing it.
+
 **Latest execution snapshot, 2026-09-17 02:08 UTC:**
 
 The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.

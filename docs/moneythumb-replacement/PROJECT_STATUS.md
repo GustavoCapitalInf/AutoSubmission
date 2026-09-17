@@ -11,6 +11,8 @@ Last verified: **2026-09-17 UTC** (Phase 2.3 composition and active proof state 
 
 ## Where we are
 
+**Handoff update, 2026-09-17:** the user requested a new-agent handoff before further execution and supplied a replacement Vast GPU. Read [the current restart guide](../agent-handoffs/PHASE2-REMAINDER-RESUME-20260917.md). The replacement endpoint is recorded privately and remains untested. Stage-five recovery has an independently reviewed design, but no completed implementation or live continuation. Phase 2.4 remains unstarted and the unseen batch sealed.
+
 **Approved sequencing update, 2026-09-16:** follow the amendment and §G.2.3A of
 `phase2_remainder/PHASE2_REMAINDER_PLAN.md`: bounded VL-1.6 versus v5 research
 after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
