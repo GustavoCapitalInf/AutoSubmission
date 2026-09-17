@@ -47,11 +47,52 @@ def _run(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "complete" else 3
 
 
+def _preflight(args: argparse.Namespace) -> int:
+    """Synthetic pages only (no customer bytes): every arm, one wave each, under the synthetic scope."""
+    from datetime import datetime, timezone
+
+    from tests.paddle_synthetic import build_ledger_page, render_image_pdf, render_native_pdf, rotate_page_90
+    from vlm.receipts import dump_new
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    root = Path(args.out) / f"preflight-{stamp}"
+    archive = root / "synthetic-archive"
+    archive.mkdir(parents=True)
+    page = build_ledger_page(n_rows=8)
+    docs = {"native": render_native_pdf(page), "image": render_image_pdf(page, dpi=200),
+            "rotated": render_native_pdf(rotate_page_90(page))}
+    members = []
+    for name, raw in docs.items():
+        (archive / f"{name}.pdf").write_bytes(raw)
+        import hashlib
+        members.append({"sha": hashlib.sha256(raw).hexdigest().upper(), "relative_path": f"{name}.pdf", "byte_size": len(raw),
+                        "page_count": 1, "folder_label": "synthetic", "classification": "digital", "outcome_class": "synthetic",
+                        "account_count": 1})
+    manifest = root / "SYNTH.manifest.private.json"
+    dump_new(manifest, {"manifest_version": 1, "name": "SYNTH", "set_sha256": "synthetic", "archive_root": str(archive), "members": members})
+    codes = {}
+    for arm in [a for a in ARMS if a != "reader_baseline"]:
+        argv = ["run", "--arm", arm, "--manifest", str(manifest), "--out", str(root / arm), "--data-scope", "synthetic",
+                "--stage-a-url", args.stage_a_url, "--stage-b-url", args.stage_b_url, "--stage-b-model", args.stage_b_model,
+                "--runtime-dir", args.runtime_dir]
+        codes[arm] = main(argv)
+        if codes[arm] == 0:
+            main(["report", "--wave", str(root / arm)])
+    print(json.dumps({"preflight": str(root), "exit_codes": codes}))
+    return 0 if all(c == 0 for c in codes.values()) else 3
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vlm_ceiling")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("partitions")
     p.add_argument("--out", default=str(DEFAULT_OUT / "manifests"))
+    f = sub.add_parser("preflight")
+    f.add_argument("--out", default=str(DEFAULT_OUT / "waves"))
+    f.add_argument("--stage-a-url", default=DEFAULT_STAGE_A_URL)
+    f.add_argument("--stage-b-url", default=DEFAULT_STAGE_B_URL)
+    f.add_argument("--stage-b-model", default=DEFAULT_STAGE_B_MODEL)
+    f.add_argument("--runtime-dir", default=".paddle_runtime")
     r = sub.add_parser("run")
     r.add_argument("--arm", choices=ARMS, required=True)
     r.add_argument("--manifest", required=True)
@@ -76,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
             summary = partitions.write_manifests(Path(args.out))
             print(json.dumps({name: {"documents": s["documents"], "pages": s["pages"]} for name, s in summary.items()}))
             return 0
+        if args.command == "preflight":
+            return _preflight(args)
         if args.command == "run":
             return _run(args)
         if args.command == "report":
