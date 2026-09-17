@@ -110,6 +110,7 @@ class ChatResult:
     total_ms: float
     request_sha256: str
     response_sha256: str
+    content_sha256: str = ""
 
 
 class VlmClient(HttpJson):
@@ -161,6 +162,7 @@ class VlmClient(HttpJson):
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
             completion_tokens=int(usage.get("completion_tokens") or 0), total_ms=total_ms,
             request_sha256=sha256_bytes(encoded), response_sha256=sha256_bytes(raw),
+            content_sha256=sha256_bytes(text.encode("utf-8")),
         )
 
 

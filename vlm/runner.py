@@ -130,8 +130,9 @@ def _stage_b_pages(doc: DocumentInput, pages: list[RenderedPage], ctx: RunContex
             errors = tuple(validate_page_proposal(result.parsed))
             proposals.append(PageProposal(page.index, result.parsed, errors))
         texts.append({"page": page.index, "finish_reason": result.finish_reason, "request_sha256": result.request_sha256,
-                      "response_sha256": result.response_sha256, "text": result.text})
+                      "response_sha256": result.response_sha256, "content_sha256": result.content_sha256, "text": result.text})
     private["stage_b"] = texts
+    private["stage_b_content_hashes"] = [t["content_sha256"] for t in texts]
     return proposals
 
 
@@ -204,6 +205,7 @@ def process_document(doc: DocumentInput, ctx: RunContext) -> tuple[dict, dict]:
                  "continuity_breaks": verdict.continuity_breaks, "chain_derived_directions": verdict.chain_derived_directions,
                  "derived": verdict.checks.get("derived", []), "gate_version": GATE_VERSION},
         "meta_sources": list(meta.sources), "timings": timings, "stats": stats, "match": match, "agreement": agreement,
+        "stage_b_content_hashes": private.get("stage_b_content_hashes", []),
         "failure": None,
     })
     private.update({"rows": _jsonable(rows), "meta": _jsonable(meta), "gate_checks": _jsonable(verdict.checks)})
