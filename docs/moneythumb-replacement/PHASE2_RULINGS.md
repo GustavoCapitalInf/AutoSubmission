@@ -403,3 +403,10 @@ Private proposal and exact patch: `discovery_reports/train13-logs/rev23-precisio
 `TRUIST-FENCE-PROPOSAL.md` and `TRUIST-FENCE-PROPOSAL.patch`. The patch passed both index and worktree
 apply checks before this approval. Existing dormancy, positive-control and counterexample logs are
 linked in the proposal and remain preserved.
+
+
+## R15 — step-05 double-read compilation rule APPROVED (Gustavo, 2026-09-17)
+
+Context: the continuation segment of the v6 primary stage (48 V6-U755 documents; 10 dispatched-unqualified by the interrupted original run, 38 read in the continuation on the replacement endpoint) produced six documents read twice by the same pinned paddle-v6 pipeline (paired stage on the retired host, continuation on the replacement host; byte-identical page rasters, different cache partition key). Design, independent design review and independent source review are in `discovery_reports/train13-logs/p23config-prep/` (STEP05-DOUBLE-READ-DISPOSITION-DESIGN-ROOT.md and reviews; package `v6-step05-v2-source-01`).
+
+Gustavo ruled: **"report the primary stage as 38/48 using the segment readings with the six flagged as double reads. Continue with phase 2.3."** The joined disposition v2 is frozen with `compilation_rule = "primary=segment; paired=step-02; double_read surfaced"`; the reader reports the primary metric over the 38 AND over the 32 non-double-read documents, surfaces the six with both bindings, and produces the content-level comparison of the six pairs as a required diagnostic before any cross-host comparability statement. The refused first inspection stays the permanent closure of its window; nothing is re-dispatched. Every consumer resolves readings by artifact binding (two paddle-v6 reads now exist for the six in store v6-2).

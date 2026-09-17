@@ -1,6 +1,6 @@
 # PHASE 2 REMAINDER — THE HANDOFF TO THE NEXT LEAD ORCHESTRATOR (handoff #2, written 2026-09-15 by Ocean)
 
-> **Current restart guide, 2026-09-17:** read [PHASE2-REMAINDER-RESUME-20260917.md](PHASE2-REMAINDER-RESUME-20260917.md) first. It maps completed and remaining plan milestones, the reviewed but unimplemented stage-five recovery, unfinished source drafts, and the newly supplied replacement GPU. The snapshots below retain their historical scope.
+> **Current restart guide, 2026-09-17 (late):** read [PHASE2-REMAINDER-RESUME-20260918.md](PHASE2-REMAINDER-RESUME-20260918.md) FIRST: it holds the one decision waiting on Gustavo (the double-read compilation rule, 38/48 vs 32/48) that blocks the joined v2, D1R2 and stage 6, and the ordered next actions after the refused-then-reinspected continuation segment. Then [PHASE2-REMAINDER-RESUME-20260917.md](PHASE2-REMAINDER-RESUME-20260917.md) for the standing constraints, endpoint and privacy rules. It maps completed and remaining plan milestones, the reviewed but unimplemented stage-five recovery, unfinished source drafts, and the newly supplied replacement GPU. The snapshots below retain their historical scope.
 
 ## Current execution update — 2026-09-15 continuation
 
