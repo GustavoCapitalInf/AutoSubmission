@@ -1,0 +1,2 @@
+pypdfium2>=5.8
+jsonschema>=4.20
