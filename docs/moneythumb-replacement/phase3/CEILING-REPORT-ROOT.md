@@ -92,7 +92,7 @@ Cost and speed on the development slice (4B): Stage A ≈ 2.3 s/page; Stage B �
 concurrency 4 (≈ 20 s per call, 2,500 completion tokens per page at 1,540 px); upload ≈ 300 KB/page;
 render 21 ms/page, encode 13 ms/page (pdfium in-process, vs ≈ 1 s/page for the Phase 2.3 poppler path).
 
-## 4. CTRL (114 validated documents, 800 pages) — hybrid complete, other arms running
+## 4. CTRL (114 validated documents, 800 pages) — 4B hybrid and 27B model-only complete
 
 Primary figure = CTRL without the 20 DEV documents (`report --exclude-manifest DEV`): 94 documents.
 
@@ -101,10 +101,18 @@ Primary figure = CTRL without the 20 DEV documents (`report --exclude-manifest D
 | reader_baseline | 94 | 94/94 by construction | — | — | — | ctrl-reader-01 |
 | stage_a_rules (4B era) | 20 of 114 | stopped | | | | ctrl-stagea-01, stopped by a local memory kill, abandoned at the model change |
 | stage_b_only (4B) | 20 of 114 | 5 of 20 | | | | ctrl-stageb-01, stopped by a local memory kill, abandoned at the model change |
-| **stage_b_only (27B)**, gate 6 | 37 of 94 (48 of 114 before the host stopped) | **12/37 (32.4 %)** | **0** | **98.3 % (5,032/5,120)** | 13.8 s/page wall at concurrency 3 (2,119 completion + 2,318 prompt tokens/page) | ctrl-stageb27-01 → -01-g6; the rented instance stopped when the Vast account's credit reached zero (3 documents failed on the dead connection); resumable |
+| **stage_b_only (27B)**, gate 6 | **94 of 94** (114 of 114 overall, 0 failures) | **27/94 (28.7 %)** | **0** | **95.9 % (10,817/11,283)** | 14.7 s/page wall at concurrency 3 (2,045 completion + 2,316 prompt tokens/page) | ctrl-stageb27-01 + -02 merged → -0102-g6b; the rented instance stopped mid-wave when the Vast account's credit reached zero, was restarted (large files lost, weights re-fetched with identical hashes) and the wave resumed from its receipts |
 | hybrid (gate 5 regate) | 86 | **11/86 (12.8 %)** | **1** (see below; 2 under gate 4) | **90.7 % (8,975/9,898)** | Stage B 6.5 s/page wall at concurrency 4 (19 s per call); Stage A 2.2 s/page | ctrl-hybrid-02 → -02-g5; 8 http_400 failures = the 16k server (finding 4), retried after the fix |
 
-Hybrid detail (primary, gate 5): all 11 admissions came from the model's rows (the parser rows and the
+27B detail (primary, gate 6, all 114 gated): 33 strict admissions over the whole set, 27 over the primary 94; 24 of
+the 27 carry description variants only; no derived anchor was admitted (1 recorded). Refusal reasons over the
+whole set (overlapping): sum_mismatch 44, summary_mismatch 33, duplicate_row 32, count_mismatch 32,
+continuity_break 15, date_unparsed 6, date_order_chained 3, currency_conflict 2, single cases of
+direction_unknown, no_rows, period_mismatch, anchor_derived, missing_beginning_balance and
+anchors_underdetermined. Against the 4B hybrid on the same 94 documents: 27 vs 11 strict admissions,
+95.9 vs 90.7 percent of rows, 0 vs 1 false accept, at 2.3 times the wall time per page.
+
+Hybrid detail (4B, primary, gate 5): all 11 admissions came from the model's rows (the parser rows and the
 union rescued none); anchors corroborated by the rules in 7, partial in 2, model-only in 2; 8 of the 11
 carry description variants only. Tokens per page: 3,740 prompt, 2,400 completion. Refusal reasons over the
 whole wave (overlapping): sum_mismatch 67, count_mismatch 42, continuity_break 39, duplicate_row 31,
