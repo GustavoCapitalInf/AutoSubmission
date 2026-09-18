@@ -181,12 +181,19 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--wave", required=True)
     g.add_argument("--out", required=True)
     g.add_argument("--also", action="append", default=[], help="a wave that resumed --wave (disjoint documents); repeatable")
+    g.add_argument("--truth", action="store_true", help="recompute the row match against the reader's validated rows")
+    g.add_argument("--truth-cache", default=str(DEFAULT_TRUTH_CACHE))
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         if args.command == "regate":
             from vlm.regate import regate_wave
 
-            result = regate_wave(Path(args.wave), Path(args.out), also=[Path(p) for p in args.also])
+            truth = ReaderTruth(Path(args.truth_cache), partitions.DEFAULT_RUN_OF_RECORD) if args.truth else None
+            try:
+                result = regate_wave(Path(args.wave), Path(args.out), also=[Path(p) for p in args.also], truth=truth)
+            finally:
+                if truth is not None:
+                    truth.close()
             print(json.dumps({"status": result["status"], "counts": result["counts"], "gate_version": result["gate_version"]}))
             return 0
         if args.command == "partitions":

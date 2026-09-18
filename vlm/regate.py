@@ -46,8 +46,9 @@ def _source_binding(source: Path) -> dict:
     return binding
 
 
-def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None) -> dict:
-    """Re-gate `source` (plus any `also` waves that resumed it; disjoint documents) into `out`."""
+def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None, truth=None) -> dict:
+    """Re-gate `source` (plus any `also` waves that resumed it; disjoint documents) into `out`. With a
+    `truth` loader (vlm.truth.ReaderTruth) the row match is recomputed for the rebuilt rows."""
     source, out = Path(source), Path(out)
     sources = [source] + [Path(p) for p in (also or [])]
     for wave in sources:
@@ -89,9 +90,24 @@ def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None) -> d
             dump_new(out / "results" / path.name, public)
             continue
         private = json.loads(private_path.read_text(encoding="utf-8"))
-        rows = _rows_from_private(private.get("rows") or [])
-        meta = _meta_from_private(private.get("meta") or {})
         stats = public.get("stats") or {}
+        if private.get("proposals") is not None:
+            # Rebuild rows and metadata from the stored page proposals, so rules applied AFTER the wave
+            # (e.g. the period-year rule) take effect; the rules' metadata is merged as the runner did.
+            from vlm.metadata import merge_meta
+            from vlm.proposals import PageProposal, merge_pages
+
+            pages = [PageProposal(p["page"], p["proposal"], tuple(p.get("errors") or ())) for p in private["proposals"]]
+            rows, meta, merged_stats = merge_pages(pages)
+            if private.get("meta_rules") is not None:
+                meta = merge_meta(meta, _meta_from_private(private["meta_rules"]))
+            stats = {**stats, **{k: v for k, v in merged_stats.items() if k != "account_last4_values"}}
+            private["rows"] = [{**asdict(r), "amount": f"{r.amount:.2f}", "balance": None if r.balance is None else f"{r.balance:.2f}"} for r in rows]
+            private["meta"] = {**asdict(meta), **{k: (f"{v:.2f}" if isinstance(v, Decimal) else v) for k, v in asdict(meta).items()}}
+            public["rows_proposed"] = len(rows)
+        else:
+            rows = _rows_from_private(private.get("rows") or [])
+            meta = _meta_from_private(private.get("meta") or {})
         extra = tuple(r for r, present in (("currency_conflict", stats.get("currency_conflict")),
                                             ("anchor_disagreement", stats.get("anchor_corroboration") == "disagreement")) if present)
         admitted_candidate = None
@@ -118,6 +134,15 @@ def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None) -> d
                           "derived": verdict.checks.get("derived", []), "anchored": verdict.anchored,
                           "repeats": verdict.checks.get("repeats"), "summary_ok": verdict.checks.get("summary_ok"),
                           "admitted_candidate": admitted_candidate, "gate_version": GATE_VERSION, "regated": True}
+        if truth is not None and public.get("match") is not None:
+            from vlm.runner import _truth_account
+            from vlm.truth import match_rows
+
+            compared = list(verdict.admitted_rows) if verdict.admitted else rows
+            accounts = truth.accounts(public["sha"]) or []
+            account = _truth_account(accounts, meta)
+            if account is not None:
+                public["match"] = {**asdict(match_rows(compared, account)), "truth_accounts": len(accounts), "regated": True}
         private["gate_checks"] = {k: (str(v) if isinstance(v, Decimal) else v) for k, v in verdict.checks.items()}
         counts["admitted" if verdict.admitted else "refused_by_gate"] += 1
         dump_new(out / "results" / path.name, public)
