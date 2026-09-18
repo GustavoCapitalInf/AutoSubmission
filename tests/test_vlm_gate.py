@@ -166,3 +166,14 @@ def test_rows_dated_outside_the_printed_period_refuse():
     verdict = gate(rows, _meta())
     assert not verdict.admitted and "period_mismatch" in verdict.reasons and verdict.checks["dates_outside_period"] == 1
     assert gate(_rows(), _meta()).checks["dates_outside_period"] == 0
+
+
+def test_balance_chained_statement_refuses_a_date_order_break_but_an_unchained_one_records_it():
+    rows = _rows()
+    rows[2] = replace(rows[2], date="2031-01-02")   # printed a day before its predecessor, balance intact
+    verdict = gate(rows, _meta())
+    assert not verdict.admitted and "date_order_chained" in verdict.reasons
+    assert verdict.checks["balance_chained"] is True and verdict.checks["date_order_breaks"] == 1
+    unchained = [replace(r, balance=None) for r in rows]
+    verdict = gate(unchained, _meta())
+    assert verdict.checks["balance_chained"] is False and "date_order_chained" not in verdict.reasons

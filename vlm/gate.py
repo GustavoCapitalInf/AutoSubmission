@@ -23,11 +23,11 @@ from vlm.assemble import CandidateRow
 from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
-GATE_VERSION = 5
+GATE_VERSION = 6
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
-           "summary_mismatch", "count_mismatch", "coverage_mismatch", "currency_conflict", "anchor_disagreement", "period_mismatch")
+           "summary_mismatch", "count_mismatch", "coverage_mismatch", "currency_conflict", "anchor_disagreement", "period_mismatch", "date_order_chained")
 PERIOD_GRACE_DAYS = 5
 
 
@@ -187,6 +187,14 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
     if outside:
         reasons.append("period_mismatch")
     checks["date_order_breaks"] = sum(1 for earlier, later in zip(parsed, parsed[1:]) if later < earlier)
+    # Gate v6 (27B DEV wave): a statement that prints a running balance on EVERY row is chronological by
+    # construction, so a date-order break there is a misread date (16 rows dated a day early, every amount
+    # and balance exact). All 37 balance-chained validated control accounts have zero breaks; the 26
+    # sectioned accounts that do break order carry no per-row balance and stay recorded only.
+    chained = bool(resolved) and all(row.balance is not None for row in resolved)
+    checks["balance_chained"] = chained
+    if chained and checks["date_order_breaks"]:
+        reasons.append("date_order_chained")
     distinguished, unverifiable = _duplicates(resolved)
     checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}
     computed_ending: Decimal | None = None
