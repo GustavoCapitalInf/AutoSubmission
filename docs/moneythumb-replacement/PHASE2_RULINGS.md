@@ -443,3 +443,38 @@ Root's reading of the scope (recorded so it can be vetoed before any customer pa
   any production change, any native-language rewrite, and any run on the holdout.
 * Order of execution: synthetic-only live proof first, then independent review of the code that
   touches the boundary, then CTRL, then U755. Customer pages move only after the first two steps.
+
+
+## R17 — LoRA fine-tuning APPROVED; the 27B second opinion and the 96 GB card (Gustavo, 2026-09-18)
+
+Verbatim, in order, on 2026-09-18: "stop the current qwen 4b on the gpu and paddle and open space to
+this model right here. I want you to start testing it right now, i am going to sleep now. Run
+autonomously you have my permissions" (the model: Qwen3.8-27B); "i could go up to $1.8 an hour on
+vast instead of our current $0.83cent/hr spend"; "alright we are going to set up the 6000 blackwell";
+"Proceed with the next steps, also fine-tuning with LoRA is approved."
+
+What this ruling authorizes:
+
+* The Stage B model of the ceiling experiment is now `nvidia/Qwen3.8-27B-NVFP4` (Apache-2.0; NVIDIA's
+  NVFP4/FP8 build of `Qwen/Qwen3.8-27B`), served on a rented RTX PRO 6000 Blackwell (96 GB) at up to
+  USD 1.80 per hour, under the same boundary and protections as R16 (provider Vast.ai, execution class
+  `remote_paid`, host named only in the private connection file, loopback servers, SSH transport, no
+  customer contents in logs or Git). The 4B and the layout parser were stopped on Gustavo's instruction.
+* Fine-tuning with LoRA of the Stage B model on customer-derived silver labels (plan v1 §10: pages of
+  documents the deterministic reader validated, aligned to the reader's rows), plus synthetic pages,
+  inside the same boundary: the training records, the page images and the resulting adapters are
+  customer-derived and stay on the local machine and the rented instance only; adapters are never
+  uploaded to any hub or vendor. Lineage per plan §9 in every training receipt.
+* Partitions per plan §10: CTRL (114) and DEV (20) are never trained on (CTRL stays the test sample);
+  a family-stratified VALIDATION slice of validated documents is held out and never trained on; the
+  sealed holdout's content hashes are blacklisted from every training manifest (the store holds 0
+  records today, so the blacklist is empty by construction, stated as such).
+* Acceptance to go further (plan §12): improvement over the ceiling arm on VALIDATION with zero false
+  accepts, no regression on CTRL, the same deterministic gate, and an independent review of the
+  training manifest before any deployment stage.
+
+Not authorized by this ruling: any data leaving the local machine and the rented instance, any
+third-party model API, any production change, any run on the holdout. Budget: no new figure was
+given; plan §18's M4 line (USD 200–600 of instance time) is the reference until Gustavo sets one.
+Requirement noted: LoRA on the 27B needs the BF16 base (about 56 GB) on disk, so the training instance
+needs roughly 200 GB of disk; the current 32 GB disk cannot hold it.
