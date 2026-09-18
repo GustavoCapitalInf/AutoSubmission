@@ -94,7 +94,7 @@ def test_date_checks():
     rows[1] = CandidateRow("2031-03-05", "03/05", rows[1].description, rows[1].amount, "credit", rows[1].balance, 0, "stage_a", "x")
     verdict = gate(rows, _meta())
     # gate v5: a row outside the printed period refuses; the order break is recorded, never refused
-    assert not verdict.admitted and verdict.reasons == ("period_mismatch",)
+    assert not verdict.admitted and set(verdict.reasons) == {"period_mismatch", "date_order_chained"}
     assert verdict.checks["dates_outside_period"] == 1 and verdict.checks["date_order_breaks"] == 1
     rows = _rows()
     rows[1], rows[2] = rows[2], rows[1]   # same ledger, two rows swapped: an order break only
@@ -170,7 +170,7 @@ def test_rows_dated_outside_the_printed_period_refuse():
 
 def test_balance_chained_statement_refuses_a_date_order_break_but_an_unchained_one_records_it():
     rows = _rows()
-    rows[2] = replace(rows[2], date="2031-01-02")   # printed a day before its predecessor, balance intact
+    rows[2] = replace(rows[2], date="2031-01-01")   # printed before its predecessor (01-02), balance intact
     verdict = gate(rows, _meta())
     assert not verdict.admitted and "date_order_chained" in verdict.reasons
     assert verdict.checks["balance_chained"] is True and verdict.checks["date_order_breaks"] == 1
