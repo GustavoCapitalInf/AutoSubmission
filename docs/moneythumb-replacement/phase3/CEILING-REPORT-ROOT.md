@@ -56,8 +56,12 @@ Findings that changed the harness (each closed and committed):
 2. Sectioned and newest-first statements failed a date-order check the reader itself never applies.
 3. On month/day-only rows the model supplied its own year (2024 for a 2026 statement) with every amount
    right; the statement period's year now overrides an unprinted model year.
-4. One hybrid prompt exceeded the 16k context (http_400); the parser context is capped at 10k characters
-   and the Stage B server runs at 32k.
+4. One hybrid prompt exceeded the 16k context (http_400); the parser context was capped at 10k characters.
+   The Stage B restart at 32k recorded at the time never replaced the live 16k process (found after the
+   CTRL wave, where the same cause failed 10 of 114 documents: any page whose prompt exceeds 4,384 tokens
+   once 12,000 completion tokens are reserved). The server now serves 32,768 (verified over the tunnel),
+   and the runner refuses to launch a Stage B wave whose served context leaves under 8,192 prompt tokens
+   (`stage_b_context_too_small`, recorded in `launch.json`).
 
 Why validated documents still refuse (19 documents; reasons overlap): sum_mismatch 11, continuity_break 7,
 count_mismatch 7, summary_mismatch 7, duplicate_row 5, anchor_disagreement 3, date_unparsed 2,
@@ -78,7 +82,7 @@ Primary figure = CTRL without the 20 DEV documents (`report --exclude-manifest D
 | reader_baseline | 94 | 94/94 by construction | — | — | — | ctrl-reader-01 |
 | stage_a_rules | running | | | | | ctrl-stagea-01 |
 | stage_b_only | running | | | | | ctrl-stageb-01 |
-| hybrid (gate 5 regate) | 86 | **11/86 (12.8 %)** | **1** (see below; 2 under gate 4) | **90.7 % (8,975/9,898)** | Stage B 6.5 s/page wall at concurrency 4 (19 s per call); Stage A 2.2 s/page | ctrl-hybrid-02 → -02-g5; 8 http_400 failures retried in ctrl-hybrid-03 |
+| hybrid (gate 5 regate) | 86 | **11/86 (12.8 %)** | **1** (see below; 2 under gate 4) | **90.7 % (8,975/9,898)** | Stage B 6.5 s/page wall at concurrency 4 (19 s per call); Stage A 2.2 s/page | ctrl-hybrid-02 → -02-g5; 8 http_400 failures = the 16k server (finding 4), retried after the fix |
 
 Hybrid detail (primary, gate 5): all 11 admissions came from the model's rows (the parser rows and the
 union rescued none); anchors corroborated by the rules in 7, partial in 2, model-only in 2; 8 of the 11

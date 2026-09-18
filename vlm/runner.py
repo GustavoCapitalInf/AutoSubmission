@@ -98,6 +98,25 @@ def verify_identity(ctx: RunContext, settings) -> dict:
             "checked": True}
 
 
+MIN_PROMPT_TOKENS = 8192   # a dense hybrid page: 10k characters of parser context + the image + the template
+
+
+def verify_stage_b_context(ctx: RunContext) -> dict:
+    """CTRL wave: a Stage B server left at a 16k context refused every dense page as http_400 (prompt plus
+    the 12,000 reserved completion tokens over the limit) and 10 of 114 documents failed. The served
+    context must leave MIN_PROMPT_TOKENS once the completion budget is reserved; the launch records it."""
+    limits_fn = getattr(ctx.stage_b, "model_limits", None) if ctx.stage_b is not None else None
+    if limits_fn is None:
+        return {"checked": False}
+    limits = limits_fn()
+    need(ctx.stage_b_model in limits, "stage_b_model_not_served")
+    max_tokens = int(getattr(ctx, "max_tokens", 12000))
+    context = limits[ctx.stage_b_model]
+    if context is not None:
+        need(context >= max_tokens + MIN_PROMPT_TOKENS, "stage_b_context_too_small")
+    return {"checked": True, "max_model_len": context, "max_tokens": max_tokens, "min_prompt_tokens": MIN_PROMPT_TOKENS}
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
         return f"{value:.2f}"
@@ -376,12 +395,13 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
     if settings is None and ctx.arm in MODEL_ARMS:
         settings = default_settings()
     identity = verify_identity(ctx, settings)
+    stage_b_context = verify_stage_b_context(ctx)
     out.mkdir(parents=True)
     (out / "results").mkdir()
     existing: set[str] = _completed_shas(resume_from) if resume_from is not None else set()
     launch = {
         "arm": ctx.arm, "harness_version": HARNESS_VERSION, "manifest": manifest_binding, "manifest_scope": manifest_scope,
-        "models": _model_identity(ctx), "weights": weights or {}, "identity": identity,
+        "models": _model_identity(ctx), "weights": weights or {}, "identity": identity, "stage_b_context": stage_b_context,
         "render": {**render_settings(), "long_edge": ctx.long_edge, "jpeg_quality": ctx.quality},
         "schema": {"version": SCHEMA_VERSION, "sha256": schema_sha256()},
         "prompt": prompt_manifest(),

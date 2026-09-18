@@ -40,12 +40,16 @@ class FakeStageA:
 
 
 class FakeStageB:
-    def __init__(self, good=True):
+    def __init__(self, good=True, limit=32768):
         self.good = good
+        self.limit = limit
         self.calls = 0
 
     def models(self):
         return ["fake-vlm"]
+
+    def model_limits(self):
+        return {"fake-vlm": self.limit}
 
     def chat(self, model, prompt, *, image_jpeg=None, schema=None, **kwargs):
         from vlm.client import ChatResult
@@ -240,3 +244,18 @@ def test_hybrid_arm_rescues_a_model_miss_with_the_parser_rows(tmp_path):
     assert public["gate"]["admitted"] and public["gate"]["admitted_candidate"] == "stage_a"
     assert public["stats"]["candidate_reasons"]["stage_b"] and public["stats"]["candidate_reasons"]["stage_a"] == []
     assert public["rows_proposed"] == 4
+
+
+def test_stage_b_context_preflight_refuses_a_server_that_cannot_hold_a_dense_page(tmp_path):
+    from vlm.receipts import Refused
+
+    member, archive = _member(tmp_path)
+    with pytest.raises(Refused) as exc:
+        _wave([member], _ctx("stage_b_only", stage_b=FakeStageB(limit=16384), identity=FakeStageA()), tmp_path / "w-small", archive)
+    assert exc.value.code == "stage_b_context_too_small"
+    with pytest.raises(Refused) as exc:
+        _wave([member], _ctx("stage_b_only", stage_b=FakeStageB(), identity=FakeStageA(), stage_b_model="other-vlm"), tmp_path / "w-other", archive)
+    assert exc.value.code == "stage_b_model_not_served"
+    _wave([member], _ctx("stage_b_only", stage_b=FakeStageB(), identity=FakeStageA()), tmp_path / "w-ok", archive)
+    launch = json.loads((tmp_path / "w-ok" / "launch.json").read_text(encoding="utf-8"))
+    assert launch["stage_b_context"] == {"checked": True, "max_model_len": 32768, "max_tokens": 12000, "min_prompt_tokens": 8192}

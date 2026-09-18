@@ -135,6 +135,16 @@ class VlmClient(HttpJson):
         data = self.get_json("/v1/models").get("data") or []
         return [str(item.get("id")) for item in data if isinstance(item, dict)]
 
+    def model_limits(self) -> dict[str, int | None]:
+        """Served model id -> max_model_len (None when the server does not report one)."""
+        data = self.get_json("/v1/models").get("data") or []
+        limits: dict[str, int | None] = {}
+        for item in data:
+            if isinstance(item, dict) and item.get("id") is not None:
+                value = item.get("max_model_len")
+                limits[str(item["id"])] = int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        return limits
+
     def chat(self, model: str, prompt: str, *, image_jpeg: bytes | None = None, schema: dict | None = None,
              schema_name: str = "page_proposal", max_tokens: int = 4096, seed: int = 0,
              disable_thinking: bool = True) -> ChatResult:

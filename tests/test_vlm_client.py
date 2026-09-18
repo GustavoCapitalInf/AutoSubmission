@@ -132,3 +132,12 @@ def test_http_error_code_keeps_a_keyword_class_and_context_length_numbers_only()
     assert http_error_code(400, b"{\"error\": \"Invalid image payload ACCOUNT 1234\"}") == "http_400:image"
     assert http_error_code(400, b"{\"error\": \"something else 9999\"}") == "http_400"
     assert http_error_code(500, b"") == "http_500"
+
+
+def test_model_limits_reads_the_served_context_length(server):
+    from vlm.client import VlmClient
+
+    client = VlmClient(server)
+    limits = client.model_limits()
+    assert set(limits) == set(client.models())
+    assert all(v is None or isinstance(v, int) for v in limits.values())
