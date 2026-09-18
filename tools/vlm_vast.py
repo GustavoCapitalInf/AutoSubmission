@@ -29,13 +29,17 @@ MODELS_DIR = "/workspace/models"
 HF_HOME = "/workspace/.hf_home"
 PADDLE_PYTHON = os.environ.get("VLM_WORKER_PYTHON") or "/workspace/paddleocr-env/bin/python"   # the worker builds its parser lazily
 HF_PYTHON = "/venv/main/bin/python"
-PORTS = {"a": 18001, "b": 18002, "worker": 18003, "b9": 18004, "b27": 18004}   # b9 and b27 share the forwarded port; one runs at a time
+PORTS = {"a": 18001, "b": 18002, "worker": 18003, "b9": 18004, "b27": 18004, "b27ft": 18004}   # the 18004 keys run one at a time
 SERVER_KEYS = ("a", "b", "b9", "worker")
 MODELS = {
     "a": {"repo": "PaddlePaddle/PaddleOCR-VL-1.6", "served": "PaddleOCR-VL-1.6-0.9B", "size_gb": 2.0},
     "b": {"repo": "Qwen/Qwen3.5-4B", "served": "Qwen/Qwen3.5-4B", "size_gb": 9.4},
     "b9": {"repo": "RedHatAI/Qwen3.5-9B-FP8-dynamic", "served": "RedHatAI/Qwen3.5-9B-FP8-dynamic", "size_gb": 14.1},
     "b27": {"repo": "nvidia/Qwen3.8-27B-NVFP4", "served": "nvidia/Qwen3.8-27B-NVFP4", "size_gb": 22.0},
+    # R17: the BF16 base for LoRA fine-tuning (fetched, never served as is) and the merged tuned model
+    # (written by tools/vlm_train_lora.py merge on the host, served for evaluation through the same gate).
+    "b27bf16": {"repo": "Qwen/Qwen3.8-27B", "served": "Qwen/Qwen3.8-27B", "size_gb": 57.0},
+    "b27ft": {"repo": "local/Qwen3.8-27B-lora01", "served": "local/Qwen3.8-27B-lora01", "size_gb": 57.0},
 }
 SERVE_FLAGS = {
     "a": "--trust-remote-code --max-num-batched-tokens 8192 --no-enable-prefix-caching --mm-processor-cache-gb 0 "
@@ -60,6 +64,12 @@ SERVE_PROFILES = {
         "32gb": SERVE_FLAGS["b27"],
         "96gb": "--max-model-len 32768 --max-num-seqs 16 --max-num-batched-tokens 8192 --gpu-memory-utilization 0.90 "
                 "--kv-cache-dtype fp8 --compilation-config '{\"cudagraph_capture_sizes\":[1,2,4,8,16]}' "
+                "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
+    },
+    # The merged BF16 model (56 GB of weights) leaves ~30 GB for the cache on the 96 GB card.
+    "b27ft": {
+        "96gb": "--max-model-len 32768 --max-num-seqs 8 --max-num-batched-tokens 8192 --gpu-memory-utilization 0.92 "
+                "--kv-cache-dtype fp8 --compilation-config '{\"cudagraph_capture_sizes\":[1,2,4,8]}' "
                 "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
     },
 }
@@ -251,6 +261,48 @@ _ATTEST = ("SERVER_PROCESSES=$(ps -eo cmd | grep -v grep | grep -c -E 'vllm serv
            "echo SERVER_PROCESSES=$SERVER_PROCESSES; echo NEW_FILES=$NEW_FILES; echo TMP_IMAGES=$TMP_IMAGES")
 
 
+def train_bundle_paths() -> list[str]:
+    """What the trainer needs beside the dataset: the `vlm` package (pure Python) and the host script."""
+    package = sorted(str(p).replace("\\", "/") for p in Path("vlm").glob("*.py"))
+    return package + ["tools/vlm_train_lora.py"]
+
+
+def cmd_deploy_train(settings, dataset: Path | None, *, runner: Callable[..., Any] = subprocess.run) -> dict:
+    """R17: ship the trainer and, when given, the silver dataset to /workspace on the rented host. Code goes as
+    a tar stream over SSH (the `vlm` package beside the script); the dataset (JPEG pages + JSONL targets, customer
+    derived) goes the same way and stays on the host and the local machine only."""
+    import tarfile
+    import tempfile
+
+    remote_train = "/workspace/ci_train"
+    with tempfile.TemporaryDirectory() as tmp:
+        bundle = Path(tmp) / "train-bundle.tar"
+        with tarfile.open(bundle, "w") as tar:
+            for path in train_bundle_paths():
+                arc = "vlm_train_lora.py" if path.endswith("vlm_train_lora.py") else path
+                tar.add(path, arcname=arc)
+        _ssh(settings, runner, f"mkdir -p {remote_train}")
+        _run(runner, _scp_command(settings, str(bundle), f"{remote_train}/train-bundle.tar"), capture_output=True, text=True, timeout=600)
+        _ssh(settings, runner, f"cd {remote_train} && tar -xf train-bundle.tar && rm train-bundle.tar")
+    out = {"deployed": True, "remote": remote_train, "files": len(train_bundle_paths())}
+    if dataset is not None:
+        dataset = Path(dataset)
+        if not (dataset / "manifest.json").is_file():
+            raise PaddleVastError("dataset_manifest_missing")
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "dataset.tar"
+            with tarfile.open(archive, "w") as tar:
+                tar.add(str(dataset), arcname=dataset.name)
+            size_gb = archive.stat().st_size / 1e9
+            free = _disk_free_gb(settings, runner)
+            if free < size_gb * 2 + DISK_MARGIN_GB:
+                raise PaddleVastError(f"disk_insufficient:{free:.0f}GB_free_for_{size_gb:.1f}GB_dataset")
+            _run(runner, _scp_command(settings, str(archive), f"/workspace/{dataset.name}.tar"), capture_output=True, text=True, timeout=7200)
+            _ssh(settings, runner, f"cd /workspace && tar -xf {dataset.name}.tar && rm {dataset.name}.tar", timeout=1800)
+        out["dataset"] = {"name": dataset.name, "remote": f"/workspace/{dataset.name}", "tar_gb": round(size_gb, 2)}
+    return out
+
+
 def cmd_attest(settings, *, runner: Callable[..., Any] = subprocess.run, since_epoch: float) -> dict:
     proc = _ssh(settings, runner, _ATTEST.format(dir=REMOTE_DIR, since=int(since_epoch)))
     counts: dict[str, int] = {}
@@ -268,8 +320,9 @@ def cmd_attest(settings, *, runner: Callable[..., Any] = subprocess.run, since_e
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vlm_vast")
     parser.add_argument("command", choices=("check", "fetch", "deploy", "start", "stop", "status", "tunnel-up",
-                                            "tunnel-down", "attest"))
-    parser.add_argument("--key", choices=("a", "b", "b9", "b27", "worker", "all"), default=None)
+                                            "tunnel-down", "attest", "deploy-train"))
+    parser.add_argument("--key", choices=("a", "b", "b9", "b27", "b27bf16", "b27ft", "worker", "all"), default=None)
+    parser.add_argument("--dataset", default=None, help="deploy-train: the local silver dataset directory to ship")
     parser.add_argument("--since-epoch", type=float, default=0.0)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
@@ -294,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
             out = cmd_tunnel_up(settings)
         elif args.command == "tunnel-down":
             out = cmd_tunnel_down(settings)
+        elif args.command == "deploy-train":
+            out = cmd_deploy_train(settings, Path(args.dataset) if args.dataset else None)
         else:
             out = cmd_attest(settings, since_epoch=args.since_epoch)
     except PaddleVastError as exc:
