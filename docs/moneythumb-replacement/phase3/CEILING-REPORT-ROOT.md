@@ -135,7 +135,7 @@ matching:
    named in the private receipts and the wave report). If the reader is wrong, the CTRL false-accept
    count is 0.
 
-## 5. U755 (755 unresolved documents, 5,110 pages) — pending; two denominators
+## 5. U755 (755 unresolved documents, 5,110 pages) — 27B model-only complete; two denominators
 
 Gustavo (2026-09-18) expected part of this population to be voided checks, identity documents and single
 statement pages without transactions. A deterministic screen over the reader's own extracted text (money
@@ -148,15 +148,39 @@ denominator, on the 546.
 
 | Arm | Reconciled (strict) of 546 | of 755 | By reader outcome (failed / withheld / review / deferred) | By classification (digital / scanned / mixed / unknown) | Pages/s |
 |---|---|---|---|---|---|
-| stage_b_only (27B) | pending (u755s-stageb27-01, after CTRL) | | | | |
+| **stage_b_only (27B)**, gate 6 | **98 / 546 (17.9 %)**; 540 gated, 6 PDFs unreadable by the renderer | **98 / 755 (13.0 %)** | failed 87/474, withheld 7/46, review 4/20 | digital 77/464 (17 %), scanned 21/73 (29 %), mixed 0/3 | 5.5 s/page effective on the 96 GB card (2,242 completion + 2,319 prompt tokens/page) |
 | hybrid (4B) / stage_b_only (4B) | 2 receipts each before the model change; abandoned | | | | |
 | stage_a_rules | not run (layout parser stopped for the 27B) | | | | |
 
-## 6. Thresholds (plan v1 §11) — to be applied to the U755 hybrid figure
+U755 detail (27B, gate 6, waves u755s-stageb27-02..-08 merged into `-all-g6`): admissions fall with length,
+25/58 for statements of 1 to 2 pages, 52/221 for 3 to 6, 15/172 for 7 to 12, 6/89 for 13 or more, because a
+single wrong row anywhere refuses the whole statement. Families with at least 8 gated: TD Bank 9/17, BMO 6/11,
+Truist 6/10, Citizens 4/8, Chase 2/15, Capital One 1/16, Huntington 0/12, Bank of America 0/10, RBC 0/8,
+Unidentified 51/308. Refusal reasons (overlapping): sum_mismatch 289, continuity_break 166, duplicate_row 154,
+count_mismatch 139, summary_mismatch 136, anchors_underdetermined 50, date_order_chained 40, period_mismatch 20,
+date_unparsed 19, direction_unknown 16, anchor_derived 14, currency_conflict 13. No truth exists for these
+documents, so no false-accept figure exists here; the zero-false-accept evidence is the control set (§4).
+All admissions are model-only anchors (no layout parser on the 96 GB host). One document would have been
+admitted with a derived anchor and was refused (anchor_derived is never admitted).
+
+## 6. Thresholds (plan v1 §11) and verdict
 
 GO ≥ 40 percent of U755 reconciled strictly with zero CTRL false accepts and ≤ USD 0.05 per statement;
 REVISE 20–40 percent; STOP < 20 percent, or false accepts the gate cannot close, or nondeterminism
 > 1 percent of rows.
+
+Measured: 17.9 percent of the 546 statement-like unresolved documents and 13.0 percent of the plan's 755
+reconcile strictly under the 27B (the 4B's arms were abandoned at the model change). Zero false accepts on
+the control set with the 27B (one disputed date-only case with the 4B, §4). Cost per statement is below the
+bar on any rental in use (about 5.5 s per page on the 96 GB card at about USD 1.6 per hour, roughly one cent
+per statement).
+
+**Verdict: STOP for an off-the-shelf model as a drop-in reader, on both denominators.** The gate holds and the
+row-level reading is close (96 percent of rows on the control set, 29 percent of scanned unresolved statements
+reconciled), but whole-statement reconciliation of the residue is below the plan's lowest band. The evidence
+supports the path the plan foresaw for this outcome: fine-tuning on the reader's validated statements, which
+Gustavo approved separately on 2026-09-18 (R17). The silver dataset for it is built (2,071 documents, 15,887
+pages, 252,767 aligned rows) and the trainer is written; both wait for a host with disk for the BF16 base.
 
 ## 7. Deviations from plan v1 §11 and known limitations
 
