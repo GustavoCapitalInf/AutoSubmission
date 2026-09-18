@@ -1,6 +1,7 @@
 """Stage A worker: a loopback-only HTTP service around the PaddleOCR-VL pipeline (layout + VL via vLLM).
 
-Deployed to the rented host and run inside the Paddle virtualenv. Mirrors `ocr/paddle_worker.py`:
+Deployed to the rented host; run inside the Paddle virtualenv when the parser is needed, or any Python
+with numpy and Pillow for the identity echo alone (the pipeline is built lazily). Mirrors `ocr/paddle_worker.py`:
 127.0.0.1 bind only, bearer token, bounded JSON body, bounded image decode, closed error tokens,
 retention none (the page exists only in memory). `paddleocr` is imported inside `main()` only.
 """
@@ -185,6 +186,43 @@ def build_server(host: str, port: int, pipeline, token: str | None) -> Threading
     return ThreadingHTTPServer((host, port), _make_handler(pipeline, token, version_payload()))
 
 
+def _build_pipeline():
+    from paddleocr import PaddleOCRVL
+
+    return PaddleOCRVL(
+        pipeline_version=PIPELINE_VERSION,
+        vl_rec_backend=os.environ.get("VLM_A_BACKEND", "vllm-server"),
+        vl_rec_server_url=os.environ.get("VLM_A_SERVER_URL", "http://127.0.0.1:18001/v1"),
+        vl_rec_api_model_name=SERVED_MODEL_NAME,
+        use_doc_orientation_classify=False, use_doc_unwarping=False, use_layout_detection=True,
+        use_chart_recognition=False, use_seal_recognition=False, use_ocr_for_image_block=False,
+        format_block_content=False, merge_layout_blocks=True,
+    )
+
+
+class LazyPipeline:
+    """The pipeline is built on the first /parse, so /health and /version (the identity echo the runner
+    verifies before any page moves) work on a host without the Paddle environment (2026-09-18: the
+    restarted instance kept the scripts but not the environment, and the 27B arm never parses). A /parse
+    there refuses `stage_a_unavailable` (503) instead of the worker failing to start."""
+
+    def __init__(self, factory=_build_pipeline) -> None:
+        self._factory = factory
+        self._pipeline = None
+        self._unavailable = False
+
+    def predict(self, input, **kwargs):
+        if self._pipeline is None:
+            if self._unavailable:
+                raise WorkerRefused("stage_a_unavailable", 503)
+            try:
+                self._pipeline = self._factory()
+            except Exception:  # noqa: BLE001 - the whole environment may be absent
+                self._unavailable = True
+                raise WorkerRefused("stage_a_unavailable", 503) from None
+        return self._pipeline.predict(input=input, **kwargs)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stage_a_worker")
     parser.add_argument("--port", type=int, default=int(os.environ.get("VLM_A_WORKER_PORT", DEFAULT_PORT)))
@@ -198,18 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     if token is None and not args.allow_no_token:
         print(json.dumps({"error": "token_required"}), flush=True)
         return 2
-    from paddleocr import PaddleOCRVL
-
-    pipeline = PaddleOCRVL(
-        pipeline_version=PIPELINE_VERSION,
-        vl_rec_backend=os.environ.get("VLM_A_BACKEND", "vllm-server"),
-        vl_rec_server_url=os.environ.get("VLM_A_SERVER_URL", "http://127.0.0.1:18001/v1"),
-        vl_rec_api_model_name=SERVED_MODEL_NAME,
-        use_doc_orientation_classify=False, use_doc_unwarping=False, use_layout_detection=True,
-        use_chart_recognition=False, use_seal_recognition=False, use_ocr_for_image_block=False,
-        format_block_content=False, merge_layout_blocks=True,
-    )
-    server = build_server(LOOPBACK_BIND, args.port, pipeline, token)
+    server = build_server(LOOPBACK_BIND, args.port, LazyPipeline(), token)
     print(json.dumps({"listening": True, "port": args.port}), flush=True)
     server.serve_forever()
     return 0

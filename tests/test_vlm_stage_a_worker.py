@@ -77,3 +77,29 @@ def test_token_check_is_constant_time_and_required_to_start(tmp_path):
         w.check_bearer_token("t", "Bearer tt")
     assert w.main(["--self-check"]) == 0
     assert w.main([]) == 2  # no VLM_A_WORKER_TOKEN in this environment → token_required, before any import of paddleocr
+
+
+def test_lazy_pipeline_builds_once_and_refuses_when_the_parser_environment_is_absent():
+    import numpy as np
+
+    built = []
+
+    def factory():
+        built.append(1)
+        return FakePipeline()
+
+    lazy = w.LazyPipeline(factory=factory)
+    image = np.zeros((4, 4, 3), dtype=np.uint8)
+    lazy.predict(input=image)
+    lazy.predict(input=image)
+    assert built == [1]
+
+    def broken():
+        raise ImportError("no paddleocr here")
+
+    absent = w.LazyPipeline(factory=broken)
+    with pytest.raises(w.WorkerRefused) as exc:
+        absent.predict(input=image)
+    assert exc.value.code == "stage_a_unavailable" and exc.value.status == 503
+    with pytest.raises(w.WorkerRefused):
+        absent.predict(input=image)   # never retried: the environment does not appear mid-wave

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import subprocess
 import sys
@@ -26,7 +27,7 @@ from tools.paddle_vast import (PaddleVastError, _pid_alive, _popen, _port_listen
 REMOTE_DIR = "/workspace/ci_vlm"
 MODELS_DIR = "/workspace/models"
 HF_HOME = "/workspace/.hf_home"
-PADDLE_PYTHON = "/workspace/paddleocr-env/bin/python"
+PADDLE_PYTHON = os.environ.get("VLM_WORKER_PYTHON") or "/workspace/paddleocr-env/bin/python"   # the worker builds its parser lazily
 HF_PYTHON = "/venv/main/bin/python"
 PORTS = {"a": 18001, "b": 18002, "worker": 18003, "b9": 18004, "b27": 18004}   # b9 and b27 share the forwarded port; one runs at a time
 SERVER_KEYS = ("a", "b", "b9", "worker")
