@@ -1,6 +1,7 @@
 """The reader's validated rows (CTRL) as truth for row-level comparison, and the matcher."""
 from __future__ import annotations
 
+import threading
 from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
@@ -54,27 +55,53 @@ def truth_from_payload(payload: dict) -> list[TruthAccount]:
 
 
 class ReaderTruth:
-    """Read-only join to the run-of-record cache; returns None when the reader produced no payload."""
+    """Read-only join to the run-of-record cache; returns None when the reader produced no payload.
 
-    def __init__(self, data_dir: Path, run_dir: Path) -> None:
-        from tools.cohort_replay import ColdCache
-        from vlm.partitions import run_rows
+    The cache holds a SQLite connection, which SQLite binds to the thread that opened it; the pipelined runner
+    matches documents from worker threads (2026-09-18: a whole repeat wave failed with ProgrammingError), so
+    each thread gets its own read-only cache, all closed together."""
 
-        self._cache = ColdCache(Path(data_dir), Path(run_dir))
-        self._rows = run_rows(Path(run_dir))
+    def __init__(self, data_dir: Path, run_dir: Path, *, cache_factory=None, rows: dict | None = None) -> None:
+        self._data_dir, self._run_dir = Path(data_dir), Path(run_dir)
+        if cache_factory is None:
+            from tools.cohort_replay import ColdCache
+
+            cache_factory = lambda: ColdCache(self._data_dir, self._run_dir)  # noqa: E731
+        self._factory = cache_factory
+        if rows is None:
+            from vlm.partitions import run_rows
+
+            rows = run_rows(self._run_dir)
+        self._rows = rows
+        self._local = threading.local()
+        self._caches: list = []
+        self._lock = threading.Lock()
+
+    def _cache(self):
+        cache = getattr(self._local, "cache", None)
+        if cache is None:
+            cache = self._factory()
+            self._local.cache = cache
+            with self._lock:
+                self._caches.append(cache)
+        return cache
 
     def accounts(self, sha: str) -> list[TruthAccount] | None:
         row = self._rows.get(sha.upper())
         if row is None:
             return None
-        markdown, pages = self._cache.text(sha.upper(), row)
+        cache = self._cache()
+        markdown, pages = cache.text(sha.upper(), row)
         if markdown is None:
             return None
-        payload = self._cache.baseline_payload(markdown, pages)
+        payload = cache.baseline_payload(markdown, pages)
         return None if payload is None else truth_from_payload(payload)
 
     def close(self) -> None:
-        self._cache.close()
+        with self._lock:
+            caches, self._caches = self._caches, []
+        for cache in caches:
+            cache.close()
 
 
 @dataclass(frozen=True)

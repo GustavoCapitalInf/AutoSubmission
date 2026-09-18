@@ -43,3 +43,36 @@ def test_match_rows_empty():
     truth = TruthAccount(None, None, None, None, None, "USD", ())
     match = match_rows([], truth)
     assert match.matched == 0 and match.truth_rows == 0
+
+
+def test_reader_truth_opens_one_cache_per_thread_and_closes_them_all():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from vlm.truth import ReaderTruth
+
+    created, closed = [], []
+
+    class FakeCache:
+        def __init__(self):
+            self.thread = threading.get_ident()
+            created.append(self)
+
+        def text(self, sha, row):
+            assert threading.get_ident() == self.thread   # SQLite's rule, enforced by the fake
+            return "md", ["p1"]
+
+        def baseline_payload(self, markdown, pages):
+            return {"accounts": [{"statement": {"transactions": [{"date": "2031-01-01", "description": "X", "amount": 1.0,
+                                                                  "direction": "credit", "running_balance": 1.0}]}}]}
+
+        def close(self):
+            closed.append(self)
+
+    truth = ReaderTruth("data", "run", cache_factory=FakeCache, rows={"A" * 64: {}})
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(lambda _: truth.accounts("a" * 64), range(9)))
+    assert all(r and r[0].rows and r[0].rows[0].amount == 1 for r in results)
+    assert 1 <= len(created) <= 3 and truth.accounts("B" * 64) is None
+    truth.close()
+    assert set(closed) == set(created)
