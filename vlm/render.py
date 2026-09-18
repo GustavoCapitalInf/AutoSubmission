@@ -6,6 +6,7 @@ memory, as in `ocr/paddle_rung.py`.
 from __future__ import annotations
 
 import io
+import threading
 import time
 from dataclasses import dataclass
 from typing import Iterable
@@ -89,7 +90,19 @@ def _fit(image: Image.Image, long_edge: int) -> Image.Image:
     return image.resize(size, Image.LANCZOS)
 
 
+# PDFium is not thread-safe: with eight documents rendering at once (2026-09-18, pipelined runner) 499 of
+# 502 documents failed with PdfiumError before any model call. Rendering takes ~35 ms per page, so one
+# document at a time costs nothing; the lock covers every PDFium call.
+_PDFIUM_LOCK = threading.Lock()
+
+
 def render_pages(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_EDGE,
+                 quality: int = DEFAULT_JPEG_QUALITY) -> list[RenderedPage]:
+    with _PDFIUM_LOCK:
+        return _render_pages_unlocked(pdf_bytes, long_edge=long_edge, quality=quality)
+
+
+def _render_pages_unlocked(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_EDGE,
                  quality: int = DEFAULT_JPEG_QUALITY,
                  page_indices: Iterable[int] | None = None) -> list[RenderedPage]:
     doc = pdfium.PdfDocument(pdf_bytes)

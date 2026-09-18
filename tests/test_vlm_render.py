@@ -55,3 +55,17 @@ def test_render_settings_are_pinned():
     settings = render.render_settings()
     assert settings["render_version"] == 1 and settings["long_edge"] == 1540 and settings["jpeg_quality"] == 90
     assert settings["pdfium_version"]
+
+
+def test_concurrent_renders_are_serialized_and_identical():
+    """PDFium is not thread-safe; the renderer serializes documents (2026-09-18: 499 PdfiumErrors at 8 in flight)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from tests.paddle_synthetic import build_ledger_page, render_native_pdf
+    from vlm.render import render_document
+
+    raw = render_native_pdf(build_ledger_page(n_rows=6))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: render_document(raw, long_edge=600, quality=80), range(24)))
+    hashes = {tuple(p.jpeg_sha256 for p in pages) for pages in results}
+    assert len(results) == 24 and len(hashes) == 1
