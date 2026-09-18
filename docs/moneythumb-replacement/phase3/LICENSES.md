@@ -29,6 +29,9 @@ Excluded on license: MinerU2.5 (Apache-2.0 with additional commercial terms), Qw
 | flashinfer | 0.6.18 | Apache-2.0 |
 | paddleocr / paddlex / paddlepaddle-gpu | 3.7.0 / 3.7.2 / 3.3.0 | Apache-2.0 |
 | huggingface_hub | 1.30.0 | Apache-2.0 |
+| peft (to install on the training host, R17) | latest stable at install | Apache-2.0 |
+| accelerate (host image) | 1.14.0 | Apache-2.0 |
+| Qwen/Qwen3.8-27B BF16 base (fine-tuning base, R17) | HF revision recorded by fetch receipt `b27bf16` when fetched | Apache-2.0 |
 | pypdfium2 (host) | 5.13.0 | Apache-2.0 OR BSD-3-Clause (pdfium: BSD-3-Clause) |
 | numpy | host / local | BSD-3-Clause |
 
