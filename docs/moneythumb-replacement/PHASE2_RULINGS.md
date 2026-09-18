@@ -493,3 +493,12 @@ statement period whose ending balance in the validated daily ledger is below zer
 `effective_nsf_count = 0` with `nsf_source = "negative_ending_days_unavailable"` and a note, never a silent
 zero. The web app shows the source beside the number. Frozen batch results (batch9-final, phase2.2-final)
 are historical and unchanged; every new run reports the R18 figure.
+
+Evidence (2026-09-18, all 2,629 validated accounts of the run of record recomputed): every validated
+account has a validated daily ledger, so the figure is computable on all of them; 1,722 accounts have
+zero negative-ending days, 907 have at least one, 260 have ten or more. Where the bank prints its own
+daily balance table (248 statements) the printed number of negative days equals the computed count in
+202; in the remaining 46 the computed count is higher, and a day-by-day comparison on the printed dates
+agrees in all 46: the extra days are quiet days (no activity) that the bank's activity-only table omits,
+which the ruling counts by definition. 245 accounts carry returned items; 75 of them never end a day
+negative and therefore report an NSF count of zero under this ruling (the items stay listed as evidence).
