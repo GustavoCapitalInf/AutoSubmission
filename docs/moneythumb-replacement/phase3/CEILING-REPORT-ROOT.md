@@ -20,13 +20,15 @@ Arms: `reader_baseline` (the deterministic reader as it stands), `stage_a_rules`
 tried IN THAT ORDER under one deterministic gate; the receipt records which set was admitted).
 The 27B second-opinion arm was not run (21 GB of free disk on the host; R16 note).
 
-The gate (gate v4): the reader's own `analysis.reconcile.reconcile` decides (sum check, running-balance
+The gate (gate v5): the reader's own `analysis.reconcile.reconcile` decides (sum check, running-balance
 continuity, the bank's printed summary identity, per-direction printed counts, coverage), plus: no
 self-derived anchors (both printed balances required; one derived is recorded but never admitted), no
 chain-derived directions without both printed anchors, unverifiable repeats refuse, the hybrid arm
-refuses when the model's anchor disagrees with the rule reading, reverse-chronological pages are
-oriented, and per-row repeated daily balances collapse to the day's last row. Date order and period
-membership are recorded, never refusal reasons. Never partial admission.
+refuses when the model's anchor or period year disagrees with the rule reading, reverse-chronological
+pages are oriented, and per-row repeated daily balances collapse to the day's last row. Date order is
+recorded, never a refusal reason; rows dated outside the printed period refuse (gate v5, added after the
+CTRL wave: every row of all 114 validated control accounts lies inside its printed period, so the check
+costs no valid document). Never partial admission.
 
 False accept (the §11 zero bar): an admitted document whose rows contradict the reader's validated
 rows arithmetically (a missing or extra row, or a differing printed balance on a matched row).
@@ -47,6 +49,7 @@ blocks identical 3/3, Stage B message texts identical 6/6 → nondeterminism 0 r
 | 01 regated (gate 4) | orientation, daily-balance collapse, date order recorded | 4/20 | 0 | 31 % |
 | dev-hybrid-02+03 (12k output budget, schema 3) | 38/118 truncated pages → 4 | 4/19 | 0 | 79 % (1,460/1,841) |
 | 02+03 regated (year rule, candidates) | period year overrides an unprinted model year | 4/19 | 0 | **91.4 % (1,683/1,841)** |
+| 02+03 regated (gate 5) | period check, year window (after the CTRL wave) | 4/19 | 0 | 91.4 % (1,683/1,841) |
 
 Findings that changed the harness (each closed and committed):
 1. Dense pages exceeded a 4,096-token output cap and were lost as invalid JSON (32 percent of pages).
@@ -66,16 +69,39 @@ Cost and speed on the development slice: Stage A ≈ 2.3 s/page; Stage B ≈ 6.5
 concurrency 4 (≈ 20 s per call, 2,500 completion tokens per page at 1,540 px); upload ≈ 300 KB/page;
 render 21 ms/page, encode 13 ms/page (pdfium in-process, vs ≈ 1 s/page for the Phase 2.3 poppler path).
 
-## 4. CTRL (114 validated documents, 800 pages) — pending
+## 4. CTRL (114 validated documents, 800 pages) — hybrid complete, other arms running
 
-Primary figure = CTRL without the 20 DEV documents (`report --exclude-manifest DEV`).
+Primary figure = CTRL without the 20 DEV documents (`report --exclude-manifest DEV`): 94 documents.
 
-| Arm | Admitted (strict) | False accepts | Row match (validated) | Pages/s | Notes |
-|---|---|---|---|---|---|
-| reader_baseline | 114/114 by construction | — | — | — | |
-| stage_a_rules | pending | | | | |
-| stage_b_only | pending | | | | |
-| hybrid | running (ctrl-hybrid-02, resume of -01) | | | | |
+| Arm | Gated | Admitted (strict) | False accepts | Row match (validated) | Speed | Notes |
+|---|---|---|---|---|---|---|
+| reader_baseline | 94 | 94/94 by construction | — | — | — | ctrl-reader-01 |
+| stage_a_rules | running | | | | | ctrl-stagea-01 |
+| stage_b_only | running | | | | | ctrl-stageb-01 |
+| hybrid (gate 5 regate) | 86 | **11/86 (12.8 %)** | **1** (see below; 2 under gate 4) | **90.7 % (8,975/9,898)** | Stage B 6.5 s/page wall at concurrency 4 (19 s per call); Stage A 2.2 s/page | ctrl-hybrid-02 → -02-g5; 8 http_400 failures retried in ctrl-hybrid-03 |
+
+Hybrid detail (primary, gate 5): all 11 admissions came from the model's rows (the parser rows and the
+union rescued none); anchors corroborated by the rules in 7, partial in 2, model-only in 2; 8 of the 11
+carry description variants only. Tokens per page: 3,740 prompt, 2,400 completion. Refusal reasons over the
+whole wave (overlapping): sum_mismatch 67, count_mismatch 42, continuity_break 39, duplicate_row 31,
+summary_mismatch 31, anchor_disagreement 19, date_unparsed 12, currency_conflict 6, period_mismatch 5,
+direction_unknown 4, coverage_mismatch 2, no_rows 1. Period year: model and rules agree in 67, model-only
+in 37, disagree in 0.
+
+False accepts under gate 4 were 2; both are date disagreements with every amount, direction and balance
+matching:
+
+1. A French-dated statement (month names the text parser cannot read, so the period-year rule never
+   fired) reconciled with 82 of 150 rows carrying the model's own year, two years off the printed period.
+   Closed in gate 5 (commit e6f126c): rows outside the printed period refuse, and a row whose printed
+   text carries no year takes the period year that puts it inside the period window. Re-gated, the
+   document matches 150/150 rows with 150/150 balances exact.
+2. A 43-row statement without a balance column: one row the model dates four days earlier than the
+   reader does. The Stage A layout parser reads the same date as the model on that row (two independent
+   readings against the reader), and no arithmetic check can decide a date on a balance-less statement.
+   It stays a false accept under the strict definition until a person looks at the page (the document is
+   named in the private receipts and the wave report). If the reader is wrong, the CTRL false-accept
+   count is 0.
 
 ## 5. U755 (755 unresolved documents, 5,110 pages) — pending
 
