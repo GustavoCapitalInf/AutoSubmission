@@ -43,10 +43,13 @@ SERVE_FLAGS = {
          "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
     "b9": "--max-model-len 16384 --max-num-seqs 4 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.62 "
           "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
-    # Single RTX 5090 (vLLM recipe for Qwen3.8-27B NVFP4): CUDA graphs off to fit, fp8 KV cache; the
-    # layout parser is stopped while this runs (Gustavo, 2026-09-18), so the share is the whole card.
-    "b27": "--max-model-len 32768 --max-num-seqs 2 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.90 "
-           "--kv-cache-dtype fp8 --enforce-eager --limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
+    # Single RTX 5090 (vLLM recipe for Qwen3.8-27B NVFP4 says CUDA graphs off to fit): eager ran at ~10 tok/s
+    # per request with the GPU 19 percent busy (launch-bound hybrid layers), so graphs are captured for the
+    # few batch sizes we use and the memory share is lowered to leave room for the capture. The layout
+    # parser is stopped while this runs (Gustavo, 2026-09-18), so the share is the whole card.
+    "b27": "--max-model-len 32768 --max-num-seqs 4 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.85 "
+           "--kv-cache-dtype fp8 --compilation-config '{\"cudagraph_capture_sizes\":[1,2,4]}' "
+           "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
 }
 COMMON_ENV = f"HF_HOME={HF_HOME} HF_HUB_OFFLINE=1 VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1"
 DISK_MARGIN_GB = 2.0
