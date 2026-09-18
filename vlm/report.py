@@ -55,6 +55,7 @@ def _metrics(docs: list[dict], counts: dict, wall_s: float | None) -> dict:
     validated_rows = {"truth": 0, "matched": 0}
     matched_docs = chain_docs = strict = one_side = repeats_admitted = description_mismatch_docs = 0
     corroboration: Counter = Counter()
+    by_candidate: Counter = Counter()
     false_accepts: list[str] = []
     for doc in ok:
         gate = doc["gate"]
@@ -65,6 +66,7 @@ def _metrics(docs: list[dict], counts: dict, wall_s: float | None) -> dict:
         derived.update(gate.get("derived", []))
         if admitted:
             strict += 1   # every admission is strict: a derived anchor is never admitted (gate reason anchor_derived)
+            by_candidate[gate.get("admitted_candidate") or "single"] += 1
             if gate.get("chain_derived_directions", 0):
                 chain_docs += 1
             if (gate.get("repeats") or {}).get("unverifiable", 0):
@@ -106,6 +108,7 @@ def _metrics(docs: list[dict], counts: dict, wall_s: float | None) -> dict:
         "admitted_with_chain_directions": chain_docs,
         "admitted_with_unverifiable_repeats": repeats_admitted,
         "admitted_by_anchor_corroboration": dict(sorted(corroboration.items())),
+        "admitted_by_candidate": dict(sorted(by_candidate.items())),
         "admitted_with_description_mismatches": description_mismatch_docs,
         "strict_admission_rate": (strict / attempted) if attempted else None,
         "false_accepts": {"count": len(false_accepts), "documents": false_accepts},

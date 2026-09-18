@@ -40,7 +40,7 @@ from vlm.truth import ReaderTruth, TruthAccount, match_rows
 
 ARMS = ("reader_baseline", "stage_a_rules", "stage_b_only", "hybrid")
 MODEL_ARMS = ("stage_a_rules", "stage_b_only", "hybrid")
-MAX_PARSER_CONTEXT_CHARS = 12000
+MAX_PARSER_CONTEXT_CHARS = 10000   # DEV wave: one hybrid prompt exceeded the 16k context (http_400)
 MAX_CONSECUTIVE_TRANSPORT_FAILURES = 3
 PREFETCH_DEPTH = 2
 
@@ -273,15 +273,25 @@ def process_document(doc: DocumentInput, ctx: RunContext) -> tuple[dict, dict]:
     if ctx.arm == "stage_b_only":
         stats["anchor_corroboration"] = "model_only"
     gate_started = time.perf_counter()
-    verdict: GateVerdict = gate(rows, meta)
-    extra_reasons = []
-    if stats.get("currency_conflict") and "currency_conflict" not in verdict.reasons:
+    extra_reasons: list[str] = []
+    if stats.get("currency_conflict"):
         extra_reasons.append("currency_conflict")
-    if stats.get("anchor_corroboration") == "disagreement" and "anchor_disagreement" not in verdict.reasons:
+    if stats.get("anchor_corroboration") == "disagreement":
         extra_reasons.append("anchor_disagreement")
-    if extra_reasons:
-        verdict = GateVerdict(False, verdict.reasons + tuple(extra_reasons), verdict.row_count, (), verdict.computed_ending,
-                              verdict.continuity_breaks, verdict.chain_derived_directions, verdict.checks, verdict.anchored)
+    admitted_candidate = None
+    if ctx.arm == "hybrid":
+        from vlm.candidates import gate_candidates
+
+        verdict, admitted_candidate, candidate_reasons = gate_candidates(rows, a_rows, meta, extra_reasons=tuple(extra_reasons))
+        stats["candidate_reasons"] = candidate_reasons
+        if verdict.admitted:
+            rows = list(verdict.admitted_rows)   # the admitted set is what the truth comparison must see
+    else:
+        verdict = gate(rows, meta)
+        missing = tuple(r for r in extra_reasons if r not in verdict.reasons)
+        if missing:
+            verdict = GateVerdict(False, verdict.reasons + missing, verdict.row_count, (), verdict.computed_ending,
+                                  verdict.continuity_breaks, verdict.chain_derived_directions, verdict.checks, verdict.anchored)
     timings["gate_ms"] = (time.perf_counter() - gate_started) * 1000.0
     match = None
     if ctx.truth is not None:
@@ -297,7 +307,7 @@ def process_document(doc: DocumentInput, ctx: RunContext) -> tuple[dict, dict]:
                  "continuity_breaks": verdict.continuity_breaks, "chain_derived_directions": verdict.chain_derived_directions,
                  "derived": verdict.checks.get("derived", []), "anchored": verdict.anchored,
                  "repeats": verdict.checks.get("repeats"), "summary_ok": verdict.checks.get("summary_ok"),
-                 "gate_version": GATE_VERSION},
+                 "admitted_candidate": admitted_candidate, "gate_version": GATE_VERSION},
         "meta_sources": list(meta.sources), "timings": timings, "stats": stats, "match": match, "agreement": agreement,
         "stage_b_content_hashes": private.get("stage_b_content_hashes", []),
         "failure": None,

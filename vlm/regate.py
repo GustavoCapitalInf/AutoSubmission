@@ -91,21 +91,33 @@ def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None) -> d
         private = json.loads(private_path.read_text(encoding="utf-8"))
         rows = _rows_from_private(private.get("rows") or [])
         meta = _meta_from_private(private.get("meta") or {})
-        verdict: GateVerdict = gate(rows, meta)
-        extra = []
         stats = public.get("stats") or {}
-        if stats.get("currency_conflict") and "currency_conflict" not in verdict.reasons:
-            extra.append("currency_conflict")
-        if stats.get("anchor_corroboration") == "disagreement" and "anchor_disagreement" not in verdict.reasons:
-            extra.append("anchor_disagreement")
-        if extra:
-            verdict = GateVerdict(False, verdict.reasons + tuple(extra), verdict.row_count, (), verdict.computed_ending,
-                                  verdict.continuity_breaks, verdict.chain_derived_directions, verdict.checks, verdict.anchored)
+        extra = tuple(r for r, present in (("currency_conflict", stats.get("currency_conflict")),
+                                            ("anchor_disagreement", stats.get("anchor_corroboration") == "disagreement")) if present)
+        admitted_candidate = None
+        if public.get("arm") == "hybrid" and private.get("stage_a_blocks") is not None:
+            from vlm.assemble import Block, rows_from_blocks
+            from vlm.candidates import gate_candidates
+            from vlm.metadata import year_from_meta
+
+            blocks = [Block(label=b["label"], bbox=tuple(b["bbox"]), content=b["content"], order=b["order"], page=b["page"])
+                      for page_blocks in private["stage_a_blocks"] for b in page_blocks]
+            a_rows = rows_from_blocks(blocks, year_hint=year_from_meta(meta))
+            b_rows = [r for r in rows if not r.source.startswith("stage_a")]
+            verdict, admitted_candidate, candidate_reasons = gate_candidates(b_rows, a_rows, meta, extra_reasons=extra)
+            stats["candidate_reasons"] = candidate_reasons
+            public["stats"] = stats
+        else:
+            verdict = gate(rows, meta)
+            missing = tuple(r for r in extra if r not in verdict.reasons)
+            if missing:
+                verdict = GateVerdict(False, verdict.reasons + missing, verdict.row_count, (), verdict.computed_ending,
+                                      verdict.continuity_breaks, verdict.chain_derived_directions, verdict.checks, verdict.anchored)
         public["gate"] = {"admitted": verdict.admitted, "reasons": list(verdict.reasons), "row_count": verdict.row_count,
                           "continuity_breaks": verdict.continuity_breaks, "chain_derived_directions": verdict.chain_derived_directions,
                           "derived": verdict.checks.get("derived", []), "anchored": verdict.anchored,
                           "repeats": verdict.checks.get("repeats"), "summary_ok": verdict.checks.get("summary_ok"),
-                          "gate_version": GATE_VERSION, "regated": True}
+                          "admitted_candidate": admitted_candidate, "gate_version": GATE_VERSION, "regated": True}
         private["gate_checks"] = {k: (str(v) if isinstance(v, Decimal) else v) for k, v in verdict.checks.items()}
         counts["admitted" if verdict.admitted else "refused_by_gate"] += 1
         dump_new(out / "results" / path.name, public)

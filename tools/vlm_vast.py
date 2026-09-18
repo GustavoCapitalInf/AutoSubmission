@@ -38,7 +38,7 @@ MODELS = {
 SERVE_FLAGS = {
     "a": "--trust-remote-code --max-num-batched-tokens 8192 --no-enable-prefix-caching --mm-processor-cache-gb 0 "
          "--gpu-memory-utilization 0.28 --max-model-len 8192 --max-num-seqs 4",
-    "b": "--max-model-len 16384 --max-num-seqs 4 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.55 "
+    "b": "--max-model-len 32768 --max-num-seqs 4 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.55 "
          "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
     "b9": "--max-model-len 16384 --max-num-seqs 4 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.62 "
           "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",

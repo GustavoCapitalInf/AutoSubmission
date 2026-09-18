@@ -6,6 +6,7 @@ MAJOR-4 (the printed totals and counts flow into AccountMeta).
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, replace
 from decimal import Decimal
@@ -29,6 +30,14 @@ def _money(value) -> Decimal | None:
         return to_decimal(value)
     except ValueError:
         return None
+
+
+_EXPLICIT_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)|\d{1,2}[/-]\d{1,2}[/-]\d{2}(?!\d)")
+
+
+def _has_explicit_year(text: str) -> bool:
+    """A printed 4-digit year, or a numeric date with a 2-digit year (e.g. 01/02/26)."""
+    return bool(_EXPLICIT_YEAR.search(text or ""))
 
 
 def _count(value) -> int | None:
@@ -66,6 +75,13 @@ def rows_from_proposal(proposal: dict, *, page: int, year_hint: int | None = Non
         date = item.get("date") if isinstance(item.get("date"), str) else None
         if date is not None and parse_date(date) is None:
             date = None
+        # DEV wave: on month/day-only rows the model supplied a year from its own prior (2024 for a 2026
+        # statement). When the printed text carries no year and the statement period does, the period's
+        # year is the evidence; the model's year is used only when the text itself prints one.
+        if date_text and year_hint is not None and not _has_explicit_year(date_text):
+            from_text = parse_date(date_text, year_hint=year_hint)
+            if from_text is not None:
+                date = from_text
         if date is None and date_text:
             date = parse_date(date_text, year_hint=year_hint)
         direction = item.get("direction") if item.get("direction") in ("credit", "debit") else "unknown"

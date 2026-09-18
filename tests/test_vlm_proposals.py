@@ -49,3 +49,12 @@ def test_merge_pages_roles_meta_and_conflicts_without_digits_in_stats():
     assert stats["account_last4_count"] == 2 and "account_last4_set_sha256" not in stats
     assert "0001" not in str(stats) and "4821" not in str(stats)
     assert stats["rows_dropped_nonpositive"] == 0 and stats["continuation_rows_with_amount"] == 0
+
+
+def test_period_year_overrides_a_model_year_when_the_text_prints_none():
+    rows, _ = pp.rows_from_proposal(_page(rows=[_row(date="2024-01-05", text="01/05")]), page=0, year_hint=2031)
+    assert rows[0].date == "2031-01-05"
+    rows, _ = pp.rows_from_proposal(_page(rows=[_row(date="2024-01-05", text="01/05/2024")]), page=0, year_hint=2031)
+    assert rows[0].date == "2024-01-05"   # the text prints its own year: the model's date stands
+    rows, _ = pp.rows_from_proposal(_page(rows=[_row(date="2024-01-05", text="01/05/24")]), page=0, year_hint=2031)
+    assert rows[0].date == "2024-01-05"

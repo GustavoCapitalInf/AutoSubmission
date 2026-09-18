@@ -223,3 +223,20 @@ def test_stage_b_concurrency_keeps_page_order(tmp_path):
     assert [t["page"] for t in private["stage_b"]] == [0, 1, 2]
     public = json.loads((tmp_path / "w" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
     assert public["pages"] == 3 and public["timings"]["prompt_tokens"] == 300 and public["timings"]["stage_b_wall_ms"] >= 0
+
+
+def test_hybrid_arm_rescues_a_model_miss_with_the_parser_rows(tmp_path):
+    member, archive = _member(tmp_path)
+
+    class DroppingStageB(FakeStageB):
+        def chat(self, *a, **k):
+            result = super().chat(*a, **k)
+            result.parsed["rows"].pop(2)   # the model misses one row; the parser's table has all four
+            return result
+
+    result = _wave([member], _ctx("hybrid", stage_a=FakeStageA(), stage_b=DroppingStageB()), tmp_path / "w", archive)
+    assert result["counts"]["admitted"] == 1
+    public = json.loads((tmp_path / "w" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
+    assert public["gate"]["admitted"] and public["gate"]["admitted_candidate"] == "stage_a"
+    assert public["stats"]["candidate_reasons"]["stage_b"] and public["stats"]["candidate_reasons"]["stage_a"] == []
+    assert public["rows_proposed"] == 4
