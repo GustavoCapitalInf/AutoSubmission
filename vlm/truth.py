@@ -101,7 +101,10 @@ class ReaderTruth:
         with self._lock:
             caches, self._caches = self._caches, []
         for cache in caches:
-            cache.close()
+            try:
+                cache.close()
+            except Exception:  # noqa: BLE001 - a worker thread's read-only connection dies with its thread
+                pass
 
 
 @dataclass(frozen=True)
