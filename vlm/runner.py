@@ -198,6 +198,16 @@ def _corroborate(model_meta: AccountMeta, rule_meta: AccountMeta) -> dict:
             fields[name] = "model_only"
         else:
             fields[name] = "agree" if abs(a) == abs(b) else "disagree"
+    model_period = model_meta.period_end or model_meta.period_start
+    rule_period = rule_meta.period_end or rule_meta.period_start
+    if model_period is None and rule_period is None:
+        fields["period_year"] = "absent"
+    elif model_period is None:
+        fields["period_year"] = "rules_only"
+    elif rule_period is None:
+        fields["period_year"] = "model_only"
+    else:   # gate v5: a model period year the printed text contradicts is a disagreement
+        fields["period_year"] = "agree" if model_period[:4] == rule_period[:4] else "disagree"
     anchors = (fields["beginning_balance"], fields["ending_balance"])
     if "disagree" in fields.values():
         summary = "disagreement"

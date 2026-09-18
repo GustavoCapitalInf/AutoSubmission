@@ -1,3 +1,4 @@
+from dataclasses import replace
 from decimal import Decimal
 
 from vlm.assemble import CandidateRow
@@ -92,8 +93,13 @@ def test_date_checks():
     rows = _rows()
     rows[1] = CandidateRow("2031-03-05", "03/05", rows[1].description, rows[1].amount, "credit", rows[1].balance, 0, "stage_a", "x")
     verdict = gate(rows, _meta())
-    # recorded, never refused: sectioned statements restart dates and banks list checks by number
-    assert verdict.admitted and verdict.checks["dates_outside_period"] == 1 and verdict.checks["date_order_breaks"] == 1
+    # gate v5: a row outside the printed period refuses; the order break is recorded, never refused
+    assert not verdict.admitted and verdict.reasons == ("period_mismatch",)
+    assert verdict.checks["dates_outside_period"] == 1 and verdict.checks["date_order_breaks"] == 1
+    rows = _rows()
+    rows[1], rows[2] = rows[2], rows[1]   # same ledger, two rows swapped: an order break only
+    verdict = gate(rows, _meta())
+    assert verdict.checks["date_order_breaks"] == 1 and "period_mismatch" not in verdict.reasons
 
 
 def test_duplicate_rows_with_balances_and_without():
@@ -152,3 +158,11 @@ def test_repeated_daily_balances_collapse_to_the_last_row_of_the_day():
     assert n == 1 and collapsed[0].balance is None and collapsed[1].balance == Decimal("530.00") and collapsed[2].balance == Decimal("525.00")
     verdict = gate(same_day, _meta(begin="500.00", end="525.00"))
     assert verdict.admitted and verdict.checks["collapsed_daily_balances"] == 1 and verdict.continuity_breaks == 0
+
+
+def test_rows_dated_outside_the_printed_period_refuse():
+    rows = _rows()
+    rows[1] = replace(rows[1], date="2029-01-02")
+    verdict = gate(rows, _meta())
+    assert not verdict.admitted and "period_mismatch" in verdict.reasons and verdict.checks["dates_outside_period"] == 1
+    assert gate(_rows(), _meta()).checks["dates_outside_period"] == 0

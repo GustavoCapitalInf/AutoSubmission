@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, replace
+from datetime import date as _date, timedelta
 from decimal import Decimal
 
 from vlm.assemble import CandidateRow
@@ -35,6 +36,30 @@ def _money(value) -> Decimal | None:
 _EXPLICIT_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)|\d{1,2}[/-]\d{1,2}[/-]\d{2}(?!\d)")
 
 
+PERIOD_WINDOW_DAYS = 5   # equal to the gate's PERIOD_GRACE_DAYS
+
+
+def year_into_period(date_iso: str, period_start: str | None, period_end: str | None) -> str:
+    """CTRL wave: a row whose printed text carries no year but whose date lies outside the statement
+    period (the model's prior year on a French-dated page the text parser could not read) takes the
+    period year that puts its month/day inside the period window; otherwise the date is left alone."""
+    if not period_start or not period_end:
+        return date_iso
+    lower = _date.fromisoformat(period_start) - timedelta(days=PERIOD_WINDOW_DAYS)
+    upper = _date.fromisoformat(period_end) + timedelta(days=PERIOD_WINDOW_DAYS)
+    current = _date.fromisoformat(date_iso)
+    if lower <= current <= upper:
+        return date_iso
+    for year in dict.fromkeys((int(period_end[:4]), int(period_start[:4]))):
+        try:
+            candidate = current.replace(year=year)
+        except ValueError:   # 29 February
+            continue
+        if lower <= candidate <= upper:
+            return candidate.isoformat()
+    return date_iso
+
+
 def _has_explicit_year(text: str) -> bool:
     """A printed 4-digit year, or a numeric date with a 2-digit year (e.g. 01/02/26)."""
     return bool(_EXPLICIT_YEAR.search(text or ""))
@@ -50,7 +75,8 @@ def _count(value) -> int | None:
     return number if number >= 0 else None
 
 
-def rows_from_proposal(proposal: dict, *, page: int, year_hint: int | None = None) -> tuple[list[CandidateRow], dict]:
+def rows_from_proposal(proposal: dict, *, page: int, year_hint: int | None = None,
+                       period: tuple[str | None, str | None] | None = None) -> tuple[list[CandidateRow], dict]:
     """Rows in printed order plus a drop ledger: {"nonpositive": n, "continuation_merged": n,
     "continuation_with_amount": n}. A `continues_previous` row WITH a positive amount is kept as a
     row (the flag is ignored and counted), never merged."""
@@ -84,6 +110,8 @@ def rows_from_proposal(proposal: dict, *, page: int, year_hint: int | None = Non
                 date = from_text
         if date is None and date_text:
             date = parse_date(date_text, year_hint=year_hint)
+        if date is not None and date_text and period is not None and not _has_explicit_year(date_text):
+            date = year_into_period(date, *period)
         direction = item.get("direction") if item.get("direction") in ("credit", "debit") else "unknown"
         rows.append(CandidateRow(date=date, date_text=date_text, description=str(item.get("description") or ""),
                                  amount=amount, direction=direction, balance=_money(item.get("balance")), page=page,
@@ -130,7 +158,8 @@ def merge_pages(pages: list[PageProposal]) -> tuple[list[CandidateRow], AccountM
             last4s.append(page_meta.account_last4)
         if role == "statement_page":
             year_hint = int(meta.period_end[:4]) if meta.period_end else (int(meta.period_start[:4]) if meta.period_start else None)
-            page_rows, page_drops = rows_from_proposal(page.proposal, page=page.page, year_hint=year_hint)
+            page_rows, page_drops = rows_from_proposal(page.proposal, page=page.page, year_hint=year_hint,
+                                                       period=(meta.period_start, meta.period_end))
             drops.update(page_drops)
             rows.extend(page_rows)
     stats = {

@@ -58,3 +58,25 @@ def test_period_year_overrides_a_model_year_when_the_text_prints_none():
     assert rows[0].date == "2024-01-05"   # the text prints its own year: the model's date stands
     rows, _ = pp.rows_from_proposal(_page(rows=[_row(date="2024-01-05", text="01/05/24")]), page=0, year_hint=2031)
     assert rows[0].date == "2024-01-05"
+
+
+def test_unprinted_year_outside_the_period_snaps_into_the_period_window():
+    assert pp.year_into_period("2029-01-05", "2031-01-01", "2031-01-31") == "2031-01-05"
+    assert pp.year_into_period("2031-01-05", "2031-01-01", "2031-01-31") == "2031-01-05"
+    assert pp.year_into_period("2029-06-05", "2031-01-01", "2031-01-31") == "2029-06-05"   # no year fits: left alone
+    assert pp.year_into_period("2029-01-05", None, "2031-01-31") == "2029-01-05"
+    # CTRL wave: a month name the text parser cannot read, model year two years off.
+    rows, _ = pp.rows_from_proposal(_page(rows=[_row(date="2029-01-05", text="5 janv")]), page=0, year_hint=2031,
+                                    period=("2031-01-01", "2031-01-31"))
+    assert rows[0].date == "2031-01-05"
+    # A period that crosses the year takes the year that fits.
+    rows, _ = pp.rows_from_proposal(_page(rows=[_row(date="2029-12-30", text="30 dec")]), page=0, year_hint=2031,
+                                    period=("2030-12-01", "2031-01-05"))
+    assert rows[0].date == "2030-12-30"
+    # A printed year is evidence and stays, even outside the period.
+    rows, _ = pp.rows_from_proposal(_page(rows=[_row(date="2029-01-05", text="05/01/2029")]), page=0, year_hint=2031,
+                                    period=("2031-01-01", "2031-01-31"))
+    assert rows[0].date == "2029-01-05"
+    # merge_pages passes the merged period through.
+    rows, meta, _ = pp.merge_pages([pp.PageProposal(0, _page(rows=[_row(date="2029-01-05", text="5 janv")]), ())])
+    assert rows[0].date == "2031-01-05" and meta.period_end == "2031-01-31"

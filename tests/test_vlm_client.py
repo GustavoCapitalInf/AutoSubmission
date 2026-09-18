@@ -119,3 +119,16 @@ def test_connection_refused_becomes_transport_error():
     c = vclient.VlmClient("http://127.0.0.1:9", timeout=1.0)
     with pytest.raises(vclient.TransportError):
         c.models()
+
+
+def test_http_error_code_keeps_a_keyword_class_and_context_length_numbers_only():
+    from vlm.client import http_error_code
+
+    body = (b"{\"error\": {\"message\": \"This model's maximum context length is 32768 tokens. However, you requested "
+            b"34000 tokens (22000 in the messages, 12000 in the completion). SECRET ROW TEXT\"}}")
+    code = http_error_code(400, body)
+    assert code == "http_400:context_length:32768,34000,22000,12000"
+    assert "SECRET" not in code
+    assert http_error_code(400, b"{\"error\": \"Invalid image payload ACCOUNT 1234\"}") == "http_400:image"
+    assert http_error_code(400, b"{\"error\": \"something else 9999\"}") == "http_400"
+    assert http_error_code(500, b"") == "http_500"

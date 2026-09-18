@@ -23,11 +23,11 @@ from vlm.assemble import CandidateRow
 from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
-GATE_VERSION = 4
+GATE_VERSION = 5
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
-           "summary_mismatch", "count_mismatch", "coverage_mismatch", "currency_conflict", "anchor_disagreement")
+           "summary_mismatch", "count_mismatch", "coverage_mismatch", "currency_conflict", "anchor_disagreement", "period_mismatch")
 PERIOD_GRACE_DAYS = 5
 
 
@@ -174,14 +174,18 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
     if any(value is None for value in dates):
         reasons.append("date_unparsed")
     parsed = [date.fromisoformat(value) for value in dates if value]
-    # Date order and period membership are RECORDED, not refusal reasons: sectioned statements restart
-    # dates per section and banks list checks by number; the reader's own arithmetic decides admission.
+    # Date order is RECORDED, not a refusal reason: sectioned statements restart dates per section and
+    # banks list checks by number. Period membership REFUSES (gate v5, CTRL wave): a reconciled ledger
+    # carried 82 rows dated two years off (an unprinted year the model supplied). Every row of all 114
+    # validated control accounts lies inside its printed period, so the check costs no valid document.
     outside = 0
     if meta.period_start and meta.period_end and parsed:
         lower = date.fromisoformat(meta.period_start) - timedelta(days=PERIOD_GRACE_DAYS)
         upper = date.fromisoformat(meta.period_end) + timedelta(days=PERIOD_GRACE_DAYS)
         outside = sum(1 for value in parsed if value < lower or value > upper)
     checks["dates_outside_period"] = outside
+    if outside:
+        reasons.append("period_mismatch")
     checks["date_order_breaks"] = sum(1 for earlier, later in zip(parsed, parsed[1:]) if later < earlier)
     distinguished, unverifiable = _duplicates(resolved)
     checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}

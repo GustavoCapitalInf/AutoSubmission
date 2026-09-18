@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -25,6 +26,18 @@ CONTRACT = 1
 
 class TransportError(RuntimeError):
     pass
+
+
+def http_error_code(status: int, body: bytes) -> str:
+    """The failure code for an HTTP error: the status plus a keyword class, and for the server's
+    context-length refusal its token counts. Never the body: it may echo the request."""
+    text = body[:4096].decode("utf-8", "replace").lower()
+    if "maximum context length" in text:
+        return f"http_{status}:context_length:" + ",".join(re.findall(r"\d+", text)[:6])
+    for keyword in ("image", "schema", "grammar", "max_tokens"):
+        if keyword in text:
+            return f"http_{status}:{keyword}"
+    return f"http_{status}"
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -70,7 +83,11 @@ class HttpJson:
             except urllib.error.HTTPError as exc:
                 if 300 <= exc.code < 400:
                     raise TransportError("redirect_refused") from None
-                raise TransportError(f"http_{exc.code}") from None
+                try:
+                    body_bytes = exc.read(4096)
+                except Exception:   # noqa: BLE001 - the body is optional evidence
+                    body_bytes = b""
+                raise TransportError(http_error_code(exc.code, body_bytes)) from None
             except urllib.error.URLError as exc:
                 attempt += 1
                 if attempt > MAX_TRANSPORT_RETRIES:

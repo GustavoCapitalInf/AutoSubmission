@@ -100,7 +100,13 @@ def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None, trut
             pages = [PageProposal(p["page"], p["proposal"], tuple(p.get("errors") or ())) for p in private["proposals"]]
             rows, meta, merged_stats = merge_pages(pages)
             if private.get("meta_rules") is not None:
-                meta = merge_meta(meta, _meta_from_private(private["meta_rules"]))
+                from vlm.runner import _corroborate
+
+                rules_meta = _meta_from_private(private["meta_rules"])
+                corroboration = _corroborate(meta, rules_meta)   # recomputed: the compared fields may have grown
+                stats["anchor_corroboration"] = corroboration["summary"]
+                stats["anchor_fields"] = corroboration["fields"]
+                meta = merge_meta(meta, rules_meta)
             stats = {**stats, **{k: v for k, v in merged_stats.items() if k != "account_last4_values"}}
             private["rows"] = [{**asdict(r), "amount": f"{r.amount:.2f}", "balance": None if r.balance is None else f"{r.balance:.2f}"} for r in rows]
             private["meta"] = {**asdict(meta), **{k: (f"{v:.2f}" if isinstance(v, Decimal) else v) for k, v in asdict(meta).items()}}
@@ -110,6 +116,7 @@ def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None, trut
             meta = _meta_from_private(private.get("meta") or {})
         extra = tuple(r for r, present in (("currency_conflict", stats.get("currency_conflict")),
                                             ("anchor_disagreement", stats.get("anchor_corroboration") == "disagreement")) if present)
+        public["stats"] = stats
         admitted_candidate = None
         if public.get("arm") == "hybrid" and private.get("stage_a_blocks") is not None:
             from vlm.assemble import Block, rows_from_blocks
