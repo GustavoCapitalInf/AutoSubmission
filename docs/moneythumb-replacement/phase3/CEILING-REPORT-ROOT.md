@@ -14,21 +14,24 @@ tunnel, with both opt-in literals set per process:
 |---|---|---|---|
 | A | PaddlePaddle/PaddleOCR-VL-1.6 (Apache-2.0) + PP-DocLayoutV3 | PaddleOCR 3.7 pipeline, VL via vLLM 0.29.0 | layout + tables → rule-based rows and metadata |
 | B | Qwen/Qwen3.5-4B (Apache-2.0) | vLLM 0.29.0, JSON-schema constrained, temperature 0, seed 0 | page → structured proposal (rows, anchors, printed totals/counts) |
+| B (second opinion, from 2026-09-18) | nvidia/Qwen3.8-27B-NVFP4 (Apache-2.0; NVIDIA ModelOpt NVFP4/FP8 build of Qwen/Qwen3.8-27B) | vLLM 0.29.0, fp8 KV cache, CUDA graphs for batch sizes 1/2/4, same prompt, schema and decoding | same role, run as `stage_b_only` with the layout parser stopped (the card holds one of them) |
 
 Arms: `reader_baseline` (the deterministic reader as it stands), `stage_a_rules`, `stage_b_only`,
 `hybrid` (A's tables and text in B's prompt; then the model rows, the parser rows and their union are
 tried IN THAT ORDER under one deterministic gate; the receipt records which set was admitted).
 The 27B second-opinion arm was not run (21 GB of free disk on the host; R16 note).
 
-The gate (gate v5): the reader's own `analysis.reconcile.reconcile` decides (sum check, running-balance
+The gate (gate v6): the reader's own `analysis.reconcile.reconcile` decides (sum check, running-balance
 continuity, the bank's printed summary identity, per-direction printed counts, coverage), plus: no
 self-derived anchors (both printed balances required; one derived is recorded but never admitted), no
 chain-derived directions without both printed anchors, unverifiable repeats refuse, the hybrid arm
 refuses when the model's anchor or period year disagrees with the rule reading, reverse-chronological
-pages are oriented, and per-row repeated daily balances collapse to the day's last row. Date order is
-recorded, never a refusal reason; rows dated outside the printed period refuse (gate v5, added after the
-CTRL wave: every row of all 114 validated control accounts lies inside its printed period, so the check
-costs no valid document). Never partial admission.
+pages are oriented, and per-row repeated daily balances collapse to the day's last row. Rows dated
+outside the printed period refuse (gate v5, added after the CTRL wave: every row of all 114 validated
+control accounts lies inside its printed period). A statement that prints a running balance on every row
+must keep date order (gate v6, added after the 27B development wave: all 37 balance-chained validated
+control accounts have zero breaks); on sectioned statements without per-row balances date order is
+recorded only. Never partial admission.
 
 False accept (the §11 zero bar): an admitted document whose rows contradict the reader's validated
 rows arithmetically (a missing or extra row, or a differing printed balance on a matched row).
@@ -50,6 +53,9 @@ blocks identical 3/3, Stage B message texts identical 6/6 → nondeterminism 0 r
 | dev-hybrid-02+03 (12k output budget, schema 3) | 38/118 truncated pages → 4 | 4/19 | 0 | 79 % (1,460/1,841) |
 | 02+03 regated (year rule, candidates) | period year overrides an unprinted model year | 4/19 | 0 | **91.4 % (1,683/1,841)** |
 | 02+03 regated (gate 5) | period check, year window (after the CTRL wave) | 4/19 | 0 | 91.4 % (1,683/1,841) |
+| 02+03 regated (gate 6) | chained date order | 4/19 | 0 | 91.4 % (1,683/1,841) |
+| **27B** dev-stageb27-02+03 (stage_b_only, gate 5) | second opinion, same prompt/schema/gate | 7/20 | 1 (16 of 218 rows dated a day early, every amount and balance exact) | 98.7 % (1,849/1,873) |
+| **27B** regated (gate 6) | chained date order refuses the day-early document | **6/20** | **0** | **98.7 % (1,849/1,873)** |
 
 Findings that changed the harness (each closed and committed):
 1. Dense pages exceeded a 4,096-token output cap and were lost as invalid JSON (32 percent of pages).
@@ -69,7 +75,20 @@ direction_unknown 1. In most refused documents the model matched all but 1–12 
 the parser's rows and the union did not rescue any (parser candidates fail on `direction_unknown` and
 `date_unparsed`: single unsigned amount columns without printed balances).
 
-Cost and speed on the development slice: Stage A ≈ 2.3 s/page; Stage B ≈ 6.5 s/page wall at
+The 27B second opinion (Gustavo, 2026-09-18: "stop the current qwen 4b on the gpu and paddle and open space to
+this model right here"): the BF16 and FP8 builds of Qwen3.8-27B fit neither the 32 GB card nor the host's
+disk, so the NVIDIA NVFP4/FP8 build was fetched (21 GB, receipt `b27`) after the 4B weights, the PaddleX
+model cache and the pip cache were deleted. The vLLM recipe's single-5090 shape (CUDA graphs off) decoded
+at about 10 tokens per second per request with the GPU 19 percent busy; capturing graphs for batch sizes
+1, 2 and 4 at a lower memory share gave 80 to 116 tokens per second aggregate and 18 s per page wall at
+concurrency 2 (2,074 completion + 2,335 prompt tokens per page). Its synthetic preflight verdicts are
+identical to the 4B's. On the development slice it gated all 20 documents (the 4B lost one to a server
+misconfiguration), admitted 6 strictly against the 4B's 4, matched 98.7 percent of rows against 91.4, and
+its one false accept (dates copied from inside the descriptions, a day early, with every balance exact)
+is closed by gate v6 on the evidence of the control truth. The refusals that remain are sum and summary
+mismatches (7 each), unverifiable repeats (5), continuity breaks and count mismatches (3 each).
+
+Cost and speed on the development slice (4B): Stage A ≈ 2.3 s/page; Stage B ≈ 6.5 s/page wall at
 concurrency 4 (≈ 20 s per call, 2,500 completion tokens per page at 1,540 px); upload ≈ 300 KB/page;
 render 21 ms/page, encode 13 ms/page (pdfium in-process, vs ≈ 1 s/page for the Phase 2.3 poppler path).
 
@@ -80,8 +99,9 @@ Primary figure = CTRL without the 20 DEV documents (`report --exclude-manifest D
 | Arm | Gated | Admitted (strict) | False accepts | Row match (validated) | Speed | Notes |
 |---|---|---|---|---|---|---|
 | reader_baseline | 94 | 94/94 by construction | — | — | — | ctrl-reader-01 |
-| stage_a_rules | running | | | | | ctrl-stagea-01 |
-| stage_b_only | running | | | | | ctrl-stageb-01 |
+| stage_a_rules (4B era) | 20 of 114 | stopped | | | | ctrl-stagea-01, stopped by a local memory kill, abandoned at the model change |
+| stage_b_only (4B) | 20 of 114 | 5 of 20 | | | | ctrl-stageb-01, stopped by a local memory kill, abandoned at the model change |
+| **stage_b_only (27B)** | running | | | | | ctrl-stageb27-01, concurrency 3 |
 | hybrid (gate 5 regate) | 86 | **11/86 (12.8 %)** | **1** (see below; 2 under gate 4) | **90.7 % (8,975/9,898)** | Stage B 6.5 s/page wall at concurrency 4 (19 s per call); Stage A 2.2 s/page | ctrl-hybrid-02 → -02-g5; 8 http_400 failures = the 16k server (finding 4), retried after the fix |
 
 Hybrid detail (primary, gate 5): all 11 admissions came from the model's rows (the parser rows and the
@@ -107,13 +127,22 @@ matching:
    named in the private receipts and the wave report). If the reader is wrong, the CTRL false-accept
    count is 0.
 
-## 5. U755 (755 unresolved documents, 5,110 pages) — pending
+## 5. U755 (755 unresolved documents, 5,110 pages) — pending; two denominators
 
-| Arm | Reconciled (strict) | By reader outcome (failed / withheld / review / deferred) | By classification (digital / scanned / mixed / unknown) | Pages/s |
-|---|---|---|---|---|
-| stage_a_rules | pending | | | |
-| stage_b_only | pending | | | |
-| hybrid | pending | | | |
+Gustavo (2026-09-18) expected part of this population to be voided checks, identity documents and single
+statement pages without transactions. A deterministic screen over the reader's own extracted text (money
+tokens, date tokens, statement vocabulary, non-statement vocabulary; `vlm/subset.py`, screen v1; counts
+only) buckets the 755 as: statement-like 546 (median 6 pages, median 170 amounts), no transaction amounts
+78 (mostly single pages), thin 62, amounts without statement vocabulary 21, no text extracted 29 (16 with
+no readable page), explicit non-statement wording 19. The derived manifest `U755S` (546 documents, 4,351
+pages) binds the source manifest and the rule. The plan's figure is reported on the 755 and, as the honest
+denominator, on the 546.
+
+| Arm | Reconciled (strict) of 546 | of 755 | By reader outcome (failed / withheld / review / deferred) | By classification (digital / scanned / mixed / unknown) | Pages/s |
+|---|---|---|---|---|---|
+| stage_b_only (27B) | pending (u755s-stageb27-01, after CTRL) | | | | |
+| hybrid (4B) / stage_b_only (4B) | 2 receipts each before the model change; abandoned | | | | |
+| stage_a_rules | not run (layout parser stopped for the 27B) | | | | |
 
 ## 6. Thresholds (plan v1 §11) — to be applied to the U755 hybrid figure
 
@@ -127,6 +156,13 @@ REVISE 20–40 percent; STOP < 20 percent, or false accepts the gate cannot clos
 * No orientation handling for rotated pages; no multi-account grouping (rows of a multi-account PDF are
   gated as one account; none in DEV).
 * The hourly rate is still "rate not measured"; receipts carry wave wall hours.
+* From 2026-09-18 the Stage B model is the 27B NVFP4/FP8 build, a quantized third-party-packaged build
+  of Apache-2.0 weights: its ceiling is a lower bound of the BF16 model's. The 4B's hybrid figures on CTRL
+  stand as measured; its other CTRL arms stopped at 20 of 114 (local memory kills) and were abandoned.
+* The hybrid and stage_a_rules arms are not run for the 27B: the card holds either the 27B or the layout
+  parser. On the 4B, no admission ever came from the parser's rows or the union.
+* Local memory: Claude Code stops background waves when the workstation runs low on memory; waves resume
+  from receipts and are merged by `regate --also`, so no model call is repeated.
 * The two-week window started 2026-09-17; waves are resumable (`--resume-from`) and re-gateable
   (`regate --also`) without new model calls.
 
