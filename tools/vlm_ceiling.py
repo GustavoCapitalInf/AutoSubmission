@@ -14,7 +14,7 @@ from pathlib import Path
 from ocr.paddle_config import PaddleRefused
 from vlm import partitions, report
 from vlm.client import StageAWorkerClient, VlmClient
-from vlm.receipts import Refused, bound
+from vlm.receipts import Refused, bound, need
 from vlm.runner import ARMS, RunContext, default_authorize, run_wave
 from vlm.truth import ReaderTruth
 
@@ -87,6 +87,58 @@ def _run(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "complete" else 3
 
 
+def _silver(args: argparse.Namespace) -> int:
+    """R17: silver labels from every validated document of the run of record outside the excluded manifests
+    and the sealed holdout; the reader's own payload supplies the rows and the page texts."""
+    from analysis.payload_shape import payload_accounts
+    from tools.cohort_replay import ColdCache
+    from vlm.partitions import Member, holdout_sha16s_from_digest, run_rows
+    from vlm.silver import build_silver_dataset
+
+    rows = run_rows(partitions.DEFAULT_RUN_OF_RECORD)
+    excluded: set[str] = set()
+    for path in args.exclude_manifest:
+        excluded |= {m.sha for m in partitions.load_private_manifest(Path(path))}
+    need(bool(excluded), "silver_requires_excluded_manifests")
+    held16 = holdout_sha16s_from_digest(Path(partitions.DEFAULT_HOLDOUT_DIGEST))
+    members = []
+    for sha in sorted(rows):
+        row = rows[sha]
+        if row.get("outcome_class") != "validated" or sha in excluded or sha[:16] in held16:
+            continue
+        if int(row.get("account_count") or 0) > 1:
+            continue
+        members.append(Member(sha=sha, relative_path=row["relative_path"], byte_size=int(row.get("byte_size") or 0),
+                              page_count=int(row.get("page_count") or 0), folder_label=row.get("folder_label", ""),
+                              classification=row.get("classification", ""), outcome_class=row.get("outcome_class", ""),
+                              account_count=int(row.get("account_count") or 0)))
+    cache = ColdCache(Path(args.truth_cache), Path(partitions.DEFAULT_RUN_OF_RECORD))
+
+    def reader(sha: str):
+        row = rows.get(sha.upper())
+        if row is None:
+            return None
+        text, pages = cache.text(sha.upper(), row)
+        if text is None:
+            return None
+        payload = cache.baseline_payload(text, pages)
+        if payload is None:
+            return None
+        accounts = payload_accounts(payload, surface="vlm.silver")
+        if len(accounts) != 1:
+            return None
+        return (accounts[0].get("statement") or {}), list(pages)
+
+    try:
+        public = build_silver_dataset(Path(args.out), members, archive_root=partitions.DEFAULT_ARCHIVE_ROOT, reader=reader,
+                                      excluded=excluded, held16=held16, validation_fraction=args.validation_fraction, limit=args.limit)
+    finally:
+        cache.close()
+    print(json.dumps({"counts": public["counts"], "document_tiers": public["document_tiers"], "page_roles": public["page_roles"],
+                      "split_documents": public["split_documents"]}))
+    return 0
+
+
 def _with_summary_block(page):
     """The synthetic ledger page plus the printed anchors a real statement carries: beginning and ending
     balances, the period, and the bank's own totals/counts. Arithmetic derives from the ledger itself."""
@@ -151,6 +203,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("partitions")
     p.add_argument("--out", default=str(DEFAULT_OUT / "manifests"))
+    sv = sub.add_parser("silver", help="build the silver-label dataset from validated documents outside CTRL, DEV and the holdout")
+    sv.add_argument("--out", required=True)
+    sv.add_argument("--exclude-manifest", action="append", default=[], help="private manifests whose members are never labelled (CTRL, DEV)")
+    sv.add_argument("--truth-cache", default=str(DEFAULT_TRUTH_CACHE))
+    sv.add_argument("--limit", type=int, default=None)
+    sv.add_argument("--validation-fraction", type=float, default=0.1)
     ss = sub.add_parser("subset", help="derive a manifest of the members whose reader text screens as a statement")
     ss.add_argument("--manifest", required=True)
     ss.add_argument("--name", required=True)
@@ -195,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--truth-cache", default=str(DEFAULT_TRUTH_CACHE))
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
+        if args.command == "silver":
+            return _silver(args)
         if args.command == "subset":
             from vlm.subset import derive_subset, reader_text_of
 
