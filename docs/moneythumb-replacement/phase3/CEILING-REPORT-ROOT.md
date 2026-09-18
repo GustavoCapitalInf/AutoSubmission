@@ -101,7 +101,7 @@ Primary figure = CTRL without the 20 DEV documents (`report --exclude-manifest D
 | reader_baseline | 94 | 94/94 by construction | — | — | — | ctrl-reader-01 |
 | stage_a_rules (4B era) | 20 of 114 | stopped | | | | ctrl-stagea-01, stopped by a local memory kill, abandoned at the model change |
 | stage_b_only (4B) | 20 of 114 | 5 of 20 | | | | ctrl-stageb-01, stopped by a local memory kill, abandoned at the model change |
-| **stage_b_only (27B)** | running | | | | | ctrl-stageb27-01, concurrency 3 |
+| **stage_b_only (27B)**, gate 6 | 37 of 94 (48 of 114 before the host stopped) | **12/37 (32.4 %)** | **0** | **98.3 % (5,032/5,120)** | 13.8 s/page wall at concurrency 3 (2,119 completion + 2,318 prompt tokens/page) | ctrl-stageb27-01 → -01-g6; the rented instance stopped when the Vast account's credit reached zero (3 documents failed on the dead connection); resumable |
 | hybrid (gate 5 regate) | 86 | **11/86 (12.8 %)** | **1** (see below; 2 under gate 4) | **90.7 % (8,975/9,898)** | Stage B 6.5 s/page wall at concurrency 4 (19 s per call); Stage A 2.2 s/page | ctrl-hybrid-02 → -02-g5; 8 http_400 failures = the 16k server (finding 4), retried after the fix |
 
 Hybrid detail (primary, gate 5): all 11 admissions came from the model's rows (the parser rows and the
