@@ -1205,7 +1205,7 @@ function renderAnalysis(report) {
       title: "Risk Signals",
       sub: "NSFs and balances",
       items: [
-        ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Returned item detection", "NSF", countTone(metrics.effective_nsf_count)],
+        ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Negative-ending days", "NSF", countTone(metrics.effective_nsf_count)],
         ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
         ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
         ["Ending Balance", formatMoney(statement.ending_balance, currency), "Closing balance for the statement period", "END", "neutral"],
@@ -1758,7 +1758,7 @@ function renderStatementModal(jobId, report, markdown) {
     ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
     ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
     ["Ending Balance", formatMoney(statement.ending_balance, currency), "Closing balance for the statement period", "END", "neutral"],
-    ["NSFs", formatNumber(metrics.effective_nsf_count), "Returned items", "NSF", countTone(metrics.effective_nsf_count)],
+    ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Negative-ending days", "NSF", countTone(metrics.effective_nsf_count)],
     ["Confirmed Withholding", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
     ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(metrics.lenders_detected)],
     ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(metrics.potential_lenders_detected)],

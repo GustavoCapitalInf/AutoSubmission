@@ -2499,7 +2499,8 @@ def test_parse_citizens_native_text_sections():
     assert stmt.stated_average_balance == 822.0
     assert stmt.stated_total_credits == 300.0
     assert stmt.stated_total_debits == 105.0
-    assert report.metrics.effective_nsf_count == 2
+    assert report.metrics.nsf_count == 2                 # two returned items, reported apart
+    assert report.metrics.effective_nsf_count == 30       # R18: every April day ends overdrawn
     assert stmt.stated_nsf_count is None
     assert [t.amount for t in stmt.transactions] == [-35.0, -70.0, 100.0, 200.0]
     assert reconcile(stmt).ok
@@ -3337,9 +3338,9 @@ def test_metrics_effective_nsf_uses_classified_rows_over_bank_stated_count():
         _txn("2054-01-02", -30.0, "NSF FEE"),
     ])
     m = compute_metrics(s)
-    assert m.nsf_count == 1
-    assert m.effective_nsf_count == 1
-    assert m.nsf_source == "classified_line_items"
+    assert m.nsf_count == 1                                   # returned items stay as evidence
+    assert m.effective_nsf_count == 0                         # R18: no validated ledger, so no negative-day count
+    assert m.nsf_source == "negative_ending_days_unavailable"
     assert any("bank-stated NSF count 4 differs" in note for note in m.notes)
 
 
@@ -3616,3 +3617,27 @@ def test_detect_ignores_one_off_debits():
     d = detect(s)
     assert d.recurring_debits == []
     assert d.known_funders == []
+
+
+def test_r18_underwriting_nsf_counts_negative_ending_days_not_returned_items():
+    stmt = Statement(
+        bank="Test Bank", period_start="2054-01-01", period_end="2054-01-05",
+        beginning_balance=100.0, ending_balance=-20.0,
+        transactions=[_txn("2054-01-02", -150.0, "ITEM RETURNED NSF", bal=-50.0), _txn("2054-01-04", 30.0, "DEPOSIT", bal=-20.0)],
+    )
+    assert reconcile(stmt).ok
+    m = compute_metrics(stmt)
+    assert m.nsf_count == 1                     # the returned item is still evidence
+    assert m.negative_days == 4                 # 01-02 through 01-05 end below zero
+    assert m.effective_nsf_count == 4 and m.nsf_source == "negative_ending_days"
+
+
+def test_r18_underwriting_nsf_is_unavailable_without_a_validated_ledger():
+    stmt = Statement(
+        bank="Test Bank", period_start="2054-01-01", period_end="2054-01-05",
+        beginning_balance=100.0, ending_balance=-20.0,
+        transactions=[_txn("2054-01-02", -150.0, "ITEM RETURNED NSF"), _txn("2054-01-04", 30.0, "DEPOSIT")],
+    )
+    m = compute_metrics(stmt, trust_running_balances=False)
+    assert m.nsf_count == 1 and m.effective_nsf_count == 0 and m.nsf_source == "negative_ending_days_unavailable"
+    assert any("not computable" in note for note in m.notes)

@@ -478,3 +478,18 @@ third-party model API, any production change, any run on the holdout. Budget: no
 given; plan §18's M4 line (USD 200–600 of instance time) is the reference until Gustavo sets one.
 Requirement noted: LoRA on the 27B needs the BF16 base (about 56 GB) on disk, so the training instance
 needs roughly 200 GB of disk; the current 32 GB disk cannot hold it.
+
+
+## R18 — NSF for underwriting = days ending negative (Gustavo, 2026-09-18)
+
+Verbatim: "quick change to nsf logic. any day ending in the red (negative) is an NSF for underwriting
+purposes. Still count the return items but add the ending negative days to them." then, minutes later:
+"Actually dont count the returned items please. NSF is solely negative days".
+
+Ruling as implemented (`analysis/metrics.py`): `effective_nsf_count` is the number of calendar days of the
+statement period whose ending balance in the validated daily ledger is below zero (`nsf_source =
+"negative_ending_days"`); a multi-day overdraft counts every day. Returned / NSF line items stay in
+`nsf_count` as evidence and are not added. Without a validated daily ledger the figure is not computable:
+`effective_nsf_count = 0` with `nsf_source = "negative_ending_days_unavailable"` and a note, never a silent
+zero. The web app shows the source beside the number. Frozen batch results (batch9-final, phase2.2-final)
+are historical and unchanged; every new run reports the R18 figure.
