@@ -52,6 +52,17 @@ SERVE_FLAGS = {
            "--kv-cache-dtype fp8 --compilation-config '{\"cudagraph_capture_sizes\":[1,2,4]}' "
            "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
 }
+# Card profiles (VLM_GPU_PROFILE, default 32gb): the same model served with the batch the card can hold.
+# 96gb = RTX PRO 6000 Blackwell (2026-09-18): the 20 GB of weights leave room for a cache that batches
+# 16 pages per step; the card decodes a single page at the 5090's speed, the batch is the speedup.
+SERVE_PROFILES = {
+    "b27": {
+        "32gb": SERVE_FLAGS["b27"],
+        "96gb": "--max-model-len 32768 --max-num-seqs 16 --max-num-batched-tokens 8192 --gpu-memory-utilization 0.90 "
+                "--kv-cache-dtype fp8 --compilation-config '{\"cudagraph_capture_sizes\":[1,2,4,8,16]}' "
+                "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
+    },
+}
 COMMON_ENV = f"HF_HOME={HF_HOME} HF_HUB_OFFLINE=1 VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1"
 DISK_MARGIN_GB = 2.0
 RECEIPTS = Path("discovery_reports/train13-logs/p3ceiling")
@@ -62,10 +73,21 @@ def _local_dir(key: str) -> str:
     return f"{MODELS_DIR}/{MODELS[key]['repo'].replace('/', '__')}"
 
 
-def serve_command(key: str) -> str:
+def serve_flags(key: str, profile: str | None = None) -> str:
+    """The serve flags for `key`; a key with card profiles takes VLM_GPU_PROFILE (default 32gb)."""
+    profiles = SERVE_PROFILES.get(key)
+    if not profiles:
+        return SERVE_FLAGS[key]
+    chosen = profile or os.environ.get("VLM_GPU_PROFILE") or "32gb"
+    if chosen not in profiles:
+        raise PaddleVastError(f"gpu_profile_unknown:{chosen}")
+    return profiles[chosen]
+
+
+def serve_command(key: str, profile: str | None = None) -> str:
     model = MODELS[key]
     return (f"vllm serve {_local_dir(key)} --served-model-name {model['served']} --host 127.0.0.1 --port {PORTS[key]} "
-            f"--download-dir {MODELS_DIR} {SERVE_FLAGS[key]}")
+            f"--download-dir {MODELS_DIR} {serve_flags(key, profile)}")
 
 
 def tunnel_command(settings) -> list[str]:

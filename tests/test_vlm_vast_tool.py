@@ -97,3 +97,20 @@ def test_stop_all_and_status_cover_b9(tmp_path):
     seen.clear()
     vlm_vast.cmd_status(settings, runner=runner)
     assert "for k in a b b9 b27 worker" in seen[-1] and "18004" in seen[-1]
+
+
+def test_b27_serve_profiles_select_the_batch_for_the_card(monkeypatch):
+    import pytest
+
+    small = vlm_vast.serve_command("b27", "32gb")
+    big = vlm_vast.serve_command("b27", "96gb")
+    assert "--max-num-seqs 4 " in small and "--max-num-seqs 16 " in big
+    assert "nvidia__Qwen3.8-27B-NVFP4" in small and "nvidia__Qwen3.8-27B-NVFP4" in big and "--port 18004" in big
+    assert "cudagraph_capture_sizes" in big and "--kv-cache-dtype fp8" in big
+    monkeypatch.setenv("VLM_GPU_PROFILE", "96gb")
+    assert vlm_vast.serve_command("b27") == big
+    monkeypatch.delenv("VLM_GPU_PROFILE")
+    assert vlm_vast.serve_command("b27") == small
+    assert vlm_vast.serve_command("b") == vlm_vast.serve_command("b", "anything")   # keys without profiles ignore it
+    with pytest.raises(vlm_vast.PaddleVastError):
+        vlm_vast.serve_command("b27", "200gb")
