@@ -134,7 +134,7 @@ def _preflight(args: argparse.Namespace) -> int:
     dump_new(manifest, {"manifest_version": 1, "name": "SYNTH", "data_scope": partitions.SYNTHETIC_SCOPE, "set_sha256": "synthetic",
                         "archive_root": str(archive), "members": members})
     codes = {}
-    for arm in [a for a in ARMS if a != "reader_baseline"]:
+    for arm in [a for a in args.arms.split(",") if a != "reader_baseline"]:
         argv = ["run", "--arm", arm, "--manifest", str(manifest), "--out", str(root / arm),
                 "--stage-a-url", args.stage_a_url, "--stage-b-url", args.stage_b_url, "--stage-b-model", args.stage_b_model,
                 "--runtime-dir", args.runtime_dir, "--receipts-dir", args.receipts_dir]
@@ -150,6 +150,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("partitions")
     p.add_argument("--out", default=str(DEFAULT_OUT / "manifests"))
+    ss = sub.add_parser("subset", help="derive a manifest of the members whose reader text screens as a statement")
+    ss.add_argument("--manifest", required=True)
+    ss.add_argument("--name", required=True)
+    ss.add_argument("--out", default=str(DEFAULT_OUT / "manifests"))
+    ss.add_argument("--truth-cache", default=str(DEFAULT_TRUTH_CACHE))
     f = sub.add_parser("preflight")
     f.add_argument("--out", default=str(DEFAULT_OUT / "waves"))
     f.add_argument("--stage-a-url", default=DEFAULT_STAGE_A_URL)
@@ -157,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--stage-b-model", default=DEFAULT_STAGE_B_MODEL)
     f.add_argument("--runtime-dir", default=".paddle_runtime")
     f.add_argument("--receipts-dir", default=str(DEFAULT_OUT))
+    f.add_argument("--arms", default=",".join(a for a in ARMS if a != "reader_baseline"),
+                   help="comma-separated model arms to preflight (default: all three)")
     r = sub.add_parser("run")
     r.add_argument("--arm", choices=ARMS, required=True)
     r.add_argument("--manifest", required=True)
@@ -185,6 +192,14 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--truth-cache", default=str(DEFAULT_TRUTH_CACHE))
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
+        if args.command == "subset":
+            from vlm.subset import derive_subset, reader_text_of
+
+            public, _private = derive_subset(Path(args.manifest), args.name, Path(args.out),
+                                             text_of=reader_text_of(Path(args.truth_cache), partitions.DEFAULT_RUN_OF_RECORD))
+            print(json.dumps({"name": public["name"], "documents": public["documents"], "pages": public["pages"],
+                              "buckets": public["derived_from"]["buckets"]}))
+            return 0
         if args.command == "regate":
             from vlm.regate import regate_wave
 

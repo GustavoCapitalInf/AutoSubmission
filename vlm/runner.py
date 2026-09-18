@@ -108,7 +108,10 @@ def verify_stage_b_context(ctx: RunContext) -> dict:
     limits_fn = getattr(ctx.stage_b, "model_limits", None) if ctx.stage_b is not None else None
     if limits_fn is None:
         return {"checked": False}
-    limits = limits_fn()
+    try:
+        limits = limits_fn()
+    except TransportError as exc:
+        raise Refused(f"stage_b_unreachable:{exc}") from None
     need(ctx.stage_b_model in limits, "stage_b_model_not_served")
     max_tokens = int(getattr(ctx, "max_tokens", 12000))
     context = limits[ctx.stage_b_model]

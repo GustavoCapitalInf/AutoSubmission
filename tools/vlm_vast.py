@@ -243,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vlm_vast")
     parser.add_argument("command", choices=("check", "fetch", "deploy", "start", "stop", "status", "tunnel-up",
                                             "tunnel-down", "attest"))
-    parser.add_argument("--key", choices=("a", "b", "b9", "worker", "all"), default=None)
+    parser.add_argument("--key", choices=("a", "b", "b9", "b27", "worker", "all"), default=None)
     parser.add_argument("--since-epoch", type=float, default=0.0)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
