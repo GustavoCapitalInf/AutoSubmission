@@ -97,9 +97,9 @@ _PDFIUM_LOCK = threading.Lock()
 
 
 def render_pages(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_EDGE,
-                 quality: int = DEFAULT_JPEG_QUALITY) -> list[RenderedPage]:
+                 quality: int = DEFAULT_JPEG_QUALITY, **kwargs) -> list[RenderedPage]:
     with _PDFIUM_LOCK:
-        return _render_pages_unlocked(pdf_bytes, long_edge=long_edge, quality=quality)
+        return _render_pages_unlocked(pdf_bytes, long_edge=long_edge, quality=quality, **kwargs)
 
 
 def _render_pages_unlocked(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_EDGE,
