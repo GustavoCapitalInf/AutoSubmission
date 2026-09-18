@@ -180,12 +180,13 @@ def main(argv: list[str] | None = None) -> int:
     g = sub.add_parser("regate", help="re-gate a completed wave's proposals under the current gate (no model calls)")
     g.add_argument("--wave", required=True)
     g.add_argument("--out", required=True)
+    g.add_argument("--also", action="append", default=[], help="a wave that resumed --wave (disjoint documents); repeatable")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         if args.command == "regate":
             from vlm.regate import regate_wave
 
-            result = regate_wave(Path(args.wave), Path(args.out))
+            result = regate_wave(Path(args.wave), Path(args.out), also=[Path(p) for p in args.also])
             print(json.dumps({"status": result["status"], "counts": result["counts"], "gate_version": result["gate_version"]}))
             return 0
         if args.command == "partitions":

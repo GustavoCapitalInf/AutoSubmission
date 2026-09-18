@@ -41,3 +41,21 @@ def test_regate_copies_failures_and_reader_baseline_receipts(tmp_path):
     result = regate.regate_wave(tmp_path / "w", tmp_path / "w2")
     assert result["counts"]["attempted"] == 1 and result["counts"]["admitted"] == 0
     assert (tmp_path / "w2" / "results" / f"{SHA}.json").exists()
+
+
+def test_regate_merges_an_incomplete_source_with_its_resume(tmp_path):
+    """A killed wave has receipts but no result.json; the wave that resumed it holds the rest."""
+    member, archive = _member(tmp_path)
+    other = Member("E" * 64, "fam/doc.pdf", 100, 1, "fam", "digital", "validated", 1)
+    _wave([member, other], _ctx("hybrid", stage_a=FakeStageA(), stage_b=FakeStageB()), tmp_path / "w1", archive)
+    (tmp_path / "w1" / "result.json").unlink()   # simulate the kill: receipts kept, no result
+    (tmp_path / "w1" / "release.json").unlink()
+    (tmp_path / "w1" / "results" / ("E" * 64 + ".json")).unlink()
+    (tmp_path / "w1" / "results" / ("E" * 64 + ".private.json")).unlink()
+    _wave([member, other], _ctx("hybrid", stage_a=FakeStageA(), stage_b=FakeStageB()), tmp_path / "w2", archive,
+          resume_from=tmp_path / "w1")
+    result = regate.regate_wave(tmp_path / "w1", tmp_path / "merged", also=[tmp_path / "w2"])
+    assert result["counts"]["attempted"] == 2 and result["counts"]["admitted"] == 2 and result["sources_incomplete"] is True
+    assert len(list((tmp_path / "merged" / "results").glob("*.json"))) == 4
+    launch = json.loads((tmp_path / "merged" / "launch.json").read_text(encoding="utf-8"))
+    assert launch["regated_from"]["sources"][0]["incomplete"] is True and launch["regated_from"]["sources"][1]["incomplete"] is False

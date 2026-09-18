@@ -37,26 +37,55 @@ def _meta_from_private(item: dict) -> AccountMeta:
                        item.get("stated_credit_count"), item.get("stated_debit_count"))
 
 
-def regate_wave(source: Path, out: Path) -> dict:
+def _source_binding(source: Path) -> dict:
+    """A source wave may lack result.json when its controller was killed; the receipts still exist and
+    the binding says so (`incomplete: true`) instead of pretending the wave finished."""
+    binding = {"launch": bound(source / "launch.json"), "incomplete": not (source / "result.json").is_file()}
+    if not binding["incomplete"]:
+        binding["result"] = bound(source / "result.json")
+    return binding
+
+
+def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None) -> dict:
+    """Re-gate `source` (plus any `also` waves that resumed it; disjoint documents) into `out`."""
     source, out = Path(source), Path(out)
-    need((source / "result.json").is_file(), "source_wave_missing")
+    sources = [source] + [Path(p) for p in (also or [])]
+    for wave in sources:
+        need((wave / "launch.json").is_file(), "source_wave_missing")
     need(not os.path.lexists(out), "wave_already_attempted")
     out.mkdir(parents=True)
     (out / "results").mkdir()
     launch = json.loads((source / "launch.json").read_text(encoding="utf-8"))
-    launch = {**launch, "regated_from": {"launch": bound(source / "launch.json"), "result": bound(source / "result.json")},
+    launch = {**launch, "regated_from": {"sources": [_source_binding(w) for w in sources]},
               "gate_version": GATE_VERSION, "regated_at": utc_now()}
+    launch["regated_from"]["result"] = launch["regated_from"]["sources"][0].get("result")
     dump_new(out / "launch.json", launch)
-    source_result = json.loads((source / "result.json").read_text(encoding="utf-8"))
-    counts = dict(source_result["counts"])
-    counts["admitted"] = counts["refused_by_gate"] = 0
+    counts = {"requested": int(launch.get("requested") or 0), "attempted": 0, "admitted": 0, "refused_by_gate": 0, "failed": 0,
+              "skipped_existing": 0, "limited_out": 0}
+    timings: dict = {}
+    wall_s = 0.0
+    for wave in sources:
+        if (wave / "result.json").is_file():
+            wave_result = json.loads((wave / "result.json").read_text(encoding="utf-8"))
+            wall_s += float(wave_result.get("wall_s") or 0.0)
+            for key, value in (wave_result.get("timings") or {}).items():
+                if isinstance(value, (int, float)):
+                    timings[key] = timings.get(key, 0) + value
     started = time.perf_counter()
-    for path in sorted((source / "results").glob("*.json")):
-        if path.name.endswith(".private.json"):
-            continue
+    seen: set[str] = set()
+    receipts = [p for wave in sources for p in sorted((wave / "results").glob("*.json")) if not p.name.endswith(".private.json")]
+    for path in receipts:
         public = json.loads(path.read_text(encoding="utf-8"))
+        if public.get("sha") in seen:
+            continue
+        seen.add(public.get("sha", path.name))
         private_path = path.with_name(path.name[:-5] + ".private.json")
-        if public.get("failure") is not None or not public.get("gate") or not private_path.exists():
+        if public.get("failure") is not None:
+            counts["failed"] += 1
+            dump_new(out / "results" / path.name, public)
+            continue
+        counts["attempted"] += 1
+        if not public.get("gate") or not private_path.exists():
             dump_new(out / "results" / path.name, public)
             continue
         private = json.loads(private_path.read_text(encoding="utf-8"))
@@ -81,11 +110,13 @@ def regate_wave(source: Path, out: Path) -> dict:
         counts["admitted" if verdict.admitted else "refused_by_gate"] += 1
         dump_new(out / "results" / path.name, public)
         dump_new(out / "results" / private_path.name, private)
+    incomplete = any(s.get("incomplete") for s in launch["regated_from"]["sources"])
     result = {**launch, "status": "complete", "failure_code": None, "failure_class": None, "counts": counts,
-              "timings": source_result.get("timings", {}), "wall_s": source_result.get("wall_s"),
-              "wave_wall_hours": source_result.get("wave_wall_hours"), "cost_usd": source_result.get("cost_usd"),
+              "timings": timings, "wall_s": wall_s or None, "wave_wall_hours": (wall_s / 3600.0) if wall_s else None,
+              "cost_usd": "rate not measured", "sources_incomplete": incomplete,
               "regate_wall_s": time.perf_counter() - started, "finished_at": utc_now()}
     dump_new(out / "result.json", result)
+    first_result = launch["regated_from"].get("result")
     dump_new(out / "release.json", {"arm": launch.get("arm"), "controller_exit": 0, "result_sha256": sha256_file(out / "result.json"),
-                                    "regated_from_result_sha256": launch["regated_from"]["result"]["sha256"]})
+                                    "regated_from_result_sha256": first_result["sha256"] if first_result else None})
     return result
