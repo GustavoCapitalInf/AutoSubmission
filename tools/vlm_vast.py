@@ -28,12 +28,13 @@ MODELS_DIR = "/workspace/models"
 HF_HOME = "/workspace/.hf_home"
 PADDLE_PYTHON = "/workspace/paddleocr-env/bin/python"
 HF_PYTHON = "/venv/main/bin/python"
-PORTS = {"a": 18001, "b": 18002, "worker": 18003, "b9": 18004}
+PORTS = {"a": 18001, "b": 18002, "worker": 18003, "b9": 18004, "b27": 18004}   # b9 and b27 share the forwarded port; one runs at a time
 SERVER_KEYS = ("a", "b", "b9", "worker")
 MODELS = {
     "a": {"repo": "PaddlePaddle/PaddleOCR-VL-1.6", "served": "PaddleOCR-VL-1.6-0.9B", "size_gb": 2.0},
     "b": {"repo": "Qwen/Qwen3.5-4B", "served": "Qwen/Qwen3.5-4B", "size_gb": 9.4},
     "b9": {"repo": "RedHatAI/Qwen3.5-9B-FP8-dynamic", "served": "RedHatAI/Qwen3.5-9B-FP8-dynamic", "size_gb": 14.1},
+    "b27": {"repo": "nvidia/Qwen3.8-27B-NVFP4", "served": "nvidia/Qwen3.8-27B-NVFP4", "size_gb": 22.0},
 }
 SERVE_FLAGS = {
     "a": "--trust-remote-code --max-num-batched-tokens 8192 --no-enable-prefix-caching --mm-processor-cache-gb 0 "
@@ -42,6 +43,10 @@ SERVE_FLAGS = {
          "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
     "b9": "--max-model-len 16384 --max-num-seqs 4 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.62 "
           "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
+    # Single RTX 5090 (vLLM recipe for Qwen3.8-27B NVFP4): CUDA graphs off to fit, fp8 KV cache; the
+    # layout parser is stopped while this runs (Gustavo, 2026-09-18), so the share is the whole card.
+    "b27": "--max-model-len 32768 --max-num-seqs 2 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.90 "
+           "--kv-cache-dtype fp8 --enforce-eager --limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
 }
 COMMON_ENV = f"HF_HOME={HF_HOME} HF_HUB_OFFLINE=1 VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1"
 DISK_MARGIN_GB = 2.0
@@ -184,7 +189,7 @@ def cmd_stop(settings, key: str, *, runner: Callable[..., Any] = subprocess.run)
 
 def cmd_status(settings, *, runner: Callable[..., Any] = subprocess.run) -> dict:
     proc = _ssh(settings, runner,
-                f"for k in a b b9 worker; do if [ -f {REMOTE_DIR}/$k.pid ] && kill -0 $(cat {REMOTE_DIR}/$k.pid) 2>/dev/null; "
+                f"for k in a b b9 b27 worker; do if [ -f {REMOTE_DIR}/$k.pid ] && kill -0 $(cat {REMOTE_DIR}/$k.pid) 2>/dev/null; "
                 "then echo $k=alive; else echo $k=down; fi; done; "
                 "ss -ltn 2>/dev/null | grep -o -E '127.0.0.1:(18001|18002|18003|18004)' | sort -u; "
                 "nvidia-smi --query-gpu=memory.used --format=csv,noheader")

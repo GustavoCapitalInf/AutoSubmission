@@ -13,6 +13,7 @@ Checked 2026-09-17 unless noted.
 | PP-DocLayoutV3 | PaddleX official model (host cache `~/.paddlex/official_models`) | paddlex 3.7.2 pin | Apache-2.0 | Stage A layout detection | https://github.com/PaddlePaddle/PaddleOCR |
 | Qwen3.5-4B | `Qwen/Qwen3.5-4B` | recorded in fetch receipt `b` | Apache-2.0 | Stage B general VLM (primary) | https://huggingface.co/Qwen/Qwen3.5-4B |
 | Qwen3.5-9B FP8 dynamic | `RedHatAI/Qwen3.5-9B-FP8-dynamic` | recorded in fetch receipt `b9` (only if run) | Apache-2.0 (third-party quantization of Apache-2.0 weights) | Stage B second variant | https://huggingface.co/RedHatAI/Qwen3.5-9B-FP8-dynamic |
+| Qwen3.8-27B NVFP4 (NVIDIA ModelOpt build) | `nvidia/Qwen3.8-27B-NVFP4` | HF revision 482ca0f3832238542f8f5295dde86b5f22711d80; fetch receipt `b27` | Apache-2.0 (base `Qwen/Qwen3.8-27B` is Apache-2.0; the earlier "Qwen3.8 flagship (custom)" exclusion concerns the flagship only, checked 2026-09-18) | Stage B second opinion (plan arm 5), the model Gustavo asked to test on 2026-09-18 | https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4 |
 
 Excluded on license: MinerU2.5 (Apache-2.0 with additional commercial terms), Qwen3.8 flagship (custom), Gemma 3 and earlier (Gemma terms), Llama family, any API-only model.
 

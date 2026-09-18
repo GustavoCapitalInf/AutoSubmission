@@ -96,4 +96,4 @@ def test_stop_all_and_status_cover_b9(tmp_path):
     assert set(out) == {"worker", "b9", "b", "a"} and any("b9.pid" in c for c in seen)
     seen.clear()
     vlm_vast.cmd_status(settings, runner=runner)
-    assert "for k in a b b9 worker" in seen[-1] and "18004" in seen[-1]
+    assert "for k in a b b9 b27 worker" in seen[-1] and "18004" in seen[-1]
