@@ -68,7 +68,8 @@ def _run(args: argparse.Namespace) -> int:
     truth = ReaderTruth(Path(args.truth_cache), partitions.DEFAULT_RUN_OF_RECORD) if args.truth else None
     ctx = RunContext(arm=args.arm, stage_a=stage_a, stage_b=stage_b, stage_b_model=args.stage_b_model, truth=truth,
                      long_edge=args.long_edge, quality=args.jpeg_quality, seed=0, data_scope=scope,
-                     hourly_rate=args.hourly_rate, concurrency=args.concurrency, identity_client=identity_client)
+                     hourly_rate=args.hourly_rate, concurrency=args.concurrency, identity_client=identity_client,
+                     doc_concurrency=args.doc_concurrency)
     weight_keys: tuple[str, ...] = ()
     if stage_a is not None:
         weight_keys += ("a",)
@@ -78,7 +79,7 @@ def _run(args: argparse.Namespace) -> int:
     try:
         result = run_wave(members, ctx, Path(args.out), archive_root=archive_root, manifest_binding=bound(manifest_path),
                           manifest_scope=scope, limit=args.limit, authorize=default_authorize,
-                          resume_from=Path(args.resume_from) if args.resume_from else None, weights=weights)
+                          resume_from=[Path(p) for p in args.resume_from] if args.resume_from else None, weights=weights)
     finally:
         if truth is not None:
             truth.close()
@@ -175,12 +176,14 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--truth", action="store_true")
     r.add_argument("--truth-cache", default=str(DEFAULT_TRUTH_CACHE))
     r.add_argument("--hourly-rate", type=float, default=None)
-    r.add_argument("--resume-from", default=None)
+    r.add_argument("--resume-from", action="append", default=None,
+                   help="a wave whose finished receipts are skipped; repeatable (a chain of resumed waves)")
     r.add_argument("--long-edge", type=int, default=1540)
     r.add_argument("--jpeg-quality", type=int, default=90)
     r.add_argument("--runtime-dir", default=".paddle_runtime")
     r.add_argument("--receipts-dir", default=str(DEFAULT_OUT))
     r.add_argument("--concurrency", type=int, default=1, help="Stage B pages in flight per document (server --max-num-seqs bound)")
+    r.add_argument("--doc-concurrency", type=int, default=1, help="documents in flight at once (each fans its pages out)")
     q = sub.add_parser("report")
     q.add_argument("--wave", required=True)
     q.add_argument("--exclude-manifest", default=None, help="private manifest whose members are reported as an excluded slice")

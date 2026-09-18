@@ -259,3 +259,36 @@ def test_stage_b_context_preflight_refuses_a_server_that_cannot_hold_a_dense_pag
     _wave([member], _ctx("stage_b_only", stage_b=FakeStageB(), identity=FakeStageA()), tmp_path / "w-ok", archive)
     launch = json.loads((tmp_path / "w-ok" / "launch.json").read_text(encoding="utf-8"))
     assert launch["stage_b_context"] == {"checked": True, "max_model_len": 32768, "max_tokens": 12000, "min_prompt_tokens": 8192}
+
+
+def test_documents_pipeline_across_workers_and_resume_unions_several_waves(tmp_path):
+    member, archive = _member(tmp_path)
+    others = [Member(c * 64, "fam/doc.pdf", 100, 1, "fam", "digital", "validated", 1) for c in "ABC"]
+    result = _wave([member] + others, _ctx("stage_b_only", stage_b=FakeStageB(), identity=FakeStageA(), doc_concurrency=3),
+                   tmp_path / "w", archive)
+    assert result["counts"]["attempted"] == 4 and result["counts"]["admitted"] == 4 and result["counts"]["failed"] == 0
+    assert len(list((tmp_path / "w" / "results").glob("*.json"))) == 8
+    launch = json.loads((tmp_path / "w" / "launch.json").read_text(encoding="utf-8"))
+    assert launch["doc_concurrency"] == 3 and launch["resume_from"] is None
+    _wave([member], _ctx("stage_b_only", stage_b=FakeStageB(), identity=FakeStageA()), tmp_path / "w1", archive)
+    _wave([others[0]], _ctx("stage_b_only", stage_b=FakeStageB(), identity=FakeStageA()), tmp_path / "w2", archive)
+    result = _wave([member] + others, _ctx("stage_b_only", stage_b=FakeStageB(), identity=FakeStageA(), doc_concurrency=2),
+                   tmp_path / "w3", archive, resume_from=[tmp_path / "w1", tmp_path / "w2"])
+    assert result["counts"]["skipped_existing"] == 2 and result["counts"]["attempted"] == 2
+    launch = json.loads((tmp_path / "w3" / "launch.json").read_text(encoding="utf-8"))
+    assert isinstance(launch["resume_from"], list) and len(launch["resume_from"]) == 2
+
+
+def test_pipelined_wave_still_stops_on_consecutive_transport_failures(tmp_path):
+    member, archive = _member(tmp_path)
+    others = [Member(c * 64, "fam/doc.pdf", 100, 1, "fam", "digital", "validated", 1) for c in "ABCDE"]
+
+    class DeadStageB(FakeStageB):
+        def chat(self, *a, **k):
+            from vlm.client import TransportError
+            raise TransportError("connection_failed:Dead")
+
+    result = _wave([member] + others, _ctx("stage_b_only", stage_b=DeadStageB(), identity=FakeStageA(), doc_concurrency=2),
+                   tmp_path / "w", archive)
+    assert result["status"] == "failed" and result["failure_code"] == "transport_failing"
+    assert result["counts"]["failed"] >= runner.MAX_CONSECUTIVE_TRANSPORT_FAILURES

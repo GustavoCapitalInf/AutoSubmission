@@ -60,6 +60,7 @@ class RunContext:
     concurrency: int = 1
     identity_client: Any | None = None   # a Stage A worker client used only for /version (defaults to stage_a)
     max_tokens: int = 12000   # DEV wave: dense pages exceeded 4,096 output tokens and were lost as invalid JSON
+    doc_concurrency: int = 1   # documents in flight at once (each fans its pages out up to `concurrency`)
 
 
 @dataclass(frozen=True)
@@ -389,7 +390,8 @@ def _completed_shas(resume_from: Path) -> set[str]:
 
 def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_root: Path, manifest_binding: dict,
              manifest_scope: str, limit: int | None = None, authorize: Callable[[str], None] | None = None,
-             git_tip: str | None = None, resume_from: Path | None = None, settings=None, weights: dict | None = None) -> dict:
+             git_tip: str | None = None, resume_from: Path | list[Path] | None = None, settings=None,
+             weights: dict | None = None) -> dict:
     need(ctx.arm in ARMS, "arm_unknown")
     need(manifest_scope == ctx.data_scope, "data_scope_disagrees_with_manifest")
     out = Path(out_dir)
@@ -401,7 +403,8 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
     stage_b_context = verify_stage_b_context(ctx)
     out.mkdir(parents=True)
     (out / "results").mkdir()
-    existing: set[str] = _completed_shas(resume_from) if resume_from is not None else set()
+    resumes = [Path(p) for p in (resume_from if isinstance(resume_from, (list, tuple)) else ([resume_from] if resume_from else []))]
+    existing: set[str] = set().union(*(_completed_shas(p) for p in resumes)) if resumes else set()
     launch = {
         "arm": ctx.arm, "harness_version": HARNESS_VERSION, "manifest": manifest_binding, "manifest_scope": manifest_scope,
         "models": _model_identity(ctx), "weights": weights or {}, "identity": identity, "stage_b_context": stage_b_context,
@@ -411,7 +414,8 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
         "gate_version": GATE_VERSION, "seed": ctx.seed, "data_scope": ctx.data_scope, "concurrency": ctx.concurrency,
         "max_tokens": getattr(ctx, "max_tokens", 12000),
         "executing_tip": git_tip or _executing_tip(), "started_at": utc_now(), "requested": len(members),
-        "limit": limit, "resume_from": str(resume_from) if resume_from else None,
+        "limit": limit, "resume_from": (str(resumes[0]) if len(resumes) == 1 else [str(p) for p in resumes]) if resumes else None,
+        "doc_concurrency": max(1, int(getattr(ctx, "doc_concurrency", 1) or 1)),
     }
     dump_new(out / "launch.json", launch)
     remaining = [m for m in members if m.sha not in existing]
@@ -435,33 +439,30 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
     status, failure_code, failure_class = "complete", None, None
     consecutive_transport = 0
     wall_started = time.perf_counter()
-    try:
-        while True:
-            kind, item = loaded.get()
-            if kind == "done":
-                break
-            if kind == "error":
-                member, klass = item
-                counts["failed"] += 1
-                _failure_receipt(out, member.sha, ctx.arm, klass, "document_unreadable")
-                continue
-            doc: DocumentInput = item
-            counts["attempted"] += 1
-            try:
-                public, private = process_document(doc, ctx)
-                consecutive_transport = 0
-            except TransportError as exc:
-                consecutive_transport += 1
-                counts["failed"] += 1
-                _failure_receipt(out, doc.member.sha, ctx.arm, "TransportError", str(exc))
-                if consecutive_transport >= MAX_CONSECUTIVE_TRANSPORT_FAILURES:
-                    status, failure_code, failure_class = "failed", "transport_failing", "TransportError"
-                    break
-                continue
-            except Exception as exc:  # noqa: BLE001 — recorded per document, never silent
-                counts["failed"] += 1
-                _failure_receipt(out, doc.member.sha, ctx.arm, type(exc).__name__, getattr(exc, "code", "unexpected_failure"))
-                continue
+    # Documents are pipelined up to `ctx.doc_concurrency` at a time, each fanning its pages out up to
+    # `ctx.concurrency`: on the 96 GB card the server idled between documents when they ran one at a time.
+    # Receipts are written and counted in this thread only, in completion order; exclusive-create keeps
+    # them one per document.
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    doc_workers = max(1, int(getattr(ctx, "doc_concurrency", 1) or 1))
+    stop_submitting = False
+
+    def work(doc: DocumentInput) -> tuple:
+        try:
+            public, private = process_document(doc, ctx)
+            return ("ok", doc, public, private)
+        except TransportError as exc:
+            return ("transport", doc, str(exc))
+        except Exception as exc:  # noqa: BLE001 — recorded per document, never silent
+            return ("error", doc, type(exc).__name__, getattr(exc, "code", "unexpected_failure"))
+
+    def record(outcome: tuple) -> None:
+        nonlocal consecutive_transport, status, failure_code, failure_class, stop_submitting
+        kind, doc = outcome[0], outcome[1]
+        if kind == "ok":
+            public, private = outcome[2], outcome[3]
+            consecutive_transport = 0
             dump_new(out / "results" / f"{doc.member.sha}.json", public)
             dump_new(out / "results" / f"{doc.member.sha}.private.json", _jsonable(private))
             if public.get("gate"):
@@ -471,6 +472,40 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
                     totals[key] += public.get(key, 0) or 0
                 else:
                     totals[key] += public["timings"].get(key, 0) or 0
+        elif kind == "transport":
+            consecutive_transport += 1
+            counts["failed"] += 1
+            _failure_receipt(out, doc.member.sha, ctx.arm, "TransportError", outcome[2])
+            if consecutive_transport >= MAX_CONSECUTIVE_TRANSPORT_FAILURES:
+                status, failure_code, failure_class = "failed", "transport_failing", "TransportError"
+                stop_submitting = True
+        else:
+            counts["failed"] += 1
+            _failure_receipt(out, doc.member.sha, ctx.arm, outcome[2], outcome[3])
+
+    try:
+        with ThreadPoolExecutor(max_workers=doc_workers) as pool:
+            in_flight: set = set()
+            while not stop_submitting:
+                kind, item = loaded.get()
+                if kind == "done":
+                    break
+                if kind == "error":
+                    member, klass = item
+                    counts["failed"] += 1
+                    _failure_receipt(out, member.sha, ctx.arm, klass, "document_unreadable")
+                    continue
+                doc: DocumentInput = item
+                counts["attempted"] += 1
+                in_flight.add(pool.submit(work, doc))
+                while len(in_flight) >= doc_workers and not stop_submitting:
+                    done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        record(future.result())
+            while in_flight:
+                done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+                for future in done:
+                    record(future.result())
     except BaseException as exc:  # MAJOR-6: an interrupted or crashed controller is receipted as aborted
         status = "aborted"
         failure_code = "interrupted" if isinstance(exc, KeyboardInterrupt) else "controller_failure"
