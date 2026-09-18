@@ -28,6 +28,13 @@ def test_alignment_is_monotone_and_tiered():
     # an amount printed on an earlier page only (the summary) cannot be taken once the cursor has moved on
     late = ROWS + [{"date": "2031-01-06", "description": "NOWHERE", "amount": 77.77, "direction": "debit", "running_balance": 522.23}]
     assert silver.align_rows(late, [PAGE1, PAGE2, PAGE3]).doc_tier == "unassignable"
+    # sectioned statements: the reader lists rows by date, so a row may sit on an EARLIER page than its predecessor
+    sectioned = [ROWS[2], ROWS[0], ROWS[3], ROWS[1]]
+    back = silver.align_rows(sectioned, [PAGE1, PAGE2, PAGE3])
+    assert back.pages == (1, 0, 1, 0) and back.doc_tier == "strong"
+    # the same strong row printed on two pages at equal distance from the previous row is only medium
+    twin = silver.align_rows([ROWS[2], ROWS[0]], [PAGE1, PAGE2, PAGE1])
+    assert twin.pages[0] == 1 and twin.tiers[1] == "medium"
     # amount present but neither the date nor a description token: weak
     weak = [{"date": "2031-02-09", "description": "UNRELATED WORDS", "amount": 10.0, "direction": "credit", "running_balance": 510.0}]
     assert silver.align_rows(weak, [PAGE1]).doc_tier == "weak"

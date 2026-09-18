@@ -68,11 +68,13 @@ class Alignment:
 
 
 def align_rows(transactions: list[dict], page_texts: list[str]) -> Alignment:
-    """Rows are in reading order and pages are in order, so each row takes the earliest page at or after the
-    previous row's page that prints its amount; the tier says how much of the row that page also prints."""
-    texts = [(t or "").replace(" ", " ") for t in page_texts]
+    """Each row takes the page that prints its amount, its date and a description token (strong). The reader
+    lists sectioned statements by date, so rows are NOT page-monotone: with several strong pages the one
+    nearest the previous row's page wins, and an exact tie is only medium. A page printing the amount but
+    not the date is medium; the amount alone is weak; no page at all makes the document unassignable."""
+    texts = [(t or "").replace("\u00a0", " ") for t in page_texts]
     lowered = [t.lower() for t in texts]
-    current = 0
+    previous = 0
     pages: list[int] = []
     tiers: list[str] = []
     doc_tier = "strong"
@@ -81,7 +83,7 @@ def align_rows(transactions: list[dict], page_texts: list[str]) -> Alignment:
         dforms = date_forms(str(tx.get("date") or ""))
         tokens = desc_tokens(str(tx.get("description") or ""))
         scored = []
-        for index in range(current, len(texts)):
+        for index in range(len(texts)):
             if not any(f in texts[index] for f in forms):
                 continue
             has_date = any(df in texts[index] for df in dforms)
@@ -91,15 +93,18 @@ def align_rows(transactions: list[dict], page_texts: list[str]) -> Alignment:
             return Alignment(tuple(pages), tuple(tiers), "unassignable")
         strong = [i for i, has_date, hits in scored if has_date and (hits >= 1 or not tokens)]
         if strong:
-            chosen, tier = strong[0], "strong"
+            nearest = sorted(strong, key=lambda i: (abs(i - previous), i))
+            tie = len(nearest) > 1 and abs(nearest[0] - previous) == abs(nearest[1] - previous)
+            chosen, tier = nearest[0], ("medium" if tie else "strong")
         else:
             with_date = [i for i, has_date, _ in scored if has_date]
-            chosen, tier = (with_date[0], "medium") if with_date else (scored[0][0], "weak")
+            pool = with_date or [i for i, _, _ in scored]
+            chosen, tier = sorted(pool, key=lambda i: (abs(i - previous), i))[0], ("medium" if with_date else "weak")
         if TIERS.index(tier) > TIERS.index(doc_tier):
             doc_tier = tier
         pages.append(chosen)
         tiers.append(tier)
-        current = chosen
+        previous = chosen
     return Alignment(tuple(pages), tuple(tiers), doc_tier)
 
 
