@@ -73,13 +73,23 @@ def regate_wave(source: Path, out: Path, *, also: list[Path] | None = None, trut
                 if isinstance(value, (int, float)):
                     timings[key] = timings.get(key, 0) + value
     started = time.perf_counter()
-    seen: set[str] = set()
-    receipts = [p for wave in sources for p in sorted((wave / "results").glob("*.json")) if not p.name.endswith(".private.json")]
-    for path in receipts:
+    # One receipt per document across the sources: a resumed wave retries the documents that FAILED in the
+    # wave it resumed (MAJOR-5), so its success must replace the earlier failure receipt (27B CTRL wave:
+    # three documents that failed on the dead host were retried, and the first merge kept the failures).
+    chosen: dict[str, Path] = {}
+    for wave in sources:
+        for path in sorted((wave / "results").glob("*.json")):
+            if path.name.endswith(".private.json"):
+                continue
+            candidate = json.loads(path.read_text(encoding="utf-8"))
+            sha = candidate.get("sha", path.name)
+            current = chosen.get(sha)
+            if current is None:
+                chosen[sha] = path
+            elif candidate.get("failure") is None and json.loads(current.read_text(encoding="utf-8")).get("failure") is not None:
+                chosen[sha] = path
+    for path in chosen.values():
         public = json.loads(path.read_text(encoding="utf-8"))
-        if public.get("sha") in seen:
-            continue
-        seen.add(public.get("sha", path.name))
         private_path = path.with_name(path.name[:-5] + ".private.json")
         if public.get("failure") is not None:
             counts["failed"] += 1

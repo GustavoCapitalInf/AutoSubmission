@@ -59,3 +59,19 @@ def test_regate_merges_an_incomplete_source_with_its_resume(tmp_path):
     assert len(list((tmp_path / "merged" / "results").glob("*.json"))) == 4
     launch = json.loads((tmp_path / "merged" / "launch.json").read_text(encoding="utf-8"))
     assert launch["regated_from"]["sources"][0]["incomplete"] is True and launch["regated_from"]["sources"][1]["incomplete"] is False
+
+
+def test_regate_prefers_a_resumed_success_over_the_earlier_failure_receipt(tmp_path):
+    """The wave that resumes a killed wave retries its failed documents; the merge keeps the success."""
+    member, archive = _member(tmp_path)
+    _wave([member], _ctx("hybrid", stage_a=FakeStageA(), stage_b=FakeStageB()), tmp_path / "w2", archive)
+    (tmp_path / "w1" / "results").mkdir(parents=True)
+    launch = json.loads((tmp_path / "w2" / "launch.json").read_text(encoding="utf-8"))
+    (tmp_path / "w1" / "launch.json").write_text(json.dumps(launch), encoding="utf-8")
+    (tmp_path / "w1" / "results" / f"{SHA}.json").write_text(
+        json.dumps({"sha": SHA, "arm": "hybrid", "failure": {"class": "TransportError", "code": "connection_failed:ConnectionRefusedError"}}),
+        encoding="utf-8")
+    result = regate.regate_wave(tmp_path / "w1", tmp_path / "merged", also=[tmp_path / "w2"])
+    assert result["counts"]["failed"] == 0 and result["counts"]["attempted"] == 1 and result["counts"]["admitted"] == 1
+    public = json.loads((tmp_path / "merged" / "results" / f"{SHA}.json").read_text(encoding="utf-8"))
+    assert public.get("failure") is None and public["gate"]["admitted"]
