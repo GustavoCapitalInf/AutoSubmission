@@ -97,16 +97,43 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
     return rows
 
 
+SECTION_CREDIT = re.compile(r"\b(deposits?|credits?|additions|money in|paid in|deposits and (?:other )?credits)\b", re.IGNORECASE)
+SECTION_DEBIT = re.compile(r"\b(withdrawals?|debits?|checks?|cheques?|fees|charges|payments|money out|paid out|subtractions|withdrawals and (?:other )?debits)\b", re.IGNORECASE)
+
+
+def section_direction(text: str) -> str | None:
+    """The direction a printed section heading implies for the table below it ("Deposits and other
+    credits" → credit, "Checks paid" → debit); None when the heading names both or neither."""
+    head = (text or "").strip().splitlines()[0] if text and text.strip() else ""
+    if len(head) > 80:
+        return None
+    credit, debit = bool(SECTION_CREDIT.search(head)), bool(SECTION_DEBIT.search(head))
+    if credit and not debit:
+        return "credit"
+    if debit and not credit:
+        return "debit"
+    return None
+
+
 def rows_from_blocks(blocks: list[Block], *, year_hint: int | None = None, day_first: bool = False) -> list[CandidateRow]:
+    """Tables become rows; a single-amount table inherits the direction of the section heading printed
+    directly above it (`direction_source="section"`), as the reader's sectioned parsers do."""
     rows: list[CandidateRow] = []
     table_index = 0
+    heading: str | None = None
     for block in blocks:
         if block.label != "table":
+            heading = section_direction(block.content) if block.label in ("text", "paragraph_title", "doc_title", "header") else heading
             continue
         for grid in parse_html_tables(block.content):
-            rows.extend(rows_from_grid(grid, classify_columns(grid), page=block.page, table_index=table_index,
-                                       year_hint=year_hint, day_first=day_first))
+            table_rows = rows_from_grid(grid, classify_columns(grid), page=block.page, table_index=table_index,
+                                        year_hint=year_hint, day_first=day_first)
+            if heading is not None:
+                table_rows = [replace(r, direction=heading, direction_source="section") if r.direction == "unknown" else r
+                              for r in table_rows]
+            rows.extend(table_rows)
             table_index += 1
+        heading = None
     return rows
 
 

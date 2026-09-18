@@ -52,3 +52,19 @@ def test_text_lines_from_blocks():
 def test_unmappable_table_yields_no_rows():
     blocks = [assemble.Block("table", (0, 0, 1, 1), "<table><tr><td>a</td><td>b</td></tr></table>", 0, 0)]
     assert assemble.rows_from_blocks(blocks) == []
+
+
+def test_section_heading_gives_a_single_amount_table_its_direction():
+    from decimal import Decimal
+    table = ("<table><tr><th>Date</th><th>Description</th><th>Amount</th></tr>"
+             "<tr><td>01/03</td><td>CHECK 101</td><td>25.00</td></tr></table>")
+    blocks = [assemble.Block("paragraph_title", (0, 0, 1, 0.1), "Checks Paid", 0, 0),
+              assemble.Block("table", (0, 0.1, 1, 0.5), table, 1, 0),
+              assemble.Block("paragraph_title", (0, 0.5, 1, 0.6), "Deposits and Other Credits", 2, 0),
+              assemble.Block("table", (0, 0.6, 1, 0.9), table.replace("CHECK 101", "DEPOSIT"), 3, 0),
+              assemble.Block("text", (0, 0.9, 1, 0.95), "Deposits and withdrawals summary", 4, 0),
+              assemble.Block("table", (0, 0.95, 1, 1.0), table, 5, 0)]
+    rows = assemble.rows_from_blocks(blocks, year_hint=2031)
+    assert [(r.direction, r.direction_source) for r in rows] == [("debit", "section"), ("credit", "section"), ("unknown", "printed")]
+    assert rows[0].amount == Decimal("25.00")
+    assert assemble.section_direction("Withdrawals and other debits") == "debit" and assemble.section_direction("Summary") is None

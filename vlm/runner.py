@@ -128,11 +128,11 @@ def _stage_a_pages(doc: DocumentInput, pages: list[RenderedPage], ctx: RunContex
     return blocks_by_page
 
 
-def _stage_a_rows(blocks_by_page) -> tuple[list[CandidateRow], AccountMeta]:
+def _stage_a_rows(blocks_by_page, *, fallback_year: int | None = None) -> tuple[list[CandidateRow], AccountMeta]:
     meta = EMPTY_META
     for blocks in blocks_by_page:
         meta = merge_meta(meta, extract_meta(text_lines_from_blocks(blocks)))
-    year_hint = year_from_meta(meta)
+    year_hint = year_from_meta(meta) or fallback_year   # hybrid: the model's period supplies the year when the rules found none
     rows: list[CandidateRow] = []
     for blocks in blocks_by_page:
         rows.extend(rows_from_blocks(blocks, year_hint=year_hint))
@@ -256,7 +256,7 @@ def process_document(doc: DocumentInput, ctx: RunContext) -> tuple[dict, dict]:
         proposals = _stage_b_pages(doc, pages, ctx, timings, private, contexts)
         rows, meta, stats = merge_pages(proposals)
         private["proposals"] = [asdict(p) for p in proposals]
-        a_rows, a_meta = _stage_a_rows(blocks_by_page)
+        a_rows, a_meta = _stage_a_rows(blocks_by_page, fallback_year=year_from_meta(meta))
         # RR-1: the rule reading is the independent witness for the model's claimed anchors. Agreement is
         # recorded per field; a disagreement refuses; a model-only anchor is admitted but counted apart.
         corroboration = _corroborate(meta, a_meta)
