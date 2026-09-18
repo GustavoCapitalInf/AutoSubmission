@@ -1,4 +1,4 @@
-# Phase 3 ceiling experiment — root report (DRAFT, updated as waves complete)
+# Phase 3 ceiling experiment — root report (CLOSED 2026-09-19; the fine-tuning phase follows under R17)
 
 Authority: PHASE2_RULINGS.md R16 (Gustavo, 2026-09-17, USD 250). Plan: PHASE3-VLM-PROGRAM-PLAN-v1.md §11.
 Branch `phase3-ceiling`. Reviews: `reviews/CEILING-HARNESS-REVIEW-X.md` (BLOCK → closed; re-review 1
@@ -195,10 +195,48 @@ pages, 252,767 aligned rows) and the trainer is written; both wait for a host wi
   parser. On the 4B, no admission ever came from the parser's rows or the union.
 * Local memory: Claude Code stops background waves when the workstation runs low on memory; waves resume
   from receipts and are merged by `regate --also`, so no model call is repeated.
+* Nondeterminism (plan §11 asks for ≤ 1 percent of rows): the 20 development documents were run three
+  times on the 27B at temperature 0, seed 0. Same host and settings (96 GB card, 16 pages in flight):
+  2.3 percent of rows differ by date, amount, direction or balance and 21 of 118 pages are byte-identical.
+  Across hosts (5090 at 2 in flight vs the 96 GB card): 1.6 to 2.8 percent. Gate verdicts agreed on 19 of
+  20 documents in each pair; the one flip was a refusal (continuity break from a misread balance) that
+  became a correct admission with all 13 rows exact. False accepts were zero in all three runs. The row-level
+  figure exceeds the plan's tolerance; the verdict-level variation is one document in twenty and never in
+  the unsafe direction. Cause: batched decoding in vLLM is not bit-reproducible across batch compositions.
+  Mitigations for any deployment: admit only what two independent passes agree on, or serve with batch
+  size 1 for the final pass; both are measurable with this harness.
+* Six of the 546 statement-like unresolved documents cannot be opened by the renderer (PDFium error on every
+  attempt); they are counted as gated failures, not refusals.
+* Two harness defects surfaced only under document pipelining and were fixed with tests: PDFium is not
+  thread-safe (rendering is now serialized) and the reader-truth cache's SQLite connection is bound to its
+  thread (one cache per thread). A first merge kept a killed wave's failure receipts over the resumed
+  successes; the merge now prefers the success.
+* Retention attestation on the 96 GB host at closure (2026-09-18T23:52Z): no new files under the harness
+  directory since the worker deployment, no temporary images, the two loopback servers (27B and identity
+  worker) still running by design pending the switch to the training host; `passed` turns true once they
+  are stopped. The 5090 host's disk did not survive the credit stop, so nothing customer-derived remains
+  there either.
 * The two-week window started 2026-09-17; waves are resumable (`--resume-from`) and re-gateable
   (`regate --also`) without new model calls.
 
-## 8. Receipts and hashes (filled at closure)
+## 8. Receipts and hashes (closure)
 
-Pending: per-wave `launch.json`/`result.json`/`release.json` hashes, fetch receipt hashes (weights),
-schema 3 / prompt 3 / gate 4 hashes, attestation receipts.
+Versions: harness 1, schema 3 (`97f35f1c0c2754e2…`), prompt 3 (Stage B template `ac6aac8e1c01fe56…`, hybrid
+prefix `ab5b28125e51c4ae…`), gate 6. Private tree `discovery_reports/train13-logs/p3ceiling/`; first 16 hex
+digits of each file's SHA-256.
+
+| Wave (gate-6 regate) | launch.json | result.json | report |
+|---|---|---|---|
+| dev-hybrid-0203-g6 (4B) | be67498e3513e1fe | 1215ae808a724cc2 | report-20260918T051850Z b9a0869e907b17c1 |
+| ctrl-hybrid-02-g6 (4B) | 8a3bc650cb9798a3 | 9ff030933d43d899 | report-20260918T051848Z df4b2f63d8d5bdfd |
+| dev-stageb27-0203-g6 (27B) | 460a6ae406b2d71f | 2d3a835b5a5cd057 | report-20260918T051846Z c3719632db4b0997 |
+| ctrl-stageb27-0102-g6b (27B) | 1db5cf222059bc4f | 7001dadf7262138b | report-20260918T153004Z d0f3b307af04ffda |
+| u755s-stageb27-all-g6 (27B) | cac61652cbcbb660 | dc5fbe3d85f6b552 | report-20260918T231205Z f65d13965bad6737 |
+| dev-stageb27-rep-02-g6 (27B repeat) | ce7fdccdd2ad8ea4 | 69cd62b4c40c93b0 | report-20260918T233900Z dbe9c41630a7b934 |
+| dev-stageb27-rep-03-g6 (27B repeat) | c21f5e3a020fd6b7 | bdb60397ed0e1519 | report-20260918T235155Z 24dfb9916949fc74 |
+
+Weights (fetch receipts): a `f92ca0e70c94c566` / `13e63f32f6303a94`; b `4d3be222a1d57ce6` / `5deefae1dd9861c2`;
+b27 `ba7391c8b83fdf1a` (first host), `894f8f8751fa7f34` (after the restart), `a1fa7af8a3314de8` (96 GB host),
+safetensors and config hashes identical across the three. Manifests (public): CTRL `9c39c29f9b95ff7c`, DEV
+`3ed74e67f59c7dff`, U755 `eee13eb17be86f93`, U755S `05936ab9044849d8`. The silver dataset for R17:
+`p3silver/silver-02/manifest.json` (train jsonl `4cbc54272f36…`, validation `405c7f127516…`).
