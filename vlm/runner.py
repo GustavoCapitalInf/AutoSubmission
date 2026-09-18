@@ -61,6 +61,7 @@ class RunContext:
     identity_client: Any | None = None   # a Stage A worker client used only for /version (defaults to stage_a)
     max_tokens: int = 12000   # DEV wave: dense pages exceeded 4,096 output tokens and were lost as invalid JSON
     doc_concurrency: int = 1   # documents in flight at once (each fans its pages out up to `concurrency`)
+    page_pool: Any = None   # a wave-wide page executor (set by run_wave): `concurrency` pages in flight ACROSS documents
 
 
 @dataclass(frozen=True)
@@ -179,7 +180,13 @@ def _stage_b_pages(doc: DocumentInput, pages: list[RenderedPage], ctx: RunContex
                               page_number=position + 1, page_total=len(pages)) for position in range(len(pages))]
     workers = max(1, int(getattr(ctx, "concurrency", 1) or 1))
     span_started = time.perf_counter()
-    if workers > 1 and len(pages) > 1:
+    shared = getattr(ctx, "page_pool", None)
+    if shared is not None and len(pages) > 0:
+        # Wave-wide pool: pages of the open documents interleave, so the server sees a steady `concurrency`
+        # requests instead of bursts and troughs as each document waits for its slowest page (96 GB card,
+        # 2026-09-18: Running oscillated between 1 and 14 with a per-document pool).
+        calls = list(shared.map(lambda pair: _stage_b_call(ctx, pair[0], pair[1]), zip(pages, prompts)))
+    elif workers > 1 and len(pages) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=min(workers, len(pages))) as pool:
@@ -446,6 +453,9 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     doc_workers = max(1, int(getattr(ctx, "doc_concurrency", 1) or 1))
+    page_workers = max(1, int(getattr(ctx, "concurrency", 1) or 1))
+    if doc_workers > 1 and page_workers > 1 and ctx.stage_b is not None:
+        ctx.page_pool = ThreadPoolExecutor(max_workers=page_workers)   # shared across the open documents
     stop_submitting = False
 
     def work(doc: DocumentInput) -> tuple:
@@ -512,6 +522,9 @@ def run_wave(members: list[Member], ctx: RunContext, out_dir: Path, *, archive_r
         failure_class = type(exc).__name__
         raise
     finally:
+        if getattr(ctx, "page_pool", None) is not None:
+            ctx.page_pool.shutdown(wait=False)
+            ctx.page_pool = None
         wall_s = time.perf_counter() - wall_started
         hours = wall_s / 3600.0
         result = {**launch, "status": status, "failure_code": failure_code, "failure_class": failure_class, "counts": counts,

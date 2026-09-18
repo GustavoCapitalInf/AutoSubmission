@@ -292,3 +292,14 @@ def test_pipelined_wave_still_stops_on_consecutive_transport_failures(tmp_path):
                    tmp_path / "w", archive)
     assert result["status"] == "failed" and result["failure_code"] == "transport_failing"
     assert result["counts"]["failed"] >= runner.MAX_CONSECUTIVE_TRANSPORT_FAILURES
+
+
+def test_pages_of_open_documents_share_one_wave_wide_pool(tmp_path):
+    member, archive = _member(tmp_path)
+    others = [Member(c * 64, "fam/doc.pdf", 100, 1, "fam", "digital", "validated", 1) for c in "ABCDE"]
+    b = FakeStageB()
+    ctx = _ctx("stage_b_only", stage_b=b, identity=FakeStageA(), doc_concurrency=3, concurrency=4)
+    result = _wave([member] + others, ctx, tmp_path / "w", archive)
+    assert result["counts"]["attempted"] == 6 and result["counts"]["admitted"] == 6 and result["counts"]["failed"] == 0
+    assert ctx.page_pool is None   # released by the wave
+    assert b.calls == 6
