@@ -536,11 +536,15 @@ def cmd_recovery_bundle(settings, *, local_root: Path = TRAIN_LOCAL_ROOT, run: s
     cmdline, _, environment = versions.partition("===")
     from vlm.prompts import PROMPT_VERSION, stage_b_prompt
 
+    previous_path = target / "recovery-manifest.json"
+    previous = json.loads(previous_path.read_text(encoding="utf-8")) if previous_path.is_file() else {}
+    command = _mask(cmdline.strip(), settings) or previous.get("training_command")
     manifest = {"run": run, "remote_dir": remote_dir, "written_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "base": {"key": base_key, "repo": MODELS[base_key]["repo"], "commit": commit, "remote_dir": base_dir,
                          "weight_hashes": [l for l in weight_hashes.strip().splitlines() if l.strip()]},
                 "base_config_files": files,
-                "training_command": _mask(cmdline.strip(), settings) or None,
+                "training_command": command or None,
+                "train_receipts_local": sorted(p.name for p in (Path(local_root) / run).glob("train-receipt-*.json")),
                 "host_environment": [l for l in environment.strip().splitlines() if l.strip()],
                 "prompt": {"version": PROMPT_VERSION, "stage_b_prompt_example": stage_b_prompt(page_number=1, page_total=1),
                            "chat_template": "processor.apply_chat_template(..., enable_thinking=False); prompt tokens masked; assistant target = canonical JSON"},
