@@ -16,12 +16,13 @@ def _write_wave(root, name, receipts):
     return wave
 
 
-def _receipt(sha, *, pages, admitted, reasons=(), invalid=0, truncated_pages=(), invalid_pages=(), match=None, meta=None, failure=None):
+def _receipt(sha, *, pages, admitted, reasons=(), invalid=0, truncated_pages=(), invalid_pages=(), match=None, meta=None, failure=None, empty_pages=()):
     public = {"sha": sha, "pages": pages, "failure": failure, "gate": None if failure else {"admitted": admitted, "reasons": list(reasons)},
               "stats": {"invalid_pages": invalid}, "match": match}
     private = {"sha": sha, "meta": meta or {},
                "stage_b": [{"page": p, "finish_reason": "length" if p in truncated_pages else "stop"} for p in range(pages)],
-               "proposals": [{"page": p, "proposal": {}, "errors": ["json_invalid"] if p in invalid_pages else []} for p in range(pages)]}
+               "proposals": [{"page": p, "proposal": {"rows": [] if p in empty_pages else [{"amount": 1.0}]}, "errors": ["json_invalid"] if p in invalid_pages else []}
+                             for p in range(pages)]}
     return public, private
 
 
@@ -62,9 +63,15 @@ def test_summary_keeps_failures_truncation_invalid_pages_and_over_cap_pages_in_t
     assert s["row_match_rate"] == round(65 / 87, 4)
     # account facts: last4 compared twice (one agrees), period twice (both agree), currency once (case-insensitive agree)
     assert s["account"] == {"last4_agree": 1, "last4_compared": 2, "period_agree": 2, "period_compared": 2, "currency_agree": 1, "currency_compared": 1}
-    assert s["by_density"] == {"0 rows": {"pages": 1, "invalid": 0, "truncated": 0}, "11-30 rows": {"pages": 1, "invalid": 0, "truncated": 0},
-                               "61+ rows": {"pages": 1, "invalid": 1, "truncated": 1}, "1-10 rows": {"pages": 1, "invalid": 0, "truncated": 0}}
-    assert s["over_cap_pages"] == {"pages": 1, "invalid": 1, "truncated": 1}
+    assert s["by_density"] == {"0 rows": {"pages": 1, "invalid": 0, "truncated": 0, "dropped": 0}, "11-30 rows": {"pages": 1, "invalid": 0, "truncated": 0, "dropped": 0},
+                               "61+ rows": {"pages": 1, "invalid": 1, "truncated": 1, "dropped": 0}, "1-10 rows": {"pages": 1, "invalid": 0, "truncated": 0, "dropped": 0}}
+    assert s["over_cap_pages"] == {"pages": 1, "invalid": 1, "truncated": 1, "dropped": 0}
+    assert s["dropped_pages"] == 0 and s["reference_pages_with_rows"] == 3
+    # an arm that empties a page the reference fills is a dropped page in its density bucket
+    emptied = _write_wave(tmp_path, "emptied", [_receipt(SHA_A, pages=3, admitted=False, reasons=["no_rows"], empty_pages=(1, 2))])
+    e = ec.summarize_wave(emptied, shas={SHA_A}, reference=ref, over_cap={(SHA_A, 2)})
+    assert e["dropped_pages"] == 2 and e["by_density"]["11-30 rows"]["dropped"] == 1 and e["by_density"]["61+ rows"]["dropped"] == 1
+    assert e["over_cap_pages"]["dropped"] == 1
     assert s["by_page_count"] == {"3-6": {"documents": 1, "admitted": 0}, "1-2": {"documents": 1, "admitted": 1}}
 
 
@@ -111,7 +118,7 @@ def test_compare_cli_binds_subsets_silver_density_and_over_cap_pages(tmp_path):
     report = json.loads(out.read_text(encoding="utf-8"))
     s = report["subsets"]["S"]
     assert report["over_cap_pages_known"] == 1 and report["reference_accounts"] == 0 and "not human-verified" in report["reference"]
-    assert s["base"]["over_cap_pages"] == {"pages": 1, "invalid": 0, "truncated": 1} and s["adapter"]["over_cap_pages"]["truncated"] == 0
+    assert s["base"]["over_cap_pages"] == {"pages": 1, "invalid": 0, "truncated": 1, "dropped": 0} and s["adapter"]["over_cap_pages"]["truncated"] == 0
     assert s["base"]["by_density"]["61+ rows"]["truncated"] == 1 and s["delta"]["admitted_strict"] == 1
     assert vlm_ceiling.main(["compare", "--base-wave", str(base), "--adapter-wave", str(adapter), "--out", str(tmp_path / "x.json")]) == 2
     assert vlm_ceiling.main(["compare", "--base-wave", str(base), "--adapter-wave", str(adapter), "--subset", "bad", "--out", str(tmp_path / "y.json")]) == 2

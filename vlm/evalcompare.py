@@ -59,7 +59,8 @@ def summarize_wave(wave: Path, *, shas: set[str], reference: dict[tuple[str, int
                  "gated": 0, "admitted_strict": 0, "refusal_reasons": Counter(), "invalid_pages": 0, "pages": 0, "truncated_pages": 0,
                  "rows": {"truth": 0, "matched": 0, "missing": 0, "extra": 0, "exact_balance": 0, "balance_mismatch": 0, "documents_with_truth": 0},
                  "account": {"last4_agree": 0, "last4_compared": 0, "period_agree": 0, "period_compared": 0, "currency_agree": 0, "currency_compared": 0},
-                 "by_density": {}, "over_cap_pages": {"pages": 0, "invalid": 0, "truncated": 0}, "by_page_count": {}}
+                 "by_density": {}, "over_cap_pages": {"pages": 0, "invalid": 0, "truncated": 0, "dropped": 0}, "by_page_count": {},
+                 "dropped_pages": 0, "reference_pages_with_rows": 0}
     for sha, (public, private) in docs.items():
         if public.get("failure") is not None:
             out["failed"] += 1
@@ -101,23 +102,31 @@ def summarize_wave(wave: Path, *, shas: set[str], reference: dict[tuple[str, int
             out["account"][f"{field}_agree"] += 1 if (got is not None and str(got).upper() == str(expected).upper()) else 0
         if reference is not None and private is not None:
             invalid_pages = set()
+            proposed_rows = {}
             for p in private.get("proposals") or []:
                 if p.get("errors"):
                     invalid_pages.add(int(p["page"]))
+                proposed_rows[int(p["page"])] = len((p.get("proposal") or {}).get("rows") or [])
             truncated = {int(t["page"]) for t in texts if t.get("finish_reason") == "length"}
             for page in range(pages):
                 ref = reference.get((sha, page))
                 if ref is None:
                     continue
-                d = out["by_density"].setdefault(density_bucket(len(ref["target"]["rows"])), {"pages": 0, "invalid": 0, "truncated": 0})
+                ref_rows = len(ref["target"]["rows"])
+                dropped = ref_rows > 0 and proposed_rows.get(page, 0) == 0 and page not in invalid_pages
+                out["reference_pages_with_rows"] += 1 if ref_rows > 0 else 0
+                out["dropped_pages"] += 1 if dropped else 0
+                d = out["by_density"].setdefault(density_bucket(ref_rows), {"pages": 0, "invalid": 0, "truncated": 0, "dropped": 0})
                 d["pages"] += 1
                 d["invalid"] += 1 if page in invalid_pages else 0
                 d["truncated"] += 1 if page in truncated else 0
+                d["dropped"] += 1 if dropped else 0
                 if over_cap and (sha, page) in over_cap:
                     o = out["over_cap_pages"]
                     o["pages"] += 1
                     o["invalid"] += 1 if page in invalid_pages else 0
                     o["truncated"] += 1 if page in truncated else 0
+                    o["dropped"] += 1 if dropped else 0
     out["failure_codes"] = dict(out["failure_codes"])
     out["refusal_reasons"] = dict(sorted(out["refusal_reasons"].items(), key=lambda kv: -kv[1]))
     r = out["rows"]
@@ -138,5 +147,6 @@ def compare(base_wave: Path, adapter_wave: Path, *, subsets: dict[str, set[str]]
                                              "row_match_rate": (None if base["row_match_rate"] is None or adapter["row_match_rate"] is None
                                                                 else round(adapter["row_match_rate"] - base["row_match_rate"], 4)),
                                              "invalid_pages": adapter["invalid_pages"] - base["invalid_pages"],
-                                             "truncated_pages": adapter["truncated_pages"] - base["truncated_pages"]}}
+                                             "truncated_pages": adapter["truncated_pages"] - base["truncated_pages"],
+                                             "dropped_pages": adapter["dropped_pages"] - base["dropped_pages"]}}
     return report
