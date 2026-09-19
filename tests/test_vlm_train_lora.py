@@ -85,3 +85,17 @@ def test_checkpoint_metadata_round_trip(tmp_path):
     loaded = tl.load_checkpoint_metadata(tmp_path)
     assert loaded["step"] == 100 and loaded["seen"] == 1600 and loaded["skipped_long"] == 300 and loaded["hyperparameters"]["rank"] == 32
     assert tl.load_checkpoint_metadata(tmp_path / "nowhere") is None
+
+
+def test_resume_plan_restores_step_counters_and_data_position_and_names_what_restarts():
+    meta = {"step": 100, "seen": 1600, "skipped_long": 300}
+    full = tl.resume_plan(meta, n_samples=14211, has_optimizer=True, has_rng=True)
+    assert full["step"] == 100 and full["position"] == 1900 and full["optimizer"] and full["rng"] and full["note"] is None
+    wrap = tl.resume_plan({"step": 5, "seen": 14200, "skipped_long": 20}, n_samples=14211, has_optimizer=True, has_rng=True)
+    assert wrap["position"] == (14200 + 20) % 14211
+    partial = tl.resume_plan(meta, n_samples=14211, has_optimizer=False, has_rng=False)
+    assert "optimizer moments restart" in partial["note"] and "RNG streams restart" in partial["note"]
+    weights_only = tl.resume_plan(None, n_samples=10, has_optimizer=False, has_rng=False)
+    assert weights_only["step"] == 0 and weights_only["position"] == 0 and "weights-only" in weights_only["note"]
+    with pytest.raises(Refused):
+        tl.data_position(1, 1, 0)

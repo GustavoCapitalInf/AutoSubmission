@@ -19,7 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from vlm.train_lora import Hyperparameters, checkpoint_metadata, encode_sample, lineage_receipt, load_checkpoint_metadata, read_samples  # noqa: E402
+from vlm.train_lora import (Hyperparameters, checkpoint_metadata, encode_sample, lineage_receipt, load_checkpoint_metadata,  # noqa: E402
+                            read_samples, resume_plan)
 from vlm.receipts import utc_now  # noqa: E402
 
 
@@ -106,18 +107,27 @@ def cmd_train(args: argparse.Namespace) -> int:
     optimizer = torch.optim.AdamW(params, lr=hyper.learning_rate, weight_decay=0.0)
     total_steps = hyper.max_steps or math.ceil(len(train) * hyper.epochs / hyper.grad_accumulation)
     start_step = start_seen = start_skipped = 0
-    if resumed_state is not None:
-        start_step, start_seen, start_skipped = int(resumed_state["step"]), int(resumed_state["seen"]), int(resumed_state["skipped_long"])
+    plan = None
+    if args.resume_adapter:
         opt_path = Path(args.resume_adapter) / "optimizer.pt"
-        if opt_path.is_file():
+        rng_path = Path(args.resume_adapter) / "rng.pt"
+        plan = resume_plan(resumed_state, n_samples=len(train), has_optimizer=opt_path.is_file(), has_rng=rng_path.is_file())
+        start_step, start_seen, start_skipped = plan["step"], plan["seen"], plan["skipped_long"]
+        if plan["optimizer"]:
             optimizer.load_state_dict(torch.load(opt_path, map_location="cpu"))
-            print(json.dumps({"resumed": resumed_from, "step": start_step, "optimizer_state": True}), flush=True)
-        else:
-            print(json.dumps({"resumed": resumed_from, "step": start_step, "optimizer_state": False}), flush=True)
+        if plan["rng"]:
+            rng = torch.load(rng_path, map_location="cpu", weights_only=False)
+            random.setstate(rng["python"])
+            torch.set_rng_state(rng["torch_cpu"])
+            if torch.cuda.is_available() and rng.get("torch_cuda") is not None:
+                torch.cuda.set_rng_state(rng["torch_cuda"])
+        print(json.dumps({"resumed": resumed_from, **plan}), flush=True)
 
     def save_checkpoint(directory: Path, step: int, seen: int, skipped: int) -> None:
         model.save_pretrained(str(directory))
         torch.save(optimizer.state_dict(), directory / "optimizer.pt")
+        torch.save({"python": random.getstate(), "torch_cpu": torch.get_rng_state(),
+                    "torch_cuda": torch.cuda.get_rng_state() if torch.cuda.is_available() else None}, directory / "rng.pt")
         (directory / "training_state.json").write_text(json.dumps(checkpoint_metadata(
             step=step, seen=seen, skipped_long=skipped, total_steps=total_steps, hyper=hyper, resumed_from=resumed_from), indent=2), encoding="utf-8")
 
@@ -150,9 +160,9 @@ def cmd_train(args: argparse.Namespace) -> int:
     adapter_dir = None
     seen = start_seen
     epoch = 0
-    if start_seen:
-        # the shuffled order is seeded, so skipping the samples already consumed continues the same pass
-        train = train[(start_seen + start_skipped) % len(train):] + train[: (start_seen + start_skipped) % len(train)]
+    if plan and plan["position"]:
+        # the shuffled order is seeded, so continuing from the recorded position continues the same pass
+        train = train[plan["position"]:] + train[: plan["position"]]
     while step < total_steps:
         for sample in train:
             if step >= total_steps:
@@ -191,7 +201,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     receipt = lineage_receipt(dataset=dataset, base_dir=base, out_dir=out, hyper=hyper, versions=_versions(), gpu=gpu, started_at=started,
                               steps=step, losses=losses, adapter_dir=adapter_dir, skipped_long=skipped_long,
                               notes={"samples_train": len(train), "samples_validation": len(validation), "epochs_seen": epoch,
-                                     "resumed_from": resumed_from, "resumed_state": resumed_state, "accepted_examples": seen - start_seen,
+                                     "resumed_from": resumed_from, "resume_plan": plan, "accepted_examples": seen - start_seen,
                                      "examples_per_step_are_accepted_only": True})
     print(json.dumps({"steps": step, "adapter": str(adapter_dir), "final_eval_loss": losses["eval"][-1][1], "receipt_written": True,
                       "adapter_files": receipt["adapter"]["files"]}), flush=True)

@@ -128,6 +128,25 @@ def checkpoint_metadata(*, step: int, seen: int, skipped_long: int, total_steps:
             "hyperparameters": asdict(hyper), "resumed_from": resumed_from, "saved_at": utc_now()}
 
 
+def data_position(seen: int, skipped_long: int, n_samples: int) -> int:
+    """Index into the seeded shuffle of the next sample to consume: every sample seen or skipped advanced it."""
+    need(n_samples > 0, "dataset_empty")
+    return (seen + skipped_long) % n_samples
+
+
+def resume_plan(metadata: dict | None, *, n_samples: int, has_optimizer: bool, has_rng: bool) -> dict:
+    """What a resume restores, and what it cannot: the step (drives the cosine schedule), the counters, the data
+    position in the seeded shuffle, the optimizer moments and the RNG states when the checkpoint carries them."""
+    if metadata is None:
+        return {"weights": True, "step": 0, "seen": 0, "skipped_long": 0, "position": 0, "optimizer": False, "rng": False,
+                "note": "weights-only checkpoint: schedule, counters, data order and optimizer moments restart"}
+    step, seen, skipped = int(metadata["step"]), int(metadata["seen"]), int(metadata["skipped_long"])
+    return {"weights": True, "step": step, "seen": seen, "skipped_long": skipped, "position": data_position(seen, skipped, n_samples),
+            "optimizer": has_optimizer, "rng": has_rng,
+            "note": None if (has_optimizer and has_rng) else "partial resume: " + ", ".join(
+                x for x, ok in (("optimizer moments restart", not has_optimizer), ("RNG streams restart", not has_rng)) if ok)}
+
+
 def load_checkpoint_metadata(adapter_dir: Path) -> dict | None:
     path = Path(adapter_dir) / "training_state.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
