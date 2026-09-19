@@ -264,7 +264,7 @@ _ATTEST = ("SERVER_PROCESSES=$(ps -eo cmd | grep -v grep | grep -c -E 'vllm serv
 def train_bundle_paths() -> list[str]:
     """What the trainer needs beside the dataset: the `vlm` package (pure Python) and the host script."""
     package = sorted(str(p).replace("\\", "/") for p in Path("vlm").glob("*.py"))
-    return package + ["tools/vlm_train_lora.py"]
+    return package + ["tools/vlm_train_lora.py", "tools/vlm_render_silver.py"]
 
 
 def cmd_deploy_train(settings, dataset: Path | None, *, runner: Callable[..., Any] = subprocess.run) -> dict:
@@ -279,7 +279,7 @@ def cmd_deploy_train(settings, dataset: Path | None, *, runner: Callable[..., An
         bundle = Path(tmp) / "train-bundle.tar"
         with tarfile.open(bundle, "w") as tar:
             for path in train_bundle_paths():
-                arc = "vlm_train_lora.py" if path.endswith("vlm_train_lora.py") else path
+                arc = path.split("/")[-1] if path.startswith("tools/") else path
                 tar.add(path, arcname=arc)
         _ssh(settings, runner, f"mkdir -p {remote_train}")
         _run(runner, _scp_command(settings, str(bundle), f"{remote_train}/train-bundle.tar"), capture_output=True, text=True, timeout=600)

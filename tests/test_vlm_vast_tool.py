@@ -120,5 +120,5 @@ def test_training_keys_and_bundle():
     assert vlm_vast.MODELS["b27bf16"]["repo"] == "Qwen/Qwen3.8-27B" and vlm_vast.MODELS["b27ft"]["served"] == "local/Qwen3.8-27B-lora01"
     assert "--max-num-seqs 8 " in vlm_vast.serve_command("b27ft", "96gb") and "--port 18004" in vlm_vast.serve_command("b27ft", "96gb")
     paths = vlm_vast.train_bundle_paths()
-    assert "vlm/train_lora.py" in paths and "vlm/silver.py" in paths and paths[-1] == "tools/vlm_train_lora.py"
+    assert "vlm/train_lora.py" in paths and "vlm/silver.py" in paths and paths[-2:] == ["tools/vlm_train_lora.py", "tools/vlm_render_silver.py"]
     assert not any(p.endswith("__init__.pyc") for p in paths)
