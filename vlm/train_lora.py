@@ -18,9 +18,13 @@ from vlm import HARNESS_VERSION
 from vlm.prompts import PROMPT_VERSION, stage_b_prompt
 from vlm.receipts import dump_new, need, sha256_file, utc_now
 from vlm.schema import SCHEMA_VERSION, validate_page_proposal
-from vlm.silver import canonical_target
 
 TRAIN_VERSION = 1
+
+
+def canonical_target(proposal: dict) -> str:
+    """The same canonical JSON as vlm.silver (inlined: the trainer ships without the partition modules)."""
+    return json.dumps(proposal, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 LORA_TARGETS = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
 IGNORE_INDEX = -100
 
