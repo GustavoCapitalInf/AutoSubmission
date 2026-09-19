@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from vlm.train_lora import Hyperparameters, encode_sample, lineage_receipt, read_samples  # noqa: E402
+from vlm.train_lora import Hyperparameters, checkpoint_metadata, encode_sample, lineage_receipt, load_checkpoint_metadata, read_samples  # noqa: E402
 from vlm.receipts import utc_now  # noqa: E402
 
 
@@ -71,7 +71,7 @@ def _batch(encoded: dict, device):
 
 def cmd_train(args: argparse.Namespace) -> int:
     import torch
-    from peft import LoraConfig, get_peft_model
+    from peft import LoraConfig, PeftModel, get_peft_model
     from PIL import Image
 
     hyper = Hyperparameters(rank=args.rank, alpha=args.alpha, learning_rate=args.lr, epochs=args.epochs, max_steps=args.max_steps,
@@ -88,13 +88,38 @@ def cmd_train(args: argparse.Namespace) -> int:
     processor, model = _load(base)
     model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
-    config = LoraConfig(r=hyper.rank, lora_alpha=hyper.alpha, lora_dropout=hyper.dropout, target_modules=list(hyper.targets), task_type="CAUSAL_LM")
-    model = get_peft_model(model, config)
+    resumed_from = None
+    resumed_state = None
+    if args.resume_adapter:
+        # Continue from a saved adapter: the LoRA weights come from the checkpoint; the optimizer tensors and the
+        # step counter too when the checkpoint carries them (a checkpoint written before this version has neither,
+        # so the schedule restarts with fresh optimizer moments, which the receipt says).
+        model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
+        resumed_from = str(args.resume_adapter)
+        resumed_state = load_checkpoint_metadata(Path(args.resume_adapter))
+    else:
+        config = LoraConfig(r=hyper.rank, lora_alpha=hyper.alpha, lora_dropout=hyper.dropout, target_modules=list(hyper.targets), task_type="CAUSAL_LM")
+        model = get_peft_model(model, config)
     model.print_trainable_parameters()
     apply = _template(processor)
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=hyper.learning_rate, weight_decay=0.0)
     total_steps = hyper.max_steps or math.ceil(len(train) * hyper.epochs / hyper.grad_accumulation)
+    start_step = start_seen = start_skipped = 0
+    if resumed_state is not None:
+        start_step, start_seen, start_skipped = int(resumed_state["step"]), int(resumed_state["seen"]), int(resumed_state["skipped_long"])
+        opt_path = Path(args.resume_adapter) / "optimizer.pt"
+        if opt_path.is_file():
+            optimizer.load_state_dict(torch.load(opt_path, map_location="cpu"))
+            print(json.dumps({"resumed": resumed_from, "step": start_step, "optimizer_state": True}), flush=True)
+        else:
+            print(json.dumps({"resumed": resumed_from, "step": start_step, "optimizer_state": False}), flush=True)
+
+    def save_checkpoint(directory: Path, step: int, seen: int, skipped: int) -> None:
+        model.save_pretrained(str(directory))
+        torch.save(optimizer.state_dict(), directory / "optimizer.pt")
+        (directory / "training_state.json").write_text(json.dumps(checkpoint_metadata(
+            step=step, seen=seen, skipped_long=skipped, total_steps=total_steps, hyper=hyper, resumed_from=resumed_from), indent=2), encoding="utf-8")
 
     def lr_at(step: int) -> float:
         if step < hyper.warmup_steps:
@@ -118,13 +143,16 @@ def cmd_train(args: argparse.Namespace) -> int:
 
     model.train()
     losses = {"train": [], "eval": []}
-    skipped_long = 0
-    step = 0
+    skipped_long = start_skipped
+    step = start_step
     micro = 0
     running = 0.0
     adapter_dir = None
-    seen = 0
+    seen = start_seen
     epoch = 0
+    if start_seen:
+        # the shuffled order is seeded, so skipping the samples already consumed continues the same pass
+        train = train[(start_seen + start_skipped) % len(train):] + train[: (start_seen + start_skipped) % len(train)]
     while step < total_steps:
         for sample in train:
             if step >= total_steps:
@@ -152,17 +180,19 @@ def cmd_train(args: argparse.Namespace) -> int:
                     losses["eval"].append([step, evaluate(step)])
                 if step % hyper.save_every == 0:
                     adapter_dir = out / f"adapter-step-{step:05d}"
-                    model.save_pretrained(str(adapter_dir))
+                    save_checkpoint(adapter_dir, step, seen, skipped_long)
         epoch += 1
         if hyper.max_steps is None and epoch >= math.ceil(hyper.epochs):
             break
     losses["eval"].append([step, evaluate(step)])
     adapter_dir = out / "adapter-final"
-    model.save_pretrained(str(adapter_dir))
+    save_checkpoint(adapter_dir, step, seen, skipped_long)
     gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
     receipt = lineage_receipt(dataset=dataset, base_dir=base, out_dir=out, hyper=hyper, versions=_versions(), gpu=gpu, started_at=started,
                               steps=step, losses=losses, adapter_dir=adapter_dir, skipped_long=skipped_long,
-                              notes={"samples_train": len(train), "samples_validation": len(validation), "epochs_seen": epoch})
+                              notes={"samples_train": len(train), "samples_validation": len(validation), "epochs_seen": epoch,
+                                     "resumed_from": resumed_from, "resumed_state": resumed_state, "accepted_examples": seen - start_seen,
+                                     "examples_per_step_are_accepted_only": True})
     print(json.dumps({"steps": step, "adapter": str(adapter_dir), "final_eval_loss": losses["eval"][-1][1], "receipt_written": True,
                       "adapter_files": receipt["adapter"]["files"]}), flush=True)
     return 0
@@ -200,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--eval-every", type=int, default=200)
     t.add_argument("--eval-samples", type=int, default=200)
     t.add_argument("--save-every", type=int, default=200)
+    t.add_argument("--resume-adapter", default=None, help="a saved adapter directory to continue from (optimizer.pt and training_state.json when present)")
     m = sub.add_parser("merge")
     m.add_argument("--base", required=True)
     m.add_argument("--adapter", required=True)

@@ -37,3 +37,22 @@ def test_data_scope_flag_no_longer_exists():
 
     with pytest.raises(SystemExit):
         vlm_ceiling.main(["run", "--arm", "reader_baseline", "--manifest", "x", "--out", "y", "--data-scope", "synthetic"])
+
+
+def test_adapter_key_binds_base_fetch_and_training_receipts(tmp_path):
+    import json
+
+    from tools.vlm_ceiling import _weights_bindings
+    from vlm.receipts import Refused
+
+    (tmp_path / "fetch-b27bf16-20260919T000000Z.json").write_text(json.dumps({"repo": "Qwen/Qwen3.8-27B", "local_dir": "/w/base", "hashes": ["a b"]}), encoding="utf-8")
+    import pytest
+
+    with pytest.raises(Refused) as exc:
+        _weights_bindings(tmp_path, ("b27lora",))
+    assert exc.value.code == "train_receipt_missing"
+    (tmp_path / "train-receipt-20260919T010000Z.json").write_text(json.dumps({"adapter": {"path": "/w/lora", "files": {"adapter_model.safetensors": "f" * 64}}, "steps": 300,
+                                                                            "dataset": {"manifest_sha256": "d" * 64}}), encoding="utf-8")
+    out = _weights_bindings(tmp_path, ("b27lora",))
+    assert out["b27lora"]["base"]["repo"] == "Qwen/Qwen3.8-27B" and out["b27lora"]["steps"] == 300
+    assert out["b27lora"]["adapter"]["files"]["adapter_model.safetensors"] == "f" * 64 and out["b27lora"]["train_receipt"]["sha256"]

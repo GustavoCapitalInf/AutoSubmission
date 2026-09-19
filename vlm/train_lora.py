@@ -121,5 +121,17 @@ def lineage_receipt(*, dataset: Path, base_dir: Path, out_dir: Path, hyper: Hype
     return receipt
 
 
+def checkpoint_metadata(*, step: int, seen: int, skipped_long: int, total_steps: int, hyper: Hyperparameters, resumed_from: str | None) -> dict:
+    """What a checkpoint directory records beside the adapter and the optimizer tensors, so a later run can
+    continue the schedule from the same step (the optimizer state travels in optimizer.pt, written by the host script)."""
+    return {"train_version": TRAIN_VERSION, "step": step, "seen": seen, "skipped_long": skipped_long, "total_steps": total_steps,
+            "hyperparameters": asdict(hyper), "resumed_from": resumed_from, "saved_at": utc_now()}
+
+
+def load_checkpoint_metadata(adapter_dir: Path) -> dict | None:
+    path = Path(adapter_dir) / "training_state.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()

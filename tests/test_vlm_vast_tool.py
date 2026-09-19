@@ -122,3 +122,11 @@ def test_training_keys_and_bundle():
     paths = vlm_vast.train_bundle_paths()
     assert "vlm/train_lora.py" in paths and "vlm/silver.py" in paths and paths[-2:] == ["tools/vlm_train_lora.py", "tools/vlm_render_silver.py"]
     assert not any(p.endswith("__init__.pyc") for p in paths)
+
+
+def test_lora_key_serves_the_base_with_the_adapter_module(monkeypatch):
+    monkeypatch.setenv("VLM_LORA_ADAPTER", "/workspace/lora-01/adapter-step-00300")
+    cmd = vlm_vast.serve_command("b27lora", "96gb")
+    assert "Qwen__Qwen3.8-27B " in cmd and "--served-model-name Qwen/Qwen3.8-27B" in cmd
+    assert "--lora-modules lora01=/workspace/lora-01/adapter-step-00300" in cmd and "--enable-lora" in cmd and "--max-lora-rank 32" in cmd
+    assert "--port 18004" in cmd

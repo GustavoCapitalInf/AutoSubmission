@@ -29,7 +29,7 @@ MODELS_DIR = "/workspace/models"
 HF_HOME = "/workspace/.hf_home"
 PADDLE_PYTHON = os.environ.get("VLM_WORKER_PYTHON") or "/workspace/paddleocr-env/bin/python"   # the worker builds its parser lazily
 HF_PYTHON = "/venv/main/bin/python"
-PORTS = {"a": 18001, "b": 18002, "worker": 18003, "b9": 18004, "b27": 18004, "b27ft": 18004}   # the 18004 keys run one at a time
+PORTS = {"a": 18001, "b": 18002, "worker": 18003, "b9": 18004, "b27": 18004, "b27ft": 18004, "b27lora": 18004}   # the 18004 keys run one at a time
 SERVER_KEYS = ("a", "b", "b9", "worker")
 MODELS = {
     "a": {"repo": "PaddlePaddle/PaddleOCR-VL-1.6", "served": "PaddleOCR-VL-1.6-0.9B", "size_gb": 2.0},
@@ -40,7 +40,11 @@ MODELS = {
     # (written by tools/vlm_train_lora.py merge on the host, served for evaluation through the same gate).
     "b27bf16": {"repo": "Qwen/Qwen3.8-27B", "served": "Qwen/Qwen3.8-27B", "size_gb": 57.0},
     "b27ft": {"repo": "local/Qwen3.8-27B-lora01", "served": "local/Qwen3.8-27B-lora01", "size_gb": 57.0},
+    # R17 evaluation without merging: the BF16 base served with the adapter as a vLLM LoRA module; requests name
+    # the module. The adapter path comes from VLM_LORA_ADAPTER (default: the run's final adapter).
+    "b27lora": {"repo": "Qwen/Qwen3.8-27B", "served": "lora01", "size_gb": 57.0, "base": "b27bf16"},
 }
+LORA_ADAPTER_DEFAULT = "/workspace/lora-01/adapter-final"
 SERVE_FLAGS = {
     "a": "--trust-remote-code --max-num-batched-tokens 8192 --no-enable-prefix-caching --mm-processor-cache-gb 0 "
          "--gpu-memory-utilization 0.28 --max-model-len 8192 --max-num-seqs 4",
@@ -65,6 +69,11 @@ SERVE_PROFILES = {
         "96gb": "--max-model-len 32768 --max-num-seqs 16 --max-num-batched-tokens 8192 --gpu-memory-utilization 0.90 "
                 "--kv-cache-dtype fp8 --compilation-config '{\"cudagraph_capture_sizes\":[1,2,4,8,16]}' "
                 "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar",
+    },
+    "b27lora": {
+        "96gb": "--max-model-len 32768 --max-num-seqs 8 --max-num-batched-tokens 8192 --gpu-memory-utilization 0.92 "
+                "--kv-cache-dtype fp8 --compilation-config '{\"cudagraph_capture_sizes\":[1,2,4,8]}' "
+                "--limit-mm-per-prompt.image 1 --structured-outputs-config.backend xgrammar --enable-lora --max-lora-rank 32",
     },
     # The merged BF16 model (56 GB of weights) leaves ~30 GB for the cache on the 96 GB card.
     "b27ft": {
@@ -96,6 +105,11 @@ def serve_flags(key: str, profile: str | None = None) -> str:
 
 def serve_command(key: str, profile: str | None = None) -> str:
     model = MODELS[key]
+    if model.get("base"):
+        adapter = os.environ.get("VLM_LORA_ADAPTER") or LORA_ADAPTER_DEFAULT
+        base = MODELS[model["base"]]
+        return (f"vllm serve {_local_dir(model['base'])} --served-model-name {base['served']} --host 127.0.0.1 --port {PORTS[key]} "
+                f"--download-dir {MODELS_DIR} --lora-modules {model['served']}={adapter} {serve_flags(key, profile)}")
     return (f"vllm serve {_local_dir(key)} --served-model-name {model['served']} --host 127.0.0.1 --port {PORTS[key]} "
             f"--download-dir {MODELS_DIR} {serve_flags(key, profile)}")
 
@@ -321,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vlm_vast")
     parser.add_argument("command", choices=("check", "fetch", "deploy", "start", "stop", "status", "tunnel-up",
                                             "tunnel-down", "attest", "deploy-train"))
-    parser.add_argument("--key", choices=("a", "b", "b9", "b27", "b27bf16", "b27ft", "worker", "all"), default=None)
+    parser.add_argument("--key", choices=("a", "b", "b9", "b27", "b27bf16", "b27ft", "b27lora", "worker", "all"), default=None)
     parser.add_argument("--dataset", default=None, help="deploy-train: the local silver dataset directory to ship")
     parser.add_argument("--since-epoch", type=float, default=0.0)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)

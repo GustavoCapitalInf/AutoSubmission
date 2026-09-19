@@ -45,6 +45,20 @@ def _weights_bindings(receipts_dir: Path, keys: tuple[str, ...]) -> dict:
     recorded hashes); a model without a fetch receipt refuses — the pin is never silently empty."""
     out: dict = {}
     for key in keys:
+        from tools.vlm_vast import MODELS
+
+        base_key = (MODELS.get(key) or {}).get("base")
+        if base_key:
+            # an adapter served over a base: bind the base's fetch receipt and the training receipt (adapter hashes)
+            train_receipts = sorted(Path(receipts_dir).glob("train-*.json"))
+            if not train_receipts:
+                raise Refused("train_receipt_missing")
+            base_binding = _weights_bindings(receipts_dir, (base_key,))[base_key]
+            latest = train_receipts[-1]
+            data = json.loads(latest.read_text(encoding="utf-8"))
+            out[key] = {"base": base_binding, "train_receipt": bound(latest), "adapter": data.get("adapter"), "steps": data.get("steps"),
+                        "dataset": data.get("dataset")}
+            continue
         candidates = sorted(p for p in Path(receipts_dir).glob(f"fetch-{key}-*.json") if "FAILED" not in p.name)
         if not candidates:
             raise Refused("weights_receipt_missing")

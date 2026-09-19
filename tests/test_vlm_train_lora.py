@@ -77,3 +77,11 @@ def test_read_samples_validates_targets_and_lineage_receipt_binds_everything(tmp
     with pytest.raises(Refused) as exc:
         tl.base_binding(tmp_path / "nowhere")
     assert exc.value.code == "base_config_missing"
+
+
+def test_checkpoint_metadata_round_trip(tmp_path):
+    meta = tl.checkpoint_metadata(step=100, seen=1600, skipped_long=300, total_steps=400, hyper=tl.Hyperparameters(), resumed_from=None)
+    (tmp_path / "training_state.json").write_text(json.dumps(meta), encoding="utf-8")
+    loaded = tl.load_checkpoint_metadata(tmp_path)
+    assert loaded["step"] == 100 and loaded["seen"] == 1600 and loaded["skipped_long"] == 300 and loaded["hyperparameters"]["rank"] == 32
+    assert tl.load_checkpoint_metadata(tmp_path / "nowhere") is None
