@@ -281,6 +281,254 @@ def train_bundle_paths() -> list[str]:
     return package + ["tools/vlm_train_lora.py", "tools/vlm_render_silver.py"]
 
 
+TRAIN_REMOTE_DIR = "/workspace/lora-01"
+TRAIN_LOCAL_ROOT = Path("discovery_reports/train13-logs/p3train")
+CHECKPOINT_MARKER = "training_state.json"   # the trainer writes it LAST in save_checkpoint: its presence means the save finished
+CHECKPOINT_REQUIRED = ("adapter_model.safetensors", "adapter_config.json")
+FULL_STATE_FILES = ("optimizer.pt", "rng.pt")
+BASE_CONFIG_FILES = ("config.json", "generation_config.json", "chat_template.jinja", "preprocessor_config.json",
+                     "video_preprocessor_config.json", "tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt", "LICENSE")
+
+
+VERSION_PROBE = """import sys, importlib.metadata as m
+print("python", sys.version.split()[0])
+for n in ("torch", "transformers", "peft", "accelerate", "pillow", "safetensors", "vllm"):
+    try:
+        print(n, m.version(n))
+    except m.PackageNotFoundError:
+        print(n, "absent")
+"""
+
+
+def _scp_pull_command(settings, remote_path: str, local_path: str) -> list[str]:
+    return ["scp", "-o", "BatchMode=yes", "-P", str(settings.vast_ssh_port),
+            f"{settings.vast_ssh_user}@{settings.vast_host}:{remote_path}", local_path]
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _shell_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def remote_checkpoints(settings, runner, remote_dir: str = TRAIN_REMOTE_DIR) -> dict[str, dict[str, int]]:
+    """{adapter dir name: {file: size}} for every adapter-* directory under the run's output directory."""
+    script = (f"cd {_shell_quote(remote_dir)} 2>/dev/null || exit 0; for d in adapter-*; do [ -d \"$d\" ] || continue; echo \"DIR $d\"; "
+              f"(cd \"$d\" && for f in *; do [ -f \"$f\" ] && echo \"F $(stat -c %s \"$f\") $f\"; done); done")
+    out: dict[str, dict[str, int]] = {}
+    current = None
+    for line in (_ssh(settings, runner, script, timeout=120.0).stdout or "").splitlines():
+        if line.startswith("DIR "):
+            current = line[4:].strip()
+            out[current] = {}
+        elif line.startswith("F ") and current is not None:
+            _, size, name = line.split(" ", 2)
+            out[current][name] = int(size)
+    return out
+
+
+def checkpoint_order(name: str) -> tuple:
+    """Step checkpoints in step order, then adapter-final, then anything else by name."""
+    if name.startswith("adapter-step-"):
+        digits = name[len("adapter-step-"):]
+        return (0, int(digits) if digits.isdigit() else 0, name)
+    return (1, 0, name) if name == "adapter-final" else (2, 0, name)
+
+
+def checkpoint_complete(files: dict[str, int]) -> bool:
+    return CHECKPOINT_MARKER in files and all(f in files for f in CHECKPOINT_REQUIRED)
+
+
+def remote_hashes(settings, runner, remote_dir: str, name: str) -> dict[str, str]:
+    proc = _ssh(settings, runner, f"cd {_shell_quote(remote_dir + '/' + name)} && sha256sum *", timeout=900.0)
+    hashes = {}
+    for line in (proc.stdout or "").splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2:
+            hashes[parts[1].lstrip("*")] = parts[0]
+    return hashes
+
+
+def local_verified(local_dir: Path) -> dict | None:
+    receipt = local_dir / "pull-receipt.json"
+    if not receipt.is_file():
+        return None
+    data = json.loads(receipt.read_text(encoding="utf-8"))
+    return data if data.get("verified") is True else None
+
+
+def cmd_pull_adapter(settings, name: str, *, remote_dir: str = TRAIN_REMOTE_DIR, local_root: Path = TRAIN_LOCAL_ROOT,
+                     run: str = "lora-01", runner: Callable[..., Any] = subprocess.run, sleeper: Callable[[float], None] = time.sleep,
+                     settle_seconds: float = 5.0) -> dict:
+    """Copy one finished checkpoint off the instance and verify it file by file (size and sha256 at both ends).
+
+    Refuses an unfinished save (no training_state.json) or one still being written (sizes change across a settle pause).
+    A verified local copy is never overwritten; an unverified leftover is moved aside, never merged into.
+    """
+    first = remote_checkpoints(settings, runner, remote_dir)
+    if name not in first:
+        raise PaddleVastError(f"checkpoint_missing:{name}")
+    if not checkpoint_complete(first[name]):
+        raise PaddleVastError(f"checkpoint_incomplete:{name}")
+    sleeper(settle_seconds)
+    second = remote_checkpoints(settings, runner, remote_dir).get(name)
+    if second != first[name]:
+        raise PaddleVastError(f"checkpoint_unsettled:{name}")
+    sizes = second
+    hashes = remote_hashes(settings, runner, remote_dir, name)
+    if set(hashes) != set(sizes):
+        raise PaddleVastError(f"checkpoint_hash_listing_mismatch:{name}")
+    local_dir = Path(local_root) / run / name
+    existing = local_verified(local_dir)
+    if existing is not None:
+        return {"name": name, "status": "already_verified", "local_dir": str(local_dir), "pulled_at": existing["pulled_at"],
+                "files": existing["files"]}
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if local_dir.exists():
+        local_dir.rename(local_dir.with_name(f"{name}.unverified-{stamp}"))
+    incoming = local_dir.with_name(f"{name}.incoming-{stamp}")
+    incoming.mkdir(parents=True)
+    files = {}
+    for fname in sorted(sizes):
+        target = incoming / fname
+        _run(runner, _scp_pull_command(settings, f"{remote_dir}/{name}/{fname}", str(target)), capture_output=True, text=True, timeout=7200)
+        if not target.is_file():
+            raise PaddleVastError(f"pull_missing:{fname}")
+        size = target.stat().st_size
+        digest = _sha256_file(target)
+        if size != sizes[fname]:
+            raise PaddleVastError(f"pull_size_mismatch:{fname}:{size}!={sizes[fname]}")
+        if digest != hashes[fname]:
+            raise PaddleVastError(f"pull_hash_mismatch:{fname}")
+        files[fname] = {"bytes": size, "sha256": digest}
+    step = None
+    hyper = None
+    if (incoming / CHECKPOINT_MARKER).is_file():
+        state = json.loads((incoming / CHECKPOINT_MARKER).read_text(encoding="utf-8"))
+        step = state.get("step")
+        hyper = state.get("hyperparameters")
+    receipt = {"name": name, "run": run, "remote_dir": remote_dir, "step": step, "hyperparameters": hyper, "files": files,
+               "full_state": all(f in files for f in FULL_STATE_FILES),
+               "resume_note": ("optimizer moments and RNG streams present: full-state resume" if all(f in files for f in FULL_STATE_FILES)
+                               else "weights-only for resume: schedule position and counters come from training_state.json, optimizer moments and RNG streams restart"),
+               "verified": True, "verification": "size and sha256 compared at source (sha256sum on the instance) and destination for every file",
+               "pulled_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    (incoming / "pull-receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    incoming.rename(local_dir)
+    return {**receipt, "status": "pulled", "local_dir": str(local_dir)}
+
+
+def cmd_pull_run_files(settings, *, remote_dir: str = TRAIN_REMOTE_DIR, local_root: Path = TRAIN_LOCAL_ROOT, run: str = "lora-01",
+                       runner: Callable[..., Any] = subprocess.run) -> dict:
+    """The run's small files (train receipt(s) and the log) copied next to the checkpoints, hash-verified."""
+    listing = _ssh(settings, runner, f"cd {_shell_quote(remote_dir)} 2>/dev/null && ls -1 train-receipt-*.json 2>/dev/null; "
+                                     f"ls -1 {_shell_quote(remote_dir + '.log')} 2>/dev/null", timeout=60.0).stdout or ""
+    out = {}
+    target_dir = Path(local_root) / run
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for entry in [l.strip() for l in listing.splitlines() if l.strip()]:
+        remote_path = entry if entry.startswith("/") else f"{remote_dir}/{entry}"
+        local_name = Path(entry).name if not entry.endswith(".log") else "train.log"
+        expected = (_ssh(settings, runner, f"sha256sum {_shell_quote(remote_path)}", timeout=120.0).stdout or "").split()[:1]
+        target = target_dir / local_name
+        _run(runner, _scp_pull_command(settings, remote_path, str(target)), capture_output=True, text=True, timeout=600)
+        digest = _sha256_file(target) if target.is_file() else None
+        out[local_name] = {"sha256": digest, "verified": bool(expected) and digest == expected[0]}
+    return out
+
+
+def cmd_watch_adapters(settings, *, remote_dir: str = TRAIN_REMOTE_DIR, local_root: Path = TRAIN_LOCAL_ROOT, run: str = "lora-01",
+                       interval_seconds: float = 300.0, deadline_seconds: float = 16 * 3600, runner: Callable[..., Any] = subprocess.run,
+                       sleeper: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+                       emit: Callable[[dict], None] | None = None) -> dict:
+    """Poll the run directory and copy every finished checkpoint off the instance as soon as it is complete.
+
+    Ends when adapter-final is verified locally and the train receipt is copied, or at the deadline. A failed poll or
+    pull is logged and retried on the next interval; it never stops the watch and never touches the trainer.
+    """
+    emit = emit or (lambda event: print(json.dumps(event), flush=True))
+    started = clock()
+    pulled: dict[str, str] = {}
+    final_done = False
+    while True:
+        try:
+            listing = remote_checkpoints(settings, runner, remote_dir)
+            for name in sorted(listing, key=checkpoint_order):
+                if name in pulled or not checkpoint_complete(listing[name]):
+                    continue
+                result = cmd_pull_adapter(settings, name, remote_dir=remote_dir, local_root=local_root, run=run, runner=runner, sleeper=sleeper)
+                pulled[name] = result["local_dir"]
+                emit({"event": result["status"], "name": name, "step": result.get("step"), "local_dir": result["local_dir"],
+                      "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+            if "adapter-final" in pulled and not final_done:
+                files = cmd_pull_run_files(settings, remote_dir=remote_dir, local_root=local_root, run=run, runner=runner)
+                final_done = any(k.startswith("train-receipt-") and v["verified"] for k, v in files.items())
+                emit({"event": "run_files", "files": files, "final_done": final_done})
+                if final_done:
+                    break
+            emit({"event": "poll", "checkpoints": {k: checkpoint_complete(v) for k, v in listing.items()}, "pulled": sorted(pulled),
+                  "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+        except PaddleVastError as exc:
+            emit({"event": "error", "code": _mask(str(exc), settings), "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+        if clock() - started >= deadline_seconds:
+            emit({"event": "deadline", "pulled": sorted(pulled)})
+            break
+        sleeper(interval_seconds)
+    return {"pulled": pulled, "final_done": final_done}
+
+
+def cmd_recovery_bundle(settings, *, local_root: Path = TRAIN_LOCAL_ROOT, run: str = "lora-01", base_key: str = "b27bf16",
+                        remote_dir: str = TRAIN_REMOTE_DIR, runner: Callable[..., Any] = subprocess.run) -> dict:
+    """Everything a restore needs besides the adapter weights, copied once per run into <run>/recovery/: the base model's
+    identity (repo, commit, config hashes), its processor/tokenizer/chat-template files (hash-verified), the trainer's
+    source hashes, the training command line, and the host's software versions. Nothing customer-related travels."""
+    base_dir = _local_dir(base_key)
+    target = Path(local_root) / run / "recovery"
+    target.mkdir(parents=True, exist_ok=True)
+    meta = _ssh(settings, runner, f"cd {_shell_quote(base_dir)} && cat .cache/huggingface/download/config.json.metadata 2>/dev/null | head -c 400; "
+                                  f"echo; echo ===; sha256sum config.json *.safetensors 2>/dev/null", timeout=900.0).stdout or ""
+    head, _, weight_hashes = meta.partition("===")
+    commit = next((l.split()[-1] for l in head.splitlines() if len(l.split()[-1]) == 40), None)
+    files = {}
+    for fname in BASE_CONFIG_FILES:
+        expected = (_ssh(settings, runner, f"sha256sum {_shell_quote(base_dir + '/' + fname)} 2>/dev/null", timeout=120.0).stdout or "").split()[:1]
+        if not expected:
+            files[fname] = {"present": False}
+            continue
+        local_path = target / "base-config" / fname
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        _run(runner, _scp_pull_command(settings, f"{base_dir}/{fname}", str(local_path)), capture_output=True, text=True, timeout=600)
+        digest = _sha256_file(local_path) if local_path.is_file() else None
+        files[fname] = {"present": True, "sha256": digest, "verified": digest == expected[0]}
+    versions = _ssh(settings, runner, f"PID=$(cat {_shell_quote(remote_dir + '.pid')} 2>/dev/null); [ -n \"$PID\" ] && tr '\\0' ' ' < /proc/$PID/cmdline; echo; echo ===; "
+                                      f"{PADDLE_PYTHON} -c {_shell_quote(VERSION_PROBE)} 2>/dev/null; "
+                                      "nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null; "
+                                      "cd /workspace/ci_train && sha256sum vlm_train_lora.py vlm/train_lora.py vlm/prompts.py vlm/schema.py 2>/dev/null", timeout=120.0).stdout or ""
+    cmdline, _, environment = versions.partition("===")
+    from vlm.prompts import PROMPT_VERSION, stage_b_prompt
+
+    manifest = {"run": run, "remote_dir": remote_dir, "written_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "base": {"key": base_key, "repo": MODELS[base_key]["repo"], "commit": commit, "remote_dir": base_dir,
+                         "weight_hashes": [l for l in weight_hashes.strip().splitlines() if l.strip()]},
+                "base_config_files": files,
+                "training_command": _mask(cmdline.strip(), settings) or None,
+                "host_environment": [l for l in environment.strip().splitlines() if l.strip()],
+                "prompt": {"version": PROMPT_VERSION, "stage_b_prompt_example": stage_b_prompt(page_number=1, page_total=1),
+                           "chat_template": "processor.apply_chat_template(..., enable_thinking=False); prompt tokens masked; assistant target = canonical JSON"},
+                "adapters_local": sorted(p.name for p in (Path(local_root) / run).glob("adapter-*") if local_verified(p) is not None),
+                "note": "checkpoints of this run carry optimizer.pt and rng.pt when saved by the resume-capable trainer; a checkpoint without them is weights-only for resume"}
+    (target / "recovery-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    return {**manifest, "manifest": str(target / "recovery-manifest.json")}
+
+
 def cmd_deploy_train(settings, dataset: Path | None, *, runner: Callable[..., Any] = subprocess.run) -> dict:
     """R17: ship the trainer and, when given, the silver dataset to /workspace on the rented host. Code goes as
     a tar stream over SSH (the `vlm` package beside the script); the dataset (JPEG pages + JSONL targets, customer
@@ -334,10 +582,15 @@ def cmd_attest(settings, *, runner: Callable[..., Any] = subprocess.run, since_e
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vlm_vast")
     parser.add_argument("command", choices=("check", "fetch", "deploy", "start", "stop", "status", "tunnel-up",
-                                            "tunnel-down", "attest", "deploy-train"))
+                                            "tunnel-down", "attest", "deploy-train", "pull-adapter", "watch-adapters", "recovery-bundle"))
     parser.add_argument("--key", choices=("a", "b", "b9", "b27", "b27bf16", "b27ft", "b27lora", "worker", "all"), default=None)
     parser.add_argument("--dataset", default=None, help="deploy-train: the local silver dataset directory to ship")
     parser.add_argument("--since-epoch", type=float, default=0.0)
+    parser.add_argument("--name", default=None, help="pull-adapter: the checkpoint directory name (adapter-step-00100, adapter-final)")
+    parser.add_argument("--remote-dir", default=TRAIN_REMOTE_DIR)
+    parser.add_argument("--run", default="lora-01")
+    parser.add_argument("--interval-seconds", type=float, default=300.0)
+    parser.add_argument("--deadline-hours", type=float, default=16.0)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         settings = load_paddle_settings()
@@ -363,6 +616,15 @@ def main(argv: list[str] | None = None) -> int:
             out = cmd_tunnel_down(settings)
         elif args.command == "deploy-train":
             out = cmd_deploy_train(settings, Path(args.dataset) if args.dataset else None)
+        elif args.command == "pull-adapter":
+            if not args.name:
+                raise PaddleVastError("name_required")
+            out = cmd_pull_adapter(settings, args.name, remote_dir=args.remote_dir, run=args.run)
+        elif args.command == "watch-adapters":
+            out = cmd_watch_adapters(settings, remote_dir=args.remote_dir, run=args.run, interval_seconds=args.interval_seconds,
+                                     deadline_seconds=args.deadline_hours * 3600.0)
+        elif args.command == "recovery-bundle":
+            out = cmd_recovery_bundle(settings, run=args.run, remote_dir=args.remote_dir)
         else:
             out = cmd_attest(settings, since_epoch=args.since_epoch)
     except PaddleVastError as exc:
