@@ -37,7 +37,7 @@ def test_density_buckets_and_page_reference():
     assert [ec.density_bucket(n) for n in (0, 1, 10, 11, 30, 31, 60, 61)] == ["0 rows", "1-10 rows", "1-10 rows", "11-30 rows", "11-30 rows",
                                                                             "31-60 rows", "31-60 rows", "61+ rows"]
     ref = _reference()
-    assert len(ref[(SHA_A, 2)]["target"]["rows"]) == 70 and (SHA_B, 1) not in ref
+    assert len(ref[(SHA_A.upper(), 2)]["target"]["rows"]) == 70 and (SHA_B.upper(), 1) not in ref and (SHA_A, 2) not in ref
 
 
 def test_summary_keeps_failures_truncation_invalid_pages_and_over_cap_pages_in_the_denominators(tmp_path):
@@ -86,3 +86,32 @@ def test_compare_reports_both_arms_and_the_deltas_per_frozen_subset(tmp_path):
     dev = report["subsets"]["DEV"]
     assert dev["base"]["documents_requested"] == 1 and dev["delta"]["admitted_strict"] == 1 and dev["delta"]["row_match_rate"] == round(1 - 0.8, 4)
     assert report["base_wave"].endswith("base") and report["adapter_wave"].endswith("adapter")
+
+
+def test_compare_cli_binds_subsets_silver_density_and_over_cap_pages(tmp_path):
+    from tools import vlm_ceiling
+    from vlm.receipts import dump_new
+
+    base = _write_wave(tmp_path, "base", [_receipt(SHA_A, pages=3, admitted=False, reasons=["balance_chain"], truncated_pages=(2,))])
+    adapter = _write_wave(tmp_path, "adapter", [_receipt(SHA_A, pages=3, admitted=True)])
+    manifest = tmp_path / "S.manifest.private.json"
+    dump_new(manifest, {"manifest_version": 1, "name": "S", "data_scope": "synthetic", "set_sha256": "0" * 64, "archive_root": str(tmp_path),
+                        "members": [{"sha": SHA_A, "relative_path": "a.pdf", "byte_size": 1, "page_count": 3, "folder_label": "fam",
+                                     "classification": "digital", "outcome_class": "validated", "account_count": 1}]})
+    dataset = tmp_path / "silver"
+    dataset.mkdir()
+    lines = [{"sha": SHA_A.lower(), "page": p, "target": {"rows": [{"amount": 1.0}] * n}} for p, n in enumerate([0, 12, 70])]
+    (dataset / "validation.jsonl").write_text("\n".join(json.dumps(l) for l in lines) + "\n", encoding="utf-8")
+    lengths = tmp_path / "page-lengths.json"
+    lengths.write_text(json.dumps({"items": [{"sha": SHA_A.lower(), "page": 2, "over_cap": True}, {"sha": SHA_A, "page": 1, "over_cap": False}]}), encoding="utf-8")
+    out = tmp_path / "compare.json"
+    code = vlm_ceiling.main(["compare", "--base-wave", str(base), "--adapter-wave", str(adapter), "--subset", f"S={manifest}",
+                             "--silver-dataset", str(dataset), "--page-lengths", str(lengths), "--out", str(out)])
+    assert code == 0
+    report = json.loads(out.read_text(encoding="utf-8"))
+    s = report["subsets"]["S"]
+    assert report["over_cap_pages_known"] == 1 and report["reference_accounts"] == 0 and "not human-verified" in report["reference"]
+    assert s["base"]["over_cap_pages"] == {"pages": 1, "invalid": 0, "truncated": 1} and s["adapter"]["over_cap_pages"]["truncated"] == 0
+    assert s["base"]["by_density"]["61+ rows"]["truncated"] == 1 and s["delta"]["admitted_strict"] == 1
+    assert vlm_ceiling.main(["compare", "--base-wave", str(base), "--adapter-wave", str(adapter), "--out", str(tmp_path / "x.json")]) == 2
+    assert vlm_ceiling.main(["compare", "--base-wave", str(base), "--adapter-wave", str(adapter), "--subset", "bad", "--out", str(tmp_path / "y.json")]) == 2

@@ -27,7 +27,7 @@ def _load_wave(wave: Path) -> dict[str, tuple[dict, dict | None]]:
         public = json.loads(path.read_text(encoding="utf-8"))
         private_path = path.with_name(path.name[:-5] + ".private.json")
         private = json.loads(private_path.read_text(encoding="utf-8")) if private_path.exists() else None
-        out[public["sha"]] = (public, private)
+        out[public["sha"].upper()] = (public, private)
     return out
 
 
@@ -45,13 +45,16 @@ def density_bucket(rows_on_page: int) -> str:
 
 def page_reference(silver_lines: list[dict]) -> dict[tuple[str, int], dict]:
     """(sha, page) -> the silver target line, for per-page density and the over-cap flag."""
-    return {(line["sha"], int(line["page"])): line for line in silver_lines}
+    return {(line["sha"].upper(), int(line["page"])): line for line in silver_lines}
 
 
 def summarize_wave(wave: Path, *, shas: set[str], reference: dict[tuple[str, int], dict] | None = None,
                    over_cap: set[tuple[str, int]] | None = None, reference_accounts: dict[str, dict] | None = None) -> dict:
     receipts = _load_wave(wave)
-    docs = {s: receipts[s] for s in shas if s in receipts}
+    shas = {s.upper() for s in shas}
+    over_cap = {(s.upper(), int(p)) for s, p in (over_cap or ())}
+    reference_accounts = {s.upper(): v for s, v in (reference_accounts or {}).items()}
+    docs = {s: receipts[s] for s in sorted(shas) if s in receipts}
     out: dict = {"documents_requested": len(shas), "documents_with_receipt": len(docs), "failed": 0, "failure_codes": Counter(),
                  "gated": 0, "admitted_strict": 0, "refusal_reasons": Counter(), "invalid_pages": 0, "pages": 0, "truncated_pages": 0,
                  "rows": {"truth": 0, "matched": 0, "missing": 0, "extra": 0, "exact_balance": 0, "balance_mismatch": 0, "documents_with_truth": 0},
@@ -88,7 +91,7 @@ def summarize_wave(wave: Path, *, shas: set[str], reference: dict[tuple[str, int
                 r[key] += int(match.get(key if key != "truth" else "truth_rows") or 0)
         # account assignment: the model's merged account facts (private meta) against the reference statement facts
         meta = (private or {}).get("meta") or {}
-        ref_acct = (reference_accounts or {}).get(sha) or {}
+        ref_acct = reference_accounts.get(sha) or {}
         for field, key in (("last4", "account_last4"), ("period", "period_end"), ("currency", "currency")):
             expected = ref_acct.get(key)
             if expected in (None, ""):

@@ -212,6 +212,58 @@ def _preflight(args: argparse.Namespace) -> int:
     return 0 if all(c == 0 for c in codes.values()) else 3
 
 
+def _compare(args: argparse.Namespace) -> int:
+    """Two completed waves (same manifest, same settings) compared per frozen subset; silver rows and the reader's
+    validated facts are the reference, never human truth; over-cap pages come from the host's page-length pass."""
+    from vlm.evalcompare import compare, page_reference
+    from vlm.receipts import dump_new, need
+
+    subsets = {}
+    for spec in args.subset:
+        name, _, path = spec.partition("=")
+        need(bool(name) and bool(path), "subset_spec_invalid")
+        subsets[name] = {m.sha.upper() for m in partitions.load_private_manifest(Path(path))}
+    need(bool(subsets), "no_subsets")
+    reference = None
+    if args.silver_dataset:
+        lines = []
+        for split in ("train", "validation"):
+            path = Path(args.silver_dataset) / f"{split}.jsonl"
+            if path.is_file():
+                for raw in path.read_text(encoding="utf-8").splitlines():
+                    if raw.strip():
+                        line = json.loads(raw)
+                        line["sha"] = line["sha"].upper()
+                        lines.append(line)
+        reference = page_reference(lines)
+    over_cap: set = set()
+    for path in args.page_lengths:
+        lengths = json.loads(Path(path).read_text(encoding="utf-8"))
+        over_cap |= {(i["sha"].upper(), int(i["page"])) for i in lengths["items"] if i["over_cap"]}
+    accounts = None
+    if args.truth:
+        truth = ReaderTruth(Path(args.truth_cache), partitions.DEFAULT_RUN_OF_RECORD)
+        try:
+            accounts = {}
+            for sha in sorted(set().union(*subsets.values())):
+                found = truth.accounts(sha)
+                if found and len(found) == 1:   # multi-account statements have no single reference account
+                    a = found[0]
+                    accounts[sha] = {"account_last4": str(a.account_number)[-4:] if a.account_number else None,
+                                     "period_end": a.period_end, "currency": a.currency}
+        finally:
+            truth.close()
+    report = compare(Path(args.base_wave), Path(args.adapter_wave), subsets=subsets, reference=reference,
+                     over_cap=over_cap or None, reference_accounts=accounts)
+    report["over_cap_pages_known"] = len(over_cap)
+    report["reference_accounts"] = len(accounts or {})
+    report["reference"] = "silver rows (reader-derived) and the reader's validated statements; not human-verified truth"
+    dump_new(Path(args.out), report)
+    print(json.dumps({name: {"base_admitted": s["base"]["admitted_strict"], "adapter_admitted": s["adapter"]["admitted_strict"],
+                             "gated": s["adapter"]["gated"], "delta": s["delta"]} for name, s in report["subsets"].items()}))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vlm_ceiling")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -259,6 +311,15 @@ def main(argv: list[str] | None = None) -> int:
     q = sub.add_parser("report")
     q.add_argument("--wave", required=True)
     q.add_argument("--exclude-manifest", default=None, help="private manifest whose members are reported as an excluded slice")
+    c = sub.add_parser("compare", help="base versus adapter: two waves over the same manifest, per frozen subset (no model calls)")
+    c.add_argument("--base-wave", required=True)
+    c.add_argument("--adapter-wave", required=True)
+    c.add_argument("--subset", action="append", default=[], help="NAME=private manifest of a frozen evaluation subset; repeatable")
+    c.add_argument("--silver-dataset", default=None, help="silver dataset dir; its jsonl gives the per-page density (silver rows, not truth)")
+    c.add_argument("--page-lengths", action="append", default=[], help="page-lengths json from vlm_page_lengths.py (over-cap pages); repeatable")
+    c.add_argument("--truth", action="store_true", help="reference account facts from the reader's validated single-account statements")
+    c.add_argument("--truth-cache", default=str(DEFAULT_TRUTH_CACHE))
+    c.add_argument("--out", required=True)
     g = sub.add_parser("regate", help="re-gate a completed wave's proposals under the current gate (no model calls)")
     g.add_argument("--wave", required=True)
     g.add_argument("--out", required=True)
@@ -277,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"name": public["name"], "documents": public["documents"], "pages": public["pages"],
                               "buckets": public["derived_from"]["buckets"]}))
             return 0
+        if args.command == "compare":
+            return _compare(args)
         if args.command == "regate":
             from vlm.regate import regate_wave
 
