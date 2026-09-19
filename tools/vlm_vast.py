@@ -153,7 +153,15 @@ def _mask(text: str, settings) -> str:
 
 def _ssh(settings, runner, command: str, timeout: float = 120.0):
     return _run(runner, _ssh_command(settings, command), capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=timeout)
+                errors="replace", timeout=timeout, stdin=subprocess.DEVNULL)
+
+
+def _remote_script(script: str) -> str:
+    """A shell script carried as base64 so no quote, dollar or backslash depends on the local argv parser
+    (Windows OpenSSH from a hidden process mangled a quoted command and hung the remote shell)."""
+    import base64
+
+    return "echo " + base64.b64encode(script.encode("utf-8")).decode("ascii") + " | base64 -d | bash"
 
 
 def _disk_free_gb(settings, runner) -> float:
@@ -325,7 +333,7 @@ def remote_checkpoints(settings, runner, remote_dir: str = TRAIN_REMOTE_DIR) -> 
               f"(cd \"$d\" && for f in *; do [ -f \"$f\" ] && echo \"F $(stat -c %s \"$f\") $f\"; done); done")
     out: dict[str, dict[str, int]] = {}
     current = None
-    for line in (_ssh(settings, runner, script, timeout=120.0).stdout or "").splitlines():
+    for line in (_ssh(settings, runner, _remote_script(script), timeout=120.0).stdout or "").splitlines():
         if line.startswith("DIR "):
             current = line[4:].strip()
             out[current] = {}
@@ -348,7 +356,7 @@ def checkpoint_complete(files: dict[str, int]) -> bool:
 
 
 def remote_hashes(settings, runner, remote_dir: str, name: str) -> dict[str, str]:
-    proc = _ssh(settings, runner, f"cd {_shell_quote(remote_dir + '/' + name)} && sha256sum *", timeout=900.0)
+    proc = _ssh(settings, runner, _remote_script(f"cd {_shell_quote(remote_dir + '/' + name)} && sha256sum *"), timeout=900.0)
     hashes = {}
     for line in (proc.stdout or "").splitlines():
         parts = line.strip().split(None, 1)
@@ -429,15 +437,15 @@ def cmd_pull_adapter(settings, name: str, *, remote_dir: str = TRAIN_REMOTE_DIR,
 def cmd_pull_run_files(settings, *, remote_dir: str = TRAIN_REMOTE_DIR, local_root: Path = TRAIN_LOCAL_ROOT, run: str = "lora-01",
                        runner: Callable[..., Any] = subprocess.run) -> dict:
     """The run's small files (train receipt(s) and the log) copied next to the checkpoints, hash-verified."""
-    listing = _ssh(settings, runner, f"cd {_shell_quote(remote_dir)} 2>/dev/null && ls -1 train-receipt-*.json 2>/dev/null; "
-                                     f"ls -1 {_shell_quote(remote_dir + '.log')} 2>/dev/null", timeout=60.0).stdout or ""
+    listing = _ssh(settings, runner, _remote_script(f"cd {_shell_quote(remote_dir)} 2>/dev/null && ls -1 train-receipt-*.json 2>/dev/null; "
+                                                    f"ls -1 {_shell_quote(remote_dir + '.log')} 2>/dev/null"), timeout=60.0).stdout or ""
     out = {}
     target_dir = Path(local_root) / run
     target_dir.mkdir(parents=True, exist_ok=True)
     for entry in [l.strip() for l in listing.splitlines() if l.strip()]:
         remote_path = entry if entry.startswith("/") else f"{remote_dir}/{entry}"
         local_name = Path(entry).name if not entry.endswith(".log") else "train.log"
-        expected = (_ssh(settings, runner, f"sha256sum {_shell_quote(remote_path)}", timeout=120.0).stdout or "").split()[:1]
+        expected = (_ssh(settings, runner, _remote_script(f"sha256sum {_shell_quote(remote_path)}"), timeout=120.0).stdout or "").split()[:1]
         target = target_dir / local_name
         _run(runner, _scp_pull_command(settings, remote_path, str(target)), capture_output=True, text=True, timeout=600)
         digest = _sha256_file(target) if target.is_file() else None
@@ -493,13 +501,13 @@ def cmd_recovery_bundle(settings, *, local_root: Path = TRAIN_LOCAL_ROOT, run: s
     base_dir = _local_dir(base_key)
     target = Path(local_root) / run / "recovery"
     target.mkdir(parents=True, exist_ok=True)
-    meta = _ssh(settings, runner, f"cd {_shell_quote(base_dir)} && cat .cache/huggingface/download/config.json.metadata 2>/dev/null | head -c 400; "
-                                  f"echo; echo ===; sha256sum config.json *.safetensors 2>/dev/null", timeout=900.0).stdout or ""
+    meta = _ssh(settings, runner, _remote_script(f"cd {_shell_quote(base_dir)} && cat .cache/huggingface/download/config.json.metadata 2>/dev/null | head -c 400; "
+                                                 f"echo; echo ===; sha256sum config.json *.safetensors 2>/dev/null"), timeout=900.0).stdout or ""
     head, _, weight_hashes = meta.partition("===")
     commit = next((l.split()[-1] for l in head.splitlines() if len(l.split()[-1]) == 40), None)
     files = {}
     for fname in BASE_CONFIG_FILES:
-        expected = (_ssh(settings, runner, f"sha256sum {_shell_quote(base_dir + '/' + fname)} 2>/dev/null", timeout=120.0).stdout or "").split()[:1]
+        expected = (_ssh(settings, runner, _remote_script(f"sha256sum {_shell_quote(base_dir + '/' + fname)} 2>/dev/null"), timeout=120.0).stdout or "").split()[:1]
         if not expected:
             files[fname] = {"present": False}
             continue
@@ -508,10 +516,11 @@ def cmd_recovery_bundle(settings, *, local_root: Path = TRAIN_LOCAL_ROOT, run: s
         _run(runner, _scp_pull_command(settings, f"{base_dir}/{fname}", str(local_path)), capture_output=True, text=True, timeout=600)
         digest = _sha256_file(local_path) if local_path.is_file() else None
         files[fname] = {"present": True, "sha256": digest, "verified": digest == expected[0]}
-    versions = _ssh(settings, runner, f"PID=$(cat {_shell_quote(remote_dir + '.pid')} 2>/dev/null); [ -n \"$PID\" ] && tr '\\0' ' ' < /proc/$PID/cmdline; echo; echo ===; "
-                                      f"{PADDLE_PYTHON} -c {_shell_quote(VERSION_PROBE)} 2>/dev/null; "
-                                      "nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null; "
-                                      "cd /workspace/ci_train && sha256sum vlm_train_lora.py vlm/train_lora.py vlm/prompts.py vlm/schema.py 2>/dev/null", timeout=120.0).stdout or ""
+    versions = _ssh(settings, runner, _remote_script(
+        f"PID=$(cat {_shell_quote(remote_dir + '.pid')} 2>/dev/null); [ -n \"$PID\" ] && tr '\\0' ' ' < /proc/$PID/cmdline; echo; echo ===; "
+        f"{PADDLE_PYTHON} -c {_shell_quote(VERSION_PROBE)} 2>/dev/null; "
+        "nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null; "
+        "cd /workspace/ci_train && sha256sum vlm_train_lora.py vlm/train_lora.py vlm/prompts.py vlm/schema.py 2>/dev/null"), timeout=120.0).stdout or ""
     cmdline, _, environment = versions.partition("===")
     from vlm.prompts import PROMPT_VERSION, stage_b_prompt
 

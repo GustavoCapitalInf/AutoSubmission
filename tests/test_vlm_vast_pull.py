@@ -28,7 +28,7 @@ class FakeHost:
         self.corrupt = set()
 
     def runner(self, args, **kwargs):
-        text = " ".join(args)
+        text = _decoded(args)
         if args[0] == "scp":
             remote, local = args[-2], args[-1]
             _, path = remote.split(":", 1)
@@ -50,6 +50,17 @@ class FakeHost:
             name = text.split("cd '")[1].split("'")[0].rsplit("/", 1)[-1]
             return Proc(stdout="".join(f"{hashlib.sha256(data).hexdigest()}  {fname}\n" for fname, data in sorted(self.dirs[name].items())))
         return Proc()
+
+
+def _decoded(args):
+    """The remote command with any base64-carried script expanded, so the fake host can match on its text."""
+    import base64
+
+    text = " ".join(args)
+    if " | base64 -d | bash" in text:
+        payload = text.split("echo ", 1)[1].split(" | base64 -d | bash", 1)[0]
+        text = base64.b64decode(payload).decode("utf-8")
+    return text
 
 
 def _checkpoint(step, *, full=True):
@@ -126,10 +137,10 @@ def test_watch_pulls_each_finished_checkpoint_as_it_appears_and_stops_after_the_
             host.dirs["adapter-final"] = _checkpoint(400)
 
     def runner(args, **kwargs):
-        text = " ".join(args)
+        text = _decoded(args)
         if "train-receipt-" in text and "ls -1" in text:
             return Proc(stdout="train-receipt-20310101T000000+0000.json\n/workspace/lora-01.log\n")
-        if text.startswith("ssh") and "sha256sum '" in text:
+        if args[0] == "ssh" and "sha256sum '" in text:
             return Proc(stdout=f"{hashlib.sha256(b'receipt').hexdigest()}  x\n")
         if args[0] == "scp" and ("train-receipt-" in text or ".log" in text):
             with open(args[-1], "wb") as fh:
