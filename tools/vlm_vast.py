@@ -291,8 +291,10 @@ def train_bundle_paths() -> list[str]:
 
 TRAIN_REMOTE_DIR = "/workspace/lora-01"
 TRAIN_LOCAL_ROOT = Path("discovery_reports/train13-logs/p3train")
-CHECKPOINT_MARKER = "training_state.json"   # the trainer writes it LAST in save_checkpoint: its presence means the save finished
-CHECKPOINT_REQUIRED = ("adapter_model.safetensors", "adapter_config.json")
+CHECKPOINT_MARKER = "training_state.json"   # the resume-capable trainer writes it LAST in save_checkpoint
+CHECKPOINT_REQUIRED = ("adapter_model.safetensors", "adapter_config.json")   # PEFT save_pretrained writes adapter_config.json LAST
+CHECKPOINT_MIN_AGE_SECONDS = 30.0   # a weights-only save (no marker) counts as finished only once nothing in it changed for this long
+AGE_KEY = "__age_seconds"
 FULL_STATE_FILES = ("optimizer.pt", "rng.pt")
 BASE_CONFIG_FILES = ("config.json", "generation_config.json", "chat_template.jinja", "preprocessor_config.json",
                      "video_preprocessor_config.json", "tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt", "LICENSE")
@@ -329,17 +331,19 @@ def _shell_quote(value: str) -> str:
 
 def remote_checkpoints(settings, runner, remote_dir: str = TRAIN_REMOTE_DIR) -> dict[str, dict[str, int]]:
     """{adapter dir name: {file: size}} for every adapter-* directory under the run's output directory."""
-    script = (f"cd {_shell_quote(remote_dir)} 2>/dev/null || exit 0; for d in adapter-*; do [ -d \"$d\" ] || continue; echo \"DIR $d\"; "
-              f"(cd \"$d\" && for f in *; do [ -f \"$f\" ] && echo \"F $(stat -c %s \"$f\") $f\"; done); done")
+    script = (f"cd {_shell_quote(remote_dir)} 2>/dev/null || exit 0; NOW=$(date +%s); for d in adapter-*; do [ -d \"$d\" ] || continue; "
+              f"echo \"DIR $d $((NOW - $(stat -c %Y \"$d\")))\"; "
+              f"(cd \"$d\" && for f in *; do [ -f \"$f\" ] && echo \"F $(stat -c %s \"$f\") $((NOW - $(stat -c %Y \"$f\"))) $f\"; done); done")
     out: dict[str, dict[str, int]] = {}
     current = None
     for line in (_ssh(settings, runner, _remote_script(script), timeout=120.0).stdout or "").splitlines():
         if line.startswith("DIR "):
-            current = line[4:].strip()
-            out[current] = {}
+            _, current, age = line.split(" ", 2)
+            out[current] = {AGE_KEY: int(age)}
         elif line.startswith("F ") and current is not None:
-            _, size, name = line.split(" ", 2)
+            _, size, age, name = line.split(" ", 3)
             out[current][name] = int(size)
+            out[current][AGE_KEY] = min(out[current][AGE_KEY], int(age))
     return out
 
 
@@ -352,7 +356,15 @@ def checkpoint_order(name: str) -> tuple:
 
 
 def checkpoint_complete(files: dict[str, int]) -> bool:
-    return CHECKPOINT_MARKER in files and all(f in files for f in CHECKPOINT_REQUIRED)
+    """Finished: the weights and the config (written last by PEFT) exist, and either the resume-capable trainer's
+    marker exists too, or nothing in the directory has changed for CHECKPOINT_MIN_AGE_SECONDS (weights-only save)."""
+    if not all(f in files for f in CHECKPOINT_REQUIRED):
+        return False
+    return CHECKPOINT_MARKER in files or files.get(AGE_KEY, 0) >= CHECKPOINT_MIN_AGE_SECONDS
+
+
+def _sizes(files: dict[str, int]) -> dict[str, int]:
+    return {k: v for k, v in files.items() if k != AGE_KEY}
 
 
 def remote_hashes(settings, runner, remote_dir: str, name: str) -> dict[str, str]:
@@ -375,7 +387,7 @@ def local_verified(local_dir: Path) -> dict | None:
 
 def cmd_pull_adapter(settings, name: str, *, remote_dir: str = TRAIN_REMOTE_DIR, local_root: Path = TRAIN_LOCAL_ROOT,
                      run: str = "lora-01", runner: Callable[..., Any] = subprocess.run, sleeper: Callable[[float], None] = time.sleep,
-                     settle_seconds: float = 5.0) -> dict:
+                     settle_seconds: float = 20.0) -> dict:
     """Copy one finished checkpoint off the instance and verify it file by file (size and sha256 at both ends).
 
     Refuses an unfinished save (no training_state.json) or one still being written (sizes change across a settle pause).
@@ -388,9 +400,9 @@ def cmd_pull_adapter(settings, name: str, *, remote_dir: str = TRAIN_REMOTE_DIR,
         raise PaddleVastError(f"checkpoint_incomplete:{name}")
     sleeper(settle_seconds)
     second = remote_checkpoints(settings, runner, remote_dir).get(name)
-    if second != first[name]:
+    if second is None or _sizes(second) != _sizes(first[name]):
         raise PaddleVastError(f"checkpoint_unsettled:{name}")
-    sizes = second
+    sizes = _sizes(second)
     hashes = remote_hashes(settings, runner, remote_dir, name)
     if set(hashes) != set(sizes):
         raise PaddleVastError(f"checkpoint_hash_listing_mismatch:{name}")

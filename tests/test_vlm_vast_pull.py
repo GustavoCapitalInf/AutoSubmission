@@ -22,10 +22,11 @@ def _settings(tmp_path):
 class FakeHost:
     """A run directory on a pretend instance: ssh listings and sha256sum answer from `dirs`, scp copies bytes."""
 
-    def __init__(self, dirs):
+    def __init__(self, dirs, age=3600):
         self.dirs = dirs          # {name: {file: bytes}}
         self.copies = []
         self.corrupt = set()
+        self.age = age            # seconds since the newest file changed, as the host would report it
 
     def runner(self, args, **kwargs):
         text = _decoded(args)
@@ -43,8 +44,8 @@ class FakeHost:
         if "for d in adapter-*" in text:
             lines = []
             for name, files in sorted(self.dirs.items()):
-                lines.append(f"DIR {name}")
-                lines += [f"F {len(data)} {fname}" for fname, data in sorted(files.items())]
+                lines.append(f"DIR {name} {self.age}")
+                lines += [f"F {len(data)} {self.age} {fname}" for fname, data in sorted(files.items())]
             return Proc(stdout="\n".join(lines) + "\n")
         if "sha256sum *" in text:
             name = text.split("cd '")[1].split("'")[0].rsplit("/", 1)[-1]
@@ -74,10 +75,20 @@ def _checkpoint(step, *, full=True):
 
 
 def test_pull_refuses_unfinished_or_still_changing_saves(tmp_path):
-    host = FakeHost({"adapter-step-00100": {k: v for k, v in _checkpoint(100).items() if k != "training_state.json"}})
+    # the config is the last file PEFT writes: without it the save is still in progress
+    host = FakeHost({"adapter-step-00100": {k: v for k, v in _checkpoint(100).items() if k != "adapter_config.json"}})
     with pytest.raises(vlm_vast.PaddleVastError) as exc:
         vlm_vast.cmd_pull_adapter(_settings(tmp_path), "adapter-step-00100", local_root=tmp_path / "bk", runner=host.runner, sleeper=lambda s: None)
     assert "checkpoint_incomplete" in str(exc.value)
+    # a weights-only save (no training_state.json) written seconds ago is not finished yet; the same files aged are
+    fresh = FakeHost({"adapter-step-00100": {k: v for k, v in _checkpoint(100, full=False).items() if k != "training_state.json"}}, age=5)
+    with pytest.raises(vlm_vast.PaddleVastError) as exc:
+        vlm_vast.cmd_pull_adapter(_settings(tmp_path), "adapter-step-00100", local_root=tmp_path / "bk", runner=fresh.runner, sleeper=lambda s: None)
+    assert "checkpoint_incomplete" in str(exc.value)
+    fresh.age = 45
+    aged = vlm_vast.cmd_pull_adapter(_settings(tmp_path), "adapter-step-00100", local_root=tmp_path / "bk", runner=fresh.runner, sleeper=lambda s: None)
+    assert aged["status"] == "pulled" and aged["step"] is None and aged["full_state"] is False and "weights-only" in aged["resume_note"]
+    assert set(aged["files"]) == {"adapter_model.safetensors", "adapter_config.json", "README.md"}
     with pytest.raises(vlm_vast.PaddleVastError) as exc:
         vlm_vast.cmd_pull_adapter(_settings(tmp_path), "adapter-step-00200", local_root=tmp_path / "bk", runner=host.runner, sleeper=lambda s: None)
     assert "checkpoint_missing" in str(exc.value)
@@ -88,7 +99,8 @@ def test_pull_refuses_unfinished_or_still_changing_saves(tmp_path):
     with pytest.raises(vlm_vast.PaddleVastError) as exc:
         vlm_vast.cmd_pull_adapter(_settings(tmp_path), "adapter-step-00100", local_root=tmp_path / "bk", runner=growing.runner, sleeper=grow)
     assert "checkpoint_unsettled" in str(exc.value)
-    assert not list((tmp_path / "bk").glob("**/pull-receipt.json"))
+    # the only receipt on disk is the aged weights-only pull above; every refusal left none
+    assert [p.parent.name for p in (tmp_path / "bk").glob("**/pull-receipt.json")] == ["adapter-step-00100"]
 
 
 def test_pull_verifies_every_file_and_keeps_previous_verified_copies(tmp_path):
@@ -131,9 +143,9 @@ def test_watch_pulls_each_finished_checkpoint_as_it_appears_and_stops_after_the_
         ticks["n"] += 1
         if ticks["n"] == 1:
             host.dirs["adapter-step-00100"] = _checkpoint(100)
-            host.dirs["adapter-step-00200"] = {k: v for k, v in _checkpoint(200).items() if k != "training_state.json"}  # still saving
+            host.dirs["adapter-step-00200"] = {k: v for k, v in _checkpoint(200).items() if k != "adapter_config.json"}  # still saving
         elif ticks["n"] == 2:
-            host.dirs["adapter-step-00200"]["training_state.json"] = _checkpoint(200)["training_state.json"]
+            host.dirs["adapter-step-00200"]["adapter_config.json"] = _checkpoint(200)["adapter_config.json"]
             host.dirs["adapter-final"] = _checkpoint(400)
 
     def runner(args, **kwargs):
