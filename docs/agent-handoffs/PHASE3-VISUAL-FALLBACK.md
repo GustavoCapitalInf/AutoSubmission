@@ -7,6 +7,8 @@ leaderboard. Where this document and an older plan disagree, this document wins 
 - Private copy (includes the connection section): `C:\Users\GustavoPrietodePaula\extraction-shootout\private\PHASE3-VISUAL-FALLBACK-HANDOFF.md`
 - Repository copy for the project record: `docs/agent-handoffs/PHASE3-VISUAL-FALLBACK.md` (this file — identical to the private copy, with section 2 replaced by a pointer, because connection details never enter Git)
 - Connection annex: `C:\Users\GustavoPrietodePaula\extraction-shootout\private\PHASE3-FALLBACK-CONNECTION.md`
+  (private; its placeholder-only template is committed as `docs/agent-handoffs/PHASE3-FALLBACK-CONNECTION.example.md`)
+- Evidence and instance scripts are committed: `docs/moneythumb-replacement/phase3/shootout/` and `tools/phase3_pair/`
 
 ---
 
@@ -35,9 +37,13 @@ confidence score built from model agreement plus the existing gate is returned w
    `SCHEMA_VERSION = 3`, `vlm/prompts.py` at `PROMPT_VERSION = 3`, `vlm/gate.py` at `GATE_VERSION = 6`.
 4. `analysis/schema.py` (the `Statement` and `Transaction` contract), `analysis/metrics.py`,
    `analysis/adb.py`. These decide what the extractor must supply. Section 4 below distils them.
-5. The connection annex, for the GPU host.
-6. `reports/LEADERBOARD.md` inside `CHATGPT_COMPARISON_PACKAGE.zip`, for the evidence behind the
-   model picks.
+5. `docs/moneythumb-replacement/phase3/shootout/` — the evidence behind the model picks, now in the
+   repository: `LEADERBOARD.md`, `DOCUMENT_FINDINGS.md`, `leaderboard.json`, `review-breakdown.json`
+   and a README on how to read them and how not to.
+6. `tools/phase3_pair/` — the three instance scripts named in section 2, also in the repository.
+7. The connection annex, for the GPU host. Its placeholder-only shape is committed as
+   `docs/agent-handoffs/PHASE3-FALLBACK-CONNECTION.example.md`; the filled-in copy is private and
+   comes from Gustavo.
 
 ### 0.2 Standing rules inherited from the shootout, still binding
 
@@ -125,8 +131,9 @@ this shootout and would have to be measured first.
 ## 2. The GPU host, and what is already installed
 
 The instance address, port, host-key fingerprint and SSH alias are deliberately **not** in this
-repository. They are in the private connection annex named at the top of this document, together
-with the tunnel commands. Ask Gustavo for it if you do not have it.
+repository. They are in the private connection annex named at the top of this document, whose
+placeholder-only shape is committed as `docs/agent-handoffs/PHASE3-FALLBACK-CONNECTION.example.md`.
+Ask Gustavo for the filled-in copy.
 
 What matters here, and is safe to record:
 
@@ -138,8 +145,9 @@ What matters here, and is safe to record:
 - Stage A weights `rednote-hilab/dots.mocr` at revision `e539fbb52280393adc081b289ec597430a0f9031`.
 - Stage B weights `nvidia/Qwen3.8-27B-NVFP4` at revision `482ca0f3832238542f8f5295dde86b5f22711d80`.
   Both are the exact revisions that produced the leaderboard numbers. Do not float them.
-- The 16 reference PDFs and the frozen 300 DPI renders under `corpus/` and `pages/`.
-- `artifacts/serve_pair.sh start|stop|status` starts Stage A on port 18013 at
+- The 16 reference PDFs and the frozen 300 DPI renders under `corpus/` and `pages/`. They are
+  customer statement content and stay on the instance; they are never committed.
+- `tools/phase3_pair/serve_pair.sh start|stop|status` starts Stage A on port 18013 at
   `gpu_memory_utilization 0.20` and Stage B on port 18022 at `0.55`, so **both models stay resident
   at once** on this card, using 65,106 MiB of 85,651 MiB. That was impossible on the 32 GB machine
   the shootout ran on, where candidates were served one at a time. Other serving flags are identical
@@ -147,7 +155,9 @@ What matters here, and is safe to record:
   --no-enable-prefix-caching`, `--trust-remote-code` for Stage A only,
   `VLLM_USE_FLASHINFER_SAMPLER=0`). Raising `--max-num-seqs` for throughput is a later, separate
   change that must be re-validated, because batching can perturb numerics even at temperature 0.
-- `artifacts/smoke_pair.py` sends one page to each server and prints status only, never page content.
+- `tools/phase3_pair/install_pair_env.sh` rebuilds all of the above on a fresh instance, and
+  `tools/phase3_pair/smoke_pair.py` sends one page to each server and prints status only, never page
+  content. Copy them to the instance's `artifacts/` directory, which is where section 9 expects them.
 - Model servers bind loopback only and are reached over an SSH tunnel. Port 8080 on the instance is
   the template's own Jupyter; leave it alone.
 

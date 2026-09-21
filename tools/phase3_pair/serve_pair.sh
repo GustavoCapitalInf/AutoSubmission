@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Starts both Phase 3.1 model servers on the instance, loopback only, and waits until each is ready.
+#   bash artifacts/serve_pair.sh start | stop | status
+# Stage A = dots.mocr on 18013, Stage B = Qwen3.8-27B-NVFP4 on 18022.
+# Serving flags are identical to the 2026-09-20 shootout run so results stay comparable.
+set -uo pipefail
+ROOT=/workspace/bank-statement-shootout
+export HF_HOME=$ROOT/models/hf_home
+export HF_HUB_OFFLINE=1
+export VLLM_USE_FLASHINFER_SAMPLER=0
+export CUDA_HOME=/usr/local/cuda-13.0
+export PATH=/usr/local/cuda-13.0/bin:$PATH
+export VLLM_NO_USAGE_STATS=1
+export DO_NOT_TRACK=1
+PY=$ROOT/envs/vllm/bin/python
+LOGS=$ROOT/artifacts/logs
+mkdir -p "$LOGS"
+
+A_DIR=$(ls -d "$HF_HOME"/hub/models--rednote-hilab--dots.mocr/snapshots/* 2>/dev/null | head -1)
+B_DIR=$(ls -d "$HF_HOME"/hub/models--nvidia--Qwen3.8-27B-NVFP4/snapshots/* 2>/dev/null | head -1)
+
+start_one() {
+  local name=$1 port=$2 model=$3 util=$4; shift 4
+  if curl -sf "http://127.0.0.1:$port/v1/models" >/dev/null 2>&1; then
+    echo "$name already up on $port"; return 0
+  fi
+  echo "starting $name on $port from $model"
+  nohup "$PY" -m vllm.entrypoints.openai.api_server --model "$model" --served-model-name "$name" \
+    --host 127.0.0.1 --port "$port" --max-model-len 32768 --max-num-seqs 2 \
+    --gpu-memory-utilization "$util" --limit-mm-per-prompt.image 1 --no-enable-prefix-caching "$@" \
+    > "$LOGS/serve-$name.log" 2>&1 < /dev/null &
+  echo "$!" > "$LOGS/serve-$name.pid"
+}
+
+wait_one() {
+  local name=$1 port=$2 tries=0
+  while [ $tries -lt 180 ]; do
+    if curl -sf "http://127.0.0.1:$port/v1/models" >/dev/null 2>&1; then echo "$name READY on $port"; return 0; fi
+    if ! kill -0 "$(cat "$LOGS/serve-$name.pid" 2>/dev/null)" 2>/dev/null; then
+      echo "$name DIED, last log lines:"; tail -15 "$LOGS/serve-$name.log"; return 1
+    fi
+    sleep 10; tries=$((tries+1))
+  done
+  echo "$name TIMEOUT after 30 min"; tail -15 "$LOGS/serve-$name.log"; return 1
+}
+
+case "${1:-start}" in
+  start)
+    [ -d "$A_DIR" ] || { echo "missing dots.mocr snapshot"; exit 2; }
+    [ -d "$B_DIR" ] || { echo "missing Qwen NVFP4 snapshot"; exit 2; }
+    start_one dotsmocr 18013 "$A_DIR" 0.20 --trust-remote-code
+    wait_one dotsmocr 18013 || exit 1
+    start_one qwen3.8-27b-nvfp4 18022 "$B_DIR" 0.55
+    wait_one qwen3.8-27b-nvfp4 18022 || exit 1
+    nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader
+    echo "both servers ready"
+    ;;
+  stop)
+    for n in dotsmocr qwen3.8-27b-nvfp4; do
+      if [ -f "$LOGS/serve-$n.pid" ]; then kill "$(cat "$LOGS/serve-$n.pid")" 2>/dev/null && echo "stopped $n"; rm -f "$LOGS/serve-$n.pid"; fi
+    done
+    ;;
+  status)
+    for p in 18013 18022; do
+      printf "%s: " "$p"; curl -sf "http://127.0.0.1:$p/v1/models" | head -c 200 || echo "down"; echo
+    done
+    nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader
+    ;;
+esac
