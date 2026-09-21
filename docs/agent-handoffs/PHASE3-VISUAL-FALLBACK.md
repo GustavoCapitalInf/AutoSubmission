@@ -66,7 +66,7 @@ at 300 DPI, one frozen run each, against ChatGPT reference answers.
 |---|---|---|---|---|---|
 | bonsai2-27b-pq2 | research build | 99.5% | 3 | 13,909 | 4.9 |
 | qwen3.8-27b-nvfp4 | Apache-2.0 | 99.3% | 0 | 2,737 | 3.1 |
-| dots.mocr | custom, see 8.1 | 98.5% | 5 | 1,796 | 5.3 |
+| dots.mocr | custom, approved 2026-09-21, see 8.1 | 98.5% | 5 | 1,796 | 5.3 |
 | ovisocr2 | Apache-2.0 | 97.8% | 6 | 6,340 | 14.1 |
 | qwen3.5-9b | Apache-2.0 | 97.4% | 5 | 8,488 | 3.5 |
 | glm-ocr | MIT | 94.7% | 0 | 369 | 24.6 |
@@ -103,28 +103,19 @@ Pages left over for review:                                    14 of 151   (9%)
 2. **The reviewer configuration is new.** Every number above comes from the two models transcribing
    pages *independently*. In this design Stage B instead sees Stage A's rows. That changes its
    behaviour, and it can make things worse by anchoring the reviewer on the proposer's mistakes. The
-   agreement rate and the correction quality **must be re-measured** in review mode before any
-   confidence band is trusted. Section 6 is that measurement.
+   agreement rate and the correction quality in review mode are therefore unmeasured. They are not
+   to be measured by re-running the corpus — see section 6 — but the risk is real, so look at the
+   reviewer's corrections on a couple of statements before you trust any confidence band.
 3. **Neither dots.mocr nor Qwen in review mode has been through the disagreement review.** Only the
    independent runs were.
 
-### 1.3 If dots.mocr cannot be used (see the licence item in 8.1)
+### 1.3 The choice is settled
 
-Measured substitutes for the Stage A slot, same reviewer, same corpus:
-
-| Stage A | licence | union recall | pages agreeing | pages left for review |
-|---|---|---|---|---|
-| dots.mocr | custom | 99.76% | 137 of 151 (91%) | 14 |
-| qwen3.5-9b | Apache-2.0 | 99.88% | 134 of 151 (89%) | 17 |
-| ovisocr2 | Apache-2.0 | 99.55% | 128 of 151 (85%) | 23 |
-| glm-ocr | MIT | 99.64% | 110 of 151 (73%) | 41 |
-
-The pipeline does not depend on dots.mocr. Swapping it costs between two and twenty-seven extra
-review pages out of 151. Note that `qwen3.5-9b` scores best on paper but shares an architecture
-family with the reviewer, so its agreement is weaker evidence of correctness than agreement across
-families; prefer `ovisocr2` if the choice is forced and independence matters more than the headline.
-`PaddleOCR-VL-1.6` is a further Apache-2.0 option already implemented in the tree, but it was not in
-this shootout and would have to be measured first.
+Gustavo confirmed on 2026-09-21: **dots.mocr and Qwen3.8-27B-NVFP4 are the pair, and that decision
+is not open.** Do not re-open the model comparison, do not benchmark alternatives, and do not treat
+the leaderboard as a target to beat. Substitutes were measured in case they were ever needed and the
+figures live in `docs/moneythumb-replacement/phase3/shootout/`; they are history, not a decision
+waiting to be made.
 
 ---
 
@@ -144,18 +135,14 @@ What matters here, and is safe to record:
   at least 12.9 on Blackwell).
 - Stage A weights `rednote-hilab/dots.mocr` at revision `e539fbb52280393adc081b289ec597430a0f9031`.
 - Stage B weights `nvidia/Qwen3.8-27B-NVFP4` at revision `482ca0f3832238542f8f5295dde86b5f22711d80`.
-  Both are the exact revisions that produced the leaderboard numbers. Do not float them.
-- **There is no customer statement content on the instance, and putting it back is your first task.**
-  On 2026-09-21, at Gustavo's instruction, the machine was cleared: the 16 source PDFs (`corpus/`),
-  the 151 rendered pages (`pages/`), the reference answers (`CHATGPT_ANSWERS/`), every candidate's
-  output (`LLM_Answers/`, `artifacts/raw_responses/`), the per-page diffs and the comparison package
-  were all deleted, because the box is rented from a third party. A final scan confirmed nothing
-  outside the model weights and the synthetic fixtures still carries statement amounts. Section 6
-  step zero tells you how to restore the corpus and prove it is the same corpus.
-- What was deliberately left behind to make that restore verifiable: `artifacts/source_pdfs.sha256`,
-  `artifacts/references.sha256`, `artifacts/manifest.json` and `artifacts/render-manifest.json` —
-  filenames, render settings and hashes only, no statement content. The source PDFs are on Gustavo's
-  Linux computer; every derived artefact is backed up in the private tree.
+  Both are the exact revisions the models were benchmarked at. Do not float them.
+- **No customer statement content is on the instance.** It was cleared on 2026-09-21 at Gustavo's
+  instruction, because the box is rented from a third party. A final scan confirmed nothing outside
+  the model weights and the synthetic fixtures still carries statement amounts. Keep it that way:
+  upload a real statement only when section 6 calls for one, and remove it afterwards.
+- `synthetic/` holds three generated statements with rendered pages — a dense native page, a scanned
+  25-row page and a short native page. They are fabricated, they are already on the instance, and
+  they are what the wiring checks in section 6 run on.
 - `tools/phase3_pair/serve_pair.sh start|stop|status` starts Stage A on port 18013 at
   `gpu_memory_utilization 0.20` and Stage B on port 18022 at `0.55`, so **both models stay resident
   at once** on this card, using 65,106 MiB of 85,651 MiB. That was impossible on the 32 GB machine
@@ -190,10 +177,10 @@ PDF ─► Stage 0  render pages, 300 DPI, pypdfium2, page hash recorded
 Reuse `vlm/render.py::render_pages`. It already returns `jpeg`, `jpeg_sha256`, `pixel_sha256`,
 `pdf_width_pt`, `pdf_height_pt`, `rotation_deg` and a `render_settings()` block for provenance.
 Note it scales to a 1540 px long edge rather than a DPI, whereas the shootout rendered 300 DPI PNG.
-**Measure both before choosing.** If the 1540 px render loses amounts on dense pages, raise the long
-edge or switch that path to 300 DPI; the benchmark numbers in section 1 are only valid for input of
-the quality they were measured on. This is the first thing to check in section 6, because everything
-downstream inherits it.
+**Settle this early, on the synthetic dense page.** If the 1540 px render loses amounts where the
+300 DPI render keeps them, raise the long edge or render that path at 300 DPI. The benchmark numbers
+in section 1 were measured on 300 DPI input and do not carry over to a coarser render. Everything
+downstream inherits this choice, so pin it before building on top of it.
 
 Feed the models the page image only. Do not feed them the PDF text layer: by the time this path
 runs, the text layer has already failed, and mixing it in makes the two readings non-independent.
@@ -239,9 +226,9 @@ Row states, and the whole basis of the confidence score:
 
 Page confidence and document confidence roll up from these states **combined with** the Stage D gate
 result. Do not invent a score from model self-reported probabilities; the evidence base here is
-inter-model agreement and deterministic reconciliation, nothing else. Until section 6 has been run,
-treat every band as provisional and record the raw state counts alongside any score, so the bands
-can be re-cut later without re-extracting.
+inter-model agreement and deterministic reconciliation, nothing else. Treat every band as provisional
+until real traffic has been through it, and record the raw state counts alongside any score so the
+bands can be re-cut later without re-extracting.
 
 ### Stage D — the gate
 
@@ -332,7 +319,7 @@ Lender detection, insurance detection, POS, ATM, cheque and revenue classificati
 matches over the description, with an OCR-repair normalisation step in front
 (`analysis/transaction_classifier.py`, `analysis/classification_registry.py`). A model that tidies,
 truncates, translates or re-words a description silently breaks classification. The prompt must
-forbid it and section 6 must test for it.
+forbid it, and it is one of the three things worth checking on a real statement in section 6.
 
 ### 4.6 Known gaps worth recording, not silently fixing
 
@@ -429,63 +416,63 @@ check whether one queue slot is still the right choice when a job can hold the G
 
 ---
 
-## 6. Validate before this goes anywhere near production
+## 6. Checking your work, without re-running the corpus
 
-Gustavo's instruction: **do not use a larger corpus.** Use the same 16 statements and 151 pages the
-shootout used.
+**Gustavo's instruction, 2026-09-21: do not re-run the full corpus to verify anything.** The
+shootout is finished and its leaderboard stands as the evidence. Do not try to reproduce it, do not
+re-upload the 16 statements for a benchmark, and do not treat the published figures as a target to
+hit again. The models are chosen and the question is no longer which model, it is whether your
+pipeline works.
 
-**Step zero: put the corpus back.** It was deleted from the instance on 2026-09-21, together with
-every other piece of customer statement content, because the machine is rented. Re-upload the 16
-PDFs from Gustavo's Linux computer, re-render at 300 DPI with `artifacts/render_pages.py`, and check
-both against the hashes that were deliberately left behind:
+That leaves two kinds of checking, and they need very different amounts of data.
 
-```bash
-cd /workspace/bank-statement-shootout
-sha256sum -c artifacts/source_pdfs.sha256      # the 16 PDFs are byte-identical to the benchmark
-envs/render/bin/python artifacts/render_pages.py --manifest artifacts/manifest.json \
-  --corpus-root corpus --pages-root pages --out pages/render-manifest.json
-python3 - <<'PY'
-import json
-new = {p["rel"]: p["sha256"] for p in json.load(open("pages/render-manifest.json"))["pages"]}
-old = {p["rel"]: p["sha256"] for p in json.load(open("artifacts/render-manifest.json"))["pages"]}
-diff = [k for k in old if new.get(k) != old[k]]
-print(len(old), "reference pages,", len(diff), "differing")
-PY
-```
+### Wiring checks — use the synthetic fixtures, no customer data at all
 
-If any page hash differs, the renders are not the ones the leaderboard was measured on and no
-comparison below is valid until that is explained. The reference answers (`CHATGPT_ANSWERS/`) must
-also be restored from the private backup, verified with `artifacts/references.sha256`, and — as
-always — mounted so that extraction cannot read them.
+`synthetic/` on the instance holds three generated statements with rendered pages: a dense native
+page, a scanned 25-row page and a short native page. They are fabricated, they are already there,
+and nothing about them is confidential. Every structural question can be answered on them:
 
-Then, on that restored corpus:
+- Stage A returns layout elements and the row assembler turns them into candidate rows.
+- Stage B returns one verdict per candidate row, in valid constrained JSON, with no row skipped.
+- The merge produces the row states in Stage C and never overwrites an original value.
+- The gate refuses what it should refuse, with a reason from its closed vocabulary.
+- A `StatementMarkdown` comes out of Stage E that the analysis layer accepts.
+- A page that truncates keeps its slot and is marked rather than silently shortened.
 
-Run these in order and record every number in the ledger:
+If any of that is wrong, real statements will not tell you anything you could not learn here.
 
-1. **Reproduce Stage A alone.** Re-run dots.mocr over the frozen renders and confirm 98.5% money
-   recall against the stored report. If it differs, stop: something in the environment moved, and
-   nothing below this line means anything until it is explained.
-2. **Check the renderer.** Run Stage A on `vlm/render.py` output at 1540 px long edge and compare
-   against the 300 DPI PNG result. Pick the render settings on that evidence and pin them.
-3. **Run the pair in review mode** over the same pages and report: money recall, extra amounts, the
-   distribution of row states, and how many pages come back all-`agreed`.
-4. **Score the reviewer's corrections.** For every `corrected` row, did the change move toward the
-   reference or away from it? This is the measurement that decides whether review mode helps at all,
-   and it is the one that can fail. Anchoring is a real risk: a reviewer shown a wrong row may
-   confirm it.
-5. **Test the four publishable fields** from 4.4 per document: did the pipeline capture period dates,
-   opening balance, closing balance and a usable daily ledger?
-6. **Test description fidelity** from 4.5: compare extracted descriptions against references
-   character for character, and count how often classification would change.
-7. **Calibrate the confidence bands** from the row states, and only then write the thresholds down.
+### Judgement checks — a couple of real statements, not sixteen
 
-Success criteria to beat, all on the frozen corpus: pair money recall at least as good as Stage A
-alone; extra amounts no worse than the reviewer alone (21); no page silently shortened; and the
-`agreed` band measurably more accurate than the other bands. If the reviewer does not beat the
-proposer alone, say so plainly and stop rather than shipping a slower pipeline that is not better.
+Three questions genuinely need real pages, because they are about reading quality rather than
+plumbing. Use **two or three statements**, uploaded for the purpose and removed afterwards:
 
-Sample disagreements against the actual page images using the source-check viewer added in commit
-`7203b2c`; customer content stays in the private tree.
+1. **Does review mode actually help?** For every row Stage B marks `corrected`, look at the page and
+   decide whether the change improved the row or damaged it. This is the one that can fail, and the
+   failure mode is anchoring: a reviewer shown a wrong row may simply confirm it. If corrections are
+   not clearly net positive, say so and stop rather than shipping a slower pipeline that is not
+   better.
+2. **Do the four publishable fields survive?** Per 4.4, check that period dates, opening balance,
+   closing balance and a usable daily ledger all come through. Capturing every transaction while
+   losing the printed opening balance produces a statement with no average daily balance and no NSF
+   count.
+3. **Are descriptions verbatim?** Per 4.5, compare a sample of descriptions character for character
+   and note any tidying, truncation or re-wording. Lender, insurance, POS and revenue detection are
+   all string matches, so a polished description is a broken classification.
+
+Pick statements that stress the pipeline rather than easy ones. From the shootout, the useful hard
+cases were Regions and TD Canada for dense multi-column tables, and US Bank, where the reviewer
+alone agreed on only 82% of amounts while the proposer alone reached 100%. That last one is the
+case the pair exists to fix, so it is the best single document to look at.
+
+Treat these as reads on your own pipeline, not as scores. Numbers from two or three statements are
+not comparable to the leaderboard and should never be written up as though they were.
+
+Set the confidence bands from the row-state distribution you observe, record the raw counts beside
+any score so the bands can be re-cut later without re-extracting, and keep every band provisional
+until real traffic has been through it.
+
+Use the source-check viewer added in commit `7203b2c` to look at a disputed row against its page.
+Customer content stays in the private tree.
 
 **Where a benchmark run may write.** `discovery/runner.py:365::refuse_production_data_dir` raises if a
 research `--data-dir` is, or sits anywhere beneath, a directory matching `webapp_data(_train\d+_cold)?`
@@ -534,7 +521,18 @@ requests with a cold cache.
 
 ## 8. Open items for Gustavo. Do not decide these yourself.
 
-### 8.1 The dots.mocr licence — raise this before building on it
+### 8.1 The dots.mocr licence — decided, recorded here so it is not lost
+
+**Gustavo's decision, 2026-09-21: dots.mocr is approved for use.** This item is closed. It is
+written down because the facts below were found after the model card was read, and a future reader
+is entitled to know what the licence actually says. Do not re-open it, and do not ask him again.
+
+One thing does still need doing, and it is clerical: add a row for dots.mocr to
+`docs/moneythumb-replacement/phase3/LICENSES.md` recording the real licence rather than the Hugging
+Face tag, and note that it was accepted by owner decision on 2026-09-21. The register's standing
+rule is that nothing enters the stack without a row, and right now dots.mocr has none.
+
+The facts, for that row:
 
 The Hugging Face metadata tag says MIT. **The shipped licence file is not MIT.** The snapshot
 contains `dots.mocr LICENSE AGREEMENT`, a custom agreement from Xingyin Information Technology
@@ -552,11 +550,8 @@ lawful basis, but that is a legal determination and not mine to make. It also co
 project's own rule in `LICENSES.md`: *only Apache-2.0, MIT, BSD or equivalent*, under which
 MinerU2.5 was already excluded for having additional commercial terms.
 
-**Required before Stage A is built on dots.mocr:** a ruling from Gustavo, with counsel if he wants
-one, and a row added to `docs/moneythumb-replacement/phase3/LICENSES.md` recording the real licence
-rather than the Hugging Face tag. If the answer is no, section 1.3 has the measured substitutes and
-the cost of switching is small. Qwen3.8-27B-NVFP4 is already cleared as Apache-2.0 at the pinned
-revision, so the reviewer side is unaffected either way.
+Qwen3.8-27B-NVFP4 is separately and cleanly cleared as Apache-2.0 at the pinned revision, and
+already has its row in the register.
 
 ### 8.2 Customer documents on a rented GPU
 
@@ -594,8 +589,8 @@ bash /workspace/bank-statement-shootout/artifacts/serve_pair.sh stop
 ls /workspace/bank-statement-shootout/models/hf_home/hub/models--rednote-hilab--dots.mocr/snapshots/
 ls /workspace/bank-statement-shootout/models/hf_home/hub/models--nvidia--Qwen3.8-27B-NVFP4/snapshots/
 
-# the benchmark's render settings and page hashes (the corpus itself was deleted; see section 6)
-python3 -c "import json;m=json.load(open('/workspace/bank-statement-shootout/artifacts/render-manifest.json'));print(len(m['pages']),'pages',m['dpi'],'DPI',m['renderer'])"
+# the synthetic fixtures, which are what the wiring checks in section 6 run on
+ls /workspace/bank-statement-shootout/synthetic/pages/
 
 # confirm no customer statement content is on the rented machine
 cd /workspace/bank-statement-shootout && ls corpus pages CHATGPT_ANSWERS LLM_Answers 2>&1 | head -4
@@ -623,18 +618,20 @@ ssh vast-shootout3 -L 127.0.0.1:18022:127.0.0.1:18022   # Stage B
 
 ## 10. The shortest path forward
 
-1. Put the dots.mocr licence question (8.1) in front of Gustavo **today**. Everything in Stage A
-   depends on the answer and the substitutes are measured and ready.
-2. Re-upload the corpus and re-render it (section 6, step zero), then start both servers and
-   reproduce Stage A. Do not write new code until the 98.5% number comes back.
-3. Settle the renderer question (6.2) and pin the settings.
-4. Build Stage B review mode against `vlm/schema.py`, then run step 6.3 and 6.4. If review mode does
-   not beat the proposer alone, report that and stop.
+1. Start both servers and run the smoke test. Add the dots.mocr row to `LICENSES.md` while they load.
+2. Build the Stage A row assembler on top of `vlm/assemble.py` and prove it on the synthetic
+   fixtures. No customer data is needed and none should be uploaded for this.
+3. Settle the renderer: `vlm/render.py` scales to a 1540 px long edge, the shootout used 300 DPI.
+   Decide on the synthetic dense page which one keeps the rows legible, then pin it.
+4. Build Stage B review mode against `vlm/schema.py`, bump the schema version, and confirm on the
+   fixtures that every candidate row comes back with a verdict.
 5. Build Stage C and wire Stage D to the existing gate.
-6. Wire 3.1a into the web app: repoint Force visual OCR, add the auto-mode fallback branch behind
+6. Look at the reviewer's corrections on two or three real statements (section 6). If they are not
+   clearly net positive, report that and stop.
+7. Wire 3.1a into the web app: repoint Force visual OCR, add the auto-mode fallback branch behind
    the narrow trigger, partition the cache key, keep it a queued job.
-7. Measure the broad trigger on the cold-run cache and bring the number to Gustavo.
-8. Then, and only then, start 3.1b for layouts no deterministic parser claims.
+8. Measure the broad trigger on the cold-run cache and bring the number to Gustavo.
+9. Then, and only then, start 3.1b for layouts no deterministic parser claims.
 
 Keep the ledger at `C:\Users\GustavoPrietodePaula\extraction-shootout\RUN_STATE.md` current: one
 entry per run, with the numbers and what they mean. The next agent after you will need it as much as
