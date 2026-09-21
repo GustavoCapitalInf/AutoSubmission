@@ -137,7 +137,7 @@ Ask Gustavo for the filled-in copy.
 
 What matters here, and is safe to record:
 
-- One rented NVIDIA RTX 6000D with 85,651 MiB, 384 vCPU, 755 GB RAM, ~320 GB free on `/workspace`.
+- One rented NVIDIA RTX 6000D with 85,651 MiB, 384 vCPU, 755 GB RAM, ~275 GB free on `/workspace`.
 - Remote root `/workspace/bank-statement-shootout`.
 - Installed and verified on 2026-09-21: `envs/vllm` with vLLM 0.29.0, torch 2.13.0+cu130,
   transformers 5.17.0; CUDA 13.0 toolkit alongside the image's 12.8 (the FlashInfer JIT needs
@@ -145,8 +145,17 @@ What matters here, and is safe to record:
 - Stage A weights `rednote-hilab/dots.mocr` at revision `e539fbb52280393adc081b289ec597430a0f9031`.
 - Stage B weights `nvidia/Qwen3.8-27B-NVFP4` at revision `482ca0f3832238542f8f5295dde86b5f22711d80`.
   Both are the exact revisions that produced the leaderboard numbers. Do not float them.
-- The 16 reference PDFs and the frozen 300 DPI renders under `corpus/` and `pages/`. They are
-  customer statement content and stay on the instance; they are never committed.
+- **There is no customer statement content on the instance, and putting it back is your first task.**
+  On 2026-09-21, at Gustavo's instruction, the machine was cleared: the 16 source PDFs (`corpus/`),
+  the 151 rendered pages (`pages/`), the reference answers (`CHATGPT_ANSWERS/`), every candidate's
+  output (`LLM_Answers/`, `artifacts/raw_responses/`), the per-page diffs and the comparison package
+  were all deleted, because the box is rented from a third party. A final scan confirmed nothing
+  outside the model weights and the synthetic fixtures still carries statement amounts. Section 6
+  step zero tells you how to restore the corpus and prove it is the same corpus.
+- What was deliberately left behind to make that restore verifiable: `artifacts/source_pdfs.sha256`,
+  `artifacts/references.sha256`, `artifacts/manifest.json` and `artifacts/render-manifest.json` —
+  filenames, render settings and hashes only, no statement content. The source PDFs are on Gustavo's
+  Linux computer; every derived artefact is backed up in the private tree.
 - `tools/phase3_pair/serve_pair.sh start|stop|status` starts Stage A on port 18013 at
   `gpu_memory_utilization 0.20` and Stage B on port 18022 at `0.55`, so **both models stay resident
   at once** on this card, using 65,106 MiB of 85,651 MiB. That was impossible on the 32 GB machine
@@ -159,7 +168,7 @@ What matters here, and is safe to record:
   `tools/phase3_pair/smoke_pair.py` sends one page to each server and prints status only, never page
   content. Copy them to the instance's `artifacts/` directory, which is where section 9 expects them.
 - Model servers bind loopback only and are reached over an SSH tunnel. Port 8080 on the instance is
-  the template's own Jupyter; leave it alone.
+  the template's own Jupyter; leave it alone. Both servers were left running on 2026-09-21.
 
 ---
 
@@ -422,8 +431,34 @@ check whether one queue slot is still the right choice when a job can hold the G
 
 ## 6. Validate before this goes anywhere near production
 
-Gustavo's instruction: **do not use a larger corpus.** Use the existing 16 statements and 151 pages,
-which are already on the instance under `corpus/` and `pages/` with frozen hashes.
+Gustavo's instruction: **do not use a larger corpus.** Use the same 16 statements and 151 pages the
+shootout used.
+
+**Step zero: put the corpus back.** It was deleted from the instance on 2026-09-21, together with
+every other piece of customer statement content, because the machine is rented. Re-upload the 16
+PDFs from Gustavo's Linux computer, re-render at 300 DPI with `artifacts/render_pages.py`, and check
+both against the hashes that were deliberately left behind:
+
+```bash
+cd /workspace/bank-statement-shootout
+sha256sum -c artifacts/source_pdfs.sha256      # the 16 PDFs are byte-identical to the benchmark
+envs/render/bin/python artifacts/render_pages.py --manifest artifacts/manifest.json \
+  --corpus-root corpus --pages-root pages --out pages/render-manifest.json
+python3 - <<'PY'
+import json
+new = {p["rel"]: p["sha256"] for p in json.load(open("pages/render-manifest.json"))["pages"]}
+old = {p["rel"]: p["sha256"] for p in json.load(open("artifacts/render-manifest.json"))["pages"]}
+diff = [k for k in old if new.get(k) != old[k]]
+print(len(old), "reference pages,", len(diff), "differing")
+PY
+```
+
+If any page hash differs, the renders are not the ones the leaderboard was measured on and no
+comparison below is valid until that is explained. The reference answers (`CHATGPT_ANSWERS/`) must
+also be restored from the private backup, verified with `artifacts/references.sha256`, and — as
+always — mounted so that extraction cannot read them.
+
+Then, on that restored corpus:
 
 Run these in order and record every number in the ledger:
 
@@ -559,8 +594,11 @@ bash /workspace/bank-statement-shootout/artifacts/serve_pair.sh stop
 ls /workspace/bank-statement-shootout/models/hf_home/hub/models--rednote-hilab--dots.mocr/snapshots/
 ls /workspace/bank-statement-shootout/models/hf_home/hub/models--nvidia--Qwen3.8-27B-NVFP4/snapshots/
 
-# the frozen corpus, unchanged since the benchmark
-python3 -c "import json;m=json.load(open('/workspace/bank-statement-shootout/pages/render-manifest.json'));print(len(m['pages']),'pages',m['dpi'],'DPI',m['renderer'])"
+# the benchmark's render settings and page hashes (the corpus itself was deleted; see section 6)
+python3 -c "import json;m=json.load(open('/workspace/bank-statement-shootout/artifacts/render-manifest.json'));print(len(m['pages']),'pages',m['dpi'],'DPI',m['renderer'])"
+
+# confirm no customer statement content is on the rented machine
+cd /workspace/bank-statement-shootout && ls corpus pages CHATGPT_ANSWERS LLM_Answers 2>&1 | head -4
 ```
 
 From the repository root, before changing anything:
@@ -587,8 +625,8 @@ ssh vast-shootout3 -L 127.0.0.1:18022:127.0.0.1:18022   # Stage B
 
 1. Put the dots.mocr licence question (8.1) in front of Gustavo **today**. Everything in Stage A
    depends on the answer and the substitutes are measured and ready.
-2. Start both servers and reproduce Stage A on the frozen corpus. Do not write new code until the
-   98.5% number comes back.
+2. Re-upload the corpus and re-render it (section 6, step zero), then start both servers and
+   reproduce Stage A. Do not write new code until the 98.5% number comes back.
 3. Settle the renderer question (6.2) and pin the settings.
 4. Build Stage B review mode against `vlm/schema.py`, then run step 6.3 and 6.4. If review mode does
    not beat the proposer alone, report that and stop.
