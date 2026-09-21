@@ -141,12 +141,13 @@ What matters here, and is safe to record:
 - The 16 reference PDFs and the frozen 300 DPI renders under `corpus/` and `pages/`.
 - `artifacts/serve_pair.sh start|stop|status` starts Stage A on port 18013 at
   `gpu_memory_utilization 0.20` and Stage B on port 18022 at `0.55`, so **both models stay resident
-  at once** on this card. That was impossible on the 32 GB machine the shootout ran on, where
-  candidates were served one at a time. Other serving flags are identical to the benchmark
-  (`--max-model-len 32768 --max-num-seqs 2 --limit-mm-per-prompt.image 1
+  at once** on this card, using 65,106 MiB of 85,651 MiB. That was impossible on the 32 GB machine
+  the shootout ran on, where candidates were served one at a time. Other serving flags are identical
+  to the benchmark (`--max-model-len 32768 --max-num-seqs 2 --limit-mm-per-prompt.image 1
   --no-enable-prefix-caching`, `--trust-remote-code` for Stage A only,
   `VLLM_USE_FLASHINFER_SAMPLER=0`). Raising `--max-num-seqs` for throughput is a later, separate
   change that must be re-validated, because batching can perturb numerics even at temperature 0.
+- `artifacts/smoke_pair.py` sends one page to each server and prints status only, never page content.
 - Model servers bind loopback only and are reached over an SSH tunnel. Port 8080 on the instance is
   the template's own Jupyter; leave it alone.
 
@@ -377,8 +378,9 @@ Decide the trigger deliberately and make it configurable:
   what "cannot be validated" means to a reader, and it is the one that will actually improve
   outcomes, but it fires far more often and every firing costs GPU minutes.
 
-Start narrow, measure how often the broad trigger would have fired on the existing cold-run cache,
-and bring the number to Gustavo rather than picking for him.
+Start narrow, measure how often the broad trigger would have fired on the existing cold-run cache
+(`.claude/recovery/webapp_data_train12_cold` is the newest; there is no `train13` cache, only
+`discovery_reports/train13-logs/`), and bring the number to Gustavo rather than picking for him.
 
 ### 5.3 When better pixels are not the problem
 
@@ -439,6 +441,31 @@ proposer alone, say so plainly and stop rather than shipping a slower pipeline t
 
 Sample disagreements against the actual page images using the source-check viewer added in commit
 `7203b2c`; customer content stays in the private tree.
+
+**Where a benchmark run may write.** `discovery/runner.py:365::refuse_production_data_dir` raises if a
+research `--data-dir` is, or sits anywhere beneath, a directory matching `webapp_data(_train\d+_cold)?`
+or anything under `.claude/recovery/`. A frozen cold cache is the evidence every historical replay is
+measured against, so writing into its tree is refused outright. Isolate a benchmark run with
+`research_partition` (`webapp/artifact_cache.py:746-760`) rather than by hand-picking a directory.
+Note also that a bump of `OCR_STAGE_VERSION` or `EXTRACTION_SCHEMA_VERSION`
+(`webapp/artifact_cache.py:366`, `:552`) invalidates roughly 3,400 cached OCR artifacts, so treat
+either bump as a deliberate, announced act.
+
+### 6.1 Already verified by this session, on 2026-09-21
+
+Both servers start from `serve_pair.sh` and answer a real page. This is an installation check only,
+not an extraction result:
+
+```
+page-0004.png (Regions, the densest page in the corpus), 1,537,632 bytes
+Stage A  dotsmocr            port 18013  HTTP 200  2,048 tokens  19.2 s
+Stage B  qwen3.8-27b-nvfp4   port 18022  HTTP 200  2,048 tokens  38.5 s
+GPU with both models resident: 65,106 MiB of 85,651 MiB
+```
+
+Both hit `finish_reason: "length"` because the smoke test caps output at 2,048 tokens. The real runs
+use 12,000, as the benchmark did. Do not read those timings as throughput: they are single unbatched
+requests with a cold cache.
 
 ---
 
