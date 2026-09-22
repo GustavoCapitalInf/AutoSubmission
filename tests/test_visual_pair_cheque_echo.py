@@ -173,15 +173,12 @@ def test_a_picture_dated_before_its_posting_repeats_it():
 
 
 def test_the_assignment_is_a_true_matching_not_first_come():
-    # First come, the unknown-direction row would take a debit and leave one debit row unmatched; the
-    # matching gives it the credit.
-    ledger = _page(1, [{"amount": "10.00", "direction": "debit", "date": "2031-01-10"},
-                       {"amount": "10.00", "direction": "credit", "date": "2031-01-11"},
-                       {"amount": "10.00", "direction": "debit", "date": "2031-01-12"}], source="stage_a+stage_b")
-    pictures = _page(2, [{"amount": "10.00", "direction": "unknown", "date": "2031-01-05"},
-                         {"amount": "10.00", "direction": "debit", "date": "2031-01-05"},
-                         {"amount": "10.00", "direction": "debit", "date": "2031-01-05"}])
-    assert _echoes([ledger, pictures]) == [2]
+    # First come, the unknown-direction key would take the debit and leave the debit key unmatched.
+    from datetime import date
+    from vlm.review import _assign
+    pictures = [(Decimal("10.00"), "unknown", date(2031, 1, 5)), (Decimal("10.00"), "debit", date(2031, 1, 5))]
+    postings = [(Decimal("10.00"), "debit", date(2031, 1, 10)), (Decimal("10.00"), "credit", date(2031, 1, 11))]
+    assert _assign(pictures, postings) == [1, 0]
 
 
 # --- second review round (045380e) -------------------------------------------------------------------------
@@ -236,8 +233,9 @@ def test_any_printed_statement_figure_or_an_unread_daily_table_is_statement_evid
 def test_a_picture_row_must_be_dated_inside_the_period():
     misdated = [{"amount": "45.10", "date": "2030-01-05"}, {"amount": "300.00", "date": "2030-01-07"}]
     assert _echoes([_ledger(), _page(2, misdated)]) == []
-    no_period = replace(_ledger(), account={"currency": "USD"})
-    assert _echoes([no_period, _page(2, ["45.10", "300.00"])]) == []
+    no_period = {"period_start": None, "period_end": None}
+    assert _echoes([replace(_ledger(), account={"currency": "USD"}),
+                    _page(2, ["45.10", "300.00"], account=no_period)]) == []
 
 
 def test_a_page_of_debits_and_credits_is_not_pictures():
@@ -255,6 +253,51 @@ def test_unknown_directions_cannot_carry_a_page():
                     {"amount": "45.10", "direction": "unknown", "date": "2031-01-06"}]
     assert _echoes([_ledger(), _page(2, both_unknown)]) == []
     assert _echoes([_ledger(), _page(2, [{"amount": "300.00", "direction": "unknown"}], role="cheque_images")]) == []
+
+
+# --- fourth review round (e85cab9) -------------------------------------------------------------------------
+# (a) a page repeating the listing but failing the picture tests stayed a listing and left the postings it
+#     repeats free, so a later REAL page matched them and its duplicate rows made the sum pass;
+# (U) an unknown-direction row hid a real page's zero net from the one-direction rule;
+# (b) a wrong wide period on the first page widened the window past the period a later page printed.
+
+def test_a_page_repeating_the_listing_uses_up_what_it_repeats_whatever_it_is():
+    ledger = _page(1, [{"amount": "300.00", "direction": "credit", "date": "2031-01-06"},
+                       {"amount": "1000.00", "direction": "credit", "date": "2031-01-08"},
+                       {"amount": "45.10", "date": "2031-01-10"}, {"amount": "300.00", "date": "2031-01-12"},
+                       {"amount": "500.00", "date": "2031-01-15"}], source="stage_a+stage_b")
+    mixed_pictures = _page(2, [{"amount": "45.10", "date": "2031-01-02"}, {"amount": "300.00", "date": "2031-01-03"},
+                               {"amount": "500.00", "date": "2031-01-04"},
+                               {"amount": "300.00", "direction": "credit", "date": "2031-01-05"}],
+                           source="stage_a+stage_b")
+    real = _page(3, [{"amount": "500.00", "date": "2031-01-05"}, {"amount": "45.10", "date": "2031-01-07"}],
+                 source="stage_a+stage_b")
+    assert _echoes([ledger, mixed_pictures, real]) == []
+
+
+def test_an_unknown_direction_takes_the_pages_direction():
+    ledger = _page(1, [{"amount": "500.00", "date": "2031-01-08"}, {"amount": "45.10", "date": "2031-01-10"},
+                       {"amount": "545.10", "direction": "credit", "date": "2031-01-12"}], source="stage_a+stage_b")
+    hidden_refund = [{"amount": "500.00", "date": "2031-01-02"}, {"amount": "45.10", "date": "2031-01-03"},
+                     {"amount": "545.10", "direction": "unknown", "date": "2031-01-04"}]
+    assert _echoes([ledger, _page(2, hidden_refund)]) == []
+    debit_cheques = [dict(row, amount="300.00") if index == 2 else row for index, row in enumerate(hidden_refund)]
+    ledger_debit = replace(ledger, rows=ledger.rows[:2] + (_row(1, 2, {"amount": "300.00", "date": "2031-01-12"},
+                                                                "stage_a+stage_b"),))
+    assert _echoes([ledger_debit, _page(2, debit_cheques)]) == [2]
+
+
+def test_the_window_is_the_narrowest_period_any_page_printed():
+    wide = replace(_ledger(), account={**HEADER, "period_start": "2030-12-01"})
+    december = _page(2, [{"amount": "45.10", "date": "2030-12-20"}, {"amount": "300.00", "date": "2030-12-22"}],
+                     account={"period_start": None, "period_end": None})
+    later_statement_page = _page(3, [], account={"period_start": "2031-01-01", "period_end": "2031-01-31"})
+    assert _echoes([wide, december, later_statement_page]) == []
+    assert _echoes([wide, december]) == [2]
+    disjoint = _page(3, [], account={"period_start": "2031-03-01", "period_end": "2031-03-31"})
+    assert _echoes([_ledger(), _page(2, ["45.10", "300.00"]), disjoint]) == []
+    end_only = _page(3, [], account={"period_start": None})
+    assert _echoes([_ledger(), _page(2, ["45.10", "300.00"]), end_only]) == [2]
 
 
 def test_unresolved_rows_on_a_picture_page_do_not_hold_it():

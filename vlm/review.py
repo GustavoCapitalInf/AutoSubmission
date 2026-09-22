@@ -489,22 +489,45 @@ def _assign(pictures: list, postings: list) -> list | None:
     return sorted(owner, key=owner.get)
 
 
-def _period(merged) -> tuple | None:
-    """The page's reviewed statement period as dates, or None."""
-    try:
-        start = date.fromisoformat(merged.account.get("period_start"))
-        end = date.fromisoformat(merged.account.get("period_end"))
-    except (TypeError, ValueError):
+def _period_window(merges) -> tuple | None:
+    """The narrowest statement period the pages printed: the latest period_start and the earliest period_end
+    any page with a valid review read, each bound from whichever pages printed it. None when either bound
+    is missing or they conflict: a wrong, wide period read on one page never widens it past what another
+    page printed, and a conflict allows no echo."""
+    def bound(field):
+        found = []
+        for merged in merges:
+            if merged.errors:
+                continue
+            try:
+                found.append(date.fromisoformat(merged.account.get(field)))
+            except (TypeError, ValueError):
+                continue
+        return found
+
+    starts, ends = bound("period_start"), bound("period_end")
+    if not starts or not ends or max(starts) > min(ends):
         return None
-    return (start, end) if start <= end else None
+    return max(starts), min(ends)
+
+
+def _directed(keys: list) -> list:
+    """An unknown direction takes the page's one known direction, so a row whose direction the reviewer did
+    not read still has to repeat a posting in that direction (it cannot hide the other side of a zero net).
+    With no known direction, or two, keys are unchanged and _plausible_pictures refuses them."""
+    known = {key[1] for key in keys if key[1] in ("credit", "debit")}
+    if len(known) != 1:
+        return keys
+    direction = known.pop()
+    return [(amount, direction if side not in ("credit", "debit") else side, when) for amount, side, when in keys]
 
 
 def _plausible_pictures(keys: list, period: tuple | None) -> bool:
-    """What a page of pictures looks like beyond its dates: every row dated inside the reviewed period (the
-    gate's grace; a real page misdated outside it is the period check's to refuse, never absorbed), and one
-    direction: enough rows (min(_UNLABELLED_ECHO_MIN_ROWS, rows)) name it, and none names the other. A page
-    of pictured cheques is debits and a page of deposit slips credits; a real page that nets to zero, the
-    case the arithmetic cannot see, needs both."""
+    """What a page of pictures looks like beyond its dates: every row dated inside the statement period
+    (_period_window, with the gate's grace; a real page misdated outside it is the period check's to
+    refuse, never absorbed), and one direction: enough rows (min(_UNLABELLED_ECHO_MIN_ROWS, rows)) name it,
+    and none names the other. A page of pictured cheques is debits and a page of deposit slips credits; a
+    real page that nets to zero, the case the arithmetic cannot see, needs both."""
     from vlm.gate import PERIOD_GRACE_DAYS
     if period is None:
         return False
@@ -540,30 +563,33 @@ def mark_ledger_echoes(merges) -> list:
     * only pages on which the review kept rows the proposer read are the ledger, so pictures printed before
       the listing, added by the reviewer alone and not recognized, are not a ledger for the real listing to
       repeat;
-    * the rows are plausible pictures (_plausible_pictures): inside the period of the first ledger page
-      that printed one, and of one direction. Sectioned statements restart dates, so the date tests alone
-      cannot separate a later section's real rows from pictures.
+    * the rows are plausible pictures (_plausible_pictures): inside the narrowest period any page printed,
+      and of one direction, an unknown direction taking the page's (_directed). Sectioned statements
+      restart dates, so the date tests alone cannot separate a later section's real rows from pictures;
+    * a page whose every row repeats the listing uses up the postings it repeats, whether or not it passes
+      the other tests, and is never a listing for later pages: otherwise a later real page could repeat
+      those postings in its place while this page's duplicate rows made the sum pass.
     Only the whole-document arithmetic would otherwise judge a dropped page, and it cannot see a page whose
     rows net to zero or one at the end of a per-page summary chain whose box was not read."""
-    postings, dates, marked, period = [], [], [], None
+    window = _period_window(merges)
+    postings, dates, marked = [], [], []
     for merged in merges:
-        keys = [_repeat_key(row) for row in merged.rows]
-        eligible = (bool(keys) and None not in keys and not _statement_evidence(merged)
-                    and all(row.balance is None for row in merged.rows)
+        raw = [_repeat_key(row) for row in merged.rows]
+        keys = _directed(raw) if raw and None not in raw else raw
+        claimed = _assign(keys, postings) if keys and None not in keys else None
+        if claimed is not None:
+            postings = [posting for index, posting in enumerate(postings) if index not in set(claimed)]
+            if (not _statement_evidence(merged) and all(row.balance is None for row in merged.rows)
                     and (merged.page_role == "cheque_images" or len(keys) >= _UNLABELLED_ECHO_MIN_ROWS)
                     and _oldest_first(dates)
                     and sum(key[2] < max(dates) for key in keys) >= min(_UNLABELLED_ECHO_MIN_ROWS, len(keys))
-                    and _plausible_pictures(keys, period))
-        claimed = _assign(keys, postings) if eligible else None
-        if claimed is not None:
-            postings = [posting for index, posting in enumerate(postings) if index not in set(claimed)]
-            merged = replace(merged, ledger_echo=True)
+                    and _plausible_pictures(raw, window)):
+                merged = replace(merged, ledger_echo=True)
         elif (not picture_page(merged)
               and (merged.counts.get("agreed", 0) or merged.counts.get("corrected", 0))):
             ledger = [key for key in keys if key is not None]
             postings.extend(ledger)
             dates.extend(key[2] for key in ledger)
-            period = period or _period(merged)
         marked.append(merged)
     return marked
 
