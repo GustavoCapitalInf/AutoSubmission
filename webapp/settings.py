@@ -15,6 +15,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 SETTINGS_FILE = "settings.json"
@@ -31,6 +32,19 @@ _LOCK = threading.Lock()
 
 def _path(data_dir: str | Path) -> Path:
     return Path(data_dir) / SETTINGS_FILE
+
+
+def _replace(source: str, target: Path, attempts: int = 20) -> None:
+    """os.replace, retried briefly: on Windows it fails while another thread has the target open for reading,
+    and a reader holds it for microseconds. Anything still failing after that is raised."""
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.01)
 
 
 def load_settings(data_dir: str | Path) -> dict[str, bool]:
@@ -67,7 +81,7 @@ def save_settings(data_dir: str | Path, updates: object) -> dict[str, bool]:
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as stream:
                 json.dump(settings, stream, indent=2, sort_keys=True)
-            os.replace(temporary, target)
+            _replace(temporary, target)
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
             raise

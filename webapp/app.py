@@ -190,15 +190,16 @@ def _mask_account(value: object) -> str | None:
     return "****" + digits[-4:]
 
 
-def _displayed(analysis: object) -> object:
+def _displayed(analysis: object, *, carry_over: bool | None = None) -> object:
     """A stored analysis as the dashboard presents it: the owner's Settings applied to a COPY.
 
     Today that is the NSF basis (analysis/nsf_days.py): printed days by default, or every calendar day with
     the balance carried over inactive days when Settings turns carry-over on. Every surface that shows or
     exports metrics goes through here, so the dashboard, the downloads and the package agree; the stored
     record is never rewritten, and a change of setting applies to every job at once."""
-    settings = load_settings(store.storage.data_dir)
-    return apply_nsf_basis_to_payload(analysis, carry_over=settings["nsf_carry_over"])
+    if carry_over is None:
+        carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
+    return apply_nsf_basis_to_payload(analysis, carry_over=carry_over)
 
 
 def _masked(payload: object) -> object:
@@ -826,8 +827,10 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
 
     members: list[tuple] = []
     excluded: list[dict] = []
+    # One read per package, so a setting saved mid-request cannot split the members across two NSF bases.
+    carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
     for job in jobs:
-        analysis = _displayed(job.analysis or {})
+        analysis = _displayed(job.analysis or {}, carry_over=carry_over)
         roster = _account_roster(analysis)
         unverified, idle = _unverified_main_account(roster), _idle_main_account(roster)
         if unverified is not None or idle is not None:
@@ -986,6 +989,7 @@ def _package_analysis(jobs) -> dict:
         state: [] for state in REVENUE_STATES
     }
     denominator_modes: set[str] = set()
+    nsf_sources: set[str] = set()
     #: CURRENCY DOCTRINE §F bookkeeping: how many money-contributing members
     #: each declared currency has, and how many declared none at all.
     currency_documents: dict[str, int] = {}
@@ -1260,6 +1264,8 @@ def _package_analysis(jobs) -> dict:
             eligible_deposits = round(max(eligible_deposits - excluded_credits, 0.0), 2)
         denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
+        nsf_source = metrics.get("nsf_source")
+        nsf_sources.add(str(nsf_source))
         adb_calendar_days = metrics.get("calendar_day_count")
         average_daily_balance_num = _num(
             metrics.get("average_daily_balance"),
@@ -1532,6 +1538,7 @@ def _package_analysis(jobs) -> dict:
             "adb_calendar_days": adb_calendar_days,
             "adb_validated": adb_validated,
             "nsf_count": nsf_count,
+            "nsf_source": nsf_source,
             "lender_debits": lender_debits,
             "lender_debit_count": lender_debit_count,
             "lenders_detected": int(_num(metrics.get("lenders_detected"), len(detection.get("known_funders") or []))),
@@ -1808,6 +1815,9 @@ def _package_analysis(jobs) -> dict:
         "withholding_denominator_mode": (
             next(iter(denominator_modes)) if len(denominator_modes) == 1 else "mixed"
         ),
+        # The basis the summed NSF count was cut on (analysis/nsf_days.py). "mixed" when members differ, e.g. a
+        # member whose count is unavailable, or a legacy payload that could not be re-based.
+        "nsf_source": next(iter(nsf_sources)) if len(nsf_sources) == 1 else ("mixed" if nsf_sources else None),
         "withholding_denominator_label": (
             "Verified revenue"
             if denominator_modes == {"verified_revenue"}
@@ -2001,6 +2011,9 @@ def update_settings():
     except ValueError:
         # A fixed refusal: no exception text crosses this boundary (tests/test_worker_privacy.py).
         return jsonify({"error": "invalid settings update"}), 400
+    except OSError:
+        # A read-only data folder, or a replace that kept colliding with readers; the setting is unchanged.
+        return jsonify({"error": "settings could not be saved"}), 503
     return jsonify({"settings": settings})
 
 

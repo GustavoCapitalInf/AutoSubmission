@@ -1914,7 +1914,7 @@ function renderPackageAnalysis(pkg) {
         ["Total Cash Flow", formatMoney(totals.cash_flow, currency), moneyNote("Credits minus debits"), "CF", negativeTone(totals.cash_flow)],
         ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow, currency), moneyNote("Average statement cash flow"), "AVG", negativeTone(totals.avg_monthly_cash_flow)],
         ["Average Daily Balance", formatMoney(totals.average_daily_balance, currency), moneyNote(packageAverageBalanceNote(documents)), "ADB", currencyInfo.refused ? "amber" : packageAverageBalanceTone(documents)],
-        ["NSFs", formatNumber(totals.nsf_count), "Total returned items", "NSF", countTone(totals.nsf_count)],
+        ["NSFs", formatNumber(totals.nsf_count), totals.nsf_source === "mixed" ? "Members counted on different bases" : nsfSourceLabel(totals.nsf_source), "NSF", countTone(totals.nsf_count)],
         ["Confirmed Withholding", formatPercent(totals.package_withholding_rate), moneyNote(withholdingAuditNote(totals, currency)), "%", withholdingTone(totals.package_withholding_rate)],
       ],
     },
