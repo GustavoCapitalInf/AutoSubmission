@@ -57,15 +57,22 @@ def recorded_manifests(run_folder: Path, evidence: Path) -> dict[str, dict]:
     return manifests
 
 
-def install(manifest: dict, stats: dict) -> None:
-    """Point vlm.pair at recorded evidence only."""
+def install(manifest: dict | None, stats: dict) -> dict:
+    """Point vlm.pair at recorded evidence only. Returns the holder; set holder["manifest"] to switch the
+    recorded manifest between documents."""
     import vlm.pair as pair
     from vlm.receipts import canonical_json, sha256_bytes
 
-    served = {item["model"]: item for item in manifest.get("served_models", [])}
+    holder = {"manifest": manifest}
     original_chat = pair._chat_once
 
+    def recorded() -> dict:
+        if holder["manifest"] is None:
+            raise ReplayMiss("replay_document_not_recorded")
+        return holder["manifest"]
+
     def check_model(client, model, revision):
+        served = {item["model"]: item for item in recorded().get("served_models", [])}
         entry = served.get(model)
         if entry is None or entry.get("revision") != revision:
             raise ReplayMiss(f"replay_model_not_recorded:{model}")
@@ -73,19 +80,33 @@ def install(manifest: dict, stats: dict) -> None:
 
     def chat_once(root, client, model, prompt, *, manifest: dict, **kwargs):
         # Same key construction as vlm.pair._chat_once, but over the RECORDED manifest.
+        fixed = recorded()
         material = {**kwargs, "image_jpeg": sha256_bytes(kwargs["image_jpeg"]), "model": model, "prompt": prompt,
-                    "manifest": {key: value for key, value in recorded.items() if key != "served_models"}}
+                    "manifest": {key: value for key, value in fixed.items() if key != "served_models"}}
         key = sha256_bytes(canonical_json(material).encode())
         if not (Path(root) / "calls" / (key + ".json")).exists():
             stats["misses"] += 1
             raise ReplayMiss("replay_input_changed")
         stats["hits"] += 1
-        return original_chat(root, _NoNetwork(), model, prompt, manifest=recorded, **kwargs)
+        return original_chat(root, _NoNetwork(), model, prompt, manifest=fixed, **kwargs)
 
-    recorded = manifest
     pair._check_model = check_model
     pair._chat_once = chat_once
     pair._client = lambda url, timeout: _NoNetwork()
+    return holder
+
+
+def switch_per_document(manifests: dict[str, dict], holder: dict) -> None:
+    """Replay each document under the manifest IT was recorded with. Documents of one run normally share a
+    manifest; they differ when pipeline sources changed on disk mid-run, because the manifest hashes the
+    source files at the start of each document."""
+    original = check_judgment._run_document
+
+    def run_document(item, **kwargs):
+        holder["manifest"] = manifests.get(item["id"])
+        return original(item, **kwargs)
+
+    check_judgment._run_document = run_document
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -100,8 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     source_evidence = args.from_run.parent / "evidence"
     manifests = recorded_manifests(args.from_run, source_evidence)
     first = next(iter(manifests.values()))
-    if any(manifest != first for manifest in manifests.values()):
-        raise SystemExit("replay_documents_recorded_under_different_manifests")
+    mixed = any(manifest != first for manifest in manifests.values())
 
     output = check_judgment._private_output(args.output_dir, args.source_root)
     target = output / "evidence"
@@ -110,11 +130,13 @@ def main(argv: list[str] | None = None) -> int:
     shutil.copytree(source_evidence, target)
 
     stats = {"hits": 0, "misses": 0}
-    install(first, stats)
+    holder = install(None, stats)
+    switch_per_document(manifests, holder)
     run_args = argparse.Namespace(manifest=args.manifest, manifest_sha256=args.manifest_sha256,
                                   source_root=args.source_root, output_dir=args.output_dir)
     summary = check_judgment.run(run_args)
     report = {"replayed_from": args.from_run.name, "model_calls": 0, **stats,
+              "recorded_manifests_differ_between_documents": mixed,
               "documents": summary.get("documents"), "admitted": summary.get("admitted")}
     check_judgment._write_private(output / summary["run_id"] / "replay.private.json", report)
     print(json.dumps(report, sort_keys=True), flush=True)
