@@ -136,7 +136,7 @@ def test_manifest_pins_page_integrity_rules(monkeypatch):
     assert 'ocr/truncation.py' in original['source_sha256']
     digest = pair.sha256_file
     monkeypatch.setattr(pair, 'sha256_file', lambda path: 'changed-integrity-rules'
-                        if str(path).endswith('/ocr/truncation.py') else digest(path))
+                        if Path(path).as_posix().endswith('/ocr/truncation.py') else digest(path))
     changed = pair.visual_pair_manifest()
     assert original['source_sha256']['ocr/truncation.py'] != changed['source_sha256']['ocr/truncation.py']
 

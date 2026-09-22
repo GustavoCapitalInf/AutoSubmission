@@ -8,7 +8,7 @@ import pytest
 
 
 NODE = shutil.which("node")
-APP_JS = (Path(__file__).resolve().parents[1] / "webapp/static/app.js").read_text()
+APP_JS = (Path(__file__).resolve().parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
 
 
 def _function(name):
