@@ -409,12 +409,21 @@ def _summary_figures(merged) -> bool:
     return any(merged.account.get(name) is not None for name in SCOPED_FIELDS)
 
 
+# Printed statement figures beyond the summary box; no picture of a cheque or deposit slip carries them.
+_STATEMENT_FIGURES = ("stated_service_charge", "stated_interest_paid", "stated_nsf_count", "days_in_period",
+                      "bank_reported_average_balance")
+
+
 def _statement_evidence(merged) -> bool:
     """What no picture of a cheque or deposit slip carries: a failed review, a statement summary figure
-    (opening, closing, totals or counts), or a daily-balance table, read or quarantined. Repeated header
-    details such as bank, account or period do not count."""
-    return (bool(merged.errors) or _summary_figures(merged) or bool(merged.daily_balances)
-            or any(item.get("scope") == "daily_balances" for item in merged.metadata_evidence))
+    (opening, closing, totals or counts) or another printed statement figure, or a daily-balance table,
+    read, quarantined or read without dates. Repeated header details such as bank, account or period do not
+    count."""
+    return (bool(merged.errors) or _summary_figures(merged)
+            or any(merged.account.get(name) is not None for name in _STATEMENT_FIGURES)
+            or bool(merged.daily_balances)
+            or any(item.get("scope") == "daily_balances" for item in merged.metadata_evidence)
+            or any(item.get("code") == "review_daily_balance_undated" for item in merged.diagnostics))
 
 
 def picture_page(merged) -> bool:
@@ -480,6 +489,14 @@ def _assign(pictures: list, postings: list) -> list | None:
     return sorted(owner, key=owner.get)
 
 
+def _oldest_first(dates: list) -> bool:
+    """The listing so far reads oldest first: strictly more ascending than descending date steps (the gate's
+    orient rule, with a tie undetermined)."""
+    up = sum(1 for a, b in zip(dates, dates[1:]) if b > a)
+    down = sum(1 for a, b in zip(dates, dates[1:]) if b < a)
+    return up > down
+
+
 def mark_ledger_echoes(merges) -> list:
     """Mark pages whose every kept row repeats (_repeats) a distinct transaction on an EARLIER ledger page not
     already claimed by another marked page. Cheque and deposit-slip pictures follow the listing they
@@ -487,22 +504,36 @@ def mark_ledger_echoes(merges) -> list:
     pictured cheque has neither); an unlabelled page needs _UNLABELLED_ECHO_MIN_ROWS rows. Returns new merges
     in page order; inputs are never mutated.
 
-    Why a real page is not taken for pictures: its rows post on or after the earlier pages' rows, so they
-    cannot be shown to repeat them, and a statement with running balances prints one on each of them. Only
-    the whole-document arithmetic would otherwise judge a dropped page, and it cannot see a page whose rows
-    net to zero or one at the end of a per-page summary chain whose box was not read."""
-    postings, marked = [], []
+    Why a real page is not taken for pictures: in an oldest-first listing its rows post on or after the
+    earlier pages' rows, so they cannot be shown to repeat them, and a statement with running balances
+    prints one on each of them. Hence:
+    * the earlier listing must read oldest first; a newest-first listing inverts the date test, so it
+      allows no echo, and neither does an undetermined order;
+    * at least min(_UNLABELLED_ECHO_MIN_ROWS, rows) rows must be dated strictly before the latest earlier
+      posting (a cheque is written before it clears); a continuation page repeating same-day postings at a
+      page break has none;
+    * only pages on which the review kept rows the proposer read are the ledger, so pictures printed before
+      the listing, added by the reviewer alone and not recognized, are not a ledger for the real listing to
+      repeat.
+    Only the whole-document arithmetic would otherwise judge a dropped page, and it cannot see a page whose
+    rows net to zero or one at the end of a per-page summary chain whose box was not read."""
+    postings, dates, marked = [], [], []
     for merged in merges:
         keys = [_repeat_key(row) for row in merged.rows]
         eligible = (bool(keys) and None not in keys and not _statement_evidence(merged)
                     and all(row.balance is None for row in merged.rows)
-                    and (merged.page_role == "cheque_images" or len(keys) >= _UNLABELLED_ECHO_MIN_ROWS))
+                    and (merged.page_role == "cheque_images" or len(keys) >= _UNLABELLED_ECHO_MIN_ROWS)
+                    and _oldest_first(dates)
+                    and sum(key[2] < max(dates) for key in keys) >= min(_UNLABELLED_ECHO_MIN_ROWS, len(keys)))
         claimed = _assign(keys, postings) if eligible else None
         if claimed is not None:
             postings = [posting for index, posting in enumerate(postings) if index not in set(claimed)]
             merged = replace(merged, ledger_echo=True)
-        elif not picture_page(merged):
-            postings.extend(key for key in keys if key is not None)
+        elif (not picture_page(merged)
+              and (merged.counts.get("agreed", 0) or merged.counts.get("corrected", 0))):
+            ledger = [key for key in keys if key is not None]
+            postings.extend(ledger)
+            dates.extend(key[2] for key in ledger)
         marked.append(merged)
     return marked
 

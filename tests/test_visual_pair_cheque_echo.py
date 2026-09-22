@@ -39,7 +39,10 @@ def _page(number, amounts, *, role="statement_page", source="stage_b", counts=No
 
 
 def _ledger(number=1):
-    return _page(number, ["120.00", "45.10", "45.10", "300.00", "9.99"], source="stage_a+stage_b")
+    # An oldest-first listing; the default picture date (the 5th) precedes every posting.
+    postings = [("120.00", "2031-01-06"), ("45.10", "2031-01-08"), ("45.10", "2031-01-10"), ("300.00", "2031-01-15"),
+                ("9.99", "2031-01-20")]
+    return _page(number, [{"amount": amount, "date": when} for amount, when in postings], source="stage_a+stage_b")
 
 
 def _echoes(pages):
@@ -172,10 +175,54 @@ def test_a_picture_dated_before_its_posting_repeats_it():
 def test_the_assignment_is_a_true_matching_not_first_come():
     # The unknown-direction row must take the credit so the debit row can take the debit.
     ledger = _page(1, [{"amount": "10.00", "direction": "debit", "date": "2031-01-10"},
-                       {"amount": "10.00", "direction": "credit", "date": "2031-01-10"}], source="stage_a+stage_b")
+                       {"amount": "10.00", "direction": "credit", "date": "2031-01-11"}], source="stage_a+stage_b")
     pictures = _page(2, [{"amount": "10.00", "direction": "unknown", "date": "2031-01-05"},
                          {"amount": "10.00", "direction": "debit", "date": "2031-01-05"}])
     assert _echoes([ledger, pictures]) == [2]
+
+
+# --- second review round (045380e) -------------------------------------------------------------------------
+# R1: newest-first listings invert the date test. R2: a real continuation page repeating same-day postings.
+# R3: pictures printed BEFORE the listing must not become the ledger that the listing then "repeats".
+
+def test_a_newest_first_or_undetermined_listing_allows_no_echo():
+    newest_first = _page(1, [{"amount": "500.00", "direction": "credit", "date": "2031-01-28"},
+                             {"amount": "45.10", "date": "2031-01-25"},
+                             {"amount": "500.00", "date": "2031-01-20"},
+                             {"amount": "45.10", "date": "2031-01-18"}], source="stage_a+stage_b")
+    older = [{"amount": "500.00", "date": "2031-01-10"}, {"amount": "500.00", "direction": "credit", "date": "2031-01-12"}]
+    assert _echoes([newest_first, _page(2, older)]) == []
+    unknown = [dict(row, direction="unknown") for row in older]
+    assert _echoes([newest_first, _page(2, unknown)]) == []
+    one_day = _page(1, [{"amount": "45.10"}, {"amount": "300.00"}], source="stage_a+stage_b")
+    assert _echoes([one_day, _page(2, ["45.10", "300.00"], role="cheque_images")]) == []
+
+
+def test_a_continuation_repeating_same_day_postings_is_not_pictures():
+    # Identical fees straddling a page break: the real next page's rows are dated on the last posting day.
+    ledger = _page(1, [{"amount": "35.00", "date": "2031-01-02"}, {"amount": "35.00", "date": "2031-01-03"},
+                       {"amount": "35.00", "date": "2031-01-03"}], source="stage_a+stage_b")
+    same_day = [{"amount": "35.00", "date": "2031-01-03"}, {"amount": "35.00", "date": "2031-01-03"}]
+    assert _echoes([ledger, _page(2, same_day)]) == []
+    assert _echoes([ledger, _page(2, same_day[:1], role="cheque_images")]) == []
+
+
+def test_only_pages_whose_proposer_rows_were_kept_are_the_ledger():
+    # Pictures printed before the listing, not recognized, added by the reviewer only: they are no ledger for
+    # the real listing page after them to repeat.
+    pictures_first = _page(1, [{"amount": "45.10", "date": "2031-01-06"}, {"amount": "300.00", "date": "2031-01-09"}])
+    listing = _page(2, [{"amount": "45.10", "date": "2031-01-04"}, {"amount": "300.00", "date": "2031-01-08"}],
+                    source="stage_a+stage_b")
+    assert _echoes([pictures_first, listing]) == []
+
+
+def test_any_printed_statement_figure_or_an_unread_daily_table_is_statement_evidence():
+    for name, value in (("stated_service_charge", 12), ("stated_interest_paid", 0.5), ("stated_nsf_count", 1),
+                        ("days_in_period", 31), ("bank_reported_average_balance", 900)):
+        assert _echoes([_ledger(), _page(2, ["45.10", "300.00"], account={name: value})]) == [], name
+    undated = replace(_page(2, ["45.10", "300.00"]),
+                      diagnostics=({"scope": "daily_balances", "page": 2, "index": 0, "code": "review_daily_balance_undated"},))
+    assert _echoes([_ledger(), undated]) == []
 
 
 def test_unresolved_rows_on_a_picture_page_do_not_hold_it():

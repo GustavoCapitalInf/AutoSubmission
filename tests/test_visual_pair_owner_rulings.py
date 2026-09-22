@@ -72,12 +72,17 @@ def test_both_reviewer_modes_define_bank_account_name_and_cheque_pages():
 # --- 2b. the deterministic backstop for cheque-image pages -----------------------------------------------
 
 def _page(number, *, role="statement_page", account=None, rows=1):
-    body = tuple(CandidateRow("2031-01-02", "01/02", "FABRICATED ROW", Decimal("1.00"), "credit", None,
-                              number, "stage_b", f"added{index}") for index in range(rows))
+    # Page 1 is the listing: oldest first, from the 10th, rows the proposer read and the review kept. Later
+    # pages' rows are dated from the 2nd, before those postings, as a pictured cheque is.
+    first = 10 if number == 1 else 2
+    body = tuple(CandidateRow(f"2031-01-{first + index:02d}", f"01/{first + index:02d}", "FABRICATED ROW",
+                              Decimal("1.00"), "credit", None, number,
+                              "stage_a+stage_b" if number == 1 else "stage_b", f"added{index}")
+                 for index in range(rows))
     base = {"period_start": "2031-01-01", "period_end": "2031-01-31", "currency": "USD",
             "account_number": "9-000-1111-2222"} if number == 1 else {}
     base.update(account or {})
-    return PageReviewMerge(number, body, (), {"added": len(body)}, (), base, (), role, ())
+    return PageReviewMerge(number, body, (), {"agreed" if number == 1 else "added": len(body)}, (), base, (), role, ())
 
 
 def _marked(*pages):
@@ -93,9 +98,9 @@ def test_rows_on_cheque_image_pages_never_enter_the_ledger():
 
 
 def test_a_cheque_pages_other_account_and_names_are_kept_but_never_compared():
-    pages = _marked(_page(1), _page(2, role="cheque_images",
-                                    account={"account_number": "7-000-3333-4444", "bank": "OTHER FABRICATED BANK",
-                                             "account_name": "SOMEONE ELSE"}))
+    pages = _marked(_page(1, rows=2), _page(2, role="cheque_images",
+                                            account={"account_number": "7-000-3333-4444",
+                                                     "bank": "OTHER FABRICATED BANK", "account_name": "SOMEONE ELSE"}))
     before = deepcopy(pages)
     account, _, reasons, provenance = merge_metadata(pages)
     assert pages == before
@@ -136,7 +141,8 @@ def test_a_cheque_picture_page_is_out_of_the_confidence_counts_and_admission():
     cheque = replace(_page(2, role="cheque_images", rows=6), counts={"added": 5, "unresolved": 1})
     summary = confidence_summary(_marked(_page(1, rows=6), cheque), gate_admitted=True)
     assert summary["gate_admitted"] is True
-    assert summary["counts"]["unresolved"] == 0 and summary["counts"]["added"] == 6
+    assert summary["counts"]["unresolved"] == 0 and summary["counts"]["added"] == 0
+    assert summary["counts"]["agreed"] == 6
     assert summary["page_count"] == 2
     assert [page["cheque_pictures"] for page in summary["pages"]] == [False, True]
 
