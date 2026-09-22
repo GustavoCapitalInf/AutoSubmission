@@ -1,0 +1,74 @@
+"""Owner display settings for the web app, kept in ``<data_dir>/settings.json``.
+
+A JSON file rather than a table on purpose: ``webapp/storage.py`` refuses a
+database whose schema is newer than the running code, so a settings table
+would lock the data directory against every older checkout. A settings file
+changes nothing another checkout reads.
+
+Settings change how a stored analysis is PRESENTED (served, exported and
+packaged); they never rewrite the stored record, and flipping one takes effect
+on every job at once, with no reprocessing.
+"""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import threading
+from pathlib import Path
+
+SETTINGS_FILE = "settings.json"
+
+#: Every setting, with its default. Unknown keys are refused on save and ignored on load.
+DEFAULTS: dict[str, bool] = {
+    # Owner ruling, 2026-09-22: the NSF count (negative-ending days) counts printed days only by default.
+    # On: a day with no activity carries the previous day's ending balance and counts if it is negative.
+    "nsf_carry_over": False,
+}
+
+_LOCK = threading.Lock()
+
+
+def _path(data_dir: str | Path) -> Path:
+    return Path(data_dir) / SETTINGS_FILE
+
+
+def load_settings(data_dir: str | Path) -> dict[str, bool]:
+    """The current settings. A missing, unreadable or malformed file, or a malformed value, reads as the
+    default: a display preference must never stop the dashboard from serving."""
+    settings = dict(DEFAULTS)
+    try:
+        raw = json.loads(_path(data_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return settings
+    if isinstance(raw, dict):
+        for key, default in DEFAULTS.items():
+            if isinstance(raw.get(key), type(default)):
+                settings[key] = raw[key]
+    return settings
+
+
+def save_settings(data_dir: str | Path, updates: object) -> dict[str, bool]:
+    """Apply ``updates`` and return the saved settings. Raises ``ValueError`` for anything but an object of
+    known keys with values of the right type; nothing is written then."""
+    if not isinstance(updates, dict) or not updates:
+        raise ValueError("settings update must be a non-empty object")
+    for key, value in updates.items():
+        if key not in DEFAULTS:
+            raise ValueError("unknown setting")  # fixed text: the key came from the request
+        if not isinstance(value, type(DEFAULTS[key])):
+            raise ValueError(f"setting {key} must be {type(DEFAULTS[key]).__name__}")
+    with _LOCK:
+        settings = {**load_settings(data_dir), **updates}
+        target = _path(data_dir)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Write-then-rename, so a reader never sees a half-written file.
+        handle, temporary = tempfile.mkstemp(dir=target.parent, prefix=".settings-", suffix=".json")
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                json.dump(settings, stream, indent=2, sort_keys=True)
+            os.replace(temporary, target)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+    return settings

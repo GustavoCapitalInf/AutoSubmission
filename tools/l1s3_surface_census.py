@@ -146,6 +146,8 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "PINNED_CURRENCY_SOURCE is path-keyed for the same reason"),
     ("discovery/runner.py", "_project_accounts", "per_account",
      "the row's account column is EMPTY on a document; account_count carries it"),
+    ("analysis/nsf_days.py", "apply_nsf_basis_to_payload", "per_account",
+     "the NSF basis is a property of one account's ledger; every account is re-based, a malformed document passes untouched"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
