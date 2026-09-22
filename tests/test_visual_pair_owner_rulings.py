@@ -164,3 +164,16 @@ def test_a_labelled_page_with_a_summary_box_has_its_metadata_compared():
     labelled = _page(2, role="cheque_images", account={"ending_balance": 160, "account_number": "7-000-3333-4444"})
     _, _, reasons, _ = merge_metadata([_page(1), labelled])
     assert reasons  # the other account number is compared, and conflicts
+
+
+def test_a_page_whose_review_kept_rows_the_proposer_read_is_not_a_cheque_picture_page():
+    # Third review finding on b4eea02: a real page labelled cheque_images with its summary box unread but its
+    # proposed rows confirmed or corrected is a statement page. Rows only the reviewer added (a pictured
+    # cheque echoed as a transaction) do not disqualify a picture page, which is what the ruling is about.
+    for state in ("agreed", "corrected"):
+        kept = replace(_page(2, role="cheque_images", rows=2), counts={state: 2})
+        assert _held([_page(1), kept], truncated=[False, True]) == [2], state
+        rows, excluded = ledger_rows([_page(1), kept])
+        assert excluded == 0 and len(rows) == 3, state
+    echoed = replace(_page(2, role="cheque_images", rows=2), counts={"added": 2, "rejected": 1})
+    assert _held([_page(1), echoed], truncated=[False, True]) == []
