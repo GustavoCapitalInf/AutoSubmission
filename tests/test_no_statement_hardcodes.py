@@ -803,13 +803,129 @@ def test_no_literal_years_in_ocr():
     assert not offenders, f"literal year constants in ocr/: {offenders}"
 
 
+def _verified_calibration_value_spans(path: Path) -> dict[int, tuple[int, int]]:
+    """Only the active, recomputed calibration record is cryptographic data.
+
+    This is a value-span classification, never a hex, line or file exemption.
+    A copied, forged, misplaced or inactive record remains ordinary scanned code.
+    """
+    if path.resolve() != (OCR_DIR / "extraction_quality.py").resolve():
+        return {}
+    from ocr.extraction_quality import EXTRACTION_QUALITY_VERSION, calibration_digest
+
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assignments = [node for node in tree.body if
+        (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+         and node.target.id == "CALIBRATION_DIGESTS") or
+        (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
+         and target.id == "CALIBRATION_DIGESTS" for target in node.targets))]
+    if len(assignments) != 1 or not isinstance(assignments[0], ast.AnnAssign):
+        return {}
+    call = assignments[0].value
+    if (not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name)
+            or call.func.id != "MappingProxyType" or len(call.args) != 1
+            or call.keywords or not isinstance(call.args[0], ast.Dict)):
+        return {}
+    values = [value for key, value in zip(call.args[0].keys, call.args[0].values)
+              if isinstance(key, ast.Constant) and type(key.value) is int
+              and key.value == EXTRACTION_QUALITY_VERSION]
+    if len(values) != 1:
+        return {}
+    value = values[0]
+    expected = calibration_digest()
+    if (not isinstance(value, ast.Constant) or not isinstance(value.value, str)
+            or value.value != expected):
+        return {}
+    lines = source.splitlines()
+    spans = {}
+    for number in range(value.lineno, value.end_lineno + 1):
+        raw = lines[number - 1].encode("utf-8")
+        start = value.col_offset if number == value.lineno else 0
+        stop = value.end_col_offset if number == value.end_lineno else len(raw)
+        # AST columns are UTF-8 byte offsets; _code_lines preserves characters.
+        spans[number] = (len(raw[:start].decode("utf-8")), len(raw[:stop].decode("utf-8")))
+    return spans
+
+
+def _ocr_account_code_lines(path: Path):
+    spans = _verified_calibration_value_spans(path)
+    for number, line in _code_lines(path):
+        if number in spans:
+            start, stop = spans[number]
+            line = line[:start] + " " * (stop - start) + line[stop:]
+        yield number, line
+
+
 def test_no_literal_account_numbers_in_ocr():
     offenders = []
     for path in _ocr_modules():
-        for number, line in _code_lines(path):
+        for number, line in _ocr_account_code_lines(path):
             if ACCOUNT_RE.search(line):
                 offenders.append(f"{path.name}:{number}: {line.strip()}")
     assert not offenders, f"literal account-number digit runs in ocr/: {offenders}"
+
+
+def _synthetic_calibration_source(tmp_path, monkeypatch, value, *, version=None,
+                                  filename="extraction_quality.py", assignment="CALIBRATION_DIGESTS",
+                                  extra="", suffix="", prefix=""):
+    from ocr.extraction_quality import EXTRACTION_QUALITY_VERSION
+
+    monkeypatch.setitem(globals(), "OCR_DIR", tmp_path)
+    active = EXTRACTION_QUALITY_VERSION if version is None else version
+    source = (prefix + f"{assignment}: Mapping[int, str] = MappingProxyType({{{active}: {value!r}"
+              + extra + "})" + suffix + "\n")
+    path = tmp_path / filename
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
+def test_ocr_account_guard_accepts_only_the_recomputed_active_digest(tmp_path, monkeypatch):
+    from ocr.extraction_quality import calibration_digest
+
+    digest = calibration_digest()
+    path = _synthetic_calibration_source(tmp_path, monkeypatch, digest)
+    assert any(ACCOUNT_RE.search(line) for _, line in _code_lines(path))
+    assert not any(ACCOUNT_RE.search(line) for _, line in _ocr_account_code_lines(path))
+
+
+@pytest.mark.parametrize("width", [7, 64])
+def test_ocr_account_guard_rejects_forged_or_malformed_digest_values(tmp_path, monkeypatch, width):
+    path = _synthetic_calibration_source(tmp_path, monkeypatch, "7" * width)
+    assert any(ACCOUNT_RE.search(line) for _, line in _ocr_account_code_lines(path))
+
+
+@pytest.mark.parametrize("extra_active", [False, True])
+def test_ocr_account_guard_keeps_inactive_version_values_scanned(tmp_path, monkeypatch, extra_active):
+    from ocr.extraction_quality import EXTRACTION_QUALITY_VERSION, calibration_digest
+
+    digest = calibration_digest()
+    extra = f", {EXTRACTION_QUALITY_VERSION}: {digest!r}" if extra_active else ""
+    path = _synthetic_calibration_source(tmp_path, monkeypatch, digest,
+        version=EXTRACTION_QUALITY_VERSION + 1, extra=extra)
+    assert any(ACCOUNT_RE.search(line) for _, line in _ocr_account_code_lines(path))
+
+
+@pytest.mark.parametrize("wrong", ["module", "assignment"])
+def test_ocr_account_guard_keeps_wrong_location_values_scanned(tmp_path, monkeypatch, wrong):
+    from ocr.extraction_quality import calibration_digest
+
+    path = _synthetic_calibration_source(tmp_path, monkeypatch, calibration_digest(),
+        filename="unrelated.py" if wrong == "module" else "extraction_quality.py",
+        assignment="UNRELATED_DIGESTS" if wrong == "assignment" else "CALIBRATION_DIGESTS")
+    assert any(ACCOUNT_RE.search(line) for _, line in _ocr_account_code_lines(path))
+
+
+@pytest.mark.parametrize("prefix", ["", "label = 'é'; "])
+def test_ocr_account_guard_preserves_neighboring_literals_on_the_same_line(tmp_path, monkeypatch, prefix):
+    from ocr.extraction_quality import calibration_digest
+
+    marker = "8" * 9
+    path = _synthetic_calibration_source(tmp_path, monkeypatch, calibration_digest(),
+        prefix=prefix, suffix=f"; account = {marker!r}")
+    lines = list(_ocr_account_code_lines(path))
+    assert any(marker in line and ACCOUNT_RE.search(line) for _, line in lines)
+    assert not any(calibration_digest() in line for _, line in lines)
 
 
 def test_no_exact_amount_constants_in_ocr():
@@ -1100,14 +1216,113 @@ def test_the_issuer_marker_guard_catches_growth_inside_a_ratcheted_file(tmp_path
 
 EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "evidence"
 PADDLE_VAST_TOOL = Path(__file__).resolve().parent.parent / "tools" / "paddle_vast.py"
+#: P22-CLASSIFY (Phase 2.2 case 24): the neutral `layout/` package joins the
+#: same scans — a roots APPEND only, no new detection logic.
+LAYOUT_DIR = Path(__file__).resolve().parent.parent / "layout"
+
+#: P22-TRUTHTABLE (Phase 2.2 case 24, card item 10): the two NEW modules this
+#: card adds — the layered unresolved-reason vocabulary and the sealed-store
+#: join — join the same scans. A roots APPEND only, no new detection logic,
+#: in cell C's style one line above.
+#:
+#: `discovery/` and `telemetry/` as WHOLES are deliberately NOT added here,
+#: and that is reported rather than done quietly: both are large pre-existing
+#: packages that these scans have never covered, so adding them is a ratchet
+#: decision with its own baseline to establish (the scans are not "does this
+#: file look clean", they are "no statement-specific literal, no literal year,
+#: no account-shaped digit run, no exact amount"), and a card whose job is
+#: reporting plumbing is the wrong place to take it. The two files this card
+#: AUTHORS are covered from birth, which is the part that is genuinely a clean
+#: append.
+P22_TRUTHTABLE_MODULES = [
+    Path(__file__).resolve().parent.parent / "telemetry" / "unresolved_taxonomy.py",
+    Path(__file__).resolve().parent.parent / "tools" / "truth_report.py",
+]
+
+#: P23-WAVE (Phase 2.3, card item 9): the wave runner joins the same scans, in
+#: cell T's style one line above — a roots APPEND only, no new detection logic.
+#: It is covered from birth, which is the part that is genuinely a clean append;
+#: `discovery/` and `telemetry/` as WHOLES stay out for the reason T recorded.
+P23_WAVE_MODULES = [
+    Path(__file__).resolve().parent.parent / "tools" / "paddle_wave.py",
+]
+
+#: P23-EGATE (Phase 2.3 cell E, card item 6): the census instrument joins the
+#: same scans — a roots APPEND only, in the two lines of precedent above. Its
+#: module, `ocr/extraction_quality.py`, needs no append at all: `_ocr_modules`
+#: already covers every file in `ocr/`, and
+#: `test_the_p23_egate_scan_roots_cover_the_module_and_the_tool` asserts that
+#: rather than assuming it — an allowlist whose members are covered by
+#: accident is one rename away from covering nothing.
+P23_EGATE_MODULES = [
+    Path(__file__).resolve().parent.parent / "tools" / "extraction_quality_census.py",
+]
+
+#: P23-AGREE (Phase 2.3 cell X, card item 6): this card's two instruments
+#: join the same scans. A roots APPEND only, no new detection logic, in the
+#: style of the two blocks above. `layout/agreement.py` needs no entry — the
+#: whole of `layout/*.py` is already globbed below, so it is covered from
+#: birth.
+P23_AGREE_MODULES = [
+    Path(__file__).resolve().parent.parent / "tools" / "agreement_census.py",
+    Path(__file__).resolve().parent.parent / "tools" / "agree_native_census.py",
+    Path(__file__).resolve().parent.parent / "tools" / "agree_mutation_table.py",
+]
 
 
 def _paddle_phase21_modules() -> list[Path]:
-    """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope."""
+    """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope —
+    plus `layout/*.py` (Phase 2.2 case 24), cell T's two new modules, and cell
+    W's wave runner (Phase 2.3)."""
     modules = sorted(EVIDENCE_DIR.glob("*.py"))
     if PADDLE_VAST_TOOL.exists():
         modules.append(PADDLE_VAST_TOOL)
+    modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
+    modules.extend(path for path in P22_TRUTHTABLE_MODULES if path.exists())
+    modules.extend(path for path in P23_WAVE_MODULES if path.exists())
+    modules.extend(path for path in P23_EGATE_MODULES if path.exists())
+    modules.extend(path for path in P23_AGREE_MODULES if path.exists())
     return modules
+
+
+def test_the_p23_agree_modules_and_the_agreement_module_are_actually_scanned():
+    """The same guard cell T wrote for its own roots: a named file that does
+    not exist scans nothing and passes. `layout/agreement.py` is asserted
+    here too, because it is covered by a GLOB rather than by name and a glob
+    that stopped matching would be just as silent."""
+    missing = [path.name for path in P23_AGREE_MODULES if not path.exists()]
+    assert not missing, f"named in the scan roots but absent: {missing}"
+    scanned = {path.name for path in _paddle_phase21_modules()}
+    assert {path.name for path in P23_AGREE_MODULES} <= scanned
+    assert "agreement.py" in scanned
+
+
+def test_the_p22_truthtable_modules_are_actually_scanned():
+    """A roots append that names a file which does not exist scans nothing and
+    passes, which is the failure mode of every allowlist. Both must be here."""
+    missing = [path.name for path in P22_TRUTHTABLE_MODULES if not path.exists()]
+    assert not missing, f"named in the scan roots but absent: {missing}"
+    scanned = {path.name for path in _paddle_phase21_modules()}
+    assert {path.name for path in P22_TRUTHTABLE_MODULES} <= scanned
+
+
+def test_the_p23_wave_module_is_actually_scanned():
+    """The same guard for this card's append, for the same reason."""
+    missing = [path.name for path in P23_WAVE_MODULES if not path.exists()]
+    assert not missing, f"named in the scan roots but absent: {missing}"
+    scanned = {path.name for path in _paddle_phase21_modules()}
+    assert {path.name for path in P23_WAVE_MODULES} <= scanned
+
+
+def test_the_p23_egate_scan_roots_cover_the_module_and_the_tool():
+    """Card item 6: the metrics module AND the census instrument are in the
+    OQ2 scan roots. The module is covered by the `ocr/` layer scan and the
+    tool by this card's append; both are asserted, because a named root that
+    does not exist scans nothing and passes."""
+    missing = [path.name for path in P23_EGATE_MODULES if not path.exists()]
+    assert not missing, f"named in the scan roots but absent: {missing}"
+    assert {path.name for path in P23_EGATE_MODULES} <= {p.name for p in _paddle_phase21_modules()}
+    assert "extraction_quality.py" in {path.name for path in _ocr_modules()}
 
 
 def test_no_removed_literals_in_evidence_and_paddle_vast():

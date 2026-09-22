@@ -71,6 +71,35 @@ REMOTE_WORKER_PATH = f"{REMOTE_WORKER_DIR}/paddle_worker.py"
 REMOTE_PID_PATH = f"{REMOTE_WORKER_DIR}/worker.pid"
 REMOTE_LOG_PATH = f"{REMOTE_WORKER_DIR}/worker.log"
 
+#: WHICH remote interpreter carries the pinned Paddle stack. Every Phase 2.1 and 2.2 instance kept it in
+#: the image's main environment, `/venv/main`, and that stays the default, so a run that says nothing
+#: behaves exactly as every earlier run did. It is a CONNECTION fact, not a pin: the 2026-09-15 instance
+#: is built from a vLLM template whose `/venv/main` belongs to torch, and installing our pins there
+#: DOWNGRADED torch's CUDA libraries and broke it (reproduced, then reverted) — that instance keeps the
+#: pinned stack in its own virtualenv instead. So the path travels with the host, the port and the user in
+#: the gitignored environment file, and it is read AT THE CALL SITE (never at import) for the same reason
+#: the opt-in literals are: a test, or a second command in one process, must be able to change it.
+REMOTE_PYTHON_ENV = "PADDLE_VAST_PYTHON"
+DEFAULT_REMOTE_PYTHON = "/venv/main/bin/python"
+SSH_COMPRESSION_ENV = "PADDLE_VAST_SSH_COMPRESSION"
+
+
+def remote_python(environ: Mapping[str, str] | None = None) -> str:
+    """The remote interpreter path: `PADDLE_VAST_PYTHON`, else the historical default.
+
+    Whitespace-only is treated as unset. The value is a PATH on the remote host and is never masked in a
+    command line the way the host and the user are — it names no endpoint and no credential.
+    """
+    source = os.environ if environ is None else environ
+    return (source.get(REMOTE_PYTHON_ENV) or "").strip() or DEFAULT_REMOTE_PYTHON
+
+
+def _activate_prefix(python: str) -> str:
+    """`source <the interpreter's own bin>/activate` — kept from the Phase 2.1 lifecycle so the remote
+    command is byte-identical when the default interpreter is used; harmless (and silent) when the
+    interpreter is not a virtualenv."""
+    return f"source {python.rsplit('/', 1)[0]}/activate >/dev/null 2>&1; "
+
 #: D8 / M12: `measure` refuses any fixture path naming a real-data location,
 #: by substring — this is deliberately broader than a prefix match so a
 #: relative or absolute path pointing INTO one of these directories from
@@ -141,8 +170,16 @@ def _scp_command(settings: PaddleSettings, local_path: str, remote_path: str) ->
 
 
 def _tunnel_command(settings: PaddleSettings) -> list[str]:
+    # A connection setting only: SSH restores the exact HTTP/PNG bytes.
+    # Unset preserves the user's existing ssh configuration; an explicit
+    # value takes effect when the next tunnel is opened, never on a live one.
+    compression = (os.environ.get(SSH_COMPRESSION_ENV) or "").strip()
+    if compression not in {"", "yes", "no"}:
+        raise PaddleVastError("PADDLE_VAST_SSH_COMPRESSION must be yes, no, or unset")
+    options = ["-o", f"Compression={compression}"] if compression else []
     return [
         "ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "BatchMode=yes",
+        *options,
         "-L", f"127.0.0.1:{settings.tunnel_local_port}:127.0.0.1:{settings.worker_port}",
         "-p", str(settings.vast_ssh_port), f"{settings.vast_ssh_user}@{settings.vast_host}",
     ]
@@ -195,9 +232,10 @@ def _terminate_pid(pid: int) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_check(settings: PaddleSettings, *, runner: Callable[..., Any] = subprocess.run) -> dict:
-    """Env presence (names only), `nvidia-smi` over SSH, and the remote
-    `/venv/main` package versions compared against the D5 pins. Nothing here
-    starts or stops anything."""
+    """Env presence (names only), `nvidia-smi` over SSH, and the package
+    versions of the interpreter `remote_python()` names (`/venv/main` unless
+    `PADDLE_VAST_PYTHON` says otherwise), compared against the D5 pins.
+    Nothing here starts or stops anything."""
     result: dict[str, Any] = {
         "env_present": {
             name: bool(os.environ.get(name))
@@ -217,9 +255,10 @@ def cmd_check(settings: PaddleSettings, *, runner: Callable[..., Any] = subproce
     )
     result["gpu"] = gpu_proc.stdout.strip() if gpu_proc.returncode == 0 else None
 
+    python = remote_python()
     version_cmd = (
-        "source /venv/main/bin/activate >/dev/null 2>&1; "
-        "python -c \"import paddleocr, paddle; print(paddleocr.__version__); print(paddle.__version__)\""
+        f"{_activate_prefix(python)}"
+        f"{python} -c \"import paddleocr, paddle; print(paddleocr.__version__); print(paddle.__version__)\""
     )
     version_proc = _run(runner, _ssh_command(settings, version_cmd), capture_output=True, text=True, timeout=60)
     lines = [line for line in version_proc.stdout.strip().splitlines() if line]
@@ -252,7 +291,7 @@ def cmd_deploy(settings: PaddleSettings, *, runner: Callable[..., Any] = subproc
     scp_proc = _run(runner, _scp_command(settings, local_path, REMOTE_WORKER_PATH),
                     capture_output=True, text=True, timeout=60)
     self_check_cmd = (
-        f"{_env_prefix(settings, token=None)} /venv/main/bin/python {REMOTE_WORKER_PATH} --self-check"
+        f"{_env_prefix(settings, token=None)} {remote_python()} {REMOTE_WORKER_PATH} --self-check"
     )
     check_proc = _run(runner, _ssh_command(settings, self_check_cmd), capture_output=True, text=True, timeout=60)
     result: dict[str, Any] = {
@@ -298,8 +337,8 @@ def cmd_start(settings: PaddleSettings, *, runner: Callable[..., Any] = subproce
         pass
 
     remote_cmd = (
-        "source /venv/main/bin/activate >/dev/null 2>&1; "
-        f"nohup env {_env_prefix(settings, token)} /venv/main/bin/python {REMOTE_WORKER_PATH} "
+        f"{_activate_prefix(remote_python())}"
+        f"nohup env {_env_prefix(settings, token)} {remote_python()} {REMOTE_WORKER_PATH} "
         f"> {REMOTE_LOG_PATH} 2>&1 < /dev/null & echo $! > {REMOTE_PID_PATH}"
     )
     proc = _run(runner, _ssh_command(settings, remote_cmd), capture_output=True, text=True, timeout=30)

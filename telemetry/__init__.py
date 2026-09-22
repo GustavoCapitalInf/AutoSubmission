@@ -70,6 +70,13 @@ from .record import (
     source_path_for,
     source_section,
 )
+from .unresolved_taxonomy import (
+    UNRESOLVED_TAXONOMY_VERSION,
+    KindFacts,
+    UnresolvedDiagnosis,
+    diagnose_unresolved,
+    kind_facts_from_document_class,
+)
 
 __all__ = [
     "ADVISORY_CODES",
@@ -95,11 +102,21 @@ __all__ = [
     "StageTimer",
     "TELEMETRY_VERSION",
     "TOP_LEVEL_KEYS",
+    "UNRESOLVED_TAXONOMY_VERSION",
+    "KindFacts",
+    "UnresolvedDiagnosis",
+    # NOTE: `telemetry.unresolved_taxonomy.VOCABULARY` is deliberately NOT
+    # re-exported here — `VOCABULARY` already names the W3-2 diagnostics
+    # vocabulary in this namespace, and two closed vocabularies under one name
+    # is exactly the collision a taxonomy module exists to prevent. Import it
+    # from `telemetry.unresolved_taxonomy` by its module.
     "VOCABULARY",
     "build_record",
     "classify_outcome",
     "diagnose",
+    "diagnose_unresolved",
     "dispatch_section",
+    "kind_facts_from_document_class",
     "empty_diagnostics",
     "document_section",
     "model_calls_for",

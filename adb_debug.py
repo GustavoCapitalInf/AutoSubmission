@@ -69,7 +69,11 @@ def main() -> int:
     parser.add_argument("--local-ocr", action="store_true", help="use local Tesseract for image-only PDFs")
     parser.add_argument(
         "--parse-mode", default="auto", choices=("auto", "deterministic"),
-        help="deterministic refuses to fall back to the LLM extractor",
+        help=(
+            "deterministic never calls the hosted extractor; auto calls it once, only "
+            "when the operator opt-in named in analysis/pipeline.py is set in the "
+            "environment, and otherwise refuses exactly as deterministic does (P22-FENCE)"
+        ),
     )
     parser.add_argument("--summary", action="store_true", help="one line per statement instead of the full trace")
     parser.add_argument("--json", action="store_true", help="emit the ADB result as JSON")

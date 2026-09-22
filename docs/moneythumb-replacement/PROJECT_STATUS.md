@@ -5,15 +5,260 @@ session. Trust it over conversational memory; trust the repository over it if th
 ever disagree, and then fix this file. Update it at every wave close and at any
 material state change.
 
-Last verified: **2026-08-31** (all numbers below re-measured on the Windows host, not copied).
+Last verified: **2026-09-17 UTC** (Phase 2.3 composition and active proof state below; historical milestone rows retain their dated scope).
 
 ---
 
 ## Where we are
 
+**Handoff update, 2026-09-17:** the user requested a new-agent handoff before further execution and supplied a replacement Vast GPU. Read [the current restart guide](../agent-handoffs/PHASE2-REMAINDER-RESUME-20260917.md). The replacement endpoint is recorded privately and remains untested. Stage-five recovery has an independently reviewed design, but no completed implementation or live continuation. Phase 2.4 remains unstarted and the unseen batch sealed.
+
+**Approved sequencing update, 2026-09-16:** follow the amendment and §G.2.3A of
+`phase2_remainder/PHASE2_REMAINDER_PLAN.md`: bounded VL-1.6 versus v5 research
+after the Phase 2.3 baseline and before Phase 2.4, with the unseen batch sealed.
+The bounded comparison and independently reviewed report are complete. No production switch follows automatically.
+
+**Latest execution snapshot, 2026-09-17 02:08 UTC:**
+
+The bounded VL-1.6 versus v5 comparison is complete and independently reviewed.
+See [the comparison report](phase2_remainder/VL16_V5_COMPARISON_REPORT.md) for the configuration, frozen sample, per-modality denominators,
+refusals, measurements and limitations. All 32 synthetic fixture requests and all
+66 eligible development attempt slots have a disposition. Development retained
+65 responses and 59 accepted page observations; seven attempts were refused,
+including one without a response. No failed slot was retried.
+
+Only one printed amount on one scanned page is measurable in both models under
+the frozen rules. VL recovered its literal exactly in both passes; v5 did not.
+Both preserved its sign. This is one repeated finding, with no digital or mixed
+common-amount measurement. Each model reproduced its defined evidence on all
+12 measurable repeat pages, but the cohorts and equality definitions differ.
+There is no broad model ranking, production switch or admitted coverage gain.
+The recommendation is separately reviewed further VL research while retaining
+v5 in production. Region-only VL evidence does not satisfy the current word
+consumer; rows, full-page completeness and downstream false accepts remain
+unmeasured.
+
+Offline scoring closed at 23:01:35 with all 162 bound files unchanged, zero
+read-boundary denials and no new model, original-document or image reads. The
+report retains the first v5 pass's missing audit counters, both unexplained VL
+audit denials, the interrupted monitor stream and the final v5 cleanup flag.
+Separate custody and cleanup checks establish only their recorded later facts;
+failed runs remain failed. All worker/monitor/tunnel work and owned locks are closed.
+
+Phase 2.3 remains open. All fourteen V production replay windows and final
+accounting passed: 2,695 evaluated documents are identical, including all 2,625
+validated documents; 685 outside the replay union remain unmeasured. B and P are
+independently approved. v6 synthetic compatibility closed at 23:24:21: the
+verified medium models and static backend produced 54 canonical words / 10 lines,
+with in-frame round-trip checks, unchanged sources, zero boundary denials and
+passed cleanup/retention. Child, controller and owned-release exits are zero.
+This is one logical warmup; wire attempts and model accuracy were not measured.
+V customer comparisons, final closure and V/B/P composition remain pending.
+The reviewed study-name grammar repair in isolated `ff633a6` now passes all
+15 focused runner checks. The two earlier failed proof envelopes are preserved.
+Historical compatibility sources and unchanged runtime files retain their exact bytes.
+The frozen descriptor binds 69 inputs and the original twelve-stage schedule.
+
+The first customer stage closed at 00:23:27 in 508.2 seconds: production v5 on
+the paired v6 sample attempted eight documents, with evidence for seven / 17 pages
+and one refusal / three pages. The child exited zero and retention/cleanup passed.
+The final inspector failed on legitimate outside-population rows in the full
+custody CSV. Its failed result and successful owned release remain immutable.
+The strict exclusion check and continuation protocol passed fourteen focused
+checks. The first offline qualification then failed on a blocked import-time
+socket creation; that failure remains preserved. A reviewed offline dependency
+probe suppression passed three controls without weakening the network guard.
+Fresh qualification closed at 01:05:51 with zero audit denials, all 654 original
+and source inputs unchanged, seven immutable read-only index connections, and
+the original seven evidence outcomes / one refusal preserved. No new OCR ran
+during recovery. Child, controller and owned-release exits were zero.
+
+The frozen continuation descriptor binds 87 inputs and preserves the original
+failed first-stage result as its predecessor. All four paired v5/v6 readings
+have closed, each with evidence for seven documents / 17 pages and one refusal /
+three pages. The three successful continuation stages took 559.5, 465.1 and
+443.7 seconds; their child, controller and owned release exited zero, with
+cleanup and retention passed. Equal counts do not establish equal evidence or
+model accuracy; comparison measurements remain pending.
+Stage five, the frozen v6 U755 subset of 48 documents / 220 known pages, failed
+at 02:01:43 after 816.6 seconds. The post-chunk worker identity request encountered
+a refused connection. Child/controller exits were one/two; cleanup and retention
+passed and the owned release exited zero. No completed chunk or document was
+published to wave state; this does not establish that no customer requests ran.
+The failed receipts remain unchanged. Recovery requires checking the saved
+custody and preserving the missing identity check. No retry or later customer
+stage has started. The selected union remains 311 documents / 1,626 known pages;
+stage totals overlap. The unseen batch remains sealed.
+
+All nine orientation transition controls passed with zero audit denials and
+successful child, controller and owned release. The comparison compiler's first
+nine-test proof retained two blocked package-metadata scans and remains failed.
+The narrow source-path correction passed the same nine checks at 01:38:14, with
+zero audit denials and all exits zero; independent review is complete. Actual
+compilation still requires all twelve stage dispositions. The original native
+key and fifteen historical run bindings are mapped and independently reviewed.
+A separate clean checkout combines the reviewed CLI, orientation and UTF-8
+fixes; its exact source composition is reviewed, with final composed validation
+still pending. Active producer and measurement source versions remain separate.
+
+The final measurement wrapper passed all seven focused controls at 02:08:06,
+including the synthetic compiler-to-module report path: zero audit denials,
+23.0 seconds, and successful child/controller/owned release. Actual measurements
+still require the complete customer-stage chain. The actual comparator has a
+3,600-second limit; this is scheduling headroom, not a runtime estimate.
+Three downstream alternative B cohorts remain: orientation CTRL/U755 and v6
+U755. Reusing the closed historical baseline requires a reviewed per-producer
+report join. SLICE remains in the V OCR study; its downstream B funnel is outside
+the current CTRL/U755 scope and remains unmeasured.
+
+The earlier orientation diagnostic remains a failed compatibility observation.
+The reviewed class-0 extension in `973af29` passed 81 focused tests, eight actual
+upstream cases, five refusals, four deliberate faults, and the G11/G12 checks.
+Eight compatibility-validator controls then passed. Live synthetic compatibility
+closed at 00:27:00: upright and rotated180 each produced 54 words / 10 lines,
+with class-0 provenance observed and page angles zero / 180. Both passed in-frame
+canonical roundtrip checks. Sources were unchanged, audit denials were zero,
+cleanup/retention passed, and child/controller/owned-release exits were zero.
+These are two logical synthetic calls; wire attempts and localization accuracy
+remain unmeasured. Approximate upstream boxes are preserved in the original frame.
+The completed VL study does not waive the remaining configuration obligations.
+
+The unseen batch remains sealed. Phase 2.4 and production admission have not
+started. Current private checkpoint:
+`discovery_reports/train13-logs/ROOT-RESUME-20260916.md`.
+
+**Historical execution snapshot, 18:22 UTC:**
+
+Native VL synthetic capability closed18:12:35:16/16 responses accepted,70 observed
+terminations before the decoding cap,0 unknown/capped observations,0 retries and
+0 extra warmups. All eight repeat pairs have identical predefined stable projections;
+raw responses differ. Region geometry is supported; word geometry is not. Accuracy
+has not yet been scored. Child/controller/release0,323.7s total; sampled peak GPU
+memory12,006,195,200 bytes. Owned worker exit0 and source restoration/retention passed.
+
+The v5 original campaign remains failed after7POST opens, with six admissions and
+F07 blank refused by the comparison inspector. A separately reviewed offline
+recovery admitted the saved F07 response through the real adapter at18:16:55,
+using0 new model calls and preserving all original bytes/statuses. The exact nine
+never-attempted slots are being prepared under the unchanged total16-call ceiling.
+
+B final tip403f231 is independently approved, including424privacy matches/892
+producing occurrences attributed with0unresolved. Original scanner exits1/0/1 and
+the first join's newline-accounting failure remain preserved; corrected join closed
+all-zero. Scope limits3351read/29missing and unscanned custody bodies remain explicit.
+V base replay chunk2 preserved427 payloads/425validated with0movement. Chunk3 is
+active atPID5968/session9090 since18:17:44; read its actual result/resources/release
+before the next proof or GPU window. V/B/P composition remains pending V closure.
+The unseen batch is sealed; no development VL calls, Phase2.4 or production admission.
+Current private checkpoint: discovery_reports/train13-logs/ROOT-RESUME-20260916.md.
+
+**Historical execution snapshot, 17:47 UTC:** VL assets and isolated dependencies are
+ready: 26 overlay packages installed with the 87 base metadata records unchanged.
+The corrected adapter passed 28 checks; root's observer-lifetime finding and the
+original proof remain retained. Native/v5 fixture runners are under final source
+review, each limited to 16 calls with no extra warmup. No native VL or comparison
+fixture inference has run. The 12-document / 33-page development sample is frozen.
+
+B final tip `403f231` contains only the approved W3 append above executable `9fd`.
+Its 350-output freeze completed with 20 custody files unchanged. Final scans closed
+17:40:36: two added-line matches, zero real-message matches and 424 output matches;
+exhaustive attribution remains pending. Actual scan exits 1/0/1 and release 0 are
+preserved. V base replay chunk 2 is active at PID 24764/session 93302 since 17:41:02;
+read its actual result/resources/release before another heavy window. Orientation
+diagnostic 03 reached the worker but its synthetic warmup hit the geometry refusal;
+cleanup completed, zero customer calls. Production compatibility remains green.
+The unseen batch stays sealed. Phase 2.4 and production admission have not started.
+
+**Historical execution snapshot, 17:19 UTC:** The VL sample remains frozen at 12 development documents / 33 pages, with six
+repeat documents / 17 pages and an 84-call development ceiling. Eight synthetic
+fixtures are frozen; no VL inference has run. The unseen batch stays sealed.
+
+The configured GPU received all 15 pinned public model assets (2,062,282,301 bytes),
+with every hash verified. Acquisition closed at 17:10:55 UTC with all exits and
+lock release zero (620.7 seconds, 60.4 MiB local peak). Dependency resolution
+identified 26 exact missing wheels and preserved all 87 installed distribution
+metadata records. Their isolated research-overlay installation is active under
+PID 16708/session 68163, started 17:15:50. Read its actual result and release
+before another heavy window.
+
+The observer recovery passed 35 checks with zero audit denials; the comparison
+passed 32. Both closed with all exits and release zero. The original observer
+boundary failure is preserved. Adapter/lifecycle source is reviewed; a narrow
+test-loader correction precedes its 26 model-free checks. Actual native fixture
+capability, resource custody and campaign execution remain pending.
+
+B corpus passed 34 tests, completing its recorded floors; final W3/scans remain.
+V base replay chunk 1 preserved 504 payloads, with thirteen replay legs remaining.
+Orientation diagnostic 02 failed before OCR after the SSH tunnel stopped; a
+reviewed successor adds bounded stderr and actual local exit capture. It is unrun.
+Production compatibility remains green. Phase 2.4 has not started.
+
+**Historical execution snapshot, 16:46 UTC:** The VL development sample is frozen at 12 documents / 33 pages, with two
+examples in each of six modality/evidence groups. Six documents / 17 pages are
+reserved for repeats; the development ceiling is 84 page-model calls including
+v5 controls. Eight non-sensitive fixtures are frozen. No VL model call has run.
+The corrected metadata projection and selector closed successfully; their original
+failed UTC projection remains retained. Installed dependency metadata found fourteen
+missing extras; an exact wheel-only dry-run plan is prepared for review.
+
+V corpus passed 34 tests. V base replay chunk 1 preserved all 504 selected validated
+payloads; thirteen replay legs and accounting remain. B's recorded gate passed all
+14 checks (105 pass / 3 withheld / 1 refused). B corpus is active at PID 28784,
+session 79201, started 16:36:05 under floor-corpus-closure-01. Read actual results,
+resources and own release before another heavy window.
+
+Orientation diagnostic 02 failed before OCR: its first status saw a connection reset,
+and subsequent checks reported the tunnel stopped. All 31 observations are retained;
+zero OCR/customer requests ran, emergency cleanup and lock release completed. The
+production compatibility proof remains green. Alternative customer studies remain
+gated. The unseen batch is sealed; Phase 2.4 has not started.
+
+**Historical execution snapshot, 15:40 UTC:** Production GPU compatibility passed.
+Orientation's diagnostic rerun failed before warm-up with an unreachable worker;
+cleanup completed, and existing-log inspection is being prepared. V's recorded
+gate passed 105/3/1 and all 14 checks. B guards passed 289 and conformance passed
+1,282 (41 skipped). The queue contains 245 review packets from 869 documents,
+including 50 random controls; three hit the 40-page cap. No adjudication or
+truth-label writing occurred. VL's seven selector tests passed; actual selection
+and model execution remain pending. V corpus is active at PID 24572/session
+81220; recover its actual result and release before scheduling another window.
+The unseen batch remains sealed. See the private checkpoint for exact bindings
+and the explicit tools-only B replay-scope disposition; V/composed proofs remain.
+
+**Historical execution snapshot, 15:12 UTC:** V passed 639 Paddle tests, 288 guards
+and 1,282 conformance tests (41 skipped). U755 cache analysis and all four
+report/proposal windows closed. The proposals retain 57 classification changes,
+76 paired measurements across 192 scoped documents and zero labels written.
+CTRL false-accept accuracy is unmeasured: zero eligible Paddle payloads compared.
+SLICE binding is independently approved with 67 successes, 13 refusals and two
+aliases; original inputs unchanged. GPU synthetic compatibility is active at
+PID 29172/session 39457, `backend-prod-closure-01`, started 15:12:16. Read actual
+cleanup and release before scheduling. VL selector source is approved, with no
+actual selection or VL outcome yet; the unseen batch remains sealed.
+
+**Historical execution snapshot, 14:50 UTC:** B's final full suite passed 10,435 tests;
+V's two test-only recoveries passed. Replay-accounting controls passed 24 shared
+and 26 B-specific cases. CTRL cache-only analysis, candidate freeze and separate
+baseline comparison closed successfully with frozen inputs unchanged. Compiler
+proof retained 35 passes and one test-expectation failure; its one-node recovery
+passed. U755 analysis is active at PID 24184/session 16158. Read its actual result and
+release before scheduling. VL design is prepared; membership/runtime remain
+unfrozen, and the unseen batch stays sealed. No Phase 2.4 work has begun.
+
+**Historical execution snapshot, 14:27 UTC:**
+V's 78 distinct mutations are accounted for. Its full suite recorded 10,440 passes
+and two stale test failures; reviewed test-only `d5dc8fa` awaits focused recovery.
+B's 65 mutations and bound empty-WAL proof are closed; its metadata freeze kept
+467 input bindings unchanged. Final B full suite is active at `9fd45077`.
+Actual cache-only analysis and alternative customer studies remain owed. Read
+the handoff and private checkpoint before scheduling; the unseen batch is sealed.
+
 | Fact | Value |
 |---|---|
+| **Phase 2.3 — IN FLIGHT** | `train13`: reviewed W/E/X composed at **`b4fe667`**. Original production-pin research populations are complete: CTRL 114, U755 755, SLICE 80 attempted-or-refused; production admission is unchanged. W review and custody/export correction are closed. P has all five approved callers fenced, all 2,695 selected payloads identical including every 2,625 validated document, unchanged census, and 82 accepted mutations. Its original comment-guard failure remains recorded; bounded recovery passed all affected tests and gates. Final P scans completed at `778be7f`: added-line residue zero, 16 attributed message findings, 232 output findings including 15 confirmed historical emission defects across three logs. Originals and actual exits remain preserved. The fresh 243-record publication scan retains 217 attributed technical matches / 534 occurrences, actual exit 1, with no new-summary or unresolved match; independent non-S5 and root S5 final approvals are recorded. Combined W/E/X integration passed 74 baseline tests, two expected M7 failures and two restoration checks. V's six study manifests, synthetic warm-up fixture, four study definitions and two schedules are frozen; reviewed configuration/geometry/lifecycle source passed 367 early tests and hit one existing fixture temporary-path failure; that single test passed from a fresh local directory. Actual pinned upstream geometry integration subsequently passed 16 exact-coordinate cases, four unsupported refusals and three scratch kills; the original scalar-comparison failure is preserved. V synthetic W cache/raster/export integration passed four cases; root controller and actual W-inspector proof passed 36 named cases after a preserved collection syntax failure. Comparator source findings closed at `d7344db`; 163 affected tests passed and one expectation failed. Test-only `f18f7dc` preserves the existing frame-mismatch contract and passed the single-node recovery. Initial mutation-controller validation refused before a child launched; its corrected baseline passed. The original 78-identity campaign has 56 accepted assertion kills, nine attempted test gaps and 13 unattempted identities; exactly22 enter focused test-only recovery. Five historical sessions lack the recorded warm-up/model contract for controlled pairing. B now has 51 accepted mutation identities after a test-only same-document substitution case closed the sole original survivor. Its full default suite closed with 10,397 passes and two inventory failures. Reviewed `bf982fc` adds the exact inventory entries and corrects exact cache-key spelling. The affected runtime passed 178 tests; exact-scope reconciliation is complete with ten intentionally deselected corpus cases and zero tests reexecuted. Seven affected key mutations passed independent review, with M23 explicitly a typed positive-contract refusal. Input freeze refused the original zero-byte WAL sidecar. Reviewed successor `9fd4507` adds bound empty-sidecar handling; its focused proof and actual freeze retry remain owed. Original cache files remain unchanged. Inspect the private actual result/lock before scheduling another window. B passed 45 observer and 20 blind-comparison tests. Its new measurement/report proof retained 158 passes and one digest-case failure; the reviewed correction passed 65 focused recovery tests. B truth-report checks passed 51 and hit one synthetic-store location failure; that single test passed outside OneDrive with unchanged guards. V/B corpus studies and final cell/composed gates remain owed. The new holdout remains sealed outside the archive. Phase 2.3–2.7 continuation is authorized on green gates; Phase 3 is excluded. See `docs/agent-handoffs/PHASE2-REMAINDER-HANDOFF.md` and private `ROOT-RESUME-20260915.md`. |
 | Current milestone | **COVERAGE WAVE BATCH 9 OFFICIAL AND FROZEN (2026-08-31, Windows host): `2,596 / 3,380 → 2,625 / 3,380` — 76.80% → 77.66%, +29 validated, +0.86 percentage points; 32 improved / 3 regressed / 3,345 unchanged; the 3 regressed are PNC-LAYOUTS' fail-closed movement named in advance (`1F31588B36B2E4AF`, `5684857C24B79344`, `BE703D525955253C`, withheld→failed), 0 validated regressions; registry 83 → 84; ANALYSIS_STAGE_VERSION 16 → 17; OCR v4 unchanged.** Measured against the batch-8 run of record `cda8882d` with the EMPTY retired quarantine (shared 3,380 = comparable 3,380 + quarantined 0) as run `TRAIN9-7b25d70/2026-08-31T185527…-91f5179a` at tree `ff35b3d`, under bounded low-memory execution (floor 2.0 GB / cap 4 GB / serial OCR; measured peak 1,236.3 MB — within 2 MB of batch 8's). **This is the deterministic-v1 / multi-account-v1 baseline (`batch9-final`)**: the L-1 architecture delivered through five reviewed stages — `DocumentReport` and the document seam (RULE S), evidence-based sibling omission on the document object (Q10: surface, never demote; 15 protected carriers pinned both legs), every reader and seam taught the document shape, the serialized shape by account count alone, and the first multi-account publisher (guardian_cu, +8/12 accounts) with the corroborated Q3 idle-sibling class, printed-designation-only internal transfers, and account-based package membership (rulings §8.8–§8.16). SCOPE FROZEN per §8.11: no new deterministic coverage; the backlog is `BATCH9_BACKLOG.md`; Phase 2 (Unlimited OCR + PaddleOCR as extractors only) begins with the read-only `OCR-LEGACY-AUDIT`. Durable record: `BATCH9_TRANSITION.md` §7–§8. |
+| **Phase 2.2 — COMPLETE (2026-09-11)** | **PHASE 2.2 TRUTH INSTRUMENTS COMPLETE — completion gate met; Phase 2.3 opened under the full authorization (no per-milestone approval required).** Composed code tree `72269f4` on `train12` (K P22-IDENTITY → C P22-CLASSIFY → H P22-HOLDOUT → F P22-FENCE → T P22-TRUTHTABLE + Ocean's two composition items; every cell reviewed → closed → re-reviewed; MINOR residue recorded for 2.3). Proof: full suite **9,827 passed** / 48 skipped / 39 deselected / 0 failed (with the real Paddle `.env` present); guards 276; conformance 1,282; gate GREEN 105/3/1; corpus slice 34; remote CI run 34567212012 (dispatched on `origin/train12` at `52bd8f2`; conclusion recorded in `BATCH9_TRANSITION.md` §7); **cold run `TRAIN12-52bd8f2/2026-09-11T040247.502179-0000-fd6b4d7f` vs the Phase 2.1 run of record: 2,625 → 2,625, 3,380 unchanged, every class on the matrix diagonal, refused 0, compare exit 0** (peak 1,261 MB). EXTRACTION_SCHEMA_VERSION 2 → 3, RASTER_VERSION 1 → 2, ANALYSIS_STAGE_VERSION 17 → 18, DIAGNOSTICS_VERSION 4 → 5, UNRESOLVED_TAXONOMY_VERSION 1, OCR_STAGE_VERSION 5, registry 84. Measured: the 755 accounted for exactly (disjoint by primary layer and by kind; 431 validated documents classified other than complete — a classifier-precision item, not a coverage question); R 13 · U 123; Paddle attempted 0 on customer data; newly validated 0; OCR-fed validated 0. Rulings honoured: R9 (the reconciliation-based selection removed; the hosted edge fenced), R11 (`refused`, both denominators), R12 (CCL by kind), R3/R4 (sealed store outside the checkout; holdout cage; slice-1 queue 214 packets for Gustavo — adjudication is not a gate), cost out of scope. Durable record: `BATCH9_TRANSITION.md` §7 (2026-09-03 → 09-11), `PHASE2_STATE.md`, `reviews/PHASE2_P22*_REVIEW.md`, `docs/agent-handoffs/PHASE2-2-TRUTH.md` §Closure, `PHASE2-REMAINDER-HANDOFF.md`. |
+| **Phase 2 remainder — FULLY AUTHORIZED; Phase 2.2 — IN PROGRESS (2026-09-03)** | Gustavo approved the planning package (`phase2_remainder/PHASE2_REMAINDER_PLAN.md`, on `main` `8c5d61f`) and authorized 2.2 → 2.7 autonomously on GREEN gates; rulings R1–R14 in `PHASE2_RULINGS.md` §"Phase 2 remainder" (`a7ac9b0`); cost accounting is Gustavo's; Unlimited on a SEPARATE computer. `train12` opened from `main` `a7ac9b0` (code tree `4f7d798`). Umbrella `docs/agent-handoffs/PHASE2-2-TRUTH.md`; cells P22-IDENTITY / P22-CLASSIFY / P22-HOLDOUT / P22-FENCE, then P22-TRUTHTABLE. Expected coverage +0; floor 2,625 untouched. Live record: `BATCH9_TRANSITION.md` §7 (2026-09-03), `PHASE2_STATE.md`. |
 | **Phase 2.1 — COMPLETE (2026-09-03)** | **PHASE 2.1 PADDLEOCR + CANONICAL WORD BOXES + DOCUMENTGEOMETRY COMPLETE — completion gate met; STOPPED pending Gustavo's approval of the closure report.** Composed code tree `4f7d798` on `train11` (cell 0 + G + P + R, each reviewed → closed → re-reviewed with every residual closed; three composed-tree integration fixes). Proof: full suite **8,756 passed** / 45 skipped / 39 deselected; guards 275; conformance 1,282; gate GREEN 105/3/1; corpus slice 34; remote CI GREEN (run 33705014589); **cold run `TRAIN11-4f7d798/…-331d9136` vs the Phase 2.0 run of record: 2,625 → 2,625, 3,380 unchanged, compare exit 0** (peak 1,239 MB). EXTRACTION_SCHEMA_VERSION 1 → 2 (OCR_STAGE_VERSION 5, ANALYSIS 17, registry 84). Measured: R 13 · U 123 · U-extract 0 · U-structure 123 · density-surfaced 23 · legal escalation population 13 · row-level Class-A 0 · OCR-fed validated 0 · **Paddle-eligible 13 docs / 17 pages · attempted 0 (privacy boundary) · newly validated Paddle-fed none · false accepts 0**; the Paddle path proven end to end on synthetic fixtures on the real Vast RTX 5090 (`PADDLE_MEASUREMENTS.md`). Rulings requested: the 13-document remote-data run; the Vast hourly rate. Durable record: `BATCH9_TRANSITION.md` §7 (2026-09-02/03), `PHASE2_STATE.md`, `reviews/PHASE2_P21*_REVIEW.md`, `docs/agent-handoffs/PHASE2-1-PADDLE.md` §Closure. **Phase 2.2 NOT started; Unlimited OCR NOT enabled.** |
 | **Phase 2.1 — IN PROGRESS (opened 2026-09-02)** | **PADDLEOCR + CANONICAL WORD BOXES + DOCUMENTGEOMETRY.** Gustavo approved Phase 2.0 and authorized Phase 2.1 ONLY. Train `train11` from `origin/main` `9a54952`. Rulings recorded (`PHASE2_RULINGS.md` §Phase 2.1): A — automatic hosted extraction REFUSED; B — density SURFACE-ONLY; the explicit Vast.ai `remote_paid` authorization (RTX 5090, PaddleOCR 3.7.0, PP-OCRv5, word boxes proven; explicit opt-in `PADDLE_REMOTE_OPT_IN`; connection from the environment only; localhost is not local; NO production customer statements to Vast without a separate ruling). Umbrella card `docs/agent-handoffs/PHASE2-1-PADDLE.md` (D1–D9, twenty cases, gate); cells P21-GEOMETRY / P21-PADDLE / P21-ROUTING. Cell 0 on the train: `evidence/` (canonical frames/words/lines, immutable raw, sha round-trip) and `ocr/paddle_config.py` (pins, vocabularies, two opt-ins, fail-closed loader). Floor 2,625 untouched; OCR_STAGE_VERSION 5; EXTRACTION_SCHEMA_VERSION 1 → 2 planned (cell R). Scope consequence: the 13-document legal population is NOT run through Vast in this phase (privacy boundary, D8); end-to-end proof + runtime/cost on synthetic fixtures; Paddle-eligible 13 / attempted 0 / newly validated 0 reported honestly. Live record: `BATCH9_TRANSITION.md` §7 (2026-09-02 "PHASE 2.1 OPENED" onward), `PHASE2_STATE.md`. |
 | **Phase 2.0 — COMPLETE (2026-09-02)** | **PHASE 2.0 SAFETY FOUNDATIONS COMPLETE — completion gate met; STOPPED pending Gustavo's approval of the closure report.** Composed code tree `941918f` on `train10` (five cells + P20-REPLAY-SHAPE, each reviewed → closed → re-reviewed to APPROVE WITH FINDINGS with every residual closed). Proof: full suite **8,342 passed** / 45 skipped / 38 deselected; guards 267; conformance 1,282; gate GREEN 105/3/1; corpus slice 34; remote CI GREEN (run 33599700440); full-archive cohort replay 2,625 of 2,625 identical (0 newly validated, 0 regressions); **cold run `TRAIN10-941918f/…-ef34ee30` vs the batch-9 run of record: 2,625 → 2,625, 3,380 unchanged, compare exit 0** (peak 1,242 MB). OCR_STAGE_VERSION 4 → 5 (ANALYSIS stays 17; registry 84). Measured: R 13 · U 123 · U-extract (admitted) 0 · U-structure 123 · density-surfaced candidate 23 · legal escalation population 13 · validated∩class-A 0 · OCR-fed validated 0 · coverage movement +0 (as expected). Durable record: `BATCH9_TRANSITION.md` §7 (2026-09-01/02), `PHASE2_STATE.md`, `reviews/PHASE2_P20*_REVIEW.md`. **Phase 2.1 (PaddleOCR) NOT authorized until Gustavo approves.** |

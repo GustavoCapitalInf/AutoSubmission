@@ -46,7 +46,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from discovery.compare import LADDER, compare, direction, render
+from discovery.compare import (
+    ALL_CLASSES,
+    LADDER,
+    RawDenominatorMismatch,
+    compare,
+    direction,
+    render,
+)
 from discovery.evidence import load_run
 
 _Q = "quarantined"
@@ -92,7 +99,46 @@ def partitioned(base, candidate, quarantine: set[str]) -> dict:
     }
 
 
-def render_partition(p: dict, *, base_id: str, candidate_id: str) -> str:
+def render_denominators_and_matrix(canonical: dict) -> list[str]:
+    """P22-TRUTHTABLE (R11): both denominators and the EXACT transition matrix,
+    in the partitioned report itself rather than only inside the appended
+    canonical block.
+
+    The RAW denominator is printed first and is never replaced. The
+    CONFIRMED-COMPLETE-LEGIBLE denominator is not computable here at all — the
+    adjudicated set lives in the sealed truth store, which this tool may not
+    read (the leakage firewall) — so this says so by name instead of printing
+    a proxy under the CCL heading. `tools/truth_report.py` is the instrument
+    that joins the two.
+    """
+    raw, coverage = canonical["raw_denominator"], canonical["raw_coverage"]
+    matrix = canonical["transition_matrix"]
+    lines = [
+        "## Denominators (R11: the raw one first, never replaced)", "",
+        "| denominator | base | candidate |", "|---|---:|---:|",
+        f"| raw (distinct content shas) | {raw['baseline']} | {raw['candidate']} |",
+        f"| raw coverage (validated / raw) | {coverage['baseline']['validated']} / "
+        f"{coverage['baseline']['denominator']} | {coverage['candidate']['validated']} / "
+        f"{coverage['candidate']['denominator']} |",
+        "| ccl_adjudicated | not available in this tool | not available in this tool |",
+        "",
+        "`ccl_adjudicated` is read from the sealed truth store by "
+        "`tools/truth_report.py`; this tool never reads it (the leakage firewall).",
+        "",
+        "## Transition matrix (exact; rows = base class, columns = candidate class)", "",
+        "| from \\ to | " + " | ".join(ALL_CLASSES) + " |",
+        "|---" * (len(ALL_CLASSES) + 1) + "|",
+    ]
+    lines += [
+        f"| {source} | " + " | ".join(str(matrix[source][target]) for target in ALL_CLASSES) + " |"
+        for source in ALL_CLASSES
+    ]
+    lines.append("")
+    return lines
+
+
+def render_partition(p: dict, *, base_id: str, candidate_id: str,
+                     canonical: dict | None = None) -> str:
     c, q = p["counts"][_C], p["counts"][_Q]
     vc, vq = p["validated"][_C], p["validated"][_Q]
     ct, bt = p["candidate_totals"], p["base_totals"]
@@ -114,9 +160,11 @@ def render_partition(p: dict, *, base_id: str, candidate_id: str) -> str:
         f"(e) total observed current-environment validated count: **{ct.get('validated', 0)}** of {sum(ct.values())} "
         f"(base run: {bt.get('validated', 0)} of {sum(bt.values())}). The historical run of record's 2,469 is NOT the base of this delta.",
         "",
-        "candidate outcome totals: " + ", ".join(f"{k} {ct.get(k, 0)}" for k in (*LADDER, "deferred")),
+        "candidate outcome totals: " + ", ".join(f"{k} {ct.get(k, 0)}" for k in ALL_CLASSES),
         "",
     ]
+    if canonical is not None:
+        lines += render_denominators_and_matrix(canonical)
     movers = [r for r in p["rows"] if r["bucket"] == _C and r["direction"] in ("improved", "regressed", "unranked")]
     lines += ["## Comparable movers", ""]
     if movers:
@@ -153,9 +201,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     base, candidate = load_run(args.base), load_run(args.candidate)
-    canonical = compare(base, candidate)
+    try:
+        canonical = compare(base, candidate)
+    except RawDenominatorMismatch as mismatch:
+        # R11: never silently re-based. Exit 3, distinct from the regression
+        # exit 2 — "not comparable" and "regressed" are different findings.
+        print(f"train8_compare: {mismatch}", file=sys.stderr)
+        return 3
     p = partitioned(base, candidate, read_quarantine(args.quarantine))
-    text = (render_partition(p, base_id=base.run_id, candidate_id=candidate.run_id)
+    text = (render_partition(p, base_id=base.run_id, candidate_id=candidate.run_id,
+                             canonical=canonical)
             + "\n## discovery.compare (canonical, unpartitioned)\n\n```\n" + render(canonical) + "\n```\n")
     if args.report is not None:
         args.report.parent.mkdir(parents=True, exist_ok=True)

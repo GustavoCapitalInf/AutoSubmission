@@ -67,7 +67,18 @@ from analysis.payload_shape import payload_accounts, refuse_document_payload
 #:     (`stated_average_balance` -> `bank_reported_average_balance`). One
 #:     train, one bump — the ANALYSIS_STAGE_VERSION composed-bump policy
 #:     applied to this constant.
-DIAGNOSTICS_VERSION = 4
+#: 5 - P22-TRUTHTABLE (Phase 2.2; cell F's consequence). `analysis/pipeline.py`
+#:     no longer WRITES the `escalation extraction failed ...` issue (R9 removed
+#:     the reconciliation-based selection between two hosted extractions, and
+#:     the one `issues.append(` site in `pipeline.py` went with it), so the
+#:     `recon:escalation_extraction_failed` anchor can never fire on a record
+#:     emitted at v5 or later. The anchor STAYS in `RECON_ISSUE_ANCHORS` and in
+#:     `CLASS_OF` — a record written before the change must still classify —
+#:     but the set of codes a LIVE analysis can produce shrank, so a v4 rollup
+#:     and a v5 rollup are not comparing like with like on the code axis. The
+#:     call-site guard now counts `analysis/reconcile.py`'s six sites against
+#:     the six LIVE anchors and pins `pipeline.py` at zero.
+DIAGNOSTICS_VERSION = 5
 
 #: The explicit label for a document whose claiming parser could not be
 #: established. Defined here, in the lower layer, because both the telemetry
@@ -185,6 +196,20 @@ RECON_ISSUE_ANCHORS: tuple[tuple[str, str | None, str], ...] = (
     ("row ", "balance jumped to", "recon:running_balance_break"),
 )
 RECON_UNMAPPED = "recon:unmapped_issue"
+
+#: v5 (P22-TRUTHTABLE, cell F's consequence). Anchors whose WRITER no longer
+#: exists in `analysis/`: kept in `RECON_ISSUE_ANCHORS` so a record emitted
+#: before the writer was removed still classifies, but excluded from the
+#: live call-site count `tests/test_diagnostics.py` keeps against
+#: `analysis/reconcile.py` + `analysis/pipeline.py`. A member here without
+#: an anchor above is a defect the vocabulary test refuses.
+RETIRED_RECON_ISSUE_CODES: frozenset[str] = frozenset({"recon:escalation_extraction_failed"})
+
+#: The anchors a LIVE analysis can still write — what the call-site guard
+#: counts. `len(LIVE_RECON_ISSUE_ANCHORS)` is 6 at v5.
+LIVE_RECON_ISSUE_ANCHORS: tuple[tuple[str, str | None, str], ...] = tuple(
+    anchor for anchor in RECON_ISSUE_ANCHORS if anchor[2] not in RETIRED_RECON_ISSUE_CODES
+)
 
 # --------------------------------------------------------------------------
 # Source 4 — ADB warnings (analysis/adb.py).

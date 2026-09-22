@@ -49,10 +49,13 @@ __all__ = [
     "MAX_RESPONSE_BYTES",
     "DEFAULT_TIMEOUT",
     "MAX_TRANSPORT_RETRIES",
+    "RETENTION_FIELD",
+    "RETENTION_NONE",
     "PaddleClient",
     "PaddleTransportError",
     "PaddleWorkerStatus",
     "probe",
+    "retention_declaration",
     "verify_identity",
 ]
 
@@ -78,6 +81,42 @@ IDENTITY_CHECK_FIELDS = (
     "text_recognition_model_name",
     "pipeline_switches",
 )
+
+
+#: P23-WAVE (Phase 2.3, case 12): the worker's retention DECLARATION on
+#: `/version` (`ocr.paddle_worker.RETENTION_POLICY`), and the one value that
+#: means "this worker keeps nothing". `retention_declaration` below is the
+#: client's shape-checked reader for it.
+RETENTION_FIELD = "retention"
+RETENTION_NONE = "none"
+
+
+def retention_declaration(remote: Mapping[str, Any]) -> str | None:
+    """The worker's declared retention policy from a `/version` payload —
+    `RETENTION_NONE` when it declares exactly that, `None` when the field is
+    absent or is any other shape.
+
+    The shape bound is deliberately total: a STRING equal to `none`. Anything
+    else — a bool, a nested object, a longer sentence that happens to contain
+    the word — reads as "not declared", so a worker cannot satisfy a retention
+    attestation with a value that merely looks reassuring.
+
+    **Why this is not an `IDENTITY_CHECK_FIELDS` entry** (and that is the
+    point, not an omission): `verify_identity`'s job is to refuse a worker
+    whose MODEL identity drifted from the pins before an image is sent, and
+    every field there is one the repository pins a value for. Retention is a
+    different question, asked by a different caller at a different moment —
+    the wave's attestation reads `/version` once, deliberately BEFORE `stop`,
+    and then goes on to inspect the instance itself. Folding it into the
+    identity gate would also make the attestation circular: "the worker
+    declares `none`" would become a restatement of "we managed to connect at
+    all", since no request could have succeeded otherwise. It is read
+    explicitly, by name, by the one caller that needs it, and a worker that
+    does not declare it FAILS that attestation rather than silently passing
+    it.
+    """
+    value = remote.get(RETENTION_FIELD)
+    return RETENTION_NONE if isinstance(value, str) and value == RETENTION_NONE else None
 
 
 class PaddleTransportError(RuntimeError):

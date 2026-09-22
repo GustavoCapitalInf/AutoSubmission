@@ -369,3 +369,136 @@ live proof needs the separate Unlimited computer and it is unavailable. Otherwis
 Privacy-scan the untracked planning package → commit it durably if clean → record this authorization
 (this section) → open `train12` from `main` at `phase2.1-final` → the Phase 2.2 umbrella card in the
 house format → begin Phase 2.2 → continue through 2.3–2.7 on GREEN gates without waiting for approval.
+
+## R10 item S-5 — Truist legacy caller fence APPROVED (Gustavo, 2026-09-15)
+
+Gustavo approved the concrete proposal with: **"Approve the fence and zero-change verification."**
+This adds `repair_truist_converted_checks` to the four previously ruled caller fences.
+
+Independent synthetic reproduction showed that the repair's duplicate-witness set includes the
+same tilde-marked row it removes: a sole converted-check row can become an empty ledger. The paired
+duplicate control remains evidence-preserving; that control does not justify the orphan deletion.
+Classify the retained function as `legacy_needing_replacement`, not as an optimizer or a safe
+normalization. Its original executable body stays as the historical record.
+
+**Authorized change:** remove its analysis import and caller, extend the no-reference tripwire to
+this fifth definition (including aliases/callbacks), pin its exact legacy classification, and retain
+the paired, transfer-direction, orphan and unrelated-bank characterizations. Add the corresponding
+caller-restoration and misclassification mutants. No replacement bank-keyed correction is authorized
+by this ruling.
+
+Existing completed evidence: disabling the repair on all 48 identified candidates preserved all 48
+validated payloads identically; the independent 900-document instrument reached the Truist stage on
+every document and observed no payload change. A deliberate perturbation control moved all 48
+candidates, proving the instrument was sensitive. These are dormant-corpus observations, not a
+claim that the retained function is safe on unseen inputs.
+
+**Gate:** prove the final five-fence combination on the whole union before composition. Any payload
+or outcome movement is a STOP. Preserve the earlier three completed four-fence chunks with their
+original scope; they are not the five-fence proof. The root orchestrator independently reviews S-5
+because the earlier P reviewer prepared its proposed patch; that reviewer's prior findings and
+closures retain their stated independent scope.
+
+Private proposal and exact patch: `discovery_reports/train13-logs/rev23-precision-closure/`
+`TRUIST-FENCE-PROPOSAL.md` and `TRUIST-FENCE-PROPOSAL.patch`. The patch passed both index and worktree
+apply checks before this approval. Existing dormancy, positive-control and counterexample logs are
+linked in the proposal and remain preserved.
+
+
+## R15 — step-05 double-read compilation rule APPROVED (Gustavo, 2026-09-17)
+
+Context: the continuation segment of the v6 primary stage (48 V6-U755 documents; 10 dispatched-unqualified by the interrupted original run, 38 read in the continuation on the replacement endpoint) produced six documents read twice by the same pinned paddle-v6 pipeline (paired stage on the retired host, continuation on the replacement host; byte-identical page rasters, different cache partition key). Design, independent design review and independent source review are in `discovery_reports/train13-logs/p23config-prep/` (STEP05-DOUBLE-READ-DISPOSITION-DESIGN-ROOT.md and reviews; package `v6-step05-v2-source-01`).
+
+Gustavo ruled: **"report the primary stage as 38/48 using the segment readings with the six flagged as double reads. Continue with phase 2.3."** The joined disposition v2 is frozen with `compilation_rule = "primary=segment; paired=step-02; double_read surfaced"`; the reader reports the primary metric over the 38 AND over the 32 non-double-read documents, surfaces the six with both bindings, and produces the content-level comparison of the six pairs as a required diagnostic before any cross-host comparability statement. The refused first inspection stays the permanent closure of its window; nothing is re-dispatched. Every consumer resolves readings by artifact binding (two paddle-v6 reads now exist for the six in store v6-2).
+
+
+## R16 — Phase 3 ceiling experiment APPROVED with a USD 250 budget (Gustavo, 2026-09-17)
+
+Gustavo, verbatim, after reading `docs/moneythumb-replacement/phase3/PHASE3-VLM-PROGRAM-PLAN-v1.md`:
+"you are in control. I approve the $250 cost. Please proceed with implementation. Let me know what you
+start with." His earlier message the same day (also verbatim, still in force): "Until I explicitly
+approve otherwise, customer documents and derived training records must remain inside infrastructure
+we control and must not be sent to third-party model APIs." and "Do not train anything or begin a
+large-scale language migration until the ceiling experiment has been completed, reviewed, and
+separately approved."
+
+Root's reading of the scope (recorded so it can be vetoed before any customer page moves):
+* Authorized: the two-week ceiling experiment of plan §11 — off-the-shelf models only, no fine-tuning,
+  no training spend — on the SAME rented environment already authorized above for Paddle (provider
+  Vast.ai, execution class `remote_paid`, the RTX 5090 host named in the private connection file),
+  under the SAME protections (protected SSH transport, loopback-bound servers, bounded payloads, no
+  public endpoint, no customer contents in ordinary logs, nothing customer-derived in Git, complete
+  provenance, remote request artefacts removed after processing). Model weights are downloaded from
+  Hugging Face to the host; downloading weights is not transmitting customer data.
+* Populations: CTRL (validated control) and U755 (the unresolved corpus), exactly the populations the
+  Paddle authorization names; plus synthetic pages and non-sensitive fixtures. The sealed holdout is
+  never read. The 200-document calibration set of plan §11 is REPLACED by CTRL so no new population
+  leaves the machine. The customer-data opt-in stays explicit per run, never in a tracked file.
+* Extractors on that host now include PaddleOCR-VL-1.6 and a Qwen3.5 checkpoint served by vLLM
+  (self-hosted on the rented GPU, not a third-party API). The Paddle authorization above named
+  "extractor = PaddleOCR"; this ruling extends the extractor set for the ceiling experiment only.
+* Budget: USD 250 of instance time for the experiment; hours recorded in every receipt; the hourly
+  rate is still "rate not measured" until Gustavo supplies it.
+* Not authorized by this ruling: training of any kind, data export to any other machine or vendor,
+  any production change, any native-language rewrite, and any run on the holdout.
+* Order of execution: synthetic-only live proof first, then independent review of the code that
+  touches the boundary, then CTRL, then U755. Customer pages move only after the first two steps.
+
+
+## R17 — LoRA fine-tuning APPROVED; the 27B second opinion and the 96 GB card (Gustavo, 2026-09-18)
+
+Verbatim, in order, on 2026-09-18: "stop the current qwen 4b on the gpu and paddle and open space to
+this model right here. I want you to start testing it right now, i am going to sleep now. Run
+autonomously you have my permissions" (the model: Qwen3.8-27B); "i could go up to $1.8 an hour on
+vast instead of our current $0.83cent/hr spend"; "alright we are going to set up the 6000 blackwell";
+"Proceed with the next steps, also fine-tuning with LoRA is approved."
+
+What this ruling authorizes:
+
+* The Stage B model of the ceiling experiment is now `nvidia/Qwen3.8-27B-NVFP4` (Apache-2.0; NVIDIA's
+  NVFP4/FP8 build of `Qwen/Qwen3.8-27B`), served on a rented RTX PRO 6000 Blackwell (96 GB) at up to
+  USD 1.80 per hour, under the same boundary and protections as R16 (provider Vast.ai, execution class
+  `remote_paid`, host named only in the private connection file, loopback servers, SSH transport, no
+  customer contents in logs or Git). The 4B and the layout parser were stopped on Gustavo's instruction.
+* Fine-tuning with LoRA of the Stage B model on customer-derived silver labels (plan v1 §10: pages of
+  documents the deterministic reader validated, aligned to the reader's rows), plus synthetic pages,
+  inside the same boundary: the training records, the page images and the resulting adapters are
+  customer-derived and stay on the local machine and the rented instance only; adapters are never
+  uploaded to any hub or vendor. Lineage per plan §9 in every training receipt.
+* Partitions per plan §10: CTRL (114) and DEV (20) are never trained on (CTRL stays the test sample);
+  a family-stratified VALIDATION slice of validated documents is held out and never trained on; the
+  sealed holdout's content hashes are blacklisted from every training manifest (the store holds 0
+  records today, so the blacklist is empty by construction, stated as such).
+* Acceptance to go further (plan §12): improvement over the ceiling arm on VALIDATION with zero false
+  accepts, no regression on CTRL, the same deterministic gate, and an independent review of the
+  training manifest before any deployment stage.
+
+Not authorized by this ruling: any data leaving the local machine and the rented instance, any
+third-party model API, any production change, any run on the holdout. Budget: no new figure was
+given; plan §18's M4 line (USD 200–600 of instance time) is the reference until Gustavo sets one.
+Requirement noted: LoRA on the 27B needs the BF16 base (about 56 GB) on disk, so the training instance
+needs roughly 200 GB of disk; the current 32 GB disk cannot hold it.
+
+
+## R18 — NSF for underwriting = days ending negative (Gustavo, 2026-09-18)
+
+Verbatim: "quick change to nsf logic. any day ending in the red (negative) is an NSF for underwriting
+purposes. Still count the return items but add the ending negative days to them." then, minutes later:
+"Actually dont count the returned items please. NSF is solely negative days".
+
+Ruling as implemented (`analysis/metrics.py`): `effective_nsf_count` is the number of calendar days of the
+statement period whose ending balance in the validated daily ledger is below zero (`nsf_source =
+"negative_ending_days"`); a multi-day overdraft counts every day. Returned / NSF line items stay in
+`nsf_count` as evidence and are not added. Without a validated daily ledger the figure is not computable:
+`effective_nsf_count = 0` with `nsf_source = "negative_ending_days_unavailable"` and a note, never a silent
+zero. The web app shows the source beside the number. Frozen batch results (batch9-final, phase2.2-final)
+are historical and unchanged; every new run reports the R18 figure.
+
+Evidence (2026-09-18, all 2,629 validated accounts of the run of record recomputed): every validated
+account has a validated daily ledger, so the figure is computable on all of them; 1,722 accounts have
+zero negative-ending days, 907 have at least one, 260 have ten or more. Where the bank prints its own
+daily balance table (248 statements) the printed number of negative days equals the computed count in
+202; in the remaining 46 the computed count is higher, and a day-by-day comparison on the printed dates
+agrees in all 46: the extra days are quiet days (no activity) that the bank's activity-only table omits,
+which the ruling counts by definition. 245 accounts carry returned items; 75 of them never end a day
+negative and therefore report an NSF count of zero under this ruling (the items stay listed as evidence).

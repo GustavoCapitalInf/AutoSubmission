@@ -76,6 +76,17 @@ PADDLEPADDLE_VERSION_PIN = "3.3.0"
 OCR_VERSION_PIN = "PP-OCRv5"
 TEXT_DETECTION_MODEL_PIN = "PP-OCRv5_server_det"
 TEXT_RECOGNITION_MODEL_PIN = "en_PP-OCRv5_mobile_rec"
+#: P23-WAVE (Phase 2.3, case 12). The worker's own DECLARATION of its
+#: retention policy, echoed on `/version` so the wave's retention attestation
+#: has something to read BEFORE it stops the worker, rather than inferring a
+#: policy from this file's prose. `none` is the design stated in the module
+#: docstring above and enforced by it: an image's bytes live in a request
+#: handler's local variables, nothing is written to disk, and the one log line
+#: per request carries no text content. The declaration is NOT the proof — the
+#: attestation also inspects the instance after `stop` — it is the worker's
+#: half of a two-sided check, and a worker that ever grew a spool would have to
+#: change this literal to stay honest.
+RETENTION_POLICY = "none"
 PIPELINE_SWITCHES = {
     "use_doc_orientation_classify": False,
     "use_doc_unwarping": False,
@@ -371,6 +382,8 @@ def version_payload(identity: dict) -> dict:
         "python_version": platform.python_version(),
         "worker_started_at": _WORKER_STARTED_AT,
         "model_loaded": _MODEL.loaded,
+        # P23-WAVE (case 12): the retention declaration. See RETENTION_POLICY.
+        "retention": RETENTION_POLICY,
     }
 
 

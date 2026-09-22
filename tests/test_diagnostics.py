@@ -22,7 +22,9 @@ from telemetry.diagnostics import (
     CLASS_PRECEDENCE,
     DIAGNOSABLE_CLASSES,
     INTEGRITY_FLAGS,
+    LIVE_RECON_ISSUE_ANCHORS,
     RECON_ISSUE_ANCHORS,
+    RETIRED_RECON_ISSUE_CODES,
     SUMMARY_FIELDS,
     UNATTRIBUTED,
     VOCABULARY,
@@ -399,15 +401,53 @@ def test_reconciliation_issue_sites_match_the_anchor_count():
     A new `issues.append(...)` anywhere in the two files that write them means
     a shape this module has never seen; it would land in `recon:unmapped_issue`
     (never dropped), and this test says so before the run does.
+
+    P22-TRUTHTABLE (v5, cell F's consequence). The guard counts the LIVE
+    anchors, not every anchor: R9 removed the one `issues.append(` site in
+    `analysis/pipeline.py` (the reconciliation-based selection between two
+    hosted extractions), so `recon:escalation_extraction_failed` has no
+    writer any more. The anchor STAYS in the vocabulary — a record emitted
+    before the removal must still classify — and is listed in
+    `RETIRED_RECON_ISSUE_CODES`, which is what
+    `LIVE_RECON_ISSUE_ANCHORS` subtracts. `pipeline.py` is pinned at ZERO
+    sites in its own right, so a NEW writer reappearing there is caught here
+    rather than silently absorbed into a total.
     """
-    sites = sum(
-        len(re.findall(r"issues\.append\(", (ROOT / name).read_text(encoding="utf-8")))
-        for name in ("analysis/reconcile.py", "analysis/pipeline.py")
+    reconcile_sites = len(re.findall(
+        r"issues\.append\(", (ROOT / "analysis" / "reconcile.py").read_text(encoding="utf-8")))
+    pipeline_sites = len(re.findall(
+        r"issues\.append\(", (ROOT / "analysis" / "pipeline.py").read_text(encoding="utf-8")))
+    assert pipeline_sites == 0, (
+        "analysis/pipeline.py writes a reconciliation issue again; R9 removed its only "
+        "site, so this is either a new shape (add an anchor) or the removed selection "
+        "returning (refuse it) — see telemetry/diagnostics.py and W3_2_TAXONOMY.md"
     )
-    assert sites == len(RECON_ISSUE_ANCHORS), (
+    assert reconcile_sites == len(LIVE_RECON_ISSUE_ANCHORS), (
         "a reconciliation issue was added or removed; update "
         "telemetry/diagnostics.py RECON_ISSUE_ANCHORS and W3_2_TAXONOMY.md"
     )
+
+
+def test_every_retired_reconciliation_code_still_has_an_anchor():
+    """A code may only be retired from the LIVE count, never from the
+    vocabulary: a record written before its writer was removed must still
+    classify to the same class it always did."""
+    anchored = {code for _, _, code in RECON_ISSUE_ANCHORS}
+    assert RETIRED_RECON_ISSUE_CODES <= anchored, (
+        "a retired reconciliation code has no anchor left to classify the records "
+        "that already carry it"
+    )
+    assert RETIRED_RECON_ISSUE_CODES <= set(CLASS_OF)
+    assert len(LIVE_RECON_ISSUE_ANCHORS) == len(RECON_ISSUE_ANCHORS) - len(RETIRED_RECON_ISSUE_CODES)
+    assert not {code for _, _, code in LIVE_RECON_ISSUE_ANCHORS} & RETIRED_RECON_ISSUE_CODES
+    # and the retired code still diagnoses, from a record that carries it
+    diagnosis = diagnose(
+        _payload(reconciliation={"issues": ["escalation extraction failed: nothing to compare"],
+                                 "continuity_breaks": 0}),
+        "withheld",
+    )
+    assert "recon:escalation_extraction_failed" in diagnosis["codes"]
+    assert diagnosis["primary_class"] == "extraction_failure"
 
 
 def test_adb_warning_sites_match_the_anchor_count():
@@ -646,10 +686,12 @@ def test_a_mixed_vocabulary_rollup_says_so():
     rollup = diagnostics_rollup([old, new])
     # `new` is emitted at whatever the CURRENT vocabulary is, so this literal
     # moves with every bump — which is the point: a rollup spanning versions
-    # must name them. v4 is REPAIR-GUARD/PIPE5 (`integrity:repair_exception`
+    # must name them. v5 is P22-TRUTHTABLE (cell F's consequence: the
+    # `recon:escalation_extraction_failed` writer is gone, so the LIVE code
+    # set shrank); v4 was REPAIR-GUARD/PIPE5 (`integrity:repair_exception`
     # added, classed `extraction_failure`); v3 was COUNTS-P2 (two new codes AND
     # a widened diagnosable scope, doubly non-comparable).
-    assert rollup["diagnostics_versions"] == {"1": 1, "4": 1}
+    assert rollup["diagnostics_versions"] == {"1": 1, "5": 1}
     assert "WARNING mixed taxonomy versions" in render_diagnostics(rollup)
 
 

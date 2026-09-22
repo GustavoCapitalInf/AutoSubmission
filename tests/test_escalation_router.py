@@ -520,10 +520,17 @@ def test_failure_classes_are_exactly_four():
 
 
 def test_all_triggers_and_admitted_triggers():
+    # P22-TRUTHTABLE (D8) appends ONE member, `OPERATOR_FORCED_PADDLE`: the
+    # research run mode's trigger, a run-mode fact exactly like
+    # `OPERATOR_FORCED_VISUAL` beside it. Its mode-only reachability is
+    # `tests/test_research_mode.py`'s subject, not this pin's — this line is
+    # the closed-vocabulary pin and nothing else.
+    from ocr.escalation import OPERATOR_FORCED_PADDLE
+
     assert ALL_TRIGGERS == (
         IMAGE_ONLY_DOCUMENT, MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
         OFFLINE_RUNGS_PRODUCED_NO_TEXT, EXTRACTOR_OUTPUT_UNUSABLE, EXTRACTOR_FAILED,
-        OPERATOR_FORCED_VISUAL, TRUNCATION_FLAGGED,
+        OPERATOR_FORCED_VISUAL, OPERATOR_FORCED_PADDLE, TRUNCATION_FLAGGED,
     )
     assert ADMITTED_TRIGGERS == frozenset(ALL_TRIGGERS) - {TRUNCATION_FLAGGED}
 

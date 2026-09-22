@@ -697,14 +697,21 @@ def test_the_report_ranks_what_the_visual_rung_bought():
     # P20-ROUTER (Phase 2.0) then P21-ROUTING (Phase 2.1): each block appended
     # at the END in turn, so an existing reader by name is unaffected — see
     # `discovery/report.py`'s `ROW_FIELDS` comment.
-    assert ROW_FIELDS[-13:-9] == [
+    #
+    # P22-TRUTHTABLE (Phase 2.2) appends a fourth block after these, so the
+    # slices are anchored on the FIRST NAME of each block instead of counted
+    # back from the end. The property under test is unchanged and is now
+    # stated more exactly than the negative indices stated it: these blocks
+    # are CONTIGUOUS and IN THIS ORDER, wherever the list happens to end.
+    router = ROW_FIELDS.index("failure_class")
+    assert ROW_FIELDS[router:router + 4] == [
         "failure_class", "escalation_trigger", "evidence_quality", "escalation_refused",
     ]
-    assert ROW_FIELDS[-9:-2] == [
+    assert ROW_FIELDS[router + 4:router + 11] == [
         "paddle_rung", "cache_paddle", "escalation_extractor", "evidence_sha256",
         "paddle_provider", "paddle_execution_class", "offline_source_model",
     ]
-    assert ROW_FIELDS[-2:] == ["cache_finding", "paddle_refusal_reason"]
+    assert ROW_FIELDS[router + 11:router + 13] == ["cache_finding", "paddle_refusal_reason"]
 
 
 def test_offline_modes_report_no_visual_activity():

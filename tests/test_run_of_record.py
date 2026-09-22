@@ -801,17 +801,55 @@ def test_select_artifact_mutant_rows0_would_have_silently_picked_one():
 # ---------------------------------------------------------------------------
 
 
+#: Every Paddle configuration variable the probe's `load_paddle_settings`
+#: can read. Hermeticity (P22-IDENTITY closure, Gustavo's direction): the
+#: probe runs in a SUBPROCESS whose `ocr.config` import calls `load_dotenv()`
+#: (override=False), and `find_dotenv` walks up from the worktree to the
+#: checkout's gitignored `.env` — which, on this host, carries the REAL Vast
+#: connection variables. Merely DELETING them from `os.environ` therefore
+#: lets the probe re-inject them; a variable that is PRESENT (even empty) is
+#: left alone by dotenv, and `load_paddle_settings` treats an empty value as
+#: unset. So a hermetic test sets every one of these to a value of its own —
+#: the empty string to be unconfigured, `local`/`local_free` to be configured
+#: — and never depends on what the host's `.env` says. The real configuration
+#: stays on this host untouched.
+_PADDLE_ENV_NAMES = (
+    "PADDLE_PROVIDER", "PADDLE_EXECUTION_CLASS", "PADDLE_VAST_HOST", "PADDLE_VAST_SSH_PORT",
+    "PADDLE_VAST_SSH_USER", "PADDLE_REMOTE_OPT_IN", "PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN",
+    "PADDLE_WORKER_URL", "PADDLE_WORKER_PORT", "PADDLE_TUNNEL_LOCAL_PORT", "PADDLE_RUNTIME_DIR",
+)
+
+
+def _unconfigure_paddle(monkeypatch) -> None:
+    """Every `PADDLE_*` variable present-but-empty: unconfigured, hermetically."""
+    for name in list(os.environ):
+        if name.startswith("PADDLE_"):
+            monkeypatch.setenv(name, "")
+    for name in _PADDLE_ENV_NAMES:
+        monkeypatch.setenv(name, "")
+
+
+def _configure_local_paddle(monkeypatch) -> None:
+    """A configured, LOCAL, opt-in-free Paddle environment (no host, no
+    network): `load_paddle_settings` succeeds, so the probe records a key."""
+    _unconfigure_paddle(monkeypatch)
+    monkeypatch.setenv("PADDLE_PROVIDER", "local")
+    monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "local_free")
+
+
 def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path, monkeypatch):
     """A missing Paddle configuration raises `PaddleConfigError` — recorded
     as `paddle_ocr_key_note` inside `run_of_record.partitions`. Before this
     fix the clause wrote `f"...: {exc}"` verbatim and unbounded for ANY
     exception; now only the class name (plus a closed-vocabulary `.reason`,
-    when the exception is a `PaddleRefused`) ever reaches the record."""
+    when the exception is a `PaddleRefused`) ever reaches the record.
+
+    Hermetic (P22-IDENTITY closure): the test CONTROLS the probe's Paddle
+    environment (`_unconfigure_paddle`) instead of deleting variables the
+    host's `.env` would silently put back — see `_PADDLE_ENV_NAMES`."""
     import tools.train.provenance as provenance
 
-    for name in list(os.environ):
-        if name.startswith("PADDLE_"):
-            monkeypatch.delenv(name, raising=False)
+    _unconfigure_paddle(monkeypatch)
 
     root = tmp_path / "root"
     root.mkdir()
@@ -826,10 +864,44 @@ def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path
     # on the CI runner at the Phase 2.1 composed tree) reads as its cause,
     # never as a bare KeyError.
     assert "run_of_record" in record, {"tree": record.get("tree")}
-    note = record["run_of_record"]["partitions"]["paddle_ocr_key_note"]
+    partitions = record["run_of_record"]["partitions"]
+    assert "paddle_ocr_key" not in partitions
+    note = partitions["paddle_ocr_key_note"]
     assert note == "not recorded: PaddleConfigError"
     assert "PADDLE_PROVIDER" not in note  # the variable NAME never crosses either
     assert "not set" not in note  # PaddleConfigError's own message text, absent
+
+
+def test_provenance_records_the_paddle_key_and_a_note_when_paddle_is_configured(tmp_path, monkeypatch):
+    """The inverse case (P22-IDENTITY closure, hermeticity): with a configured
+    LOCAL Paddle environment the probe records `paddle_ocr_key` AND the note
+    `recorded` — the note key is present on BOTH paths, so a reader never
+    infers "configured" from an absence. No host, no port, no token is ever
+    in the record (a local provider has none), and the key is a 64-hex
+    settings fingerprint that differs from the production offline key."""
+    import tools.train.provenance as provenance
+
+    _configure_local_paddle(monkeypatch)
+
+    root = tmp_path / "root"
+    root.mkdir()
+    record = provenance.collect(
+        Path(__file__).resolve().parents[1], root, tmp_path / "data",
+        label="test", hash_corpus=False, mode="digital",
+    )
+    assert "run_of_record" in record, {"tree": record.get("tree")}
+    partitions = record["run_of_record"]["partitions"]
+    assert partitions["paddle_ocr_key_note"] == "recorded"
+    key = partitions["paddle_ocr_key"]
+    assert isinstance(key, str) and len(key) == 64 and all(c in "0123456789ABCDEF" for c in key)
+    assert key != partitions["offline_ocr_key"] and key != partitions["visual_ocr_key"]
+    # the recorded run still selects as a production run (no research partition)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "provenance.json").write_text(json.dumps(record, default=str), encoding="utf-8")
+    partitions_read = partitions_for_run(run_dir)
+    assert partitions_read.ocr_keys_by_source["paddle"] == key
+    assert partitions_read.research_partition == ""
 
 
 def test_provenance_probe_tolerates_stdout_noise_before_its_json(tmp_path, monkeypatch):
@@ -841,9 +913,7 @@ def test_provenance_probe_tolerates_stdout_noise_before_its_json(tmp_path, monke
     is recorded as bounded `stdout_noise`, never a parse failure."""
     import tools.train.provenance as provenance
 
-    for name in list(os.environ):
-        if name.startswith("PADDLE_"):
-            monkeypatch.delenv(name, raising=False)
+    _unconfigure_paddle(monkeypatch)
     noisy = "print('warning: some library printed this on import')\n" + provenance._TREE_PROBE
     monkeypatch.setattr(provenance, "_TREE_PROBE", noisy)
 
@@ -873,3 +943,183 @@ def test_provenance_probe_without_its_marker_is_an_error_not_a_guess(tmp_path, m
     )
     assert "error" in record["tree"]
     assert "run_of_record" not in record
+
+
+# ---------------------------------------------------------------------------
+# P22-IDENTITY (Phase 2.2, cell K; D7; case 17): research partitions are
+# never a run of record — refused by name before any key is read; the
+# production key is unchanged when the field is empty; cohort_replay and
+# provenance honour it.
+# ---------------------------------------------------------------------------
+
+
+def _write_recorded_run_with_partition(run_dir: Path, research_partition, **keys) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    partitions = {"offline_ocr_key": keys.get("offline_key", "OFFLINE1"),
+                  "analysis_key": keys.get("analysis_key", "ANALYSIS1"), "mode": keys.get("mode", "digital")}
+    if research_partition is not None:
+        partitions["research_partition"] = research_partition
+    (run_dir / "provenance.json").write_text(
+        json.dumps({"tree": {"OCR_STAGE_VERSION": 5, "ANALYSIS_STAGE_VERSION": 18},
+                    "run_of_record": {"partitions": partitions}}),
+        encoding="utf-8",
+    )
+
+
+def test_a_recorded_run_carrying_a_research_partition_is_refused_by_name(tmp_path):
+    """M11: the refusal names the partition, subclasses RunOfRecordError (so
+    every exit-5 boundary honours it), and fires BEFORE any key is served."""
+    from telemetry.run_of_record import ResearchPartitionRefused
+
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, "p23-wave-a")
+    with pytest.raises(ResearchPartitionRefused) as caught:
+        partitions_for_run(run_dir)
+    assert caught.value.partition == "p23-wave-a"
+    assert "p23-wave-a" in str(caught.value)
+    assert isinstance(caught.value, RunOfRecordError)
+
+
+@pytest.mark.parametrize("value", ["", None])
+def test_an_empty_or_absent_research_partition_is_a_production_run(tmp_path, value):
+    """The production selection is unchanged when the field is empty or
+    (every run recorded before this cell) absent."""
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, value)
+    partitions = partitions_for_run(run_dir)
+    assert partitions.origin == ORIGIN_RECORDED
+    assert partitions.research_partition == ""
+    assert partitions.ocr_keys_by_source["native"] == "OFFLINE1"
+    assert partitions.analysis_key == "ANALYSIS1"
+
+
+def test_a_non_string_research_partition_is_malformed(tmp_path):
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, ["not", "a", "string"])
+    with pytest.raises(RunOfRecordError):
+        partitions_for_run(run_dir)
+
+
+def test_a_research_run_is_refused_even_when_its_keys_exist_in_the_cache(tmp_path):
+    """The refusal is not a verification failure: even a cache that DOES hold
+    the research run's keys is refused, because a research artifact can never
+    become historical truth (D7)."""
+    from telemetry.run_of_record import ResearchPartitionRefused
+
+    db_path = _make_cache_db(tmp_path, [
+        ("ocr", "SHA1", "RESEARCH-OFFLINE", "artifacts/ocr/aa/x.json"),
+        ("analysis", "SHA1", "RESEARCH-ANALYSIS", "artifacts/analysis/aa/y.json"),
+    ])
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, "p23-wave-a", offline_key="RESEARCH-OFFLINE",
+                                       analysis_key="RESEARCH-ANALYSIS")
+    conn = _conn(db_path)
+    try:
+        with pytest.raises(ResearchPartitionRefused):
+            partitions_for_run(run_dir, conn=conn)
+    finally:
+        conn.close()
+
+
+def test_cohort_replay_exits_5_on_a_research_run_without_any_change_of_its_own(tmp_path, monkeypatch):
+    """CASE 17: `tools/cohort_replay.py` needs no change — its existing
+    `RunOfRecordError` boundary turns the refusal into exit 5 and never
+    selects an artifact of the research run."""
+    import tools.cohort_replay as cohort_replay
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    _make_cache_db(data_dir, [
+        ("ocr", "A" * 64, "RESEARCH-OFFLINE", "artifacts/ocr/aa/x.json"),
+        ("analysis", "A" * 64, "RESEARCH-ANALYSIS", "artifacts/analysis/aa/y.json"),
+    ])
+    run_dir = tmp_path / "run"
+    _write_recorded_run_with_partition(run_dir, "p23-wave-a", offline_key="RESEARCH-OFFLINE",
+                                       analysis_key="RESEARCH-ANALYSIS")
+    _write_rows_csv(run_dir, [{"content_sha256": "A" * 64, "source_path": "native",
+                               "outcome_class": "validated", "outcome_reason": "", "parser_id": "x",
+                               "folder_label": "f", "visual_rung": "not_attempted"}])
+    shas = tmp_path / "shas.txt"
+    shas.write_text("A" * 64 + "\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    exit_code = cohort_replay.main([
+        "--run", str(run_dir), "--data-dir", str(data_dir), "--shas", str(shas),
+        "--census", str(tmp_path / "absent-census.csv"), "--expect-identical",
+    ])
+    assert exit_code == 5
+
+
+def test_provenance_validates_the_research_partition_before_any_probe(tmp_path, monkeypatch):
+    """Review F-3 (closure-2): a malformed `--research-partition` used to be
+    caught inside the probe by `attempt`, dropping the whole `run_of_record`
+    block — after which `partitions_for_run` RECONSTRUCTED the run as a
+    production-shaped record. The caller now validates the id up front with
+    the SAME closed shape the cache module enforces and refuses before any
+    subprocess starts; `main` exits 2 and writes nothing."""
+    import tools.train.provenance as provenance
+    import webapp.artifact_cache as cache_module
+
+    assert provenance.RESEARCH_PARTITION_PATTERN == cache_module._RESEARCH_PARTITION_RE.pattern
+    assert provenance.validate_research_partition("") == ""
+    assert provenance.validate_research_partition(None) == ""
+    assert provenance.validate_research_partition("p23-wave.a_1") == "p23-wave.a_1"
+    for bad in ("bad id", "a/b", "-leading", "x" * 65, "nl\n", "tab\t"):
+        with pytest.raises(ValueError):
+            provenance.validate_research_partition(bad)
+
+    def no_subprocess(*args, **kwargs):
+        raise AssertionError("no probe or tool may run for a refused partition")
+
+    monkeypatch.setattr(provenance.subprocess, "run", no_subprocess)
+    root = tmp_path / "root"
+    root.mkdir()
+    with pytest.raises(ValueError):
+        provenance.collect(Path(__file__).resolve().parents[1], root, tmp_path / "data",
+                           label="t", hash_corpus=False, mode="digital", research_partition="bad id")
+    out = tmp_path / "out" / "provenance.json"
+    exit_code = provenance.main([
+        "--checkout", str(Path(__file__).resolve().parents[1]), "--root", str(root),
+        "--data-dir", str(tmp_path / "data"), "--out", str(out), "--mode", "digital",
+        "--research-partition", "bad id",
+    ])
+    assert exit_code == 2
+    assert not out.exists() and not out.with_suffix(".md").exists()
+
+
+def test_provenance_records_the_research_partition_and_folds_it_into_the_keys(tmp_path, monkeypatch):
+    """`tools/train/provenance.py --research-partition <id>` records the id in
+    `run_of_record.partitions` and computes the OCR keys WITH it, so the
+    recorded run is refused as a run of record; a production call records
+    the empty string and the production keys."""
+    import tools.train.provenance as provenance
+    from telemetry.run_of_record import ResearchPartitionRefused
+
+    _unconfigure_paddle(monkeypatch)
+    root = tmp_path / "root"
+    root.mkdir()
+    checkout = Path(__file__).resolve().parents[1]
+    production = provenance.collect(checkout, root, tmp_path / "data", label="t", hash_corpus=False, mode="digital")
+    research = provenance.collect(checkout, root, tmp_path / "data", label="t", hash_corpus=False, mode="digital",
+                                  research_partition="p23-wave-a")
+    assert "run_of_record" in production, {"tree": production.get("tree")}
+    assert "run_of_record" in research, {"tree": research.get("tree")}
+    prod_parts = production["run_of_record"]["partitions"]
+    research_parts = research["run_of_record"]["partitions"]
+    assert prod_parts["research_partition"] == ""
+    assert research_parts["research_partition"] == "p23-wave-a"
+    assert prod_parts["offline_ocr_key"] != research_parts["offline_ocr_key"]
+    assert prod_parts["visual_ocr_key"] != research_parts["visual_ocr_key"]
+    assert prod_parts["analysis_key"] == research_parts["analysis_key"]
+    assert production["tree"]["EXTRACTION_SCHEMA_VERSION"] == 3
+    assert production["tree"]["EVIDENCE_SCHEMA_VERSION"] == 1
+    assert "RECONSTRUCTION_MODE" in production["env"]
+
+    run_dir = tmp_path / "research-run"
+    run_dir.mkdir()
+    (run_dir / "provenance.json").write_text(json.dumps(research, default=str), encoding="utf-8")
+    with pytest.raises(ResearchPartitionRefused):
+        partitions_for_run(run_dir)
+    production_dir = tmp_path / "production-run"
+    production_dir.mkdir()
+    (production_dir / "provenance.json").write_text(json.dumps(production, default=str), encoding="utf-8")
+    assert partitions_for_run(production_dir).research_partition == ""

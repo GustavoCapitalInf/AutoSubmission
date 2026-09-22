@@ -533,6 +533,54 @@ mechanism COUNTS-P3 built for `OBSERVER_VERSION` after the same omission).
 
 ---
 
+### v5 — P22-TRUTHTABLE (Phase 2.2, 2026-09-10): the escalation-extraction writer is gone
+
+**No new code. One code RETIRED from the live set, and nothing else.** R9
+(`PHASE2_RULINGS.md`, 2026-09-03) ordered the reconciliation-based selection
+between two hosted extractions removed; cell F (`§P22FENCE`) removed it, and
+the single `issues.append(` site in `analysis/pipeline.py` — the one that wrote
+`escalation extraction failed …` — went with it. `analysis/pipeline.py` now
+holds ZERO reconciliation-issue sites and `analysis/reconcile.py` holds six.
+
+**What stays.** `recon:escalation_extraction_failed` remains in
+`RECON_ISSUE_ANCHORS` and in `CLASS_OF` (class `extraction_failure`, rank 3,
+§3.3, §4). A record emitted before the removal carries the code and must still
+classify to the same class it always did; deleting the anchor would turn every
+one of those records into `recon:unmapped_issue` retroactively, which is a
+re-classing dressed up as a cleanup. §3.3's table is unchanged for exactly
+that reason: it is the mapping a rollup applies, not a list of what a live
+analysis can still produce.
+
+**What changed.** `telemetry/diagnostics.py` gains two names:
+`RETIRED_RECON_ISSUE_CODES` (`frozenset({"recon:escalation_extraction_failed"})`)
+and `LIVE_RECON_ISSUE_ANCHORS` (`RECON_ISSUE_ANCHORS` minus those codes — six
+members at v5). §9's third drift guard is re-stated accordingly: the call-site
+count is `reconcile.py`'s six against `LIVE_RECON_ISSUE_ANCHORS`, with
+`pipeline.py` pinned at zero **in its own right** rather than folded into a
+total — so a writer REAPPEARING there is a finding (either a new shape needing
+an anchor, or the removed selection returning) instead of being absorbed by an
+arithmetic coincidence. A second guard asserts every member of
+`RETIRED_RECON_ISSUE_CODES` still has an anchor and a class, so a code can be
+retired from the LIVE count and never from the vocabulary.
+
+**Why this is a version bump at all.** Nothing re-classes and no document
+moves; the bump exists because the set of codes a LIVE analysis can produce
+SHRANK, so a v4 rollup and a v5 rollup are not comparing like with like on the
+code axis — a v5 rollup showing zero `extraction_failure` from this code means
+"impossible now", where a v4 rollup showing zero meant "did not happen". That
+distinction is exactly what `DIAGNOSTICS_VERSION` travels for (§11's opening
+paragraph), and `test_the_diagnostics_version_moves_when_the_vocabulary_does`
+is the guard that makes the bump non-optional.
+
+**Blast radius.** Zero documents on the 3,380-document archive: the code fired
+nowhere (the same measurement v4 recorded for its own new code), and cell F's
+own union-of-registrations replay reproduced every deterministic-mode payload
+byte-identically at base and at closure. `integrity:repair_exception` — the
+class's other occupant since v4 — is untouched and still live, so
+`extraction_failure` remains a reachable class rather than an empty rank.
+
+---
+
 ## 12. Observer-side vocabulary: the stated-count check
 
 The two `integrity:` codes are in §3.2 and §4 as of v3; this section is what

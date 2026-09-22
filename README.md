@@ -241,7 +241,11 @@ statements flow through, only the questionable ones get human eyes. Small-bank /
 image statements (where per-transaction detail is incomplete) still yield
 trustworthy figures from the bank's printed summary, which reconciliation validates.
 
-Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Withholding continues to
+Tune via env: `GEMINI_MODEL` — the ONE hosted extraction model, and the hosted
+branch runs only behind the operator opt-in documented in `analysis/pipeline.py`
+(Phase 2.2, P22-FENCE; Ruling A). `GEMINI_ESCALATION_MODEL` is retained for
+settings-key stability only and is no longer read: the reconciliation-driven
+re-extraction with a second model was removed (ruling R9). Withholding continues to
 use legacy eligible deposits by default; explicitly set
 `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to use verified classified
 revenue instead. Extend maintained lender, candidate, insurance, operating-revenue,

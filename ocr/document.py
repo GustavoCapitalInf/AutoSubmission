@@ -7,6 +7,16 @@ from .config import ProvenanceTokenError, validate_model_token
 from .truncation import PageIntegrity
 
 
+def native_evidence_describes(pages: list[str], evidence: ExtractionEvidence) -> bool:
+    """THE consistency rule between a `StatementMarkdown`'s page list and a
+    native evidence (P22-IDENTITY, D5): the page COUNTS agree. Deliberately
+    NOT text equality — see `StatementMarkdown.native_evidence`. One
+    function so `__post_init__` (a constructed object refuses a mismatch)
+    and the intake ladder (which attaches only what this rule admits) can
+    never disagree about what "describes" means."""
+    return len(evidence.pages) == len(pages)
+
+
 @dataclass
 class StatementMarkdown:
     source_file: str
@@ -39,6 +49,46 @@ class StatementMarkdown:
     # test_ocr_document_imports_only_evidence_config_and_truncation`.
     page_extractor: list[str] = field(default_factory=list)
     evidence: ExtractionEvidence | None = None
+    # P22-IDENTITY (Phase 2.2, D5). `native_evidence` is the immutable
+    # canonical evidence of the NATIVE reader (`evidence/native.py`: PyMuPDF
+    # word boxes in the display frame) behind a native-rung read, attached
+    # once per document by the intake ladder and persisted in the OCR record
+    # with its sha (`EXTRACTION_SCHEMA_VERSION` 3). It is a SIBLING of
+    # `evidence`, deliberately, because the D9 invariant that field carries
+    # (`evidence.page_texts() == pages`) does NOT hold for the native rung:
+    # the native page strings come from `ocr/native_text.py::_native_pages`
+    # (PyMuPDF text BLOCKS, plus whatever a bank-specific native reader
+    # appended), not from grouping these words into lines. So this field's
+    # own consistency check is page COUNT only — never text equality — and
+    # that asymmetry is the whole reason it is not `evidence`. `None` for
+    # every rung that is not the native rung, and for a native read whose
+    # PDF yields no placeable word.
+    native_evidence: ExtractionEvidence | None = None
+    # P23-WAVE (Phase 2.3, cell T's named STOP). The per-request TECHNICAL
+    # telemetry of the read that produced `pages` — exactly what
+    # `ocr.paddle_rung.PaddleRead.telemetry` already carries: a `pages` list of
+    # per-page `inference_ms` / `total_ms` / `bytes_sent` / `bytes_received` /
+    # raster size / `cold_load` / `gpu_memory_used_mib`, and a `totals` block.
+    # Figures only: this field never holds a word, a line, a box or anything
+    # else derived from the document's CONTENT, and the row projection that
+    # reads it (`discovery/runner.py::_project_funnel`) writes four numeric
+    # columns and nothing else.
+    #
+    # RULED TRANSIENT. It is deliberately NOT part of the persisted OCR record:
+    # `webapp.artifact_cache.ArtifactCache.put_ocr` stores a named field list
+    # and this is not in it, so a cached read restores with
+    # `extraction_telemetry=None` and the four columns stay EMPTY on a
+    # `cache_paddle = hit` row. That is the honest reading — a hit made no
+    # request, so it measured no request — and it is why this field forces no
+    # `EXTRACTION_SCHEMA_VERSION` bump and cannot move a cache key:
+    # `to_markdown()` does not mention it, `ocr_settings_key` does not mention
+    # it, and `analysis_input_sha` keys on the markdown, the sheets and the
+    # evidence sha, none of which this touches. `tests/test_paddle_wave.py`
+    # proves the payload and both keys are identical with it set and unset.
+    #
+    # `None` for every rung that measured nothing (native, Tesseract, visual,
+    # a committed artifact, a restored cache entry).
+    extraction_telemetry: dict | None = None
 
     def __post_init__(self) -> None:
         """Close F-4(b) / MAJOR-2 at the point both fields are SET.
@@ -122,6 +172,37 @@ class StatementMarkdown:
                     "evidence.page_texts() does not equal pages: the derived "
                     "page strings and the evidence they came from must be one object"
                 )
+        # P22-IDENTITY (D5): `native_evidence` describes the same document
+        # page for page — the ONE rule is `native_evidence_describes`, shared
+        # with the intake ladder, which declines to attach an evidence that
+        # fails it rather than raising in the middle of a read.
+        if self.native_evidence is not None:
+            if not isinstance(self.native_evidence, ExtractionEvidence):
+                raise ProvenanceTokenError(
+                    "native_evidence must be an evidence.canonical.ExtractionEvidence or None"
+                )
+            if not native_evidence_describes(self.pages, self.native_evidence):
+                raise ProvenanceTokenError(
+                    f"native_evidence carries {len(self.native_evidence.pages)} pages but "
+                    f"pages has {len(self.pages)}: they must describe the same document"
+                )
+        # P23-WAVE: a dict of figures, or nothing. The type is checked here for
+        # the same reason every other field's is — a wrong-shaped value must
+        # not become a `StatementMarkdown` and then a malformed row column
+        # three layers away — and NOT its contents, which are the extractor's
+        # own measurements and belong to whoever produced them.
+        if self.extraction_telemetry is not None and not isinstance(self.extraction_telemetry, dict):
+            raise ProvenanceTokenError(
+                "extraction_telemetry must be a dict of technical figures or None"
+            )
+
+    @property
+    def native_evidence_sha256(self) -> str | None:
+        """The `evidence_sha256` of the attached native evidence, or `None`.
+        The lineage a row's `evidence_sha256` column carries for a native
+        read (populated by the runner, not here); what a cache hit must
+        reproduce byte-for-byte."""
+        return None if self.native_evidence is None else self.native_evidence.evidence_sha256
 
     @property
     def truncated_pages(self) -> list[int]:

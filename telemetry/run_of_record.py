@@ -48,6 +48,16 @@ no artifact was ever written under a key nothing else in the run used, or a
 row from a fingerprint the cache never saw) resolves to ``None`` — never to
 another partition. That is the whole point: NEVER a fallback, NEVER a guess.
 
+Research partitions (P22-IDENTITY, Phase 2.2, D7)
+--------------------------------------------------
+The OCR settings key carries ``research_partition`` (empty for production;
+``webapp/artifact_cache.py::ocr_settings_key``). A run whose RECORDED
+partitions block names a non-empty one is a research run and this module
+REFUSES it outright (:class:`ResearchPartitionRefused`, naming the
+partition) before any key is read — a research artifact can never become
+historical truth, whichever reader asks. A production run (the field empty
+or absent) is selected exactly as before.
+
 Kept out of this module by design (see ``docs/agent-handoffs/P20-ARTIFACTS.md``)
 -----------------------------------------------------------------------------
 No page-level partitions, no ``page_extractor`` (Phase 2.1). No writes: every
@@ -70,6 +80,7 @@ from typing import Any, Mapping
 __all__ = [
     "ORIGIN_RECORDED",
     "ORIGIN_RECONSTRUCTED",
+    "ResearchPartitionRefused",
     "RunOfRecordError",
     "RunPartitions",
     "partitions_for_run",
@@ -124,6 +135,26 @@ class RunOfRecordError(RuntimeError):
     """
 
 
+class ResearchPartitionRefused(RunOfRecordError):
+    """P22-IDENTITY (Phase 2.2, D7; case 17). A run whose recorded OCR
+    settings key carries a non-empty ``research_partition`` is a RESEARCH
+    run: its artifacts were written under a research partition (Phase 2.3's
+    broad Paddle wave, or any later research mode) and can never become
+    historical truth. This module refuses to select any artifact of such a
+    run — the refusal names the partition — so neither ``tools.cohort_replay``
+    nor ``telemetry.stated_counts._ArtifactJoin`` (both of which go through
+    :func:`partitions_for_run`) can ever replay, compare or count against it.
+    A ``RunOfRecordError`` subclass, so every existing exit-5 boundary
+    honours it unchanged."""
+
+    def __init__(self, partition: str, run_dir: Path | str) -> None:
+        self.partition = partition
+        super().__init__(
+            f"{run_dir}/provenance.json: run_of_record.partitions.research_partition is "
+            f"{partition!r} — a research partition is never selectable as a run of record; refused"
+        )
+
+
 @dataclass(frozen=True)
 class RunPartitions:
     """What a run of record actually consumed.
@@ -144,6 +175,11 @@ class RunPartitions:
     analysis_stage_version: int
     mode: str
     origin: str
+    #: P22-IDENTITY (D7): the research partition the run's OCR keys carry.
+    #: Always ``""`` on an object this module builds — a non-empty value is
+    #: refused before construction (:class:`ResearchPartitionRefused`) — and
+    #: recorded here so the fact is on the object, not only in the refusal.
+    research_partition: str = ""
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -190,6 +226,20 @@ def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartit
                 f"{run_dir}/provenance.json: run_of_record.partitions.{name} "
                 "missing or empty"
             )
+    # P22-IDENTITY (D7): the research partition is refused BEFORE any key is
+    # read into a `RunPartitions` — a run recorded before the field existed
+    # (no key at all) and a production run (the empty string) are the same
+    # fact; anything non-empty is a research run and never a run of record.
+    research_partition = partitions.get("research_partition", "")
+    if research_partition is None:
+        research_partition = ""
+    if not isinstance(research_partition, str):
+        raise RunOfRecordError(
+            f"{run_dir}/provenance.json: run_of_record.partitions.research_partition "
+            "is not a string"
+        )
+    if research_partition:
+        raise ResearchPartitionRefused(research_partition, run_dir)
     summary_path = run_dir / "summary.json"
     if summary_path.is_file():
         summary_mode = _load_json(summary_path).get("mode")

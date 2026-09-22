@@ -120,6 +120,9 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     process probe; ``"unknown"`` when a version cannot be read, which
     partitions conservatively (a new key, a re-read) rather than silently
     reusing an artifact produced by a different binary.
+    ``research_partition`` (P22-IDENTITY, Phase 2.2, D7) — present ONLY when
+    non-empty: a research run's own partition id; absent (not an empty
+    string) for every production call, so the production key is unchanged.
 
 ``analysis`` (:func:`analysis_settings_key`)
     ``parse_mode`` (``auto`` | ``deterministic``), ``model``,
@@ -142,16 +145,21 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     settings key rather than the input hash because the registry is a per-RUN
     constant; see :func:`analysis_settings_key` for the WIRING-2 symmetry.
 
-    ``generic_structurer`` is the W3-3c generic rung's opt-in flag
-    (``GENERIC_STRUCTURER_ENABLED``), read through the structurer's OWN
-    accessor rather than from the environment here — one place decides what
-    "enabled" means, and a second reading of that variable could disagree with
-    it about ``"0"`` or ``" false"``. It is an environment switch that changes
-    the published payload of every document no parser claimed (the rung
-    publishes a statement where the pipeline would otherwise refuse), so
-    flipping it must partition the cache exactly as ``parse_mode`` does. It is
-    OFF today and has always been off, so no artifact in the archive was
-    written under the enabled value.
+    ``reconstruction_mode`` (P22-IDENTITY, Phase 2.2, D6) =
+    ``analysis.config.Settings.reconstruction_mode`` — the closed vocabulary
+    ``off | research | production`` (environment ``RECONSTRUCTION_MODE``; the
+    retired ``GENERIC_STRUCTURER_ENABLED`` is inert). It decides whether the
+    W3-3c generic rung runs on the unclaimed branch, which changes the
+    published payload of every document no parser claimed, so it partitions
+    the cache exactly as ``parse_mode`` does. ``generic_structurer`` is the
+    derived boolean, read through the structurer's OWN accessor over the SAME
+    settings object (``structurer_enabled(analysis_settings)``) — one place
+    decides what "enabled" means. ``off`` today and always: no artifact in the
+    archive was written under any other value.
+
+    Since Phase 2.2 the analysis INPUT hash also carries the sha of the
+    evidence a geometry-fed analysis consumed (absent for text-only) — see
+    :func:`analysis_input_sha`.
 
 ``report`` (:func:`report_settings_key`)
     ``title`` (the rendered document title) and ``stage_version`` =
@@ -273,6 +281,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -500,7 +509,19 @@ OCR_STAGE_VERSION = 5
 # the serialized shape decided by account count alone, and the document surface lit
 # for 23 documents (15 protected carriers + the 8 published) per Q10 — a payload-
 # shape change, so a warm cache keyed on 16 would serve old-shape payloads.
-ANALYSIS_STAGE_VERSION = 17
+# 17 -> 18: P22-IDENTITY (Phase 2.2, D6) — the analysis key becomes geometry-
+# aware: `analysis_input_sha` carries the evidence sha that fed geometry
+# (absent for a text-only analysis), `analysis_settings_key` carries
+# `Settings.reconstruction_mode` (`off` everywhere the archive has ever run),
+# and `generic_structurer` is derived from that setting rather than from the
+# retired environment variable. No analysis OUTPUT changes at this tree (the
+# structurer stays off and no caller passes geometry yet); the bump exists so
+# no stage-17 artifact — computed under the geometry-blind key — can ever be
+# served to a stage-18 call, and so the run of record's analysis partition
+# rotates once, at the train's cold run, together with the OCR partition
+# (`EXTRACTION_SCHEMA_VERSION` 3). Pinned in the same commit
+# (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 18
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
@@ -518,7 +539,17 @@ REPORT_STAGE_VERSION = 1
 #: this cell) restores with `page_extractor=[]` and `evidence=None`, which
 #: `StatementMarkdown.__post_init__` accepts as "not populated" — never a
 #: crash on an old cache entry.
-EXTRACTION_SCHEMA_VERSION = 2
+#: v3 (P22-IDENTITY, Phase 2.2, D5): the record gains `native_evidence` (the
+#: ONE native reader's canonical word evidence in the display frame, behind a
+#: native-rung read — `None` for every other rung) and `native_evidence_sha256`
+#: (its sha, stored beside it so a restore re-verifies the blob against the
+#: sha the record CLAIMS, not only the sha the blob reproduces). Key material
+#: for every extractor at v5+, so the WHOLE OCR cache goes cold at the train's
+#: cold run (required anyway: every native document is re-read once to attach
+#: its evidence). A schema-2 record (no `native_evidence*` keys) restores with
+#: `native_evidence=None` and analyses — never a crash on an old cache entry.
+#: `to_markdown()` is byte-identical with or without the field.
+EXTRACTION_SCHEMA_VERSION = 3
 
 STAGE_OCR = "ocr"
 STAGE_ANALYSIS = "analysis"
@@ -614,23 +645,55 @@ def sheets_sha256(sheets: Sequence[str] | None) -> str | None:
     return text_sha256(_canonical_json([text_sha256(sheet) for sheet in sheets]))
 
 
-def analysis_input_sha(markdown: str, sheets: Sequence[str] | None = None) -> str:
-    """The analysis stage's input hash: the admissible text AND the page partition.
+def _is_sha256_hex(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789ABCDEFabcdef" for c in value)
+
+
+def analysis_input_sha(
+    markdown: str, sheets: Sequence[str] | None = None, *, evidence_sha256: str | None = None,
+) -> str:
+    """The analysis stage's input hash: the admissible text, the page partition,
+    and — when the analysis was fed geometry — the sha of the evidence it
+    came from (P22-IDENTITY, Phase 2.2, D6).
 
     THE one place this is derived. The telemetry observer (under ``telemetry/``)
     reconstructs the same document out of the OCR artifact and must resolve the
     same key, and a second copy of this composition is exactly the drift the
     FILENAME-BOUNDARY lesson warned about — an instrument that goes blind while
     reporting nothing wrong. Import this; do not re-derive it.
+
+    ``evidence_sha256`` is the `evidence_sha256` of the canonical evidence a
+    `DocumentGeometry` handed to `analyze_document` was built from (a native
+    read's `native_evidence`, or a Paddle read's `evidence`), or ``None`` for a
+    text-only analysis. A geometry-fed analysis therefore hashes DIFFERENTLY
+    from a text-only analysis of the same markdown — the geometry-blind key
+    was the named stale-cache hazard (two artifacts with identical page
+    strings and different word boxes, or one with evidence and one without,
+    resolved to the same key). The material carries an ``"evidence"`` field
+    ONLY when a sha is given: a text-only call hashes exactly the two-field
+    composition every run of record before this cell wrote, so
+    ``tools/cohort_replay.py`` and the telemetry observer's artifact join —
+    which look historical analysis artifacts up by THIS function with no
+    version parameter — keep resolving them (the card's literal
+    ``"no-geometry"`` is deliberately not hashed for that reason; see the
+    cell's W3 section). A
+    stage-17 text-only artifact and a stage-18 one still never collide: the
+    stage version is settings-key material. A malformed sha (anything but
+    ``None`` or 64 hex characters — in particular the empty string, which
+    would silently mean "geometry-fed, no lineage") is refused.
     """
-    return text_sha256(
-        _canonical_json(
-            {
-                "text": text_sha256(admissible_text(markdown)),
-                "sheets": sheets_sha256(sheets),
-            }
-        )
-    )
+    material: dict[str, Any] = {
+        "text": text_sha256(admissible_text(markdown)),
+        "sheets": sheets_sha256(sheets),
+    }
+    if evidence_sha256 is not None:
+        if not _is_sha256_hex(evidence_sha256):
+            raise ValueError(
+                "evidence_sha256 must be None (text-only analysis) or a 64-character "
+                "hex digest of the evidence that fed geometry"
+            )
+        material["evidence"] = evidence_sha256.upper()
+    return text_sha256(_canonical_json(material))
 
 
 def cache_key(stage: str, input_sha256: str, settings_key: str) -> str:
@@ -670,9 +733,31 @@ ADMITTED_POSTPROCESS_DEFAULT: tuple[str, ...] = ()
 #: :func:`ocr_settings_key` tries the real import first and falls back to
 #: this duplicate only on ``ImportError``; ``test_raster_version_fallback_matches_the_source_module``
 #: pins that the two never drift apart.
-_RASTER_VERSION_FALLBACK = 1
+_RASTER_VERSION_FALLBACK = 2
 
 _toolchain_versions_cache: dict[str, str] | None = None
+
+#: P22-IDENTITY (Phase 2.2, D7): the closed shape of a research partition id
+#: — a short label (letters, digits, `.`, `_`, `-`; up to 64 characters) an
+#: operator names on `discovery --research-paddle --research-partition <id>`
+#: and `tools/train/provenance.py --research-partition <id>`. Key material
+#: when non-empty; written verbatim into `provenance.json`, so the charset
+#: is closed the way every provenance token's is.
+_RESEARCH_PARTITION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def _validate_research_partition(value: object) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError("research_partition must be a str (empty for production)")
+    if value == "":
+        return ""
+    if _RESEARCH_PARTITION_RE.fullmatch(value) is None:  # fullmatch: `$` would admit a trailing newline
+        raise ValueError(
+            "research_partition must match [A-Za-z0-9][A-Za-z0-9._-]{0,63} (or be empty for production)"
+        )
+    return value
 
 
 def _ocr_extractor(
@@ -813,8 +898,17 @@ def ocr_settings_key(
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
     stage_version: int | None = None,
+    research_partition: str = "",
 ) -> str:
     """Fingerprint of every knob that changes OCR output.
+
+    ``research_partition`` (P22-IDENTITY, Phase 2.2, D7): empty for every
+    production call — and then NOT in the material at all, so the production
+    key is byte-identical to a call that never heard of the field; a
+    non-empty id (closed shape, `_RESEARCH_PARTITION_RE`) is key material of
+    its own partition, so a research run's artifacts can never collide with
+    production's, and `telemetry/run_of_record.py` refuses a run recorded
+    under one as historical truth.
 
     ``ocr_settings`` is an ``ocr.config.Settings`` (or anything with the same
     attributes); when omitted it is loaded from the environment, so callers
@@ -834,6 +928,15 @@ def ocr_settings_key(
 
         ocr_settings = _load_ocr_settings()
     version = OCR_STAGE_VERSION if stage_version is None else int(stage_version)
+    partition = _validate_research_partition(research_partition)
+    if partition and version < 5:
+        # P22-IDENTITY closure-2 (review F-4): a pre-v5 key has no partition
+        # field; silently dropping a research partition there would hand a
+        # research run a production-shaped key. Refuse instead — a pre-v5
+        # run never carried one, so this is unreachable on a real record.
+        raise ValueError(
+            "research_partition requires OCR stage version 5 or later; a pre-v5 key cannot carry one"
+        )
     settings: dict[str, Any] = {
         "stage_version": version,
         "force_ocr": bool(force_ocr),
@@ -877,6 +980,10 @@ def ocr_settings_key(
                 "pymupdf_version": toolchain["pymupdf_version"],
             }
         )
+        if partition:
+            # D7: present ONLY when non-empty — see the docstring. Every
+            # extractor label gets its own research partition.
+            settings["research_partition"] = partition
         if extractor == "paddle":
             # Lazy import: the offline and visual partitions' keys must
             # never touch Paddle settings at all (asserted by test) — only a
@@ -913,9 +1020,22 @@ def analysis_settings_key(
     It also loads the production registry if the calling process has not — see
     ``analysis.parser_registry._ensure_registry_loaded``.
 
-    ``generic_structurer`` is read through ``structurer_enabled()`` for the same
-    reason: the structurer owns what its own flag means, and a second reading of
-    ``GENERIC_STRUCTURER_ENABLED`` here would be free to disagree with it.
+    ``reconstruction_mode`` (P22-IDENTITY, Phase 2.2, D6) is
+    ``Settings.reconstruction_mode`` — the closed vocabulary ``off | research |
+    production`` that decides whether the generic rung runs and, later, in
+    what capacity; it partitions the key exactly as ``parse_mode`` does.
+    ``generic_structurer`` is derived from the SAME settings object through
+    ``structurer_enabled(analysis_settings)``: the structurer owns what
+    "enabled" means, and reading the mode here and the flag there from two
+    different sources would let the key and the rung disagree. The retired
+    ``GENERIC_STRUCTURER_ENABLED`` variable is not consulted at all.
+
+    ``hosted_extraction_opt_in`` (P22-FENCE review F3, Ocean's composition
+    item) is the fence's own predicate ``hosted_extraction_opted_in()`` read
+    from the process environment: an auto-mode payload produced under the
+    opt-in literal must never be served later to a process without it (a
+    cache hit is not a call, but it is the same payload). The boolean is
+    derived by the fence, never recomposed here.
     """
     if analysis_settings is None:
         from analysis.config import load_settings as _load_analysis_settings
@@ -924,6 +1044,7 @@ def analysis_settings_key(
     # Function-local, like ``analysis.config``: importing this module must stay
     # cheap, and the structurer package is only needed when a key is derived.
     from analysis.structurer import structurer_enabled
+    from analysis.pipeline import hosted_extraction_opted_in
     return _fingerprint(
         {
             "stage_version": ANALYSIS_STAGE_VERSION,
@@ -934,7 +1055,9 @@ def analysis_settings_key(
                 getattr(analysis_settings, "withholding_denominator_mode", "")
             ),
             "parser_registry": registry_fingerprint(),
-            "generic_structurer": bool(structurer_enabled()),
+            "reconstruction_mode": str(getattr(analysis_settings, "reconstruction_mode", "off")),
+            "generic_structurer": bool(structurer_enabled(analysis_settings)),
+            "hosted_extraction_opt_in": bool(hosted_extraction_opted_in()),
         }
     )
 
@@ -1079,8 +1202,13 @@ class ArtifactCache:
         document-shaped object that predates a field (a hand-built extractor
         result, a test double) stores as "not assessed" / "not populated"
         instead of raising. ``evidence`` serializes via
-        ``evidence.canonical.to_json`` when present, else ``None``."""
+        ``evidence.canonical.to_json`` when present, else ``None``.
+
+        P22-IDENTITY (D5, schema 3): ``native_evidence`` serializes the same
+        way, and ``native_evidence_sha256`` stores its sha BESIDE it — the
+        sha a restore must reproduce byte-for-byte and re-verify against."""
         evidence = getattr(document, "evidence", None) if document is not None else None
+        native_evidence = getattr(document, "native_evidence", None) if document is not None else None
         return self.put(
             STAGE_OCR,
             content_hash,
@@ -1097,6 +1225,10 @@ class ArtifactCache:
                     ],
                     "page_extractor": list(getattr(document, "page_extractor", None) or []),
                     "evidence": to_json(evidence) if evidence is not None else None,
+                    "native_evidence": to_json(native_evidence) if native_evidence is not None else None,
+                    "native_evidence_sha256": (
+                        native_evidence.evidence_sha256 if native_evidence is not None else None
+                    ),
                 }
             },
         )
@@ -1159,6 +1291,26 @@ def _page_integrity(entries: object) -> list[PageIntegrity]:
     return rebuilt
 
 
+def _restore_native_evidence(document: dict):
+    """The record's ``native_evidence`` rebuilt (P22-IDENTITY, D5), or
+    ``None`` for a schema-2 record. Raises ``EvidenceError`` — the drift
+    class :func:`cached_ocr` turns into a miss-with-finding — when the blob
+    does not reproduce the sha the record claims in ``native_evidence_sha256``
+    (M6: a restore without this re-verification would serve a blob whose
+    self-hash happens to hold beside a stale sidecar sha), or when a sidecar
+    sha is stored with no blob to back it."""
+    payload = document.get("native_evidence")
+    claimed = document.get("native_evidence_sha256")
+    if payload is None:
+        if claimed:
+            raise EvidenceError("native_evidence_sha256 stored without its native_evidence")
+        return None
+    restored = from_json(payload)
+    if not isinstance(claimed, str) or restored.evidence_sha256 != claimed:
+        raise EvidenceError("native_evidence does not reproduce the record's native_evidence_sha256")
+    return restored
+
+
 def cached_ocr(
     pdf_bytes: bytes,
     *,
@@ -1173,8 +1325,21 @@ def cached_ocr(
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
+    research_partition: str = "",
 ) -> CacheResult:
     """Memoize one intake-ladder run over ``pdf_bytes``.
+
+    ``research_partition`` (P22-IDENTITY, D7) is threaded to
+    :func:`ocr_settings_key` unchanged: empty for production, a partition id
+    for a research run (which also writes to its own data directory).
+
+    P22-IDENTITY (D5): a hit restores ``native_evidence`` too and RE-VERIFIES
+    its sha against the record's own ``native_evidence_sha256`` — a blob that
+    reproduces some sha is not enough; it must reproduce the sha the record
+    claims — and a sha stored without its blob is a drift as well. Either
+    mismatch is the same miss-with-finding as a drifted ``evidence``. A
+    schema-2 record (neither key present) restores with
+    ``native_evidence=None``.
 
     The capability flags must mirror the ``ocr.pipeline.parse_statement`` call
     that ``compute`` performs — they are the cache key, so a mismatch would
@@ -1227,6 +1392,7 @@ def cached_ocr(
         dpi=dpi,
         fallback_dpi=fallback_dpi,
         ocr_settings=ocr_settings,
+        research_partition=research_partition,
     )
     key = cache_key(STAGE_OCR, input_sha, settings_key)
     hit, document = cache.get_ocr(input_sha, settings_key)
@@ -1247,6 +1413,7 @@ def cached_ocr(
                     page_integrity=_page_integrity(document.get("page_integrity")),
                     page_extractor=list(document.get("page_extractor") or []),
                     evidence=from_json(evidence_payload) if evidence_payload is not None else None,
+                    native_evidence=_restore_native_evidence(document),
                 )
             )
         except (EvidenceError, ProvenanceTokenError, TypeError, KeyError):
@@ -1288,6 +1455,7 @@ def cached_analysis(
     parse_mode: str = "auto",
     analysis_settings: Any | None = None,
     sheets: Sequence[str] | None = None,
+    evidence_sha256: str | None = None,
 ) -> CacheResult:
     """Memoize extraction+analysis over the EXACT markdown being analyzed.
 
@@ -1296,6 +1464,14 @@ def cached_analysis(
     same list ``compute`` passes down. Omit it only where the caller genuinely
     has no intake object; the analysis then fail-closes and the key records
     that it did.
+
+    ``evidence_sha256`` (P22-IDENTITY, D6) is the sha of the evidence behind
+    the `DocumentGeometry` ``compute`` hands to ``analyze_document`` — or
+    ``None`` when it hands none. Key material, threaded to
+    :func:`analysis_input_sha`: a geometry-fed analysis and a text-only one
+    of the same markdown never share an entry. Whoever passes geometry passes
+    the sha (the runner's seam, Phase 2.2 cell T); today every caller is
+    text-only.
 
     Only successful results are cached — ``compute`` raising propagates
     untouched, because an extraction failure (a transient model error as much
@@ -1309,7 +1485,7 @@ def cached_analysis(
     # filenames are the same analysis input and must share one cache entry —
     # and it also reads the intake page list, which that same strip removes from
     # the text, so the partition is carried explicitly (W3 §WIRING W3).
-    input_sha = analysis_input_sha(markdown, sheets)
+    input_sha = analysis_input_sha(markdown, sheets, evidence_sha256=evidence_sha256)
     settings_key = analysis_settings_key(
         parse_mode=parse_mode, analysis_settings=analysis_settings
     )

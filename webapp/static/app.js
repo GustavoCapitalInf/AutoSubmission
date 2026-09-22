@@ -652,7 +652,7 @@ function integrityLabel(integrity = {}) {
 function friendlyAnalysisError(message) {
   const text = String(message || "");
   if (/no deterministic parser matched/i.test(text)) {
-    return "No deterministic parser matched this statement. Use Auto mode for fallback extraction, or add a bank-specific deterministic parser before using Deterministic only.";
+    return "No deterministic parser matched this statement. Fallback extraction runs only in Auto mode and only when the operator has enabled hosted extraction on the server; otherwise add a bank-specific deterministic parser.";
   }
   if (/native PDF text unavailable|too sparse|no native text/i.test(text)) {
     return "This PDF does not contain usable native text, and local OCR could not produce usable statement text. Turn on visual OCR or use Auto mode to retry with the OCR service.";
@@ -1205,7 +1205,7 @@ function renderAnalysis(report) {
       title: "Risk Signals",
       sub: "NSFs and balances",
       items: [
-        ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Returned item detection", "NSF", countTone(metrics.effective_nsf_count)],
+        ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Negative-ending days", "NSF", countTone(metrics.effective_nsf_count)],
         ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
         ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
         ["Ending Balance", formatMoney(statement.ending_balance, currency), "Closing balance for the statement period", "END", "neutral"],
@@ -1758,7 +1758,7 @@ function renderStatementModal(jobId, report, markdown) {
     ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
     ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
     ["Ending Balance", formatMoney(statement.ending_balance, currency), "Closing balance for the statement period", "END", "neutral"],
-    ["NSFs", formatNumber(metrics.effective_nsf_count), "Returned items", "NSF", countTone(metrics.effective_nsf_count)],
+    ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Negative-ending days", "NSF", countTone(metrics.effective_nsf_count)],
     ["Confirmed Withholding", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
     ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(metrics.lenders_detected)],
     ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(metrics.potential_lenders_detected)],

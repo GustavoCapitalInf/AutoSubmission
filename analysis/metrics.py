@@ -66,10 +66,13 @@ class Metrics:
     effective_num_withdrawals: int | None = None
     deposits_source: str = "line_items"
     withdrawals_source: str = "line_items"
-    nsf_count: int = 0                     # from line items (a lower bound if detail is incomplete)
+    nsf_count: int = 0                     # returned / NSF line items (evidence; not the underwriting NSF since R18)
     stated_nsf_count: int | None = None    # bank-printed count this period, when available
+    # R18 (Gustavo, 2026-09-18): the underwriting NSF count is the number of calendar days in the period that
+    # END with a negative balance, from the validated daily ledger; returned items are not counted. Without a
+    # validated ledger the figure is not computable: 0 with nsf_source 'negative_ending_days_unavailable'.
     effective_nsf_count: int = 0
-    nsf_source: str = "classified_line_items"
+    nsf_source: str = "negative_ending_days"
     lender_credits: float = 0.0
     lender_debits: float = 0.0
     lender_debit_count: int = 0
@@ -430,7 +433,8 @@ def compute_metrics(
     m.effective_total_withdrawals = m.total_withdrawals
     m.effective_num_deposits = m.num_deposits
     m.effective_num_withdrawals = m.num_withdrawals
-    m.effective_nsf_count = m.nsf_count
+    m.effective_nsf_count = 0
+    m.nsf_source = "negative_ending_days_unavailable"
 
     # Always compute the ADB working so the daily ledger and its validations are
     # available for audit, even when policy says not to report the figure.
@@ -459,6 +463,8 @@ def compute_metrics(
         m.min_balance = round(min(vals), 2)
         m.max_balance = round(max(vals), 2)
         m.negative_days = sum(1 for v in vals if v < 0)
+        m.effective_nsf_count = m.negative_days   # R18
+        m.nsf_source = "negative_ending_days"
     elif trust_running_balances and adb.daily_balances:
         m.notes.append("not reporting average daily balance because its ledger validation failed")
     elif not trust_running_balances:
@@ -522,8 +528,10 @@ def compute_metrics(
     if stmt.stated_nsf_count is not None and stmt.stated_nsf_count != m.nsf_count:
         m.notes.append(
             f"bank-stated NSF count {stmt.stated_nsf_count} differs from "
-            f"{m.nsf_count} classified posted row(s); using the row count"
+            f"{m.nsf_count} classified returned item(s); the underwriting NSF count is the negative-ending days (R18)"
         )
+    if m.nsf_source == "negative_ending_days_unavailable":
+        m.notes.append("NSF (negative-ending days) not computable: no validated daily ledger")
     m.cash_flow = round(m.effective_total_deposits - m.effective_total_withdrawals, 2)
     m.legacy_eligible_deposits = round(
         m.effective_total_deposits - m.lender_credits,

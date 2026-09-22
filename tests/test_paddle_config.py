@@ -125,13 +125,21 @@ def test_localhost_in_the_worker_url_does_not_make_the_class_local():
 # Ports, URL, token, runtime dir
 # ---------------------------------------------------------------------------
 
-def test_defaults_derive_a_loopback_worker_url_from_the_tunnel_port():
+def test_defaults_derive_a_loopback_worker_url_from_the_tunnel_port(tmp_path):
     settings = load_paddle_settings(VAST_ENV)
     assert settings.worker_port == PADDLE_DEFAULT_WORKER_PORT == 8765
     assert settings.tunnel_local_port == PADDLE_DEFAULT_TUNNEL_LOCAL_PORT == 18765
     assert settings.worker_url == "http://127.0.0.1:18765"
     assert settings.vast_ssh_port == 22022
-    assert settings.worker_token is None
+    # The token pin runs against a runtime directory THIS test owns. The loader's
+    # reviewed fallback (P21-PADDLE MAJOR-4) reads `<runtime_dir>/worker.token`,
+    # so on a host where the live lifecycle has minted a token into the default
+    # `.paddle_runtime/` the default load carries it — a host fact, not a
+    # defect (Phase 2.2 closure: the composed-tree floor on the operator's
+    # machine). A test controls its own environment; it never reads the host's.
+    hermetic = load_paddle_settings(dict(VAST_ENV, PADDLE_RUNTIME_DIR=str(tmp_path)))
+    assert hermetic.worker_token is None
+    assert hermetic.worker_url == settings.worker_url
     # Informational item (b) (PHASE2_P21PADDLE_REVIEW.md re-review): a
     # relative PADDLE_RUNTIME_DIR resolves against the REPOSITORY ROOT, not
     # the caller's CWD, so it is now an absolute path ending in the default

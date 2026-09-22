@@ -333,9 +333,35 @@ def test_raster_version_partitions_the_key():
     import ocr.rasterize as rasterize_module
 
     base = ocr_settings_key(ocr_settings=_OcrSettings())
-    with unittest.mock.patch.object(rasterize_module, "RASTER_VERSION", 2):
+    # patched to a value that is never the live default (P22-IDENTITY
+    # closure-2 bumped the live value to 2), so this proves the field
+    # partitions regardless of what that default currently is
+    with unittest.mock.patch.object(rasterize_module, "RASTER_VERSION", 999):
         changed = ocr_settings_key(ocr_settings=_OcrSettings())
     assert base != changed
+
+
+def test_raster_version_is_pinned_at_2():
+    """P22-IDENTITY closure-2 (review F-1): the rasteriser renders the
+    CropBox (`use_cropbox=True`) so a raster and the native display frame
+    share one rectangle; RASTER_VERSION 1 -> 2 lands in the same commit as
+    this pin (key material for every OCR partition at v5+)."""
+    from ocr.rasterize import RASTER_VERSION
+
+    assert RASTER_VERSION == 2
+
+
+def test_a_research_partition_on_a_pre_v5_stage_is_refused_not_dropped():
+    """P22-IDENTITY closure-2 (review F-4): `stage_version=4` has no
+    partition field; a non-empty partition there must RAISE rather than be
+    silently dropped into a production-shaped key. An empty partition on a
+    pre-v5 stage stays the historical key, byte for byte."""
+    baseline_v4 = ocr_settings_key(ocr_settings=_OcrSettings(), stage_version=4)
+    assert ocr_settings_key(ocr_settings=_OcrSettings(), stage_version=4, research_partition="") == baseline_v4
+    with pytest.raises(ValueError):
+        ocr_settings_key(ocr_settings=_OcrSettings(), stage_version=4, research_partition="p23-a")
+    # and at v5+ the same id is accepted as its own partition
+    assert ocr_settings_key(ocr_settings=_OcrSettings(), research_partition="p23-a") != ocr_settings_key(ocr_settings=_OcrSettings())
 
 
 def test_raster_version_fallback_matches_the_source_module():
@@ -451,10 +477,20 @@ def test_ocr_settings_key_only_calls_load_paddle_settings_for_the_paddle_branch(
         assert name in after, f"{name} missing from the paddle-only branch"
 
 
-def test_extraction_schema_version_is_pinned_at_2():
-    """M10: D6 bumps EXTRACTION_SCHEMA_VERSION 1 -> 2 in the SAME commit as
-    the page_extractor/evidence fields it describes; this is that pin."""
-    assert EXTRACTION_SCHEMA_VERSION == 2
+def test_extraction_schema_version_is_pinned_at_3():
+    """P21-ROUTING M10 bumped EXTRACTION_SCHEMA_VERSION 1 -> 2 with the
+    page_extractor/evidence fields; P22-IDENTITY (Phase 2.2, D5; mutant M5)
+    bumps it 2 -> 3 in the SAME commit as the `native_evidence` /
+    `native_evidence_sha256` fields it describes. This is that pin."""
+    assert EXTRACTION_SCHEMA_VERSION == 3
+
+
+def test_analysis_stage_version_is_pinned_at_18():
+    """P22-IDENTITY (Phase 2.2, D6; mutant M9): the geometry-aware analysis
+    key — `analysis_input_sha` carrying the evidence sha and
+    `analysis_settings_key` carrying `reconstruction_mode` — lands with
+    ANALYSIS_STAGE_VERSION 17 -> 18 in the same commit. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 18
 
 
 def test_paddle_model_token_is_not_in_free_models():
@@ -611,9 +647,12 @@ def test_round_trip_for_every_stage(cache):
     # (empty here — this fixture was never assessed by the ladder). P21-ROUTING
     # (D6): `page_extractor` / `evidence` join the record, empty/None for
     # every non-Paddle rung.
+    # P22-IDENTITY (D5, schema 3): `native_evidence` / `native_evidence_sha256`
+    # join the record, None for every read that is not the native rung's.
     assert document == {
         "model": "fake-ocr", "pages": ["one", "two"], "page_integrity": [],
         "page_extractor": [], "evidence": None,
+        "native_evidence": None, "native_evidence_sha256": None,
     }
 
     analysis_key = analysis_settings_key(analysis_settings=_AnalysisSettings())
@@ -1462,3 +1501,336 @@ def test_stage_version_constants_are_part_of_the_settings_keys():
     finally:
         module.ANALYSIS_STAGE_VERSION = original
     assert ANALYSIS_STAGE_VERSION == original
+
+
+# ---------------------------------------------------------------------------
+# P22-IDENTITY (Phase 2.2, cell K): D5 — native evidence persisted with its
+# sha (case 13); D6 — the geometry-aware analysis key (case 12); D7 — the
+# research partition in the OCR key (case 17's key half).
+# ---------------------------------------------------------------------------
+
+
+def _native_evidence(page_count: int, *, salt: str = "") -> ExtractionEvidence:
+    """A native-shaped evidence (`native-pdf-words`, pdf_point frames, no
+    raw/confidence/line_ref) with `page_count` pages. The words deliberately
+    do NOT spell the document's page strings: `native_evidence` requires the
+    page COUNT to agree, never the text."""
+    pages = []
+    for index in range(page_count):
+        frame = PageFrame.pdf_points(page_index=index, width_pt=612.0, height_pt=792.0)
+        word = WordBox(word_id=f"p{index}.l-.w0", page_index=index, text=f"WORD{index}{salt}",
+                       x0=72.0, y0=100.0, x1=120.0, y1=112.0)
+        pages.append(PageEvidence(frame=frame, words=(word,)))
+    return ExtractionEvidence(
+        document_sha256="C" * 64, extractor_id="native-pdf-words", model_token="native-pdf-words",
+        pages=tuple(pages), runtime={"pymupdf_version": "test", "frame": "display"},
+    )
+
+
+def _doc_with_native_evidence(pages=("native page one", "native page two"), salt: str = "") -> StatementMarkdown:
+    return StatementMarkdown(
+        source_file="s.pdf", model="native-pdf-text", pages=list(pages),
+        page_extractor=["native-pdf-text"] * len(pages),
+        native_evidence=_native_evidence(len(pages), salt=salt),
+    )
+
+
+def test_native_evidence_requires_the_page_count_to_agree_but_never_the_text():
+    """D5's asymmetry: the native page strings come from PyMuPDF text blocks,
+    the evidence from word grouping — they need not be equal; the page count
+    must be."""
+    doc = _doc_with_native_evidence()
+    assert doc.native_evidence.page_texts() != doc.pages
+    assert doc.native_evidence_sha256 == doc.native_evidence.evidence_sha256
+    assert _doc().native_evidence_sha256 is None
+    from ocr.config import ProvenanceTokenError
+
+    with pytest.raises(ProvenanceTokenError):
+        StatementMarkdown(source_file="s.pdf", model="native-pdf-text", pages=["only one"],
+                          native_evidence=_native_evidence(2))
+    with pytest.raises(ProvenanceTokenError):
+        StatementMarkdown(source_file="s.pdf", model="native-pdf-text", pages=["a"], native_evidence="nope")
+
+
+def test_native_evidence_does_not_change_a_single_markdown_byte():
+    """M14: `to_markdown()` is pinned by the committed corpus artifacts; here
+    the same pages with and without native evidence render identically."""
+    with_evidence = _doc_with_native_evidence()
+    without = StatementMarkdown(source_file="s.pdf", model="native-pdf-text",
+                                pages=list(with_evidence.pages), page_extractor=list(with_evidence.page_extractor))
+    assert with_evidence.to_markdown() == without.to_markdown()
+
+
+def test_cached_ocr_round_trips_native_evidence_and_reproduces_its_sha_byte_for_byte(cache):
+    """CASE 13: a native read's OCR record carries `native_evidence` with its
+    sha; a cache hit reproduces the sha byte-for-byte and the object equal."""
+    doc = _doc_with_native_evidence()
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return doc
+
+    first = cached_ocr(PDF, compute=compute, cache=cache, source_file="s.pdf")
+    assert first.cached is False and first.finding is None
+    hit, record = cache.get_ocr(content_sha256(PDF), ocr_settings_key())
+    assert hit is True
+    assert record["native_evidence_sha256"] == doc.native_evidence_sha256
+    assert record["native_evidence"]["evidence_sha256"] == doc.native_evidence_sha256
+    assert record["evidence"] is None  # the sibling field stays None for the native rung
+
+    second = cached_ocr(PDF, compute=compute, cache=cache, source_file="s.pdf")
+    assert second.cached is True and second.finding is None and len(calls) == 1
+    assert second.value.native_evidence == doc.native_evidence
+    assert second.value.native_evidence_sha256 == doc.native_evidence_sha256
+    assert second.value.evidence is None
+    assert second.value.to_markdown() == doc.to_markdown()
+
+
+def test_a_native_evidence_whose_stored_sha_does_not_match_is_a_miss_with_a_finding(cache):
+    """M6: a restore must re-verify the blob against the sha the RECORD
+    claims (`native_evidence_sha256`), not only against the sha the blob
+    reproduces on its own. A tampered sidecar sha is a drift: miss, finding,
+    recompute — never served."""
+    input_sha = content_sha256(PDF)
+    settings_key = ocr_settings_key()
+    cache.put_ocr(input_sha, settings_key, _doc_with_native_evidence())
+    key = cache_key(STAGE_OCR, input_sha, settings_key)
+    path = cache._artifact_path(STAGE_OCR, key)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["artifact"]["document"]["native_evidence_sha256"] = "0" * 64  # the blob itself is intact
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return _doc_with_native_evidence(salt="fresh")
+
+    result = cached_ocr(PDF, compute=compute, cache=cache, source_file="s.pdf")
+    assert result.cached is False and len(calls) == 1
+    assert result.finding == CACHE_FINDING_EVIDENCE_DRIFT
+
+
+def test_a_drifted_native_evidence_blob_is_a_miss_with_a_finding(cache):
+    """The blob half of M6: one word changed inside the stored native
+    evidence — its own sha no longer reproduces — is the same drift."""
+    input_sha = content_sha256(PDF)
+    settings_key = ocr_settings_key()
+    cache.put_ocr(input_sha, settings_key, _doc_with_native_evidence())
+    key = cache_key(STAGE_OCR, input_sha, settings_key)
+    path = cache._artifact_path(STAGE_OCR, key)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["artifact"]["document"]["native_evidence"]["pages"][0]["words"][0]["x0"] = 73.0
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    result = cached_ocr(PDF, compute=lambda: _doc(pages=["fresh", "fresh"]), cache=cache, source_file="s.pdf")
+    assert result.cached is False and result.finding == CACHE_FINDING_EVIDENCE_DRIFT
+
+
+def test_a_native_evidence_sha_stored_without_its_blob_is_a_drift(cache):
+    input_sha = content_sha256(PDF)
+    settings_key = ocr_settings_key()
+    cache.put(STAGE_OCR, input_sha, settings_key, {"document": {
+        "model": "native-pdf-text", "pages": ["a"], "page_integrity": [], "page_extractor": [],
+        "evidence": None, "native_evidence": None, "native_evidence_sha256": "A" * 64,
+    }})
+    result = cached_ocr(PDF, compute=lambda: _doc(pages=["fresh"]), cache=cache, source_file="s.pdf")
+    assert result.cached is False and result.finding == CACHE_FINDING_EVIDENCE_DRIFT
+
+
+def test_a_schema_2_record_restores_with_no_native_evidence_and_still_analyses(cache):
+    """CASE 13's last clause: a record written before schema 3 (no
+    `native_evidence*` keys at all — every archive entry before this cell)
+    restores with `native_evidence=None`, is a HIT (never a drift), and the
+    restored document analyses through the real pipeline without crashing —
+    the pipeline's own deterministic refusal on a synthetic page is the
+    expected, documented answer, not an exception from the restore."""
+    from analysis.pipeline import analyze_document
+
+    input_sha = content_sha256(PDF)
+    settings_key = ocr_settings_key()
+    cache.put(STAGE_OCR, input_sha, settings_key, {"document": {
+        "model": "native-pdf-text", "pages": ["Synthetic statement text with no issuer marker 2054"],
+        "page_integrity": [], "page_extractor": ["native-pdf-text"], "evidence": None,
+    }})
+
+    def compute():
+        pytest.fail("a schema-2 record is a valid hit; it must never be recomputed")
+
+    result = cached_ocr(PDF, compute=compute, cache=cache, source_file="s.pdf")
+    assert result.cached is True and result.finding is None
+    doc = result.value
+    assert doc.native_evidence is None and doc.native_evidence_sha256 is None
+    markdown = doc.to_markdown()
+    try:
+        analyze_document(markdown, parse_mode="deterministic", sheets=doc.pages)
+    except RuntimeError as refusal:
+        assert "no deterministic parser matched" in str(refusal)
+
+
+def test_native_evidence_round_trips_through_a_process_restart(data_dir):
+    cache = ArtifactCache(Storage(data_dir))
+    doc = _doc_with_native_evidence()
+    cached_ocr(PDF, compute=lambda: doc, cache=cache, source_file="s.pdf")
+    reopened = _reopen(data_dir)
+    result = cached_ocr(PDF, compute=lambda: pytest.fail("must hit"), cache=reopened, source_file="s.pdf")
+    assert result.cached is True
+    assert result.value.native_evidence_sha256 == doc.native_evidence_sha256
+
+
+# --- D6: the geometry-aware analysis key (case 12) -------------------------
+
+
+def test_analysis_input_sha_without_evidence_is_byte_identical_to_the_phase_2_1_composition():
+    """The deliberate deviation from the card's literal, pinned: a TEXT-ONLY
+    call hashes exactly the two-field composition every run of record before
+    this cell wrote (reproduced here from the legacy formula), so
+    `tools/cohort_replay.py` and the telemetry observer keep resolving
+    historical analysis artifacts by this function with no version
+    parameter. The evidence field exists ONLY when a sha is supplied."""
+    from analysis.parser_registry import admissible_text
+
+    markdown = StatementMarkdown(source_file="s.pdf", model="m", pages=["one", "two"]).to_markdown()
+    pages = ["one", "two"]
+    legacy = text_sha256(json.dumps(
+        {"text": text_sha256(admissible_text(markdown)), "sheets": sheets_sha256(pages)},
+        sort_keys=True, separators=(",", ":"),
+    ))
+    assert analysis_input_sha(markdown, pages) == legacy
+    assert analysis_input_sha(markdown, pages, evidence_sha256=None) == legacy
+    assert analysis_input_sha(markdown, None) == text_sha256(json.dumps(
+        {"text": text_sha256(admissible_text(markdown)), "sheets": None}, sort_keys=True, separators=(",", ":")))
+
+
+def test_two_analyses_of_identical_markdown_with_and_without_evidence_take_different_keys(cache):
+    """CASE 12 (M7): the same markdown and page partition, once text-only and
+    once fed geometry built from an evidence with this sha — different input
+    hashes, different cache entries; the same sha again is a hit; a different
+    evidence sha is yet another entry."""
+    markdown = StatementMarkdown(source_file="s.pdf", model="m", pages=["one", "two"]).to_markdown()
+    pages = ["one", "two"]
+    sha_a = "A" * 64
+    sha_b = "B" * 64
+    assert analysis_input_sha(markdown, pages) != analysis_input_sha(markdown, pages, evidence_sha256=sha_a)
+    assert analysis_input_sha(markdown, pages, evidence_sha256=sha_a) != analysis_input_sha(markdown, pages, evidence_sha256=sha_b)
+    assert analysis_input_sha(markdown, pages, evidence_sha256=sha_a.lower()) == analysis_input_sha(markdown, pages, evidence_sha256=sha_a)
+
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return {"n": len(calls)}
+
+    text_only = cached_analysis(markdown, compute=compute, cache=cache, parse_mode="deterministic",
+                                analysis_settings=_AnalysisSettings(), sheets=pages)
+    with_geometry = cached_analysis(markdown, compute=compute, cache=cache, parse_mode="deterministic",
+                                    analysis_settings=_AnalysisSettings(), sheets=pages, evidence_sha256=sha_a)
+    again = cached_analysis(markdown, compute=compute, cache=cache, parse_mode="deterministic",
+                            analysis_settings=_AnalysisSettings(), sheets=pages, evidence_sha256=sha_a)
+    other = cached_analysis(markdown, compute=compute, cache=cache, parse_mode="deterministic",
+                            analysis_settings=_AnalysisSettings(), sheets=pages, evidence_sha256=sha_b)
+    assert (text_only.cached, with_geometry.cached, again.cached, other.cached) == (False, False, True, False)
+    assert text_only.cache_key != with_geometry.cache_key != other.cache_key
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize("bad", ["", "not-a-sha", "A" * 63, "G" * 64])
+def test_a_malformed_evidence_sha_is_refused_never_hashed(bad):
+    markdown = StatementMarkdown(source_file="s.pdf", model="m", pages=["one"]).to_markdown()
+    with pytest.raises(ValueError):
+        analysis_input_sha(markdown, ["one"], evidence_sha256=bad)
+
+
+def test_reconstruction_mode_partitions_the_analysis_settings_key():
+    """CASE 12 (M8): `Settings.reconstruction_mode` is settings-key material;
+    `off` (the default, the archive's whole history) and `research` /
+    `production` never share an analysis entry, and `generic_structurer` is
+    derived from the SAME settings object."""
+    from analysis.config import Settings
+
+    off = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash")
+    research = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash",
+                        reconstruction_mode="research")
+    production = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash",
+                          reconstruction_mode="production")
+    keys = {analysis_settings_key(parse_mode="deterministic", analysis_settings=s) for s in (off, research, production)}
+    assert len(keys) == 3
+    # a stand-in without the field reads as `off`
+    assert analysis_settings_key(parse_mode="deterministic", analysis_settings=_AnalysisSettings()) == \
+        analysis_settings_key(parse_mode="deterministic", analysis_settings=off)
+
+
+
+def test_hosted_extraction_opt_in_partitions_the_analysis_settings_key(monkeypatch):
+    """P22-FENCE review F3 (Ocean's composition item): a payload produced
+    with the hosted-extraction opt-in literal in the environment must not be
+    served to a process without it. The key reads the fence's own predicate
+    (`analysis.pipeline.hosted_extraction_opted_in`), so the two cannot
+    disagree about what "opted in" means."""
+    from analysis.pipeline import HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL
+
+    monkeypatch.delenv(HOSTED_EXTRACTION_OPT_IN_ENV, raising=False)
+    without = analysis_settings_key(analysis_settings=_AnalysisSettings())
+    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL)
+    with_literal = analysis_settings_key(analysis_settings=_AnalysisSettings())
+    assert with_literal != without
+    # Any other value is NOT the opt-in: same key as absent (the fence's rule).
+    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, "yes")
+    assert analysis_settings_key(analysis_settings=_AnalysisSettings()) == without
+
+def test_the_retired_environment_variable_does_not_touch_the_analysis_key(monkeypatch):
+    """M10 at the key: `GENERIC_STRUCTURER_ENABLED` is inert."""
+    monkeypatch.delenv("RECONSTRUCTION_MODE", raising=False)
+    monkeypatch.delenv("GENERIC_STRUCTURER_ENABLED", raising=False)
+    before = analysis_settings_key(parse_mode="deterministic")
+    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
+    assert analysis_settings_key(parse_mode="deterministic") == before
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "research")
+    assert analysis_settings_key(parse_mode="deterministic") != before
+
+
+# --- D7: the research partition in the OCR key (case 17, key half) ---------
+
+
+def test_an_empty_research_partition_leaves_the_production_ocr_key_byte_identical():
+    """The production key is unchanged when the field is empty: the material
+    carries no `research_partition` at all (not an empty string)."""
+    base = ocr_settings_key(ocr_settings=_OcrSettings())
+    assert ocr_settings_key(ocr_settings=_OcrSettings(), research_partition="") == base
+    assert ocr_settings_key(ocr_settings=_OcrSettings(), research_partition=None) == base
+
+
+def test_a_non_empty_research_partition_is_its_own_ocr_partition():
+    """M12: a research partition id is key material for EVERY extractor
+    label; two ids are two partitions; production is a third."""
+    base = ocr_settings_key(ocr_settings=_OcrSettings())
+    alpha = ocr_settings_key(ocr_settings=_OcrSettings(), research_partition="p23-wave-a")
+    beta = ocr_settings_key(ocr_settings=_OcrSettings(), research_partition="p23-wave-b")
+    assert len({base, alpha, beta}) == 3
+    visual_base = ocr_settings_key(ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=True)
+    visual_alpha = ocr_settings_key(ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=True,
+                                    research_partition="p23-wave-a")
+    assert visual_base != visual_alpha != alpha
+
+
+@pytest.mark.parametrize("bad", ["with space", "a/b", "-leading", "x" * 65, "tab\t", "nl\n"])
+def test_a_research_partition_outside_the_closed_shape_is_refused(bad):
+    with pytest.raises(ValueError):
+        ocr_settings_key(ocr_settings=_OcrSettings(), research_partition=bad)
+    with pytest.raises(TypeError):
+        ocr_settings_key(ocr_settings=_OcrSettings(), research_partition=123)  # type: ignore[arg-type]
+
+
+def test_cached_ocr_threads_the_research_partition_into_its_own_entry(cache):
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return _doc(pages=[f"read {len(calls)}"])
+
+    production = cached_ocr(PDF, compute=compute, cache=cache, allow_visual_ocr=False)
+    research = cached_ocr(PDF, compute=compute, cache=cache, allow_visual_ocr=False, research_partition="p23-a")
+    research_again = cached_ocr(PDF, compute=compute, cache=cache, allow_visual_ocr=False, research_partition="p23-a")
+    assert (production.cached, research.cached, research_again.cached) == (False, False, True)
+    assert production.cache_key != research.cache_key
+    assert research_again.value.pages == ["read 2"] and len(calls) == 2

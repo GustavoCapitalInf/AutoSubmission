@@ -18,11 +18,27 @@ POPPLER_PATH = (
 #: otherwise serve a stale artifact for unchanged settings. v1 is the value
 #: at Phase 2.0 (P20-ARTIFACTS) — no rasterization change; the constant is
 #: introduced so the key HAS a version to bump the day one lands.
-RASTER_VERSION = 1
+#: v2 (P22-IDENTITY closure-2, review F-1): the raster renders the CROPBOX
+#: (`use_cropbox=True`), not Poppler's default MediaBox, so a Paddle raster
+#: and the native display frame (`page.rect`, the CropBox) share one origin
+#: and one size — on a page whose CropBox is shifted from its MediaBox the
+#: native word boxes were offset from the raster's ink by the CropBox origin
+#: and the frame disagreed with the raster. Every OCR partition at v5+ keys
+#: on this value; no run of record holds a Paddle artifact yet, so the only
+#: partitions that ever rasterised a CropBox≠MediaBox page are Tesseract
+#: reads of scans (measured at the closure: see the cell's W3) and the
+#: research partitions of Phase 2.3 — the OCR cache is rebuilt at the
+#: train's cold run regardless (schema 3).
+RASTER_VERSION = 2
 
 def rasterize_pdf(pdf_bytes: bytes, dpi: int = 300) -> list[Image.Image]:
-    """Rasterize every page of a PDF to a PIL image at the given DPI."""
-    return convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
+    """Rasterize every page of a PDF to a PIL image at the given DPI.
+
+    The CROPBOX is rendered (`use_cropbox=True`; RASTER_VERSION 2) — what a
+    viewer shows and what PyMuPDF's `page.rect` / word coordinates are
+    relative to — so a raster's pixel frame and the native display frame
+    describe the same rectangle."""
+    return convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH, use_cropbox=True)
 
 
 def pdf_page_count(pdf_bytes: bytes) -> int:
@@ -34,5 +50,5 @@ def rasterize_page(pdf_bytes: bytes, page_index: int, dpi: int = 100) -> Image.I
     """Rasterize a single 0-indexed page to a PIL image (for on-demand display)."""
     n = page_index + 1
     return convert_from_bytes(
-        pdf_bytes, dpi=dpi, first_page=n, last_page=n, poppler_path=POPPLER_PATH
+        pdf_bytes, dpi=dpi, first_page=n, last_page=n, poppler_path=POPPLER_PATH, use_cropbox=True
     )[0]

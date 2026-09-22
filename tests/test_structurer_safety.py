@@ -281,21 +281,64 @@ def test_no_mutation_publishes_a_statement_that_fails_its_own_arithmetic(name, d
 
 
 def test_the_rung_is_off_unless_explicitly_enabled(monkeypatch):
-    """Ruling 6: default off until Ocean flips it after measured validation."""
+    """Ruling 6: default off until the reconstruction mode is flipped after
+    measured validation. P22-IDENTITY (Phase 2.2, D6): the switch is
+    `Settings.reconstruction_mode` (`RECONSTRUCTION_MODE`, closed vocabulary
+    `off | research | production`); blank and `off` mean off; `research`
+    and `production` run the rung."""
     monkeypatch.delenv("GENERIC_STRUCTURER_ENABLED", raising=False)
+    monkeypatch.delenv("RECONSTRUCTION_MODE", raising=False)
     assert structure_unclaimed(CLEAN) is None
 
-    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "0")
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "off")
+    assert structure_unclaimed(CLEAN) is None
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "")
     assert structure_unclaimed(CLEAN) is None
 
-    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "research")
     assert structure_unclaimed(CLEAN) is not None
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "production")
+    assert structure_unclaimed(CLEAN) is not None
+
+
+def test_the_retired_environment_variable_is_inert(monkeypatch):
+    """P22-IDENTITY (D6; mutant M10): `GENERIC_STRUCTURER_ENABLED` is
+    RETIRED. Setting it — to the value that used to switch the rung on —
+    changes nothing: the rung stays off, `structurer_enabled()` stays False,
+    and the analysis settings key is byte-identical with and without it."""
+    from analysis.structurer import STRUCTURER_ENV, structurer_enabled
+    from webapp.artifact_cache import analysis_settings_key
+
+    monkeypatch.delenv("RECONSTRUCTION_MODE", raising=False)
+    monkeypatch.delenv(STRUCTURER_ENV, raising=False)
+    assert STRUCTURER_ENV == "GENERIC_STRUCTURER_ENABLED"
+    off_key = analysis_settings_key(parse_mode="deterministic")
+    assert structurer_enabled() is False
+
+    monkeypatch.setenv(STRUCTURER_ENV, "1")
+    assert structurer_enabled() is False
+    assert structure_unclaimed(CLEAN) is None
+    assert analysis_settings_key(parse_mode="deterministic") == off_key
+
+
+def test_an_out_of_vocabulary_reconstruction_mode_refuses_at_load(monkeypatch):
+    """The closed vocabulary is enforced at load, never defaulted."""
+    from analysis.config import RECONSTRUCTION_MODES, Settings, load_settings
+
+    assert RECONSTRUCTION_MODES == ("off", "research", "production")
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "on")
+    with pytest.raises(ValueError):
+        load_settings()
+    with pytest.raises(ValueError):
+        Settings(api_key="", model="m", escalation_model="e", reconstruction_mode="Research")
+    assert Settings(api_key="", model="m", escalation_model="e").reconstruction_mode == "off"
+    assert Settings(api_key="", model="m", escalation_model="e", reconstruction_mode=" production ").reconstruction_mode == "production"
 
 
 def test_the_rung_never_raises_whatever_it_is_handed(monkeypatch):
     """The pipeline calls this directly. A structurer defect must not become
     the escaped-exception class W3-1 just closed."""
-    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
+    monkeypatch.setenv("RECONSTRUCTION_MODE", "research")
 
     for document in ("", "\x00\x00", "a" * 100_000, "--- Page 1 ---", "<table><tr><td>"):
         assert structure_unclaimed(document) is None or True
