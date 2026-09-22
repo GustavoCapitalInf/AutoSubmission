@@ -2,7 +2,8 @@
 # Saved from the running app's config on 2026-09-22 so deploys are reproducible;
 # .github/workflows/fly-deploy.yml deploys it on every push to this branch.
 # Secrets (WEBAPP_AUTH_USER, WEBAPP_AUTH_PASSWORD) live in Fly, never here.
-# No volume: uploads and settings reset whenever the machine is replaced.
+# The volume keeps uploads, analyses, revenue review decisions and settings
+# across idle stops and deploys (without it every stop wiped them).
 
 app = "bank-statement-tryout"
 primary_region = "dfw"
@@ -14,6 +15,10 @@ primary_region = "dfw"
   WEBAPP_DATA_DIR = "/app/webapp_data"
   WEBAPP_HOST = "0.0.0.0"
   WEBAPP_PORT = "5000"
+
+[mounts]
+  source = "webapp_data"
+  destination = "/app/webapp_data"
 
 [http_service]
   internal_port = 5000
