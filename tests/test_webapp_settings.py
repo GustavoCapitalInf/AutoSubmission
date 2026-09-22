@@ -1,6 +1,5 @@
 """The Settings page's NSF basis toggle (owner ruling, 2026-09-22). Fabricated payloads only."""
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,11 +9,10 @@ from webapp.settings import DEFAULTS, SETTINGS_FILE, load_settings, save_setting
 
 
 @pytest.fixture
-def settings_file():
-    path = Path(store.storage.data_dir) / SETTINGS_FILE
-    path.unlink(missing_ok=True)
-    yield path
-    path.unlink(missing_ok=True)
+def settings_file(tmp_path, monkeypatch):
+    # The module store's data folder may be a real one ($WEBAPP_DATA_DIR); never touch its settings.
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    return tmp_path / SETTINGS_FILE
 
 
 def _ledger_metrics():
@@ -101,3 +99,49 @@ def test_package_members_carry_the_displayed_basis(settings_file, done_job):
     save_settings(store.storage.data_dir, {"nsf_carry_over": True})
     members, _ = _package_members([done_job])
     assert members[0][1]["metrics"]["effective_nsf_count"] == 2
+
+
+def test_a_save_that_cannot_be_written_is_a_fixed_json_503_and_changes_nothing(settings_file, monkeypatch):
+    import webapp.settings as settings_module
+
+    def refuse(source, target):
+        raise PermissionError(32, "fabricated sharing violation")
+    monkeypatch.setattr(settings_module.os, "replace", refuse)
+    monkeypatch.setattr(settings_module.time, "sleep", lambda seconds: None)
+    response = app.test_client().post("/api/settings", json={"nsf_carry_over": True})
+    assert response.status_code == 503 and response.get_json() == {"error": "settings could not be saved"}
+    assert load_settings(settings_file.parent) == DEFAULTS
+    assert [p.name for p in settings_file.parent.iterdir()] == []   # the temporary file is cleaned up
+
+
+def test_a_replace_that_collides_with_a_reader_is_retried(settings_file, monkeypatch):
+    import webapp.settings as settings_module
+    real_replace, calls = settings_module.os.replace, []
+
+    def flaky(source, target):
+        calls.append(target)
+        if len(calls) < 3:
+            raise PermissionError(32, "fabricated sharing violation")
+        real_replace(source, target)
+    monkeypatch.setattr(settings_module.os, "replace", flaky)
+    monkeypatch.setattr(settings_module.time, "sleep", lambda seconds: None)
+    assert save_settings(settings_file.parent, {"nsf_carry_over": True}) == {"nsf_carry_over": True}
+    assert len(calls) == 3 and load_settings(settings_file.parent) == {"nsf_carry_over": True}
+
+
+def test_the_package_totals_and_rows_carry_the_basis(settings_file):
+    from tests.test_package_currency import statement_payload
+    from webapp.app import _package_analysis
+    from webapp.jobs import Job
+
+    def member(job_id):
+        payload = statement_payload("USD")
+        payload["metrics"].update(_ledger_metrics())
+        return Job(id=job_id, filename=f"{job_id}.pdf", status="done", analysis=payload, content_sha256=job_id)
+
+    package = _package_analysis([member("a"), member("b")])
+    assert package["totals"]["nsf_count"] == 2 and package["totals"]["nsf_source"] == "negative_printed_days"
+    assert {row["nsf_source"] for row in package["documents"]} == {"negative_printed_days"}
+    save_settings(settings_file.parent, {"nsf_carry_over": True})
+    package = _package_analysis([member("a"), member("b")])
+    assert package["totals"]["nsf_count"] == 4 and package["totals"]["nsf_source"] == "negative_ending_days"
