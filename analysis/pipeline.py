@@ -1211,6 +1211,36 @@ def _account_report(
     )
 
 
+def analyze_statement(
+    statement: Statement,
+    *,
+    reconciliation: ReconResult,
+    markdown: str,
+    sheets: Sequence[str],
+    model_used: str,
+    settings: Settings | None = None,
+) -> DocumentReport:
+    """Analyse one already reconstructed account using the ordinary report path.
+
+    The visual-pair adapter owns source validation and its proposal gate, and
+    supplies the final Statement's independent reconciliation. This boundary
+    never repairs, normalises, classifies with a model, or constructs a payload. The
+    same account-report function used by every bank reader computes metrics,
+    classifications, quality and integrity. Multi-account reconstruction needs
+    its own boundary proof and is deliberately not accepted here.
+    """
+    if not reconciliation.ok:
+        raise RuntimeError("reconstructed statement did not reconcile")
+    source = prepare(markdown).admissible
+    report = _account_report(
+        statement, reconciliation,
+        dispatch=None, settings=settings or load_settings(),
+        markdown=source, source_markdown=source, sheets=sheets,
+        repair_failure=None, model_used=model_used, escalated=False,
+    )
+    return DocumentReport(accounts=[report])
+
+
 def analyze_document(markdown: str, *, settings: Settings | None = None,
                      parse_mode: str = "auto",
                      document_geometry: object | None = None,

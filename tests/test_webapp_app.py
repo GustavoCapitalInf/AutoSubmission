@@ -255,12 +255,14 @@ def test_upload_can_force_visual_ocr(monkeypatch):
     seen = {}
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.delenv("OCR_VISUAL_PAIR_LEGACY_VISUAL", raising=False)
 
-    def fake_parse(pdf_bytes, source_file="", force_ocr=False, **kwargs):
-        seen["force_ocr"] = force_ocr
+    def fake_pair(job_id, store, cache, pdf_bytes, filename, profile, **kwargs):
+        seen["pair"] = True
         return _FakeDoc()
 
-    monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
+    monkeypatch.setattr("webapp.worker._read_visual_pair", fake_pair)
+    monkeypatch.setattr("webapp.worker.parse_statement", lambda *args, **kwargs: pytest.fail("legacy reader ran"))
     monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
     monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
@@ -272,7 +274,7 @@ def test_upload_can_force_visual_ocr(monkeypatch):
     )
     body = resp.get_json()
     assert body["jobs"][0]["force_ocr"] is True
-    assert seen["force_ocr"] is True
+    assert seen["pair"] is True
 
 
 def test_upload_can_request_deterministic_parse_mode(monkeypatch):

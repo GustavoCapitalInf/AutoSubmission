@@ -1,0 +1,522 @@
+"""Pinned, receipted two-reader visual fallback. Source fields only; arithmetic is downstream.
+
+All content lives under the caller's private evidence directory. Every page retains
+its slot, including failures. An incomplete read can never reach admission.
+"""
+from __future__ import annotations
+
+import html
+import json
+import re
+from dataclasses import asdict, replace
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+from typing import Callable
+
+from ocr.document import StatementMarkdown
+from ocr.truncation import PageIntegrity, PageText, assess_pages
+from ocr.visual_pair_config import (MODEL_TOKEN, VisualPairSettings, check_remote_authorization,
+                                    load_visual_pair_settings, visual_pair_settings_key_material)
+from vlm.client import ChatResult, VlmClient, TransportError
+from vlm.receipts import canonical_json, sha256_bytes, sha256_file
+
+PAIR_VERSION = 1
+
+
+class VisualPairError(RuntimeError):
+    """Only fixed, content-free failure codes cross the worker boundary."""
+
+
+def visual_pair_manifest() -> dict:
+    from vlm.gate import GATE_VERSION
+    from vlm.prompts import STAGE_A_DOTS_PROMPT, STAGE_B_REVIEW_PROMPT, prompt_sha256
+    from vlm.schema import SCHEMA_VERSION, review_schema_sha256, review_schema_ordered_sha256
+    from vlm.render import render_settings
+    from vlm.review_batches import review_batching_manifest
+    from vlm.proposal_recovery import proposal_recovery_manifest
+    from vlm.currency import currency_resolution_manifest
+    from vlm.dates import DATE_RESOLVER_VERSION
+    root = Path(__file__).resolve().parents[1]
+    sources = ('vlm/pair.py', 'vlm/review.py', 'vlm/assemble.py', 'vlm/tables.py',
+               'vlm/textparse.py', 'vlm/metadata.py', 'vlm/gate.py', 'vlm/pair_adapter.py',
+               'vlm/prompts.py', 'vlm/schema.py', 'vlm/render.py', 'vlm/client.py',
+               'vlm/receipts.py', 'vlm/review_batches.py', 'vlm/proposal_recovery.py', 'vlm/currency.py',
+               'ocr/visual_pair_config.py', 'ocr/truncation.py', 'vlm/dates.py')
+    return {
+        'version': PAIR_VERSION, 'schema_version': SCHEMA_VERSION,
+        'review_schema_sha256': review_schema_sha256(), 'gate_version': GATE_VERSION,
+        'review_schema_ordered_sha256': review_schema_ordered_sha256(),
+        'reviewer_serialization_policy': 'declared_schema_order_v1',
+        'review_batching': review_batching_manifest(),
+        'proposal_recovery': proposal_recovery_manifest(),
+        'currency_resolution': currency_resolution_manifest(),
+        'date_resolution': {'version': DATE_RESOLVER_VERSION,
+                            'policy': 'unique_reviewed_period_date_v1'},
+        'proposer_prompt_sha256': prompt_sha256(STAGE_A_DOTS_PROMPT),
+        'reviewer_prompt_sha256': prompt_sha256(STAGE_B_REVIEW_PROMPT),
+        'renderer': render_settings(),
+        'source_sha256': {name: sha256_file(root / name) for name in sources},
+    }
+
+
+def _blob(root: Path, raw: bytes) -> str:
+    digest = sha256_bytes(raw)
+    target = root / 'blobs' / digest[:2] / digest
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        with target.open('xb') as handle:
+            handle.write(raw)
+        target.chmod(0o600)
+    except FileExistsError:
+        if sha256_file(target) != digest:
+            raise VisualPairError('visual_pair_evidence_changed') from None
+    return digest
+
+
+def _json_blob(root: Path, obj: object) -> str:
+    return _blob(root, canonical_json(obj).encode())
+
+
+def _check_model(client: VlmClient, model: str, revision: str) -> dict:
+    # Checking the served name alone would allow another snapshot under the alias.
+    items = client.get_json('/v1/models').get('data', [])
+    match = [item for item in items if item.get('id') == model]
+    if len(match) != 1 or str(match[0].get('root', '')).rstrip('/').split('/')[-1] != revision:
+        raise VisualPairError('visual_pair_model_revision_unverified')
+    return {'model': model, 'revision': revision,
+            'model_metadata_sha256': sha256_bytes(canonical_json(match[0]).encode())}
+
+
+def _client(url: str, timeout: float) -> VlmClient:
+    return VlmClient(url.rstrip('/').removesuffix('/v1'), timeout=timeout, transport_retries=0)
+
+
+def _chat_once(root: Path, client: VlmClient, model: str, prompt: str, *, manifest: dict,
+               **kwargs) -> ChatResult:
+    """Resume a partially completed document without silently re-reading a page."""
+    material = {**kwargs, 'image_jpeg': sha256_bytes(kwargs['image_jpeg']),
+                'model': model, 'prompt': prompt,
+                'manifest': {key: value for key, value in manifest.items() if key != 'served_models'}}
+    key = sha256_bytes(canonical_json(material).encode())
+    folder = root / 'calls'
+    folder.mkdir(exist_ok=True, mode=0o700)
+    index = folder / (key + '.json')
+    def read_blob(digest):
+        raw = (root / 'blobs' / digest[:2] / digest).read_bytes()
+        if sha256_bytes(raw) != digest:
+            raise VisualPairError('visual_pair_evidence_changed')
+        return raw
+    if index.exists():
+        pointer = json.loads(index.read_text())
+        saved = json.loads(read_blob(pointer['call_sha256']))
+        if saved.get('failure'):
+            error = TransportError(saved['failure'])
+            error.receipt_sha256 = saved['receipt_sha256']
+            raise error
+        if sha256_bytes(saved['text'].encode()) != saved['content_sha256']:
+            raise VisualPairError('visual_pair_evidence_changed')
+        return ChatResult(**{**saved, 'cached': True}, request_bytes=read_blob(saved['request_sha256']),
+                          response_bytes=read_blob(saved['response_sha256']))
+    attempt = {'model': model, 'manifest': manifest,
+               'image_sha256': sha256_bytes(kwargs['image_jpeg']),
+               'prompt_sha256': _blob(root, prompt.encode())}
+    client.evidence_sink = lambda label, raw: attempt.update({label + '_sha256': _blob(root, raw)})
+    try:
+        result = client.chat(model, prompt, **kwargs)
+    except TransportError as error:
+        attempt['failure'] = str(error)
+        receipt_sha = _json_blob(root, attempt)
+        from vlm.receipts import dump_new
+        failure = {'failure': str(error), 'receipt_sha256': receipt_sha}
+        dump_new(index, {'call_sha256': _json_blob(root, failure)})
+        index.chmod(0o600)
+        error.receipt_sha256 = receipt_sha
+        raise
+    _blob(root, result.request_bytes)
+    _blob(root, result.response_bytes)
+    saved = asdict(result)
+    saved.pop('request_bytes')
+    saved.pop('response_bytes')
+    from vlm.receipts import dump_new
+    dump_new(index, {'call_sha256': _json_blob(root, saved)})
+    index.chmod(0o600)
+    return result
+
+
+def _record_call(root: Path, result, prompt: str, *, page: int, stage: str,
+                 image_sha: str, manifest: dict, purpose: str | None = None,
+                 batch_index: int | None = None, batch_count: int | None = None) -> dict:
+    # Exact request and response bytes, not just the model's extracted message.
+    request_sha = _blob(root, result.request_bytes)
+    response_sha = _blob(root, result.response_bytes)
+    content_sha = _blob(root, result.text.encode())
+    if request_sha != result.request_sha256 or response_sha != result.response_sha256:
+        raise VisualPairError('visual_pair_transport_evidence_mismatch')
+    receipt = {'page': page, 'stage': stage, 'image_sha256': image_sha,
+               'request_sha256': request_sha, 'response_sha256': response_sha,
+               'content_sha256': content_sha, 'prompt_sha256': _blob(root, prompt.encode()),
+               'manifest': manifest, 'finish_reason': result.finish_reason,
+               'prompt_tokens': result.prompt_tokens, 'completion_tokens': result.completion_tokens,
+               'total_ms': result.total_ms, 'cached': result.cached}
+    receipt.update({key: value for key, value in {'purpose': purpose, 'batch_index': batch_index,
+                                                'batch_count': batch_count}.items() if value is not None})
+    receipt['receipt_sha256'] = _json_blob(root, receipt)
+    return receipt
+
+
+def _account_meta(account: dict, daily=()):
+    from vlm.metadata import AccountMeta
+    dec = lambda key: None if account.get(key) is None else Decimal(str(account[key]))
+    return AccountMeta(dec('beginning_balance'), dec('ending_balance'), account.get('period_start'),
+                       account.get('period_end'), account.get('currency'),
+                       account.get('account_number') or account.get('account_number_last4'), account.get('bank'), ('visual_pair',),
+                       dec('stated_total_credits'), dec('stated_total_debits'),
+                       account.get('stated_credit_count'), account.get('stated_debit_count'),
+                       account_name=account.get('account_name'), account_number=account.get('account_number'),
+                       days_in_period=account.get('days_in_period'),
+                       stated_service_charge=dec('stated_service_charge'),
+                       stated_interest_paid=dec('stated_interest_paid'),
+                       stated_nsf_count=account.get('stated_nsf_count'),
+                       bank_reported_average_balance=dec('bank_reported_average_balance'),
+                       bank_reported_average_label=account.get('bank_reported_average_label'),
+                       stated_daily_balances=tuple((v['date'], Decimal(str(v['balance']))) for v in daily))
+
+
+def _merge_metadata(merges) -> tuple[dict, list[dict], list[str], list[dict]]:
+    account, daily, reasons, provenance = {}, {}, [], []
+    identities = set()
+    for page, merged in enumerate(merges, 1):
+        identities.update(value for value in merged.account_numbers_seen if value)
+        for key, value in merged.account.items():
+            if value is None:
+                continue
+            if key in account and account[key] != value:
+                reasons.append('currency_conflict' if key == 'currency' else
+                               'period_mismatch' if key in ('period_start', 'period_end') else 'anchor_disagreement')
+            else:
+                account[key] = value
+            provenance.append({'field': key, 'page': page, 'source': 'reviewer', 'value': value})
+        for item in merged.daily_balances:
+            when, balance = item.get('date'), item.get('balance')
+            try:
+                date.fromisoformat(when)
+            except (TypeError, ValueError):
+                reasons.append('date_unparsed')
+                continue
+            if when in daily and daily[when] != balance:
+                reasons.append('anchor_disagreement')
+            daily[when] = balance
+        for key in ('account_number', 'account_number_last4'):
+            if merged.account.get(key):
+                identities.add(merged.account[key])
+    # full numbers and masked last-four evidence may name the same account.
+    full_ids = {re.sub(r'[\s-]', '', str(value)) for value in identities
+                if len(re.sub(r'[\s-]', '', str(value))) > 4
+                and not re.search(r'[xX*•]', str(value))}
+    if len(full_ids) > 1 or len({str(value)[-4:] for value in identities}) > 1:
+        reasons.append('proposal_invalid')
+    for key in ('period_start', 'period_end'):
+        try:
+            date.fromisoformat(account.get(key))
+        except (TypeError, ValueError):
+            reasons.append('period_mismatch')
+    if account.get('period_start') and account.get('period_end'):
+        if account['period_start'] > account['period_end']:
+            reasons.append('period_mismatch')
+    if not account.get('currency'):
+        reasons.append('currency_conflict')
+    return account, [{'date': key, 'balance': val} for key, val in sorted(daily.items())], reasons, provenance
+
+
+def _statement(rows, account: dict, daily: list[dict], *, currency_source: str = 'model_extracted') -> dict:
+    from vlm.gate import statement_from
+    from analysis.schema import Statement
+    base = statement_from(list(rows), _account_meta(account)).model_dump(exclude_computed_fields=True)
+    for key, value in account.items():
+        if key in Statement.model_fields and key not in {'currency_source', 'transactions'}:
+            base[key] = value
+    base['account_number'] = account.get('account_number') or account.get('account_number_last4')
+    base['currency_source'] = currency_source
+    base['stated_daily_balances'] = daily
+    return Statement.model_validate(base).model_dump(exclude_computed_fields=True)
+
+
+def _markdown_page(merged, *, rows=None) -> str:
+    # A normalized projection of reviewed evidence; original model text is never
+    # accidentally offered to a bank parser after a correction or rejection.
+    parts = []
+    labels = {'bank': 'Bank', 'account_name': 'Account name', 'account_number_last4': 'Account', 'account_number': 'Account',
+              'currency': 'Currency', 'period_start': 'Period start', 'period_end': 'Period end',
+              'beginning_balance': 'Beginning balance', 'ending_balance': 'Ending balance',
+              'stated_total_credits': 'Total deposits and credits', 'stated_total_debits': 'Total withdrawals and debits'}
+    for key, value in merged.account.items():
+        if value is not None:
+            parts.append(f'{labels.get(key, key)}: {html.escape(str(value))}')
+    parts.append('<table><tr><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr>')
+    for row in merged.rows if rows is None else rows:
+        amount = row.printed_amount if row.printed_amount is not None else row.amount
+        values = (row.date or row.date_text, row.description,
+                  str(amount) if row.direction == 'debit' else '',
+                  str(amount) if row.direction == 'credit' else '',
+                  '' if row.balance is None else str(row.balance))
+        parts.append('<tr>' + ''.join('<td>'+html.escape(str(v))+'</td>' for v in values) + '</tr>')
+    parts.append('</table>')
+    if merged.daily_balances:
+        parts.append('Daily balances\n'+'\n'.join(f"{v['date']} {v['balance']}" for v in merged.daily_balances))
+    return '\n'.join(parts)
+
+
+def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None,
+                        evidence_dir: Path, progress: Callable[[str], None] | None = None,
+                        data_scope: str = 'customer') -> StatementMarkdown:
+    from vlm.assemble import parse_dots_layout
+    from vlm.gate import gate
+    from vlm.prompts import STAGE_A_DOTS_PROMPT, stage_b_review_prompt
+    from vlm.render import render_pages
+    from vlm.review import merge_review, confidence_summary
+    from vlm.review_batches import REVIEW_BATCH_THRESHOLD, ReviewReply, review_batched_page
+    from vlm.proposal_recovery import recover_proposal_page
+    from vlm.schema import PAGE_REVIEW_SCHEMA, empty_review
+
+    cfg = settings or load_visual_pair_settings()
+    report = progress or (lambda _: None)
+    raw = Path(pdf).read_bytes()
+    if not raw.startswith(b'%PDF'):
+        raise VisualPairError('visual_pair_pdf_required')
+    pdf_sha = sha256_bytes(raw)
+    check_remote_authorization(cfg, data_scope=data_scope, pdf_sha256=pdf_sha)
+    evidence_dir = Path(evidence_dir)
+    evidence_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    manifest = visual_pair_settings_key_material(cfg)
+    run_key = sha256_bytes(canonical_json({'pdf': pdf_sha, 'config': manifest}).encode())
+    index = evidence_dir / (run_key + '.json')
+    if index.exists():
+        cached = json.loads(index.read_text())
+        body = cached['document']
+        if _json_blob(evidence_dir, body) != cached['document_sha256']:
+            raise VisualPairError('visual_pair_cache_changed')
+        return StatementMarkdown(source_file=Path(pdf).name, model=MODEL_TOKEN,
+                                 pages=body['pages'], page_extractor=[MODEL_TOKEN]*len(body['pages']),
+                                 page_integrity=[PageIntegrity(**item) for item in body['page_integrity']],
+                                 visual_pair=body['visual_pair'])
+    proposer, reviewer = _client(cfg.proposer_url, cfg.timeout), _client(cfg.reviewer_url, cfg.timeout)
+    manifest['served_models'] = [_check_model(proposer, cfg.proposer_model, cfg.proposer_revision),
+                                 _check_model(reviewer, cfg.reviewer_model, cfg.reviewer_revision)]
+    _blob(evidence_dir, raw)
+    report('visual_pair_rendering')
+    pages = render_pages(raw, long_edge=cfg.render_long_edge)
+    if not pages:
+        raise VisualPairError('visual_pair_no_pages')
+    layouts, calls, failed_calls, page_errors, truncated, recoveries = [], [], [], [], [], []
+    # Every page is proposed before review; a failure retains its position.
+    for page in pages:
+        report(f'visual_pair_proposing:{page.index+1}/{len(pages)}')
+        image_sha = _blob(evidence_dir, page.jpeg)
+        errors = []
+        cut = False
+        original_receipt = None
+        try:
+            result = _chat_once(evidence_dir, proposer, cfg.proposer_model, STAGE_A_DOTS_PROMPT,
+                                   manifest=manifest, image_jpeg=page.jpeg,
+                                   max_tokens=cfg.max_tokens, seed=cfg.seed, disable_thinking=False)
+            calls.append(_record_call(evidence_dir, result, STAGE_A_DOTS_PROMPT,
+                                     page=page.index+1, stage='proposer', image_sha=image_sha,
+                                     manifest=manifest, purpose='full_page'))
+            original_receipt = calls[-1]['receipt_sha256']
+            cut = result.finish_reason != 'stop' or result.completion_tokens >= cfg.max_tokens
+            layout = parse_dots_layout(result.text, page=page.index+1, width=page.width,
+                                       height=page.height, finish_reason=result.finish_reason)
+            errors.extend(layout.errors)
+            cut = cut or layout.truncated
+        except TransportError as exc:
+            failed_calls.append({'page': page.index+1, 'stage': 'proposer',
+                                 'receipt_sha256': getattr(exc, 'receipt_sha256', None)})
+            layout = parse_dots_layout([], page=page.index+1, width=page.width, height=page.height)
+            errors.append('proposer_transport_failed')
+        layout = replace(layout, errors=tuple(errors), truncated=cut)
+
+        def read_crop(crop):
+            report(f'visual_pair_proposing:{page.index+1}/{len(pages)}:crop:{crop.index+1}/2')
+            crop_sha = _blob(evidence_dir, crop.jpeg)
+            try:
+                result = _chat_once(evidence_dir, proposer, cfg.proposer_model, STAGE_A_DOTS_PROMPT,
+                                    manifest=manifest, image_jpeg=crop.jpeg,
+                                    max_tokens=cfg.max_tokens, seed=cfg.seed, disable_thinking=False)
+                calls.append(_record_call(evidence_dir, result, STAGE_A_DOTS_PROMPT,
+                                          page=page.index+1, stage='proposer', image_sha=crop_sha,
+                                          manifest=manifest, purpose='crop_recovery',
+                                          batch_index=crop.index+1, batch_count=2))
+                parsed = parse_dots_layout(result.text, page=page.index+1, width=crop.width,
+                                           height=crop.height, finish_reason=result.finish_reason)
+                return replace(parsed, truncated=parsed.truncated or result.finish_reason != 'stop'
+                               or result.completion_tokens >= cfg.max_tokens)
+            except TransportError as exc:
+                failed_calls.append({'page': page.index+1, 'stage': 'proposer',
+                                     'purpose': 'crop_recovery', 'batch_index': crop.index+1,
+                                     'receipt_sha256': getattr(exc, 'receipt_sha256', None)})
+                raise
+
+        recovery = recover_proposal_page(page.jpeg, layout, read_crop,
+                                          original_receipt_sha256=original_receipt)
+        recoveries.append(recovery.audit)
+        layout = recovery.layout
+        layouts.append(layout)
+        page_errors.append(list(layout.errors))
+        truncated.append(layout.truncated)
+    merges = []
+    # Printed dates found by the deterministic assembler may appear on a later
+    # summary page. They may resolve row years, never supply absent anchors.
+    from vlm.assemble import text_lines_from_blocks
+    from vlm.metadata import extract_meta
+    preliminary = extract_meta(text_lines_from_blocks([b for layout in layouts for b in layout.blocks]))
+    metadata_context = {field: getattr(preliminary, field) for field in ('period_start', 'period_end')
+                        if getattr(preliminary, field) is not None}
+    for page, layout in zip(pages, layouts):
+        def request_review(prompt, schema, schema_name, *, purpose, batch_index=None, batch_count=None):
+            context = {key: value for key, value in {'purpose': purpose, 'batch_index': batch_index,
+                                                    'batch_count': batch_count}.items() if value is not None}
+            suffix = (f':batch:{batch_index}/{batch_count}' if batch_index is not None else
+                      ':discovery' if purpose == 'page_discovery' else '')
+            report(f'visual_pair_reviewing:{page.index+1}/{len(pages)}{suffix}')
+            try:
+                result = _chat_once(evidence_dir, reviewer, cfg.reviewer_model, prompt,
+                                   manifest=manifest, image_jpeg=page.jpeg, schema=schema, schema_name=schema_name,
+                                   max_tokens=cfg.max_tokens, seed=cfg.seed, disable_thinking=True,
+                                   preserve_schema_order=True)
+                calls.append(_record_call(evidence_dir, result, prompt, page=page.index+1,
+                                         stage='reviewer', image_sha=page.jpeg_sha256, manifest=manifest, **context))
+                cut = result.finish_reason != 'stop' or result.completion_tokens >= cfg.max_tokens
+                return ReviewReply(result.parsed, cut, ('reviewer_json_invalid',) if result.parsed is None else ())
+            except TransportError as exc:
+                failed_calls.append({'page': page.index+1, 'stage': 'reviewer', **context,
+                                     'receipt_sha256': getattr(exc, 'receipt_sha256', None)})
+                return ReviewReply(None, errors=('reviewer_transport_failed',))
+
+        if len(layout.rows) > REVIEW_BATCH_THRESHOLD:
+            reviewed = review_batched_page(
+                layout.rows, page_number=page.index+1, page_total=len(pages), call=request_review,
+                metadata_context=metadata_context, truncated=truncated[page.index],
+                validation_errors=page_errors[page.index],
+            )
+            merged = reviewed.merged
+            truncated[page.index] = reviewed.truncated
+        else:
+            prompt = stage_b_review_prompt(list(layout.rows), page_number=page.index+1,
+                                           page_total=len(pages), metadata_context=metadata_context)
+            reply = request_review(prompt, PAGE_REVIEW_SCHEMA, 'page_review', purpose='full_page')
+            truncated[page.index] |= reply.truncated
+            page_errors[page.index].extend(reply.errors)
+            merged = merge_review(list(layout.rows), reply.payload if reply.payload is not None else empty_review(),
+                                  page=page.index+1, truncated=truncated[page.index],
+                                  validation_errors=page_errors[page.index])
+        merges.append(merged)
+        page_errors[page.index].extend(merged.errors)
+        for field in ('period_start', 'period_end'):
+            if merged.account.get(field) is not None:
+                metadata_context.setdefault(field, merged.account[field])
+    report('visual_pair_gating')
+    account, daily, reasons, field_evidence = _merge_metadata(merges)
+    rows = [row for merged in merges for row in merged.rows]
+    # The reviewed printed month/day and reviewed period can determine a
+    # missing ISO date without another model reading. This is a separate
+    # deterministic record, never a rewrite of either model's source evidence.
+    from vlm.dates import DATE_RESOLVER_VERSION, resolve_reviewed_dates
+    dates = resolve_reviewed_dates(
+        rows,
+        period_start=account.get('period_start') if 'period_mismatch' not in reasons else None,
+        period_end=account.get('period_end') if 'period_mismatch' not in reasons else None,
+    )
+    rows = list(dates.rows)
+    if any(page_errors) or any(truncated):
+        reasons.append('proposal_invalid')
+    try:
+        verdict = gate(rows, _account_meta(account, daily))
+        reasons.extend(verdict.reasons)
+        checks = verdict.checks
+    except (ValueError, TypeError, ArithmeticError):
+        verdict = None
+        checks = {}
+        reasons.append('proposal_invalid')
+    reasons = list(dict.fromkeys(reasons))
+    currency_resolution = None
+    currency_bridge_source_sha = None
+    currency_source = 'model_extracted'
+    # The existing currency doctrine permits earned deterministic rules. Reuse
+    # one only after every other source check passes and the existing parser
+    # exactly reproduces the reviewed Statement from visual text alone.
+    if (verdict is not None and verdict.admitted and not account.get('currency')
+            and set(reasons) == {'currency_conflict'}):
+        from vlm.currency import resolve_currency
+        visual_pages = ['\n'.join(block.content for block in layout.blocks) for layout in layouts]
+        visual_markdown = '\n\n'.join(visual_pages)
+        currency_bridge_source_sha = _blob(evidence_dir, visual_markdown.encode())
+        reviewed_source = _statement(verdict.admitted_rows, account, daily)
+        reviewed_source['currency'] = None  # never inherit Statement's legacy USD default
+        resolution = resolve_currency(reviewed_source, visual_markdown, sheets=visual_pages)
+        currency_resolution = asdict(resolution)
+        if resolution.resolved:
+            account['currency'] = resolution.currency
+            currency_source = resolution.currency_source
+            reasons.remove('currency_conflict')
+            field_evidence.append({'field': 'currency', 'page': None, 'source': 'existing_parser_rule',
+                                   'value': resolution.currency, 'currency_source': currency_source,
+                                   'parser_id': resolution.parser_id,
+                                   'visual_source_sha256': currency_bridge_source_sha})
+    admitted = verdict is not None and verdict.admitted and not reasons
+    confidence = confidence_summary(merges, gate_admitted=admitted, gate_reasons=reasons)
+    statement = _statement(verdict.admitted_rows, account, daily, currency_source=currency_source) if admitted else None
+    page_text = [PageText(_markdown_page(merged), finish_reason='length' if cut else 'stop')
+                 for merged, cut in zip(merges, truncated)]
+    integrity = assess_pages(page_text)
+    audit = {'version': PAIR_VERSION, 'account_count': 1, 'statement': statement,
+             'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks},
+             'confidence': confidence, 'field_evidence': field_evidence,
+             'date_resolution': {
+                 'version': DATE_RESOLVER_VERSION,
+                 'resolved_count': sum(item.get('resolved_date') is not None for item in dates.evidence),
+                 'unresolved_count': dates.unresolved,
+                 'rows': list(dates.evidence),
+                 'period_evidence': [item for item in field_evidence
+                                     if item['field'] in ('period_start', 'period_end')],
+             },
+             'source_daily_balance_count': len(daily),
+             'row_evidence': [item for merged in merges for item in merged.evidence],
+             'proposal_recoveries': recoveries,
+             'pages': [{'page': idx+1, 'errors': errors, 'truncated': truncated[idx],
+                        'initial_proposer_truncated': bool(recoveries[idx].get('original', {}).get('layout', {}).get('truncated')),
+                        'proposal_recovery_attempted': recoveries[idx]['attempted'],
+                        'proposal_recovered': recoveries[idx].get('recovered', False),
+                        'counts': merges[idx].counts,
+                        'warnings': list(getattr(layouts[idx], 'warnings', ()))}
+                       for idx, errors in enumerate(page_errors)]}
+    if currency_resolution is not None:
+        audit['currency_resolution'] = currency_resolution
+        audit['currency_bridge_source_sha256'] = currency_bridge_source_sha
+    if admitted:
+        from vlm.review import row_record
+        audit['gate_rows'] = [{**row_record(row), 'page': row.page, 'locator': row.locator,
+                              'direction_source': row.direction_source,
+                              'source': 'deterministic_gate'} for row in verdict.admitted_rows]
+    receipt = {'version': PAIR_VERSION, 'pdf_sha256': pdf_sha, 'manifest': manifest,
+               'calls': calls, 'failed_calls': failed_calls,
+               'result_sha256': _json_blob(evidence_dir, audit)}
+    audit['receipt_sha256'] = _json_blob(evidence_dir, receipt)
+    body = {'pages': list(map(str, page_text)), 'page_integrity': [asdict(v) for v in integrity],
+            'visual_pair': audit}
+    record = {'document': body, 'document_sha256': _json_blob(evidence_dir, body)}
+    # Exclusive creation: reruns never silently replace model evidence.
+    from vlm.receipts import dump_new
+    dump_new(index, record)
+    index.chmod(0o600)
+    return StatementMarkdown(source_file=Path(pdf).name, model=MODEL_TOKEN,
+                             pages=body['pages'], page_extractor=[MODEL_TOKEN]*len(pages),
+                             page_integrity=integrity, visual_pair=audit,
+                             extraction_telemetry={'execution_class': cfg.execution_class,
+                                                  'customer_data_opt_in': cfg.customer_data_opt_in,
+                                                  'pages': [{'page': c['page'], 'stage': c['stage'],
+                                                              'total_ms': c['total_ms'],
+                                                              'prompt_tokens': c['prompt_tokens'],
+                                                              'completion_tokens': c['completion_tokens'],
+                                                              'execution_class': cfg.execution_class}
+                                                              for c in calls if not c['cached']]})

@@ -23,7 +23,7 @@ from vlm.assemble import CandidateRow
 from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
-GATE_VERSION = 6
+GATE_VERSION = 7
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
@@ -62,7 +62,9 @@ def resolve_directions(rows: list[CandidateRow], beginning: Decimal | None) -> t
 
 
 def _signed(row: CandidateRow) -> float:
-    return float(row.amount if row.direction == "credit" else -row.amount)
+    printed = getattr(row, "printed_amount", None)
+    amount = row.amount if printed is None else printed
+    return float(amount if row.direction == "credit" else -amount)
 
 
 def _f(value: Decimal | None) -> float | None:
@@ -71,12 +73,20 @@ def _f(value: Decimal | None) -> float | None:
 
 def statement_from(rows: list[CandidateRow], meta: AccountMeta) -> Statement:
     return Statement(
-        bank=meta.bank, account_name=None, account_number=meta.account_last4,
+        bank=meta.bank, account_name=meta.account_name,
+        account_number=meta.account_number or meta.account_last4,
         period_start=meta.period_start, period_end=meta.period_end,
         beginning_balance=_f(meta.beginning_balance), ending_balance=_f(meta.ending_balance),
         currency=meta.currency or "USD",
         stated_total_credits=_f(meta.stated_total_credits), stated_total_debits=_f(meta.stated_total_debits),
         stated_credit_count=meta.stated_credit_count, stated_debit_count=meta.stated_debit_count,
+        days_in_period=meta.days_in_period,
+        stated_service_charge=_f(meta.stated_service_charge),
+        stated_interest_paid=_f(meta.stated_interest_paid), stated_nsf_count=meta.stated_nsf_count,
+        bank_reported_average_balance=_f(meta.bank_reported_average_balance),
+        bank_reported_average_label=meta.bank_reported_average_label,
+        stated_daily_balances=[{'date': when, 'balance': float(balance)}
+                               for when, balance in (meta.stated_daily_balances or ())],
         transactions=[Transaction(date=row.date or "", description=row.description, amount=_signed(row),
                                   direction=row.direction if row.direction != "unknown" else "debit",
                                   running_balance=_f(row.balance))
@@ -139,6 +149,9 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         return GateVerdict(False, ("no_rows",), 0, (), None, 0, 0, checks)
     if any(row.amount <= 0 for row in rows):
         reasons.append("proposal_invalid")
+    if any(getattr(row, "printed_amount", None) is not None
+           and abs(row.printed_amount) != row.amount for row in rows):
+        reasons.append("proposal_invalid")
     rows, reversed_order = orient(rows)
     rows, collapsed = collapse_daily_balances(rows)
     checks["reversed_order"] = reversed_order
@@ -152,7 +165,7 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         reasons.append("anchors_underdetermined")
     else:
         if beginning is None and first.balance is not None and first.direction in ("credit", "debit"):
-            beginning = first.balance - first.amount if first.direction == "credit" else first.balance + first.amount
+            beginning = first.balance - Decimal(str(_signed(first)))
             checks["derived"].append("beginning_balance")
         if ending is None and last.balance is not None:
             ending = last.balance

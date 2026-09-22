@@ -982,7 +982,7 @@
           <div class="file-preview-label">Uploaded file</div>
           <div class="file-preview-name" id="fileName">No file selected</div>
         </div>
-        <label class="force-row" title="Use visual OCR when a scanned statement has no selectable text.">
+        <label class="force-row" title="Read every page visually and review every proposed row, including PDFs with selectable text.">
           <input type="checkbox" id="forceOcrToggle"> Force visual OCR
         </label>
         <div class="mode-control" aria-label="Parsing mode">
@@ -1161,6 +1161,13 @@
         <div class="section-label">Right Side Panel</div>
         <h2 style="margin:8px 0 0;font-size:21px;letter-spacing:-.03em">Quick Actions</h2>
         <div class="quick-list">
+          <a class="quick-btn disabled" id="openTextBtn" href="#" aria-disabled="true" target="_blank" rel="noopener">
+            <span class="quick-icon" aria-hidden="true">◐</span>
+            <span class="quick-text">
+              <span class="quick-title">Review extraction</span>
+              <span class="quick-sub">Read the extraction and review status</span>
+            </span>
+          </a>
           <a class="quick-btn disabled" id="downloadJson" href="#" aria-disabled="true">
             <span class="quick-icon" aria-hidden="true">
               <svg viewBox="0 0 16 16"><path d="M8 1.6v8.2m0 0 3-3m-3 3-3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.6 11.4v1.2a1.8 1.8 0 0 0 1.8 1.8h7.2a1.8 1.8 0 0 0 1.8-1.8v-1.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -1248,6 +1255,7 @@
         <div class="modal-subtitle" id="statementModalSubtitle">Loading extracted information...</div>
       </div>
       <div class="modal-actions">
+        <a class="btn" id="modalExtractionReview" href="#" target="_blank" rel="noopener">Review extraction</a>
         <a class="btn" id="modalJsonDownload" href="#" aria-disabled="true">JSON</a>
         <button class="btn" id="modalCopyData" type="button">Copy Data</button>
         <button class="modal-close" id="statementModalClose" type="button" aria-label="Close statement details">&times;</button>

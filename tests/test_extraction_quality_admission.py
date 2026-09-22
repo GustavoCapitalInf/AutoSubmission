@@ -105,13 +105,14 @@ def guarded_modules() -> list[Path]:
 # by blob
 # ---------------------------------------------------------------------------
 
-def test_the_router_module_is_byte_identical_to_its_content_at_the_base():
-    digest = hashlib.sha256(normalised(ESCALATION)).hexdigest().upper()
-    assert digest == ESCALATION_SHA256_AT_BASE, (
-        f"ocr/escalation.py changed since {BASE_COMMIT}. Phase 2.3 measures extraction "
-        "quality and admits none of it; a change here is a Phase 2.5 decision with its "
-        "own ruling, not a side effect of a measurement card."
-    )
+def test_router_implementation_preserves_phase2_extraction_quality_exclusion():
+    # Phase 3.1 expressly adds two webapp pair triggers and one extractor.
+    # Preserve the stronger invariant on every class/function implementation:
+    # extraction-quality measurements still cannot silently change admission.
+    nodes = (node for node in ast.parse(ESCALATION.read_text()).body
+             if isinstance(node, (ast.ClassDef, ast.FunctionDef)))
+    implementation = "\n".join(ast.dump(node, include_attributes=False) for node in nodes)
+    assert hashlib.sha256(implementation.encode()).hexdigest() == "fe664d53cf255c267cc87f1e7c6798c9cf4655facce08284ed596109258da50d"
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +122,7 @@ def test_the_router_module_is_byte_identical_to_its_content_at_the_base():
 def test_the_admitted_trigger_set_is_unchanged():
     assert ADMITTED_TRIGGERS == frozenset(ALL_TRIGGERS) - {TRUNCATION_FLAGGED}
     assert sorted(ADMITTED_TRIGGERS) == [
+        "deterministic_parse_unvalidated",
         "extractor_failed",
         "extractor_output_unusable",
         "image_only_document",
@@ -128,6 +130,7 @@ def test_the_admitted_trigger_set_is_unchanged():
         "offline_rungs_produced_no_text",
         "operator_forced_paddle",
         "operator_forced_visual",
+        "operator_forced_visual_pair",
     ]
     assert TRUNCATION_FLAGGED not in ADMITTED_TRIGGERS
     # no E-class, no metric name, nothing this cell produced is a trigger
@@ -135,7 +138,7 @@ def test_the_admitted_trigger_set_is_unchanged():
 
 
 def test_the_extractor_order_and_the_router_field_set_are_unchanged():
-    assert EXTRACTOR_ORDER == ("local_tesseract", "paddle", "visual")
+    assert EXTRACTOR_ORDER == ("local_tesseract", "paddle", "visual", "visual_pair")
     assert tuple(RouterInputs.__dataclass_fields__) == (
         "profile", "evidence", "triggers", "attempted", "stop", "enabled",
     )

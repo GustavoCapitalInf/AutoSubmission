@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import json
+import math
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
@@ -23,15 +25,27 @@ class CandidateRow:
     source: str
     locator: str
     direction_source: str = "printed"
+    bbox: tuple[float, float, float, float] | None = None
+    printed_amount: Decimal | None = None
 
 
 @dataclass(frozen=True)
 class Block:
     label: str
-    bbox: tuple[float, float, float, float]
+    bbox: tuple[float, float, float, float] | None
     content: str
     order: int
     page: int
+
+
+@dataclass(frozen=True)
+class DotsLayout:
+    page: int
+    blocks: tuple[Block, ...]
+    rows: tuple[CandidateRow, ...]
+    errors: tuple[str, ...]
+    truncated: bool
+    warnings: tuple[str, ...] = ()
 
 
 def blocks_from_worker(raw: dict, *, page: int, width: int, height: int) -> list[Block]:
@@ -57,6 +71,14 @@ def _cell(row: list[str], index: int | None) -> str:
     return row[index].strip() if index is not None and index < len(row) else ""
 
 
+def _description_cells(row: list[str], colmap: ColumnMap) -> str:
+    # OCR sometimes splits one printed description into an extra, unlabeled cell.
+    # Keep those cells in source order instead of dropping account/check references.
+    value_columns = {colmap.date, colmap.debit, colmap.credit, colmap.amount, colmap.balance}
+    return " ".join(cell.strip() for index, cell in enumerate(row)
+                    if index not in value_columns and cell.strip())
+
+
 def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table_index: int,
                    year_hint: int | None = None, day_first: bool = False) -> list[CandidateRow]:
     if colmap.balance is None and colmap.amount is None and colmap.debit is None and colmap.credit is None:
@@ -66,7 +88,7 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
     for row_index, row in enumerate(grid):
         if colmap.header_row is not None and row_index == colmap.header_row:
             continue
-        description = _cell(row, colmap.description)
+        description = _description_cells(row, colmap)
         debit = parse_money(_cell(row, colmap.debit))
         credit = parse_money(_cell(row, colmap.credit))
         amount = parse_money(_cell(row, colmap.amount))
@@ -93,12 +115,16 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
             source = "printed"
         rows.append(CandidateRow(date=date, date_text=date_text, description=description, amount=magnitude,
                                  direction=direction, balance=balance, page=page, source="stage_a",
-                                 locator=f"t{table_index}r{row_index}", direction_source=source))
+                                 locator=f"t{table_index}r{row_index}", direction_source=source,
+                                 printed_amount=debit if debit is not None else credit))
     return rows
 
 
 SECTION_CREDIT = re.compile(r"\b(deposits?|credits?|additions|money in|paid in|deposits and (?:other )?credits)\b", re.IGNORECASE)
 SECTION_DEBIT = re.compile(r"\b(withdrawals?|debits?|checks?|cheques?|fees|charges|payments|money out|paid out|subtractions|withdrawals and (?:other )?debits)\b", re.IGNORECASE)
+BALANCE_SECTION = re.compile(
+    r"\b(?:daily|ledger|running|ending|available|collected)\s+balances?\b|\bbalance\s+summary\b",
+    re.IGNORECASE)
 
 
 def section_direction(text: str) -> str | None:
@@ -146,3 +172,157 @@ def text_lines_from_blocks(blocks: list[Block]) -> list[str]:
         else:
             lines.extend(line.strip() for line in block.content.splitlines() if line.strip())
     return lines
+
+
+_TEXT_DATE = re.compile(
+    r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
+    r"[A-Za-z]{3,9}\.?\s+\d{1,2}(?:,?\s+\d{4})?|\d{1,2}\s+[A-Za-z]{3,9}(?:\s+\d{4})?)\s+(.+)$"
+)
+_TEXT_MONEY = re.compile(r"(?:\(?[-−]?[$€£]?\d[\d,]*\.\d{2}\)?-?(?:\s?(?:CR|DR))?)$")
+
+
+def _text_rows(block: Block, *, heading: str | None, year_hint: int | None,
+               day_first: bool) -> list[CandidateRow]:
+    """Conservative text rows: printed date + description + amount [+ balance].
+
+    Ambiguous undated text remains in the layout for the reviewer. Descriptions are
+    never normalized, and repeated source lines remain distinct candidates.
+    """
+    rows: list[CandidateRow] = []
+    for index, line in enumerate(block.content.splitlines()):
+        match = _TEXT_DATE.match(line)
+        if not match:
+            continue
+        date_text, tail = match.groups()
+        money = _TEXT_MONEY.search(tail)
+        if not money:
+            continue
+        last = parse_money(money[0])
+        description = tail[:money.start()].rstrip()
+        preceding = _TEXT_MONEY.search(description)
+        if preceding:
+            amount, balance = parse_money(preceding[0]), last
+            description = description[:preceding.start()].rstrip()
+        else:
+            amount, balance = last, None
+        if amount is None or not description or SKIP_DESCRIPTION.match(description):
+            continue
+        direction = heading or ("debit" if amount < 0 else "unknown")
+        rows.append(CandidateRow(
+            parse_date(date_text, year_hint=year_hint, day_first=day_first), date_text, description,
+            abs(amount), direction, balance, block.page, "stage_a", f"b{block.order}l{index}",
+            "section" if heading else "printed", block.bbox,
+        ))
+    return rows
+
+
+def _markdown_grid(content: str) -> list[list[str]]:
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if not lines or not all("|" in line for line in lines):
+        return []
+    return [[cell.strip() for cell in line.strip("|").split("|")] for line in lines
+            if not re.fullmatch(r"[|:\-\s]+", line)]
+
+
+def _complete_html_tables(content: str) -> bool:
+    """Recognize the observed bare-table response without repairing fragments.
+
+    Missing element boxes are explicit, not synthesized from page dimensions.
+    Balanced structural tags prevent a visibly cut table becoming a shorter read.
+    """
+    if not re.fullmatch(r"<table\b[^>]*>.*</table\s*>", content, re.I | re.S):
+        return False
+    for tag in ("table", "tr", "td", "th"):
+        opened = len(re.findall(rf"<{tag}\b[^>]*>", content, re.I))
+        closed = len(re.findall(rf"</{tag}\s*>", content, re.I))
+        if opened != closed:
+            return False
+    return bool(parse_html_tables(content, preserve_whitespace=True))
+
+
+def parse_dots_layout(raw: str | list, *, page: int, width: int, height: int,
+                      finish_reason: str | None = None, year_hint: int | None = None,
+                      day_first: bool = False) -> DotsLayout:
+    """Decode dots.mocr layout without repairing or silently salvaging invalid JSON.
+
+    Every return retains the page slot and an explicit truncation/error status.
+    Boxes reference the source layout element (a whole table for table rows), not
+    an invented per-row crop; the locator identifies the row inside that element.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    unboxed = False
+    truncated = finish_reason == "length"
+    if truncated:
+        errors.append("stage_a_truncated")
+    if isinstance(raw, str):
+        text = raw.strip()
+        if text.startswith("```") and text.endswith("```"):
+            text = re.sub(r"^```(?:json|html|svg)?\s*", "", text, flags=re.I)[:-3].strip()
+        if re.match(r"^(?:<\?xml\b.*?\?>\s*)?<svg\b", text, re.I | re.S):
+            # Observed dots responses sometimes redraw a page as SVG instead
+            # of transcribing its layout. Even a complete SVG can omit every
+            # source word, and its coordinate frame need not match the image.
+            # Retain the exact response in the caller's CAS; do not convert
+            # vector paths or incidental <text> labels into OCR evidence.
+            return DotsLayout(page, (), (), tuple(errors + ["layout_unsupported_svg"]), truncated)
+        if _complete_html_tables(text):
+            # dots.mocr sometimes emits a complete HTML table instead of its
+            # layout envelope. The table is still source evidence, but no box
+            # was supplied. Give it a block/row locator without inventing a box.
+            raw = [{"category": "Table", "bbox": None, "text": text}]
+            unboxed = True
+            warnings.append("layout_unboxed")
+        else:
+            try:
+                raw = json.loads(text)
+            except (ValueError, TypeError):
+                return DotsLayout(page, (), (), tuple(errors + ["layout_invalid_json"]), truncated)
+    if not isinstance(raw, list):
+        return DotsLayout(page, (), (), tuple(errors + ["layout_not_array"]), truncated)
+    blocks: list[Block] = []
+    for order, item in enumerate(raw):
+        if not isinstance(item, dict) or not isinstance(item.get("category"), str):
+            errors.append(f"layout_element_invalid:{order}")
+            continue
+        label = item["category"].strip().lower().replace("-", "_")
+        content = item.get("text", "" if label in ("picture", "image") else None)
+        if not isinstance(content, str):
+            errors.append(f"layout_element_invalid:{order}")
+            continue
+        box = item.get("bbox")
+        if unboxed and box is None:
+            norm = None
+        elif (not isinstance(box, list) or len(box) != 4 or
+                any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in box)
+                or width <= 0 or height <= 0 or not (0 <= box[0] <= box[2] <= width and 0 <= box[1] <= box[3] <= height)):
+            errors.append(f"layout_box_invalid:{order}")
+            continue
+        else:
+            norm = tuple(round(v / (width if i % 2 == 0 else height), 6) for i, v in enumerate(box))
+        blocks.append(Block(label, norm, content, order, page))
+    rows: list[CandidateRow] = []
+    heading: str | None = None
+    balance_section = False
+    for block in blocks:
+        if block.label == "table":
+            markdown = _markdown_grid(block.content)
+            grids = parse_html_tables(block.content, preserve_whitespace=True) or ([markdown] if markdown else [])
+            for index, grid in enumerate(grids):
+                columns = classify_columns(grid, headerless_transaction_amount=not balance_section)
+                for row in rows_from_grid(grid, columns, page=page, table_index=index,
+                                          year_hint=year_hint, day_first=day_first):
+                    if row.direction == "unknown" and heading:
+                        row = replace(row, direction=heading, direction_source="section")
+                    rows.append(replace(row, locator=f"b{block.order}{row.locator}", bbox=block.bbox))
+            if not grids:
+                rows.extend(_text_rows(block, heading=heading, year_hint=year_hint, day_first=day_first))
+            heading = None
+            balance_section = False
+        else:
+            rows.extend(_text_rows(block, heading=heading, year_hint=year_hint, day_first=day_first))
+            if block.label in ("text", "paragraph_title", "section_header", "title", "doc_title", "header", "page_header"):
+                heading = section_direction(block.content)
+                first_line = block.content.strip().splitlines()[0] if block.content.strip() else ""
+                balance_section = len(first_line) <= 80 and bool(BALANCE_SECTION.search(first_line))
+    return DotsLayout(page, tuple(blocks), tuple(rows), tuple(errors), truncated, tuple(warnings))

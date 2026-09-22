@@ -16,8 +16,8 @@ PY=$ROOT/envs/vllm/bin/python
 LOGS=$ROOT/artifacts/logs
 mkdir -p "$LOGS"
 
-A_DIR=$(ls -d "$HF_HOME"/hub/models--rednote-hilab--dots.mocr/snapshots/* 2>/dev/null | head -1)
-B_DIR=$(ls -d "$HF_HOME"/hub/models--nvidia--Qwen3.8-27B-NVFP4/snapshots/* 2>/dev/null | head -1)
+A_DIR="$HF_HOME/hub/models--rednote-hilab--dots.mocr/snapshots/e539fbb52280393adc081b289ec597430a0f9031"
+B_DIR="$HF_HOME/hub/models--nvidia--Qwen3.8-27B-NVFP4/snapshots/482ca0f3832238542f8f5295dde86b5f22711d80"
 
 start_one() {
   local name=$1 port=$2 model=$3 util=$4; shift 4

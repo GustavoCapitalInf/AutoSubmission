@@ -146,6 +146,8 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "PINNED_CURRENCY_SOURCE is path-keyed for the same reason"),
     ("discovery/runner.py", "_project_accounts", "per_account",
      "the row's account column is EMPTY on a document; account_count carries it"),
+    ("vlm/truth.py", "truth_from_payload", "per_account",
+     "the Phase 3 comparison reads every cached account through payload_accounts"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
@@ -217,6 +219,17 @@ EXCUSED: dict[str, str] = {
     # never something it mistook for one account. A caller that wants the
     # document asks `analyze_document`, which is why every production seam does.
     "analysis/pipeline.py::analyze_markdown": "the ACCOUNT entry point returning the first Report of the internal _Analysed object",
+    # Phase 3.1 builds sources before publication. Both bridges explicitly
+    # refuse anything other than one account, and the final guard inspects
+    # every report. These objects are not a serialized published payload.
+    "vlm/currency.py::resolve_currency": "unpublished DocumentReport bridge; refuses multiple accounts or omitted siblings before source equality",
+    "vlm/pair_adapter.py::analyze_visual_pair": "private source audit and unpublished DocumentReport bridge; refuses multiple accounts or omitted siblings",
+    "vlm/pair_adapter.py::_complete_report": "checks the daily ledger validity of EVERY account in the unpublished DocumentReport",
+    # The widened AST predicate also sees a method named `accounts`. Here it
+    # is ReaderTruth.accounts(sha), which returns the complete comparison list
+    # from the per-account reader declared above, not document.accounts[0].
+    "vlm/runner.py::process_document": "comparison harness calls ReaderTruth.accounts(sha), not a payload or document account attribute",
+    "vlm/regate.py::regate_wave": "offline regating calls ReaderTruth.accounts(sha), not a payload or document account attribute",
 }
 
 

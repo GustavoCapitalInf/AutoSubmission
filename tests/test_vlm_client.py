@@ -85,6 +85,44 @@ def test_models_and_chat_structured(server):
     assert len(result.request_sha256) == 64 and len(result.response_sha256) == 64
 
 
+def test_loopback_chat_never_uses_an_environment_proxy(server, monkeypatch):
+    intercepted = []
+
+    class Proxy(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            intercepted.append(self.rfile.read(int(self.headers["Content-Length"])))
+            body = json.dumps({"choices": [{"message": {"content": "proxy response"},
+                                            "finish_reason": "stop"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    proxy = HTTPServer(("127.0.0.1", 0), Proxy)
+    thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+    thread.start()
+    try:
+        for name in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY",
+                     "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("http_proxy", f"http://127.0.0.1:{proxy.server_address[1]}")
+        monkeypatch.setenv("no_proxy", "")
+        result = vclient.VlmClient(server, timeout=2, transport_retries=0).chat(
+            "fake-model", "Synthetic content only", image_jpeg=b"synthetic image",
+            schema={"type": "object"},
+        )
+        assert len(_Fake.calls) == 1
+        assert intercepted == []
+        assert result.parsed == {"page_role": "blank_or_other"}
+    finally:
+        proxy.shutdown()
+        proxy.server_close()
+        thread.join(timeout=2)
+
+
 def test_chat_text_without_schema_or_image(server):
     c = vclient.VlmClient(server)
     result = c.chat("fake-model", "Table Recognition:", disable_thinking=False)
@@ -92,6 +130,38 @@ def test_chat_text_without_schema_or_image(server):
     body = _Fake.calls[-1]["body"]
     assert "response_format" not in body and "chat_template_kwargs" not in body
     assert body["messages"][0]["content"] == [{"type": "text", "text": "Table Recognition:"}]
+
+
+def test_review_wire_preserves_schema_order_without_changing_default_bytes(monkeypatch):
+    from vlm.receipts import canonical_json, sha256_bytes
+    from vlm.schema import PAGE_REVIEW_SCHEMA
+
+    requests = []
+
+    def capture_request(self, method, path, body):
+        requests.append(body)
+        return b'{"choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}', 1
+
+    monkeypatch.setattr(vclient.VlmClient, "_request", capture_request)
+    client = vclient.VlmClient("http://127.0.0.1:9")
+    kwargs = {"schema": PAGE_REVIEW_SCHEMA, "schema_name": "page_review",
+              "image_jpeg": b"synthetic image"}
+    first = client.chat("fake-model", "Synthetic only", preserve_schema_order=True, **kwargs)
+    second = client.chat("fake-model", "Synthetic only", preserve_schema_order=True, **kwargs)
+    client.chat("fake-model", "Synthetic only", **kwargs)
+
+    assert requests[0] == requests[1] == first.request_bytes == second.request_bytes
+    assert first.request_sha256 == sha256_bytes(requests[0])
+    ordered = json.loads(requests[0])["response_format"]["json_schema"]["schema"]["properties"]
+    assert list(ordered).index("reviews") < list(ordered).index("added")
+    review = ordered["reviews"]["items"]["properties"]
+    assert list(review) == ["candidate_id", "observed_description", "verdict", "corrections", "reason"]
+    assert list(review["corrections"]["items"]["properties"]) == ["field", "original", "corrected"]
+    # Default callers remain canonical byte for byte, and the opt-in changes
+    # ordering only: both wire requests still carry the same JSON value.
+    assert requests[2] == canonical_json(json.loads(requests[2])).encode("utf-8")
+    assert json.loads(requests[0]) == json.loads(requests[2])
+    assert requests[0] != requests[2]
 
 
 def test_unparseable_json_is_reported_not_raised(server):

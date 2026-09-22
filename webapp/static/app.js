@@ -51,6 +51,7 @@ const els = {
   statementModalTransactions: document.getElementById("statementModalTransactions"),
   statementModalTransactionCount: document.getElementById("statementModalTransactionCount"),
   modalJsonDownload: document.getElementById("modalJsonDownload"),
+  modalExtractionReview: document.getElementById("modalExtractionReview"),
   modalCopyData: document.getElementById("modalCopyData"),
   copyBuffer: document.getElementById("copyBuffer"),
   appearanceToggle: document.getElementById("appearanceToggle"),
@@ -161,6 +162,20 @@ function escapeHtml(value) {
 
 function labelize(value) {
   return String(value || "N/A").replace(/_/g, " ");
+}
+
+function processingStageLabel(value) {
+  const match = /^(visual_pair_proposing|visual_pair_reviewing):(\d+)\/(\d+)(?::(batch|crop):(\d+)\/(\d+)|:(discovery))?$/.exec(String(value || ""));
+  if (match) {
+    const label = `${match[1] === "visual_pair_proposing" ? "Reading" : "Checking"} page ${match[2]} of ${match[3]}`;
+    if (match[7]) return `${label} for missing rows`;
+    if (match[4] === "crop") return `${label} again, region ${match[5]} of ${match[6]}`;
+    if (match[4] === "batch") return `${label}, part ${match[5]} of ${match[6]}`;
+    return label;
+  }
+  if (value === "visual_pair_rendering") return "Preparing statement pages";
+  if (value === "visual_pair_gating") return "Checking statement totals";
+  return labelize(value);
 }
 
 function numberOrNull(value) {
@@ -652,7 +667,7 @@ function integrityLabel(integrity = {}) {
 function friendlyAnalysisError(message) {
   const text = String(message || "");
   if (/no deterministic parser matched/i.test(text)) {
-    return "No deterministic parser matched this statement. Fallback extraction runs only in Auto mode and only when the operator has enabled hosted extraction on the server; otherwise add a bank-specific deterministic parser.";
+    return "No deterministic parser matched this statement. Enable the configured visual fallback or select Force visual OCR to request a reviewed extraction.";
   }
   if (/native PDF text unavailable|too sparse|no native text/i.test(text)) {
     return "This PDF does not contain usable native text, and local OCR could not produce usable statement text. Turn on visual OCR or use Auto mode to retry with the OCR service.";
@@ -710,18 +725,18 @@ function setInitialState() {
   renderMainTransactions();
 }
 
-function setActions(jobId, ready) {
+function setActions(jobId, ready, textReady = ready) {
   const links = [
-    [els.downloadJson, "json"],
-    [els.downloadCsv, "csv"],
-    [els.downloadExcel, "xlsx"],
-    [els.exportText, "md"],
-    [els.openTextBtn, "md"],
+    [els.downloadJson, "json", ready],
+    [els.downloadCsv, "csv", ready],
+    [els.downloadExcel, "xlsx", ready],
+    [els.exportText, "md", textReady],
+    [els.openTextBtn, "result", textReady],
   ];
-  links.forEach(([link, fmt]) => {
+  links.forEach(([link, fmt, enabled]) => {
     if (!link) return;
-    if (ready) {
-      link.href = `/download/${jobId}/${fmt}`;
+    if (enabled) {
+      link.href = fmt === "result" ? `/result/${jobId}` : `/download/${jobId}/${fmt}`;
       link.classList.remove("disabled");
       link.setAttribute("aria-disabled", "false");
     } else {
@@ -730,10 +745,10 @@ function setActions(jobId, ready) {
       link.setAttribute("aria-disabled", "true");
     }
   });
-  [els.copyDataBtn, els.summaryBtn, els.copyTextBtn].forEach((button) => {
+  [[els.copyDataBtn, ready], [els.summaryBtn, ready], [els.copyTextBtn, textReady]].forEach(([button, enabled]) => {
     if (!button) return;
-    button.disabled = !ready;
-    button.classList.toggle("disabled", !ready);
+    button.disabled = !enabled;
+    button.classList.toggle("disabled", !enabled);
   });
 }
 
@@ -1247,6 +1262,24 @@ function renderError(message) {
   renderAccountSummary(accountFieldRows());
 }
 
+function renderExtractionReview(message) {
+  // A completed read can require review without admitting any metrics. Clear
+  // the previous statement's cards before exposing this read's source actions.
+  currentAnalysis = null;
+  setInitialState();
+  setProgress(false);
+  els.statusHeading.textContent = "Extraction needs review";
+  setBanner("pending", "Extraction available; metrics withheld", "Review required");
+  els.decisionPill.textContent = "review required";
+  els.decisionPill.className = "decision-pill";
+  els.summaryBox.textContent = `${friendlyAnalysisError(message)} Open Review extraction to inspect the reading and its review status. No metrics have been published.`;
+  setStatusRows([
+    ["OCR completed", "Yes"],
+    ["Validation", "Review required"],
+    ["Metrics", "Withheld"],
+  ]);
+}
+
 function showSelectedFile(file) {
   currentFile = file;
   const files = currentFiles.length ? currentFiles : [file];
@@ -1367,7 +1400,7 @@ function pollJob(jobId) {
     })
     .then((status) => {
       if (jobId !== currentJobId) return;
-      const stage = status.stage ? labelize(status.stage) : labelize(status.status);
+      const stage = processingStageLabel(status.stage || status.status);
       if (status.status === "done") {
         setProgress(false);
         loadResults(jobId);
@@ -1403,8 +1436,12 @@ function loadResults(jobId) {
   ])
     .then(([payload, markdown]) => {
       if (jobId !== currentJobId) return;
-      if (!payload.analysis) throw new Error(friendlyAnalysisError(payload.analysis_error));
       currentMarkdown = markdown || "";
+      if (!payload.analysis) {
+        renderExtractionReview(payload.analysis_error);
+        setActions(jobId, false, true);
+        return;
+      }
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
       els.summaryBox.textContent = "Exports and copy actions are ready.";
@@ -1604,6 +1641,9 @@ function openStatementModal(jobId) {
   modalLastFocus = document.activeElement;
   modalAnalysis = null;
   modalJobId = jobId;
+  if (els.modalExtractionReview) {
+    els.modalExtractionReview.href = `/result/${encodeURIComponent(jobId)}`;
+  }
   modalTransactionFilter = "all";
   modalTransactionEntityFilter = null;
   setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);

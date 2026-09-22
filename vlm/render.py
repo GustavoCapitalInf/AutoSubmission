@@ -104,7 +104,8 @@ def render_pages(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_EDGE,
 
 def _render_pages_unlocked(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_EDGE,
                  quality: int = DEFAULT_JPEG_QUALITY,
-                 page_indices: Iterable[int] | None = None) -> list[RenderedPage]:
+                 page_indices: Iterable[int] | None = None,
+                 dpi: int | None = None) -> list[RenderedPage]:
     doc = pdfium.PdfDocument(pdf_bytes)
     try:
         indices = list(range(len(doc))) if page_indices is None else list(page_indices)
@@ -113,11 +114,12 @@ def _render_pages_unlocked(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_ED
             page = doc[index]
             try:
                 width_pt, height_pt = page.get_size()
-                scale = long_edge / max(width_pt, height_pt)
+                scale = dpi / 72 if dpi is not None else long_edge / max(width_pt, height_pt)
                 started = time.perf_counter()
                 image = page.render(scale=scale).to_pil()
                 render_ms = (time.perf_counter() - started) * 1000.0
-                image = _fit(image, long_edge)
+                if dpi is None:
+                    image = _fit(image, long_edge)
                 jpeg, pixel_sha, encode_ms = _encode(image, quality)
                 pages.append(RenderedPage(
                     index=index, width=image.width, height=image.height, jpeg=jpeg,

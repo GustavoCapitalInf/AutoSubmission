@@ -430,7 +430,8 @@ EXCLUDED_TREES_FROM_REPO_SCAN = ("tests/",)
 #: count — 2 in `discovery/runner.py` (RECOVERY, UPGRADE), 1 in
 #: `webapp/worker.py` (`_force_ocr_decision`). A new site anywhere changes
 #: this and must be a reviewed decision, not a silent addition.
-EXPECTED_DECIDE_CALL_SITES = {"discovery/runner.py": 2, "webapp/worker.py": 1}
+# Phase 3.1 adds the explicit webapp-only pair admission seam.
+EXPECTED_DECIDE_CALL_SITES = {"discovery/runner.py": 2, "webapp/worker.py": 2}
 
 
 #: Directories the FILESYSTEM walk never descends into: VCS/tool caches that

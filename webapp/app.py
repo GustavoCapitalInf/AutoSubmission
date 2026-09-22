@@ -14,6 +14,7 @@ from math import isfinite
 from flask import Flask, request, jsonify, render_template, Response, abort
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from ocr.config import load_settings as load_ocr_settings
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
@@ -1852,7 +1853,7 @@ def _upload_too_large(_exc):
     }), 413
 
 
-def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object, dict | None]:
+def _checked_upload(filename: str, pdf_bytes: bytes, *, read_native_text: bool = True) -> tuple[int | None, object, dict | None]:
     """Server-side gate for a single uploaded file. Returns
     (page_count, profile, error) with the error exclusive of the other two.
 
@@ -1887,7 +1888,8 @@ def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object
         }
     if not pdf_bytes.startswith(b"%PDF-"):
         return None, None, {"error": "file is not a PDF", "filename": filename}
-    profile = inspect_pdf(pdf_bytes)
+    profile = (inspect_pdf(pdf_bytes) if read_native_text
+               else inspect_pdf(pdf_bytes, read_native_text=False))
     if profile.encrypted:
         return None, None, {
             "error": "PDF is password-protected; upload a decrypted copy",
@@ -1918,6 +1920,10 @@ def upload():
     parse_mode = request.form.get("parse_mode") or "auto"
     if parse_mode not in {"auto", "deterministic"}:
         return jsonify({"error": "invalid parse_mode"}), 400
+    # The forced pair skips native text at intake as well as in the worker.
+    # Encryption, page limits and the document hash still receive structural
+    # validation; the explicit legacy comparison keeps its previous preflight.
+    read_native_text = not (force_ocr and not load_ocr_settings().visual_pair_legacy_visual)
 
     # Validate the whole batch before creating any job. A half-accepted upload
     # would leave the dashboard aggregating an incomplete package with nothing
@@ -1925,7 +1931,7 @@ def upload():
     accepted: list[tuple[str, bytes, int, object]] = []
     for f in files:
         pdf_bytes = f.read()
-        page_count, profile, error = _checked_upload(f.filename, pdf_bytes)
+        page_count, profile, error = _checked_upload(f.filename, pdf_bytes, read_native_text=read_native_text)
         if error is not None:
             return jsonify(error), 400
         accepted.append((f.filename, pdf_bytes, page_count, profile))

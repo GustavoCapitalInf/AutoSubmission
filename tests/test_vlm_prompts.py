@@ -15,8 +15,17 @@ def test_hybrid_prompt_includes_parser_context_once():
 
 def test_prompt_hash_stable():
     a = prompts.stage_b_prompt(page_number=1, page_total=1)
-    assert prompts.prompt_sha256(a) == prompts.prompt_sha256(a) and prompts.PROMPT_VERSION == 3
+    assert prompts.prompt_sha256(a) == prompts.prompt_sha256(a) and prompts.PROMPT_VERSION == 8
     manifest = prompts.prompt_manifest()
     assert manifest["stage_b_template_sha256"] == prompts.prompt_sha256(prompts.STAGE_B_PROMPT)
     assert manifest["hybrid_prefix_template_sha256"] == prompts.prompt_sha256(prompts.HYBRID_PREFIX)
     assert "stated_total_credits" in a and "carries its own amount" in a
+
+
+def test_review_description_covers_separate_reference_cells_without_financial_values():
+    text = prompts.stage_b_review_prompt([], page_number=1, page_total=1)
+    assert "ALL nonfinancial text and reference cells" in text
+    assert "unlabeled columns or separated by wide whitespace" in text
+    assert "transfer references, check numbers, numeric identifiers" in text
+    assert "exclude only the date and the actual financial amount/balance fields" in text
+    assert "Never compute, infer or invent a value" in text
