@@ -1,0 +1,40 @@
+# Fly.io config for the intern tryout (https://bank-statement-tryout.fly.dev).
+# Saved from the running app's config on 2026-09-22 so deploys are reproducible;
+# .github/workflows/fly-deploy.yml deploys it on every push to this branch.
+# Secrets (WEBAPP_AUTH_USER, WEBAPP_AUTH_PASSWORD) live in Fly, never here.
+# No volume: uploads and settings reset whenever the machine is replaced.
+
+app = "bank-statement-tryout"
+primary_region = "dfw"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  WEBAPP_DATA_DIR = "/app/webapp_data"
+  WEBAPP_HOST = "0.0.0.0"
+  WEBAPP_PORT = "5000"
+
+[http_service]
+  internal_port = 5000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1024mb"
