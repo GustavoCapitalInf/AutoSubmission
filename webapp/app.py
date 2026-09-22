@@ -31,7 +31,9 @@ from analysis.revenue import (
     normalize_withholding_denominator_mode,
     REVENUE_STATES,
 )
+from analysis.nsf_days import apply_nsf_basis_to_payload
 from .jobs import JobStore
+from .settings import load_settings, save_settings
 from .worker import run_job
 
 # Upload ceilings. Every value here is enforced server-side and mirrored in the
@@ -186,6 +188,17 @@ def _mask_account(value: object) -> str | None:
         return None
     digits = "".join(character for character in text if character.isdigit())
     return "****" + digits[-4:]
+
+
+def _displayed(analysis: object) -> object:
+    """A stored analysis as the dashboard presents it: the owner's Settings applied to a COPY.
+
+    Today that is the NSF basis (analysis/nsf_days.py): printed days by default, or every calendar day with
+    the balance carried over inactive days when Settings turns carry-over on. Every surface that shows or
+    exports metrics goes through here, so the dashboard, the downloads and the package agree; the stored
+    record is never rewritten, and a change of setting applies to every job at once."""
+    settings = load_settings(store.storage.data_dir)
+    return apply_nsf_basis_to_payload(analysis, carry_over=settings["nsf_carry_over"])
 
 
 def _masked(payload: object) -> object:
@@ -814,7 +827,7 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     members: list[tuple] = []
     excluded: list[dict] = []
     for job in jobs:
-        analysis = job.analysis or {}
+        analysis = _displayed(job.analysis or {})
         roster = _account_roster(analysis)
         unverified, idle = _unverified_main_account(roster), _idle_main_account(roster)
         if unverified is not None or idle is not None:
@@ -1972,6 +1985,25 @@ def _checked_upload(filename: str, pdf_bytes: bytes, *, read_native_text: bool =
     return page_count, profile, None
 
 
+@app.route("/api/settings", methods=["GET"])
+def get_settings():
+    return jsonify({"settings": load_settings(store.storage.data_dir)})
+
+
+@app.route("/api/settings", methods=["POST"])
+def update_settings():
+    """Save owner display settings. JSON only: a cross-site HTML form cannot send it without a preflight."""
+    updates = request.get_json(silent=True)
+    if not request.is_json or updates is None:
+        return jsonify({"error": "settings must be sent as a JSON object"}), 400
+    try:
+        settings = save_settings(store.storage.data_dir, updates)
+    except ValueError:
+        # A fixed refusal: no exception text crosses this boundary (tests/test_worker_privacy.py).
+        return jsonify({"error": "invalid settings update"}), 400
+    return jsonify({"settings": settings})
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     files = request.files.getlist("files")
@@ -2112,7 +2144,7 @@ def analysis(job_id):
     if job is None or job.status != "done":
         abort(404)
     return jsonify({
-        "analysis": _masked(job.analysis),
+        "analysis": _masked(_displayed(job.analysis)),
         "analysis_error": job.analysis_error,
     })
 
@@ -2200,7 +2232,7 @@ def revenue_review(job_id):
     )
     if stored is None:
         abort(404)
-    return jsonify({"analysis": _masked(stored)})
+    return jsonify({"analysis": _masked(_displayed(stored))})
 
 
 @app.route("/package_analysis")
@@ -2347,17 +2379,17 @@ def download(job_id, fmt):
     if fmt == "json":
         if job.analysis is None:
             abort(404)
-        content = json.dumps(_masked(job.analysis), indent=2)
+        content = json.dumps(_masked(_displayed(job.analysis)), indent=2)
         mimetype = "application/json"
     elif fmt == "csv":
         if job.analysis is None:
             abort(404)
-        content = _analysis_csv(_masked(job.analysis))
+        content = _analysis_csv(_masked(_displayed(job.analysis)))
         mimetype = "text/csv"
     elif fmt == "xlsx":
         if job.analysis is None:
             abort(404)
-        content = _analysis_xlsx(_masked(job.analysis))
+        content = _analysis_xlsx(_masked(_displayed(job.analysis)))
         mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
         # Raw OCR source, served verbatim: see the residual-exposure note on

@@ -462,6 +462,29 @@
   @keyframes progress { from { transform: translateX(-75%); } to { transform: translateX(230%); } }
   .force-row { margin-top: 10px; display: flex; gap: 9px; align-items: center; color: var(--muted); font-size: 12px; }
   .force-row input { accent-color: var(--blue); }
+  /* Settings page */
+  .top-grid[hidden], .main-grid[hidden], .settings-view[hidden] { display: none; }
+  .workspace.settings-open { align-content: start; }  /* the dashboard rows are hidden: do not stretch the rest */
+  .settings-view { max-width: 760px; }
+  .settings-view > p { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+  .setting-row {
+    margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: start;
+    padding: 14px 16px; border-radius: 14px; border: 1px solid var(--hairline); background: var(--surface-1);
+  }
+  .setting-title { font-size: 14px; font-weight: 700; color: var(--ink); }
+  .setting-help { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+  .switch { position: relative; display: inline-flex; width: 46px; height: 28px; flex: none; cursor: pointer; }
+  .switch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: pointer; }
+  .switch-track { position: relative; width: 100%; height: 100%; border-radius: 999px; background: var(--track); transition: background 200ms var(--spring); }
+  .switch-track::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform 200ms var(--spring);
+  }
+  .switch input:checked + .switch-track { background: var(--blue); }
+  .switch input:checked + .switch-track::after { transform: translateX(18px); }
+  .switch input:focus-visible + .switch-track { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .switch input:disabled + .switch-track { opacity: .5; }
+  .setting-status { margin: 10px 0 0; min-height: 16px; font-size: 12px; color: var(--muted); }
   .mode-control { margin-top: 12px; display: grid; gap: 7px; }
   .mode-label { color: var(--muted); font-size: 11px; font-weight: 780; text-transform: uppercase; letter-spacing: .08em; }
   .mode-options {
@@ -960,7 +983,8 @@
       </div>
     </div>
     <nav class="nav-section">
-      <button class="nav-item active" type="button"><span class="nav-icon">OCR</span>OCR</button>
+      <button class="nav-item active" type="button" data-view="ocr"><span class="nav-icon">OCR</span>OCR</button>
+      <button class="nav-item" type="button" data-view="settings"><span class="nav-icon">SET</span>Settings</button>
     </nav>
     <div class="sidebar-bottom">
       <div class="profile-card">
@@ -1037,6 +1061,28 @@
         <button class="round-btn" type="button" aria-label="User profile">GP</button>
       </div>
     </header>
+
+    <section class="card glass settings-view" id="settingsView" aria-labelledby="settingsTitle" hidden>
+      <h2 id="settingsTitle">Analysis settings</h2>
+      <p>These change how results are shown and exported. Saved statements update immediately; nothing is reprocessed.</p>
+      <div class="setting-row">
+        <div>
+          <label class="setting-title" for="nsfCarryOverToggle">Carry the balance over inactive days when counting NSFs</label>
+          <p class="setting-help" id="nsfCarryOverHelp">
+            <strong>Off (default):</strong> the NSF count is the number of days that end with a negative balance
+            among the days the statement shows a balance for: days with activity, or days the bank printed a daily balance.<br>
+            <strong>On:</strong> every calendar day counts, and a day with no activity carries the previous day's ending balance.<br>
+            Example: the 10th ends at &minus;$10, nothing posts on the 11th, the 12th ends at $20.
+            Off counts 1 negative day; on counts 2.
+          </p>
+        </div>
+        <span class="switch">
+          <input type="checkbox" role="switch" id="nsfCarryOverToggle" aria-describedby="nsfCarryOverHelp" disabled>
+          <span class="switch-track" aria-hidden="true"></span>
+        </span>
+      </div>
+      <p class="setting-status" id="settingsStatus" role="status" aria-live="polite"></p>
+    </section>
 
     <section class="top-grid">
       <section class="card glass" aria-labelledby="uploadTitle">
