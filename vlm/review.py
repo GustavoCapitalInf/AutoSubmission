@@ -14,7 +14,7 @@ from decimal import Decimal
 
 import jsonschema
 
-from vlm.assemble import CandidateRow
+from vlm.assemble import BALANCE_LINE, CandidateRow
 from vlm.schema import PAGE_REVIEW_SCHEMA, REVIEW_ROW_FIELDS, empty_review, valid_review_row
 
 ROW_STATES = ("agreed", "corrected", "added", "rejected", "unresolved")
@@ -135,7 +135,8 @@ def _review_metadata(data: dict, *, page: int):
     """Quarantine invalid source observations without changing other fields.
 
     Invalid/missing account fields become unknown individually. Invalid daily
-    balance and account-number entries are omitted individually. Raw invalid
+    balance and account-number entries are omitted individually; an undated
+    daily balance is unknown and omitted without quarantine. Raw invalid
     observations remain private evidence; closed diagnostics identify their
     scope. These are validation decisions, never replacement source values or
     changes to financial gate policy.
@@ -187,6 +188,11 @@ def _review_metadata(data: dict, *, page: int):
         for index, item in enumerate(raw_daily):
             if not jsonschema.Draft202012Validator(daily_schema).is_valid(item):
                 invalid("daily_balances", item, ["review_daily_balance_schema_invalid"], index=index)
+            elif item["date"] is None and _finite(item["balance"]):
+                # Unread, like a null account field: unknown, not a misreading. It carries no checkable
+                # claim (an empty list would pass), so it is omitted with an audit-only diagnostic.
+                diagnostics.append({"scope": "daily_balances", "page": page, "index": index,
+                                    "code": "review_daily_balance_undated"})
             elif item["date"] is None or not _valid_date(item["date"]) or not _finite(item["balance"]):
                 invalid("daily_balances", item, ["review_invalid_daily_balance"], index=index)
             else:
@@ -345,14 +351,18 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         usable = not fatal and not codes
         row = item.get("row") if isinstance(item, dict) else None
         locator = f"added{index}"
-        if usable:
+        # Stage A never proposes a printed balance line; a reviewer addition of one is not a transaction either.
+        balance_line = usable and bool(BALANCE_LINE.match(str(row.get("description") or "").strip()))
+        if usable and not balance_line:
             rows.append(_source_row(row, page=page, locator=locator))
         # A malformed proposed row remains in raw_addition, without implying
         # that it has valid field provenance or can enter the row ledger.
-        evidence.append(_evidence(candidate_id=f"p{page}a{index}", state="added" if usable else "unresolved",
+        evidence.append(_evidence(candidate_id=f"p{page}a{index}",
+                                  state="rejected" if balance_line else "added" if usable else "unresolved",
                                   page=page, locator=locator, original=None, corrected=None,
-                                  row=row if valid_review_row(row) else None,
-                                  reason="reviewer_only" if usable else "page_review_invalid" if fatal else "row_review_invalid"))
+                                  row=row if valid_review_row(row) and not balance_line else None,
+                                  reason="addition_is_balance_line" if balance_line else "reviewer_only" if usable
+                                  else "page_review_invalid" if fatal else "row_review_invalid"))
         evidence[-1].update(validation_errors=list(codes), validation_warnings=[],
                             raw_addition=copy.deepcopy(item))
 

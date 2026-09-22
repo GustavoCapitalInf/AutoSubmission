@@ -155,6 +155,53 @@ def test_all_review_states_immutable_sources_and_added_order():
     assert correction["corrected"]["description"] == "Actually Printed Description"
 
 
+@pytest.mark.parametrize("label", ["BALANCE FORWARD", "Opening balance", "Balance brought forward 01/02"])
+def test_reviewer_addition_of_a_printed_balance_line_never_enters_the_ledger(label):
+    # Stage A already skips these lines; a reviewer proposing one as a missed transaction must not bypass that.
+    rows = [_candidate(0)]
+    payload = _review(rows)
+    original = candidate_records(rows)[0]["row"]
+    payload["added"] = [{"row": {**original, "description": label, "direction": "unknown", "printed_amount": None},
+                         "after_candidate_id": None}]
+    result = merge_review(rows, payload, page=1)
+    assert result.errors == ()
+    assert result.counts == {"agreed": 1, "corrected": 0, "added": 0, "rejected": 1, "unresolved": 0}
+    assert [row.description for row in result.rows] == [rows[0].description]
+    evidence = next(item for item in result.evidence if item["candidate_id"] == "p1a0")
+    assert evidence["reason"] == "addition_is_balance_line" and evidence["row"] is None
+    assert evidence["raw_addition"]["row"]["description"] == label
+
+
+def test_undated_daily_balance_is_unknown_like_a_null_account_field_and_holds_nothing():
+    rows = [_candidate(0)]
+    payload = _review(rows)
+    payload["daily_balances"] = [{"date": None, "balance": 520.0}, {"date": "2031-01-02", "balance": 520.0}]
+    result = merge_review(rows, payload, page=1)
+    assert result.metadata_evidence == ()
+    assert result.daily_balances == ({"date": "2031-01-02", "balance": 520.0},)
+    assert result.diagnostics == ({"scope": "daily_balances", "page": 1, "index": 0, "code": "review_daily_balance_undated"},)
+
+
+@pytest.mark.parametrize("entry", [{"date": "2031-13-45", "balance": 520.0}, {"date": "01/02", "balance": 520.0}])
+def test_misread_daily_balance_date_is_still_quarantined(entry):
+    rows = [_candidate(0)]
+    payload = _review(rows)
+    payload["daily_balances"] = [entry]
+    result = merge_review(rows, payload, page=1)
+    assert result.daily_balances == ()
+    assert [item["validation_errors"] for item in result.metadata_evidence] == [["review_invalid_daily_balance"]]
+
+
+def test_reviewer_addition_of_a_merchant_named_total_is_kept():
+    rows = [_candidate(0)]
+    payload = _review(rows)
+    original = candidate_records(rows)[0]["row"]
+    payload["added"] = [{"row": {**original, "description": "Total Synthetic Wine Shop"}, "after_candidate_id": "p1r0"}]
+    result = merge_review(rows, payload, page=1)
+    assert result.counts["added"] == 1 and result.counts["rejected"] == 0
+    assert [row.description for row in result.rows][-1] == "Total Synthetic Wine Shop"
+
+
 @pytest.mark.parametrize("mutation,reason", [
     (lambda data: data["reviews"].pop(), "review_missing_candidate_id"),
     (lambda data: data["reviews"].append(copy.deepcopy(data["reviews"][0])), "review_duplicate_candidate_id"),

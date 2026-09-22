@@ -6,7 +6,7 @@ from copy import deepcopy
 from decimal import Decimal
 
 from vlm.assemble import CandidateRow
-from vlm.pair_metadata import merge_metadata
+from vlm.pair_metadata import merge_metadata, page_break_figures
 from vlm.review import PageReviewMerge
 
 BASE = {"period_start": "2031-01-01", "period_end": "2031-01-31", "currency": "USD"}
@@ -151,3 +151,45 @@ def test_the_same_value_on_both_sides_is_not_a_conflict_either_way():
         _page(2, [("2031-01-12", 80), ("2031-01-15", 40)]),
     ])
     assert "anchor_disagreement" not in reasons
+
+
+# A page that prints NO figure for the day it continues (no daily table, or one whose dates were not read)
+# leaves the earlier page's mid-day figure standing as that day's close. It is not one.
+
+def _rows(*pairs):
+    return [CandidateRow(when, when[5:], "FABRICATED ROW", Decimal("1.00"), "credit", None, page,
+                         "stage_a+stage_b", f"b1t0r{index}") for index, (page, when) in enumerate(pairs)]
+
+
+def test_a_mid_day_page_break_figure_without_a_printed_close_is_not_a_closing_balance():
+    pages = [_page(1, [("2031-01-10", 50), ("2031-01-12", 80)]), _page(2, [])]
+    rows = _rows((1, "2031-01-10"), (1, "2031-01-12"), (2, "2031-01-12"), (2, "2031-01-15"))
+    assert page_break_figures(pages, rows) == {"2031-01-12"}
+
+
+def test_a_page_break_figure_is_kept_when_the_next_page_starts_a_new_day():
+    pages = [_page(1, [("2031-01-10", 50), ("2031-01-12", 80)]), _page(2, [])]
+    rows = _rows((1, "2031-01-10"), (1, "2031-01-12"), (2, "2031-01-13"))
+    assert page_break_figures(pages, rows) == set()
+
+
+def test_a_page_break_figure_is_kept_when_any_later_page_prints_the_days_close():
+    pages = [_page(1, [("2031-01-10", 50), ("2031-01-12", 80)]), _page(2, [("2031-01-12", 70)])]
+    rows = _rows((1, "2031-01-12"), (2, "2031-01-12"))
+    assert page_break_figures(pages, rows) == set()
+    pages = [_page(1, [("2031-01-12", 80)]), _page(2, []), _page(3, [("2031-01-12", 70)])]
+    rows = _rows((1, "2031-01-12"), (2, "2031-01-12"), (3, "2031-01-12"))
+    assert page_break_figures(pages, rows) == set()
+
+
+def test_a_summary_table_or_a_non_adjacent_page_is_never_a_page_break():
+    # A daily summary printed before the ledger: its last entry is not continued by the next page's first row.
+    pages = [_page(1, [("2031-01-02", 10), ("2031-01-31", 90)]), _page(2, [])]
+    rows = _rows((1, "2031-01-02"), (2, "2031-01-02"), (2, "2031-01-31"))
+    assert page_break_figures(pages, rows) == set()
+    # The last entry is not the latest date on its page.
+    pages = [_page(1, [("2031-01-12", 80), ("2031-01-10", 50)]), _page(2, [])]
+    assert page_break_figures(pages, _rows((1, "2031-01-10"), (2, "2031-01-10"))) == set()
+    # The next page is not a clean statement page.
+    pages = [_page(1, [("2031-01-12", 80)]), _page(2, [], errors=("review_truncated",))]
+    assert page_break_figures(pages, _rows((1, "2031-01-12"), (2, "2031-01-12"))) == set()

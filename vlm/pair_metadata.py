@@ -127,6 +127,32 @@ def _page_break_checkpoint(merges, earlier: int, later: int, when: str) -> bool:
             and after[0] == when and min(after) == when)
 
 
+def page_break_figures(merges, rows) -> set[str]:
+    """Dates whose only printed daily figure is where a page ended part-way through the day.
+
+    The checkpoint rule above accepts that figure when the next page prints the day's close. When no later
+    page prints a figure for the day (no daily table, or one whose dates were not read), the earlier figure
+    would stand as the day's closing balance although the day's later transactions follow on the next page.
+    That day has no printed close; the ledger reconstructs it. Narrow on purpose: the figure is the last
+    entry and the latest date on its page, the next adjacent clean page's first ledger row carries the same
+    date, and no later page prints a figure for it. `rows` are the resolved ledger rows in printed order."""
+    first_date = {}
+    for row in rows:
+        first_date.setdefault(row.page, row.date)
+    dropped = set()
+    for index in range(len(merges) - 1):
+        if not _adjacent(merges, index, index + 1):
+            continue
+        before = _daily_dates(merges[index])
+        if not before or before[-1] != max(before):
+            continue
+        when = before[-1]
+        if (first_date.get(_page(index + 1, merges[index + 1])) == when
+                and not any(when in _daily_dates(later) for later in merges[index + 1:])):
+            dropped.add(when)
+    return dropped
+
+
 def _compatible(left: str, right: str) -> bool:
     """Whether two anchored literal/masked patterns have a possible common ID.
 

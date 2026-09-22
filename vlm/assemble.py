@@ -11,6 +11,9 @@ from vlm.tables import ColumnMap, classify_columns, parse_html_tables
 from vlm.textparse import parse_date, parse_money
 
 SKIP_DESCRIPTION = re.compile(r"^(total|totals|subtotal|sub-total|ending balance|beginning balance|balance forward|closing balance|opening balance)\b", re.IGNORECASE)
+# A printed balance line, which a reviewer may propose as a missed transaction. Narrower than
+# SKIP_DESCRIPTION on purpose: a real merchant can be named "Total ...".
+BALANCE_LINE = re.compile(r"^(beginning balance|opening balance|ending balance|closing balance|previous balance|balance forward|balance (?:brought|carried) forward)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)

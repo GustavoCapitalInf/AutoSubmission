@@ -18,7 +18,7 @@ from ocr.visual_pair_config import (MODEL_TOKEN, VisualPairSettings, check_remot
                                     load_visual_pair_settings, visual_pair_settings_key_material)
 from vlm.client import ChatResult, VlmClient, TransportError
 from vlm.receipts import canonical_json, sha256_bytes, sha256_file
-from vlm.pair_metadata import merge_metadata as _merge_metadata
+from vlm.pair_metadata import merge_metadata as _merge_metadata, page_break_figures
 
 PAIR_VERSION = 1
 
@@ -468,6 +468,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         period_end=account.get('period_end') if 'period_mismatch' not in reasons else None,
     )
     rows = list(dates.rows)
+    # A mid-day figure at a page break is not the day's close when no later page prints one.
+    page_break_dates = page_break_figures(merges, rows)
+    daily = [item for item in daily if item['date'] not in page_break_dates]
     segment_checks, segment_occurrences = reconcile_page_segments(segment_plan, rows)
     occurrences.extend(segment_occurrences)
     reasons.extend(item['code'] for item in segment_occurrences)
@@ -589,6 +592,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     if currency_default is not None:
         audit['currency_default'] = currency_default
     audit['cheque_image_rows_excluded'] = cheque_rows_excluded
+    audit['daily_page_break_figures_dropped'] = len(page_break_dates)
     if admitted:
         from vlm.review import row_record
         audit['gate_rows'] = [{**row_record(row), 'page': row.page, 'locator': row.locator,

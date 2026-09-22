@@ -177,7 +177,9 @@ def test_attributable_metadata_errors_preserve_other_fields_rows_and_raw_observa
     assert result.account["account_name"] is None
     assert result.daily_balances == (before["daily_balances"][0],)
     assert result.account_numbers_seen == ("SYNTHETIC-001",)
-    assert len(result.metadata_evidence) == 7
+    # The undated daily balance is unknown, like a null account value: omitted, diagnosed, never quarantined.
+    assert len(result.metadata_evidence) == 6
+    assert {"scope": "daily_balances", "page": 1, "index": 1, "code": "review_daily_balance_undated"} in result.diagnostics
     assert {item["scope"] for item in result.diagnostics} == {"account", "daily_balances", "account_numbers_seen"}
     assert all("raw_value" in item for item in result.metadata_evidence)
     assert payload == before
