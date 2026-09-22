@@ -85,15 +85,32 @@ def _printed_in_a_transaction(value, texts: list[str]) -> bool:
     return len(key) >= 6 and any(key in text for text in texts)
 
 
-def _daily_dates(merged) -> list[str]:
-    dates = []
+def _dated_entries(merged) -> list[dict]:
+    entries = []
     for item in merged.daily_balances:
         try:
             date.fromisoformat(item.get("date"))
         except (TypeError, ValueError, AttributeError):
             continue
-        dates.append(item["date"])
-    return dates
+        entries.append(item)
+    return entries
+
+
+def _daily_dates(merged) -> list[str]:
+    return [item["date"] for item in _dated_entries(merged)]
+
+
+def _carried_forward_date(merges, index: int) -> str | None:
+    """The date a page carries forward: its FIRST daily entry repeats exactly (same date, same balance) the
+    LAST daily entry of the previous adjacent clean statement page. That is the printed BALANCE FORWARD,
+    the balance where the previous page stopped, not a closing balance for the day."""
+    if index == 0 or not _adjacent(merges, index - 1, index):
+        return None
+    before, after = _dated_entries(merges[index - 1]), _dated_entries(merges[index])
+    if (before and after and before[-1]["date"] == after[0]["date"]
+            and _equal(before[-1].get("balance"), after[0].get("balance"))):
+        return after[0]["date"]
+    return None
 
 
 def _page_break_checkpoint(merges, earlier: int, later: int, when: str) -> bool:
@@ -265,6 +282,9 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
         for value in merged.account_numbers_seen:
             if value and not _printed_in_a_transaction(value, printed):
                 identity(value, page, "account_numbers_seen")
+        carried = _carried_forward_date(merges, index)
+        carry_open = carried is not None
+        previous_date = None
         for item in merged.daily_balances:
             when, balance = item.get("date"), item.get("balance")
             try:
@@ -272,11 +292,18 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
             except (TypeError, ValueError):
                 fail("date_unparsed", page, "daily_balances")
                 continue
-            if (when in daily and not _equal(daily[when], balance)
-                    and not _page_break_checkpoint(merges, daily_source[when], index, when)):
-                fail("anchor_disagreement", page, "daily_balances")
+            if when in daily and not _equal(daily[when], balance):
+                # After a carried-forward opening, the SAME day printed again immediately below it is that
+                # day's close. It may close only once.
+                continuation = (carry_open and when == carried and previous_date == when
+                                and daily_source.get(when) == index)
+                if continuation:
+                    carry_open = False
+                elif not _page_break_checkpoint(merges, daily_source[when], index, when):
+                    fail("anchor_disagreement", page, "daily_balances")
             daily[when] = balance
             daily_source[when] = index
+            previous_date = when
 
     for field in ("beginning_balance", "ending_balance"):
         candidates = balances[field]

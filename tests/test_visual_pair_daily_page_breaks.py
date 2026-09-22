@@ -82,6 +82,52 @@ def test_the_last_entry_must_also_be_the_latest_date_on_the_earlier_page():
     assert "anchor_disagreement" in reasons
 
 
+def test_a_carried_forward_opening_then_the_days_close_on_the_same_page_is_not_a_conflict():
+    # The shape measured on a real statement: the continuation page first restates the previous page's
+    # last daily figure (the BALANCE FORWARD), then prints the same day's close further down.
+    daily, reasons, _ = _merge([
+        _page(1, [("2031-01-10", 50), ("2031-01-12", 80)]),
+        _page(2, [("2031-01-12", 80), ("2031-01-12", 70), ("2031-01-15", 40)]),
+    ])
+    assert "anchor_disagreement" not in reasons
+    assert {"date": "2031-01-12", "balance": 70} in daily
+
+
+def test_every_carried_forward_page_in_a_chain_is_accepted():
+    daily, reasons, _ = _merge([
+        _page(1, [("2031-01-10", 50), ("2031-01-12", 80)]),
+        _page(2, [("2031-01-12", 80), ("2031-01-12", 70), ("2031-01-15", 40)]),
+        _page(3, [("2031-01-15", 40), ("2031-01-15", 45), ("2031-01-22", 20)]),
+        _page(4, [("2031-01-22", 20), ("2031-01-23", 10)]),
+    ])
+    assert "anchor_disagreement" not in reasons
+    assert {"date": "2031-01-15", "balance": 45} in daily
+
+
+def test_a_carried_day_may_close_only_once():
+    _, reasons, _ = _merge([
+        _page(1, [("2031-01-10", 50), ("2031-01-12", 80)]),
+        _page(2, [("2031-01-12", 80), ("2031-01-12", 70), ("2031-01-12", 60)]),
+    ])
+    assert "anchor_disagreement" in reasons
+
+
+def test_a_first_entry_that_does_not_repeat_the_previous_figure_is_not_a_carry():
+    _, reasons, _ = _merge([
+        _page(1, [("2031-01-10", 50), ("2031-01-12", 80)]),
+        _page(2, [("2031-01-12", 75), ("2031-01-12", 70), ("2031-01-15", 40)]),
+    ])
+    assert "anchor_disagreement" in reasons
+
+
+def test_a_carry_must_be_the_first_entry_on_its_page():
+    _, reasons, _ = _merge([
+        _page(1, [("2031-01-10", 50), ("2031-01-12", 80)]),
+        _page(2, [("2031-01-11", 90), ("2031-01-12", 80), ("2031-01-12", 70)]),
+    ])
+    assert "anchor_disagreement" in reasons
+
+
 def test_non_adjacent_pages_still_conflict():
     _, reasons, _ = _merge([
         _page(1, [("2031-01-10", 50), ("2031-01-12", 80)]),
