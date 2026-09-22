@@ -45,7 +45,46 @@ confidence score built from model agreement plus the existing gate is returned w
    `docs/agent-handoffs/PHASE3-FALLBACK-CONNECTION.example.md`; the filled-in copy is private and
    comes from Gustavo.
 
-### 0.2 Standing rules inherited from the shootout, still binding
+### 0.2 The data boundary. Read this before you run a single command.
+
+**Never put customer document content into tool output.** Not into a terminal, not into a log, not
+into a diff you print, not into a test fixture, not into a commit. Your own transcript counts as
+disclosure: it leaves the machine and is retained by whoever hosts you.
+
+This is not new. `docs/agent-handoffs/EXTRACT-PRIVACY.md` has carried the binding form of it since
+batch 6: *"Archive + caches READ-ONLY; OCR artifacts by direct file path only (never the webapp_data
+sqlite index)"*. It is repeated here because it was broken on 2026-09-21 by an agent running a
+diagnostic search, which printed saved customer requests and page images into its tool output. The
+exposure could not be retracted.
+
+Concretely, and without exception:
+
+- **Never search, grep, list, dump or iterate `webapp_data/`, `.claude/`, `discovery_reports/` or
+  `Bank Statements/`.** Those hold real uploads, cached extractions, evidence blobs and page images.
+  A recursive grep across the repository root reaches all of them, so do not run one. This is the
+  exact mistake that caused the 2026-09-21 exposure: a `rg` pattern aimed at config keys was pointed
+  at a private artifact directory and walked into content-addressed evidence blobs.
+- **Customer-derived artefacts must live OUTSIDE the repository working tree.** Not in `.claude/`,
+  not in a `-private` subdirectory, nowhere under the checkout. A directory inside the tree is
+  reachable by every editor index, every recursive search and every tool that walks the project
+  root, and being gitignored protects the repository without protecting you. Put evidence blobs,
+  page renders, run outputs and audit files under a root of their own outside the checkout, the way
+  the shootout used `extraction-shootout/`, and reference them by absolute path.
+- Open a specific artifact by its exact file path when you have a reason to, one at a time, and do
+  not print its contents.
+- Debug with **counts, hashes, field names, reason codes and page numbers**. Never with values. If
+  you need to know whether a description survived verbatim, compare hashes or report a character
+  count, do not echo the description.
+- Write diagnostics to a file in your own scratch directory and read back only the aggregate. Do not
+  let a document body reach your context.
+- The synthetic fixtures in `synthetic/` on the instance are fabricated and carry none of this. Use
+  them for anything you would otherwise be tempted to inspect directly.
+- **If you do expose customer content, stop, say so immediately and precisely, and do not clean up
+  first.** State the command, the paths, how many documents, and whether anything was written to
+  disk. An accurate report is worth far more than a tidy tree, and hiding it is the only
+  unrecoverable mistake here.
+
+### 0.3 Standing rules inherited from the shootout, still binding
 
 - Self-hosted inference only, on the rented instance named in the annex. Customer pages, extracted
   content and detailed diffs are never sent to a third-party inference provider.
