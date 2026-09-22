@@ -156,9 +156,25 @@ def test_the_same_value_on_both_sides_is_not_a_conflict_either_way():
 # A page that prints NO figure for the day it continues (no daily table, or one whose dates were not read)
 # leaves the earlier page's mid-day figure standing as that day's close. It is not one.
 
-def _rows(*pairs):
-    return [CandidateRow(when, when[5:], "FABRICATED ROW", Decimal("1.00"), "credit", None, page,
+def _rows(*pairs, balances=None):
+    balances = balances or {}
+    return [CandidateRow(when, when[5:], "FABRICATED ROW", Decimal("1.00"), "credit", balances.get(index), page,
                          "stage_a+stage_b", f"b1t0r{index}") for index, (page, when) in enumerate(pairs)]
+
+
+def test_the_earlier_page_must_itself_break_inside_that_day():
+    # A sectioned statement: page 1 ends its deposits section on another day, then prints a whole-period
+    # daily table whose last date is the day page 2's fees section opens with. That figure is a true close.
+    pages = [_page(1, [("2031-01-05", 110), ("2031-01-20", 130)]), _page(2, [])]
+    rows = _rows((1, "2031-01-05"), (1, "2031-01-21"), (2, "2031-01-20"))
+    assert page_break_figures(pages, rows) == set()
+
+
+def test_a_running_balance_at_the_break_must_be_the_figure_dropped():
+    pages = [_page(1, [("2031-01-10", 50), ("2031-01-12", 80)]), _page(2, [])]
+    pairs = ((1, "2031-01-10"), (1, "2031-01-12"), (2, "2031-01-12"))
+    assert page_break_figures(pages, _rows(*pairs, balances={1: Decimal("75.00")})) == set()
+    assert page_break_figures(pages, _rows(*pairs, balances={1: Decimal("80.00")})) == {"2031-01-12"}
 
 
 def test_a_mid_day_page_break_figure_without_a_printed_close_is_not_a_closing_balance():

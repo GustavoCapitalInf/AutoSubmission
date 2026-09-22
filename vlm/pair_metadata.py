@@ -134,20 +134,27 @@ def page_break_figures(merges, rows) -> set[str]:
     page prints a figure for the day (no daily table, or one whose dates were not read), the earlier figure
     would stand as the day's closing balance although the day's later transactions follow on the next page.
     That day has no printed close; the ledger reconstructs it. Narrow on purpose: the figure is the last
-    entry and the latest date on its page, the next adjacent clean page's first ledger row carries the same
-    date, and no later page prints a figure for it. `rows` are the resolved ledger rows in printed order."""
-    first_date = {}
+    entry and the latest date on its page; the page's own ledger breaks inside that day (its last row carries
+    the date and, where that row prints a running balance, the balance is the figure); the next adjacent
+    clean page's first ledger row carries the same date; and no later page prints a figure for it. A
+    whole-period table printed before another section fails the break test, so its true close stands.
+    `rows` are the resolved ledger rows in printed order."""
+    first_row, last_row = {}, {}
     for row in rows:
-        first_date.setdefault(row.page, row.date)
+        first_row.setdefault(row.page, row)
+        last_row[row.page] = row
     dropped = set()
     for index in range(len(merges) - 1):
         if not _adjacent(merges, index, index + 1):
             continue
-        before = _daily_dates(merges[index])
-        if not before or before[-1] != max(before):
+        entries = _dated_entries(merges[index])
+        if not entries or entries[-1]["date"] != max(item["date"] for item in entries):
             continue
-        when = before[-1]
-        if (first_date.get(_page(index + 1, merges[index + 1])) == when
+        when, figure = entries[-1]["date"], entries[-1].get("balance")
+        ending, opening = last_row.get(_page(index, merges[index])), first_row.get(_page(index + 1, merges[index + 1]))
+        if (ending is not None and ending.date == when
+                and (ending.balance is None or _equal(ending.balance, figure))
+                and opening is not None and opening.date == when
                 and not any(when in _daily_dates(later) for later in merges[index + 1:])):
             dropped.add(when)
     return dropped

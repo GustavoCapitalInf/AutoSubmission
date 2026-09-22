@@ -592,7 +592,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     if currency_default is not None:
         audit['currency_default'] = currency_default
     audit['cheque_image_rows_excluded'] = cheque_rows_excluded
-    audit['daily_page_break_figures_dropped'] = len(page_break_dates)
+    audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)
     if admitted:
         from vlm.review import row_record
         audit['gate_rows'] = [{**row_record(row), 'page': row.page, 'locator': row.locator,
