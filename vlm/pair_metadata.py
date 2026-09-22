@@ -241,6 +241,13 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
 
     for index, merged in enumerate(merges):
         page = _page(index, merged)
+        if merged.page_role == "cheque_images":
+            # Pictures of cheques and deposit slips carry OTHER parties' names, banks and accounts. They are not
+            # statement metadata: keep the raw observations as provenance and compare nothing.
+            for key, value in merged.account.items():
+                if value is not None:
+                    provenance.append({"field": key, "page": page, "source": "reviewer", "value": value})
+            continue
         for key, value in merged.account.items():
             if value is None:
                 continue

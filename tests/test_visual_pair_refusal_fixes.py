@@ -61,9 +61,10 @@ def test_incomplete_pages_do_not_invalidate_other_pages(wired, monkeypatch, bad_
         assert row['state'] == ('unresolved' if row['page'] in bad_pages else 'agreed')
 
 
-def test_currency_absence_is_distinct_from_currency_conflict(wired, monkeypatch):
+def test_currency_absence_on_a_canadian_statement_is_distinct_from_currency_conflict(wired, monkeypatch):
+    # Owner ruling, 2026-09-22: the USD default never applies to a Canadian bank, so absence stays absence.
     pair, pdf, directory, _, data = wired
-    data['review']['account']['currency'] = None
+    data['review']['account'].update(currency=None, bank='TD Canada Trust')
     monkeypatch.setattr('vlm.currency.resolve_currency', lambda *a, **kw:
                         CurrencyResolution('unresolved', 'bridge_unclaimed'))
     audit = pair.extract_visual_pair(pdf, evidence_dir=directory, data_scope='synthetic').visual_pair
@@ -72,6 +73,22 @@ def test_currency_absence_is_distinct_from_currency_conflict(wired, monkeypatch)
         'count': 1, 'document_count': 1, 'pages': [],
     }
     assert not audit['gate']['admitted']
+    assert audit['currency_default']['canadian_evidence'] == ['canadian_institution_name']
+
+
+def test_currency_absence_on_a_non_canadian_statement_defaults_to_usd(wired, monkeypatch):
+    # Owner ruling, 2026-09-22: no printed currency and no Canadian evidence means USD, published as a
+    # schema default exactly as the production readers publish an unlabelled US statement.
+    pair, pdf, directory, _, data = wired
+    data['review']['account']['currency'] = None
+    monkeypatch.setattr('vlm.currency.resolve_currency', lambda *a, **kw:
+                        CurrencyResolution('unresolved', 'bridge_unclaimed'))
+    audit = pair.extract_visual_pair(pdf, evidence_dir=directory, data_scope='synthetic').visual_pair
+    assert 'currency_missing' not in audit['gate']['reasons']
+    assert audit['gate']['admitted']
+    assert audit['statement']['currency'] == 'USD'
+    assert audit['statement']['currency_source'] == 'schema_default'
+    assert audit['currency_default']['currency'] == 'USD'
 
 
 def test_currency_resolution_runs_with_other_gate_failures_and_clears_only_absence(wired, monkeypatch):

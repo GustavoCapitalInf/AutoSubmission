@@ -1,8 +1,15 @@
-"""Reuse an existing currency rule only through a faithful visual-text bridge.
+"""Reuse an existing currency rule only through a faithful visual-text bridge, then apply the owner's default.
 
 No PDF or native text is read here. The caller supplies visual extraction text
-and the reviewed source Statement; no filename, bank-name lookup, new default,
-or model call is a currency proof. Existing weak schema defaults stay unknown.
+and the reviewed source Statement; no filename or model call is a currency proof.
+
+Owner ruling, Gustavo, 2026-09-22: a statement that prints no currency is USD unless the bank is Canadian.
+`usd_default` applies it. The value is published with currency_source "schema_default", exactly as the
+production readers publish an unlabelled US statement: it was defaulted, not read. A Canadian statement is
+never defaulted here; it keeps its own proven jurisdiction rules (RBC today, through the bridge) or stays
+currency_missing. When the evidence is mixed the statement is treated as Canadian, because wrongly refusing
+is safe and wrongly calling a Canadian statement USD is not. Printed currency always wins, and two different
+printed currencies remain a conflict.
 """
 from __future__ import annotations
 
@@ -45,7 +52,44 @@ def currency_resolution_manifest() -> dict:
         "resolver_version": CURRENCY_RESOLVER_VERSION,
         "registry_fingerprint": registry_fingerprint(),
         "analysis_source_sha256": digest,
+        "owner_default": {"ruling": USD_DEFAULT_RULING, "currency": "USD", "currency_source": "schema_default",
+                          "canadian_institutions": list(CANADIAN_INSTITUTIONS),
+                          "canadian_address_pattern": CANADIAN_ADDRESS_PATTERN},
     }
+
+
+# --- Owner ruling: USD unless Canadian -----------------------------------------------------------------
+USD_DEFAULT_RULING = "gustavo_2026_09_22_usd_unless_canadian_bank"
+# Matched as whole words against the reviewer's bank field only. Page text is NOT scanned for these names:
+# a US statement can print "AIR CANADA" in a transaction. Ambiguous names (BMO, which also operates in the
+# US) are listed on purpose, because a false "Canadian" only refuses the default.
+CANADIAN_INSTITUTIONS = ("CANADA", "CANADIAN", "CANADA TRUST", "ROYAL BANK", "RBC", "CIBC", "BANK OF MONTREAL",
+                         "BMO", "SCOTIABANK", "NOVA SCOTIA", "DESJARDINS", "BANQUE", "CAISSE", "ATB",
+                         "LAURENTIAN", "TANGERINE", "SIMPLII", "EQ BANK", "MERIDIAN", "VANCITY", "SERVUS")
+# A Canadian province or territory followed by a Canadian postal code, as printed in an address block. The
+# postal code alone is too loose (reference codes can look like it); with the province it is specific. The
+# postal-code letters are those Canada Post uses, as in analysis/rbc.py.
+_PROVINCES = r"(?:AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|PQ|SK|YT)"
+_CA_POSTAL = r"[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z][ \t]\d[ABCEGHJ-NPRSTV-Z]\d"
+CANADIAN_ADDRESS_PATTERN = r"(?<![A-Z0-9])" + _PROVINCES + r"[ ,\t]+" + _CA_POSTAL + r"(?![A-Z0-9])"
+
+
+def canadian_evidence(bank: str | None, page_texts: Sequence[str]) -> tuple[str, ...]:
+    """Why this statement looks Canadian, or () when nothing does."""
+    reasons = []
+    padded = " " + re.sub(r"[^A-Z0-9]+", " ", str(bank or "").upper()).strip() + " "
+    if any(f" {name} " in padded for name in CANADIAN_INSTITUTIONS):
+        reasons.append("canadian_institution_name")
+    if any(re.search(CANADIAN_ADDRESS_PATTERN, str(text).upper()) for text in page_texts):
+        reasons.append("canadian_address")
+    return tuple(reasons)
+
+
+def usd_default(bank: str | None, page_texts: Sequence[str]) -> dict:
+    """The owner's default for a statement that printed no currency: USD unless there is Canadian evidence."""
+    evidence = canadian_evidence(bank, page_texts)
+    return {"ruling": USD_DEFAULT_RULING, "canadian_evidence": list(evidence),
+            "currency": None if evidence else "USD", "currency_source": None if evidence else "schema_default"}
 
 
 @dataclass(frozen=True)

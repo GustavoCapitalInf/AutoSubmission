@@ -41,7 +41,10 @@ def test_failed_sources_are_attributed_by_lineage_not_shared_source_label():
     assert all(item['reason'] != 'page_review_invalid' for item in result.evidence)
 
 
-def test_failed_stage_a_without_candidates_does_not_hold_stage_b_additions(wired):
+def test_a_cut_off_stage_a_read_holds_its_page_even_when_stage_b_adds_every_row(wired):
+    # Owner ruling, 2026-09-22 ("Hold"): a proposer read that was cut off holds its page. Here the proposer
+    # produced nothing before the cut and the reviewer added both rows, so every row would be single-read;
+    # admitting it would pass one model's reading off as a paired one.
     pair, pdf, directory, _, mutable = wired
     from vlm.assemble import parse_dots_layout
     from tests.test_visual_pair_pipeline import LAYOUT
@@ -52,13 +55,12 @@ def test_failed_stage_a_without_candidates_does_not_hold_stage_b_additions(wired
     mutable['review']['added'] = [{'row': item['row'], 'after_candidate_id': None} for item in records]
     doc = pair.extract_visual_pair(pdf, evidence_dir=directory, data_scope='synthetic')
     audit = doc.visual_pair
-    assert audit['gate']['admitted']
+    assert not audit['gate']['admitted'] and audit['statement'] is None
+    assert 'page_unresolved' in audit['gate']['reasons']
     assert audit['confidence']['counts']['added'] == 2
-    assert audit['confidence']['counts']['unresolved'] == 0
     assert audit['pages'][0]['proposal_errors']
-    assert audit['pages'][0]['errors'] == []
     assert audit['pages'][0]['truncated'] and not audit['pages'][0]['review_truncated']
-    assert not doc.has_truncated_pages
+    assert doc.has_truncated_pages
 
 
 def test_one_bad_observation_preserves_other_pipeline_rows_and_metadata(wired):

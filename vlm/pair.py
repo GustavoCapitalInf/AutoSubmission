@@ -200,6 +200,20 @@ def _statement(rows, account: dict, daily: list[dict], *, currency_source: str =
     return Statement.model_validate(base).model_dump(exclude_computed_fields=True)
 
 
+def ledger_rows(merges) -> tuple[list, int]:
+    """(rows entering the ledger, rows excluded). A page the reviewer labels cheque_images pictures cheques or
+    deposit slips whose transactions are already listed elsewhere in the statement, so its rows never enter
+    the ledger. If a real transaction page were mislabelled, its missing rows break the arithmetic and the
+    gate refuses: this fails closed."""
+    rows, excluded = [], 0
+    for merged in merges:
+        if merged.page_role == 'cheque_images':
+            excluded += len(merged.rows)
+            continue
+        rows.extend(merged.rows)
+    return rows, excluded
+
+
 def _markdown_page(merged, *, rows=None) -> str:
     # A normalized projection of reviewed evidence; original model text is never
     # accidentally offered to a bank parser after a correction or rejection.
@@ -443,7 +457,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     segment_plan = detect_page_segments(merges, opening_observations=opening_observations)
     account, daily, reasons, field_evidence = _merge_metadata(
         merges, occurrences=occurrences, segment_plan=segment_plan)
-    rows = [row for merged in merges for row in merged.rows]
+    rows, cheque_rows_excluded = ledger_rows(merges)
     # The reviewed printed month/day and reviewed period can determine a
     # missing ISO date without another model reading. This is a separate
     # deterministic record, never a rewrite of either model's source evidence.
@@ -457,7 +471,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     segment_checks, segment_occurrences = reconcile_page_segments(segment_plan, rows)
     occurrences.extend(segment_occurrences)
     reasons.extend(item['code'] for item in segment_occurrences)
-    unresolved_pages = [idx + 1 for idx, (errors, cut) in enumerate(zip(page_errors, review_truncated))
+    # Owner ruling, 2026-09-22: a cut-off read HOLDS its page. `truncated` is the proposer's read after crop
+    # recovery OR the reviewer's; a proposal that recovery completed is not cut off.
+    unresolved_pages = [idx + 1 for idx, (errors, cut) in enumerate(zip(page_errors, truncated))
                         if errors or cut or merges[idx].counts.get('unresolved', 0)
                         or merges[idx].metadata_evidence]
     for page_number in unresolved_pages:
@@ -511,6 +527,21 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                                    'value': resolution.currency, 'currency_source': currency_source,
                                    'parser_id': resolution.parser_id,
                                    'visual_source_sha256': currency_bridge_source_sha})
+    # Owner ruling, 2026-09-22: no printed currency means USD unless the bank is Canadian. Only when nothing
+    # printed and no proven rule decided it, and never over two conflicting printed currencies.
+    currency_default = None
+    if not account.get('currency') and 'currency_conflict' not in reasons:
+        from vlm.currency import usd_default
+        currency_default = usd_default(account.get('bank'),
+                                       ['\n'.join(block.content for block in layout.blocks) for layout in layouts])
+        if currency_default['currency']:
+            account['currency'] = currency_default['currency']
+            currency_source = currency_default['currency_source']
+            reasons = [reason for reason in reasons if reason != 'currency_missing']
+            occurrences = [event for event in occurrences if event['code'] != 'currency_missing']
+            field_evidence.append({'field': 'currency', 'page': None, 'source': 'owner_ruling_default',
+                                   'value': currency_default['currency'], 'currency_source': currency_source,
+                                   'ruling': currency_default['ruling']})
     from vlm.reason_counts import summarize_occurrences
     reasons = list(dict.fromkeys(reasons))
     reason_counts = summarize_occurrences(occurrences)
@@ -518,7 +549,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     confidence = confidence_summary(merges, gate_admitted=admitted, gate_reasons=reasons)
     statement = _statement(verdict.admitted_rows, account, daily, currency_source=currency_source) if admitted else None
     page_text = [PageText(_markdown_page(merged), finish_reason='length' if cut else 'stop')
-                 for merged, cut in zip(merges, review_truncated)]
+                 for merged, cut in zip(merges, truncated)]
     integrity = assess_pages(page_text)
     audit = {'version': PAIR_VERSION, 'account_count': 1, 'statement': statement,
              'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks,
@@ -555,6 +586,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     if currency_resolution is not None:
         audit['currency_resolution'] = currency_resolution
         audit['currency_bridge_source_sha256'] = currency_bridge_source_sha
+    if currency_default is not None:
+        audit['currency_default'] = currency_default
+    audit['cheque_image_rows_excluded'] = cheque_rows_excluded
     if admitted:
         from vlm.review import row_record
         audit['gate_rows'] = [{**row_record(row), 'page': row.page, 'locator': row.locator,

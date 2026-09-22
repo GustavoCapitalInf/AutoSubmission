@@ -624,6 +624,16 @@ PROVENANCE_MODULES = {
     "analysis/welch_state_bank.py",
     "analysis/woodforest.py",
     "corpus_gate.py",
+    # Phase 3.1 visual pair. vlm/currency.py SETS the label: the existing-parser bridge's source, or
+    # "schema_default" under the owner ruling of 2026-09-22 (USD unless Canadian). vlm/pair.py carries that
+    # label into the Statement it builds. vlm/pair_adapter.py reads it only to check the currency proof is
+    # internally consistent (refusing a mismatched proof) and passes it through. None feeds money.
+    "vlm/currency.py",
+    "vlm/pair.py",
+    "vlm/pair_adapter.py",
+    # Not a reader: the oracle comparison diffs two already-published payloads and names the label as a
+    # column to compare. It reads no document and publishes nothing.
+    "tools/phase3_pair/oracle_compare.py",
 }
 
 
