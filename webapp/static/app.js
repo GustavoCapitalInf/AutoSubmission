@@ -1,4 +1,7 @@
 const els = {
+  settingsView: document.getElementById("settingsView"),
+  nsfCarryOverToggle: document.getElementById("nsfCarryOverToggle"),
+  settingsStatus: document.getElementById("settingsStatus"),
   fileInput: document.getElementById("fileInput"),
   uploadBtn: document.getElementById("uploadBtn"),
   forceOcrToggle: document.getElementById("forceOcrToggle"),
@@ -183,6 +186,17 @@ function formatMoney(value, currency = "USD") {
   } catch {
     return `$${amount}`;
   }
+}
+
+// Owner ruling, 2026-09-22: the NSF count is negative-ending days on the basis chosen in Settings.
+const NSF_SOURCE_LABELS = {
+  negative_printed_days: "Negative-ending days (printed days only)",
+  negative_ending_days: "Negative-ending days (balance carried over inactive days)",
+  negative_ending_days_unavailable: "Not computable: no validated daily ledger",
+};
+
+function nsfSourceLabel(source) {
+  return NSF_SOURCE_LABELS[source] || (source ? labelize(source) : "Negative-ending days");
 }
 
 function formatNumber(value) {
@@ -1205,7 +1219,7 @@ function renderAnalysis(report) {
       title: "Risk Signals",
       sub: "NSFs and balances",
       items: [
-        ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Negative-ending days", "NSF", countTone(metrics.effective_nsf_count)],
+        ["NSFs", formatNumber(metrics.effective_nsf_count), nsfSourceLabel(metrics.nsf_source), "NSF", countTone(metrics.effective_nsf_count)],
         ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
         ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
         ["Ending Balance", formatMoney(statement.ending_balance, currency), "Closing balance for the statement period", "END", "neutral"],
@@ -1495,7 +1509,7 @@ function renderPackageAnalysis(pkg) {
         ["Total Cash Flow", formatMoney(totals.cash_flow, currency), moneyNote("Credits minus debits"), "CF", negativeTone(totals.cash_flow)],
         ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow, currency), moneyNote("Average statement cash flow"), "AVG", negativeTone(totals.avg_monthly_cash_flow)],
         ["Average Daily Balance", formatMoney(totals.average_daily_balance, currency), moneyNote(packageAverageBalanceNote(documents)), "ADB", currencyInfo.refused ? "amber" : packageAverageBalanceTone(documents)],
-        ["NSFs", formatNumber(totals.nsf_count), "Total returned items", "NSF", countTone(totals.nsf_count)],
+        ["NSFs", formatNumber(totals.nsf_count), totals.nsf_source === "mixed" ? "Members counted on different bases" : nsfSourceLabel(totals.nsf_source), "NSF", countTone(totals.nsf_count)],
         ["Confirmed Withholding", formatPercent(totals.package_withholding_rate), moneyNote(withholdingAuditNote(totals, currency)), "%", withholdingTone(totals.package_withholding_rate)],
       ],
     },
@@ -1758,7 +1772,7 @@ function renderStatementModal(jobId, report, markdown) {
     ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
     ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
     ["Ending Balance", formatMoney(statement.ending_balance, currency), "Closing balance for the statement period", "END", "neutral"],
-    ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Negative-ending days", "NSF", countTone(metrics.effective_nsf_count)],
+    ["NSFs", formatNumber(metrics.effective_nsf_count), nsfSourceLabel(metrics.nsf_source), "NSF", countTone(metrics.effective_nsf_count)],
     ["Confirmed Withholding", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
     ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(metrics.lenders_detected)],
     ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(metrics.potential_lenders_detected)],
@@ -1882,11 +1896,81 @@ function generateSummary() {
     `Status: ${labelize(decision)}.`;
 }
 
+const pageTitle = document.querySelector(".page-title h1");
+const pageSubtitle = document.querySelector(".page-title p");
+const dashboardTitle = { title: pageTitle.textContent, subtitle: pageSubtitle.textContent };
+
+function showView(view) {
+  const settings = view === "settings";
+  document.querySelector(".top-grid").hidden = settings;
+  document.querySelector(".main-grid").hidden = settings;
+  els.settingsView.hidden = !settings;
+  document.querySelector(".workspace").classList.toggle("settings-open", settings);
+  pageTitle.textContent = settings ? "Settings" : dashboardTitle.title;
+  pageSubtitle.textContent = settings ? "How results are calculated and shown" : dashboardTitle.subtitle;
+  if (settings) loadSettings();
+}
+
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => {
-    document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
+    document.querySelectorAll(".nav-item").forEach((item) => {
+      item.classList.remove("active");
+      item.removeAttribute("aria-current");
+    });
     button.classList.add("active");
+    button.setAttribute("aria-current", "page");
+    showView(button.dataset.view);
   });
+});
+
+function loadSettings() {
+  els.nsfCarryOverToggle.disabled = true;
+  fetch("/api/settings")
+    .then((response) => {
+      if (!response.ok) throw new Error(`Settings unavailable (${response.status})`);
+      return response.json();
+    })
+    .then(({ settings }) => {
+      els.nsfCarryOverToggle.checked = settings.nsf_carry_over === true;
+      els.nsfCarryOverToggle.disabled = false;
+      els.settingsStatus.textContent = "";
+    })
+    .catch((error) => {
+      els.settingsStatus.textContent = error.message || String(error);
+    });
+}
+
+function refreshShownResults() {
+  // A setting changes how a result is presented, so whatever is open is fetched again.
+  if (currentJobIds.length > 1) loadPackage(currentJobIds);
+  else if (currentJobId && currentAnalysis) loadResults(currentJobId);
+}
+
+els.nsfCarryOverToggle.addEventListener("change", () => {
+  const wanted = els.nsfCarryOverToggle.checked;
+  els.nsfCarryOverToggle.disabled = true;
+  els.settingsStatus.textContent = "Saving...";
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nsf_carry_over: wanted }),
+  })
+    .then((response) => response.json().then((payload) => ({ response, payload })))
+    .then(({ response, payload }) => {
+      if (!response.ok || !payload.settings) throw new Error(payload.error || `Save failed (${response.status})`);
+      els.nsfCarryOverToggle.checked = payload.settings.nsf_carry_over === true;
+      els.settingsStatus.textContent = payload.settings.nsf_carry_over
+        ? "Saved. NSF counts now carry the balance over inactive days."
+        : "Saved. NSF counts now use printed days only.";
+      refreshShownResults();
+    })
+    .catch((error) => {
+      els.nsfCarryOverToggle.checked = !wanted;
+      els.settingsStatus.textContent = error.message || String(error);
+    })
+    .finally(() => {
+      els.nsfCarryOverToggle.disabled = false;
+    });
 });
 
 els.uploadBtn.addEventListener("click", () => els.fileInput.click());

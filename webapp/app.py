@@ -32,7 +32,9 @@ from analysis.revenue import (
     normalize_withholding_denominator_mode,
     REVENUE_STATES,
 )
+from analysis.nsf_days import apply_nsf_basis_to_payload
 from .jobs import JobStore
+from .settings import load_settings, save_settings
 from .worker import run_job
 
 # Upload ceilings. Every value here is enforced server-side and mirrored in the
@@ -187,6 +189,18 @@ def _mask_account(value: object) -> str | None:
         return None
     digits = "".join(character for character in text if character.isdigit())
     return "****" + digits[-4:]
+
+
+def _displayed(analysis: object, *, carry_over: bool | None = None) -> object:
+    """A stored analysis as the dashboard presents it: the owner's Settings applied to a COPY.
+
+    Today that is the NSF basis (analysis/nsf_days.py): printed days by default, or every calendar day with
+    the balance carried over inactive days when Settings turns carry-over on. Every surface that shows or
+    exports metrics goes through here, so the dashboard, the downloads and the package agree; the stored
+    record is never rewritten, and a change of setting applies to every job at once."""
+    if carry_over is None:
+        carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
+    return apply_nsf_basis_to_payload(analysis, carry_over=carry_over)
 
 
 def _masked(payload: object) -> object:
@@ -763,8 +777,10 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
 
     members: list[tuple] = []
     excluded: list[dict] = []
+    # One read per package, so a setting saved mid-request cannot split the members across two NSF bases.
+    carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
     for job in jobs:
-        analysis = job.analysis or {}
+        analysis = _displayed(job.analysis or {}, carry_over=carry_over)
         if not is_document_payload(analysis):
             members.append((job, analysis, None, 1))
             continue
@@ -909,6 +925,7 @@ def _package_analysis(jobs) -> dict:
         state: [] for state in REVENUE_STATES
     }
     denominator_modes: set[str] = set()
+    nsf_sources: set[str] = set()
     #: CURRENCY DOCTRINE §F bookkeeping: how many money-contributing members
     #: each declared currency has, and how many declared none at all.
     currency_documents: dict[str, int] = {}
@@ -1183,6 +1200,9 @@ def _package_analysis(jobs) -> dict:
             eligible_deposits = round(max(eligible_deposits - excluded_credits, 0.0), 2)
         denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
+        nsf_source = metrics.get("nsf_source")
+        if isinstance(nsf_source, str):
+            nsf_sources.add(nsf_source)  # a member with no analysis contributes no count and no basis
         adb_calendar_days = metrics.get("calendar_day_count")
         average_daily_balance_num = _num(
             metrics.get("average_daily_balance"),
@@ -1455,6 +1475,7 @@ def _package_analysis(jobs) -> dict:
             "adb_calendar_days": adb_calendar_days,
             "adb_validated": adb_validated,
             "nsf_count": nsf_count,
+            "nsf_source": nsf_source,
             "lender_debits": lender_debits,
             "lender_debit_count": lender_debit_count,
             "lenders_detected": int(_num(metrics.get("lenders_detected"), len(detection.get("known_funders") or []))),
@@ -1731,6 +1752,9 @@ def _package_analysis(jobs) -> dict:
         "withholding_denominator_mode": (
             next(iter(denominator_modes)) if len(denominator_modes) == 1 else "mixed"
         ),
+        # The basis the summed NSF count was cut on (analysis/nsf_days.py). "mixed" when members differ, e.g. a
+        # member whose count is unavailable, or a legacy payload that could not be re-based.
+        "nsf_source": next(iter(nsf_sources)) if len(nsf_sources) == 1 else ("mixed" if nsf_sources else None),
         "withholding_denominator_label": (
             "Verified revenue"
             if denominator_modes == {"verified_revenue"}
@@ -1907,6 +1931,28 @@ def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object
     return page_count, profile, None
 
 
+@app.route("/api/settings", methods=["GET"])
+def get_settings():
+    return jsonify({"settings": load_settings(store.storage.data_dir)})
+
+
+@app.route("/api/settings", methods=["POST"])
+def update_settings():
+    """Save owner display settings. JSON only: a cross-site HTML form cannot send it without a preflight."""
+    updates = request.get_json(silent=True)
+    if not request.is_json or updates is None:
+        return jsonify({"error": "settings must be sent as a JSON object"}), 400
+    try:
+        settings = save_settings(store.storage.data_dir, updates)
+    except ValueError:
+        # A fixed refusal: no exception text crosses this boundary (tests/test_worker_privacy.py).
+        return jsonify({"error": "invalid settings update"}), 400
+    except OSError:
+        # A read-only data folder, or a replace that kept colliding with readers; the setting is unchanged.
+        return jsonify({"error": "settings could not be saved"}), 503
+    return jsonify({"settings": settings})
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     files = request.files.getlist("files")
@@ -2043,7 +2089,7 @@ def analysis(job_id):
     if job is None or job.status != "done":
         abort(404)
     return jsonify({
-        "analysis": _masked(job.analysis),
+        "analysis": _masked(_displayed(job.analysis)),
         "analysis_error": job.analysis_error,
     })
 
@@ -2131,7 +2177,7 @@ def revenue_review(job_id):
     )
     if stored is None:
         abort(404)
-    return jsonify({"analysis": _masked(stored)})
+    return jsonify({"analysis": _masked(_displayed(stored))})
 
 
 @app.route("/package_analysis")
@@ -2278,17 +2324,17 @@ def download(job_id, fmt):
     if fmt == "json":
         if job.analysis is None:
             abort(404)
-        content = json.dumps(_masked(job.analysis), indent=2)
+        content = json.dumps(_masked(_displayed(job.analysis)), indent=2)
         mimetype = "application/json"
     elif fmt == "csv":
         if job.analysis is None:
             abort(404)
-        content = _analysis_csv(_masked(job.analysis))
+        content = _analysis_csv(_masked(_displayed(job.analysis)))
         mimetype = "text/csv"
     elif fmt == "xlsx":
         if job.analysis is None:
             abort(404)
-        content = _analysis_xlsx(_masked(job.analysis))
+        content = _analysis_xlsx(_masked(_displayed(job.analysis)))
         mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
         # Raw OCR source, served verbatim: see the residual-exposure note on

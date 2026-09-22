@@ -18,6 +18,7 @@ from .adb import (
     compute_average_daily_balance,
     money_to_cents as _money,
 )
+from .nsf_days import PRINTED as NSF_PRINTED, UNAVAILABLE as NSF_UNAVAILABLE, negative_day_count
 from .schema import Statement
 from .transaction_classifier import (
     TransactionClassification,
@@ -52,7 +53,8 @@ class Metrics:
     adb_ok: bool | None = None
     min_balance: float | None = None
     max_balance: float | None = None
-    negative_days: int = 0
+    negative_days: int = 0              # every calendar day, a carried (inactive) day included
+    negative_printed_days: int = 0      # printed days only: posting days and bank-printed daily balances
     # Line-item totals: computed only from extracted transaction rows.
     total_deposits: float = 0.0
     total_withdrawals: float = 0.0
@@ -68,11 +70,14 @@ class Metrics:
     withdrawals_source: str = "line_items"
     nsf_count: int = 0                     # returned / NSF line items (evidence; not the underwriting NSF since R18)
     stated_nsf_count: int | None = None    # bank-printed count this period, when available
-    # R18 (Gustavo, 2026-09-18): the underwriting NSF count is the number of calendar days in the period that
-    # END with a negative balance, from the validated daily ledger; returned items are not counted. Without a
-    # validated ledger the figure is not computable: 0 with nsf_source 'negative_ending_days_unavailable'.
+    # R18 (Gustavo, 2026-09-18): the underwriting NSF count is the number of days in the period that END with a
+    # negative balance, from the validated daily ledger; returned items are not counted. Without a validated
+    # ledger the figure is not computable: 0 with nsf_source 'negative_ending_days_unavailable'.
+    # Owner ruling, 2026-09-22: the default basis is PRINTED days (nsf_source 'negative_printed_days'); a day
+    # with no activity that only carries the previous balance is not counted. Carrying over (every calendar
+    # day, nsf_source 'negative_ending_days') is the web app's Settings option. See analysis/nsf_days.py.
     effective_nsf_count: int = 0
-    nsf_source: str = "negative_ending_days"
+    nsf_source: str = NSF_PRINTED
     lender_credits: float = 0.0
     lender_debits: float = 0.0
     lender_debit_count: int = 0
@@ -434,7 +439,7 @@ def compute_metrics(
     m.effective_num_deposits = m.num_deposits
     m.effective_num_withdrawals = m.num_withdrawals
     m.effective_nsf_count = 0
-    m.nsf_source = "negative_ending_days_unavailable"
+    m.nsf_source = NSF_UNAVAILABLE
 
     # Always compute the ADB working so the daily ledger and its validations are
     # available for audit, even when policy says not to report the figure.
@@ -462,9 +467,10 @@ def compute_metrics(
         m.average_daily_balance = adb.underwriting_adb
         m.min_balance = round(min(vals), 2)
         m.max_balance = round(max(vals), 2)
-        m.negative_days = sum(1 for v in vals if v < 0)
-        m.effective_nsf_count = m.negative_days   # R18
-        m.nsf_source = "negative_ending_days"
+        m.negative_days = negative_day_count(adb.daily_balances, carry_over=True)
+        m.negative_printed_days = negative_day_count(adb.daily_balances, carry_over=False)
+        m.effective_nsf_count = m.negative_printed_days   # R18, printed-day basis (owner ruling 2026-09-22)
+        m.nsf_source = NSF_PRINTED
     elif trust_running_balances and adb.daily_balances:
         m.notes.append("not reporting average daily balance because its ledger validation failed")
     elif not trust_running_balances:
@@ -530,7 +536,7 @@ def compute_metrics(
             f"bank-stated NSF count {stmt.stated_nsf_count} differs from "
             f"{m.nsf_count} classified returned item(s); the underwriting NSF count is the negative-ending days (R18)"
         )
-    if m.nsf_source == "negative_ending_days_unavailable":
+    if m.nsf_source == NSF_UNAVAILABLE:
         m.notes.append("NSF (negative-ending days) not computable: no validated daily ledger")
     m.cash_flow = round(m.effective_total_deposits - m.effective_total_withdrawals, 2)
     m.legacy_eligible_deposits = round(

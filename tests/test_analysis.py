@@ -2500,7 +2500,8 @@ def test_parse_citizens_native_text_sections():
     assert stmt.stated_total_credits == 300.0
     assert stmt.stated_total_debits == 105.0
     assert report.metrics.nsf_count == 2                 # two returned items, reported apart
-    assert report.metrics.effective_nsf_count == 30       # R18: every April day ends overdrawn
+    assert report.metrics.negative_days == 30             # carry-over basis: every April day ends overdrawn
+    assert report.metrics.effective_nsf_count == 4        # printed basis (default): the four posting days
     assert stmt.stated_nsf_count is None
     assert [t.amount for t in stmt.transactions] == [-35.0, -70.0, 100.0, 200.0]
     assert reconcile(stmt).ok
@@ -3628,8 +3629,9 @@ def test_r18_underwriting_nsf_counts_negative_ending_days_not_returned_items():
     assert reconcile(stmt).ok
     m = compute_metrics(stmt)
     assert m.nsf_count == 1                     # the returned item is still evidence
-    assert m.negative_days == 4                 # 01-02 through 01-05 end below zero
-    assert m.effective_nsf_count == 4 and m.nsf_source == "negative_ending_days"
+    assert m.negative_days == 4                 # carry-over basis: 01-02 through 01-05 end below zero
+    assert m.negative_printed_days == 2         # printed basis: 01-02 and 01-04, the days with activity
+    assert m.effective_nsf_count == 2 and m.nsf_source == "negative_printed_days"
 
 
 def test_r18_underwriting_nsf_is_unavailable_without_a_validated_ledger():
