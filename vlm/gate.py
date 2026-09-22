@@ -10,9 +10,17 @@ Review closures (CEILING-HARNESS-REVIEW-X):
            distinguish the two rows, or the bank's printed per-direction count vouches for the pair.
 * MAJOR-4  the bank's printed totals and counts reach `reconcile`; a failing summary identity is
            `summary_mismatch`, a failing count is `count_mismatch`.
+* MAJOR-2 amendment (gate 10) a repeat is also distinguished when the layout model read the two rows as
+           separate printed lines: different pages, or the SAME read of one page at different grid
+           positions. Rows from different reads of one page (full page versus crop, or two crops) may
+           overlap, and reviewer additions carry no position, so those stay unverifiable. Where both rows
+           still print a balance after same-day runs are collapsed, balances decide, as before. RR-2 is
+           unchanged: a matching count never distinguishes a repeat, and the arithmetic still refuses a
+           row that is not on the page.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
@@ -23,7 +31,7 @@ from vlm.assemble import CandidateRow
 from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
-GATE_VERSION = 9
+GATE_VERSION = 10
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
@@ -127,9 +135,30 @@ def collapse_daily_balances(rows: list[CandidateRow]) -> tuple[list[CandidateRow
     return out, collapsed
 
 
-def _duplicates(rows: list[CandidateRow], *, occurrences: list[dict] | None = None) -> tuple[int, int]:
+# A row the layout model read at a grid position: optional read prefix (g0/ for a recovery original,
+# g<gen>c<crop>/ for a crop), then block, table and row. Reviewer additions ("added<n>") and anything
+# else carry no position.
+_LAYOUT_LOCATOR = re.compile(r"^(?P<read>(?:g\d+(?:c\d+)?/)?)b\d+t\d+r\d+$")
+
+
+def _separate_printed_lines(first: CandidateRow, second: CandidateRow) -> bool:
+    """True when the layout read the two rows as different printed lines of the statement."""
+    one = _LAYOUT_LOCATOR.match(first.locator or "")
+    two = _LAYOUT_LOCATOR.match(second.locator or "")
+    if one is None or two is None or first.locator == second.locator:
+        return False
+    if first.page != second.page:
+        return True   # one printed line cannot sit on two pages
+    # Same page: only the same read is known not to overlap itself.
+    return one.group("read") == two.group("read")
+
+
+def _duplicates(rows: list[CandidateRow], *, occurrences: list[dict] | None = None,
+                positional: list[int] | None = None) -> tuple[int, int]:
     """(distinguished_repeats, unverifiable_repeats): a repeat of (date, description, amount, direction)
-    is distinguished when both rows print balances and they differ."""
+    is distinguished when both rows print balances and they differ, or, when at least one carries no
+    balance (including after same-day balance runs are collapsed), when the layout read them as
+    separate printed lines."""
     seen: dict[tuple, list[CandidateRow]] = {}
     distinguished = unverifiable = 0
     for row in rows:
@@ -137,7 +166,13 @@ def _duplicates(rows: list[CandidateRow], *, occurrences: list[dict] | None = No
         twins = seen.setdefault(key, [])
         repeated = False
         for twin in twins:
-            if twin.balance is not None and row.balance is not None and twin.balance != row.balance:
+            if twin.balance is not None and row.balance is not None:
+                separate = twin.balance != row.balance
+            else:
+                separate = _separate_printed_lines(twin, row)
+                if separate and positional is not None:
+                    positional[0] += 1
+            if separate:
                 distinguished += 1
             else:
                 unverifiable += 1
@@ -215,8 +250,10 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
                     record("period_mismatch", row=row, field="date")
         checks["dates_outside_period"] = outside
         duplicates = []
-        distinguished, unverifiable = _duplicates(rows, occurrences=duplicates)
+        positional = [0]
+        distinguished, unverifiable = _duplicates(rows, occurrences=duplicates, positional=positional)
         checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}
+        checks["repeats_by_position"] = positional[0]
         if unverifiable:
             reasons.append("duplicate_row")
             occurrences.extend(duplicates)
@@ -290,8 +327,10 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
             if later < earlier:
                 record("date_order_chained", row=row, field="date")
     duplicate_occurrences: list[dict] = []
-    distinguished, unverifiable = _duplicates(resolved, occurrences=duplicate_occurrences)
+    positional = [0]
+    distinguished, unverifiable = _duplicates(resolved, occurrences=duplicate_occurrences, positional=positional)
     checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}
+    checks["repeats_by_position"] = positional[0]
     computed_ending: Decimal | None = None
     continuity_breaks = 0
     counts_vouch = False
