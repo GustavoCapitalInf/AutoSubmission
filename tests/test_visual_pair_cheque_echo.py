@@ -157,7 +157,7 @@ def test_a_daily_balance_table_is_never_pictures():
 
 def test_a_known_direction_must_agree():
     assert _echoes([_ledger(), _page(2, [{"amount": "45.10", "direction": "credit"}, "300.00"])]) == []
-    assert _echoes([_ledger(), _page(2, [{"amount": "45.10", "direction": "unknown"}, "300.00"])]) == [2]
+    assert _echoes([_ledger(), _page(2, [{"amount": "45.10", "direction": "unknown"}, "300.00", "120.00"])]) == [2]
 
 
 def test_an_undated_row_cannot_be_shown_to_repeat_anything():
@@ -173,10 +173,13 @@ def test_a_picture_dated_before_its_posting_repeats_it():
 
 
 def test_the_assignment_is_a_true_matching_not_first_come():
-    # The unknown-direction row must take the credit so the debit row can take the debit.
+    # First come, the unknown-direction row would take a debit and leave one debit row unmatched; the
+    # matching gives it the credit.
     ledger = _page(1, [{"amount": "10.00", "direction": "debit", "date": "2031-01-10"},
-                       {"amount": "10.00", "direction": "credit", "date": "2031-01-11"}], source="stage_a+stage_b")
+                       {"amount": "10.00", "direction": "credit", "date": "2031-01-11"},
+                       {"amount": "10.00", "direction": "debit", "date": "2031-01-12"}], source="stage_a+stage_b")
     pictures = _page(2, [{"amount": "10.00", "direction": "unknown", "date": "2031-01-05"},
+                         {"amount": "10.00", "direction": "debit", "date": "2031-01-05"},
                          {"amount": "10.00", "direction": "debit", "date": "2031-01-05"}])
     assert _echoes([ledger, pictures]) == [2]
 
@@ -223,6 +226,35 @@ def test_any_printed_statement_figure_or_an_unread_daily_table_is_statement_evid
     undated = replace(_page(2, ["45.10", "300.00"]),
                       diagnostics=({"scope": "daily_balances", "page": 2, "index": 0, "code": "review_daily_balance_undated"},))
     assert _echoes([_ledger(), undated]) == []
+
+
+# --- third review round (5d087d3) --------------------------------------------------------------------------
+# S: sectioned statements restart dates, which defeats every date test; a real zero-net straddle page (a
+#    transfer out and back) matched earlier same-direction postings. Y: a real page misdated a year early (a
+#    December-January statement) fell before everything and was absorbed instead of refused by the period.
+
+def test_a_picture_row_must_be_dated_inside_the_period():
+    misdated = [{"amount": "45.10", "date": "2030-01-05"}, {"amount": "300.00", "date": "2030-01-07"}]
+    assert _echoes([_ledger(), _page(2, misdated)]) == []
+    no_period = replace(_ledger(), account={"currency": "USD"})
+    assert _echoes([no_period, _page(2, ["45.10", "300.00"])]) == []
+
+
+def test_a_page_of_debits_and_credits_is_not_pictures():
+    ledger = _page(1, [{"amount": "500.00", "direction": "credit", "date": "2031-01-08"},
+                       {"amount": "45.10", "date": "2031-01-12"},
+                       {"amount": "500.00", "direction": "credit", "date": "2031-01-20"},
+                       {"amount": "500.00", "date": "2031-01-25"}], source="stage_a+stage_b")
+    transfer_out_and_back = [{"amount": "500.00", "date": "2031-01-05"},
+                             {"amount": "500.00", "direction": "credit", "date": "2031-01-12"}]
+    assert _echoes([ledger, _page(2, transfer_out_and_back)]) == []
+
+
+def test_unknown_directions_cannot_carry_a_page():
+    both_unknown = [{"amount": "500.00", "direction": "unknown", "date": "2031-01-05"},
+                    {"amount": "45.10", "direction": "unknown", "date": "2031-01-06"}]
+    assert _echoes([_ledger(), _page(2, both_unknown)]) == []
+    assert _echoes([_ledger(), _page(2, [{"amount": "300.00", "direction": "unknown"}], role="cheque_images")]) == []
 
 
 def test_unresolved_rows_on_a_picture_page_do_not_hold_it():

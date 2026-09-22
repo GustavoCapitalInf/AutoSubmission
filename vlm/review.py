@@ -9,7 +9,7 @@ import copy
 import math
 from collections import Counter
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import jsonschema
@@ -489,6 +489,31 @@ def _assign(pictures: list, postings: list) -> list | None:
     return sorted(owner, key=owner.get)
 
 
+def _period(merged) -> tuple | None:
+    """The page's reviewed statement period as dates, or None."""
+    try:
+        start = date.fromisoformat(merged.account.get("period_start"))
+        end = date.fromisoformat(merged.account.get("period_end"))
+    except (TypeError, ValueError):
+        return None
+    return (start, end) if start <= end else None
+
+
+def _plausible_pictures(keys: list, period: tuple | None) -> bool:
+    """What a page of pictures looks like beyond its dates: every row dated inside the reviewed period (the
+    gate's grace; a real page misdated outside it is the period check's to refuse, never absorbed), and one
+    direction: enough rows (min(_UNLABELLED_ECHO_MIN_ROWS, rows)) name it, and none names the other. A page
+    of pictured cheques is debits and a page of deposit slips credits; a real page that nets to zero, the
+    case the arithmetic cannot see, needs both."""
+    from vlm.gate import PERIOD_GRACE_DAYS
+    if period is None:
+        return False
+    lower, upper = (period[0] - timedelta(days=PERIOD_GRACE_DAYS), period[1] + timedelta(days=PERIOD_GRACE_DAYS))
+    known = [key[1] for key in keys if key[1] in ("credit", "debit")]
+    return (all(lower <= key[2] <= upper for key in keys) and len(set(known)) <= 1
+            and len(known) >= min(_UNLABELLED_ECHO_MIN_ROWS, len(keys)))
+
+
 def _oldest_first(dates: list) -> bool:
     """The listing so far reads oldest first: strictly more ascending than descending date steps (the gate's
     orient rule, with a tie undetermined)."""
@@ -514,17 +539,21 @@ def mark_ledger_echoes(merges) -> list:
       page break has none;
     * only pages on which the review kept rows the proposer read are the ledger, so pictures printed before
       the listing, added by the reviewer alone and not recognized, are not a ledger for the real listing to
-      repeat.
+      repeat;
+    * the rows are plausible pictures (_plausible_pictures): inside the period of the first ledger page
+      that printed one, and of one direction. Sectioned statements restart dates, so the date tests alone
+      cannot separate a later section's real rows from pictures.
     Only the whole-document arithmetic would otherwise judge a dropped page, and it cannot see a page whose
     rows net to zero or one at the end of a per-page summary chain whose box was not read."""
-    postings, dates, marked = [], [], []
+    postings, dates, marked, period = [], [], [], None
     for merged in merges:
         keys = [_repeat_key(row) for row in merged.rows]
         eligible = (bool(keys) and None not in keys and not _statement_evidence(merged)
                     and all(row.balance is None for row in merged.rows)
                     and (merged.page_role == "cheque_images" or len(keys) >= _UNLABELLED_ECHO_MIN_ROWS)
                     and _oldest_first(dates)
-                    and sum(key[2] < max(dates) for key in keys) >= min(_UNLABELLED_ECHO_MIN_ROWS, len(keys)))
+                    and sum(key[2] < max(dates) for key in keys) >= min(_UNLABELLED_ECHO_MIN_ROWS, len(keys))
+                    and _plausible_pictures(keys, period))
         claimed = _assign(keys, postings) if eligible else None
         if claimed is not None:
             postings = [posting for index, posting in enumerate(postings) if index not in set(claimed)]
@@ -534,6 +563,7 @@ def mark_ledger_echoes(merges) -> list:
             ledger = [key for key in keys if key is not None]
             postings.extend(ledger)
             dates.extend(key[2] for key in ledger)
+            period = period or _period(merged)
         marked.append(merged)
     return marked
 
