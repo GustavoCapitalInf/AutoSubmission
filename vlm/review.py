@@ -409,21 +409,28 @@ def _summary_figures(merged) -> bool:
     return any(merged.account.get(name) is not None for name in SCOPED_FIELDS)
 
 
+def _statement_evidence(merged) -> bool:
+    """What no picture of a cheque or deposit slip carries: a failed review, a statement summary figure
+    (opening, closing, totals or counts), or a daily-balance table, read or quarantined. Repeated header
+    details such as bank, account or period do not count."""
+    return (bool(merged.errors) or _summary_figures(merged) or bool(merged.daily_balances)
+            or any(item.get("scope") == "daily_balances" for item in merged.metadata_evidence))
+
+
 def picture_page(merged) -> bool:
     """Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): a cheque picture page shows pictures of
     documents whose transactions are listed elsewhere. It contributes no ledger rows, no compared metadata
     and no text for a bank reader, and nothing on it holds the statement.
 
-    It is one of two things, both from a VALID review that read no statement summary figure from the page
-    (opening, closing, totals or counts; a page printing one is a statement page whatever it was called, and
-    treating it as pictures would silently drop its rows from a chain that then proves over the other pages;
-    repeated header details such as bank, account or period do not disqualify it):
+    It carries no statement evidence (a valid review, no summary figure, no daily-balance table: a page that
+    prints them is a statement page whatever it was called, and treating it as pictures would silently drop
+    its rows from a chain that then proves over the other pages), and it is either
     * a page whose every kept row repeats an earlier ledger transaction (mark_ledger_echoes), whatever the
       reviewer called it; or
     * a page the reviewer labelled cheque_images on which it kept no row at all.
     A labelled page that kept rows which do NOT all repeat earlier transactions is not pictures: those rows
     are new to the statement, so they enter the ledger and the arithmetic judges them."""
-    if merged.errors or _summary_figures(merged):
+    if _statement_evidence(merged):
         return False
     return merged.ledger_echo or (merged.page_role == "cheque_images" and not merged.rows)
 
@@ -433,32 +440,69 @@ def picture_page(merged) -> bool:
 _UNLABELLED_ECHO_MIN_ROWS = 2
 
 
-def _amount_key(row) -> Decimal | None:
+def _repeat_key(row) -> tuple | None:
+    """(amount, direction, date) of a row, or None when it cannot be compared: no finite amount or no ISO
+    date. An undated row cannot be shown to repeat anything."""
     try:
-        return abs(Decimal(str(row.amount))).quantize(Decimal("0.01"))
+        amount = abs(Decimal(str(row.amount))).quantize(Decimal("0.01"))
+        when = date.fromisoformat(row.date)
     except (ArithmeticError, TypeError, ValueError):
         return None
+    return amount, row.direction, when
+
+
+def _repeats(picture: tuple, posting: tuple) -> bool:
+    """A picture repeats a ledger posting of the same amount, the same direction when the picture's is known,
+    posted on or after the picture's date (a cheque is written before it clears; a real later page lists
+    later postings, which is what separates it from pictures)."""
+    amount, direction, when = picture
+    return (amount == posting[0] and (direction not in ("credit", "debit") or direction == posting[1])
+            and posting[2] >= when)
+
+
+def _assign(pictures: list, postings: list) -> list | None:
+    """One-to-one assignment of every picture to a distinct repeating posting (augmenting paths), as the
+    posting indices in picture order, or None when none exists."""
+    owner: dict[int, int] = {}
+
+    def place(index: int, seen: set) -> bool:
+        for candidate, posting in enumerate(postings):
+            if candidate in seen or not _repeats(pictures[index], posting):
+                continue
+            seen.add(candidate)
+            if candidate not in owner or place(owner[candidate], seen):
+                owner[candidate] = index
+                return True
+        return False
+
+    if not all(place(index, set()) for index in range(len(pictures))):
+        return None
+    return sorted(owner, key=owner.get)
 
 
 def mark_ledger_echoes(merges) -> list:
-    """Mark pages whose every kept row repeats, amount for amount and one to one, a transaction on an EARLIER
-    ledger page not already claimed by another marked page. Cheque and deposit-slip pictures follow the
-    listing they illustrate; a cheque image carries the date it was written, not the posting date, so only
-    the amount is compared. A valid review with no summary figure is required, and an unlabelled page needs
-    _UNLABELLED_ECHO_MIN_ROWS rows. Returns new merges in page order; inputs are never mutated. If a real
-    page were marked by coincidence, its rows would be missing from the ledger and the whole-document
-    arithmetic refuses."""
-    ledger, marked = Counter(), []
+    """Mark pages whose every kept row repeats (_repeats) a distinct transaction on an EARLIER ledger page not
+    already claimed by another marked page. Cheque and deposit-slip pictures follow the listing they
+    illustrate. The page must carry no statement evidence and no kept row may print a running balance (a
+    pictured cheque has neither); an unlabelled page needs _UNLABELLED_ECHO_MIN_ROWS rows. Returns new merges
+    in page order; inputs are never mutated.
+
+    Why a real page is not taken for pictures: its rows post on or after the earlier pages' rows, so they
+    cannot be shown to repeat them, and a statement with running balances prints one on each of them. Only
+    the whole-document arithmetic would otherwise judge a dropped page, and it cannot see a page whose rows
+    net to zero or one at the end of a per-page summary chain whose box was not read."""
+    postings, marked = [], []
     for merged in merges:
-        amounts = [_amount_key(row) for row in merged.rows]
-        claim = Counter(amounts)
-        eligible = (bool(amounts) and None not in claim and not merged.errors and not _summary_figures(merged)
-                    and (merged.page_role == "cheque_images" or len(amounts) >= _UNLABELLED_ECHO_MIN_ROWS))
-        if eligible and not claim - ledger:
-            ledger -= claim
+        keys = [_repeat_key(row) for row in merged.rows]
+        eligible = (bool(keys) and None not in keys and not _statement_evidence(merged)
+                    and all(row.balance is None for row in merged.rows)
+                    and (merged.page_role == "cheque_images" or len(keys) >= _UNLABELLED_ECHO_MIN_ROWS))
+        claimed = _assign(keys, postings) if eligible else None
+        if claimed is not None:
+            postings = [posting for index, posting in enumerate(postings) if index not in set(claimed)]
             merged = replace(merged, ledger_echo=True)
         elif not picture_page(merged):
-            ledger += Counter(amount for amount in amounts if amount is not None)
+            postings.extend(key for key in keys if key is not None)
         marked.append(merged)
     return marked
 

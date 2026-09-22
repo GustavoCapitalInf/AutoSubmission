@@ -340,9 +340,12 @@ def test_a_cheque_picture_page_never_stops_a_proven_chain():
     # Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): its reviewer-added rows are not segment
     # evidence. It repeats the statement header (period, currency, bank) but prints no summary box.
     header = {"period_start": "2031-01-01", "period_end": "2031-01-31", "currency": "USD", "bank": "FABRICATED BANK"}
-    pictures = replace(page(4, 0, 30, 0, 30), page_role="cheque_images", account=header,
+    # Page 1 posts a 30 credit on the 1st; the pictured deposit slip is dated that day and prints no running
+    # balance, so it repeats that posting (cheque-echo backstop).
+    slip = CandidateRow("2031-01-01", "01/01", "FABRICATED DEPOSIT SLIP", Decimal("30"), "credit", None, 4,
+                        "stage_b", "added0")
+    pictures = replace(page(4, 0, 30, 0, 30), rows=(slip,), page_role="cheque_images", account=header,
                        counts={"added": 1, "unresolved": 1})
-    # Page 1 records a 30 credit, so the pictured 30 repeats an earlier transaction (cheque-echo backstop).
     plan = detect_page_segments(mark_ledger_echoes(chain() + [pictures]))
     assert plan.proven
     assert [item.account["ending_balance"] for item in plan.segments] == [120, 115, 145]

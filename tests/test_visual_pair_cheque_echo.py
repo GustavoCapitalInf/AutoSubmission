@@ -1,11 +1,13 @@
 """Fabricated pages only. The deterministic cheque-echo backstop.
 
 A picture of a cheque or deposit slip shows a transaction already listed in the statement. When every row
-the review kept on a page repeats, amount for amount and one to one, a transaction on an EARLIER ledger page,
-the page is a cheque picture page whatever the reviewer called it (owner ruling, 2026-09-22: "dont hold
-cheque picture pages"). A cheque image carries the date it was written, not the posting date, so only the
-amount is compared. A page whose kept rows do not all repeat earlier transactions is not pictures, even if
-the reviewer labelled it cheque_images: its rows enter the ledger and the arithmetic judges them.
+the review kept on a page repeats, one to one, a transaction on an EARLIER ledger page, the page is a cheque
+picture page whatever the reviewer called it (owner ruling, 2026-09-22: "dont hold cheque picture pages").
+A repeat is the same amount, the same direction when the picture's is known, and a ledger posting dated on or
+after the picture's date: a cheque is written before it clears, while a real later page lists later
+postings. A pictured cheque prints no running balance and no daily-balance table. A page whose kept rows do
+not all repeat earlier transactions is not pictures, even if the reviewer labelled it cheque_images: its rows
+enter the ledger and the arithmetic judges them.
 """
 from dataclasses import replace
 from decimal import Decimal
@@ -18,13 +20,22 @@ from vlm.review import PageReviewMerge, confidence_summary, mark_ledger_echoes, 
 HEADER = {"period_start": "2031-01-01", "period_end": "2031-01-31", "currency": "USD"}
 
 
-def _page(number, amounts, *, role="statement_page", source="stage_b", counts=None, account=None, errors=()):
-    rows = tuple(CandidateRow("2031-01-05", "01/05", f"FABRICATED {number}-{index}", Decimal(str(amount)),
-                              "debit", None, number, source, f"added{index}")
-                 for index, amount in enumerate(amounts))
+def _row(number, index, spec, source):
+    # spec: an amount, or a dict overriding amount / direction / date / balance.
+    spec = spec if isinstance(spec, dict) else {"amount": spec}
+    when = spec.get("date", "2031-01-05")
+    balance = spec.get("balance")
+    return CandidateRow(when, when[5:] if when else "", f"FABRICATED {number}-{index}", Decimal(str(spec["amount"])),
+                        spec.get("direction", "debit"), None if balance is None else Decimal(str(balance)),
+                        number, source, f"added{index}")
+
+
+def _page(number, amounts, *, role="statement_page", source="stage_b", counts=None, account=None, errors=(),
+          daily=()):
+    rows = tuple(_row(number, index, spec, source) for index, spec in enumerate(amounts))
     state = "added" if source == "stage_b" else "agreed"
     return PageReviewMerge(number, rows, (), counts or {state: len(rows)}, tuple(errors),
-                           {**HEADER, **(account or {})}, (), role, ())
+                           {**HEADER, **(account or {})}, tuple(daily), role, ())
 
 
 def _ledger(number=1):
@@ -109,3 +120,66 @@ def test_marking_never_mutates_and_keeps_every_page_slot():
     assert [merged.page for merged in marked] == [1, 2, 3]
     assert not any(merged.ledger_echo for merged in pages)
     assert [replace(merged, ledger_echo=False) for merged in marked] == pages
+
+
+# --- hardening after the independent review of e25b7bc ------------------------------------------------------
+# F1: a real last page of a per-page-summary statement, its box unread, whose amounts recur earlier.
+# F2: a real zero-net page (a fee and its refund, a transfer out and back) on any statement.
+# Both were taken for pictures by amount alone and the statement admitted without them.
+
+def test_a_real_later_page_repeating_earlier_amounts_is_not_pictures():
+    later = [{"amount": "45.10", "date": "2031-01-12"}, {"amount": "300.00", "date": "2031-01-14"}]
+    assert _echoes([_ledger(), _page(2, later)]) == []
+    assert _echoes([_ledger(), _page(2, later, role="cheque_images")]) == []
+
+
+def test_a_zero_net_pair_is_not_pictures():
+    fee_and_refund = [{"amount": "45.10", "date": "2031-01-12"},
+                      {"amount": "45.10", "direction": "credit", "date": "2031-01-12"}]
+    assert _echoes([_ledger(), _page(2, fee_and_refund)]) == []
+
+
+def test_a_row_printing_a_running_balance_is_never_a_picture():
+    assert _echoes([_ledger(), _page(2, [{"amount": "45.10", "balance": "160.00"}, "300.00"])]) == []
+
+
+def test_a_daily_balance_table_is_never_pictures():
+    daily = [{"date": "2031-01-05", "balance": 150}]
+    assert _echoes([_ledger(), _page(2, ["45.10", "300.00"], daily=daily)]) == []
+    labelled = mark_ledger_echoes([_ledger(), _page(2, [], role="cheque_images", counts={"rejected": 1}, daily=daily)])
+    assert not picture_page(labelled[1])
+    quarantined = replace(_page(2, ["45.10", "300.00"]), metadata_evidence=({"scope": "daily_balances", "page": 2},))
+    assert _echoes([_ledger(), quarantined]) == []
+
+
+def test_a_known_direction_must_agree():
+    assert _echoes([_ledger(), _page(2, [{"amount": "45.10", "direction": "credit"}, "300.00"])]) == []
+    assert _echoes([_ledger(), _page(2, [{"amount": "45.10", "direction": "unknown"}, "300.00"])]) == [2]
+
+
+def test_an_undated_row_cannot_be_shown_to_repeat_anything():
+    assert _echoes([_ledger(), _page(2, [{"amount": "45.10", "date": None}, "300.00"])]) == []
+    undated_ledger = _page(1, [{"amount": "45.10", "date": None}, {"amount": "300.00", "date": None}],
+                           source="stage_a+stage_b")
+    assert _echoes([undated_ledger, _page(2, ["45.10", "300.00"])]) == []
+
+
+def test_a_picture_dated_before_its_posting_repeats_it():
+    written_earlier = [{"amount": "45.10", "date": "2031-01-02"}, {"amount": "300.00", "date": "2031-01-05"}]
+    assert _echoes([_ledger(), _page(2, written_earlier)]) == [2]
+
+
+def test_the_assignment_is_a_true_matching_not_first_come():
+    # The unknown-direction row must take the credit so the debit row can take the debit.
+    ledger = _page(1, [{"amount": "10.00", "direction": "debit", "date": "2031-01-10"},
+                       {"amount": "10.00", "direction": "credit", "date": "2031-01-10"}], source="stage_a+stage_b")
+    pictures = _page(2, [{"amount": "10.00", "direction": "unknown", "date": "2031-01-05"},
+                         {"amount": "10.00", "direction": "debit", "date": "2031-01-05"}])
+    assert _echoes([ledger, pictures]) == [2]
+
+
+def test_unresolved_rows_on_a_picture_page_do_not_hold_it():
+    # Owner ruling: nothing on a cheque picture page holds the statement. The kept rows prove the page.
+    pictures = replace(_page(2, ["45.10", "300.00"]), counts={"added": 2, "unresolved": 1})
+    marked = mark_ledger_echoes([_ledger(), pictures])
+    assert marked[1].ledger_echo and held_pages(marked, [[], []], [False, False]) == []

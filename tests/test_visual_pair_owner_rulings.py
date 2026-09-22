@@ -115,8 +115,10 @@ def test_a_cut_off_read_of_a_cheque_picture_page_does_not_hold_it():
 
 
 def test_nothing_else_on_a_cheque_picture_page_holds_it_either():
+    # A pictured cheque's quarantined account number is still nothing; a daily-balance table would make the
+    # page a statement page (tests/test_visual_pair_cheque_echo.py).
     cheque = replace(_page(2, role="cheque_images", rows=6), counts={"added": 5, "unresolved": 1},
-                     metadata_evidence=({"scope": "daily_balances", "page": 2},))
+                     metadata_evidence=({"scope": "account", "page": 2, "field": "account_number"},))
     assert _held(_marked(_page(1, rows=6), cheque), page_errors=[[], ["proposer_transport_failed"]]) == []
 
 
