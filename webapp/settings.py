@@ -51,10 +51,16 @@ def load_settings(data_dir: str | Path) -> dict[str, bool]:
     """The current settings. A missing, unreadable or malformed file, or a malformed value, reads as the
     default: a display preference must never stop the dashboard from serving."""
     settings = dict(DEFAULTS)
-    try:
-        raw = json.loads(_path(data_dir).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return settings
+    raw = None
+    for attempt in range(5):
+        try:
+            raw = json.loads(_path(data_dir).read_text(encoding="utf-8"))
+            break
+        except PermissionError:
+            # Windows: a save is renaming over the file this instant. Retry briefly, as _replace does.
+            time.sleep(0.01)
+        except (OSError, ValueError):
+            return settings
     if isinstance(raw, dict):
         for key, default in DEFAULTS.items():
             if isinstance(raw.get(key), type(default)):

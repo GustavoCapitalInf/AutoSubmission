@@ -1,5 +1,6 @@
 """The Settings page's NSF basis toggle (owner ruling, 2026-09-22). Fabricated payloads only."""
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -145,3 +146,31 @@ def test_the_package_totals_and_rows_carry_the_basis(settings_file):
     save_settings(settings_file.parent, {"nsf_carry_over": True})
     package = _package_analysis([member("a"), member("b")])
     assert package["totals"]["nsf_count"] == 4 and package["totals"]["nsf_source"] == "negative_ending_days"
+
+
+def test_a_member_without_analysis_adds_no_basis_to_the_package(settings_file):
+    from tests.test_package_currency import statement_payload
+    from webapp.app import _package_analysis
+    from webapp.jobs import Job
+
+    payload = statement_payload("USD")
+    payload["metrics"].update(_ledger_metrics())
+    done = Job(id="a", filename="a.pdf", status="done", analysis=payload, content_sha256="a")
+    failed = Job(id="b", filename="b.pdf", status="failed", analysis=None, content_sha256="b")
+    assert _package_analysis([done, failed])["totals"]["nsf_source"] == "negative_printed_days"
+    assert _package_analysis([failed])["totals"]["nsf_source"] is None
+
+
+def test_a_read_colliding_with_a_save_is_retried_rather_than_read_as_the_default(tmp_path, monkeypatch):
+    import webapp.settings as settings_module
+    save_settings(tmp_path, {"nsf_carry_over": True})
+    real_read, calls = Path.read_text, []
+
+    def busy_once(self, *args, **kwargs):
+        calls.append(self)
+        if len(calls) == 1:
+            raise PermissionError(32, "fabricated sharing violation")
+        return real_read(self, *args, **kwargs)
+    monkeypatch.setattr(settings_module.Path, "read_text", busy_once)
+    monkeypatch.setattr(settings_module.time, "sleep", lambda seconds: None)
+    assert load_settings(tmp_path) == {"nsf_carry_over": True} and len(calls) == 2

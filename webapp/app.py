@@ -1199,7 +1199,8 @@ def _package_analysis(jobs) -> dict:
         denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         nsf_source = metrics.get("nsf_source")
-        nsf_sources.add(str(nsf_source))
+        if isinstance(nsf_source, str):
+            nsf_sources.add(nsf_source)  # a member with no analysis contributes no count and no basis
         adb_calendar_days = metrics.get("calendar_day_count")
         average_daily_balance_num = _num(
             metrics.get("average_daily_balance"),
