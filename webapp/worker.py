@@ -246,12 +246,33 @@ def _visual_pair_summary_html(doc: StatementMarkdown, *, policy: str) -> str:
               if policy == "always_review" else "Statement checks passed.")
     if not passed:
         status = "Statement checks failed; metrics are withheld."
+    if confidence.get("methodology") == "evidence_v2":
+        band = {"very_high": "very high", "high": "high", "moderate": "moderate", "low": "low",
+                "held": "held"}.get(confidence.get("band"), "unavailable")
+        components = confidence.get("components") if isinstance(confidence.get("components"), dict) else {}
+        names = (("stated_totals", "printed totals"), ("stated_counts", "printed counts"),
+                 ("amounts_printed", "amounts printed on the page"), ("two_readers", "both readers agree"),
+                 ("descriptions_in_text_layer", "descriptions in the PDF text"),
+                 ("running_balances", "running balances"))
+        parts = []
+        for key, label in names:
+            value = components.get(key)
+            parts.append(f"{label} {value:.0%}" if type(value) in (int, float) and isfinite(value)
+                         and 0 <= value <= 1 else f"{label} n/a")
+        headline = f"Extraction confidence: {score_text} ({band})"
+        explanation = ("The score is the share of this reading that was verified independently, by the "
+                       "statement's own printed figures and by two readers; it is not a probability.")
+        detail = '<p>Verified: ' + ', '.join(parts) + '</p>'
+    else:
+        headline = f"Provisional extraction confidence: {score_text}"
+        explanation = ("This score measures reader agreement and statement checks; "
+                       "it is not a probability of correctness.")
+        detail = ""
     return (
         '<section class="visual-pair-summary" role="note" '
         'style="padding:1rem;border:1px solid #b98a30;background:#fff8e6;color:#453313;margin-bottom:1rem">'
-        f'<strong>Provisional extraction confidence: {score_text}</strong>'
-        f'<p>{status} This score measures reader agreement and statement checks; '
-        'it is not a probability of correctness.</p>'
+        f'<strong>{headline}</strong>'
+        f'<p>{status} {explanation}</p>' + detail +
         '<p>Rows: ' + ', '.join(row_counts) + '</p></section>'
         + retained_evidence_html(evidence)
     )

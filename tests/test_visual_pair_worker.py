@@ -156,6 +156,21 @@ def test_pair_telemetry_counts_two_actual_models_and_no_invented_analysis_call()
     assert [call["calls"] for call in model_calls_for(doc, None)] == [0, 0]
 
 
+def test_evidence_confidence_banner_shows_score_band_and_what_was_verified():
+    from webapp.worker import _visual_pair_summary_html
+    doc = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["synthetic text"],
+        visual_pair={"gate": {"admitted": True}, "confidence": {
+            "methodology": "evidence_v2", "score": 0.975, "band": "very_high",
+            "counts": {"agreed": 3, "corrected": 1},
+            "components": {"stated_totals": 1.0, "stated_counts": 0.5, "amounts_printed": 1.0, "two_readers": 0.9,
+                           "descriptions_in_text_layer": None, "running_balances": "<b>bad</b>"}}})
+    rendered = _visual_pair_summary_html(doc, policy="admit_gated")
+    assert "Extraction confidence: 97.5% (very high)" in rendered
+    assert "printed totals 100%, printed counts 50%" in rendered
+    assert "both readers agree 90%, descriptions in the PDF text n/a, running balances n/a" in rendered
+    assert "it is not a probability" in rendered and "<b>bad</b>" not in rendered
+
+
 def test_held_confidence_banner_uses_counts_without_changing_analysis_input(monkeypatch):
     from vlm.pair_adapter import VisualPairAdmissionError
     from webapp.worker import _analyze_doc

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import html
 import re
+from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
 from functools import cached_property
@@ -110,6 +111,21 @@ class PrintedEvidence:
         except (TypeError, ValueError):
             return False
         return number == value and number in self.integers
+
+    @cached_property
+    def _native_words(self) -> Counter | None:
+        return Counter(self.native.split()) if self.native else None
+
+    def description_words_printed(self, description) -> bool | None:
+        """Looser than description_printed, for measuring corroboration only (never for choosing a reading):
+        every word of the description is printed on the page's text layer, at least as often. A text layer
+        can read columns and wrapped lines in another order than the visual reading assembles them, so word
+        order is not required. None without a text layer."""
+        words = self._native_words
+        if words is None:
+            return None
+        wanted = Counter(spaced(description or "").split())
+        return bool(wanted) and not wanted - words
 
     def description_printed(self, description) -> bool | None:
         """Whether the text layer prints this description (whitespace-insensitive, punctuation-sensitive), or None

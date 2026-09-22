@@ -45,7 +45,7 @@ def visual_pair_manifest() -> dict:
                'ocr/visual_pair_config.py', 'ocr/private_artifacts.py', 'ocr/truncation.py',
                'vlm/dates.py', 'vlm/pair_metadata.py', 'vlm/reason_counts.py',
                'vlm/segments.py', 'vlm/segment_openings.py', 'vlm/segment_reconcile.py', 'vlm/native_text.py',
-               'vlm/summary_box.py')
+               'vlm/summary_box.py', 'vlm/confidence.py')
     return {
         'version': PAIR_VERSION, 'schema_version': SCHEMA_VERSION,
         'review_schema_sha256': review_schema_sha256(), 'gate_version': GATE_VERSION,
@@ -642,6 +642,15 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     reason_counts = summarize_occurrences(occurrences)
     admitted = verdict is not None and verdict.admitted and not reasons
     confidence = confidence_summary(merges, gate_admitted=admitted, gate_reasons=reasons)
+    # The statement's score is its verification coverage (vlm/confidence.py); the per-page review agreement
+    # stays alongside it.
+    from vlm.confidence import statement_confidence
+    row_states = {(item['page'], item['locator']): (item['state'], (item.get('resolution') or {}).get('method'))
+                  for merged in merges for item in merged.evidence}
+    confidence.update(statement_confidence(
+        admitted=admitted and confidence['gate_admitted'], checks=checks, account=account,
+        rows=verdict.admitted_rows if admitted else rows, row_states=row_states, printed_pages=printed_pages,
+        reasons=reasons))
     statement = _statement(verdict.admitted_rows, account, daily, currency_source=currency_source) if admitted else None
     page_text = page_texts(merges, truncated)
     integrity = assess_pages(page_text)
