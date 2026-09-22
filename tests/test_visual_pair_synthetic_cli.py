@@ -1,10 +1,13 @@
 import json
 from argparse import Namespace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from tools.phase3_pair.check_synthetic import checked_fixtures, _private_output, run
 from tools.phase3_pair import smoke_pair
+from tools.phase3_pair import check_synthetic as checker
 from vlm.receipts import Refused, sha256_bytes
 
 
@@ -102,3 +105,52 @@ def test_smoke_explicit_synthetic_page_and_no_content_output(tmp_path, monkeypat
     assert [port for port, _ in calls] == [18013, 18022]
     output = capsys.readouterr().out
     assert "FABRICATED_IMAGE_BYTES" not in output and str(page) not in output
+
+
+@pytest.mark.parametrize('target', ['relative-output', '.claude/fabricated-output'])
+def test_output_requires_absolute_external_path(tmp_path, target):
+    with pytest.raises(Refused, match='synthetic_output_must_be_private'):
+        _private_output(Path(target), tmp_path / 'source')
+
+
+def test_checkout_output_and_symlink_alias_are_refused_before_creation(tmp_path, monkeypatch):
+    checkout = tmp_path / 'fabricated-checkout'
+    checkout.mkdir()
+    monkeypatch.setattr('ocr.private_artifacts.CHECKOUT_ROOT', checkout)
+    alias = tmp_path / 'checkout-alias'
+    alias.symlink_to(checkout, target_is_directory=True)
+    for target in (checkout / '.claude' / 'output', alias / 'output'):
+        with pytest.raises(Refused, match='synthetic_output_must_be_private'):
+            _private_output(target, tmp_path / 'source')
+    assert not (checkout / '.claude').exists()
+    assert not (checkout / 'output').exists()
+
+
+def test_default_synthetic_output_uses_configured_external_root(tmp_path, monkeypatch):
+    external = tmp_path / 'external-private'
+    monkeypatch.setenv('VISUAL_PAIR_PRIVATE_ROOT', str(external))
+    output = _private_output(None, tmp_path / 'source')
+    assert output == external / 'synthetic-checks'
+    assert output.stat().st_mode & 0o777 == 0o700
+    with pytest.raises(Refused, match='synthetic_output_overlaps_inputs'):
+        _private_output(tmp_path, tmp_path / 'source')
+
+
+def test_synthetic_cli_reports_actual_reason_counts_without_source_fields(tmp_path, monkeypatch, capsys):
+    root, _, manifest, digest = _manifest(tmp_path)
+    counts = {'date_unparsed': {'count': 6, 'pages': [{'page': 2, 'count': 4}, {'page': 3, 'count': 2}],
+                                'document_count': 0, 'source_text': 'FABRICATED HIDDEN SOURCE'}}
+    document = SimpleNamespace(pages=['FABRICATED PAGE'], visual_pair={
+        'gate': {'admitted': False, 'reasons': ['date_unparsed'], 'reason_counts': counts},
+        'confidence': {'counts': {'unresolved': 6}}, 'receipt_sha256': 'f' * 64})
+    monkeypatch.setattr('ocr.visual_pair_config.load_visual_pair_settings', lambda: object())
+    monkeypatch.setattr('vlm.pair.extract_visual_pair', lambda *a, **k: document)
+    monkeypatch.setattr('vlm.pair_adapter.analyze_visual_pair', lambda *a, **k: pytest.fail('analysis reached'))
+    assert checker.main(['--manifest', str(manifest), '--manifest-sha256', digest,
+                         '--synthetic-root', str(root), '--output-dir', str(tmp_path / 'private')]) == 2
+    output = capsys.readouterr().out
+    events = [json.loads(line) for line in output.splitlines()]
+    assert events[0]['gate_reason_count'] == 6
+    assert events[0]['gate_reason_counts']['date_unparsed']['pages'] == counts['date_unparsed']['pages']
+    assert events[-1]['gate_checks'][0]['gate_reason_count'] == 6
+    assert 'FABRICATED' not in output and str(root) not in output

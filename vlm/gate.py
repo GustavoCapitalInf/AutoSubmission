@@ -17,17 +17,18 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 
-from analysis.reconcile import reconcile
+from analysis.reconcile import _TOL as RECONCILE_TOLERANCE, reconcile
 from analysis.schema import Statement, Transaction
 from vlm.assemble import CandidateRow
 from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
-GATE_VERSION = 7
+GATE_VERSION = 9
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
-           "summary_mismatch", "count_mismatch", "coverage_mismatch", "currency_conflict", "anchor_disagreement", "period_mismatch", "date_order_chained")
+           "summary_mismatch", "count_mismatch", "coverage_mismatch", "currency_conflict", "currency_missing",
+           "anchor_disagreement", "period_mismatch", "date_order_chained", "page_unresolved")
 PERIOD_GRACE_DAYS = 5
 
 
@@ -42,6 +43,7 @@ class GateVerdict:
     chain_derived_directions: int
     checks: dict
     anchored: str = "none"   # "both" | "one" | "none" — how many anchors were PRINTED
+    occurrences: tuple[dict, ...] = ()
 
 
 def resolve_directions(rows: list[CandidateRow], beginning: Decimal | None) -> tuple[list[CandidateRow], int]:
@@ -125,7 +127,7 @@ def collapse_daily_balances(rows: list[CandidateRow]) -> tuple[list[CandidateRow
     return out, collapsed
 
 
-def _duplicates(rows: list[CandidateRow]) -> tuple[int, int]:
+def _duplicates(rows: list[CandidateRow], *, occurrences: list[dict] | None = None) -> tuple[int, int]:
     """(distinguished_repeats, unverifiable_repeats): a repeat of (date, description, amount, direction)
     is distinguished when both rows print balances and they differ."""
     seen: dict[tuple, list[CandidateRow]] = {}
@@ -133,25 +135,96 @@ def _duplicates(rows: list[CandidateRow]) -> tuple[int, int]:
     for row in rows:
         key = (row.date, normalise_description(row.description), row.amount, row.direction)
         twins = seen.setdefault(key, [])
+        repeated = False
         for twin in twins:
             if twin.balance is not None and row.balance is not None and twin.balance != row.balance:
                 distinguished += 1
             else:
                 unverifiable += 1
+                repeated = True
+        if repeated and occurrences is not None:
+            # Count a later offending row once, even when it matches several
+            # predecessors. The historical pair count above is unchanged.
+            occurrences.append({"code": "duplicate_row", "page": row.page, "source": "gate"})
         twins.append(row)
     return distinguished, unverifiable
 
 
-def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = Decimal("0.01")) -> GateVerdict:
+def _continuity_failure_rows(rows: list[CandidateRow], statement: Statement) -> list[CandidateRow]:
+    """Locate uncapped continuity failures using the reader's exact rounding.
+
+    This replay supplies provenance only. Admission and the authoritative count
+    still come from reconcile; its human-readable issue list stops at five rows.
+    """
+    failed = []
+    previous = statement.beginning_balance
+    pending = 0.0
+    for row, transaction in zip(rows, statement.transactions):
+        pending = round(pending + transaction.amount, 2)
+        if transaction.running_balance is not None:
+            if previous is not None:
+                expected = round(previous + pending, 2)
+                if abs(expected - round(transaction.running_balance, 2)) > RECONCILE_TOLERANCE:
+                    failed.append(row)
+            previous = transaction.running_balance
+            pending = 0.0
+    return failed
+
+
+def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = Decimal("0.01"),
+         complete_document: bool = True) -> GateVerdict:
     reasons: list[str] = []
+    occurrences: list[dict] = []
+
+    def record(code: str, *, row: CandidateRow | None = None, field: str | None = None) -> None:
+        reasons.append(code)
+        item = {"code": code, "page": row.page if row is not None else None, "source": "gate"}
+        if field is not None:
+            item["field"] = field
+        occurrences.append(item)
+
     checks: dict = {"gate_version": GATE_VERSION, "derived": []}
-    if not rows:
-        return GateVerdict(False, ("no_rows",), 0, (), None, 0, 0, checks)
-    if any(row.amount <= 0 for row in rows):
-        reasons.append("proposal_invalid")
-    if any(getattr(row, "printed_amount", None) is not None
-           and abs(row.printed_amount) != row.amount for row in rows):
-        reasons.append("proposal_invalid")
+    if not rows and complete_document:
+        record("no_rows")
+        return GateVerdict(False, ("no_rows",), 0, (), None, 0, 0, checks, occurrences=tuple(occurrences))
+    for row in rows:
+        if row.amount <= 0:
+            record("proposal_invalid", row=row, field="amount")
+    for row in rows:
+        if getattr(row, "printed_amount", None) is not None and abs(row.printed_amount) != row.amount:
+            record("proposal_invalid", row=row, field="printed_amount")
+    if not complete_document:
+        # Complete reviewed pages still carry independently checkable source
+        # fields. Missing pages prohibit treating their union as a ledger:
+        # no order heuristic, inferred direction, derived anchor or arithmetic.
+        checks["document_checks_deferred"] = True
+        for row in rows:
+            if row.direction == "unknown":
+                record("direction_unknown", row=row, field="direction")
+        for row in rows:
+            if row.date is None:
+                record("date_unparsed", row=row, field="date")
+        parsed_rows = [(row, date.fromisoformat(row.date)) for row in rows if row.date]
+        outside = 0
+        if meta.period_start and meta.period_end and parsed_rows:
+            lower = date.fromisoformat(meta.period_start) - timedelta(days=PERIOD_GRACE_DAYS)
+            upper = date.fromisoformat(meta.period_end) + timedelta(days=PERIOD_GRACE_DAYS)
+            for row, value in parsed_rows:
+                if value < lower or value > upper:
+                    outside += 1
+                    record("period_mismatch", row=row, field="date")
+        checks["dates_outside_period"] = outside
+        duplicates = []
+        distinguished, unverifiable = _duplicates(rows, occurrences=duplicates)
+        checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}
+        if unverifiable:
+            reasons.append("duplicate_row")
+            occurrences.extend(duplicates)
+        anchored = ("both" if meta.beginning_balance is not None and meta.ending_balance is not None
+                    else "one" if meta.beginning_balance is not None or meta.ending_balance is not None
+                    else "none")
+        return GateVerdict(False, tuple(dict.fromkeys(reasons)), len(rows), (), None, 0, 0,
+                           checks, anchored, tuple(occurrences))
     rows, reversed_order = orient(rows)
     rows, collapsed = collapse_daily_balances(rows)
     checks["reversed_order"] = reversed_order
@@ -162,7 +235,7 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
     beginning, ending = meta.beginning_balance, meta.ending_balance
     first, last = rows[0], rows[-1]
     if anchored == "none":
-        reasons.append("anchors_underdetermined")
+        record("anchors_underdetermined")
     else:
         if beginning is None and first.balance is not None and first.direction in ("credit", "debit"):
             beginning = first.balance - Decimal(str(_signed(first)))
@@ -171,22 +244,27 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
             ending = last.balance
             checks["derived"].append("ending_balance")
     if beginning is None and "anchors_underdetermined" not in reasons:
-        reasons.append("missing_beginning_balance")
+        record("missing_beginning_balance", field="beginning_balance")
     if ending is None and "anchors_underdetermined" not in reasons:
-        reasons.append("missing_ending_balance")
+        record("missing_ending_balance", field="ending_balance")
     if checks["derived"]:
         # A derived anchor leaves one end of the ledger unverified (a truncated read at that end still
         # reconciles), so the verdict is recorded but NOT admitted; the report counts this class apart.
-        reasons.append("anchor_derived")
+        for field in checks["derived"]:
+            record("anchor_derived", field=field)
     resolved, flagged = resolve_directions(rows, beginning)
-    if any(row.direction == "unknown" for row in resolved):
-        reasons.append("direction_unknown")
+    for row in resolved:
+        if row.direction == "unknown":
+            record("direction_unknown", row=row, field="direction")
     if flagged and anchored != "both":
-        reasons.append("chain_direction_unanchored")
-    dates = [row.date for row in resolved]
-    if any(value is None for value in dates):
-        reasons.append("date_unparsed")
-    parsed = [date.fromisoformat(value) for value in dates if value]
+        for original, row in zip(rows, resolved):
+            if original.direction == "unknown" and row.direction != "unknown":
+                record("chain_direction_unanchored", row=row, field="direction")
+    for row in resolved:
+        if row.date is None:
+            record("date_unparsed", row=row, field="date")
+    parsed_rows = [(row, date.fromisoformat(row.date)) for row in resolved if row.date]
+    parsed = [value for _, value in parsed_rows]
     # Date order is RECORDED, not a refusal reason: sectioned statements restart dates per section and
     # banks list checks by number. Period membership REFUSES (gate v5, CTRL wave): a reconciled ledger
     # carried 82 rows dated two years off (an unprinted year the model supplied). Every row of all 114
@@ -195,10 +273,11 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
     if meta.period_start and meta.period_end and parsed:
         lower = date.fromisoformat(meta.period_start) - timedelta(days=PERIOD_GRACE_DAYS)
         upper = date.fromisoformat(meta.period_end) + timedelta(days=PERIOD_GRACE_DAYS)
-        outside = sum(1 for value in parsed if value < lower or value > upper)
+        for row, value in parsed_rows:
+            if value < lower or value > upper:
+                outside += 1
+                record("period_mismatch", row=row, field="date")
     checks["dates_outside_period"] = outside
-    if outside:
-        reasons.append("period_mismatch")
     checks["date_order_breaks"] = sum(1 for earlier, later in zip(parsed, parsed[1:]) if later < earlier)
     # Gate v6 (27B DEV wave): a statement that prints a running balance on EVERY row is chronological by
     # construction, so a date-order break there is a misread date (16 rows dated a day early, every amount
@@ -207,15 +286,19 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
     chained = bool(resolved) and all(row.balance is not None for row in resolved)
     checks["balance_chained"] = chained
     if chained and checks["date_order_breaks"]:
-        reasons.append("date_order_chained")
-    distinguished, unverifiable = _duplicates(resolved)
+        for (_, earlier), (row, later) in zip(parsed_rows, parsed_rows[1:]):
+            if later < earlier:
+                record("date_order_chained", row=row, field="date")
+    duplicate_occurrences: list[dict] = []
+    distinguished, unverifiable = _duplicates(resolved, occurrences=duplicate_occurrences)
     checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}
     computed_ending: Decimal | None = None
     continuity_breaks = 0
     counts_vouch = False
     if beginning is not None and ending is not None and "direction_unknown" not in reasons and "proposal_invalid" not in reasons:
         meta_for_reader = replace(meta, beginning_balance=beginning, ending_balance=ending)
-        result = reconcile(statement_from(resolved, meta_for_reader))
+        statement = statement_from(resolved, meta_for_reader)
+        result = reconcile(statement)
         if result.computed_ending is not None:
             computed_ending = Decimal(str(result.computed_ending)).quantize(Decimal("0.01"))
         continuity_breaks = int(result.continuity_breaks or 0)
@@ -225,18 +308,38 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         checks["debit_count_matches"] = result.stated_debit_count_matches
         delta = abs(Decimal(str(result.sum_delta))) if result.sum_delta is not None else None
         if delta is None or delta > tolerance:
-            reasons.append("sum_mismatch")
+            record("sum_mismatch")
         if continuity_breaks:
             reasons.append("continuity_break")
+            failures = _continuity_failure_rows(resolved, statement)
+            for row in failures[:continuity_breaks]:
+                record("continuity_break", row=row, field="balance")
+            # If the reader's algorithm changes, keep its authoritative count
+            # without inventing a page or altering the admission decision.
+            for _ in range(max(0, continuity_breaks - len(failures))):
+                record("continuity_break", field="balance")
         if result.summary_ok is False:
-            reasons.append("summary_mismatch")
-        if result.stated_credit_count_matches is False or result.stated_debit_count_matches is False:
-            reasons.append("count_mismatch")
+            record("summary_mismatch")
+        if result.stated_credit_count_matches is False:
+            record("count_mismatch", field="stated_credit_count")
+        if result.stated_debit_count_matches is False:
+            record("count_mismatch", field="stated_debit_count")
         if not result.ok and not any(r in reasons for r in ("sum_mismatch", "summary_mismatch")):
-            reasons.append("coverage_mismatch")   # RR-7: a reconcile issue that is neither the sum nor the summary
+            # RR-7 includes any remaining reconcile issue. Only actual failed
+            # coverage fields get field attribution; a catch-all stays global.
+            fields = [field for field, coverage in (
+                ("stated_total_credits", result.credit_coverage),
+                ("stated_total_debits", result.debit_coverage),
+            ) if coverage is not None and (coverage < 0.98 or coverage > 1.02)]
+            if fields:
+                for field in fields:
+                    record("coverage_mismatch", field=field)
+            else:
+                record("coverage_mismatch")
     if unverifiable:
         reasons.append("duplicate_row")   # RR-2: an unverifiable repeat is never amnestied by a matching count
+        occurrences.extend(duplicate_occurrences)
     ordered = tuple(dict.fromkeys(reasons))
     admitted = not ordered
     return GateVerdict(admitted, ordered, len(resolved), tuple(resolved) if admitted else (), computed_ending,
-                       continuity_breaks, flagged, checks, anchored)
+                       continuity_breaks, flagged, checks, anchored, tuple(occurrences))

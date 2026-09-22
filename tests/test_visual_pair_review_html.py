@@ -44,3 +44,41 @@ def test_app_resolved_date_is_attributed_separately_from_unchanged_model_output(
     assert '<strong>2031-01-02</strong>' in output
     assert 'reader outputs above are unchanged' in output
     assert output.count('Jan 02') == 2
+
+
+def test_reason_counts_keep_repeated_pages_and_document_level_failures_distinct():
+    output = retained_evidence_html({'gate': {
+        'reasons': ['continuity_break', 'continuity_break', 'currency_missing', 'page_unresolved'],
+        'reason_counts': {
+            'continuity_break': {'count': 7, 'pages': [{'page': 5, 'count': 4}, {'page': 2, 'count': 3}],
+                                 'document_count': 0},
+            'currency_missing': {'count': 1, 'pages': [], 'document_count': 1},
+            'page_unresolved': {'count': 2, 'pages': [{'page': 3, 'count': 2}], 'document_count': 0},
+        },
+    }})
+    assert output.count('7 occurrences') == 1
+    assert 'Page 2: 3; Page 5: 4' in output
+    assert 'Document level: 1 (no page attribution)' in output
+    assert 'printed statement currency is missing' in output
+    assert 'unresolved reading or review evidence' in output
+    assert '2 occurrences · Page 3: 2' in output
+    assert 'Counts unavailable' not in output
+
+
+def test_legacy_reason_flags_do_not_invent_occurrence_counts():
+    output = retained_evidence_html({'gate': {'reasons': ['sum_mismatch', 'currency_conflict']}})
+    assert output.count('Counts unavailable.') == 2
+    assert 'occurrence' not in output
+    assert 'printed statement currencies conflict' in output
+
+
+def test_invalid_count_metadata_is_not_rendered_as_content_or_a_plausible_count():
+    output = retained_evidence_html({'gate': {
+        'reasons': ['sum_mismatch', 'date_unparsed'],
+        'reason_counts': {
+            'sum_mismatch': {'count': 7, 'pages': [], 'document_count': 1},
+            'date_unparsed': {'count': '<script>FABRICATED</script>', 'pages': [], 'document_count': 0},
+        },
+    }})
+    assert output.count('Counts unavailable.') == 2
+    assert 'FABRICATED' not in output and '<script>' not in output

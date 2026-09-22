@@ -1,6 +1,7 @@
 """Private, checksum-bound judgment checks on exactly two or three real PDFs.
 
-Requires --manifest, --manifest-sha256, --source-root and --output-dir. Manifest:
+Requires --manifest, --manifest-sha256 and --source-root. --output-dir defaults
+to judgment-checks under the external private artifact root. Manifest:
 {"version":1,"scope":"real_judgment","documents":[
  {"id":"J01","path":"relative.pdf","sha256":"<64 lowercase hex>"}, ...]}.
 The caller must already have enabled the explicit remote customer-data opt-in.
@@ -21,7 +22,6 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 from typing import TextIO
 from uuid import uuid4
@@ -29,6 +29,10 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from vlm.receipts import Refused, canonical_json, dump_new, need, sha256_bytes, sha256_file, utc_now
+from ocr.private_artifacts import (
+    PrivateArtifactPathError, private_artifact_path, validate_private_artifact_path,
+)
+from tools.phase3_pair.check_synthetic import reason_count_report
 
 REPO = Path(__file__).resolve().parents[2]
 _ROW_STATES = ("agreed", "corrected", "added", "rejected", "unresolved")
@@ -75,21 +79,18 @@ def checked_documents(manifest_path: Path, expected_sha: str, root: Path) -> lis
     return result
 
 
-def _private_output(path: Path, source_root: Path) -> Path:
+def _private_output(path: Path | None, source_root: Path) -> Path:
     from discovery.runner import refuse_production_data_dir
 
-    target = path.resolve()
+    try:
+        target = (private_artifact_path("judgment-checks") if path is None
+                  else validate_private_artifact_path(path))
+    except PrivateArtifactPathError:
+        raise Refused("judgment_output_must_be_private") from None
     refuse_production_data_dir(target)
     root = source_root.resolve()
     need(not target.is_relative_to(root) and not root.is_relative_to(target),
          "judgment_output_overlaps_inputs")
-    if target.is_relative_to(REPO):
-        need(target.is_relative_to(REPO / ".claude"), "judgment_output_must_be_private")
-        # Check the actual ignore rules as well as the path. Recovery is denied
-        # above, even though it is also ignored by Git.
-        ignored = subprocess.run(["git", "check-ignore", "-q", "--", str(target)],
-                                 cwd=REPO, capture_output=True, check=False)
-        need(ignored.returncode == 0, "judgment_output_must_be_ignored")
     target.mkdir(parents=True, exist_ok=True, mode=0o700)
     target.chmod(0o700)
     return target
@@ -231,7 +232,8 @@ def _run_document(item: dict, *, output: Path, evidence: Path, settings, console
 
     document_id = item["id"]
     result = {"document_id": document_id, "pages": 0, "gate_admitted": False,
-              "status": "extraction_failed", "counts": {}, "error_type": None}
+              "status": "extraction_failed", "counts": {}, "error_type": None,
+              "gate_reason_count": None, "gate_reason_counts": None}
     try:
         # Recheck immediately before this input is opened; the full batch was
         # also checked before the first model call.
@@ -244,7 +246,7 @@ def _run_document(item: dict, *, output: Path, evidence: Path, settings, console
             "pages": doc.pages, "page_integrity": [asdict(v) for v in doc.page_integrity],
             "visual_pair": pair})
         result.update(pages=len(doc.pages), gate_admitted=bool(pair["gate"]["admitted"]),
-                      gate_reason_count=len(pair["gate"].get("reasons", [])),
+                      **reason_count_report(pair["gate"]),
                       counts={name: pair["confidence"]["counts"].get(name, 0) for name in _ROW_STATES},
                       status="gate_refused", fields=printed_field_presence(pair))
         try:
@@ -304,6 +306,9 @@ def run(args: argparse.Namespace) -> dict:
                    "admitted": sum(item["gate_admitted"] for item in results),
                    "analyzed": sum(item["status"] == "analysis_completed" for item in results),
                    "counts": dict(counts), "runs": results,
+                   "gate_checks": [{key: item[key] for key in
+                                    ("document_id", "gate_reason_count", "gate_reason_counts")}
+                                   for item in results],
                    "assessment": "Private judgment aids only; page review required, no quality score or publication."}
         _write_private(folder / "summary.private.json", summary)
         _append_ledger(output, {"run_id": run_id, "at": summary["finished"], "status": "finished",
@@ -320,7 +325,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--manifest-sha256", required=True)
     parser.add_argument("--source-root", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path,
+                        help="absolute external output directory (default: private root/judgment-checks)")
     args = parser.parse_args(argv)
     try:
         summary = run(args)
@@ -328,7 +334,7 @@ def main(argv: list[str] | None = None) -> int:
         print(canonical_json({"status": "failed", "error_type": type(exc).__name__}), flush=True)
         return 1
     print(canonical_json({key: summary[key] for key in
-                          ("documents", "pages", "admitted", "analyzed", "counts")}), flush=True)
+                          ("documents", "pages", "admitted", "analyzed", "counts", "gate_checks")}), flush=True)
     return 0 if summary["analyzed"] == summary["documents"] else 2
 
 

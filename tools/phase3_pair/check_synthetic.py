@@ -6,6 +6,7 @@ The manifest is supplied explicitly and its own SHA256 is required. Its shape:
 accepted as {"manifest_version":1,"scope":"synthetic","docs":[
 {"source_rel":"example.pdf","source_sha256":"<64 hex characters>",...}]}.
 Paths in either format are relative to --synthetic-root.
+--output-dir defaults to synthetic-checks under the external private artifact root.
 All inputs are verified before the first request. Standard output contains only
 counts/status; complete source evidence and the append-only ledger stay private.
 """
@@ -22,6 +23,52 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from vlm.receipts import Refused, canonical_json, dump_new, need, sha256_bytes, sha256_file, utc_now
+from ocr.private_artifacts import (
+    PrivateArtifactPathError, private_artifact_path, validate_private_artifact_path,
+)
+
+
+def reason_count_report(gate: dict) -> dict:
+    """Copy only reason codes and integer counters into shared CLI output.
+
+    Missing or incomplete legacy metadata has unknown counts, never one count
+    inferred from a compatibility reason flag.
+    """
+    from vlm.gate import REASONS
+
+    unavailable = {"gate_reason_count": None, "gate_reason_counts": None}
+    raw = gate.get("reason_counts")
+    reasons = gate.get("reasons", [])
+    if not isinstance(raw, dict) or not isinstance(reasons, list):
+        return unavailable
+    if any(not isinstance(code, str) or code not in REASONS for code in reasons):
+        return unavailable
+    if not set(reasons).issubset(raw):
+        return unavailable
+    counts = {}
+    for code, item in raw.items():
+        if code not in REASONS or not isinstance(item, dict):
+            return unavailable
+        total, document, pages = (item.get(key) for key in ("count", "document_count", "pages"))
+        if (type(total) is not int or total < 0 or type(document) is not int or document < 0
+                or not isinstance(pages, list)):
+            return unavailable
+        by_page = {}
+        for page_count in pages:
+            if not isinstance(page_count, dict):
+                return unavailable
+            page, number = page_count.get("page"), page_count.get("count")
+            if (type(page) is not int or page < 1 or type(number) is not int or number < 1
+                    or page in by_page):
+                return unavailable
+            by_page[page] = number
+        if sum(by_page.values()) + document != total:
+            return unavailable
+        counts[code] = {"count": total,
+                        "pages": [{"page": page, "count": number} for page, number in sorted(by_page.items())],
+                        "document_count": document}
+    return {"gate_reason_count": sum(item["count"] for item in counts.values()),
+            "gate_reason_counts": counts}
 
 
 def checked_fixtures(manifest_path: Path, expected_sha: str, root: Path) -> list[Path]:
@@ -74,18 +121,18 @@ def checked_fixtures(manifest_path: Path, expected_sha: str, root: Path) -> list
     return checked
 
 
-def _private_output(path: Path, source_root: Path) -> Path:
+def _private_output(path: Path | None, source_root: Path) -> Path:
     from discovery.runner import refuse_production_data_dir
 
-    target = path.resolve()
+    try:
+        target = (private_artifact_path("synthetic-checks") if path is None
+                  else validate_private_artifact_path(path))
+    except PrivateArtifactPathError:
+        raise Refused("synthetic_output_must_be_private") from None
     refuse_production_data_dir(target)
-    need(not target.is_relative_to(source_root.resolve()), "synthetic_output_overlaps_inputs")
-    # The evidence directory must be outside the worktree or within the
-    # existing gitignored .claude runtime area. Never create a commit candidate
-    # containing model requests, responses, or a private fixture manifest.
-    repo = Path(__file__).resolve().parents[2]
-    need(not target.is_relative_to(repo) or target.is_relative_to(repo / ".claude"),
-         "synthetic_output_must_be_private")
+    root = source_root.resolve()
+    need(not target.is_relative_to(root) and not root.is_relative_to(target),
+         "synthetic_output_overlaps_inputs")
     target.mkdir(parents=True, exist_ok=True, mode=0o700)
     target.chmod(0o700)
     return target
@@ -110,10 +157,11 @@ def run(args: argparse.Namespace) -> dict:
             failed = {"fixture_index": index, "pdf_sha256": sha256_file(fixture),
                       "pages": 0, "status": "extraction_failed", "gate_admitted": False,
                       "gate_reasons": [], "counts": {}, "analysis_path": None,
+                      "gate_reason_count": None, "gate_reason_counts": None,
                       "receipt_sha256": None, "error_type": type(exc).__name__}
             details.append(failed)
             print(canonical_json({key: failed[key] for key in
-                                  ("fixture_index", "status", "error_type")}), flush=True)
+                                  ("fixture_index", "status", "error_type", "gate_reason_count", "gate_reason_counts")}), flush=True)
             continue
         pair = doc.visual_pair
         gate = pair["gate"]
@@ -133,16 +181,20 @@ def run(args: argparse.Namespace) -> dict:
         details.append({"fixture_index": index, "pdf_sha256": sha256_file(fixture),
                         "pages": len(doc.pages), "status": status,
                         "gate_admitted": gate["admitted"], "gate_reasons": gate["reasons"],
+                        **reason_count_report(gate),
                         "counts": state_counts, "analysis_path": analysis_path,
                         "receipt_sha256": pair["receipt_sha256"]})
         print(canonical_json({key: details[-1][key] for key in
-                              ("fixture_index", "pages", "status", "counts")}), flush=True)
+                              ("fixture_index", "pages", "status", "counts", "gate_reason_count", "gate_reason_counts")}), flush=True)
     summary = {"version": 1, "started": started, "finished": utc_now(),
                "scope": "synthetic_wiring_only", "manifest_sha256": args.manifest_sha256,
                "documents": len(details), "pages": sum(item["pages"] for item in details),
                "admitted": sum(item["gate_admitted"] for item in details),
                "analyzed": sum(item["status"] == "analysis_completed" for item in details),
-               "counts": dict(counts), "runs": details}
+               "counts": dict(counts), "runs": details,
+               "gate_checks": [{key: item[key] for key in
+                                ("fixture_index", "gate_reason_count", "gate_reason_counts")}
+                               for item in details]}
     digest = sha256_bytes(canonical_json(summary).encode())
     record = output / ("synthetic-check-" + digest + ".json")
     dump_new(record, summary)
@@ -164,7 +216,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--manifest-sha256", required=True)
     parser.add_argument("--synthetic-root", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path,
+                        help="absolute external output directory (default: private root/synthetic-checks)")
     args = parser.parse_args(argv)
     try:
         summary = run(args)
@@ -174,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         print(canonical_json({"status": "failed", "error_type": type(exc).__name__}), flush=True)
         return 1
     print(canonical_json({key: summary[key] for key in
-                          ("documents", "pages", "admitted", "analyzed", "counts")}), flush=True)
+                          ("documents", "pages", "admitted", "analyzed", "counts", "gate_checks")}), flush=True)
     return 0 if summary["analyzed"] == summary["documents"] else 2
 
 

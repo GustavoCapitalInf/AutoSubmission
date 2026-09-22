@@ -71,6 +71,7 @@ def test_worker_checks_actual_pdf_bytes_before_cache(monkeypatch, tmp_path):
 
 
 def test_authorized_exact_document_can_restore_cached_pair_despite_uppercase_storage_hash(monkeypatch, tmp_path):
+    monkeypatch.setenv('VISUAL_PAIR_PRIVATE_ROOT', str(tmp_path / 'private-artifacts'))
     from ocr.document import StatementMarkdown
     from ocr.inspect import content_sha256
     from webapp.artifact_cache import cached_ocr

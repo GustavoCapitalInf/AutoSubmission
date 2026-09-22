@@ -20,10 +20,12 @@ _REASONS = {
     'summary_mismatch': 'The transactions do not match the printed totals.',
     'count_mismatch': 'The transaction count differs from the printed count.',
     'coverage_mismatch': 'Transaction coverage is incomplete.',
-    'currency_conflict': 'The statement currency is missing or conflicting.',
+    'currency_missing': 'The printed statement currency is missing.',
+    'currency_conflict': 'The printed statement currencies conflict.',
     'anchor_disagreement': 'Pages contain conflicting statement fields.',
     'period_mismatch': 'The statement period is missing or inconsistent.',
     'date_order_chained': 'Transaction dates and running balance order disagree.',
+    'page_unresolved': 'One or more pages have unresolved reading or review evidence.',
 }
 _STATES = {'agreed': 'Confirmed', 'corrected': 'Corrected', 'added': 'Reviewer added',
            'rejected': 'Rejected — excluded', 'unresolved': 'Unresolved — not admitted'}
@@ -37,17 +39,46 @@ def _value(row: dict, field: str) -> str:
     return '<span style="color:#666">Not supplied</span>' if value is None else escape(str(value))
 
 
+def _reason_count_text(gate: dict, reason: str) -> str:
+    """Use recorded counts only; legacy reason flags do not imply one occurrence."""
+    counts = gate.get('reason_counts')
+    count = counts.get(reason) if isinstance(counts, dict) else None
+    if not isinstance(count, dict):
+        return 'Counts unavailable.'
+    total, document, pages = (count.get(key) for key in ('count', 'document_count', 'pages'))
+    if (type(total) is not int or total < 0 or type(document) is not int or document < 0
+            or not isinstance(pages, list)):
+        return 'Counts unavailable.'
+    by_page = {}
+    for item in pages:
+        if not isinstance(item, dict):
+            return 'Counts unavailable.'
+        page, number = item.get('page'), item.get('count')
+        if (type(page) is not int or page < 1 or type(number) is not int or number < 1
+                or page in by_page):
+            return 'Counts unavailable.'
+        by_page[page] = number
+    if sum(by_page.values()) + document != total:
+        return 'Counts unavailable.'
+    details = [f'Page {page}: {number}' for page, number in sorted(by_page.items())]
+    if document:
+        details.append(f'Document level: {document} (no page attribution)')
+    return f'{total} occurrence' + ('s' if total != 1 else '') + (
+        ' · ' + '; '.join(details) if details else '') + '.'
+
+
 def retained_evidence_html(evidence: dict) -> str:
     """Render data as escaped text only; no model-generated markup is trusted."""
     gate = evidence.get('gate')
     reasons = gate.get('reasons', []) if isinstance(gate, dict) else []
     reasons = reasons if isinstance(reasons, list) else []
-    messages = list(dict.fromkeys(_REASONS.get(reason, 'A statement check requires review.')
-                                  for reason in reasons if isinstance(reason, str)))
+    reasons = list(dict.fromkeys(reason for reason in reasons if isinstance(reason, str)))
     output = ['<section class="visual-pair-evidence">']
-    if messages:
+    if reasons:
         output.append('<h2>Why this extraction is held</h2><ul>' +
-                      ''.join('<li>' + escape(message) + '</li>' for message in messages) + '</ul>')
+                      ''.join('<li>' + escape(_REASONS.get(reason, 'A statement check requires review.')) +
+                              ' <span class="reason-counts">' + escape(_reason_count_text(gate, reason)) +
+                              '</span></li>' for reason in reasons) + '</ul>')
     rows = evidence.get('row_evidence')
     rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     resolution = evidence.get('date_resolution')

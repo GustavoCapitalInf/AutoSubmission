@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import html
 import json
-import re
 from dataclasses import asdict, replace
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable
@@ -20,6 +18,7 @@ from ocr.visual_pair_config import (MODEL_TOKEN, VisualPairSettings, check_remot
                                     load_visual_pair_settings, visual_pair_settings_key_material)
 from vlm.client import ChatResult, VlmClient, TransportError
 from vlm.receipts import canonical_json, sha256_bytes, sha256_file
+from vlm.pair_metadata import merge_metadata as _merge_metadata
 
 PAIR_VERSION = 1
 
@@ -42,7 +41,8 @@ def visual_pair_manifest() -> dict:
                'vlm/textparse.py', 'vlm/metadata.py', 'vlm/gate.py', 'vlm/pair_adapter.py',
                'vlm/prompts.py', 'vlm/schema.py', 'vlm/render.py', 'vlm/client.py',
                'vlm/receipts.py', 'vlm/review_batches.py', 'vlm/proposal_recovery.py', 'vlm/currency.py',
-               'ocr/visual_pair_config.py', 'ocr/truncation.py', 'vlm/dates.py')
+               'ocr/visual_pair_config.py', 'ocr/private_artifacts.py', 'ocr/truncation.py',
+               'vlm/dates.py', 'vlm/pair_metadata.py', 'vlm/reason_counts.py')
     return {
         'version': PAIR_VERSION, 'schema_version': SCHEMA_VERSION,
         'review_schema_sha256': review_schema_sha256(), 'gate_version': GATE_VERSION,
@@ -183,52 +183,6 @@ def _account_meta(account: dict, daily=()):
                        stated_daily_balances=tuple((v['date'], Decimal(str(v['balance']))) for v in daily))
 
 
-def _merge_metadata(merges) -> tuple[dict, list[dict], list[str], list[dict]]:
-    account, daily, reasons, provenance = {}, {}, [], []
-    identities = set()
-    for page, merged in enumerate(merges, 1):
-        identities.update(value for value in merged.account_numbers_seen if value)
-        for key, value in merged.account.items():
-            if value is None:
-                continue
-            if key in account and account[key] != value:
-                reasons.append('currency_conflict' if key == 'currency' else
-                               'period_mismatch' if key in ('period_start', 'period_end') else 'anchor_disagreement')
-            else:
-                account[key] = value
-            provenance.append({'field': key, 'page': page, 'source': 'reviewer', 'value': value})
-        for item in merged.daily_balances:
-            when, balance = item.get('date'), item.get('balance')
-            try:
-                date.fromisoformat(when)
-            except (TypeError, ValueError):
-                reasons.append('date_unparsed')
-                continue
-            if when in daily and daily[when] != balance:
-                reasons.append('anchor_disagreement')
-            daily[when] = balance
-        for key in ('account_number', 'account_number_last4'):
-            if merged.account.get(key):
-                identities.add(merged.account[key])
-    # full numbers and masked last-four evidence may name the same account.
-    full_ids = {re.sub(r'[\s-]', '', str(value)) for value in identities
-                if len(re.sub(r'[\s-]', '', str(value))) > 4
-                and not re.search(r'[xX*•]', str(value))}
-    if len(full_ids) > 1 or len({str(value)[-4:] for value in identities}) > 1:
-        reasons.append('proposal_invalid')
-    for key in ('period_start', 'period_end'):
-        try:
-            date.fromisoformat(account.get(key))
-        except (TypeError, ValueError):
-            reasons.append('period_mismatch')
-    if account.get('period_start') and account.get('period_end'):
-        if account['period_start'] > account['period_end']:
-            reasons.append('period_mismatch')
-    if not account.get('currency'):
-        reasons.append('currency_conflict')
-    return account, [{'date': key, 'balance': val} for key, val in sorted(daily.items())], reasons, provenance
-
-
 def _statement(rows, account: dict, daily: list[dict], *, currency_source: str = 'model_extracted') -> dict:
     from vlm.gate import statement_from
     from analysis.schema import Statement
@@ -281,12 +235,13 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
 
     cfg = settings or load_visual_pair_settings()
     report = progress or (lambda _: None)
+    from ocr.private_artifacts import validate_private_artifact_path
+    evidence_dir = validate_private_artifact_path(evidence_dir)
     raw = Path(pdf).read_bytes()
     if not raw.startswith(b'%PDF'):
         raise VisualPairError('visual_pair_pdf_required')
     pdf_sha = sha256_bytes(raw)
     check_remote_authorization(cfg, data_scope=data_scope, pdf_sha256=pdf_sha)
-    evidence_dir = Path(evidence_dir)
     evidence_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     manifest = visual_pair_settings_key_material(cfg)
     run_key = sha256_bytes(canonical_json({'pdf': pdf_sha, 'config': manifest}).encode())
@@ -416,7 +371,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
             if merged.account.get(field) is not None:
                 metadata_context.setdefault(field, merged.account[field])
     report('visual_pair_gating')
-    account, daily, reasons, field_evidence = _merge_metadata(merges)
+    occurrences = []
+    account, daily, reasons, field_evidence = _merge_metadata(merges, occurrences=occurrences)
     rows = [row for merged in merges for row in merged.rows]
     # The reviewed printed month/day and reviewed period can determine a
     # missing ISO date without another model reading. This is a separate
@@ -428,41 +384,62 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         period_end=account.get('period_end') if 'period_mismatch' not in reasons else None,
     )
     rows = list(dates.rows)
-    if any(page_errors) or any(truncated):
-        reasons.append('proposal_invalid')
+    unresolved_pages = [idx + 1 for idx, (errors, cut) in enumerate(zip(page_errors, truncated))
+                        if errors or cut or merges[idx].counts.get('unresolved', 0)]
+    for page_number in unresolved_pages:
+        reasons.append('page_unresolved')
+        occurrences.append({'code': 'page_unresolved', 'page': page_number, 'source': 'page_review'})
+    verdict = None
     try:
-        verdict = gate(rows, _account_meta(account, daily))
+        # Incomplete ledgers retain independent row checks. Whole-document
+        # arithmetic waits for the missing pages, avoiding false sum/summary
+        # failures without hiding defects on the pages already reviewed.
+        verdict = gate(rows, _account_meta(account, daily), complete_document=not unresolved_pages)
         reasons.extend(verdict.reasons)
+        occurrences.extend(verdict.occurrences)
         checks = verdict.checks
+        if unresolved_pages:
+            checks['unresolved_pages'] = unresolved_pages
     except (ValueError, TypeError, ArithmeticError):
-        verdict = None
         checks = {}
         reasons.append('proposal_invalid')
-    reasons = list(dict.fromkeys(reasons))
+        occurrences.append({'code': 'proposal_invalid', 'page': None, 'source': 'gate_input'})
     currency_resolution = None
     currency_bridge_source_sha = None
     currency_source = 'model_extracted'
-    # The existing currency doctrine permits earned deterministic rules. Reuse
-    # one only after every other source check passes and the existing parser
-    # exactly reproduces the reviewed Statement from visual text alone.
-    if (verdict is not None and verdict.admitted and not account.get('currency')
-            and set(reasons) == {'currency_conflict'}):
-        from vlm.currency import resolve_currency
+    # Currency evidence is independent of other failures. A faithful existing
+    # parser rule may fill absence, but cannot erase a contradictory currency
+    # observation or clear any unrelated gate reason.
+    if not account.get('currency'):
+        from vlm.currency import CurrencyResolution, resolve_currency
         visual_pages = ['\n'.join(block.content for block in layout.blocks) for layout in layouts]
         visual_markdown = '\n\n'.join(visual_pages)
         currency_bridge_source_sha = _blob(evidence_dir, visual_markdown.encode())
-        reviewed_source = _statement(verdict.admitted_rows, account, daily)
-        reviewed_source['currency'] = None  # never inherit Statement's legacy USD default
-        resolution = resolve_currency(reviewed_source, visual_markdown, sheets=visual_pages)
+        try:
+            source_rows = verdict.admitted_rows if verdict is not None and verdict.admitted else rows
+            reviewed_source = _statement(source_rows, account, daily)
+            reviewed_source['currency'] = None  # never inherit Statement's legacy USD default
+            # The bridge must see unknown source fields as unknown. The legacy
+            # Statement projection uses placeholders that are not evidence.
+            for transaction, row in zip(reviewed_source['transactions'], source_rows):
+                transaction['direction'] = row.direction
+                transaction['date'] = row.date
+            resolution = resolve_currency(reviewed_source, visual_markdown, sheets=visual_pages)
+        except (ValueError, TypeError, ArithmeticError):
+            resolution = CurrencyResolution('unresolved', 'source_statement_invalid')
         currency_resolution = asdict(resolution)
         if resolution.resolved:
             account['currency'] = resolution.currency
             currency_source = resolution.currency_source
-            reasons.remove('currency_conflict')
+            reasons = [reason for reason in reasons if reason != 'currency_missing']
+            occurrences = [event for event in occurrences if event['code'] != 'currency_missing']
             field_evidence.append({'field': 'currency', 'page': None, 'source': 'existing_parser_rule',
                                    'value': resolution.currency, 'currency_source': currency_source,
                                    'parser_id': resolution.parser_id,
                                    'visual_source_sha256': currency_bridge_source_sha})
+    from vlm.reason_counts import summarize_occurrences
+    reasons = list(dict.fromkeys(reasons))
+    reason_counts = summarize_occurrences(occurrences)
     admitted = verdict is not None and verdict.admitted and not reasons
     confidence = confidence_summary(merges, gate_admitted=admitted, gate_reasons=reasons)
     statement = _statement(verdict.admitted_rows, account, daily, currency_source=currency_source) if admitted else None
@@ -470,7 +447,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                  for merged, cut in zip(merges, truncated)]
     integrity = assess_pages(page_text)
     audit = {'version': PAIR_VERSION, 'account_count': 1, 'statement': statement,
-             'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks},
+             'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks,
+                      'reason_occurrences': occurrences, 'reason_counts': reason_counts},
              'confidence': confidence, 'field_evidence': field_evidence,
              'date_resolution': {
                  'version': DATE_RESOLVER_VERSION,
@@ -484,6 +462,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
              'row_evidence': [item for merged in merges for item in merged.evidence],
              'proposal_recoveries': recoveries,
              'pages': [{'page': idx+1, 'errors': errors, 'truncated': truncated[idx],
+                        'review_status': 'unresolved' if idx+1 in unresolved_pages else 'reviewed',
+                        'reason_counts': summarize_occurrences(
+                            event for event in occurrences if event['page'] == idx+1),
                         'initial_proposer_truncated': bool(recoveries[idx].get('original', {}).get('layout', {}).get('truncated')),
                         'proposal_recovery_attempted': recoveries[idx]['attempted'],
                         'proposal_recovered': recoveries[idx].get('recovered', False),

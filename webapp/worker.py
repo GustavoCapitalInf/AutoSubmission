@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ocr.config import load_settings as load_ocr_settings
+from ocr.private_artifacts import private_artifact_path
 from ocr.visual_pair_config import (
     MODEL_TOKEN as VISUAL_PAIR_MODEL_TOKEN,
     check_remote_authorization, load_visual_pair_settings,
@@ -488,7 +489,7 @@ def _read_visual_pair(job_id, store, cache, pdf_bytes, filename, profile, *, tim
     # Even a cache hit must not bypass revoked remote customer authorization.
     # A web upload always has customer scope; it cannot opt into synthetic.
     check_remote_authorization(settings, data_scope="customer", pdf_sha256=content_sha256(pdf_bytes).lower())
-    evidence_dir = store.storage.data_dir / "visual_pair_evidence"
+    evidence_dir = private_artifact_path("visual_pair_evidence")
 
     def compute():
         with TemporaryDirectory(prefix="visual-pair-input-") as temporary:

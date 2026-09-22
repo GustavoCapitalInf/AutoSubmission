@@ -22,6 +22,7 @@ file-size and page-count checks still run without reading the text layer.
 | `VISUAL_PAIR_REVIEWER_URL` | loopback port 18022 `/v1` | Qwen reviewer transport. |
 | `VISUAL_PAIR_EXECUTION_CLASS` | `remote_paid` | The only deployment supported in this phase; loopback can be a remote tunnel. |
 | `VISUAL_PAIR_TIMEOUT` | `900` seconds | Per-request timeout, without automatic transport retries. |
+| `VISUAL_PAIR_PRIVATE_ROOT` | Absolute home-directory path `.local/share/bank-statement-analysis/phase31-private` | Private evidence root outside the checkout. Relative paths and paths resolving inside the checkout are refused. |
 | `VISUAL_PAIR_REVIEW_POLICY` | `always_review` | Hold all results; `admit_gated` requires an authorized publication policy or explicit synthetic checks. It never bypasses the gate. |
 | `VISUAL_PAIR_CUSTOMER_DOCUMENT_SHA256_ALLOWLIST` | absent | Optional comma-separated lowercase SHA256s restricting an authorized evaluation to exact PDF bytes. Empty or malformed values fail closed. |
 
@@ -67,11 +68,26 @@ may instead carry a deterministic empty-region proof. Near-white pixels, darknes
 thresholds and variance heuristics cannot grant that proof. The full page always goes
 to Stage A first, and Stage B always reviews the full page image.
 
+Missing currency uses `currency_missing`; differing reviewed denominations use
+`currency_conflict`. Currency resolution runs even when another check has failed,
+and a successful resolution clears only `currency_missing`.
 Missing currency remains held unless an existing deterministic institution rule exactly
 reproduces the other reviewed Statement fields. Only `institution_default` is reusable
 for this purpose. Printed, product and jurisdiction currency derived solely from raw
 Stage A text requires reviewed denomination evidence; `schema_default` cannot supply it.
 An explicit reviewer currency remains `model_extracted`.
+
+Page truncation or review failure produces `page_unresolved` on that page. Reviewed
+rows on other pages retain their original states. Incomplete documents retain row
+validation but defer statement-wide sums, summaries, anchor derivation and direction
+inference across gaps. Metrics remain withheld until the complete document passes.
+
+Repeated bank/name headers compare formatting-insensitively, and account identifiers
+compare all visible characters, including compatible masked/full restatements. The
+earliest opening and latest closing are the statement anchors. A different continuation
+balance requires a matching reviewed running balance or adjacent page endpoint;
+unsupported differences remain `anchor_disagreement`. Periods, totals, counts, fees
+and printed averages must agree across restatements. Raw field evidence is retained.
 
 After all model reviews and a consistent reviewed statement-period merge, the platform
 may complete a null row date from reviewed `date_text` only when exactly one valid
@@ -102,6 +118,14 @@ viewer verdict does not authorize publication or change a saved model result.
 Platform-resolved dates are attributed separately from reviewer output. Their presence
 does not relabel an unchanged model row as corrected or authorize its admission.
 
+`gate.reasons` remains the compatibility list of distinct codes. Occurrences are
+recorded before deduplication in `gate.reason_occurrences` with code, source, field
+when applicable, and page. `gate.reason_counts` reports each code's total, counts by
+page, and document-level count. Row/field failures count separately; duplicate-row
+counts identify each later offending row once. Aggregate checks use a null page
+instead of guessing a location. The review UI and CLI expose these counts; older
+audits without occurrence records show counts as unavailable.
+
 The agreement score and raw row counts are provisional. They are not calibrated
 probabilities, and the bounded evaluation did not establish net-positive customer
 corrections. `always_review` remains the default even when every deterministic check
@@ -110,5 +134,9 @@ remain separate owner decisions.
 
 Requests use the existing background queue and page/stage progress. One worker slot
 serializes GPU jobs; increasing concurrency requires separate capacity and repeatability
-measurements. Evidence stays in the private webapp data directory under
-`visual_pair_evidence`; HTTP upload handlers do not wait for GPU completion.
+measurements. Pair evidence stays under the external absolute private root;
+HTTP upload handlers do not wait for GPU completion. Private judgment outputs
+use the same external root by default. Repository-local output paths are refused.
+Webapp uploads, cached extractions and audit state default to its `webapp_data`
+child. `WEBAPP_DATA_DIR` and explicit storage overrides must also be absolute and
+outside the checkout. Existing storage is not opened or migrated automatically.

@@ -261,8 +261,10 @@ No 16-statement corpus replay occurred. The requested cold cache
 recreated or written. Narrow/broad trigger frequency therefore remains unavailable,
 not zero. Broad fallback was not silently selected.
 
-Full evidence and appended run ledgers remain in the ignored local
-`.claude/phase31-private/` tree. The original final model run is under
+Full evidence and appended run ledgers have been moved outside the checkout to
+the absolute private root selected by `VISUAL_PAIR_PRIVATE_ROOT` (default:
+`Path.home() / ".local/share/bank-statement-analysis/phase31-private"`). No
+repository symlink points to that root. The original final model run is under
 `real-judgment-20260921/check-v8/7ecdcca25a0e485f97bcd5dc4b92b2bf`; its saved-response
 replay evidence and `webapp-evaluation-v9.private.json` record the subsequent checks.
 Original and derived evidence remain separate. The Windows ledger named in the
@@ -270,3 +272,28 @@ handoff is not mounted in this workspace.
 The accepted dots.mocr licence is recorded as the requested clerical row in
 [LICENSES.md](../moneythumb-replacement/phase3/LICENSES.md); model and licence choices
 were not reopened.
+
+## Quarantine corrections (2026-09-22)
+
+The current boundary handoff was merged into `phase3.1-quarantine`. The former
+repository-local private tree was moved intact outside the checkout. Future pair
+evidence and judgment outputs use an absolute external root; relative paths,
+checkout paths and symlinks back into the checkout are refused.
+
+Four source defects have synthetic regression coverage: incomplete pages now have
+page-local unresolved status; absent currency is distinct from conflicting currency;
+currency resolution no longer depends on unrelated gate success; and metadata
+restatements use field-specific identity and continuation-balance rules. Incomplete
+ledgers retain independent row checks while statement-wide arithmetic waits for all
+pages. No partial metrics are admitted.
+
+Gate version 9 records each refusal occurrence and its page before constructing the
+distinct-code compatibility list. Reports expose total/per-page/document-level
+counts; legacy audits with no occurrence records remain unknown. Date resolution
+and original model evidence are unchanged.
+
+Validation: 433 focused synthetic/mocked tests passed, covering extraction,
+recovery, gate arithmetic, metadata, currencies, dates, private paths, cache/worker
+integration and count reporting. No customer pages, archived evidence or corpus
+were read, and no inference calls were made for these corrections. Earlier real
+evaluation records above remain historical; they were not re-evaluated.

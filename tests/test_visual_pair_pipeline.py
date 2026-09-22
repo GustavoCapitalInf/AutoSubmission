@@ -147,7 +147,7 @@ def test_truncated_proposal_keeps_slot_and_refuses(wired):
     doc=pair.extract_visual_pair(pdf,evidence_dir=directory,data_scope='synthetic')
     assert len(doc.pages)==1 and doc.truncated_pages==[0]
     assert not doc.visual_pair['gate']['admitted']
-    assert 'proposal_invalid' in doc.visual_pair['gate']['reasons']
+    assert 'page_unresolved' in doc.visual_pair['gate']['reasons']
     assert doc.visual_pair['confidence']['counts']['unresolved']==2
     assert doc.visual_pair['statement'] is None
 

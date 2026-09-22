@@ -1,7 +1,8 @@
 """Build a private offline source viewer for one completed judgment-check run.
 
 Requires the same checksum-bound 2–3-document manifest as check_judgment, an
-exact --run-dir containing its summary/document JSON files, and --output-dir.
+exact --run-dir containing its summary/document JSON files. --output-dir defaults
+to a new judgment-reviews directory under the external private artifact root.
 Only those PDFs are rendered locally. No network request, model invocation,
 job publication, or metric report is performed. Human verdicts stay in the
 browser until the reviewer exports their private JSON file.
@@ -21,6 +22,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.phase3_pair.check_judgment import _private_output, _write_private, checked_documents
+from ocr.private_artifacts import private_artifact_path, validate_private_artifact_path
+from uuid import uuid4
 from vlm.receipts import canonical_json, need, sha256_bytes, sha256_file, utc_now
 
 
@@ -162,7 +165,7 @@ def build(args: argparse.Namespace) -> dict:
     from vlm.render import render_pages
 
     documents = checked_documents(args.manifest, args.manifest_sha256, args.source_root)
-    run_dir = args.run_dir.resolve(strict=True)
+    run_dir = validate_private_artifact_path(args.run_dir).resolve(strict=True)
     summary_path = _run_file(run_dir, "summary.private.json")
     summary = json.loads(summary_path.read_bytes())
     need(summary.get("scope") == "real_judgment" and summary.get("manifest_sha256") == args.manifest_sha256,
@@ -187,7 +190,9 @@ def build(args: argparse.Namespace) -> dict:
         bindings.append({"document_id": item["id"], "pdf_sha256": item["sha256"],
                          "document_sha256": sha256_bytes(raw),
                          "receipt_sha256": pair.get("receipt_sha256")})
-    output = _private_output(args.output_dir, args.source_root)
+    output = _private_output(
+        args.output_dir if args.output_dir is not None
+        else private_artifact_path("judgment-reviews", uuid4().hex), args.source_root)
     need(not (output / "review.html").exists(), "review_output_already_exists")
     images = output / "pages"
     images.mkdir(mode=0o700)  # Exclusive: a build never overwrites previous source pages.
@@ -286,7 +291,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest-sha256", required=True)
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path,
+                        help="absolute external output directory (default: new private root/judgment-reviews run)")
     args = parser.parse_args(argv)
     try:
         # Rendering/library diagnostics never enter a shared terminal.

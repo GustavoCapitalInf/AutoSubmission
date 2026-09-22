@@ -257,11 +257,13 @@ def utc_now_iso() -> str:
 
 
 def default_data_dir() -> Path:
-    """``WEBAPP_DATA_DIR`` env override, else ``webapp_data/`` at repo root."""
+    """Absolute external override, else the private root's webapp data directory."""
+    from ocr.private_artifacts import private_artifact_path, validate_private_artifact_path
+
     env = os.environ.get("WEBAPP_DATA_DIR", "").strip()
     if env:
-        return Path(env)
-    return Path(__file__).resolve().parents[1] / "webapp_data"
+        return validate_private_artifact_path(env)
+    return private_artifact_path('webapp_data')
 
 
 class Storage:
@@ -272,7 +274,9 @@ class Storage:
     """
 
     def __init__(self, data_dir: str | Path | None = None) -> None:
-        self.data_dir = Path(data_dir) if data_dir is not None else default_data_dir()
+        from ocr.private_artifacts import validate_private_artifact_path
+
+        self.data_dir = validate_private_artifact_path(data_dir) if data_dir is not None else default_data_dir()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / "webapp.db"
         self._ensure_schema()
