@@ -14,7 +14,7 @@ from vlm.currency import USD_DEFAULT_RULING, canadian_evidence, currency_resolut
 from ocr.truncation import assess_pages
 from vlm.pair import held_pages, ledger_rows, page_texts
 from vlm.pair_metadata import merge_metadata
-from vlm.review import PageReviewMerge, confidence_summary
+from vlm.review import PageReviewMerge, confidence_summary, mark_ledger_echoes
 
 
 # --- 1. currency ---------------------------------------------------------------------------------------
@@ -80,16 +80,22 @@ def _page(number, *, role="statement_page", account=None, rows=1):
     return PageReviewMerge(number, body, (), {"added": len(body)}, (), base, (), role, ())
 
 
+def _marked(*pages):
+    # A labelled page's rows make it pictures only when they repeat earlier ledger transactions
+    # (tests/test_visual_pair_cheque_echo.py); every fixture row here is 1.00.
+    return mark_ledger_echoes(list(pages))
+
+
 def test_rows_on_cheque_image_pages_never_enter_the_ledger():
-    rows, excluded = ledger_rows([_page(1, rows=3), _page(2, role="cheque_images", rows=6), _page(3, rows=2)])
-    assert len(rows) == 5 and excluded == 6
+    rows, excluded = ledger_rows(_marked(_page(1, rows=6), _page(2, role="cheque_images", rows=6), _page(3, rows=2)))
+    assert len(rows) == 8 and excluded == 6
     assert {row.page for row in rows} == {1, 3}
 
 
 def test_a_cheque_pages_other_account_and_names_are_kept_but_never_compared():
-    pages = [_page(1), _page(2, role="cheque_images",
-                           account={"account_number": "7-000-3333-4444", "bank": "OTHER FABRICATED BANK",
-                                    "account_name": "SOMEONE ELSE"})]
+    pages = _marked(_page(1), _page(2, role="cheque_images",
+                                    account={"account_number": "7-000-3333-4444", "bank": "OTHER FABRICATED BANK",
+                                             "account_name": "SOMEONE ELSE"}))
     before = deepcopy(pages)
     account, _, reasons, provenance = merge_metadata(pages)
     assert pages == before
@@ -104,14 +110,14 @@ def _held(pages, *, page_errors=None, truncated=None):
 
 
 def test_a_cut_off_read_of_a_cheque_picture_page_does_not_hold_it():
-    pages = [_page(1), _page(2, role="cheque_images", rows=6)]
+    pages = _marked(_page(1, rows=6), _page(2, role="cheque_images", rows=6))
     assert _held(pages, truncated=[False, True]) == []
 
 
 def test_nothing_else_on_a_cheque_picture_page_holds_it_either():
     cheque = replace(_page(2, role="cheque_images", rows=6), counts={"added": 5, "unresolved": 1},
                      metadata_evidence=({"scope": "daily_balances", "page": 2},))
-    assert _held([_page(1), cheque], page_errors=[[], ["proposer_transport_failed"]]) == []
+    assert _held(_marked(_page(1, rows=6), cheque), page_errors=[[], ["proposer_transport_failed"]]) == []
 
 
 def test_a_cut_off_statement_page_still_holds():
@@ -126,16 +132,16 @@ def test_an_invalid_review_cannot_make_a_page_a_cheque_picture_page():
 
 def test_a_cheque_picture_page_is_out_of_the_confidence_counts_and_admission():
     cheque = replace(_page(2, role="cheque_images", rows=6), counts={"added": 5, "unresolved": 1})
-    summary = confidence_summary([_page(1), cheque], gate_admitted=True)
+    summary = confidence_summary(_marked(_page(1, rows=6), cheque), gate_admitted=True)
     assert summary["gate_admitted"] is True
-    assert summary["counts"]["unresolved"] == 0 and summary["counts"]["added"] == 1
+    assert summary["counts"]["unresolved"] == 0 and summary["counts"]["added"] == 6
     assert summary["page_count"] == 2
     assert [page["cheque_pictures"] for page in summary["pages"]] == [False, True]
 
 
 def test_a_cheque_picture_page_gives_the_bank_reader_no_text_and_is_never_a_truncated_page():
     cheque = _page(2, role="cheque_images", rows=6, account={"account_number": "7-000-3333-4444"})
-    texts = page_texts([_page(1), cheque], [True, True])
+    texts = page_texts(_marked(_page(1, rows=6), cheque), [True, True])
     assert texts[1] == "" and texts[1].finish_reason == "stop"
     assert texts[0].finish_reason == "length" and "FABRICATED ROW" in texts[0]
     assert [item.truncated for item in assess_pages(texts)] == [True, False]
@@ -157,7 +163,7 @@ def test_a_page_printing_statement_summary_figures_is_not_a_cheque_picture_page(
         assert page_texts([_page(1), labelled], [False, True])[1].finish_reason == "length", name
     # Header details a cheque-image page repeats (bank, account, period) do not disqualify it.
     header = _page(2, role="cheque_images", rows=2, account={"bank": "FABRICATED BANK", "period_end": "2031-01-31"})
-    assert _held([_page(1), header], truncated=[False, True]) == []
+    assert _held(_marked(_page(1, rows=2), header), truncated=[False, True]) == []
 
 
 def test_a_labelled_page_with_a_summary_box_has_its_metadata_compared():
@@ -166,14 +172,16 @@ def test_a_labelled_page_with_a_summary_box_has_its_metadata_compared():
     assert reasons  # the other account number is compared, and conflicts
 
 
-def test_a_page_whose_review_kept_rows_the_proposer_read_is_not_a_cheque_picture_page():
+def test_a_labelled_page_is_pictures_only_when_its_kept_rows_repeat_the_ledger():
     # Third review finding on b4eea02: a real page labelled cheque_images with its summary box unread but its
-    # proposed rows confirmed or corrected is a statement page. Rows only the reviewer added (a pictured
-    # cheque echoed as a transaction) do not disqualify a picture page, which is what the ruling is about.
-    for state in ("agreed", "corrected"):
-        kept = replace(_page(2, role="cheque_images", rows=2), counts={state: 2})
-        assert _held([_page(1), kept], truncated=[False, True]) == [2], state
-        rows, excluded = ledger_rows([_page(1), kept])
+    # proposed rows confirmed or corrected must count. The cheque-echo backstop decides by the rows themselves:
+    # rows new to the statement make it a statement page; rows repeating earlier transactions make it
+    # pictures, whether the proposer read them (confirmed, corrected) or only the reviewer added them.
+    for state in ("agreed", "corrected", "added"):
+        page = replace(_page(2, role="cheque_images", rows=2), counts={state: 2})
+        new = _marked(_page(1), page)                  # one earlier 1.00 transaction for two rows
+        assert _held(new, truncated=[False, True]) == [2], state
+        rows, excluded = ledger_rows(new)
         assert excluded == 0 and len(rows) == 3, state
-    echoed = replace(_page(2, role="cheque_images", rows=2), counts={"added": 2, "rejected": 1})
-    assert _held([_page(1), echoed], truncated=[False, True]) == []
+        echoed = _marked(_page(1, rows=2), page)       # two earlier 1.00 transactions
+        assert _held(echoed, truncated=[False, True]) == [], state

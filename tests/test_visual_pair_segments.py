@@ -8,7 +8,7 @@ import pytest
 from vlm.assemble import CandidateRow
 from vlm.pair_metadata import merge_metadata
 from vlm.receipts import canonical_json
-from vlm.review import PageReviewMerge
+from vlm.review import PageReviewMerge, mark_ledger_echoes
 from vlm.segments import (COUNT_FIELDS, OPENING_OBSERVATION_RULE, OPENING_OBSERVATION_SOURCE,
                           SCOPED_FIELDS, SUMMARY_FIELDS, detect_page_segments)
 
@@ -342,7 +342,8 @@ def test_a_cheque_picture_page_never_stops_a_proven_chain():
     header = {"period_start": "2031-01-01", "period_end": "2031-01-31", "currency": "USD", "bank": "FABRICATED BANK"}
     pictures = replace(page(4, 0, 30, 0, 30), page_role="cheque_images", account=header,
                        counts={"added": 1, "unresolved": 1})
-    plan = detect_page_segments(chain() + [pictures])
+    # Page 1 records a 30 credit, so the pictured 30 repeats an earlier transaction (cheque-echo backstop).
+    plan = detect_page_segments(mark_ledger_echoes(chain() + [pictures]))
     assert plan.proven
     assert [item.account["ending_balance"] for item in plan.segments] == [120, 115, 145]
 

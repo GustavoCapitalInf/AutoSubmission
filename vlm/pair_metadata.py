@@ -211,7 +211,9 @@ def _page(index, merged):
 
 
 def _transaction_page(merged) -> bool:
-    return not merged.errors and merged.page_role == "statement_page" and bool(merged.rows)
+    # A cheque picture page is never continuation or page-break evidence, whatever it was labelled.
+    return (not merged.errors and merged.page_role == "statement_page" and bool(merged.rows)
+            and not picture_page(merged))
 
 
 def _adjacent(merges, left, right) -> bool:

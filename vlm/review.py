@@ -50,6 +50,8 @@ class PageReviewMerge:
     account_numbers_seen: tuple[str, ...] = ()
     diagnostics: tuple[dict, ...] = ()
     metadata_evidence: tuple[dict, ...] = ()
+    # Set only by mark_ledger_echoes: every kept row repeats a transaction on an earlier ledger page.
+    ledger_echo: bool = False
 
 
 def review_envelope_valid(payload: object, schema: dict = PAGE_REVIEW_SCHEMA) -> bool:
@@ -402,21 +404,63 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                            tuple(diagnostics), tuple(metadata_evidence))
 
 
-def picture_page(merged) -> bool:
-    """Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): a page whose VALID review labels it
-    cheque_images shows pictures of documents whose transactions are listed elsewhere. It contributes no
-    ledger rows, no compared metadata and no text for a bank reader, and nothing on it holds the statement.
-    A review that failed validation cannot establish the label, and neither can a page whose review read a
-    statement summary figure from it (opening, closing, totals or counts): such a page is a statement page
-    whatever it was called, and treating it as pictures would silently drop its rows from a chain that then
-    proves over the other pages. Repeated header details (bank, account, period) do not disqualify it. Nor
-    can a page on which the review kept (confirmed or corrected) rows the proposer read: a picture page has
-    no transaction listing. Rows only the reviewer added, a pictured cheque echoed as a transaction, do not
-    disqualify it; they are what the ruling excludes."""
+def _summary_figures(merged) -> bool:
     from vlm.segments import SCOPED_FIELDS
-    return (merged.page_role == "cheque_images" and not merged.errors
-            and all(merged.account.get(name) is None for name in SCOPED_FIELDS)
-            and not merged.counts.get("agreed", 0) and not merged.counts.get("corrected", 0))
+    return any(merged.account.get(name) is not None for name in SCOPED_FIELDS)
+
+
+def picture_page(merged) -> bool:
+    """Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): a cheque picture page shows pictures of
+    documents whose transactions are listed elsewhere. It contributes no ledger rows, no compared metadata
+    and no text for a bank reader, and nothing on it holds the statement.
+
+    It is one of two things, both from a VALID review that read no statement summary figure from the page
+    (opening, closing, totals or counts; a page printing one is a statement page whatever it was called, and
+    treating it as pictures would silently drop its rows from a chain that then proves over the other pages;
+    repeated header details such as bank, account or period do not disqualify it):
+    * a page whose every kept row repeats an earlier ledger transaction (mark_ledger_echoes), whatever the
+      reviewer called it; or
+    * a page the reviewer labelled cheque_images on which it kept no row at all.
+    A labelled page that kept rows which do NOT all repeat earlier transactions is not pictures: those rows
+    are new to the statement, so they enter the ledger and the arithmetic judges them."""
+    if merged.errors or _summary_figures(merged):
+        return False
+    return merged.ledger_echo or (merged.page_role == "cheque_images" and not merged.rows)
+
+
+# Two rows repeating earlier transactions by chance is implausible for a real page; one is not, so a page the
+# reviewer did not label cheque_images needs at least two.
+_UNLABELLED_ECHO_MIN_ROWS = 2
+
+
+def _amount_key(row) -> Decimal | None:
+    try:
+        return abs(Decimal(str(row.amount))).quantize(Decimal("0.01"))
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+
+
+def mark_ledger_echoes(merges) -> list:
+    """Mark pages whose every kept row repeats, amount for amount and one to one, a transaction on an EARLIER
+    ledger page not already claimed by another marked page. Cheque and deposit-slip pictures follow the
+    listing they illustrate; a cheque image carries the date it was written, not the posting date, so only
+    the amount is compared. A valid review with no summary figure is required, and an unlabelled page needs
+    _UNLABELLED_ECHO_MIN_ROWS rows. Returns new merges in page order; inputs are never mutated. If a real
+    page were marked by coincidence, its rows would be missing from the ledger and the whole-document
+    arithmetic refuses."""
+    ledger, marked = Counter(), []
+    for merged in merges:
+        amounts = [_amount_key(row) for row in merged.rows]
+        claim = Counter(amounts)
+        eligible = (bool(amounts) and None not in claim and not merged.errors and not _summary_figures(merged)
+                    and (merged.page_role == "cheque_images" or len(amounts) >= _UNLABELLED_ECHO_MIN_ROWS))
+        if eligible and not claim - ledger:
+            ledger -= claim
+            merged = replace(merged, ledger_echo=True)
+        elif not picture_page(merged):
+            ledger += Counter(amount for amount in amounts if amount is not None)
+        marked.append(merged)
+    return marked
 
 
 def confidence_summary(merges, *, gate_admitted: bool, gate_reasons=()) -> dict:

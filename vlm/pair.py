@@ -201,10 +201,10 @@ def _statement(rows, account: dict, daily: list[dict], *, currency_source: str =
 
 
 def ledger_rows(merges) -> tuple[list, int]:
-    """(rows entering the ledger, rows excluded). A page the reviewer labels cheque_images pictures cheques or
+    """(rows entering the ledger, rows excluded). A cheque picture page (review.picture_page) shows cheques or
     deposit slips whose transactions are already listed elsewhere in the statement, so its rows never enter
-    the ledger. If a real transaction page were mislabelled, its missing rows break the arithmetic and the
-    gate refuses: this fails closed."""
+    the ledger. If a real transaction page were taken for pictures, its missing rows break the arithmetic and
+    the gate refuses: this fails closed."""
     from vlm.review import picture_page
     rows, excluded = [], 0
     for merged in merges:
@@ -467,6 +467,10 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
             if merged.account.get(field) is not None:
                 metadata_context.setdefault(field, merged.account[field])
     report('visual_pair_gating')
+    # Cheque pictures echoed as transactions are recognized from the ledger itself, whatever the page label;
+    # every consumer below (segments, metadata, ledger, holds, confidence, page text) sees the same pages.
+    from vlm.review import mark_ledger_echoes
+    merges = mark_ledger_echoes(merges)
     occurrences = []
     from vlm.segment_openings import extract_printed_opening
     from vlm.segment_reconcile import reconcile_page_segments
@@ -614,6 +618,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     if currency_default is not None:
         audit['currency_default'] = currency_default
     audit['cheque_image_rows_excluded'] = cheque_rows_excluded
+    audit['ledger_echo_pages'] = [merged.page for merged in merges if merged.ledger_echo]
     audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)
     if admitted:
         from vlm.review import row_record
