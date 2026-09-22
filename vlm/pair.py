@@ -363,7 +363,12 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         layout = recovery.layout
         layouts.append(layout)
         proposal_errors.append(list(layout.errors))
-        page_errors.append([])
+        # A partial proposal (a truncated read that still produced rows) is held row by row. A proposer that
+        # produced NO reading of the page is different: every row on it would come from the reviewer alone,
+        # with no second reader, so the page itself is unresolved. Scoping this failure to "its rows" would
+        # hold nothing and let a single-read page pass as a paired one.
+        page_errors.append(['proposer_transport_failed']
+                           if 'proposer_transport_failed' in layout.errors and not layout.rows else [])
         truncated.append(layout.truncated)
         review_truncated.append(False)
         candidate_errors.append(proposal_candidate_errors(layout, recovery.audit))
