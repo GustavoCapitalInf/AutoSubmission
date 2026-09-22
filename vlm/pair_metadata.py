@@ -58,6 +58,58 @@ def _account_pattern(value) -> str:
     return "*" + raw if len(raw) == 4 and "*" not in raw else raw
 
 
+def _alnum(value) -> str:
+    return re.sub(r"[^0-9A-Z]", "", str(value).upper())
+
+
+def _transaction_texts(merged) -> list[str]:
+    """Every description the page's review saw, in any row state, as upper-case letters and digits."""
+    texts = [row.description for row in merged.rows]
+    for item in merged.evidence:
+        if not isinstance(item, dict):
+            continue
+        for key in ("row", "original", "corrected"):
+            record = item.get(key)
+            if isinstance(record, dict) and record.get("description"):
+                texts.append(record["description"])
+        if item.get("observed_description"):
+            texts.append(item["observed_description"])
+    return [_alnum(text) for text in texts if text]
+
+
+def _printed_in_a_transaction(value, texts: list[str]) -> bool:
+    """A number printed inside a transaction row is the other side of a transfer or a reference, not a
+    claim about which account this statement is. Six characters is the floor: a shorter fragment could
+    match an amount or a date."""
+    key = _alnum(value)
+    return len(key) >= 6 and any(key in text for text in texts)
+
+
+def _daily_dates(merged) -> list[str]:
+    dates = []
+    for item in merged.daily_balances:
+        try:
+            date.fromisoformat(item.get("date"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        dates.append(item["date"])
+    return dates
+
+
+def _page_break_checkpoint(merges, earlier: int, later: int, when: str) -> bool:
+    """A date that ends one clean statement page and begins the next adjacent one straddles the page
+    break: the earlier figure is where the page ended, part-way through the day, and the later one
+    carries the day on to its close. That is a checkpoint, not a contradiction. "Ends" means both the
+    last entry in printed order and the latest date; "begins" means both the first entry and the earliest
+    date. A conflicting figure printed anywhere else on the page is still a contradiction."""
+    if not _adjacent(merges, earlier, later):
+        return False
+    before, after = _daily_dates(merges[earlier]), _daily_dates(merges[later])
+    return (bool(before) and bool(after)
+            and before[-1] == when and max(before) == when
+            and after[0] == when and min(after) == when)
+
+
 def _compatible(left: str, right: str) -> bool:
     """Whether two anchored literal/masked patterns have a possible common ID.
 
@@ -145,6 +197,7 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
                     if segment_plan is None else segment_plan)
     segment_pages = {segment.page for segment in segment_plan.segments} if segment_plan.proven else set()
     account, daily, reasons, provenance = {}, {}, [], []
+    daily_source: dict[str, int] = {}
     identities = []
     source_pages = {}
     balances = {field: [] for field in _BALANCE_FIELDS}
@@ -204,8 +257,13 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
             elif key not in account:
                 account[key] = value
                 source_pages[key] = page
+        # The reviewer is asked to list EVERY account number visible on the page, which includes the other
+        # side of a transfer and reference numbers inside transaction rows. Only numbers that are not
+        # printed inside any transaction on the page are claims about which account this statement is;
+        # registering the others made a later page's correct own-account number conflict with them.
+        printed = _transaction_texts(merged)
         for value in merged.account_numbers_seen:
-            if value:
+            if value and not _printed_in_a_transaction(value, printed):
                 identity(value, page, "account_numbers_seen")
         for item in merged.daily_balances:
             when, balance = item.get("date"), item.get("balance")
@@ -214,9 +272,11 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
             except (TypeError, ValueError):
                 fail("date_unparsed", page, "daily_balances")
                 continue
-            if when in daily and not _equal(daily[when], balance):
+            if (when in daily and not _equal(daily[when], balance)
+                    and not _page_break_checkpoint(merges, daily_source[when], index, when)):
                 fail("anchor_disagreement", page, "daily_balances")
             daily[when] = balance
+            daily_source[when] = index
 
     for field in ("beginning_balance", "ending_balance"):
         candidates = balances[field]
