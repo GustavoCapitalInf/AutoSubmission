@@ -38,6 +38,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 import re
 
+from vlm.review import picture_page
 from vlm.segments import SCOPED_FIELDS, SegmentPlan, detect_page_segments
 
 
@@ -135,7 +136,8 @@ def page_break_figures(merges, rows) -> set[str]:
     would stand as the day's closing balance although the day's later transactions follow on the next page.
     That day has no printed close; the ledger reconstructs it. Narrow on purpose: the figure is the last
     entry and the latest date on its page; the page's own ledger breaks inside that day (its last row carries
-    the date and, where that row prints a running balance, the balance is the figure); the next adjacent
+    the date and prints a running balance equal to the figure; without one, on a sectioned statement, the
+    table figure is the only day-attribution evidence and must stand); the next adjacent
     clean page's first ledger row carries the same date; and no later page prints a figure for it. A
     whole-period table printed before another section fails the break test, so its true close stands.
     `rows` are the resolved ledger rows in printed order."""
@@ -153,7 +155,7 @@ def page_break_figures(merges, rows) -> set[str]:
         when, figure = entries[-1]["date"], entries[-1].get("balance")
         ending, opening = last_row.get(_page(index, merges[index])), first_row.get(_page(index + 1, merges[index + 1]))
         if (ending is not None and ending.date == when
-                and (ending.balance is None or _equal(ending.balance, figure))
+                and ending.balance is not None and _equal(ending.balance, figure)
                 and opening is not None and opening.date == when
                 and not any(when in _daily_dates(later) for later in merges[index + 1:])):
             dropped.add(when)
@@ -274,7 +276,7 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
 
     for index, merged in enumerate(merges):
         page = _page(index, merged)
-        if merged.page_role == "cheque_images":
+        if picture_page(merged):
             # Pictures of cheques and deposit slips carry OTHER parties' names, banks and accounts. They are not
             # statement metadata: keep the raw observations as provenance and compare nothing.
             for key, value in merged.account.items():

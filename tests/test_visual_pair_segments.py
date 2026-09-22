@@ -337,14 +337,34 @@ def test_supplementary_input_and_plan_evidence_do_not_alias():
 
 
 def test_a_cheque_picture_page_never_stops_a_proven_chain():
-    # Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): its reviewer-added rows and any figure read
-    # from a pictured deposit slip are not segment evidence.
-    pictures = replace(page(4, 0, 30, 0, 30), page_role="cheque_images", counts={"added": 1, "unresolved": 1})
+    # Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): its reviewer-added rows are not segment
+    # evidence. It repeats the statement header (period, currency, bank) but prints no summary box.
+    header = {"period_start": "2031-01-01", "period_end": "2031-01-31", "currency": "USD", "bank": "FABRICATED BANK"}
+    pictures = replace(page(4, 0, 30, 0, 30), page_role="cheque_images", account=header,
+                       counts={"added": 1, "unresolved": 1})
     plan = detect_page_segments(chain() + [pictures])
     assert plan.proven
     assert [item.account["ending_balance"] for item in plan.segments] == [120, 115, 145]
 
 
 def test_an_invalid_review_labelled_cheque_images_still_stops_the_chain():
-    broken = replace(page(4, 0, 30, 0, 30), page_role="cheque_images", errors=("review_missing_candidate_id",))
+    broken = replace(page(4, 0, 30, 0, 30), page_role="cheque_images", account={"currency": "USD"},
+                     errors=("review_missing_candidate_id",))
     assert not detect_page_segments(chain() + [broken]).proven
+
+
+@pytest.mark.parametrize("position", ["last", "first"])
+def test_a_real_summary_page_labelled_cheque_images_still_refuses(position):
+    # Review finding on b0f6321: a page printing its own summary box is a statement page whatever the reviewer
+    # called it. Absorbing it would prove the chain over the other pages and lose its rows.
+    pages = chain()
+    if position == "last":
+        pages = pages + [replace(page(4, 145, 20, 5, 160), page_role="cheque_images")]
+    else:
+        pages = [replace(page(1, 80, 25, 5, 100), page_role="cheque_images")] + [
+            replace(item, page=item.page + 1, rows=tuple(replace(row, page=row.page + 1) for row in item.rows))
+            for item in pages]
+    plan = detect_page_segments(pages)
+    assert not plan.proven
+    _, _, reasons, _ = merge_metadata(pages, segment_plan=plan)
+    assert "anchor_disagreement" in reasons

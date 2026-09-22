@@ -205,9 +205,10 @@ def ledger_rows(merges) -> tuple[list, int]:
     deposit slips whose transactions are already listed elsewhere in the statement, so its rows never enter
     the ledger. If a real transaction page were mislabelled, its missing rows break the arithmetic and the
     gate refuses: this fails closed."""
+    from vlm.review import picture_page
     rows, excluded = [], 0
     for merged in merges:
-        if merged.page_role == 'cheque_images':
+        if picture_page(merged):
             excluded += len(merged.rows)
             continue
         rows.extend(merged.rows)

@@ -406,8 +406,13 @@ def picture_page(merged) -> bool:
     """Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): a page whose VALID review labels it
     cheque_images shows pictures of documents whose transactions are listed elsewhere. It contributes no
     ledger rows, no compared metadata and no text for a bank reader, and nothing on it holds the statement.
-    A review that failed validation cannot establish the label."""
-    return merged.page_role == "cheque_images" and not merged.errors
+    A review that failed validation cannot establish the label, and neither can a page whose review read a
+    statement summary figure from it (opening, closing, totals or counts): such a page is a statement page
+    whatever it was called, and treating it as pictures would silently drop its rows from a chain that then
+    proves over the other pages. Repeated header details (bank, account, period) do not disqualify it."""
+    from vlm.segments import SCOPED_FIELDS
+    return (merged.page_role == "cheque_images" and not merged.errors
+            and all(merged.account.get(name) is None for name in SCOPED_FIELDS))
 
 
 def confidence_summary(merges, *, gate_admitted: bool, gate_reasons=()) -> dict:

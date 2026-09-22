@@ -179,13 +179,22 @@ def test_a_running_balance_at_the_break_must_be_the_figure_dropped():
 
 def test_a_mid_day_page_break_figure_without_a_printed_close_is_not_a_closing_balance():
     pages = [_page(1, [("2031-01-10", 50), ("2031-01-12", 80)]), _page(2, [])]
-    rows = _rows((1, "2031-01-10"), (1, "2031-01-12"), (2, "2031-01-12"), (2, "2031-01-15"))
+    rows = _rows((1, "2031-01-10"), (1, "2031-01-12"), (2, "2031-01-12"), (2, "2031-01-15"),
+                 balances={1: Decimal("80.00")})
     assert page_break_figures(pages, rows) == {"2031-01-12"}
+
+
+def test_without_a_printed_running_balance_at_the_break_the_figure_stands():
+    # Review finding on b6721c1: on a sectioned statement (no running balances) a daily table is a summary and
+    # its figure is the only day-attribution evidence; only a printed running balance proves a mid-day break.
+    pages = [_page(1, [("2031-01-05", 110), ("2031-01-20", 127)]), _page(2, [])]
+    rows = _rows((1, "2031-01-05"), (1, "2031-01-20"), (2, "2031-01-20"), (2, "2031-01-21"))
+    assert page_break_figures(pages, rows) == set()
 
 
 def test_a_page_break_figure_is_kept_when_the_next_page_starts_a_new_day():
     pages = [_page(1, [("2031-01-10", 50), ("2031-01-12", 80)]), _page(2, [])]
-    rows = _rows((1, "2031-01-10"), (1, "2031-01-12"), (2, "2031-01-13"))
+    rows = _rows((1, "2031-01-10"), (1, "2031-01-12"), (2, "2031-01-13"), balances={1: Decimal("80.00")})
     assert page_break_figures(pages, rows) == set()
 
 

@@ -145,3 +145,22 @@ def test_an_invalid_review_labelled_cheque_images_keeps_its_text_and_its_truncat
     broken = replace(_page(2, role="cheque_images"), errors=("review_missing_candidate_id",))
     texts = page_texts([_page(1), broken], [False, True])
     assert texts[1].finish_reason == "length" and "FABRICATED ROW" in texts[1]
+
+
+def test_a_page_printing_statement_summary_figures_is_not_a_cheque_picture_page():
+    for name, value in (("beginning_balance", 145), ("ending_balance", 160), ("stated_total_credits", 20),
+                        ("stated_debit_count", 1)):
+        labelled = _page(2, role="cheque_images", rows=2, account={name: value})
+        assert _held([_page(1), labelled], truncated=[False, True]) == [2], name
+        rows, excluded = ledger_rows([_page(1), labelled])
+        assert excluded == 0 and len(rows) == 3, name
+        assert page_texts([_page(1), labelled], [False, True])[1].finish_reason == "length", name
+    # Header details a cheque-image page repeats (bank, account, period) do not disqualify it.
+    header = _page(2, role="cheque_images", rows=2, account={"bank": "FABRICATED BANK", "period_end": "2031-01-31"})
+    assert _held([_page(1), header], truncated=[False, True]) == []
+
+
+def test_a_labelled_page_with_a_summary_box_has_its_metadata_compared():
+    labelled = _page(2, role="cheque_images", account={"ending_balance": 160, "account_number": "7-000-3333-4444"})
+    _, _, reasons, _ = merge_metadata([_page(1), labelled])
+    assert reasons  # the other account number is compared, and conflicts
