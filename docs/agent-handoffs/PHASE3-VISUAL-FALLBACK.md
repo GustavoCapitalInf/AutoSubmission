@@ -59,9 +59,17 @@ exposure could not be retracted.
 
 Concretely, and without exception:
 
-- **Never search, grep, list, dump or iterate `webapp_data/`, `.claude/recovery/`,
-  `discovery_reports/` or `Bank Statements/`.** Those hold real uploads, cached extractions and page
-  images. A recursive grep across the repository root reaches all of them, so do not run one.
+- **Never search, grep, list, dump or iterate `webapp_data/`, `.claude/`, `discovery_reports/` or
+  `Bank Statements/`.** Those hold real uploads, cached extractions, evidence blobs and page images.
+  A recursive grep across the repository root reaches all of them, so do not run one. This is the
+  exact mistake that caused the 2026-09-21 exposure: a `rg` pattern aimed at config keys was pointed
+  at a private artifact directory and walked into content-addressed evidence blobs.
+- **Customer-derived artefacts must live OUTSIDE the repository working tree.** Not in `.claude/`,
+  not in a `-private` subdirectory, nowhere under the checkout. A directory inside the tree is
+  reachable by every editor index, every recursive search and every tool that walks the project
+  root, and being gitignored protects the repository without protecting you. Put evidence blobs,
+  page renders, run outputs and audit files under a root of their own outside the checkout, the way
+  the shootout used `extraction-shootout/`, and reference them by absolute path.
 - Open a specific artifact by its exact file path when you have a reason to, one at a time, and do
   not print its contents.
 - Debug with **counts, hashes, field names, reason codes and page numbers**. Never with values. If
