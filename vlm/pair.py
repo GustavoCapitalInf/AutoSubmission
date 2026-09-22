@@ -214,6 +214,32 @@ def ledger_rows(merges) -> tuple[list, int]:
     return rows, excluded
 
 
+def held_pages(merges, page_errors, truncated) -> list[int]:
+    """Page numbers that hold the statement.
+
+    Owner ruling, 2026-09-22 ("Hold"): a cut-off read holds its page. `truncated` is the proposer's read after
+    crop recovery OR the reviewer's; a proposal that recovery completed is not cut off. Errors, unresolved
+    rows and quarantined metadata hold it too. A cheque picture page (review.picture_page) never holds."""
+    from vlm.review import picture_page
+    held = []
+    for idx, (errors, cut) in enumerate(zip(page_errors, truncated)):
+        merged = merges[idx]
+        if picture_page(merged):
+            continue
+        if errors or cut or merged.counts.get('unresolved', 0) or merged.metadata_evidence:
+            held.append(idx + 1)
+    return held
+
+
+def page_texts(merges, truncated) -> list[PageText]:
+    """The page text offered to a bank reader, one per page. A cheque picture page offers none, and is
+    complete: nothing read from it is used."""
+    from vlm.review import picture_page
+    return [PageText('', finish_reason='stop') if picture_page(merged)
+            else PageText(_markdown_page(merged), finish_reason='length' if cut else 'stop')
+            for merged, cut in zip(merges, truncated)]
+
+
 def _markdown_page(merged, *, rows=None) -> str:
     # A normalized projection of reviewed evidence; original model text is never
     # accidentally offered to a bank parser after a correction or rejection.
@@ -474,11 +500,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     segment_checks, segment_occurrences = reconcile_page_segments(segment_plan, rows)
     occurrences.extend(segment_occurrences)
     reasons.extend(item['code'] for item in segment_occurrences)
-    # Owner ruling, 2026-09-22: a cut-off read HOLDS its page. `truncated` is the proposer's read after crop
-    # recovery OR the reviewer's; a proposal that recovery completed is not cut off.
-    unresolved_pages = [idx + 1 for idx, (errors, cut) in enumerate(zip(page_errors, truncated))
-                        if errors or cut or merges[idx].counts.get('unresolved', 0)
-                        or merges[idx].metadata_evidence]
+    unresolved_pages = held_pages(merges, page_errors, truncated)
     for page_number in unresolved_pages:
         reasons.append('page_unresolved')
         occurrences.append({'code': 'page_unresolved', 'page': page_number, 'source': 'page_review'})
@@ -551,8 +573,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     admitted = verdict is not None and verdict.admitted and not reasons
     confidence = confidence_summary(merges, gate_admitted=admitted, gate_reasons=reasons)
     statement = _statement(verdict.admitted_rows, account, daily, currency_source=currency_source) if admitted else None
-    page_text = [PageText(_markdown_page(merged), finish_reason='length' if cut else 'stop')
-                 for merged, cut in zip(merges, truncated)]
+    page_text = page_texts(merges, truncated)
     integrity = assess_pages(page_text)
     audit = {'version': PAIR_VERSION, 'account_count': 1, 'statement': statement,
              'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks,

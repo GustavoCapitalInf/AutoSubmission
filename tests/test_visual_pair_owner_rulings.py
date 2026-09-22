@@ -1,17 +1,20 @@
 """Fabricated inputs only. Gustavo's rulings of 2026-09-22:
 1. a statement that prints no currency is USD unless the bank is Canadian;
 2. the reviewer prompt defines bank, account_name and cheque-image pages, and never adds a cheque as a row;
-3. a cut-off read holds its page (covered in tests/test_visual_pair_adversarial.py).
+3. a cut-off read holds its page (covered in tests/test_visual_pair_adversarial.py), except a cheque picture page,
+   which nothing holds (ruling of the same day, "dont hold cheque picture pages").
 """
 from copy import deepcopy
+from dataclasses import replace
 from decimal import Decimal
 
 from vlm import prompts
 from vlm.assemble import CandidateRow
 from vlm.currency import USD_DEFAULT_RULING, canadian_evidence, currency_resolution_manifest, usd_default
-from vlm.pair import ledger_rows
+from ocr.truncation import assess_pages
+from vlm.pair import held_pages, ledger_rows, page_texts
 from vlm.pair_metadata import merge_metadata
-from vlm.review import PageReviewMerge
+from vlm.review import PageReviewMerge, confidence_summary
 
 
 # --- 1. currency ---------------------------------------------------------------------------------------
@@ -92,3 +95,53 @@ def test_a_cheque_pages_other_account_and_names_are_kept_but_never_compared():
     assert pages == before
     assert reasons == [] and account["account_number"] == "9-000-1111-2222"
     assert {"field": "account_number", "page": 2, "source": "reviewer", "value": "7-000-3333-4444"} in provenance
+
+
+# --- 3b. ruling, 2026-09-22: "dont hold cheque picture pages" ------------------------------------------------
+
+def _held(pages, *, page_errors=None, truncated=None):
+    return held_pages(pages, page_errors or [[] for _ in pages], truncated or [False for _ in pages])
+
+
+def test_a_cut_off_read_of_a_cheque_picture_page_does_not_hold_it():
+    pages = [_page(1), _page(2, role="cheque_images", rows=6)]
+    assert _held(pages, truncated=[False, True]) == []
+
+
+def test_nothing_else_on_a_cheque_picture_page_holds_it_either():
+    cheque = replace(_page(2, role="cheque_images", rows=6), counts={"added": 5, "unresolved": 1},
+                     metadata_evidence=({"scope": "daily_balances", "page": 2},))
+    assert _held([_page(1), cheque], page_errors=[[], ["proposer_transport_failed"]]) == []
+
+
+def test_a_cut_off_statement_page_still_holds():
+    assert _held([_page(1), _page(2)], truncated=[False, True]) == [2]
+
+
+def test_an_invalid_review_cannot_make_a_page_a_cheque_picture_page():
+    # A review that failed validation cannot be trusted to say what the page shows.
+    broken = replace(_page(2, role="cheque_images"), errors=("review_missing_candidate_id",))
+    assert _held([_page(1), broken], page_errors=[[], ["review_missing_candidate_id"]], truncated=[False, True]) == [2]
+
+
+def test_a_cheque_picture_page_is_out_of_the_confidence_counts_and_admission():
+    cheque = replace(_page(2, role="cheque_images", rows=6), counts={"added": 5, "unresolved": 1})
+    summary = confidence_summary([_page(1), cheque], gate_admitted=True)
+    assert summary["gate_admitted"] is True
+    assert summary["counts"]["unresolved"] == 0 and summary["counts"]["added"] == 1
+    assert summary["page_count"] == 2
+    assert [page["cheque_pictures"] for page in summary["pages"]] == [False, True]
+
+
+def test_a_cheque_picture_page_gives_the_bank_reader_no_text_and_is_never_a_truncated_page():
+    cheque = _page(2, role="cheque_images", rows=6, account={"account_number": "7-000-3333-4444"})
+    texts = page_texts([_page(1), cheque], [True, True])
+    assert texts[1] == "" and texts[1].finish_reason == "stop"
+    assert texts[0].finish_reason == "length" and "FABRICATED ROW" in texts[0]
+    assert [item.truncated for item in assess_pages(texts)] == [True, False]
+
+
+def test_an_invalid_review_labelled_cheque_images_keeps_its_text_and_its_truncation():
+    broken = replace(_page(2, role="cheque_images"), errors=("review_missing_candidate_id",))
+    texts = page_texts([_page(1), broken], [False, True])
+    assert texts[1].finish_reason == "length" and "FABRICATED ROW" in texts[1]

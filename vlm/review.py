@@ -402,20 +402,30 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                            tuple(diagnostics), tuple(metadata_evidence))
 
 
+def picture_page(merged) -> bool:
+    """Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): a page whose VALID review labels it
+    cheque_images shows pictures of documents whose transactions are listed elsewhere. It contributes no
+    ledger rows, no compared metadata and no text for a bank reader, and nothing on it holds the statement.
+    A review that failed validation cannot establish the label."""
+    return merged.page_role == "cheque_images" and not merged.errors
+
+
 def confidence_summary(merges, *, gate_admitted: bool, gate_reasons=()) -> dict:
     merges = list(merges)
-    counts = {state: sum(page.counts[state] for page in merges) for state in ROW_STATES}
+    ledger_pages = [page for page in merges if not picture_page(page)]
+    counts = {state: sum(page.counts.get(state, 0) for page in ledger_pages) for state in ROW_STATES}
     total = sum(counts.values())
     ratio = counts["agreed"] / total if total else None
     admitted = gate_admitted and not any(
-        page.errors or page.counts["unresolved"] or page.metadata_evidence for page in merges)
+        page.errors or page.counts.get("unresolved", 0) or page.metadata_evidence for page in ledger_pages)
     pages = []
     for page in merges:
         page_total = sum(page.counts.values())
-        page_ratio = round(page.counts["agreed"] / page_total, 6) if page_total else None
+        page_ratio = round(page.counts.get("agreed", 0) / page_total, 6) if page_total else None
         pages.append({"page": page.page, "counts": dict(page.counts), "agreement_ratio": page_ratio,
                       "score": page_ratio if admitted and page_ratio is not None else 0.0,
-                      "provisional": True, "gate_scope": "document", "errors": list(page.errors)})
+                      "provisional": True, "gate_scope": "document", "errors": list(page.errors),
+                      "cheque_pictures": picture_page(page)})
     return {"provisional": True, "methodology": "review_agreement_v1", "counts": counts,
             "agreement_ratio": round(ratio, 6) if ratio is not None else None,
             "score": round(ratio, 6) if admitted and ratio is not None else 0.0,

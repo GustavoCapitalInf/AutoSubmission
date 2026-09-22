@@ -75,7 +75,9 @@ def _field_source(page: int, name: str) -> dict:
 
 
 def _bearing(merged) -> bool:
-    return bool(merged.rows) or bool(merged.counts.get("unresolved", 0))
+    # A cheque picture page (review.picture_page) is never segment evidence, whatever was read from it.
+    from vlm.review import picture_page
+    return not picture_page(merged) and (bool(merged.rows) or bool(merged.counts.get("unresolved", 0)))
 
 
 def _count_covered(merged) -> bool:
@@ -162,6 +164,7 @@ def detect_page_segments(merges, *, opening_observations: dict | None = None) ->
     merges = tuple(merges)
     merges, opening_sources, opening_evidence, checks, occurrences, invalid_input = _supplement_openings(
         merges, opening_observations)
+    from vlm.review import picture_page
     selected = [(index, merged) for index, merged in enumerate(merges) if _bearing(merged)]
     def initial(status="not_applicable"):
         return SegmentPlan(status=status, checks=tuple(checks), occurrences=tuple(occurrences),
@@ -217,7 +220,8 @@ def detect_page_segments(merges, *, opening_observations: dict | None = None) ->
         check("segment_page_gap")
         return stopped()
     selected_indexes = {index for index, _ in selected}
-    if any(index not in selected_indexes and any(merged.account.get(name) is not None for name in SCOPED_FIELDS)
+    if any(index not in selected_indexes and not picture_page(merged)
+           and any(merged.account.get(name) is not None for name in SCOPED_FIELDS)
            for index, merged in enumerate(merges)):
         check("segment_mixed_scope_unproven")
         return stopped()

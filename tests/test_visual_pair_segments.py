@@ -334,3 +334,17 @@ def test_supplementary_input_and_plan_evidence_do_not_alias():
     plan.opening_observations[0]["observation"]["locator"] = "changed"
     plan.segments[1].opening_source["locator"] = "also_changed"
     assert observations[2]["locator"] == "b0t0r0" and pages[1].account["beginning_balance"] is None
+
+
+def test_a_cheque_picture_page_never_stops_a_proven_chain():
+    # Owner ruling, 2026-09-22 ("dont hold cheque picture pages"): its reviewer-added rows and any figure read
+    # from a pictured deposit slip are not segment evidence.
+    pictures = replace(page(4, 0, 30, 0, 30), page_role="cheque_images", counts={"added": 1, "unresolved": 1})
+    plan = detect_page_segments(chain() + [pictures])
+    assert plan.proven
+    assert [item.account["ending_balance"] for item in plan.segments] == [120, 115, 145]
+
+
+def test_an_invalid_review_labelled_cheque_images_still_stops_the_chain():
+    broken = replace(page(4, 0, 30, 0, 30), page_role="cheque_images", errors=("review_missing_candidate_id",))
+    assert not detect_page_segments(chain() + [broken]).proven
