@@ -36,13 +36,15 @@ def visual_pair_manifest() -> dict:
     from vlm.proposal_recovery import proposal_recovery_manifest
     from vlm.currency import currency_resolution_manifest
     from vlm.dates import DATE_RESOLVER_VERSION
+    from vlm.segments import SEGMENT_VERSION, SEGMENT_POLICY
     root = Path(__file__).resolve().parents[1]
     sources = ('vlm/pair.py', 'vlm/review.py', 'vlm/assemble.py', 'vlm/tables.py',
                'vlm/textparse.py', 'vlm/metadata.py', 'vlm/gate.py', 'vlm/pair_adapter.py',
                'vlm/prompts.py', 'vlm/schema.py', 'vlm/render.py', 'vlm/client.py',
                'vlm/receipts.py', 'vlm/review_batches.py', 'vlm/proposal_recovery.py', 'vlm/currency.py',
                'ocr/visual_pair_config.py', 'ocr/private_artifacts.py', 'ocr/truncation.py',
-               'vlm/dates.py', 'vlm/pair_metadata.py', 'vlm/reason_counts.py')
+               'vlm/dates.py', 'vlm/pair_metadata.py', 'vlm/reason_counts.py',
+               'vlm/segments.py', 'vlm/segment_openings.py', 'vlm/segment_reconcile.py')
     return {
         'version': PAIR_VERSION, 'schema_version': SCHEMA_VERSION,
         'review_schema_sha256': review_schema_sha256(), 'gate_version': GATE_VERSION,
@@ -53,9 +55,11 @@ def visual_pair_manifest() -> dict:
         'currency_resolution': currency_resolution_manifest(),
         'date_resolution': {'version': DATE_RESOLVER_VERSION,
                             'policy': 'unique_reviewed_period_date_v1'},
+        'page_segments': {'version': SEGMENT_VERSION, 'policy': SEGMENT_POLICY},
         'proposer_prompt_sha256': prompt_sha256(STAGE_A_DOTS_PROMPT),
         'reviewer_prompt_sha256': prompt_sha256(STAGE_B_REVIEW_PROMPT),
-        'renderer': render_settings(),
+        'renderer': render_settings(dpi=VisualPairSettings.render_dpi,
+                                    image_format=VisualPairSettings.render_format),
         'source_sha256': {name: sha256_file(root / name) for name in sources},
     }
 
@@ -221,6 +225,46 @@ def _markdown_page(merged, *, rows=None) -> str:
     return '\n'.join(parts)
 
 
+def proposal_candidate_errors(layout, recovery: dict) -> dict[str, tuple[str, ...]]:
+    """Attribute failed Stage A responses to their own candidate occurrences.
+
+    A complete crop and a failed crop share a page and source label. Only the
+    recorded lineage identifies which response produced each candidate. These
+    errors never apply to Stage B additions or independently reviewed metadata.
+    """
+    from vlm.review import candidate_records
+
+    def source_errors(source: dict, *extra) -> tuple[str, ...]:
+        return tuple(dict.fromkeys((*source.get('errors', ()),
+                                   *(('stage_a_truncated',) if source.get('truncated') else ()),
+                                   *(code for code in extra if code))))
+
+    if not recovery.get('attempted'):
+        errors = source_errors({'errors': layout.errors, 'truncated': layout.truncated})
+        return {item['candidate_id']: errors for item in candidate_records(layout.rows)} if errors else {}
+
+    by_locator = {}
+    original = recovery.get('original', {}).get('layout', {})
+    original_errors = source_errors(original)
+    for item in recovery.get('original_candidate_lineage', ()):
+        by_locator[item['locator']] = original_errors
+    for crop in recovery.get('crops', ()):
+        errors = () if crop.get('complete') else source_errors(crop.get('layout', {}), crop.get('failure'))
+        for item in crop.get('lineage', {}).get('rows', ()):
+            by_locator[item['locator']] = tuple(dict.fromkeys((*errors,
+                *(code for code in (item.get('held_reason'), item.get('geometry_held_reason')) if code))))
+    # A failure before crops/lineage were created leaves the original rows intact.
+    if not recovery.get('original_candidate_lineage') and not recovery.get('crops'):
+        for row in layout.rows:
+            by_locator[row.locator] = source_errors(original, recovery.get('failure'))
+    result = {}
+    for item in candidate_records(layout.rows):
+        errors = by_locator.get(item['locator'], ('proposal_candidate_provenance_missing',))
+        if errors:
+            result[item['candidate_id']] = errors
+    return result
+
+
 def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None,
                         evidence_dir: Path, progress: Callable[[str], None] | None = None,
                         data_scope: str = 'customer') -> StatementMarkdown:
@@ -260,10 +304,11 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                                  _check_model(reviewer, cfg.reviewer_model, cfg.reviewer_revision)]
     _blob(evidence_dir, raw)
     report('visual_pair_rendering')
-    pages = render_pages(raw, long_edge=cfg.render_long_edge)
+    pages = render_pages(raw, dpi=cfg.render_dpi, image_format=cfg.render_format)
     if not pages:
         raise VisualPairError('visual_pair_no_pages')
     layouts, calls, failed_calls, page_errors, truncated, recoveries = [], [], [], [], [], []
+    proposal_errors, review_truncated, candidate_errors = [], [], []
     # Every page is proposed before review; a failure retains its position.
     for page in pages:
         report(f'visual_pair_proposing:{page.index+1}/{len(pages)}')
@@ -317,8 +362,11 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         recoveries.append(recovery.audit)
         layout = recovery.layout
         layouts.append(layout)
-        page_errors.append(list(layout.errors))
+        proposal_errors.append(list(layout.errors))
+        page_errors.append([])
         truncated.append(layout.truncated)
+        review_truncated.append(False)
+        candidate_errors.append(proposal_candidate_errors(layout, recovery.audit))
     merges = []
     # Printed dates found by the deterministic assembler may appear on a later
     # summary page. They may resolve row years, never supply absent anchors.
@@ -351,20 +399,22 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         if len(layout.rows) > REVIEW_BATCH_THRESHOLD:
             reviewed = review_batched_page(
                 layout.rows, page_number=page.index+1, page_total=len(pages), call=request_review,
-                metadata_context=metadata_context, truncated=truncated[page.index],
-                validation_errors=page_errors[page.index],
+                metadata_context=metadata_context,
+                candidate_validation_errors=candidate_errors[page.index],
             )
             merged = reviewed.merged
-            truncated[page.index] = reviewed.truncated
+            review_truncated[page.index] = reviewed.truncated
+            truncated[page.index] |= reviewed.truncated
         else:
             prompt = stage_b_review_prompt(list(layout.rows), page_number=page.index+1,
                                            page_total=len(pages), metadata_context=metadata_context)
             reply = request_review(prompt, PAGE_REVIEW_SCHEMA, 'page_review', purpose='full_page')
+            review_truncated[page.index] = reply.truncated
             truncated[page.index] |= reply.truncated
-            page_errors[page.index].extend(reply.errors)
             merged = merge_review(list(layout.rows), reply.payload if reply.payload is not None else empty_review(),
-                                  page=page.index+1, truncated=truncated[page.index],
-                                  validation_errors=page_errors[page.index])
+                                  page=page.index+1, truncated=reply.truncated,
+                                  validation_errors=reply.errors,
+                                  candidate_validation_errors=candidate_errors[page.index])
         merges.append(merged)
         page_errors[page.index].extend(merged.errors)
         for field in ('period_start', 'period_end'):
@@ -372,7 +422,22 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                 metadata_context.setdefault(field, merged.account[field])
     report('visual_pair_gating')
     occurrences = []
-    account, daily, reasons, field_evidence = _merge_metadata(merges, occurrences=occurrences)
+    from vlm.segment_openings import extract_printed_opening
+    from vlm.segment_reconcile import reconcile_page_segments
+    from vlm.segments import detect_page_segments
+    opening_observations = {}
+    for layout in layouts:
+        # Bind the observation to the exact parsed source, including page,
+        # block text and geometry. No reviewer observation is overwritten.
+        source = {'page': layout.page, 'blocks': [asdict(block) for block in layout.blocks],
+                  'errors': list(layout.errors), 'truncated': layout.truncated}
+        source_sha = _json_blob(evidence_dir, source)
+        observation = extract_printed_opening(layout, evidence_sha256=source_sha)
+        if observation is not None:
+            opening_observations[layout.page] = observation
+    segment_plan = detect_page_segments(merges, opening_observations=opening_observations)
+    account, daily, reasons, field_evidence = _merge_metadata(
+        merges, occurrences=occurrences, segment_plan=segment_plan)
     rows = [row for merged in merges for row in merged.rows]
     # The reviewed printed month/day and reviewed period can determine a
     # missing ISO date without another model reading. This is a separate
@@ -384,8 +449,12 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         period_end=account.get('period_end') if 'period_mismatch' not in reasons else None,
     )
     rows = list(dates.rows)
-    unresolved_pages = [idx + 1 for idx, (errors, cut) in enumerate(zip(page_errors, truncated))
-                        if errors or cut or merges[idx].counts.get('unresolved', 0)]
+    segment_checks, segment_occurrences = reconcile_page_segments(segment_plan, rows)
+    occurrences.extend(segment_occurrences)
+    reasons.extend(item['code'] for item in segment_occurrences)
+    unresolved_pages = [idx + 1 for idx, (errors, cut) in enumerate(zip(page_errors, review_truncated))
+                        if errors or cut or merges[idx].counts.get('unresolved', 0)
+                        or merges[idx].metadata_evidence]
     for page_number in unresolved_pages:
         reasons.append('page_unresolved')
         occurrences.append({'code': 'page_unresolved', 'page': page_number, 'source': 'page_review'})
@@ -444,12 +513,14 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     confidence = confidence_summary(merges, gate_admitted=admitted, gate_reasons=reasons)
     statement = _statement(verdict.admitted_rows, account, daily, currency_source=currency_source) if admitted else None
     page_text = [PageText(_markdown_page(merged), finish_reason='length' if cut else 'stop')
-                 for merged, cut in zip(merges, truncated)]
+                 for merged, cut in zip(merges, review_truncated)]
     integrity = assess_pages(page_text)
     audit = {'version': PAIR_VERSION, 'account_count': 1, 'statement': statement,
              'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks,
                       'reason_occurrences': occurrences, 'reason_counts': reason_counts},
              'confidence': confidence, 'field_evidence': field_evidence,
+             'page_segments': {'plan': json.loads(canonical_json(asdict(segment_plan))),
+                               'reconciliation': segment_checks},
              'date_resolution': {
                  'version': DATE_RESOLVER_VERSION,
                  'resolved_count': sum(item.get('resolved_date') is not None for item in dates.evidence),
@@ -460,8 +531,13 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
              },
              'source_daily_balance_count': len(daily),
              'row_evidence': [item for merged in merges for item in merged.evidence],
+             'review_diagnostics': [item for merged in merges for item in merged.diagnostics],
+             'review_metadata_evidence': [item for merged in merges for item in merged.metadata_evidence],
              'proposal_recoveries': recoveries,
              'pages': [{'page': idx+1, 'errors': errors, 'truncated': truncated[idx],
+                        'review_truncated': review_truncated[idx],
+                        'proposal_errors': proposal_errors[idx],
+                        'source_candidate_error_count': len(candidate_errors[idx]),
                         'review_status': 'unresolved' if idx+1 in unresolved_pages else 'reviewed',
                         'reason_counts': summarize_occurrences(
                             event for event in occurrences if event['page'] == idx+1),

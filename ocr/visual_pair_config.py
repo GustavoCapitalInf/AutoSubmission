@@ -21,7 +21,7 @@ REVIEWER_REVISION = "482ca0f3832238542f8f5295dde86b5f22711d80"
 CUSTOMER_DATA_OPT_IN_ENV = "VISUAL_PAIR_REMOTE_CUSTOMER_DATA_OPT_IN"
 CUSTOMER_DATA_OPT_IN_LITERAL = "I_AUTHORIZE_CUSTOMER_DOCUMENTS_TO_REMOTE_VISUAL_PAIR"
 CUSTOMER_DOCUMENT_ALLOWLIST_ENV = "VISUAL_PAIR_CUSTOMER_DOCUMENT_SHA256_ALLOWLIST"
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
 
 
 class VisualPairConfigError(ValueError):
@@ -47,7 +47,8 @@ class VisualPairSettings:
     max_tokens: int = 12000
     seed: int = 0
     temperature: float = 0
-    render_long_edge: int = 1540
+    render_dpi: int = 300
+    render_format: str = "PNG"
     review_policy: str = "always_review"
 
     def __post_init__(self) -> None:
@@ -79,7 +80,7 @@ class VisualPairSettings:
             raise VisualPairConfigError("VISUAL_PAIR_REVIEW_POLICY is invalid")
         if self.temperature != 0 or self.seed != 0 or self.max_tokens != 12000:
             raise VisualPairConfigError("visual pair generation settings must match the frozen pins")
-        if self.render_long_edge != 1540 or self.timeout <= 0:
+        if self.render_dpi != 300 or self.render_format != "PNG" or self.timeout <= 0:
             raise VisualPairConfigError("visual pair rendering or timeout settings are invalid")
 
 
@@ -144,6 +145,7 @@ def visual_pair_settings_key_material(settings: VisualPairSettings) -> dict:
         "max_tokens": settings.max_tokens,
         "temperature": settings.temperature,
         "seed": settings.seed,
-        "render_long_edge": settings.render_long_edge,
+        "render_dpi": settings.render_dpi,
+        "render_format": settings.render_format,
         "pipeline": visual_pair_manifest(),
     }

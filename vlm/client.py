@@ -65,7 +65,9 @@ def _default_opener() -> urllib.request.OpenerDirector:
 
 
 def image_data_uri(jpeg: bytes) -> str:
-    return "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")
+    # Keep bytes unchanged; the legacy argument name also accepts lossless PNG.
+    mime = "image/png" if jpeg.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+    return "data:" + mime + ";base64," + base64.b64encode(jpeg).decode("ascii")
 
 
 class HttpJson:

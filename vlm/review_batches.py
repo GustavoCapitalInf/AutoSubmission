@@ -10,14 +10,12 @@ import copy
 import json
 from dataclasses import dataclass
 
-import jsonschema
-
 from vlm.receipts import canonical_json, sha256_bytes
-from vlm.review import PageReviewMerge, candidate_records, merge_review
+from vlm.review import PageReviewMerge, candidate_records, merge_review, review_envelope_valid
 from vlm.schema import (PAGE_DISCOVERY_SCHEMA, REVIEW_BATCH_SCHEMA, empty_review,
                         review_batch_schema, review_discovery_schema)
 
-REVIEW_BATCH_VERSION = 1
+REVIEW_BATCH_VERSION = 2
 REVIEW_BATCH_SIZE = 15
 REVIEW_BATCH_THRESHOLD = 15
 
@@ -69,16 +67,22 @@ def collect_batch_reviews(plan: ReviewPlan, payloads) -> tuple[dict, tuple[str, 
     if len(payloads) != len(plan.batches):
         errors.append("review_batch_count_mismatch")
     for batch, payload in zip(plan.batches, payloads):
-        if not jsonschema.Draft202012Validator(review_batch_schema(batch.candidate_ids)).is_valid(payload):
+        if not review_envelope_valid(payload, review_batch_schema(batch.candidate_ids)):
             errors.append("review_batch_schema_invalid")
             continue
         reviews = payload["reviews"]
-        ids = [item["candidate_id"] for item in reviews]
+        identified = [item for item in reviews
+                      if isinstance(item, dict) and isinstance(item.get("candidate_id"), str)]
+        if len(identified) != len(reviews):
+            errors.append("review_batch_schema_invalid")
+        ids = [item["candidate_id"] for item in identified]
         if len(ids) != len(set(ids)):
             errors.append("review_batch_duplicate_candidate_id")
         if set(ids) != set(batch.candidate_ids):
             errors.append("review_batch_coverage_invalid")
-        combined["reviews"].extend(copy.deepcopy(reviews))
+        # Identified entry errors are checked per row by merge_review; an
+        # unusable envelope or candidate coverage still invalidates the page.
+        combined["reviews"].extend(copy.deepcopy(identified))
     return combined, tuple(dict.fromkeys(errors))
 
 
@@ -94,19 +98,20 @@ def reviewed_candidate_context(merged) -> tuple[dict, ...]:
 
 
 def combine_discovery(plan: ReviewPlan, review_payload: dict, discovery: object) -> tuple[dict, tuple[str, ...]]:
-    if not jsonschema.Draft202012Validator(review_discovery_schema(plan.candidate_ids)).is_valid(discovery):
+    if not review_envelope_valid(discovery, review_discovery_schema(plan.candidate_ids)):
         return copy.deepcopy(review_payload), ("review_discovery_schema_invalid",)
     return {**copy.deepcopy(discovery), "reviews": copy.deepcopy(review_payload["reviews"])}, ()
 
 
 def review_batched_page(candidates, *, page_number: int, page_total: int, call,
                          metadata_context: dict | None = None, truncated: bool = False,
-                         validation_errors=()) -> BatchedPageReview:
-    """One attempt per batch, then discovery only after complete valid review.
+                         validation_errors=(), candidate_validation_errors=None) -> BatchedPageReview:
+    """One attempt per batch, then discovery after a usable review response.
 
     ``call`` owns transport and receipts and returns a content-free failure in
-    ReviewReply.errors. Partial responses never authorize a discovery pass or
-    usable page rows. Successfully reviewed corrections remain audit evidence.
+    ReviewReply.errors. Fatal response failures never authorize a discovery
+    pass or usable page rows. Identified row failures remain unresolved in
+    discovery context without cancelling peers or the metadata/addition pass.
     """
     from vlm.prompts import stage_b_batch_review_prompt, stage_b_discovery_prompt
 
@@ -127,7 +132,8 @@ def review_batched_page(candidates, *, page_number: int, page_total: int, call,
     payload, collection_errors = collect_batch_reviews(plan, payloads)
     errors.extend(collection_errors)
     reviewed = merge_review(candidates, payload, page=page_number,
-                            truncated=truncated, validation_errors=errors)
+                            truncated=truncated, validation_errors=errors,
+                            candidate_validation_errors=candidate_validation_errors)
     if reviewed.errors:
         return BatchedPageReview(reviewed, truncated)
 
@@ -140,7 +146,8 @@ def review_batched_page(candidates, *, page_number: int, page_total: int, call,
     payload, discovery_errors = combine_discovery(plan, payload, reply.payload)
     errors.extend(discovery_errors)
     merged = merge_review(candidates, payload, page=page_number,
-                          truncated=truncated, validation_errors=errors)
+                          truncated=truncated, validation_errors=errors,
+                          candidate_validation_errors=candidate_validation_errors)
     return BatchedPageReview(merged, truncated)
 
 

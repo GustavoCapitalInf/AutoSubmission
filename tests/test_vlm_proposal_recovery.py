@@ -54,7 +54,7 @@ def test_manifest_pins_split_rounding_encoding_and_no_deduplication():
     assert manifest['jpeg_quality'] == 90 and manifest['jpeg_subsampling'] == 0
     assert manifest['empty_region_proof'] == {
         'method': 'exact_rgb_white',
-        'pixel_stage': 'decoded_source_jpeg_before_crop_reencoding',
+        'pixel_stage': 'decoded_source_image_before_crop_reencoding',
         'required_channel_extrema': [[255, 255], [255, 255], [255, 255]],
         'threshold_or_variance': False,
     }

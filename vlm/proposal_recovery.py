@@ -23,7 +23,7 @@ from PIL import Image
 from vlm.assemble import Block, CandidateRow, DotsLayout
 from vlm.receipts import canonical_json, sha256_bytes, sha256_file
 
-RECOVERY_VERSION = 2
+RECOVERY_VERSION = 3
 RECOVERY_GENERATION = 1
 _RECOVERABLE_ERRORS = (
     "stage_a_truncated", "layout_invalid_json", "layout_not_array",
@@ -44,7 +44,7 @@ def proposal_recovery_manifest() -> dict:
         "maximum_crop_calls": 2,
         "empty_region_proof": {
             "method": "exact_rgb_white",
-            "pixel_stage": "decoded_source_jpeg_before_crop_reencoding",
+            "pixel_stage": "decoded_source_image_before_crop_reencoding",
             "required_channel_extrema": [[255, 255], [255, 255], [255, 255]],
             "threshold_or_variance": False,
         },
@@ -54,6 +54,8 @@ def proposal_recovery_manifest() -> dict:
         "full_width": True,
         "resize": False,
         "enhancement": False,
+        "image_format": "preserve_source_png_or_jpeg",
+        "png_lossless": True,
         "jpeg_quality": 90,
         "jpeg_subsampling": 0,
         "jpeg_optimize": False,
@@ -125,12 +127,13 @@ def _layout_record(layout: DotsLayout) -> dict:
 
 
 def _crops(jpeg: bytes, page: int, config_sha256: str) -> tuple[ProposalCrop, ...]:
-    if not isinstance(jpeg, bytes) or not jpeg.startswith(b"\xff\xd8\xff"):
+    if not isinstance(jpeg, bytes) or not jpeg.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")):
         raise ProposalRecoveryError("proposal_recovery_jpeg_required")
     try:
         with Image.open(io.BytesIO(jpeg)) as opened:
-            if opened.format != "JPEG":
+            if opened.format not in {"JPEG", "PNG"}:
                 raise ProposalRecoveryError("proposal_recovery_jpeg_required")
+            image_format = opened.format
             opened.load()
             image = opened.convert("RGB")
     except (OSError, ValueError):
@@ -148,8 +151,11 @@ def _crops(jpeg: bytes, page: int, config_sha256: str) -> tuple[ProposalCrop, ..
             cropped = image.crop(box)
             try:
                 buffer = io.BytesIO()
-                cropped.save(buffer, format="JPEG", quality=90, subsampling=0,
-                             optimize=False, progressive=False)
+                if image_format == "PNG":
+                    cropped.save(buffer, format="PNG")
+                else:
+                    cropped.save(buffer, format="JPEG", quality=90, subsampling=0,
+                                 optimize=False, progressive=False)
                 raw = buffer.getvalue()
                 result.append(ProposalCrop(
                     page=page, index=index, width=cropped.width, height=cropped.height,

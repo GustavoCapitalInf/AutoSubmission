@@ -11,22 +11,23 @@ from vlm.receipts import canonical_json, sha256_bytes
 from vlm.render import RenderedPage
 
 
-def test_nontruncated_proposal_failure_marks_all_full_page_reviews_unresolved(wired):
+def test_nontruncated_proposal_failure_holds_only_its_source_candidates(wired):
     pair, pdf, directory, _, mutable = wired
     mutable['layout'] = [*LAYOUT, {'bbox': [100, 100, 0, 0], 'category': 'Text',
                                   'text': 'SYNTHETIC INVALID GEOMETRY'}]
     # The fabricated non-JPEG in this fixture makes crop recovery fail. The
-    # reviewer still confirms both valid proposals, but the incomplete source
-    # page must remain unresolved in the same way as a failed batched review.
+    # reviewer still confirms both proposals, but their failed source response
+    # holds those candidates without invalidating the review response.
     doc = pair.extract_visual_pair(pdf, evidence_dir=directory, data_scope='synthetic')
     audit = doc.visual_pair
     assert not audit['gate']['admitted'] and audit['statement'] is None
     assert not audit['pages'][0]['truncated']
-    assert 'layout_box_invalid:1' in audit['pages'][0]['errors']
-    assert 'proposal_recovery_failed' in audit['pages'][0]['errors']
+    assert 'layout_box_invalid:1' in audit['pages'][0]['proposal_errors']
+    assert 'proposal_recovery_failed' in audit['pages'][0]['proposal_errors']
+    assert audit['pages'][0]['errors'] == []
     assert audit['confidence']['counts']['unresolved'] == 2
     assert audit['confidence']['counts']['agreed'] == 0
-    assert audit['confidence']['invalid_page_count'] == 1
+    assert audit['confidence']['invalid_page_count'] == 0
     assert set(audit['confidence']['pages'][0]['errors']) == set(audit['pages'][0]['errors'])
     assert all(item['review_verdict'] == 'confirm' and item['row'] is None
                for item in audit['row_evidence'])
@@ -63,10 +64,12 @@ def test_crop_recovery_receipts_and_every_candidate_review(wired, monkeypatch, o
         else:
             parsed = _review()
             if original_has_rows:
-                parsed['reviews'].extend([
-                    {'candidate_id': f'p1r{i}', 'observed_description': None,
-                     'verdict': 'reject', 'corrections': [], 'reason': 'Same printed occurrence as earlier candidate.'}
-                    for i in (2, 3)])
+                clean_reviews = [{**item, 'candidate_id': f'p1r{i+2}'}
+                                 for i, item in enumerate(parsed['reviews'])]
+                for item in parsed['reviews']:
+                    item.update(verdict='reject', observed_description=None,
+                                reason='Same printed occurrence as complete crop candidate.')
+                parsed['reviews'].extend(clean_reviews)
             text, finish = canonical_json(parsed), 'stop'
         request = canonical_json({'model': model, 'prompt': prompt,
                                   'image_sha256': sha256_bytes(kwargs['image_jpeg']),

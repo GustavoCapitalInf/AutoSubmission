@@ -240,7 +240,7 @@ def _complete_html_tables(content: str) -> bool:
     return bool(parse_html_tables(content, preserve_whitespace=True))
 
 
-def parse_dots_layout(raw: str | list, *, page: int, width: int, height: int,
+def parse_dots_layout(raw: str | list | dict, *, page: int, width: int, height: int,
                       finish_reason: str | None = None, year_hint: int | None = None,
                       day_first: bool = False) -> DotsLayout:
     """Decode dots.mocr layout without repairing or silently salvaging invalid JSON.
@@ -278,6 +278,11 @@ def parse_dots_layout(raw: str | list, *, page: int, width: int, height: int,
                 raw = json.loads(text)
             except (ValueError, TypeError):
                 return DotsLayout(page, (), (), tuple(errors + ["layout_invalid_json"]), truncated)
+    # The full benchmark prompt permits one layout element as the final JSON
+    # object. Validate it identically to an element in the established array
+    # form; unknown object envelopes are not inferred or silently unwrapped.
+    if isinstance(raw, dict) and "category" in raw:
+        raw = [raw]
     if not isinstance(raw, list):
         return DotsLayout(page, (), (), tuple(errors + ["layout_not_array"]), truncated)
     blocks: list[Block] = []
@@ -305,8 +310,15 @@ def parse_dots_layout(raw: str | list, *, page: int, width: int, height: int,
     heading: str | None = None
     balance_section = False
     for block in blocks:
-        if block.label == "table":
-            markdown = _markdown_grid(block.content)
+        # dots also emits complete Markdown grids under the Text category.
+        # Preserve that category and its provenance while assembling the cells;
+        # pipe-delimited rows cannot match the plain date-line reader below.
+        markdown = _markdown_grid(block.content) if block.label in ("table", "text") else []
+        if block.label == "text" and not any(
+                "-" in line and re.fullmatch(r"[|:\-\s]+", line)
+                for line in block.content.splitlines()):
+            markdown = []
+        if block.label == "table" or markdown:
             grids = parse_html_tables(block.content, preserve_whitespace=True) or ([markdown] if markdown else [])
             for index, grid in enumerate(grids):
                 columns = classify_columns(grid, headerless_transaction_amount=not balance_section)

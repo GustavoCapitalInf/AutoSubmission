@@ -78,6 +78,12 @@ def _header_role(cell: str) -> str | None:
     text = " ".join(cell.lower().replace("_", " ").split())
     if not text:
         return None
+    # These explicit compound labels name one direction. Match the whole
+    # normalized header; splitting arbitrary slash labels would also interpret
+    # ambiguous headings such as "debit/credit" as a single direction.
+    compound_direction = {"cheque/debit": "debit", "deposit/credit": "credit"}.get(text)
+    if compound_direction is not None:
+        return compound_direction
     for role in ROLE_PRIORITY:
         for keyword in HEADER_KEYWORDS[role]:
             if text == keyword or text.startswith(keyword + " ") or text.endswith(" " + keyword) or text == keyword + "s":

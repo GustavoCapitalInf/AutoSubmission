@@ -145,7 +145,9 @@ def test_truncated_proposal_keeps_slot_and_refuses(wired):
     pair,pdf,directory,_,data=wired
     data['finish']='length'
     doc=pair.extract_visual_pair(pdf,evidence_dir=directory,data_scope='synthetic')
-    assert len(doc.pages)==1 and doc.truncated_pages==[0]
+    assert len(doc.pages)==1 and not doc.has_truncated_pages
+    assert doc.visual_pair['pages'][0]['truncated']
+    assert not doc.visual_pair['pages'][0]['review_truncated']
     assert not doc.visual_pair['gate']['admitted']
     assert 'page_unresolved' in doc.visual_pair['gate']['reasons']
     assert doc.visual_pair['confidence']['counts']['unresolved']==2

@@ -1,4 +1,4 @@
-"""Field-aware merge of reviewed page metadata, without arithmetic or inference.
+"""Field-aware merge of reviewed page metadata with explicit scope proofs.
 
 Policies:
 * Every non-null account-field occurrence is retained verbatim in provenance.
@@ -14,10 +14,17 @@ Policies:
   page balance is a continuation only on valid transaction-bearing pages, with
   a matching final reviewed running balance or adjacent closing/opening pair.
   Summary, empty, failed and nonadjacent pages cannot supply that proof.
+  Complete page-summary boxes additionally require an arithmetic segment proof;
+  a matching transaction balance cannot excuse a contradictory printed opening.
 * Period dates retain the existing exact-restatement/ISO/order policy. Totals,
   counts, days, fees, interest, NSF counts and printed averages are period-wide
   figures: repeated values must agree; never sum them or choose a maximum.
   Unknown future fields also require exact agreement.
+  The sole exception is a proven chain of adjacent printed page summaries:
+  select its first opening and final printed closing, and sum each printed
+  credit/debit total/count separately. Segment boundaries remain attributed to
+  their printed page fields. Callers must independently reconcile every segment
+  and the whole ledger; scope proof alone cannot admit a document.
 * Daily snapshots retain the existing date validation and final-observation
   behavior; contradictory values still refuse the document. They are not
   inferred from transaction rows.
@@ -30,6 +37,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, InvalidOperation
 import re
+
+from vlm.segments import SCOPED_FIELDS, SegmentPlan, detect_page_segments
 
 
 _IDENTITY_FIELDS = {"bank", "account_name", "bank_reported_average_label"}
@@ -127,9 +136,14 @@ def _continuation(merges, index: int, field: str, value) -> bool:
             and _equal(value, merges[index + 1].account["beginning_balance"]))
 
 
-def merge_metadata(merges, *, occurrences: list[dict] | None = None) -> tuple[dict, list[dict], list[str], list[dict]]:
+def merge_metadata(merges, *, occurrences: list[dict] | None = None,
+                   segment_plan: SegmentPlan | None = None,
+                   opening_observations: dict | None = None) -> tuple[dict, list[dict], list[str], list[dict]]:
     """Merge page observations; disagreements remain held with field provenance."""
     merges = list(merges)
+    segment_plan = (detect_page_segments(merges, opening_observations=opening_observations)
+                    if segment_plan is None else segment_plan)
+    segment_pages = {segment.page for segment in segment_plan.segments} if segment_plan.proven else set()
     account, daily, reasons, provenance = {}, {}, [], []
     identities = []
     source_pages = {}
@@ -151,12 +165,18 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None) -> tuple[di
             identities.append(pattern)
         return compatible
 
+    segment_failures = {(item["page"], item["field"]) for item in segment_plan.occurrences}
+    for item in segment_plan.occurrences:
+        fail(item["code"], item["page"], item["field"])
+
     for index, merged in enumerate(merges):
         page = _page(index, merged)
         for key, value in merged.account.items():
             if value is None:
                 continue
             provenance.append({"field": key, "page": page, "source": "reviewer", "value": value})
+            if page in segment_pages and key in SCOPED_FIELDS:
+                continue
             if key in _BALANCE_FIELDS:
                 balances[key].append((index, page, value))
                 continue
@@ -205,8 +225,13 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None) -> tuple[di
         chosen = candidates[0] if field == "beginning_balance" else candidates[-1]
         account[field] = chosen[2]
         for index, page, value in candidates:
-            if not _equal(value, chosen[2]) and not _continuation(merges, index, field, value):
+            if (not _equal(value, chosen[2])
+                    and (page in segment_plan.strict_balance_pages or not _continuation(merges, index, field, value))
+                    and (page, field) not in segment_failures):
                 fail("anchor_disagreement", page, field)
+
+    if segment_plan.proven:
+        account.update(segment_plan.document_fields)
 
     for field in ("period_start", "period_end"):
         try:

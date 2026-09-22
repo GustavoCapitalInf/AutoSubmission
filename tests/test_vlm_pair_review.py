@@ -159,8 +159,6 @@ def test_all_review_states_immutable_sources_and_added_order():
     (lambda data: data["reviews"].pop(), "review_missing_candidate_id"),
     (lambda data: data["reviews"].append(copy.deepcopy(data["reviews"][0])), "review_duplicate_candidate_id"),
     (lambda data: data["reviews"][0].update(candidate_id="unknown"), "review_unknown_candidate_id"),
-    (lambda data: data["reviews"][0].update(verdict="unresolved", observed_description=None), "review_unresolved"),
-    (lambda data: data["reviews"][0].update(verdict="correct"), "review_correction_missing"),
 ])
 def test_incomplete_or_invalid_review_refuses_whole_page(mutation, reason):
     rows = [_candidate(0), _candidate(1)]
@@ -171,6 +169,20 @@ def test_incomplete_or_invalid_review_refuses_whole_page(mutation, reason):
     assert result.counts["unresolved"] == 2
 
 
+@pytest.mark.parametrize("mutation,reason", [
+    (lambda data: data["reviews"][0].update(verdict="unresolved", observed_description=None), "review_unresolved"),
+    (lambda data: data["reviews"][0].update(verdict="correct"), "review_correction_missing"),
+])
+def test_identified_invalid_review_preserves_its_peer(mutation, reason):
+    rows = [_candidate(0), _candidate(1)]
+    payload = _review(rows)
+    mutation(payload)
+    result = merge_review(rows, payload, page=1)
+    assert result.errors == () and result.rows == (replace(rows[1], source="stage_a+stage_b"),)
+    assert reason in result.evidence[0]["validation_errors"]
+    assert result.counts["unresolved"] == 1
+
+
 def test_correction_must_repeat_original_exactly_and_change_a_value():
     rows = [_candidate()]
     payload = _review(rows)
@@ -178,9 +190,11 @@ def test_correction_must_repeat_original_exactly_and_change_a_value():
     payload["reviews"][0].update(verdict="correct", corrections=[{
         "field": "description", "original": original["description"], "corrected": original["description"],
     }])
-    assert "review_correction_unchanged" in merge_review(rows, payload, page=1).errors
+    result = merge_review(rows, payload, page=1)
+    assert not result.errors and "review_correction_unchanged" in result.evidence[0]["validation_errors"]
     payload["reviews"][0]["corrections"][0]["original"] = "rewritten"
-    assert "review_original_mismatch" in merge_review(rows, payload, page=1).errors
+    result = merge_review(rows, payload, page=1)
+    assert not result.errors and "review_original_mismatch" in result.evidence[0]["validation_errors"]
 
 
 def test_redundant_patch_beside_real_correction_preserves_evidence_and_provenance():
@@ -215,7 +229,8 @@ def test_redundant_patch_must_still_bind_to_the_original_value():
         {"field": "balance", "original": 530, "corrected": 530},
     )
     result = merge_review(rows, payload, page=1)
-    assert "review_original_mismatch" in result.errors and not result.rows
+    assert not result.errors and not result.rows
+    assert "review_original_mismatch" in result.evidence[0]["validation_errors"]
 
 
 def test_numeric_equality_does_not_allow_boolean_redundant_patch():
@@ -227,7 +242,8 @@ def test_numeric_equality_does_not_allow_boolean_redundant_patch():
         {"field": "amount", "original": 1, "corrected": True},
     )
     result = merge_review(rows, payload, page=1)
-    assert "review_schema_invalid" in result.errors and not result.rows
+    assert not result.errors and not result.rows
+    assert "review_entry_schema_invalid" in result.evidence[0]["validation_errors"]
 
 
 def test_redundant_patch_does_not_bypass_reconstructed_row_semantics():
@@ -239,7 +255,8 @@ def test_redundant_patch_does_not_bypass_reconstructed_row_semantics():
         {"field": "amount", "original": 0, "corrected": 0},
     )
     result = merge_review(rows, payload, page=1)
-    assert "review_invalid_amount:p1r0" in result.errors and not result.rows
+    assert not result.errors and not result.rows
+    assert "review_invalid_amount:p1r0" in result.evidence[0]["validation_errors"]
 
 
 @pytest.mark.parametrize("field,value", [("date", "2031-02-30"), ("amount", float("nan")),
@@ -250,7 +267,8 @@ def test_semantic_invalid_rows_fail_closed(field, value):
     original = candidate_records(rows)[0]["row"]
     _correct(payload, original, {**original, field: value})
     result = merge_review(rows, payload, page=1)
-    assert result.errors and not result.rows
+    assert not result.errors and not result.rows
+    assert result.evidence[0]["validation_errors"] and result.counts["unresolved"] == 1
 
 
 @pytest.mark.parametrize("change", [{"date": "2031-02-30"}, {"amount": Decimal("-20")},
@@ -259,7 +277,8 @@ def test_semantic_invalid_rows_fail_closed(field, value):
 def test_bad_candidate_cannot_be_confirmed_but_can_be_rejected(change):
     rows = [replace(_candidate(), **change)]
     payload = _review(rows)
-    assert merge_review(rows, payload, page=1).errors
+    invalid = merge_review(rows, payload, page=1)
+    assert not invalid.errors and not invalid.rows and invalid.evidence[0]["validation_errors"]
     payload["reviews"][0].update(verdict="reject", observed_description=None)
     result = merge_review(rows, payload, page=1)
     assert not result.errors and result.counts["rejected"] == 1
@@ -301,15 +320,10 @@ def test_truncated_page_and_gate_refusal_zero_confidence():
 
 
 def test_prompt_uses_frozen_dots_and_forbids_arithmetic_and_classification():
-    # The instance smoke module has import-time private fixture discovery, so read
-    # its literal with AST instead of importing it.
-    import ast
-    from pathlib import Path
-    module = ast.parse(Path("tools/phase3_pair/smoke_pair.py").read_text())
-    frozen = next(ast.literal_eval(node.value) for node in module.body
-                  if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
-                  and node.targets[0].id == "STAGE_A_PROMPT")
-    assert STAGE_A_DOTS_PROMPT == frozen
+    from hashlib import sha256
+    assert sha256(STAGE_A_DOTS_PROMPT.encode()).hexdigest() == (
+        "fae8e6aafb9682d0501ad64372db852d179b23f99de60198ef4a58b1468235d5"
+    )
     prompt = stage_b_review_prompt([_candidate()], page_number=1, page_total=2,
                                     metadata_context={"period_start": "2031-01-01"})
     assert "Copy every value exactly as printed. Never compute, infer or invent a value." in prompt
@@ -322,7 +336,8 @@ def test_false_confirmation_of_incomplete_description_is_unresolved():
     payload = _review(rows)
     payload["reviews"][0]["observed_description"] = "SYNTHETIC ROW 01"
     result = merge_review(rows, payload, page=1)
-    assert result.errors == ("review_description_observation_mismatch",)
+    assert result.errors == ()
+    assert result.evidence[0]["validation_errors"] == ["review_description_observation_mismatch"]
     assert not result.rows and result.counts["unresolved"] == 1
     assert result.evidence[0]["original"]["description"] == "SYNTHETIC 01"
     assert result.evidence[0]["observed_description"] == "SYNTHETIC ROW 01"
@@ -333,7 +348,8 @@ def test_confirm_requires_exact_nonempty_description_observation(observation):
     rows = [_candidate()]
     payload = _review(rows)
     payload["reviews"][0]["observed_description"] = observation
-    assert merge_review(rows, payload, page=1).errors
+    result = merge_review(rows, payload, page=1)
+    assert not result.errors and not result.rows and result.evidence[0]["validation_errors"]
 
 
 def test_correction_requires_observation_matching_corrected_description():
@@ -342,7 +358,9 @@ def test_correction_requires_observation_matching_corrected_description():
     original = candidate_records(rows)[0]["row"]
     _correct(payload, original, {**original, "description": "Complete printed description"})
     payload["reviews"][0]["observed_description"] = original["description"]
-    assert "review_description_observation_mismatch" in merge_review(rows, payload, page=1).errors
+    result = merge_review(rows, payload, page=1)
+    assert not result.errors
+    assert "review_description_observation_mismatch" in result.evidence[0]["validation_errors"]
 
 
 @pytest.mark.parametrize("field,value", [("description", 10), ("amount", "20"), ("direction", None),
@@ -353,7 +371,7 @@ def test_sparse_correction_field_types_cannot_bypass_full_row_schema(field, valu
     original = candidate_records(rows)[0]["row"]
     _correct(payload, original, {**original, field: value})
     result = merge_review(rows, payload, page=1)
-    assert result.errors and not result.rows
+    assert not result.errors and not result.rows and result.evidence[0]["validation_errors"]
 
 
 def test_duplicate_field_corrections_and_unexpected_replacements_fail_closed():
@@ -362,9 +380,11 @@ def test_duplicate_field_corrections_and_unexpected_replacements_fail_closed():
     original = candidate_records(rows)[0]["row"]
     _correct(payload, original, {**original, "description": "Actual printed description"})
     payload["reviews"][0]["corrections"] *= 2
-    assert "review_duplicate_correction_field" in merge_review(rows, payload, page=1).errors
+    result = merge_review(rows, payload, page=1)
+    assert not result.errors and "review_duplicate_correction_field" in result.evidence[0]["validation_errors"]
     payload["reviews"][0]["verdict"] = "confirm"
-    assert "review_unexpected_replacement" in merge_review(rows, payload, page=1).errors
+    result = merge_review(rows, payload, page=1)
+    assert not result.errors and "review_unexpected_replacement" in result.evidence[0]["validation_errors"]
 
 
 def test_dense_description_corrections_retain_full_evidence_without_wire_duplication():

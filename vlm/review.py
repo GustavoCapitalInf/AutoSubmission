@@ -12,11 +12,13 @@ from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
+import jsonschema
+
 from vlm.assemble import CandidateRow
-from vlm.schema import REVIEW_ROW_FIELDS, empty_review, valid_review_row, validate_page_review
+from vlm.schema import PAGE_REVIEW_SCHEMA, REVIEW_ROW_FIELDS, empty_review, valid_review_row
 
 ROW_STATES = ("agreed", "corrected", "added", "rejected", "unresolved")
-REVIEW_MERGE_VERSION = 4
+REVIEW_MERGE_VERSION = 5
 
 
 def _number(value: Decimal | None) -> float | None:
@@ -46,6 +48,28 @@ class PageReviewMerge:
     daily_balances: tuple[dict, ...]
     page_role: str
     account_numbers_seen: tuple[str, ...] = ()
+    diagnostics: tuple[dict, ...] = ()
+    metadata_evidence: tuple[dict, ...] = ()
+
+
+def review_envelope_valid(payload: object, schema: dict = PAGE_REVIEW_SCHEMA) -> bool:
+    """Check transport/envelope shape without conflating identified observations.
+
+    Wire schemas stay unchanged. Local validation checks review/addition entries
+    separately, and attributable metadata observations separately. Top-level
+    keys, page role, notes, review/addition containers and batch sizes retain
+    their original schema requirements. Candidate identity coverage is checked
+    by the caller before any row may become usable.
+    """
+    envelope = copy.deepcopy(schema)
+    properties = envelope["properties"]
+    for name in ("reviews", "added"):
+        if name in properties:
+            properties[name]["items"] = {}
+    for name in ("account", "account_numbers_seen", "daily_balances"):
+        if name in properties:
+            properties[name] = {}
+    return jsonschema.Draft202012Validator(envelope).is_valid(payload)
 
 
 def _valid_date(value: object) -> bool:
@@ -107,12 +131,139 @@ def _evidence(*, candidate_id: str, state: str, page: int, locator: str, origina
                           "observed_description": observed_description, "corrections": list(corrections)})
 
 
-def merge_review(candidates, payload: object, *, page: int, truncated: bool = False,
-                 validation_errors=()) -> PageReviewMerge:
-    """Validate complete review coverage before constructing *any* usable page rows.
+def _review_metadata(data: dict, *, page: int):
+    """Quarantine invalid source observations without changing other fields.
 
-    Every bad page retains its slot and every proposed row as unresolved evidence.
-    The raw model response is separately retained by the calling evidence store.
+    Invalid/missing account fields become unknown individually. Invalid daily
+    balance and account-number entries are omitted individually. Raw invalid
+    observations remain private evidence; closed diagnostics identify their
+    scope. These are validation decisions, never replacement source values or
+    changes to financial gate policy.
+    """
+    account = empty_review()["account"]
+    daily, numbers, diagnostics, evidence = [], [], [], []
+
+    def invalid(scope, raw, codes, *, field=None, index=None, present=True):
+        location = {"scope": scope, "page": page}
+        if field is not None:
+            location["field"] = field
+        if index is not None:
+            location["index"] = index
+        diagnostics.extend({**location, "code": code} for code in dict.fromkeys(codes))
+        evidence.append(copy.deepcopy({**location, "raw_value": raw, "present": present,
+                                       "validation_errors": list(dict.fromkeys(codes))}))
+
+    raw_account = data["account"]
+    properties = PAGE_REVIEW_SCHEMA["properties"]["account"]["properties"]
+    if not isinstance(raw_account, dict):
+        invalid("account", raw_account, ["review_account_schema_invalid"])
+    else:
+        for key, schema in properties.items():
+            value = raw_account.get(key)
+            codes = []
+            if key not in raw_account:
+                codes.append("review_account_field_missing")
+            elif not jsonschema.Draft202012Validator(schema).is_valid(value):
+                codes.append("review_account_field_schema_invalid")
+            else:
+                if key in ("period_start", "period_end") and not _valid_date(value):
+                    codes.append("review_invalid_account_date")
+                if isinstance(value, (int, float)) and not _finite(value):
+                    codes.append("review_invalid_account_number")
+                if (key.startswith("stated_") or key == "days_in_period") and isinstance(value, (int, float)) and value < 0:
+                    codes.append("review_negative_source_magnitude")
+            if codes:
+                invalid("account", value, codes, field=key, present=key in raw_account)
+            else:
+                account[key] = copy.deepcopy(value)
+        for key in raw_account.keys() - properties.keys():
+            invalid("account", {key: raw_account[key]}, ["review_account_unknown_field"], field="unknown")
+
+    raw_daily = data["daily_balances"]
+    daily_schema = PAGE_REVIEW_SCHEMA["properties"]["daily_balances"]["items"]
+    if not isinstance(raw_daily, list):
+        invalid("daily_balances", raw_daily, ["review_daily_balances_schema_invalid"])
+    else:
+        for index, item in enumerate(raw_daily):
+            if not jsonschema.Draft202012Validator(daily_schema).is_valid(item):
+                invalid("daily_balances", item, ["review_daily_balance_schema_invalid"], index=index)
+            elif item["date"] is None or not _valid_date(item["date"]) or not _finite(item["balance"]):
+                invalid("daily_balances", item, ["review_invalid_daily_balance"], index=index)
+            else:
+                daily.append(copy.deepcopy(item))
+
+    raw_numbers = data["account_numbers_seen"]
+    if not isinstance(raw_numbers, list):
+        invalid("account_numbers_seen", raw_numbers, ["review_account_numbers_schema_invalid"])
+    else:
+        for index, item in enumerate(raw_numbers):
+            if not isinstance(item, str):
+                invalid("account_numbers_seen", item, ["review_account_number_schema_invalid"], index=index)
+            else:
+                numbers.append(item)
+    return account, tuple(daily), tuple(numbers), diagnostics, evidence
+
+
+def _review_entry(original: dict, item: dict, *, candidate_id: str):
+    """Validate one identified verdict; normalize only an irrelevant reject observation."""
+    effective = copy.deepcopy(item)
+    errors, warnings = [], []
+    if effective.get("verdict") == "reject" and effective.get("observed_description") is not None:
+        effective["observed_description"] = None
+        warnings.append("review_unexpected_description_observation")
+    schema = PAGE_REVIEW_SCHEMA["properties"]["reviews"]["items"]
+    if not jsonschema.Draft202012Validator(schema).is_valid(effective):
+        errors.append("review_entry_schema_invalid")
+    verdict = effective.get("verdict")
+    changes = effective.get("corrections")
+    corrected = None
+    if verdict == "correct":
+        corrected = copy.deepcopy(original)
+        if not isinstance(changes, list) or not changes:
+            errors.append("review_correction_missing")
+        fields = []
+        for change in changes if isinstance(changes, list) else ():
+            if not isinstance(change, dict) or change.get("field") not in REVIEW_ROW_FIELDS:
+                continue
+            field = change["field"]
+            fields.append(field)
+            if "original" not in change or change["original"] != original[field]:
+                errors.append("review_original_mismatch")
+            if "corrected" in change:
+                corrected[field] = copy.deepcopy(change["corrected"])
+        if len(fields) != len(set(fields)):
+            errors.append("review_duplicate_correction_field")
+        errors.extend(_row_errors(corrected, label=candidate_id))
+        if changes and corrected == original:
+            errors.append("review_correction_unchanged")
+    elif changes:
+        errors.append("review_unexpected_replacement")
+    if verdict == "confirm":
+        errors.extend(_row_errors(original, label=candidate_id))
+    observed = effective.get("observed_description")
+    if verdict in ("confirm", "correct"):
+        row = corrected if verdict == "correct" else original
+        if not isinstance(observed, str) or not observed.strip():
+            errors.append("review_description_observation_missing")
+        elif observed != row["description"]:
+            errors.append("review_description_observation_mismatch")
+    elif observed is not None:
+        errors.append("review_unexpected_description_observation")
+    if verdict == "unresolved":
+        errors.append("review_unresolved")
+    return effective, corrected, list(dict.fromkeys(errors)), warnings
+
+
+def merge_review(candidates, payload: object, *, page: int, truncated: bool = False,
+                 validation_errors=(), candidate_validation_errors=None) -> PageReviewMerge:
+    """Keep usable peers while isolating attributable row/metadata failures.
+
+    ``errors`` contains fatal response/coverage/source-page failures only. A
+    malformed identified entry or semantic mismatch is unresolved on that row;
+    its raw review and attempted correction remain evidence. Fatal envelopes,
+    missing/duplicate/unknown IDs, non-stop responses and explicit page errors
+    still prevent every row from becoming usable. Candidate source errors hold
+    confirm/correct rows only: a valid reviewer rejection remains a rejection.
     """
     candidates = list(candidates)
     records = candidate_records(candidates)
@@ -122,128 +273,123 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         errors.append("review_candidate_page_mismatch")
     if truncated:
         errors.append("review_truncated")
-    schema_errors = validate_page_review(payload)
-    if schema_errors:
-        # Details may contain source values; callers can separately store validator
-        # details privately. Public status uses only the closed structural reason.
+    source_errors = candidate_validation_errors or {}
+    if set(source_errors) - set(originals):
+        errors.append("review_source_candidate_unknown")
+    if not review_envelope_valid(payload):
         errors.append("review_schema_invalid")
         data = empty_review()
     else:
         data = copy.deepcopy(payload)
     reviews = data["reviews"]
-    ids = [item["candidate_id"] for item in reviews]
+    identified = [item for item in reviews if isinstance(item, dict) and isinstance(item.get("candidate_id"), str)]
+    if len(identified) != len(reviews):
+        errors.append("review_schema_invalid")
+    ids = [item["candidate_id"] for item in identified]
     if len(ids) != len(set(ids)):
         errors.append("review_duplicate_candidate_id")
     if set(ids) - set(originals):
         errors.append("review_unknown_candidate_id")
     if set(originals) - set(ids):
         errors.append("review_missing_candidate_id")
-    replacements: dict[str, dict] = {}
-    for item in reviews:
-        candidate_id = item["candidate_id"]
-        original = originals.get(candidate_id)
-        observed = item["observed_description"]
-        if item["verdict"] == "correct":
-            changes = item["corrections"]
-            if not changes:
-                errors.append("review_correction_missing")
-            fields = [change["field"] for change in changes]
-            if len(fields) != len(set(fields)):
-                errors.append("review_duplicate_correction_field")
-            corrected = copy.deepcopy(original) if original is not None else None
-            for change in changes:
-                field = change["field"]
-                if original is None or change["original"] != original[field]:
-                    errors.append("review_original_mismatch")
-                if corrected is not None:
-                    corrected[field] = copy.deepcopy(change["corrected"])
-            if corrected is not None:
-                replacements[candidate_id] = corrected
-                errors.extend(_row_errors(corrected, label=candidate_id))
-                # Redundant patches are harmless only beside an actual change.
-                # Apply and validate every value first; keep every raw patch in
-                # evidence, and let equality determine each field's provenance.
-                if changes and corrected == original:
-                    errors.append("review_correction_unchanged")
-        elif item["corrections"]:
-            errors.append("review_unexpected_replacement")
-        if item["verdict"] == "confirm" and candidate_id in originals:
-            errors.extend(_row_errors(originals[candidate_id], label=candidate_id))
-        if item["verdict"] in ("confirm", "correct"):
-            effective = replacements.get(candidate_id) if item["verdict"] == "correct" else original
-            if observed is None or not observed.strip():
-                errors.append("review_description_observation_missing")
-            elif effective is not None and observed != effective["description"]:
-                errors.append("review_description_observation_mismatch")
-        elif observed is not None:
-            errors.append("review_unexpected_description_observation")
-        if item["verdict"] == "unresolved":
-            errors.append("review_unresolved")
+    by_id = {item["candidate_id"]: item for item in identified if ids.count(item["candidate_id"]) == 1}
+    checked = {}
+    diagnostics = []
+    for record in records:
+        candidate_id = record["candidate_id"]
+        item = by_id.get(candidate_id)
+        if item is None:
+            continue
+        effective, corrected, row_errors, warnings = _review_entry(record["row"], item, candidate_id=candidate_id)
+        inherited = list(dict.fromkeys(source_errors.get(candidate_id, ())))
+        checked[candidate_id] = (effective, corrected, row_errors, warnings, inherited)
+        diagnostics.extend({"scope": "row", "page": page, "candidate_id": candidate_id, "code": code}
+                           for code in dict.fromkeys((*row_errors, *inherited)))
+        diagnostics.extend({"scope": "row_warning", "page": page, "candidate_id": candidate_id, "code": code}
+                           for code in warnings)
+
+    additions = []
+    addition_schema = PAGE_REVIEW_SCHEMA["properties"]["added"]["items"]
     for index, item in enumerate(data["added"]):
-        if item["after_candidate_id"] is not None and item["after_candidate_id"] not in originals:
-            errors.append("review_unknown_addition_anchor")
-        errors.extend(_row_errors(item["row"], label=f"added{index}"))
-    for key, value in data["account"].items():
-        if key in ("period_start", "period_end") and not _valid_date(value):
-            errors.append("review_invalid_account_date")
-        if isinstance(value, (int, float)) and not _finite(value):
-            errors.append("review_invalid_account_number")
-        if key.startswith("stated_") or key == "days_in_period":
-            if isinstance(value, (int, float)) and value < 0:
-                errors.append("review_negative_source_magnitude")
-    for item in data["daily_balances"]:
-        if item["date"] is None or not _valid_date(item["date"]) or not _finite(item["balance"]):
-            errors.append("review_invalid_daily_balance")
-    evidence: list[dict] = []
-    rows: list[CandidateRow] = []
-    if errors:
-        by_id = {item["candidate_id"]: item for item in reviews if ids.count(item["candidate_id"]) == 1}
-        for record in records:
-            reviewed = by_id.get(record["candidate_id"], {})
-            evidence.append(_evidence(candidate_id=record["candidate_id"], state="unresolved", page=page,
-                                      locator=record["locator"], original=record["row"],
-                                      corrected=replacements.get(record["candidate_id"]) if reviewed else None,
-                                      row=None, reason="page_review_invalid",
-                                      observed_description=reviewed.get("observed_description"),
-                                      corrections=reviewed.get("corrections", ())))
-            evidence[-1]["review_verdict"] = reviewed.get("verdict")
-        for index, item in enumerate(data["added"]):
-            evidence.append(_evidence(candidate_id=f"p{page}a{index}", state="unresolved", page=page,
-                                      locator=f"added{index}", original=None, corrected=None,
-                                      row=item["row"], reason="page_review_invalid"))
-    else:
-        by_id = {item["candidate_id"]: item for item in reviews}
-        additions: dict[str | None, list[tuple[int, dict]]] = {}
-        for index, item in enumerate(data["added"]):
-            additions.setdefault(item["after_candidate_id"], []).append((index, item["row"]))
+        codes = []
+        if not jsonschema.Draft202012Validator(addition_schema).is_valid(item):
+            codes.append("review_addition_schema_invalid")
+        else:
+            if item["after_candidate_id"] is not None and item["after_candidate_id"] not in originals:
+                codes.append("review_unknown_addition_anchor")
+            codes.extend(_row_errors(item["row"], label=f"added{index}"))
+        additions.append((index, item, list(dict.fromkeys(codes))))
+        diagnostics.extend({"scope": "row", "page": page, "candidate_id": f"p{page}a{index}", "code": code}
+                           for code in dict.fromkeys(codes))
+    account, daily, numbers, metadata_diagnostics, metadata_evidence = _review_metadata(data, page=page)
+    diagnostics.extend(metadata_diagnostics)
+    fatal = bool(errors)
+    evidence, rows = [], []
+    anchored = {}
+    for index, item, codes in additions:
+        if isinstance(item, dict) and isinstance(item.get("after_candidate_id"), (str, type(None))):
+            anchor = item.get("after_candidate_id")
+            if anchor is None or anchor in originals:
+                anchored.setdefault(anchor, []).append((index, item, codes))
 
-        def add_after(anchor: str | None) -> None:
-            for index, item in additions.get(anchor, []):
-                locator = f"added{index}"
-                rows.append(_source_row(item, page=page, locator=locator))
-                evidence.append(_evidence(candidate_id=f"p{page}a{index}", state="added", page=page,
-                                          locator=locator, original=None, corrected=None, row=item,
-                                          reason="reviewer_only"))
+    emitted_additions = set()
 
-        add_after(None)
-        for candidate, record in zip(candidates, records):
-            item = by_id[record["candidate_id"]]
-            state = {"confirm": "agreed", "correct": "corrected", "reject": "rejected"}[item["verdict"]]
-            value = record["row"] if state == "agreed" else replacements.get(record["candidate_id"])
-            if state == "agreed":
-                rows.append(replace(candidate, source="stage_a+stage_b"))
-            elif state == "corrected":
-                rows.append(_source_row(value, page=page, locator=candidate.locator))
-            evidence.append(_evidence(candidate_id=record["candidate_id"], state=state, page=page,
-                                      locator=candidate.locator, original=record["row"],
-                                      corrected=replacements.get(record["candidate_id"]),
-                                      row=value, reason=item["reason"],
-                                      observed_description=item["observed_description"], corrections=item["corrections"]))
-            add_after(record["candidate_id"])
+    def add_after(anchor):
+        for index, item, codes in anchored.get(anchor, ()):
+            append_addition(index, item, codes)
+
+    def append_addition(index, item, codes):
+        if index in emitted_additions:
+            return
+        emitted_additions.add(index)
+        usable = not fatal and not codes
+        row = item.get("row") if isinstance(item, dict) else None
+        locator = f"added{index}"
+        if usable:
+            rows.append(_source_row(row, page=page, locator=locator))
+        # A malformed proposed row remains in raw_addition, without implying
+        # that it has valid field provenance or can enter the row ledger.
+        evidence.append(_evidence(candidate_id=f"p{page}a{index}", state="added" if usable else "unresolved",
+                                  page=page, locator=locator, original=None, corrected=None,
+                                  row=row if valid_review_row(row) else None,
+                                  reason="reviewer_only" if usable else "page_review_invalid" if fatal else "row_review_invalid"))
+        evidence[-1].update(validation_errors=list(codes), validation_warnings=[],
+                            raw_addition=copy.deepcopy(item))
+
+    add_after(None)
+    for candidate, record in zip(candidates, records):
+        candidate_id = record["candidate_id"]
+        checked_item = checked.get(candidate_id)
+        raw_item = by_id.get(candidate_id)
+        effective, corrected, row_errors, warnings, inherited = checked_item or (
+            {}, None, [], [], list(dict.fromkeys(source_errors.get(candidate_id, ()))))
+        verdict = effective.get("verdict")
+        usable = not fatal and not row_errors and (not inherited or verdict == "reject") and checked_item is not None
+        state = {"confirm": "agreed", "correct": "corrected", "reject": "rejected"}.get(verdict, "unresolved") if usable else "unresolved"
+        value = record["row"] if state == "agreed" else corrected if state == "corrected" else None
+        if state == "agreed":
+            rows.append(replace(candidate, source="stage_a+stage_b"))
+        elif state == "corrected":
+            rows.append(_source_row(value, page=page, locator=candidate.locator))
+        raw_changes = raw_item.get("corrections") if raw_item is not None else ()
+        evidence.append(_evidence(candidate_id=candidate_id, state=state, page=page, locator=record["locator"],
+                                  original=record["row"], corrected=corrected, row=value,
+                                  reason="page_review_invalid" if fatal else "row_review_invalid" if state == "unresolved" else effective.get("reason", ""),
+                                  observed_description=effective.get("observed_description"),
+                                  corrections=raw_changes if isinstance(raw_changes, list) else ()))
+        evidence[-1].update(review_verdict=raw_item.get("verdict") if raw_item is not None else None,
+                            validation_errors=list(dict.fromkeys((*row_errors, *inherited))),
+                            validation_warnings=list(warnings), raw_review=copy.deepcopy(raw_item),
+                            raw_observed_description=copy.deepcopy(raw_item.get("observed_description")) if raw_item is not None else None)
+        add_after(candidate_id)
+    # Invalid or missing anchors cannot silently discard an addition. Their
+    # own evidence stays unresolved after the ordered candidate sequence.
+    for index, item, codes in additions:
+        append_addition(index, item, codes)
     counts = Counter(item["state"] for item in evidence)
     return PageReviewMerge(page, tuple(rows), tuple(evidence), {state: counts[state] for state in ROW_STATES},
-                           tuple(dict.fromkeys(errors)), data["account"], tuple(data["daily_balances"]),
-                           data["page_role"], tuple(data["account_numbers_seen"]))
+                           tuple(dict.fromkeys(errors)), account, daily, data["page_role"], numbers,
+                           tuple(diagnostics), tuple(metadata_evidence))
 
 
 def confidence_summary(merges, *, gate_admitted: bool, gate_reasons=()) -> dict:
@@ -251,7 +397,8 @@ def confidence_summary(merges, *, gate_admitted: bool, gate_reasons=()) -> dict:
     counts = {state: sum(page.counts[state] for page in merges) for state in ROW_STATES}
     total = sum(counts.values())
     ratio = counts["agreed"] / total if total else None
-    admitted = gate_admitted and not any(page.errors for page in merges)
+    admitted = gate_admitted and not any(
+        page.errors or page.counts["unresolved"] or page.metadata_evidence for page in merges)
     pages = []
     for page in merges:
         page_total = sum(page.counts.values())

@@ -16,7 +16,7 @@ from vlm.assemble import CandidateRow
 from vlm.textparse import parse_date
 
 
-DATE_RESOLVER_VERSION = 1
+DATE_RESOLVER_VERSION = 2
 _MONTHS = {
     name: month
     for month, names in enumerate((
@@ -31,6 +31,10 @@ _ISO = re.compile(r"([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})")
 _NUMERIC = re.compile(r"([0-9]{1,2})([/\-])([0-9]{1,2})(?:\2([0-9]{2}|[0-9]{4}))?")
 _MONTH_FIRST = re.compile(r"([A-Za-z]+)\.?\s+([0-9]{1,2})(?:,?\s+([0-9]{2}|[0-9]{4}))?")
 _DAY_FIRST = re.compile(r"([0-9]{1,2})\s+([A-Za-z]+)\.?(?:,?\s+([0-9]{2}|[0-9]{4}))?")
+_COMPACT_MONTH_DAY = re.compile(
+    r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)([0-9]{1,2})",
+    re.IGNORECASE | re.ASCII,
+)
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,11 @@ def _source_parts(date_text):
         # Neither ordering receives preference. Equal interpretations describe
         # one date, not two distinct possibilities.
         return tuple(dict.fromkeys(((first, second), (second, first)))), numeric[4]
+    compact = _COMPACT_MONTH_DAY.fullmatch(raw)
+    if compact:
+        # A compact printed token supplies only month/day. The reviewed period
+        # must still select exactly one valid year through _possibilities.
+        return ((_MONTHS[compact[1].lower()], int(compact[2])),), None
     match = _MONTH_FIRST.fullmatch(raw)
     if match:
         month, day, year = _MONTHS.get(match[1].lower()), int(match[2]), match[3]
