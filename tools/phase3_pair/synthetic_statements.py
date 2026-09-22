@@ -76,6 +76,13 @@ def money(value: Decimal) -> str:
     return f"{abs(value):,.2f}"
 
 
+def signed(value: Decimal, style: str = "leading") -> str:
+    """A balance as banks print it: an overdrawn balance carries its minus, before or after the figure."""
+    if value >= 0:
+        return money(value)
+    return money(value) + "-" if style == "trailing" else "-" + money(value)
+
+
 def _cents(rng: random.Random, low: int, high: int) -> Decimal:
     return Decimal(rng.randint(low * 100, high * 100)) / 100
 
@@ -145,7 +152,8 @@ def _running(plan: Plan) -> list[tuple[Txn, Decimal]]:
 
 
 def layout_running(plan: Plan, *, summary: str = "vertical", newest_first: bool = False, end_of_day: bool = False,
-                   printed_ending: Decimal | None = None, rows_per_page: int = 24) -> bytes:
+                   printed_ending: Decimal | None = None, rows_per_page: int = 24, negative: str = "leading",
+                   drop_page: int | None = None) -> bytes:
     credits, debits, credit_count, debit_count = plan.totals()
     ending = printed_ending if printed_ending is not None else plan.ending
     rows = _running(plan)
@@ -165,7 +173,7 @@ def layout_running(plan: Plan, *, summary: str = "vertical", newest_first: bool 
             w.down(15)
             if summary == "horizontal":
                 labels = ("Previous Balance", "Deposits/Credits", "Withdrawals/Debits", "Ending Balance")
-                values = (money(plan.beginning), money(credits), money(debits), money(ending))
+                values = (signed(plan.beginning, negative), money(credits), money(debits), signed(ending, negative))
                 for x, label in zip((40, 180, 320, 460), labels):
                     w.text(x, label, bold=True)
                 w.down()
@@ -174,7 +182,7 @@ def layout_running(plan: Plan, *, summary: str = "vertical", newest_first: bool 
                 w.down(20)
             else:
                 w.text(40, "Beginning Balance")
-                w.text(300, money(plan.beginning), right=True)
+                w.text(300, signed(plan.beginning, negative), right=True)
                 w.down()
                 if summary == "vertical":
                     w.text(40, f"Deposits and Other Credits ({credit_count})")
@@ -184,7 +192,7 @@ def layout_running(plan: Plan, *, summary: str = "vertical", newest_first: bool 
                     w.text(300, money(debits) + "-", right=True)
                     w.down()
                 w.text(40, "Ending Balance")
-                w.text(300, money(ending), right=True)
+                w.text(300, signed(ending, negative), right=True)
                 w.down(22)
         w.text(40, "TRANSACTION DETAIL", bold=True)
         w.down(14)
@@ -197,8 +205,10 @@ def layout_running(plan: Plan, *, summary: str = "vertical", newest_first: bool 
             w.text(90, txn.description)
             w.text(430 if txn.amount < 0 else 500, money(txn.amount), right=True)
             if balance is not None:
-                w.text(572, money(balance), right=True)
+                w.text(572, signed(balance, negative), right=True)
             w.down()
+    if drop_page is not None:  # a page lost between the bank and the reader
+        doc.delete_page(drop_page - 1)
     return doc.tobytes()
 
 
@@ -330,6 +340,17 @@ def plans(seed: int = 7) -> list[tuple[Plan, bytes]]:
     add("S08", "negative_control_printed_ending_does_not_reconcile", "1800.00", control,
         lambda plan: layout_running(plan, printed_ending=plan.ending + Decimal("100.00")),
         expect_admitted=False, notes=["printed ending balance is 100.00 higher than the ledger"])
+    twins = make_txns(rng, 26)
+    first_debit = next(index for index, txn in enumerate(twins) if txn.amount < 0)
+    twins.insert(first_debit + 1, Txn(**{**twins[first_debit].__dict__}))
+    add("S09", "identical_same_day_transactions", "5200.00", twins, layout_running,
+        notes=["two identical debits on the same day, both real"])
+    add("S10", "negative_control_missing_page", "2600.00", make_txns(rng, 40),
+        lambda plan: layout_running(plan, rows_per_page=14, drop_page=2),
+        expect_admitted=False, notes=["page 2 of 3 is missing from the PDF"])
+    add("S11", "overdraft_trailing_minus", "150.00", make_txns(rng, 26),
+        lambda plan: layout_running(plan, negative="trailing"),
+        notes=["the balance goes below zero and prints a trailing minus"])
     return built
 
 
