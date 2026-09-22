@@ -17,7 +17,10 @@ def _layout(page):
         "2031-01-03", "POS EXACT 02", "", "5.00", "115.00")
     header = "<tr>" + "".join(f"<th>{v}</th>" for v in ("Date", "Description", "Credit", "Debit", "Balance")) + "</tr>"
     row = "<tr>" + "".join(f"<td>{v}</td>" for v in cells) + "</tr>"
-    return [{"bbox": [0, 0, 100, 100], "category": "Table", "text": "<table>" + header + row + "</table>"}]
+    # The proposer reads the whole page, so the figures each page's review reports are printed in its reading.
+    figures = "Summary figures 100.00 31" if page == 0 else "Summary figures 115.00 20.00 5.00 1 0.00 0 114.00"
+    return [{"bbox": [0, 0, 100, 100], "category": "Table", "text": "<table>" + header + row + "</table>"},
+            {"bbox": [0, 0, 100, 100], "category": "Text", "text": figures}]
 
 
 def _review(page):
@@ -102,6 +105,8 @@ def test_two_pages_preserve_optional_source_fields_and_daily_ledger(pair_two_pag
 ])
 def test_metadata_conflicts_never_admit_a_partial_statement(pair_two_pages, field, value, reason):
     pair_two_pages[3].reviews[1]["account"][field] = value
+    if field == "beginning_balance":  # a figure conflict is two PRINTED figures (see the next test)
+        pair_two_pages[3].layouts[1][1]["text"] += " 200.00"
     doc = _extract(pair_two_pages)
     assert reason in doc.visual_pair["gate"]["reasons"]
     assert not doc.visual_pair["gate"]["admitted"]
@@ -109,8 +114,19 @@ def test_metadata_conflicts_never_admit_a_partial_statement(pair_two_pages, fiel
     assert len(doc.pages) == 2
 
 
+def test_a_conflicting_figure_printed_nowhere_is_dropped_not_held(pair_two_pages):
+    # The reviewer reports a figure the page does not print (neither its text layer nor the proposer's reading):
+    # it is not evidence, so it neither contradicts the printed figures nor holds the statement.
+    pair_two_pages[3].reviews[1]["account"]["beginning_balance"] = 200
+    doc = _extract(pair_two_pages)
+    assert doc.visual_pair["gate"]["admitted"]
+    assert {"scope": "account", "page": 2, "field": "beginning_balance",
+            "code": "review_figure_not_printed"} in doc.visual_pair["review_diagnostics"]
+
+
 def test_cross_page_daily_balance_conflict_is_refused(pair_two_pages):
     pair_two_pages[3].reviews[1]["daily_balances"].append({"date": "2031-01-02", "balance": 900})
+    pair_two_pages[3].layouts[1][1]["text"] += " 900.00"
     doc = _extract(pair_two_pages)
     assert "anchor_disagreement" in doc.visual_pair["gate"]["reasons"]
     assert doc.visual_pair["statement"] is None

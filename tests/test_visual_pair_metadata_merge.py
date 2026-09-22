@@ -71,10 +71,14 @@ def test_bank_and_account_headers_ignore_formatting_without_rewriting_provenance
 
 
 @pytest.mark.parametrize("field", ["bank", "account_name"])
-def test_real_identity_name_disagreement_is_not_formatting(field):
-    (_, _, reasons, _), occurrences = check([page(1, {field: "FABRICATED ALPHA"}), page(2, {field: "FABRICATED BETA"})])
-    assert reasons == ["anchor_disagreement"]
-    assert occurrences[0]["page"] == 2 and occurrences[0]["field"] == field
+def test_a_printed_name_variant_is_recorded_not_held(field):
+    # A bank or account name is descriptive, not identity (the account number is): statements print a brand on
+    # one page and a legal name on another, or the reviewer reads a logo. The first value stands; every variant
+    # stays in the field evidence.
+    (account, _, reasons, provenance), occurrences = check([page(1, {field: "FABRICATED ALPHA"}),
+                                                            page(2, {field: "FABRICATED BETA"})])
+    assert reasons == [] and occurrences == [] and account[field] == "FABRICATED ALPHA"
+    assert [item["value"] for item in provenance if item["field"] == field] == ["FABRICATED ALPHA", "FABRICATED BETA"]
 
 
 def test_masked_and_full_numbers_use_all_visible_characters_and_keep_full_spelling():
@@ -266,8 +270,8 @@ def test_daily_snapshots_keep_last_observation_but_flag_every_conflict_and_bad_d
 def test_occurrence_sink_appends_without_source_values_or_resetting_prior_entries():
     sentinel = {"code": "earlier_failure", "page": 0, "field": None, "source": "earlier"}
     sink = [sentinel.copy()]
-    merge_metadata([page(1, {"account_name": "FABRICATED FIRST"}),
-                    page(2, {"account_name": "FABRICATED SECOND"})], occurrences=sink)
+    merge_metadata([page(1, {"bank_reported_average_label": "FABRICATED FIRST"}),
+                    page(2, {"bank_reported_average_label": "FABRICATED SECOND"})], occurrences=sink)
     assert sink[0] == sentinel and len(sink) == 2
     assert set(sink[1]) == {"code", "page", "field", "source"}
     assert "FABRICATED" not in repr(sink)

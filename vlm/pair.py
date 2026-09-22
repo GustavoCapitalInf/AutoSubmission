@@ -44,7 +44,8 @@ def visual_pair_manifest() -> dict:
                'vlm/receipts.py', 'vlm/review_batches.py', 'vlm/proposal_recovery.py', 'vlm/currency.py',
                'ocr/visual_pair_config.py', 'ocr/private_artifacts.py', 'ocr/truncation.py',
                'vlm/dates.py', 'vlm/pair_metadata.py', 'vlm/reason_counts.py',
-               'vlm/segments.py', 'vlm/segment_openings.py', 'vlm/segment_reconcile.py')
+               'vlm/segments.py', 'vlm/segment_openings.py', 'vlm/segment_reconcile.py', 'vlm/native_text.py',
+               'vlm/summary_box.py')
     return {
         'version': PAIR_VERSION, 'schema_version': SCHEMA_VERSION,
         'review_schema_sha256': review_schema_sha256(), 'gate_version': GATE_VERSION,
@@ -204,15 +205,58 @@ def ledger_rows(merges) -> tuple[list, int]:
     """(rows entering the ledger, rows excluded). A cheque picture page (review.picture_page) shows cheques or
     deposit slips whose transactions are already listed elsewhere in the statement, so its rows never enter
     the ledger. If a real transaction page were taken for pictures, its missing rows break the arithmetic and
-    the gate refuses: this fails closed."""
+    the gate refuses: this fails closed. A bare cheque number is named by its column's printed label
+    (assemble.labelled_description)."""
+    from vlm.assemble import labelled_description
     from vlm.review import picture_page
     rows, excluded = [], 0
     for merged in merges:
         if picture_page(merged):
             excluded += len(merged.rows)
             continue
-        rows.extend(merged.rows)
+        rows.extend(labelled_description(row) for row in merged.rows)
     return rows, excluded
+
+
+_SUMMARY_FIELDS = ('stated_total_credits', 'stated_total_debits', 'stated_credit_count', 'stated_debit_count')
+
+
+def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evidence: list, pages) -> dict | None:
+    """When the statement's printed account summary is proven (vlm/summary_box.py: every category line of the
+    box balances this statement's beginning to its ending, to the cent), its sums are the statement's totals and
+    counts. A reviewer figure they replace is recorded as superseded, and a disagreement between reviewer
+    figures for a proven field is settled by the proof, not held. Mutates the merged account and reasons in
+    place; returns the audit entry, or None when nothing is proven."""
+    from vlm.summary_box import prove_summary_box
+    proof = prove_summary_box(pages, beginning=account.get('beginning_balance'), ending=account.get('ending_balance'))
+    if proof is None:
+        return None
+    proven = {}
+    for field in _SUMMARY_FIELDS:
+        value = getattr(proof, field)
+        if value is not None:
+            proven[field] = float(value) if isinstance(value, Decimal) else value
+    superseded = sorted(field for field, value in proven.items()
+                        if account.get(field) is not None and Decimal(str(account[field])) != Decimal(str(value)))
+    account.update(proven)
+    settled = [item for item in occurrences if item.get('code') == 'anchor_disagreement' and item.get('field') in proven]
+    for item in settled:
+        occurrences.remove(item)
+        reasons.remove('anchor_disagreement')
+    field_evidence.extend({'field': field, 'page': proof.page, 'source': 'summary_box', 'value': value}
+                          for field, value in proven.items())
+    return {'proven': True, 'page': proof.page, 'category_lines': proof.line_count, 'fields': sorted(proven),
+            'superseded_reviewer_fields': superseded, 'settled_disagreements': len(settled)}
+
+
+def statement_bank_names(field_evidence, merges) -> list[str]:
+    """Distinct bank names the reviewer read on the statement's own pages, in page order. Names read on cheque
+    picture pages are other parties' banks and never count."""
+    from vlm.review import picture_page
+    pictures = {merged.page for merged in merges if picture_page(merged)}
+    names = [str(item['value']) for item in field_evidence
+             if item.get('field') == 'bank' and item.get('value') and item.get('page') not in pictures]
+    return list(dict.fromkeys(names))
 
 
 def held_pages(merges, page_errors, truncated) -> list[int]:
@@ -421,6 +465,20 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     preliminary = extract_meta(text_lines_from_blocks([b for layout in layouts for b in layout.blocks]))
     metadata_context = {field: getattr(preliminary, field) for field in ('period_start', 'period_end')
                         if getattr(preliminary, field) is not None}
+    # What each page shows in print from sources other than the reviewer: the PDF's own text layer (None for a
+    # scanned page) and the proposer's reading. Local only. It settles a reviewer that contradicts itself about
+    # a description and drops reported figures printed nowhere (vlm/native_text.py).
+    from vlm.native_text import PrintedEvidence, layout_text, native_page_texts
+    from vlm.summary_box import page_lines
+    try:
+        native_texts = native_page_texts(raw)
+    except Exception:  # an unreadable text layer is simply absent evidence
+        native_texts = []
+    printed_pages = [PrintedEvidence(native=native_texts[index] if index < len(native_texts) else None,
+                                     proposer=layout_text(layout.blocks))
+                     for index, layout in enumerate(layouts)]
+    # A page with neither a text layer nor a proposer reading has nothing to ground against: no printed evidence.
+    printed_pages = [evidence if evidence.native or evidence.proposer.strip() else None for evidence in printed_pages]
     for page, layout in zip(pages, layouts):
         def request_review(prompt, schema, schema_name, *, purpose, batch_index=None, batch_count=None):
             context = {key: value for key, value in {'purpose': purpose, 'batch_index': batch_index,
@@ -447,6 +505,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                 layout.rows, page_number=page.index+1, page_total=len(pages), call=request_review,
                 metadata_context=metadata_context,
                 candidate_validation_errors=candidate_errors[page.index],
+                printed=printed_pages[page.index],
             )
             merged = reviewed.merged
             review_truncated[page.index] = reviewed.truncated
@@ -460,7 +519,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
             merged = merge_review(list(layout.rows), reply.payload if reply.payload is not None else empty_review(),
                                   page=page.index+1, truncated=reply.truncated,
                                   validation_errors=reply.errors,
-                                  candidate_validation_errors=candidate_errors[page.index])
+                                  candidate_validation_errors=candidate_errors[page.index],
+                                  printed=printed_pages[page.index])
         merges.append(merged)
         page_errors[page.index].extend(merged.errors)
         for field in ('period_start', 'period_end'):
@@ -488,6 +548,10 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     segment_plan = detect_page_segments(merges, opening_observations=opening_observations)
     account, daily, reasons, field_evidence = _merge_metadata(
         merges, occurrences=occurrences, segment_plan=segment_plan)
+    summary_box = apply_summary_box(
+        account, reasons, occurrences, field_evidence,
+        [page_lines(native_texts[index] if index < len(native_texts) else None, layout.blocks)
+         for index, layout in enumerate(layouts)])
     rows, cheque_rows_excluded = ledger_rows(merges)
     # The reviewed printed month/day and reviewed period can determine a
     # missing ISO date without another model reading. This is a separate
@@ -562,7 +626,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     currency_default = None
     if not account.get('currency') and 'currency_conflict' not in reasons:
         from vlm.currency import usd_default
-        currency_default = usd_default(account.get('bank'),
+        # Every bank name the statement's own pages print counts: a Canadian one on any page refuses the default.
+        currency_default = usd_default(' '.join(statement_bank_names(field_evidence, merges)) or account.get('bank'),
                                        ['\n'.join(block.content for block in layout.blocks) for layout in layouts])
         if currency_default['currency']:
             account['currency'] = currency_default['currency']
@@ -619,6 +684,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         audit['currency_default'] = currency_default
     audit['cheque_image_rows_excluded'] = cheque_rows_excluded
     audit['ledger_echo_pages'] = [merged.page for merged in merges if merged.ledger_echo]
+    audit['summary_box'] = summary_box
     audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)
     if admitted:
         from vlm.review import row_record

@@ -30,6 +30,24 @@ class CandidateRow:
     direction_source: str = "printed"
     bbox: tuple[float, float, float, float] | None = None
     printed_amount: Decimal | None = None
+    # The printed word naming the row's kind when its only text cell is a cheque number ("Check" from a
+    # "Check Nbr" column). Structure, not text: the ledger applies it after review (labelled_description).
+    description_label: str | None = None
+
+
+# A column that holds cheque numbers: "Check Nbr", "Check No.", "CHECK #", "Cheque Number", "Chk No".
+CHEQUE_NUMBER_HEADER = re.compile(r"^\s*(?P<word>check|cheque|chk)s?\s*(?:no\.?|nbr\.?|num\.?|number|#)\s*$",
+                                  re.IGNORECASE)
+_BARE_CHEQUE_NUMBER = re.compile(r"#?\s*\d+\s*\*?")
+
+
+def labelled_description(row: CandidateRow) -> CandidateRow:
+    """A row whose description is only a cheque number is named as the statement names the column it sits in:
+    the printed label, then the number ("Check 1234"), which is how the production parsers write cheques
+    and the word the analysis counts them by. Any other description is left exactly as read."""
+    if row.description_label and _BARE_CHEQUE_NUMBER.fullmatch(row.description.strip()):
+        return replace(row, description=f"{row.description_label} {row.description.strip()}")
+    return row
 
 
 @dataclass(frozen=True)
@@ -86,6 +104,13 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
                    year_hint: int | None = None, day_first: bool = False) -> list[CandidateRow]:
     if colmap.balance is None and colmap.amount is None and colmap.debit is None and colmap.credit is None:
         return []
+    label = None
+    if colmap.header_row is not None and colmap.header_row < len(grid):
+        header = grid[colmap.header_row]
+        value_columns = {colmap.date, colmap.debit, colmap.credit, colmap.amount, colmap.balance}
+        text_columns = [index for index in range(len(header)) if index not in value_columns]
+        match = CHEQUE_NUMBER_HEADER.match(header[text_columns[0]]) if len(text_columns) == 1 else None
+        label = match.group("word") if match else None
     rows: list[CandidateRow] = []
     last_date: str | None = None
     for row_index, row in enumerate(grid):
@@ -119,7 +144,7 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
         rows.append(CandidateRow(date=date, date_text=date_text, description=description, amount=magnitude,
                                  direction=direction, balance=balance, page=page, source="stage_a",
                                  locator=f"t{table_index}r{row_index}", direction_source=source,
-                                 printed_amount=debit if debit is not None else credit))
+                                 printed_amount=debit if debit is not None else credit, description_label=label))
     return rows
 
 

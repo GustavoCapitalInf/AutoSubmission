@@ -182,7 +182,9 @@ def pipeline(tmp_path, monkeypatch):
     layout = [{"category": "Table", "bbox": [0, 0, 100, 100], "text":
                "<table><tr><th>Date</th><th>Description</th><th>Credit</th><th>Balance</th></tr>" +
                "".join(f"<tr><td>2031-01-02</td><td>TRUNCATED-{i:02d}</td><td>1.00</td><td>{101+i}.00</td></tr>"
-                       for i in range(16)) + "</table>"}]
+                       for i in range(16)) + "</table>"},
+              # The proposer reads the whole page: the summary the discovery pass reports is printed there too.
+              {"category": "Text", "bbox": [0, 0, 100, 100], "text": "Summary figures 100.00 116.00 16.00 0.00 16 0"}]
 
     class Client:
         def __init__(self, url, **kwargs):

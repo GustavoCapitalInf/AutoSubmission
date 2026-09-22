@@ -43,6 +43,19 @@ def test_california_and_postal_lookalikes_without_a_province_are_not_canadian():
     assert canadian_evidence(None, ["REF A1B 2C3 TRANSFER"]) == ()          # no province before it
 
 
+def test_every_bank_name_the_statement_prints_counts_but_not_a_pictured_cheques():
+    from vlm.pair import statement_bank_names
+    pages = [_page(1, rows=2), _page(2), _page(3, role="cheque_images", rows=0)]
+    evidence = [{"field": "bank", "page": 1, "value": "FABRICATED NATIONAL BANK"},
+                {"field": "bank", "page": 2, "value": "FABRICATED TRUST OF CANADA"},
+                {"field": "bank", "page": 3, "value": "ROYAL BANK"},
+                {"field": "bank", "page": 1, "value": "FABRICATED NATIONAL BANK"}]
+    names = statement_bank_names(evidence, pages)
+    assert names == ["FABRICATED NATIONAL BANK", "FABRICATED TRUST OF CANADA"]
+    assert usd_default(" ".join(names), [])["currency"] is None
+    assert usd_default(" ".join(statement_bank_names(evidence[:1] + evidence[2:], pages)), [])["currency"] == "USD"
+
+
 def test_canada_inside_a_transaction_description_is_not_evidence():
     # Page text is scanned for Canadian ADDRESSES only; a US card purchase can say AIR CANADA.
     assert canadian_evidence("FABRICATED NATIONAL BANK", ["POS PURCHASE AIR CANADA 123.45"]) == ()

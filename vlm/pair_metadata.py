@@ -2,8 +2,11 @@
 
 Policies:
 * Every non-null account-field occurrence is retained verbatim in provenance.
-  Bank/name/average-label restatements compare case, whitespace and punctuation
-  insensitively; their first printed representation is retained. Currency uses
+  Bank and account names are descriptive, not identity (the account number is):
+  the first printed value stands and variants stay in provenance, never held.
+  Average-label restatements compare case, whitespace and punctuation
+  insensitively (a different basis still conflicts); their first printed
+  representation is retained. Currency uses
   case/outer-whitespace comparison only. Missing currency is not a conflict.
 * Account IDs ignore formatting punctuation/case. Explicit masking characters
   and repeated Xs hide variable-width spans; bare four-character IDs are suffix
@@ -43,6 +46,7 @@ from vlm.segments import SCOPED_FIELDS, SegmentPlan, detect_page_segments
 
 
 _IDENTITY_FIELDS = {"bank", "account_name", "bank_reported_average_label"}
+_NAME_FIELDS = {"bank", "account_name"}
 _NUMBER_FIELDS = {"account_number", "account_number_last4"}
 _BALANCE_FIELDS = {"beginning_balance", "ending_balance"}
 
@@ -299,6 +303,14 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
                 pattern = _account_pattern(value)
                 if pattern and (key not in account or
                                 (compatible and _information(pattern) > _information(_account_pattern(account[key])))):
+                    account[key] = value
+                    source_pages[key] = page
+                continue
+            if key in _NAME_FIELDS:
+                # A bank or account name is descriptive, not identity (the account number is): a statement prints
+                # its brand on one page and its legal name on another, and a reviewer reads a logo. The first
+                # printed value stands; every variant stays in the field evidence (provenance above).
+                if _text_identity(value) and key not in account:
                     account[key] = value
                     source_pages[key] = page
                 continue

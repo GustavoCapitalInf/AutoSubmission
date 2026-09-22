@@ -133,15 +133,24 @@ def _evidence(*, candidate_id: str, state: str, page: int, locator: str, origina
                           "observed_description": observed_description, "corrections": list(corrections)})
 
 
-def _review_metadata(data: dict, *, page: int):
+# Figures the reviewer reports as printed on the page. With printed evidence (vlm/native_text.py), each is kept
+# only if it is printed there; a figure printed nowhere is not evidence and never contradicts the arithmetic.
+_PRINTED_AMOUNT_FIELDS = ("beginning_balance", "ending_balance", "stated_total_credits", "stated_total_debits",
+                          "stated_service_charge", "stated_interest_paid", "bank_reported_average_balance")
+_PRINTED_INTEGER_FIELDS = ("stated_credit_count", "stated_debit_count", "stated_nsf_count", "days_in_period")
+
+
+def _review_metadata(data: dict, *, page: int, printed=None):
     """Quarantine invalid source observations without changing other fields.
 
     Invalid/missing account fields become unknown individually. Invalid daily
     balance and account-number entries are omitted individually; an undated
-    daily balance is unknown and omitted without quarantine. Raw invalid
-    observations remain private evidence; closed diagnostics identify their
-    scope. These are validation decisions, never replacement source values or
-    changes to financial gate policy.
+    daily balance is unknown and omitted without quarantine. With printed
+    evidence, a reported figure or daily balance that is not printed on the
+    page is unknown too: omitted with an audit-only diagnostic, never held.
+    Raw invalid observations remain private evidence; closed diagnostics
+    identify their scope. These are validation decisions, never replacement
+    source values or changes to financial gate policy.
     """
     account = empty_review()["account"]
     daily, numbers, diagnostics, evidence = [], [], [], []
@@ -177,6 +186,11 @@ def _review_metadata(data: dict, *, page: int):
                     codes.append("review_negative_source_magnitude")
             if codes:
                 invalid("account", value, codes, field=key, present=key in raw_account)
+            elif printed is not None and value is not None and (
+                    (key in _PRINTED_AMOUNT_FIELDS and not printed.amount_printed(value))
+                    or (key in _PRINTED_INTEGER_FIELDS and not printed.integer_printed(value))):
+                diagnostics.append({"scope": "account", "page": page, "field": key,
+                                    "code": "review_figure_not_printed"})
             else:
                 account[key] = copy.deepcopy(value)
         for key in raw_account.keys() - properties.keys():
@@ -197,6 +211,9 @@ def _review_metadata(data: dict, *, page: int):
                                     "code": "review_daily_balance_undated"})
             elif item["date"] is None or not _valid_date(item["date"]) or not _finite(item["balance"]):
                 invalid("daily_balances", item, ["review_invalid_daily_balance"], index=index)
+            elif printed is not None and not printed.amount_printed(item["balance"]):
+                diagnostics.append({"scope": "daily_balances", "page": page, "index": index,
+                                    "code": "review_daily_balance_not_printed"})
             else:
                 daily.append(copy.deepcopy(item))
 
@@ -262,8 +279,32 @@ def _review_entry(original: dict, item: dict, *, candidate_id: str):
     return effective, corrected, list(dict.fromkeys(errors)), warnings
 
 
+def _settle_description(original: dict, corrected: dict | None, observed, printed) -> tuple[dict, str] | None:
+    """A reviewer that contradicts itself about a description (its correction, or the proposer's reading it
+    confirmed, differs from what it says it observed) is settled by the page's text layer: the reading printed
+    there wins, or, when several are printed, the one that contains every other printed reading (a fragment
+    is printed inside the full text). No text layer, or no single winner: None, and the row stays
+    unresolved. Every other field keeps the reviewer's verdict. Returns (row, which reading won)."""
+    readings = [("proposer", original["description"])]
+    if corrected is not None:
+        readings.append(("reviewer_correction", corrected["description"]))
+    readings.append(("reviewer_observation", observed))
+    readings = [(label, text) for label, text in readings if isinstance(text, str) and text.strip()]
+    found = [printed.description_printed(text) for _, text in readings]
+    if any(flag is None for flag in found):
+        return None
+    from vlm.native_text import spaced
+    printed_texts = {spaced(text) for (_, text), flag in zip(readings, found) if flag}
+    fullest = [text for text in printed_texts if all(other in text for other in printed_texts)]
+    if len(fullest) != 1:
+        return None
+    label, text = next((label, text) for label, text in readings if spaced(text) == fullest[0])
+    row = {**(corrected if corrected is not None else original), "description": text}
+    return (row, label) if not _row_errors(row, label="settled") else None
+
+
 def merge_review(candidates, payload: object, *, page: int, truncated: bool = False,
-                 validation_errors=(), candidate_validation_errors=None) -> PageReviewMerge:
+                 validation_errors=(), candidate_validation_errors=None, printed=None) -> PageReviewMerge:
     """Keep usable peers while isolating attributable row/metadata failures.
 
     ``errors`` contains fatal response/coverage/source-page failures only. A
@@ -272,6 +313,10 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
     missing/duplicate/unknown IDs, non-stop responses and explicit page errors
     still prevent every row from becoming usable. Candidate source errors hold
     confirm/correct rows only: a valid reviewer rejection remains a rejection.
+
+    ``printed`` (vlm.native_text.PrintedEvidence) is what the page shows in print from sources other than the
+    reviewer. With it, a description the reviewer contradicts itself about is settled by the text layer
+    (_settle_description), and reported figures not printed on the page are dropped (_review_metadata).
     """
     candidates = list(candidates)
     records = candidate_records(candidates)
@@ -329,7 +374,8 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         additions.append((index, item, list(dict.fromkeys(codes))))
         diagnostics.extend({"scope": "row", "page": page, "candidate_id": f"p{page}a{index}", "code": code}
                            for code in dict.fromkeys(codes))
-    account, daily, numbers, metadata_diagnostics, metadata_evidence = _review_metadata(data, page=page)
+    account, daily, numbers, metadata_diagnostics, metadata_evidence = _review_metadata(data, page=page,
+                                                                                        printed=printed)
     diagnostics.extend(metadata_diagnostics)
     fatal = bool(errors)
     evidence, rows = [], []
@@ -376,13 +422,23 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         effective, corrected, row_errors, warnings, inherited = checked_item or (
             {}, None, [], [], list(dict.fromkeys(source_errors.get(candidate_id, ()))))
         verdict = effective.get("verdict")
+        settled = None
+        if (printed is not None and not fatal and checked_item is not None and not inherited
+                and row_errors == ["review_description_observation_mismatch"] and verdict in ("confirm", "correct")):
+            settled = _settle_description(record["row"], corrected if verdict == "correct" else None,
+                                          effective.get("observed_description"), printed)
+        if settled is not None:
+            row_errors = []
+            verdict = "confirm" if settled[0] == record["row"] else "correct"
+            corrected = None if verdict == "confirm" else settled[0]
         usable = not fatal and not row_errors and (not inherited or verdict == "reject") and checked_item is not None
         state = {"confirm": "agreed", "correct": "corrected", "reject": "rejected"}.get(verdict, "unresolved") if usable else "unresolved"
         value = record["row"] if state == "agreed" else corrected if state == "corrected" else None
         if state == "agreed":
             rows.append(replace(candidate, source="stage_a+stage_b"))
         elif state == "corrected":
-            rows.append(_source_row(value, page=page, locator=candidate.locator))
+            rows.append(replace(_source_row(value, page=page, locator=candidate.locator),
+                                description_label=candidate.description_label))
         raw_changes = raw_item.get("corrections") if raw_item is not None else ()
         evidence.append(_evidence(candidate_id=candidate_id, state=state, page=page, locator=record["locator"],
                                   original=record["row"], corrected=corrected, row=value,
@@ -393,6 +449,9 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                             validation_errors=list(dict.fromkeys((*row_errors, *inherited))),
                             validation_warnings=list(warnings), raw_review=copy.deepcopy(raw_item),
                             raw_observed_description=copy.deepcopy(raw_item.get("observed_description")) if raw_item is not None else None)
+        if settled is not None:
+            evidence[-1]["resolution"] = {"method": "text_layer", "chosen": settled[1],
+                                          "resolved_errors": ["review_description_observation_mismatch"]}
         add_after(candidate_id)
     # Invalid or missing anchors cannot silently discard an addition. Their
     # own evidence stays unresolved after the ordered candidate sequence.

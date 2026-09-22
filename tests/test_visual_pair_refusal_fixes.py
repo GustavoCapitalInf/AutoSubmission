@@ -94,6 +94,7 @@ def test_currency_absence_on_a_non_canadian_statement_defaults_to_usd(wired, mon
 def test_currency_resolution_runs_with_other_gate_failures_and_clears_only_absence(wired, monkeypatch):
     pair, pdf, directory, _, data = wired
     data['review']['account'].update(currency=None, ending_balance=999)
+    data['layout'] = [LAYOUT[0], {**LAYOUT[1], 'text': LAYOUT[1]['text'] + ' 999.00'}]  # a printed contradiction
     resolutions = []
 
     def resolve(source, text, **kwargs):

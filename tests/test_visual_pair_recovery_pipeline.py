@@ -22,7 +22,7 @@ def test_nontruncated_proposal_failure_holds_only_its_source_candidates(wired):
     audit = doc.visual_pair
     assert not audit['gate']['admitted'] and audit['statement'] is None
     assert not audit['pages'][0]['truncated']
-    assert 'layout_box_invalid:1' in audit['pages'][0]['proposal_errors']
+    assert 'layout_box_invalid:2' in audit['pages'][0]['proposal_errors']  # LAYOUT is table + summary text
     assert 'proposal_recovery_failed' in audit['pages'][0]['proposal_errors']
     assert audit['pages'][0]['errors'] == []
     assert audit['confidence']['counts']['unresolved'] == 2
@@ -57,8 +57,11 @@ def test_crop_recovery_receipts_and_every_candidate_review(wired, monkeypatch, o
                 table = LAYOUT[0]['text']
                 header, first, second, end = table.split('</tr>')
                 body = first if proposer_count == 2 else second
-                text = canonical_json([{'bbox': [0, 0, 100, 56], 'category': 'Table',
-                                        'text': header + '</tr>' + body + '</tr></table>'}])
+                blocks = [{'bbox': [0, 0, 100, 56], 'category': 'Table',
+                           'text': header + '</tr>' + body + '</tr></table>'}]
+                if proposer_count == 2:  # the summary printed on the page lies in the first crop
+                    blocks.append({'bbox': [0, 0, 100, 10], 'category': 'Text', 'text': LAYOUT[1]['text']})
+                text = canonical_json(blocks)
                 finish = 'stop'
             parsed = None
         else:

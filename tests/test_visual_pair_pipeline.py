@@ -14,7 +14,9 @@ from vlm.schema import empty_review
 LAYOUT = [{'bbox': [0, 0, 100, 100], 'category': 'Table', 'text':
  '<table><tr><th>Date</th><th>Description</th><th>Credit</th><th>Debit</th><th>Balance</th></tr>'
  '<tr><td>2031-01-02</td><td>ACME PAYROLL EXACT 01</td><td>20.00</td><td></td><td>120.00</td></tr>'
- '<tr><td>2031-01-03</td><td>POS BUY EXACT</td><td></td><td>5.00</td><td>115.00</td></tr></table>'}]
+ '<tr><td>2031-01-03</td><td>POS BUY EXACT</td><td></td><td>5.00</td><td>115.00</td></tr></table>'},
+ # The proposer reads the whole page, so the summary the reviewer reports is printed in its reading too.
+ {'bbox': [0, 0, 100, 100], 'category': 'Text', 'text': 'Summary figures 100.00 115.00 20.00 5.00'}]
 
 
 def _review():
@@ -87,7 +89,7 @@ def test_success_receipts_cache_and_generic_metrics(wired):
 def test_printed_dates_resolve_from_reviewed_period_without_changing_model_evidence(wired):
     pair, pdf, directory, calls, data = wired
     data['layout'] = [{**LAYOUT[0], 'text': LAYOUT[0]['text']
-                       .replace('2031-01-02', 'Jan 02').replace('2031-01-03', 'Jan 03')}]
+                       .replace('2031-01-02', 'Jan 02').replace('2031-01-03', 'Jan 03')}, *LAYOUT[1:]]
     doc = pair.extract_visual_pair(pdf, evidence_dir=directory, data_scope='synthetic')
     audit = doc.visual_pair
     assert audit['gate']['admitted']
@@ -106,7 +108,7 @@ def test_printed_dates_resolve_from_reviewed_period_without_changing_model_evide
 def test_missing_reviewed_period_does_not_supply_a_row_year(wired):
     pair, pdf, directory, _, data = wired
     data['layout'] = [{**LAYOUT[0], 'text': LAYOUT[0]['text']
-                       .replace('2031-01-02', 'Jan 02').replace('2031-01-03', 'Jan 03')}]
+                       .replace('2031-01-02', 'Jan 02').replace('2031-01-03', 'Jan 03')}, *LAYOUT[1:]]
     data['review']['account']['period_start'] = None
     data['review']['account']['period_end'] = None
     doc = pair.extract_visual_pair(pdf, evidence_dir=directory, data_scope='synthetic')
