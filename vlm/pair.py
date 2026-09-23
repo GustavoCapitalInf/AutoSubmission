@@ -46,7 +46,7 @@ def visual_pair_manifest() -> dict:
                'ocr/visual_pair_config.py', 'ocr/private_artifacts.py', 'ocr/truncation.py',
                'vlm/dates.py', 'vlm/pair_metadata.py', 'vlm/reason_counts.py',
                'vlm/segments.py', 'vlm/segment_openings.py', 'vlm/segment_reconcile.py', 'vlm/native_text.py',
-               'vlm/summary_box.py', 'vlm/confidence.py')
+               'vlm/summary_box.py', 'vlm/confidence.py', 'vlm/accounts.py', 'vlm/pair_accounts.py')
     return {
         'version': PAIR_VERSION, 'schema_version': SCHEMA_VERSION,
         'review_schema_sha256': review_schema_sha256(), 'gate_version': GATE_VERSION,
@@ -870,6 +870,13 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     from vlm.assemble import labelled_from_print
     rows = [labelled_from_print(row, printed_pages[row.page - 1] if printed_pages and 0 < row.page <= len(printed_pages)
                                 else None) for row in rows]
+    # The accounts the statement prints (vlm/accounts.py). A listing that repeats ledger rows printing running
+    # balances ("Withdrawal Summary") is not more transactions.
+    from vlm.accounts import listing_echoes, plan_accounts
+    account_plan = plan_accounts(layouts, recoveries)
+    echoed = listing_echoes(rows, account_plan)
+    rows = [row for row in rows if (row.page, row.locator) not in echoed]
+    account_rows = list(rows)
     # Each later page's own totals, read as the statement's, are that page's subtotals when its rows prove them.
     page_subtotals = settle_page_subtotals(reasons, occurrences, field_evidence, rows)
     # A proven summary box names its sections: the rows printed under one, adding up to its printed amount, move
@@ -987,9 +994,19 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         rows=verdict.admitted_rows if admitted else rows, row_states=row_states, printed_pages=printed_pages,
         reasons=reasons, daily_balances=daily))
     statement = _statement(verdict.admitted_rows, account, daily, currency_source=currency_source) if admitted else None
+    # A statement printing several accounts that does not pass as one: each account judged on its own
+    # (vlm/pair_accounts.py). None when it prints fewer than two.
+    accounts = None
+    if not admitted:
+        from vlm.pair_accounts import judge_accounts
+        accounts = judge_accounts(layouts, merges, account_rows, recoveries=recoveries, printed_pages=printed_pages,
+                                  printed_lines=printed_lines, document=account, document_reasons=reasons,
+                                  page_errors=page_errors, truncated=truncated, moneyless_pages=moneyless_pages,
+                                  currency_source=currency_source, row_states=row_states, plan=account_plan)
     page_text = page_texts(merges, truncated)
     integrity = assess_pages(page_text)
-    audit = {'version': PAIR_VERSION, 'account_count': 1, 'statement': statement,
+    audit = {'version': PAIR_VERSION, 'account_count': len(accounts['accounts']) if accounts else 1,
+             'statement': statement,
              'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks,
                       'reason_occurrences': occurrences, 'reason_counts': reason_counts},
              'confidence': confidence, 'field_evidence': field_evidence,
@@ -1043,6 +1060,10 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)
     audit['daily_opening_balance_dropped'] = opening_days
     audit['descriptions_from_text_layer'] = snapped_descriptions
+    audit['listing_echo_rows'] = len(echoed)
+    if accounts is not None:
+        audit['accounts'] = accounts['accounts']
+        audit['accounts_summary'] = {key: value for key, value in accounts.items() if key != 'accounts'}
     if admitted:
         from vlm.review import row_record
         audit['gate_rows'] = [{**row_record(row), 'page': row.page, 'locator': row.locator,

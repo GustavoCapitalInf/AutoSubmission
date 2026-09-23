@@ -1,0 +1,329 @@
+"""Fabricated layouts only. A statement printing several accounts (vlm/accounts.py, vlm/pair_accounts.py): account
+headings, where each account's rows are printed, the figures each account's own section prints, listings that
+repeat the ledger, and each account judged on its own."""
+from dataclasses import replace
+from decimal import Decimal
+
+import pytest
+
+from vlm.accounts import (UNPLACED, assign_rows, listing_echoes, number_line, parse_heading, plan_accounts,
+                          section_figures)
+from vlm.assemble import Block, CandidateRow, DotsLayout
+from vlm.native_text import PrintedEvidence
+from vlm.review import PageReviewMerge
+
+
+@pytest.mark.parametrize("text,kind,title,number,continued", [
+    ("Business Savings Account Summary", "savings", "Business Savings", None, False),
+    ("Business Free Checking Account (continued)", "checking", "Business Free Checking Account", None, True),
+    ("## Business Free Checking Account (continued)", "checking", "Business Free Checking Account", None, True),
+    ("S 0001 SAVINGS PRIME SHARE / SAVINGS", "savings", "SAVINGS PRIME SHARE / SAVINGS", "0001", False),
+    ("S 0010 CHECKING LOW VOLUME BUSINESS CHECKING (Continued)", "checking",
+     "CHECKING LOW VOLUME BUSINESS CHECKING", "0010", True),
+    ("FABRICATED MEMBERSHIP SAVINGS ID 0001", "savings", "FABRICATED MEMBERSHIP SAVINGS", "0001", False),
+    ("SMALL BUSINESS CHECKING 4321", "checking", "SMALL BUSINESS CHECKING", "4321", False),
+    ("## ACCOUNT ACTIVITY FOR BUSINESS SAVINGS 1111", "savings", "BUSINESS SAVINGS", "1111", False),
+    ("ACCOUNT ANALYSIS FOR BUSINESS ACCESS CHECKING 2222", "checking", "BUSINESS ACCESS CHECKING", "2222", False),
+    ("01 FABRICATED PRIMARY SHARE", "savings", "01 FABRICATED PRIMARY SHARE", None, False),
+    ("09 FABRICATED GOLD ACCOUNT CONTINUED", None, "09 FABRICATED GOLD ACCOUNT", None, True),
+    ("Fabricated Regular Savings - Account#: XXXXXX1234", "savings", "Fabricated Regular Savings", "1234", False),
+    ("Fabricated Basic Checking - Account#: XXXXXX5678 (continued)", "checking", "Fabricated Basic Checking",
+     "5678", True),
+    ("BUSINESS PREMIER CHECKING (0010) - Continued", "checking", "BUSINESS PREMIER CHECKING", "0010", True),
+    ("## Fabricated Ownership - XXXXXX1234 (continued)", None, "Fabricated Ownership", "1234", True),
+    ("Fabricated Money Market Savings 12345678", "money_market", "Fabricated Money Market Savings", "12345678",
+     False),
+    ("Share Draft Checking ID 70", "checking", "Share Draft Checking", "70", False),
+])
+def test_a_printed_title_names_an_account(text, kind, title, number, continued):
+    heading = parse_heading(text)
+    assert heading is not None
+    assert (heading.kind, heading.title, heading.number, heading.continued) == (kind, title, number, continued)
+
+
+@pytest.mark.parametrize("text", [
+    "Account Number 1234567890123", "Account # 1234", "WITHDRAWAL SUMMARY", "DEPOSIT SUMMARY", "Summary of Accounts",
+    "Account Summary", "Account Activity", "Statement Summary", "Summary of Checks Cleared", "CHECKS RECAP SUMMARY",
+    "Deposit Accounts", "Primary Account", "Your Account Balances as of 03/31", "## Fabricated Loan Information",
+    "Account Balances at a Glance", "Daily Balances", "Continued from previous page.", "Account Activity - continued",
+    "TRANSACTION DETAIL (continued)", "Deposits and Other Credits", "Withdrawals and Other Charges", "Checks Cleared",
+    "Beginning Balance: $100.00 Ending Balance: $100.00", "Total Shares: $1,234.56",
+    "If you have questions about your checking account please call us", "", None,
+])
+def test_listings_notices_figures_and_sentences_name_no_account(text):
+    assert parse_heading(text) is None
+
+
+def test_an_account_number_line_names_the_account_headed_above():
+    assert number_line("Account Number 1234567890123") == "1234567890123"
+    assert number_line("Account Number: XXXXXX1234") == "1234"
+    assert number_line("Member Number 12345") is None and number_line("Business Checking") is None
+
+
+def _block(order, label, content, page=1):
+    return Block(label, (0.125, 0.125 * order, 0.875, 0.125 * order + 0.045), content, order, page)
+
+
+def _table(*rows):
+    return "<table>" + "".join("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in rows) + \
+        "</table>"
+
+
+def _row(page, locator, date, amount, direction, balance, description="FABRICATED PAYEE"):
+    return CandidateRow(date, date[5:].replace("-", "/"), description, Decimal(amount), direction,
+                        None if balance is None else Decimal(balance), page, "stage_a+stage_b", locator,
+                        "column", (0.125, 0.225, 0.875, 0.325), Decimal(amount))
+
+
+def _merge(page, rows, *, unresolved=(), role="statement_page"):
+    evidence = [{"page": page, "locator": row.locator, "state": "agreed"} for row in rows]
+    evidence += [{"page": page, "locator": locator, "state": "unresolved"} for locator in unresolved]
+    order = {row.locator: index for index, row in enumerate(rows)}
+    evidence.sort(key=lambda item: order.get(item["locator"], len(order)))
+    counts = {"agreed": len(rows), "unresolved": len(unresolved)}
+    return PageReviewMerge(page, tuple(rows), tuple(evidence), counts, (), {}, (), role)
+
+
+LEDGER_HEADER = ("Date", "Description", "Deposits", "Withdrawals", "Balance")
+PAGE_ONE = DotsLayout(1, (
+    _block(0, "page_header", "Account Number XXXXXX9999"),
+    _block(1, "section_header", "Summary of Accounts"),
+    _block(2, "table", _table(("Account", "Beginning Balance", "Ending Balance"),
+                              ("FABRICATED SAVINGS 0001", "$50.00", "$50.00"),
+                              ("FABRICATED CHECKING 0010", "$1,000.00", "$1,250.00"))),
+    _block(3, "section_header", "FABRICATED SAVINGS (0001)"),
+    _block(4, "text", "Beginning Balance: $50.00 Ending Balance: $50.00"),
+    _block(5, "section_header", "FABRICATED BUSINESS CHECKING (0010)"),
+    _block(6, "table", _table(("Beginning Balance", "$1,000.00", "Total Deposits", "$400.00"),
+                              ("Total Withdrawals", "$150.00", "Ending Balance", "$1,250.00"))),
+    _block(7, "table", _table(LEDGER_HEADER, ("03/02", "FABRICATED DEPOSIT", "400.00", "", "1,400.00"),
+                              ("03/05", "FABRICATED CARD", "", "100.00", "1,300.00"))),
+), (), (), False)
+PAGE_TWO = DotsLayout(2, (
+    _block(0, "page_header", "Account Number XXXXXX9999", page=2),
+    _block(1, "section_header", "FABRICATED BUSINESS CHECKING (0010) - Continued", page=2),
+    _block(2, "table", _table(LEDGER_HEADER, ("03/20", "FABRICATED FEE", "", "50.00", "1,250.00")), page=2),
+    _block(3, "section_header", "WITHDRAWAL SUMMARY", page=2),
+    _block(4, "table", _table(("Date", "Description", "Amount"), ("03/05", "FABRICATED CARD", "100.00"),
+                              ("03/20", "FABRICATED FEE", "50.00")), page=2),
+), (), (), False)
+ROWS_ONE = [_row(1, "b7t0r1", "2031-03-02", "400.00", "credit", "1400.00"),
+            _row(1, "b7t0r2", "2031-03-05", "100.00", "debit", "1300.00")]
+ROWS_TWO = [_row(2, "b2t0r1", "2031-03-20", "50.00", "debit", "1250.00"),
+            _row(2, "b4t0r1", "2031-03-05", "100.00", "debit", None),
+            _row(2, "b4t0r2", "2031-03-20", "50.00", "debit", None)]
+
+
+def test_the_plan_follows_each_account_across_pages():
+    plan = plan_accounts([PAGE_ONE, PAGE_TWO])
+    assert [(section.kind, section.title, section.number) for section in plan.sections] == [
+        ("savings", "FABRICATED SAVINGS", "0001"), ("checking", "FABRICATED BUSINESS CHECKING", "0010")]
+    # The summary table before every heading is no account's; page furniture never switches accounts.
+    assert plan.section_at(1, 2) is None and plan.section_at(1, 4) == 0 and plan.section_at(1, 7) == 1
+    assert plan.section_at(2, 0) == 1 and plan.section_at(2, 4) == 1
+    assert plan.page_sections(1) == {0, 1} and plan.page_sections(2) == {1}
+    assert [heading.continued for heading in plan.sections[1].headings] == [False, True]
+
+
+def test_rows_belong_to_the_account_headed_above_them():
+    plan = plan_accounts([PAGE_ONE, PAGE_TWO])
+    added = _row(1, "added0", "2031-03-03", "5.00", "debit", "1395.00")
+    merges = [_merge(1, [ROWS_ONE[0], added, ROWS_ONE[1]]), _merge(2, ROWS_TWO, unresolved=("b2t0r9",))]
+    kept, evidence = assign_rows(plan, merges)
+    assert kept[(1, "b7t0r1")] == 1 and kept[(1, "added0")] == 1 and kept[(2, "b4t0r2")] == 1
+    assert evidence[(2, "b2t0r9")] == 1
+    # A reviewer's addition on a page printing two accounts and no proposer row cannot be placed.
+    alone = [_merge(1, [_row(1, "added0", "2031-03-03", "5.00", "debit", None)]), _merge(2, [])]
+    assert assign_rows(plan, alone)[0][(1, "added0")] == UNPLACED
+
+
+def test_each_account_takes_only_the_figures_its_own_section_prints():
+    plan = plan_accounts([PAGE_ONE, PAGE_TWO])
+    savings = section_figures(plan, 0, [PAGE_ONE, PAGE_TWO])
+    checking = section_figures(plan, 1, [PAGE_ONE, PAGE_TWO])
+    assert {name: item["value"] for name, item in savings.items()} == {
+        "beginning_balance": Decimal("50.00"), "ending_balance": Decimal("50.00")}
+    assert {name: item["value"] for name, item in checking.items()} == {
+        "beginning_balance": Decimal("1000.00"), "ending_balance": Decimal("1250.00"),
+        "stated_total_credits": Decimal("400.00"), "stated_total_debits": Decimal("150.00")}
+    # A figure the page's text layer does not print is a misread, never a candidate.
+    printed = [PrintedEvidence(native="FABRICATED BUSINESS CHECKING Beginning Balance $1,000.00 Ending Balance "
+                                      "$1,250.00 Total Deposits $400.00 Total Withdrawals $150.00"), None]
+    assert "beginning_balance" not in section_figures(plan, 0, [PAGE_ONE, PAGE_TWO], printed)
+
+
+def test_figures_under_a_row_of_labels_and_conflicting_figures():
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "FABRICATED CHECKING 0010"),
+        _block(1, "table", _table(("Opening Balance", "Total Deposits(2)", "Total Withdrawals(1)", "Ending Balance"),
+                                  ("1,000.00", "400.00", "150.00", "1,250.00"))),
+        _block(2, "table", _table(LEDGER_HEADER, ("", "Beginning Balance", "", "", "1,000.00"),
+                                  ("03/02", "Transfer balance forward from savings", "25.00", "", "1,025.00"))),
+        _block(3, "text", "Ending Balance: $1,300.00"),
+    ), (), (), False)
+    plan = plan_accounts([layout])
+    figures = section_figures(plan, 0, [layout])
+    assert figures["beginning_balance"]["value"] == Decimal("1000.00")
+    assert figures["stated_total_credits"]["value"] == Decimal("400.00")
+    # Two different closing figures: the last one printed is the account's closing (its own arithmetic decides
+    # whether it is); both stay in the evidence.
+    assert figures["ending_balance"]["value"] == Decimal("1300.00")
+    assert figures["ending_balance"]["values"] == ["1250.00", "1300.00"]
+
+
+def test_a_listing_that_repeats_the_ledger_is_not_more_transactions():
+    plan = plan_accounts([PAGE_ONE, PAGE_TWO])
+    rows = ROWS_ONE + ROWS_TWO
+    assert listing_echoes(rows, plan) == {(2, "b4t0r1"), (2, "b4t0r2")}
+    # A listing whose rows the ledger does not print is the ledger itself.
+    other = [_row(2, "b4t0r1", "2031-03-06", "100.00", "debit", None)]
+    assert listing_echoes(ROWS_ONE + ROWS_TWO[:1] + other, plan) == set()
+
+
+def test_a_crop_recovered_row_takes_its_full_page_block():
+    recovery = {"crops": [{"descriptor": {"page": 1}, "lineage": {"blocks": [
+        {"fullpage_order": 7, "crop_order": 2, "crop_index": 1}]}}]}
+    plan = plan_accounts([PAGE_ONE, PAGE_TWO], [recovery])
+    assert plan.position(1, "g1c1/b2t0r0") == 7 and plan.position(1, "g0/b7t0r1") is None
+    assert plan.section_at(1, plan.position(1, "g1c1/b2t0r0")) == 1
+
+
+def _judge(merges, layouts=(PAGE_ONE, PAGE_TWO), **kwargs):
+    from vlm.pair_accounts import judge_accounts
+    rows = [row for merged in merges for row in merged.rows]
+    document = {"period_start": "2031-03-01", "period_end": "2031-03-31", "currency": "USD", "bank": "FABRICATED"}
+    return judge_accounts(list(layouts), merges, rows, document=document, page_errors=[[] for _ in merges],
+                          truncated=[False for _ in merges], **kwargs)
+
+
+def test_each_account_is_judged_on_its_own():
+    result = _judge([_merge(1, ROWS_ONE), _merge(2, ROWS_TWO)])
+    savings, checking = result["accounts"]
+    assert (savings["status"], savings.get("balance")) == ("held", None)  # no text layer: idle needs one
+    assert checking["status"] == "verified" and checking["listing_echo_rows"] == 2
+    statement = checking["statement"]
+    assert (statement["beginning_balance"], statement["ending_balance"]) == (1000.0, 1250.0)
+    assert [row["amount"] for row in statement["transactions"]] == [400.0, -100.0, -50.0]
+    assert statement["account_name"] == "FABRICATED BUSINESS CHECKING" and statement["account_number"] == "0010"
+    printed = [PrintedEvidence(native="Beginning Balance: $50.00 Ending Balance: $50.00 $1,000.00 $1,250.00 "
+                                      "$400.00 $150.00 1,400.00 1,300.00"), PrintedEvidence(native="1,250.00")]
+    result = _judge([_merge(1, ROWS_ONE), _merge(2, ROWS_TWO)], printed_pages=printed)
+    assert [(account["status"], account.get("balance")) for account in result["accounts"]] == [
+        ("idle", 50.0), ("verified", None)]
+
+
+def test_one_accounts_failure_never_holds_another():
+    # A row of the savings account the reviewer could not settle holds the savings account only.
+    savings_row = _row(1, "b4l0", "2031-03-10", "5.00", "credit", None)
+    layout = DotsLayout(1, PAGE_ONE.blocks[:5] + (_block(4, "text", "03/10 FABRICATED DIVIDEND 5.00"),)
+                        + PAGE_ONE.blocks[5:], (), (), False)
+    result = _judge([_merge(1, [savings_row] + ROWS_ONE, unresolved=("b4l1",)), _merge(2, ROWS_TWO)],
+                    layouts=(layout, PAGE_TWO))
+    savings, checking = result["accounts"]
+    assert savings["status"] == "held" and "page_unresolved" in savings["reasons"]
+    assert checking["status"] == "verified"
+    # A cut-off read of page 2 holds the account printed on it, not the one that ended on page 1.
+    from vlm.pair_accounts import judge_accounts
+    merges = [_merge(1, ROWS_ONE), _merge(2, ROWS_TWO)]
+    document = {"period_start": "2031-03-01", "period_end": "2031-03-31", "currency": "USD"}
+    result = judge_accounts([PAGE_ONE, PAGE_TWO], merges, ROWS_ONE + ROWS_TWO, document=document,
+                            page_errors=[[], []], truncated=[False, True])
+    assert [account["status"] for account in result["accounts"]] == ["held", "held"]
+    assert "page_unresolved" in result["accounts"][1]["reasons"]
+    assert "page_unresolved" not in result["accounts"][0]["reasons"]
+
+
+def test_a_statement_printing_one_account_is_not_judged_by_account():
+    layout = DotsLayout(1, (PAGE_ONE.blocks[5], PAGE_ONE.blocks[6], PAGE_ONE.blocks[7]), (), (), False)
+    assert _judge([_merge(1, ROWS_ONE)], layouts=(layout,)) is None
+    # A document fact every account needs (the period) holds them all.
+    result = _judge([_merge(1, ROWS_ONE), _merge(2, ROWS_TWO)], document_reasons=["period_mismatch"])
+    assert all("period_mismatch" in account["reasons"] for account in result["accounts"])
+
+
+@pytest.mark.parametrize("text", ["Member Number xxxxxx1234", "Account number: 1234567890 (primary account)",
+                                  "Thanks for saving with Fabricated Bank", "For inquiries, contact 555-555-FABR (1234)",
+                                  "Fabricated Savings Service 1-800-555-0100"])
+def test_identifier_lines_and_courtesies_name_no_account(text):
+    assert parse_heading(text) is None
+
+
+def test_a_title_naming_only_the_kind_is_the_account_of_that_kind():
+    # A summary's "Checking Accounts" heading and the ledger's "Business Checking" heading: one checking account.
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "Checking Accounts"),
+        _block(1, "text", "Beginning Balance: $1,000.00 Ending Balance: $1,250.00"),
+        _block(2, "text", "Business Checking"),
+        _block(3, "table", _table(LEDGER_HEADER, ("03/02", "FABRICATED DEPOSIT", "400.00", "", "1,400.00"))),
+        _block(4, "section_header", "Checking Account Activity - Main Account"),
+    ), (), (), False)
+    assert len(plan_accounts([layout]).sections) == 1
+    # Titles that each name something of their own, or print different numbers, are different accounts.
+    other = DotsLayout(1, (
+        _block(0, "section_header", "360 Checking - 12345678901"),
+        _block(1, "text", "360 CHECKING | JOINT WITH FABRICATED PERSON"),
+        _block(2, "section_header", "360 Performance Savings - 12345678902"),
+        _block(3, "section_header", "360 Performance Savings - 12345678903"),
+    ), (), (), False)
+    assert len(plan_accounts([other]).sections) == 4
+
+
+def test_a_summary_table_gives_an_account_the_figure_its_section_does_not_print():
+    from vlm.accounts import summary_table_figures
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "Statement Summary"),
+        _block(1, "table", _table(("Deposit Accounts", "Beginning Balance", "Deposits", "Withdrawals",
+                                   "Ending Balance"),
+                                  ("Fabricated Savings - XXXXXX0001", "$50.00", "$0.00", "$0.00", "$50.00"),
+                                  ("Fabricated Checking - XXXXXX0010", "$1,000.00", "$400.00", "$150.00",
+                                   "$1,250.00"))),
+        _block(2, "section_header", "Fabricated Savings - Account#: XXXXXX0001"),
+        _block(3, "section_header", "Fabricated Checking - Account#: XXXXXX0010"),
+        _block(4, "table", _table(LEDGER_HEADER, ("03/02", "FABRICATED DEPOSIT", "400.00", "", "1,400.00"),
+                                  ("03/31", "Ending Balance", "", "", "1,250.00"))),
+    ), (), (), False)
+    plan = plan_accounts([layout])
+    summary = summary_table_figures(plan, [layout])
+    assert {name: [value for value, _ in found] for name, found in summary[1].items()} == {
+        "beginning_balance": [Decimal("1000.00")], "ending_balance": [Decimal("1250.00")]}
+    figures = section_figures(plan, 1, [layout], summary=summary)
+    assert (figures["beginning_balance"]["value"], figures["beginning_balance"]["source"]) == (
+        Decimal("1000.00"), "summary_table")
+    assert (figures["ending_balance"]["value"], figures["ending_balance"]["source"]) == (Decimal("1250.00"), "section")
+
+
+def test_an_addition_with_no_proposer_row_beside_it_takes_the_account_above_its_box():
+    plan = plan_accounts([PAGE_ONE, PAGE_TWO])
+    item = {"page": 1, "locator": "added0", "state": "added", "row": {"bbox": [0.125, 0.725, 0.875, 0.745]}}
+    merged = PageReviewMerge(1, (_row(1, "added0", "2031-03-03", "5.00", "debit", None),), (item,), {"added": 1},
+                             (), {}, (), "statement_page")
+    assert assign_rows(plan, [merged, _merge(2, [])])[0][(1, "added0")] == 1  # under the checking heading
+    item["row"]["bbox"] = [0.125, 0.455, 0.875, 0.475]
+    assert assign_rows(plan, [merged, _merge(2, [])])[0][(1, "added0")] == 0  # between savings and checking
+
+
+def test_a_reviewer_addition_that_moves_nothing_is_no_transaction():
+    from vlm.pair_accounts import _balance_only_additions
+    # "Interest Rate Change ..." printing only the balance, read at that balance: the balance did not move.
+    info = _row(1, "added0", "2031-03-12", "7.134", "credit", "7.134", description="Interest Rate Change")
+    interest = _row(1, "added1", "2031-03-31", "0.041", "credit", "7.175", description="Monthly Interest Paid")
+    assert _balance_only_additions([info, interest], Decimal("7.134")) == {(1, "added0")}
+    # A first deposit into an empty account moves its whole balance; a proposer's row is never excluded.
+    deposit = _row(1, "added0", "2031-03-12", "7.134", "credit", "7.134")
+    assert _balance_only_additions([deposit], Decimal("0.00")) == set()
+    assert _balance_only_additions([replace(info, locator="b3t0r1")], Decimal("7.134")) == set()
+    # The review dropped the balance (the line prints its one figure once); that figure still says nothing moved.
+    unbalanced = replace(info, balance=None)
+    assert _balance_only_additions([unbalanced], 7.134, {(1, "added0"): Decimal("7.134")}) == {(1, "added0")}
+    assert _balance_only_additions([unbalanced], Decimal("6.125"), {(1, "added0"): Decimal("7.134")}) == set()
+
+
+def test_an_account_printing_one_withdrawal_takes_the_statements_minus_style():
+    # The statement prints withdrawals as "-100.00": the savings account's one withdrawal "-5.00" is no reversal.
+    layout = DotsLayout(1, tuple(_block(4, "text", "Beginning Balance: $50.00 Ending Balance: $45.00")
+                                 if block.order == 4 else block for block in PAGE_ONE.blocks), (), (), False)
+    savings = replace(_row(1, "b4l0", "2031-03-10", "5.00", "debit", "45.00"), printed_amount=Decimal("-5.00"))
+    signed = [replace(row, printed_amount=-row.amount) if row.direction == "debit" else row
+              for row in ROWS_ONE + ROWS_TWO[:1]]
+    result = _judge([_merge(1, [savings] + signed[:2]), _merge(2, signed[2:])], layouts=(layout, PAGE_TWO))
+    assert [account["status"] for account in result["accounts"]] == ["verified", "verified"]

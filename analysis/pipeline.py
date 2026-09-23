@@ -292,6 +292,37 @@ AMBIGUOUS_INTERNAL_TRANSFER = "ambiguous_internal_transfer"
 
 DOCUMENT_INTEGRITY_NOTES: frozenset[str] = frozenset({AMBIGUOUS_INTERNAL_TRANSFER})
 
+#: How an account a document prints stands in its payload (the visual pair's per-account judgement,
+#: `vlm/pair_accounts.py`): `published` (its own Report is in `accounts`), `idle` (its section prints an unchanged
+#: balance and no activity), `held` (not verified; its reasons say why).
+ACCOUNT_ROSTER_STATUSES: frozenset[str] = frozenset({"published", "idle", "held"})
+
+
+@dataclass(frozen=True)
+class AccountRosterEntry:
+    """One account a document prints, in printed order, whether or not its analysis is published.
+
+    A reader that judged a document account by account (R-b) knows accounts it could not publish: an idle
+    savings share, a sibling whose rows did not reconcile. The roster names them beside the published ones so no
+    account of the document disappears from the page, and it carries no figure of an unverified account: a held
+    account's printed numbers were not proven, so none is published. `published_index` points into
+    `DocumentReport.accounts`; `balance` is an idle account's unchanged printed balance.
+    """
+
+    title: str
+    kind: str | None
+    number_last4: str | None
+    status: str
+    published_index: int | None = None
+    balance: float | None = None
+    reasons: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.status not in ACCOUNT_ROSTER_STATUSES:
+            raise ValueError(f"an account roster status must be one of {sorted(ACCOUNT_ROSTER_STATUSES)}")
+        if (self.status == "published") != (self.published_index is not None):
+            raise ValueError("a published roster entry, and only one, names its published account")
+
 
 @dataclass
 class DocumentReport:
@@ -326,6 +357,9 @@ class DocumentReport:
     #: account blocks keep their own notes exactly as they publish them today;
     #: this is the scope those blocks have no room for.
     integrity_notes: list[str] = field(default_factory=list)
+    #: Every account the document prints, published or not (`AccountRosterEntry`), from a reader that judged it
+    #: account by account. Empty from every reader that does not.
+    account_roster: list[AccountRosterEntry] = field(default_factory=list)
 
     def document_scope_flags(self) -> list[str]:
         """The document-scope integrity flags its accounts carry.

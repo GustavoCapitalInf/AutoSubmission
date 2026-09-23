@@ -173,6 +173,21 @@ def test_reviewer_addition_of_a_printed_balance_line_never_enters_the_ledger(lab
     assert evidence["raw_addition"]["row"]["description"] == label
 
 
+def test_reviewer_addition_naming_a_balance_at_its_own_balance_is_that_balance_line():
+    # "Closing Date ... New Balance" added as a deposit of that balance: the line names a balance and its amount is its
+    # own balance, so it is the balance, not a movement. A transaction merely mentioning a balance stays.
+    rows = [_candidate(0)]
+    original = candidate_records(rows)[0]["row"]
+    for description, amount, balance, rejected in (("Closing Date 04/30 New Balance", 7.134, 7.134, True),
+                                                   ("Transfer to cover negative balance", 7.134, 7.134, False),
+                                                   ("New balance adjustment", 7.134, 14.125, False)):
+        payload = _review(rows)
+        payload["added"] = [{"row": {**original, "description": description, "amount": amount, "balance": balance,
+                                     "direction": "credit", "printed_amount": None}, "after_candidate_id": None}]
+        result = merge_review(rows, payload, page=1)
+        assert (result.counts["rejected"], result.counts["added"]) == ((1, 0) if rejected else (0, 1)), description
+
+
 def test_undated_daily_balance_is_unknown_like_a_null_account_field_and_holds_nothing():
     rows = [_candidate(0)]
     payload = _review(rows)

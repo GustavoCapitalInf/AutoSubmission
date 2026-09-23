@@ -255,7 +255,13 @@ def _run_document(item: dict, *, output: Path, evidence: Path, settings, console
             result["native_description_checks"] = checks["counts"]
         except Exception as exc:
             result["native_check_error_type"] = type(exc).__name__
-        if result["gate_admitted"]:
+        # A statement judged account by account (vlm/pair_accounts.py) publishes the accounts it verified.
+        accounts = [account for account in pair.get("accounts") or [] if isinstance(account, dict)]
+        if accounts:
+            result.update(accounts=len(accounts),
+                          accounts_verified=sum(account.get("status") == "verified" for account in accounts),
+                          accounts_idle=sum(account.get("status") == "idle" for account in accounts))
+        if result["gate_admitted"] or result.get("accounts_verified"):
             result["status"] = "analysis_failed"
             # Offline evaluation only: no job publication and no env mutation.
             report = analyze_visual_pair(doc, review_policy="admit_gated")
@@ -305,6 +311,11 @@ def run(args: argparse.Namespace) -> dict:
                    "documents": len(results), "pages": sum(item["pages"] for item in results),
                    "admitted": sum(item["gate_admitted"] for item in results),
                    "analyzed": sum(item["status"] == "analysis_completed" for item in results),
+                   # Statements judged account by account: those with at least one verified account, and the
+                   # accounts verified or idle across them.
+                   "with_verified_accounts": sum(bool(item.get("accounts_verified")) for item in results),
+                   "accounts_verified": sum(item.get("accounts_verified") or 0 for item in results),
+                   "accounts_idle": sum(item.get("accounts_idle") or 0 for item in results),
                    "counts": dict(counts), "runs": results,
                    "gate_checks": [{key: item[key] for key in
                                     ("document_id", "gate_reason_count", "gate_reason_counts")}

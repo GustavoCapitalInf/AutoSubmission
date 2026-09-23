@@ -89,6 +89,11 @@ def _finite(value: object) -> bool:
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
 
 
+# A line naming one of the account's balances (vlm/review.py: a reviewer addition of it is no transaction).
+_NAMES_A_BALANCE = re.compile(r"\b(?:new|ending|closing|previous|beginning|opening|starting)\s+balance\b|"
+                              r"\bbalance\s+(?:forward|brought\s+forward|carried\s+forward)\b", re.IGNORECASE)
+
+
 def _row_errors(row: dict, *, label: str) -> list[str]:
     if not valid_review_row(row):
         return [f"review_row_schema_invalid:{label}"]
@@ -510,8 +515,12 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         row = item.get("row") if isinstance(item, dict) else None
         locator = f"added{index}"
         # Stage A never proposes a printed balance line; a reviewer addition of one is not a transaction either,
-        # nor is a line the page prints without any amount that the reviewer added at 0.00.
-        balance_line = usable and bool(BALANCE_LINE.match(str(row.get("description") or "").strip()))
+        # nor is a line the page prints without any amount that the reviewer added at 0.00. A line naming a balance
+        # anywhere ("Closing Date ... New Balance") whose amount is its own balance is that balance, not a movement.
+        description = str(row.get("description") or "").strip() if usable else ""
+        balance_line = usable and bool(BALANCE_LINE.match(description) or (
+            _NAMES_A_BALANCE.search(description) and _finite(row.get("amount")) and _finite(row.get("balance"))
+            and Decimal(str(row["amount"])) == abs(Decimal(str(row["balance"])))))
         no_amount = usable and index in unprinted_zero
         if usable and not balance_line and not no_amount:
             rows.append(_source_row(row, page=page, locator=locator))

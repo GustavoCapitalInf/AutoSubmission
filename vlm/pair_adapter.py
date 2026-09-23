@@ -17,7 +17,8 @@ from pydantic import ValidationError
 
 from analysis.config import Settings
 from analysis.parser_registry import AmbiguousParserError, Dispatch, ParserCrashError, by_id
-from analysis.pipeline import DocumentReport, analyze_document, analyze_statement
+from analysis.pipeline import (AccountRosterEntry, DocumentReport, analyze_document, analyze_statement,
+                               identify_internal_transfers)
 from analysis.reconcile import reconcile
 from analysis.schema import Statement, StatementDailyBalance, Transaction
 from ocr.document import StatementMarkdown
@@ -149,6 +150,66 @@ def _complete_report(document: DocumentReport) -> DocumentReport:
     return document
 
 
+def _analyze_accounts(doc: StatementMarkdown, evidence: dict, *, settings: Settings | None,
+                      review_policy: str) -> DocumentReport:
+    """A statement the visual pair judged account by account (vlm/pair_accounts.py): each account it verified on
+    its own is analysed on its own (R-b) by the ordinary account-report path, from its own reviewed rows; nothing
+    is combined across accounts (R-c) and no account is chosen to stand for the document (R-e). Every account the
+    statement prints stays on the roster, published, idle or held, so none disappears from the page."""
+    entries = evidence.get("accounts")
+    if (not isinstance(entries, list) or len(entries) < 2 or evidence.get("account_count") != len(entries)
+            or any(not isinstance(entry, dict) or entry.get("index") != index
+                   or entry.get("status") not in ("verified", "idle", "held")
+                   for index, entry in enumerate(entries))):
+        _refuse("visual pair account evidence is invalid")
+    if not doc.pages or len(doc.page_integrity) != len(doc.pages):
+        _refuse("visual pair page evidence is incomplete")
+    statements, held = {}, {}
+    for index, entry in enumerate(entries):
+        if entry["status"] != "verified":
+            continue
+        gate = entry.get("gate")
+        if (not isinstance(gate, dict) or gate.get("admitted") is not True or gate.get("reasons") != []
+                or entry.get("reasons") != []):
+            _refuse("visual pair account evidence is invalid")
+        try:
+            statements[index] = _source_statement(entry.get("statement"),
+                                                  currency_resolution=evidence.get("currency_resolution"))
+        except VisualPairAdmissionError:
+            held[index] = ("source_statement_invalid",)
+    if not statements:
+        _refuse("visual pair verified no account of this statement")
+    if review_policy == "hold":
+        _refuse("visual pair requires human review")
+    reports, roster = [], []
+    for index, entry in enumerate(entries):
+        status, reasons = entry["status"], tuple(str(code) for code in entry.get("reasons") or ())
+        if index in statements:
+            statement = statements[index]
+            report = analyze_statement(
+                statement, reconciliation=reconcile(statement), markdown=str(entry.get("markdown") or ""),
+                sheets=doc.pages, model_used=doc.model + "-generic", settings=settings,
+            ).accounts[0]
+            if report.metrics.adb_ok is True:
+                roster.append(AccountRosterEntry(str(entry.get("title") or ""), entry.get("kind"),
+                                                 entry.get("number_key"), "published", published_index=len(reports)))
+                reports.append(report)
+                continue
+            status, reasons = "held", ("daily_ledger_not_validated",)
+        elif index in held:
+            status, reasons = "held", held[index]
+        balance = entry.get("balance") if status == "idle" else None
+        roster.append(AccountRosterEntry(str(entry.get("title") or ""), entry.get("kind"), entry.get("number_key"),
+                                         status, balance=float(balance) if balance is not None else None,
+                                         reasons=reasons if status == "held" else ()))
+    if not reports:
+        _refuse("visual pair daily ledger did not validate")
+    transfers, notes = identify_internal_transfers(reports)
+    periods = {(report.statement.period_start, report.statement.period_end) for report in reports}
+    return DocumentReport(accounts=reports, document_period=periods.pop() if len(periods) == 1 else None,
+                          internal_transfers=transfers, integrity_notes=notes, account_roster=roster)
+
+
 def analyze_visual_pair(
     doc: StatementMarkdown,
     *,
@@ -168,7 +229,9 @@ def analyze_visual_pair(
     evidence = getattr(doc, "visual_pair", None)
     if not isinstance(evidence, dict) or evidence.get("version") != 1:
         _refuse("visual pair evidence is missing or unsupported")
-    if evidence.get("account_count", 1) != 1 or evidence.get("accounts"):
+    if evidence.get("accounts"):
+        return _analyze_accounts(doc, evidence, settings=settings, review_policy=review_policy)
+    if evidence.get("account_count", 1) != 1:
         _refuse("visual pair multiple accounts require review")
     gate = evidence.get("gate")
     if not isinstance(gate, dict) or gate.get("admitted") is not True or gate.get("reasons") != []:
