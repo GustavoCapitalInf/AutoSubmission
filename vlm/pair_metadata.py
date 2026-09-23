@@ -67,9 +67,9 @@ def _account_pattern(value) -> str:
                   for character in raw if character.isalnum() or character in "*•●")
     raw = re.sub(r"\*+", "*", raw)
     # A complete number printed with zeros in front ("000000012345678" on the first page, "12345678" on the
-    # activity pages) is the same number: the zeros pad a field.
+    # activity pages) is the same number: the zeros pad a field. It stays a complete number, never a suffix.
     if raw.isdigit() and len(raw) >= 8:
-        raw = raw.lstrip("0") or "0"
+        return raw.lstrip("0") or "0"
     return "*" + raw if len(raw) == 4 and "*" not in raw else raw
 
 
@@ -120,15 +120,18 @@ def _daily_dates(merged) -> list[str]:
 _SIBLING_FIELDS = ("beginning_balance", "ending_balance", "stated_total_credits", "stated_total_debits",
                    "stated_credit_count", "stated_debit_count", "account_number", "account_number_last4",
                    "account_name", "bank_reported_average_balance", "bank_reported_average_label")
-_MOVEMENT_FIELDS = ("stated_total_credits", "stated_total_debits", "stated_credit_count", "stated_debit_count")
+_MOVEMENT_TOTALS = ("stated_total_credits", "stated_total_debits")
+_MOVEMENT_COUNTS = ("stated_credit_count", "stated_debit_count")
 
 
 def dormant_siblings(merges) -> dict[int, dict]:
     """Pages whose reviewer reported a sibling account that did not move, not the statement's: that account's
-    beginning and ending balance are printed and equal, it reports no money in or out (totals and counts absent or
-    zero), the statement has transactions, and another page reports the account they move, at another balance. A
-    credit union prints its membership savings share first ("Savings $25.00 ... $25.00"), then the checking
-    share that carries every transaction; a reviewer reading a page's first summary reports the savings.
+    beginning and ending balance are printed and equal, its own summary prints that no money went in or out (both
+    totals read, both zero; counts absent or zero), the statement has transactions, and another page reports the
+    account they move, at another balance. A credit union prints its membership savings share first ("Savings
+    $25.00 ... $25.00, money in $0.00, money out $0.00"), then the checking share that carries every transaction; a
+    reviewer reading a page's first summary reports the savings. Totals left unread prove nothing: an account that
+    moved in and out by the same amount also opens and closes on one figure.
 
     Returns {merge index: {field: value}}: the sibling's fields, set aside rather than merged as the statement's.
     Nothing is set aside when no page reports another balance: a statement whose own balance did not move keeps its
@@ -140,7 +143,11 @@ def dormant_siblings(merges) -> dict[int, dict]:
         begin, end = account.get("beginning_balance"), account.get("ending_balance")
         if begin is None or end is None or not _equal(begin, end):
             return None
-        for key in _MOVEMENT_FIELDS:
+        for key in _MOVEMENT_TOTALS:
+            value = account.get(key)
+            if value is None or not _equal(value, 0):
+                return None
+        for key in _MOVEMENT_COUNTS:
             value = account.get(key)
             if value is not None and not _equal(value, 0):
                 return None
@@ -193,9 +200,10 @@ def _day_closes(merged, newest_first: bool | None = None) -> tuple[list[dict], i
     """A page's daily balances with each day once. A page listing one date several times, every such value a
     running balance printed on one of its own rows (or the page's own opening or closing balance), transcribed its
     running balances (a statement printing a balance on every row): the day's close is its last value in listing
-    order, or its first when the page lists newest first. A page listing a single date takes the statement's listing order (newest_first) and keeps its
-    entries when that is unknown. Anything else is returned as it is (repeated dates with other values stay a
-    disagreement). Returns (entries, how many running values were folded into their day's close)."""
+    order, or its first when the page lists newest first; the listing must be the page's own running balances, all
+    of them, in order and on their rows' days. A page listing a single date takes the statement's listing order
+    (newest_first) and keeps its entries when that is unknown. Anything else is returned as it is (repeated dates with other values stay a disagreement).
+    Returns (entries, how many running values were folded into their day's close)."""
     items = list(merged.daily_balances)
     dated = _dated_entries(merged)
     dates = [item["date"] for item in dated]
@@ -213,6 +221,22 @@ def _day_closes(merged, newest_first: bool | None = None) -> tuple[list[dict], i
         return items, 0
     if not values <= printed:
         return items, 0
+    # The listing must be every running balance the page's rows print, in the rows' order and each on its own row's
+    # day, with nothing else but the page's own printed opening or closing: a partial or reordered transcription,
+    # or one dating a balance on another day, stays a disagreement.
+    own = {abs(Decimal(str(merged.account[key]))).quantize(cent) for key in ("beginning_balance", "ending_balance")
+           if merged.account.get(key) is not None}
+    balanced = [row for row in merged.rows if row.balance is not None]
+    position = 0
+    for item in dated:
+        value = abs(Decimal(str(item["balance"]))).quantize(cent)
+        if (position < len(balanced) and abs(Decimal(str(balanced[position].balance))).quantize(cent) == value
+                and _on_day(balanced[position], item["date"])):
+            position += 1
+        elif value not in own:
+            return items, 0
+    if position != len(balanced):
+        return items, 0
     ascending, descending = dates == sorted(dates), dates == sorted(dates, reverse=True)
     if ascending and descending:
         ascending, descending = newest_first is False, newest_first is True
@@ -226,6 +250,19 @@ def _day_closes(merged, newest_first: bool | None = None) -> tuple[list[dict], i
     for item in ordered:
         closes[item["date"]] = item
     return sorted(closes.values(), key=lambda item: item["date"]), len(items) - len(closes)
+
+
+def _on_day(row, when: str) -> bool:
+    """Whether a row is dated `when`: its ISO date, else its printed date text read either way round (dates are
+    resolved after the metadata merge)."""
+    if row.date:
+        return row.date == when
+    from vlm.textparse import parse_date
+    try:
+        year = int(str(when)[:4])
+    except ValueError:
+        return False
+    return any(parse_date(row.date_text, year_hint=year, day_first=first) == when for first in (False, True))
 
 
 def _carried_forward_date(merges, index: int) -> str | None:

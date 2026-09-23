@@ -1,5 +1,6 @@
 """Constructed synthetic metadata/rows only; no files, corpus, or network reads."""
 from copy import deepcopy
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -314,19 +315,34 @@ def test_pages_disagreeing_about_an_auxiliary_figure_leave_it_unknown_and_hold_n
 def test_a_page_listing_its_running_balances_gives_each_day_its_close():
     # A statement printing a balance on every row: the reviewer reported each row's balance as a daily balance.
     # The day's close is its last value in listing order (its first on a page listed newest first).
-    daily = [{"date": "2031-01-02", "balance": 110.0}, {"date": "2031-01-02", "balance": 95.5},
-             {"date": "2031-01-03", "balance": 81.37}]
-    for balances, listed in (((110.0, 95.5, 81.37), daily), ((81.37, 95.5, 110.0), list(reversed(daily)))):
+    entries = [("2031-01-02", 110.0), ("2031-01-02", 95.5), ("2031-01-03", 81.37)]
+
+    def running(listing, fields=None, daily=None):
+        rows = tuple(CandidateRow(when, when[5:].replace("-", "/"), "FABRICATED ROW", Decimal("1.00"), "credit",
+                                  Decimal(str(value)), 1, "stage_a+stage_b", f"row{index}")
+                     for index, (when, value) in enumerate(listing))
+        account = {**BASE, **(fields or {})}
+        listed = daily if daily is not None else [{"date": when, "balance": value} for when, value in listing]
+        return PageReviewMerge(1, rows, (), {"agreed": len(rows)}, (), account, tuple(listed), "statement_page", ())
+
+    for listing in (entries, list(reversed(entries))):
         occurrences = []
-        _, closes, reasons, provenance = merge_metadata([page(1, balances=balances, daily=listed)],
-                                                        occurrences=occurrences)
+        _, closes, reasons, provenance = merge_metadata([running(listing)], occurrences=occurrences)
         assert reasons == [] and occurrences == []
         assert closes == [{"date": "2031-01-02", "balance": 95.5}, {"date": "2031-01-03", "balance": 81.37}]
         assert {"field": "daily_balances", "page": 1, "source": "running_balances_day_close", "value": 1} in provenance
+    # Rows whose ISO date is resolved later (after this merge) are placed on their day by the date they print.
+    undated = running(entries)
+    undated = PageReviewMerge(1, tuple(replace(row, date=None) for row in undated.rows), (), undated.counts, (),
+                              undated.account, undated.daily_balances, "statement_page", ())
+    assert merge_metadata([undated], occurrences=[])[2] == []
+    # A listing that dates a running balance on another day than its row prints stays a disagreement.
+    shifted = [{"date": "2031-01-02", "balance": 110.0}, {"date": "2031-01-03", "balance": 95.5},
+               {"date": "2031-01-03", "balance": 81.37}]
+    assert merge_metadata([running(entries, daily=shifted)], occurrences=[])[2] == ["anchor_disagreement"]
     # The page's printed opening, listed first on the first date, is one of its own figures too.
-    opening = [{"date": "2031-01-02", "balance": 120.0}] + daily
-    _, closes, reasons, _ = merge_metadata([page(1, {"beginning_balance": 120.0}, balances=(110.0, 95.5, 81.37),
-                                                 daily=opening)], occurrences=[])
+    opening = [{"date": "2031-01-02", "balance": 120.0}] + [{"date": when, "balance": value} for when, value in entries]
+    _, closes, reasons, _ = merge_metadata([running(entries, {"beginning_balance": 120.0}, opening)], occurrences=[])
     assert reasons == [] and closes == [{"date": "2031-01-02", "balance": 95.5}, {"date": "2031-01-03", "balance": 81.37}]
     # A repeated day whose values are not balances the page's rows print stays a disagreement.
     conflicting = [{"date": "2031-01-02", "balance": 110.0}, {"date": "2031-01-02", "balance": 99.0}]
@@ -358,6 +374,15 @@ def test_a_sibling_account_that_did_not_move_is_set_aside_for_the_one_the_transa
     # A statement without transactions keeps every figure.
     idle = [page(1, savings), page(2, checking)]
     assert "anchor_disagreement" in merge_metadata(idle, occurrences=[])[2]
+    # Review 6, finding 1: totals left unread prove nothing -- an account that moved in and out by the same amount
+    # (rows with no balances on its page) also opens and closes on one figure.
+    unread = {key: value for key, value in savings.items() if not key.startswith("stated_total")}
+    moved = [page(1, unread), page(2, checking, balances=(102.0, 110.0))]
+    assert "anchor_disagreement" in merge_metadata(moved, occurrences=[])[2]
+    # Finding 4: a second statement's account that printed no totals is no sibling to set aside either.
+    other = {"beginning_balance": 500.0, "ending_balance": 500.0, "account_number": "1111222233334444"}
+    assert set(merge_metadata([page(1, other), page(2, checking, balances=(110.0,))], occurrences=[])[2]) >= {
+        "anchor_disagreement", "proposal_invalid"}
 
 
 def test_a_complete_account_number_padded_with_zeros_is_the_same_number():
@@ -366,6 +391,9 @@ def test_a_complete_account_number_padded_with_zeros_is_the_same_number():
     assert merge_metadata(merges, occurrences=[])[2] == []
     short = [page(1, {"account_number": "0072"}), page(2, {"account_number": "72"})]
     assert merge_metadata(short, occurrences=[])[2] == ["proposal_invalid"]
+    # Review 6, finding 5: stripping the padding never turns a complete number into a four-character suffix.
+    padded = [page(1, {"account_number": "00001234"}), page(2, {"account_number": "99991234"})]
+    assert merge_metadata(padded, occurrences=[])[2] == ["proposal_invalid"]
 
 
 def test_a_page_listing_one_day_takes_the_statements_listing_order():
@@ -385,6 +413,13 @@ def test_a_page_listing_one_day_takes_the_statements_listing_order():
     for pages in ([listed(1, earlier), listed(2, day)], [listed(1, day[::-1]), listed(2, earlier[::-1])]):
         _, closes, reasons, _ = merge_metadata(pages, occurrences=[])
         assert reasons == [] and closes == expected
+    # Review 6, finding 3: a transcription that lists a day's running balances out of order (its last value is not
+    # where the page's rows leave the day) keeps the disagreement.
+    reordered = listed(1, [("2031-01-05", 90.0), ("2031-01-05", 100.0), ("2031-01-06", 80.0)])
+    reordered = PageReviewMerge(1, reordered.rows, (), reordered.counts, (), reordered.account,
+                                ({"date": "2031-01-05", "balance": 100.0}, {"date": "2031-01-05", "balance": 90.0},
+                                 {"date": "2031-01-06", "balance": 80.0}), "statement_page", ())
+    assert merge_metadata([reordered], occurrences=[])[2] == ["anchor_disagreement"]
     # A statement whose rows show no order keeps a single day's repeated values: they stay a disagreement.
     _, _, reasons, _ = merge_metadata([page(1, balances=(72.0, 73.0), daily=[
         {"date": "2031-01-02", "balance": 72.0}, {"date": "2031-01-02", "balance": 73.0}])], occurrences=[])

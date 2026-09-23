@@ -4,7 +4,7 @@
 # Stage A = dots.mocr on 18013, Stage B = Qwen3.8-27B-NVFP4 on 18022.
 # Serving flags are identical to the 2026-09-20 shootout run so results stay comparable, except the number of
 # sequences each server runs at once: SEQS_A / SEQS_B (default 2, the shootout's). The reviewer is decode-bound, so
-# more sequences raise throughput; batching can perturb numerics even at temperature 0, so a run records its values.
+# more sequences raise throughput; batching can perturb numerics even at temperature 0: note a run's values.
 #   SEQS_A=4 SEQS_B=6 bash artifacts/serve_pair.sh start
 # `start` leaves a server already up untouched: stop it first (stop-a or stop-b stops one server) to change its value.
 set -uo pipefail

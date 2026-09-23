@@ -306,16 +306,22 @@ def _review_entry(original: dict, item: dict, *, candidate_id: str):
 _CHEQUE_CELL = re.compile(r"\*?\s*#?\s*\d*\s*\*?")
 
 
-def _cheque_cell_waiver(candidate, row: dict, row_errors: list[str], observed) -> list[str]:
+def _cheque_cell_waiver(candidate, original: dict, corrected: dict | None, row_errors: list[str],
+                        observed) -> list[str]:
     """A cheque read from a cheque-number column (the proposer's description_label) prints no description beyond its
     number, and often not even that: there is no text to observe. A missing observation, an observation that is the
     same cell, and an empty description are then not errors; the row is published as the column names it
-    (assemble.labelled_description: "Check 4410", or "Check" alone). Every other error stands."""
+    (assemble.labelled_description: "Check 4410", or "Check" alone). A reviewer that CHANGES the cell (another
+    number, or none) must observe the cell it reads. Every other error stands."""
+    row = corrected if corrected is not None else original
     description = str(row.get("description") or "").strip()
     if not getattr(candidate, "description_label", None) or not _CHEQUE_CELL.fullmatch(description):
         return row_errors
     same_cell = (isinstance(observed, str) and _CHEQUE_CELL.fullmatch(observed.strip()) is not None
                  and re.sub(r"\D", "", observed) == re.sub(r"\D", "", description))
+    changed = description != str(original.get("description") or "").strip()
+    if changed and not same_cell:
+        return row_errors
     waived = {"review_description_observation_missing"} | ({"review_description_observation_mismatch"}
                                                            if same_cell else set())
     return [code for code in row_errors
@@ -444,8 +450,8 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         if item is None:
             continue
         effective, corrected, row_errors, warnings = _review_entry(record["row"], item, candidate_id=candidate_id)
-        row_errors = _cheque_cell_waiver(candidate, corrected if corrected is not None else record["row"],
-                                         row_errors, effective.get("observed_description"))
+        row_errors = _cheque_cell_waiver(candidate, record["row"], corrected, row_errors,
+                                         effective.get("observed_description"))
         row_errors, _ = _settle_zero_amount(corrected if corrected is not None else record["row"], row_errors, printed)
         inherited = list(dict.fromkeys(source_errors.get(candidate_id, ())))
         checked[candidate_id] = (effective, corrected, row_errors, warnings, inherited)

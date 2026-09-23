@@ -91,6 +91,10 @@ def test_a_control_number_glued_to_a_letter_is_no_amount_on_a_page_without_trans
     assert pages_without_transactions([PrintedEvidence(native=form, proposer="")], account) == frozenset({1})
     spaced = form.replace("x12345.67", "x 12345.67")
     assert pages_without_transactions([PrintedEvidence(native=spaced, proposer="")], account) == frozenset()
+    # Review 6, finding 8: a text layer running a description into its amount prints an amount.
+    for glued in ("FABRICATED DEPOSIT1,234.56", "FABRICATED FEE CR1,234.56"):
+        page = form.replace("x12345.67", glued)
+        assert pages_without_transactions([PrintedEvidence(native=page, proposer="")], account) == frozenset(), glued
 
 
 SNAP_PAGE = """01/05 CARD PURCHASE FABRIKATEDTRIPTOWN ONCA 12.50

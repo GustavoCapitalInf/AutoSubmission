@@ -392,11 +392,13 @@ def pages_without_transactions(printed_pages, account: dict) -> frozenset:
 
 
 def _standalone_amounts(text: str) -> frozenset:
-    """The text's printed amounts, leaving out a figure glued to a letter: a document control number
-    ("x12345.67") names a printout, it moves no money."""
+    """The text's printed amounts, leaving out a figure glued to ONE letter that starts its token: a document
+    control number ("x12345.67") names a printout, it moves no money. A figure glued to a word ("DEPOSIT1,234.56",
+    "CR1,234.56"), a text layer running a description into its amount, is an amount."""
     from vlm.native_text import _money_spans
-    return frozenset(amount for start, _, amount in _money_spans(text or '')
-                     if not (start and text[start - 1].isalpha()))
+    text = text or ''
+    return frozenset(amount for start, _, amount in _money_spans(text)
+                     if not (start and text[start - 1].isalpha() and (start < 2 or not text[start - 2].isalnum())))
 
 
 def _covered(evidence) -> bool:
@@ -418,9 +420,10 @@ def printed_repeat_groups(rows, page_texts) -> frozenset:
     line (summary_box.page_lines). Each such row is then a printed line of its own, whichever reader proposed it
     (gate v15: a reviewer addition carries no position of its own).
 
-    A line counts once for each time it prints the rows' date text (a table printed k-up prints several), and only
-    when it also prints a word: a daily-balance line prints a date and a figure alone. Every row of a group must
-    carry the same printed date text; a row without one never counts."""
+    A line counts once for each time it prints the rows' whole date text (a table printed k-up prints several), and
+    only when it also prints a word: a daily-balance line prints a date and a figure alone. Every row of a group must
+    carry the same printed date text, with a digit in it ("Jan 5", never "Jan" alone, which every day of the month
+    prints); a row without one never counts."""
     from collections import defaultdict
 
     from vlm.native_text import _money_spans
@@ -428,14 +431,15 @@ def printed_repeat_groups(rows, page_texts) -> frozenset:
     cent = Decimal('0.01')
     groups: dict[tuple, list] = defaultdict(list)
     for row in rows:
-        tokens = (row.date_text or '').split()
-        if row.date and tokens:
-            groups[(row.page, row.date, row.amount)].append(tokens[0])
+        text = ' '.join((row.date_text or '').split())
+        if row.date and re.search(r'\d', text):
+            groups[(row.page, row.date, row.amount)].append(text)
     proven = set()
     for (page, when, amount), tokens in groups.items():
         if len(tokens) < 2 or len(set(tokens)) != 1 or not (0 < page <= len(page_texts or ())):
             continue
-        pattern = re.compile(rf'(?<![\d/.\-]){re.escape(tokens[0])}(?![\d/.\-])')
+        printed_date = r'\s+'.join(re.escape(part) for part in tokens[0].split())
+        pattern = re.compile(rf'(?<![\w/.\-]){printed_date}(?![\w/.\-])', re.IGNORECASE)
         target = abs(Decimal(str(amount))).quantize(cent)
         printed = 0
         for line in page_texts[page - 1] or ():
@@ -980,6 +984,10 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
              'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks,
                       'reason_occurrences': occurrences, 'reason_counts': reason_counts},
              'confidence': confidence, 'field_evidence': field_evidence,
+             # Sibling accounts that did not move, set aside rather than merged (pair_metadata.dormant_siblings): the
+             # statement names accounts the ledger does not describe.
+             'dormant_sibling_pages': sorted({item['page'] for item in field_evidence
+                                              if item.get('source') == 'dormant_sibling_account'}),
              'page_segments': {'plan': json.loads(canonical_json(asdict(segment_plan))),
                                'reconciliation': segment_checks},
              'date_resolution': {

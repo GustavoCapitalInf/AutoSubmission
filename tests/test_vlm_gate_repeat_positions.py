@@ -143,3 +143,12 @@ def test_additions_are_separate_when_their_page_prints_the_line_as_often_as_rows
     # A k-up line prints each of its date and amount pairs.
     kup = [["FABRICATED DEPOSIT 01/05 1.50 FABRICATED DEPOSIT 01/05 1.50"]]
     assert printed_repeat_groups(rows, kup) == {(1, "2031-01-05", Decimal("1.50"))}
+    # Review 6, finding 2: the whole printed date is matched. "Jan 5" is not every line of January.
+    named = [replace(row, date_text="Jan 5") for row in rows]
+    month = [["Jan 5 FABRICATED SERVICE FEE 1.50", "Jan 12 FABRICATED SERVICE FEE 1.50", "Jan 51 FABRICATED 1.50"]]
+    assert printed_repeat_groups(named, month) == frozenset()
+    assert "duplicate_row" in gate(named, _meta(2), printed_repeats=printed_repeat_groups(named, month)).reasons
+    twice_named = [["Jan 5 FABRICATED SERVICE FEE 1.50", "JAN  5 FABRICATED SERVICE FEE 1.50"]]
+    assert printed_repeat_groups(named, twice_named) == {(1, "2031-01-05", Decimal("1.50"))}
+    # A printed date text without a digit never counts.
+    assert printed_repeat_groups([replace(row, date_text="Jan") for row in rows], month) == frozenset()

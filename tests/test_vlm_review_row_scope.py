@@ -299,3 +299,10 @@ def test_a_cheque_whose_number_cell_prints_no_description_needs_no_observation()
     # An observation of a different number is still a contradiction.
     payload["reviews"][2]["observed_description"] = "4411"
     assert merge_review(rows, payload, page=1).counts["unresolved"] == 1
+    # Review 6, finding 7: a reviewer that CHANGES the cell must observe what it reads there.
+    payload["reviews"][2].update(verdict="correct", observed_description=None, corrections=[
+        {"field": "description", "original": "4410*", "corrected": "4411"}])
+    assert merge_review(rows, payload, page=1).counts["unresolved"] == 1
+    payload["reviews"][2]["observed_description"] = "4411"
+    merged = merge_review(rows, payload, page=1)
+    assert merged.counts["corrected"] == 1 and published_row(merged.rows[2]).description == "Check 4411"

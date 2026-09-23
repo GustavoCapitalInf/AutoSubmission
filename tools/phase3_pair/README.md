@@ -27,9 +27,10 @@ Do not float either revision. Serving flags match the benchmark run
 `--trust-remote-code` for Stage A only, `VLLM_USE_FLASHINFER_SAMPLER=0`). `--max-num-seqs` is the one
 exception: `SEQS_A` / `SEQS_B` set it per server (default 2, the benchmark's). The reviewer is
 decode-bound (about a thousand generated tokens per call), so runs over many statements serve more
-sequences at once (`SEQS_A=4 SEQS_B=8`); batching can perturb numerics even at temperature 0, so a run
-records the values it was served with. `stop-a` / `stop-b` stop one server, and `start` leaves a server
-that is already up untouched.
+sequences at once (`SEQS_A=4 SEQS_B=8`); batching can perturb numerics even at temperature 0, so note the
+values a run was served with in its ledger (nothing records them automatically; the server log and
+`/metrics` show them). `stop-a` / `stop-b` stop one server, and `start` leaves a server that is already
+up untouched.
 
 dots.mocr's custom licence was accepted by Gustavo on 2026-09-21; the pinned
 revision and acceptance are recorded in `docs/moneythumb-replacement/phase3/LICENSES.md`.
