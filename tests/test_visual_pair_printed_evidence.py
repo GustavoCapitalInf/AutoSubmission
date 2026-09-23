@@ -245,3 +245,47 @@ def test_without_printed_evidence_nothing_changes():
     payload = _payload(rows)
     payload["account"].update(stated_total_credits=2750.0)
     assert merge_review(rows, payload, page=1).account["stated_total_credits"] == 2750.0
+
+
+# A cheque table printed two-up in the image: the text layer gives it a column group at a time, each under its
+# own header line.
+TWO_UP = """CHECKS
+Date Check No. Amount
+01/06 301 212.40
+01/02 302 * 1,385.00
+Date Check No. Amount
+01/12 309 * 1,248.35
+01/11 310 1,096.80
+Total Checks $3,942.55
+FABRICATED TRANSFERS
+Date Reference Amount
+01/14 311 61.25
+"""
+
+
+def _cheque(description, amount, date_text, **extra):
+    return CandidateRow(f"2031-{date_text.replace('/', '-')}", date_text, description, Decimal(amount), "debit", None,
+                        1, "stage_b", "added0", **extra)
+
+
+def test_a_cheque_read_as_its_number_is_named_by_the_column_header_its_line_is_printed_under():
+    from vlm.assemble import labelled_from_print
+    printed = PrintedEvidence(native=TWO_UP)
+    labelled = labelled_from_print(_cheque("309 *", "1248.35", "01/12"), printed)
+    assert labelled.description == "Check 309 *" and labelled.description_label == "Check"
+    assert labelled_from_print(_cheque("301", "212.40", "01/06"), printed).description == "Check 301"
+
+
+def test_a_cheque_label_needs_the_rows_own_line_under_a_cheque_number_header():
+    from vlm.assemble import labelled_from_print
+    printed = PrintedEvidence(native=TWO_UP)
+    # The line holding the amount prints another number: it is not this row's cheque line.
+    assert labelled_from_print(_cheque("399", "212.40", "01/06"), printed).description == "399"
+    # A reference column is not a cheque-number column.
+    assert labelled_from_print(_cheque("311", "61.25", "01/14"), printed).description == "311"
+    # Only a description that is a number alone is named; a label already applied stands.
+    assert labelled_from_print(_cheque("FABRICATED STORE", "212.40", "01/06"), printed).description == "FABRICATED STORE"
+    kept = _cheque("Chk 301", "212.40", "01/06", description_label="Chk")
+    assert labelled_from_print(kept, printed) == kept
+    # Without a text layer nothing is named.
+    assert labelled_from_print(_cheque("301", "212.40", "01/06"), PrintedEvidence(native=None)).description == "301"

@@ -149,6 +149,34 @@ def test_invalid_or_incomplete_evidence_never_reaches_analysis(monkeypatch, muta
         pair_adapter.analyze_visual_pair(doc, review_policy="admit_gated")
 
 
+def _with_cut_off_terms_page(doc):
+    from ocr.truncation import PageIntegrity
+    doc.pages.append("FABRICATED TERMS AND CONDITIONS\nIn case of errors or questions about your")
+    doc.page_integrity.append(PageIntegrity(page_index=1, truncated=True, signals=["model_finish_reason_length"],
+                                            finish_reason="length"))
+    return doc
+
+
+def test_a_cut_off_page_without_amounts_named_by_the_evidence_does_not_refuse_the_analysis(monkeypatch):
+    # The page's own text layer prints no amount (vlm/pair.py lists it in cut_off_pages_without_amounts): no
+    # transaction can be missing, and the gate admitted the statement with it.
+    doc = _with_cut_off_terms_page(_doc())
+    doc.visual_pair["cut_off_pages_without_amounts"] = [2]
+    monkeypatch.setattr(pair_adapter, "analyze_document", lambda *a, **k: None)
+    result = pair_adapter.analyze_visual_pair(doc, review_policy="admit_gated")
+    assert result.accounts[0].model_used.endswith("-generic")
+
+
+@pytest.mark.parametrize("named", [None, [], [3]])
+def test_any_other_cut_off_page_leaves_the_page_evidence_incomplete(monkeypatch, named):
+    doc = _with_cut_off_terms_page(_doc())
+    if named is not None:
+        doc.visual_pair["cut_off_pages_without_amounts"] = named
+    monkeypatch.setattr(pair_adapter, "analyze_document", lambda *a, **k: pytest.fail("parser called"))
+    with pytest.raises(pair_adapter.VisualPairAdmissionError, match="page evidence is incomplete"):
+        pair_adapter.analyze_visual_pair(doc, review_policy="admit_gated")
+
+
 def test_printed_column_does_not_override_signed_money():
     raw = deepcopy(_source())
     # A reversal can be printed in the debit column while money enters the

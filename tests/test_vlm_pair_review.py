@@ -411,6 +411,22 @@ def test_a_confirmed_description_observed_with_other_line_breaks_or_spacing_is_t
     assert result.counts["agreed"] == 1 and result.rows[0].description == "Synthetic Exact CASE 0"
 
 
+def test_a_null_printed_date_text_is_no_date_printed():
+    # The reviewer moved a description the proposer had put in the date cell and wrote null for the row's date
+    # text (its day's date is printed once, above): that is "", not an invalid row.
+    rows = [_candidate()]
+    payload = _review(rows)
+    original = candidate_records(rows)[0]["row"]
+    _correct(payload, original, {**original, "date_text": None})
+    payload["reviews"][0]["observed_description"] = original["description"]
+    result = merge_review(rows, payload, page=1)
+    assert result.counts["corrected"] == 1 and result.rows[0].date_text == ""
+    added = _review(rows)
+    added["added"] = [{"row": {**original, "date_text": None, "description": "FABRICATED ADDED"},
+                       "after_candidate_id": None}]
+    assert merge_review(rows, added, page=1).counts["added"] == 1
+
+
 def test_correction_requires_observation_matching_corrected_description():
     rows = [_candidate()]
     payload = _review(rows)
@@ -422,8 +438,10 @@ def test_correction_requires_observation_matching_corrected_description():
     assert "review_description_observation_mismatch" in result.evidence[0]["validation_errors"]
 
 
+# A null date_text is "no date printed on the row's line" (test_a_null_printed_date_text_is_no_date_printed); a
+# number there is still no date text.
 @pytest.mark.parametrize("field,value", [("description", 10), ("amount", "20"), ("direction", None),
-                                         ("date_text", None), ("amount", True), ("bbox", "box")])
+                                         ("date_text", 5), ("amount", True), ("bbox", "box")])
 def test_sparse_correction_field_types_cannot_bypass_full_row_schema(field, value):
     rows = [_candidate()]
     payload = _review(rows)

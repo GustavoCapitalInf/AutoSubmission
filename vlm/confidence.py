@@ -9,9 +9,10 @@ earns half the score. The other half is the mean of the independent evidence tha
 * amounts_printed      share of rows whose amount the PDF's own text layer prints (not applicable to scanned
                        pages: the proposer's reading is where the rows came from, so it cannot corroborate them);
 * two_readers          share of rows two independent sources agree on: confirmed by the reviewer, settled by
-                       the text layer on the row's own lines, a correction that only fills a field the proposer
-                       left empty (a year), or a correction the text layer prints on the row's lines; other
-                       corrections count half and reviewer-only rows zero;
+                       the text layer on the row's own lines, a direction its printed section proves (a proven
+                       summary box's category whose rows add up to it), a correction that only fills a field the
+                       proposer left empty (a year), or a correction the text layer prints on the row's lines;
+                       other corrections count half and reviewer-only rows zero;
 * descriptions_in_text_layer   share of rows whose description's words the text layer prints on the lines of
                        the row's own amount (not applicable to scanned pages);
 * running_balances     share of rows a printed balance proves (its own row and the earlier rows of that day
@@ -130,7 +131,8 @@ def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, r
         components["stated_counts"] = sum(value is True for value in counted) / 2
 
     evidence = {"rows": len(rows), "reviewer_only_rows": 0, "corrected_rows": 0, "completion_only_corrections": 0,
-                "settled_by_text_layer": 0, "amounts_in_text_layer": 0, "text_layer_rows": 0,
+                "settled_by_text_layer": 0, "settled_by_printed_section": 0, "amounts_in_text_layer": 0,
+                "text_layer_rows": 0,
                 "descriptions_in_text_layer": 0, "running_balance_rows": 0, "rows_proven_by_balances": 0}
     readers = []
     for row in rows:
@@ -147,6 +149,9 @@ def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, r
         state, method, completion_only = (tuple(row_states.get((row.page, row.locator), ())) + (None, None, False))[:3]
         if method == "text_layer":
             evidence["settled_by_text_layer"] += 1
+            readers.append(1.0)
+        elif method == "printed_section":
+            evidence["settled_by_printed_section"] += 1
             readers.append(1.0)
         elif state == "agreed":
             readers.append(1.0)

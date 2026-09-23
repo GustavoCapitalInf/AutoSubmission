@@ -61,6 +61,15 @@ def test_a_correction_counts_as_both_readers_only_when_the_page_prints_it():
     assert settled["components"]["two_readers"] == 1.0 and settled["evidence"]["settled_by_text_layer"] == 1
 
 
+def test_a_direction_its_printed_section_proves_counts_as_both_readers():
+    # Both readers took a returned cheque for a cheque paid; the proven summary box's category, whose rows add up
+    # to its printed amount, settled the direction (vlm/summary_box.py, settle_section_directions).
+    rows = [_row("FABRICATED PAYROLL", "2500.00", locator="t0r1")]
+    settled = _score(rows, {(1, "t0r1"): ("agreed", "printed_section", False)})
+    assert settled["components"]["two_readers"] == 1.0
+    assert settled["evidence"]["settled_by_printed_section"] == 1 and settled["evidence"]["settled_by_text_layer"] == 0
+
+
 def test_a_correction_that_only_fills_a_missing_date_counts_as_both_readers():
     # The proposer read "01/05" but the row prints no year; the reviewer's ISO date completes that reading.
     rows = [_row("FABRICATED HARDWAR STORE", "224.50", locator="t0r2")]

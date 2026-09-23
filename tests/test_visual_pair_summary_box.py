@@ -110,8 +110,11 @@ Deposits Returned 50.00
     reasons, occurrences, evidence = [], [], []
     audit = apply_summary_box(account, reasons, occurrences, evidence, [text])
     assert account["stated_total_credits"] == 6000.0 and account["stated_total_debits"] == 5000.0
+    categories = audit.pop("categories")
     assert audit == {"proven": True, "applied": False, "reason": "reviewer_totals_also_balance",
                      "page": 1, "category_lines": 4}
+    assert [item["label"] for item in categories] == ["Deposits and Other Credits", "Withdrawals and Other Debits",
+                                                      "Overdraft Fees", "Deposits Returned"]
     assert evidence == []
 
 
@@ -154,7 +157,10 @@ def test_a_proven_box_supplies_the_totals_and_settles_reviewer_disagreements():
                      "fields": ["stated_credit_count", "stated_debit_count", "stated_total_credits",
                                 "stated_total_debits"],
                      "superseded_reviewer_fields": ["stated_total_credits"], "settled_disagreements": 1,
-                     "counts_from_summary_page": []}
+                     "counts_from_summary_page": [],
+                     "categories": [{"label": "Customer Deposits", "direction": "credit", "amount": 2000.0},
+                                    {"label": "Other Deposits", "direction": "credit", "amount": 10000.5},
+                                    {"label": "Other Withdrawals", "direction": "debit", "amount": 11500.25}]}
     assert {"field": "stated_total_credits", "page": 1, "source": "summary_box", "value": 12000.5} in evidence
 
 
@@ -201,3 +207,157 @@ def test_a_table_read_by_the_proposer_gives_one_line_per_row():
     assert "Deposits 3 600.00" in lines
     proof = prove_summary_box(["\n".join(lines)], beginning=Decimal("1000"), ending=Decimal("1500"))
     assert proof is not None and proof.stated_total_credits == Decimal("600.00")
+
+
+# A box that prints each line's arithmetic sign after its figure, as some banks do. The ending is overdrawn:
+# 2,000.00 + 5,000.00 + 0.00 + 900.00 - 6,500.00 - 40.00 - 1,700.00 = -340.00, printed "$340.00 -".
+SIGNED_STYLE = """FABRICATED BUSINESS CHECKING
+SUMMARY
+Beginning Balance $2,000.00
+Deposits & Credits $5,000.00 +
+Withdrawals $6,500.00 -
+Fees $40.00 -
+Automatic Transfers $0.00 +
+Returned Checks $900.00 +
+Checks $1,700.00 -
+Ending Balance $340.00 -
+Minimum Daily Balance $1,200 -
+Average Monthly Statement Balance $800
+"""
+
+
+def test_a_sign_printed_after_the_figure_is_the_lines_direction_whatever_its_words():
+    proof = prove_summary_box([SIGNED_STYLE], beginning=Decimal("2000"), ending=Decimal("-340"))
+    assert proof is not None and proof.line_count == 6
+    assert proof.stated_total_credits == Decimal("5900.00") and proof.stated_total_debits == Decimal("8240.00")
+    # "Returned Checks ... +" adds to the balance although "checks" is a debit word; "Automatic Transfers"
+    # names no direction and its printed sign makes it a category.
+    assert ("Returned Checks", "credit", Decimal("900.00")) in proof.categories
+    assert ("Automatic Transfers", "credit", Decimal("0.00")) in proof.categories
+    assert proof.ending_balance == Decimal("-340")
+
+
+def test_a_balance_sign_the_reader_dropped_is_restored_only_by_a_box_that_balances_with_it():
+    # The reader took the overdrawn "$340.00 -" for 340.00: only the printed sign balances the box.
+    proof = prove_summary_box([SIGNED_STYLE], beginning=Decimal("2000"), ending=Decimal("340"))
+    assert proof is not None and proof.ending_balance == Decimal("-340.00")
+    # A box that does not balance with its printed signs either proves nothing.
+    unbalanced = SIGNED_STYLE.replace("Fees $40.00 -", "Fees $41.00 -")
+    assert prove_summary_box([unbalanced], beginning=Decimal("2000"), ending=Decimal("340")) is None
+    # A figure printed negative and signed again cannot be told.
+    doubled = SIGNED_STYLE.replace("Fees $40.00 -", "Fees -$40.00 -")
+    assert prove_summary_box([doubled], beginning=Decimal("2000"), ending=Decimal("-340")) is None
+
+
+def test_a_proven_signed_box_restores_the_ending_sign_and_the_totals():
+    from vlm.pair import apply_summary_box
+    # The reviewer read the first category of each side as the totals and the ending without its minus.
+    account = {"beginning_balance": 2000.0, "ending_balance": 340.0, "stated_total_credits": 5000.0,
+               "stated_total_debits": 6500.0}
+    reasons, occurrences, evidence = [], [], []
+    audit = apply_summary_box(account, reasons, occurrences, evidence, [SIGNED_STYLE])
+    assert account["ending_balance"] == -340.0 and account["beginning_balance"] == 2000.0
+    assert account["stated_total_credits"] == 5900.0 and account["stated_total_debits"] == 8240.0
+    assert audit["superseded_reviewer_fields"] == ["ending_balance", "stated_total_credits", "stated_total_debits"]
+    assert {"field": "ending_balance", "page": 1, "source": "summary_box", "value": -340.0} in evidence
+    # Nothing changes when the box does not balance.
+    account = {"beginning_balance": 2000.0, "ending_balance": 340.0}
+    assert apply_summary_box(account, [], [], [], [SIGNED_STYLE.replace("$900.00 +", "$901.00 +")]) is None
+    assert account["ending_balance"] == 340.0
+
+
+SECTION_PAGE_1 = SIGNED_STYLE + """DEPOSITS & CREDITS
+01/02 FABRICATED CUSTOMER DEPOSIT 5,000.00
+Total Deposits & Credits $5,000.00
+WITHDRAWALS
+01/03 FABRICATED SUPPLIER PAYMENT 6,500.00
+Total Withdrawals $6,500.00
+FEES
+01/05 FABRICATED ITEM FEE 40.00
+Total Fees $40.00
+RETURNED CHECKS
+01/06 Credit-Returned Ck# 101 400.00
+"""
+SECTION_PAGE_2 = """RETURNED CHECKS (CONTINUED)
+01/07 Credit-Returned Ck# 102 500.00
+Total Returned Checks $900.00
+CHECKS
+Date Check No. Amount
+01/04 101 400.00
+01/04 102 500.00
+01/05 103 800.00
+Total Checks $1,700.00
+"""
+
+
+def _section_rows():
+    from vlm.assemble import CandidateRow
+
+    def row(page, locator, date_text, description, amount, direction):
+        return CandidateRow(f"2031-{date_text.replace('/', '-')}", date_text, description, Decimal(amount), direction,
+                            None, page, "stage_b", locator)
+    # The returned cheque on page 1 was read as a cheque paid; its continuation on page 2 as a credit.
+    return [row(1, "b1l0", "01/02", "FABRICATED CUSTOMER DEPOSIT", "5000.00", "credit"),
+            row(1, "b2l0", "01/03", "FABRICATED SUPPLIER PAYMENT", "6500.00", "debit"),
+            row(1, "b3l0", "01/05", "FABRICATED ITEM FEE", "40.00", "debit"),
+            row(1, "b4l0", "01/06", "Credit-Returned Ck# 101", "400.00", "debit"),
+            row(2, "b0l0", "01/07", "Credit-Returned Ck# 102", "500.00", "credit"),
+            row(2, "b1t0r1", "01/04", "101", "400.00", "debit"),
+            row(2, "b1t0r2", "01/04", "102", "500.00", "debit"),
+            row(2, "b1t0r3", "01/05", "103", "800.00", "debit")]
+
+
+def _categories():
+    proof = prove_summary_box([SIGNED_STYLE], beginning=Decimal("2000"), ending=Decimal("-340"))
+    return [{"label": label, "direction": direction, "amount": float(value)}
+            for label, direction, value in proof.categories]
+
+
+def _printed(page_1=SECTION_PAGE_1, page_2=SECTION_PAGE_2):
+    from vlm.native_text import PrintedEvidence
+    return [PrintedEvidence(native=page_1), PrintedEvidence(native=page_2)]
+
+
+def test_rows_under_a_proven_categorys_heading_that_add_up_to_it_take_its_direction():
+    from vlm.summary_box import settle_section_directions
+    rows, audit = settle_section_directions(_section_rows(), _printed(), _categories())
+    assert rows[3].direction == "credit" and rows[3].direction_source == "printed_section"
+    assert [row.direction for row in rows] == ["credit", "debit", "debit", "credit", "credit", "debit", "debit",
+                                               "debit"]
+    assert audit["settled_rows"] == [{"page": 1, "locator": "b4l0", "section": "returned checks", "read": "debit",
+                                      "settled": "credit"}]
+    returned = next(item for item in audit["sections"] if item["section"] == "returned checks")
+    assert returned == {"section": "returned checks", "direction": "credit", "rows": 2, "sums_to_category": True,
+                        "column_conflicts": 0, "settled": 1}
+    # The cheques paid, with the same amounts, stay under their own heading.
+    checks = next(item for item in audit["sections"] if item["section"] == "checks")
+    assert checks["rows"] == 3 and checks["sums_to_category"] and checks["settled"] == 0
+
+
+def test_a_section_that_does_not_add_up_or_is_read_from_a_labelled_column_changes_nothing():
+    from dataclasses import replace
+
+    from vlm.native_text import PrintedEvidence
+    from vlm.summary_box import settle_section_directions
+    # The category's printed amount is not the section's rows: they are not all of it, or not only it.
+    short = [dict(item, amount=950.0) if item["label"] == "Returned Checks" else item for item in _categories()]
+    rows, audit = settle_section_directions(_section_rows(), _printed(), short)
+    assert rows[3].direction == "debit" and audit["settled_rows"] == []
+    # A direction printed by a labelled debit column is the row's own evidence: the section stays as read.
+    columned = _section_rows()
+    columned[3] = replace(columned[3], printed_amount=Decimal("400.00"), direction_source="column")
+    rows, audit = settle_section_directions(columned, _printed(), _categories())
+    assert rows[3].direction == "debit" and audit["settled_rows"] == []
+    # A page without a text layer ends the heading: the continuation's rows cannot be placed, and the rows that
+    # can do not add up to the category.
+    rows, audit = settle_section_directions(_section_rows(), [_printed()[0], PrintedEvidence(native=None)],
+                                            _categories())
+    assert rows[3].direction == "debit" and audit["settled_rows"] == []
+
+
+def test_only_a_heading_printed_as_the_categorys_label_names_its_section():
+    from vlm.summary_box import settle_section_directions
+    page_1 = SECTION_PAGE_1.replace("RETURNED CHECKS\n", "RETURNED CHECKS AND ADJUSTMENTS\n")
+    page_2 = SECTION_PAGE_2.replace("RETURNED CHECKS (CONTINUED)", "RETURNED CHECKS AND ADJUSTMENTS (CONTINUED)")
+    rows, audit = settle_section_directions(_section_rows(), _printed(page_1, page_2), _categories())
+    assert rows[3].direction == "debit" and audit["settled_rows"] == []

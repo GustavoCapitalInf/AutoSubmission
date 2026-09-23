@@ -270,6 +270,9 @@ def _review_entry(original: dict, item: dict, *, candidate_id: str):
                 errors.append("review_original_mismatch")
             if "corrected" in change:
                 corrected[field] = copy.deepcopy(change["corrected"])
+                if field == "date_text" and corrected[field] is None:
+                    # No date printed on the row's line (a date printed once for the day): the schema's "".
+                    corrected[field] = ""
         if len(fields) != len(set(fields)):
             errors.append("review_duplicate_correction_field")
         errors.extend(_row_errors(corrected, label=candidate_id))
@@ -404,6 +407,9 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
     addition_schema = PAGE_REVIEW_SCHEMA["properties"]["added"]["items"]
     for index, item in enumerate(data["added"]):
         codes = []
+        if isinstance(item, dict) and isinstance(item.get("row"), dict) and item["row"].get("date_text", "") is None:
+            # A reviewer writes null where the row prints no date (a date printed once for the day): "".
+            item = {**item, "row": {**item["row"], "date_text": ""}}
         if not jsonschema.Draft202012Validator(addition_schema).is_valid(item):
             codes.append("review_addition_schema_invalid")
         else:

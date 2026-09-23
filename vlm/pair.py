@@ -233,6 +233,9 @@ def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evi
     proof = prove_summary_box(pages, beginning=account.get('beginning_balance'), ending=account.get('ending_balance'))
     if proof is None:
         return None
+    # The box's lines, for the sections they name (settle_section_directions).
+    categories = [{'label': label, 'direction': direction, 'amount': float(value)}
+                  for label, direction, value in proof.categories]
     reviewer = [account.get(field) for field in ('stated_total_credits', 'stated_total_debits')]
     if None not in reviewer:
         credits, debits = (Decimal(str(value)) for value in reviewer)
@@ -240,12 +243,17 @@ def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evi
                     == Decimal(str(account['ending_balance'])))
         if balances and (credits, debits) != (proof.stated_total_credits, proof.stated_total_debits):
             return {'proven': True, 'applied': False, 'reason': 'reviewer_totals_also_balance',
-                    'page': proof.page, 'category_lines': proof.line_count}
+                    'page': proof.page, 'category_lines': proof.line_count, 'categories': categories}
     proven = {}
     for field in _SUMMARY_FIELDS:
         value = getattr(proof, field)
         if value is not None:
             proven[field] = float(value) if isinstance(value, Decimal) else value
+    # A balance the box balances only with its printed sign ("$5.00 -", overdrawn) was read without it.
+    for field in ('beginning_balance', 'ending_balance'):
+        value = getattr(proof, field)
+        if value is not None and Decimal(str(account[field])) != value:
+            proven[field] = float(value)
     superseded = sorted(field for field, value in proven.items()
                         if account.get(field) is not None and Decimal(str(account[field])) != Decimal(str(value)))
     account.update(proven)
@@ -271,7 +279,7 @@ def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evi
                           for field, value in proven.items())
     return {'proven': True, 'applied': True, 'page': proof.page, 'category_lines': proof.line_count,
             'fields': sorted(proven), 'superseded_reviewer_fields': superseded, 'settled_disagreements': len(settled),
-            'counts_from_summary_page': counts_from_summary_page}
+            'counts_from_summary_page': counts_from_summary_page, 'categories': categories}
 
 
 _PAGE_FIGURES = {"stated_total_credits": ("credit", "sum"), "stated_total_debits": ("debit", "sum"),
@@ -632,8 +640,18 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         printed_pages=printed_pages,
     )
     rows = list(dates.rows)
+    # A cheque read as its number alone is named by the cheque-number column its page's text layer prints it under.
+    from vlm.assemble import labelled_from_print
+    rows = [labelled_from_print(row, printed_pages[row.page - 1] if printed_pages and 0 < row.page <= len(printed_pages)
+                                else None) for row in rows]
     # Each later page's own totals, read as the statement's, are that page's subtotals when its rows prove them.
     page_subtotals = settle_page_subtotals(reasons, occurrences, field_evidence, rows)
+    # A proven summary box names its sections: the rows printed under one, adding up to its printed amount, move
+    # the balance its way (a "Returned Checks ... +" section read as cheques paid).
+    section_directions = None
+    if summary_box is not None and summary_box.get('categories'):
+        from vlm.summary_box import settle_section_directions
+        rows, section_directions = settle_section_directions(rows, printed_pages, summary_box['categories'])
     # A mid-day figure at a page break is not the day's close when no later page prints one.
     page_break_dates = page_break_figures(merges, rows)
     daily = [item for item in daily if item['date'] not in page_break_dates]
@@ -723,6 +741,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     row_states = {(item['page'], item['locator']): (item['state'], (item.get('resolution') or {}).get('method'),
                                                     completion_only(item))
                   for merged in merges for item in merged.evidence}
+    for item in (section_directions or {}).get('settled_rows', ()):
+        state = row_states.get((item['page'], item['locator']), (None,))
+        row_states[(item['page'], item['locator'])] = (state[0], 'printed_section', False)
     confidence.update(statement_confidence(
         admitted=admitted and confidence['gate_admitted'], checks=checks, account=account,
         rows=verdict.admitted_rows if admitted else rows, row_states=row_states, printed_pages=printed_pages,
@@ -770,6 +791,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     audit['cheque_image_rows_excluded'] = cheque_rows_excluded
     audit['ledger_echo_pages'] = [merged.page for merged in merges if merged.ledger_echo]
     audit['summary_box'] = summary_box
+    audit['section_directions'] = section_directions
     audit['page_subtotal_pages'] = page_subtotals
     audit['cut_off_pages_without_amounts'] = sorted(page for page in moneyless_pages if truncated[page - 1])
     audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)

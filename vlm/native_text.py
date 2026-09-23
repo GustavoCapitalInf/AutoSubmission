@@ -55,6 +55,8 @@ _ROW_START = re.compile(rf"^(?:\d{{1,2}}[/-]\d{{1,2}}(?:[/-]\d{{2,4}})?(?!\S)|\d
                         rf"\d{{4}}-\d{{2}}-\d{{2}}(?!\S)|{_MONTH}\s+\d{{1,2}},?(?!\S)|\d{{1,2}}\s+{_MONTH}(?!\S))",
                         re.I)
 _TOKEN = re.compile(r"\S+")
+# A cheque-number column header inside a printed header line ("Date Check No. Amount", "Chk # Paid").
+_CHEQUE_COLUMN = re.compile(r"\b(?P<word>check|cheque|chk)s?\s*(?:no\.?|nbr\.?|num\.?|number|#)(?!\w)", re.IGNORECASE)
 
 
 _LINE_BREAK = re.compile(r"<br\s*/?>", re.IGNORECASE)
@@ -164,6 +166,40 @@ class PrintedEvidence:
         return [(line, [(match.group(0), match.start(), match.end()) for match in _TOKEN.finditer(line)
                         if match.group(0) not in _BULLETS])
                 for line in (self.native or "").splitlines()]
+
+    @property
+    def text_lines(self) -> list[str]:
+        """The text layer's lines, in printed order (none without a text layer)."""
+        return [line for line, _ in self._lines]
+
+    def cheque_column_word(self, number: str, amount, date_text=None, balance=None) -> str | None:
+        """The printed word naming the cheque-number column a cheque read as its number alone sits in ("Check"
+        from a "Date Check No. Amount" header): the line directly above the run of amount lines that holds every
+        line of this row, each of which prints the number. None when the row's lines cannot be told, or the header
+        names no cheque-number column. A table printed two-up in the image is a column group at a time here, each
+        under its own header."""
+        lines = self.row_line_numbers(amount, date_text, balance)
+        if not lines:
+            return None
+        words = set()
+        for line in lines:
+            if number not in self._native_lines[line]:
+                return None
+            top = line
+            while top > 0 and self._line_spans[top - 1]:
+                top -= 1
+            match = _CHEQUE_COLUMN.search(self._lines[top - 1][0]) if top > 0 else None
+            if match is None:
+                return None
+            words.add(match.group("word"))
+        return words.pop() if len(words) == 1 else None
+
+    def row_line_numbers(self, amount, date_text=None, balance=None) -> list[int] | None:
+        """The text-layer lines that are this row's: its amount's printed occurrences, told apart by the row's
+        balance and date as _anchor_lines measures them (several for same-day twins). None when nothing told
+        them apart, empty when the amount is printed nowhere."""
+        anchors = self._anchor_lines(amount, date_text, balance, strict=False)
+        return None if anchors is None else sorted({line for line, _ in anchors})
 
     @cached_property
     def _native_lines(self) -> list[list[str]]:

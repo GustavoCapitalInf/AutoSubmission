@@ -57,6 +57,17 @@ def labelled_description(row: CandidateRow) -> CandidateRow:
     return row
 
 
+def labelled_from_print(row: CandidateRow, printed) -> CandidateRow:
+    """A cheque read as its number alone, with no column label from the proposer's table (a two-up cheque table
+    read as one row per line, or a row the reviewer added), named by the cheque-number column the page's text
+    layer prints it under (PrintedEvidence.cheque_column_word). Anything else is left as it is."""
+    bare = row.description.strip()
+    if row.description_label or printed is None or not _BARE_CHEQUE_NUMBER.fullmatch(bare):
+        return row
+    word = printed.cheque_column_word(bare.lstrip("#").rstrip("*").strip(), row.amount, row.date_text, row.balance)
+    return labelled_description(replace(row, description_label=word)) if word else row
+
+
 def published_row(row: CandidateRow) -> CandidateRow:
     """A reviewed row as the ledger publishes it: its description on one line (a line-break tag or newline
     inside a printed cell is layout, not text; vlm.native_text.spaced), then labelled_description."""

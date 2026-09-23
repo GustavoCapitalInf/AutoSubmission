@@ -13,6 +13,16 @@ exactly, to the cent, with this statement's beginning and ending balance. The st
 are then the sums of those printed lines: arithmetic by the application over printed figures, never by a
 model. Every category line of the box is used (no subset is searched for), so an accidental proof needs an
 exact coincidence. A line whose direction cannot be told, or a box that does not balance, proves nothing.
+
+Some boxes print each line's arithmetic sign after its figure ("Returned Checks $17.00 +", "Fees $3.00 -",
+"Ending Balance $5.00 -" when overdrawn). The printed sign is the line's direction, whatever its words say, and
+a balance's printed minus is its own. When only the printed signs balance the box, the reader dropped a sign
+(an overdrawn ending read as positive) and the proof restores it.
+
+A proven box also names its sections: a heading printed on the transaction pages exactly as a category's label
+("RETURNED CHECKS", "Returned Checks (continued)") heads that category's rows. When the rows printed under it
+add up to the category's printed amount to the cent, each of them moves the balance the category's way
+(settle_section_directions).
 """
 from __future__ import annotations
 
@@ -26,8 +36,11 @@ from vlm.tables import parse_html_tables
 from vlm.textparse import parse_money
 
 _AMOUNT = r"\(?-?\$?\s?\d{1,3}(?:,\d{3})*\.\d{2}\)?-?|\(?-?\$?\s?\d+\.\d{2}\)?-?"
+# A sign printed after the figure, apart from it ("$53.00 +", "$65.00 -"); a minus joined to it is the amount's.
 _CATEGORY = re.compile(
-    rf"^(?P<label>[A-Za-z][A-Za-z &/,'().-]{{1,60}}?)\s+(?:(?P<count>\d{{1,4}})\s+)?(?P<amount>{_AMOUNT})$")
+    rf"^(?P<label>[A-Za-z][A-Za-z &/,'().-]{{1,60}}?)\s+(?:(?P<count>\d{{1,4}})\s+)?(?P<amount>{_AMOUNT})"
+    r"(?:\s+(?P<sign>[+\-−]))?$")
+_TRAILING_MINUS = re.compile(r"\s*[-−]\s*$")
 _CREDIT_WORDS = re.compile(r"\b(?:deposits?|credits?|additions?|interest (?:paid|earned)|dividends?)\b", re.I)
 _DEBIT_WORDS = re.compile(r"\b(?:withdrawals?|debits?|checks?|cheques?|fees?|charges?|subtractions?|payments?|"
                           r"purchases?|interest charged)\b", re.I)
@@ -43,6 +56,12 @@ class SummaryProof:
     stated_credit_count: int | None
     stated_debit_count: int | None
     line_count: int
+    # The balances the box proves: the statement's as read, or the printed ones when only their printed signs
+    # balance the box.
+    beginning_balance: Decimal | None = None
+    ending_balance: Decimal | None = None
+    # (label, direction, magnitude) of every category line, in printed order.
+    categories: tuple = ()
 
 
 def page_lines(native: str | None, blocks=()) -> list[str]:
@@ -68,30 +87,38 @@ def _balance(text: str, pattern: re.Pattern) -> Decimal | None:
     for token in MONEY_TOKEN.finditer(text, match.end()):
         value = parse_money(token.group(0).strip())
         if value is not None:
+            # A minus printed apart after the figure, closing the line, is the balance's ("$5.00 -", overdrawn).
+            if value > 0 and _TRAILING_MINUS.fullmatch(text[token.end():]):
+                value = -value
             return value
     return None
 
 
-def _category(text: str) -> tuple[str | None, Decimal, int | None] | None:
-    """(direction or None when it cannot be told, magnitude, printed count) for a category line; None when the
-    line is not one."""
+def _category(text: str) -> tuple[str | None, Decimal, int | None, str] | None:
+    """(direction or None when it cannot be told, magnitude, printed count, label) for a category line; None
+    when the line is not one. A sign printed after the figure is the line's direction, whatever its words say
+    ("Returned Checks $17.00 +" adds to the balance), and makes a line without a direction word a category."""
     match = _CATEGORY.match(text)
     if not match or _NOT_CATEGORY.search(match.group("label")):
         return None
-    label, amount_text = match.group("label"), match.group("amount").strip()
+    label, amount_text, sign = match.group("label"), match.group("amount").strip(), match.group("sign")
     credit_word, debit_word = bool(_CREDIT_WORDS.search(label)), bool(_DEBIT_WORDS.search(label))
-    if not credit_word and not debit_word:
+    if not credit_word and not debit_word and sign is None:
         return None
     value = parse_money(amount_text)
     if value is None:
         return None
     negative = amount_text.endswith("-") or amount_text.startswith(("-", "(")) or value < 0
+    count = int(match.group("count")) if match.group("count") else None
+    if sign is not None:
+        # A figure printed negative and signed again cannot be told.
+        direction = None if negative else "credit" if sign == "+" else "debit"
+        return direction, abs(value), count, label
     if negative:
         direction = "debit" if not (credit_word and not debit_word) else None
     else:
         direction = "credit" if credit_word and not debit_word else "debit" if debit_word and not credit_word else None
-    count = int(match.group("count")) if match.group("count") else None
-    return direction, abs(value), count
+    return direction, abs(value), count, label
 
 
 def _box(texts: list[str], start: int):
@@ -148,18 +175,25 @@ def _box_proof(number, box, beginning: Decimal, ending: Decimal) -> SummaryProof
         return None
     # A box prints a count on every category line or on none. An uncounted line among counted ones is not the
     # box's own line (a fee or a returned item printed just under it), and two such lines can cancel out.
-    if len({printed is None for _, _, printed in categories}) > 1:
+    if len({printed is None for _, _, printed, _ in categories}) > 1:
         return None
-    credits = sum((value for direction, value, _ in categories if direction == "credit"), Decimal("0"))
-    debits = sum((value for direction, value, _ in categories if direction == "debit"), Decimal("0"))
-    if beginning + credits - debits != ending:
+    credits = sum((value for direction, value, _, _ in categories if direction == "credit"), Decimal("0"))
+    debits = sum((value for direction, value, _, _ in categories if direction == "debit"), Decimal("0"))
+    # The statement's balances as read, else as printed: a sign the reader dropped (an overdrawn ending printed
+    # "$5.00 -" read as 5.00) is restored when only the printed signs balance the box.
+    if beginning + credits - debits == ending:
+        opening, closing = beginning, ending
+    elif begin + credits - debits == end:
+        opening, closing = begin, end
+    else:
         return None
 
     def count(direction):
-        counts = [printed for side, _, printed in categories if side == direction]
+        counts = [printed for side, _, printed, _ in categories if side == direction]
         return sum(counts) if counts and all(printed is not None for printed in counts) else None
 
-    return SummaryProof(number, credits, debits, count("credit"), count("debit"), len(categories))
+    return SummaryProof(number, credits, debits, count("credit"), count("debit"), len(categories), opening, closing,
+                        tuple((label, direction, value) for direction, value, _, label in categories))
 
 
 def prove_summary_box(page_texts, *, beginning, ending) -> SummaryProof | None:
@@ -176,3 +210,84 @@ def prove_summary_box(page_texts, *, beginning, ending) -> SummaryProof | None:
         if proof is not None:
             return proof
     return None
+
+
+_CONTINUED = re.compile(r"\s*(?:\((?:continued|cont'd|cont\.?)\)|-?\s*continued)$")
+_TOTAL_LINE = re.compile(rf"^total\s+(?P<label>.+?)\s+(?:{_AMOUNT})(?:\s+[+\-−])?$")
+_CENT = Decimal("0.01")
+
+
+def _heading_key(text) -> str:
+    """A printed line or a category label as a section title: case, spacing, a closing colon and a
+    "(continued)" left out."""
+    key = " ".join(str(text or "").split()).lower()
+    return _CONTINUED.sub("", key).strip().rstrip(":").strip()
+
+
+def settle_section_directions(rows, printed_pages, categories):
+    """Rows printed under a heading that is a proven category's label ("RETURNED CHECKS" under the box line
+    "Returned Checks $17.00 +") move the balance the category's way, when that section's rows add up to the
+    category's printed amount to the cent.
+
+    A row is in a section when every text-layer line that is this row's (PrintedEvidence.row_line_numbers) lies
+    under that heading. A heading holds until the next one or its own "Total ..." line, across pages; a page
+    without a text layer ends it. A section whose rows do not add up to the category's amount, or holding a row
+    whose direction a labelled debit or credit column printed the other way, changes nothing: the gate then
+    judges the rows as read. Returns (rows, audit)."""
+    from dataclasses import replace
+
+    labels: dict[str, set] = {}
+    for item in categories or ():
+        if item.get("direction") in ("credit", "debit"):
+            labels.setdefault(_heading_key(item["label"]), set()).add(
+                (item["direction"], Decimal(str(item["amount"])).quantize(_CENT)))
+    # A label the box prints twice with different figures names no one section.
+    labels = {key: next(iter(found)) for key, found in labels.items() if key and len(found) == 1}
+    audit = {"sections": [], "settled_rows": []}
+    rows = list(rows)
+    if not labels or not rows:
+        return rows, audit
+    under: list[list | None] = []
+    current = None
+    for evidence in printed_pages or ():
+        if evidence is None or not evidence.native:
+            under.append(None)
+            current = None
+            continue
+        page = []
+        for line in evidence.text_lines:
+            key = _heading_key(line)
+            if key in labels:
+                current = key
+            page.append(current)
+            total = _TOTAL_LINE.match(key)
+            if total and _heading_key(total.group("label")) == current:
+                current = None
+        under.append(page)
+    members: dict[str, list[int]] = {}
+    for index, row in enumerate(rows):
+        page = under[row.page - 1] if 0 < row.page <= len(under) else None
+        if page is None:
+            continue
+        lines = printed_pages[row.page - 1].row_line_numbers(row.amount, row.date_text, row.balance)
+        sections = {page[line] for line in lines or ()}
+        if len(sections) == 1 and None not in sections:
+            members.setdefault(sections.pop(), []).append(index)
+    settled = list(rows)
+    for key, indexes in members.items():
+        direction, amount = labels[key]
+        total = sum((rows[index].amount for index in indexes), Decimal("0")).quantize(_CENT)
+        contrary = [index for index in indexes if rows[index].direction != direction]
+        columned = [index for index in contrary if rows[index].printed_amount is not None]
+        proven = total == amount and not columned
+        audit["sections"].append({"section": key, "direction": direction, "rows": len(indexes),
+                                  "sums_to_category": total == amount, "column_conflicts": len(columned),
+                                  "settled": len(contrary) if proven else 0})
+        if not proven:
+            continue
+        for index in contrary:
+            row = rows[index]
+            settled[index] = replace(row, direction=direction, direction_source="printed_section")
+            audit["settled_rows"].append({"page": row.page, "locator": row.locator, "section": key,
+                                          "read": row.direction, "settled": direction})
+    return settled, audit

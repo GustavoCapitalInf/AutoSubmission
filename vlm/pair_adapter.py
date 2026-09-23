@@ -178,8 +178,12 @@ def analyze_visual_pair(
     if (not isinstance(counts, dict) or counts.get("unresolved") != 0
             or confidence.get("gate_admitted") is not True):
         _refuse("visual pair review is incomplete")
+    # A cut-off read of a page whose own PDF text layer prints no amount (terms, disclosures) cannot be missing a
+    # transaction: the gate admitted the statement with it (owner ruling, 2026-09-23) and the evidence names it.
+    # Any other cut-off page leaves the page evidence incomplete.
+    cut_off = {index + 1 for index, item in enumerate(doc.page_integrity) if item.truncated}
     if (not doc.pages or len(doc.page_integrity) != len(doc.pages)
-            or doc.has_truncated_pages):
+            or not cut_off <= set(evidence.get("cut_off_pages_without_amounts") or ())):
         _refuse("visual pair page evidence is incomplete")
     statement = _source_statement(evidence.get("statement"),
                                   currency_resolution=evidence.get("currency_resolution"))
