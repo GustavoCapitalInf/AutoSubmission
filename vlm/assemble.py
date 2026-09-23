@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from vlm.tables import ColumnMap, classify_columns, parse_html_tables, unfold_side_by_side
-from vlm.textparse import is_date_like, parse_date, parse_money
+from vlm.textparse import is_date_like, month_number, parse_date, parse_money
 
 # Balance lines as French statements print them: solde reporté / précédent / antérieur / d'ouverture / de
 # fermeture / de clôture, ancien / nouveau solde (accents optional in a proposer's or reviewer's reading).
@@ -133,19 +133,47 @@ def _description_cells(row: list[str], colmap: ColumnMap) -> str:
                     if index not in value_columns and cell.strip())
 
 
+# A printed date's shape, beyond is_date_like: "DEC31", "Mar05", "5-Mar", "05-MAR-26", "03.05.2026", "2026/03/05".
+_DATE_SHAPE = re.compile(r"^(?:\d{1,4}[-/. ]\d{1,2}(?:[-/. ]\d{2,4})?"
+                         r"|\d{1,2}[-/. ]?(?P<m1>[A-Za-z]{3,9})\.?(?:[-/., ]+\d{2,4})?"
+                         r"|(?P<m2>[A-Za-z]{3,9})\.?[-/. ]?\d{1,2}(?:[-/., ]+\d{2,4})?)$")
+
+
+def _looks_like_date(text: str) -> bool:
+    """Whether a cell prints a date in any common shape (a month named by a month name)."""
+    text = " ".join(str(text or "").split())
+    if is_date_like(text):
+        return True
+    match = _DATE_SHAPE.fullmatch(text)
+    if not match:
+        return False
+    month = match.group("m1") or match.group("m2")
+    return month is None or month_number(month) is not None
+
+
 def _restored_date_cell(row: list[str], colmap: ColumnMap, width: int) -> list[str]:
     """A row printed without its date (the date printed once for the day) that the proposer wrote without the
-    empty date cell: exactly one cell short of the header whose first column is the date, its first cell no
-    date. Every cell then sits one column left (a credit in the debit column, a balance as the amount), so the
-    empty date cell is put back. Any other row is returned as it is."""
-    if (colmap.date == 0 and width and len(row) == width - 1 and row and row[0].strip()
-            and not is_date_like(row[0])):
-        return ["", *row]
-    return row
+    empty date cell: exactly one cell short of the header whose first column is the date, its first cell text
+    that is no date in any shape. Every cell then sits one column left (a credit in the debit column, a balance
+    as the amount), so the empty date cell is put back, provided the restored row reads as a row: a description
+    that is no figure, and every money column empty or a figure, one at least. Any other row is returned as it
+    is (a row missing another cell, a compact date the proposer left in place)."""
+    if not (colmap.date == 0 and width and len(row) == width - 1 and row and row[0].strip()
+            and not _looks_like_date(row[0])):
+        return row
+    restored = ["", *row]
+    money = [_cell(restored, column) for column in (colmap.debit, colmap.credit, colmap.amount, colmap.balance)
+             if column is not None]
+    description = _cell(restored, colmap.description) if colmap.description is not None else restored[1].strip()
+    if (not description or parse_money(description) is not None
+            or any(cell and parse_money(cell) is None for cell in money) or not any(money)):
+        return row
+    return restored
 
 
 def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table_index: int,
-                   year_hint: int | None = None, day_first: bool = False) -> list[CandidateRow]:
+                   year_hint: int | None = None, day_first: bool = False,
+                   carry_dates: bool = True) -> list[CandidateRow]:
     if colmap.balance is None and colmap.amount is None and colmap.debit is None and colmap.credit is None:
         return []
     head = (grid[colmap.header_row] if colmap.header_row is not None and colmap.header_row < len(grid)
@@ -182,7 +210,9 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
         date_text = _cell(row, colmap.date)
         date = parse_date(date_text, year_hint=year_hint, day_first=day_first) if date_text else None
         if date is None and not date_text:
-            date = last_date
+            # A row printing no date is the day of the row above; not in a table printed k-up (unfolded), where
+            # the row above can be the neighbouring column group's.
+            date = last_date if carry_dates else None
         else:
             last_date = date or last_date
         if debit is not None:
@@ -232,9 +262,10 @@ def rows_from_blocks(blocks: list[Block], *, year_hint: int | None = None, day_f
             heading = section_direction(block.content) if block.label in ("text", "paragraph_title", "doc_title", "header") else heading
             continue
         for grid in parse_html_tables(block.content):
-            grid = unfold_side_by_side(grid)
-            table_rows = rows_from_grid(grid, classify_columns(grid), page=block.page, table_index=table_index,
-                                        year_hint=year_hint, day_first=day_first)
+            unfolded = unfold_side_by_side(grid)
+            table_rows = rows_from_grid(unfolded, classify_columns(unfolded), page=block.page,
+                                        table_index=table_index, year_hint=year_hint, day_first=day_first,
+                                        carry_dates=unfolded is grid)
             if heading is not None:
                 table_rows = [replace(r, direction=heading, direction_source="section") if r.direction == "unknown" else r
                               for r in table_rows]
@@ -404,10 +435,11 @@ def parse_dots_layout(raw: str | list | dict, *, page: int, width: int, height: 
             grids = parse_html_tables(block.content, preserve_whitespace=True) or ([markdown] if markdown else [])
             for index, grid in enumerate(grids):
                 grid, title = _spanning_title(grid)
-                grid = unfold_side_by_side(grid)
-                columns = classify_columns(grid, headerless_transaction_amount=not balance_section)
-                for row in rows_from_grid(grid, columns, page=page, table_index=index,
-                                          year_hint=year_hint, day_first=day_first):
+                unfolded = unfold_side_by_side(grid)
+                columns = classify_columns(unfolded, headerless_transaction_amount=not balance_section)
+                for row in rows_from_grid(unfolded, columns, page=page, table_index=index,
+                                          year_hint=year_hint, day_first=day_first,
+                                          carry_dates=unfolded is grid):
                     if row.direction == "unknown" and (title or heading):
                         row = replace(row, direction=title or heading, direction_source="section")
                     rows.append(replace(row, locator=f"b{block.order}{row.locator}", bbox=block.bbox))

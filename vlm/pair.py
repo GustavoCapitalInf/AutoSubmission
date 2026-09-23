@@ -331,6 +331,17 @@ def previous_balance_period_start(account: dict, reasons: list, occurrences: lis
     return {'period_start': start, 'page': page, 'settled_holds': len(settled)}
 
 
+def section_row_states(row_states: dict, section_directions: dict | None) -> None:
+    """A direction its printed section proved (settle_section_directions) corroborates a row both readers
+    produced (agreed or corrected): its confidence method becomes printed_section. A reviewer-only row stays
+    single-reader, and a row the text layer already settled keeps that. Mutates row_states in place."""
+    for item in (section_directions or {}).get('settled_rows', ()):
+        key = (item['page'], item['locator'])
+        state = tuple(row_states.get(key, ())) + (None, None, False)
+        if state[0] in ('agreed', 'corrected') and state[1] is None:
+            row_states[key] = (state[0], 'printed_section', False)
+
+
 def opening_balance_days(daily: list[dict], account: dict) -> tuple[list[dict], list[str]]:
     """Daily balances dated before the period start at exactly the statement's beginning balance: the opening
     balance a daily-balance table prints first ("03/31 1,000.00" above April's days), not a day of this
@@ -355,17 +366,22 @@ def pages_without_transactions(printed_pages, account: dict) -> frozenset:
     for field in ('beginning_balance', 'ending_balance'):
         if account.get(field) is not None:
             balances.add(abs(Decimal(str(account[field]))).quantize(Decimal('0.01')))
+    # The coverage guard holds for a page printing no amount too: a stamp or header text layer over a scanned
+    # body prints none, and the proposer's reading of the body is what it does not cover.
     return frozenset(index + 1 for index, evidence in enumerate(printed_pages or ())
                      if evidence is not None and evidence.native and evidence.native_amounts <= balances
-                     and (not evidence.native_amounts or evidence.covers_proposer()))
+                     and evidence.covers_proposer() is not False)
 
 
-def exclude_undirected_by_totals(rows, account: dict):
+def exclude_undirected_by_totals(rows, account: dict, daily=()):
     """Rows neither reader gave a direction, and without a balance to take one from, are no transactions when
     the rows that have one already add up to the printed credit and debit totals to the cent, match the printed
-    counts where printed, and carry the opening balance to the closing one: any of them would push a total past
-    its printed figure. A summary of cheques "also displayed in the preceding transaction history", or items
+    counts where printed, carry the opening balance to the closing one, and are each proven by the printed
+    balances (running balances, or a daily-balance table): any undirected row would push a total past its
+    printed figure, and a directed phantom standing in for a real row of the same amount would break the
+    balances on its day. A summary of cheques "also displayed in the preceding transaction history", or items
     returned unpaid, listed without a direction. Returns (rows, audit or None)."""
+    from vlm.confidence import _rows_proven_by_balances, _rows_proven_by_daily
     from vlm.gate import minus_styled, signed_amount
 
     undirected = [row for row in rows if row.direction == 'unknown' and row.balance is None]
@@ -391,6 +407,9 @@ def exclude_undirected_by_totals(rows, account: dict):
                          ('stated_debit_count', sum(value < 0 for value in signed))):
         if account.get(field) is not None and int(account[field]) != count:
             return list(rows), None
+    proven = max(_rows_proven_by_balances(directed), _rows_proven_by_daily(directed, opening, daily))
+    if proven != len(directed):
+        return list(rows), None
     excluded = {id(row) for row in undirected}
     return ([row for row in rows if id(row) not in excluded],
             {'rows': len(undirected), 'locators': [[row.page, row.locator] for row in undirected]})
@@ -776,7 +795,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     # prints the opening balance carried in, not a day of this statement.
     daily, opening_days = opening_balance_days(daily, account)
     # Rows no reader gave a direction are no transactions when the directed rows already make the printed totals.
-    rows, undirected_excluded = exclude_undirected_by_totals(rows, account)
+    rows, undirected_excluded = exclude_undirected_by_totals(rows, account, daily)
     segment_checks, segment_occurrences = reconcile_page_segments(segment_plan, rows)
     occurrences.extend(segment_occurrences)
     reasons.extend(item['code'] for item in segment_occurrences)
@@ -871,9 +890,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     row_states = {(item['page'], item['locator']): (item['state'], (item.get('resolution') or {}).get('method'),
                                                     completion_only(item))
                   for merged in merges for item in merged.evidence}
-    for item in (section_directions or {}).get('settled_rows', ()):
-        state = row_states.get((item['page'], item['locator']), (None,))
-        row_states[(item['page'], item['locator'])] = (state[0], 'printed_section', False)
+    section_row_states(row_states, section_directions)
     confidence.update(statement_confidence(
         admitted=admitted and confidence['gate_admitted'], checks=checks, account=account,
         rows=verdict.admitted_rows if admitted else rows, row_states=row_states, printed_pages=printed_pages,

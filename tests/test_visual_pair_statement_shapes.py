@@ -74,37 +74,56 @@ def test_a_printed_header_over_a_scanned_body_is_not_a_page_without_transactions
     rows = " ".join(f"04/{day:02d} FABRICATED MERCHANT NUMBER {day} PURCHASE" for day in range(1, 12))
     account = {"beginning_balance": 1000.0, "ending_balance": 2468.13}
     assert pages_without_transactions([PrintedEvidence(native=header, proposer=rows)], account) == frozenset()
+    # Review finding 2: a stamp text layer printing no amount at all is no exception.
+    stamp = "FABRICATED BANK\nPage 2 of 3\nChecks paid\n"
+    assert pages_without_transactions([PrintedEvidence(native=stamp, proposer=rows)], account) == frozenset()
 
 
-def _row(amount, direction, locator, page=1):
-    return CandidateRow("2031-03-03", "3/3", f"FABRICATED ROW {locator}", Decimal(amount), direction, None, page,
-                        "stage_b", locator)
+def _row(amount, direction, locator, page=1, balance=None, day="2031-03-03"):
+    return CandidateRow(day, day[5:].replace("-", "/"), f"FABRICATED ROW {locator}", Decimal(amount), direction,
+                        None if balance is None else Decimal(balance), page, "stage_b", locator)
 
 
 ACCOUNT = {"beginning_balance": 500.0, "ending_balance": 650.0, "stated_total_credits": 400.0,
            "stated_total_debits": 250.0}
 
 
+def _proven():
+    # The directed rows print their running balances: 500.00 + 400.00 = 900.00, - 250.00 = 650.00.
+    return [_row("400.00", "credit", "t0r1", balance="900.00"), _row("250.00", "debit", "t0r2", balance="650.00")]
+
+
 def test_undirected_rows_the_printed_totals_leave_no_room_for_are_no_transactions():
-    rows = [_row("400.00", "credit", "t0r1"), _row("250.00", "debit", "t0r2"),
-            _row("75.25", "unknown", "t1r1", page=4), _row("250.00", "unknown", "t1r2", page=4)]
+    rows = _proven() + [_row("75.25", "unknown", "t1r1", page=4), _row("250.00", "unknown", "t1r2", page=4)]
     kept, audit = exclude_undirected_by_totals(rows, ACCOUNT)
     assert [row.locator for row in kept] == ["t0r1", "t0r2"]
     assert audit == {"rows": 2, "locators": [[4, "t1r1"], [4, "t1r2"]]}
+    # A printed daily-balance table proves the directed rows as well.
+    unbalanced = [_row("400.00", "credit", "t0r1"), _row("250.00", "debit", "t0r2")]
+    daily = [{"date": "2031-03-03", "balance": 650.0}]
+    assert exclude_undirected_by_totals(unbalanced + rows[2:], ACCOUNT, daily)[1]["rows"] == 2
 
 
 def test_undirected_rows_stay_when_the_directed_rows_do_not_make_the_printed_figures():
-    rows = [_row("400.00", "credit", "t0r1"), _row("175.00", "debit", "t0r2"), _row("75.00", "unknown", "t1r1")]
+    rows = [_row("400.00", "credit", "t0r1", balance="900.00"), _row("175.00", "debit", "t0r2", balance="725.00"),
+            _row("75.00", "unknown", "t1r1")]
     kept, audit = exclude_undirected_by_totals(rows, ACCOUNT)   # the undirected row is a missing debit
     assert len(kept) == 3 and audit is None
     counted = dict(ACCOUNT, stated_debit_count=2)
-    rows = [_row("400.00", "credit", "t0r1"), _row("250.00", "debit", "t0r2"), _row("75.00", "unknown", "t1r1")]
+    rows = _proven() + [_row("75.00", "unknown", "t1r1")]
     assert exclude_undirected_by_totals(rows, counted)[1] is None                  # the printed count says two
     assert exclude_undirected_by_totals(rows, dict(ACCOUNT, stated_total_debits=None))[1] is None
     # An undirected row with a printed balance takes its direction from the balance chain instead.
     balanced = rows[:2] + [CandidateRow("2031-03-03", "3/3", "FABRICATED", Decimal("75.00"), "unknown",
                                         Decimal("575.00"), 1, "stage_b", "t1r1")]
     assert exclude_undirected_by_totals(balanced, ACCOUNT)[1] is None
+
+
+def test_undirected_rows_stay_when_no_printed_balance_proves_the_directed_ones():
+    # Review finding: a directed phantom (a cheque-summary line the reviewer directed) standing in for a real
+    # undirected row of the same amount balances the totals; only printed balances can tell them apart.
+    rows = [_row("400.00", "credit", "t0r1"), _row("250.00", "debit", "t0r2"), _row("250.00", "unknown", "t1r1")]
+    assert exclude_undirected_by_totals(rows, ACCOUNT) == (rows, None)
 
 
 def test_a_daily_balance_table_opening_with_the_carried_in_balance_is_not_a_day_of_the_statement():
@@ -145,3 +164,31 @@ def test_a_zero_amount_stands_where_its_own_line_prints_it():
     # Without a text layer a zero amount cannot be told from a line printed without one: it stays unresolved.
     unread = merge_review([], payload, page=1, printed=None)
     assert unread.rows == () and unread.counts["unresolved"] == 2
+
+
+def test_a_zero_amount_among_several_that_nothing_tells_apart_is_not_rejected():
+    # Review finding 4: several 0.00 lines and the row's date printed once for the day: which line is the row's
+    # cannot be told, so the addition stays unresolved (a hold), never rejected as not printed.
+    from vlm.review import merge_review
+    from vlm.schema import empty_review
+    page = ("03/19 AutoPay Fabricated Lender 4417 0.00\nAutoPay Fabricated Lender 5521 0.00\n"
+            "03/20 FABRICATED HARDWARE PURCHASE 57.25\n")
+    printed = PrintedEvidence(native=page)
+    assert printed.zero_amount_printed_for("AutoPay Fabricated Lender 5521", "") is None
+    payload = empty_review("statement_page")
+    payload["added"] = [{"after_candidate_id": None,
+                         "row": {"date": "2031-03-19", "date_text": "", "description": "AutoPay Fabricated Lender 5521",
+                                 "amount": 0.0, "direction": "debit", "balance": None, "bbox": None,
+                                 "printed_amount": None}}]
+    merged = merge_review([], payload, page=1, printed=printed)
+    assert merged.counts["unresolved"] == 1 and merged.counts["rejected"] == 0
+
+
+def test_a_section_settled_direction_corroborates_only_rows_both_readers_produced():
+    from vlm.pair import section_row_states
+    states = {(1, "t0r1"): ("agreed", None, False), (1, "added0"): ("added", None, False),
+              (1, "t0r2"): ("corrected", "text_layer", False)}
+    settled = {"settled_rows": [{"page": 1, "locator": locator} for locator in ("t0r1", "added0", "t0r2")]}
+    section_row_states(states, settled)
+    assert states == {(1, "t0r1"): ("agreed", "printed_section", False), (1, "added0"): ("added", None, False),
+                      (1, "t0r2"): ("corrected", "text_layer", False)}

@@ -96,15 +96,18 @@ def _balance(text: str, pattern: re.Pattern) -> Decimal | None:
     return None
 
 
-def _category(text: str) -> tuple[str | None, Decimal, int | None, str] | None:
+def _category(text: str, *, lead_signs: bool = True) -> tuple[str | None, Decimal, int | None, str] | None:
     """(direction or None when it cannot be told, magnitude, printed count, label) for a category line; None
-    when the line is not one. A sign printed after the figure is the line's direction, whatever its words say
-    ("Returned Checks $17.00 +" adds to the balance), and makes a line without a direction word a category."""
+    when the line is not one. A sign printed apart from the figure is the line's direction, whatever its words
+    say ("Returned Checks $17.00 +" adds to the balance), and makes a line without a direction word a category.
+    A dash before the figure is a sign only in a box that prints a "+" there too (`lead_signs`); otherwise it
+    separates the label from the figure ("Deposits - 100.00")."""
     match = _CATEGORY.match(text)
     if not match or _NOT_CATEGORY.search(match.group("label")):
         return None
     label, amount_text = match.group("label"), match.group("amount").strip()
-    signs = [sign for sign in (match.group("lead"), match.group("sign")) if sign]
+    lead = match.group("lead") if lead_signs or match.group("lead") == "+" else None
+    signs = [sign for sign in (lead, match.group("sign")) if sign]
     sign = signs[0] if len(signs) == 1 else None
     credit_word, debit_word = bool(_CREDIT_WORDS.search(label)), bool(_DEBIT_WORDS.search(label))
     if not credit_word and not debit_word and not signs:
@@ -131,7 +134,7 @@ def _box(texts: list[str], start: int):
     balances and a category have been read. Any other money line before that means this is not a clean box.
     Returns (beginning, ending, categories) or None."""
     begin = end = None
-    categories = []
+    categories, lines = [], []
     for text in texts[start:]:
         if not text:
             continue
@@ -146,6 +149,7 @@ def _box(texts: list[str], start: int):
             if found[0] is None:
                 return None  # a category the box prints but whose direction cannot be told: no proof
             categories.append(found)
+            lines.append(text)
             continue
         complete = begin is not None and end is not None and categories
         if MONEY_TOKEN.search(text):
@@ -156,6 +160,11 @@ def _box(texts: list[str], start: int):
             return None
         if complete:
             break
+    # Dashes before the figures are signs only in a box that prints a "+" there too.
+    if not any(_CATEGORY.match(text).group("lead") == "+" for text in lines):
+        categories = [_category(text, lead_signs=False) for text in lines]
+        if any(found is None or found[0] is None for found in categories):
+            return None
     return begin, end, categories
 
 

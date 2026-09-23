@@ -381,6 +381,18 @@ Checks
     assert prove_summary_box([both], beginning=Decimal("1000"), ending=Decimal("1149.25")) is None
 
 
+def test_a_dash_between_label_and_figure_is_a_separator_unless_the_box_prints_plus_signs():
+    # Review finding 6: "Deposits - 900.00" in a box that prints no "+" separates; the words decide.
+    text = """Beginning Balance 1,000.00
+Deposits - 900.00
+Withdrawals - 750.75
+Ending Balance 1,149.25
+"""
+    proof = prove_summary_box([text], beginning=Decimal("1000"), ending=Decimal("1149.25"))
+    assert proof is not None
+    assert proof.stated_total_credits == Decimal("900.00") and proof.stated_total_debits == Decimal("750.75")
+
+
 def test_a_heading_the_text_layer_runs_together_still_names_its_section():
     from vlm.summary_box import settle_section_directions
     page_1 = SECTION_PAGE_1.replace("RETURNED CHECKS\n", "RETURNEDCHECKS\n")

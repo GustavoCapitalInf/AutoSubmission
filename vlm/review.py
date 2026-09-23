@@ -734,7 +734,10 @@ def mark_ledger_echoes(merges) -> list:
     window = _period_window(merges)
     postings, dates, marked = [], [], []
     for merged in merges:
-        raw = [_repeat_key(row, window) for row in merged.rows]
+        # A page's own rows are pictures only on the dates they carry; the statement period places only a
+        # ledger posting that was confirmed with its printed month and day (a real cheque section listed by
+        # number must not become pictures of earlier debits of the same amounts).
+        raw = [_repeat_key(row) for row in merged.rows]
         keys = _directed(raw) if raw and None not in raw else raw
         claimed = _assign(keys, postings) if keys and None not in keys else None
         if claimed is not None:
@@ -747,7 +750,9 @@ def mark_ledger_echoes(merges) -> list:
                 merged = replace(merged, ledger_echo=True)
         elif (not picture_page(merged)
               and (merged.counts.get("agreed", 0) or merged.counts.get("corrected", 0))):
-            ledger = [key for key in keys if key is not None]
+            placed = [_repeat_key(row, window) for row in merged.rows]
+            placed = _directed(placed) if placed and None not in placed else placed
+            ledger = [key for key in placed if key is not None]
             postings.extend(ledger)
             dates.extend(key[2] for key in ledger)
         marked.append(merged)

@@ -322,6 +322,11 @@ def test_a_ledger_row_confirmed_with_only_its_printed_month_and_day_is_still_a_p
     ledger = _ledger()
     ledger = replace(ledger, rows=tuple(replace(row, date=None) for row in ledger.rows))
     assert _echoes([ledger, _page(2, ["45.10", "300.00", "120.00"])]) == [2]
+    # Review finding 3: a real cheque section listed by number, its rows as confirmed (month and day only), is
+    # never taken for pictures of earlier debits of the same amounts.
+    cheques = replace(_page(2, ["45.10", "300.00"], source="stage_a+stage_b"),
+                      rows=tuple(replace(row, date=None) for row in _page(2, ["45.10", "300.00"]).rows))
+    assert _echoes([_ledger(), cheques]) == []
     # Without a period no month and day can be placed: nothing repeats.
     periodless = {"period_start": None, "period_end": None}
     assert _echoes([replace(ledger, account={"currency": "USD", **periodless}),

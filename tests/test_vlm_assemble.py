@@ -162,3 +162,29 @@ def test_a_row_written_without_its_empty_date_cell_is_put_back_in_its_columns():
         ("FABRICATED CHEQUE - 101", Decimal("97.00"), "debit", Decimal("1315.60")),
         ("FABRICATED DEPOSIT", Decimal("46.15"), "credit", Decimal("1361.75"))]
     assert [row.date_text for row in rows] == ["29 Dec", "", ""]
+
+
+def test_a_row_short_of_another_cell_whose_first_cell_is_a_compact_date_stays_as_written():
+    # Review finding 1: a trailing empty balance cell omitted, the first cell a compact printed date ("DEC31"):
+    # putting an empty date in front would slide a withdrawal into the deposits column.
+    from vlm.tables import classify_columns
+    header = ["Date", "Description", "Withdrawals", "Deposits", "Balance"]
+    for date_text in ("DEC31", "Mar05", "5-Mar", "05-MAR-26", "03.05.2026", "2026/03/05"):
+        grid = [header, [date_text, "FABRICATED CARD PAYMENT", "50.00", ""]]
+        rows = assemble.rows_from_grid(grid, classify_columns(grid), page=1, table_index=0, year_hint=2031)
+        assert [(row.amount, row.direction) for row in rows] == [(Decimal("50.00"), "debit")], date_text
+    # A restored row must read as a row: a figure where the description goes, or text in a money column,
+    # leaves the row as written.
+    grid = [header, ["FABRICATED NOTE", "SEE REVERSE", "", "1,315.60"]]
+    rows = assemble.rows_from_grid(grid, classify_columns(grid), page=1, table_index=0, year_hint=2031)
+    assert all(row.date_text != "" or row.description != "FABRICATED NOTE" for row in rows)
+
+
+def test_a_k_up_table_does_not_carry_a_date_from_the_neighbouring_column_group():
+    from vlm.tables import classify_columns, unfold_side_by_side
+    grid = [["DATE", "CHECK #", "AMOUNT($)"] * 2,
+            ["03/23", "301", "81.40", "", "302", "46.15"]]
+    unfolded = unfold_side_by_side(grid)
+    rows = assemble.rows_from_grid(unfolded, classify_columns(unfolded), page=1, table_index=0, year_hint=2031,
+                                   carry_dates=False)
+    assert [(row.description, row.date) for row in rows] == [("301", "2031-03-23"), ("302", None)]

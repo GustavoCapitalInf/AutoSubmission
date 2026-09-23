@@ -217,10 +217,14 @@ class PrintedEvidence:
 
     def zero_amount_printed_for(self, description, date_text=None) -> bool | None:
         """Whether the text layer prints a zero amount ("0.00") on a line that is this row's (told apart by its
-        date) with the row's description words in its print. None without a text layer."""
+        date) with the row's description words in its print. None without a text layer, or when several zero
+        amounts are printed and nothing tells the row's apart."""
         if not self.native:
             return None
-        return bool(self.row_line_numbers(0, date_text)) and bool(self.description_words_near(description, 0, date_text))
+        lines = self.row_line_numbers(0, date_text)
+        if lines is None:
+            return None  # several zero amounts printed and nothing tells the row's apart: cannot say
+        return bool(lines) and bool(self.description_words_near(description, 0, date_text))
 
     def row_line_numbers(self, amount, date_text=None, balance=None) -> list[int] | None:
         """The text-layer lines that are this row's: its amount's printed occurrences, told apart by the row's
