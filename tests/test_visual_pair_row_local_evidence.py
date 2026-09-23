@@ -45,8 +45,8 @@ def test_a_row_printing_no_date_is_told_apart_by_its_running_balance():
     printed = PrintedEvidence(native=layout)
     reading = "VIREMENT INTERAC 0001 FABRICATED PAYEE"
     assert printed.description_printed_near(reading, Decimal("451.00"), "", None) is None      # cannot tell
-    assert printed._anchor_lines(Decimal("451.00"), "", Decimal("912.47")) == [2]
-    assert printed._anchor_lines(Decimal("451.00"), "", Decimal("461.47")) == [5]
+    assert printed._anchor_lines(Decimal("451.00"), "", Decimal("912.47")) == [(2, 0)]
+    assert printed._anchor_lines(Decimal("451.00"), "", Decimal("461.47")) == [(5, 0)]
     # Measured on its own lines: they start right after the previous row's amount line.
     assert printed.description_words_near(reading, Decimal("451.00"), "", Decimal("912.47")) is True
     assert printed.description_words_near("DEBIT PREAUTORISE", Decimal("451.00"), "", Decimal("912.47")) is False
@@ -78,6 +78,59 @@ def test_each_cheque_of_a_multi_column_line_owns_only_its_own_segment():
     printed = PrintedEvidence(native=three)
     assert printed.description_printed_near("124 *", Decimal("300.00"), "03/06") is True
     assert printed.description_printed_near("125", Decimal("300.00"), "03/06") is False
+
+
+def test_a_line_printing_the_amount_twice_gives_each_occurrence_its_own_row():
+    # Review 4, finding 1: two cheques of one amount side by side on one text line.
+    line = "1001 05/01 50.00 1002 05/02 50.00\n"
+    printed = PrintedEvidence(native=line)
+    assert printed.description_printed_near("1002", Decimal("50.00"), "05/02") is True
+    assert printed.description_printed_near("1001", Decimal("50.00"), "05/02") is False
+    merged = _settle([_row("1001", "50.00", date="2031-05-02")], line, "1002")   # proposer misread 1002
+    assert merged.counts["corrected"] == 1 and merged.rows[0].description == "1002"
+
+
+def test_twins_nothing_tells_apart_lend_no_words_to_each_other():
+    # Review 4, finding 5: a dateless, balance-less reading of the second 25.00 row is not corroborated by the
+    # first row's words.
+    printed = PrintedEvidence(native="05/01 SERVICE FEE 25.00\n05/15 ATM WITHDRAWAL 25.00\n")
+    assert printed.description_words_near("SERVICE FEE", Decimal("25.00"), "", None) is None
+    assert printed.description_words_near("SERVICE FEE", Decimal("25.00"), "05/01", None) is True
+    # Same-day twins (same amount, same printed date) are measured together.
+    same_day = PrintedEvidence(native="SEND E-TFR FABRICATED A 44.00 JAN05\nSEND E-TFR FABRICATED B 44.00 JAN05\n")
+    assert same_day.description_words_near("SEND E-TFR FABRICATED B", Decimal("44.00"), "JAN05") is True
+
+
+def test_a_running_balance_is_the_rows_only_when_its_own_print_carries_it():
+    layout = "01/02 FABRICATED PAYROLL 208.47\n01/02 FABRICATED CHEQUE 614.80 14,905.62\n"
+    printed = PrintedEvidence(native=layout)
+    assert printed.balance_printed_for(Decimal("614.80"), Decimal("14905.62"), "01/02") is True
+    assert printed.balance_printed_for(Decimal("208.47"), Decimal("14905.62"), "01/02") is False   # the day's close
+    assert printed.balance_printed_for(Decimal("7.77"), Decimal("14905.62"), "01/02") is None      # row not found
+    assert PrintedEvidence(native=None).balance_printed_for(Decimal("208.47"), Decimal("1.00")) is None
+    # Two rows of one day print the same amount; the date is printed once, on the day's first row. The second
+    # row's balance is on its own line: it is the row's, whatever the date says (CIBC).
+    once_a_day = ("7 oct VIREMENT FABRICATED A\n3 000,00 2 418,26\nVIREMENT FABRICATED B\n3 000,00 5 418,26\n")
+    printed = PrintedEvidence(native=once_a_day)
+    assert printed.balance_printed_for(Decimal("3000.00"), Decimal("5418.26"), "7 oct") is True
+    assert printed.balance_printed_for(Decimal("3000.00"), Decimal("9999.99"), "7 oct") is False
+
+
+def test_a_days_closing_balance_attached_to_an_earlier_row_of_the_day_is_dropped():
+    layout = "01/02 FABRICATED PAYROLL 208.47\n01/02 FABRICATED CHEQUE 614.80 14,905.62\n"
+    rows = [CandidateRow("2031-01-02", "01/02", "FABRICATED PAYROLL", Decimal("208.47"), "credit",
+                         Decimal("14905.62"), 1, "stage_a", "b1t0r1", "column", (0.1, 0.2, 0.9, 0.3), None),
+            CandidateRow("2031-01-02", "01/02", "FABRICATED CHEQUE", Decimal("614.80"), "debit",
+                         Decimal("14905.62"), 1, "stage_a", "b1t0r2", "column", (0.1, 0.2, 0.9, 0.3), None)]
+    payload = empty_review("statement_page")
+    payload["reviews"] = [{"candidate_id": record["candidate_id"], "verdict": "confirm",
+                           "observed_description": record["row"]["description"], "corrections": [], "reason": ""}
+                          for record in candidate_records(rows)]
+    merged = merge_review(rows, payload, page=1, printed=PrintedEvidence(native=layout))
+    assert [row.balance for row in merged.rows] == [None, Decimal("14905.62")]
+    assert merged.evidence[0]["balance_dropped"] is True and "balance_dropped" not in merged.evidence[1]
+    assert {"scope": "row", "page": 1, "locator": "b1t0r1", "code": "review_balance_not_printed_on_row"} \
+        in merged.diagnostics
 
 
 def test_a_fragment_is_inside_a_fuller_reading_only_as_whole_words():

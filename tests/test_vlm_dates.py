@@ -109,22 +109,41 @@ def test_explicit_dates_are_never_overwritten_and_source_order_is_preserved():
     assert missing.date is duplicate.date is None
 
 
-def test_a_row_printing_no_date_takes_the_date_printed_once_above_it_on_the_page():
-    # Statements that print each day's date once leave the other rows' date cells empty.
-    first = _row("6 oct", locator="first")
-    same_day = [_row("", locator="second"), _row(None, locator="third")]
+def test_a_row_printing_no_date_takes_the_date_printed_once_above_it_in_its_table():
+    # Statements that print each day's date once leave the other rows' date cells empty (scanned page: no
+    # text layer, so the row above in the same printed table decides).
+    first = _row("6 oct", locator="b1t0r1")
+    same_day = [_row("", locator="b1t0r2"), _row(None, locator="b1t0r3")]
     result = resolve_reviewed_dates([first, *same_day], period_start="2031-10-01", period_end="2031-10-31")
     assert [row.date for row in result.rows] == ["2031-10-06"] * 3 and result.unresolved == 0
     assert [item["reason"] for item in result.evidence] == ["resolved", "date_printed_once_for_the_day",
                                                            "date_printed_once_for_the_day"]
-    assert result.evidence[1]["inherited_from"] == "first"
-    # Never across a page break, and never from a row whose own date is unknown.
-    next_page = replace(_row("", locator="next-page"), page=4)
-    unknown = _row("Febtober 2", locator="unknown")
-    after_unknown = _row("", locator="after-unknown")
-    result = resolve_reviewed_dates([first, next_page, unknown, after_unknown],
+    assert result.evidence[1]["inherited_from"] == "b1t0r1"
+    # Never across a table or section (review 4), a page, from a reviewer's addition, or from an unknown date.
+    other_table = _row("", locator="b2t0r1")
+    next_page = replace(_row("", locator="b1t0r4"), page=4)
+    added = _row("", locator="added0")
+    unknown = _row("Febtober 2", locator="b1t0r5")
+    after_unknown = _row("", locator="b1t0r6")
+    result = resolve_reviewed_dates([first, other_table, next_page, added, unknown, after_unknown],
                                     period_start="2031-10-01", period_end="2031-10-31")
-    assert [row.date for row in result.rows] == ["2031-10-06", None, None, None] and result.unresolved == 3
+    assert [row.date for row in result.rows] == ["2031-10-06", None, None, None, None, None]
+
+
+def test_on_a_text_layer_page_the_date_the_page_prints_for_the_row_decides():
+    from vlm.native_text import PrintedEvidence
+    page_one = PrintedEvidence(native="03/28 FABRICATED DEPOSIT 25.00 125.00\n03/31 FABRICATED FEE 1.00 124.00\n")
+    page_two = PrintedEvidence(native="FABRICATED CARD 7.00 117.00\n04/02 FABRICATED PAYROLL 9.00 126.00\n"
+                                      "FABRICATED CARD 3.00 123.00\n")
+    rows = [replace(_row("", locator="b1t0r1"), page=2, amount=Decimal("7.00"), balance=Decimal("117.00")),
+            replace(_row("04/02", locator="b1t0r2"), page=2, amount=Decimal("9.00"), balance=Decimal("126.00")),
+            replace(_row("", locator="added0"), page=2, amount=Decimal("3.00"), balance=Decimal("123.00"))]
+    result = resolve_reviewed_dates(rows, period_start="2031-03-01", period_end="2031-04-30",
+                                    printed_pages=[page_one, page_two])
+    # The top row continues the previous page's last day; the reviewer's addition is under the 04/02 line.
+    assert [row.date for row in result.rows] == ["2031-03-31", "2031-04-02", "2031-04-02"]
+    assert result.evidence[0]["source"] == "deterministic_text_layer_date"
+    assert result.evidence[0]["printed_date_text"] == "03/31"
 
 
 def test_no_clock_baseline_or_neighbor_date_supplies_missing_year():
@@ -132,4 +151,4 @@ def test_no_clock_baseline_or_neighbor_date_supplies_missing_year():
     missing = _row("Jan 3", locator="missing")
     result = resolve_reviewed_dates([explicit, missing], period_start=None, period_end=None)
     assert result.rows == (explicit, missing) and result.unresolved == 1
-    assert DATE_RESOLVER_VERSION == 4
+    assert DATE_RESOLVER_VERSION == 5

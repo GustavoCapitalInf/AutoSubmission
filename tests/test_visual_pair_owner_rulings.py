@@ -37,9 +37,20 @@ def test_a_canadian_bank_keeps_its_jurisdiction_default_cad():
 
 def test_a_name_other_countries_share_or_a_foreign_arm_decides_no_currency():
     # Names that also belong to US or offshore banks, and arms that name themselves, stay unknown (held).
-    for bank in ("RBC", "BMO", "BMO Harris Bank N.A.", "CIBC Bank USA", "Scotiabank Caribbean", "Royal Bank"):
+    for bank in ("RBC", "BMO", "BMO Harris Bank N.A.", "CIBC Bank USA", "Scotiabank Caribbean", "Royal Bank",
+                 "CIBC US", "Scotiabank Mexico", "Scotiabank Perú", "Scotiabank Chile", "Scotiabank de Costa Rica",
+                 "RBC Royal Bank (Aruba) N.V.", "RBC Royal Bank (Suriname)", "Banque Nationale Agricole",
+                 "Caisse Populaire Fraternité"):
         result = usd_default(bank, [])
         assert result["currency"] is None and result["canadian_evidence"] == ["canadian_institution_name"], bank
+
+
+def test_cad_needs_every_bank_name_the_statement_prints_to_be_canadian():
+    # Review 4: one page's bank read as a US bank, another's as a Canadian one, decide nothing.
+    names = ["Chase", "Royal Bank of Canada"]
+    assert usd_default(" ".join(names), [], bank_names=names)["currency"] is None
+    names = ["Royal Bank of Canada", "RBC Royal Bank"]
+    assert usd_default(" ".join(names), [], bank_names=names)["currency"] == "CAD"
 
 
 def test_a_canadian_address_blocks_the_default_whatever_the_bank_is_called():

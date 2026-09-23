@@ -12,10 +12,12 @@ HEADER_KEYWORDS: dict[str, tuple[str, ...]] = {
     "description": ("description", "details", "transaction", "particulars", "memo", "activity", "narrative", "payee", "transactions",
                     # French (CIBC, RBC, Desjardins): accents are optional in a proposer's reading.
                     "opérations", "operations", "détails", "libellé", "libelle"),
+    # French column names in the plural only: a singular is also a description word ("OFFICE DEPOT", "RETRAIT
+    # GAB") that would turn a headerless data row into a header.
     "debit": ("debit", "debits", "withdrawal", "withdrawals", "payments", "money out", "paid out", "charges", "checks/debits", "withdrawals/debits", "subtractions",
-              "retrait", "retraits", "débit", "débits", "chèques et débits", "cheques et debits", "paiements"),
+              "retraits", "débits", "chèques et débits", "cheques et debits", "paiements"),
     "credit": ("credit", "credits", "deposit", "deposits", "money in", "paid in", "additions", "deposits/credits", "deposits/additions",
-               "dépôt", "dépôts", "depot", "depots", "crédit", "crédits", "dépôts et crédits", "depots et credits"),
+               "dépôts", "depots", "crédits", "dépôts et crédits", "depots et credits"),
     "amount": ("amount", "transaction amount", "amt", "montant"),
     "balance": ("balance", "running balance", "ledger balance", "ending balance", "balance forward", "daily balance",
                 "solde"),

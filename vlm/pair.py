@@ -274,6 +274,42 @@ def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evi
             'counts_from_summary_page': counts_from_summary_page}
 
 
+_PAGE_FIGURES = {"stated_total_credits": ("credit", "sum"), "stated_total_debits": ("debit", "sum"),
+                 "stated_credit_count": ("credit", "count"), "stated_debit_count": ("debit", "count")}
+
+
+def settle_page_subtotals(reasons: list, occurrences: list, field_evidence: list, rows) -> list[int]:
+    """A statement that prints its totals on its summary page and each later page's own totals (ScotiaBank):
+    the reviewer reads each page's figures as the statement's, and every later page disagrees. A figure a
+    page prints that equals that page's own ledger rows exactly (the sum of its credits or debits, their
+    number) is that page's subtotal: the disagreement it raised is settled, and the first page's figure stays
+    the statement's (the gate checks it against the whole ledger). A figure that is not its page's own
+    subtotal keeps its disagreement. Returns the pages settled."""
+    by_page: dict[int, dict] = {}
+    for row in rows:
+        if row.direction not in ("credit", "debit"):
+            by_page.setdefault(row.page, {})["unknown"] = True
+            continue
+        figures = by_page.setdefault(row.page, {})
+        figures[(row.direction, "sum")] = figures.get((row.direction, "sum"), Decimal("0")) + row.amount
+        figures[(row.direction, "count")] = figures.get((row.direction, "count"), 0) + 1
+    settled_pages = []
+    for item in [item for item in occurrences
+                 if item.get("code") == "anchor_disagreement" and item.get("field") in _PAGE_FIGURES]:
+        page, field = item.get("page"), item["field"]
+        figures = by_page.get(page, {})
+        if figures.get("unknown"):
+            continue
+        read = [entry["value"] for entry in field_evidence
+                if entry.get("field") == field and entry.get("page") == page and entry.get("source") == "reviewer"]
+        own = figures.get(_PAGE_FIGURES[field], Decimal("0") if _PAGE_FIGURES[field][1] == "sum" else 0)
+        if read and all(Decimal(str(value)) == Decimal(str(own)) for value in read):
+            occurrences.remove(item)
+            reasons.remove("anchor_disagreement")
+            settled_pages.append(page)
+    return sorted(set(settled_pages))
+
+
 def statement_bank_names(field_evidence, merges) -> list[str]:
     """Distinct bank names the reviewer read on the statement's own pages, in page order. Names read on cheque
     picture pages are other parties' banks and never count."""
@@ -589,8 +625,11 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         rows,
         period_start=account.get('period_start') if 'period_mismatch' not in reasons else None,
         period_end=account.get('period_end') if 'period_mismatch' not in reasons else None,
+        printed_pages=printed_pages,
     )
     rows = list(dates.rows)
+    # Each later page's own totals, read as the statement's, are that page's subtotals when its rows prove them.
+    page_subtotals = settle_page_subtotals(reasons, occurrences, field_evidence, rows)
     # A mid-day figure at a page break is not the day's close when no later page prints one.
     page_break_dates = page_break_figures(merges, rows)
     daily = [item for item in daily if item['date'] not in page_break_dates]
@@ -655,8 +694,10 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     if not account.get('currency') and 'currency_conflict' not in reasons:
         from vlm.currency import usd_default
         # Every bank name the statement's own pages print counts: a Canadian one on any page refuses the default.
-        currency_default = usd_default(' '.join(statement_bank_names(field_evidence, merges)) or account.get('bank'),
-                                       ['\n'.join(block.content for block in layout.blocks) for layout in layouts])
+        bank_names = statement_bank_names(field_evidence, merges)
+        currency_default = usd_default(' '.join(bank_names) or account.get('bank'),
+                                       ['\n'.join(block.content for block in layout.blocks) for layout in layouts],
+                                       bank_names=bank_names)
         if currency_default['currency']:
             account['currency'] = currency_default['currency']
             currency_source = currency_default['currency_source']
@@ -723,6 +764,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     audit['cheque_image_rows_excluded'] = cheque_rows_excluded
     audit['ledger_echo_pages'] = [merged.page for merged in merges if merged.ledger_echo]
     audit['summary_box'] = summary_box
+    audit['page_subtotal_pages'] = page_subtotals
     audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)
     if admitted:
         from vlm.review import row_record

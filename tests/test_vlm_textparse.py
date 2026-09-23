@@ -39,6 +39,12 @@ def test_parse_date_french_month_names_with_or_without_accents():
                       ("1 décembre 2024", "2024-12-01")):
         assert tp.parse_date(text, year_hint=2025) == iso, text
     assert tp.is_date_like("15 août") and tp.is_date_like("3 févr")
+    # Whole month words only (review 4): a street or a word that starts like a month is not a date.
+    assert not any(tp.is_date_like(text) for text in ("Main 12", "Mail 5", "Maison 3", "Marsh 4", "Decker 7"))
+    assert tp.is_date_like("Sept. 9") and tp.is_date_like("December 31, 2025") and tp.is_date_like("9 juillet")
+    # A trailing three-letter word is a currency only when it is one.
+    assert tp.parse_money("25.00 ACH") is None and tp.parse_money("35.00 NSF") is None
+    assert tp.parse_money("25.00 CAD") == Decimal("25.00")
     assert tp.month_number("Juillet") == 7 and tp.month_number("juin") == 6 and tp.month_number("xyz") is None
 
 

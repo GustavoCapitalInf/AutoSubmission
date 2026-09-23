@@ -18,7 +18,9 @@ from vlm.textparse import month_number, parse_date
 
 # v3: French month names (janv, févr, avr, mai, juin, juil, août, déc ...), accents optional.
 # v4: a row printing no date at all takes the date of the row above it on the same page (date printed once a day).
-DATE_RESOLVER_VERSION = 4
+# v5: a row read without a date takes the date its page's text layer prints for it; otherwise only the row
+#     above in the same printed table (never across a section, a page or from a reviewer's addition).
+DATE_RESOLVER_VERSION = 5
 _ISO = re.compile(r"([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})")
 _NUMERIC = re.compile(r"([0-9]{1,2})([/\-])([0-9]{1,2})(?:\2([0-9]{2}|[0-9]{4}))?")
 _MONTH_FIRST = re.compile(r"([^\W\d_]+)\.?\s+([0-9]{1,2})(?:,?\s+([0-9]{2}|[0-9]{4}))?")
@@ -80,6 +82,11 @@ def _source_parts(date_text):
     return (((month, day),), year) if month is not None else ((), None)
 
 
+def date_text_parts(date_text) -> tuple:
+    """The (month, day) readings of a printed date text; empty when it is not one."""
+    return _source_parts(date_text)[0]
+
+
 def reads_as(date_text, iso) -> bool:
     """Whether a printed date text (01/05, 05/01, Jan 5, DEC31, 2031-01-05) can mean this ISO date: its month and
     day in either order a numeric print allows, and its printed year when it has one."""
@@ -119,7 +126,44 @@ def _possibilities(date_text, start: date, end: date) -> tuple[str, ...]:
     return tuple(sorted(candidates))
 
 
-def resolve_reviewed_dates(rows, *, period_start: str | None, period_end: str | None) -> DateResolution:
+_TABLE = re.compile(r"^(?P<table>(?:g\d+c\d+/)?b\d+(?:t\d+|l))")
+
+
+def _printed_table(row):
+    """(page, printed table or text block) a proposer row was read from; None for a reviewer's addition."""
+    match = _TABLE.match(row.locator or "")
+    return (row.page, match.group("table")) if match else None
+
+
+def _undated_row_date(row, above, printed_pages, start, end):
+    """The date of a row read without one: (date, evidence) or None.
+
+    On a page with a text layer the PDF itself says (PrintedEvidence.governing_date): a date column after the
+    row's amount; else the date that begins the nearest line above it (a statement printing each day's date
+    once, on the day's first row); else, when no line above it on its page is dated, the previous page's last
+    dated line (the day continues onto this page). Where the text layer cannot locate the row, or on a scanned
+    page, the date of the row above it in the same printed table: never across a table, a section or a page,
+    never from a reviewer's addition (review 4)."""
+    printed = (printed_pages[row.page - 1] if printed_pages is not None and 0 < row.page <= len(printed_pages)
+               else None)
+    governing = printed.governing_date(row.amount, row.balance) if printed is not None else None
+    if governing == "" and 1 < row.page <= len(printed_pages or ()) and printed_pages[row.page - 2] is not None:
+        governing = printed_pages[row.page - 2].last_date_text or None
+    if governing:
+        candidates = _possibilities(governing, start, end) if start is not None else ()
+        if len(candidates) != 1:
+            return None
+        return candidates[0], {"source": "deterministic_text_layer_date", "reason": "date_printed_for_the_row",
+                               "printed_date_text": governing, "candidate_dates": list(candidates)}
+    if above is not None and _printed_table(row) is not None and _printed_table(row) == _printed_table(above):
+        return above.date, {"source": "deterministic_date_printed_on_row_above",
+                            "reason": "date_printed_once_for_the_day", "inherited_from": above.locator,
+                            "candidate_dates": [above.date]}
+    return None
+
+
+def resolve_reviewed_dates(rows, *, period_start: str | None, period_end: str | None,
+                           printed_pages=None) -> DateResolution:
     """Return gate rows and evidence for every originally-null date.
 
     ``period_start`` and ``period_end`` must come from the caller's uniquely
@@ -127,6 +171,8 @@ def resolve_reviewed_dates(rows, *, period_start: str | None, period_end: str | 
     collapsed to a selected pair before calling this function. Missing,
     invalid or reversed periods leave all null dates unresolved. No explicit
     row date is overwritten, even if it is invalid or outside the period.
+    A row read without any date text takes the date its page prints for it
+    (_undated_row_date; ``printed_pages`` is one PrintedEvidence or None per page).
     """
     start, end, period_error = _period(period_start, period_end)
     resolved_rows, evidence = [], []
@@ -137,18 +183,15 @@ def resolve_reviewed_dates(rows, *, period_start: str | None, period_end: str | 
             resolved_rows.append(row)
             above = row
             continue
-        if not str(row.date_text or "").strip() and above is not None and above.page == row.page:
-            # A statement that prints each day's date once, on the day's first row, leaves the date cell of the
-            # day's other rows empty: they are that day's (the proposer applies the same rule when it knows the
-            # year, assemble.rows_from_grid). Only a row printing no date at all, on the same page.
-            resolved_rows.append(replace(row, date=above.date))
+        undated = (_undated_row_date(row, above, printed_pages, start, end)
+                   if not str(row.date_text or "").strip() and period_error is None else None)
+        if undated is not None:
+            resolved, detail = undated
+            resolved_rows.append(replace(row, date=resolved))
             evidence.append({
-                "field": "date", "original_date": None, "resolved_date": above.date,
+                "field": "date", "original_date": None, "resolved_date": resolved,
                 "date_text": row.date_text, "page": row.page, "locator": row.locator,
-                "period_start": period_start, "period_end": period_end,
-                "source": "deterministic_date_printed_on_row_above", "status": "resolved",
-                "reason": "date_printed_once_for_the_day", "inherited_from": above.locator,
-                "candidate_dates": [above.date],
+                "period_start": period_start, "period_end": period_end, "status": "resolved", **detail,
             })
             above = resolved_rows[-1]
             continue

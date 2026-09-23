@@ -32,7 +32,10 @@ from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
 # v11: a labelled column that prints every value with a minus is signed by its style (minus_styled).
-GATE_VERSION = 11
+# v12: two lines of one proposer text block are separate printed lines, like two rows of one table; an anchor
+#      derived from the balance printed at one end stands when the printed totals and counts prove the ledger
+#      complete.
+GATE_VERSION = 12
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
@@ -100,6 +103,22 @@ def _signed(row: CandidateRow, styled: frozenset = frozenset()) -> float:
     return float(signed_amount(row, styled))
 
 
+def _proven_complete(statement: Statement, meta: AccountMeta, result) -> bool:
+    """Whether the statement's printed totals AND counts prove the ledger complete: the credits and the
+    debits read sum to the printed totals to the cent, and their numbers are the printed counts. A read cut
+    off at one end cannot pass that, so an anchor derived from the balance printed at that end stands
+    (a statement that prints its opening balance and totals but no closing line: ScotiaBank)."""
+    cent = Decimal("0.01")
+    if meta.stated_total_credits is None or meta.stated_total_debits is None:
+        return False
+    amounts = [Decimal(str(transaction.amount)) for transaction in statement.transactions]
+    credits = sum((amount for amount in amounts if amount > 0), Decimal("0")).quantize(cent)
+    debits = sum((-amount for amount in amounts if amount < 0), Decimal("0")).quantize(cent)
+    return (credits == Decimal(str(meta.stated_total_credits)).quantize(cent)
+            and debits == Decimal(str(meta.stated_total_debits)).quantize(cent)
+            and result.stated_credit_count_matches is True and result.stated_debit_count_matches is True)
+
+
 def _f(value: Decimal | None) -> float | None:
     return None if value is None else float(value)
 
@@ -162,7 +181,8 @@ def collapse_daily_balances(rows: list[CandidateRow]) -> tuple[list[CandidateRow
 # A row the layout model read at a grid position: optional read prefix (g0/ for a recovery original,
 # g<gen>c<crop>/ for a crop), then block, table and row. Reviewer additions ("added<n>") and anything
 # else carry no position.
-_LAYOUT_LOCATOR = re.compile(r"^(?P<read>(?:g\d+(?:c\d+)?/)?)b\d+t\d+r\d+$")
+# A proposer row's place in its read: a table row (b3t0r12) or a line of a text block (b6l43).
+_LAYOUT_LOCATOR = re.compile(r"^(?P<read>(?:g\d+(?:c\d+)?/)?)b\d+(?:t\d+r\d+|l\d+)$")
 
 
 def _separate_printed_lines(first: CandidateRow, second: CandidateRow) -> bool:
@@ -308,11 +328,10 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         record("missing_beginning_balance", field="beginning_balance")
     if ending is None and "anchors_underdetermined" not in reasons:
         record("missing_ending_balance", field="ending_balance")
-    if checks["derived"]:
-        # A derived anchor leaves one end of the ledger unverified (a truncated read at that end still
-        # reconciles), so the verdict is recorded but NOT admitted; the report counts this class apart.
-        for field in checks["derived"]:
-            record("anchor_derived", field=field)
+    # A derived anchor leaves one end of the ledger unverified (a truncated read at that end still reconciles),
+    # so the verdict is recorded but NOT admitted, unless the statement's printed totals and counts prove the
+    # ledger complete (decided after reconciliation, below, and recorded at this point of the order).
+    derived_at = (len(reasons), len(occurrences))
     resolved, flagged = resolve_directions(rows, beginning)
     for row in resolved:
         if row.direction == "unknown":
@@ -399,6 +418,13 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
                     record("coverage_mismatch", field=field)
             else:
                 record("coverage_mismatch")
+        if checks["derived"]:
+            checks["derived_anchor_proven_complete"] = _proven_complete(statement, meta, result)
+    if checks["derived"] and not checks.get("derived_anchor_proven_complete"):
+        for offset, field in enumerate(checks["derived"]):
+            reasons.insert(derived_at[0] + offset, "anchor_derived")
+            occurrences.insert(derived_at[1] + offset, {"code": "anchor_derived", "page": None, "source": "gate",
+                                                        "field": field})
     if unverifiable:
         reasons.append("duplicate_row")   # RR-2: an unverifiable repeat is never amnestied by a matching count
         occurrences.extend(duplicate_occurrences)

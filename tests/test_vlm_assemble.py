@@ -51,6 +51,70 @@ def test_an_account_analysis_table_is_charges_not_transactions():
     assert assemble.rows_from_grid(priced, classify_columns(priced), page=4, table_index=0) == []
 
 
+def test_a_dated_activity_table_with_a_quantity_column_is_transactions():
+    grid = [["Date", "Description", "Quantity", "Amount", "Balance"],
+            ["01/02", "FABRICATED FUND PURCHASE", "10", "-100.00", "900.00"]]
+    rows = assemble.rows_from_grid(grid, classify_columns(grid), page=1, table_index=0, year_hint=2031)
+    assert [(row.amount, row.balance) for row in rows] == [(Decimal("100.00"), Decimal("900.00"))]
+
+
+def test_a_description_that_names_a_store_is_not_a_header():
+    # "OFFICE DEPOT" in a headerless table's data row once read as a French "Dépôts" header (review 4).
+    grid = [["01/02", "FABRICATED OFFICE DEPOT", "Debit", "25.00", "975.00"],
+            ["01/03", "FABRICATED RETRAIT GAB", "Debit", "40.00", "935.00"]]
+    columns = classify_columns(grid)
+    assert columns.header_row is None or columns.header_row != 0
+
+
+def _cell(category, box, text):
+    return {"category": category, "bbox": box, "text": text}
+
+
+def test_a_layout_with_one_block_per_cell_still_reads_as_rows():
+    # dots.mocr sometimes returns a table as one Text block per cell (Citizens): Date | Amount | Description.
+    layout = [_cell("Section-header", [150, 670, 400, 720], "Other Debits"),
+              _cell("Text", [150, 740, 250, 780], "04/01"), _cell("Text", [470, 740, 620, 780], "1,582.44"),
+              _cell("Text", [680, 740, 1500, 780], "FABRICATED LENDER 7 11111"),
+              _cell("Text", [150, 790, 250, 830], "04/01"), _cell("Text", [520, 790, 620, 830], "35.00"),
+              _cell("Text", [680, 790, 1080, 830], "RETURNED ITEM FEE"),
+              _cell("Text", [680, 840, 890, 880], "( 1 AT $35 )"),
+              _cell("Section-header", [150, 950, 400, 1000], "Deposits & Credits"),
+              _cell("Text", [150, 1020, 250, 1060], "04/02"), _cell("Text", [470, 1020, 620, 1060], "2,961.35"),
+              _cell("Text", [680, 1020, 1400, 1060], "FABRICATED PAYMENT 260101")]
+    import json
+    rows = assemble.parse_dots_layout(json.dumps(layout), page=2, width=2550, height=3300, year_hint=2031).rows
+    assert [(row.date, row.amount, row.direction, row.description) for row in rows] == [
+        ("2031-04-01", Decimal("1582.44"), "debit", "FABRICATED LENDER 7 11111"),
+        ("2031-04-01", Decimal("35.00"), "debit", "RETURNED ITEM FEE ( 1 AT $35 )"),
+        ("2031-04-02", Decimal("2961.35"), "credit", "FABRICATED PAYMENT 260101")]
+    assert len({row.locator for row in rows}) == 3
+
+
+def test_a_table_opening_with_a_section_title_across_its_columns_reads_under_its_real_header():
+    table = ("<table><tr><td>Deposits &amp; Credits</td><td>Deposits &amp; Credits</td><td>Deposits &amp; Credits</td>"
+             "<td>Total Deposits &amp; Credits</td></tr>"
+             "<tr><td>Date</td><td>Amount</td><td>Description</td><td>58,236.90</td></tr>"
+             "<tr><td>04/01</td><td>2,961.35</td><td>FABRICATED PAYMENT</td><td></td></tr></table>")
+    import json
+    layout = [{"category": "Table", "bbox": [100, 100, 2400, 900], "text": table}]
+    rows = assemble.parse_dots_layout(json.dumps(layout), page=3, width=2550, height=3300, year_hint=2031).rows
+    assert [(row.amount, row.direction, row.description) for row in rows] == [
+        (Decimal("2961.35"), "credit", "FABRICATED PAYMENT")]
+
+
+def test_a_note_under_a_section_heading_keeps_the_sections_direction():
+    table = ("<table><tr><th>Date</th><th>Amount</th><th>Description</th></tr>"
+             "<tr><td>04/23</td><td>175.00</td><td>FABRICATED FEE</td></tr></table>")
+    note = ("**May include checks that have been processed electronically by the payee or merchant, and other "
+            "fabricated wording that runs well past a heading's length.")
+    import json
+    layout = [{"category": "Section-header", "bbox": [100, 100, 900, 150], "text": "Debits (Continued)"},
+              {"category": "Text", "bbox": [100, 160, 2400, 200], "text": note},
+              {"category": "Table", "bbox": [100, 220, 2400, 900], "text": table}]
+    rows = assemble.parse_dots_layout(json.dumps(layout), page=3, width=2550, height=3300, year_hint=2031).rows
+    assert [(row.amount, row.direction) for row in rows] == [(Decimal("175.00"), "debit")]
+
+
 def test_deductions_and_purchases_sections_are_debits():
     for heading in ("ACH Deductions", "Other Deductions", "Card Purchases"):
         assert assemble.section_direction(heading) == "debit", heading

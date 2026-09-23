@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from vlm.tables import ColumnMap, classify_columns, parse_html_tables
-from vlm.textparse import parse_date, parse_money
+from vlm.textparse import is_date_like, parse_date, parse_money
 
 # Balance lines as French statements print them: solde reporté / précédent / antérieur / d'ouverture / de
 # fermeture / de clôture, ancien / nouveau solde (accents optional in a proposer's or reviewer's reading).
@@ -121,8 +121,10 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
         return []
     head = (grid[colmap.header_row] if colmap.header_row is not None and colmap.header_row < len(grid)
             else grid[0] if grid else [])
-    if any(ANALYSIS_HEADER.match(cell or "") for cell in head):
-        return []  # an account-analysis table (services used, volume, unit price): charges, not transactions
+    if colmap.date is None and any(ANALYSIS_HEADER.match(cell or "") for cell in head):
+        # An account-analysis table (services used: volume, unit price) lists charges, not dated transactions.
+        # A dated activity table with a Quantity column (securities) is transactions.
+        return []
     label = None
     if colmap.header_row is not None and colmap.header_row < len(grid):
         header = grid[colmap.header_row]
@@ -354,6 +356,7 @@ def parse_dots_layout(raw: str | list | dict, *, page: int, width: int, height: 
             norm = tuple(round(v / (width if i % 2 == 0 else height), 6) for i, v in enumerate(box))
         blocks.append(Block(label, norm, content, order, page))
     rows: list[CandidateRow] = []
+    cells: list[Block] = []  # text blocks that read as no row by themselves: perhaps one cell each
     heading: str | None = None
     balance_section = False
     for block in blocks:
@@ -368,20 +371,95 @@ def parse_dots_layout(raw: str | list | dict, *, page: int, width: int, height: 
         if block.label == "table" or markdown:
             grids = parse_html_tables(block.content, preserve_whitespace=True) or ([markdown] if markdown else [])
             for index, grid in enumerate(grids):
+                grid, title = _spanning_title(grid)
                 columns = classify_columns(grid, headerless_transaction_amount=not balance_section)
                 for row in rows_from_grid(grid, columns, page=page, table_index=index,
                                           year_hint=year_hint, day_first=day_first):
-                    if row.direction == "unknown" and heading:
-                        row = replace(row, direction=heading, direction_source="section")
+                    if row.direction == "unknown" and (title or heading):
+                        row = replace(row, direction=title or heading, direction_source="section")
                     rows.append(replace(row, locator=f"b{block.order}{row.locator}", bbox=block.bbox))
             if not grids:
                 rows.extend(_text_rows(block, heading=heading, year_hint=year_hint, day_first=day_first))
             heading = None
             balance_section = False
         else:
-            rows.extend(_text_rows(block, heading=heading, year_hint=year_hint, day_first=day_first))
+            found = _text_rows(block, heading=heading, year_hint=year_hint, day_first=day_first)
+            rows.extend(found)
+            if not found and block.label not in ("page_header", "page_footer", "picture", "image"):
+                cells.append(block)
             if block.label in ("text", "paragraph_title", "section_header", "title", "doc_title", "header", "page_header"):
-                heading = section_direction(block.content)
                 first_line = block.content.strip().splitlines()[0] if block.content.strip() else ""
-                balance_section = len(first_line) <= 80 and bool(BALANCE_SECTION.search(first_line))
+                if len(first_line) <= 80:
+                    # A note printed under a section heading ("May include checks that have been processed
+                    # electronically ...") is not a new section: only a heading-length line changes it.
+                    heading = section_direction(block.content)
+                    balance_section = bool(BALANCE_SECTION.search(first_line))
+    rows.extend(_cell_rows(cells, year_hint=year_hint, day_first=day_first))
     return DotsLayout(page, tuple(blocks), tuple(rows), tuple(errors), truncated, tuple(warnings))
+
+
+def _spanning_title(grid: list[list[str]]) -> tuple[list[list[str]], str | None]:
+    """A table whose first row is a section title spanning its columns ("Deposits & Credits" in every cell,
+    perhaps with a "Total ..." cell) above the real header: the grid without that row, and the direction the
+    title names."""
+    if len(grid) < 3:
+        return grid, None
+    cells = [" ".join(cell.split()) for cell in grid[0] if cell and cell.strip()]
+    titles = {cell for cell in cells if not cell.lower().startswith("total")}
+    if len(titles) != 1 or len(cells) < 2:
+        return grid, None
+    from vlm.tables import _header_role
+
+    if sum(_header_role(cell) is not None for cell in grid[1]) < 2:
+        return grid, None
+    return grid[1:], section_direction(titles.pop())
+
+
+def _cell_rows(blocks: list[Block], *, year_hint: int | None, day_first: bool) -> list[CandidateRow]:
+    """Rows from a layout that emits one text block per table cell (a date, an amount and a description side by
+    side, each its own block): blocks whose vertical ranges overlap by more than half form one printed line,
+    read left to right. A line whose first cell is a date and that prints an amount is a row (a second amount
+    to its right is its balance; the other cells are the description). A line directly below a row with
+    neither date nor amount continues its description. A section header sets the direction of the rows under
+    it; any other line ends the row above."""
+    lines: list[dict] = []
+    for block in sorted((block for block in blocks if block.bbox and "\n" not in block.content.strip()),
+                        key=lambda block: (block.bbox[1], block.bbox[0])):
+        top, bottom = block.bbox[1], block.bbox[3]
+        for line in lines:
+            if min(bottom, line["bottom"]) - max(top, line["top"]) > 0.5 * min(bottom - top, line["bottom"] - line["top"]):
+                line["blocks"].append(block)
+                line["top"], line["bottom"] = min(top, line["top"]), max(bottom, line["bottom"])
+                break
+        else:
+            lines.append({"top": top, "bottom": bottom, "blocks": [block]})
+    rows: list[CandidateRow] = []
+    heading, previous = None, None
+    for line in sorted(lines, key=lambda line: line["top"]):
+        line["blocks"].sort(key=lambda block: block.bbox[0])
+        cells = [" ".join(block.content.split()) for block in line["blocks"]]
+        if any(block.label in ("section_header", "paragraph_title") for block in line["blocks"]):
+            heading, previous = section_direction(" ".join(cells)) or heading, None
+            continue
+        money = [index for index, cell in enumerate(cells) if parse_money(cell) is not None]
+        if cells and is_date_like(cells[0]) and money and money[0] > 0:
+            amount = parse_money(cells[money[0]])
+            balance = parse_money(cells[money[1]]) if len(money) > 1 else None
+            description = " ".join(cell for index, cell in enumerate(cells) if index not in (0, *money[:2]))
+            if not description or SKIP_DESCRIPTION.match(description):
+                previous = None
+                continue
+            first = line["blocks"][0]
+            box = tuple(func(block.bbox[i] for block in line["blocks"]) for i, func in enumerate((min, min, max, max)))
+            rows.append(CandidateRow(
+                parse_date(cells[0], year_hint=year_hint, day_first=day_first), cells[0], description, abs(amount),
+                heading or ("debit" if amount < 0 else "unknown"), balance, first.page, "stage_a",
+                f"b{first.order}l0", "section" if heading else "printed", box))
+            previous = line
+        elif (previous is not None and not money and not any(is_date_like(cell) for cell in cells)
+              and line["top"] - previous["bottom"] < previous["bottom"] - previous["top"]):
+            rows[-1] = replace(rows[-1], description=rows[-1].description + " " + " ".join(cells))
+            previous = line
+        else:
+            previous = None
+    return rows

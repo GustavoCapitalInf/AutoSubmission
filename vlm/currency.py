@@ -85,8 +85,10 @@ CAD_INSTITUTIONS = ("CIBC", "ROYAL BANK OF CANADA", "RBC ROYAL BANK", "BANQUE RO
                     "TANGERINE", "SIMPLII", "ATB FINANCIAL", "LAURENTIAN BANK", "BANQUE LAURENTIENNE", "EQ BANK",
                     "MERIDIAN CREDIT UNION", "VANCITY", "SERVUS CREDIT UNION", "CANADIAN WESTERN BANK",
                     "CAISSE POPULAIRE")
-FOREIGN_ARM = ("USA", "U S A", "U S", "N A", "AMERICA", "AMERICAS", "CARIBBEAN", "PUERTO RICO", "INTERNATIONAL",
-               "HARRIS", "BAHAMAS", "CAYMAN", "JAMAICA", "BARBADOS", "TRINIDAD")
+FOREIGN_ARM = ("USA", "U S A", "U S", "US", "N A", "NA", "N V", "NV", "S A", "SA", "AMERICA", "AMERICAS",
+               "CARIBBEAN", "PUERTO RICO", "INTERNATIONAL", "HARRIS", "BAHAMAS", "CAYMAN", "JAMAICA", "BARBADOS",
+               "TRINIDAD", "ARUBA", "SURINAME", "MEXICO", "PERU", "CHILE", "COLOMBIA", "COSTA RICA", "PANAMA",
+               "URUGUAY", "EL SALVADOR", "DOMINICAN", "GUYANA", "BELIZE", "AGRICOLE", "FRATERNITE")
 
 
 def _padded(text: str | None) -> str:
@@ -115,14 +117,15 @@ def canadian_bank(bank: str | None) -> bool:
             and not any(f" {marker} " in padded for marker in FOREIGN_ARM))
 
 
-def usd_default(bank: str | None, page_texts: Sequence[str]) -> dict:
+def usd_default(bank: str | None, page_texts: Sequence[str], *, bank_names: Sequence[str] = ()) -> dict:
     """The owner's default for a statement that printed no currency: USD unless there is Canadian evidence; a
-    Canadian bank (canadian_bank) keeps its jurisdiction default, CAD. Other Canadian evidence decides neither:
-    the currency stays unknown and the statement is held."""
+    Canadian bank (canadian_bank) keeps its jurisdiction default, CAD, when every bank name the statement
+    prints is one (``bank_names``; a US bank's name on one page and a Canadian one on another decide nothing).
+    Other Canadian evidence decides neither: the currency stays unknown and the statement is held."""
     evidence = canadian_evidence(bank, page_texts)
     if not evidence:
         currency, source = "USD", "schema_default"
-    elif canadian_bank(bank):
+    elif all(canadian_bank(name) for name in (bank_names or [bank])):
         currency, source = "CAD", "jurisdiction_default"
     else:
         currency, source = None, None

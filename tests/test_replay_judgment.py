@@ -112,6 +112,19 @@ def test_live_on_miss_sends_only_a_changed_call_to_the_verified_server(tmp_path,
     assert checked == [(("LIVE", "http://127.0.0.1:18013/v1"), "dotsmocr", "rev-1")]
 
 
+def test_live_on_miss_verifies_each_documents_own_recorded_revision(tmp_path, monkeypatch):
+    # Review 4, finding 3: document B was recorded under rev-2 while the server (verified for A) serves rev-1.
+    stats, received, checked = _live(tmp_path, monkeypatch, served_revision="rev-1")
+    pair._chat_once(tmp_path, object(), "dotsmocr", "a changed prompt", manifest={}, image_jpeg=b"a", seed=0)
+    LIVE_RECORDED["served_models"][0]["revision"] = "rev-2"
+    try:
+        with pytest.raises(pair.VisualPairError):
+            pair._chat_once(tmp_path, object(), "dotsmocr", "another prompt", manifest={}, image_jpeg=b"b", seed=0)
+    finally:
+        LIVE_RECORDED["served_models"][0]["revision"] = "rev-1"
+    assert [revision for _, _, revision in checked] == ["rev-1", "rev-2"] and len(received) == 1
+
+
 def test_live_on_miss_refuses_a_server_that_serves_another_revision(tmp_path, monkeypatch):
     stats, received, _ = _live(tmp_path, monkeypatch, served_revision="rev-2")
     with pytest.raises(pair.VisualPairError):

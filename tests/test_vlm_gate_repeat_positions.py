@@ -34,6 +34,16 @@ def test_same_read_different_grid_positions_are_separate_printed_lines():
     assert verdict.checks["repeats_by_position"] == 3
 
 
+def test_two_lines_of_one_text_block_are_separate_printed_lines():
+    # The proposer read the table as a text block, one printed line per transaction (Regions): two identical
+    # $1.50 fees on lines 43 and 44 of block 6 are two printed lines (gate v12).
+    verdict = _verdict([_fee("b6l43"), _fee("b6l44")])
+    assert verdict.admitted, verdict.reasons
+    assert GATE_VERSION >= 12
+    # A text line and a table row of another read on the same page may be one line read twice.
+    assert "duplicate_row" in _verdict([_fee("b6l43"), _fee("g1c0/b3t0r2")]).reasons
+
+
 def test_same_crop_different_positions_are_separate_printed_lines():
     verdict = _verdict([_fee("g1c0/b3t0r2"), _fee("g1c0/b3t0r3")])
     assert verdict.admitted, verdict.reasons

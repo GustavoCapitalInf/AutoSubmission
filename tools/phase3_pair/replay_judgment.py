@@ -81,7 +81,7 @@ def install(manifest: dict | None, stats: dict, *, live_on_miss: bool = False) -
     original_chat = pair._chat_once
     original_client = pair._client
     original_check = pair._check_model
-    live_clients: dict[str, object] = {}
+    live_clients: dict[tuple, object] = {}
 
     def recorded() -> dict:
         if holder["manifest"] is None:
@@ -96,21 +96,22 @@ def install(manifest: dict | None, stats: dict, *, live_on_miss: bool = False) -
         return dict(entry)
 
     def live_client(model: str):
-        """A real client for a model, once the server is verified to serve the recorded revision."""
-        if model not in live_clients:
+        """A real client for a model, once the server is verified to serve the revision the CURRENT document
+        was recorded with (documents of one run can carry different recorded revisions)."""
+        revision = next((item.get("revision") for item in recorded().get("served_models", [])
+                         if item.get("model") == model), None)
+        if (model, revision) not in live_clients:
             from ocr.visual_pair_config import load_visual_pair_settings
 
             settings = load_visual_pair_settings()
             url = {settings.proposer_model: settings.proposer_url,
                    settings.reviewer_model: settings.reviewer_url}.get(model)
-            revision = next((item.get("revision") for item in recorded().get("served_models", [])
-                             if item.get("model") == model), None)
             if url is None or revision is None:
                 raise ReplayMiss(f"replay_model_not_recorded:{model}")
             client = original_client(url, settings.timeout)
             original_check(client, model, revision)  # raises unless exactly that snapshot is served
-            live_clients[model] = client
-        return live_clients[model]
+            live_clients[(model, revision)] = client
+        return live_clients[(model, revision)]
 
     def chat_once(root, client, model, prompt, *, manifest: dict, **kwargs):
         # Same key construction as vlm.pair._chat_once, but over the RECORDED manifest.

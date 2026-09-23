@@ -384,6 +384,9 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
     if segment_plan.proven:
         account.update(segment_plan.document_fields)
 
+    if "bank_reported_average_balance" in disputed:
+        # The label names the disputed figure; without the figure it describes nothing.
+        account.pop("bank_reported_average_label", None)
     for field in sorted(disputed):
         account.pop(field, None)
         provenance.append({"field": field, "page": None, "source": "disputed_between_pages", "value": None})

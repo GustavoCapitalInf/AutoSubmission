@@ -303,3 +303,9 @@ def test_pages_disagreeing_about_an_auxiliary_figure_leave_it_unknown_and_hold_n
     # A disagreement about a figure the gate proves with still holds.
     held = merge_metadata([page(1, {"stated_total_credits": 5.0}), page(2, {"stated_total_credits": 6.0})])
     assert "anchor_disagreement" in held[2]
+    # A disputed bank-reported average takes its label with it (review 4).
+    account, _, reasons, _ = merge_metadata([
+        page(1, {"bank_reported_average_balance": 822.0, "bank_reported_average_label": "Average balance"}),
+        page(2, {"bank_reported_average_balance": 1822.0, "bank_reported_average_label": "Average balance"})])
+    assert "bank_reported_average_balance" not in account and "bank_reported_average_label" not in account
+    assert reasons == []

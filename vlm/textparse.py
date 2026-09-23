@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 _CURRENCY = re.compile(r"^(?:[A-Z]{3}\s*)?[$€£¥]?\s*")
-_TRAILING_CURRENCY = re.compile(r"\s*(?:[$€£¥]|\b[A-Z]{3})$")
+_TRAILING_CURRENCY = re.compile(r"\s*(?:[$€£¥]|\b(?:USD|CAD|EUR|GBP|AUD|NZD|CHF|JPY|MXN))$")
 _MONEY_CORE = re.compile(r"^\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?$|^\d+(?:\.\d{1,2})?$")
 # Decimal comma (French and Canadian statements): 3 000,00 / 3.000,00 / 119,55; the thousands may be grouped by
 # a space, a no-break or thin space, or a dot.
@@ -19,8 +19,9 @@ _MONTH_NAMES = (("jan", "january", "janv", "janvier"), ("feb", "february", "fev"
                 ("sep", "sept", "september", "septembre"), ("oct", "october", "octobre"),
                 ("nov", "november", "novembre"), ("dec", "december", "decembre"))
 MONTHS = {name: month for month, names in enumerate(_MONTH_NAMES, 1) for name in names}
-_MONTH_WORD = (r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|janv|f[ée]v|f[ée]vr|mars|avr|mai|juin|juil|"
-               r"ao[uû]t?|d[ée]c)[^\W\d_]*")
+_MONTH_WORD = (r"(?:jan(?:uary)?|janv(?:ier)?|feb(?:ruary)?|f[ée]v(?:r|rier)?|mar(?:ch)?|mars|apr(?:il)?|avr(?:il)?|"
+               r"may|mai|june?|juin|july?|juil(?:let)?|aug(?:ust)?|ao[uû]t?|sep(?:t|tember|tembre)?|"
+               r"oct(?:ober|obre)?|nov(?:ember|embre)?|dec(?:ember)?|d[ée]c(?:embre)?)(?![^\W\d_])")
 _DATE_LIKE = re.compile(
     rf"^(?:\d{{4}}-\d{{2}}-\d{{2}}|\d{{1,2}}[/-]\d{{1,2}}(?:[/-]\d{{2,4}})?|"
     rf"{_MONTH_WORD}\.?\s+\d{{1,2}}(?:,?\s+\d{{4}})?|"

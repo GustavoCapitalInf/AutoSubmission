@@ -143,14 +143,15 @@ _PRINTED_INTEGER_FIELDS = ("stated_credit_count", "stated_debit_count", "stated_
 
 def _figure_printed(printed, value) -> bool:
     """A reported money figure is printed on the page: as money, or, a whole non-zero amount, as whole dollars
-    ("Average daily balance $822")."""
+    with a currency sign ("Average daily balance $1,822"). A bare integer (a day, a page or cheque number) is
+    not a money figure."""
     if printed.amount_printed(value):
         return True
     try:
         number = Decimal(str(value))
     except ArithmeticError:
         return False
-    return number != 0 and number == number.to_integral_value() and printed.integer_printed(int(abs(number)))
+    return number != 0 and number == number.to_integral_value() and int(abs(number)) in printed.whole_dollars
 
 
 def _review_metadata(data: dict, *, page: int, printed=None):
@@ -323,6 +324,24 @@ def _settle_description(original: dict, corrected: dict | None, observed, printe
     return (row, label) if not _row_errors(row, label="settled") else None
 
 
+def _ground_balances(rows, evidence, diagnostics, printed, *, page: int) -> list:
+    """A running balance the reading puts on a row stands only if the row's own print carries it
+    (PrintedEvidence.balance_printed_for): a day's closing balance printed on the day's last row, attached to an
+    earlier row of the day, is the other row's. Dropped (the row keeps its amount, and the balance walk skips
+    it), with an audit-only diagnostic; where the text layer cannot locate the row, nothing changes."""
+    grounded = []
+    for row in rows:
+        if row.balance is not None and printed.balance_printed_for(row.amount, row.balance, row.date_text) is False:
+            row = replace(row, balance=None)
+            diagnostics.append({"scope": "row", "page": page, "locator": row.locator,
+                                "code": "review_balance_not_printed_on_row"})
+            for item in evidence:
+                if item["locator"] == row.locator:
+                    item["balance_dropped"] = True
+        grounded.append(row)
+    return grounded
+
+
 def merge_review(candidates, payload: object, *, page: int, truncated: bool = False,
                  validation_errors=(), candidate_validation_errors=None, printed=None) -> PageReviewMerge:
     """Keep usable peers while isolating attributable row/metadata failures.
@@ -477,6 +496,8 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
     # own evidence stays unresolved after the ordered candidate sequence.
     for index, item, codes in additions:
         append_addition(index, item, codes)
+    if printed is not None:
+        rows = _ground_balances(rows, evidence, diagnostics, printed, page=page)
     counts = Counter(item["state"] for item in evidence)
     return PageReviewMerge(page, tuple(rows), tuple(evidence), {state: counts[state] for state in ROW_STATES},
                            tuple(dict.fromkeys(errors)), account, daily, data["page_role"], numbers,
