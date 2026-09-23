@@ -16,6 +16,7 @@ from decimal import Decimal
 import jsonschema
 
 from vlm.assemble import BALANCE_LINE, CandidateRow
+from vlm.dates import reads_as
 from vlm.native_text import contains_words, spaced
 from vlm.schema import PAGE_REVIEW_SCHEMA, REVIEW_ROW_FIELDS, empty_review, valid_review_row
 
@@ -107,6 +108,21 @@ _NAMES_A_BALANCE = re.compile(r"\b(?:new|ending|closing|previous|beginning|openi
                               r"\bbalance\s+(?:forward|brought\s+forward|carried\s+forward)\b", re.IGNORECASE)
 
 
+def _bare_row_heading(row: dict, printed) -> str | None:
+    """The description a row read without one takes: its printed section heading, when a reader directed it and
+    the page's text layer prints the row's own line as its date and amount alone (PrintedEvidence.bare_row_heading).
+    None otherwise: a row whose words were printed but not read stays held."""
+    if (printed is None or row.get("direction") not in ("credit", "debit")
+            or str(row.get("description") or "").strip()):
+        return None
+    return printed.bare_row_heading(row.get("amount"), row.get("date_text"), row.get("balance"))
+
+
+def _unspaced(text) -> str:
+    """A description with every space removed: two readings equal so differ only in spacing."""
+    return "".join(spaced(text or "").split())
+
+
 def _table_of(row) -> tuple | None:
     """(page, table) of a row the proposer read from a whole page (locator b<block>t<table>r<row>); None for any
     other row (a crop's, a reviewer's)."""
@@ -114,17 +130,37 @@ def _table_of(row) -> tuple | None:
     return (row.page, match.group(1)) if match else None
 
 
-def _figure_grid_tables(candidates) -> set:
-    """(page, table) of the proposer's tables whose every row prints a date and an amount and nothing else: no
-    word, no direction, no balance. A daily-balance grid read as rows, never a ledger."""
+def _figure_grid_tables(candidates, daily=()) -> set:
+    """(page, table) of the proposer's daily-balance grids read as rows: tables whose every row prints a date and an
+    amount and nothing else (no word, no direction, no balance), each row one of the page's daily balances the
+    reviewer reported (``daily``, _review_metadata: its date and its balance), one to one. A wordless table that is
+    not the page's daily balances can be transactions (a DATE | AMOUNT listing), which stay held."""
+    balances = []
+    for item in daily or ():
+        try:
+            balances.append((str(item["date"]), abs(Decimal(str(item["balance"])))))
+        except (ArithmeticError, KeyError, TypeError, ValueError):
+            continue
     tables: dict = {}
     for row in candidates:
         table = _table_of(row)
         if table is not None:
             tables.setdefault(table, []).append(row)
-    return {table for table, rows in tables.items()
-            if all(not str(row.description or "").strip() and row.direction == "unknown" and row.balance is None
-                   and row.date_text for row in rows)}
+    grids = set()
+    for table, rows in tables.items():
+        if not all(not str(row.description or "").strip() and row.direction == "unknown" and row.balance is None
+                   and row.date_text for row in rows):
+            continue
+        free = list(balances)
+        for row in rows:
+            match = next((entry for entry in free if entry[1] == abs(row.amount)
+                          and (entry[0] == row.date if row.date else reads_as(row.date_text, entry[0]))), None)
+            if match is None:
+                break
+            free.remove(match)
+        else:
+            grids.add(table)
+    return grids
 
 
 def _row_errors(row: dict, *, label: str) -> list[str]:
@@ -502,6 +538,7 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
 
     additions = []
     unprinted_zero = set()  # additions the page prints without any amount: no transaction
+    headed = {}  # additions printed as their date and amount alone: index -> (the reviewer's item, the heading)
     addition_schema = PAGE_REVIEW_SCHEMA["properties"]["added"]["items"]
     for index, item in enumerate(data["added"]):
         codes = []
@@ -518,6 +555,12 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
             if unprinted and row_codes == [f"review_zero_amount:added{index}"]:
                 unprinted_zero.add(index)
                 row_codes = []
+            elif row_codes == [f"review_empty_description:added{index}"]:
+                heading = _bare_row_heading(item["row"], printed)
+                if heading is not None:
+                    headed[index] = (item, heading)
+                    item = {**item, "row": {**item["row"], "description": heading}}
+                    row_codes = []
             codes.extend(row_codes)
         additions.append((index, item, list(dict.fromkeys(codes))))
         diagnostics.extend({"scope": "row", "page": page, "candidate_id": f"p{page}a{index}", "code": code}
@@ -567,11 +610,14 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                                   else "addition_amount_not_printed" if no_amount else "reviewer_only" if usable
                                   else "page_review_invalid" if fatal else "row_review_invalid"))
         evidence[-1].update(validation_errors=list(codes), validation_warnings=[],
-                            raw_addition=copy.deepcopy(item))
+                            raw_addition=copy.deepcopy(headed[index][0] if index in headed else item))
+        if index in headed:
+            evidence[-1]["resolution"] = {"method": "section_heading", "heading": headed[index][1],
+                                          "resolved_errors": [f"review_empty_description:added{index}"]}
 
     # Tables the proposer read as figures only: every row of the table a date and an amount, with no word, no
     # direction and no balance (a daily-balance grid read as rows). None of them can be a published transaction.
-    grids = _figure_grid_tables(candidates)
+    grids = _figure_grid_tables(candidates, daily)
     add_after(None)
     for candidate, record in zip(candidates, records):
         candidate_id = record["candidate_id"]
@@ -580,9 +626,10 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         effective, corrected, row_errors, warnings, inherited = checked_item or (
             {}, None, [], [], list(dict.fromkeys(source_errors.get(candidate_id, ()))))
         verdict = effective.get("verdict")
-        settled, resolved = None, "review_description_observation_mismatch"
-        if (printed is not None and not fatal and checked_item is not None and not inherited
-                and row_errors == ["review_description_observation_mismatch"] and verdict in ("confirm", "correct")):
+        settled, resolved, method = None, "review_description_observation_mismatch", "text_layer"
+        mismatch = (not fatal and checked_item is not None and not inherited
+                    and row_errors == ["review_description_observation_mismatch"] and verdict in ("confirm", "correct"))
+        if mismatch and printed is not None:
             settled = _settle_description(record["row"], corrected if verdict == "correct" else None,
                                           effective.get("observed_description"), printed)
         elif (printed is not None and not fatal and checked_item is not None and not inherited
@@ -591,6 +638,15 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
             # A "correction" that changes nothing, of a reading the reviewer observed and the row's own lines print,
             # confirms that reading.
             settled, resolved = (record["row"], "proposer"), "review_correction_unchanged"
+        if settled is None and mismatch and printed is not None:
+            # Like every rule beyond what the reviewer said, only in the final merge: a batched page's discovery
+            # prompt shows the reviewer its own verdicts (review_batches.review_batched_page).
+            reading = corrected if verdict == "correct" else record["row"]
+            if _unspaced(effective.get("observed_description")) == _unspaced(reading["description"]):
+                # What the reviewer observed and the reading it confirmed or wrote differ only in spacing
+                # ("Bro`" and "Bro `"): one reading.
+                settled = (reading, "reviewer_correction" if verdict == "correct" else "proposer")
+                method = "spacing"
         if settled is not None:
             row_errors = []
             verdict = "confirm" if settled[0] == record["row"] else "correct"
@@ -598,8 +654,8 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         usable = not fatal and not row_errors and (not inherited or verdict == "reject") and checked_item is not None
         state = {"confirm": "agreed", "correct": "corrected", "reject": "rejected"}.get(verdict, "unresolved") if usable else "unresolved"
         read = corrected if verdict == "correct" and corrected is not None else record["row"]
-        figure_grid = (state == "unresolved" and not fatal and checked_item is not None and not inherited
-                       and _table_of(candidate) in grids and verdict in ("confirm", "correct")
+        figure_grid = (printed is not None and state == "unresolved" and not fatal and checked_item is not None
+                       and not inherited and _table_of(candidate) in grids and verdict in ("confirm", "correct")
                        and not str(effective.get("observed_description") or "").strip()
                        and not str(read.get("description") or "").strip()
                        and read.get("direction") == "unknown" and read.get("balance") is None
@@ -609,6 +665,15 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
             # Both readers read it without a word, a direction or a balance, in a table of figures only: no
             # transaction. The statement's own totals still have to reconcile without it.
             state, verdict = "rejected", "reject"
+        heading, headed_errors = None, list(row_errors)
+        if (state == "unresolved" and not figure_grid and not fatal and checked_item is not None and not inherited
+                and verdict in ("confirm", "correct") and not str(effective.get("observed_description") or "").strip()
+                and {code.split(":")[0] for code in row_errors}
+                <= {"review_empty_description", "review_description_observation_missing"}):
+            heading = _bare_row_heading(read, printed)
+            if heading is not None:
+                # Both readers read no words where the page prints none: the row is named by its section.
+                corrected, state, verdict, row_errors = {**read, "description": heading}, "corrected", "correct", []
         value = record["row"] if state == "agreed" else corrected if state == "corrected" else None
         if state == "agreed":
             rows.append(replace(candidate, source="stage_a+stage_b"))
@@ -620,7 +685,8 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         evidence.append(_evidence(candidate_id=candidate_id, state=state, page=page, locator=record["locator"],
                                   original=record["row"], corrected=corrected, row=value,
                                   reason="page_review_invalid" if fatal else "row_review_invalid" if state == "unresolved"
-                                  else "figure_grid_row" if figure_grid else effective.get("reason", ""),
+                                  else "figure_grid_row" if figure_grid else "section_heading" if heading
+                                  else effective.get("reason", ""),
                                   observed_description=effective.get("observed_description"),
                                   corrections=raw_changes if isinstance(raw_changes, list) else ()))
         evidence[-1].update(review_verdict=raw_item.get("verdict") if raw_item is not None else None,
@@ -628,7 +694,10 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                             validation_warnings=list(warnings), raw_review=copy.deepcopy(raw_item),
                             raw_observed_description=copy.deepcopy(raw_item.get("observed_description")) if raw_item is not None else None)
         if settled is not None:
-            evidence[-1]["resolution"] = {"method": "text_layer", "chosen": settled[1], "resolved_errors": [resolved]}
+            evidence[-1]["resolution"] = {"method": method, "chosen": settled[1], "resolved_errors": [resolved]}
+        if heading is not None:
+            evidence[-1]["resolution"] = {"method": "section_heading", "heading": heading,
+                                          "resolved_errors": headed_errors}
         add_after(candidate_id)
     # Invalid or missing anchors cannot silently discard an addition. Their
     # own evidence stays unresolved after the ordered candidate sequence.
@@ -778,14 +847,22 @@ def _plausible_pictures(keys: list, period: tuple | None) -> bool:
     (_period_window, with the gate's grace; a real page misdated outside it is the period check's to
     refuse, never absorbed), and one direction: enough rows (min(_UNLABELLED_ECHO_MIN_ROWS, rows)) name it,
     and none names the other. A page of pictured cheques is debits and a page of deposit slips credits; a
-    real page that nets to zero, the case the arithmetic cannot see, needs both."""
+    real page that nets to zero, the case the arithmetic cannot see, needs both. A page picturing deposit
+    slips and cheques together is pictures only when every row's direction is read and its credits and debits
+    do not net to zero: were it a real page, leaving it out would move the balance, and the arithmetic sees
+    that."""
     from vlm.gate import PERIOD_GRACE_DAYS
     if period is None:
         return False
     lower, upper = (period[0] - timedelta(days=PERIOD_GRACE_DAYS), period[1] + timedelta(days=PERIOD_GRACE_DAYS))
     known = [key[1] for key in keys if key[1] in ("credit", "debit")]
-    return (all(lower <= key[2] <= upper for key in keys) and len(set(known)) <= 1
-            and len(known) >= min(_UNLABELLED_ECHO_MIN_ROWS, len(keys)))
+    if not all(lower <= key[2] <= upper for key in keys):
+        return False
+    if len(set(known)) <= 1:
+        return len(known) >= min(_UNLABELLED_ECHO_MIN_ROWS, len(keys))
+    credits = sum(key[0] for key in keys if key[1] == "credit")
+    debits = sum(key[0] for key in keys if key[1] == "debit")
+    return len(known) == len(keys) and credits != debits
 
 
 def _oldest_first(dates: list) -> bool:

@@ -150,6 +150,53 @@ def test_a_row_whose_amount_is_not_its_lines_first_takes_no_date_from_the_line()
     assert printed.governing_date(Decimal("46.15")) is None
 
 
+def test_a_cheque_table_printing_number_date_amount_dates_each_cheque_by_its_own_group():
+    # Two-up "Number | Cleared | Amount | Description": each cheque's date is printed between its number and its
+    # amount; the next group's date, after the first cheque's description, is never the first cheque's.
+    printed = PrintedEvidence(native=(
+        "Summary by Check Number\nNumber Cleared Amount Description Number Cleared Amount Description\n"
+        "3101* 03/06 $4,321.09 Check 3101 Ref 11 3104* 03/17 $765.43 Check 3104 Ref 22\n"
+        "3102 03/13 208.19 Check 3102 Ref 33\n"))
+    assert printed.governing_date(Decimal("4321.09")) == "03/06"
+    assert printed.governing_date(Decimal("765.43")) == "03/17"
+    assert printed.governing_date(Decimal("208.19")) == "03/13"
+
+
+def test_a_row_printed_as_its_date_and_amount_alone_is_named_by_its_section():
+    printed = PrintedEvidence(native=(
+        "DEPOSITS\nREF # DATE AMOUNT REF # DATE AMOUNT\n03/09 71.25 03/12 18.45\n"
+        "OTHER DEBITS\nDESCRIPTION DATE AMOUNT\nFABRICATED FEE 03/14 613.07\n"
+        "CHECKS\nCHECK # DATE AMOUNT\n3105 03/25 1,406.19\n03/26 207.53\n"))
+    assert printed.bare_row_heading(Decimal("71.25"), "03/09") == "DEPOSITS"
+    assert printed.bare_row_heading(Decimal("18.45"), "03/12") == "DEPOSITS"
+    assert printed.bare_row_heading(Decimal("207.53"), "03/26") == "CHECKS"
+    # Words, a cheque number or another date printed with the row: not a bare row.
+    assert printed.bare_row_heading(Decimal("613.07"), "03/14") is None
+    assert printed.bare_row_heading(Decimal("1406.19"), "03/25") is None
+    assert printed.bare_row_heading(Decimal("71.25"), "03/10") is None
+    assert PrintedEvidence(native=None).bare_row_heading(Decimal("71.25"), "03/09") is None
+    # The line above the table must be a heading: never a period line or a total.
+    period = PrintedEvidence(native="Statement Period 03/01/31 - 03/31/31\nDATE AMOUNT\n03/09 71.25\n")
+    assert period.bare_row_heading(Decimal("71.25"), "03/09") is None
+    # A heading naming balances heads figures, never transactions (review 8 verification of patch E).
+    daily = PrintedEvidence(native="DAILY BALANCES\nDATE AMOUNT\n03/09 71.25\n")
+    assert daily.bare_row_heading(Decimal("71.25"), "03/09") is None
+
+
+def test_a_date_after_the_amount_is_the_rows_only_right_after_it():
+    # A date column after the amount is the row's; a date past a word belongs to something else, and the row
+    # takes the date its line begins with.
+    column = PrintedEvidence(native="FABRICATED PAYMENT 51.37 03/09 1,051.37\n")
+    assert column.governing_date(Decimal("51.37")) == "03/09"
+    worded = PrintedEvidence(native="03/05 FABRICATED PAYMENT 51.37 REF 123 03/09 1,051.37\n")
+    assert worded.governing_date(Decimal("51.37")) == "03/05"
+    # A line beginning with a date is not a cheque group, nor is a group printing words before its number.
+    dated = PrintedEvidence(native="03/05 3101 03/04 51.37\n")
+    assert dated.governing_date(Decimal("51.37")) == "03/05"
+    invoice = PrintedEvidence(native="INV 3101 03/04 51.37\n")
+    assert invoice.governing_date(Decimal("51.37")) == ""
+
+
 def _row(amount, direction, locator, page=1, balance=None, day="2031-03-03"):
     return CandidateRow(day, day[5:].replace("-", "/"), f"FABRICATED ROW {locator}", Decimal(amount), direction,
                         None if balance is None else Decimal(balance), page, "stage_b", locator)

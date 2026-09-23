@@ -197,33 +197,103 @@ def test_a_zero_amount_row_no_reader_directed_moves_nothing():
     assert [row.locator for row in kept] == ["b1t0r0", "b1t0r2"] and excluded == [pending]
 
 
+def test_an_observation_differing_from_the_reading_only_in_spacing_is_that_reading():
+    rows = [replace(_candidate(0), description="FABRICATED STORE` NUMBER 12")]
+    payload = _review(rows)
+    payload["reviews"][0]["observed_description"] = "FABRICATED STORE ` NUMBER 12"
+    # Only in the final merge (with the page's printed evidence): a batched page's discovery prompt shows the
+    # reviewer its own verdicts.
+    assert merge_review(rows, copy.deepcopy(payload), page=1).counts["unresolved"] == 1
+    from vlm.native_text import PrintedEvidence
+    printed = PrintedEvidence(native=None, proposer="FABRICATED STORE` NUMBER 12 20.00")
+    result = merge_review(rows, payload, page=1, printed=printed)
+    assert result.counts["agreed"] == 1 and result.counts["unresolved"] == 0
+    assert result.rows[0].description == "FABRICATED STORE` NUMBER 12"
+    assert result.evidence[0]["resolution"] == {"method": "spacing", "chosen": "proposer",
+                                                "resolved_errors": ["review_description_observation_mismatch"]}
+    # A different character is a different reading.
+    payload["reviews"][0]["observed_description"] = "FABRICATED STORE' NUMBER 12"
+    assert merge_review(rows, payload, page=1, printed=printed).counts["unresolved"] == 1
+
+
+BARE_PAGE = "DEPOSITS\nREF # DATE AMOUNT\n01/02 20.00\n01/05 719.03\n"
+
+
+def test_a_row_both_readers_read_without_words_where_the_page_prints_none_takes_its_section_heading():
+    from vlm.native_text import PrintedEvidence
+    bare = [replace(_candidate(0), description="", balance=None)]
+    result = merge_review(bare, _review(bare), page=1, printed=PrintedEvidence(native=BARE_PAGE))
+    assert result.counts["corrected"] == 1 and result.rows[0].description == "DEPOSITS"
+    assert result.evidence[0]["resolution"]["method"] == "section_heading"
+    assert result.evidence[0]["validation_errors"] == []
+    # No text layer to prove the page prints no words, or no direction read: the row stays held.
+    assert merge_review(bare, _review(bare), page=1).counts["unresolved"] == 1
+    undirected = [replace(bare[0], direction="unknown", balance=Decimal("520.00"), printed_amount=None)]
+    assert merge_review(undirected, _review(undirected), page=1,
+                        printed=PrintedEvidence(native=BARE_PAGE)).counts["unresolved"] == 1
+
+
+def test_a_reviewer_addition_printed_as_its_date_and_amount_alone_takes_its_section_heading():
+    from vlm.native_text import PrintedEvidence
+    rows = [_candidate(0)]
+    original = candidate_records(rows)[0]["row"]
+    payload = _review(rows)
+    payload["added"] = [{"row": {**original, "date": "2031-01-05", "date_text": "01/05", "description": "",
+                                 "amount": 719.03, "balance": None, "printed_amount": None, "direction": "credit"},
+                         "after_candidate_id": None}]
+    result = merge_review(rows, payload, page=1, printed=PrintedEvidence(native=BARE_PAGE))
+    assert result.counts["added"] == 1 and result.rows[0].description == "DEPOSITS"
+    added = next(item for item in result.evidence if item["locator"] == "added0")
+    assert added["resolution"]["method"] == "section_heading" and added["raw_addition"]["row"]["description"] == ""
+    assert merge_review(rows, payload, page=1).counts["unresolved"] == 1
+
+
 def _figures_only(count):
-    return [replace(_candidate(index), description="", direction="unknown", balance=None, printed_amount=None)
-            for index in range(count)]
+    return [replace(_candidate(index), date=f"2031-01-0{index + 2}", date_text=f"01/0{index + 2}",
+                    amount=Decimal(f"{20 + 5 * index}.00"), description="", direction="unknown", balance=None,
+                    printed_amount=None) for index in range(count)]
+
+
+DAILY_PAGE = "DAILY BALANCES\n01/02 20.00\n01/03 25.00\n01/04 30.00\n"
+
+
+def _with_daily(payload, grid):
+    payload["daily_balances"] = [{"date": row.date, "balance": float(row.amount)} for row in grid]
+    return payload
 
 
 def test_a_table_both_readers_read_as_figures_only_is_no_ledger():
     # A daily-balance grid the proposer read as rows: every row of its table a date and an amount, without a word, a
-    # direction or a balance, and the reviewer reads them the same way. None is a transaction.
+    # direction or a balance, the reviewer reading them the same way and reporting them as the page's daily
+    # balances. None is a transaction.
+    from vlm.native_text import PrintedEvidence
     grid = _figures_only(3)
-    result = merge_review(grid, _review(grid), page=1)
+    result = merge_review(grid, _with_daily(_review(grid), grid), page=1, printed=PrintedEvidence(native=DAILY_PAGE))
     assert result.counts["rejected"] == 3 and result.counts["unresolved"] == 0 and result.rows == ()
     assert {item["reason"] for item in result.evidence} == {"figure_grid_row"}
+    # Review 8, finding 3: a wordless table that is not the page's daily balances can be transactions (a DATE |
+    # AMOUNT listing netting to zero): held. Nor is the rule applied before the final merge.
+    assert merge_review(grid, _review(grid), page=1,
+                        printed=PrintedEvidence(native=DAILY_PAGE)).counts["unresolved"] == 3
+    assert merge_review(grid, _with_daily(_review(grid), grid), page=1).counts["unresolved"] == 3
 
 
 def test_a_wordless_row_of_a_table_that_prints_words_or_read_with_a_direction_stays_held():
+    from vlm.native_text import PrintedEvidence
+    printed = PrintedEvidence(native=DAILY_PAGE)
     grid = _figures_only(3)
     worded = [*grid[:2], replace(grid[2], description="Synthetic Deposit", direction="credit")]
-    result = merge_review(worded, _review(worded), page=1)
+    result = merge_review(worded, _with_daily(_review(worded), grid), page=1, printed=printed)
     assert (result.counts["unresolved"], result.counts["agreed"]) == (2, 1)
-    payload = _review(grid)
+    payload = _with_daily(_review(grid), grid)
     payload["reviews"][0].update(verdict="correct", corrections=[
         {"field": "direction", "original": "unknown", "corrected": "credit"}])
-    result = merge_review(grid, payload, page=1)
+    result = merge_review(grid, payload, page=1, printed=printed)
     assert (result.counts["unresolved"], result.counts["rejected"]) == (1, 2)
     # A row read from a crop, not from the whole page, is never judged by its table.
     cropped = [replace(row, locator=f"g1c0/r{index}/{row.locator}") for index, row in enumerate(grid)]
-    assert merge_review(cropped, _review(cropped), page=1).counts["unresolved"] == 3
+    assert merge_review(cropped, _with_daily(_review(cropped), grid), page=1,
+                        printed=printed).counts["unresolved"] == 3
 
 
 def test_reviewer_addition_naming_a_balance_at_its_own_balance_is_that_balance_line():

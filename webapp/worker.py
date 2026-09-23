@@ -308,7 +308,11 @@ def _attach_account_confidence(analysis: dict, evidence: dict) -> None:
         else None
     if not isinstance(accounts, list) or not isinstance(roster, list) or len(roster) != len(accounts):
         return
-    published = analysis.get("accounts") if isinstance(analysis.get("accounts"), list) else [analysis]
+    from analysis.payload_shape import PayloadShapeError, payload_accounts
+    try:
+        published = payload_accounts(analysis, surface="webapp/worker.py::_attach_account_confidence")
+    except PayloadShapeError:
+        return
     for entry, account in zip(roster, accounts):
         index = entry.get("published_index") if isinstance(entry, dict) else None
         if (isinstance(index, int) and 0 <= index < len(published) and isinstance(account, dict)

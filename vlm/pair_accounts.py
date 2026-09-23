@@ -15,7 +15,7 @@ from collections import Counter
 from dataclasses import replace
 
 from vlm.accounts import (DEPOSIT_KINDS, UNPLACED, assign_rows, listing_echoes, plan_accounts,
-                          section_activity_lines, section_figures, summary_table_figures)
+                          section_activity_lines, section_figures, summary_table_figures, summary_table_rows)
 
 ACCOUNTS_VERSION = 1
 # Document facts every account shares: without them no account can be judged.
@@ -72,6 +72,14 @@ def _balance_only_additions(rows, opening, dropped=None) -> set:
     return excluded
 
 
+def _balance_line(description) -> bool:
+    """A printed balance line ("Beginning Balance", "Ending Balance as of 03/31"): no transaction."""
+    from vlm.accounts import _label
+    from vlm.assemble import BALANCE_LINE
+    text = " ".join(str(description or "").split())
+    return bool(text) and (bool(BALANCE_LINE.match(text)) or _label(text) is not None)
+
+
 def _markdown(rows, account: dict) -> str:
     """The account's own reviewed rows as the analysis's source text: its posting dates are exactly its rows'."""
     from vlm.assemble import published_row
@@ -111,6 +119,12 @@ def judge_accounts(layouts, merges, rows, *, recoveries=(), printed_pages=None, 
                         if item.get('balance_dropped') and isinstance(item.get('row'), dict)
                         and isinstance(item['row'].get('balance'), (int, float))}
     states = {(merged.page, item.get('locator')): item.get('state') for merged in merges for item in merged.evidence}
+    # Proposer rows the reviewer rejected, other than balance lines and daily-balance grids: a printed line that may
+    # have been a transaction, so the account it was printed in is never shown to be idle.
+    rejected = {(merged.page, item.get('locator')) for merged in merges for item in merged.evidence
+                if item.get('state') == 'rejected' and isinstance(item.get('original'), dict)
+                and item.get('reason') != 'figure_grid_row'
+                and not _balance_line(item['original'].get('description'))}
     pictures = {merged.page for merged in merges if picture_page(merged)}
     pages = sorted({merged.page for merged in merges})
     problem_pages = set()
@@ -126,9 +140,17 @@ def judge_accounts(layouts, merges, rows, *, recoveries=(), printed_pages=None, 
     unplaced_pages = {page for page, _ in unplaced}
     unplaced_pages |= {page for (page, locator), section in evidence.items()
                        if section == UNPLACED and states.get((page, locator)) == 'unresolved'}
-    outside = [key for key, section in kept.items() if section is None]
+    # Rows read from a summary table (its rows name the accounts under figure columns) are no account's rows and
+    # no sign of an account whose heading went unrecognized.
+    descriptions = {(row.page, row.locator): row.description for row in rows}
+    for merged in merges:
+        for item in merged.evidence:
+            row = next((value for value in (item.get('row'), item.get('original')) if isinstance(value, dict)), {})
+            descriptions.setdefault((merged.page, item.get('locator')), row.get('description'))
+    summary_rows = summary_table_rows(plan, layouts, descriptions)
+    outside = [key for key, section in kept.items() if section is None and key not in summary_rows]
     unresolved_outside = [key for key, section in evidence.items()
-                          if section is None and states.get(key) == 'unresolved']
+                          if section is None and states.get(key) == 'unresolved' and key not in summary_rows]
     if outside or unresolved_outside:
         # Rows printed before every recognized heading: an account whose heading was not recognized (the business
         # checking account itself, perhaps). Judging the others alone would drop it from the statement.
@@ -172,8 +194,10 @@ def judge_accounts(layouts, merges, rows, *, recoveries=(), printed_pages=None, 
                          and printed_pages[page - 1].native for page in section_pages)
             activity = section_activity_lines(plan, section.index, layouts)
             entry['activity_lines'] = activity
+            entry['rejected_rows'] = sum(1 for key, placed in evidence.items()
+                                         if placed == section.index and key in rejected)
             if (not reasons and opening is not None and opening == closing and native and not activity
-                    and all(total in (None, Decimal('0')) for total in totals)):
+                    and not entry['rejected_rows'] and all(total in (None, Decimal('0')) for total in totals)):
                 entry.update(status='idle', reasons=[], balance=opening)
             else:
                 entry.update(status='held', reasons=reasons + ['no_rows'])

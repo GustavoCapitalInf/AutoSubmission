@@ -77,6 +77,27 @@ def test_a_longer_period_needs_the_order_proven_by_the_statement_itself():
     assert annual.unresolved == 4 and all(row.date is None for row in annual.rows)
 
 
+def test_a_year_less_print_in_the_text_layer_proves_no_order():
+    # Review 8, finding 1: "24/7" on an annual US-dollar statement proved day-first and misdated every row.
+    rows = [replace_page(_row(f"{month:02d}/01", locator=f"b1t0r{month}"), 1) for month in range(2, 13)]
+    helpline = [PrintedEvidence(native="We are here for you 24/7 at 1-800-555-0100\n02/01 FABRICATED INTEREST 25.00")]
+    result = resolve_reviewed_dates(rows, period_start="2031-01-01", period_end="2031-12-31", printed_pages=helpline,
+                                    month_first=True)
+    assert result.numeric_order is None and result.unresolved == len(rows)
+    # A date printing its year proves the order.
+    period = [PrintedEvidence(native="Statement period 01/01/2031 - 12/31/2031\nWe are here for you 24/7")]
+    result = resolve_reviewed_dates(rows, period_start="2031-01-01", period_end="2031-12-31", printed_pages=period,
+                                    month_first=True)
+    assert result.numeric_order == "month_first" and result.unresolved == 0
+    assert result.rows[0].date == "2031-02-01"
+
+
+def test_a_month_name_date_printing_a_two_digit_year_vouches_for_its_year():
+    # Review 8, finding 10.
+    printed = PrintedEvidence(native="Statement date 01-MAR-31\nAccount opened 03/01/2020")
+    assert printed.date_contradicted("2031-03-01") is False and printed.date_contradicted("2021-03-01") is True
+
+
 def replace_page(row, page):
     from dataclasses import replace
     return replace(row, page=page)

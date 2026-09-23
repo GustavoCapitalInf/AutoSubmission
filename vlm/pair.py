@@ -889,8 +889,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         accounts_error = type(exc).__name__
         account_plan, echoed = AccountPlan([], [], {}, {}, {}), set()
     rows = [row for row in rows if (row.page, row.locator) not in echoed]
-    rows, unmoved_rows = zero_undirected_rows(rows)
-    account_rows = list(rows)
+    # Judged account by account, a row at 0.00 no reader gave a direction moves nothing (zero_undirected_rows).
+    account_rows, _ = zero_undirected_rows(rows)
     # Each later page's own totals, read as the statement's, are that page's subtotals when its rows prove them.
     page_subtotals = settle_page_subtotals(reasons, occurrences, field_evidence, rows)
     # A proven summary box names its sections: the rows printed under one, adding up to its printed amount, move
@@ -899,6 +899,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     if summary_box is not None and summary_box.get('categories'):
         from vlm.summary_box import settle_section_directions
         rows, section_directions = settle_section_directions(rows, printed_pages, summary_box['categories'])
+    # A row at 0.00 that neither a reader nor its printed section gave a direction moves nothing.
+    rows, unmoved_rows = zero_undirected_rows(rows)
     # A mid-day figure at a page break is not the day's close when no later page prints one.
     page_break_dates = page_break_figures(merges, rows)
     daily = [item for item in daily if item['date'] not in page_break_dates]

@@ -43,9 +43,11 @@ _COMPACT_MONTH_DAY = re.compile(
     r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)([0-9]{1,2})",
     re.IGNORECASE | re.ASCII,
 )
-# A numeric date as a page's text layer prints it ("04/30", "30/04/2031", "04-30-31"); numeric_order decides what it
-# proves. Never part of a longer number, and never an amount ("12.50" has no year: numeric_order ignores it).
-_PRINTED_NUMERIC_DATE = re.compile(r"(?<![\d/.\-])\d{1,2}[/.\-]\d{1,2}(?:[/.\-](?:\d{4}|\d{2}))?(?![\d/.\-])")
+# A numeric date a page's text layer prints WITH its year, one separator throughout ("03/31/2031", "31-03-31", a
+# dotted DD.MM.YYYY); numeric_order decides what it proves. Never part of a longer number, never an amount, and
+# never a year-less "24/7" or "1/16" (review 8): only the rows' own date texts prove an order without a year.
+_PRINTED_NUMERIC_DATE = re.compile(r"(?<![\d/.\-])(?:\d{1,2}([/\-])\d{1,2}\1(?:\d{4}|\d{2})|\d{1,2}\.\d{1,2}\.\d{4})"
+                                   r"(?![\d/.\-])")
 # The US-dollar month-first default applies to a period of at most this many days.
 _MONTH_FIRST_DAYS = 35
 
@@ -240,7 +242,7 @@ def resolve_reviewed_dates(rows, *, period_start: str | None, period_end: str | 
     start, end, period_error = _period(period_start, period_end)
     rows = tuple(rows)
     printed_dates = [token for page in printed_pages or () if page is not None and page.native
-                     for token in _PRINTED_NUMERIC_DATE.findall(page.native)]
+                     for token in (match.group(0) for match in _PRINTED_NUMERIC_DATE.finditer(page.native))]
     proven = numeric_order([*(row.date_text for row in rows), *printed_dates])
     within_a_month = start is not None and (end - start).days < _MONTH_FIRST_DAYS
     order, order_source = ((proven, "printed_dates") if proven in ("day_first", "month_first") else

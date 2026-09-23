@@ -54,6 +54,9 @@ _SENTENCE = re.compile(r"\b(?:please|thank|thanks|if|call|visit|www|http|https|c
 # Words of a sentence that a short account title can print too ("Your Business Checking", "US Bank Checking", "...
 # Activity for May"): they disqualify only a line naming no account kind, or a long one.
 _SENTENCE_WORDS = re.compile(r"\b(?:you|your|we|our|us|will|may)\b", re.I)
+# A verb makes a line a sentence ("Your savings are insured by the NCUA", "We value your checking relationship").
+_VERBS = re.compile(r"\b(?:are|is|was|were|be|been|can|could|should|must|earns?|earned|insured|available|changes?|"
+                    r"changed|offers?|provides?|protect(?:s|ed)?|appl(?:y|ies)|needs?|has|have)\b", re.I)
 _POSSESSIVE = re.compile(r"^(?:your|our|my)\s+", re.I)
 # "... for May", "... for the period ending 03/31": the period a title is printed for, not its name.
 _PERIOD_TAIL = re.compile(r"\s+(?:activity\s+)?for\s+(?:the\s+)?(?:period|month|statement|jan\w*|feb\w*|mar\w*|apr\w*|"
@@ -144,7 +147,10 @@ def parse_heading(text: str) -> Heading | None:
     line = _CONTINUED_TAIL.sub("", line).strip(" -–—:|,")
     if not line or _MONEY.search(line) or _SENTENCE.search(line) or _IDENTIFIER_LINE.match(line):
         return None
-    if _SENTENCE_WORDS.search(line) and (_kind(line) is None or len(line.split()) > 8):
+    if _VERBS.search(line):
+        return None
+    words = len(_SENTENCE_WORDS.findall(line))
+    if words > 1 or (words and (_kind(line) is None or len(line.split()) > 5)):
         return None
     line = _POSSESSIVE.sub("", _PERIOD_TAIL.sub("", line))
     line = _PREFIX.sub("", line)
@@ -375,6 +381,11 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
                 chosen = len(sections)
                 sections.append(AccountSection(chosen, heading.kind, heading.title, heading.number))
             section = sections[chosen]
+            if (section.number_from_line and heading.number is not None
+                    and _number_key(heading.number) != section.key):
+                # The title's own identifier replaces the one its number line printed, once: a later heading of the
+                # same title printing yet another identifier is another account.
+                section.number, section.number_from_line = heading.number, False
             section.headings.append(heading)
             if section.number is None and heading.number is not None:
                 section.number = heading.number
@@ -471,6 +482,13 @@ def _money_after(text: str, start: int) -> Decimal | None:
     return None
 
 
+# Words a balance line can print after its label about when the balance stands.
+_FIGURE_TAIL_WORDS = frozenset((
+    "as of on at from to the this last previous prior statement period date forward brought carried end ending "
+    "beginning opening closing jan january feb february mar march apr april may jun june jul july aug august sep sept "
+    "september oct october nov november dec december").split())
+
+
 def _cell_figures(grid: list[list[str]]):
     """(field, value) pairs a table grid prints: a label with its amount in one cell, beside it, or under a row of
     labels. A transaction table's header row labels columns, not figures."""
@@ -486,8 +504,12 @@ def _cell_figures(grid: list[list[str]]):
             found = _label(cell)
             if found is None:
                 continue
-            if in_ledger and not header and re.search(r"[A-Za-z]{2,}", _MONEY_TOKEN.sub(" ", cell[found[1]:])):
-                # A transaction whose words begin with a figure's label ("NEW BALANCE TRANSFER TO SAVINGS").
+            if in_ledger and not header and any(
+                    word.lower() not in _FIGURE_TAIL_WORDS
+                    for word in re.findall(r"[A-Za-z]{2,}", _MONEY_TOKEN.sub(" ", cell[found[1]:]))):
+                # A transaction whose words begin with a figure's label ("NEW BALANCE TRANSFER TO SAVINGS"); a balance
+                # line printing when it stands ("Beginning Balance as of 03/01", "Balance Forward from previous
+                # statement") is still the figure.
                 continue
             inline = [] if header else list(_line_figures(cell))
             if inline:
@@ -545,6 +567,25 @@ def _account_named(plan: AccountPlan, text: str) -> int | None:
         return None
     matches = [section.index for section in plan.sections if _same_account(heading, section)]
     return matches[0] if len(matches) == 1 else None
+
+
+def summary_table_rows(plan: AccountPlan, layouts, descriptions: dict) -> set:
+    """The keys of ``descriptions`` ((page, locator) -> a row's words) read from a summary table: a table whose
+    header row labels at least two figure columns (summary_table_figures), the row's words naming one of the
+    statement's accounts. Such a row is no account's transaction, and no sign of an account whose heading went
+    unrecognized."""
+    blocks = set()
+    for layout in layouts:
+        for block in layout.blocks:
+            grid = _grid(block) if block.label not in _FURNITURE else []
+            for header in ([_clean(cell) for cell in row] for row in grid):
+                roles = {_label(cell)[0] for cell in header if cell and not _MONEY_TOKEN.search(cell) and _label(cell)}
+                if len(roles) >= 2:
+                    blocks.add((layout.page, block.order))
+                    break
+    return {key for key, description in descriptions.items()
+            if (key[0], plan.position(key[0], key[1])) in blocks
+            and _account_named(plan, _MONEY_TOKEN.sub(" ", str(description or ""))) is not None}
 
 
 def summary_table_figures(plan: AccountPlan, layouts, printed_pages=None) -> dict:
@@ -620,13 +661,16 @@ def section_figures(plan: AccountPlan, index: int, layouts, printed_pages=None, 
     return figures
 
 
-_LINE_DATE = re.compile(r"^\s*(?:\d{1,4}[/.-]\d{1,2}(?:[/.-]\d{2,4})?|[A-Za-z]{3,9}\.?\s+\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9})\b")
+# A date printed anywhere on a line ("03/10", "3-10-31", "Mar 10", "10 Mar"); a dotted number is an amount.
+_LINE_DATE = re.compile(r"(?<![\d/.-])(?:\d{1,4}[/-]\d{1,2}(?:[/-]\d{2,4})?(?![\d/-])|"
+                        r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|"
+                        r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)", re.I)
 
 
 def section_activity_lines(plan: AccountPlan, index: int, layouts) -> int:
-    """How many lines of account ``index``'s own section read like a transaction: a date first, an amount, and no
-    figure label (an opening or closing balance line is no activity). An account printing one is not shown to be
-    idle, whatever its opening and closing balances say."""
+    """How many lines of account ``index``'s own section read like a transaction: a date anywhere ("Description |
+    Date | Amount" tables print it second), an amount, and no figure label (an opening or closing balance line is no
+    activity). An account printing one is not shown to be idle, whatever its opening and closing balances say."""
     count = 0
     for layout in layouts:
         for block in layout.blocks:
@@ -636,7 +680,7 @@ def section_activity_lines(plan: AccountPlan, index: int, layouts) -> int:
             lines = [" ".join(_clean(cell) for cell in row if _clean(cell)) for row in grid] if grid else \
                 [_clean(line) for line in str(block.content).splitlines()]
             count += sum(1 for line in lines
-                         if _LINE_DATE.match(line) and _MONEY_TOKEN.search(line) and _label(line) is None)
+                         if _LINE_DATE.search(line) and _MONEY_TOKEN.search(line) and _label(line) is None)
     return count
 
 

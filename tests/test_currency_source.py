@@ -631,6 +631,9 @@ PROVENANCE_MODULES = {
     "vlm/currency.py",
     "vlm/pair.py",
     "vlm/pair_adapter.py",
+    # vlm/pair_accounts.py carries the same label into each account's Statement when a statement is judged account by
+    # account, exactly as vlm/pair.py does for one account. None feeds money.
+    "vlm/pair_accounts.py",
     # Not a reader: the oracle comparison diffs two already-published payloads and names the label as a
     # column to compare. It reads no document and publishes nothing.
     "tools/phase3_pair/oracle_compare.py",

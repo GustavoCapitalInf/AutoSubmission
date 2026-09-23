@@ -733,6 +733,32 @@ def _internal_transfer_positions(analysis: object, account_index: int | None) ->
     return positions
 
 
+_MAIN_ACCOUNT_TITLE = re.compile(r"\b(?:business|commercial|corporate)\b", re.IGNORECASE)
+
+
+def _account_roster(analysis: object) -> list[dict]:
+    """Every account a statement judged account by account prints (document.account_roster); [] for any other."""
+    document = analysis.get("document") if isinstance(analysis, dict) else None
+    roster = document.get("account_roster") if isinstance(document, dict) else None
+    return [entry for entry in roster if isinstance(entry, dict)] if isinstance(roster, list) else []
+
+
+def _unverified_main_account(roster: list[dict]) -> dict | None:
+    """The statement's main account when it was not verified, as the dashboard decides it (app.js
+    unverifiedMainAccount): the accounts of the best kind (a business checking account, then a checking account,
+    then any), none of them published. None when a verified account can be the main one, or there is no roster."""
+    if not roster:
+        return None
+
+    def rank(entry):
+        return ((2 if entry.get("kind") == "checking" else 0)
+                + (1 if _MAIN_ACCOUNT_TITLE.search(str(entry.get("title") or "")) else 0))
+
+    best = max(rank(entry) for entry in roster)
+    candidates = [entry for entry in roster if rank(entry) == best]
+    return None if any(entry.get("status") == "published" for entry in candidates) else candidates[0]
+
+
 def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
 
@@ -764,6 +790,18 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     excluded: list[dict] = []
     for job in jobs:
         analysis = job.analysis or {}
+        roster = _account_roster(analysis)
+        if _unverified_main_account(roster) is not None:
+            # The statement's main account (its business checking account, as the dashboard shows it) was not
+            # verified: no other account of the statement stands in for it in the package's figures.
+            excluded.append({
+                "job_id": job.id,
+                "account_index": None,
+                "account_count": len(roster),
+                "outcome": "withheld",
+                "reason": "main_account_unverified",
+            })
+            continue
         if not is_document_payload(analysis):
             members.append((job, analysis, None, 1))
             continue

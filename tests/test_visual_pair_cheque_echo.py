@@ -266,13 +266,31 @@ def test_a_page_repeating_the_listing_uses_up_what_it_repeats_whatever_it_is():
                        {"amount": "1000.00", "direction": "credit", "date": "2031-01-08"},
                        {"amount": "45.10", "date": "2031-01-10"}, {"amount": "300.00", "date": "2031-01-12"},
                        {"amount": "500.00", "date": "2031-01-15"}], source="stage_a+stage_b")
+    # One row's direction unread: a page of both directions is not pictures (_plausible_pictures), yet it uses up
+    # the postings it repeats.
     mixed_pictures = _page(2, [{"amount": "45.10", "date": "2031-01-02"}, {"amount": "300.00", "date": "2031-01-03"},
-                               {"amount": "500.00", "date": "2031-01-04"},
+                               {"amount": "500.00", "direction": "unknown", "date": "2031-01-04"},
                                {"amount": "300.00", "direction": "credit", "date": "2031-01-05"}],
                            source="stage_a+stage_b")
     real = _page(3, [{"amount": "500.00", "date": "2031-01-05"}, {"amount": "45.10", "date": "2031-01-07"}],
                  source="stage_a+stage_b")
     assert _echoes([ledger, mixed_pictures, real]) == []
+
+
+def test_deposit_slips_and_cheques_pictured_together_are_pictures_unless_they_net_to_zero():
+    # A deposit ticket and a cheque pictured on one page: both directions, every one read, not netting to zero.
+    # Were it a real page, leaving it out would move the balance and the arithmetic would refuse the statement.
+    ledger = _page(1, [{"amount": "700.00", "direction": "credit", "date": "2031-01-06"},
+                       {"amount": "45.10", "date": "2031-01-08"}, {"amount": "300.00", "date": "2031-01-12"},
+                       {"amount": "45.10", "direction": "credit", "date": "2031-01-14"}], source="stage_a+stage_b")
+    slip_and_cheque = [{"amount": "700.00", "direction": "credit", "date": "2031-01-05"},
+                       {"amount": "300.00", "date": "2031-01-04"}]
+    assert _echoes([ledger, _page(2, slip_and_cheque)]) == [2]
+    zero_net = [{"amount": "45.10", "direction": "credit", "date": "2031-01-05"}, {"amount": "45.10", "date": "2031-01-04"}]
+    assert _echoes([ledger, _page(2, zero_net)]) == []
+    one_unread = [dict(slip_and_cheque[0]), {"amount": "300.00", "direction": "unknown", "date": "2031-01-04"},
+                  {"amount": "45.10", "date": "2031-01-04"}]
+    assert _echoes([ledger, _page(2, one_unread)]) == []
 
 
 def test_an_unknown_direction_takes_the_pages_direction():

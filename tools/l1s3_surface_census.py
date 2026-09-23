@@ -148,6 +148,8 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "the row's account column is EMPTY on a document; account_count carries it"),
     ("vlm/truth.py", "truth_from_payload", "per_account",
      "the Phase 3 comparison reads every cached account through payload_accounts"),
+    ("webapp/worker.py", "_attach_account_confidence", "per_account",
+     "each published account takes its own verification score, found through payload_accounts"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
@@ -225,6 +227,11 @@ EXCUSED: dict[str, str] = {
     "vlm/currency.py::resolve_currency": "unpublished DocumentReport bridge; refuses multiple accounts or omitted siblings before source equality",
     "vlm/pair_adapter.py::analyze_visual_pair": "private source audit and unpublished DocumentReport bridge; refuses multiple accounts or omitted siblings",
     "vlm/pair_adapter.py::_complete_report": "checks the daily ledger validity of EVERY account in the unpublished DocumentReport",
+    # The visual pair's account-by-account judgement (vlm/pair_accounts.py) is private evidence: its `accounts` list
+    # and each entry's `statement` SOURCE exist before anything is analysed or published.
+    "vlm/pair.py::extract_visual_pair": "reads the visual pair's private per-account judgement (`accounts`, each entry's `statement` source); no payload exists yet",
+    "vlm/pair_adapter.py::_analyze_accounts": "builds one Report per verified account from the private per-account evidence (`accounts`, each `statement` source); refuses anything else",
+    "webapp/worker.py::_visual_pair_summary_html": "renders the visual pair's private per-account evidence (`accounts`) into the review page; not a published payload",
     # The widened AST predicate also sees a method named `accounts`. Here it
     # is ReaderTruth.accounts(sha), which returns the complete comparison list
     # from the per-account reader declared above, not document.accounts[0].
