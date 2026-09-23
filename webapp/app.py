@@ -1006,6 +1006,7 @@ def _package_analysis(jobs) -> dict:
             if isinstance(transaction, dict) and position not in excluded_positions
         ]
         excluded_credits = excluded_debits = 0.0
+        excluded_credit_count = 0
         if excluded_positions:
             excluded_rows = [
                 raw_transactions[position] for position in sorted(excluded_positions)
@@ -1015,6 +1016,7 @@ def _package_analysis(jobs) -> dict:
             excluded_credits = round(
                 sum(_num(row.get("amount")) for row in excluded_rows
                     if _num(row.get("amount")) > 0), 2)
+            excluded_credit_count = sum(1 for row in excluded_rows if _num(row.get("amount")) > 0)
             excluded_debits = round(
                 sum(abs(_num(row.get("amount"))) for row in excluded_rows
                     if _num(row.get("amount")) < 0), 2)
@@ -1028,6 +1030,15 @@ def _package_analysis(jobs) -> dict:
             credits = round(credits - excluded_credits, 2)
             debits = round(debits - excluded_debits, 2)
             cash_flow = round(credits - debits, 2)
+        # The Monthly Statements table's "Deposits Per Month": the count that pairs with `credits` (the bank's
+        # stated count when the bank's total is used), less the transfers removed above. None, never 0, when
+        # the statement carries no count.
+        stated_deposit_count = metrics.get("effective_num_deposits")
+        deposit_count = (
+            max(stated_deposit_count - excluded_credit_count, 0)
+            if isinstance(stated_deposit_count, int) and not isinstance(stated_deposit_count, bool)
+            else None
+        )
         authoritative_rows = [
             transaction
             for transaction in statement_transactions
@@ -1449,6 +1460,7 @@ def _package_analysis(jobs) -> dict:
             "integrity_risk": integrity_risk,
             "reconciles": (analysis.get("reconciliation") or {}).get("ok"),
             "credits": credits,
+            "deposit_count": deposit_count,
             "total_posted_credits": posted_credit_total,
             "total_posted_credit_count": posted_credit_count,
             "verified_revenue_total": revenue_totals["verified_revenue"],
