@@ -150,10 +150,13 @@ const cases = [
   roster(["FABRICATED VISA", "credit_card", "held"], ["FABRICATED SAVINGS", "savings", "published"]),
   roster(["FABRICATED BUSINESS CHECKING", "checking", "published"], ["FABRICATED ADVANTAGE ACCOUNT", null, "held"]),
   roster(["FABRICATED CHECKING", "checking", "idle"], ["FABRICATED SAVINGS", "savings", "published"]),
+  roster(["FABRICATED BUSINESS CHECKING", "checking", "published"], ["FABRICATED BUSINESS MERCHANT SERVICES", null, "held"]),
+  roster(["FABRICATED CHECKING", "checking", "held"], ["FABRICATED BUSINESS ADVANTAGE ACCOUNT", null, "published"]),
+  roster(["FABRICATED VISA", "credit_card", "held"], ["FABRICATED MASTERCARD", "credit_card", "published"]),
 ];
 console.log(JSON.stringify(cases.map((entries) => (unverifiedMainAccount(entries) || {}).title || null)));
 """
-    assert _run(source) == ["FABRICATED ADVANTAGE ACCOUNT", None, None, None]
+    assert _run(source) == ["FABRICATED ADVANTAGE ACCOUNT", None, None, None, None, "FABRICATED CHECKING", None]
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")

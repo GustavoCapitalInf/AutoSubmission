@@ -190,6 +190,10 @@ def test_a_row_printed_as_its_date_and_amount_alone_is_named_by_its_section():
     assert balances.bare_row_heading(Decimal("71.25"), "03/09", direction="debit") is None
     sentence = PrintedEvidence(native="Overdraft fees may apply\nDATE AMOUNT\n03/09 71.25\n")
     assert sentence.bare_row_heading(Decimal("71.25"), "03/09", direction="debit") is None
+    # Review 10, finding 8: a second table between the row and the heading (a daily grid after the deposits).
+    grid = PrintedEvidence(native="DEPOSITS\nREF # DATE AMOUNT\n03/02 18.45\nDATE AMOUNT\n03/09 71.25\n")
+    assert grid.bare_row_heading(Decimal("71.25"), "03/09", direction="credit") is None
+    assert grid.bare_row_heading(Decimal("18.45"), "03/02", direction="credit") == "DEPOSITS"
 
 
 def test_a_date_after_the_amount_is_the_rows_only_right_after_it():
@@ -205,6 +209,27 @@ def test_a_date_after_the_amount_is_the_rows_only_right_after_it():
     # A group printing a date elsewhere before its amount (an invoice's) takes no date at all.
     invoice = PrintedEvidence(native="INV 3101 03/04 51.37\n")
     assert invoice.governing_date(Decimal("51.37")) is None
+
+
+def test_a_row_printed_under_a_day_printed_once_never_takes_the_next_columns_date():
+    # Review 10, finding 1: a two-up table printing each day once; the second row's left cheque prints no date, and
+    # the date right after its amount begins the next column's row.
+    cheques = PrintedEvidence(native="DATE CHECK # AMOUNT DATE CHECK # AMOUNT\n03/06 3101 100.00 03/09 3103 300.00\n"
+                                     "3102 200.00 03/10 3104 400.00\n")
+    assert cheques.governing_date(Decimal("200.00")) == "03/06"
+    assert cheques.governing_date(Decimal("400.00")) == "03/10"
+    deposits = PrintedEvidence(native="03/06 100.00 03/09 300.00\n200.00 03/10 400.00\n")
+    assert deposits.governing_date(Decimal("200.00")) == "03/06"
+    # A date column printed alone between the amount and the balance is still the row's.
+    assert PrintedEvidence(native="FABRICATED PAYMENT 51.37 03/09 1,051.37\n").governing_date(Decimal("51.37")) == "03/09"
+
+
+def test_a_count_or_an_amount_after_a_month_and_day_is_no_year():
+    # Review 10, finding 7.
+    for line in ("As of Mar 31, 45 items were paid", "Interest paid through Mar 31, 12.50"):
+        printed = PrintedEvidence(native=f"Statement period March 1 - March 31\n{line}")
+        assert printed.date_contradicted("2031-03-31") is False, line
+    assert PrintedEvidence(native="Period ending Mar 31, 30").date_contradicted("2031-03-31") is True
 
 
 def test_each_column_group_beginning_with_its_date_takes_that_date():

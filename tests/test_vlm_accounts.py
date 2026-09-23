@@ -481,7 +481,7 @@ def test_a_proposer_row_the_reviewer_rejected_keeps_its_account_from_idle():
 @pytest.mark.parametrize("text", [
     "Your savings are insured by the NCUA", "We value your checking relationship",
     "Your checking account may earn interest", "Your savings federally insured to 250,000",
-    "Business Checking has changed",
+    "Business Checking has changed", "Checking Accounts Are Changing",
 ])
 def test_a_sentence_about_an_account_names_no_account(text):
     # Finding 4.
@@ -548,6 +548,20 @@ def test_a_table_the_page_prints_as_balances_is_known_by_its_caption_or_header()
         _block(7, "text", "| Date | Amount | Date | Amount |\n|---|---|---|---|\n| 03/30 | $1,250.00 | 03/31 | $1,250.00 |"),
     ), (), (), False)
     assert balance_table_blocks(layout) == frozenset({1, 4, 7})
+    # Review 10, finding 2: a figures line is no caption; every name must be free of transactions; the caption is the
+    # line printed right above the table.
+    wordless = _table(("03/10", "500.00"), ("03/15", "500.00"))
+    for caption in (("text", "Beginning Balance $1,000.00 Ending Balance $1,250.00"), ("text", "Ending balance on 03/31"),
+                    ("section_header", "Balance Transfers")):
+        assert balance_table_blocks(DotsLayout(1, (_block(0, *caption), _block(1, "table", wordless)), (), (),
+                                               False)) == frozenset(), caption
+    stale = DotsLayout(1, (_block(0, "section_header", "DAILY BALANCE"),
+                           _block(1, "text", "The daily balances printed below are for each business day of the period"),
+                           _block(2, "table", wordless)), (), (), False)
+    titled = DotsLayout(1, (_block(0, "section_header", "DAILY BALANCE"),
+                            _block(1, "table", _table(("Checks Paid",), ("03/10", "500.00"), ("03/15", "500.00")))),
+                        (), (), False)
+    assert balance_table_blocks(stale) == frozenset() and balance_table_blocks(titled) == frozenset()
 
 
 def test_a_ledger_whose_header_names_figure_columns_is_never_a_summary_table():
@@ -582,6 +596,7 @@ def test_running_text_in_sentence_case_is_no_account_heading(text):
 
 @pytest.mark.parametrize("text,title", [
     ("Earn More Savings", "Earn More Savings"), ("Be Free Checking", "Be Free Checking"),
+    ("FABRICATED PROTECTED CHECKING", "FABRICATED PROTECTED CHECKING"),
     ("Your Business Advantage Checking Account 1234", "Business Advantage Checking"),
     ("Your Fabricated Business Checking Account XXXX1234", "Fabricated Business Checking Account"),
 ])
@@ -629,6 +644,49 @@ def test_dates_printed_dotted_or_compact_are_activity_too():
                             (), (), False)
         savings = _judge([_merge(1, REVIEW_ROWS)], layouts=(layout,), printed_pages=REVIEW8_PRINT)["accounts"][1]
         assert (savings["status"], savings["activity_lines"]) == ("held", 1), date_text
+
+
+# Review 10 (verification of 1ef9778): its reproductions, fabricated.
+def test_a_ledger_printing_a_totals_row_is_never_a_summary_table():
+    # Finding 3: the header names ledger columns and no figure column; a totals row further down must not make the
+    # table a summary table.
+    from vlm.accounts import _summary_header
+    ledger = [["Date", "Description", "Deposits", "Withdrawals", "Balance"],
+              ["03/05", "ONLINE TRANSFER TO SAVINGS 0001", "", "100.00", "1,200.00"],
+              ["Total Deposits", "0.00", "Total Withdrawals", "100.00"]]
+    assert _summary_header(ledger) is None
+    summary = [["Account", "Beginning Balance", "Ending Balance"], ["FABRICATED SAVINGS 0001", "$50.00", "$50.00"]]
+    assert _summary_header(summary) is not None
+
+
+def test_a_short_title_in_sentence_case_is_still_an_accounts_heading():
+    # Finding 4: "Business checking" printed as text under a figure-less club section is the checking account's own
+    # heading, so its rows and figures are never published under the club's title.
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "FABRICATED HOLIDAY CLUB (0020)"),
+        _block(1, "text", "Business checking"),
+        _block(2, "table", _table(("Beginning Balance", "$1,000.00", "Ending Balance", "$1,250.00"))),
+        _block(3, "section_header", "Grow your savings faster"),
+    ), (), (), False)
+    assert [(section.kind, section.title) for section in plan_accounts([layout]).sections] == [
+        ("savings", "FABRICATED HOLIDAY CLUB"), ("checking", "Business checking")]
+
+
+@pytest.mark.parametrize("text", [
+    "Protect your checking account", "Is your checking account earning interest", "Has your savings grown",
+])
+def test_a_question_or_an_instruction_about_an_account_names_no_account(text):
+    # Finding 6.
+    assert parse_heading(text) is None
+
+
+def test_compact_dates_printing_their_year_are_activity():
+    # Finding 9.
+    layout = DotsLayout(1, REVIEW_PAGE.blocks[:5] + (
+        _block(5, "table", _table(("Description", "Date", "Amount"), ("TRANSFER IN", "12DEC31", "500.00"))),),
+                        (), (), False)
+    savings = _judge([_merge(1, REVIEW_ROWS)], layouts=(layout,), printed_pages=REVIEW8_PRINT)["accounts"][1]
+    assert (savings["status"], savings["activity_lines"]) == ("held", 1)
 
 
 def test_page_metadata_the_print_contradicts_holds_the_accounts_on_that_page():

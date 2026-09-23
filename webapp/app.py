@@ -748,24 +748,26 @@ _NOT_A_MAIN_ACCOUNT = frozenset({"credit_card", "loan"})
 
 def main_account_rank(kind, title) -> int:
     """How likely an account is the one a lender funds, as the dashboard ranks it (app.js mainAccountRank): a
-    checking account, or one whose title names no kind (a product name such as "... Plus Banking" can be the operating
-    account), above any other deposit account; a business title one higher; a card or a loan never."""
+    checking account first, then one whose title names no kind (a product name such as "... Plus Banking" can be the
+    operating account), then any other deposit account; a business title one higher within its tier; a card or a
+    loan never."""
     if kind in _NOT_A_MAIN_ACCOUNT:
         return -1
-    return (2 if kind in ("checking", None, "") else 0) + (1 if _MAIN_ACCOUNT_TITLE.search(str(title or "")) else 0)
+    tier = 4 if kind == "checking" else 2 if kind in (None, "") else 0
+    return tier + (1 if _MAIN_ACCOUNT_TITLE.search(str(title or "")) else 0)
 
 
 def _unverified_main_account(roster: list[dict]) -> dict | None:
     """The statement's main account when it was not verified, as the dashboard decides it (app.js
     unverifiedMainAccount): a HELD account of the best rank (main_account_rank). Which account a lender funds is then
-    undetermined, and no other account stands in for it. None when no account of the best rank is held, or there is
-    no roster."""
+    undetermined, and no other account stands in for it. None when no account of the best rank is held, when the
+    best rank is a card's or a loan's (no account a lender funds), or there is no roster."""
     if not roster:
         return None
     ranks = [main_account_rank(entry.get("kind"), entry.get("title")) for entry in roster]
     best = max(ranks)
     held = [entry for entry, rank in zip(roster, ranks) if rank == best and entry.get("status") == "held"]
-    return held[0] if held else None
+    return held[0] if held and best >= 0 else None
 
 
 def _package_members(jobs) -> tuple[list[tuple], list[dict]]:

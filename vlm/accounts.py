@@ -56,7 +56,10 @@ _SENTENCE = re.compile(r"\b(?:please|thank|thanks|if|call|visit|www|http|https|c
 _SENTENCE_WORDS = re.compile(r"\b(?:you|your|we|our|us|will|may)\b", re.I)
 # A verb makes a line a sentence ("Your savings are insured by the NCUA", "We value your checking relationship").
 _VERBS = re.compile(r"\b(?:are|is|was|were|be|been|can|could|should|must|earns?|earned|insured|available|changes?|"
-                    r"changed|offers?|provides?|protect(?:s|ed)?|appl(?:y|ies)|needs?|has|have)\b", re.I)
+                    r"changed|offers?|provides?|protect(?:s|ed)?|appl(?:y|ies)|needs?|has|have|made)\b", re.I)
+# Forms of "be" and "have" are never a product's word: after a line's first word they make it a sentence in any case
+# ("Checking Accounts Are Changing"); the other verbs do only in lower case or beside a sentence word.
+_STRONG_VERBS = re.compile(r"(?:are|is|was|were|been|has|have)", re.I)
 _POSSESSIVE = re.compile(r"^(?:your|our|my)\s+", re.I)
 # "... for May", "... for the period ending 03/31": the period a title is printed for, not its name.
 _PERIOD_TAIL = re.compile(r"\s+(?:activity\s+)?for\s+(?:the\s+)?(?:period|month|statement|jan\w*|feb\w*|mar\w*|apr\w*|"
@@ -144,6 +147,20 @@ def _sentence_case(text) -> bool:
     return len(words) >= 2 and words[0][:1].isupper() and all(word == word.lower() for word in words[1:])
 
 
+def _marketing_line(text) -> bool:
+    """A line in sentence case naming an account word, printed as running text or as a heading ("Grow your savings
+    faster", "Open a savings account today"): marketing, never an account's title. A short title printed in sentence
+    case ("Business checking", "Everyday checking account") is a title: three words or fewer (or nothing but a title's
+    generic words), no sentence word and no verb."""
+    if not _sentence_case(text):
+        return False
+    clean = _clean(str(text or ""))
+    if _SENTENCE_WORDS.search(clean) or _VERBS.search(clean):
+        return True
+    words = [word for word in clean.split() if re.search(r"[A-Za-z]", word)]
+    return len(words) > 3 and not _generic(clean)
+
+
 def parse_heading(text: str) -> Heading | None:
     """The account a printed title line names (page and order 0), or None when it names none."""
     line = _clean(str(text or "").strip().splitlines()[0] if str(text or "").strip() else "")
@@ -153,8 +170,15 @@ def parse_heading(text: str) -> Heading | None:
     line = _CONTINUED_TAIL.sub("", line).strip(" -–—:|,")
     if not line or _MONEY.search(line) or _SENTENCE.search(line) or _IDENTIFIER_LINE.match(line):
         return None
-    # A verb makes a sentence, unless it opens a product name ("Earn More Savings", "Be Free Checking").
-    if any(match.start() > 0 for match in _VERBS.finditer(line)):
+    # A verb makes a sentence ("Business Checking has changed", "Your savings are insured"), unless it opens the line
+    # or is a capitalised word of a product name ("Earn More Savings", "POWER PROTECTED CHECKING") on a line printing
+    # no sentence word.
+    verbs = list(_VERBS.finditer(line))
+    later = [match for match in verbs if match.start() > 0]
+    if any(match.group(0).islower() or _STRONG_VERBS.fullmatch(match.group(0)) for match in later) or (
+            verbs and _SENTENCE_WORDS.search(line)):
+        # ... and any verb beside a sentence word, the first word included: "Protect your checking account", "Is
+        # your checking account earning interest".
         return None
     # A title's own words, without its identifier and the words every title can add ("Account", "Summary").
     title_words = [token for token in line.split()
@@ -362,9 +386,7 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
                 money.add((layout.page, block.order))
             text = block_heading_text(block)
             heading = parse_heading(text) if text else None
-            if heading is not None and block.label == "text" and heading.number is None and _sentence_case(text):
-                # A line of running text in sentence case ("Grow your savings faster", "Savings made simple") is
-                # marketing, never an account's title, which prints in capitals or title case or with its number.
+            if heading is not None and heading.number is None and _marketing_line(text):
                 heading = None
             if heading is None:
                 number = number_line(text) if text else None
@@ -591,19 +613,24 @@ def _summary_header(grid) -> tuple[int, dict] | None:
     Description, ...: "Date | Description | Deposits and Credits | Withdrawals and Debits | Balance") is a ledger,
     never a summary table."""
     for start, header in enumerate([_clean(cell) for cell in row] for row in grid):
+        # A row naming a ledger column before any figure header makes the table a ledger, whatever totals row it
+        # prints further down ("Total Deposits | 0.00 | Total Withdrawals | 100.00" inside the ledger, review 10).
+        if any(_LEDGER_HEADER.search(cell) for cell in header if cell):
+            return None
         roles = {}
         for column, cell in enumerate(header):
             label = _label(cell) if cell and not _MONEY_TOKEN.search(cell) else None
             if label is not None:
                 roles[column] = label[0]
         if len(set(roles.values())) >= 2:
-            return None if any(_LEDGER_HEADER.search(cell) for cell in header if cell) else (start, roles)
+            return start, roles
     return None
 
 
 _BALANCE_CAPTION = re.compile(r"\bbalances?\b", re.I)
-_TRANSACTION_CAPTION = re.compile(r"\b(?:amount|deposits?|withdrawals?|debits?|credits?|checks?|cheques?|description|"
-                                  r"transactions?|payments?|fees?|charges?|items?)\b", re.I)
+# Words naming transactions (a balance grid's header can say "Amount": that word is neither).
+_TRANSACTION_CAPTION = re.compile(r"\b(?:deposits?|withdrawals?|debits?|credits?|checks?|cheques?|description|"
+                                  r"transactions?|payments?|fees?|charges?|items?|transfers?|adjustments?)\b", re.I)
 
 
 def balance_table_blocks(layout) -> frozenset:
@@ -618,14 +645,18 @@ def balance_table_blocks(layout) -> frozenset:
         if grid:
             header = " ".join(_clean(cell) for cell in grid[0] if _clean(cell))
             named = [text for text in (_table_title(block), caption, header) if text]
-            if any(_BALANCE_CAPTION.search(text) and not _TRANSACTION_CAPTION.search(text) for text in named):
+            # Every name the table prints or is printed under must be free of transactions; one of them names balances.
+            if (any(_BALANCE_CAPTION.search(text) for text in named)
+                    and not any(_TRANSACTION_CAPTION.search(text) for text in named)):
                 found.add(block.order)
             caption = None
             continue
         text = block_heading_text(block)
-        if text and (block.label in _CAPTION_LABELS or (
-                block.label == "text" and len(_clean(text)) <= 60 and not _SENTENCE.search(text))):
-            caption = _clean(text)
+        # A caption is the line printed right above the table: a heading or a short line printing no figure (a
+        # "Beginning Balance $1,000.00" or "Ending balance on 03/31" line is a figure, never a caption).
+        caption = (_clean(text) if text and not _MONEY_TOKEN.search(text) and _label(_clean(text)) is None and (
+            block.label in _CAPTION_LABELS or (
+                block.label == "text" and len(_clean(text)) <= 60 and not _SENTENCE.search(text))) else None)
     return frozenset(found)
 
 
@@ -714,7 +745,7 @@ _MONTH3 = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
 _LINE_DATE = re.compile(rf"(?<![\d/.-])(?:\d{{1,4}}[/-]\d{{1,2}}(?:[/-]\d{{2,4}})?(?![\d/-])|"
                         rf"\d{{1,2}}\.\d{{1,2}}\.\d{{2,4}}(?![\d.])|"
                         rf"{_MONTH3}[a-z]*\.?\s+\d{{1,2}}\b|\b\d{{1,2}}\s+{_MONTH3}[a-z]*\b|"
-                        rf"\b\d{{1,2}}{_MONTH3}\b|\b{_MONTH3}\d{{1,2}}\b)", re.I)
+                        rf"\b\d{{1,2}}{_MONTH3}(?:\d{{2}}|\d{{4}})?\b|\b{_MONTH3}\d{{1,2}}\b)", re.I)
 
 
 def section_activity_lines(plan: AccountPlan, index: int, layouts) -> int:

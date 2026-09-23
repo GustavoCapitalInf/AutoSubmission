@@ -49,12 +49,15 @@ _AMOUNT_TOKEN = re.compile(r"[-+(]?\$?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}\)?-?")
 # A printed date: numeric (the year first or last, or a month/day), or a month name before or after the day, with a
 # weekday or an ordinal (PrintedEvidence.date_contradicted).
 _MONTH_NAME = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+# Two digits after a month and day are its year only where nothing follows them on the line but punctuation: "As of
+# Mar 31, 45 items were paid" prints a count, "through Mar 31, 12.50" an amount (review 10).
+_TWO_DIGIT_YEAR_END = r"(?![\d.])(?![ \t]*[a-z0-9$])"
 _PRINTED_DATE = re.compile(
     rf"(?<![\d/.\-])(?:\d{{4}}[-/.]\d{{1,2}}[-/.]\d{{1,2}}|\d{{1,2}}[/.\-]\d{{1,2}}[/.\-]\d{{2,4}}|\d{{1,2}}/\d{{1,2}})"
     rf"(?![\d/])"
     rf"|(?<![a-z])(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?{_MONTH_NAME}[\s\-/]+\d{{1,2}}(?:st|nd|rd|th)?"
-    rf"(?:,?[\s\-/]+\d{{4}}|,\s*\d{{2}}(?!\d))?"
-    rf"|\d{{1,2}}[\s\-/]+{_MONTH_NAME}(?:,?[\s\-/]+\d{{2,4}})?",
+    rf"(?:,?[\s\-/]+\d{{4}}|,\s*\d{{2}}{_TWO_DIGIT_YEAR_END})?"
+    rf"|\d{{1,2}}[\s\-/]+{_MONTH_NAME}(?:,?[\s\-/]+\d{{4}}|,?[\s\-/]+\d{{2}}{_TWO_DIGIT_YEAR_END})?",
     re.IGNORECASE)
 
 
@@ -384,9 +387,11 @@ class PrintedEvidence:
             wanted = date.fromisoformat(str(iso))
         except ValueError:
             return None
-        text = " ".join(self.native.split())
         other_year = False
-        for match in _PRINTED_DATE.finditer(text):
+        # Line by line: what follows a date on its own line tells a two-digit year from a count (_TWO_DIGIT_YEAR_END).
+        matches = [match for line in self.native.splitlines()
+                   for match in _PRINTED_DATE.finditer(" ".join(line.split()))]
+        for match in matches:
             token = match.group(0).strip(" ,")
             # A printed year: four digits, or a numeric date's third part ("03/01/31"); "03/01" prints none.
             year = re.search(r"(\d{4})|^\d{1,2}[/.\-]\d{1,2}[/.\-](\d{2})$|^\d{1,2}[\s\-/]+[a-z]+\.?,?[\s\-/]+(\d{2})$"
@@ -492,14 +497,23 @@ class PrintedEvidence:
         # transaction's): no date is taken for it, from after the amount or from the lines above.
         if any(_ROW_START.match(" ".join(group[index:])) for index in range(len(group))):
             return None
-        # A date column after the amount ("... 50.00 DEC31 1,234.56"): right after it, never past a word (the
-        # next column group's cheque and date, printed two-up). A date that begins a line above the row's (a
-        # statement printing each day's date once) is found by the search upward.
+        # A date column after the amount ("... 50.00 DEC31 1,234.56"): right after it, never past a word, and never
+        # when a later column group on the line begins with a date and prints more (the next group's row of a table
+        # printed k-up: "3102 200.00 03/10 3104 400.00", the day printed once for the row). A date that begins a
+        # line above the row's (a statement printing each day's date once) is found by the search upward.
+        line, own = anchors[0]
+        # A row whose group prints nothing before its amount (its date and words left to the day printed once above)
+        # sits in a table printed k-up: whatever follows its amount is the next column's.
+        next_row = not group
+        for later in range(own + 1, len(self._line_spans[line])):
+            tokens = self._group_tokens((line, later))
+            match = _ROW_START.match(" ".join(tokens))
+            next_row |= bool(match) and len(tokens) > len(match.group(0).split())
         stream, first, last = self._row_stream(anchors[0], trailing=True)
         after = [token for index, token in stream[last + 1:] if index == anchors[0][0]]
         for size in (1, 2, 3):   # "01/05", "Apr 29", "Apr 29, 2026"
             text = " ".join(after[:size])
-            if len(after) >= size and date_text_parts(text):
+            if not next_row and len(after) >= size and date_text_parts(text):
                 return text
         if anchors[0][1] > 0:
             # The row's amount is not its line's first and its group prints no date: the line's leading date
@@ -538,13 +552,17 @@ class PrintedEvidence:
         if (self._group_tokens(anchors[0]) != wanted
                 or not all(_SKIPPABLE.match(token) for token in self._native_lines[line])):
             return None
+        headers = 0
         for index in range(line - 1, -1, -1):
             words = self._native_lines[index]
             if not words or all(_SKIPPABLE.match(token) for token in words):
                 continue
             heading = " ".join(words)
             if _column_header(words):
-                if _BALANCE_HEADING.search(heading) and not _AMOUNT_HEADER.search(heading):
+                headers += 1
+                # A header naming a balance and no amount heads balances; a second header means another table lies
+                # between the row and any heading above (a daily-balance grid printed after the deposits).
+                if headers > 1 or (_BALANCE_HEADING.search(heading) and not _AMOUNT_HEADER.search(heading)):
                     return None
                 continue
             if (self._line_spans[index] or len(words) > _HEADING_WORDS

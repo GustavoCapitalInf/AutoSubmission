@@ -233,6 +233,15 @@ def test_a_row_both_readers_read_without_words_where_the_page_prints_none_takes_
                         printed=PrintedEvidence(native=BARE_PAGE)).counts["unresolved"] == 1
 
 
+def test_a_row_that_is_one_of_the_pages_daily_balances_takes_no_heading():
+    # Review 10, finding 8: a bare line equal to a daily balance the reviewer reported on its date is that balance.
+    from vlm.native_text import PrintedEvidence
+    bare = [replace(_candidate(0), description="", balance=None)]
+    payload = _review(bare)
+    payload["daily_balances"] = [{"date": "2031-01-02", "balance": 20.0}]
+    assert merge_review(bare, payload, page=1, printed=PrintedEvidence(native=BARE_PAGE)).counts["unresolved"] == 1
+
+
 def test_a_reviewer_addition_printed_as_its_date_and_amount_alone_takes_its_section_heading():
     from vlm.native_text import PrintedEvidence
     rows = [_candidate(0)]

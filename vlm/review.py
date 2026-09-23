@@ -108,13 +108,23 @@ _NAMES_A_BALANCE = re.compile(r"\b(?:new|ending|closing|previous|beginning|openi
                               r"\bbalance\s+(?:forward|brought\s+forward|carried\s+forward)\b", re.IGNORECASE)
 
 
-def _bare_row_heading(row: dict, printed) -> str | None:
+def _bare_row_heading(row: dict, printed, daily=()) -> str | None:
     """The description a row read without one takes: its printed section heading, when a reader directed it and
     the page's text layer prints the row's own line as its date and amount alone (PrintedEvidence.bare_row_heading).
-    None otherwise: a row whose words were printed but not read stays held."""
+    None otherwise: a row whose words were printed but not read stays held, and so does a row that is one of the
+    page's reported daily balances (``daily``: the same date and amount), a figure, never a transaction."""
     if (printed is None or row.get("direction") not in ("credit", "debit")
             or str(row.get("description") or "").strip()):
         return None
+    for item in daily or ():
+        try:
+            same_amount = abs(Decimal(str(item["balance"]))) == abs(Decimal(str(row.get("amount"))))
+        except (ArithmeticError, KeyError, TypeError, ValueError):
+            continue
+        same_day = (item.get("date") == row.get("date") if row.get("date")
+                    else bool(row.get("date_text")) and reads_as(row["date_text"], str(item.get("date"))))
+        if same_amount and same_day:
+            return None
     return printed.bare_row_heading(row.get("amount"), row.get("date_text"), row.get("balance"), row.get("direction"))
 
 
@@ -541,6 +551,9 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         diagnostics.extend({"scope": "row_warning", "page": page, "candidate_id": candidate_id, "code": code}
                            for code in warnings)
 
+    # The page's reviewed metadata (its daily balances are needed below: a row that is one is never a transaction).
+    account, daily, numbers, metadata_diagnostics, metadata_evidence = _review_metadata(data, page=page,
+                                                                                        printed=printed)
     additions = []
     unprinted_zero = set()  # additions the page prints without any amount: no transaction
     headed = {}  # additions printed as their date and amount alone: index -> (the reviewer's item, the heading)
@@ -561,7 +574,7 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                 unprinted_zero.add(index)
                 row_codes = []
             elif row_codes == [f"review_empty_description:added{index}"]:
-                heading = _bare_row_heading(item["row"], printed)
+                heading = _bare_row_heading(item["row"], printed, daily)
                 if heading is not None:
                     headed[index] = (item, heading)
                     item = {**item, "row": {**item["row"], "description": heading}}
@@ -570,8 +583,6 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         additions.append((index, item, list(dict.fromkeys(codes))))
         diagnostics.extend({"scope": "row", "page": page, "candidate_id": f"p{page}a{index}", "code": code}
                            for code in dict.fromkeys(codes))
-    account, daily, numbers, metadata_diagnostics, metadata_evidence = _review_metadata(data, page=page,
-                                                                                        printed=printed)
     diagnostics.extend(metadata_diagnostics)
     fatal = bool(errors)
     evidence, rows = [], []
@@ -675,7 +686,7 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                 and verdict in ("confirm", "correct") and not str(effective.get("observed_description") or "").strip()
                 and {code.split(":")[0] for code in row_errors}
                 <= {"review_empty_description", "review_description_observation_missing"}):
-            heading = _bare_row_heading(read, printed)
+            heading = _bare_row_heading(read, printed, daily)
             if heading is not None:
                 # Both readers read no words where the page prints none: the row is named by its section.
                 corrected, state, verdict, row_errors = {**read, "description": heading}, "corrected", "correct", []

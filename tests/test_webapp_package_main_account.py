@@ -41,6 +41,14 @@ def test_a_held_account_whose_title_names_no_kind_or_ranks_first_is_the_main_acc
                                            ("FABRICATED ADVANTAGE ACCOUNT", None, "held"))) is None
     assert _unverified_main_account(roster(("FABRICATED CHECKING", "checking", "idle"),
                                            ("FABRICATED SAVINGS", "savings", "published"))) is None
+    # Review 10, finding 5: a checking account ranks above an untyped one; cards alone set no main account.
+    assert _unverified_main_account(roster(("FABRICATED BUSINESS CHECKING", "checking", "published"),
+                                           ("FABRICATED BUSINESS MERCHANT SERVICES", None, "held"))) is None
+    assert _unverified_main_account(roster(("FABRICATED CHECKING", "checking", "held"),
+                                           ("FABRICATED BUSINESS ADVANTAGE ACCOUNT", None, "published")))["kind"] == \
+        "checking"
+    assert _unverified_main_account(roster(("FABRICATED VISA", "credit_card", "held"),
+                                           ("FABRICATED MASTERCARD", "credit_card", "published"))) is None
     payload = {**account_payload(), "document": {"account_roster": roster(
         ("FABRICATED ADVANTAGE ACCOUNT", None, "held"), ("FABRICATED SAVINGS", "savings", "published"))}}
     members, excluded = _package_members([_Job("job-1", payload)])

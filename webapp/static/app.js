@@ -1202,11 +1202,11 @@ function accountDisplayName(statement = {}, entry = null) {
 }
 
 function mainAccountRank(kind, business) {
-  // How likely an account is the one a lender funds (webapp/app.py main_account_rank): a checking account, or one
-  // whose title names no kind (a product name such as "... Plus Banking" can be the operating account), above any
-  // other deposit account; a business title one higher; a card or a loan never.
+  // How likely an account is the one a lender funds (webapp/app.py main_account_rank): a checking account first,
+  // then one whose title names no kind (a product name such as "... Plus Banking" can be the operating account), then
+  // any other deposit account; a business title one higher within its tier; a card or a loan never.
   if (kind === "credit_card" || kind === "loan") return -1;
-  return (kind === "checking" || !kind ? 2 : 0) + (business ? 1 : 0);
+  return (kind === "checking" ? 4 : !kind ? 2 : 0) + (business ? 1 : 0);
 }
 
 function mainAccountIndex(accounts, roster = []) {
@@ -1230,6 +1230,7 @@ function unverifiedMainAccount(roster = []) {
   if (!roster.length) return null;
   const rank = (entry) => mainAccountRank(entry.kind, /\b(business|commercial|corporate)\b/i.test(entry.title || ""));
   const best = Math.max(...roster.map(rank));
+  if (best < 0) return null;  // cards and loans only: no account a lender funds
   return roster.find((entry) => rank(entry) === best && entry.status === "held") || null;
 }
 
