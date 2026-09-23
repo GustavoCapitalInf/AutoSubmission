@@ -1696,9 +1696,14 @@ function showResultsContent() {
   if (els.resultsContent) els.resultsContent.hidden = false;
 }
 
-// A summary describes one analysis, so it closes when another one starts to open.
+// A summary describes one analysis, so it closes when another one starts to open; while its analysis is
+// redrawn (a review decision or a setting changed a figure) an open summary is written again.
 function closeSummary() {
   if (els.summaryPanel) els.summaryPanel.hidden = true;
+}
+
+function refreshOpenSummary() {
+  if (els.summaryPanel && !els.summaryPanel.hidden) generateSummary();
 }
 
 function renderHero({ icon, kicker, title, chips }) {
@@ -2133,6 +2138,7 @@ function renderAccount(report) {
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
   renderMainTransactions();
+  refreshOpenSummary();
 }
 
 // A failure is reported on the New analysis page, beside the upload it belongs to.
@@ -2143,7 +2149,6 @@ function renderError(message) {
   setStatusMessage(message);
   els.decisionPill.textContent = "Review required";
   els.decisionPill.className = "decision-pill error";
-  els.summaryBox.textContent = message;
   renderAccountSummary(accountFieldRows());
   notify(`Processing failed: ${message}`, "red");
   navigate("new");
@@ -2341,7 +2346,6 @@ function uploadFiles(fileList) {
   setBanner("pending", "Uploading PDF", "--");
   renderAccountSummary(accountFieldRows());
   renderMainTransactions();
-  els.summaryBox.textContent = "Processing statement...";
 
   const form = new FormData();
   files.forEach((item) => form.append("files", item));
@@ -2460,6 +2464,15 @@ function pollJob(jobId) {
     .catch((error) => renderError(error.message || String(error)));
 }
 
+// The job ids and upload details of the analysis on screen, recorded whenever one finishes drawing. A reopen
+// that fails goes back to these: a copy taken at the click would be another reopen's ids while that one is
+// still in flight.
+let shownAnalysis = null;
+
+function recordShownAnalysis() {
+  shownAnalysis = { jobId: currentJobId, jobIds: currentJobIds.slice(), files: currentFiles, file: currentFile, startedAt };
+}
+
 // `reveal` opens the results page once they are drawn; a settings refresh redraws them where they are.
 // `announce` adds a notification (a fresh upload, not a reopen); `onError` replaces the failure page.
 function loadResults(jobId, { reveal = true, announce = reveal, onError = renderError } = {}) {
@@ -2481,12 +2494,12 @@ function loadResults(jobId, { reveal = true, announce = reveal, onError = render
       }
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
-      els.summaryBox.textContent = "Exports and copy actions are ready.";
       if (!currentAnalysis && !currentDocument) {
         // Nothing could be shown (renderAnalysis reported why): the exports sit under that message.
         appendStatusExports(`/download/${encodeURIComponent(jobId)}`);
         return;
       }
+      recordShownAnalysis();
       // A statement whose main account was not verified has no account on screen (its metrics are withheld), so the
       // Recent entry names the statement, never one of its other accounts.
       rememberStatement(jobId, currentAnalysis || documentLabelReport(currentDocument));
@@ -2521,6 +2534,7 @@ function loadPackage(jobIds, { reveal = true, announce = reveal, onError = rende
       if (jobIds.join(",") !== currentJobIds.join(",")) return;
       renderPackageAnalysis(pkg);
       setPackageActions(jobIds);
+      recordShownAnalysis();
       rememberPackage(jobIds, pkg);
       if (announce) notify(`Package ${els.resultsTitle.textContent} analyzed`, "green");
       if (reveal) openResultsPage("packages");
@@ -2687,6 +2701,7 @@ function renderPackageAnalysis(pkg) {
     ["Potential Exposure", formatPercent(totals.potential_withholding_exposure)],
   ]);
   renderPackageTables(pkg);
+  refreshOpenSummary();
 }
 
 function renderPackageTables(pkg) {
@@ -2752,11 +2767,6 @@ function renderPackageTables(pkg) {
       `;
     }).join("");
   }
-
-  const lenderSummary = funders.length
-    ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
-    : "No lenders detected across the package.";
-  els.summaryBox.textContent = `Package lender summary:\n${lenderSummary}`;
 }
 
 function openStatementModal(jobId) {
@@ -3061,12 +3071,16 @@ function generateSummary() {
     // so it must carry the package's real denomination — or none at all when
     // the package has no single one (CURRENCY DOCTRINE §D/§F).
     const currency = packageCurrencyInfo(pkg).currency;
+    const lenderSummary = funders.length
+      ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
+      : "No lenders detected across the package.";
     els.summaryBox.textContent =
       `Package ${packagePeriod(pkg.documents || [])}: ${formatNumber(totals.completed)} of ${formatNumber(totals.documents)} statements completed, ` +
       `${formatMoney(totals.avg_monthly_credits, currency)} average monthly credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
       `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
-      `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.`;
+      `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.` +
+      `\n\nPackage lender summary:\n${lenderSummary}`;
     return;
   }
   const s = currentAnalysis.statement || {};
@@ -3136,7 +3150,7 @@ function showView(view) {
   );
   syncNav();
   closePopovers();
-  document.documentElement.classList.remove("panel-open");
+  closePanelOverlay();
   if (view === "settings") loadSettings();
 }
 
@@ -3307,10 +3321,6 @@ function openRecent(key) {
     return;
   }
   if (pollTimer) clearTimeout(pollTimer);
-  const previous = {
-    jobId: currentJobId, jobIds: currentJobIds, files: currentFiles, file: currentFile, startedAt,
-    filter: transactionFilter, entity: transactionEntityFilter,
-  };
   currentJobIds = item.ids.slice();
   currentJobId = currentJobIds[0];
   currentFiles = [];
@@ -3324,14 +3334,14 @@ function openRecent(key) {
   // it: the analysis still on screen gets its own ids back, and the failure is reported beside it.
   const onError = (message) => {
     if (currentJobIds.join(",") !== item.ids.join(",")) return;  // something newer was opened meanwhile
-    ({ jobId: currentJobId, jobIds: currentJobIds, files: currentFiles, file: currentFile, startedAt } = previous);
-    transactionFilter = previous.filter;
-    transactionEntityFilter = previous.entity;
-    setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
-    if (!currentAnalysis) {
+    if (!currentAnalysis || !shownAnalysis) {
       renderError(message);
       return;
     }
+    ({ jobId: currentJobId, files: currentFiles, file: currentFile, startedAt } = shownAnalysis);
+    currentJobIds = shownAnalysis.jobIds.slice();
+    // The filter was reset for the reopen; the ledger on screen is redrawn to match its buttons.
+    renderMainTransactions();
     notify(`Could not reopen ${item.label}: ${message}`, "red");
     revealOpenAnalysis(currentAnalysis.package ? "packages" : "results");
     togglePopover(els.notificationsPopover, els.notificationsBtn);
@@ -3358,14 +3368,24 @@ function setPanelCollapsed(collapsed) {
   try { localStorage.setItem(PANEL_KEY, collapsed ? "collapsed" : "open"); } catch { /* storage unavailable */ }
 }
 
-function setPanelVisible(visible) {
-  if (NARROW_SCREEN.matches) document.documentElement.classList.toggle("panel-open", visible);
-  else setPanelCollapsed(!visible);
-}
-
 function panelVisible() {
   const root = document.documentElement;
   return NARROW_SCREEN.matches ? root.classList.contains("panel-open") : !root.classList.contains("panel-collapsed");
+}
+
+function syncPanelToggle() {
+  els.panelToggle?.setAttribute("aria-expanded", panelVisible() ? "true" : "false");
+}
+
+function setPanelVisible(visible) {
+  if (NARROW_SCREEN.matches) document.documentElement.classList.toggle("panel-open", visible);
+  else setPanelCollapsed(!visible);
+  syncPanelToggle();
+}
+
+function closePanelOverlay() {
+  document.documentElement.classList.remove("panel-open");
+  syncPanelToggle();
 }
 
 function focusSearch() {
@@ -3379,8 +3399,9 @@ els.railSearch?.addEventListener("click", focusSearch);
 document.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!document.documentElement.classList.contains("panel-open") || (target && target.closest(".sidebar"))) return;
-  document.documentElement.classList.remove("panel-open");
+  closePanelOverlay();
 });
+NARROW_SCREEN.addEventListener?.("change", syncPanelToggle);
 document.addEventListener("keydown", (event) => {
   if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
   const target = event.target instanceof Element ? event.target : null;
@@ -3883,7 +3904,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   closePopovers();
-  document.documentElement.classList.remove("panel-open");
+  closePanelOverlay();
 });
 
 setInitialState();
@@ -3891,6 +3912,7 @@ renderNsfExample(false);
 renderRecentAnalyses();
 renderPreview();
 showView("new");
+syncPanelToggle();
 setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
 setTransactionFilterButtons("[data-transaction-sort]", transactionSort);
 setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
