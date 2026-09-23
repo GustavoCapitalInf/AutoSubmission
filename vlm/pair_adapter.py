@@ -183,7 +183,7 @@ def analyze_visual_pair(
     # Any other cut-off page leaves the page evidence incomplete.
     cut_off = {index + 1 for index, item in enumerate(doc.page_integrity) if item.truncated}
     if (not doc.pages or len(doc.page_integrity) != len(doc.pages)
-            or not cut_off <= set(evidence.get("cut_off_pages_without_amounts") or ())):
+            or not cut_off <= set(evidence.get("cut_off_pages_without_transactions") or ())):
         _refuse("visual pair page evidence is incomplete")
     statement = _source_statement(evidence.get("statement"),
                                   currency_resolution=evidence.get("currency_resolution"))

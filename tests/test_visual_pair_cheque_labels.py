@@ -63,3 +63,24 @@ def test_the_label_survives_a_correction_and_reaches_the_ledger():
     ledger, _ = ledger_rows([merged])
     assert [row.description for row in ledger] == ["Check 1234", "Check 1235"]
     assert [row.amount for row in ledger] == [Decimal("45.10"), Decimal("21.0")]
+
+
+def test_a_break_in_sequence_mark_before_the_number_is_part_of_a_bare_cheque_number():
+    base = CandidateRow("2031-01-05", "01/05", "*218", Decimal("45.10"), "debit", None, 1, "stage_a", "t0r1",
+                        description_label="CHECK")
+    assert labelled_description(base).description == "CHECK *218"
+    rows = _rows(("DATE", "CHECK #", "AMOUNT($)"), ("01/05", "*218", "45.10"))
+    assert [(row.description, row.description_label) for row in rows] == [("*218", "CHECK")]
+
+
+def test_a_copy_of_the_rows_own_date_in_front_of_its_description_is_not_its_description():
+    from dataclasses import replace
+
+    from vlm.assemble import published_row
+    base = CandidateRow("2031-01-05", "01/05", "01/05 1234", Decimal("45.10"), "debit", None, 1, "stage_b", "t0r1",
+                        description_label="Check")
+    assert published_row(base).description == "Check 1234"
+    other_date = replace(base, description="01/04 FABRICATED TRANSFER", description_label=None)
+    assert published_row(other_date).description == "01/04 FABRICATED TRANSFER"
+    only_date = replace(base, description="01/05", description_label=None)
+    assert published_row(only_date).description == "01/05"

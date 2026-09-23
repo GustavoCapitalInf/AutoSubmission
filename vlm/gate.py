@@ -36,7 +36,8 @@ from vlm.textparse import normalise_description
 #      derived from the balance printed at one end stands when the printed totals and counts prove the ledger
 #      complete.
 # v13: the sum must hold to the cent: a one-cent difference is a missing or misread cent, not float noise.
-GATE_VERSION = 13
+# v14: a zero amount is a printed row that moves nothing (a payment of 0.00), not an invalid proposal.
+GATE_VERSION = 14
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
@@ -270,7 +271,8 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         record("no_rows")
         return GateVerdict(False, ("no_rows",), 0, (), None, 0, 0, checks, occurrences=tuple(occurrences))
     for row in rows:
-        if row.amount <= 0:
+        # A zero amount is a printed row that moves nothing (a payment of 0.00); only a negative magnitude is not.
+        if row.amount < 0:
             record("proposal_invalid", row=row, field="amount")
     for row in rows:
         if getattr(row, "printed_amount", None) is not None and abs(row.printed_amount) != row.amount:
@@ -324,9 +326,11 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         if beginning is None and first.balance is not None and first.direction in ("credit", "debit"):
             beginning = first.balance - Decimal(str(_signed(first, minus_styled(rows))))
             checks["derived"].append("beginning_balance")
+            checks.setdefault("derived_values", {})["beginning_balance"] = str(beginning)
         if ending is None and last.balance is not None:
             ending = last.balance
             checks["derived"].append("ending_balance")
+            checks.setdefault("derived_values", {})["ending_balance"] = str(ending)
     if beginning is None and "anchors_underdetermined" not in reasons:
         record("missing_beginning_balance", field="beginning_balance")
     if ending is None and "anchors_underdetermined" not in reasons:

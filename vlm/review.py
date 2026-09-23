@@ -96,8 +96,11 @@ def _row_errors(row: dict, *, label: str) -> list[str]:
         errors.append(f"review_empty_description:{label}")
     if not _valid_date(row["date"]):
         errors.append(f"review_invalid_date:{label}")
-    if not _finite(row["amount"]) or row["amount"] <= 0:
+    if not _finite(row["amount"]) or row["amount"] < 0:
         errors.append(f"review_invalid_amount:{label}")
+    elif row["amount"] == 0:
+        # A zero amount stands only where the row's own print shows it (_settle_zero_amount).
+        errors.append(f"review_zero_amount:{label}")
     for key in ("balance", "printed_amount"):
         if row[key] is not None and not _finite(row[key]):
             errors.append(f"review_invalid_{key}:{label}")
@@ -327,6 +330,29 @@ def _settle_description(original: dict, corrected: dict | None, observed, printe
     return (row, label) if not _row_errors(row, label="settled") else None
 
 
+def _unchanged_reading_printed(row: dict, observed, printed) -> bool:
+    """Whether the reviewer observed exactly the row's reading and the row's own lines print it
+    (PrintedEvidence.description_printed_near): a correction that changes nothing then confirms it."""
+    return (isinstance(observed, str) and spaced(observed) == spaced(row["description"])
+            and printed.description_printed_near(row["description"], row.get("amount"), row.get("date_text"),
+                                                 row.get("balance")) is True)
+
+
+def _settle_zero_amount(row, codes: list[str], printed) -> tuple[list[str], bool]:
+    """A zero amount is a row the page prints with 0.00 ("AutoPay ... 0.00", a payment of nothing): its own
+    text-layer line prints a zero amount beside its words (PrintedEvidence.zero_amount_printed_for), and then it
+    is a row like any other. Returns the codes without the zero-amount code when printed so, and whether the text
+    layer shows no such line: a line printed without an amount (a cheque listed without one, posted elsewhere),
+    which is no transaction. Without a text layer the code stays."""
+    zero = [code for code in codes if code.startswith("review_zero_amount:")]
+    if not zero or printed is None or not isinstance(row, dict):
+        return codes, False
+    shown = printed.zero_amount_printed_for(row.get("description"), row.get("date_text"))
+    if shown:
+        return [code for code in codes if code not in zero], False
+    return codes, shown is False
+
+
 def _ground_balances(rows, evidence, diagnostics, printed, *, page: int) -> list:
     """A running balance the reading puts on a row stands only if the row's own print carries it
     (PrintedEvidence.balance_printed_for): a day's closing balance printed on the day's last row, attached to an
@@ -396,6 +422,7 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         if item is None:
             continue
         effective, corrected, row_errors, warnings = _review_entry(record["row"], item, candidate_id=candidate_id)
+        row_errors, _ = _settle_zero_amount(corrected if corrected is not None else record["row"], row_errors, printed)
         inherited = list(dict.fromkeys(source_errors.get(candidate_id, ())))
         checked[candidate_id] = (effective, corrected, row_errors, warnings, inherited)
         diagnostics.extend({"scope": "row", "page": page, "candidate_id": candidate_id, "code": code}
@@ -404,6 +431,7 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                            for code in warnings)
 
     additions = []
+    unprinted_zero = set()  # additions the page prints without any amount: no transaction
     addition_schema = PAGE_REVIEW_SCHEMA["properties"]["added"]["items"]
     for index, item in enumerate(data["added"]):
         codes = []
@@ -415,7 +443,12 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         else:
             if item["after_candidate_id"] is not None and item["after_candidate_id"] not in originals:
                 codes.append("review_unknown_addition_anchor")
-            codes.extend(_row_errors(item["row"], label=f"added{index}"))
+            row_codes, unprinted = _settle_zero_amount(item["row"], _row_errors(item["row"], label=f"added{index}"),
+                                                       printed)
+            if unprinted and row_codes == [f"review_zero_amount:added{index}"]:
+                unprinted_zero.add(index)
+                row_codes = []
+            codes.extend(row_codes)
         additions.append((index, item, list(dict.fromkeys(codes))))
         diagnostics.extend({"scope": "row", "page": page, "candidate_id": f"p{page}a{index}", "code": code}
                            for code in dict.fromkeys(codes))
@@ -444,17 +477,20 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         usable = not fatal and not codes
         row = item.get("row") if isinstance(item, dict) else None
         locator = f"added{index}"
-        # Stage A never proposes a printed balance line; a reviewer addition of one is not a transaction either.
+        # Stage A never proposes a printed balance line; a reviewer addition of one is not a transaction either,
+        # nor is a line the page prints without any amount that the reviewer added at 0.00.
         balance_line = usable and bool(BALANCE_LINE.match(str(row.get("description") or "").strip()))
-        if usable and not balance_line:
+        no_amount = usable and index in unprinted_zero
+        if usable and not balance_line and not no_amount:
             rows.append(_source_row(row, page=page, locator=locator))
         # A malformed proposed row remains in raw_addition, without implying
         # that it has valid field provenance or can enter the row ledger.
         evidence.append(_evidence(candidate_id=f"p{page}a{index}",
-                                  state="rejected" if balance_line else "added" if usable else "unresolved",
+                                  state="rejected" if balance_line or no_amount else "added" if usable else "unresolved",
                                   page=page, locator=locator, original=None, corrected=None,
-                                  row=row if valid_review_row(row) and not balance_line else None,
-                                  reason="addition_is_balance_line" if balance_line else "reviewer_only" if usable
+                                  row=row if valid_review_row(row) and not balance_line and not no_amount else None,
+                                  reason="addition_is_balance_line" if balance_line
+                                  else "addition_amount_not_printed" if no_amount else "reviewer_only" if usable
                                   else "page_review_invalid" if fatal else "row_review_invalid"))
         evidence[-1].update(validation_errors=list(codes), validation_warnings=[],
                             raw_addition=copy.deepcopy(item))
@@ -467,11 +503,17 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         effective, corrected, row_errors, warnings, inherited = checked_item or (
             {}, None, [], [], list(dict.fromkeys(source_errors.get(candidate_id, ()))))
         verdict = effective.get("verdict")
-        settled = None
+        settled, resolved = None, "review_description_observation_mismatch"
         if (printed is not None and not fatal and checked_item is not None and not inherited
                 and row_errors == ["review_description_observation_mismatch"] and verdict in ("confirm", "correct")):
             settled = _settle_description(record["row"], corrected if verdict == "correct" else None,
                                           effective.get("observed_description"), printed)
+        elif (printed is not None and not fatal and checked_item is not None and not inherited
+                and row_errors == ["review_correction_unchanged"] and verdict == "correct"
+                and _unchanged_reading_printed(record["row"], effective.get("observed_description"), printed)):
+            # A "correction" that changes nothing, of a reading the reviewer observed and the row's own lines print,
+            # confirms that reading.
+            settled, resolved = (record["row"], "proposer"), "review_correction_unchanged"
         if settled is not None:
             row_errors = []
             verdict = "confirm" if settled[0] == record["row"] else "correct"
@@ -495,8 +537,7 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
                             validation_warnings=list(warnings), raw_review=copy.deepcopy(raw_item),
                             raw_observed_description=copy.deepcopy(raw_item.get("observed_description")) if raw_item is not None else None)
         if settled is not None:
-            evidence[-1]["resolution"] = {"method": "text_layer", "chosen": settled[1],
-                                          "resolved_errors": ["review_description_observation_mismatch"]}
+            evidence[-1]["resolution"] = {"method": "text_layer", "chosen": settled[1], "resolved_errors": [resolved]}
         add_after(candidate_id)
     # Invalid or missing anchors cannot silently discard an addition. Their
     # own evidence stays unresolved after the ordered candidate sequence.
@@ -559,14 +600,23 @@ def picture_page(merged) -> bool:
 _UNLABELLED_ECHO_MIN_ROWS = 2
 
 
-def _repeat_key(row) -> tuple | None:
-    """(amount, direction, date) of a row, or None when it cannot be compared: no finite amount or no ISO
-    date. An undated row cannot be shown to repeat anything."""
+def _repeat_key(row, window=None) -> tuple | None:
+    """(amount, direction, date) of a row, or None when it cannot be compared: no finite amount, or no date. The
+    date is the row's ISO date, else the one date its printed month and day can mean inside the statement period
+    (`window`; a row the reviewer confirmed as printed, "04/27", leaves the year to the date resolver). An
+    undated row cannot be shown to repeat anything."""
     try:
         amount = abs(Decimal(str(row.amount))).quantize(Decimal("0.01"))
-        when = date.fromisoformat(row.date)
     except (ArithmeticError, TypeError, ValueError):
         return None
+    try:
+        when = date.fromisoformat(row.date)
+    except (TypeError, ValueError):
+        from vlm.dates import _possibilities
+        readings = _possibilities(row.date_text, *window) if window is not None and row.date_text else ()
+        if len(readings) != 1:
+            return None
+        when = date.fromisoformat(readings[0])
     return amount, row.direction, when
 
 
@@ -684,7 +734,7 @@ def mark_ledger_echoes(merges) -> list:
     window = _period_window(merges)
     postings, dates, marked = [], [], []
     for merged in merges:
-        raw = [_repeat_key(row) for row in merged.rows]
+        raw = [_repeat_key(row, window) for row in merged.rows]
         keys = _directed(raw) if raw and None not in raw else raw
         claimed = _assign(keys, postings) if keys and None not in keys else None
         if claimed is not None:

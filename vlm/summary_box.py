@@ -14,8 +14,9 @@ are then the sums of those printed lines: arithmetic by the application over pri
 model. Every category line of the box is used (no subset is searched for), so an accidental proof needs an
 exact coincidence. A line whose direction cannot be told, or a box that does not balance, proves nothing.
 
-Some boxes print each line's arithmetic sign after its figure ("Returned Checks $17.00 +", "Fees $3.00 -",
-"Ending Balance $5.00 -" when overdrawn). The printed sign is the line's direction, whatever its words say, and
+Some boxes print each line's arithmetic sign apart from its figure, after it ("Returned Checks $17.00 +", "Fees
+$3.00 -", "Ending Balance $5.00 -" when overdrawn) or before it ("Checks - 2.00", "Deposits, credits and
+interest + 9.00"). The printed sign is the line's direction, whatever its words say, and
 a balance's printed minus is its own. When only the printed signs balance the box, the reader dropped a sign
 (an overdrawn ending read as positive) and the proof restores it.
 
@@ -36,10 +37,11 @@ from vlm.tables import parse_html_tables
 from vlm.textparse import parse_money
 
 _AMOUNT = r"\(?-?\$?\s?\d{1,3}(?:,\d{3})*\.\d{2}\)?-?|\(?-?\$?\s?\d+\.\d{2}\)?-?"
-# A sign printed after the figure, apart from it ("$53.00 +", "$65.00 -"); a minus joined to it is the amount's.
+# A sign printed apart from the figure, after it ("$53.00 +", "$65.00 -") or before it ("- 2.00", "+ 9.00"); a
+# minus joined to the figure is the amount's.
 _CATEGORY = re.compile(
-    rf"^(?P<label>[A-Za-z][A-Za-z &/,'().-]{{1,60}}?)\s+(?:(?P<count>\d{{1,4}})\s+)?(?P<amount>{_AMOUNT})"
-    r"(?:\s+(?P<sign>[+\-−]))?$")
+    rf"^(?P<label>[A-Za-z][A-Za-z &/,'().-]{{1,60}}?)\s+(?:(?P<count>\d{{1,4}})\s+)?(?:(?P<lead>[+\-−])\s+)?"
+    rf"(?P<amount>{_AMOUNT})(?:\s+(?P<sign>[+\-−]))?$")
 _TRAILING_MINUS = re.compile(r"\s*[-−]\s*$")
 _CREDIT_WORDS = re.compile(r"\b(?:deposits?|credits?|additions?|interest (?:paid|earned)|dividends?)\b", re.I)
 _DEBIT_WORDS = re.compile(r"\b(?:withdrawals?|debits?|checks?|cheques?|fees?|charges?|subtractions?|payments?|"
@@ -101,18 +103,20 @@ def _category(text: str) -> tuple[str | None, Decimal, int | None, str] | None:
     match = _CATEGORY.match(text)
     if not match or _NOT_CATEGORY.search(match.group("label")):
         return None
-    label, amount_text, sign = match.group("label"), match.group("amount").strip(), match.group("sign")
+    label, amount_text = match.group("label"), match.group("amount").strip()
+    signs = [sign for sign in (match.group("lead"), match.group("sign")) if sign]
+    sign = signs[0] if len(signs) == 1 else None
     credit_word, debit_word = bool(_CREDIT_WORDS.search(label)), bool(_DEBIT_WORDS.search(label))
-    if not credit_word and not debit_word and sign is None:
+    if not credit_word and not debit_word and not signs:
         return None
     value = parse_money(amount_text)
     if value is None:
         return None
     negative = amount_text.endswith("-") or amount_text.startswith(("-", "(")) or value < 0
     count = int(match.group("count")) if match.group("count") else None
-    if sign is not None:
-        # A figure printed negative and signed again cannot be told.
-        direction = None if negative else "credit" if sign == "+" else "debit"
+    if signs:
+        # A figure printed negative and signed again, or signed on both sides, cannot be told.
+        direction = None if negative or sign is None else "credit" if sign == "+" else "debit"
         return direction, abs(value), count, label
     if negative:
         direction = "debit" if not (credit_word and not debit_word) else None
@@ -236,11 +240,14 @@ def settle_section_directions(rows, printed_pages, categories):
     judges the rows as read. Returns (rows, audit)."""
     from dataclasses import replace
 
+    # Headings are matched without spaces: a text layer can run two printed words together
+    # ("Otherwithdrawals, debits and service charges" under the box's "Other withdrawals, ...").
     labels: dict[str, set] = {}
     for item in categories or ():
         if item.get("direction") in ("credit", "debit"):
-            labels.setdefault(_heading_key(item["label"]), set()).add(
-                (item["direction"], Decimal(str(item["amount"])).quantize(_CENT)))
+            key = _heading_key(item["label"])
+            labels.setdefault(key.replace(" ", ""), set()).add(
+                (item["direction"], Decimal(str(item["amount"])).quantize(_CENT), key))
     # A label the box prints twice with different figures names no one section.
     labels = {key: next(iter(found)) for key, found in labels.items() if key and len(found) == 1}
     audit = {"sections": [], "settled_rows": []}
@@ -257,11 +264,11 @@ def settle_section_directions(rows, printed_pages, categories):
         page = []
         for line in evidence.text_lines:
             key = _heading_key(line)
-            if key in labels:
-                current = key
+            if key.replace(" ", "") in labels:
+                current = key.replace(" ", "")
             page.append(current)
             total = _TOTAL_LINE.match(key)
-            if total and _heading_key(total.group("label")) == current:
+            if total and _heading_key(total.group("label")).replace(" ", "") == current:
                 current = None
         under.append(page)
     members: dict[str, list[int]] = {}
@@ -274,8 +281,8 @@ def settle_section_directions(rows, printed_pages, categories):
         if len(sections) == 1 and None not in sections:
             members.setdefault(sections.pop(), []).append(index)
     settled = list(rows)
-    for key, indexes in members.items():
-        direction, amount = labels[key]
+    for compact, indexes in members.items():
+        direction, amount, key = labels[compact]
         total = sum((rows[index].amount for index in indexes), Decimal("0")).quantize(_CENT)
         contrary = [index for index in indexes if rows[index].direction != direction]
         columned = [index for index in contrary if rows[index].printed_amount is not None]

@@ -276,6 +276,19 @@ def test_a_cheque_read_as_its_number_is_named_by_the_column_header_its_line_is_p
     assert labelled_from_print(_cheque("301", "212.40", "01/06"), printed).description == "Check 301"
 
 
+def test_a_serial_number_column_names_cheques_only_under_a_heading_that_names_them():
+    from vlm.assemble import labelled_from_print
+    paid = ("Checks Paid No. Checks: 2 *Indicates break in serial sequence\n"
+            "DATE SERIAL NO. AMOUNT DATE SERIAL NO. AMOUNT\n01/13 401 212.40 01/27 404* 1,385.00\n")
+    labelled = labelled_from_print(_cheque("404*", "1385.00", "01/27"), PrintedEvidence(native=paid))
+    assert labelled.description == "Check 404*"
+    other = paid.replace("Checks Paid", "Fabricated Items")
+    assert labelled_from_print(_cheque("404*", "1385.00", "01/27"), PrintedEvidence(native=other)).description == "404*"
+    # A same-day card payment of the same amount elsewhere on the page: the cheque number tells the lines apart.
+    twin = paid + "Electronic Payments\n01/27 FABRICATED CARD PAYMENT 1,385.00\n"
+    assert labelled_from_print(_cheque("404*", "1385.00", "01/27"), PrintedEvidence(native=twin)).description == "Check 404*"
+
+
 def test_a_cheque_label_needs_the_rows_own_line_under_a_cheque_number_header():
     from vlm.assemble import labelled_from_print
     printed = PrintedEvidence(native=TWO_UP)

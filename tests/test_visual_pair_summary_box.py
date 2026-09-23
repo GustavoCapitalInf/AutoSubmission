@@ -361,3 +361,29 @@ def test_only_a_heading_printed_as_the_categorys_label_names_its_section():
     page_2 = SECTION_PAGE_2.replace("RETURNED CHECKS (CONTINUED)", "RETURNED CHECKS AND ADJUSTMENTS (CONTINUED)")
     rows, audit = settle_section_directions(_section_rows(), _printed(page_1, page_2), _categories())
     assert rows[3].direction == "debit" and audit["settled_rows"] == []
+
+
+def test_a_sign_printed_before_the_figure_is_the_lines_direction():
+    # 1,000.00 - 150.25 - 600.50 + 900.00 = 1,149.25
+    text = """Account summary
+Your previous balance as of 03/18/2031 $1,000.00
+Checks - 150.25
+Other withdrawals, debits and service charges - 600.50
+Deposits, credits and interest + 900.00
+Your new balance as of 04/17/2031 = $1,149.25
+Checks
+"""
+    proof = prove_summary_box([text], beginning=Decimal("1000"), ending=Decimal("1149.25"))
+    assert proof is not None and proof.line_count == 3
+    assert proof.stated_total_credits == Decimal("900.00") and proof.stated_total_debits == Decimal("750.75")
+    # Signed on both sides, a line cannot be told.
+    both = text.replace("Checks - 150.25", "Checks - 150.25 -")
+    assert prove_summary_box([both], beginning=Decimal("1000"), ending=Decimal("1149.25")) is None
+
+
+def test_a_heading_the_text_layer_runs_together_still_names_its_section():
+    from vlm.summary_box import settle_section_directions
+    page_1 = SECTION_PAGE_1.replace("RETURNED CHECKS\n", "RETURNEDCHECKS\n")
+    rows, audit = settle_section_directions(_section_rows(), _printed(page_1), _categories())
+    assert rows[3].direction == "credit"
+    assert [item["section"] for item in audit["settled_rows"]] == ["returned checks"]

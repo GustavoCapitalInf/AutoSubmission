@@ -81,8 +81,13 @@ def parse_html_tables(html: str, *, preserve_whitespace: bool = False) -> list[l
     return [table for table in parser.tables if table]
 
 
+# The currency a column header names after its word ("AMOUNT($)", "Balance (USD)", "Montant $"): the column's
+# unit, not its role.
+_HEADER_CURRENCY = re.compile(r"\s*(?:\(\s*(?:[$€£]|usd|cad|us\$|c\$|eur|gbp)\s*\)|[$€£])$")
+
+
 def _header_role(cell: str) -> str | None:
-    text = " ".join(cell.lower().replace("_", " ").split())
+    text = _HEADER_CURRENCY.sub("", " ".join(cell.lower().replace("_", " ").split()))
     if not text:
         return None
     # These explicit compound labels name one direction. Match the whole
@@ -96,6 +101,39 @@ def _header_role(cell: str) -> str | None:
             if text == keyword or text.startswith(keyword + " ") or text.endswith(" " + keyword) or text == keyword + "s":
                 return role
     return None
+
+
+_MONEY_ROLES = ("debit", "credit", "amount", "balance")
+
+
+def unfold_side_by_side(grid: list[list[str]]) -> list[list[str]]:
+    """A table printed k-up, the same column group side by side ("Date | Check # | Amount | Date | Check # |
+    Amount"), as one table of that group: its header once, then each printed row's groups in reading order (left
+    to right, then down). A group with nothing in its money columns is an empty slot or a cheque listed without an
+    amount (an electronically converted cheque, posted with the other withdrawals), not a row. The group must name
+    at least two roles, one of them a money column. Any other grid is returned unchanged."""
+    for index, row in enumerate(grid[:3]):
+        cells = [" ".join(str(cell).lower().split()) for cell in row]
+        width = len(cells)
+        for size in range(2, width // 2 + 1):
+            if width % size:
+                continue
+            groups = [cells[start:start + size] for start in range(0, width, size)]
+            if any(group != groups[0] for group in groups):
+                continue
+            roles = [_header_role(cell) for cell in groups[0]]
+            money = [position for position, role in enumerate(roles) if role in _MONEY_ROLES]
+            if not money or sum(role is not None for role in roles) < 2:
+                continue
+            unfolded = [list(row[:size])]
+            for data in grid[index + 1:]:
+                padded = list(data) + [""] * (width - len(data))
+                for start in range(0, width, size):
+                    chunk = padded[start:start + size]
+                    if any(str(chunk[position]).strip() for position in money):
+                        unfolded.append(chunk)
+            return [list(item) for item in grid[:index]] + unfolded
+    return grid
 
 
 def _column(grid: list[list[str]], index: int) -> list[str]:

@@ -145,3 +145,20 @@ def test_section_heading_gives_a_single_amount_table_its_direction():
     assert [(r.direction, r.direction_source) for r in rows] == [("debit", "section"), ("credit", "section"), ("unknown", "printed")]
     assert rows[0].amount == Decimal("25.00")
     assert assemble.section_direction("Withdrawals and other debits") == "debit" and assemble.section_direction("Summary") is None
+
+
+def test_a_row_written_without_its_empty_date_cell_is_put_back_in_its_columns():
+    # A date printed once for the day: the proposer wrote the day's later rows one cell short, every cell one
+    # column left (a credit in the debit column, a balance as the credit).
+    from vlm.tables import classify_columns
+    grid = [["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"],
+            ["29 Dec", "FABRICATED PAYMENT", "", "412.60", ""],
+            ["FABRICATED CHEQUE - 101", "97.00", "", "1,315.60"],
+            ["FABRICATED DEPOSIT", "", "46.15", "1,361.75"]]
+    rows = assemble.rows_from_grid(grid, classify_columns(grid), page=1, table_index=0, year_hint=2031,
+                                   day_first=True)
+    assert [(row.description, row.amount, row.direction, row.balance) for row in rows] == [
+        ("FABRICATED PAYMENT", Decimal("412.60"), "credit", None),
+        ("FABRICATED CHEQUE - 101", Decimal("97.00"), "debit", Decimal("1315.60")),
+        ("FABRICATED DEPOSIT", Decimal("46.15"), "credit", Decimal("1361.75"))]
+    assert [row.date_text for row in rows] == ["29 Dec", "", ""]

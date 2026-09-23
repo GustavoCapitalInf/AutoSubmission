@@ -41,7 +41,7 @@ def test_public_contract_is_compatible_and_clean_on_admission():
 
 def test_amount_failures_count_each_row_and_failing_field():
     rows = _rows()
-    rows[0] = replace(rows[0], amount=Decimal("0"))
+    rows[0] = replace(rows[0], amount=Decimal("-1"))  # v14: a zero amount is a printed row; a negative one is invalid
     rows[1] = replace(rows[1], amount=Decimal("-5"), printed_amount=Decimal("3"))
     rows[2] = replace(rows[2], printed_amount=Decimal("2"))
     verdict = gate(rows, _meta())
@@ -168,7 +168,7 @@ def test_document_failures_have_no_fabricated_page_and_occurrences_have_no_sourc
 
 def test_incomplete_document_keeps_source_failures_without_ledger_cascades(monkeypatch):
     rows = _rows(4)
-    rows[0] = replace(rows[0], amount=Decimal("0"), page=2)
+    rows[0] = replace(rows[0], amount=Decimal("-1"), page=2)
     rows[1] = replace(rows[1], direction="unknown", date=None, page=2)
     rows[2] = replace(rows[2], date="2035-04-01", page=5)
     rows[3] = replace(rows[2], locator="synthetic-repeat", balance=None, page=5)

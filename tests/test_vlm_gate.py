@@ -177,3 +177,21 @@ def test_balance_chained_statement_refuses_a_date_order_break_but_an_unchained_o
     unchained = [replace(r, balance=None) for r in rows]
     verdict = gate(unchained, _meta())
     assert verdict.checks["balance_chained"] is False and "date_order_chained" not in verdict.reasons
+
+
+def test_a_zero_amount_row_moves_nothing_and_a_negative_magnitude_is_refused():
+    # v14: a printed payment of 0.00 is a row like any other; only a negative magnitude is an invalid proposal.
+    rows = _rows()
+    zero = CandidateRow("2031-01-02", "01/02", "SYNTHETIC ZERO PAYMENT", Decimal("0.00"), "debit", None, 0,
+                        "stage_a", "t0r9")
+    verdict = gate(rows[:2] + [zero] + rows[2:], _meta())
+    assert verdict.admitted and verdict.row_count == 5
+    negative = replace(zero, amount=Decimal("-1.00"))
+    verdict = gate(rows[:2] + [negative] + rows[2:], _meta())
+    assert "proposal_invalid" in verdict.reasons
+
+
+def test_a_derived_anchor_records_its_value():
+    verdict = gate(_rows(), _meta(end=None))
+    assert verdict.checks["derived"] == ["ending_balance"]
+    assert verdict.checks["derived_values"] == {"ending_balance": "600.00"}

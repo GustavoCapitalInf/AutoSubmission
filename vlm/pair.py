@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from dataclasses import asdict, replace
 from decimal import Decimal
 from pathlib import Path
@@ -282,6 +283,119 @@ def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evi
             'counts_from_summary_page': counts_from_summary_page, 'categories': categories}
 
 
+_PREVIOUS_BALANCE_DATE = re.compile(
+    r"\bprevious (?:statement )?balance (?:as of|on)\s+(\d{1,2})/(\d{1,2})/(\d{4})\b", re.IGNORECASE)
+_PERIOD_REACH_DAYS = 45
+
+
+def previous_balance_period_start(account: dict, reasons: list, occurrences: list, field_evidence: list,
+                                  native_texts) -> dict | None:
+    """A statement that prints only its closing date ("For 04/17/2026") names its opening by the previous
+    statement's: the balance carried "as of" the previous closing date ("Your previous balance as of
+    03/18/2026") opens this period on the next day. Only when no page gave a period start, the period end is
+    known, the text layer prints one such date across the pages, and exactly one reading of it (month first or
+    day first) starts the period no later than its end and within _PERIOD_REACH_DAYS of it. The missing-start
+    hold is settled. Mutates in place; returns the audit entry or None."""
+    from datetime import date, timedelta
+
+    if account.get('period_start') or not account.get('period_end'):
+        return None
+    try:
+        end = date.fromisoformat(account['period_end'])
+    except (TypeError, ValueError):
+        return None
+    printed = {(match.groups(), index + 1) for index, text in enumerate(native_texts or ())
+               for match in _PREVIOUS_BALANCE_DATE.finditer(text or '')}
+    if len({groups for groups, _ in printed}) != 1:
+        return None
+    first, second, year = (int(value) for value in next(iter(printed))[0])
+    starts = set()
+    for month, day in ((first, second), (second, first)):
+        try:
+            start = date(year, month, day) + timedelta(days=1)
+        except ValueError:
+            continue
+        if start <= end and (end - start).days <= _PERIOD_REACH_DAYS:
+            starts.add(start)
+    if len(starts) != 1:
+        return None
+    start, page = starts.pop().isoformat(), min(page for _, page in printed)
+    account['period_start'] = start
+    settled = [item for item in occurrences if item.get('code') == 'period_mismatch'
+               and item.get('field') == 'period_start']
+    for item in settled:
+        occurrences.remove(item)
+        reasons.remove('period_mismatch')
+    field_evidence.append({'field': 'period_start', 'page': page, 'source': 'text_layer_previous_balance_date',
+                           'value': start})
+    return {'period_start': start, 'page': page, 'settled_holds': len(settled)}
+
+
+def opening_balance_days(daily: list[dict], account: dict) -> tuple[list[dict], list[str]]:
+    """Daily balances dated before the period start at exactly the statement's beginning balance: the opening
+    balance a daily-balance table prints first ("03/31 1,000.00" above April's days), not a day of this
+    statement. They are left out (the beginning balance already carries them); any other day outside the period
+    stays for the analysis to refuse. Returns (daily balances, dates left out)."""
+    start, opening = account.get('period_start'), account.get('beginning_balance')
+    if not start or opening is None:
+        return daily, []
+    cent = Decimal('0.01')
+    opening = Decimal(str(opening)).quantize(cent)
+    left_out = [item['date'] for item in daily
+                if str(item['date']) < start and Decimal(str(item['balance'])).quantize(cent) == opening]
+    return [item for item in daily if item['date'] not in left_out], left_out
+
+
+def pages_without_transactions(printed_pages, account: dict) -> frozenset:
+    """Pages that list no transaction: the text layer prints no amount but the statement's own opening or closing
+    balance (terms and disclosures print none; a balancing form prints the ending balance, "Your ending balance
+    shown on this statement is"), and it prints what the proposer read there (PrintedEvidence.covers_proposer),
+    so no scanned body hides rows behind a printed header."""
+    balances = set()
+    for field in ('beginning_balance', 'ending_balance'):
+        if account.get(field) is not None:
+            balances.add(abs(Decimal(str(account[field]))).quantize(Decimal('0.01')))
+    return frozenset(index + 1 for index, evidence in enumerate(printed_pages or ())
+                     if evidence is not None and evidence.native and evidence.native_amounts <= balances
+                     and (not evidence.native_amounts or evidence.covers_proposer()))
+
+
+def exclude_undirected_by_totals(rows, account: dict):
+    """Rows neither reader gave a direction, and without a balance to take one from, are no transactions when
+    the rows that have one already add up to the printed credit and debit totals to the cent, match the printed
+    counts where printed, and carry the opening balance to the closing one: any of them would push a total past
+    its printed figure. A summary of cheques "also displayed in the preceding transaction history", or items
+    returned unpaid, listed without a direction. Returns (rows, audit or None)."""
+    from vlm.gate import minus_styled, signed_amount
+
+    undirected = [row for row in rows if row.direction == 'unknown' and row.balance is None]
+    directed = [row for row in rows if row.direction in ('credit', 'debit')]
+    if not undirected or len(directed) + len(undirected) != len(rows):
+        return list(rows), None
+    try:
+        opening, closing, credits_printed, debits_printed = (
+            Decimal(str(account[field])) for field in ('beginning_balance', 'ending_balance',
+                                                       'stated_total_credits', 'stated_total_debits'))
+    except (KeyError, TypeError, ArithmeticError):
+        return list(rows), None
+    cent = Decimal('0.01')
+    styled = minus_styled(directed)
+    signed = [signed_amount(row, styled) for row in directed]
+    credits = sum((value for value in signed if value > 0), Decimal('0')).quantize(cent)
+    debits = -sum((value for value in signed if value < 0), Decimal('0')).quantize(cent)
+    if (credits, debits) != (credits_printed.quantize(cent), debits_printed.quantize(cent)):
+        return list(rows), None
+    if (opening + credits - debits).quantize(cent) != closing.quantize(cent):
+        return list(rows), None
+    for field, count in (('stated_credit_count', sum(value > 0 for value in signed)),
+                         ('stated_debit_count', sum(value < 0 for value in signed))):
+        if account.get(field) is not None and int(account[field]) != count:
+            return list(rows), None
+    excluded = {id(row) for row in undirected}
+    return ([row for row in rows if id(row) not in excluded],
+            {'rows': len(undirected), 'locators': [[row.page, row.locator] for row in undirected]})
+
+
 _PAGE_FIGURES = {"stated_total_credits": ("credit", "sum"), "stated_total_debits": ("debit", "sum"),
                  "stated_credit_count": ("credit", "count"), "stated_debit_count": ("debit", "count")}
 
@@ -334,9 +448,9 @@ def held_pages(merges, page_errors, truncated, moneyless_pages=frozenset()) -> l
     Owner ruling, 2026-09-22 ("Hold"): a cut-off read holds its page. `truncated` is the proposer's read after
     crop recovery OR the reviewer's; a proposal that recovery completed is not cut off. Errors, unresolved
     rows and quarantined metadata hold it too. A cheque picture page (review.picture_page) never holds.
-    A cut-off read of a page whose own text layer prints no amount at all (``moneyless_pages``: terms and
-    disclosures) cannot have missed a transaction and does not hold on that account; a scanned page has no
-    text layer to say so and still holds."""
+    A cut-off read of a page that lists no transaction (``moneyless_pages``, pages_without_transactions: terms,
+    disclosures, a balancing form printing only the ending balance) cannot have missed one and does not hold on
+    that account; a scanned page has no text layer to say so and still holds."""
     from vlm.review import picture_page
     held = []
     for idx, (errors, cut) in enumerate(zip(page_errors, truncated)):
@@ -624,6 +738,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     segment_plan = detect_page_segments(merges, opening_observations=opening_observations)
     account, daily, reasons, field_evidence = _merge_metadata(
         merges, occurrences=occurrences, segment_plan=segment_plan)
+    # A statement that prints only its closing date opens the day after the previous statement's closing date.
+    period_from_previous = previous_balance_period_start(account, reasons, occurrences, field_evidence,
+                                                         native_texts)
     summary_box = apply_summary_box(
         account, reasons, occurrences, field_evidence,
         [page_lines(native_texts[index] if index < len(native_texts) else None, layout.blocks)
@@ -655,11 +772,15 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     # A mid-day figure at a page break is not the day's close when no later page prints one.
     page_break_dates = page_break_figures(merges, rows)
     daily = [item for item in daily if item['date'] not in page_break_dates]
+    # A daily-balance table that opens with the day before the period at the statement's beginning balance
+    # prints the opening balance carried in, not a day of this statement.
+    daily, opening_days = opening_balance_days(daily, account)
+    # Rows no reader gave a direction are no transactions when the directed rows already make the printed totals.
+    rows, undirected_excluded = exclude_undirected_by_totals(rows, account)
     segment_checks, segment_occurrences = reconcile_page_segments(segment_plan, rows)
     occurrences.extend(segment_occurrences)
     reasons.extend(item['code'] for item in segment_occurrences)
-    moneyless_pages = frozenset(index + 1 for index, evidence in enumerate(printed_pages or ())
-                                if evidence is not None and evidence.native and not evidence.native_amounts)
+    moneyless_pages = pages_without_transactions(printed_pages, account)
     unresolved_pages = held_pages(merges, page_errors, truncated, moneyless_pages)
     for page_number in unresolved_pages:
         reasons.append('page_unresolved')
@@ -734,6 +855,15 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     reasons = list(dict.fromkeys(reasons))
     reason_counts = summarize_occurrences(occurrences)
     admitted = verdict is not None and verdict.admitted and not reasons
+    # A balance the statement does not print, derived by the gate from the balance printed at that end of the
+    # ledger and admitted because the printed totals and counts prove the ledger complete (gate v12), is the
+    # statement's balance there: published, with its provenance.
+    if admitted and checks.get('derived_anchor_proven_complete'):
+        for field, value in sorted((checks.get('derived_values') or {}).items()):
+            if account.get(field) is None:
+                account[field] = float(Decimal(value))
+                field_evidence.append({'field': field, 'page': None, 'source': 'derived_proven_complete',
+                                       'value': account[field]})
     confidence = confidence_summary(merges, gate_admitted=admitted, gate_reasons=reasons)
     # The statement's score is its verification coverage (vlm/confidence.py); the per-page review agreement
     # stays alongside it.
@@ -793,8 +923,11 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     audit['summary_box'] = summary_box
     audit['section_directions'] = section_directions
     audit['page_subtotal_pages'] = page_subtotals
-    audit['cut_off_pages_without_amounts'] = sorted(page for page in moneyless_pages if truncated[page - 1])
+    audit['cut_off_pages_without_transactions'] = sorted(page for page in moneyless_pages if truncated[page - 1])
+    audit['period_start_from_previous_balance'] = period_from_previous
+    audit['undirected_rows_excluded_by_totals'] = undirected_excluded
     audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)
+    audit['daily_opening_balance_dropped'] = opening_days
     if admitted:
         from vlm.review import row_record
         audit['gate_rows'] = [{**row_record(row), 'page': row.page, 'locator': row.locator,

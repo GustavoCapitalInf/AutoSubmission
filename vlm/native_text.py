@@ -57,6 +57,10 @@ _ROW_START = re.compile(rf"^(?:\d{{1,2}}[/-]\d{{1,2}}(?:[/-]\d{{2,4}})?(?!\S)|\d
 _TOKEN = re.compile(r"\S+")
 # A cheque-number column header inside a printed header line ("Date Check No. Amount", "Chk # Paid").
 _CHEQUE_COLUMN = re.compile(r"\b(?P<word>check|cheque|chk)s?\s*(?:no\.?|nbr\.?|num\.?|number|#)(?!\w)", re.IGNORECASE)
+# A serial-number column ("DATE SERIAL NO. AMOUNT") is a cheque-number column only under a heading that names
+# cheques ("Checks Paid"), whose word then names them.
+_SERIAL_COLUMN = re.compile(r"\bserial\s*(?:no\.?|nbr\.?|num\.?|number|#)(?!\w)", re.IGNORECASE)
+_CHEQUE_HEADING = re.compile(r"^\s*(?P<word>check|cheque)s?\b", re.IGNORECASE)
 
 
 _LINE_BREAK = re.compile(r"<br\s*/?>", re.IGNORECASE)
@@ -174,25 +178,49 @@ class PrintedEvidence:
 
     def cheque_column_word(self, number: str, amount, date_text=None, balance=None) -> str | None:
         """The printed word naming the cheque-number column a cheque read as its number alone sits in ("Check"
-        from a "Date Check No. Amount" header): the line directly above the run of amount lines that holds every
-        line of this row, each of which prints the number. None when the row's lines cannot be told, or the header
-        names no cheque-number column. A table printed two-up in the image is a column group at a time here, each
-        under its own header."""
-        lines = self.row_line_numbers(amount, date_text, balance)
+        from a "Date Check No. Amount" header, or a "Serial No." column under a "Checks Paid" heading): the line
+        directly above the run of amount lines holding every line of this row that prints the number. None when
+        no such line, or the header names no cheque-number column. A table printed two-up in the image is a
+        column group at a time here, each under its own header."""
+        # The row's lines are those printing its amount and date (a same-day twin of the amount elsewhere on the
+        # page included) that also print its number.
+        lines = [line for line in self.row_line_numbers(amount, date_text, balance) or ()
+                 if number in {token.strip("*#") for token in self._native_lines[line]}]
         if not lines:
             return None
         words = set()
         for line in lines:
-            if number not in self._native_lines[line]:
-                return None
             top = line
             while top > 0 and self._line_spans[top - 1]:
                 top -= 1
-            match = _CHEQUE_COLUMN.search(self._lines[top - 1][0]) if top > 0 else None
+            header = self._lines[top - 1][0] if top > 0 else ""
+            match = _CHEQUE_COLUMN.search(header)
+            if match is None and _SERIAL_COLUMN.search(header) and top > 1:
+                match = _CHEQUE_HEADING.match(self._lines[top - 2][0])
             if match is None:
                 return None
             words.add(match.group("word"))
         return words.pop() if len(words) == 1 else None
+
+    def covers_proposer(self, *, minimum_words: int = 20, share: float = 0.9) -> bool | None:
+        """Whether the text layer prints what the proposer read on the page: at least `share` of the proposer's
+        words (three letters or more) are words of the text layer. A page with a text-layer header over a
+        scanned body fails it (the proposer reads rows the text layer does not print). None without a text
+        layer, or when the proposer read fewer than `minimum_words` words: too little to tell."""
+        if not self.native:
+            return None
+        words = re.findall(r"[a-z]{3,}", self.proposer.lower())
+        if len(words) < minimum_words:
+            return None
+        printed = set(re.findall(r"[a-z]{3,}", self.native.lower()))
+        return sum(word in printed for word in words) >= share * len(words)
+
+    def zero_amount_printed_for(self, description, date_text=None) -> bool | None:
+        """Whether the text layer prints a zero amount ("0.00") on a line that is this row's (told apart by its
+        date) with the row's description words in its print. None without a text layer."""
+        if not self.native:
+            return None
+        return bool(self.row_line_numbers(0, date_text)) and bool(self.description_words_near(description, 0, date_text))
 
     def row_line_numbers(self, amount, date_text=None, balance=None) -> list[int] | None:
         """The text-layer lines that are this row's: its amount's printed occurrences, told apart by the row's

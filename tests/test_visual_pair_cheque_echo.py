@@ -314,3 +314,15 @@ def test_unresolved_rows_on_a_picture_page_do_not_hold_it():
     pictures = replace(_page(2, ["45.10", "300.00"]), counts={"added": 2, "unresolved": 1})
     marked = mark_ledger_echoes([_ledger(), pictures])
     assert marked[1].ledger_echo and held_pages(marked, [[], []], [False, False]) == []
+
+
+def test_a_ledger_row_confirmed_with_only_its_printed_month_and_day_is_still_a_posting_pictures_repeat():
+    # The review confirmed the listing's cheques as printed ("01/15"), leaving the year to the date resolver; the
+    # period the pages print gives that month and day one date, so the pictures on a later page still repeat them.
+    ledger = _ledger()
+    ledger = replace(ledger, rows=tuple(replace(row, date=None) for row in ledger.rows))
+    assert _echoes([ledger, _page(2, ["45.10", "300.00", "120.00"])]) == [2]
+    # Without a period no month and day can be placed: nothing repeats.
+    periodless = {"period_start": None, "period_end": None}
+    assert _echoes([replace(ledger, account={"currency": "USD", **periodless}),
+                    _page(2, ["45.10", "300.00", "120.00"], account=periodless)]) == []

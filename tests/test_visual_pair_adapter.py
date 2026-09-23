@@ -158,10 +158,10 @@ def _with_cut_off_terms_page(doc):
 
 
 def test_a_cut_off_page_without_amounts_named_by_the_evidence_does_not_refuse_the_analysis(monkeypatch):
-    # The page's own text layer prints no amount (vlm/pair.py lists it in cut_off_pages_without_amounts): no
+    # The page's own text layer prints no amount (vlm/pair.py lists it in cut_off_pages_without_transactions): no
     # transaction can be missing, and the gate admitted the statement with it.
     doc = _with_cut_off_terms_page(_doc())
-    doc.visual_pair["cut_off_pages_without_amounts"] = [2]
+    doc.visual_pair["cut_off_pages_without_transactions"] = [2]
     monkeypatch.setattr(pair_adapter, "analyze_document", lambda *a, **k: None)
     result = pair_adapter.analyze_visual_pair(doc, review_policy="admit_gated")
     assert result.accounts[0].model_used.endswith("-generic")
@@ -171,7 +171,7 @@ def test_a_cut_off_page_without_amounts_named_by_the_evidence_does_not_refuse_th
 def test_any_other_cut_off_page_leaves_the_page_evidence_incomplete(monkeypatch, named):
     doc = _with_cut_off_terms_page(_doc())
     if named is not None:
-        doc.visual_pair["cut_off_pages_without_amounts"] = named
+        doc.visual_pair["cut_off_pages_without_transactions"] = named
     monkeypatch.setattr(pair_adapter, "analyze_document", lambda *a, **k: pytest.fail("parser called"))
     with pytest.raises(pair_adapter.VisualPairAdmissionError, match="page evidence is incomplete"):
         pair_adapter.analyze_visual_pair(doc, review_policy="admit_gated")

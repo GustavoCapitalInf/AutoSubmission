@@ -240,6 +240,14 @@ def test_correction_must_repeat_original_exactly_and_change_a_value():
     }])
     result = merge_review(rows, payload, page=1)
     assert not result.errors and "review_correction_unchanged" in result.evidence[0]["validation_errors"]
+    # When the reviewer observed that very reading and the row's own lines print it, the "correction" confirms it.
+    from vlm.native_text import PrintedEvidence
+    row = candidate_records(rows)[0]["row"]
+    printed = PrintedEvidence(native=f"{row['date_text']} {row['description']} {row['amount']:,.2f}\n")
+    payload["reviews"][0]["observed_description"] = original["description"]
+    confirmed = merge_review(rows, copy.deepcopy(payload), page=1, printed=printed)
+    assert confirmed.counts["agreed"] == 1 and confirmed.evidence[0]["resolution"] == {
+        "method": "text_layer", "chosen": "proposer", "resolved_errors": ["review_correction_unchanged"]}
     payload["reviews"][0]["corrections"][0]["original"] = "rewritten"
     result = merge_review(rows, payload, page=1)
     assert not result.errors and "review_original_mismatch" in result.evidence[0]["validation_errors"]
@@ -304,7 +312,8 @@ def test_redundant_patch_does_not_bypass_reconstructed_row_semantics():
     )
     result = merge_review(rows, payload, page=1)
     assert not result.errors and not result.rows
-    assert "review_invalid_amount:p1r0" in result.evidence[0]["validation_errors"]
+    # A zero amount stands only where the row's own print shows it; without printed evidence it stays unresolved.
+    assert "review_zero_amount:p1r0" in result.evidence[0]["validation_errors"]
 
 
 @pytest.mark.parametrize("field,value", [("date", "2031-02-30"), ("amount", float("nan")),

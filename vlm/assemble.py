@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
-from vlm.tables import ColumnMap, classify_columns, parse_html_tables
+from vlm.tables import ColumnMap, classify_columns, parse_html_tables, unfold_side_by_side
 from vlm.textparse import is_date_like, parse_date, parse_money
 
 # Balance lines as French statements print them: solde reporté / précédent / antérieur / d'ouverture / de
@@ -45,7 +45,8 @@ class CandidateRow:
 ANALYSIS_HEADER = re.compile(r"^\s*(volume|unit price|unit cost|quantity|qty|per item)\s*$", re.IGNORECASE)
 CHEQUE_NUMBER_HEADER = re.compile(r"^\s*(?P<word>check|cheque|chk)s?\s*(?:no\.?|nbr\.?|num\.?|number|#)\s*$",
                                   re.IGNORECASE)
-_BARE_CHEQUE_NUMBER = re.compile(r"#?\s*\d+\s*\*?")
+# A cheque number alone, with the break-in-sequence mark some banks print before or after it ("*218", "1046 *").
+_BARE_CHEQUE_NUMBER = re.compile(r"\*?\s*#?\s*\d+\s*\*?")
 
 
 def labelled_description(row: CandidateRow) -> CandidateRow:
@@ -64,16 +65,22 @@ def labelled_from_print(row: CandidateRow, printed) -> CandidateRow:
     bare = row.description.strip()
     if row.description_label or printed is None or not _BARE_CHEQUE_NUMBER.fullmatch(bare):
         return row
-    word = printed.cheque_column_word(bare.lstrip("#").rstrip("*").strip(), row.amount, row.date_text, row.balance)
+    word = printed.cheque_column_word(bare.strip("*# "), row.amount, row.date_text, row.balance)
     return labelled_description(replace(row, description_label=word)) if word else row
 
 
 def published_row(row: CandidateRow) -> CandidateRow:
     """A reviewed row as the ledger publishes it: its description on one line (a line-break tag or newline
-    inside a printed cell is layout, not text; vlm.native_text.spaced), then labelled_description."""
+    inside a printed cell is layout, not text; vlm.native_text.spaced), without a copy of the row's own printed
+    date in front of it (a reviewer reading "05/06 1033" off the date and cheque-number columns: the date is the
+    row's date, not its description), then labelled_description."""
     from vlm.native_text import spaced
 
-    return labelled_description(replace(row, description=spaced(row.description)))
+    description = spaced(row.description)
+    date_text = spaced(row.date_text or "")
+    if date_text and description.startswith(date_text + " ") and description[len(date_text):].strip():
+        description = description[len(date_text):].strip()
+    return labelled_description(replace(row, description=description))
 
 
 @dataclass(frozen=True)
@@ -126,6 +133,17 @@ def _description_cells(row: list[str], colmap: ColumnMap) -> str:
                     if index not in value_columns and cell.strip())
 
 
+def _restored_date_cell(row: list[str], colmap: ColumnMap, width: int) -> list[str]:
+    """A row printed without its date (the date printed once for the day) that the proposer wrote without the
+    empty date cell: exactly one cell short of the header whose first column is the date, its first cell no
+    date. Every cell then sits one column left (a credit in the debit column, a balance as the amount), so the
+    empty date cell is put back. Any other row is returned as it is."""
+    if (colmap.date == 0 and width and len(row) == width - 1 and row and row[0].strip()
+            and not is_date_like(row[0])):
+        return ["", *row]
+    return row
+
+
 def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table_index: int,
                    year_hint: int | None = None, day_first: bool = False) -> list[CandidateRow]:
     if colmap.balance is None and colmap.amount is None and colmap.debit is None and colmap.credit is None:
@@ -145,9 +163,11 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
         label = match.group("word") if match else None
     rows: list[CandidateRow] = []
     last_date: str | None = None
+    width = len(grid[colmap.header_row]) if colmap.header_row is not None and colmap.header_row < len(grid) else 0
     for row_index, row in enumerate(grid):
         if colmap.header_row is not None and row_index == colmap.header_row:
             continue
+        row = _restored_date_cell(row, colmap, width)
         description = _description_cells(row, colmap)
         debit = parse_money(_cell(row, colmap.debit))
         credit = parse_money(_cell(row, colmap.credit))
@@ -212,6 +232,7 @@ def rows_from_blocks(blocks: list[Block], *, year_hint: int | None = None, day_f
             heading = section_direction(block.content) if block.label in ("text", "paragraph_title", "doc_title", "header") else heading
             continue
         for grid in parse_html_tables(block.content):
+            grid = unfold_side_by_side(grid)
             table_rows = rows_from_grid(grid, classify_columns(grid), page=block.page, table_index=table_index,
                                         year_hint=year_hint, day_first=day_first)
             if heading is not None:
@@ -383,6 +404,7 @@ def parse_dots_layout(raw: str | list | dict, *, page: int, width: int, height: 
             grids = parse_html_tables(block.content, preserve_whitespace=True) or ([markdown] if markdown else [])
             for index, grid in enumerate(grids):
                 grid, title = _spanning_title(grid)
+                grid = unfold_side_by_side(grid)
                 columns = classify_columns(grid, headerless_transaction_amount=not balance_section)
                 for row in rows_from_grid(grid, columns, page=page, table_index=index,
                                           year_hint=year_hint, day_first=day_first):
