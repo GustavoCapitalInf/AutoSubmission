@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Statement Studio · Capital Infusion</title>
+<title>Unlimited-OCR - Bank Statement Platform</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232bf895'/%3E%3Cpath d='M9 11h14M9 16h9M9 21h11' stroke='%2304130b' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -115,8 +115,9 @@
 
   /* ---------- shell ---------- */
   .shell { display: flex; min-height: 100vh; }
+  /* Above the sticky top bar, so the Help popover and the narrow-screen panel paint over it. */
   .sidebar {
-    position: sticky; top: 0; height: 100vh; flex-shrink: 0;
+    position: sticky; top: 0; z-index: 25; height: 100vh; flex-shrink: 0;
     display: flex; background: var(--panel); border-right: 1px solid var(--side-border);
   }
   .rail {
@@ -124,9 +125,10 @@
     padding: 16px 0; background: var(--rail); border-right: 1px solid var(--side-border);
   }
   .rail-logo {
-    width: 36px; height: 36px; border-radius: 10px; background: var(--accent);
+    width: 36px; height: 36px; border-radius: 10px; background: var(--accent); border: 0; padding: 0;
     display: grid; place-items: center; margin-bottom: 14px;
   }
+  .rail-logo:hover { background: var(--accent-hover); }
   .rail-btn {
     width: 40px; height: 40px; border-radius: 10px; border: 1px solid transparent; background: transparent;
     color: var(--text-3); display: grid; place-items: center; padding: 0;
@@ -455,7 +457,6 @@
     position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 999px;
     border: 2px solid var(--bg); background: var(--red);
   }
-  .chart-point.peak { width: 8px; height: 8px; margin: -4px 0 0 -4px; background: var(--accent); }
   .chart-x {
     display: flex; justify-content: space-between; padding-left: 58px;
     font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); text-transform: uppercase;
@@ -475,6 +476,9 @@
   .bar-label { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
   .bar-label strong { font-size: 12.5px; font-weight: 500; }
   .bar-label span { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+  .bar-label .bar-file {
+    max-width: 100%; font-family: var(--font-sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 
   .totals { display: flex; flex-direction: column; gap: 14px; }
   .totals h2 { margin: 0; font-size: 14px; font-weight: 600; }
@@ -723,6 +727,8 @@
   .modal-actions a.btn-quiet[aria-disabled="true"] { opacity: .45; pointer-events: none; }
   .modal-close { font-size: 20px; line-height: 1; }
   .modal-body { overflow-y: auto; padding: 24px 28px 28px; display: flex; flex-direction: column; gap: 16px; overscroll-behavior: contain; }
+  /* The body scrolls; its panels keep their full height instead of shrinking to fit it. */
+  .modal-body > * { flex-shrink: 0; }
   .modal-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
   .metric {
     display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border);
@@ -745,7 +751,12 @@
     .modal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   @media (max-width: 1120px) {
+    /* The panel no longer fits beside the page; the logo or Search opens it over the page instead. */
     .side-panel { display: none; }
+    .panel-open .side-panel {
+      display: flex; position: fixed; top: 0; bottom: 0; left: 64px; z-index: 35;
+      background: var(--panel); border-right: 1px solid var(--side-border); box-shadow: var(--shadow-pop);
+    }
     .upload-layout { grid-template-columns: 1fr; }
     .hero-chart { grid-template-columns: 1fr; }
     .totals-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -771,6 +782,7 @@
     }
     .rail { width: 100%; height: 60px; flex-direction: row; justify-content: space-around; padding: 0 8px; border-right: 0; }
     .rail-logo, .rail-spacer, .rail .avatar, .rail .popover-anchor { display: none; }
+    .panel-open .side-panel { left: 0; bottom: 60px; }
     .workspace { padding-bottom: 60px; }
     .crumbs span:not(.crumb-current) { display: none; }
     .view { padding: 20px 16px 32px; }
@@ -808,9 +820,9 @@
 <div class="shell">
   <aside class="sidebar" aria-label="Primary">
     <nav class="rail" aria-label="Sections">
-      <div class="rail-logo" aria-hidden="true">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#04130b" stroke-width="2.2" stroke-linecap="round"><path d="M5 7h14M5 12h9M5 17h11"/></svg>
-      </div>
+      <button class="rail-logo" type="button" id="panelToggle" aria-label="Show or hide the sidebar panel" title="Show or hide the sidebar panel">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#04130b" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 7h14M5 12h9M5 17h11"/></svg>
+      </button>
       <button class="rail-btn" type="button" data-nav="results" aria-label="Statement analysis" title="Statement analysis">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
       </button>

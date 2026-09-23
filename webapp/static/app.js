@@ -17,6 +17,7 @@ const els = {
   helpPopover: document.getElementById("helpPopover"),
   sidebarSearch: document.getElementById("sidebarSearch"),
   railSearch: document.getElementById("railSearch"),
+  panelToggle: document.getElementById("panelToggle"),
   collapseSidebar: document.getElementById("collapseSidebar"),
   recentStatements: document.getElementById("recentStatements"),
   recentPackages: document.getElementById("recentPackages"),
@@ -1191,9 +1192,14 @@ function lenderRowHtml(funder, currency = "USD") {
       <div class="table-cell-detail">${escapeHtml(formatMoney(denominator, currency))} eligible deposits</div>
     `
     : isPotential ? "N/A" : "--";
+  // A package's lender rows say how many of its statements the lender appears in.
+  const statements = numberOrNull(funder.documents);
+  const statementsDetail = statements !== null
+    ? `<div class="table-cell-detail">Across ${escapeHtml(formatNumber(statements))} ${statements === 1 ? "statement" : "statements"}</div>`
+    : "";
   return `
     <tr>
-      <td>${lenderEvidenceControl(funder, isPotential)}</td>
+      <td>${lenderEvidenceControl(funder, isPotential)}${statementsDetail}</td>
       <td>${escapeHtml(isPotential ? "Potential lender" : "Confirmed lender")}</td>
       <td>${escapeHtml(formatNumber(count))}</td>
       <td>${escapeHtml(formatMoney(total, currency))}</td>
@@ -1326,7 +1332,10 @@ const BANK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" s
 const PACKAGE_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>`;
 const OPEN_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>`;
 
-let resultsCrumbs = ["Statements"];
+// The breadcrumb of the analysis that is open, and the one the results page shows now (an empty state
+// replaces it while nothing of the kind asked for is open).
+let analysisCrumbs = ["Statements"];
+let resultsCrumbs = analysisCrumbs;
 
 function sentenceCase(text) {
   const value = String(text || "");
@@ -1350,6 +1359,10 @@ function setResultsMode(mode) {
 function showResultsContent() {
   if (els.resultsEmpty) els.resultsEmpty.hidden = true;
   if (els.resultsContent) els.resultsContent.hidden = false;
+}
+
+// A summary describes one analysis, so it closes when another one starts to open.
+function closeSummary() {
   if (els.summaryPanel) els.summaryPanel.hidden = true;
 }
 
@@ -1460,9 +1473,11 @@ function renderBalanceChart(transactions, metrics = {}, currency = "USD") {
   if (!els.balanceChart) return;
   const points = printedDailyBalances(transactions);
   const adb = numberOrNull(metrics.average_daily_balance);
+  // Named for what it plots -- the printed running balance -- and carrying no count or extreme of its own:
+  // the NSF count and the lowest and highest balances are the API's, shown in Risk signals.
   const head = (legend) => `
     <div class="chart-head">
-      <span class="chart-title" title="The running balance the statement prints at the close of each posting day">Daily ending balance</span>
+      <span class="chart-title" title="The running balance the statement prints, at the last posting of each day">Running balance</span>
       <div class="chart-legend">${legend}</div>
     </div>
   `;
@@ -1476,8 +1491,8 @@ function renderBalanceChart(transactions, metrics = {}, currency = "USD") {
   const balances = points.map((point) => point.balance);
   const high = Math.max(...balances, adb ?? -Infinity, 0);
   const low = Math.min(...balances, adb ?? Infinity, 0);
-  const top = niceCeiling(high) || 1;
   const bottom = low < 0 ? -niceCeiling(-low) : 0;
+  const top = high > 0 ? niceCeiling(high) : (bottom < 0 ? 0 : 1);
   const width = 1000;
   const height = 176;
   const first = points[0].day;
@@ -1486,22 +1501,21 @@ function renderBalanceChart(transactions, metrics = {}, currency = "USD") {
   const y = (value) => ((top - value) / (top - bottom)) * height;
   const line = points.map((point) => `${x(point.day).toFixed(1)},${y(point.balance).toFixed(1)}`).join(" ");
   const area = `M${x(first).toFixed(1)},${height} L${line.replace(/ /g, " L")} L${width},${height} Z`;
-  const peak = points.reduce((best, point) => (point.balance > best.balance ? point : best), points[0]);
-  const negatives = points.filter((point) => point.balance < 0);
-  const marker = (point, extra) => `<span class="chart-point${extra}" style="left: ${(x(point.day) / 10).toFixed(2)}%; top: ${y(point.balance).toFixed(1)}px" title="${escapeHtml(chartDayLabel(point.day))}: ${escapeHtml(formatMoney(point.balance, currency))}"></span>`;
+  const belowZero = points.filter((point) => point.balance < 0);
+  const marker = (point) => `<span class="chart-point" style="left: ${(x(point.day) / 10).toFixed(2)}%; top: ${y(point.balance).toFixed(1)}px" title="Printed running balance on ${escapeHtml(chartDayLabel(point.day))}: ${escapeHtml(formatMoney(point.balance, currency))}"></span>`;
   const gridLine = (value, stroke) => `<line x1="0" x2="${width}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}" stroke="${stroke}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
   const ticks = [top, (top + bottom) / 2, bottom];
   const labels = [0, 1, 2, 3, 4].map((step) => chartDayLabel(first + (span * step) / 4));
   const legend = [
     `<span><span class="legend-line"></span>Balance</span>`,
     adb === null ? "" : `<span><span class="legend-dash"></span>ADB ${escapeHtml(formatMoney(metrics.average_daily_balance, currency))}</span>`,
-    negatives.length ? `<span><span class="legend-dot"></span>Negative day</span>` : "",
+    belowZero.length ? `<span><span class="legend-dot"></span>Below zero</span>` : "",
   ].join("");
   els.balanceChart.innerHTML = `
     ${head(legend)}
     <div class="chart-body">
       <div class="chart-axis" aria-hidden="true">${ticks.map((tick) => `<span>${escapeHtml(formatAxisMoney(tick, currency))}</span>`).join("")}</div>
-      <div class="chart-plot" role="img" aria-label="Printed daily ending balance from ${escapeHtml(chartDayLabel(first))} to ${escapeHtml(chartDayLabel(points[points.length - 1].day))}${negatives.length ? `, ${negatives.length} negative ${negatives.length === 1 ? "day" : "days"}` : ""}">
+      <div class="chart-plot" role="img" aria-label="Printed running balance from ${escapeHtml(chartDayLabel(first))} to ${escapeHtml(chartDayLabel(points[points.length - 1].day))}">
         <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
           ${gridLine(top, "var(--grid)")}
           ${gridLine((top + bottom) / 2, "var(--grid)")}
@@ -1510,8 +1524,7 @@ function renderBalanceChart(transactions, metrics = {}, currency = "USD") {
           <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
           ${adb === null ? "" : `<line x1="0" x2="${width}" y1="${y(adb).toFixed(1)}" y2="${y(adb).toFixed(1)}" stroke="var(--text-3)" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>`}
         </svg>
-        ${negatives.map((point) => marker(point, "")).join("")}
-        ${peak.balance > 0 ? marker(peak, " peak") : ""}
+        ${belowZero.map(marker).join("")}
       </div>
     </div>
     <div class="chart-x" aria-hidden="true">${labels.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}</div>
@@ -1561,11 +1574,16 @@ function renderMonthlyChart(rows, mixedCurrencies) {
       </div>
     `;
   }).join("");
+  // Two statements for one month would read alike, so those bars also name their file (as the table does).
+  const monthCounts = new Map();
+  rows.forEach(({ month }) => { if (month) monthCounts.set(month.key, (monthCounts.get(month.key) || 0) + 1); });
   const labels = rows.map(({ doc, month }) => {
     const docCurrency = currencyOfDocument(doc);
+    const shared = month && monthCounts.get(month.key) > 1;
     return `
       <div class="bar-label" title="${escapeHtml(doc.filename || "Statement")}">
         <strong>${escapeHtml(month ? (years.size > 1 ? monthLabel(month) : MONTH_NAMES[month.month]) : "N/A")}</strong>
+        ${shared ? `<span class="bar-file">${escapeHtml(doc.filename || "Statement")}</span>` : ""}
         <span>Ledger ${escapeHtml(formatMoney(doc.average_daily_balance, docCurrency))}</span>
       </div>
     `;
@@ -1652,7 +1670,8 @@ function renderAnalysis(report) {
       [pageCount ? `${currency} · ${formatNumber(pageCount)} pages` : currency],
     ],
   });
-  resultsCrumbs = ["Statements", statement.bank || "Statement", month || period(statement)];
+  analysisCrumbs = ["Statements", statement.bank || "Statement", month || period(statement)];
+  resultsCrumbs = analysisCrumbs;
   renderCredits({
     label: "Total credits",
     value: formatMoney(totalCredits, currency),
@@ -1884,6 +1903,7 @@ function uploadFiles(fileList) {
   transactionEntityFilter = null;
   setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
   startedAt = Date.now();
+  closeSummary();
   showSelectedFile(file);
   setActions(null, false);
   setProgress(true);
@@ -2011,7 +2031,8 @@ function pollJob(jobId) {
 }
 
 // `reveal` opens the results page once they are drawn; a settings refresh redraws them where they are.
-function loadResults(jobId, { reveal = true } = {}) {
+// `announce` adds a notification (a fresh upload, not a reopen); `onError` replaces the failure page.
+function loadResults(jobId, { reveal = true, announce = reveal, onError = renderError } = {}) {
   Promise.all([
     fetch(`/analysis/${jobId}`).then((response) => {
       if (!response.ok) throw new Error(`Analysis unavailable (${response.status})`);
@@ -2032,12 +2053,10 @@ function loadResults(jobId, { reveal = true } = {}) {
         return;
       }
       rememberStatement(jobId, currentAnalysis);
-      if (reveal) {
-        notify(`${els.resultsTitle.textContent} analyzed`, "green");
-        openResultsPage("results");
-      }
+      if (announce) notify(`${els.resultsTitle.textContent} analyzed`, "green");
+      if (reveal) openResultsPage("results");
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => onError(error.message || String(error)));
 }
 
 function appendStatusExports(base) {
@@ -2055,7 +2074,7 @@ function packagePeriod(documents) {
   return `${starts[0] || "N/A"} to ${ends[ends.length - 1] || "N/A"}`;
 }
 
-function loadPackage(jobIds, { reveal = true } = {}) {
+function loadPackage(jobIds, { reveal = true, announce = reveal, onError = renderError } = {}) {
   fetch(`/package_analysis?ids=${encodeURIComponent(jobIds.join(","))}`)
     .then((response) => {
       if (!response.ok) throw new Error(`Package analysis unavailable (${response.status})`);
@@ -2066,12 +2085,10 @@ function loadPackage(jobIds, { reveal = true } = {}) {
       renderPackageAnalysis(pkg);
       setPackageActions(jobIds);
       rememberPackage(jobIds, pkg);
-      if (reveal) {
-        notify(`Package ${els.resultsTitle.textContent} analyzed`, "green");
-        openResultsPage("packages");
-      }
+      if (announce) notify(`Package ${els.resultsTitle.textContent} analyzed`, "green");
+      if (reveal) openResultsPage("packages");
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => onError(error.message || String(error)));
 }
 
 function renderPackageAnalysis(pkg) {
@@ -2093,7 +2110,7 @@ function renderPackageAnalysis(pkg) {
 
   els.statusHeading.textContent = "Package completed";
   setBanner("done", "Package analysis completed", validation);
-  els.decisionPill.textContent = `Package decision · ${labelize(totals.decision || "review required")}`;
+  els.decisionPill.textContent = `Package decision · ${sentenceCase(labelize(totals.decision || "review required"))}`;
   els.decisionPill.className = `decision-pill ${totals.decision || ""}`.trim();
 
   setResultsMode("package");
@@ -2113,7 +2130,8 @@ function renderPackageAnalysis(pkg) {
       [`Revenue · ${totals.revenue_reconciles ? "Balanced" : "Review required"}`],
     ],
   });
-  resultsCrumbs = ["Packages", title];
+  analysisCrumbs = ["Packages", title];
+  resultsCrumbs = analysisCrumbs;
   renderCredits({
     label: `Total credits · ${formatNumber(periods)} ${periods === 1 ? "month" : "months"}`,
     value: formatMoney(totals.total_credits, currency),
@@ -2627,6 +2645,7 @@ function showView(view) {
   );
   syncNav();
   closePopovers();
+  document.documentElement.classList.remove("panel-open");
   if (view === "settings") loadSettings();
 }
 
@@ -2634,6 +2653,14 @@ function openResultsPage(nav) {
   activeNav = nav;
   showView("results");
   window.scrollTo(0, 0);
+}
+
+// Back to the analysis already open, after an empty state may have replaced it on the results page.
+function revealOpenAnalysis(nav) {
+  els.resultsEmpty.hidden = true;
+  els.resultsContent.hidden = false;
+  resultsCrumbs = analysisCrumbs;
+  openResultsPage(nav);
 }
 
 function showResultsEmpty(kind) {
@@ -2664,13 +2691,13 @@ function navigate(target) {
       showResultsEmpty("review");
       return;
     }
-    openResultsPage("review");
+    revealOpenAnalysis("review");
     showMainRevenueEvidence("unverified_deposit");
     return;
   }
   const wantPackage = target === "packages";
   if ((wantPackage && openPackage) || (!wantPackage && openStatement)) {
-    openResultsPage(target);
+    revealOpenAnalysis(target);
     return;
   }
   const latest = recentAnalyses.find((item) => item.kind === (wantPackage ? "package" : "statement"));
@@ -2783,6 +2810,10 @@ function openRecent(key) {
     return;
   }
   if (pollTimer) clearTimeout(pollTimer);
+  const previous = {
+    jobId: currentJobId, jobIds: currentJobIds, files: currentFiles, file: currentFile, startedAt,
+    filter: transactionFilter, entity: transactionEntityFilter,
+  };
   currentJobIds = item.ids.slice();
   currentJobId = currentJobIds[0];
   currentFiles = [];
@@ -2791,8 +2822,25 @@ function openRecent(key) {
   transactionFilter = "all";
   transactionEntityFilter = null;
   setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
-  if (item.kind === "package") loadPackage(currentJobIds);
-  else loadResults(currentJobId);
+  closeSummary();
+  // A reopen that fails (the job is gone, the server is unreachable) must not leave the page pointing at
+  // it: the analysis still on screen gets its own ids back, and the failure is reported beside it.
+  const onError = (message) => {
+    if (currentJobIds.join(",") !== item.ids.join(",")) return;  // something newer was opened meanwhile
+    ({ jobId: currentJobId, jobIds: currentJobIds, files: currentFiles, file: currentFile, startedAt } = previous);
+    transactionFilter = previous.filter;
+    transactionEntityFilter = previous.entity;
+    setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
+    if (!currentAnalysis) {
+      renderError(message);
+      return;
+    }
+    notify(`Could not reopen ${item.label}: ${message}`, "red");
+    revealOpenAnalysis(currentAnalysis.package ? "packages" : "results");
+    togglePopover(els.notificationsPopover, els.notificationsBtn);
+  };
+  if (item.kind === "package") loadPackage(currentJobIds, { announce: false, onError });
+  else loadResults(currentJobId, { announce: false, onError });
 }
 
 [els.recentStatements, els.recentPackages].forEach((list) => {
@@ -2803,20 +2851,39 @@ function openRecent(key) {
 });
 els.sidebarSearch?.addEventListener("input", renderRecentAnalyses);
 
+/* The sidebar panel. On a wide screen it sits beside the page and can be collapsed to the rail (remembered);
+   below 1120px it does not fit, so the logo or Search opens it over the page until something is chosen. */
 const PANEL_KEY = "ocr-sidebar-panel";
+const NARROW_SCREEN = window.matchMedia("(max-width: 1120px)");
 
 function setPanelCollapsed(collapsed) {
   document.documentElement.classList.toggle("panel-collapsed", collapsed);
   try { localStorage.setItem(PANEL_KEY, collapsed ? "collapsed" : "open"); } catch { /* storage unavailable */ }
 }
 
+function setPanelVisible(visible) {
+  if (NARROW_SCREEN.matches) document.documentElement.classList.toggle("panel-open", visible);
+  else setPanelCollapsed(!visible);
+}
+
+function panelVisible() {
+  const root = document.documentElement;
+  return NARROW_SCREEN.matches ? root.classList.contains("panel-open") : !root.classList.contains("panel-collapsed");
+}
+
 function focusSearch() {
-  setPanelCollapsed(false);
+  setPanelVisible(true);
   els.sidebarSearch?.focus();
 }
 
-els.collapseSidebar?.addEventListener("click", () => setPanelCollapsed(true));
+els.panelToggle?.addEventListener("click", () => setPanelVisible(!panelVisible()));
+els.collapseSidebar?.addEventListener("click", () => setPanelVisible(false));
 els.railSearch?.addEventListener("click", focusSearch);
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!document.documentElement.classList.contains("panel-open") || (target && target.closest(".sidebar"))) return;
+  document.documentElement.classList.remove("panel-open");
+});
 document.addEventListener("keydown", (event) => {
   if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
   const target = event.target instanceof Element ? event.target : null;
@@ -2995,7 +3062,7 @@ els.summaryBtn.addEventListener("click", () => {
   els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
 els.copySummaryBtn?.addEventListener("click", () => copyText(els.summaryBox.textContent));
-els.closeSummaryBtn?.addEventListener("click", () => { els.summaryPanel.hidden = true; });
+els.closeSummaryBtn?.addEventListener("click", closeSummary);
 els.queueList?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target.closest("[data-queue-index]") : null;
   const entry = target ? queueEntries[Number(target.getAttribute("data-queue-index"))] : null;
@@ -3084,11 +3151,14 @@ async function submitRevenueReview(button) {
         `/package_analysis?ids=${encodeURIComponent(currentJobIds.join(","))}`
       );
       if (!packageResponse.ok) throw new Error("Package refresh failed");
-      renderPackageAnalysis(await packageResponse.json());
+      const pkg = await packageResponse.json();
+      renderPackageAnalysis(pkg);
       setPackageActions(currentJobIds);
+      rememberPackage(currentJobIds, pkg);
     } else if (currentJobId === jobId) {
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
+      if (currentAnalysis) rememberStatement(jobId, currentAnalysis);
     }
 
     if (modalJobId === jobId) {
@@ -3213,16 +3283,17 @@ function setAppearance(theme, { persist = true } = {}) {
 document.querySelectorAll("[data-appearance]").forEach((button) => {
   button.addEventListener("click", () => setAppearance(button.getAttribute("data-appearance")));
 });
-if (els.appearanceToggle) {
-  // arrow keys move between segments, matching a native segmented control
-  els.appearanceToggle.addEventListener("keydown", (event) => {
+// Arrow keys move between the choices of each appearance control (the top bar's and the Settings cards),
+// matching a native radio group: only the chosen one is in the tab order.
+document.querySelectorAll("#appearanceToggle, .theme-cards").forEach((group) => {
+  group.addEventListener("keydown", (event) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const next = event.key === "ArrowLeft" ? "dark" : "light";
     setAppearance(next);
-    els.appearanceToggle.querySelector(`[data-appearance="${next}"]`)?.focus();
+    group.querySelector(`[data-appearance="${next}"]`)?.focus();
   });
-}
+});
 syncAppearanceButtons(currentAppearance());
 
 function moreStepFrom(event) {
@@ -3268,8 +3339,12 @@ if (els.modalCopyData) {
 }
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (els.statementModalBackdrop?.classList.contains("show")) closeStatementModal();
-  else closePopovers();
+  if (els.statementModalBackdrop?.classList.contains("show")) {
+    closeStatementModal();
+    return;
+  }
+  closePopovers();
+  document.documentElement.classList.remove("panel-open");
 });
 
 setInitialState();
