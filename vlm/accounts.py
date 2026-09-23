@@ -138,6 +138,12 @@ def _kind(text: str) -> str | None:
     return None
 
 
+def _sentence_case(text) -> bool:
+    """A line printed as a sentence: two words or more, the first capitalised and every other one in lower case."""
+    words = [word for word in _clean(str(text or "")).split() if re.search(r"[A-Za-z]", word)]
+    return len(words) >= 2 and words[0][:1].isupper() and all(word == word.lower() for word in words[1:])
+
+
 def parse_heading(text: str) -> Heading | None:
     """The account a printed title line names (page and order 0), or None when it names none."""
     line = _clean(str(text or "").strip().splitlines()[0] if str(text or "").strip() else "")
@@ -147,10 +153,15 @@ def parse_heading(text: str) -> Heading | None:
     line = _CONTINUED_TAIL.sub("", line).strip(" -–—:|,")
     if not line or _MONEY.search(line) or _SENTENCE.search(line) or _IDENTIFIER_LINE.match(line):
         return None
-    if _VERBS.search(line):
+    # A verb makes a sentence, unless it opens a product name ("Earn More Savings", "Be Free Checking").
+    if any(match.start() > 0 for match in _VERBS.finditer(line)):
         return None
-    words = len(_SENTENCE_WORDS.findall(line))
-    if words > 1 or (words and (_kind(line) is None or len(line.split()) > 5)):
+    # A title's own words, without its identifier and the words every title can add ("Account", "Summary").
+    title_words = [token for token in line.split()
+                   if re.search(r"[A-Za-z]", token) and not re.search(r"\d", token)
+                   and token.lower().strip(".,:;#()") not in ("account", "acct", "summary")]
+    sentence_words = len(_SENTENCE_WORDS.findall(line))
+    if sentence_words > 1 or (sentence_words and (_kind(line) is None or len(title_words) > 5)):
         return None
     line = _POSSESSIVE.sub("", _PERIOD_TAIL.sub("", line))
     line = _PREFIX.sub("", line)
@@ -351,6 +362,10 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
                 money.add((layout.page, block.order))
             text = block_heading_text(block)
             heading = parse_heading(text) if text else None
+            if heading is not None and block.label == "text" and heading.number is None and _sentence_case(text):
+                # A line of running text in sentence case ("Grow your savings faster", "Savings made simple") is
+                # marketing, never an account's title, which prints in capitals or title case or with its number.
+                heading = None
             if heading is None:
                 number = number_line(text) if text else None
                 if (number and last_heading is not None and block.order - last_heading[0] <= 3
@@ -381,11 +396,12 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
                 chosen = len(sections)
                 sections.append(AccountSection(chosen, heading.kind, heading.title, heading.number))
             section = sections[chosen]
-            if (section.number_from_line and heading.number is not None
-                    and _number_key(heading.number) != section.key):
-                # The title's own identifier replaces the one its number line printed, once: a later heading of the
-                # same title printing yet another identifier is another account.
-                section.number, section.number_from_line = heading.number, False
+            if section.number_from_line and heading.number is not None:
+                # The title's own identifier replaces the one its number line printed, once (or confirms it): a later
+                # heading of the same title printing yet another identifier is another account.
+                if _number_key(heading.number) != section.key:
+                    section.number = heading.number
+                section.number_from_line = False
             section.headings.append(heading)
             if section.number is None and heading.number is not None:
                 section.number = heading.number
@@ -569,20 +585,57 @@ def _account_named(plan: AccountPlan, text: str) -> int | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _summary_header(grid) -> tuple[int, dict] | None:
+    """(row index, {column: figure}) of a summary table's header row: the first row labelling at least two figure
+    columns (Beginning Balance, Ending Balance, ...). A table whose header row also names a ledger column (Date,
+    Description, ...: "Date | Description | Deposits and Credits | Withdrawals and Debits | Balance") is a ledger,
+    never a summary table."""
+    for start, header in enumerate([_clean(cell) for cell in row] for row in grid):
+        roles = {}
+        for column, cell in enumerate(header):
+            label = _label(cell) if cell and not _MONEY_TOKEN.search(cell) else None
+            if label is not None:
+                roles[column] = label[0]
+        if len(set(roles.values())) >= 2:
+            return None if any(_LEDGER_HEADER.search(cell) for cell in header if cell) else (start, roles)
+    return None
+
+
+_BALANCE_CAPTION = re.compile(r"\bbalances?\b", re.I)
+_TRANSACTION_CAPTION = re.compile(r"\b(?:amount|deposits?|withdrawals?|debits?|credits?|checks?|cheques?|description|"
+                                  r"transactions?|payments?|fees?|charges?|items?)\b", re.I)
+
+
+def balance_table_blocks(layout) -> frozenset:
+    """Block orders of a page's tables the page prints as balances, never transactions: a table titled or captioned
+    with balances and nothing of transactions ("Daily Balance", "Daily Ledger Balances"), or whose header row names
+    a balance column and no transaction column ("Date | Balance | Date | Balance")."""
+    found, caption = set(), None
+    for block in sorted(layout.blocks, key=lambda block: block.order):
+        if block.label in _FURNITURE:
+            continue
+        grid = _grid(block)  # an HTML table, or a Markdown table printed as a text block
+        if grid:
+            header = " ".join(_clean(cell) for cell in grid[0] if _clean(cell))
+            named = [text for text in (_table_title(block), caption, header) if text]
+            if any(_BALANCE_CAPTION.search(text) and not _TRANSACTION_CAPTION.search(text) for text in named):
+                found.add(block.order)
+            caption = None
+            continue
+        text = block_heading_text(block)
+        if text and (block.label in _CAPTION_LABELS or (
+                block.label == "text" and len(_clean(text)) <= 60 and not _SENTENCE.search(text))):
+            caption = _clean(text)
+    return frozenset(found)
+
+
 def summary_table_rows(plan: AccountPlan, layouts, descriptions: dict) -> set:
     """The keys of ``descriptions`` ((page, locator) -> a row's words) read from a summary table: a table whose
-    header row labels at least two figure columns (summary_table_figures), the row's words naming one of the
-    statement's accounts. Such a row is no account's transaction, and no sign of an account whose heading went
-    unrecognized."""
-    blocks = set()
-    for layout in layouts:
-        for block in layout.blocks:
-            grid = _grid(block) if block.label not in _FURNITURE else []
-            for header in ([_clean(cell) for cell in row] for row in grid):
-                roles = {_label(cell)[0] for cell in header if cell and not _MONEY_TOKEN.search(cell) and _label(cell)}
-                if len(roles) >= 2:
-                    blocks.add((layout.page, block.order))
-                    break
+    header row labels at least two figure columns and no ledger column (_summary_header), the row's words naming
+    one of the statement's accounts. Such a row is no account's transaction, and no sign of an account whose
+    heading went unrecognized."""
+    blocks = {(layout.page, block.order) for layout in layouts for block in layout.blocks
+              if block.label not in _FURNITURE and _summary_header(_grid(block)) is not None}
     return {key for key, description in descriptions.items()
             if (key[0], plan.position(key[0], key[1])) in blocks
             and _account_named(plan, _MONEY_TOKEN.sub(" ", str(description or ""))) is not None}
@@ -599,16 +652,10 @@ def summary_table_figures(plan: AccountPlan, layouts, printed_pages=None) -> dic
         for block in sorted(layout.blocks, key=lambda block: block.order):
             grid = _grid(block) if block.label not in _FURNITURE else []
             rows = [[_clean(cell) for cell in row] for row in grid]
-            for start, header in enumerate(rows):
-                roles = {}
-                for column, cell in enumerate(header):
-                    label = _label(cell) if cell and not _MONEY_TOKEN.search(cell) else None
-                    if label is not None:
-                        roles[column] = label[0]
-                if len(set(roles.values())) >= 2:
-                    break
-            else:
+            found_header = _summary_header(grid)
+            if found_header is None:
                 continue
+            start, roles = found_header
             for row in rows[start + 1:]:
                 name = " ".join(dict.fromkeys(cell for column, cell in enumerate(row)
                                               if cell and column not in roles
@@ -661,10 +708,13 @@ def section_figures(plan: AccountPlan, index: int, layouts, printed_pages=None, 
     return figures
 
 
-# A date printed anywhere on a line ("03/10", "3-10-31", "Mar 10", "10 Mar"); a dotted number is an amount.
-_LINE_DATE = re.compile(r"(?<![\d/.-])(?:\d{1,4}[/-]\d{1,2}(?:[/-]\d{2,4})?(?![\d/-])|"
-                        r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|"
-                        r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)", re.I)
+# A date printed anywhere on a line ("03/10", "3-10-31", "10.03.2031", "Mar 10", "10 Mar", "10MAR", "MAR10"); a dotted
+# pair without its year is an amount.
+_MONTH3 = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
+_LINE_DATE = re.compile(rf"(?<![\d/.-])(?:\d{{1,4}}[/-]\d{{1,2}}(?:[/-]\d{{2,4}})?(?![\d/-])|"
+                        rf"\d{{1,2}}\.\d{{1,2}}\.\d{{2,4}}(?![\d.])|"
+                        rf"{_MONTH3}[a-z]*\.?\s+\d{{1,2}}\b|\b\d{{1,2}}\s+{_MONTH3}[a-z]*\b|"
+                        rf"\b\d{{1,2}}{_MONTH3}\b|\b{_MONTH3}\d{{1,2}}\b)", re.I)
 
 
 def section_activity_lines(plan: AccountPlan, index: int, layouts) -> int:

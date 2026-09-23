@@ -196,8 +196,11 @@ def judge_accounts(layouts, merges, rows, *, recoveries=(), printed_pages=None, 
             entry['activity_lines'] = activity
             entry['rejected_rows'] = sum(1 for key, placed in evidence.items()
                                          if placed == section.index and key in rejected)
+            # A reviewer addition set aside as moving nothing (_balance_only_additions) may have been a movement the
+            # reviewer gave its opening balance: an account with one is never shown to be idle (review 9).
             if (not reasons and opening is not None and opening == closing and native and not activity
-                    and not entry['rejected_rows'] and all(total in (None, Decimal('0')) for total in totals)):
+                    and not entry['rejected_rows'] and not unmoved
+                    and all(total in (None, Decimal('0')) for total in totals)):
                 entry.update(status='idle', reasons=[], balance=opening)
             else:
                 entry.update(status='held', reasons=reasons + ['no_rows'])
@@ -238,5 +241,6 @@ def judge_accounts(layouts, merges, rows, *, recoveries=(), printed_pages=None, 
             # Kept rows printed before every account heading (a summary table the reviewer kept), and rows whose
             # place among a page's accounts is unknown (they hold that page's accounts).
             'rows_outside_accounts': len(outside), 'rows_unplaced': len(unplaced),
+            'summary_table_rows': len(summary_rows),
             'verified': sum(entry['status'] == 'verified' for entry in entries),
             'idle': sum(entry['status'] == 'idle' for entry in entries)}

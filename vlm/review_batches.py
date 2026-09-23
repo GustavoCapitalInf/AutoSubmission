@@ -106,16 +106,16 @@ def combine_discovery(plan: ReviewPlan, review_payload: dict, discovery: object)
 def review_batched_page(candidates, *, page_number: int, page_total: int, call,
                          metadata_context: dict | None = None, truncated: bool = False,
                          validation_errors=(), candidate_validation_errors=None,
-                         printed=None) -> BatchedPageReview:
+                         printed=None, balance_blocks=frozenset()) -> BatchedPageReview:
     """One attempt per batch, then discovery after a usable review response.
 
     ``call`` owns transport and receipts and returns a content-free failure in
     ReviewReply.errors. Fatal response failures never authorize a discovery
     pass or usable page rows. Identified row failures remain unresolved in
     discovery context without cancelling peers or the metadata/addition pass.
-    ``printed`` applies to the final merge only: the discovery prompt's context
-    is exactly what the reviewer said, so what the model is asked never depends
-    on the printed-evidence rules.
+    ``printed`` and ``balance_blocks`` apply to the final merge only: the
+    discovery prompt's context is exactly what the reviewer said, so what the
+    model is asked never depends on the printed-evidence rules.
     """
     from vlm.prompts import stage_b_batch_review_prompt, stage_b_discovery_prompt
 
@@ -151,7 +151,8 @@ def review_batched_page(candidates, *, page_number: int, page_total: int, call,
     errors.extend(discovery_errors)
     merged = merge_review(candidates, payload, page=page_number,
                           truncated=truncated, validation_errors=errors,
-                          candidate_validation_errors=candidate_validation_errors, printed=printed)
+                          candidate_validation_errors=candidate_validation_errors, printed=printed,
+                          balance_blocks=balance_blocks)
     return BatchedPageReview(merged, truncated)
 
 

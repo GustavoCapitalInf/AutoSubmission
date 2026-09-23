@@ -804,12 +804,15 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                                      'receipt_sha256': getattr(exc, 'receipt_sha256', None)})
                 return ReviewReply(None, errors=('reviewer_transport_failed',))
 
+        # Tables the page prints as balances (a "Daily Balance" grid): only there can wordless rows be balances.
+        from vlm.accounts import balance_table_blocks
+        balance_blocks = balance_table_blocks(layout)
         if len(layout.rows) > REVIEW_BATCH_THRESHOLD:
             reviewed = review_batched_page(
                 layout.rows, page_number=page.index+1, page_total=len(pages), call=request_review,
                 metadata_context=metadata_context,
                 candidate_validation_errors=candidate_errors[page.index],
-                printed=printed_pages[page.index],
+                printed=printed_pages[page.index], balance_blocks=balance_blocks,
             )
             merged = reviewed.merged
             review_truncated[page.index] = reviewed.truncated
@@ -824,7 +827,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                                   page=page.index+1, truncated=reply.truncated,
                                   validation_errors=reply.errors,
                                   candidate_validation_errors=candidate_errors[page.index],
-                                  printed=printed_pages[page.index])
+                                  printed=printed_pages[page.index], balance_blocks=balance_blocks)
         merges.append(merged)
         page_errors[page.index].extend(merged.errors)
         for field in ('period_start', 'period_end'):

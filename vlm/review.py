@@ -115,7 +115,7 @@ def _bare_row_heading(row: dict, printed) -> str | None:
     if (printed is None or row.get("direction") not in ("credit", "debit")
             or str(row.get("description") or "").strip()):
         return None
-    return printed.bare_row_heading(row.get("amount"), row.get("date_text"), row.get("balance"))
+    return printed.bare_row_heading(row.get("amount"), row.get("date_text"), row.get("balance"), row.get("direction"))
 
 
 def _unspaced(text) -> str:
@@ -130,11 +130,13 @@ def _table_of(row) -> tuple | None:
     return (row.page, match.group(1)) if match else None
 
 
-def _figure_grid_tables(candidates, daily=()) -> set:
-    """(page, table) of the proposer's daily-balance grids read as rows: tables whose every row prints a date and an
-    amount and nothing else (no word, no direction, no balance), each row one of the page's daily balances the
-    reviewer reported (``daily``, _review_metadata: its date and its balance), one to one. A wordless table that is
-    not the page's daily balances can be transactions (a DATE | AMOUNT listing), which stay held."""
+def _figure_grid_tables(candidates, daily=(), balance_blocks=frozenset()) -> set:
+    """(page, table) of the proposer's daily-balance grids read as rows: tables the page itself prints as balances
+    (``balance_blocks``: blocks captioned or headed as balances, vlm.accounts.balance_table_blocks) whose every row
+    prints a date and an amount and nothing else (no word, no direction, no balance), each row one of the page's
+    daily balances the reviewer reported (``daily``, _review_metadata: its date and its balance), one to one. The
+    reviewer's report alone can be the rows themselves: a wordless table the page does not print as balances can
+    be transactions (a DATE | AMOUNT listing), which stay held."""
     balances = []
     for item in daily or ():
         try:
@@ -148,8 +150,10 @@ def _figure_grid_tables(candidates, daily=()) -> set:
             tables.setdefault(table, []).append(row)
     grids = set()
     for table, rows in tables.items():
-        if not all(not str(row.description or "").strip() and row.direction == "unknown" and row.balance is None
-                   and row.date_text for row in rows):
+        order = int(re.match(r"b(\d+)t", table[1]).group(1))
+        if order not in balance_blocks or not all(
+                not str(row.description or "").strip() and row.direction == "unknown" and row.balance is None
+                and row.date_text for row in rows):
             continue
         free = list(balances)
         for row in rows:
@@ -476,7 +480,8 @@ def _ground_balances(rows, evidence, diagnostics, printed, *, page: int) -> list
 
 
 def merge_review(candidates, payload: object, *, page: int, truncated: bool = False,
-                 validation_errors=(), candidate_validation_errors=None, printed=None) -> PageReviewMerge:
+                 validation_errors=(), candidate_validation_errors=None, printed=None,
+                 balance_blocks=frozenset()) -> PageReviewMerge:
     """Keep usable peers while isolating attributable row/metadata failures.
 
     ``errors`` contains fatal response/coverage/source-page failures only. A
@@ -617,7 +622,7 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
 
     # Tables the proposer read as figures only: every row of the table a date and an amount, with no word, no
     # direction and no balance (a daily-balance grid read as rows). None of them can be a published transaction.
-    grids = _figure_grid_tables(candidates, daily)
+    grids = _figure_grid_tables(candidates, daily, balance_blocks)
     add_after(None)
     for candidate, record in zip(candidates, records):
         candidate_id = record["candidate_id"]

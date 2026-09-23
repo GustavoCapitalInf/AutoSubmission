@@ -53,7 +53,7 @@ _PRINTED_DATE = re.compile(
     rf"(?<![\d/.\-])(?:\d{{4}}[-/.]\d{{1,2}}[-/.]\d{{1,2}}|\d{{1,2}}[/.\-]\d{{1,2}}[/.\-]\d{{2,4}}|\d{{1,2}}/\d{{1,2}})"
     rf"(?![\d/])"
     rf"|(?<![a-z])(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?{_MONTH_NAME}[\s\-/]+\d{{1,2}}(?:st|nd|rd|th)?"
-    rf"(?:,?[\s\-/]+\d{{4}})?"
+    rf"(?:,?[\s\-/]+\d{{4}}|,\s*\d{{2}}(?!\d))?"
     rf"|\d{{1,2}}[\s\-/]+{_MONTH_NAME}(?:,?[\s\-/]+\d{{2,4}})?",
     re.IGNORECASE)
 
@@ -117,12 +117,25 @@ _HEADING_WORDS = 6
 _TRANSACTION_HEADING = re.compile(r"\b(?:deposits?|credits?|additions?|checks?|cheques?|debits?|withdrawals?|"
                                   r"subtractions?|payments?|charges?|fees?|transfers?|purchases?)\b", re.IGNORECASE)
 _BALANCE_HEADING = re.compile(r"\bbalances?\b", re.IGNORECASE)
+_AMOUNT_HEADER = re.compile(r"\b(?:amount|deposits?|withdrawals?|debits?|credits?|checks?|cheques?)\b", re.IGNORECASE)
+# The direction a heading gives its rows: deposits and credits add, cheques, debits, withdrawals and charges take away.
+_CREDIT_HEADING = re.compile(r"\b(?:deposits?|credits?|additions?)\b", re.IGNORECASE)
+_DEBIT_HEADING = re.compile(r"\b(?:checks?|cheques?|debits?|withdrawals?|subtractions?|payments?|charges?|fees?|"
+                            r"purchases?)\b", re.IGNORECASE)
 
 
 def _column_header(words: list[str]) -> bool:
     """Whether a printed line is a column header: more than half of its words are column words."""
     parts = [part.lower() for word in words for part in re.findall(r"[^\W\d_]+", word)]
     return bool(parts) and 2 * sum(part in _HEADER_WORDS for part in parts) > len(parts)
+
+
+def _sentence_case(words: list[str]) -> bool:
+    """Whether a printed line reads as a sentence: two words or more, the first capitalised and every other one in
+    lower case ("Overdraft fees may apply"), where a heading prints in capitals or title case."""
+    letters = [word for word in words if re.search(r"[A-Za-z]", word)]
+    return (len(letters) >= 2 and letters[0][:1].isupper()
+            and all(word == word.lower() for word in letters[1:]))
 
 
 _LINE_BREAK = re.compile(r"<br\s*/?>", re.IGNORECASE)
@@ -468,10 +481,20 @@ class PrintedEvidence:
         cheque_date = self._cheque_group_date(anchors[0])
         if cheque_date is not None:
             return cheque_date
+        # The row's own column group beginning with a date ("03/06 3101 4,321.09 03/17 3104 765.43": each group
+        # begins with its own date): that date, before anything printed after the amount, which can be the next
+        # group's.
+        group = self._group_tokens(anchors[0])
+        leading = _ROW_START.match(" ".join(group))
+        if leading:
+            return " ".join(group[:len(leading.group(0).split())])
+        # A group printing a date elsewhere before its amount prints other dates too (an invoice's, a card
+        # transaction's): no date is taken for it, from after the amount or from the lines above.
+        if any(_ROW_START.match(" ".join(group[index:])) for index in range(len(group))):
+            return None
         # A date column after the amount ("... 50.00 DEC31 1,234.56"): right after it, never past a word (the
-        # next column group's cheque and date, printed two-up). A date that begins the row's own line is found
-        # by the search upward, which starts at that line. The description before the amount is not searched:
-        # it can print other dates (an invoice's).
+        # next column group's cheque and date, printed two-up). A date that begins a line above the row's (a
+        # statement printing each day's date once) is found by the search upward.
         stream, first, last = self._row_stream(anchors[0], trailing=True)
         after = [token for index, token in stream[last + 1:] if index == anchors[0][0]]
         for size in (1, 2, 3):   # "01/05", "Apr 29", "Apr 29, 2026"
@@ -479,8 +502,8 @@ class PrintedEvidence:
             if len(after) >= size and date_text_parts(text):
                 return text
         if anchors[0][1] > 0:
-            # The row's amount is not its line's first: the line's leading date belongs to the row printed
-            # before it on that line (a cheque table printed two-up), and the lines above to other rows.
+            # The row's amount is not its line's first and its group prints no date: the line's leading date
+            # belongs to the row printed before it on that line, and the lines above to other rows.
             return None
         for index in range(anchors[0][0], -1, -1):
             count = self._row_starts[index]
@@ -488,35 +511,49 @@ class PrintedEvidence:
                 return " ".join(self._native_lines[index][:count])
         return ""
 
-    def bare_row_heading(self, amount, date_text, balance=None) -> str | None:
+    def _group_tokens(self, anchor: tuple[int, int]) -> list[str]:
+        """The tokens of the column group of ``anchor``'s line printed before its amount: from the previous amount
+        on the line (the line's start for its first) up to the amount itself."""
+        line, own = anchor
+        tokens, spans = self._lines[line][1], self._line_spans[line]
+        begin = spans[own - 1][1] if own else 0
+        return [token for token, start, end in tokens if begin <= start and end <= spans[own][0]]
+
+    def bare_row_heading(self, amount, date_text, balance=None, direction=None) -> str | None:
         """The printed section of a row whose own line prints nothing but dates and amounts (a DEPOSITS or CHECKS
         table of DATE and AMOUNT columns, printing no description, reference or cheque number): the nearest line
         above it that is neither such a line nor a column header ("REF # DATE AMOUNT"), when that line is a
-        heading (a few words, no digit: never a period line or a total). The row must be told apart on its own
-        (_anchor_lines, strict), and its own column group must print exactly its date text and its amount. None
-        otherwise, and without a text layer."""
+        heading: a few words naming transactions in the row's direction (DEPOSITS a credit, CHECKS a debit), no
+        digit (never a period line or a total), not a sentence. A column header naming a balance and no amount
+        ("DATE BALANCE") heads balances: nothing. The row must be told apart on its own (_anchor_lines, strict),
+        and its own column group must print exactly its date text and its amount. None otherwise, and without a
+        text layer."""
         if not self.native:
             return None
         wanted = spaced(date_text or "").split()
         anchors = self._anchor_lines(amount, date_text, balance, strict=True) if wanted else None
         if not anchors:
             return None
-        line, own = anchors[0]
-        tokens, spans = self._lines[line][1], self._line_spans[line]
-        begin = spans[own - 1][1] if own else 0
-        group = [token for token, start, end in tokens if begin <= start and end <= spans[own][0]]
-        if group != wanted or not all(_SKIPPABLE.match(token) for token in self._native_lines[line]):
+        line = anchors[0][0]
+        if (self._group_tokens(anchors[0]) != wanted
+                or not all(_SKIPPABLE.match(token) for token in self._native_lines[line])):
             return None
         for index in range(line - 1, -1, -1):
             words = self._native_lines[index]
-            if not words or all(_SKIPPABLE.match(token) for token in words) or _column_header(words):
+            if not words or all(_SKIPPABLE.match(token) for token in words):
                 continue
             heading = " ".join(words)
+            if _column_header(words):
+                if _BALANCE_HEADING.search(heading) and not _AMOUNT_HEADER.search(heading):
+                    return None
+                continue
             if (self._line_spans[index] or len(words) > _HEADING_WORDS
-                    or any(char.isdigit() for word in words for char in word)
+                    or any(char.isdigit() for word in words for char in word) or _sentence_case(words)
                     or not _TRANSACTION_HEADING.search(heading) or _BALANCE_HEADING.search(heading)):
                 return None
-            return heading
+            sides = ({"credit"} if _CREDIT_HEADING.search(heading) else set()) | (
+                {"debit"} if _DEBIT_HEADING.search(heading) else set())
+            return heading if sides == {direction} else None
         return None
 
     def _cheque_group_date(self, anchor: tuple[int, int]) -> str | None:
@@ -528,19 +565,14 @@ class PrintedEvidence:
         from vlm.dates import date_text_parts
 
         line, own = anchor
-        tokens, spans = self._lines[line][1], self._line_spans[line]
         if self._row_starts[line]:
             return None
-
-        def before(index):
-            begin = spans[index - 1][1] if index else 0
-            return [token for token, start, end in tokens if begin <= start and end <= spans[index][0]]
 
         def shaped(group):
             return (len(group) >= 2 and _CHEQUE_NUMBER_TOKEN.fullmatch(group[-2]) is not None
                     and bool(date_text_parts(group[-1])))
 
-        first, own_group = before(0), before(own)
+        first, own_group = self._group_tokens((line, 0)), self._group_tokens(anchor)
         if len(first) != 2 or not shaped(first) or not shaped(own_group):
             return None
         return own_group[-1]

@@ -743,20 +743,29 @@ def _account_roster(analysis: object) -> list[dict]:
     return [entry for entry in roster if isinstance(entry, dict)] if isinstance(roster, list) else []
 
 
+_NOT_A_MAIN_ACCOUNT = frozenset({"credit_card", "loan"})
+
+
+def main_account_rank(kind, title) -> int:
+    """How likely an account is the one a lender funds, as the dashboard ranks it (app.js mainAccountRank): a
+    checking account, or one whose title names no kind (a product name such as "... Plus Banking" can be the operating
+    account), above any other deposit account; a business title one higher; a card or a loan never."""
+    if kind in _NOT_A_MAIN_ACCOUNT:
+        return -1
+    return (2 if kind in ("checking", None, "") else 0) + (1 if _MAIN_ACCOUNT_TITLE.search(str(title or "")) else 0)
+
+
 def _unverified_main_account(roster: list[dict]) -> dict | None:
     """The statement's main account when it was not verified, as the dashboard decides it (app.js
-    unverifiedMainAccount): the accounts of the best kind (a business checking account, then a checking account,
-    then any), none of them published. None when a verified account can be the main one, or there is no roster."""
+    unverifiedMainAccount): a HELD account of the best rank (main_account_rank). Which account a lender funds is then
+    undetermined, and no other account stands in for it. None when no account of the best rank is held, or there is
+    no roster."""
     if not roster:
         return None
-
-    def rank(entry):
-        return ((2 if entry.get("kind") == "checking" else 0)
-                + (1 if _MAIN_ACCOUNT_TITLE.search(str(entry.get("title") or "")) else 0))
-
-    best = max(rank(entry) for entry in roster)
-    candidates = [entry for entry in roster if rank(entry) == best]
-    return None if any(entry.get("status") == "published" for entry in candidates) else candidates[0]
+    ranks = [main_account_rank(entry.get("kind"), entry.get("title")) for entry in roster]
+    best = max(ranks)
+    held = [entry for entry, rank in zip(roster, ranks) if rank == best and entry.get("status") == "held"]
+    return held[0] if held else None
 
 
 def _package_members(jobs) -> tuple[list[tuple], list[dict]]:

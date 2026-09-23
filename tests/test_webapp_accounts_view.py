@@ -141,6 +141,22 @@ HELD_MAIN = {"document": {"account_count": 3, "account_roster": [
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_the_dashboard_ranks_the_main_account_as_the_package_does():
+    # Review 9, finding 4: app.js and webapp/app.py decide the unverified main account alike.
+    source = _harness("off") + """
+const roster = (...entries) => entries.map(([title, kind, status]) => ({title, kind, status}));
+const cases = [
+  roster(["FABRICATED ADVANTAGE ACCOUNT", null, "held"], ["FABRICATED SAVINGS", "savings", "published"]),
+  roster(["FABRICATED VISA", "credit_card", "held"], ["FABRICATED SAVINGS", "savings", "published"]),
+  roster(["FABRICATED BUSINESS CHECKING", "checking", "published"], ["FABRICATED ADVANTAGE ACCOUNT", null, "held"]),
+  roster(["FABRICATED CHECKING", "checking", "idle"], ["FABRICATED SAVINGS", "savings", "published"]),
+];
+console.log(JSON.stringify(cases.map((entries) => (unverifiedMainAccount(entries) || {}).title || null)));
+"""
+    assert _run(source) == ["FABRICATED ADVANTAGE ACCOUNT", None, None, None]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_a_held_business_checking_account_is_never_replaced_as_the_main_account():
     # Review 7, finding 5: the table marks the held checking account MAIN, no published account; the statement modal
     # shows no account in its place.

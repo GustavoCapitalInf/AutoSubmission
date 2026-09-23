@@ -25,6 +25,28 @@ def test_a_statement_whose_business_checking_account_is_held_is_left_out_of_the_
                                            "outcome": "withheld", "reason": "main_account_unverified"}]
 
 
+def test_a_held_account_whose_title_names_no_kind_or_ranks_first_is_the_main_account():
+    # Review 9, finding 4: a product title without a kind word ("... Advantage Account") can be the operating account;
+    # among savings and money market, a held one leaves the main account undetermined. Cards and loans never rank.
+    from webapp.app import _package_members, _unverified_main_account
+    def roster(*entries):
+        return [{"title": title, "kind": kind, "status": status} for title, kind, status in entries]
+    assert _unverified_main_account(roster(("FABRICATED ADVANTAGE ACCOUNT", None, "held"),
+                                           ("FABRICATED SAVINGS", "savings", "published")))["kind"] is None
+    assert _unverified_main_account(roster(("FABRICATED MONEY MARKET", "money_market", "held"),
+                                           ("FABRICATED SAVINGS", "savings", "published"))) is not None
+    assert _unverified_main_account(roster(("FABRICATED VISA", "credit_card", "held"),
+                                           ("FABRICATED SAVINGS", "savings", "published"))) is None
+    assert _unverified_main_account(roster(("FABRICATED BUSINESS CHECKING", "checking", "published"),
+                                           ("FABRICATED ADVANTAGE ACCOUNT", None, "held"))) is None
+    assert _unverified_main_account(roster(("FABRICATED CHECKING", "checking", "idle"),
+                                           ("FABRICATED SAVINGS", "savings", "published"))) is None
+    payload = {**account_payload(), "document": {"account_roster": roster(
+        ("FABRICATED ADVANTAGE ACCOUNT", None, "held"), ("FABRICATED SAVINGS", "savings", "published"))}}
+    members, excluded = _package_members([_Job("job-1", payload)])
+    assert members == [] and excluded[0]["reason"] == "main_account_unverified"
+
+
 def test_a_statement_whose_business_checking_account_is_verified_or_that_prints_one_account_is_a_member():
     from webapp.app import _package_members
     verified = {**account_payload(), "document": _roster("published")}

@@ -1201,6 +1201,14 @@ function accountDisplayName(statement = {}, entry = null) {
   return four ? `${title} ••${four}` : title;
 }
 
+function mainAccountRank(kind, business) {
+  // How likely an account is the one a lender funds (webapp/app.py main_account_rank): a checking account, or one
+  // whose title names no kind (a product name such as "... Plus Banking" can be the operating account), above any
+  // other deposit account; a business title one higher; a card or a loan never.
+  if (kind === "credit_card" || kind === "loan") return -1;
+  return (kind === "checking" || !kind ? 2 : 0) + (business ? 1 : 0);
+}
+
 function mainAccountIndex(accounts, roster = []) {
   // The account a lender funds: a business checking account, and among several the one with the most deposits.
   // A display default only: every account stays one click away with "All accounts" on.
@@ -1208,7 +1216,7 @@ function mainAccountIndex(accounts, roster = []) {
   accounts.forEach((account, index) => {
     const statement = account.statement || {};
     const entry = rosterEntryFor(roster, index);
-    const rank = (accountKindOf(statement, entry) === "checking" ? 2 : 0) + (isBusinessAccount(statement, entry) ? 1 : 0);
+    const rank = mainAccountRank(accountKindOf(statement, entry), isBusinessAccount(statement, entry));
     const deposits = Number((account.metrics || {}).effective_total_deposits) || 0;
     if (!best || rank > best.rank || (rank === best.rank && deposits > best.deposits)) best = { index, rank, deposits };
   });
@@ -1216,14 +1224,13 @@ function mainAccountIndex(accounts, roster = []) {
 }
 
 function unverifiedMainAccount(roster = []) {
-  // The main account among EVERY account the statement prints: its kind decides first (business checking, then
-  // checking). When no account of the best kind was verified, that account is the main one and it is not
-  // verified: another account must never be shown in its place. null when a verified account can be the main one.
-  const rank = (entry) => (entry.kind === "checking" ? 2 : 0) + (/\b(business|commercial|corporate)\b/i.test(entry.title || "") ? 1 : 0);
+  // The main account among EVERY account the statement prints: its rank decides first (mainAccountRank). A HELD
+  // account of the best rank leaves the account a lender funds undetermined: it is the main one and it is not
+  // verified, and another account must never be shown in its place. null when no account of the best rank is held.
   if (!roster.length) return null;
+  const rank = (entry) => mainAccountRank(entry.kind, /\b(business|commercial|corporate)\b/i.test(entry.title || ""));
   const best = Math.max(...roster.map(rank));
-  const candidates = roster.filter((entry) => rank(entry) === best);
-  return candidates.some((entry) => entry.status === "published") ? null : candidates[0];
+  return roster.find((entry) => rank(entry) === best && entry.status === "held") || null;
 }
 
 function mainAccountReason(account = {}, entry = null) {

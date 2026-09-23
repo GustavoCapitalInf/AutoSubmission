@@ -268,14 +268,20 @@ def test_a_table_both_readers_read_as_figures_only_is_no_ledger():
     # balances. None is a transaction.
     from vlm.native_text import PrintedEvidence
     grid = _figures_only(3)
-    result = merge_review(grid, _with_daily(_review(grid), grid), page=1, printed=PrintedEvidence(native=DAILY_PAGE))
+    printed = PrintedEvidence(native=DAILY_PAGE)
+    result = merge_review(grid, _with_daily(_review(grid), grid), page=1, printed=printed, balance_blocks={1})
     assert result.counts["rejected"] == 3 and result.counts["unresolved"] == 0 and result.rows == ()
     assert {item["reason"] for item in result.evidence} == {"figure_grid_row"}
     # Review 8, finding 3: a wordless table that is not the page's daily balances can be transactions (a DATE |
     # AMOUNT listing netting to zero): held. Nor is the rule applied before the final merge.
-    assert merge_review(grid, _review(grid), page=1,
-                        printed=PrintedEvidence(native=DAILY_PAGE)).counts["unresolved"] == 3
-    assert merge_review(grid, _with_daily(_review(grid), grid), page=1).counts["unresolved"] == 3
+    assert merge_review(grid, _review(grid), page=1, printed=printed,
+                        balance_blocks={1}).counts["unresolved"] == 3
+    assert merge_review(grid, _with_daily(_review(grid), grid), page=1,
+                        balance_blocks={1}).counts["unresolved"] == 3
+    # Review 9, finding 2: the reviewer's daily balances can be the wordless rows themselves; a table the page does
+    # not print as balances (no balance caption or header) is never taken for them.
+    assert merge_review(grid, _with_daily(_review(grid), grid), page=1,
+                        printed=printed).counts["unresolved"] == 3
 
 
 def test_a_wordless_row_of_a_table_that_prints_words_or_read_with_a_direction_stays_held():
@@ -283,17 +289,17 @@ def test_a_wordless_row_of_a_table_that_prints_words_or_read_with_a_direction_st
     printed = PrintedEvidence(native=DAILY_PAGE)
     grid = _figures_only(3)
     worded = [*grid[:2], replace(grid[2], description="Synthetic Deposit", direction="credit")]
-    result = merge_review(worded, _with_daily(_review(worded), grid), page=1, printed=printed)
+    result = merge_review(worded, _with_daily(_review(worded), grid), page=1, printed=printed, balance_blocks={1})
     assert (result.counts["unresolved"], result.counts["agreed"]) == (2, 1)
     payload = _with_daily(_review(grid), grid)
     payload["reviews"][0].update(verdict="correct", corrections=[
         {"field": "direction", "original": "unknown", "corrected": "credit"}])
-    result = merge_review(grid, payload, page=1, printed=printed)
+    result = merge_review(grid, payload, page=1, printed=printed, balance_blocks={1})
     assert (result.counts["unresolved"], result.counts["rejected"]) == (1, 2)
     # A row read from a crop, not from the whole page, is never judged by its table.
     cropped = [replace(row, locator=f"g1c0/r{index}/{row.locator}") for index, row in enumerate(grid)]
-    assert merge_review(cropped, _with_daily(_review(cropped), grid), page=1,
-                        printed=printed).counts["unresolved"] == 3
+    assert merge_review(cropped, _with_daily(_review(cropped), grid), page=1, printed=printed,
+                        balance_blocks={1}).counts["unresolved"] == 3
 
 
 def test_reviewer_addition_naming_a_balance_at_its_own_balance_is_that_balance_line():

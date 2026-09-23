@@ -167,20 +167,29 @@ def test_a_row_printed_as_its_date_and_amount_alone_is_named_by_its_section():
         "DEPOSITS\nREF # DATE AMOUNT REF # DATE AMOUNT\n03/09 71.25 03/12 18.45\n"
         "OTHER DEBITS\nDESCRIPTION DATE AMOUNT\nFABRICATED FEE 03/14 613.07\n"
         "CHECKS\nCHECK # DATE AMOUNT\n3105 03/25 1,406.19\n03/26 207.53\n"))
-    assert printed.bare_row_heading(Decimal("71.25"), "03/09") == "DEPOSITS"
-    assert printed.bare_row_heading(Decimal("18.45"), "03/12") == "DEPOSITS"
-    assert printed.bare_row_heading(Decimal("207.53"), "03/26") == "CHECKS"
+    assert printed.bare_row_heading(Decimal("71.25"), "03/09", direction="credit") == "DEPOSITS"
+    assert printed.bare_row_heading(Decimal("18.45"), "03/12", direction="credit") == "DEPOSITS"
+    assert printed.bare_row_heading(Decimal("207.53"), "03/26", direction="debit") == "CHECKS"
+    # The heading's direction must be the row's: a deposit is no cheque.
+    assert printed.bare_row_heading(Decimal("71.25"), "03/09", direction="debit") is None
+    assert printed.bare_row_heading(Decimal("207.53"), "03/26", direction="credit") is None
     # Words, a cheque number or another date printed with the row: not a bare row.
-    assert printed.bare_row_heading(Decimal("613.07"), "03/14") is None
-    assert printed.bare_row_heading(Decimal("1406.19"), "03/25") is None
-    assert printed.bare_row_heading(Decimal("71.25"), "03/10") is None
-    assert PrintedEvidence(native=None).bare_row_heading(Decimal("71.25"), "03/09") is None
+    assert printed.bare_row_heading(Decimal("613.07"), "03/14", direction="debit") is None
+    assert printed.bare_row_heading(Decimal("1406.19"), "03/25", direction="debit") is None
+    assert printed.bare_row_heading(Decimal("71.25"), "03/10", direction="credit") is None
+    assert PrintedEvidence(native=None).bare_row_heading(Decimal("71.25"), "03/09", direction="credit") is None
     # The line above the table must be a heading: never a period line or a total.
     period = PrintedEvidence(native="Statement Period 03/01/31 - 03/31/31\nDATE AMOUNT\n03/09 71.25\n")
-    assert period.bare_row_heading(Decimal("71.25"), "03/09") is None
+    assert period.bare_row_heading(Decimal("71.25"), "03/09", direction="credit") is None
     # A heading naming balances heads figures, never transactions (review 8 verification of patch E).
     daily = PrintedEvidence(native="DAILY BALANCES\nDATE AMOUNT\n03/09 71.25\n")
-    assert daily.bare_row_heading(Decimal("71.25"), "03/09") is None
+    assert daily.bare_row_heading(Decimal("71.25"), "03/09", direction="credit") is None
+    # Review 9, finding 7: a "DATE BALANCE" header heads balances even under a CHECKS heading; a sentence is no
+    # heading.
+    balances = PrintedEvidence(native="CHECKS\nDATE BALANCE DATE BALANCE\n03/09 71.25 03/12 18.45\n")
+    assert balances.bare_row_heading(Decimal("71.25"), "03/09", direction="debit") is None
+    sentence = PrintedEvidence(native="Overdraft fees may apply\nDATE AMOUNT\n03/09 71.25\n")
+    assert sentence.bare_row_heading(Decimal("71.25"), "03/09", direction="debit") is None
 
 
 def test_a_date_after_the_amount_is_the_rows_only_right_after_it():
@@ -193,8 +202,20 @@ def test_a_date_after_the_amount_is_the_rows_only_right_after_it():
     # A line beginning with a date is not a cheque group, nor is a group printing words before its number.
     dated = PrintedEvidence(native="03/05 3101 03/04 51.37\n")
     assert dated.governing_date(Decimal("51.37")) == "03/05"
+    # A group printing a date elsewhere before its amount (an invoice's) takes no date at all.
     invoice = PrintedEvidence(native="INV 3101 03/04 51.37\n")
-    assert invoice.governing_date(Decimal("51.37")) == ""
+    assert invoice.governing_date(Decimal("51.37")) is None
+
+
+def test_each_column_group_beginning_with_its_date_takes_that_date():
+    # Review 9, finding 1: "Date | Check # | Amount" and "Date | Amount" printed two-up; the date after the first
+    # group's amount is the second group's.
+    cheques = PrintedEvidence(native="03/06 3101 4,321.09 03/17 3104 765.43\n")
+    assert cheques.governing_date(Decimal("4321.09")) == "03/06"
+    assert cheques.governing_date(Decimal("765.43")) == "03/17"
+    deposits = PrintedEvidence(native="03/09 71.25 03/12 18.45\n")
+    assert deposits.governing_date(Decimal("71.25")) == "03/09"
+    assert deposits.governing_date(Decimal("18.45")) == "03/12"
 
 
 def _row(amount, direction, locator, page=1, balance=None, day="2031-03-03"):

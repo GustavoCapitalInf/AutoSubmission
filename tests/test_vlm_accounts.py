@@ -533,6 +533,104 @@ def test_rows_read_from_a_summary_table_are_no_accounts_rows():
     assert _judge([_merge(1, stray + ROWS_ONE), _merge(2, ROWS_TWO)])["skipped"] == "rows_outside_accounts"
 
 
+# Review 9 (verification of d62bd8b): its reproductions, fabricated.
+def test_a_table_the_page_prints_as_balances_is_known_by_its_caption_or_header():
+    from vlm.accounts import balance_table_blocks
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "DAILY BALANCE"),
+        _block(1, "table", _table(("03/02", "1,400.00"), ("03/05", "1,300.00"))),
+        _block(2, "section_header", "Items Credited and Items Charged"),
+        _block(3, "table", _table(("03/10", "500.00"), ("03/15", "500.00"))),
+        _block(4, "table", _table(("Date", "Balance", "Date", "Balance"), ("03/20", "1,250.00", "03/25", "1,250.00"))),
+        _block(5, "table", _table(LEDGER_HEADER, ("03/02", "FABRICATED DEPOSIT", "400.00", "", "1,400.00"))),
+        # A Markdown table printed as a text block under its caption is a table all the same.
+        _block(6, "section_header", "## Daily Balances"),
+        _block(7, "text", "| Date | Amount | Date | Amount |\n|---|---|---|---|\n| 03/30 | $1,250.00 | 03/31 | $1,250.00 |"),
+    ), (), (), False)
+    assert balance_table_blocks(layout) == frozenset({1, 4, 7})
+
+
+def test_a_ledger_whose_header_names_figure_columns_is_never_a_summary_table():
+    # Finding 3: the unrecognized operating account's ledger ("Deposits and Credits | Withdrawals and Debits") names
+    # a sibling in its transfers; its rows are not summary rows, so the statement is not judged without it.
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "Fabricated Advantage Plus Banking 0010"),
+        _block(1, "table", _table(("Date", "Description", "Deposits and Credits", "Withdrawals and Debits", "Balance"),
+                                  ("03/05", "ONLINE TRANSFER TO SAVINGS 0001", "", "100.00", "1,200.00"))),
+        _block(2, "section_header", "FABRICATED SAVINGS (0001)"),
+        _block(3, "text", "Beginning Balance: $50.00 Ending Balance: $150.00"),
+        _block(4, "section_header", "FABRICATED MONEY MARKET (0002)"),
+        _block(5, "text", "Beginning Balance: $25.00 Ending Balance: $25.00"),
+    ), (), (), False)
+    from vlm.accounts import summary_table_rows
+    plan = plan_accounts([layout])
+    assert summary_table_rows(plan, [layout], {(1, "b1t0r1"): "ONLINE TRANSFER TO SAVINGS 0001"}) == set()
+    rows = [_row(1, "b1t0r1", "2031-03-05", "100.00", "debit", "1200.00", description="ONLINE TRANSFER TO SAVINGS 0001")]
+    assert _judge([_merge(1, rows)], layouts=(layout,))["skipped"] == "rows_outside_accounts"
+
+
+@pytest.mark.parametrize("text", [
+    "Grow your savings faster", "Savings made simple", "Checking that pays you back", "Open a savings account today",
+])
+def test_running_text_in_sentence_case_is_no_account_heading(text):
+    # Finding 5: printed as running text (a text block), a sentence-case line naming an account word is marketing.
+    layout = DotsLayout(1, (_block(0, "section_header", "FABRICATED CHECKING (0010)"), _block(1, "text", text),
+                            _block(2, "section_header", "FABRICATED SAVINGS (0001)")), (), (), False)
+    assert [section.title for section in plan_accounts([layout]).sections] == ["FABRICATED CHECKING",
+                                                                              "FABRICATED SAVINGS"]
+
+
+@pytest.mark.parametrize("text,title", [
+    ("Earn More Savings", "Earn More Savings"), ("Be Free Checking", "Be Free Checking"),
+    ("Your Business Advantage Checking Account 1234", "Business Advantage Checking"),
+    ("Your Fabricated Business Checking Account XXXX1234", "Fabricated Business Checking Account"),
+])
+def test_product_names_opening_with_a_verb_or_printing_their_number_still_name_accounts(text, title):
+    # Finding 6.
+    heading = parse_heading(text)
+    assert heading is not None and heading.title == title, text
+
+
+def test_a_number_line_confirmed_by_its_titles_own_identifier_is_not_reused_for_the_next():
+    # Finding 7's residual: the number line's last four digits are the first title's suffix; the next suffix is
+    # another account.
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "FABRICATED SAVINGS"),
+        _block(1, "text", "Account Number 1234560001"),
+        _block(2, "section_header", "FABRICATED CHECKING (0010)"),
+        _block(3, "section_header", "FABRICATED SAVINGS (0001)"),
+        _block(4, "section_header", "FABRICATED SAVINGS (0002)"),
+    ), (), (), False)
+    assert [(section.title, section.key) for section in plan_accounts([layout]).sections] == [
+        ("FABRICATED SAVINGS", "0001"), ("FABRICATED CHECKING", "0010"), ("FABRICATED SAVINGS", "0002")]
+
+
+def test_an_account_whose_only_row_was_set_aside_as_moving_nothing_is_never_idle():
+    # Finding 9: the reviewer added a transfer at the opening balance; set aside, it must not make the account idle.
+    page_one = DotsLayout(1, REVIEW_PAGE.blocks[:3], (), (), False)
+    page_two = DotsLayout(2, (_block(0, "section_header", "FABRICATED SAVINGS (0001)", page=2),
+                              _block(1, "text", "Beginning Balance: $50.00 Ending Balance: $50.00", page=2)),
+                          (), (), False)
+    addition = _row(2, "added0", "2031-03-10", "50.00", "credit", "50.00", description="TRANSFER IN")
+    savings_page = PageReviewMerge(2, (addition,), ({"page": 2, "locator": "added0", "state": "added"},),
+                                   {"added": 1}, (), {}, (), "statement_page")
+    printed = [REVIEW8_PRINT[0],
+               PrintedEvidence(native="Beginning Balance: $50.00 Ending Balance: $50.00\n03/10 TRANSFER IN 50.00")]
+    savings = _judge([_merge(1, REVIEW_ROWS), savings_page], layouts=(page_one, page_two),
+                     printed_pages=printed)["accounts"][1]
+    assert savings["balance_only_additions"] == 1 and savings["status"] == "held"
+
+
+def test_dates_printed_dotted_or_compact_are_activity_too():
+    # Finding 8.
+    for date_text in ("10.03.2031", "10MAR", "MAR10"):
+        layout = DotsLayout(1, REVIEW_PAGE.blocks[:5] + (
+            _block(5, "table", _table(("Description", "Date", "Amount"), ("TRANSFER IN", date_text, "500.00"))),),
+                            (), (), False)
+        savings = _judge([_merge(1, REVIEW_ROWS)], layouts=(layout,), printed_pages=REVIEW8_PRINT)["accounts"][1]
+        assert (savings["status"], savings["activity_lines"]) == ("held", 1), date_text
+
+
 def test_page_metadata_the_print_contradicts_holds_the_accounts_on_that_page():
     # Finding 9: as on a single account, quarantined reviewer metadata holds the page.
     merged = replace(_merge(2, ROWS_TWO), metadata_evidence=({"field": "ending_balance"},))
