@@ -355,11 +355,13 @@ class PrintedEvidence:
         other_year = False
         for match in _PRINTED_DATE.finditer(text):
             token = match.group(0).strip(" ,")
+            # A printed year: four digits, or a numeric date's third part ("03/01/31"); "03/01" prints none.
+            year = re.search(r"(\d{4})|^\d{1,2}[/.\-]\d{1,2}[/.\-](\d{2})$", token)
+            if year is None:
+                # A date printed without a year ("03/01" on a row) says nothing about the period's year.
+                continue
             if reads_as(token, iso):
                 return False
-            year = re.search(r"(\d{4})|[/.\-](\d{2})$", token)
-            if year is None:
-                continue
             printed_year = int(year.group(1)) if year.group(1) else 2000 + int(year.group(2))
             if (printed_year != wanted.year and _valid_day(wanted, printed_year)
                     and reads_as(token, wanted.replace(year=printed_year).isoformat())):

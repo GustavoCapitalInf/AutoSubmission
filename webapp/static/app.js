@@ -1254,7 +1254,7 @@ function accountPanelEntries(published, roster) {
   }));
 }
 
-function accountPanelRowHtml(entry, published, main, selected, currency) {
+function accountPanelRowHtml(entry, published, main, selected, currency, isUnverifiedMain = false) {
   const account = entry.status === "published" ? published[entry.published_index] : null;
   const statement = (account && account.statement) || {};
   const metrics = (account && account.metrics) || {};
@@ -1283,7 +1283,7 @@ function accountPanelRowHtml(entry, published, main, selected, currency) {
     const zero = escapeHtml(formatMoney(0, currency));
     return `
       <tr>
-        <td><strong>${escapeHtml(name)}</strong><span class="account-reason">${escapeHtml(kind)} · no transactions</span></td>
+        <td><strong>${escapeHtml(name)}</strong>${isUnverifiedMain ? `<span class="main-badge">MAIN</span>` : ""}<span class="account-reason">${escapeHtml(kind)} · no transactions</span></td>
         <td>${glassChip("·", "No activity", "neutral")}</td>
         <td>${balance}</td>
         <td>${balance}</td>
@@ -1294,13 +1294,13 @@ function accountPanelRowHtml(entry, published, main, selected, currency) {
   }
   return `
     <tr>
-      <td><strong>${escapeHtml(name)}</strong><span class="account-reason">${escapeHtml(kind)} · ${escapeHtml(accountReasonText(entry.reasons))}</span></td>
+      <td><strong>${escapeHtml(name)}</strong>${isUnverifiedMain ? `<span class="main-badge">MAIN</span>` : ""}<span class="account-reason">${escapeHtml(kind)} · ${escapeHtml(accountReasonText(entry.reasons))}</span></td>
       <td>${glassChip("◐", "Needs review", "amber")}</td>
       <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
     </tr>`;
 }
 
-function renderAccountsPanel(published, roster, main, selected) {
+function renderAccountsPanel(published, roster, main, selected, unverifiedMain = null) {
   if (!els.accountsPanel) return;
   const entries = accountPanelEntries(published, roster);
   const mainAccount = published[main] || {};
@@ -1337,7 +1337,7 @@ function renderAccountsPanel(published, roster, main, selected) {
               <th>Avg Daily Balance</th>
             </tr>
           </thead>
-          <tbody>${entries.map((entry) => accountPanelRowHtml(entry, published, main, selected, currency)).join("")}</tbody>
+          <tbody>${entries.map((entry) => accountPanelRowHtml(entry, published, main, selected, currency, entry === unverifiedMain)).join("")}</tbody>
         </table>
       </div>
     </div>`;
@@ -1357,6 +1357,11 @@ function renderUnverifiedMain(published, roster, entry) {
     ? `it printed no activity this period (balance ${formatMoney(entry.balance, ((published[0] || {}).statement || {}).currency || null)})`
     : accountReasonText(entry.reasons);
   const verified = published.length;
+  if (allAccountsView()) {
+    // Every account on the table, the main one marked and held; nothing selected until the user picks one.
+    selectedAccountIndex = null;
+    renderAccountsPanel(published, roster, -1, null, entry);
+  }
   els.statusHeading.textContent = "Main account needs review";
   setBanner("pending", "Main account not verified; its metrics withheld", "Review required");
   els.decisionPill.textContent = "review required";
@@ -1370,7 +1375,7 @@ function renderUnverifiedMain(published, roster, entry) {
     ["Metrics", "Withheld"],
   ]);
   if (els.transactionCard) els.transactionCard.style.display = "none";
-  if (!els.accountsPanel) return;
+  if (!els.accountsPanel || allAccountsView()) return;
   els.accountsPanel.innerHTML = `
     <div class="accounts-note">This statement holds <strong>${escapeHtml(formatNumber(roster.length))} accounts</strong>.
       The main account, <strong>${escapeHtml(name)}</strong>, could not be verified: ${escapeHtml(why)}.
@@ -1408,15 +1413,17 @@ function renderAnalysis(report) {
   }
   currentDocument = report;
   const unverified = unverifiedMainAccount(roster);
-  if (!allAccountsView() && unverified) {
+  if (unverified && (!allAccountsView() || selectedAccountIndex === null || !published[selectedAccountIndex])) {
+    // The business checking account was not verified: no other account stands in for it. With All accounts on,
+    // the table lists every account and the one the user selects is shown, never as the main account.
     renderUnverifiedMain(published, roster, unverified);
     return;
   }
-  const main = mainAccountIndex(published, roster);
+  const main = unverified ? -1 : mainAccountIndex(published, roster);
   if (!allAccountsView() || selectedAccountIndex === null || !published[selectedAccountIndex]) {
     selectedAccountIndex = main;
   }
-  renderAccountsPanel(published, roster, main, selectedAccountIndex);
+  renderAccountsPanel(published, roster, main, selectedAccountIndex, unverified);
   const shown = published[selectedAccountIndex];
   // One account's own payload: every panel below, the summary and the transaction list describe that account.
   renderAccount(isDocumentPayload(report) ? { ...shown, parse_mode: report.parse_mode } : report);
@@ -1582,6 +1589,9 @@ function uploadFiles(fileList) {
   currentJobIds = [];
   currentFiles = files;
   currentAnalysis = null;
+  currentDocument = null;
+  selectedAccountIndex = null;
+  hideAccountsPanel();
   currentMarkdown = "";
   transactionFilter = "all";
   transactionEntityFilter = null;
@@ -1714,7 +1724,8 @@ function loadResults(jobId) {
       }
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
-      els.summaryBox.textContent = "Exports and copy actions are ready.";
+      // A statement whose main account was not verified keeps its explanation in the summary.
+      if (currentAnalysis) els.summaryBox.textContent = "Exports and copy actions are ready.";
     })
     .catch((error) => renderError(error.message || String(error)));
 }
@@ -1741,6 +1752,10 @@ function loadPackage(jobIds) {
 }
 
 function renderPackageAnalysis(pkg) {
+  // A package is several statements, never one statement's accounts: the account view and its selection go.
+  currentDocument = null;
+  selectedAccountIndex = null;
+  hideAccountsPanel();
   currentAnalysis = { package: pkg };
   currentMarkdown = "";
   renderMainTransactions();
@@ -2024,7 +2039,10 @@ function openStatementModal(jobId) {
 }
 
 function modalAccountPayload(report) {
-  // The statement modal shows one account: of a statement holding several, its main account.
+  // The statement modal shows one account: of a statement holding several, its main account; none when the main
+  // account (the business checking account) was not verified.
+  const roster = accountRoster(report);
+  if (unverifiedMainAccount(roster)) return null;
   if (!isDocumentPayload(report)) return report;
   const published = publishedAccounts(report);
   if (!published.length) return null;
@@ -2034,6 +2052,20 @@ function modalAccountPayload(report) {
 
 function renderStatementModal(jobId, report, markdown) {
   let accountNote = "";
+  const unverifiedMain = unverifiedMainAccount(accountRoster(report));
+  if (unverifiedMain) {
+    els.statementModalTitle.textContent = "Main account needs review";
+    els.statementModalSubtitle.textContent = `${accountDisplayName({}, unverifiedMain)} could not be verified: `
+      + `${accountReasonText(unverifiedMain.reasons)}. No metrics are shown for it.`;
+    els.statementModalMetrics.innerHTML = "";
+    els.statementModalAccount.innerHTML = "";
+    els.statementModalLenders.innerHTML = "";
+    els.statementModalInsurance.innerHTML = "";
+    els.statementModalRevenue.innerHTML = "";
+    els.statementModalTransactions.innerHTML = "";
+    els.statementModalTransactionCount.textContent = "";
+    return;
+  }
   if (isDocumentPayload(report)) {
     const count = Math.max(publishedAccounts(report).length, accountRoster(report).length);
     const shown = modalAccountPayload(report);
@@ -2436,7 +2468,9 @@ function syncAllAccountsToggle() {
 function setAllAccountsView(on) {
   try { localStorage.setItem(ALL_ACCOUNTS_KEY, on ? "on" : "off"); } catch (error) { /* private mode */ }
   syncAllAccountsToggle();
-  if (currentDocument) renderAnalysis(currentDocument);
+  // Only a statement on screen is redrawn: never a package, never a statement still processing.
+  const statementShown = currentDocument && !(currentAnalysis && currentAnalysis.package) && currentJobIds.length <= 1;
+  if (statementShown) renderAnalysis(currentDocument);
 }
 
 function setSettingsOpen(open) {

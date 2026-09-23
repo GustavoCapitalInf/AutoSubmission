@@ -45,12 +45,19 @@ _SUFFIX = re.compile(r"(?:\s*[-–—:|]\s*|\s+)(?:account\s+)?(?:summary|activi
 # Captions of listings and notices, never an account's own title.
 _NOT_A_TITLE = re.compile(
     r"\b(?:cleared|paid|posted|deposits|withdrawals|debits|credits|fees|charges|balances|transactions|checks|"
-    r"cheques|payments|recap|overdrafts?|returned|ytd|daily|totals?|information|notices?|disclosures?|"
+    r"cheques|payments|recap|overdrafts?|returned|ytd|daily\s+balances?|totals?|information|notices?|disclosures?|"
     r"terms|agreement|rights|errors?|questions?|reconcil\w*|instructions|important|computation|explanation|"
     r"summary\s+of|year[\s-]+to[\s-]+date|at\s+a\s+glance|all\s+accounts|other\s+accounts)\b", re.I)
-_SENTENCE = re.compile(r"\b(?:you|your|we|our|us|please|thank|thanks|if|will|may|call|visit|www|http|https|contact|"
-                       r"inquir\w*|phone|fax|e-?mail|hours|toll)\b|@|\b\d{3}[-.)\s]\s?\d{3}[-.][0-9A-Z]{4}\b|"
-                       r"\b1-8\d\d\b", re.I)
+# A sentence, never a title: an instruction, a courtesy, a contact line.
+_SENTENCE = re.compile(r"\b(?:please|thank|thanks|if|call|visit|www|http|https|contact|inquir\w*|phone|fax|e-?mail|"
+                       r"hours|toll)\b|@|\b\d{3}[-.)\s]\s?\d{3}[-.][0-9A-Z]{4}\b|\b1-8\d\d\b", re.I)
+# Words of a sentence that a short account title can print too ("Your Business Checking", "US Bank Checking", "...
+# Activity for May"): they disqualify only a line naming no account kind, or a long one.
+_SENTENCE_WORDS = re.compile(r"\b(?:you|your|we|our|us|will|may)\b", re.I)
+_POSSESSIVE = re.compile(r"^(?:your|our|my)\s+", re.I)
+# "... for May", "... for the period ending 03/31": the period a title is printed for, not its name.
+_PERIOD_TAIL = re.compile(r"\s+(?:activity\s+)?for\s+(?:the\s+)?(?:period|month|statement|jan\w*|feb\w*|mar\w*|apr\w*|"
+                          r"may|jun\w*|jul\w*|aug\w*|sep\w*|oct\w*|nov\w*|dec\w*)\b.*$", re.I)
 # An identifier's own line ("Member Number xxxx1234", "Account number: 123 (primary account)"): it names no account.
 _IDENTIFIER_LINE = re.compile(r"^(?:account|acct|member|customer|client)\s*(?:number|no\.?|#|id)\b", re.I)
 # Words a title can print that say nothing about which account it is: its kind, and generic qualifiers. A title made
@@ -94,6 +101,9 @@ class AccountSection:
     title: str
     number: str | None
     headings: list = field(default_factory=list)
+    # The number came from an "Account Number ..." line under a heading printing none: a later heading of the same
+    # title printing another identifier (a suffix, a masked form) names the same account.
+    number_from_line: bool = False
 
     @property
     def key(self) -> str | None:
@@ -134,6 +144,9 @@ def parse_heading(text: str) -> Heading | None:
     line = _CONTINUED_TAIL.sub("", line).strip(" -–—:|,")
     if not line or _MONEY.search(line) or _SENTENCE.search(line) or _IDENTIFIER_LINE.match(line):
         return None
+    if _SENTENCE_WORDS.search(line) and (_kind(line) is None or len(line.split()) > 8):
+        return None
+    line = _POSSESSIVE.sub("", _PERIOD_TAIL.sub("", line))
     line = _PREFIX.sub("", line)
     line = _SUFFIX.sub("", line).strip(" -–—:|,")
     if not line or len(line.split()) > 12:
@@ -218,7 +231,10 @@ def _same_account(heading: Heading, section: AccountSection) -> bool:
     if heading.kind and section.kind and heading.kind != section.kind:
         return False
     if heading.number and section.number:
-        return _number_key(heading.number) == section.key
+        if _number_key(heading.number) == section.key:
+            return True
+        # A number read from an "Account Number" line, then the same title printing another identifier.
+        return section.number_from_line and _title_key(heading.title) == _title_key(section.title)
     if _title_key(heading.title) == _title_key(section.title):
         return True
     # A title naming nothing but the account's kind is any account of that kind it does not contradict: a summary's
@@ -274,9 +290,20 @@ class AccountPlan:
             position = self.tops.get((page, order))
             if position is None:
                 return UNPLACED
-            if position <= top and (best is None or position >= best[0]):
+            if position <= top + _SAME_LINE and (best is None or position >= best[0]):
                 best = (position, index)
         return best[1] if best else self.carried_into(page)
+
+    def block_section(self, page: int, order: int):
+        """The account a block's rows belong to: the heading printed last before it in reading order, which must also
+        be the heading printed last above it on the page. UNPLACED when the reading order and the page's geometry
+        name different accounts (a table emitted before its own heading); the reading order where no box decides."""
+        by_order = self.section_at(page, order)
+        top = self.tops.get((page, order))
+        if top is None or len(self.page_sections(page)) < 2:
+            return by_order
+        by_box = self.section_at_y(page, top)
+        return by_order if by_box in (by_order, UNPLACED) else UNPLACED
 
     def position(self, page: int, locator: str | None) -> int | None:
         """The full-page block order a proposer row was read from; None for a reviewer's addition, or a row read
@@ -323,6 +350,7 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
                 if (number and last_heading is not None and block.order - last_heading[0] <= 3
                         and sections[last_heading[1]].number is None):
                     sections[last_heading[1]].number = number
+                    sections[last_heading[1]].number_from_line = True
                 if text and (block.label in _CAPTION_LABELS or (
                         block.label == "text" and len(_clean(text)) <= 60 and not _SENTENCE.search(text))):
                     caption = _clean(text)
@@ -360,34 +388,38 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
 
 
 UNPLACED = -1  # a row on a page printing several accounts whose place among them is not known
+_SAME_LINE = 1 / 100  # two tops this close (0-1 of the page height) are one printed line
 
 
 def assign_rows(plan: AccountPlan, merges) -> tuple[dict, dict]:
     """(kept, evidence): the account each kept row and each evidence item belongs to, keyed (page, locator); None
     for a row printed before every account heading, UNPLACED for one whose position among a page's accounts is not
-    known. A reviewer's addition takes the position of the proposer row printed above it (the row it was added
-    after), else below it, else the height of its own box on a page printing several accounts."""
+    known. A proposer row takes its block's account (AccountPlan.block_section: reading order and geometry must
+    agree). A reviewer's addition on a page printing several accounts takes the account of the proposer row it was
+    added after (else before) and the account above its own box, and both must agree where both exist."""
     kept, evidence = {}, {}
     for merged in merges:
         items = list(merged.evidence)
         orders = [plan.position(merged.page, item.get("locator")) for item in items]
+        sections = plan.page_sections(merged.page)
         for index, item in enumerate(items):
             order = orders[index]
-            if order is None and str(item.get("locator") or "").startswith("added"):
-                above = next((orders[i] for i in range(index - 1, -1, -1) if orders[i] is not None), None)
-                below = next((orders[i] for i in range(index + 1, len(items)) if orders[i] is not None), None)
-                order = above if above is not None else below
-            if order is None:
-                sections = plan.page_sections(merged.page)
-                box = (item.get("row") or {}).get("bbox") if isinstance(item.get("row"), dict) else None
-                if len(sections) <= 1:
-                    section = next(iter(sections)) if sections else None
-                elif isinstance(box, (list, tuple)) and len(box) == 4:
-                    section = plan.section_at_y(merged.page, box[1])
-                else:
-                    section = UNPLACED
+            if order is not None:
+                section = plan.block_section(merged.page, order)
+            elif len(sections) <= 1:
+                section = next(iter(sections)) if sections else None
             else:
-                section = plan.section_at(merged.page, order)
+                placed = set()
+                if str(item.get("locator") or "").startswith("added"):
+                    above = next((orders[i] for i in range(index - 1, -1, -1) if orders[i] is not None), None)
+                    below = next((orders[i] for i in range(index + 1, len(items)) if orders[i] is not None), None)
+                    neighbour = above if above is not None else below
+                    if neighbour is not None:
+                        placed.add(plan.block_section(merged.page, neighbour))
+                box = (item.get("row") or {}).get("bbox") if isinstance(item.get("row"), dict) else None
+                if isinstance(box, (list, tuple)) and len(box) == 4:
+                    placed.add(plan.section_at_y(merged.page, box[1]))
+                section = placed.pop() if len(placed) == 1 else UNPLACED
             evidence[(merged.page, item.get("locator"))] = section
         for row in merged.rows:
             kept[(row.page, row.locator)] = evidence.get((row.page, row.locator))
@@ -443,6 +475,7 @@ def _cell_figures(grid: list[list[str]]):
     """(field, value) pairs a table grid prints: a label with its amount in one cell, beside it, or under a row of
     labels. A transaction table's header row labels columns, not figures."""
     rows = [[_clean(cell) for cell in row] for row in grid]
+    in_ledger = False  # below a transaction table's header row: a label counts only when its cell prints no more
     for r, row in enumerate(rows):
         deduped = [cell for index, cell in enumerate(row) if cell and (index == 0 or cell != row[index - 1])]
         header = sum(bool(_LEDGER_HEADER.search(cell)) for cell in deduped) >= 2
@@ -452,6 +485,9 @@ def _cell_figures(grid: list[list[str]]):
                 continue
             found = _label(cell)
             if found is None:
+                continue
+            if in_ledger and not header and re.search(r"[A-Za-z]{2,}", _MONEY_TOKEN.sub(" ", cell[found[1]:])):
+                # A transaction whose words begin with a figure's label ("NEW BALANCE TRANSFER TO SAVINGS").
                 continue
             inline = [] if header else list(_line_figures(cell))
             if inline:
@@ -471,6 +507,7 @@ def _cell_figures(grid: list[list[str]]):
                     value = parse_money(below.replace(" ", ""))
             if value is not None:
                 yield name, value
+        in_ledger = in_ledger or header
 
 
 def _line_figures(text: str):
@@ -581,6 +618,26 @@ def section_figures(plan: AccountPlan, index: int, layouts, printed_pages=None, 
                          "pages": sorted({page for _, page in own or table}),
                          "summary_table_values": [str(v) for v in table_values]}
     return figures
+
+
+_LINE_DATE = re.compile(r"^\s*(?:\d{1,4}[/.-]\d{1,2}(?:[/.-]\d{2,4})?|[A-Za-z]{3,9}\.?\s+\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9})\b")
+
+
+def section_activity_lines(plan: AccountPlan, index: int, layouts) -> int:
+    """How many lines of account ``index``'s own section read like a transaction: a date first, an amount, and no
+    figure label (an opening or closing balance line is no activity). An account printing one is not shown to be
+    idle, whatever its opening and closing balances say."""
+    count = 0
+    for layout in layouts:
+        for block in layout.blocks:
+            if block.label in _FURNITURE or plan.section_at(layout.page, block.order) != index:
+                continue
+            grid = _grid(block)
+            lines = [" ".join(_clean(cell) for cell in row if _clean(cell)) for row in grid] if grid else \
+                [_clean(line) for line in str(block.content).splitlines()]
+            count += sum(1 for line in lines
+                         if _LINE_DATE.match(line) and _MONEY_TOKEN.search(line) and _label(line) is None)
+    return count
 
 
 _LISTING = re.compile(

@@ -43,6 +43,11 @@ _COMPACT_MONTH_DAY = re.compile(
     r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)([0-9]{1,2})",
     re.IGNORECASE | re.ASCII,
 )
+# A numeric date as a page's text layer prints it ("04/30", "30/04/2031", "04-30-31"); numeric_order decides what it
+# proves. Never part of a longer number, and never an amount ("12.50" has no year: numeric_order ignores it).
+_PRINTED_NUMERIC_DATE = re.compile(r"(?<![\d/.\-])\d{1,2}[/.\-]\d{1,2}(?:[/.\-](?:\d{4}|\d{2}))?(?![\d/.\-])")
+# The US-dollar month-first default applies to a period of at most this many days.
+_MONTH_FIRST_DAYS = 35
 
 
 @dataclass(frozen=True)
@@ -227,14 +232,20 @@ def resolve_reviewed_dates(rows, *, period_start: str | None, period_end: str | 
     row date is overwritten, even if it is invalid or outside the period.
     A row read without any date text takes the date its page prints for it
     (_undated_row_date; ``printed_pages`` is one PrintedEvidence or None per page). Numeric dates read in the
-    order the statement's own dates prove (numeric_order); ``month_first`` (a statement in US dollars) reads
-    them month first where no printed date proves an order.
+    order the statement's own dates prove (numeric_order: its rows' date texts and every numeric date its pages'
+    text layers print); ``month_first`` (a statement in US dollars) reads them month first only where nothing
+    proves an order and the period is a month at most: a day-first date misread month first falls outside a
+    month (held), but can stay inside a quarter or a year.
     """
     start, end, period_error = _period(period_start, period_end)
     rows = tuple(rows)
-    proven = numeric_order(row.date_text for row in rows)
+    printed_dates = [token for page in printed_pages or () if page is not None and page.native
+                     for token in _PRINTED_NUMERIC_DATE.findall(page.native)]
+    proven = numeric_order([*(row.date_text for row in rows), *printed_dates])
+    within_a_month = start is not None and (end - start).days < _MONTH_FIRST_DAYS
     order, order_source = ((proven, "printed_dates") if proven in ("day_first", "month_first") else
-                           ("month_first", "statement_currency") if month_first and proven is None else (None, None))
+                           ("month_first", "statement_currency") if month_first and proven is None and within_a_month
+                           else (None, None))
     resolved_rows, evidence = [], []
     unresolved = 0
     above = None  # the row above in the listing, once its date is known

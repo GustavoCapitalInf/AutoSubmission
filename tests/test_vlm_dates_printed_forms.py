@@ -53,14 +53,33 @@ def test_malformed_or_out_of_period_forms_stay_unresolved(text):
     assert result.unresolved == 1 and result.rows[0].date is None
 
 
-def test_a_quarter_in_us_dollars_reads_numeric_dates_month_first():
+def test_a_month_in_us_dollars_reads_numeric_dates_month_first():
     rows = [_row("05/06")]
-    neutral = resolve_reviewed_dates(rows, period_start="2031-04-01", period_end="2031-06-30")
-    assert neutral.unresolved == 1 and neutral.evidence[0]["candidate_dates"] == ["2031-05-06", "2031-06-05"]
-    assert neutral.numeric_order is None
-    dollars = resolve_reviewed_dates(rows, period_start="2031-04-01", period_end="2031-06-30", month_first=True)
+    dollars = resolve_reviewed_dates(rows, period_start="2031-05-01", period_end="2031-05-31", month_first=True)
     assert dollars.rows[0].date == "2031-05-06"
     assert (dollars.numeric_order, dollars.numeric_order_source) == ("month_first", "statement_currency")
+
+
+def test_a_longer_period_needs_the_order_proven_by_the_statement_itself():
+    # A quarter: "05/06" is May 6 or June 5; US dollars alone do not decide it (review 7, finding 3).
+    rows = [_row("05/06")]
+    neutral = resolve_reviewed_dates(rows, period_start="2031-04-01", period_end="2031-06-30", month_first=True)
+    assert neutral.unresolved == 1 and neutral.evidence[0]["candidate_dates"] == ["2031-05-06", "2031-06-05"]
+    assert neutral.numeric_order is None
+    # The page's text layer printing its period month first proves the order.
+    printed = [PrintedEvidence(native="Statement period 04/01/2031 - 06/30/2031\n05/06 FABRICATED DEPOSIT 25.00")]
+    proven = resolve_reviewed_dates([replace_page(rows[0], 1)], period_start="2031-04-01", period_end="2031-06-30",
+                                    printed_pages=printed, month_first=True)
+    assert proven.rows[0].date == "2031-05-06" and proven.numeric_order_source == "printed_dates"
+    # An annual statement printing quarterly dividends day first stays unresolved rather than misdated.
+    dividends = [_row(text, locator=f"b1t0r{index}") for index, text in enumerate(("01/03", "01/06", "01/09", "01/12"))]
+    annual = resolve_reviewed_dates(dividends, period_start="2031-01-01", period_end="2031-12-31", month_first=True)
+    assert annual.unresolved == 4 and all(row.date is None for row in annual.rows)
+
+
+def replace_page(row, page):
+    from dataclasses import replace
+    return replace(row, page=page)
 
 
 def test_the_statements_own_dates_prove_the_order():
@@ -113,6 +132,10 @@ def test_the_text_layer_contradicts_a_misread_period_year():
     assert printed.date_contradicted("2031-03-01") is False and printed.date_contradicted("2031-03-31") is False
     # A date the page never prints in any year: absence proves nothing.
     assert printed.date_contradicted("2021-04-30") is False
+    # A row dated the same day without a year ("03/02 ...") vouches for no year (review 7, finding 4).
+    assert printed.date_contradicted("2021-03-02") is False
+    with_row = PrintedEvidence(native=NATIVE + "03/01 FABRICATED FEE 5.00\n")
+    assert with_row.date_contradicted("2021-03-01") is True and with_row.date_contradicted("2031-03-01") is False
     # Numeric prints with a year contradict just the same; no text layer, no judgement.
     assert PrintedEvidence(native="Period 03/01/2031 - 03/31/2031").date_contradicted("2021-03-31") is True
     assert PrintedEvidence(native="Period 03/01/31 - 03/31/31").date_contradicted("2021-03-31") is True

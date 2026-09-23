@@ -14,8 +14,8 @@ from decimal import Decimal
 from collections import Counter
 from dataclasses import replace
 
-from vlm.accounts import (DEPOSIT_KINDS, UNPLACED, assign_rows, listing_echoes, plan_accounts, section_figures,
-                          summary_table_figures)
+from vlm.accounts import (DEPOSIT_KINDS, UNPLACED, assign_rows, listing_echoes, plan_accounts,
+                          section_activity_lines, section_figures, summary_table_figures)
 
 ACCOUNTS_VERSION = 1
 # Document facts every account shares: without them no account can be judged.
@@ -117,12 +117,23 @@ def judge_accounts(layouts, merges, rows, *, recoveries=(), printed_pages=None, 
     for index, merged in enumerate(merges):
         errors = page_errors[index] if index < len(page_errors) else ()
         cut = (truncated[index] if index < len(truncated) else False) and merged.page not in moneyless_pages
-        if merged.page not in pictures and (errors or cut):
+        # As on a single account (pair.held_pages): errors, a cut-off read, and reviewer metadata the page's print
+        # contradicts hold the page, here the accounts it prints.
+        if merged.page not in pictures and (errors or cut or merged.metadata_evidence):
             problem_pages.add(merged.page)
     blockers = [reason for reason in _DOCUMENT_BLOCKERS if reason in document_reasons]
     unplaced = [key for key, section in kept.items() if section == UNPLACED]
     unplaced_pages = {page for page, _ in unplaced}
+    unplaced_pages |= {page for (page, locator), section in evidence.items()
+                       if section == UNPLACED and states.get((page, locator)) == 'unresolved'}
     outside = [key for key, section in kept.items() if section is None]
+    unresolved_outside = [key for key, section in evidence.items()
+                          if section is None and states.get(key) == 'unresolved']
+    if outside or unresolved_outside:
+        # Rows printed before every recognized heading: an account whose heading was not recognized (the business
+        # checking account itself, perhaps). Judging the others alone would drop it from the statement.
+        return {'version': ACCOUNTS_VERSION, 'skipped': 'rows_outside_accounts',
+                'rows_outside_accounts': len(outside) + len(unresolved_outside)}
     entries, content = [], 0
     for section in plan.sections:
         figures = section_figures(plan, section.index, layouts, printed_pages, summary)
@@ -159,7 +170,9 @@ def judge_accounts(layouts, merges, rows, *, recoveries=(), printed_pages=None, 
             totals = [(figures.get(name) or {}).get('value') for name in ('stated_total_credits', 'stated_total_debits')]
             native = all(printed_pages and 0 < page <= len(printed_pages) and printed_pages[page - 1] is not None
                          and printed_pages[page - 1].native for page in section_pages)
-            if (not reasons and opening is not None and opening == closing and native
+            activity = section_activity_lines(plan, section.index, layouts)
+            entry['activity_lines'] = activity
+            if (not reasons and opening is not None and opening == closing and native and not activity
                     and all(total in (None, Decimal('0')) for total in totals)):
                 entry.update(status='idle', reasons=[], balance=opening)
             else:

@@ -460,6 +460,14 @@ def printed_repeat_groups(rows, page_texts) -> frozenset:
     return frozenset(proven)
 
 
+def zero_undirected_rows(rows) -> tuple[list, list]:
+    """(kept, excluded): a row printed at 0.00 that no reader gave a direction (a pending item, "... Pending
+    Credit/Return") moves nothing, so no balance, sum or total depends on it: it is no transaction to hold the
+    statement on. The review keeps a zero amount only where the row's own print shows it."""
+    excluded = [row for row in rows if row.amount == 0 and row.direction == 'unknown']
+    return [row for row in rows if not (row.amount == 0 and row.direction == 'unknown')], excluded
+
+
 def exclude_undirected_by_totals(rows, account: dict, daily=()):
     """Rows neither reader gave a direction, and without a balance to take one from, are no transactions when
     the rows that have one already add up to the printed credit and debit totals to the cent, match the printed
@@ -872,10 +880,16 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                                 else None) for row in rows]
     # The accounts the statement prints (vlm/accounts.py). A listing that repeats ledger rows printing running
     # balances ("Withdrawal Summary") is not more transactions.
-    from vlm.accounts import listing_echoes, plan_accounts
-    account_plan = plan_accounts(layouts, recoveries)
-    echoed = listing_echoes(rows, account_plan)
+    from vlm.accounts import AccountPlan, listing_echoes, plan_accounts
+    accounts_error = None
+    try:
+        account_plan = plan_accounts(layouts, recoveries)
+        echoed = listing_echoes(rows, account_plan)
+    except Exception as exc:  # the account reading fails closed: no account plan, no listing removed
+        accounts_error = type(exc).__name__
+        account_plan, echoed = AccountPlan([], [], {}, {}, {}), set()
     rows = [row for row in rows if (row.page, row.locator) not in echoed]
+    rows, unmoved_rows = zero_undirected_rows(rows)
     account_rows = list(rows)
     # Each later page's own totals, read as the statement's, are that page's subtotals when its rows prove them.
     page_subtotals = settle_page_subtotals(reasons, occurrences, field_evidence, rows)
@@ -997,12 +1011,20 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     # A statement printing several accounts that does not pass as one: each account judged on its own
     # (vlm/pair_accounts.py). None when it prints fewer than two.
     accounts = None
-    if not admitted:
+    if not admitted and account_plan.sections:
         from vlm.pair_accounts import judge_accounts
-        accounts = judge_accounts(layouts, merges, account_rows, recoveries=recoveries, printed_pages=printed_pages,
-                                  printed_lines=printed_lines, document=account, document_reasons=reasons,
-                                  page_errors=page_errors, truncated=truncated, moneyless_pages=moneyless_pages,
-                                  currency_source=currency_source, row_states=row_states, plan=account_plan)
+        try:
+            accounts = judge_accounts(layouts, merges, account_rows, recoveries=recoveries,
+                                      printed_pages=printed_pages, printed_lines=printed_lines, document=account,
+                                      document_reasons=reasons, page_errors=page_errors, truncated=truncated,
+                                      moneyless_pages=moneyless_pages, currency_source=currency_source,
+                                      row_states=row_states, plan=account_plan)
+        except Exception as exc:  # fails closed: the statement stays held as one account
+            accounts_error, accounts = type(exc).__name__, None
+    accounts_skipped = None
+    if accounts is not None and accounts.get('skipped'):
+        # Not judged account by account (rows outside every recognized account): held as one statement.
+        accounts_skipped, accounts = accounts, None
     page_text = page_texts(merges, truncated)
     integrity = assess_pages(page_text)
     audit = {'version': PAIR_VERSION, 'account_count': len(accounts['accounts']) if accounts else 1,
@@ -1061,6 +1083,11 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     audit['daily_opening_balance_dropped'] = opening_days
     audit['descriptions_from_text_layer'] = snapped_descriptions
     audit['listing_echo_rows'] = len(echoed)
+    if accounts_error is not None:
+        audit['accounts_error'] = accounts_error
+    if accounts_skipped is not None:
+        audit['accounts_skipped'] = accounts_skipped
+    audit['zero_amount_undirected_rows_excluded'] = [[row.page, row.locator] for row in unmoved_rows]
     if accounts is not None:
         audit['accounts'] = accounts['accounts']
         audit['accounts_summary'] = {key: value for key, value in accounts.items() if key != 'accounts'}

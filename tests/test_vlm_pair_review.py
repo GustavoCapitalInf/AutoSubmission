@@ -173,6 +173,59 @@ def test_reviewer_addition_of_a_printed_balance_line_never_enters_the_ledger(lab
     assert evidence["raw_addition"]["row"]["description"] == label
 
 
+def test_a_numeric_correction_written_as_text_is_that_number():
+    # The reviewer fills the printed amount as "-20.00" (text): the same number, the row is corrected, not held.
+    rows = [_candidate(0)]
+    original = candidate_records(rows)[0]["row"]
+    payload = _review(rows)
+    payload["reviews"][0].update(verdict="correct", observed_description=original["description"], corrections=[
+        {"field": "printed_amount", "original": "20.00", "corrected": "-20.00"},
+        {"field": "direction", "original": "credit", "corrected": "debit"}])
+    result = merge_review(rows, payload, page=1)
+    assert result.counts["corrected"] == 1 and result.counts["unresolved"] == 0
+    assert result.rows[0].printed_amount == Decimal("-20.00") and result.rows[0].direction == "debit"
+    # Text that is not plainly a number stays text, and the row stays held.
+    payload["reviews"][0]["corrections"][0]["corrected"] = "twenty"
+    assert merge_review(rows, payload, page=1).counts["unresolved"] == 1
+
+
+def test_a_zero_amount_row_no_reader_directed_moves_nothing():
+    from vlm.pair import zero_undirected_rows
+    pending = replace(_candidate(1), amount=Decimal("0.00"), direction="unknown", printed_amount=None)
+    zero_directed = replace(_candidate(2), amount=Decimal("0.00"), direction="debit")
+    kept, excluded = zero_undirected_rows([_candidate(0), pending, zero_directed])
+    assert [row.locator for row in kept] == ["b1t0r0", "b1t0r2"] and excluded == [pending]
+
+
+def _figures_only(count):
+    return [replace(_candidate(index), description="", direction="unknown", balance=None, printed_amount=None)
+            for index in range(count)]
+
+
+def test_a_table_both_readers_read_as_figures_only_is_no_ledger():
+    # A daily-balance grid the proposer read as rows: every row of its table a date and an amount, without a word, a
+    # direction or a balance, and the reviewer reads them the same way. None is a transaction.
+    grid = _figures_only(3)
+    result = merge_review(grid, _review(grid), page=1)
+    assert result.counts["rejected"] == 3 and result.counts["unresolved"] == 0 and result.rows == ()
+    assert {item["reason"] for item in result.evidence} == {"figure_grid_row"}
+
+
+def test_a_wordless_row_of_a_table_that_prints_words_or_read_with_a_direction_stays_held():
+    grid = _figures_only(3)
+    worded = [*grid[:2], replace(grid[2], description="Synthetic Deposit", direction="credit")]
+    result = merge_review(worded, _review(worded), page=1)
+    assert (result.counts["unresolved"], result.counts["agreed"]) == (2, 1)
+    payload = _review(grid)
+    payload["reviews"][0].update(verdict="correct", corrections=[
+        {"field": "direction", "original": "unknown", "corrected": "credit"}])
+    result = merge_review(grid, payload, page=1)
+    assert (result.counts["unresolved"], result.counts["rejected"]) == (1, 2)
+    # A row read from a crop, not from the whole page, is never judged by its table.
+    cropped = [replace(row, locator=f"g1c0/r{index}/{row.locator}") for index, row in enumerate(grid)]
+    assert merge_review(cropped, _review(cropped), page=1).counts["unresolved"] == 3
+
+
 def test_reviewer_addition_naming_a_balance_at_its_own_balance_is_that_balance_line():
     # "Closing Date ... New Balance" added as a deposit of that balance: the line names a balance and its amount is its
     # own balance, so it is the balance, not a movement. A transaction merely mentioning a balance stays.

@@ -327,3 +327,129 @@ def test_an_account_printing_one_withdrawal_takes_the_statements_minus_style():
               for row in ROWS_ONE + ROWS_TWO[:1]]
     result = _judge([_merge(1, [savings] + signed[:2]), _merge(2, signed[2:])], layouts=(layout, PAGE_TWO))
     assert [account["status"] for account in result["accounts"]] == ["verified", "verified"]
+
+
+# Review 7 (independent adversarial review of the multi-account change): its reproductions, fabricated.
+REVIEW_PAGE = DotsLayout(1, (
+    _block(0, "section_header", "FABRICATED BUSINESS CHECKING (0010)"),
+    _block(1, "table", _table(("Beginning Balance", "$1,000.00", "Total Deposits", "$400.00"),
+                              ("Total Withdrawals", "$150.00", "Ending Balance", "$1,250.00"))),
+    _block(2, "table", _table(LEDGER_HEADER, ("03/02", "FABRICATED DEPOSIT", "400.00", "", "1,400.00"),
+                              ("03/05", "FABRICATED CARD", "", "100.00", "1,300.00"),
+                              ("03/20", "FABRICATED FEE", "", "50.00", "1,250.00"))),
+    _block(3, "section_header", "FABRICATED SAVINGS (0001)"),
+    _block(4, "text", "Beginning Balance: $50.00 Ending Balance: $50.00"),
+    _block(5, "text", "03/10 TRANSFER IN 500.00\n03/15 TRANSFER OUT 500.00"),
+), (), (), False)
+REVIEW_ROWS = [_row(1, "b2t0r1", "2031-03-02", "400.00", "credit", "1400.00"),
+               _row(1, "b2t0r2", "2031-03-05", "100.00", "debit", "1300.00"),
+               _row(1, "b2t0r3", "2031-03-20", "50.00", "debit", "1250.00")]
+
+
+def _added(locator, date, amount, direction, top):
+    return replace(_row(1, locator, date, amount, direction, None), bbox=(0.125, top, 0.875, top + 1 / 50))
+
+
+def test_an_addition_whose_neighbour_and_box_name_different_accounts_is_unplaced():
+    # The reviewer adds the savings account's two transfers after the checking account's last row, with boxes under
+    # the savings heading: neither account may take them (finding 1).
+    additions = [_added("added0", "2031-03-10", "500.00", "credit", 0.63),
+                 _added("added1", "2031-03-15", "500.00", "debit", 0.66)]
+    rows = REVIEW_ROWS + additions
+    evidence = [{"page": 1, "locator": row.locator, "state": "added" if row.locator.startswith("added") else "agreed",
+                 "row": {"bbox": list(row.bbox)}} for row in rows]
+    merged = PageReviewMerge(1, tuple(rows), tuple(evidence), {"agreed": 3, "added": 2}, (), {}, (), "statement_page")
+    plan = plan_accounts([REVIEW_PAGE])
+    kept, _ = assign_rows(plan, [merged])
+    assert kept[(1, "added0")] == UNPLACED and kept[(1, "added1")] == UNPLACED
+    result = _judge([merged], layouts=(REVIEW_PAGE,))
+    assert [(account["status"], "rows_unplaced" in account["reasons"]) for account in result["accounts"]] == [
+        ("held", True), ("held", True)]
+
+
+def test_an_account_printing_a_transaction_line_is_never_idle():
+    # The savings section prints two dated transfers the readers did not keep: its equal opening and closing
+    # balances do not make it idle (finding 1).
+    printed = [PrintedEvidence(native="Beginning Balance: $50.00 Ending Balance: $50.00 $1,000.00 $1,250.00 $400.00 "
+                                      "$150.00 1,400.00 1,300.00 1,250.00")]
+    result = _judge([_merge(1, REVIEW_ROWS)], layouts=(REVIEW_PAGE,), printed_pages=printed)
+    checking, savings = result["accounts"]
+    assert checking["status"] == "verified"
+    assert (savings["status"], savings["activity_lines"]) == ("held", 2) and "no_rows" in savings["reasons"]
+
+
+def test_a_table_emitted_before_its_heading_is_placed_by_neither():
+    # The reading order puts the savings table under the checking heading, the page puts it under the savings
+    # heading: no account takes its rows (finding 1).
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "FABRICATED BUSINESS CHECKING (0010)"),
+        _block(1, "table", _table(LEDGER_HEADER, ("03/02", "FABRICATED DEPOSIT", "400.00", "", "1,400.00"))),
+        replace(_block(2, "table", _table(LEDGER_HEADER, ("03/10", "TRANSFER IN", "500.00", "", "550.00"))),
+                bbox=(0.125, 7 / 10, 0.875, 8 / 10)),
+        replace(_block(3, "section_header", "FABRICATED SAVINGS (0001)"), bbox=(0.125, 6 / 10, 0.875, 13 / 20)),
+    ), (), (), False)
+    plan = plan_accounts([layout])
+    assert plan.block_section(1, 1) == 0 and plan.block_section(1, 2) == UNPLACED
+
+
+def test_short_titles_printing_sentence_words_still_name_accounts():
+    # Finding 2: the business checking account's own heading must not go unrecognized.
+    for text, kind, title in (("Your Business Checking (0010)", "checking", "Business Checking"),
+                              ("YOUR REGULAR SAVINGS 0001", "savings", "REGULAR SAVINGS"),
+                              ("US Bank Business Checking 1234", "checking", "US Bank Business Checking"),
+                              ("Business Checking Activity for May", "checking", "Business Checking"),
+                              ("Daily Interest Savings 0002", "savings", "Daily Interest Savings")):
+        heading = parse_heading(text)
+        assert heading is not None and (heading.kind, heading.title) == (kind, title), text
+    assert parse_heading("Daily Balances") is None
+    assert parse_heading("If you have questions about your checking account") is None
+
+
+def test_rows_printed_before_every_recognized_heading_stop_the_account_by_account_judgement():
+    # An unrecognized first heading with its rows, then two recognized accounts: judging only those two would drop
+    # the first account from the statement (finding 2).
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "FABRICATED OPERATING"),
+        _block(1, "table", _table(LEDGER_HEADER, ("03/02", "FABRICATED DEPOSIT", "400.00", "", "1,400.00"))),
+        _block(2, "section_header", "FABRICATED SAVINGS (0001)"),
+        _block(3, "text", "Beginning Balance: $50.00 Ending Balance: $55.00"),
+        _block(4, "table", _table(LEDGER_HEADER, ("03/31", "DIVIDEND", "5.00", "", "55.00"))),
+        _block(5, "section_header", "FABRICATED CLUB (0002)"),
+        _block(6, "text", "Beginning Balance: $25.00 Ending Balance: $25.00"),
+    ), (), (), False)
+    rows = [_row(1, "b1t0r1", "2031-03-02", "400.00", "credit", "1400.00"),
+            _row(1, "b4t0r1", "2031-03-31", "5.00", "credit", "55.00")]
+    result = _judge([_merge(1, rows)], layouts=(layout,))
+    assert result["skipped"] == "rows_outside_accounts" and result["rows_outside_accounts"] == 1
+
+
+def test_a_number_read_from_an_account_number_line_does_not_make_a_second_account():
+    # Finding 7: "FABRICATED SAVINGS" + "Account Number ...7890", later "FABRICATED SAVINGS (0001)": one account.
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "FABRICATED SAVINGS"),
+        _block(1, "text", "Account Number 1234567890"),
+        _block(2, "section_header", "FABRICATED CHECKING (0010)"),
+        _block(3, "section_header", "FABRICATED SAVINGS (0001)"),
+    ), (), (), False)
+    assert [section.title for section in plan_accounts([layout]).sections] == ["FABRICATED SAVINGS",
+                                                                              "FABRICATED CHECKING"]
+
+
+def test_a_transaction_beginning_with_a_balance_label_is_no_figure():
+    # Finding 8: "NEW BALANCE TRANSFER TO SAVINGS" is a transaction of the ledger, not the account's closing.
+    layout = DotsLayout(1, (
+        _block(0, "section_header", "FABRICATED CHECKING (0010)"),
+        _block(1, "table", _table(LEDGER_HEADER, ("", "Beginning Balance", "", "", "1,000.00"),
+                                  ("03/05", "NEW BALANCE TRANSFER TO SAVINGS", "", "100.00", "900.00"),
+                                  ("03/31", "Ending Balance", "", "", "900.00"))),
+    ), (), (), False)
+    figures = section_figures(plan_accounts([layout]), 0, [layout])
+    assert figures["ending_balance"]["values"] == ["900.00"] and figures["beginning_balance"]["value"] == \
+        Decimal("1000.00")
+
+
+def test_page_metadata_the_print_contradicts_holds_the_accounts_on_that_page():
+    # Finding 9: as on a single account, quarantined reviewer metadata holds the page.
+    merged = replace(_merge(2, ROWS_TWO), metadata_evidence=({"field": "ending_balance"},))
+    result = _judge([_merge(1, ROWS_ONE), merged])
+    assert "page_unresolved" in result["accounts"][1]["reasons"]

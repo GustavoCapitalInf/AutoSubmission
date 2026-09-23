@@ -205,6 +205,8 @@ def _analyze_accounts(doc: StatementMarkdown, evidence: dict, *, settings: Setti
     if not reports:
         _refuse("visual pair daily ledger did not validate")
     transfers, notes = identify_internal_transfers(reports)
+    # The document's period is the one every published account shares; accounts printing different periods leave it
+    # unset, and each keeps its own.
     periods = {(report.statement.period_start, report.statement.period_end) for report in reports}
     return DocumentReport(accounts=reports, document_period=periods.pop() if len(periods) == 1 else None,
                           internal_transfers=transfers, integrity_notes=notes, account_roster=roster)

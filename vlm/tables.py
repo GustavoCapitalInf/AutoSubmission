@@ -8,7 +8,9 @@ import re
 from vlm.textparse import is_date_like, is_money_like
 
 HEADER_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "date": ("date", "posted", "post date", "trans date", "transaction date", "effective", "date posted"),
+    "date": ("date", "posted", "post date", "trans date", "transaction date", "effective", "date posted",
+             # Abbreviated date headers printed with a period ("Post.", "Eff."): the period is stripped first.
+             "post", "eff"),
     "description": ("description", "details", "transaction", "particulars", "memo", "activity", "narrative", "payee", "transactions",
                     # French (CIBC, RBC, Desjardins): accents are optional in a proposer's reading.
                     "opérations", "operations", "détails", "libellé", "libelle"),
@@ -34,6 +36,11 @@ class ColumnMap:
     amount: int | None
     balance: int | None
     header_row: int | None
+    # Further columns the header names as dates ("Post." then "Eff."): printed dates, never description words.
+    other_dates: tuple[int, ...] = ()
+    # A column whose header names the row's kind ("Category", "Type") and whose cells print only a direction
+    # ("Debit", "Credit"): the row's direction where its amount prints no sign, never description words.
+    direction: int | None = None
 
 
 class _TableParser(HTMLParser):
@@ -91,7 +98,7 @@ _HEADER_SIGN = re.compile(r"\s*\(\s*[+\-−]\s*\)$")
 
 def _header_role(cell: str) -> str | None:
     text = _HEADER_CURRENCY.sub("", " ".join(cell.lower().replace("_", " ").split()))
-    text = _HEADER_SIGN.sub("", text)
+    text = _HEADER_SIGN.sub("", text).rstrip(".")
     if not text:
         return None
     # These explicit compound labels name one direction. Match the whole
@@ -108,6 +115,24 @@ def _header_role(cell: str) -> str | None:
 
 
 _MONEY_ROLES = ("debit", "credit", "amount", "balance")
+_DIRECTION_HEADER = re.compile(r"^(?:category|type|transaction type|trans type|dr/cr|cr/dr|debit/credit|credit/debit)$")
+DIRECTION_WORDS = {"debit": "debit", "dr": "debit", "withdrawal": "debit", "credit": "credit", "cr": "credit",
+                   "deposit": "credit"}
+
+
+def _direction_column(grid: list[list[str]], header: list[str], header_row: int, roles) -> int | None:
+    """The one column (no money or date role) whose header names the row's kind ("Category", "Type", "Transaction
+    Type") and whose every body cell prints only a direction word ("Debit", "Credit"), or None."""
+    found = []
+    for col, cell in enumerate(header):
+        if (roles[col] not in (None, "description")
+                or not _DIRECTION_HEADER.match(" ".join(cell.lower().split()).rstrip("."))):
+            continue
+        body = [" ".join(row[col].lower().split()).rstrip(".") for row in grid[header_row + 1:]
+                if col < len(row) and row[col].strip()]
+        if body and all(value in DIRECTION_WORDS for value in body):
+            found.append(col)
+    return found[0] if len(found) == 1 else None
 
 
 def unfold_side_by_side(grid: list[list[str]]) -> list[list[str]]:
@@ -204,8 +229,10 @@ def classify_columns(grid: list[list[str]], *, headerless_transaction_amount: bo
             for col, role in enumerate(roles):
                 if role and role not in assigned:
                     assigned[role] = col
+            other_dates = tuple(col for col, role in enumerate(roles) if role == "date" and col != assigned["date"])
             return ColumnMap(assigned.get("date"), assigned.get("description"), assigned.get("debit"),
-                             assigned.get("credit"), assigned.get("amount"), assigned.get("balance"), row_index)
+                             assigned.get("credit"), assigned.get("amount"), assigned.get("balance"), row_index,
+                             other_dates, _direction_column(grid, row, row_index, roles))
     stats = []
     for col in range(width):
         cells = [c for c in _column(grid, col) if c.strip()]

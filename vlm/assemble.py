@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
-from vlm.tables import ColumnMap, classify_columns, parse_html_tables, unfold_side_by_side
+from vlm.tables import classify_columns, ColumnMap, DIRECTION_WORDS, parse_html_tables, unfold_side_by_side
 from vlm.textparse import is_date_like, month_number, parse_date, parse_money
 
 # Balance lines as French statements print them: solde reporté / précédent / antérieur / d'ouverture / de
@@ -135,7 +135,8 @@ def _cell(row: list[str], index: int | None) -> str:
 def _description_cells(row: list[str], colmap: ColumnMap) -> str:
     # OCR sometimes splits one printed description into an extra, unlabeled cell.
     # Keep those cells in source order instead of dropping account/check references.
-    value_columns = {colmap.date, colmap.debit, colmap.credit, colmap.amount, colmap.balance}
+    value_columns = {colmap.date, colmap.debit, colmap.credit, colmap.amount, colmap.balance, colmap.direction,
+                     *colmap.other_dates}
     return " ".join(cell.strip() for index, cell in enumerate(row)
                     if index not in value_columns and cell.strip())
 
@@ -234,6 +235,10 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
             magnitude = abs(amount)
             direction = "debit" if amount < 0 else "unknown"
             source = "printed"
+            # A kind column ("Category": "Debit" / "Credit") directs a row whose amount prints no sign.
+            kind = DIRECTION_WORDS.get(" ".join(_cell(row, colmap.direction).lower().split()).rstrip("."))
+            if direction == "unknown" and kind is not None:
+                direction, source = kind, "column"
         rows.append(CandidateRow(date=date, date_text=date_text, description=description, amount=magnitude,
                                  direction=direction, balance=balance, page=page, source="stage_a",
                                  locator=f"t{table_index}r{row_index}", direction_source=source,

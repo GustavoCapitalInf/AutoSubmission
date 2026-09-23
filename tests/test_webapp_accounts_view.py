@@ -128,3 +128,32 @@ console.log(JSON.stringify({{html: els.accountsPanel.innerHTML}}));
 """
     html = " ".join(_run(source)["html"].split())
     assert "Checking ••1234" in html and "Savings ••9876" in html and html.count("Verified") == 2
+
+
+HELD_MAIN = {"document": {"account_count": 3, "account_roster": [
+    {"title": "FABRICATED SAVINGS", "kind": "savings", "number_last4": "0001", "status": "published",
+     "published_index": 0, "balance": None, "reasons": []},
+    {"title": "FABRICATED BUSINESS CHECKING", "kind": "checking", "number_last4": "0010", "status": "held",
+     "published_index": None, "balance": None, "reasons": ["sum_mismatch"]},
+    {"title": "FABRICATED CLUB", "kind": "savings", "number_last4": "0020", "status": "published",
+     "published_index": 1, "balance": None, "reasons": []},
+]}, "accounts": [_account("FABRICATED SAVINGS", "0001", 9000.0), _account("FABRICATED CLUB", "0020", 20.0)]}
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_a_held_business_checking_account_is_never_replaced_as_the_main_account():
+    # Review 7, finding 5: the table marks the held checking account MAIN, no published account; the statement modal
+    # shows no account in its place.
+    source = _harness("on") + _function("modalAccountPayload") + f"""
+const report = {json.dumps(HELD_MAIN)};
+const published = publishedAccounts(report), roster = accountRoster(report);
+const unverified = unverifiedMainAccount(roster);
+renderAccountsPanel(published, roster, -1, null, unverified);
+console.log(JSON.stringify({{title: unverified && unverified.title, html: els.accountsPanel.innerHTML,
+                            modal: modalAccountPayload(report)}}));
+"""
+    result = _run(source)
+    assert result["title"] == "FABRICATED BUSINESS CHECKING" and result["modal"] is None
+    rows = " ".join(result["html"].split()).split("<tr")[2:]
+    assert [("MAIN" in row, "Verified" in row) for row in rows] == [(False, True), (True, False), (False, True)]
+    assert "is-selected" not in " ".join(rows)

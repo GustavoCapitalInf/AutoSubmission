@@ -89,9 +89,42 @@ def _finite(value: object) -> bool:
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
 
 
+# A reviewer's correction of a numeric field written as text ("-1,234.56", "$1,234.56"): the same number.
+_NUMERIC_FIELDS = frozenset({"amount", "balance", "printed_amount"})
+_NUMERIC_TEXT = re.compile(r"\s*-?\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*")
+
+
+def _numeric_value(field: str, value):
+    """A numeric field's value as a number when the reviewer wrote it as plain numeric text; else unchanged."""
+    if field in _NUMERIC_FIELDS and isinstance(value, str) and _NUMERIC_TEXT.fullmatch(value):
+        number = float(value.replace("$", "").replace(",", "").strip())
+        return number if math.isfinite(number) else value
+    return value
+
+
 # A line naming one of the account's balances (vlm/review.py: a reviewer addition of it is no transaction).
 _NAMES_A_BALANCE = re.compile(r"\b(?:new|ending|closing|previous|beginning|opening|starting)\s+balance\b|"
                               r"\bbalance\s+(?:forward|brought\s+forward|carried\s+forward)\b", re.IGNORECASE)
+
+
+def _table_of(row) -> tuple | None:
+    """(page, table) of a row the proposer read from a whole page (locator b<block>t<table>r<row>); None for any
+    other row (a crop's, a reviewer's)."""
+    match = re.fullmatch(r"(b\d+t\d+)r\d+", row.locator or "")
+    return (row.page, match.group(1)) if match else None
+
+
+def _figure_grid_tables(candidates) -> set:
+    """(page, table) of the proposer's tables whose every row prints a date and an amount and nothing else: no
+    word, no direction, no balance. A daily-balance grid read as rows, never a ledger."""
+    tables: dict = {}
+    for row in candidates:
+        table = _table_of(row)
+        if table is not None:
+            tables.setdefault(table, []).append(row)
+    return {table for table, rows in tables.items()
+            if all(not str(row.description or "").strip() and row.direction == "unknown" and row.balance is None
+                   and row.date_text for row in rows)}
 
 
 def _row_errors(row: dict, *, label: str) -> list[str]:
@@ -277,10 +310,10 @@ def _review_entry(original: dict, item: dict, *, candidate_id: str):
                 continue
             field = change["field"]
             fields.append(field)
-            if "original" not in change or change["original"] != original[field]:
+            if "original" not in change or _numeric_value(field, change["original"]) != original[field]:
                 errors.append("review_original_mismatch")
             if "corrected" in change:
-                corrected[field] = copy.deepcopy(change["corrected"])
+                corrected[field] = _numeric_value(field, copy.deepcopy(change["corrected"]))
                 if field == "date_text" and corrected[field] is None:
                     # No date printed on the row's line (a date printed once for the day): the schema's "".
                     corrected[field] = ""
@@ -536,6 +569,9 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         evidence[-1].update(validation_errors=list(codes), validation_warnings=[],
                             raw_addition=copy.deepcopy(item))
 
+    # Tables the proposer read as figures only: every row of the table a date and an amount, with no word, no
+    # direction and no balance (a daily-balance grid read as rows). None of them can be a published transaction.
+    grids = _figure_grid_tables(candidates)
     add_after(None)
     for candidate, record in zip(candidates, records):
         candidate_id = record["candidate_id"]
@@ -561,6 +597,18 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
             corrected = None if verdict == "confirm" else settled[0]
         usable = not fatal and not row_errors and (not inherited or verdict == "reject") and checked_item is not None
         state = {"confirm": "agreed", "correct": "corrected", "reject": "rejected"}.get(verdict, "unresolved") if usable else "unresolved"
+        read = corrected if verdict == "correct" and corrected is not None else record["row"]
+        figure_grid = (state == "unresolved" and not fatal and checked_item is not None and not inherited
+                       and _table_of(candidate) in grids and verdict in ("confirm", "correct")
+                       and not str(effective.get("observed_description") or "").strip()
+                       and not str(read.get("description") or "").strip()
+                       and read.get("direction") == "unknown" and read.get("balance") is None
+                       and {code.split(":")[0] for code in row_errors}
+                       <= {"review_empty_description", "review_description_observation_missing"})
+        if figure_grid:
+            # Both readers read it without a word, a direction or a balance, in a table of figures only: no
+            # transaction. The statement's own totals still have to reconcile without it.
+            state, verdict = "rejected", "reject"
         value = record["row"] if state == "agreed" else corrected if state == "corrected" else None
         if state == "agreed":
             rows.append(replace(candidate, source="stage_a+stage_b"))
@@ -571,7 +619,8 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
         raw_changes = raw_item.get("corrections") if raw_item is not None else ()
         evidence.append(_evidence(candidate_id=candidate_id, state=state, page=page, locator=record["locator"],
                                   original=record["row"], corrected=corrected, row=value,
-                                  reason="page_review_invalid" if fatal else "row_review_invalid" if state == "unresolved" else effective.get("reason", ""),
+                                  reason="page_review_invalid" if fatal else "row_review_invalid" if state == "unresolved"
+                                  else "figure_grid_row" if figure_grid else effective.get("reason", ""),
                                   observed_description=effective.get("observed_description"),
                                   corrections=raw_changes if isinstance(raw_changes, list) else ()))
         evidence[-1].update(review_verdict=raw_item.get("verdict") if raw_item is not None else None,

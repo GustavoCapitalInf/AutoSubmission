@@ -80,3 +80,36 @@ def test_only_a_repeated_group_naming_a_money_column_is_unfolded():
     assert tables.unfold_side_by_side(names) == names
     uneven = [["Date", "Amount", "Date", "Amount", "Date"], ["01/02", "1.00", "01/03", "2.00", "01/04"]]
     assert tables.unfold_side_by_side(uneven) == uneven
+
+
+def test_abbreviated_date_headers_are_dates_and_a_second_date_is_no_description():
+    from vlm.assemble import rows_from_grid
+    grid = [["Post.", "Eff.", "Description", "Deposits", "Withdrawals", "Balance"],
+            ["03/05", "03/04", "FABRICATED TRANSFER", "105.25", "", "347.75"],
+            ["03/06", "03/06", "FABRICATED CARD", "", "12.50", "335.25"]]
+    columns = tables.classify_columns(grid)
+    assert (columns.date, columns.other_dates, columns.description) == (0, (1,), 2)
+    rows = rows_from_grid(grid, columns, page=1, table_index=0, year_hint=2031)
+    assert [(row.date, row.description, row.direction) for row in rows] == [
+        ("2031-03-05", "FABRICATED TRANSFER", "credit"), ("2031-03-06", "FABRICATED CARD", "debit")]
+
+
+def test_a_category_column_of_direction_words_directs_unsigned_amounts():
+    from vlm.assemble import rows_from_grid
+    grid = [["DATE", "DESCRIPTION", "CATEGORY", "AMOUNT", "BALANCE"],
+            ["Mar 5", "FABRICATED CARD PURCHASE", "Debit", "12.50", "335.25"],
+            ["Mar 6", "FABRICATED DEPOSIT", "Credit", "40.00", "375.25"],
+            ["Mar 7", "FABRICATED FEE", "Debit", "-3.00", "372.25"]]
+    columns = tables.classify_columns(grid)
+    assert columns.direction == 2
+    rows = rows_from_grid(grid, columns, page=1, table_index=0, year_hint=2031)
+    assert [(row.description, row.direction, row.direction_source) for row in rows] == [
+        ("FABRICATED CARD PURCHASE", "debit", "column"), ("FABRICATED DEPOSIT", "credit", "column"),
+        ("FABRICATED FEE", "debit", "printed")]
+    # A category naming anything but a direction stays the description's words.
+    spending = [row[:] for row in grid]
+    spending[2][2] = "Groceries"
+    columns = tables.classify_columns(spending)
+    assert columns.direction is None
+    assert rows_from_grid(spending, columns, page=1, table_index=0, year_hint=2031)[1].description == \
+        "FABRICATED DEPOSIT Groceries"
