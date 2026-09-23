@@ -103,7 +103,9 @@ def run(args) -> dict:
         recorded = recorded_manifests(args.replay_from / "evidence")
         (output / KEY_MANIFESTS).write_text(json.dumps(recorded), encoding="utf-8")
         replay = {"replayed_from": str(args.replay_from.name), "model_calls": 0, "hits": 0, "misses": 0}
-        holder = install(None, replay)
+        # Live on miss: a call whose input changed (a changed proposal) goes to the verified servers; synthetic
+        # statements only.
+        holder = install(None, replay, live_on_miss=bool(getattr(args, "live_on_miss", False)))
     results = []
     for item in manifest["files"]:
         pdf = root / item["path"]
@@ -163,11 +165,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--synthetic-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--replay-from", type=Path, default=None)
-    summary = run(parser.parse_args(argv))
+    parser.add_argument("--live-on-miss", action="store_true",
+                        help="with --replay-from, send a call whose input changed to the verified servers")
+    args = parser.parse_args(argv)
+    summary = run(args)
     print(json.dumps({key: summary[key] for key in ("statements", "admitted", "admitted_exact", "admitted_wrong",
                                                     "held", "negative_controls_held", "failed", "replay")
                       if key in summary}))
-    return 0 if not summary.get("replay", {}).get("misses") else 3
+    # A strict replay fails on a changed call; live on miss sends it (a failed live call raises).
+    return 0 if not summary.get("replay", {}).get("misses") or args.live_on_miss else 3
 
 
 if __name__ == "__main__":
