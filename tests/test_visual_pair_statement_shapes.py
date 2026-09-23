@@ -77,6 +77,49 @@ def test_a_printed_header_over_a_scanned_body_is_not_a_page_without_transactions
     # Review finding 2: a stamp text layer printing no amount at all is no exception.
     stamp = "FABRICATED BANK\nPage 2 of 3\nChecks paid\n"
     assert pages_without_transactions([PrintedEvidence(native=stamp, proposer=rows)], account) == frozenset()
+    # Too few words to tell (a scanned list of cheque numbers and amounts): not covered when the proposer read
+    # amounts there; a proposer that read nothing leaves the page to the text layer.
+    numbers = "101 212.40 102 1,385.00 103 61.25"
+    assert pages_without_transactions([PrintedEvidence(native=stamp, proposer=numbers)], account) == frozenset()
+    assert pages_without_transactions([PrintedEvidence(native=stamp, proposer="")], account) == frozenset({1})
+
+
+SNAP_PAGE = """01/05 CARD PURCHASE FABRIKATEDTRIPTOWN ONCA 12.50
+01/06 Purchase authorized on 01/05 Fabpal *Fabricated Store 402-555-0101 CA 20.75
+01/07 Orig CO Name:Fabricated Utility Orig ID:Web000099 Desc Date:310105 Trace#:9900112233 41.10
+"""
+
+
+def test_a_description_read_with_small_differences_takes_the_prints_exact_characters():
+    from vlm.pair import snap_descriptions
+    printed = PrintedEvidence(native=SNAP_PAGE)
+    # A dropped letter and a changed case are the model's; the print's characters stand.
+    assert printed.printed_description("CARD PURCHASE FABRIKATEDTRITOWN ONCA", Decimal("12.50"), "01/05") == \
+        "CARD PURCHASE FABRIKATEDTRIPTOWN ONCA"
+    assert printed.printed_description("Purchase authorized on 01/05 FabPal *Fabricated Store 402-555-0101 CA",
+                                       Decimal("20.75"), "01/06") == \
+        "Purchase authorized on 01/05 Fabpal *Fabricated Store 402-555-0101 CA"
+    # Printed exactly, a different reading, or a window that would drop a word and take another: nothing changes.
+    assert printed.printed_description("CARD PURCHASE FABRIKATEDTRIPTOWN ONCA", Decimal("12.50"), "01/05") is None
+    assert printed.printed_description("FABRICATED OTHER SHOP", Decimal("12.50"), "01/05") is None
+    assert printed.printed_description("CO Name:Fabricated Utility Orig ID:Web000099 Desc Date:310105 Trace#:9900112233",
+                                       Decimal("41.10"), "01/07") is None
+    # Without a text layer, or for a cheque named by its column label, nothing changes.
+    assert PrintedEvidence(native=None).printed_description("X", Decimal("1.00")) is None
+    rows = [CandidateRow("2031-01-05", "01/05", "CARD PURCHASE FABRIKATEDTRITOWN ONCA", Decimal("12.50"), "debit",
+                         None, 1, "stage_b", "b1l0"),
+            CandidateRow("2031-01-05", "01/05", "Check 101", Decimal("12.50"), "debit", None, 1, "stage_b", "b1l1",
+                         description_label="Check")]
+    snapped, changed = snap_descriptions(rows, [printed])
+    assert [row.description for row in snapped] == ["CARD PURCHASE FABRIKATEDTRIPTOWN ONCA", "Check 101"]
+    assert changed == [[1, "b1l0"]]
+
+
+def test_a_row_whose_amount_is_not_its_lines_first_takes_no_date_from_the_line():
+    # Review 5 finding 8: a cheque table printed two-up; the line's leading date is the first cheque's.
+    printed = PrintedEvidence(native="CHECKS\nDATE CHECK # AMOUNT DATE CHECK # AMOUNT\n03/23 301 81.40 302 46.15\n")
+    assert printed.governing_date(Decimal("81.40")) == "03/23"
+    assert printed.governing_date(Decimal("46.15")) is None
 
 
 def _row(amount, direction, locator, page=1, balance=None, day="2031-03-03"):

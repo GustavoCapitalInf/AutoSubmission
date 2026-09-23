@@ -331,6 +331,23 @@ def previous_balance_period_start(account: dict, reasons: list, occurrences: lis
     return {'period_start': start, 'page': page, 'settled_holds': len(settled)}
 
 
+def snap_descriptions(rows, printed_pages):
+    """Descriptions the readers wrote with small differences from the row's own print take the print's exact
+    characters (PrintedEvidence.printed_description): a model's autocorrection or dropped letter, never a
+    different reading. A labelled cheque number is left as it is. Returns (rows, [page, locator] of each row
+    changed)."""
+    snapped, changed = [], []
+    for row in rows:
+        printed = printed_pages[row.page - 1] if printed_pages and 0 < row.page <= len(printed_pages) else None
+        text = (printed.printed_description(row.description, row.amount, row.date_text, row.balance)
+                if printed is not None and not row.description_label else None)
+        if text:
+            changed.append([row.page, row.locator])
+            row = replace(row, description=text)
+        snapped.append(row)
+    return snapped, changed
+
+
 def section_row_states(row_states: dict, section_directions: dict | None) -> None:
     """A direction its printed section proved (settle_section_directions) corroborates a row both readers
     produced (agreed or corrected): its confidence method becomes printed_section. A reviewer-only row stays
@@ -367,10 +384,21 @@ def pages_without_transactions(printed_pages, account: dict) -> frozenset:
         if account.get(field) is not None:
             balances.add(abs(Decimal(str(account[field]))).quantize(Decimal('0.01')))
     # The coverage guard holds for a page printing no amount too: a stamp or header text layer over a scanned
-    # body prints none, and the proposer's reading of the body is what it does not cover.
+    # body prints none, and the proposer's reading of the body is what it does not cover. Too few words to tell
+    # (a scanned list of numbers) counts as covered only when the proposer read no amount there either.
     return frozenset(index + 1 for index, evidence in enumerate(printed_pages or ())
                      if evidence is not None and evidence.native and evidence.native_amounts <= balances
-                     and evidence.covers_proposer() is not False)
+                     and _covered(evidence))
+
+
+def _covered(evidence) -> bool:
+    covers = evidence.covers_proposer()
+    return covers is True or (covers is None and not _proposer_amounts(evidence))
+
+
+def _proposer_amounts(evidence) -> frozenset:
+    from vlm.native_text import _amounts
+    return frozenset(_amounts(evidence.proposer or ""))
 
 
 def exclude_undirected_by_totals(rows, account: dict, daily=()):
@@ -776,6 +804,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         printed_pages=printed_pages,
     )
     rows = list(dates.rows)
+    # A description written with small differences from the row's own print takes the print's exact characters.
+    rows, snapped_descriptions = snap_descriptions(rows, printed_pages)
     # A cheque read as its number alone is named by the cheque-number column its page's text layer prints it under.
     from vlm.assemble import labelled_from_print
     rows = [labelled_from_print(row, printed_pages[row.page - 1] if printed_pages and 0 < row.page <= len(printed_pages)
@@ -945,6 +975,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     audit['undirected_rows_excluded_by_totals'] = undirected_excluded
     audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)
     audit['daily_opening_balance_dropped'] = opening_days
+    audit['descriptions_from_text_layer'] = snapped_descriptions
     if admitted:
         from vlm.review import row_record
         audit['gate_rows'] = [{**row_record(row), 'page': row.page, 'locator': row.locator,

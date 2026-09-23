@@ -37,6 +37,9 @@ class CandidateRow:
     # The printed word naming the row's kind when its only text cell is a cheque number ("Check" from a
     # "Check Nbr" column). Structure, not text: the ledger applies it after review (labelled_description).
     description_label: str | None = None
+    # Read from a table printed k-up (unfold_side_by_side): the row above in reading order can be the
+    # neighbouring column group's, so it never lends this row its date.
+    side_by_side: bool = False
 
 
 # A column that holds cheque numbers: "Check Nbr", "Check No.", "CHECK #", "Cheque Number", "Chk No".
@@ -133,10 +136,13 @@ def _description_cells(row: list[str], colmap: ColumnMap) -> str:
                     if index not in value_columns and cell.strip())
 
 
-# A printed date's shape, beyond is_date_like: "DEC31", "Mar05", "5-Mar", "05-MAR-26", "03.05.2026", "2026/03/05".
-_DATE_SHAPE = re.compile(r"^(?:\d{1,4}[-/. ]\d{1,2}(?:[-/. ]\d{2,4})?"
+# A printed date's shape, beyond is_date_like: "DEC31", "Mar05", "5-Mar", "05-MAR-26", "03.05.2026", "2026/03/05";
+# numeric parts are day or month sized, so an amount ("1315.60") is no date.
+_DATE_SHAPE = re.compile(r"^(?:(?:\d{4}[-/. ])?(?:0?[1-9]|[12]\d|3[01])[-/. ](?:0?[1-9]|[12]\d|3[01])(?:[-/. ]\d{2,4})?"
                          r"|\d{1,2}[-/. ]?(?P<m1>[A-Za-z]{3,9})\.?(?:[-/., ]+\d{2,4})?"
                          r"|(?P<m2>[A-Za-z]{3,9})\.?[-/. ]?\d{1,2}(?:[-/., ]+\d{2,4})?)$")
+# An amount with cents as a cell prints it: a figure, never a description (a cheque number has no cents).
+_FIGURE = re.compile(r"[-+(]?[$€£]?\s?(?:\d{1,3}(?:[,\s]\d{3})+|\d+)[.,]\d{2}\)?-?")
 
 
 def _looks_like_date(text: str) -> bool:
@@ -156,8 +162,9 @@ def _restored_date_cell(row: list[str], colmap: ColumnMap, width: int) -> list[s
     empty date cell: exactly one cell short of the header whose first column is the date, its first cell text
     that is no date in any shape. Every cell then sits one column left (a credit in the debit column, a balance
     as the amount), so the empty date cell is put back, provided the restored row reads as a row: a description
-    that is no figure, and every money column empty or a figure, one at least. Any other row is returned as it
-    is (a row missing another cell, a compact date the proposer left in place)."""
+    that is no amount (a cheque number is a description), and every money column empty or a figure (a
+    continuation line prints none). Any other row is returned as it is (a row missing another cell, a compact
+    date the proposer left in place)."""
     if not (colmap.date == 0 and width and len(row) == width - 1 and row and row[0].strip()
             and not _looks_like_date(row[0])):
         return row
@@ -165,8 +172,8 @@ def _restored_date_cell(row: list[str], colmap: ColumnMap, width: int) -> list[s
     money = [_cell(restored, column) for column in (colmap.debit, colmap.credit, colmap.amount, colmap.balance)
              if column is not None]
     description = _cell(restored, colmap.description) if colmap.description is not None else restored[1].strip()
-    if (not description or parse_money(description) is not None
-            or any(cell and parse_money(cell) is None for cell in money) or not any(money)):
+    if (not description or _FIGURE.fullmatch(description)
+            or any(cell and parse_money(cell) is None for cell in money)):
         return row
     return restored
 
@@ -226,7 +233,8 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
         rows.append(CandidateRow(date=date, date_text=date_text, description=description, amount=magnitude,
                                  direction=direction, balance=balance, page=page, source="stage_a",
                                  locator=f"t{table_index}r{row_index}", direction_source=source,
-                                 printed_amount=debit if debit is not None else credit, description_label=label))
+                                 printed_amount=debit if debit is not None else credit, description_label=label,
+                                 side_by_side=not carry_dates))
     return rows
 
 

@@ -525,7 +525,8 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
             rows.append(replace(candidate, source="stage_a+stage_b"))
         elif state == "corrected":
             rows.append(replace(_source_row(value, page=page, locator=candidate.locator),
-                                description_label=candidate.description_label))
+                                description_label=candidate.description_label,
+                                side_by_side=candidate.side_by_side))
         raw_changes = raw_item.get("corrections") if raw_item is not None else ()
         evidence.append(_evidence(candidate_id=candidate_id, state=state, page=page, locator=record["locator"],
                                   original=record["row"], corrected=corrected, row=value,

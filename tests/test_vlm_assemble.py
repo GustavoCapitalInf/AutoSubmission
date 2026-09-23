@@ -180,6 +180,19 @@ def test_a_row_short_of_another_cell_whose_first_cell_is_a_compact_date_stays_as
     assert all(row.date_text != "" or row.description != "FABRICATED NOTE" for row in rows)
 
 
+def test_a_same_day_cheque_or_a_continuation_line_written_one_cell_short_is_put_back():
+    # Review 5 follow-up: a cheque number is a description, not a figure; a continuation line prints no amount.
+    from vlm.tables import classify_columns
+    grid = [["Date", "Check #", "Amount"], ["01/05", "1032", "400.00"], ["1033", "500.00"]]
+    rows = assemble.rows_from_grid(grid, classify_columns(grid), page=1, table_index=0, year_hint=2031)
+    assert [(row.description, row.amount, row.date_text) for row in rows] == [
+        ("1032", Decimal("400.00"), "01/05"), ("1033", Decimal("500.00"), "")]
+    grid = [["Date", "Description", "Withdrawals", "Deposits", "Balance"],
+            ["01/05", "FABRICATED TRANSFER TO", "75.00", "", "925.00"], ["FABRICATED SAVINGS 0001", "", "", ""]]
+    rows = assemble.rows_from_grid(grid, classify_columns(grid), page=1, table_index=0, year_hint=2031)
+    assert [row.description for row in rows] == ["FABRICATED TRANSFER TO FABRICATED SAVINGS 0001"]
+
+
 def test_a_k_up_table_does_not_carry_a_date_from_the_neighbouring_column_group():
     from vlm.tables import classify_columns, unfold_side_by_side
     grid = [["DATE", "CHECK #", "AMOUNT($)"] * 2,
@@ -188,3 +201,4 @@ def test_a_k_up_table_does_not_carry_a_date_from_the_neighbouring_column_group()
     rows = assemble.rows_from_grid(unfolded, classify_columns(unfolded), page=1, table_index=0, year_hint=2031,
                                    carry_dates=False)
     assert [(row.description, row.date) for row in rows] == [("301", "2031-03-23"), ("302", None)]
+    assert all(row.side_by_side for row in rows)

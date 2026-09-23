@@ -43,6 +43,21 @@ _WHOLE_DOLLARS = re.compile(r"[$€£]\s?(\d{1,3}(?:,\d{3})+|\d{1,7})(?![\d]|[.,
 _TAG = re.compile(r"<[^>]+>")
 # Tokens a wrapped description may have printed between its parts: the row's own money and dates.
 _SKIPPABLE = re.compile(r"^[-+(]?\$?[\d.,]+\)?-?$|^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?$")
+# An amount with cents as a printed token ("1,234.56", "(5.00)", "12.00-"): never a description word.
+_AMOUNT_TOKEN = re.compile(r"[-+(]?\$?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}\)?-?")
+
+
+def _edits(first: str, second: str) -> int:
+    """Levenshtein distance between two short tokens."""
+    previous = list(range(len(second) + 1))
+    for i, a in enumerate(first, 1):
+        current = [i]
+        for j, b in enumerate(second, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a != b)))
+        previous = current
+    return previous[-1]
+
+
 # How many lines a row's printed block may reach from the line of its amount (a wire transfer prints the
 # beneficiary and address over several lines, with the amount on a line of its own).
 _ROW_REACH = 6
@@ -226,6 +241,35 @@ class PrintedEvidence:
             return None  # several zero amounts printed and nothing tells the row's apart: cannot say
         return bool(lines) and bool(self.description_words_near(description, 0, date_text))
 
+    def printed_description(self, description, amount, date_text=None, balance=None) -> str | None:
+        """The text layer's own characters for a description the readers wrote with small differences (a
+        model's autocorrection, a dropped or swapped letter, a case: "FABRIKATEDTRITOWN" printed
+        "FABRIKATEDTRIPTOWN", "FabPal" printed "Fabpal"): among the tokens of the row's own printed stream (its line
+        told apart strictly; amounts and the row's own leading date left out), the one run of as many tokens as
+        the reading whose tokens all equal the reading's ignoring case, but at most two, each within two edits.
+        None when the reading is printed exactly, the row cannot be placed, or no single such run exists."""
+        if not self.native or not description or not description.strip():
+            return None
+        anchors = self._anchor_lines(amount, date_text, balance, strict=True)
+        if not anchors:
+            return None
+        stream, _, _ = self._row_stream(anchors[0])
+        words = [token for _, token in stream if not _AMOUNT_TOKEN.fullmatch(token)]
+        lead = spaced(date_text or "").split()
+        if lead and words[:len(lead)] == lead:
+            words = words[len(lead):]
+        target = spaced(description).split()
+        runs = set()
+        for start in range(len(words) - len(target) + 1):
+            run = words[start:start + len(target)]
+            different = [(a, b) for a, b in zip(run, target) if a.lower() != b.lower()]
+            if len(different) <= 2 and all(_edits(a.lower(), b.lower()) <= 2 for a, b in different):
+                runs.add(" ".join(run))
+        if len(runs) != 1:
+            return None
+        text = runs.pop()
+        return None if text == " ".join(target) else text
+
     def row_line_numbers(self, amount, date_text=None, balance=None) -> list[int] | None:
         """The text-layer lines that are this row's: its amount's printed occurrences, told apart by the row's
         balance and date as _anchor_lines measures them (several for same-day twins). None when nothing told
@@ -339,6 +383,10 @@ class PrintedEvidence:
                 text = " ".join(after[start:start + size])
                 if date_text_parts(text):
                     return text
+        if anchors[0][1] > 0:
+            # The row's amount is not its line's first: the line's leading date belongs to the row printed
+            # before it on that line (a cheque table printed two-up), and the lines above to other rows.
+            return None
         for index in range(anchors[0][0], -1, -1):
             count = self._row_starts[index]
             if count:

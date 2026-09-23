@@ -152,3 +152,11 @@ def test_no_clock_baseline_or_neighbor_date_supplies_missing_year():
     result = resolve_reviewed_dates([explicit, missing], period_start=None, period_end=None)
     assert result.rows == (explicit, missing) and result.unresolved == 1
     assert DATE_RESOLVER_VERSION == 5
+
+
+def test_a_row_of_a_table_printed_k_up_never_takes_the_date_of_the_row_above():
+    # Review 5 finding 8: in reading order the row above can be the neighbouring column group's cheque.
+    first = _row("6 oct", locator="b1t0r1")
+    neighbour = replace(_row("", locator="b1t0r2"), side_by_side=True)
+    result = resolve_reviewed_dates([first, neighbour], period_start="2031-10-01", period_end="2031-10-31")
+    assert [row.date for row in result.rows] == ["2031-10-06", None] and result.unresolved == 1

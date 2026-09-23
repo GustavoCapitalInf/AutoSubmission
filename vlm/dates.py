@@ -155,7 +155,10 @@ def _undated_row_date(row, above, printed_pages, start, end):
             return None
         return candidates[0], {"source": "deterministic_text_layer_date", "reason": "date_printed_for_the_row",
                                "printed_date_text": governing, "candidate_dates": list(candidates)}
-    if above is not None and _printed_table(row) is not None and _printed_table(row) == _printed_table(above):
+    # A row of a table printed k-up never takes the date of the row above: that can be the neighbouring
+    # column group's (assemble.unfold_side_by_side).
+    if (above is not None and not getattr(row, "side_by_side", False) and _printed_table(row) is not None
+            and _printed_table(row) == _printed_table(above)):
         return above.date, {"source": "deterministic_date_printed_on_row_above",
                             "reason": "date_printed_once_for_the_day", "inherited_from": above.locator,
                             "candidate_dates": [above.date]}
