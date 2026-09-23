@@ -221,6 +221,45 @@ function nsfSourceLabel(source) {
   return NSF_SOURCE_LABELS[source] || (source ? labelize(source) : "Negative-ending days");
 }
 
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+function isoDay(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return null;
+  const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(day.getTime()) ? null : day;
+}
+
+// The calendar month a statement stands for: the one holding most of its period's days, the earlier on a
+// tie. A statement running 2026-03-02 to 2026-04-01 is March 2026; 2025-12-01 to 2026-01-02 is December 2025.
+function statementMonth(periodStart, periodEnd) {
+  const start = isoDay(periodStart);
+  const end = isoDay(periodEnd);
+  if (!start && !end) return null;
+  const month = (day) => ({ month: day.getUTCMonth(), year: day.getUTCFullYear(),
+    key: day.getUTCFullYear() * 12 + day.getUTCMonth() });
+  if (!start || !end || end < start) return month(start || end);
+  const days = new Map();
+  for (let day = new Date(start), n = 0; day <= end && n < 400; day.setUTCDate(day.getUTCDate() + 1), n += 1) {
+    const key = day.getUTCFullYear() * 12 + day.getUTCMonth();
+    days.set(key, (days.get(key) || 0) + 1);
+  }
+  let best = null;
+  for (const [key, count] of days) {
+    if (!best || count > best.count || (count === best.count && key < best.key)) best = { key, count };
+  }
+  return { month: best.key % 12, year: Math.floor(best.key / 12), key: best.key };
+}
+
+// Whole numbers with thousands separators, as the CRM shows them: 186523.4 -> "186,523".
+function formatWhole(value) {
+  if (value === null || value === undefined || value === "") return "N/A";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "N/A";
+  return Math.round(number).toLocaleString("en-US");
+}
+
 function formatNumber(value) {
   const n = numberOrNull(value);
   if (n === null) return "N/A";
@@ -1980,8 +2019,7 @@ function renderPackageTables(pkg) {
   if (!documents.length) {
     els.monthlyTable.innerHTML = `
       <tr>
-        <td><strong>No statements</strong></td>
-        <td>N/A</td>
+        <td>No statements</td>
         <td>N/A</td>
         <td>N/A</td>
         <td>N/A</td>
@@ -1991,20 +2029,27 @@ function renderPackageTables(pkg) {
       </tr>
     `;
   } else {
-    els.monthlyTable.innerHTML = documents.map((doc) => {
+    // The CRM's seasonality layout: one row per statement month, in calendar order.
+    const rows = documents.map((doc) => ({ doc, month: statementMonth(doc.period_start, doc.period_end) }));
+    rows.sort((a, b) => (a.month ? a.month.key : Infinity) - (b.month ? b.month.key : Infinity));
+    // Each row is denominated by its OWN statement (CURRENCY DOCTRINE §F). The column names say ($) as the
+    // CRM does; when one package mixes currencies, a non-USD row names its unit so no figure passes for USD.
+    const currencies = new Set(documents.map((doc) => ("currency" in doc ? doc.currency : "USD") || "USD"));
+    els.monthlyTable.innerHTML = rows.map(({ doc, month }) => {
       const status = doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
-      // Statement-level results survive a package refusal untouched, and each
-      // row is denominated by its OWN statement (CURRENCY DOCTRINE §F) - which
-      // is what makes a mixed package still readable.
-      const docCurrency = "currency" in doc ? doc.currency : "USD";
+      const docCurrency = ("currency" in doc ? doc.currency : "USD") || "USD";
+      const unit = currencies.size > 1 && docCurrency !== "USD" ? ` ${docCurrency}` : "";
+      const amount = (value) => {
+        const text = formatWhole(value);
+        return text === "N/A" ? text : text + unit;
+      };
       return `
-        <tr>
-          <td><strong>${escapeHtml(doc.filename || "Statement")}</strong><br><span>${escapeHtml(doc.bank || "Unknown bank")}${docCurrency ? ` &middot; ${escapeHtml(docCurrency)}` : ""}</span></td>
-          <td>${escapeHtml(doc.period_start || "N/A")} to ${escapeHtml(doc.period_end || "N/A")}</td>
-          <td>${escapeHtml(formatMoney(doc.credits, docCurrency))}</td>
-          <td>${escapeHtml(formatMoney(doc.debits, docCurrency))}</td>
-          <td>${escapeHtml(formatMoney(doc.cash_flow, docCurrency))}</td>
-          <td>${escapeHtml(formatMoney(doc.average_daily_balance, docCurrency))}</td>
+        <tr title="${escapeHtml(doc.filename || "Statement")}">
+          <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}</td>
+          <td>${escapeHtml(month ? String(month.year) : "N/A")}</td>
+          <td>${escapeHtml(amount(doc.credits))}</td>
+          <td>${escapeHtml(formatWhole(doc.deposit_count))}</td>
+          <td>${escapeHtml(amount(doc.average_daily_balance))}</td>
           <td>${escapeHtml(formatNumber(doc.nsf_count))}</td>
           <td><button class="table-action statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${escapeHtml(status === "Failed" ? "Unavailable" : "Open")}</button></td>
         </tr>
