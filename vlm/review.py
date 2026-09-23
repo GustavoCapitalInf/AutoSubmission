@@ -141,6 +141,18 @@ _PRINTED_AMOUNT_FIELDS = ("beginning_balance", "ending_balance", "stated_total_c
 _PRINTED_INTEGER_FIELDS = ("stated_credit_count", "stated_debit_count", "stated_nsf_count", "days_in_period")
 
 
+def _figure_printed(printed, value) -> bool:
+    """A reported money figure is printed on the page: as money, or, a whole non-zero amount, as whole dollars
+    ("Average daily balance $822")."""
+    if printed.amount_printed(value):
+        return True
+    try:
+        number = Decimal(str(value))
+    except ArithmeticError:
+        return False
+    return number != 0 and number == number.to_integral_value() and printed.integer_printed(int(abs(number)))
+
+
 def _review_metadata(data: dict, *, page: int, printed=None):
     """Quarantine invalid source observations without changing other fields.
 
@@ -188,7 +200,7 @@ def _review_metadata(data: dict, *, page: int, printed=None):
             if codes:
                 invalid("account", value, codes, field=key, present=key in raw_account)
             elif printed is not None and value is not None and (
-                    (key in _PRINTED_AMOUNT_FIELDS and not printed.amount_printed(value))
+                    (key in _PRINTED_AMOUNT_FIELDS and not _figure_printed(printed, value))
                     or (key in _PRINTED_INTEGER_FIELDS and not printed.integer_printed(value))):
                 diagnostics.append({"scope": "account", "page": page, "field": key,
                                     "code": "review_figure_not_printed"})
@@ -296,7 +308,8 @@ def _settle_description(original: dict, corrected: dict | None, observed, printe
     # Only the row's own print can settle it: a reading printed elsewhere on the page (another row, a heading)
     # is not this row's print, and a row whose amount several rows print is told apart by its printed date.
     row = corrected if corrected is not None else original
-    found = [printed.description_printed_near(text, row.get("amount"), row.get("date_text")) for _, text in readings]
+    found = [printed.description_printed_near(text, row.get("amount"), row.get("date_text"), row.get("balance"))
+             for _, text in readings]
     if any(flag is None for flag in found):
         return None
     printed_texts = {spaced(text) for (_, text), flag in zip(readings, found) if flag}

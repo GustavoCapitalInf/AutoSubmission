@@ -62,9 +62,10 @@ def test_incomplete_pages_do_not_invalidate_other_pages(wired, monkeypatch, bad_
 
 
 def test_currency_absence_on_a_canadian_statement_is_distinct_from_currency_conflict(wired, monkeypatch):
-    # Owner ruling, 2026-09-22: the USD default never applies to a Canadian bank, so absence stays absence.
+    # Owner ruling, 2026-09-22: the USD default never applies to a Canadian bank. A name other countries' banks
+    # share (BMO) decides no currency either, so absence stays absence.
     pair, pdf, directory, _, data = wired
-    data['review']['account'].update(currency=None, bank='TD Canada Trust')
+    data['review']['account'].update(currency=None, bank='BMO')
     monkeypatch.setattr('vlm.currency.resolve_currency', lambda *a, **kw:
                         CurrencyResolution('unresolved', 'bridge_unclaimed'))
     audit = pair.extract_visual_pair(pdf, evidence_dir=directory, data_scope='synthetic').visual_pair
@@ -74,6 +75,18 @@ def test_currency_absence_on_a_canadian_statement_is_distinct_from_currency_conf
     }
     assert not audit['gate']['admitted']
     assert audit['currency_default']['canadian_evidence'] == ['canadian_institution_name']
+
+
+def test_a_canadian_bank_without_printed_currency_keeps_its_jurisdiction_default(wired, monkeypatch):
+    # "Canadian banks keep their jurisdiction default, CAD, as the doctrine already does for RBC."
+    pair, pdf, directory, _, data = wired
+    data['review']['account'].update(currency=None, bank='TD Canada Trust')
+    monkeypatch.setattr('vlm.currency.resolve_currency', lambda *a, **kw:
+                        CurrencyResolution('unresolved', 'bridge_unclaimed'))
+    audit = pair.extract_visual_pair(pdf, evidence_dir=directory, data_scope='synthetic').visual_pair
+    assert 'currency_missing' not in audit['gate']['reasons'] and audit['gate']['admitted']
+    assert audit['statement']['currency'] == 'CAD'
+    assert audit['currency_default']['currency_source'] == 'jurisdiction_default'
 
 
 def test_currency_absence_on_a_non_canadian_statement_defaults_to_usd(wired, monkeypatch):

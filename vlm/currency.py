@@ -54,7 +54,9 @@ def currency_resolution_manifest() -> dict:
         "analysis_source_sha256": digest,
         "owner_default": {"ruling": USD_DEFAULT_RULING, "currency": "USD", "currency_source": "schema_default",
                           "canadian_institutions": list(CANADIAN_INSTITUTIONS),
-                          "canadian_address_pattern": CANADIAN_ADDRESS_PATTERN},
+                          "canadian_address_pattern": CANADIAN_ADDRESS_PATTERN,
+                          "cad_institutions": list(CAD_INSTITUTIONS), "foreign_arm": list(FOREIGN_ARM),
+                          "canadian_bank_currency": "CAD", "canadian_bank_currency_source": "jurisdiction_default"},
     }
 
 
@@ -74,10 +76,31 @@ _CA_POSTAL = r"[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z][ \t]\d[ABCEGHJ-NPRSTV-Z]\d
 CANADIAN_ADDRESS_PATTERN = r"(?<![A-Z0-9])" + _PROVINCES + r"[ ,\t]+" + _CA_POSTAL + r"(?![A-Z0-9])"
 
 
+# The ruling's other half ("Canadian banks keep their jurisdiction default, CAD, as the doctrine already does
+# for RBC"): institutions that are Canadian unless their printed name marks a US or offshore arm. Stricter than
+# CANADIAN_INSTITUTIONS, which only refuses the USD default: a wrong CAD would mislabel the statement.
+CAD_INSTITUTIONS = ("CIBC", "ROYAL BANK OF CANADA", "RBC ROYAL BANK", "BANQUE ROYALE", "TD CANADA TRUST",
+                    "CANADA TRUST", "SCOTIABANK", "BANK OF NOVA SCOTIA", "BANQUE SCOTIA", "BANK OF MONTREAL",
+                    "BANQUE DE MONTREAL", "DESJARDINS", "BANQUE NATIONALE", "NATIONAL BANK OF CANADA",
+                    "TANGERINE", "SIMPLII", "ATB FINANCIAL", "LAURENTIAN BANK", "BANQUE LAURENTIENNE", "EQ BANK",
+                    "MERIDIAN CREDIT UNION", "VANCITY", "SERVUS CREDIT UNION", "CANADIAN WESTERN BANK",
+                    "CAISSE POPULAIRE")
+FOREIGN_ARM = ("USA", "U S A", "U S", "N A", "AMERICA", "AMERICAS", "CARIBBEAN", "PUERTO RICO", "INTERNATIONAL",
+               "HARRIS", "BAHAMAS", "CAYMAN", "JAMAICA", "BARBADOS", "TRINIDAD")
+
+
+def _padded(text: str | None) -> str:
+    import unicodedata
+
+    plain = "".join(char for char in unicodedata.normalize("NFKD", str(text or "").upper())
+                    if not unicodedata.combining(char))
+    return " " + re.sub(r"[^A-Z0-9]+", " ", plain).strip() + " "
+
+
 def canadian_evidence(bank: str | None, page_texts: Sequence[str]) -> tuple[str, ...]:
     """Why this statement looks Canadian, or () when nothing does."""
     reasons = []
-    padded = " " + re.sub(r"[^A-Z0-9]+", " ", str(bank or "").upper()).strip() + " "
+    padded = _padded(bank)
     if any(f" {name} " in padded for name in CANADIAN_INSTITUTIONS):
         reasons.append("canadian_institution_name")
     if any(re.search(CANADIAN_ADDRESS_PATTERN, str(text).upper()) for text in page_texts):
@@ -85,11 +108,26 @@ def canadian_evidence(bank: str | None, page_texts: Sequence[str]) -> tuple[str,
     return tuple(reasons)
 
 
+def canadian_bank(bank: str | None) -> bool:
+    """Whether the printed bank name is a Canadian institution (CAD_INSTITUTIONS) and names no foreign arm."""
+    padded = _padded(bank)
+    return (any(f" {name} " in padded for name in CAD_INSTITUTIONS)
+            and not any(f" {marker} " in padded for marker in FOREIGN_ARM))
+
+
 def usd_default(bank: str | None, page_texts: Sequence[str]) -> dict:
-    """The owner's default for a statement that printed no currency: USD unless there is Canadian evidence."""
+    """The owner's default for a statement that printed no currency: USD unless there is Canadian evidence; a
+    Canadian bank (canadian_bank) keeps its jurisdiction default, CAD. Other Canadian evidence decides neither:
+    the currency stays unknown and the statement is held."""
     evidence = canadian_evidence(bank, page_texts)
+    if not evidence:
+        currency, source = "USD", "schema_default"
+    elif canadian_bank(bank):
+        currency, source = "CAD", "jurisdiction_default"
+    else:
+        currency, source = None, None
     return {"ruling": USD_DEFAULT_RULING, "canadian_evidence": list(evidence),
-            "currency": None if evidence else "USD", "currency_source": None if evidence else "schema_default"}
+            "currency": currency, "currency_source": source}
 
 
 @dataclass(frozen=True)

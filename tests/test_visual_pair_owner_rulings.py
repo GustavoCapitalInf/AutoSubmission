@@ -25,9 +25,19 @@ def test_a_us_statement_without_printed_currency_defaults_to_usd_as_a_schema_def
                       "currency": "USD", "currency_source": "schema_default"}
 
 
-def test_a_canadian_institution_name_blocks_the_default():
-    for bank in ("TD Canada Trust", "Royal Bank of Canada", "RBC", "CIBC", "Scotiabank", "Desjardins",
-                 "Banque Nationale", "BMO"):
+def test_a_canadian_bank_keeps_its_jurisdiction_default_cad():
+    # "USD should be made the default (unless its a canadian bank)": Canadian banks keep CAD, as the currency
+    # doctrine does for RBC.
+    for bank in ("TD Canada Trust", "Royal Bank of Canada", "CIBC", "Scotiabank", "Desjardins", "Banque Nationale",
+                 "Banque Royale du Canada", "BANQUE DE MONTRÉAL"):
+        result = usd_default(bank, [])
+        assert result["currency"] == "CAD" and result["currency_source"] == "jurisdiction_default", bank
+        assert result["canadian_evidence"] == ["canadian_institution_name"], bank
+
+
+def test_a_name_other_countries_share_or_a_foreign_arm_decides_no_currency():
+    # Names that also belong to US or offshore banks, and arms that name themselves, stay unknown (held).
+    for bank in ("RBC", "BMO", "BMO Harris Bank N.A.", "CIBC Bank USA", "Scotiabank Caribbean", "Royal Bank"):
         result = usd_default(bank, [])
         assert result["currency"] is None and result["canadian_evidence"] == ["canadian_institution_name"], bank
 

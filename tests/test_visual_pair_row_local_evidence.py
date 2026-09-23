@@ -38,6 +38,27 @@ def test_a_row_whose_amount_a_neighbour_also_prints_is_told_apart_by_its_date():
     assert same_day.description_printed_near("FABRICATED A", Decimal("15.00"), "01/03") is None
 
 
+def test_a_row_printing_no_date_is_told_apart_by_its_running_balance():
+    # Two rows print 451,00 on lines of their own; the dateless row is the one whose line prints its balance.
+    layout = "2 oct FABRICATED OPENING TRANSFER 100,00 1 363,47\nVIREMENT INTERAC 0001 FABRICATED PAYEE\n" \
+             "451,00 912,47\n3 oct DEBIT PREAUTORISE\nFABRICATED COLLEGE\n451,00 461,47\n"
+    printed = PrintedEvidence(native=layout)
+    reading = "VIREMENT INTERAC 0001 FABRICATED PAYEE"
+    assert printed.description_printed_near(reading, Decimal("451.00"), "", None) is None      # cannot tell
+    assert printed._anchor_lines(Decimal("451.00"), "", Decimal("912.47")) == [2]
+    assert printed._anchor_lines(Decimal("451.00"), "", Decimal("461.47")) == [5]
+    # Measured on its own lines: they start right after the previous row's amount line.
+    assert printed.description_words_near(reading, Decimal("451.00"), "", Decimal("912.47")) is True
+    assert printed.description_words_near("DEBIT PREAUTORISE", Decimal("451.00"), "", Decimal("912.47")) is False
+
+
+def test_a_bullet_glyph_a_proposer_reads_is_layout():
+    rows = [_row("● VIREMENT INTERAC 0001 FABRICATED PAYEE", "451.00")]
+    merged = _settle(rows, "01/03 VIREMENT INTERAC 0001 FABRICATED PAYEE 451,00\n",
+                     "VIREMENT INTERAC 0001 FABRICATED PAYEE")
+    assert merged.counts["agreed"] == 1
+
+
 def test_a_neighbours_balance_equal_to_the_rows_amount_is_not_the_rows_line():
     balances = "01/02 FABRICATED DEPOSIT 500.00 600.00\n01/03 FABRICATED WITHDRAWAL 600.00 0.00\n"
     merged = _settle([_row("FABRICATED WITHDRAWL", "600.00")], balances, "FABRICATED DEPOSIT")

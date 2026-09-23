@@ -155,7 +155,8 @@ def test_all_review_states_immutable_sources_and_added_order():
     assert correction["corrected"]["description"] == "Actually Printed Description"
 
 
-@pytest.mark.parametrize("label", ["BALANCE FORWARD", "Opening balance", "Balance brought forward 01/02"])
+@pytest.mark.parametrize("label", ["BALANCE FORWARD", "Opening balance", "Balance brought forward 01/02",
+                                   "Solde reporté", "Solde reporte", "SOLDE PRÉCÉDENT", "Nouveau solde"])
 def test_reviewer_addition_of_a_printed_balance_line_never_enters_the_ledger(label):
     # Stage A already skips these lines; a reviewer proposing one as a missed transaction must not bypass that.
     rows = [_candidate(0)]

@@ -17,7 +17,8 @@ from vlm.textparse import month_number, parse_date
 
 
 # v3: French month names (janv, févr, avr, mai, juin, juil, août, déc ...), accents optional.
-DATE_RESOLVER_VERSION = 3
+# v4: a row printing no date at all takes the date of the row above it on the same page (date printed once a day).
+DATE_RESOLVER_VERSION = 4
 _ISO = re.compile(r"([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})")
 _NUMERIC = re.compile(r"([0-9]{1,2})([/\-])([0-9]{1,2})(?:\2([0-9]{2}|[0-9]{4}))?")
 _MONTH_FIRST = re.compile(r"([^\W\d_]+)\.?\s+([0-9]{1,2})(?:,?\s+([0-9]{2}|[0-9]{4}))?")
@@ -130,15 +131,33 @@ def resolve_reviewed_dates(rows, *, period_start: str | None, period_end: str | 
     start, end, period_error = _period(period_start, period_end)
     resolved_rows, evidence = [], []
     unresolved = 0
+    above = None  # the row above in the listing, once its date is known
     for row in rows:
         if row.date is not None:
             resolved_rows.append(row)
+            above = row
+            continue
+        if not str(row.date_text or "").strip() and above is not None and above.page == row.page:
+            # A statement that prints each day's date once, on the day's first row, leaves the date cell of the
+            # day's other rows empty: they are that day's (the proposer applies the same rule when it knows the
+            # year, assemble.rows_from_grid). Only a row printing no date at all, on the same page.
+            resolved_rows.append(replace(row, date=above.date))
+            evidence.append({
+                "field": "date", "original_date": None, "resolved_date": above.date,
+                "date_text": row.date_text, "page": row.page, "locator": row.locator,
+                "period_start": period_start, "period_end": period_end,
+                "source": "deterministic_date_printed_on_row_above", "status": "resolved",
+                "reason": "date_printed_once_for_the_day", "inherited_from": above.locator,
+                "candidate_dates": [above.date],
+            })
+            above = resolved_rows[-1]
             continue
         candidates = _possibilities(row.date_text, start, end) if period_error is None else ()
         resolved = candidates[0] if len(candidates) == 1 else None
         reason = (period_error or ("resolved" if resolved is not None else
                                   "reviewed_date_ambiguous" if candidates else "reviewed_date_unresolved"))
         resolved_rows.append(replace(row, date=resolved) if resolved is not None else row)
+        above = resolved_rows[-1] if resolved is not None else None
         unresolved += resolved is None
         evidence.append({
             "field": "date", "original_date": None, "resolved_date": resolved,

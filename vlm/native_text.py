@@ -56,12 +56,15 @@ _TOKEN = re.compile(r"\S+")
 
 
 _LINE_BREAK = re.compile(r"<br\s*/?>", re.IGNORECASE)
+# A list bullet a proposer reads in front of a line ("● VIREMENT INTERAC ..."): layout, never text.
+_BULLETS = frozenset("●•▪◦‣∙")
 
 
 def spaced(text: str) -> str:
     """Whitespace-insensitive form: a line-break tag (a proposer's Markdown table cell writes "<br>" where a
-    reviewer writes a newline) is whitespace, and runs of whitespace become one space."""
-    return " ".join(_LINE_BREAK.sub(" ", str(text)).split())
+    reviewer writes a newline) is whitespace, a bullet glyph standing alone is dropped, and runs of whitespace
+    become one space."""
+    return " ".join(token for token in _LINE_BREAK.sub(" ", str(text)).split() if token not in _BULLETS)
 
 
 def _cents(value) -> Decimal | None:
@@ -150,8 +153,9 @@ class PrintedEvidence:
 
     @cached_property
     def _lines(self) -> list[tuple[str, list[tuple[str, int, int]]]]:
-        """Each text-layer line with its tokens and their character spans."""
-        return [(line, [(match.group(0), match.start(), match.end()) for match in _TOKEN.finditer(line)])
+        """Each text-layer line with its tokens and their character spans (bullet glyphs are layout, left out)."""
+        return [(line, [(match.group(0), match.start(), match.end()) for match in _TOKEN.finditer(line)
+                        if match.group(0) not in _BULLETS])
                 for line in (self.native or "").splitlines()]
 
     @cached_property
@@ -196,25 +200,35 @@ class PrintedEvidence:
         target = _cents(amount)
         return [index for index, found in enumerate(self._line_amounts) if target is not None and target in found]
 
-    def _anchor_lines(self, amount, date_text=None, *, strict: bool = True) -> list[int] | None:
+    def _anchor_lines(self, amount, date_text=None, balance=None, *, strict: bool = True) -> list[int] | None:
         """The line that prints the row's amount. When several do (identical amounts, or a neighbour's balance
-        equal to it), the ones whose row prints the row's own date as read (date_text). Strict (choosing a
-        reading): exactly one, else None, the row cannot be told from its neighbours. Not strict (measuring):
-        every candidate left, or every line when the date is printed on none. An empty list when no line prints
-        the amount."""
+        equal to it), the ones that also print the row's own running balance, then the ones whose row prints the
+        row's own date as read (date_text). Strict (choosing a reading): exactly one, else None, the row cannot
+        be told from its neighbours. Not strict (measuring): every candidate left, or every line when neither
+        tells them apart. An empty list when no line prints the amount."""
         anchors = self._anchors(amount)
         if len(anchors) <= 1:
             return anchors
+        target, candidates = _cents(amount), anchors
+        closing = _cents(balance) if balance is not None else None
+        if closing is not None:
+            with_balance = [anchor for anchor in candidates if self._prints_balance(anchor, target, closing)]
+            candidates = with_balance or candidates
         wanted = spaced(date_text or "").split()
-        dated = []
-        if wanted:
-            target = _cents(amount)
-            dated = [anchor for anchor in anchors
+        if wanted and len(candidates) > 1:
+            dated = [anchor for anchor in candidates
                      if contains_words([token for _, token in self._row_stream(anchor, target, trailing=True)[0]],
                                        wanted)]
+            candidates = dated or (candidates if not strict else [])
         if strict:
-            return dated if len(dated) == 1 else None
-        return dated or anchors
+            return candidates if len(candidates) == 1 else None
+        return candidates
+
+    def _prints_balance(self, anchor: int, target: Decimal, closing: Decimal) -> bool:
+        """Whether the anchor line prints the row's running balance after the row's own amount."""
+        spans = self._line_spans[anchor]
+        own = next(index for index, span in enumerate(spans) if span[2] == target)
+        return any(span[2] == closing for span in spans[own + 1:])
 
     @cached_property
     def _row_starts(self) -> list[int]:
@@ -263,7 +277,7 @@ class PrintedEvidence:
         stream += [(index, token) for index in block if index > anchor for token in self._native_lines[index]]
         return stream, first, last
 
-    def description_printed_near(self, description, amount, date_text=None) -> bool | None:
+    def description_printed_near(self, description, amount, date_text=None, balance=None) -> bool | None:
         """Whether the text layer prints this description as the row of its own amount, the only evidence that
         may choose between readings of a row: its words in order, contiguous except for money and date tokens
         (a description wrapped round the amount column), inside the row's own printed stream (_row_stream), and
@@ -275,13 +289,14 @@ class PrintedEvidence:
           line with nothing but figures and dates between.
 
         None without a text layer, or when several rows print the amount and the row's date does not tell
-        which is this one (_anchor_lines); False when no line prints the amount."""
+        which is this one (_anchor_lines: its running balance or its date); False when no line prints the
+        amount."""
         if not self.native:
             return None
         words = spaced(description or "").split()
         if not words:
             return False
-        anchors = self._anchor_lines(amount, date_text)
+        anchors = self._anchor_lines(amount, date_text, balance)
         if anchors is None:
             return None
         target = _cents(amount)
@@ -301,7 +316,7 @@ class PrintedEvidence:
                     return True
         return False
 
-    def description_words_near(self, description, amount, date_text=None) -> bool | None:
+    def description_words_near(self, description, amount, date_text=None, balance=None) -> bool | None:
         """Looser, for measuring corroboration only (never for choosing a reading): every word of the description
         is printed in the row's own print, in any order, at least as often. That is its printed stream
         (_row_stream); when the row's segment of its amount line prints only figures and dates, only the lines
@@ -313,14 +328,17 @@ class PrintedEvidence:
         wanted = Counter(spaced(description or "").split())
         if not wanted:
             return False
-        anchors = self._anchor_lines(amount, date_text, strict=False)
+        anchors = self._anchor_lines(amount, date_text, balance, strict=False)
         target = _cents(amount)
         for anchor in anchors:
             stream, first, last = self._row_stream(anchor, target)
             if all(_SKIPPABLE.match(stream[position][1]) for position in range(first, last + 1)):
+                # The lines above belong to the row when they start at its date, or right after the previous
+                # row's amount line (a statement that prints each day's date once, on the day's first row).
                 block = self._block(anchor)
-                dated = first > 0 and block.start < anchor and self._row_starts[block.start]
-                stream = stream[:last + 1] if dated else stream[first:last + 1]
+                owned = first > 0 and block.start < anchor and bool(
+                    self._row_starts[block.start] or (block.start > 0 and self._line_amounts[block.start - 1]))
+                stream = stream[:last + 1] if owned else stream[first:last + 1]
             if not wanted - Counter(token for _, token in stream):
                 return True
         return False

@@ -43,6 +43,19 @@ def test_rows_from_grid_debit_credit_columns_and_date_carry():
     assert rows[1].date_text == "" and rows[1].locator == "t3r2"
 
 
+def test_an_account_analysis_table_is_charges_not_transactions():
+    grid = [["Description", "Volume", "Amount"], ["FABRICATED ITEMS PROCESSED", "40", "20.00"],
+            ["FABRICATED MONTHLY SERVICE", "1", "15.00"]]
+    assert assemble.rows_from_grid(grid, classify_columns(grid), page=4, table_index=0, year_hint=2031) == []
+    priced = [["Service", "Quantity", "Unit Price", "Amount"], ["FABRICATED WIRE", "2", "15.00", "30.00"]]
+    assert assemble.rows_from_grid(priced, classify_columns(priced), page=4, table_index=0) == []
+
+
+def test_deductions_and_purchases_sections_are_debits():
+    for heading in ("ACH Deductions", "Other Deductions", "Card Purchases"):
+        assert assemble.section_direction(heading) == "debit", heading
+
+
 def test_text_lines_from_blocks():
     blocks = assemble.blocks_from_worker(WORKER_RAW, page=0, width=1000, height=2000)
     lines = assemble.text_lines_from_blocks(blocks)

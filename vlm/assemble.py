@@ -10,10 +10,14 @@ from decimal import Decimal
 from vlm.tables import ColumnMap, classify_columns, parse_html_tables
 from vlm.textparse import parse_date, parse_money
 
-SKIP_DESCRIPTION = re.compile(r"^(total|totals|subtotal|sub-total|ending balance|beginning balance|balance forward|closing balance|opening balance)\b", re.IGNORECASE)
+# Balance lines as French statements print them: solde reporté / précédent / antérieur / d'ouverture / de
+# fermeture / de clôture, ancien / nouveau solde (accents optional in a proposer's or reviewer's reading).
+_SOLDE = (r"solde report[ée]|solde pr[ée]c[ée]dent|solde ant[ée]rieur|solde d['’]ouverture|"
+          r"solde de (?:fermeture|cl[ôo]ture)|ancien solde|nouveau solde")
+SKIP_DESCRIPTION = re.compile(rf"^(total|totals|subtotal|sub-total|ending balance|beginning balance|balance forward|closing balance|opening balance|sous-total|{_SOLDE})\b", re.IGNORECASE)
 # A printed balance line, which a reviewer may propose as a missed transaction. Narrower than
 # SKIP_DESCRIPTION on purpose: a real merchant can be named "Total ...".
-BALANCE_LINE = re.compile(r"^(beginning balance|opening balance|ending balance|closing balance|previous balance|balance forward|balance (?:brought|carried) forward)\b", re.IGNORECASE)
+BALANCE_LINE = re.compile(rf"^(beginning balance|opening balance|ending balance|closing balance|previous balance|balance forward|balance (?:brought|carried) forward|{_SOLDE})\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,9 @@ class CandidateRow:
 
 
 # A column that holds cheque numbers: "Check Nbr", "Check No.", "CHECK #", "Cheque Number", "Chk No".
+# A header column of an account-analysis table ("Detail of Services Used": Description | Volume | Amount, or
+# Unit Price, Quantity): the bank's list of charges for services, not the account's transactions.
+ANALYSIS_HEADER = re.compile(r"^\s*(volume|unit price|unit cost|quantity|qty|per item)\s*$", re.IGNORECASE)
 CHEQUE_NUMBER_HEADER = re.compile(r"^\s*(?P<word>check|cheque|chk)s?\s*(?:no\.?|nbr\.?|num\.?|number|#)\s*$",
                                   re.IGNORECASE)
 _BARE_CHEQUE_NUMBER = re.compile(r"#?\s*\d+\s*\*?")
@@ -112,6 +119,10 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
                    year_hint: int | None = None, day_first: bool = False) -> list[CandidateRow]:
     if colmap.balance is None and colmap.amount is None and colmap.debit is None and colmap.credit is None:
         return []
+    head = (grid[colmap.header_row] if colmap.header_row is not None and colmap.header_row < len(grid)
+            else grid[0] if grid else [])
+    if any(ANALYSIS_HEADER.match(cell or "") for cell in head):
+        return []  # an account-analysis table (services used, volume, unit price): charges, not transactions
     label = None
     if colmap.header_row is not None and colmap.header_row < len(grid):
         header = grid[colmap.header_row]
@@ -157,7 +168,7 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
 
 
 SECTION_CREDIT = re.compile(r"\b(deposits?|credits?|additions|money in|paid in|deposits and (?:other )?credits)\b", re.IGNORECASE)
-SECTION_DEBIT = re.compile(r"\b(withdrawals?|debits?|checks?|cheques?|fees|charges|payments|money out|paid out|subtractions|withdrawals and (?:other )?debits)\b", re.IGNORECASE)
+SECTION_DEBIT = re.compile(r"\b(withdrawals?|debits?|checks?|cheques?|fees|charges|payments|money out|paid out|subtractions|deductions?|purchases|withdrawals and (?:other )?debits)\b", re.IGNORECASE)
 BALANCE_SECTION = re.compile(
     r"\b(?:daily|ledger|running|ending|available|collected)\s+balances?\b|\bbalance\s+summary\b",
     re.IGNORECASE)

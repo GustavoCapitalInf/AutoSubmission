@@ -49,8 +49,9 @@ def checked(merges, *, opening_observations=None):
     assert merges == before
     assert opening_observations == observations_before
     assert result[2] == [item["code"] for item in occurrences]
-    assert result[3] == [{"field": key, "page": merged.page, "source": "reviewer", "value": value}
-                         for merged in merges for key, value in merged.account.items() if value is not None]
+    assert [item for item in result[3] if item["source"] == "reviewer"] == [
+        {"field": key, "page": merged.page, "source": "reviewer", "value": value}
+        for merged in merges for key, value in merged.account.items() if value is not None]
     return plan, result, occurrences
 
 
@@ -212,10 +213,13 @@ def test_segment_scope_changes_no_currency_period_or_other_period_figure_policy(
         merged.account["days_in_period"] = 31
     pages[1].account["period_end"] = "2031-01-30"
     pages[-1].account["stated_service_charge"] = 3
-    plan, (account, _, reasons, _), _ = checked(pages)
+    plan, (account, _, reasons, provenance), _ = checked(pages)
     assert plan.proven
-    assert set(reasons) == {"currency_missing", "period_mismatch", "anchor_disagreement"}
-    assert "currency" not in account and account["stated_service_charge"] == 2
+    # A disputed auxiliary figure (the service charge) is unknown, recorded, and holds nothing.
+    assert set(reasons) == {"currency_missing", "period_mismatch"}
+    assert "currency" not in account and "stated_service_charge" not in account
+    assert {"field": "stated_service_charge", "page": None, "source": "disputed_between_pages",
+            "value": None} in provenance
     assert account["days_in_period"] == 31
     assert all("currency" not in segment.account for segment in plan.segments)
 

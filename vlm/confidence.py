@@ -107,7 +107,7 @@ def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, r
     for row in rows:
         printed = _printed(printed_pages, row.page)
         in_text_layer = printed.amount_in_text_layer(row.amount) if printed is not None else None
-        described = (printed.description_words_near(_bare_description(row), row.amount, row.date_text)
+        described = (printed.description_words_near(_bare_description(row), row.amount, row.date_text, row.balance)
                      if printed is not None else None)
         if in_text_layer is not None:
             evidence["text_layer_rows"] += 1

@@ -46,6 +46,11 @@ from vlm.segments import SCOPED_FIELDS, SegmentPlan, detect_page_segments
 
 
 _IDENTITY_FIELDS = {"bank", "account_name", "bank_reported_average_label"}
+# Printed figures no admission check depends on (the gate proves the ledger with the opening and closing
+# balances, totals, counts and running balances). Two pages that disagree about one (a fee-analysis page's
+# service charge against the summary's) leave it unknown, recorded as disputed, and hold nothing.
+_AUXILIARY_FIGURES = {"stated_service_charge", "stated_interest_paid", "stated_nsf_count", "days_in_period",
+                      "bank_reported_average_balance"}
 _NAME_FIELDS = {"bank", "account_name"}
 _NUMBER_FIELDS = {"account_number", "account_number_last4"}
 _BALANCE_FIELDS = {"beginning_balance", "ending_balance"}
@@ -255,6 +260,7 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
                     if segment_plan is None else segment_plan)
     segment_pages = {segment.page for segment in segment_plan.segments} if segment_plan.proven else set()
     account, daily, reasons, provenance = {}, {}, [], []
+    disputed: set[str] = set()
     daily_source: dict[str, int] = {}
     identities = []
     source_pages = {}
@@ -324,7 +330,9 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
                 equal = key not in account or str(value).strip().casefold() == str(account[key]).strip().casefold()
             else:
                 equal = key not in account or _equal(value, account[key])
-            if not equal:
+            if not equal and key in _AUXILIARY_FIGURES:
+                disputed.add(key)
+            elif not equal:
                 fail("currency_conflict" if key == "currency" else
                      "period_mismatch" if key in ("period_start", "period_end") else "anchor_disagreement", page, key)
             elif key not in account:
@@ -375,6 +383,10 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
 
     if segment_plan.proven:
         account.update(segment_plan.document_fields)
+
+    for field in sorted(disputed):
+        account.pop(field, None)
+        provenance.append({"field": field, "page": None, "source": "disputed_between_pages", "value": None})
 
     for field in ("period_start", "period_end"):
         try:

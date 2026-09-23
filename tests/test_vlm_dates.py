@@ -109,9 +109,27 @@ def test_explicit_dates_are_never_overwritten_and_source_order_is_preserved():
     assert missing.date is duplicate.date is None
 
 
+def test_a_row_printing_no_date_takes_the_date_printed_once_above_it_on_the_page():
+    # Statements that print each day's date once leave the other rows' date cells empty.
+    first = _row("6 oct", locator="first")
+    same_day = [_row("", locator="second"), _row(None, locator="third")]
+    result = resolve_reviewed_dates([first, *same_day], period_start="2031-10-01", period_end="2031-10-31")
+    assert [row.date for row in result.rows] == ["2031-10-06"] * 3 and result.unresolved == 0
+    assert [item["reason"] for item in result.evidence] == ["resolved", "date_printed_once_for_the_day",
+                                                           "date_printed_once_for_the_day"]
+    assert result.evidence[1]["inherited_from"] == "first"
+    # Never across a page break, and never from a row whose own date is unknown.
+    next_page = replace(_row("", locator="next-page"), page=4)
+    unknown = _row("Febtober 2", locator="unknown")
+    after_unknown = _row("", locator="after-unknown")
+    result = resolve_reviewed_dates([first, next_page, unknown, after_unknown],
+                                    period_start="2031-10-01", period_end="2031-10-31")
+    assert [row.date for row in result.rows] == ["2031-10-06", None, None, None] and result.unresolved == 3
+
+
 def test_no_clock_baseline_or_neighbor_date_supplies_missing_year():
     explicit = _row("Jan 2", explicit="2031-01-02")
     missing = _row("Jan 3", locator="missing")
     result = resolve_reviewed_dates([explicit, missing], period_start=None, period_end=None)
     assert result.rows == (explicit, missing) and result.unresolved == 1
-    assert DATE_RESOLVER_VERSION == 3
+    assert DATE_RESOLVER_VERSION == 4

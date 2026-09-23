@@ -227,6 +227,18 @@ def test_figures_not_printed_are_dropped_not_held():
     assert (0, "review_daily_balance_not_printed") in codes
 
 
+def test_a_whole_dollar_figure_printed_without_cents_is_printed():
+    # "Average daily checking balance $813" prints no cents; the reviewer reports 813.0.
+    rows = [_row("ACH CREDIT FABRICATED PAYROLL, INC.")]
+    payload = _payload(rows)
+    payload["account"].update(bank_reported_average_balance=813.0, stated_interest_paid=4.0)
+    native = NATIVE + "Average daily checking balance $813\n"
+    merged = merge_review(rows, payload, page=1, printed=PrintedEvidence(native=native))
+    assert merged.account["bank_reported_average_balance"] == 813.0
+    # A whole figure printed nowhere, as money or as dollars, is still dropped.
+    assert merged.account["stated_interest_paid"] is None
+
+
 def test_without_printed_evidence_nothing_changes():
     rows = [_row("ACH CREDIT FABRICATED PAYROLL, INC.")]
     payload = _payload(rows)

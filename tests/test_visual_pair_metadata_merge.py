@@ -220,13 +220,25 @@ def test_zero_negative_and_decimal_balances_use_exact_equality():
 
 @pytest.mark.parametrize("field", [
     "stated_total_credits", "stated_total_debits", "stated_credit_count", "stated_debit_count",
-    "days_in_period", "stated_service_charge", "stated_interest_paid", "stated_nsf_count",
-    "bank_reported_average_balance", "future_source_figure",
+    "future_source_figure",
 ])
 def test_period_figures_are_restatements_not_summed_or_maximized(field):
     (account, _, reasons, _), occurrences = check([page(1, {field: 10}), page(2, {field: 10.0}), page(3, {field: 11})])
     assert account[field] == 10 and reasons == ["anchor_disagreement"]
     assert occurrences[0]["page"] == 3 and occurrences[0]["field"] == field
+
+
+@pytest.mark.parametrize("field", [
+    "days_in_period", "stated_service_charge", "stated_interest_paid", "stated_nsf_count",
+    "bank_reported_average_balance",
+])
+def test_auxiliary_figures_restated_equally_stand_and_disputed_become_unknown(field):
+    account, _, reasons, _ = merge_metadata([page(1, {field: 10}), page(2, {field: 10.0})])
+    assert account[field] == 10 and reasons == []
+    account, _, reasons, provenance = merge_metadata([page(1, {field: 10}), page(2, {field: 10.0}),
+                                                      page(3, {field: 11})])
+    assert field not in account and reasons == []
+    assert provenance[-1] == {"field": field, "page": None, "source": "disputed_between_pages", "value": None}
 
 
 def test_printed_average_labels_accept_formatting_but_not_changed_basis():
@@ -275,3 +287,19 @@ def test_occurrence_sink_appends_without_source_values_or_resetting_prior_entrie
     assert sink[0] == sentinel and len(sink) == 2
     assert set(sink[1]) == {"code", "page", "field", "source"}
     assert "FABRICATED" not in repr(sink)
+
+
+def test_pages_disagreeing_about_an_auxiliary_figure_leave_it_unknown_and_hold_nothing():
+    # A fee-analysis page's service charge against the summary's: no admission check needs the figure.
+    first = page(1, {"beginning_balance": 0, "ending_balance": 2, "stated_service_charge": 9.75,
+                     "stated_nsf_count": 1})
+    second = page(2, {"stated_service_charge": 6.0, "stated_nsf_count": 1})
+    occurrences = []
+    account, _, reasons, provenance = merge_metadata([first, second], occurrences=occurrences)
+    assert "stated_service_charge" not in account and account["stated_nsf_count"] == 1
+    assert reasons == [] and occurrences == []
+    assert {"field": "stated_service_charge", "page": None, "source": "disputed_between_pages",
+            "value": None} in provenance
+    # A disagreement about a figure the gate proves with still holds.
+    held = merge_metadata([page(1, {"stated_total_credits": 5.0}), page(2, {"stated_total_credits": 6.0})])
+    assert "anchor_disagreement" in held[2]
