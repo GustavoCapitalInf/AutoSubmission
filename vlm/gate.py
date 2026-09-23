@@ -35,7 +35,8 @@ from vlm.textparse import normalise_description
 # v12: two lines of one proposer text block are separate printed lines, like two rows of one table; an anchor
 #      derived from the balance printed at one end stands when the printed totals and counts prove the ledger
 #      complete.
-GATE_VERSION = 12
+# v13: the sum must hold to the cent: a one-cent difference is a missing or misread cent, not float noise.
+GATE_VERSION = 13
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
@@ -250,8 +251,10 @@ def _continuity_failure_rows(rows: list[CandidateRow], statement: Statement) -> 
     return failed
 
 
-def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = Decimal("0.01"),
+def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = Decimal("0.005"),
          complete_document: bool = True) -> GateVerdict:
+    """``tolerance`` absorbs the reader's float arithmetic only: a sum one cent off is a missing or misread cent
+    (a $0.01 credit printed ".01"), never noise (gate v13)."""
     reasons: list[str] = []
     occurrences: list[dict] = []
 

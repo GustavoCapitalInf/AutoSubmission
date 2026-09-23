@@ -117,15 +117,36 @@ def canadian_bank(bank: str | None) -> bool:
             and not any(f" {marker} " in padded for marker in FOREIGN_ARM))
 
 
+# A US state followed by a ZIP code, as an address block prints it ("CHICAGO, IL 60603").
+_US_STATES = (r"(?:AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|"
+              r"NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)")
+US_ADDRESS_PATTERN = r"(?<![A-Z0-9])" + _US_STATES + r"[ ,\t]+\d{5}(?:-\d{4})?(?![A-Z0-9-])"
+
+
+def _canadian_name(bank: str | None) -> bool:
+    """A Canadian bank's name or brand (CANADIAN_INSTITUTIONS: "RBC" printed beside "Royal Bank of Canada") that
+    names no foreign arm; alone, a brand other countries share decides nothing."""
+    padded = _padded(bank)
+    return (any(f" {name} " in padded for name in CANADIAN_INSTITUTIONS)
+            and not any(f" {marker} " in padded for marker in FOREIGN_ARM))
+
+
 def usd_default(bank: str | None, page_texts: Sequence[str], *, bank_names: Sequence[str] = ()) -> dict:
     """The owner's default for a statement that printed no currency: USD unless there is Canadian evidence; a
     Canadian bank (canadian_bank) keeps its jurisdiction default, CAD, when every bank name the statement
-    prints is one (``bank_names``; a US bank's name on one page and a Canadian one on another decide nothing).
-    Other Canadian evidence decides neither: the currency stays unknown and the statement is held."""
+    prints is Canadian (``bank_names``: an institution, or its brand beside it, "RBC" with "Royal Bank of
+    Canada"; a US bank's name on one page and a Canadian one on another decide nothing). Other Canadian
+    evidence decides neither: the currency stays unknown and the statement is held."""
     evidence = canadian_evidence(bank, page_texts)
+    names = list(bank_names or [bank])
+    # A US arm can print the parent's Canadian logo ("CIBC" on a CIBC Bank USA statement): a US address with no
+    # Canadian one refuses CAD. No address at all does not (a Canadian statement need print none).
+    us_only = ("canadian_address" not in evidence
+               and any(re.search(US_ADDRESS_PATTERN, str(text).upper()) for text in page_texts))
     if not evidence:
         currency, source = "USD", "schema_default"
-    elif all(canadian_bank(name) for name in (bank_names or [bank])):
+    elif (not us_only and any(canadian_bank(name) for name in names)
+          and all(canadian_bank(name) or _canadian_name(name) for name in names)):
         currency, source = "CAD", "jurisdiction_default"
     else:
         currency, source = None, None

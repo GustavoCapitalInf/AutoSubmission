@@ -133,6 +133,17 @@ def test_a_days_closing_balance_attached_to_an_earlier_row_of_the_day_is_dropped
         in merged.diagnostics
 
 
+def test_a_description_printed_after_the_amount_is_the_rows_own():
+    # Date | Amount | Description (Citizens): the line's only amount comes before the description.
+    printed = PrintedEvidence(native="04/01 1,582.44 FABRICATED LENDER 7 11111\n04/02 35.00 RETURNED ITEM FEE\n")
+    assert printed.description_words_near("FABRICATED LENDER 7 11111", Decimal("1582.44"), "04/01") is True
+    assert printed.description_printed_near("RETURNED ITEM FEE", Decimal("35.00"), "04/02") is True
+    assert printed.description_printed_near("FABRICATED LENDER", Decimal("35.00"), "04/02") is False
+    # Another amount after it on the line is a second column: its words are not this row's.
+    cheques = PrintedEvidence(native="123 03/05 45.10 1234 03/06 300.00\n")
+    assert cheques.description_printed_near("1234", Decimal("45.10"), "03/05") is False
+
+
 def test_a_fragment_is_inside_a_fuller_reading_only_as_whole_words():
     # "123" and "1234" both printed on the row's own line: neither contains the other, so neither is chosen.
     merged = _settle([_row("123", "45.10", date="2031-03-05")], "1234 123 03/05 45.10\n", "1234")

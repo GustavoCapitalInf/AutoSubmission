@@ -7,7 +7,8 @@ from decimal import Decimal, InvalidOperation
 
 _CURRENCY = re.compile(r"^(?:[A-Z]{3}\s*)?[$€£¥]?\s*")
 _TRAILING_CURRENCY = re.compile(r"\s*(?:[$€£¥]|\b(?:USD|CAD|EUR|GBP|AUD|NZD|CHF|JPY|MXN))$")
-_MONEY_CORE = re.compile(r"^\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?$|^\d+(?:\.\d{1,2})?$")
+# A cents-only amount may print without its leading zero (".01", a one-cent credit on Citizens statements).
+_MONEY_CORE = re.compile(r"^\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?$|^\d+(?:\.\d{1,2})?$|^\.\d{2}$")
 # Decimal comma (French and Canadian statements): 3 000,00 / 3.000,00 / 119,55; the thousands may be grouped by
 # a space, a no-break or thin space, or a dot.
 _MONEY_COMMA = re.compile(r"^\d{1,3}(?:[   .]\d{3})+,\d{2}$|^\d+,\d{2}$")

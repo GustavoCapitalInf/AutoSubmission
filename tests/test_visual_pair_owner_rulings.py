@@ -51,6 +51,21 @@ def test_cad_needs_every_bank_name_the_statement_prints_to_be_canadian():
     assert usd_default(" ".join(names), [], bank_names=names)["currency"] is None
     names = ["Royal Bank of Canada", "RBC Royal Bank"]
     assert usd_default(" ".join(names), [], bank_names=names)["currency"] == "CAD"
+    # A brand printed beside the institution's full name is the same bank (RBC's pages print "RBC" and
+    # "Royal Bank of Canada"); the brand alone still decides nothing.
+    names = ["Royal Bank of Canada", "RBC", "Banque Royale du Canada"]
+    assert usd_default(" ".join(names), [], bank_names=names)["currency"] == "CAD"
+    assert usd_default("RBC", [], bank_names=["RBC", "RBC"])["currency"] is None
+    names = ["BMO Harris Bank N.A.", "Bank of Montreal"]
+    assert usd_default(" ".join(names), [], bank_names=names)["currency"] is None
+
+
+def test_a_canadian_logo_on_a_statement_mailed_to_a_us_address_is_not_cad():
+    # Review 4: a US arm printing its parent's logo ("CIBC") with a Chicago address. A Canadian address, or no
+    # address at all, keeps CAD.
+    assert usd_default("CIBC", ["FABRICATED CO\n100 FABRICATED ST\nCHICAGO, IL 60603"])["currency"] is None
+    assert usd_default("CIBC", ["FABRICATED CO\nFABRICATED CITY QC H0H 0H0"])["currency"] == "CAD"
+    assert usd_default("CIBC", ["FABRICATED CO"])["currency"] == "CAD"
 
 
 def test_a_canadian_address_blocks_the_default_whatever_the_bank_is_called():
@@ -163,6 +178,17 @@ def test_nothing_else_on_a_cheque_picture_page_holds_it_either():
 
 def test_a_cut_off_statement_page_still_holds():
     assert _held([_page(1), _page(2)], truncated=[False, True]) == [2]
+
+
+def test_a_cut_off_read_of_a_page_that_prints_no_amount_does_not_hold():
+    # Terms and disclosures: the page's own text layer prints no amount, so no transaction can be missing from
+    # the cut-off read. A scanned page (no text layer to say so) still holds, and so does a cut-off page with
+    # unresolved rows.
+    pages = [_page(1), _page(2)]
+    assert held_pages(pages, [[], []], [False, True], frozenset({2})) == []
+    assert held_pages(pages, [[], []], [False, True], frozenset()) == [2]
+    unresolved = replace(_page(2), counts={"unresolved": 1})
+    assert held_pages([_page(1), unresolved], [[], []], [False, True], frozenset({2})) == [2]
 
 
 def test_an_invalid_review_cannot_make_a_page_a_cheque_picture_page():

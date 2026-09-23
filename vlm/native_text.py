@@ -36,6 +36,7 @@ _MONEY = (
     (re.compile(r"(?<![\d.,])\d{1,3}(?:\.\d{3})+,\d{2}(?!\d)"), ".", ","),
     (re.compile(rf"(?<![\d.,])\d{{1,3}}(?:[{_SPACES}]\d{{3}})+,\d{{2}}(?!\d)"), _SPACES, ","),
     (re.compile(r"(?<![\d.,])\d+,\d{2}(?![\d,])"), "", ","),
+    (re.compile(r"(?<![\w.,])\.\d{2}(?![\d.,])"), "", "."),   # ".01": cents printed without a leading zero
 )
 _INTEGER = re.compile(r"(?<![\d.,])\d{1,6}(?![\d]|[.,]\d)")
 _WHOLE_DOLLARS = re.compile(r"[$€£]\s?(\d{1,3}(?:,\d{3})+|\d{1,7})(?![\d]|[.,]\d)")
@@ -344,9 +345,16 @@ class PrintedEvidence:
         if own == 0:
             stream += [(index, token) for index in block if index < index_line for token in self._native_lines[index]]
         first = len(stream)
-        stream += [(index_line, token) for token, start, _ in tokens if begin <= start < finish]
+        segment = [(index_line, token) for token, start, _ in tokens if begin <= start < finish]
+        # Date | Amount | Description (Citizens): nothing but figures before the line's last amount, so the
+        # words after it are the row's own. Never when another amount follows on the line (a second column:
+        # the next cheque's number and date).
+        after = own == len(spans) - 1 and all(_SKIPPABLE.match(token) for _, token in segment)
+        if after:
+            segment += [(index_line, token) for token, start, _ in tokens if start >= finish]
+        stream += segment
         last = len(stream) - 1
-        if trailing:
+        if trailing and not after:
             following = spans[own + 1][0] if own + 1 < len(spans) else len(line)
             stream += [(index_line, token) for token, start, _ in tokens if finish <= start < following]
         stream += [(index, token) for index in block if index > index_line for token in self._native_lines[index]]

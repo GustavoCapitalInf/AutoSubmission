@@ -54,6 +54,17 @@ def test_a_style_read_where_the_money_really_came_back_is_refused_not_admitted()
     assert {"continuity_break", "sum_mismatch"} & set(verdict.reasons)
 
 
+def test_a_ledger_one_cent_short_is_refused():
+    # A missing one-cent credit (printed ".01") left the sum exactly one cent off, which a one-cent tolerance
+    # admitted (gate v13).
+    rows = [_row(0, "30.00", "debit", None, "70.00"), _row(1, "40.00", "credit", None, "110.00")]
+    rows = [CandidateRow(row.date, row.date_text, row.description, row.amount, row.direction, None, row.page,
+                         row.source, row.locator) for row in rows]
+    assert gate(rows, _meta("100.00", "110.00")).admitted
+    verdict = gate(rows, _meta("100.00", "110.01"))
+    assert not verdict.admitted and "sum_mismatch" in verdict.reasons
+
+
 def test_the_style_is_judged_per_direction():
     rows = [_row(0, "30.00", "debit", "-30.00", "70.00"),
             _row(1, "20.00", "debit", "-20.00", "50.00"),

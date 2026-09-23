@@ -77,16 +77,45 @@ def _rows_proven_by_balances(rows) -> int:
     return proven
 
 
+def _rows_proven_by_daily(rows, beginning, daily_balances) -> int:
+    """Rows a printed daily-balance table proves: walking the ledger from the opening balance, each printed
+    day's balance must equal the running total at the end of that day, to the cent; then every row up to the
+    last printed day is proven (a missing or misread row would break the next printed day). 0 when any printed
+    day disagrees, or a row has no date."""
+    from decimal import Decimal
+
+    from vlm.gate import minus_styled, signed_amount
+
+    if beginning is None or not daily_balances or any(not row.date for row in rows):
+        return 0
+    styled, cent = minus_styled(rows), Decimal("0.01")
+    net: dict[str, Decimal] = {}
+    for row in rows:
+        net[row.date] = net.get(row.date, Decimal("0")) + signed_amount(row, styled)
+    printed = {str(item["date"]): Decimal(str(item["balance"])) for item in daily_balances}
+    balance, last = Decimal(str(beginning)), None
+    for day in sorted(set(net) | set(printed)):
+        balance += net.get(day, Decimal("0"))
+        if day in printed:
+            if balance.quantize(cent) != printed[day].quantize(cent):
+                return 0
+            last = day
+    return sum(1 for row in rows if last is not None and row.date <= last)
+
+
 def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, row_states: dict,
-                         printed_pages, reasons=()) -> dict:
+                         printed_pages, reasons=(), daily_balances=()) -> dict:
     """row_states maps (page, locator) to (state, resolution method, whether a correction only filled fields
-    the proposer left empty)."""
+    the proposer left empty). ``daily_balances`` is the printed daily-balance table, when there is one."""
     rows = list(rows)
     checks = checks or {}
     components: dict[str, float | None] = {}
-    # Printed balances on every row prove each row's amount, direction and presence one by one; totals and
-    # counts the statement does not print then leave nothing unverified, so their absence is not counted.
-    chain_proves_every_row = bool(rows) and "continuity_break" not in reasons and _rows_proven_by_balances(rows) == len(rows)
+    # Printed balances (on the rows, or a daily-balance table) that prove every row verify each row's amount,
+    # direction and presence; totals and counts the statement does not print then leave nothing unverified, so
+    # their absence is not counted.
+    proven_rows = max(_rows_proven_by_balances(rows),
+                      _rows_proven_by_daily(rows, account.get("beginning_balance"), daily_balances))
+    chain_proves_every_row = bool(rows) and "continuity_break" not in reasons and proven_rows == len(rows)
     present = sum(account.get(field) is not None for field in ("stated_total_credits", "stated_total_debits"))
     if checks.get("summary_ok") is True:
         components["stated_totals"] = (1.0 if present else None) if chain_proves_every_row else present / 2
@@ -133,11 +162,12 @@ def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, r
     components["two_readers"] = sum(readers) / len(readers) if readers else None
     components["descriptions_in_text_layer"] = evidence["descriptions_in_text_layer"] / text_rows if text_rows else None
     # A printed balance proves its own row and the earlier rows of the same day in the listing (an end-of-day
-    # balance); the continuity check refuses the statement on any break, so a break proves nothing.
-    evidence["rows_proven_by_balances"] = _rows_proven_by_balances(rows)
-    components["running_balances"] = ((0.0 if "continuity_break" in reasons
-                                       else evidence["rows_proven_by_balances"] / len(rows))
-                                      if evidence["running_balance_rows"] else None)
+    # balance), and a printed daily-balance table every row up to its last day; the continuity check refuses the
+    # statement on any break, so a break proves nothing.
+    evidence["rows_proven_by_balances"] = proven_rows
+    evidence["printed_daily_balances"] = len(daily_balances or ())
+    components["running_balances"] = ((0.0 if "continuity_break" in reasons else proven_rows / len(rows))
+                                      if evidence["running_balance_rows"] or daily_balances else None)
 
     applicable = [value for value in components.values() if value is not None]
     strength = sum(applicable) / len(applicable) if rows and applicable else 0.0

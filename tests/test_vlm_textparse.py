@@ -26,6 +26,9 @@ def test_parse_money_decimal_comma_as_french_and_canadian_statements_print_it():
     assert tp.parse_money("218,37") == Decimal("218.37")
     assert tp.parse_money("-307,62") == Decimal("-307.62")
     assert tp.parse_money("25,19 $") == Decimal("25.19") and tp.parse_money("5.00 CAD") == Decimal("5.00")
+    # Cents printed without a leading zero (a one-cent credit on Citizens statements).
+    assert tp.parse_money(".01") == Decimal("0.01") and tp.parse_money("(.01)") == Decimal("-0.01")
+    assert tp.parse_money(".5") is None
     # US thousands without cents stay US; a comma with three digits after it is never a decimal comma.
     assert tp.parse_money("12,345") == Decimal("12345.00")
     assert tp.parse_money("3 000") is None and tp.parse_money("1,2") is None

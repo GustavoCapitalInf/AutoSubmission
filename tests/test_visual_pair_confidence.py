@@ -2,6 +2,7 @@
 verified. An admitted statement passed every arithmetic check (0.5); the other half is the mean of the
 independent evidence that applies to it. A held statement is capped below 0.5. It is verification coverage,
 not a calibrated probability."""
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -117,6 +118,32 @@ def test_totals_and_counts_a_statement_does_not_print_are_not_missing_when_balan
     no_totals = _score(rows, states, checks={"summary_ok": None, **unprinted},
                        account={"stated_total_credits": None, "stated_total_debits": None})
     assert no_totals["components"]["stated_totals"] is None and no_totals["score"] == 1.0
+
+
+def test_a_printed_daily_balance_table_proves_the_rows_up_to_its_last_day():
+    # No balance on the rows (Citizens) but a daily-balance table: each printed day's balance equals the ledger's
+    # running total at that day's end, so every row up to the last printed day is proven.
+    rows = [_row("FABRICATED PAYROLL", "2500.00", locator="t0r1", date="2031-01-02"),
+            _row("FABRICATED HARDWARE STORE", "224.50", locator="t0r2", date="2031-01-05")]
+    rows[1] = replace(rows[1], direction="debit")
+    states = {(1, "t0r1"): ("agreed", None), (1, "t0r2"): ("agreed", None)}
+    daily = [{"date": "2031-01-02", "balance": 3500.0}, {"date": "2031-01-05", "balance": 3275.5}]
+    unprinted = {"credit_count_matches": None, "debit_count_matches": None}
+    result = _score(rows, states, checks=unprinted, account={"beginning_balance": 1000.0}, reasons=(),
+                    printed=(PrintedEvidence(native=TEXT),))
+    assert result["components"]["running_balances"] is None
+    proven = statement_confidence(admitted=True, checks={"summary_ok": True, **unprinted},
+                                  account={"beginning_balance": 1000.0, "stated_total_credits": 2500.0,
+                                           "stated_total_debits": 224.5},
+                                  rows=rows, row_states=states, printed_pages=[PrintedEvidence(native=TEXT)],
+                                  daily_balances=daily)
+    assert proven["components"]["running_balances"] == 1.0 and proven["components"]["stated_counts"] is None
+    # A printed day that disagrees with the ledger proves nothing.
+    wrong = [{"date": "2031-01-02", "balance": 3500.0}, {"date": "2031-01-05", "balance": 3275.51}]
+    broken = statement_confidence(admitted=True, checks={"summary_ok": True, **unprinted},
+                                  account={"beginning_balance": 1000.0}, rows=rows, row_states=states,
+                                  printed_pages=[PrintedEvidence(native=TEXT)], daily_balances=wrong)
+    assert broken["components"]["running_balances"] == 0.0
 
 
 def test_a_description_counts_only_near_its_own_amount():

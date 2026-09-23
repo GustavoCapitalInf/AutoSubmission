@@ -320,18 +320,22 @@ def statement_bank_names(field_evidence, merges) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def held_pages(merges, page_errors, truncated) -> list[int]:
+def held_pages(merges, page_errors, truncated, moneyless_pages=frozenset()) -> list[int]:
     """Page numbers that hold the statement.
 
     Owner ruling, 2026-09-22 ("Hold"): a cut-off read holds its page. `truncated` is the proposer's read after
     crop recovery OR the reviewer's; a proposal that recovery completed is not cut off. Errors, unresolved
-    rows and quarantined metadata hold it too. A cheque picture page (review.picture_page) never holds."""
+    rows and quarantined metadata hold it too. A cheque picture page (review.picture_page) never holds.
+    A cut-off read of a page whose own text layer prints no amount at all (``moneyless_pages``: terms and
+    disclosures) cannot have missed a transaction and does not hold on that account; a scanned page has no
+    text layer to say so and still holds."""
     from vlm.review import picture_page
     held = []
     for idx, (errors, cut) in enumerate(zip(page_errors, truncated)):
         merged = merges[idx]
         if picture_page(merged):
             continue
+        cut = cut and (idx + 1) not in moneyless_pages
         if errors or cut or merged.counts.get('unresolved', 0) or merged.metadata_evidence:
             held.append(idx + 1)
     return held
@@ -636,7 +640,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     segment_checks, segment_occurrences = reconcile_page_segments(segment_plan, rows)
     occurrences.extend(segment_occurrences)
     reasons.extend(item['code'] for item in segment_occurrences)
-    unresolved_pages = held_pages(merges, page_errors, truncated)
+    moneyless_pages = frozenset(index + 1 for index, evidence in enumerate(printed_pages or ())
+                                if evidence is not None and evidence.native and not evidence.native_amounts)
+    unresolved_pages = held_pages(merges, page_errors, truncated, moneyless_pages)
     for page_number in unresolved_pages:
         reasons.append('page_unresolved')
         occurrences.append({'code': 'page_unresolved', 'page': page_number, 'source': 'page_review'})
@@ -720,7 +726,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     confidence.update(statement_confidence(
         admitted=admitted and confidence['gate_admitted'], checks=checks, account=account,
         rows=verdict.admitted_rows if admitted else rows, row_states=row_states, printed_pages=printed_pages,
-        reasons=reasons))
+        reasons=reasons, daily_balances=daily))
     statement = _statement(verdict.admitted_rows, account, daily, currency_source=currency_source) if admitted else None
     page_text = page_texts(merges, truncated)
     integrity = assess_pages(page_text)
@@ -765,6 +771,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     audit['ledger_echo_pages'] = [merged.page for merged in merges if merged.ledger_echo]
     audit['summary_box'] = summary_box
     audit['page_subtotal_pages'] = page_subtotals
+    audit['cut_off_pages_without_amounts'] = sorted(page for page in moneyless_pages if truncated[page - 1])
     audit['daily_page_break_figures_dropped'] = sorted(page_break_dates)
     if admitted:
         from vlm.review import row_record
