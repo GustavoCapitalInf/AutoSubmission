@@ -392,12 +392,18 @@ def pages_without_transactions(printed_pages, account: dict) -> frozenset:
 
 
 def _standalone_amounts(text: str) -> frozenset:
-    """The text's printed amounts, leaving out a figure glued to ONE letter that starts its token: a document
-    control number ("x12345.67") names a printout, it moves no money. A figure glued to a word ("DEPOSIT1,234.56",
-    "CR1,234.56"), a text layer running a description into its amount, is an amount."""
+    """The text's printed amounts, leaving out the page's ONE figure glued to one letter that starts its token: a
+    document control number ("x12345.67") names a printout, it moves no money. A figure glued to a word
+    ("DEPOSIT1,234.56", "CR1,234.56"), or several glued to single letters (debit and credit markers, "D1,234.56
+    C2,000.00"), is an amount."""
     from vlm.native_text import _money_spans
     text = text or ''
-    return frozenset(amount for start, _, amount in _money_spans(text)
+    spans = _money_spans(text)
+    glued = [amount for start, _, amount in spans
+             if start and text[start - 1].isalpha() and (start < 2 or not text[start - 2].isalnum())]
+    if len(glued) != 1:
+        return frozenset(amount for _, _, amount in spans)
+    return frozenset(amount for start, _, amount in spans
                      if not (start and text[start - 1].isalpha() and (start < 2 or not text[start - 2].isalnum())))
 
 
@@ -432,7 +438,8 @@ def printed_repeat_groups(rows, page_texts) -> frozenset:
     groups: dict[tuple, list] = defaultdict(list)
     for row in rows:
         text = ' '.join((row.date_text or '').split())
-        if row.date and re.search(r'\d', text):
+        # A date prints a digit and a separator or a month name: a bare day number ("5") is any 5 on the line.
+        if row.date and re.search(r'\d', text) and re.search(r'[/.\-]|[A-Za-z]{3}', text):
             groups[(row.page, row.date, row.amount)].append(text)
     proven = set()
     for (page, when, amount), tokens in groups.items():

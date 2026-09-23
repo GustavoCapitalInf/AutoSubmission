@@ -340,6 +340,18 @@ def test_a_page_listing_its_running_balances_gives_each_day_its_close():
     shifted = [{"date": "2031-01-02", "balance": 110.0}, {"date": "2031-01-03", "balance": 95.5},
                {"date": "2031-01-03", "balance": 81.37}]
     assert merge_metadata([running(entries, daily=shifted)], occurrences=[])[2] == ["anchor_disagreement"]
+    # N2: the page's own closing, listed under an earlier day before the rows end, is no close of that day.
+    own_early = [{"date": "2031-01-02", "balance": 110.0}, {"date": "2031-01-02", "balance": 95.5},
+                 {"date": "2031-01-02", "balance": 81.37}, {"date": "2031-01-03", "balance": 81.37}]
+    closing = running(entries, {"ending_balance": 81.37}, own_early)
+    assert set(merge_metadata([closing], occurrences=[])[2]) == {"anchor_disagreement"}
+    # N3: a numeric printed date is read month first only; a listing reading every "01/03" as March 1 is refused.
+    turned = running([("2031-01-03", 110.0), ("2031-01-03", 95.5), ("2031-02-03", 81.37)])
+    turned = PageReviewMerge(1, tuple(replace(row, date=None) for row in turned.rows), (), turned.counts, (),
+                             turned.account, ({"date": "2031-03-01", "balance": 110.0},
+                                              {"date": "2031-03-01", "balance": 95.5},
+                                              {"date": "2031-03-02", "balance": 81.37}), "statement_page", ())
+    assert set(merge_metadata([turned], occurrences=[])[2]) == {"anchor_disagreement"}
     # The page's printed opening, listed first on the first date, is one of its own figures too.
     opening = [{"date": "2031-01-02", "balance": 120.0}] + [{"date": when, "balance": value} for when, value in entries]
     _, closes, reasons, _ = merge_metadata([running(entries, {"beginning_balance": 120.0}, opening)], occurrences=[])
@@ -379,6 +391,12 @@ def test_a_sibling_account_that_did_not_move_is_set_aside_for_the_one_the_transa
     unread = {key: value for key, value in savings.items() if not key.startswith("stated_total")}
     moved = [page(1, unread), page(2, checking, balances=(102.0, 110.0))]
     assert "anchor_disagreement" in merge_metadata(moved, occurrences=[])[2]
+    # Review 6 verification, N1: the sibling's printed balances never become the statement's daily balances.
+    listed_sibling = page(1, savings, daily=({"date": "2031-01-31", "balance": 25.0},))
+    _, daily, reasons, provenance = merge_metadata([listed_sibling, page(2, checking, balances=(102.0, 110.0))],
+                                                   occurrences=[])
+    assert reasons == [] and daily == []
+    assert {"field": "daily_balances", "page": 1, "source": "dormant_sibling_account", "value": 1} in provenance
     # Finding 4: a second statement's account that printed no totals is no sibling to set aside either.
     other = {"beginning_balance": 500.0, "ending_balance": 500.0, "account_number": "1111222233334444"}
     assert set(merge_metadata([page(1, other), page(2, checking, balances=(110.0,))], occurrences=[])[2]) >= {

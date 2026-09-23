@@ -150,5 +150,7 @@ def test_additions_are_separate_when_their_page_prints_the_line_as_often_as_rows
     assert "duplicate_row" in gate(named, _meta(2), printed_repeats=printed_repeat_groups(named, month)).reasons
     twice_named = [["Jan 5 FABRICATED SERVICE FEE 1.50", "JAN  5 FABRICATED SERVICE FEE 1.50"]]
     assert printed_repeat_groups(named, twice_named) == {(1, "2031-01-05", Decimal("1.50"))}
-    # A printed date text without a digit never counts.
+    # A printed date text without a digit never counts, nor a bare day number (any "5" on a line).
     assert printed_repeat_groups([replace(row, date_text="Jan") for row in rows], month) == frozenset()
+    bare = [["12 FABRICATED CHECK 5 1.50", "12 FABRICATED STORE 5 1.50"]]
+    assert printed_repeat_groups([replace(row, date_text="5") for row in rows], bare) == frozenset()

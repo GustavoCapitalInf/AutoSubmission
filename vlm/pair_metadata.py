@@ -201,8 +201,9 @@ def _day_closes(merged, newest_first: bool | None = None) -> tuple[list[dict], i
     running balance printed on one of its own rows (or the page's own opening or closing balance), transcribed its
     running balances (a statement printing a balance on every row): the day's close is its last value in listing
     order, or its first when the page lists newest first; the listing must be the page's own running balances, all
-    of them, in order and on their rows' days. A page listing a single date takes the statement's listing order
-    (newest_first) and keeps its entries when that is unknown. Anything else is returned as it is (repeated dates with other values stay a disagreement).
+    of them, in order and on their rows' days, and each day closes on its last row's balance. A page listing a single
+    date takes the statement's listing order (newest_first) and keeps its entries when that is unknown. Anything else
+    is returned as it is (repeated dates with other values stay a disagreement).
     Returns (entries, how many running values were folded into their day's close)."""
     items = list(merged.daily_balances)
     dated = _dated_entries(merged)
@@ -222,18 +223,19 @@ def _day_closes(merged, newest_first: bool | None = None) -> tuple[list[dict], i
     if not values <= printed:
         return items, 0
     # The listing must be every running balance the page's rows print, in the rows' order and each on its own row's
-    # day, with nothing else but the page's own printed opening or closing: a partial or reordered transcription,
-    # or one dating a balance on another day, stays a disagreement.
+    # day, with nothing else but the page's own printed opening or closing before the first of them or after the last:
+    # a partial, reordered or misdated transcription stays a disagreement.
     own = {abs(Decimal(str(merged.account[key]))).quantize(cent) for key in ("beginning_balance", "ending_balance")
            if merged.account.get(key) is not None}
     balanced = [row for row in merged.rows if row.balance is not None]
-    position = 0
+    position, day_rows = 0, {}
     for item in dated:
         value = abs(Decimal(str(item["balance"]))).quantize(cent)
         if (position < len(balanced) and abs(Decimal(str(balanced[position].balance))).quantize(cent) == value
                 and _on_day(balanced[position], item["date"])):
+            day_rows.setdefault(item["date"], []).append(value)
             position += 1
-        elif value not in own:
+        elif not (value in own and position in (0, len(balanced))):
             return items, 0
     if position != len(balanced):
         return items, 0
@@ -249,12 +251,19 @@ def _day_closes(merged, newest_first: bool | None = None) -> tuple[list[dict], i
     closes: dict[str, dict] = {}
     for item in ordered:
         closes[item["date"]] = item
+    # Each folded day closes on its last row's balance (its first listed on a page listing newest first).
+    for when in repeated:
+        runs = day_rows.get(when)
+        close = abs(Decimal(str(closes[when]["balance"]))).quantize(cent)
+        if not runs or close != (runs[-1] if ascending else runs[0]):
+            return items, 0
     return sorted(closes.values(), key=lambda item: item["date"]), len(items) - len(closes)
 
 
 def _on_day(row, when: str) -> bool:
-    """Whether a row is dated `when`: its ISO date, else its printed date text read either way round (dates are
-    resolved after the metadata merge)."""
+    """Whether a row is dated `when`: its ISO date, else its printed date text (dates are resolved after the metadata
+    merge), a numeric one read month first only: reading each row either way round would let a listing that misreads
+    every day as a month pass."""
     if row.date:
         return row.date == when
     from vlm.textparse import parse_date
@@ -262,7 +271,7 @@ def _on_day(row, when: str) -> bool:
         year = int(str(when)[:4])
     except ValueError:
         return False
-    return any(parse_date(row.date_text, year_hint=year, day_first=first) == when for first in (False, True))
+    return parse_date(row.date_text, year_hint=year, day_first=False) == when
 
 
 def _carried_forward_date(merges, index: int) -> str | None:
@@ -508,6 +517,12 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
             if (value and not _printed_in_a_transaction(value, printed)
                     and not any(_compatible(_account_pattern(value), sibling) for sibling in sibling_numbers)):
                 identity(value, page, "account_numbers_seen")
+        if index in aside:
+            # A sibling account's printed balances describe that account, never the statement's days.
+            if merged.daily_balances:
+                provenance.append({"field": "daily_balances", "page": page, "source": "dormant_sibling_account",
+                                   "value": len(merged.daily_balances)})
+            continue
         carried = _carried_forward_date(merges, index)
         carry_open = carried is not None
         previous_date = None
