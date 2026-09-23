@@ -1,4 +1,56 @@
 const els = {
+  newView: document.getElementById("newView"),
+  resultsView: document.getElementById("resultsView"),
+  resultsEmpty: document.getElementById("resultsEmpty"),
+  resultsEmptyTitle: document.getElementById("resultsEmptyTitle"),
+  resultsEmptyCopy: document.getElementById("resultsEmptyCopy"),
+  resultsContent: document.getElementById("resultsContent"),
+  breadcrumb: document.getElementById("breadcrumb"),
+  topbarHint: document.getElementById("topbarHint"),
+  topbarNew: document.getElementById("topbarNew"),
+  notificationsAnchor: document.getElementById("notificationsAnchor"),
+  notificationsBtn: document.getElementById("notificationsBtn"),
+  notificationsPopover: document.getElementById("notificationsPopover"),
+  notificationsList: document.getElementById("notificationsList"),
+  notifyDot: document.getElementById("notifyDot"),
+  helpBtn: document.getElementById("helpBtn"),
+  helpPopover: document.getElementById("helpPopover"),
+  sidebarSearch: document.getElementById("sidebarSearch"),
+  railSearch: document.getElementById("railSearch"),
+  panelToggle: document.getElementById("panelToggle"),
+  collapseSidebar: document.getElementById("collapseSidebar"),
+  recentStatements: document.getElementById("recentStatements"),
+  recentPackages: document.getElementById("recentPackages"),
+  statementCount: document.getElementById("statementCount"),
+  packageCount: document.getElementById("packageCount"),
+  reviewCount: document.getElementById("reviewCount"),
+  heroKicker: document.getElementById("heroKicker"),
+  resultsTitle: document.getElementById("resultsTitle"),
+  heroChips: document.getElementById("heroChips"),
+  summaryPanel: document.getElementById("summaryPanel"),
+  copySummaryBtn: document.getElementById("copySummaryBtn"),
+  closeSummaryBtn: document.getElementById("closeSummaryBtn"),
+  creditsLabel: document.getElementById("creditsLabel"),
+  creditsValue: document.getElementById("creditsValue"),
+  creditsMeta: document.getElementById("creditsMeta"),
+  creditMixBar: document.getElementById("creditMixBar"),
+  creditMixRows: document.getElementById("creditMixRows"),
+  balanceChart: document.getElementById("balanceChart"),
+  monthlyChart: document.getElementById("monthlyChart"),
+  totalsGrid: document.getElementById("totalsGrid"),
+  processingList: document.getElementById("processingList"),
+  packageSummaryList: document.getElementById("packageSummaryList"),
+  packageProcessingList: document.getElementById("packageProcessingList"),
+  packageProcessingNote: document.getElementById("packageProcessingNote"),
+  queueCard: document.getElementById("queueCard"),
+  queueMeta: document.getElementById("queueMeta"),
+  queueList: document.getElementById("queueList"),
+  pagePreview: document.getElementById("pagePreview"),
+  previewPrev: document.getElementById("previewPrev"),
+  previewNext: document.getElementById("previewNext"),
+  previewLabel: document.getElementById("previewLabel"),
+  nsfExampleDays: document.getElementById("nsfExampleDays"),
+  nsfExampleTotal: document.getElementById("nsfExampleTotal"),
   settingsView: document.getElementById("settingsView"),
   nsfCarryOverToggle: document.getElementById("nsfCarryOverToggle"),
   settingsStatus: document.getElementById("settingsStatus"),
@@ -6,13 +58,13 @@ const els = {
   uploadBtn: document.getElementById("uploadBtn"),
   forceOcrToggle: document.getElementById("forceOcrToggle"),
   dropzone: document.getElementById("dropzone"),
-  filePreview: document.getElementById("filePreview"),
-  fileName: document.getElementById("fileName"),
   progressTrack: document.getElementById("progressTrack"),
+  statusCard: document.getElementById("statusCard"),
   statusBanner: document.getElementById("statusBanner"),
   statusMark: document.getElementById("statusMark"),
   statusHeading: document.getElementById("statusHeading"),
   statusCopy: document.getElementById("statusCopy"),
+  statusMessage: document.getElementById("statusMessage"),
   validationValue: document.getElementById("validationValue"),
   statusList: document.getElementById("statusList"),
   metricsGrid: document.getElementById("metricsGrid"),
@@ -81,6 +133,12 @@ let modalTransactionSort = "date";
 const TRANSACTION_PAGE = 100;
 let transactionLimit = TRANSACTION_PAGE;
 let modalTransactionLimit = TRANSACTION_PAGE;
+// The view on screen: "new" (upload), "results" (a statement or package) or "settings".
+let currentView = "new";
+// One entry per uploaded file: its job once the server has created one, and the last status polled for it.
+let queueEntries = [];
+let previewJobId = null;
+let previewPage = 0;
 
 function selectedParseMode() {
   return document.querySelector('input[name="parseMode"]:checked')?.value || "auto";
@@ -137,6 +195,7 @@ const emptyMetricSections = [
   },
   {
     title: "Lenders",
+    layout: "wide",
     sub: "Lender and insurance transaction analysis",
     items: [
       ["Confirmed Lenders", "N/A", "Lenders confirmed from statement transactions", "LEN", "neutral"],
@@ -325,11 +384,11 @@ function accountFieldRows(statement = {}, markdown = "") {
   ]);
 
   return [
-    ["Account Type", accountType || "N/A"],
-    ["Statement Period", period(statement)],
-    ["Routing Number", routing || "N/A"],
-    ["Account Number (masked)", maskAccount(accountNumber)],
     ["Bank Name", statement.bank || "N/A"],
+    ["Account Type", accountType || "N/A"],
+    ["Account Number (masked)", maskAccount(accountNumber)],
+    ["Routing Number", routing || "N/A"],
+    ["Statement Period", period(statement)],
   ];
 }
 
@@ -378,8 +437,8 @@ function transactionCategory(tx) {
   const state = record.classification || "other";
   const entity = record.canonical_entity || "";
   const categories = {
-    confirmed_lender: { label: entity || "Confirmed lender", glyph: "LEN", tone: "amber" },
-    potential_lender: { label: entity ? `${entity} (Potential)` : "Potential lender", glyph: "?", tone: "amber" },
+    confirmed_lender: { label: entity || "Confirmed lender", glyph: "LEN", tone: "violet" },
+    potential_lender: { label: entity ? `${entity} (Potential)` : "Potential lender", glyph: "?", tone: "violet" },
     insurance: { label: entity || "Insurance", glyph: "INS", tone: "blue" },
     lease_or_equipment_financing: { label: "Lease / Equipment", glyph: "LSE", tone: "neutral" },
     fee: { label: "Fee", glyph: "$", tone: "neutral" },
@@ -431,8 +490,10 @@ function revenueReviewControls(tx, fallbackJobId = null) {
   if (!jobId || !sourceLocation) return "";
   const common = `data-revenue-review-job="${escapeHtml(jobId)}" data-revenue-review-location="${escapeHtml(sourceLocation)}"`;
   if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") {
+    const decision = record.revenue_review_status === "confirmed" ? "Confirmed as revenue" : "Marked non-revenue";
     return `
-      <div class="revenue-review-actions">
+      <div class="revenue-review-actions review-note">
+        <span>${decision}</span>
         <button class="table-action" type="button" ${common} data-revenue-review-action="reset">Reset Decision</button>
       </div>
     `;
@@ -526,21 +587,17 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
       moreEl.innerHTML = "";
     }
   }
-  const sourceHead = showSource ? "<td>N/A</td>" : "";
-  const runningBalanceEmptyCell = showRunningBalance ? "<td>N/A</td>" : "";
   if (!visible.length) {
+    // Date, Description, Category, Amount and Review, plus the optional Statement and Running Balance columns.
+    const columns = 5 + (showSource ? 1 : 0) + (showRunningBalance ? 1 : 0);
     tableEl.innerHTML = `
       <tr>
-        <td><strong>No transactions found</strong></td>
-        <td>${escapeHtml(filter === "all" ? "No statement returned transaction rows." : "No rows matched this filter.")}</td>
-        ${sourceHead}
-        <td>${glassChip("", "Empty", "neutral")}</td>
-        <td>N/A</td>
-        ${runningBalanceEmptyCell}
+        <td class="empty-cell" colspan="${columns}"><strong>No transactions found</strong>${escapeHtml(filter === "all" ? "No statement returned transaction rows." : "No rows matched this filter.")}</td>
       </tr>
     `;
     return;
   }
+  const sourceLabels = showSource ? statementSourceLabels(rows) : null;
   tableEl.innerHTML = visible.map((tx) => {
     const amount = txAmount(tx);
     const category = transactionCategory(tx);
@@ -548,27 +605,47 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     // row is denominated by the statement it came from, never by a package-wide
     // label that a mixed package does not have (CURRENCY DOCTRINE §F).
     const rowCurrency = "source_currency" in tx ? tx.source_currency : currency;
+    const sourceName = tx.source_document || tx.source_bank || "Statement";
     const source = showSource
-      ? `<td class="transaction-source">${escapeHtml(tx.source_document || tx.source_bank || "Statement")}</td>`
+      ? `<td class="transaction-source"><span class="source-tag" title="${escapeHtml(sourceName)}">${escapeHtml(sourceLabels.get(tx.source_job) || sourceName)}</span></td>`
       : "";
     const reviewReason = revenueReviewReason(tx);
     const reviewReasonHtml = reviewReason
-      ? `<div class="table-head-scope"><strong>Reason:</strong> ${escapeHtml(reviewReason)}</div>`
+      ? `<div class="tx-reason"><strong>Reason:</strong> ${escapeHtml(reviewReason)}</div>`
       : "";
+    const balance = runningBalanceValue(tx);
     const runningBalance = showRunningBalance
-      ? `<td class="amount-cell">${escapeHtml(formatMoney(runningBalanceValue(tx), rowCurrency))}</td>`
+      ? `<td class="amount-cell tx-balance${balance !== null && balance < 0 ? " balance-negative" : ""}">${escapeHtml(formatMoney(balance, rowCurrency))}</td>`
       : "";
     return `
       <tr>
-        <td><strong>${escapeHtml(tx.date || "N/A")}</strong></td>
-        <td class="transaction-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
+        <td class="tx-date">${escapeHtml(tx.date || "N/A")}</td>
         ${source}
-        <td>${glassChip(category.glyph, category.label, category.tone)}${reviewReasonHtml}${revenueReviewControls(tx, reviewJobId)}</td>
-        <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${escapeHtml(formatMoney(amount, rowCurrency))}</td>
+        <td class="tx-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
+        <td>${glassChip(category.glyph, category.label, category.tone)}${reviewReasonHtml}</td>
+        <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
+        <td class="tx-review">${revenueReviewControls(tx, reviewJobId)}</td>
       </tr>
     `;
   }).join("");
+}
+
+// The combined ledger's Statement column names each row's statement by its month ("March 2026"). Two
+// statements for one month (two accounts) would read the same, so those fall back to their file name.
+function statementSourceLabels(transactions) {
+  const months = new Map();
+  transactions.forEach((tx) => {
+    if (!tx.source_job || months.has(tx.source_job)) return;
+    months.set(tx.source_job, statementMonth(tx.source_period_start, tx.source_period_end));
+  });
+  const perMonth = new Map();
+  months.forEach((month) => { if (month) perMonth.set(month.key, (perMonth.get(month.key) || 0) + 1); });
+  const labels = new Map();
+  months.forEach((month, job) => {
+    if (month && perMonth.get(month.key) === 1) labels.set(job, `${MONTH_NAMES[month.month]} ${month.year}`);
+  });
+  return labels;
 }
 
 // Single source of truth for the main ledger table: a package shows every
@@ -720,6 +797,7 @@ function friendlyAnalysisError(message) {
 function setProgress(active) {
   els.progressTrack.classList.toggle("show", active);
   els.progressTrack.classList.toggle("indeterminate", active);
+  els.statusCard?.classList.toggle("busy", active);
 }
 
 function setBanner(state, title, meta) {
@@ -727,15 +805,31 @@ function setBanner(state, title, meta) {
   els.statusMark.textContent = state === "done" ? "✓" : state === "error" ? "!" : "·";
   els.statusCopy.textContent = title;
   els.validationValue.textContent = meta;
+  if (state !== "error") setStatusMessage("");
 }
 
-function setStatusRows(rows) {
-  els.statusList.innerHTML = rows.map(([key, value]) => `
-    <div class="status-row">
-      <div class="status-key">${escapeHtml(key)}</div>
-      <div class="status-value">${escapeHtml(value)}</div>
+function setStatusMessage(message) {
+  if (!els.statusMessage) return;
+  els.statusMessage.textContent = message || "";
+  els.statusMessage.hidden = !message;
+}
+
+function kvRowsHtml(rows) {
+  return rows.map(([key, value]) => `
+    <div class="kv">
+      <span class="kv-key">${escapeHtml(key)}</span>
+      <span class="kv-value" title="${escapeHtml(value || "N/A")}">${escapeHtml(value || "N/A")}</span>
     </div>
   `).join("");
+}
+
+// The processing rows show on the New analysis page while a job runs, and again beside the account details
+// (a statement) or in the package's Processing card once it has finished.
+function setStatusRows(rows) {
+  const html = kvRowsHtml(rows);
+  [els.statusList, els.processingList, els.packageProcessingList].forEach((list) => {
+    if (list) list.innerHTML = html;
+  });
 }
 
 function setInitialState() {
@@ -849,7 +943,7 @@ const CHIP_VOCABULARY = {
   "%": ["%", "Rate"],
 };
 
-const CHIP_TONES = { green: "success", red: "error", blue: "info", amber: "warning", neutral: "neutral" };
+const CHIP_TONES = { green: "success", red: "error", blue: "info", amber: "warning", violet: "violet", neutral: "neutral" };
 
 /* Colour restraint: a chip is tinted only when it reports something the
    reviewer should act on. Anything purely informational stays neutral
@@ -979,18 +1073,77 @@ function renderMetricCard([label, value, sub, icon, tone, action]) {
   `;
 }
 
+function toneClass(tone) {
+  return tone && tone !== "neutral" ? ` tone-${escapeHtml(tone)}` : "";
+}
+
+// One figure as a row: its label and note on the left, the value on the right. A revenue figure is a button
+// that filters the ledger to the transactions behind it.
+function metricRowHtml([label, value, sub, , tone, action]) {
+  const actionable = action && action.revenueFilter;
+  const tag = actionable ? "button" : "div";
+  const attributes = actionable
+    ? ` type="button" data-revenue-filter="${escapeHtml(action.revenueFilter)}" aria-label="Show exact ${escapeHtml(label)} transactions"`
+    : "";
+  return `
+    <${tag} class="metric-row"${attributes}>
+      <span class="metric-text">
+        <span class="metric-label">${escapeHtml(label)}</span>
+        ${sub ? `<span class="metric-note">${escapeHtml(sub)}</span>` : ""}
+      </span>
+      <span class="metric-value${toneClass(tone)}">${escapeHtml(value)}</span>
+    </${tag}>
+  `;
+}
+
+function metricPanelHeadHtml(section) {
+  return `
+    <div class="panel-head">
+      <h3>${escapeHtml(section.title)}</h3>
+      <span class="panel-sub">${escapeHtml(section.sub || "")}</span>
+    </div>
+  `;
+}
+
+// Plain sections sit side by side; a "wide" section (lenders) spans the page in two columns and a "strip"
+// section (package quality) reads across as one row of large figures.
 function renderMetricSections(sections) {
-  els.metricsGrid.innerHTML = sections.map((section) => `
-    <section class="metric-section">
-      <div class="metric-section-head">
-        <div class="metric-section-title">${escapeHtml(section.title)}</div>
-        <div class="metric-section-sub">${escapeHtml(section.sub || "")}</div>
-      </div>
-      <div class="metric-section-grid">
-        ${(section.items || []).map(renderMetricCard).join("")}
-      </div>
-    </section>
-  `).join("");
+  const plain = sections.filter((section) => !section.layout);
+  const grid = plain.length
+    ? `<div class="metric-groups" style="--cols: ${plain.length}">${plain.map((section) => `
+        <section class="panel">
+          ${metricPanelHeadHtml(section)}
+          ${(section.items || []).map(metricRowHtml).join("")}
+        </section>
+      `).join("")}</div>`
+    : "";
+  const others = sections.filter((section) => section.layout).map((section) => {
+    const items = section.items || [];
+    if (section.layout === "strip") {
+      return `
+        <section class="panel quality-strip" style="--cols: ${items.length}">
+          <div class="quality-head">
+            <h3>${escapeHtml(section.title)}</h3>
+            <span class="panel-sub">${escapeHtml(section.sub || "")}</span>
+          </div>
+          ${items.map(([label, value, sub, , tone]) => `
+            <div class="quality-cell" title="${escapeHtml(sub || "")}">
+              <span class="total-label">${escapeHtml(label)}</span>
+              <span class="quality-value${toneClass(tone)}">${escapeHtml(value)}</span>
+              <span class="metric-note">${escapeHtml(sub || "")}</span>
+            </div>
+          `).join("")}
+        </section>
+      `;
+    }
+    return `
+      <section class="panel">
+        ${metricPanelHeadHtml(section)}
+        <div class="metric-wide-grid">${items.map(metricRowHtml).join("")}</div>
+      </section>
+    `;
+  }).join("");
+  els.metricsGrid.innerHTML = grid + others;
 }
 
 function lenderEvidenceControl(funder, potential) {
@@ -1039,14 +1192,19 @@ function lenderRowHtml(funder, currency = "USD") {
       <div class="table-cell-detail">${escapeHtml(formatMoney(denominator, currency))} eligible deposits</div>
     `
     : isPotential ? "N/A" : "--";
+  // A package's lender rows say how many of its statements the lender appears in.
+  const statements = numberOrNull(funder.documents);
+  const statementsDetail = statements !== null
+    ? `<div class="table-cell-detail">Across ${escapeHtml(formatNumber(statements))} ${statements === 1 ? "statement" : "statements"}</div>`
+    : "";
   return `
     <tr>
-      <td>${lenderEvidenceControl(funder, isPotential)}</td>
+      <td>${lenderEvidenceControl(funder, isPotential)}${statementsDetail}</td>
       <td>${escapeHtml(isPotential ? "Potential lender" : "Confirmed lender")}</td>
       <td>${escapeHtml(formatNumber(count))}</td>
       <td>${escapeHtml(formatMoney(total, currency))}</td>
       <td>${potentialWithholding}</td>
-      <td>${glassChip(isPotential ? "?" : "LEN", isPotential ? "Review required" : "Confirmed", "amber")}</td>
+      <td>${glassChip(isPotential ? "?" : "LEN", isPotential ? "Review required" : "Confirmed", isPotential ? "amber" : "violet")}</td>
     </tr>
   `;
 }
@@ -1133,18 +1291,12 @@ function renderRevenueEvidence(metrics = {}, currency = "USD") {
   els.revenueCount.textContent = `${formatNumber(metrics.total_posted_credit_count)} credit transactions`;
 }
 
+// A statement shows these rows in its Account & processing grid, a package in its Package summary card.
 function renderAccountSummary(rows) {
-  if (!els.accountSummary) return;
-  els.accountSummary.innerHTML = summaryRowsHtml(rows);
-}
-
-function summaryRowsHtml(rows) {
-  return rows.map(([label, value]) => `
-    <div class="summary-item">
-      <div class="summary-key">${escapeHtml(label)}</div>
-      <div class="summary-value">${escapeHtml(value || "N/A")}</div>
-    </div>
-  `).join("");
+  const html = kvRowsHtml(rows);
+  [els.accountSummary, els.packageSummaryList].forEach((list) => {
+    if (list) list.innerHTML = html;
+  });
 }
 
 function isDocumentPayload(report) {
@@ -1171,6 +1323,291 @@ function documentRefusalMessage(report) {
     + `at a time and has no account selector yet, so it is not showing you one `
     + `of them as though it were the document.${omittedNote} Download the CSV or `
     + `XLSX export, which carries every account.`;
+}
+
+/* --- results page: header, credits, charts and totals ----------------
+   Everything here lays out figures the API already published. The charts
+   only scale and place them; no figure is derived from another. */
+const BANK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h18L12 4z"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>`;
+const PACKAGE_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>`;
+const OPEN_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>`;
+
+// The breadcrumb of the analysis that is open, and the one the results page shows now (an empty state
+// replaces it while nothing of the kind asked for is open).
+let analysisCrumbs = ["Statements"];
+let resultsCrumbs = analysisCrumbs;
+
+function sentenceCase(text) {
+  const value = String(text || "");
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function signTone(value) {
+  const n = numberOrNull(value);
+  if (n === null || n === 0) return "neutral";
+  return n > 0 ? "green" : "red";
+}
+
+function monthLabel(month) {
+  return month ? `${MONTH_NAMES[month.month]} ${month.year}` : null;
+}
+
+function setResultsMode(mode) {
+  els.resultsContent?.classList.toggle("is-package", mode === "package");
+}
+
+function showResultsContent() {
+  if (els.resultsEmpty) els.resultsEmpty.hidden = true;
+  if (els.resultsContent) els.resultsContent.hidden = false;
+}
+
+// A summary describes one analysis, so it closes when another one starts to open; while its analysis is
+// redrawn (a review decision or a setting changed a figure) an open summary is written again.
+function closeSummary() {
+  if (els.summaryPanel) els.summaryPanel.hidden = true;
+}
+
+function refreshOpenSummary() {
+  if (els.summaryPanel && !els.summaryPanel.hidden) generateSummary();
+}
+
+function renderHero({ icon, kicker, title, chips }) {
+  els.heroKicker.innerHTML = `${icon}<span>${escapeHtml(kicker)}</span>`;
+  els.resultsTitle.textContent = title;
+  els.heroChips.innerHTML = chips
+    .map(([text, mono]) => `<span class="hero-chip${mono ? " mono" : ""}">${escapeHtml(text)}</span>`)
+    .join("");
+}
+
+function renderCredits({ label, value, meta }) {
+  els.creditsLabel.textContent = label;
+  els.creditsValue.textContent = value;
+  // `meta` is built from escaped pieces by the two callers.
+  els.creditsMeta.innerHTML = meta;
+}
+
+const CREDIT_MIX = [
+  ["verified_revenue", "Verified revenue", "dot-green"],
+  ["unverified_deposit", "Unverified deposits", "dot-amber"],
+  ["non_revenue", "Non-revenue", "dot-muted"],
+];
+
+// The three revenue classes of the posted credits, each as its share of the three together. A row is a
+// button to that class's transactions, like the Revenue evidence rows.
+function renderCreditMix(source = {}, currency = "USD") {
+  const parts = CREDIT_MIX.map(([state, label, dot]) => ({
+    state,
+    label,
+    dot,
+    count: source[`${state}_count`],
+    total: source[`${state}_total`],
+    size: Math.max(numberOrNull(source[`${state}_total`]) || 0, 0),
+  }));
+  const sum = parts.reduce((total, part) => total + part.size, 0);
+  const share = (part) => (sum > 0 ? `${((part.size / sum) * 100).toFixed(1)}%` : "N/A");
+  els.creditMixBar.innerHTML = parts
+    .filter((part) => sum > 0 && part.size > 0)
+    .map((part) => `<span class="${part.dot}" style="width: ${((part.size / sum) * 100).toFixed(2)}%"></span>`)
+    .join("");
+  els.creditMixBar.setAttribute(
+    "aria-label",
+    sum > 0 ? `Credit mix: ${parts.map((part) => `${share(part)} ${part.label.toLowerCase()}`).join(", ")}` : "Credit mix unavailable",
+  );
+  els.creditMixRows.innerHTML = parts.map((part) => `
+    <button class="mix-row" type="button" data-revenue-filter="${part.state}" aria-label="Show exact ${escapeHtml(part.label)} transactions">
+      <span class="mix-dot ${part.dot}"></span>
+      <span class="mix-label">${escapeHtml(part.label)}</span>
+      <span class="mix-count">${escapeHtml(formatNumber(part.count))}</span>
+      <span class="mix-total">${escapeHtml(formatMoney(part.total, currency))}</span>
+      <span class="mix-share">${escapeHtml(share(part))}</span>
+    </button>
+  `).join("");
+}
+
+function renderTotals(items) {
+  els.totalsGrid.innerHTML = items.map(([label, value, tone]) => `
+    <div class="total-item">
+      <span class="total-label">${escapeHtml(label)}</span>
+      <span class="total-value${toneClass(tone)}" title="${escapeHtml(value)}">${escapeHtml(value)}</span>
+    </div>
+  `).join("");
+}
+
+// The balance a statement prints after each posting day's last row -- the Running Balance column, one point
+// per day. A statement that prints no running balance has no line to draw; nothing is reconstructed here.
+function printedDailyBalances(transactions) {
+  const printed = transactions.filter((tx) => txDateValue(tx) !== null && runningBalanceValue(tx) !== null);
+  if (printed.length < 2) return [];
+  // A ledger printed newest first lists each day's last posting first.
+  const newestFirst = txDateValue(printed[0]) > txDateValue(printed[printed.length - 1]);
+  const byDay = new Map();
+  printed.forEach((tx) => {
+    const day = txDateValue(tx);
+    if (newestFirst && byDay.has(day)) return;
+    byDay.set(day, runningBalanceValue(tx));
+  });
+  return [...byDay.entries()].map(([day, balance]) => ({ day, balance })).sort((a, b) => a.day - b.day);
+}
+
+// The smallest round multiple of a power of ten at or above `value`: a readable axis bound.
+function niceCeiling(value) {
+  if (!(value > 0)) return 0;
+  const power = 10 ** Math.floor(Math.log10(value));
+  const step = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((multiple) => multiple * power >= value);
+  return step * power;
+}
+
+function formatAxisMoney(value, currency) {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      notation: "compact",
+      maximumFractionDigits: 1,
+      ...(currency ? { style: "currency", currency } : {}),
+    }).format(value);
+  } catch {
+    return String(Math.round(value));
+  }
+}
+
+function chartDayLabel(day) {
+  const date = new Date(day);
+  return `${MONTH_NAMES[date.getUTCMonth()].slice(0, 3)} ${date.getUTCDate()}`;
+}
+
+function renderBalanceChart(transactions, metrics = {}, currency = "USD") {
+  if (!els.balanceChart) return;
+  const points = printedDailyBalances(transactions);
+  const adb = numberOrNull(metrics.average_daily_balance);
+  // Named for what it plots -- the printed running balance -- and carrying no count or extreme of its own:
+  // the NSF count and the lowest and highest balances are the API's, shown in Risk signals.
+  const head = (legend) => `
+    <div class="chart-head">
+      <span class="chart-title" title="The running balance the statement prints, at the last posting of each day">Running balance</span>
+      <div class="chart-legend">${legend}</div>
+    </div>
+  `;
+  if (points.length < 2) {
+    els.balanceChart.innerHTML = `
+      ${head(adb === null ? "" : `<span><span class="legend-dash"></span>ADB ${escapeHtml(formatMoney(metrics.average_daily_balance, currency))}</span>`)}
+      <div class="chart-empty">This statement does not print a running balance on its transactions, so there is no daily line to draw.</div>
+    `;
+    return;
+  }
+  const balances = points.map((point) => point.balance);
+  const high = Math.max(...balances, adb ?? -Infinity, 0);
+  const low = Math.min(...balances, adb ?? Infinity, 0);
+  const bottom = low < 0 ? -niceCeiling(-low) : 0;
+  const top = high > 0 ? niceCeiling(high) : (bottom < 0 ? 0 : 1);
+  const width = 1000;
+  const height = 176;
+  const first = points[0].day;
+  const span = points[points.length - 1].day - first || 1;
+  const x = (day) => ((day - first) / span) * width;
+  const y = (value) => ((top - value) / (top - bottom)) * height;
+  const line = points.map((point) => `${x(point.day).toFixed(1)},${y(point.balance).toFixed(1)}`).join(" ");
+  const area = `M${x(first).toFixed(1)},${height} L${line.replace(/ /g, " L")} L${width},${height} Z`;
+  const belowZero = points.filter((point) => point.balance < 0);
+  const marker = (point) => `<span class="chart-point" style="left: ${(x(point.day) / 10).toFixed(2)}%; top: ${y(point.balance).toFixed(1)}px" title="Printed running balance on ${escapeHtml(chartDayLabel(point.day))}: ${escapeHtml(formatMoney(point.balance, currency))}"></span>`;
+  const gridLine = (value, stroke) => `<line x1="0" x2="${width}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}" stroke="${stroke}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+  const ticks = [top, (top + bottom) / 2, bottom];
+  const labels = [0, 1, 2, 3, 4].map((step) => chartDayLabel(first + (span * step) / 4));
+  const legend = [
+    `<span><span class="legend-line"></span>Balance</span>`,
+    adb === null ? "" : `<span><span class="legend-dash"></span>ADB ${escapeHtml(formatMoney(metrics.average_daily_balance, currency))}</span>`,
+    belowZero.length ? `<span><span class="legend-dot"></span>Below zero</span>` : "",
+  ].join("");
+  els.balanceChart.innerHTML = `
+    ${head(legend)}
+    <div class="chart-body">
+      <div class="chart-axis" aria-hidden="true">${ticks.map((tick) => `<span>${escapeHtml(formatAxisMoney(tick, currency))}</span>`).join("")}</div>
+      <div class="chart-plot" role="img" aria-label="Printed running balance from ${escapeHtml(chartDayLabel(first))} to ${escapeHtml(chartDayLabel(points[points.length - 1].day))}">
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+          ${gridLine(top, "var(--grid)")}
+          ${gridLine((top + bottom) / 2, "var(--grid)")}
+          ${gridLine(0, "var(--border-2)")}
+          <path d="${area}" fill="var(--chart-fill)" stroke="none"/>
+          <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+          ${adb === null ? "" : `<line x1="0" x2="${width}" y1="${y(adb).toFixed(1)}" y2="${y(adb).toFixed(1)}" stroke="var(--text-3)" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>`}
+        </svg>
+        ${belowZero.map(marker).join("")}
+      </div>
+    </div>
+    <div class="chart-x" aria-hidden="true">${labels.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}</div>
+  `;
+}
+
+// A package member's own currency; a member that never declared one stays undeclared (CURRENCY DOCTRINE §F).
+function currencyOfDocument(doc) {
+  return "currency" in doc ? doc.currency : "USD";
+}
+
+// A package's statements in calendar order, each with the month it stands for.
+function packageMonthRows(documents) {
+  const rows = documents.map((doc) => ({ doc, month: statementMonth(doc.period_start, doc.period_end) }));
+  rows.sort((a, b) => (a.month ? a.month.key : Infinity) - (b.month ? b.month.key : Infinity));
+  return rows;
+}
+
+function packageTitle(rows) {
+  const months = rows.map((row) => row.month).filter(Boolean);
+  if (!months.length) return "Statement package";
+  const first = months[0];
+  const last = months[months.length - 1];
+  if (first.key === last.key) return monthLabel(first);
+  return first.year === last.year
+    ? `${MONTH_NAMES[first.month]} – ${MONTH_NAMES[last.month]} ${last.year}`
+    : `${monthLabel(first)} – ${monthLabel(last)}`;
+}
+
+function renderMonthlyChart(rows, mixedCurrencies) {
+  if (!els.monthlyChart) return;
+  const values = rows.map(({ doc }) => numberOrNull(doc.credits));
+  const largest = Math.max(0, ...values.filter((value) => value !== null));
+  const years = new Set(rows.map((row) => row.month && row.month.year));
+  const columns = `grid-template-columns: repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))`;
+  const tallest = 150;
+  const bars = rows.map(({ doc }, index) => {
+    const value = values[index];
+    const currency = currencyOfDocument(doc);
+    const unit = mixedCurrencies && currency && currency !== "USD" ? ` ${currency}` : "";
+    const text = formatWhole(doc.credits);
+    const heightPx = largest > 0 && value !== null ? Math.max((Math.max(value, 0) / largest) * tallest, 2) : 0;
+    return `
+      <div class="bar-col">
+        <span class="bar-value">${escapeHtml(text === "N/A" ? text : text + unit)}</span>
+        <div class="bar${value !== null && value === largest && largest > 0 ? " peak" : ""}" style="height: ${heightPx.toFixed(1)}px"></div>
+      </div>
+    `;
+  }).join("");
+  // Two statements for one month would read alike, so those bars also name their file (as the table does).
+  const monthCounts = new Map();
+  rows.forEach(({ month }) => { if (month) monthCounts.set(month.key, (monthCounts.get(month.key) || 0) + 1); });
+  const labels = rows.map(({ doc, month }) => {
+    const docCurrency = currencyOfDocument(doc);
+    const shared = month && monthCounts.get(month.key) > 1;
+    return `
+      <div class="bar-label" title="${escapeHtml(doc.filename || "Statement")}">
+        <strong>${escapeHtml(month ? (years.size > 1 ? monthLabel(month) : MONTH_NAMES[month.month]) : "N/A")}</strong>
+        ${shared ? `<span class="bar-file">${escapeHtml(doc.filename || "Statement")}</span>` : ""}
+        <span>Ledger ${escapeHtml(formatMoney(doc.average_daily_balance, docCurrency))}</span>
+      </div>
+    `;
+  }).join("");
+  els.monthlyChart.innerHTML = `
+    <div class="chart-head">
+      <span class="chart-title">Monthly deposits</span>
+      <span class="chart-legend">Deposits and ledger (average daily balance) per statement</span>
+    </div>
+    <div class="bar-chart" style="${columns}" role="img" aria-label="Monthly deposits per statement">${bars}</div>
+    <div class="bar-labels" style="${columns}">${labels}</div>
+  `;
+}
+
+function setReviewCount(value) {
+  if (!els.reviewCount) return;
+  const count = numberOrNull(value) || 0;
+  els.reviewCount.textContent = formatNumber(count);
+  els.reviewCount.hidden = count <= 0;
 }
 
 function renderAnalysis(report) {
@@ -1216,8 +1653,47 @@ function renderAnalysis(report) {
 
   els.statusHeading.textContent = "OCR completed";
   setBanner("done", "Extraction completed", validation);
-  els.decisionPill.textContent = labelize(decision);
+  els.decisionPill.textContent = sentenceCase(labelize(decision));
   els.decisionPill.className = `decision-pill ${decision}`.trim();
+
+  setResultsMode("single");
+  showResultsContent();
+  const account = Object.fromEntries(accountFieldRows(statement, currentMarkdown));
+  const month = monthLabel(statementMonth(statement.period_start, statement.period_end));
+  const pageCount = numberOrNull(statement.page_count || report.page_count);
+  const accountName = [account["Account Type"], account["Account Number (masked)"]]
+    .filter((value) => value && value !== "N/A")
+    .join(" ");
+  renderHero({
+    icon: BANK_ICON,
+    kicker: [statement.bank || "Bank statement", accountName].filter(Boolean).join(" · "),
+    title: month ? `${month} statement` : "Bank statement",
+    chips: [
+      [`Revenue · ${metrics.revenue_reconciles ? "Balanced" : "Review required"}`],
+      [`Integrity · ${integrityLabel(integrity)}`],
+      [period(statement), true],
+      [pageCount ? `${currency} · ${formatNumber(pageCount)} pages` : currency],
+    ],
+  });
+  analysisCrumbs = ["Statements", statement.bank || "Statement", month || period(statement)];
+  resultsCrumbs = analysisCrumbs;
+  renderCredits({
+    label: "Total credits",
+    value: formatMoney(totalCredits, currency),
+    meta: `${escapeHtml(formatNumber(metrics.total_posted_credit_count))} credit transactions · Revenue upper bound `
+      + `<span class="mono">${escapeHtml(formatMoney(metrics.maximum_revenue, currency))}</span>`,
+  });
+  renderCreditMix(metrics, currency);
+  renderBalanceChart(transactions, metrics, currency);
+  renderTotals([
+    ["Total debits", formatMoney(totalDebits, currency)],
+    ["Cash flow", formatMoney(metrics.cash_flow, currency), signTone(metrics.cash_flow)],
+    ["Average daily balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceTone(metrics)],
+    ["Ending balance", formatMoney(statement.ending_balance, currency), negativeTone(statement.ending_balance)],
+    ["NSFs", formatNumber(metrics.effective_nsf_count), countTone(metrics.effective_nsf_count)],
+    ["Confirmed withholding", formatPercent(metrics.withholding_rate), withholdingTone(metrics.withholding_rate)],
+  ]);
+  setReviewCount(metrics.unverified_deposit_count);
 
   setStatusRows([
     ["OCR completed", "Yes"],
@@ -1238,7 +1714,7 @@ function renderAnalysis(report) {
       title: "Credits",
       sub: "Posted credit transactions",
       items: [
-        ["Total Credits", formatMoney(totalCredits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
+        ["Total Credits", formatMoney(totalCredits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "neutral"],
         ["Verified Revenue", formatMoney(metrics.verified_revenue_total, currency), REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
         ["Unverified Deposits", formatMoney(metrics.unverified_deposit_total, currency), REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber", { revenueFilter: "unverified_deposit" }],
         ["Non-Revenue", formatMoney(metrics.non_revenue_total, currency), REVENUE_METRIC_COPY.nonRevenue, "X", "neutral", { revenueFilter: "non_revenue" }],
@@ -1259,7 +1735,7 @@ function renderAnalysis(report) {
       ],
     },
     {
-      title: "Risk Signals",
+      title: "Risk signals",
       sub: "NSFs and balances",
       items: [
         ["NSFs", formatNumber(metrics.effective_nsf_count), nsfSourceLabel(metrics.nsf_source), "NSF", countTone(metrics.effective_nsf_count)],
@@ -1272,6 +1748,7 @@ function renderAnalysis(report) {
     },
     {
       title: "Lenders",
+      layout: "wide",
       sub: "Lender and insurance transaction analysis",
       items: [
         ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(metrics.lenders_detected)],
@@ -1292,25 +1769,115 @@ function renderAnalysis(report) {
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
   renderMainTransactions();
+  refreshOpenSummary();
 }
 
+// A failure is reported on the New analysis page, beside the upload it belongs to.
 function renderError(message) {
   setProgress(false);
   els.statusHeading.textContent = "Processing failed";
   setBanner("error", "Processing failed", "Failed");
-  els.decisionPill.textContent = "review required";
+  setStatusMessage(message);
+  els.decisionPill.textContent = "Review required";
   els.decisionPill.className = "decision-pill error";
-  els.summaryBox.textContent = message;
   renderAccountSummary(accountFieldRows());
+  notify(`Processing failed: ${message}`, "red");
+  navigate("new");
+}
+
+/* --- the upload queue and page preview ------------------------------ */
+const PREVIEW_PLACEHOLDER = els.pagePreview ? els.pagePreview.innerHTML : "";
+let previewPageCount = 0;
+
+function queueState(entry) {
+  if (entry.status === "error") return { chip: "Failed", tone: "red", detail: "Failed", bar: "error", width: 100 };
+  if (entry.status === "interrupted") return { chip: "Interrupted", tone: "amber", detail: "Interrupted", bar: "error", width: 100 };
+  if (entry.status === "done") return { chip: "Done", tone: "neutral", detail: "Complete", bar: "done", width: 100 };
+  if (!entry.jobId) return { chip: "Uploading", tone: "green", detail: "Uploading", bar: "busy", width: 0 };
+  if (entry.status === "queued") return { chip: "Queued", tone: "amber", detail: "Waiting", bar: "", width: 0 };
+  return { chip: "Processing", tone: "green", detail: labelize(entry.stage || entry.status), bar: "busy", width: 0 };
+}
+
+function renderQueue() {
+  if (!els.queueCard || !els.queueList) return;
+  els.queueCard.hidden = !queueEntries.length;
+  const pages = queueEntries.reduce((sum, entry) => sum + (numberOrNull(entry.pageCount) || 0), 0);
+  els.queueMeta.textContent = `${formatNumber(queueEntries.length)} ${queueEntries.length === 1 ? "file" : "files"}`
+    + (pages ? ` · ${formatNumber(pages)} pages` : "");
+  els.queueList.innerHTML = queueEntries.map((entry, index) => {
+    const state = queueState(entry);
+    const details = [
+      sentenceCase(state.detail),
+      numberOrNull(entry.pageCount) ? `${formatNumber(entry.pageCount)} pages` : "",
+      formatBytes(entry.size),
+    ].filter(Boolean).join(" · ");
+    const selected = entry.jobId && entry.jobId === previewJobId;
+    return `
+      <button class="queue-row${selected ? " selected" : ""}" type="button" data-queue-index="${index}" ${entry.jobId ? "" : "disabled"} aria-label="Preview ${escapeHtml(entry.name)}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--text-3)"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+        <span style="min-width: 0">
+          <span class="queue-name">${escapeHtml(entry.name)}</span>
+          <span class="queue-detail">${escapeHtml(details)}</span>
+        </span>
+        <span class="queue-bar ${state.bar}"><span style="width: ${state.width}%"></span></span>
+        ${glassChip("", state.chip, state.tone)}
+      </button>
+    `;
+  }).join("");
+}
+
+// Folds a /status reply into the queue entry for that job.
+function updateQueueEntry(jobId, status) {
+  const entry = queueEntries.find((item) => item.jobId === jobId);
+  if (!entry || !status) return;
+  entry.status = status.status;
+  entry.stage = status.stage;
+  if (numberOrNull(status.page_count)) entry.pageCount = status.page_count;
+  if (jobId === previewJobId && numberOrNull(status.page_count) && !previewPageCount) {
+    previewPageCount = status.page_count;
+    renderPreview();
+  }
+}
+
+function setPreviewJob(jobId, pageCount) {
+  previewJobId = jobId;
+  previewPageCount = numberOrNull(pageCount) || 0;
+  previewPage = 0;
+  renderPreview();
+  renderQueue();
+}
+
+// The page itself, rendered by the server from the uploaded PDF.
+function renderPreview() {
+  if (!els.pagePreview) return;
+  const ready = previewJobId && previewPageCount > 0;
+  els.previewPrev.disabled = !ready || previewPage <= 0;
+  els.previewNext.disabled = !ready || previewPage >= previewPageCount - 1;
+  if (!ready) {
+    els.pagePreview.innerHTML = PREVIEW_PLACEHOLDER;
+    els.previewLabel.textContent = "p. – / –";
+    return;
+  }
+  const source = `/page/${encodeURIComponent(previewJobId)}/${previewPage}`;
+  els.pagePreview.innerHTML = `
+    <a href="${source}" target="_blank" rel="noopener" title="Open page ${previewPage + 1} full size">
+      <img src="${source}" alt="Page ${previewPage + 1} of the uploaded statement">
+    </a>
+  `;
+  els.previewLabel.textContent = `p. ${formatNumber(previewPage + 1)} / ${formatNumber(previewPageCount)}`;
 }
 
 function showSelectedFile(file) {
   currentFile = file;
-  const files = currentFiles.length ? currentFiles : [file];
-  els.filePreview.classList.add("show");
-  els.fileName.textContent = files.length === 1
-    ? `${file.name} - ${formatBytes(file.size)}`
-    : `${files.length} PDF statements selected - ${files.map((item) => item.name).join(", ")}`;
+  queueEntries = currentFiles.map((item) => ({
+    name: item.name,
+    size: item.size,
+    jobId: null,
+    status: "uploading",
+    stage: null,
+    pageCount: null,
+  }));
+  setPreviewJob(null, 0);
   setStatusRows([
     ["OCR completed", "No"],
     ["Pages processed", "Queued"],
@@ -1341,6 +1908,7 @@ function uploadFiles(fileList) {
   transactionEntityFilter = null;
   setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
   startedAt = Date.now();
+  closeSummary();
   showSelectedFile(file);
   setActions(null, false);
   setProgress(true);
@@ -1348,7 +1916,6 @@ function uploadFiles(fileList) {
   setBanner("pending", "Uploading PDF", "--");
   renderAccountSummary(accountFieldRows());
   renderMainTransactions();
-  els.summaryBox.textContent = "Processing statement...";
 
   const form = new FormData();
   files.forEach((item) => form.append("files", item));
@@ -1375,13 +1942,26 @@ function uploadFiles(fileList) {
       if (!payload.jobs || !payload.jobs.length) throw new Error(payload.error || "No processing job was created");
       currentJobIds = payload.jobs.map((job) => job.id);
       currentJobId = currentJobIds[0];
+      // One job per uploaded file, in upload order.
+      payload.jobs.forEach((job, index) => {
+        const entry = queueEntries[index];
+        if (!entry) return;
+        entry.jobId = job.id;
+        entry.status = "queued";
+        entry.pageCount = job.page_count;
+      });
+      setPreviewJob(payload.jobs[0].id, payload.jobs[0].page_count);
       const isPackage = currentJobIds.length > 1;
       els.statusHeading.textContent = isPackage ? "Processing package" : "Processing statement";
       setBanner("pending", isPackage ? "Package extraction started" : "Extraction started", "--");
       if (isPackage) pollPackage(currentJobIds);
       else pollJob(currentJobId);
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => {
+      queueEntries.forEach((entry) => { if (!entry.jobId) entry.status = "error"; });
+      renderQueue();
+      renderError(error.message || String(error));
+    });
 }
 
 function pollPackage(jobIds) {
@@ -1392,6 +1972,8 @@ function pollPackage(jobIds) {
   })))
     .then((statuses) => {
       if (jobIds.join(",") !== currentJobIds.join(",")) return;
+      statuses.forEach((status, index) => updateQueueEntry(jobIds[index], status));
+      renderQueue();
       const finished = statuses.filter((status) => status.status === "done" || status.status === "error").length;
       const errors = statuses.filter((status) => status.status === "error" || status.analysis_error).length;
       const totalPages = statuses.reduce((sum, status) => sum + (numberOrNull(status.page_count) || 0), 0);
@@ -1424,6 +2006,8 @@ function pollJob(jobId) {
     })
     .then((status) => {
       if (jobId !== currentJobId) return;
+      updateQueueEntry(jobId, status);
+      renderQueue();
       const stage = status.stage ? labelize(status.stage) : labelize(status.status);
       if (status.status === "done") {
         setProgress(false);
@@ -1450,7 +2034,18 @@ function pollJob(jobId) {
     .catch((error) => renderError(error.message || String(error)));
 }
 
-function loadResults(jobId) {
+// The job ids and upload details of the analysis on screen, recorded whenever one finishes drawing. A reopen
+// that fails goes back to these: a copy taken at the click would be another reopen's ids while that one is
+// still in flight.
+let shownAnalysis = null;
+
+function recordShownAnalysis() {
+  shownAnalysis = { jobId: currentJobId, jobIds: currentJobIds.slice(), files: currentFiles, file: currentFile, startedAt };
+}
+
+// `reveal` opens the results page once they are drawn; a settings refresh redraws them where they are.
+// `announce` adds a notification (a fresh upload, not a reopen); `onError` replaces the failure page.
+function loadResults(jobId, { reveal = true, announce = reveal, onError = renderError } = {}) {
   Promise.all([
     fetch(`/analysis/${jobId}`).then((response) => {
       if (!response.ok) throw new Error(`Analysis unavailable (${response.status})`);
@@ -1464,9 +2059,25 @@ function loadResults(jobId) {
       currentMarkdown = markdown || "";
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
-      els.summaryBox.textContent = "Exports and copy actions are ready.";
+      if (!currentAnalysis) {
+        // The multi-account refusal points the analyst at the exports, so they sit under its message.
+        appendStatusExports(`/download/${encodeURIComponent(jobId)}`);
+        return;
+      }
+      recordShownAnalysis();
+      rememberStatement(jobId, currentAnalysis);
+      if (announce) notify(`${els.resultsTitle.textContent} analyzed`, "green");
+      if (reveal) openResultsPage("results");
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => onError(error.message || String(error)));
+}
+
+function appendStatusExports(base) {
+  if (!els.statusMessage) return;
+  els.statusMessage.insertAdjacentHTML(
+    "beforeend",
+    ` <a href="${base}/csv">Download CSV</a> · <a href="${base}/xlsx">Download XLSX</a>`,
+  );
 }
 
 function packagePeriod(documents) {
@@ -1476,7 +2087,7 @@ function packagePeriod(documents) {
   return `${starts[0] || "N/A"} to ${ends[ends.length - 1] || "N/A"}`;
 }
 
-function loadPackage(jobIds) {
+function loadPackage(jobIds, { reveal = true, announce = reveal, onError = renderError } = {}) {
   fetch(`/package_analysis?ids=${encodeURIComponent(jobIds.join(","))}`)
     .then((response) => {
       if (!response.ok) throw new Error(`Package analysis unavailable (${response.status})`);
@@ -1486,8 +2097,12 @@ function loadPackage(jobIds) {
       if (jobIds.join(",") !== currentJobIds.join(",")) return;
       renderPackageAnalysis(pkg);
       setPackageActions(jobIds);
+      recordShownAnalysis();
+      rememberPackage(jobIds, pkg);
+      if (announce) notify(`Package ${els.resultsTitle.textContent} analyzed`, "green");
+      if (reveal) openResultsPage("packages");
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => onError(error.message || String(error)));
 }
 
 function renderPackageAnalysis(pkg) {
@@ -1509,8 +2124,54 @@ function renderPackageAnalysis(pkg) {
 
   els.statusHeading.textContent = "Package completed";
   setBanner("done", "Package analysis completed", validation);
-  els.decisionPill.textContent = labelize(totals.decision || "review required");
+  els.decisionPill.textContent = `Package decision · ${sentenceCase(labelize(totals.decision || "review required"))}`;
   els.decisionPill.className = `decision-pill ${totals.decision || ""}`.trim();
+
+  setResultsMode("package");
+  showResultsContent();
+  const monthRows = packageMonthRows(documents);
+  const title = packageTitle(monthRows);
+  const banks = [...new Set(documents.map((doc) => doc.bank).filter(Boolean))];
+  const periods = numberOrNull(totals.statement_periods ?? totals.months) ?? documents.length;
+  renderHero({
+    icon: PACKAGE_ICON,
+    kicker: ["Package", `${formatNumber(documents.length)} ${documents.length === 1 ? "statement" : "statements"}`, banks.join(", ")]
+      .filter(Boolean).join(" · "),
+    title,
+    chips: [
+      [packagePeriod(documents), true],
+      [packageCurrencyLabel(currencyInfo)],
+      [`Revenue · ${totals.revenue_reconciles ? "Balanced" : "Review required"}`],
+    ],
+  });
+  analysisCrumbs = ["Packages", title];
+  resultsCrumbs = analysisCrumbs;
+  renderCredits({
+    label: `Total credits · ${formatNumber(periods)} ${periods === 1 ? "month" : "months"}`,
+    value: formatMoney(totals.total_credits, currency),
+    meta: refusalNote
+      ? escapeHtml(refusalNote)
+      : `Avg monthly credits <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_credits, currency))}</span>`
+        + ` · Revenue upper bound <span class="mono">${escapeHtml(formatMoney(totals.maximum_revenue, currency))}</span>`,
+  });
+  renderCreditMix(totals, currency);
+  renderMonthlyChart(monthRows, currencyInfo.currencies.length > 1);
+  renderTotals([
+    ["Total debits", formatMoney(totals.total_debits, currency)],
+    ["Total cash flow", formatMoney(totals.cash_flow, currency), signTone(totals.cash_flow)],
+    ["Avg monthly cash flow", formatMoney(totals.avg_monthly_cash_flow, currency), signTone(totals.avg_monthly_cash_flow)],
+    ["Average daily balance", formatMoney(totals.average_daily_balance, currency)],
+    ["NSFs", formatNumber(totals.nsf_count), countTone(totals.nsf_count)],
+    ["Confirmed withholding", formatPercent(totals.package_withholding_rate), withholdingTone(totals.package_withholding_rate)],
+  ]);
+  setReviewCount(totals.unverified_deposit_count);
+  if (els.packageProcessingNote) {
+    const failed = numberOrNull(totals.failed) || 0;
+    els.packageProcessingNote.textContent = failed
+      ? `${formatNumber(failed)} ${failed === 1 ? "statement" : "statements"} failed`
+      : "All statements complete";
+  }
+
   setStatusRows([
     ["Statements completed", `${formatNumber(totals.completed)} / ${formatNumber(totals.documents)}`],
     ["Package currency", packageCurrencyLabel(currencyInfo)],
@@ -1526,7 +2187,7 @@ function renderPackageAnalysis(pkg) {
 
   renderMetricSections([
     {
-      title: "Package Revenue",
+      title: "Package revenue",
       // MINOR-10 (the L1-S3 review): `months` counts MEMBERS and this label
       // says PERIODS. They are the same number until a document publishes two
       // accounts, and two accounts of one document are one statement period.
@@ -1535,20 +2196,20 @@ function renderPackageAnalysis(pkg) {
       // nothing changed.
       sub: `${formatNumber(totals.statement_periods ?? totals.months)} statement periods`,
       items: [
-        ["Total Credits", formatMoney(totals.total_credits, currency), moneyNote(REVENUE_METRIC_COPY.totalCredits), "CR", "green"],
+        ["Total Credits", formatMoney(totals.total_credits, currency), moneyNote(REVENUE_METRIC_COPY.totalCredits), "CR", "neutral"],
         ["Verified Revenue", formatMoney(totals.verified_revenue_total, currency), moneyNote(REVENUE_METRIC_COPY.verifiedRevenue), "REV", "green", { revenueFilter: "verified_revenue" }],
         ["Unverified Deposits", formatMoney(totals.unverified_deposit_total, currency), moneyNote(REVENUE_METRIC_COPY.unverifiedDeposits), "?", "amber", { revenueFilter: "unverified_deposit" }],
         ["Non-Revenue", formatMoney(totals.non_revenue_total, currency), moneyNote(REVENUE_METRIC_COPY.nonRevenue), "X", "neutral", { revenueFilter: "non_revenue" }],
         ["Revenue Upper Bound", formatMoney(totals.maximum_revenue, currency), moneyNote(REVENUE_METRIC_COPY.revenueUpperBound), "MAX", "neutral"],
         ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits, currency), moneyNote("Average posted credits per statement period"), "AVG", "neutral"],
-        ["Total Debits", formatMoney(totals.total_debits, currency), moneyNote("All posted debit transactions"), "DB", "neutral"],
-        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits, currency), moneyNote("Average posted debits per statement period"), "AVG", "neutral"],
       ],
     },
     {
-      title: "Cash Flow",
+      title: "Cash flow",
       sub: "Package-level affordability signals",
       items: [
+        ["Total Debits", formatMoney(totals.total_debits, currency), moneyNote("All posted debit transactions"), "DB", "neutral"],
+        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits, currency), moneyNote("Average posted debits per statement period"), "AVG", "neutral"],
         ["Total Cash Flow", formatMoney(totals.cash_flow, currency), moneyNote("Credits minus debits"), "CF", negativeTone(totals.cash_flow)],
         ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow, currency), moneyNote("Average statement cash flow"), "AVG", negativeTone(totals.avg_monthly_cash_flow)],
         ["Average Daily Balance", formatMoney(totals.average_daily_balance, currency), moneyNote(packageAverageBalanceNote(documents)), "ADB", currencyInfo.refused ? "amber" : packageAverageBalanceTone(documents)],
@@ -1558,6 +2219,7 @@ function renderPackageAnalysis(pkg) {
     },
     {
       title: "Quality",
+      layout: "strip",
       sub: "Corporate-use readiness",
       items: [
         ["Approved", formatNumber(totals.approved), "Corporate-approved statements", "OK", totals.approved ? "green" : "neutral"],
@@ -1568,6 +2230,7 @@ function renderPackageAnalysis(pkg) {
     },
     {
       title: "Lenders",
+      layout: "wide",
       sub: "Lender and insurance transaction analysis",
       items: [
         ["Confirmed Lenders", formatNumber(totals.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(totals.lenders_detected)],
@@ -1596,6 +2259,7 @@ function renderPackageAnalysis(pkg) {
     ["Potential Exposure", formatPercent(totals.potential_withholding_exposure)],
   ]);
   renderPackageTables(pkg);
+  refreshOpenSummary();
 }
 
 function renderPackageTables(pkg) {
@@ -1629,8 +2293,7 @@ function renderPackageTables(pkg) {
     `;
   } else {
     // The CRM's seasonality layout: one row per statement month, in calendar order.
-    const rows = documents.map((doc) => ({ doc, month: statementMonth(doc.period_start, doc.period_end) }));
-    rows.sort((a, b) => (a.month ? a.month.key : Infinity) - (b.month ? b.month.key : Infinity));
+    const rows = packageMonthRows(documents);
     // Each row is denominated by its OWN statement (CURRENCY DOCTRINE §F). The column names say ($) as the
     // CRM does; when the package mixes currencies (the server's list, which counts only statements that
     // contribute money), a non-USD row names its unit so no figure passes for USD. An undeclared currency
@@ -1642,7 +2305,7 @@ function renderPackageTables(pkg) {
     rows.forEach(({ month }) => { if (month) monthCounts.set(month.key, (monthCounts.get(month.key) || 0) + 1); });
     els.monthlyTable.innerHTML = rows.map(({ doc, month }) => {
       const status = doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
-      const docCurrency = "currency" in doc ? doc.currency : "USD";
+      const docCurrency = currencyOfDocument(doc);
       const unit = mixedCurrencies && docCurrency && docCurrency !== "USD" ? ` ${docCurrency}` : "";
       const amount = (value) => {
         const text = formatWhole(value);
@@ -1657,16 +2320,11 @@ function renderPackageTables(pkg) {
           <td>${escapeHtml(formatWhole(doc.deposit_count))}</td>
           <td>${escapeHtml(amount(doc.average_daily_balance))}</td>
           <td>${escapeHtml(formatNumber(doc.nsf_count))}</td>
-          <td><button class="table-action statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${escapeHtml(status === "Failed" ? "Unavailable" : "Open")}</button></td>
+          <td><button class="statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${status === "Failed" ? "Unavailable" : `Open${OPEN_ICON}`}</button></td>
         </tr>
       `;
     }).join("");
   }
-
-  const lenderSummary = funders.length
-    ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
-    : "No lenders detected across the package.";
-  els.summaryBox.textContent = `Package lender summary:\n${lenderSummary}`;
 }
 
 function openStatementModal(jobId) {
@@ -1838,9 +2496,9 @@ function renderStatementModal(jobId, report, markdown) {
     ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
     ["Insurance", `${formatNumber(metrics.insurance_count)} / ${formatMoney(metrics.insurance_total, currency)}`, "Transaction count and total excluded from lender payments", "INS", "neutral"],
     ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
-    ["Status", labelize(decision), "Corporate-use and lender-review status", "OK", decision === "approved" ? "green" : "amber"],
+    ["Status", labelize(decision), "Corporate-use and lender-review status", decision === "approved" ? "OK" : "REVIEW", decision === "approved" ? "green" : "amber"],
   ].map(renderMetricCard).join("");
-  els.statementModalAccount.innerHTML = summaryRowsHtml(accountFieldRows(statement, markdown));
+  els.statementModalAccount.innerHTML = kvRowsHtml(accountFieldRows(statement, markdown));
 
   if (!lenderRows.length) {
     els.statementModalLenders.innerHTML = `
@@ -1926,12 +2584,16 @@ function generateSummary() {
     // so it must carry the package's real denomination — or none at all when
     // the package has no single one (CURRENCY DOCTRINE §D/§F).
     const currency = packageCurrencyInfo(pkg).currency;
+    const lenderSummary = funders.length
+      ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
+      : "No lenders detected across the package.";
     els.summaryBox.textContent =
       `Package ${packagePeriod(pkg.documents || [])}: ${formatNumber(totals.completed)} of ${formatNumber(totals.documents)} statements completed, ` +
       `${formatMoney(totals.avg_monthly_credits, currency)} average monthly credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
       `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
-      `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.`;
+      `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.` +
+      `\n\nPackage lender summary:\n${lenderSummary}`;
     return;
   }
   const s = currentAnalysis.statement || {};
@@ -1952,32 +2614,370 @@ function generateSummary() {
     `Status: ${labelize(decision)}.`;
 }
 
-const pageTitle = document.querySelector(".page-title h1");
-const pageSubtitle = document.querySelector(".page-title p");
-const dashboardTitle = { title: pageTitle.textContent, subtitle: pageSubtitle.textContent };
+/* --- views and navigation --------------------------------------------
+   Three pages share the shell: New analysis, the results of whatever is
+   open (a statement or a package) and Settings. The sidebar entries
+   Statements, Packages and Revenue review all land on the results page. */
+let activeNav = "new";
 
-function showView(view) {
-  const settings = view === "settings";
-  document.querySelector(".top-grid").hidden = settings;
-  document.querySelector(".main-grid").hidden = settings;
-  els.settingsView.hidden = !settings;
-  document.querySelector(".workspace").classList.toggle("settings-open", settings);
-  pageTitle.textContent = settings ? "Settings" : dashboardTitle.title;
-  pageSubtitle.textContent = settings ? "How results are calculated and shown" : dashboardTitle.subtitle;
-  if (settings) loadSettings();
+function setBreadcrumb(parts) {
+  els.breadcrumb.innerHTML = parts.map((part, index) => {
+    const separator = index ? `<span class="crumb-sep" aria-hidden="true">/</span>` : "";
+    const current = index === parts.length - 1 ? ` class="crumb-current" aria-current="page"` : "";
+    return `${separator}<span${current}>${escapeHtml(part)}</span>`;
+  }).join("");
 }
 
-document.querySelectorAll(".nav-item").forEach((button) => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll(".nav-item").forEach((item) => {
-      item.classList.remove("active");
-      item.removeAttribute("aria-current");
-    });
-    button.classList.add("active");
-    button.setAttribute("aria-current", "page");
-    showView(button.dataset.view);
+function syncNav() {
+  document.querySelectorAll(".rail-btn[data-nav], .side-link[data-nav]").forEach((item) => {
+    const active = item.getAttribute("data-nav") === activeNav;
+    item.classList.toggle("active", active);
+    if (active) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
+  const openKey = currentJobIds.join(",");
+  document.querySelectorAll("[data-recent-key]").forEach((item) => {
+    item.classList.toggle("active", currentView === "results" && item.getAttribute("data-recent-key") === openKey);
+  });
+}
+
+function showView(view) {
+  currentView = view;
+  els.newView.hidden = view !== "new";
+  els.resultsView.hidden = view !== "results";
+  els.settingsView.hidden = view !== "settings";
+  // The top bar carries the upload hint on New analysis and the appearance, notifications and New analysis
+  // controls over results; Settings has its own appearance choice.
+  els.topbarHint.hidden = view !== "new";
+  [els.appearanceToggle, els.notificationsAnchor, els.topbarNew].forEach((item) => {
+    if (item) item.hidden = view !== "results";
+  });
+  setBreadcrumb(
+    view === "new" ? ["Statements", "New analysis"]
+      : view === "settings" ? ["Workspace", "Settings"]
+        : resultsCrumbs,
+  );
+  syncNav();
+  closePopovers();
+  closePanelOverlay();
+  if (view === "settings") loadSettings();
+}
+
+function openResultsPage(nav) {
+  activeNav = nav;
+  showView("results");
+  window.scrollTo(0, 0);
+}
+
+// Back to the analysis already open, after an empty state may have replaced it on the results page.
+function revealOpenAnalysis(nav) {
+  els.resultsEmpty.hidden = true;
+  els.resultsContent.hidden = false;
+  resultsCrumbs = analysisCrumbs;
+  openResultsPage(nav);
+}
+
+function showResultsEmpty(kind) {
+  const copy = {
+    results: ["No statement open", "Upload a statement, or several at once to build a package, and its analysis opens here."],
+    packages: ["No package open", "Upload two or more statements at once to build a package."],
+    review: ["Nothing to review", "Open a statement or package to review its unverified deposits."],
+  }[kind];
+  els.resultsEmptyTitle.textContent = copy[0];
+  els.resultsEmptyCopy.textContent = copy[1];
+  els.resultsEmpty.hidden = false;
+  els.resultsContent.hidden = true;
+  resultsCrumbs = [kind === "packages" ? "Packages" : "Statements"];
+  openResultsPage(kind);
+}
+
+function navigate(target) {
+  if (target === "new" || target === "settings") {
+    activeNav = target;
+    showView(target);
+    window.scrollTo(0, 0);
+    return;
+  }
+  const openPackage = Boolean(currentAnalysis && currentAnalysis.package);
+  const openStatement = Boolean(currentAnalysis && !currentAnalysis.package);
+  if (target === "review") {
+    if (!currentAnalysis) {
+      showResultsEmpty("review");
+      return;
+    }
+    revealOpenAnalysis("review");
+    showMainRevenueEvidence("unverified_deposit");
+    return;
+  }
+  const wantPackage = target === "packages";
+  if ((wantPackage && openPackage) || (!wantPackage && openStatement)) {
+    revealOpenAnalysis(target);
+    return;
+  }
+  const latest = recentAnalyses.find((item) => item.kind === (wantPackage ? "package" : "statement"));
+  if (latest) openRecent(latest.key);
+  else showResultsEmpty(target);
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target.closest("[data-nav]") : null;
+  if (target) navigate(target.getAttribute("data-nav"));
+});
+
+/* --- recent analyses ---------------------------------------------------
+   What this tab has analyzed, newest first, so the sidebar can reopen it.
+   Held for the browser tab only (sessionStorage), and only the job ids and
+   the labels the sidebar prints. */
+const RECENT_KEY = "ocr-recent-analyses";
+const RECENT_LIMIT = 12;
+
+function loadRecentAnalyses() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(RECENT_KEY) || "[]");
+    return Array.isArray(saved)
+      ? saved.filter((item) => item && Array.isArray(item.ids) && item.ids.length && typeof item.key === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+let recentAnalyses = loadRecentAnalyses();
+
+function rememberAnalysis(entry) {
+  recentAnalyses = [entry, ...recentAnalyses.filter((item) => item.key !== entry.key)].slice(0, RECENT_LIMIT);
+  try { sessionStorage.setItem(RECENT_KEY, JSON.stringify(recentAnalyses)); } catch { /* storage unavailable */ }
+  renderRecentAnalyses();
+}
+
+function decisionDotTone(decision) {
+  if (decision === "approved") return "green";
+  if (decision === "error" || decision === "failed") return "red";
+  return "amber";
+}
+
+function rememberStatement(jobId, report) {
+  const statement = report.statement || {};
+  const account = Object.fromEntries(accountFieldRows(statement, currentMarkdown));
+  const month = monthLabel(statementMonth(statement.period_start, statement.period_end));
+  const accountType = account["Account Type"] !== "N/A" ? account["Account Type"] : "";
+  const digits = String(account["Account Number (masked)"] || "").replace(/[^0-9]/g, "");
+  rememberAnalysis({
+    kind: "statement",
+    key: jobId,
+    ids: [jobId],
+    label: [month || statement.bank || "Statement", accountType || (month ? statement.bank : "")].filter(Boolean).join(" · "),
+    meta: digits.slice(-4),
+    tone: decisionDotTone(els.decisionPill.classList[1]),
+  });
+}
+
+function rememberPackage(jobIds, pkg) {
+  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  rememberAnalysis({
+    kind: "package",
+    key: jobIds.join(","),
+    ids: jobIds.slice(),
+    label: packageTitle(packageMonthRows(documents)),
+    meta: String(documents.length),
+    tone: decisionDotTone((pkg.totals || {}).decision),
+  });
+}
+
+function recentItemHtml(item) {
+  const mark = item.kind === "package"
+    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>`
+    : `<span class="recent-dot tone-${escapeHtml(item.tone)}" aria-hidden="true"></span>`;
+  return `
+    <button class="side-link recent-item" type="button" data-recent-key="${escapeHtml(item.key)}" title="${escapeHtml(item.label)}">
+      ${mark}
+      <span class="side-link-label">${escapeHtml(item.label)}</span>
+      <span class="side-count">${escapeHtml(item.meta || "")}</span>
+    </button>
+  `;
+}
+
+function renderRecentAnalyses() {
+  const query = (els.sidebarSearch?.value || "").trim().toLowerCase();
+  const matches = (item) => !query || `${item.label} ${item.meta}`.toLowerCase().includes(query);
+  const statements = recentAnalyses.filter((item) => item.kind === "statement");
+  const packages = recentAnalyses.filter((item) => item.kind === "package");
+  els.statementCount.textContent = formatNumber(statements.length);
+  els.packageCount.textContent = formatNumber(packages.length);
+  const listHtml = (items, empty) => {
+    const shown = items.filter(matches);
+    if (shown.length) return shown.map(recentItemHtml).join("");
+    return `<div class="side-empty">${escapeHtml(query ? "No matches" : empty)}</div>`;
+  };
+  els.recentStatements.innerHTML = listHtml(statements, "None yet");
+  els.recentPackages.innerHTML = listHtml(packages, "None yet");
+  syncNav();
+}
+
+function openRecent(key) {
+  const item = recentAnalyses.find((entry) => entry.key === key);
+  if (!item) return;
+  if (els.progressTrack.classList.contains("show")) {
+    // An upload is still running and opens its own results when it finishes; switching the open analysis
+    // now would drop it, so the analyst is shown its progress instead.
+    navigate("new");
+    return;
+  }
+  if (pollTimer) clearTimeout(pollTimer);
+  currentJobIds = item.ids.slice();
+  currentJobId = currentJobIds[0];
+  currentFiles = [];
+  currentFile = null;
+  startedAt = null;
+  transactionFilter = "all";
+  transactionEntityFilter = null;
+  setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
+  closeSummary();
+  // A reopen that fails (the job is gone, the server is unreachable) must not leave the page pointing at
+  // it: the analysis still on screen gets its own ids back, and the failure is reported beside it.
+  const onError = (message) => {
+    if (currentJobIds.join(",") !== item.ids.join(",")) return;  // something newer was opened meanwhile
+    if (!currentAnalysis || !shownAnalysis) {
+      renderError(message);
+      return;
+    }
+    ({ jobId: currentJobId, files: currentFiles, file: currentFile, startedAt } = shownAnalysis);
+    currentJobIds = shownAnalysis.jobIds.slice();
+    // The filter was reset for the reopen; the ledger on screen is redrawn to match its buttons.
+    renderMainTransactions();
+    notify(`Could not reopen ${item.label}: ${message}`, "red");
+    revealOpenAnalysis(currentAnalysis.package ? "packages" : "results");
+    togglePopover(els.notificationsPopover, els.notificationsBtn);
+  };
+  if (item.kind === "package") loadPackage(currentJobIds, { announce: false, onError });
+  else loadResults(currentJobId, { announce: false, onError });
+}
+
+[els.recentStatements, els.recentPackages].forEach((list) => {
+  list?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target.closest("[data-recent-key]") : null;
+    if (target) openRecent(target.getAttribute("data-recent-key"));
   });
 });
+els.sidebarSearch?.addEventListener("input", renderRecentAnalyses);
+
+/* The sidebar panel. On a wide screen it sits beside the page and can be collapsed to the rail (remembered);
+   below 1120px it does not fit, so the logo or Search opens it over the page until something is chosen. */
+const PANEL_KEY = "ocr-sidebar-panel";
+const NARROW_SCREEN = window.matchMedia("(max-width: 1120px)");
+
+function setPanelCollapsed(collapsed) {
+  document.documentElement.classList.toggle("panel-collapsed", collapsed);
+  try { localStorage.setItem(PANEL_KEY, collapsed ? "collapsed" : "open"); } catch { /* storage unavailable */ }
+}
+
+function panelVisible() {
+  const root = document.documentElement;
+  return NARROW_SCREEN.matches ? root.classList.contains("panel-open") : !root.classList.contains("panel-collapsed");
+}
+
+function syncPanelToggle() {
+  els.panelToggle?.setAttribute("aria-expanded", panelVisible() ? "true" : "false");
+}
+
+function setPanelVisible(visible) {
+  if (NARROW_SCREEN.matches) document.documentElement.classList.toggle("panel-open", visible);
+  else setPanelCollapsed(!visible);
+  syncPanelToggle();
+}
+
+function closePanelOverlay() {
+  document.documentElement.classList.remove("panel-open");
+  syncPanelToggle();
+}
+
+function focusSearch() {
+  setPanelVisible(true);
+  els.sidebarSearch?.focus();
+}
+
+els.panelToggle?.addEventListener("click", () => setPanelVisible(!panelVisible()));
+els.collapseSidebar?.addEventListener("click", () => setPanelVisible(false));
+els.railSearch?.addEventListener("click", focusSearch);
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!document.documentElement.classList.contains("panel-open") || (target && target.closest(".sidebar"))) return;
+  closePanelOverlay();
+});
+NARROW_SCREEN.addEventListener?.("change", syncPanelToggle);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target && target.closest("input, textarea, select, [contenteditable='true']")) return;
+  if (els.statementModalBackdrop?.classList.contains("show")) return;
+  event.preventDefault();
+  focusSearch();
+});
+
+/* --- notifications and help ------------------------------------------ */
+let notifications = [];
+
+function notify(text, tone) {
+  notifications = [{ text, tone, at: new Date() }, ...notifications].slice(0, 20);
+  els.notificationsList.innerHTML = notifications.map((item) => `
+    <div class="popover-item">
+      <span class="recent-dot tone-${escapeHtml(item.tone)}" aria-hidden="true"></span>
+      <span>${escapeHtml(item.text)}</span>
+      <span class="popover-item-time">${escapeHtml(item.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</span>
+    </div>
+  `).join("");
+  if (els.notificationsPopover.hidden) els.notifyDot.hidden = false;
+}
+
+function closePopovers() {
+  [[els.notificationsPopover, els.notificationsBtn], [els.helpPopover, els.helpBtn]].forEach(([popover, button]) => {
+    if (!popover || popover.hidden) return;
+    popover.hidden = true;
+    button?.setAttribute("aria-expanded", "false");
+  });
+}
+
+function togglePopover(popover, button) {
+  const opening = popover.hidden;
+  closePopovers();
+  if (!opening) return;
+  popover.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  if (popover === els.notificationsPopover) els.notifyDot.hidden = true;
+}
+
+els.notificationsBtn?.addEventListener("click", () => togglePopover(els.notificationsPopover, els.notificationsBtn));
+els.helpBtn?.addEventListener("click", () => togglePopover(els.helpPopover, els.helpBtn));
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target && target.closest(".popover-anchor")) return;
+  closePopovers();
+});
+
+/* --- settings ---------------------------------------------------------- */
+// The worked example under the NSF switch: the 10th ends at -$10, nothing posts on the 11th, the 12th ends
+// at $20. Printed days count one negative day; carrying the balance over counts two.
+function renderNsfExample(carryOver) {
+  const days = [
+    ["10th", "Activity", "-$10.00", true],
+    ["11th", "No activity", carryOver ? "-$10.00" : "—", carryOver],
+    ["12th", "Activity", "$20.00", false],
+  ];
+  els.nsfExampleDays.innerHTML = days.map(([day, activity, balance, counted]) => `
+    <div class="example-day${counted ? " counted" : ""}">
+      <div class="example-day-top"><span>${day}</span><span>${activity}</span></div>
+      <span class="example-day-balance">${balance}</span>
+      <span class="example-day-count">${counted ? "Counts as negative" : "Not counted"}</span>
+    </div>
+  `).join("");
+  els.nsfExampleTotal.textContent = carryOver ? "2" : "1";
+}
+
+function setSettingsStatus(message, error = false) {
+  els.settingsStatus.textContent = message;
+  if (error) els.settingsStatus.setAttribute("data-state", "error");
+  else els.settingsStatus.removeAttribute("data-state");
+}
 
 function loadSettings() {
   els.nsfCarryOverToggle.disabled = true;
@@ -1989,23 +2989,25 @@ function loadSettings() {
     .then(({ settings }) => {
       els.nsfCarryOverToggle.checked = settings.nsf_carry_over === true;
       els.nsfCarryOverToggle.disabled = false;
-      els.settingsStatus.textContent = "";
+      renderNsfExample(els.nsfCarryOverToggle.checked);
+      setSettingsStatus("");
     })
     .catch((error) => {
-      els.settingsStatus.textContent = error.message || String(error);
+      setSettingsStatus(error.message || String(error), true);
     });
 }
 
 function refreshShownResults() {
-  // A setting changes how a result is presented, so whatever is open is fetched again.
-  if (currentJobIds.length > 1) loadPackage(currentJobIds);
-  else if (currentJobId && currentAnalysis) loadResults(currentJobId);
+  // A setting changes how a result is presented, so whatever is open is fetched again, in place.
+  if (currentJobIds.length > 1) loadPackage(currentJobIds, { reveal: false });
+  else if (currentJobId && currentAnalysis) loadResults(currentJobId, { reveal: false });
 }
 
 els.nsfCarryOverToggle.addEventListener("change", () => {
   const wanted = els.nsfCarryOverToggle.checked;
   els.nsfCarryOverToggle.disabled = true;
-  els.settingsStatus.textContent = "Saving...";
+  renderNsfExample(wanted);
+  setSettingsStatus("Saving...");
   fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2015,14 +3017,16 @@ els.nsfCarryOverToggle.addEventListener("change", () => {
     .then(({ response, payload }) => {
       if (!response.ok || !payload.settings) throw new Error(payload.error || `Save failed (${response.status})`);
       els.nsfCarryOverToggle.checked = payload.settings.nsf_carry_over === true;
-      els.settingsStatus.textContent = payload.settings.nsf_carry_over
+      renderNsfExample(els.nsfCarryOverToggle.checked);
+      setSettingsStatus(payload.settings.nsf_carry_over
         ? "Saved. NSF counts now carry the balance over inactive days."
-        : "Saved. NSF counts now use printed days only.";
+        : "Saved. NSF counts now use printed days only.");
       refreshShownResults();
     })
     .catch((error) => {
       els.nsfCarryOverToggle.checked = !wanted;
-      els.settingsStatus.textContent = error.message || String(error);
+      renderNsfExample(!wanted);
+      setSettingsStatus(error.message || String(error), true);
     })
     .finally(() => {
       els.nsfCarryOverToggle.disabled = false;
@@ -2072,7 +3076,29 @@ function clearDropzoneParallax() {
 
 if (els.copyTextBtn) els.copyTextBtn.addEventListener("click", () => copyText(currentMarkdown));
 els.copyDataBtn.addEventListener("click", () => copyText(JSON.stringify(currentAnalysis || {}, null, 2)));
-els.summaryBtn.addEventListener("click", generateSummary);
+els.summaryBtn.addEventListener("click", () => {
+  generateSummary();
+  if (!currentAnalysis || !els.summaryPanel) return;
+  els.summaryPanel.hidden = false;
+  els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+els.copySummaryBtn?.addEventListener("click", () => copyText(els.summaryBox.textContent));
+els.closeSummaryBtn?.addEventListener("click", closeSummary);
+els.queueList?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target.closest("[data-queue-index]") : null;
+  const entry = target ? queueEntries[Number(target.getAttribute("data-queue-index"))] : null;
+  if (entry && entry.jobId) setPreviewJob(entry.jobId, entry.pageCount);
+});
+els.previewPrev?.addEventListener("click", () => {
+  if (previewPage <= 0) return;
+  previewPage -= 1;
+  renderPreview();
+});
+els.previewNext?.addEventListener("click", () => {
+  if (previewPage >= previewPageCount - 1) return;
+  previewPage += 1;
+  renderPreview();
+});
 if (els.monthlyTable) {
   els.monthlyTable.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -2111,6 +3137,9 @@ function showModalRevenueEvidence(filter) {
 els.metricsGrid?.addEventListener("click", (event) => {
   showMainRevenueEvidence(revenueFilterFromEvent(event));
 });
+els.creditMixRows?.addEventListener("click", (event) => {
+  showMainRevenueEvidence(revenueFilterFromEvent(event));
+});
 els.revenueTable?.addEventListener("click", (event) => {
   showMainRevenueEvidence(revenueFilterFromEvent(event));
 });
@@ -2143,11 +3172,14 @@ async function submitRevenueReview(button) {
         `/package_analysis?ids=${encodeURIComponent(currentJobIds.join(","))}`
       );
       if (!packageResponse.ok) throw new Error("Package refresh failed");
-      renderPackageAnalysis(await packageResponse.json());
+      const pkg = await packageResponse.json();
+      renderPackageAnalysis(pkg);
       setPackageActions(currentJobIds);
+      rememberPackage(currentJobIds, pkg);
     } else if (currentJobId === jobId) {
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
+      if (currentAnalysis) rememberStatement(jobId, currentAnalysis);
     }
 
     if (modalJobId === jobId) {
@@ -2272,22 +3304,16 @@ function setAppearance(theme, { persist = true } = {}) {
 document.querySelectorAll("[data-appearance]").forEach((button) => {
   button.addEventListener("click", () => setAppearance(button.getAttribute("data-appearance")));
 });
-if (els.appearanceToggle) {
-  // arrow keys move between segments, matching a native segmented control
-  els.appearanceToggle.addEventListener("keydown", (event) => {
+// Arrow keys move between the choices of each appearance control (the top bar's and the Settings cards),
+// matching a native radio group: only the chosen one is in the tab order.
+document.querySelectorAll("#appearanceToggle, .theme-cards").forEach((group) => {
+  group.addEventListener("keydown", (event) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const next = event.key === "ArrowLeft" ? "light" : "dark";
+    const next = event.key === "ArrowLeft" ? "dark" : "light";
     setAppearance(next);
-    els.appearanceToggle.querySelector(`[data-appearance="${next}"]`)?.focus();
+    group.querySelector(`[data-appearance="${next}"]`)?.focus();
   });
-}
-// keep following the system until the user makes an explicit choice
-const appearanceQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
-appearanceQuery?.addEventListener?.("change", (event) => {
-  let stored = null;
-  try { stored = localStorage.getItem(APPEARANCE_KEY); } catch (error) { /* private mode */ }
-  if (!stored) setAppearance(event.matches ? "dark" : "light", { persist: false });
 });
 syncAppearanceButtons(currentAppearance());
 
@@ -2333,12 +3359,21 @@ if (els.modalCopyData) {
   els.modalCopyData.addEventListener("click", () => copyText(JSON.stringify(modalAnalysis || {}, null, 2)));
 }
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && els.statementModalBackdrop?.classList.contains("show")) {
+  if (event.key !== "Escape") return;
+  if (els.statementModalBackdrop?.classList.contains("show")) {
     closeStatementModal();
+    return;
   }
+  closePopovers();
+  closePanelOverlay();
 });
 
 setInitialState();
+renderNsfExample(false);
+renderRecentAnalyses();
+renderPreview();
+showView("new");
+syncPanelToggle();
 setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
 setTransactionFilterButtons("[data-transaction-sort]", transactionSort);
 setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
