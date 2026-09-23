@@ -148,7 +148,10 @@ def test_nsf_embedded_quantity_counts_one_posted_row():
     )
     metrics = compute_metrics(statement)
     assert metrics.nsf_count == 1
-    assert metrics.effective_nsf_count == 1
+    # R18: the underwriting NSF count is negative-ending days in the validated daily ledger; the fee row is
+    # a returned item, counted above. This statement prints no balances, so there is no ledger to count.
+    assert metrics.effective_nsf_count == 0
+    assert metrics.nsf_source == "negative_ending_days_unavailable"
 
 
 def test_separate_nsf_rows_are_not_deduplicated():
